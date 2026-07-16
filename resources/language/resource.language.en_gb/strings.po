@@ -168,3 +168,49 @@ msgstr ""
 msgctxt "#30070"
 msgid "Connection"
 msgstr ""
+
+# 30030-30049 — browse nodes
+
+msgctxt "#30030"
+msgid "All"
+msgstr ""
+
+msgctxt "#30031"
+msgid "Recently added"
+msgstr ""
+
+msgctxt "#30032"
+msgid "Next up"
+msgstr ""
+
+msgctxt "#30033"
+msgid "In progress"
+msgstr ""
+
+msgctxt "#30034"
+msgid "Unwatched"
+msgstr ""
+
+msgctxt "#30035"
+msgid "Favourites"
+msgstr ""
+
+msgctxt "#30036"
+msgid "Genres"
+msgstr ""
+
+msgctxt "#30037"
+msgid "Random"
+msgstr ""
+
+msgctxt "#30038"
+msgid "Sets"
+msgstr ""
+
+msgctxt "#30039"
+msgid "Artists"
+msgstr ""
+
+msgctxt "#30040"
+msgid "Albums"
+msgstr ""

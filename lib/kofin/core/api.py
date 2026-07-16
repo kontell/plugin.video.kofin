@@ -147,6 +147,17 @@ class Api:
             params["includeItemTypes"] = include_types
         return self.get("/Genres", params)
 
+    def next_up(self, parent_id: str, fields: str = "") -> JsonDict:
+        params: JsonDict = {"userId": self.user_id, "limit": 25}
+        if parent_id:
+            params["parentId"] = parent_id
+        if fields:
+            params["fields"] = fields
+        return self.get("/Shows/NextUp", params)
+
+    def artists(self, parent_id: str) -> JsonDict:
+        return self.get("/Artists", {"userId": self.user_id, "parentId": parent_id})
+
     # -- playback -------------------------------------------------------------
 
     def playback_info(
