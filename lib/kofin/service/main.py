@@ -16,6 +16,7 @@ from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials, addon_version
 from kofin.core.ws import WSClient
+from kofin.service.player import Player
 
 LOG = Logger(__name__)
 
@@ -67,6 +68,7 @@ class Service(xbmc.Monitor):
         self.http = Http(settings.get_bool("sslVerify"))
         self.api = Api.from_credentials(self.http, self.credentials)
         self.ws: Optional[WSClient] = None
+        self.player = Player(self.api)
         self._online = False
         self._backoff = Backoff()
         self._device_name = settings.get_str("deviceName")
@@ -169,6 +171,7 @@ class Service(xbmc.Monitor):
     # -- teardown ---------------------------------------------------------------
 
     def _shutdown(self) -> None:
+        self.player.stop_threads()
         if self.ws is not None:
             self.ws.stop()
             self.ws = None

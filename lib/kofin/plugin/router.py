@@ -11,10 +11,17 @@ Params = Dict[str, str]
 
 
 class Request:
-    def __init__(self, base_url: str, handle: int, params: Params) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        handle: int,
+        params: Params,
+        resume: bool = False,
+    ) -> None:
         self.base_url = base_url
         self.handle = handle
         self.params = params
+        self.resume = resume
 
 
 def dispatch(argv: List[str]) -> None:
@@ -27,7 +34,10 @@ def dispatch(argv: List[str]) -> None:
             handle = -1
     query = argv[2] if len(argv) > 2 else ""
     params = dict(parse_qsl(query.lstrip("?")))
-    request = Request(base_url, handle, params)
+    # Kodi appends "resume:true|false" for video plugin items (the native
+    # resume prompt's outcome).
+    resume = len(argv) > 3 and argv[3].split(":", 1)[-1] == "true"
+    request = Request(base_url, handle, params, resume)
 
     mode = params.get("mode", "")
     handler = _handlers().get(mode)
@@ -46,11 +56,12 @@ def _root(request: Request) -> None:
 
 def _handlers() -> Dict[str, Callable[[Request], None]]:
     # Imports deferred so a plugin invocation only pays for what it routes to.
-    from kofin.plugin import account, actions, browse
+    from kofin.plugin import account, actions, browse, play
 
     return {
         "": _root,
         "browse": browse.browse,
+        "play": play.play,
         "login": account.login,
         "logout": account.logout,
         "testconnection": account.test_connection,
