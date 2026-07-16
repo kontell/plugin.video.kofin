@@ -214,3 +214,361 @@ msgstr ""
 msgctxt "#30040"
 msgid "Albums"
 msgstr ""
+
+# 30100-30203 — Transcoding tab (30150+ are option labels)
+
+msgctxt "#30100"
+msgid "Transcoding"
+msgstr ""
+
+msgctxt "#30101"
+msgid "When and how the server converts media for this device."
+msgstr ""
+
+msgctxt "#30102"
+msgid "Force direct play"
+msgstr ""
+
+msgctxt "#30103"
+msgid "Always play the original file. Overrides every other transcoding setting; playback fails if the device cannot handle the media."
+msgstr ""
+
+msgctxt "#30104"
+msgid "Force remux"
+msgstr ""
+
+msgctxt "#30105"
+msgid "Repackage the stream without re-encoding video. Use when the container causes problems but the codecs are fine."
+msgstr ""
+
+msgctxt "#30106"
+msgid "Force transcode"
+msgstr ""
+
+msgctxt "#30107"
+msgid "Always re-encode on the server. Highest server load; use for troubleshooting or very constrained clients."
+msgstr ""
+
+msgctxt "#30108"
+msgid "Direct play video codecs"
+msgstr ""
+
+msgctxt "#30109"
+msgid "Video formats this device can decode. Media using formats not selected here is transcoded."
+msgstr ""
+
+msgctxt "#30110"
+msgid "Direct play audio codecs"
+msgstr ""
+
+msgctxt "#30111"
+msgid "Audio formats this device can decode or pass through. Others are transcoded."
+msgstr ""
+
+msgctxt "#30112"
+msgid "Allowed HDR types"
+msgstr ""
+
+msgctxt "#30113"
+msgid "HDR formats the display accepts. Media in formats not selected is tone-mapped or transcoded to SDR/HDR10 by the server."
+msgstr ""
+
+msgctxt "#30114"
+msgid "Preferred video codec"
+msgstr ""
+
+msgctxt "#30115"
+msgid "The codec the server targets when it must transcode video."
+msgstr ""
+
+msgctxt "#30116"
+msgid "Preferred audio codec"
+msgstr ""
+
+msgctxt "#30117"
+msgid "The codec the server targets when it must transcode audio."
+msgstr ""
+
+msgctxt "#30118"
+msgid "Maximum audio channels"
+msgstr ""
+
+msgctxt "#30119"
+msgid "Channel layout ceiling for transcoded audio."
+msgstr ""
+
+msgctxt "#30120"
+msgid "Maximum streaming bitrate"
+msgstr ""
+
+msgctxt "#30121"
+msgid "Media above this bitrate is transcoded down to it. Unlimited suits LAN playback."
+msgstr ""
+
+msgctxt "#30122"
+msgid "Maximum resolution"
+msgstr ""
+
+msgctxt "#30123"
+msgid "Wider media is downscaled by the server."
+msgstr ""
+
+msgctxt "#30124"
+msgid "Transcode audio bitrate"
+msgstr ""
+
+msgctxt "#30125"
+msgid "Bitrate for the audio track when video is transcoded."
+msgstr ""
+
+msgctxt "#30126"
+msgid "Context menu bitrates"
+msgstr ""
+
+msgctxt "#30127"
+msgid "Bitrates offered by 'Play with transcoding'. With exactly one selected the popup is skipped."
+msgstr ""
+
+msgctxt "#30128"
+msgid "Music"
+msgstr ""
+
+msgctxt "#30129"
+msgid "Maximum music bitrate"
+msgstr ""
+
+msgctxt "#30130"
+msgid "Music above this bitrate is transcoded using the codec and bitrate below."
+msgstr ""
+
+msgctxt "#30131"
+msgid "Music transcode codec"
+msgstr ""
+
+msgctxt "#30132"
+msgid "Codec for transcoded music streams."
+msgstr ""
+
+msgctxt "#30133"
+msgid "Music transcode bitrate"
+msgstr ""
+
+msgctxt "#30134"
+msgid "Bitrate for transcoded music streams."
+msgstr ""
+
+msgctxt "#30150"
+msgid "H.264 (AVC)"
+msgstr ""
+
+msgctxt "#30151"
+msgid "H.264 10-bit (Hi10P)"
+msgstr ""
+
+msgctxt "#30152"
+msgid "H.265 (HEVC)"
+msgstr ""
+
+msgctxt "#30153"
+msgid "HEVC RExt (4:2:2/4:4:4)"
+msgstr ""
+
+msgctxt "#30154"
+msgid "AV1"
+msgstr ""
+
+msgctxt "#30155"
+msgid "MPEG-2"
+msgstr ""
+
+msgctxt "#30156"
+msgid "VP9"
+msgstr ""
+
+msgctxt "#30157"
+msgid "VC-1"
+msgstr ""
+
+msgctxt "#30158"
+msgid "AAC"
+msgstr ""
+
+msgctxt "#30159"
+msgid "MP2"
+msgstr ""
+
+msgctxt "#30160"
+msgid "MP3"
+msgstr ""
+
+msgctxt "#30161"
+msgid "AC3 (Dolby Digital)"
+msgstr ""
+
+msgctxt "#30162"
+msgid "E-AC3 (Dolby Digital Plus)"
+msgstr ""
+
+msgctxt "#30163"
+msgid "Opus"
+msgstr ""
+
+msgctxt "#30164"
+msgid "FLAC"
+msgstr ""
+
+msgctxt "#30165"
+msgid "DTS"
+msgstr ""
+
+msgctxt "#30166"
+msgid "HDR10"
+msgstr ""
+
+msgctxt "#30167"
+msgid "HLG"
+msgstr ""
+
+msgctxt "#30168"
+msgid "HDR10+"
+msgstr ""
+
+msgctxt "#30169"
+msgid "Dolby Vision"
+msgstr ""
+
+msgctxt "#30170"
+msgid "Dolby Vision with HDR10 fallback"
+msgstr ""
+
+msgctxt "#30171"
+msgid "Dolby Vision with HLG fallback"
+msgstr ""
+
+msgctxt "#30172"
+msgid "Dolby Vision with SDR fallback"
+msgstr ""
+
+msgctxt "#30173"
+msgid "Dolby Vision Profile 7 (EL)"
+msgstr ""
+
+msgctxt "#30174"
+msgid "Dolby Vision with HDR10+ fallback"
+msgstr ""
+
+msgctxt "#30175"
+msgid "Dolby Vision P7 with HDR10+ fallback"
+msgstr ""
+
+msgctxt "#30176"
+msgid "Unlimited"
+msgstr ""
+
+msgctxt "#30177"
+msgid "720p"
+msgstr ""
+
+msgctxt "#30178"
+msgid "1080p"
+msgstr ""
+
+msgctxt "#30179"
+msgid "4K"
+msgstr ""
+
+msgctxt "#30180"
+msgid "2.0 stereo"
+msgstr ""
+
+msgctxt "#30181"
+msgid "5.1 surround"
+msgstr ""
+
+msgctxt "#30182"
+msgid "7.1 surround"
+msgstr ""
+
+msgctxt "#30183"
+msgid "1 Mbit/s"
+msgstr ""
+
+msgctxt "#30184"
+msgid "2 Mbit/s"
+msgstr ""
+
+msgctxt "#30185"
+msgid "3 Mbit/s"
+msgstr ""
+
+msgctxt "#30186"
+msgid "4 Mbit/s"
+msgstr ""
+
+msgctxt "#30187"
+msgid "6 Mbit/s"
+msgstr ""
+
+msgctxt "#30188"
+msgid "8 Mbit/s"
+msgstr ""
+
+msgctxt "#30189"
+msgid "10 Mbit/s"
+msgstr ""
+
+msgctxt "#30190"
+msgid "15 Mbit/s"
+msgstr ""
+
+msgctxt "#30191"
+msgid "20 Mbit/s"
+msgstr ""
+
+msgctxt "#30192"
+msgid "25 Mbit/s"
+msgstr ""
+
+msgctxt "#30193"
+msgid "40 Mbit/s"
+msgstr ""
+
+msgctxt "#30194"
+msgid "60 Mbit/s"
+msgstr ""
+
+msgctxt "#30195"
+msgid "120 Mbit/s"
+msgstr ""
+
+msgctxt "#30196"
+msgid "96 kbit/s"
+msgstr ""
+
+msgctxt "#30197"
+msgid "128 kbit/s"
+msgstr ""
+
+msgctxt "#30198"
+msgid "192 kbit/s"
+msgstr ""
+
+msgctxt "#30199"
+msgid "256 kbit/s"
+msgstr ""
+
+msgctxt "#30200"
+msgid "320 kbit/s"
+msgstr ""
+
+msgctxt "#30201"
+msgid "384 kbit/s"
+msgstr ""
+
+msgctxt "#30202"
+msgid "448 kbit/s"
+msgstr ""
+
+msgctxt "#30203"
+msgid "640 kbit/s"
+msgstr ""
