@@ -11,6 +11,8 @@ rsync -a --delete \
     --exclude '.git' --exclude '.venv' --exclude '.tox' \
     --exclude '__pycache__' --exclude '.mypy_cache' --exclude '.pytest_cache' \
     --exclude 'docs' --exclude 'tests' --exclude 'tools' \
+    --exclude 'mypy.ini' --exclude 'tox.ini' --exclude 'pyproject.toml' \
+    --exclude 'requirements-dev.txt' \
     "$SRC/" "$DEST/"
 
 if ! curl -s -m 2 -u kodi:kodi -o /dev/null "$KODI_RPC" \
