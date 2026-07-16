@@ -1,0 +1,8 @@
+Kodistubs==21.*
+pytest
+mypy
+types-requests
+black
+requests
+websocket-client
+tox

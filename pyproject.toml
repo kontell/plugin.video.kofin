@@ -1,0 +1,6 @@
+[tool.black]
+target-version = ["py39"]
+extend-exclude = "/(\\.venv|\\.tox)/"
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]

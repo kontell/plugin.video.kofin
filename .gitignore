@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+.tox/
+.mypy_cache/
+.pytest_cache/
+tests/live/results/
+*.zip
