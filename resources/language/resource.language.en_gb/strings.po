@@ -572,3 +572,23 @@ msgstr ""
 msgctxt "#30203"
 msgid "640 kbit/s"
 msgstr ""
+
+msgctxt "#30041"
+msgid "Add user to session"
+msgstr ""
+
+msgctxt "#30042"
+msgid "Add a user"
+msgstr ""
+
+msgctxt "#30043"
+msgid "Remove a user"
+msgstr ""
+
+msgctxt "#30044"
+msgid "Select user"
+msgstr ""
+
+msgctxt "#30045"
+msgid "No active session on the server yet"
+msgstr ""

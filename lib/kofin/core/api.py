@@ -118,6 +118,19 @@ class Api:
         listing: List[JsonDict] = response.json() if response.content else []
         return listing
 
+    def public_users(self) -> List[JsonDict]:
+        response = self._http.request(
+            "GET", self._url("/Users/Public"), headers=self._headers()
+        )
+        listing: List[JsonDict] = response.json() if response.content else []
+        return listing
+
+    def session_add_user(self, session_id: str, user_id: str) -> None:
+        self.post("/Sessions/%s/User/%s" % (session_id, user_id))
+
+    def session_remove_user(self, session_id: str, user_id: str) -> None:
+        self.delete("/Sessions/%s/User/%s" % (session_id, user_id))
+
     # -- library browse ------------------------------------------------------
 
     def views(self) -> JsonDict:

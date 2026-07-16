@@ -178,6 +178,9 @@ def root(request: Request) -> None:
 
     import xbmc
 
+    if api is not None:
+        adduser_li = xbmcgui.ListItem(settings.localized(30041))
+        entries.append((listitems.plugin_url({"mode": "adduser"}), adduser_li, False))
     settings_li = xbmcgui.ListItem(xbmc.getLocalizedString(5))  # "Settings"
     entries.append((listitems.plugin_url({"mode": "settings"}), settings_li, False))
 
