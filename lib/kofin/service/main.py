@@ -17,6 +17,7 @@ from kofin.core.log import Logger
 from kofin.core.settings import Credentials, addon_version
 from kofin.core.ws import WSClient
 from kofin.service.player import Player
+from kofin.service.remote import RemoteHandler
 
 LOG = Logger(__name__)
 
@@ -69,6 +70,7 @@ class Service(xbmc.Monitor):
         self.api = Api.from_credentials(self.http, self.credentials)
         self.ws: Optional[WSClient] = None
         self.player = Player(self.api)
+        self.remote = RemoteHandler()
         self._online = False
         self._backoff = Backoff()
         self._device_name = settings.get_str("deviceName")
@@ -140,8 +142,8 @@ class Service(xbmc.Monitor):
             LOG.warning("capabilities registration failed: %s", error)
 
     def _on_ws_event(self, message_type: str, data: Dict[str, Any]) -> None:
-        # Remote control dispatch lands in step 11; log for now.
-        LOG.debug("ws event %s", message_type)
+        if not self.remote.handle(message_type, data):
+            LOG.debug("ws event %s (unhandled)", message_type)
 
     # -- kodi callbacks --------------------------------------------------------
 
