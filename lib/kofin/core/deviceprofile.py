@@ -198,6 +198,16 @@ def _transcoding_profiles(
         "MinSegments": "1",
         "BreakOnNonKeyFrames": True,
     }
+    if config.audio_bitrate_kbps > 0:
+        # Output constraint for transcodes only — never a direct-play gate.
+        common["Conditions"] = [
+            {
+                "Condition": "LessThanEqual",
+                "Property": "AudioBitrate",
+                "Value": str(config.audio_bitrate_kbps * 1000),
+                "IsRequired": False,
+            }
+        ]
     fmp4: JsonDict = dict(common, Container="mp4", VideoCodec="av1")
     ts: JsonDict = dict(common, Container="ts", VideoCodec=",".join(ts_codecs))
 
@@ -298,21 +308,6 @@ def _codec_profiles(
                             "Condition": "LessThanEqual",
                             "Property": "AudioBitrate",
                             "Value": str(config.music_max_bitrate_kbps * 1000),
-                            "IsRequired": False,
-                        }
-                    ],
-                }
-            )
-
-        if config.audio_bitrate_kbps > 0:
-            profiles.append(
-                {
-                    "Type": "VideoAudio",
-                    "Conditions": [
-                        {
-                            "Condition": "LessThanEqual",
-                            "Property": "AudioBitrate",
-                            "Value": str(config.audio_bitrate_kbps * 1000),
                             "IsRequired": False,
                         }
                     ],

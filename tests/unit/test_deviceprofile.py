@@ -21,13 +21,20 @@ def test_defaults_direct_play_everything():
     assert direct[1] == {"Type": "Audio"}
 
     # All HDR types selected + 10bit/rext allowed: no video restrictions —
-    # only kofin's audio caps (music direct-play cap + video audio track cap).
+    # only the music direct-play cap remains a codec profile. The video
+    # audio-track bitrate cap lives on the transcoding profiles (it must
+    # never gate direct play — a 448k ac3 track would otherwise transcode).
     properties = [cp["Conditions"][0]["Property"] for cp in profile["CodecProfiles"]]
     assert "VideoRangeType" not in properties
     assert "VideoBitDepth" not in properties
     assert "Width" not in properties
-    assert properties == ["AudioBitrate", "AudioBitrate"]
-    assert [cp["Type"] for cp in profile["CodecProfiles"]] == ["Audio", "VideoAudio"]
+    assert properties == ["AudioBitrate"]
+    assert [cp["Type"] for cp in profile["CodecProfiles"]] == ["Audio"]
+    for tp in profile["TranscodingProfiles"][:2]:
+        condition = tp["Conditions"][0]
+        assert condition["Property"] == "AudioBitrate"
+        assert condition["Value"] == "384000"
+    assert "Conditions" not in profile["TranscodingProfiles"][2]  # music
 
     # ts leads (preferred h264), fmp4 second, music profile last.
     transcoding = profile["TranscodingProfiles"]
