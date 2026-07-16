@@ -22,6 +22,7 @@ Date: 2026-07-16. Operationalizes build phase 2 from `rewrite-research.md` §11 
 * **Settings-diff engine** becomes a real module (`service/settings_apply.py`): a registry of `setting id -> handler(old, new)` consulted from `onSettingsChanged`; phase 1's inline deviceName/sslVerify handlers move in; phase 2 adds `librarySelection` (the whitelist csv) whose handler computes add/remove sets and dispatches sync/removal — this is the "apply on OK" mechanism for the multiselect.
 * **advancedsettings.xml is never mutated** (report §6): if `<videolibrary><cleanonupdate>true</cleanonupdate>` is present (incompatible with plugin paths), warn with a notification at service start — the user fixes it themselves.
 * **Widget refresh policy** (fork commit `e4f8dc3f`, non-negotiable): after direct DB writes, `Container.Refresh` only when `Window.IsMedia`; never `UpdateLibrary()`.
+* **Native Kodi thumbnails wherever possible**: generated video nodes and menu/folder entries use Kodi's stock icon names (`DefaultMovies.png`, `DefaultTVShows.png`, `DefaultMusicVideos.png`, `DefaultRecentlyAddedMovies.png`, …) so every skin substitutes its own native artwork — never addon-branded icons on structural entries (the old addon stamped its icon/fanart on everything). Server artwork belongs only on real media items (posters, fanart, thumbs from Jellyfin image tags). This also applies retroactively to phase 1's browse node menus (All / Recently added / …), which currently ship no art — step 4 adds the stock icons there too.
 * **Kodi's native dual-write is accepted**: Kodi itself bumps playcount/bookmarks on library items it plays; the server remains authority — the round trip (report → UserDataChanged → sync) converges the row. No player-side Kodi-DB writes in kofin.
 * **Strings**: 30250–30299 Library tab, 30300–30349 Sync tab.
 
@@ -37,7 +38,7 @@ Date: 2026-07-16. Operationalizes build phase 2 from `rewrite-research.md` §11 
 | `downloader.py` | `sync/downloader.py` | 380 | Fork's in-order paging + chunking; client calls rerouted to kofin `Api` (new endpoints §5 step 3) |
 | `library.py` | `sync/library.py` | 1300 | The orchestrator: startup, fast_sync, priority queues, workers, watermark honesty, degrade-not-die, retry scheduling; `helper.event`/window-prop plumbing → kofin ipc/state; the `syncParallelMusic` remnants deleted (report YAGNI); progress via `xbmcgui.DialogProgressBG` as in fork |
 | `full_sync.py` | `sync/full_sync.py` | 800 | RestorePoints, resume-without-modal, update/repair modes; `enableMusic` auto-flip dropped (derived from whitelist) |
-| `views.py` | `sync/views.py` | 1000 | Node/xsp generation; regenerate only when the view-set hash changed; forced node ordering removed |
+| `views.py` | `sync/views.py` | 1000 | Node/xsp generation; regenerate only when the view-set hash changed; forced node ordering removed; node `<icon>`s use Kodi stock names (Default*.png), not addon art |
 | `helper/xmls.py` (subset) | `sync/kodisetup.py` | 150 | `verify_kodi_defaults` port + cleanonupdate *detection* (warn, don't edit) |
 
 New code: `sync/schema.py` (gate + version map, ~80), `plugin/librarypicker.py` (multiselect dialog + hidden-setting write, ~120), `service/settings_apply.py` (~120), settings XML/strings (~350), API additions (~80), fixtures + tests (~700).
