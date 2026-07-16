@@ -9,13 +9,81 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-# 30000-30049 — general
+# 30000-30049 — general / dialogs
 
 msgctxt "#30010"
 msgid "Play with transcoding"
 msgstr ""
 
-# 30050-30099 — Account
+msgctxt "#30011"
+msgid "Quick Connect"
+msgstr ""
+
+msgctxt "#30012"
+msgid "Username and password"
+msgstr ""
+
+msgctxt "#30013"
+msgid "Username"
+msgstr ""
+
+msgctxt "#30014"
+msgid "Password"
+msgstr ""
+
+msgctxt "#30015"
+msgid "Enter code [B]%s[/B] in the Jellyfin app or web interface."
+msgstr ""
+
+msgctxt "#30016"
+msgid "Signed in as %s"
+msgstr ""
+
+msgctxt "#30017"
+msgid "Sign-in failed: wrong username or password"
+msgstr ""
+
+msgctxt "#30018"
+msgid "Server unreachable"
+msgstr ""
+
+msgctxt "#30019"
+msgid "Sign out from %s?"
+msgstr ""
+
+msgctxt "#30020"
+msgid "Signed out"
+msgstr ""
+
+msgctxt "#30021"
+msgid "Connection OK — %s (%s)"
+msgstr ""
+
+msgctxt "#30022"
+msgid "Session rejected — sign in again from the Account tab"
+msgstr ""
+
+msgctxt "#30023"
+msgid "Restarting the Kofin service"
+msgstr ""
+
+msgctxt "#30024"
+msgid "Quick Connect timed out"
+msgstr ""
+
+msgctxt "#30025"
+msgid "Already signed in"
+msgstr ""
+
+msgctxt "#30026"
+msgid "Not signed in"
+msgstr ""
+
+msgctxt "#30027"
+msgid "Sign in to %s"
+msgstr ""
+
+# 30050-30099 — Account tab
 
 msgctxt "#30050"
 msgid "Account"
@@ -31,4 +99,72 @@ msgstr ""
 
 msgctxt "#30053"
 msgid "Host name, IP address or full URL of the Jellyfin server. A bare host uses http on port 8096."
+msgstr ""
+
+msgctxt "#30054"
+msgid "Sign in…"
+msgstr ""
+
+msgctxt "#30055"
+msgid "Connect to the server above using Quick Connect or a username and password."
+msgstr ""
+
+msgctxt "#30056"
+msgid "Server"
+msgstr ""
+
+msgctxt "#30057"
+msgid "The connected Jellyfin server."
+msgstr ""
+
+msgctxt "#30058"
+msgid "Signed-in user"
+msgstr ""
+
+msgctxt "#30059"
+msgid "The Jellyfin user this device plays and reports as."
+msgstr ""
+
+msgctxt "#30060"
+msgid "Test connection"
+msgstr ""
+
+msgctxt "#30061"
+msgid "Check that the server is reachable and the session is still valid."
+msgstr ""
+
+msgctxt "#30062"
+msgid "Sign out"
+msgstr ""
+
+msgctxt "#30063"
+msgid "End the session on the server and forget it on this device. The server address is kept."
+msgstr ""
+
+msgctxt "#30064"
+msgid "Restart Kofin"
+msgstr ""
+
+msgctxt "#30065"
+msgid "Restart the background service without restarting Kodi."
+msgstr ""
+
+msgctxt "#30066"
+msgid "Verify SSL certificate"
+msgstr ""
+
+msgctxt "#30067"
+msgid "Disable only for servers with self-signed certificates."
+msgstr ""
+
+msgctxt "#30068"
+msgid "Device name"
+msgstr ""
+
+msgctxt "#30069"
+msgid "How this device appears in the Jellyfin dashboard and cast menus."
+msgstr ""
+
+msgctxt "#30070"
+msgid "Connection"
 msgstr ""

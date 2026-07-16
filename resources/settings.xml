@@ -11,12 +11,6 @@
           <default>false</default>
           <control type="toggle"/>
         </setting>
-        <setting id="serverName" type="string">
-          <level>4</level>
-          <default></default>
-          <constraints><allowempty>true</allowempty></constraints>
-          <control type="edit" format="string"/>
-        </setting>
         <setting id="serverId" type="string">
           <level>4</level>
           <default></default>
@@ -24,12 +18,6 @@
           <control type="edit" format="string"/>
         </setting>
         <setting id="userId" type="string">
-          <level>4</level>
-          <default></default>
-          <constraints><allowempty>true</allowempty></constraints>
-          <control type="edit" format="string"/>
-        </setting>
-        <setting id="displayUser" type="string">
           <level>4</level>
           <default></default>
           <constraints><allowempty>true</allowempty></constraints>
@@ -52,6 +40,99 @@
           <level>0</level>
           <default></default>
           <constraints><allowempty>true</allowempty></constraints>
+          <dependencies>
+            <dependency type="enable">
+              <condition operator="is" setting="isLoggedIn">false</condition>
+            </dependency>
+          </dependencies>
+          <control type="edit" format="string"/>
+        </setting>
+        <setting id="loginButton" type="string" label="30054" help="30055">
+          <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="isLoggedIn">false</condition>
+            </dependency>
+          </dependencies>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=login)</data>
+            <close>true</close>
+          </control>
+        </setting>
+        <setting id="serverName" type="string" label="30056" help="30057">
+          <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <enable>false</enable>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="isLoggedIn">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="edit" format="string"/>
+        </setting>
+        <setting id="displayUser" type="string" label="30058" help="30059">
+          <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <enable>false</enable>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="isLoggedIn">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="edit" format="string"/>
+        </setting>
+        <setting id="testConnection" type="string" label="30060" help="30061">
+          <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="isLoggedIn">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=testconnection)</data>
+            <close>true</close>
+          </control>
+        </setting>
+        <setting id="logoutButton" type="string" label="30062" help="30063">
+          <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="isLoggedIn">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=logout)</data>
+            <close>true</close>
+          </control>
+        </setting>
+        <setting id="restartAddon" type="string" label="30064" help="30065">
+          <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=restart)</data>
+            <close>true</close>
+          </control>
+        </setting>
+      </group>
+      <group id="2" label="30070">
+        <setting id="sslVerify" type="boolean" label="30066" help="30067">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
+        <setting id="deviceName" type="string" label="30068" help="30069">
+          <level>0</level>
+          <default>Kodi</default>
+          <constraints><allowempty>false</allowempty></constraints>
           <control type="edit" format="string"/>
         </setting>
       </group>
