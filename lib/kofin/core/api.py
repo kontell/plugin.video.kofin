@@ -171,6 +171,33 @@ class Api:
     def artists(self, parent_id: str) -> JsonDict:
         return self.get("/Artists", {"userId": self.user_id, "parentId": parent_id})
 
+    def ancestors(self, item_id: str) -> List[JsonDict]:
+        response = self._http.request(
+            "GET",
+            self._url("/Items/%s/Ancestors" % item_id),
+            headers=self._headers(),
+            params={"userId": self.user_id},
+        )
+        listing: List[JsonDict] = response.json() if response.content else []
+        return listing
+
+    def media_folders(self) -> JsonDict:
+        return self.get("/Library/MediaFolders")
+
+    # -- KodiSyncQueue companion plugin ---------------------------------------
+
+    def sync_queue(self, last_sync: str, filters: str = "") -> JsonDict:
+        """Changes since ``last_sync`` from the KodiSyncQueue server plugin."""
+        return self.get(
+            "/Jellyfin.Plugin.KodiSyncQueue/%s/GetItems" % self.user_id,
+            {"LastUpdateDT": last_sync, "filter": filters or "None"},
+        )
+
+    def server_time(self) -> JsonDict:
+        """KodiSyncQueue server clock; also the companion-plugin tier probe
+        (404 means the plugin is absent or disabled)."""
+        return self.get("/Jellyfin.Plugin.KodiSyncQueue/GetServerDateTime")
+
     # -- playback -------------------------------------------------------------
 
     def playback_info(

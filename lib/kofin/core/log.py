@@ -73,6 +73,10 @@ class Logger:
     def _write(
         self, level: int, msg: str, args: Tuple[Any, ...], trailer: str = ""
     ) -> None:
+        # The ported sync code logs exception objects directly
+        # (LOG.exception(error)); accept anything stringable.
+        if not isinstance(msg, str):
+            msg = str(msg)
         if args:
             try:
                 msg = msg % args

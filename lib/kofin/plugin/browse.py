@@ -67,6 +67,45 @@ CONTENT_TYPES = {
     "music": "artists",
 }
 
+# Stock Kodi icons for structural entries (never addon art — the skin
+# substitutes its own native artwork for Default*.png names). Server artwork
+# belongs only on real media items.
+MEDIA_ICONS = {
+    "movies": "DefaultMovies.png",
+    "tvshows": "DefaultTVShows.png",
+    "musicvideos": "DefaultMusicVideos.png",
+    "music": "DefaultMusicAlbums.png",
+    "books": "DefaultAddonInformation.png",
+    "homevideos": "DefaultAddonVideo.png",
+    "playlists": "DefaultPlaylist.png",
+    "boxsets": "DefaultSets.png",
+}
+
+NODE_ICONS: Dict[str, Any] = {
+    "recent": {
+        "movies": "DefaultRecentlyAddedMovies.png",
+        "musicvideos": "DefaultRecentlyAddedMusicVideos.png",
+    },
+    "recentepisodes": "DefaultRecentlyAddedEpisodes.png",
+    "recentalbums": "DefaultRecentlyAddedAlbums.png",
+    "inprogress": "DefaultInProgressShows.png",
+    "inprogressepisodes": "DefaultInProgressShows.png",
+    "nextup": "DefaultInProgressShows.png",
+    "favorites": "DefaultFavourites.png",
+    "favoritealbums": "DefaultFavourites.png",
+    "sets": "DefaultSets.png",
+    "genres": "DefaultGenre.png",
+    "artists": "DefaultMusicArtists.png",
+    "albums": "DefaultMusicAlbums.png",
+}
+
+
+def node_icon(media: str, node: str = "") -> str:
+    icon = NODE_ICONS.get(node)
+    if isinstance(icon, dict):
+        icon = icon.get(media)
+    return icon or MEDIA_ICONS.get(media, "DefaultVideo.png")
+
 
 def node_query(media: str, node: str, view_id: str) -> Optional[JsonDict]:
     """API query params for a browse node; None for nodes with special routes."""
@@ -171,6 +210,12 @@ def root(request: Request) -> None:
                 continue  # live TV is pvr.kofin's job
             collection = view.get("CollectionType") or ""
             li = listitems.build(view, api.server)
+            # Stock icon fallback for views without server art; a view's own
+            # Primary image (set by listitems.build) is real media art and
+            # takes precedence.
+            art = li.getArt("icon")
+            if not art and not li.getArt("thumb"):
+                li.setArt({"icon": node_icon(collection)})
             params = {"mode": "browse", "view": view.get("Id", ""), "type": collection}
             if collection not in NODES:
                 params["folder"] = "children"
@@ -180,12 +225,38 @@ def root(request: Request) -> None:
 
     if api is not None:
         adduser_li = xbmcgui.ListItem(settings.localized(30041))
+        adduser_li.setArt({"icon": "DefaultUser.png"})
         entries.append((listitems.plugin_url({"mode": "adduser"}), adduser_li, False))
     settings_li = xbmcgui.ListItem(xbmc.getLocalizedString(5))  # "Settings"
+    settings_li.setArt({"icon": "DefaultAddonService.png"})
     entries.append((listitems.plugin_url({"mode": "settings"}), settings_li, False))
 
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
     xbmcplugin.setContent(request.handle, "files")
+    xbmcplugin.endOfDirectory(request.handle)
+
+
+def next_episodes(request: Request) -> None:
+    """Next-up episodes for a library — the target of the generated
+    'nextepisodes' video node (dynamic content Kodi can't express as a
+    node filter)."""
+    if request.handle < 0:
+        return
+    api = _api()
+    if api is None:
+        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+        return
+
+    view_id = request.params.get("id", "")
+    try:
+        items = api.next_up(view_id, BROWSE_FIELDS).get("Items", [])
+    except JellyfinError as error:
+        LOG.warning("next episodes failed (%s): %s", view_id, error)
+        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+        return
+
+    _add_items(request, api, items, view_id, "tvshows")
+    xbmcplugin.setContent(request.handle, "episodes")
     xbmcplugin.endOfDirectory(request.handle)
 
 
@@ -227,6 +298,7 @@ def _node_menu(request: Request, media: str, view_id: str) -> None:
     entries = []
     for key, label_id in NODES[media]:
         li = xbmcgui.ListItem(settings.localized(label_id))
+        li.setArt({"icon": node_icon(media, key)})
         path = listitems.plugin_url(
             {"mode": "browse", "view": view_id, "type": media, "folder": key}
         )
@@ -306,6 +378,8 @@ def _add_items(
         item_type = item.get("Type", "")
 
         if item_type in ("Genre", "MusicGenre"):
+            if not li.getArt("thumb"):
+                li.setArt({"icon": "DefaultGenre.png"})
             path = listitems.plugin_url(
                 {
                     "mode": "browse",

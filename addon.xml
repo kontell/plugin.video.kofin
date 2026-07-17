@@ -14,7 +14,9 @@
     <menu id="kodi.core.main">
       <item library="context_play.py">
         <label>30010</label>
-        <visible>!String.IsEmpty(ListItem.Property(kofin.id))</visible>
+        <!-- kofin browse items carry kofin.id; synced library items are
+             recognized by their DBTYPE and resolved through kofin.db. -->
+        <visible>!String.IsEmpty(ListItem.Property(kofin.id)) | String.IsEqual(ListItem.DBTYPE,movie) | String.IsEqual(ListItem.DBTYPE,episode) | String.IsEqual(ListItem.DBTYPE,musicvideo)</visible>
       </item>
     </menu>
   </extension>

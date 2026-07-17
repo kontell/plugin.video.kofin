@@ -592,3 +592,311 @@ msgstr ""
 msgctxt "#30045"
 msgid "No active session on the server yet"
 msgstr ""
+
+# 30250-30299 — Library tab
+
+msgctxt "#30250"
+msgid "Library"
+msgstr ""
+
+msgctxt "#30251"
+msgid "Select and manage the Jellyfin libraries mirrored into Kodi's own database."
+msgstr ""
+
+msgctxt "#30252"
+msgid "Select libraries to sync"
+msgstr ""
+
+msgctxt "#30253"
+msgid "Choose which server libraries are mirrored into the Kodi library. Changes apply when you confirm the selection."
+msgstr ""
+
+msgctxt "#30254"
+msgid "Synced libraries"
+msgstr ""
+
+msgctxt "#30255"
+msgid "The libraries currently mirrored into the Kodi database."
+msgstr ""
+
+msgctxt "#30256"
+msgid "Update all libraries"
+msgstr ""
+
+msgctxt "#30257"
+msgid "Catch up with server changes and prune removed items from every synced library."
+msgstr ""
+
+msgctxt "#30258"
+msgid "Repair libraries"
+msgstr ""
+
+msgctxt "#30259"
+msgid "Remove and re-sync selected libraries from scratch. Watched state is restored from the server."
+msgstr ""
+
+msgctxt "#30260"
+msgid "Refresh boxsets"
+msgstr ""
+
+msgctxt "#30261"
+msgid "Rebuild movie set links from the server's collections."
+msgstr ""
+
+msgctxt "#30262"
+msgid "Sync status"
+msgstr ""
+
+msgctxt "#30263"
+msgid "Companion plugin tier and schema-gate state."
+msgstr ""
+
+msgctxt "#30264"
+msgid "Remove synced library?"
+msgstr ""
+
+msgctxt "#30265"
+msgid "Remove %s from the Kodi library? The items are deleted from this device only."
+msgstr ""
+
+msgctxt "#30266"
+msgid "Repair which libraries?"
+msgstr ""
+
+msgctxt "#30267"
+msgid "All"
+msgstr ""
+
+msgctxt "#30268"
+msgid "Select libraries"
+msgstr ""
+
+msgctxt "#30269"
+msgid "No libraries available"
+msgstr ""
+
+# 30300-30349 — Sync tab
+
+msgctxt "#30300"
+msgid "Sync"
+msgstr ""
+
+msgctxt "#30301"
+msgid "How library changes are downloaded and written."
+msgstr ""
+
+msgctxt "#30302"
+msgid "Show sync notifications"
+msgstr ""
+
+msgctxt "#30303"
+msgid "Toast for new content and large pending updates. Never a blocking dialog."
+msgstr ""
+
+msgctxt "#30304"
+msgid "Notify above this many pending items"
+msgstr ""
+
+msgctxt "#30305"
+msgid "A catch-up larger than this shows an informational toast."
+msgstr ""
+
+msgctxt "#30306"
+msgid "Sync during video playback"
+msgstr ""
+
+msgctxt "#30307"
+msgid "Keep applying library updates while a video is playing."
+msgstr ""
+
+msgctxt "#30308"
+msgid "Allow screensaver during sync"
+msgstr ""
+
+msgctxt "#30309"
+msgid "When disabled, the screensaver is inhibited while a sync runs. A catch-up sync always runs when the screensaver ends."
+msgstr ""
+
+msgctxt "#30310"
+msgid "Items per request"
+msgstr ""
+
+msgctxt "#30311"
+msgid "Page size for library downloads."
+msgstr ""
+
+msgctxt "#30312"
+msgid "Download threads"
+msgstr ""
+
+msgctxt "#30313"
+msgid "Parallel download connections during sync."
+msgstr ""
+
+msgctxt "#30314"
+msgid "Artwork"
+msgstr ""
+
+msgctxt "#30316"
+msgid "Enable server image enhancers"
+msgstr ""
+
+msgctxt "#30317"
+msgid "Let the server apply cover art enhancers to synced artwork."
+msgstr ""
+
+msgctxt "#30318"
+msgid "Compress artwork"
+msgstr ""
+
+msgctxt "#30319"
+msgid "Request JPEG quality 90 for synced artwork."
+msgstr ""
+
+msgctxt "#30320"
+msgid "Maximum artwork resolution"
+msgstr ""
+
+msgctxt "#30321"
+msgid "Cap the height of synced artwork. Original keeps the server size."
+msgstr ""
+
+msgctxt "#30322"
+msgid "Original"
+msgstr ""
+
+msgctxt "#30323"
+msgid "720p"
+msgstr ""
+
+msgctxt "#30324"
+msgid "1080p"
+msgstr ""
+
+msgctxt "#30325"
+msgid "2160p"
+msgstr ""
+
+msgctxt "#30326"
+msgid "Startup delay (seconds)"
+msgstr ""
+
+msgctxt "#30327"
+msgid "Wait this long after Kodi starts before the first sync."
+msgstr ""
+
+# 30350-30369 — library node labels
+
+msgctxt "#30350"
+msgid "Recently added"
+msgstr ""
+
+msgctxt "#30351"
+msgid "In progress"
+msgstr ""
+
+msgctxt "#30352"
+msgid "Unwatched"
+msgstr ""
+
+msgctxt "#30353"
+msgid "Random"
+msgstr ""
+
+msgctxt "#30354"
+msgid "Recommended"
+msgstr ""
+
+msgctxt "#30355"
+msgid "Recently added episodes"
+msgstr ""
+
+msgctxt "#30356"
+msgid "In progress episodes"
+msgstr ""
+
+msgctxt "#30357"
+msgid "Next episodes"
+msgstr ""
+
+msgctxt "#30358"
+msgid "Favorite movies"
+msgstr ""
+
+msgctxt "#30359"
+msgid "Favorite shows"
+msgstr ""
+
+msgctxt "#30360"
+msgid "Favorite episodes"
+msgstr ""
+
+msgctxt "#30361"
+msgid "Favorites"
+msgstr ""
+
+msgctxt "#30362"
+msgid "First letter"
+msgstr ""
+
+# 30400-30429 — sync runtime messages
+
+msgctxt "#30400"
+msgid "Gathering:"
+msgstr ""
+
+msgctxt "#30401"
+msgid "Updating media"
+msgstr ""
+
+msgctxt "#30402"
+msgid "Large update: %s items pending"
+msgstr ""
+
+msgctxt "#30403"
+msgid "Sync incomplete; retrying shortly"
+msgstr ""
+
+msgctxt "#30404"
+msgid "Resuming interrupted library sync"
+msgstr ""
+
+msgctxt "#30405"
+msgid "New"
+msgstr ""
+
+msgctxt "#30406"
+msgid "Library sync failed"
+msgstr ""
+
+msgctxt "#30407"
+msgid "Boxsets"
+msgstr ""
+
+msgctxt "#30408"
+msgid "Removing library"
+msgstr ""
+
+msgctxt "#30409"
+msgid "Full sync completed in"
+msgstr ""
+
+msgctxt "#30410"
+msgid "A sync is already running"
+msgstr ""
+
+msgctxt "#30411"
+msgid "Official KodiSyncQueue companion"
+msgstr ""
+
+msgctxt "#30412"
+msgid "No companion plugin — realtime updates only"
+msgstr ""
+
+msgctxt "#30413"
+msgid "Sync paused: unknown Kodi database v%s"
+msgstr ""
+
+msgctxt "#30414"
+msgid "advancedsettings.xml enables cleanonupdate — incompatible with library sync"
+msgstr ""

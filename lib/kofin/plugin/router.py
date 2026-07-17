@@ -56,11 +56,12 @@ def _root(request: Request) -> None:
 
 def _handlers() -> Dict[str, Callable[[Request], None]]:
     # Imports deferred so a plugin invocation only pays for what it routes to.
-    from kofin.plugin import account, actions, adduser, browse, play
+    from kofin.plugin import account, actions, adduser, browse, librarypicker, play
 
     return {
         "": _root,
         "browse": browse.browse,
+        "nextepisodes": browse.next_episodes,
         "play": play.play,
         "login": account.login,
         "logout": account.logout,
@@ -72,4 +73,8 @@ def _handlers() -> Dict[str, Callable[[Request], None]]:
         "unwatched": actions.unwatched,
         "favorite": actions.favorite,
         "unfavorite": actions.unfavorite,
+        "selectlibraries": librarypicker.select_libraries,
+        "updatelibs": actions.update_libraries,
+        "repairlibs": actions.repair_libraries,
+        "refreshboxsets": actions.refresh_boxsets,
     }

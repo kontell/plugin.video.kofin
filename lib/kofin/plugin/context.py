@@ -15,7 +15,27 @@ LOG = Logger(__name__)
 
 def _focused_item_id() -> str:
     listitem: Optional[xbmcgui.ListItem] = getattr(sys, "listitem", None)
-    return listitem.getProperty("kofin.id") if listitem is not None else ""
+    if listitem is None:
+        return ""
+    item_id = listitem.getProperty("kofin.id")
+    if item_id:
+        return item_id
+    # Library items carry no kofin.id property; resolve the Kodi database id
+    # through the kofin.db mapping instead.
+    tag = listitem.getVideoInfoTag()
+    if tag is None:
+        return ""
+    return lookup_item_id(tag.getDbId(), tag.getMediaType())
+
+
+def lookup_item_id(dbid: int, media_type: str) -> str:
+    """The Jellyfin item id for a Kodi library row, '' when not kofin's."""
+    if not dbid or dbid < 0 or not media_type:
+        return ""
+    from kofin.sync.db import get_item
+
+    row = get_item(dbid, media_type)
+    return row.jellyfin_id if row is not None else ""
 
 
 def choose_bitrate(configured: List[str]) -> Optional[str]:

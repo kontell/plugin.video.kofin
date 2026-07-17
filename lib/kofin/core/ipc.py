@@ -16,7 +16,25 @@ SENDER = "plugin.video.kofin"
 RESTART = "Restart"
 AUTH_CHANGED = "AuthChanged"
 
-_REGISTRY = frozenset({RESTART, AUTH_CHANGED})
+# Library-manager commands (settings buttons / picker -> RunPlugin ->
+# ipc.notify -> service). Payloads carry {"Id": "<library id or csv>"}.
+SYNC_LIBRARY = "SyncLibrary"
+REMOVE_LIBRARY = "RemoveLibrary"
+REPAIR_LIBRARY = "RepairLibrary"
+UPDATE_LIBRARY = "UpdateLibrary"
+REFRESH_BOXSETS = "RefreshBoxsets"
+
+_REGISTRY = frozenset(
+    {
+        RESTART,
+        AUTH_CHANGED,
+        SYNC_LIBRARY,
+        REMOVE_LIBRARY,
+        REPAIR_LIBRARY,
+        UPDATE_LIBRARY,
+        REFRESH_BOXSETS,
+    }
+)
 
 
 def notify(method: str, data: Optional[Dict[str, Any]] = None) -> None:

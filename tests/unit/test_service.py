@@ -46,6 +46,18 @@ def test_restart_and_auth_notifications_set_flag():
 def test_ssl_change_triggers_restart():
     FakeAddon.store["sslVerify"] = "true"
     service = Service()
+    service.settings_apply.mark_ready()  # past the startup guard
     FakeAddon.store["sslVerify"] = "false"
     service.onSettingsChanged()
     assert service._restart_requested is True
+
+
+def test_settings_change_ignored_before_ready():
+    """Kodi's startup settings-load fires onSettingsChanged with transient
+    reads; the service must not act until the applier is ready (S2 regression:
+    a plain restart once prompted a library removal)."""
+    FakeAddon.store["sslVerify"] = "true"
+    service = Service()  # applier not ready
+    FakeAddon.store["sslVerify"] = "false"
+    service.onSettingsChanged()
+    assert service._restart_requested is False

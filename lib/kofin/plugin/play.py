@@ -163,6 +163,12 @@ def play(request: Request) -> None:
 
     LOG.info("play %s via %s", item_id, method)
     li = listitems.build(item, api.server)
+    # Library-item paths carry the Kodi database id (plan §2 path identity);
+    # stamping it on the tag links the playback to the library row for
+    # widgets invoked outside a library window.
+    dbid = request.params.get("dbid", "")
+    if dbid.isdigit() and item.get("Type") in ("Movie", "Episode", "MusicVideo"):
+        li.getVideoInfoTag().setDbId(int(dbid))
     li.setPath(url)
     mime = mime_for((source.get("Container") or "").split(",")[0], method)
     if mime:
