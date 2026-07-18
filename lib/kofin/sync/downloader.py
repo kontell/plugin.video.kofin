@@ -35,7 +35,8 @@ def info():
         "Metascore,AirTime,DateCreated,People,Overview,"
         "Etag,ShortOverview,ProductionLocations,"
         "Tags,ProviderIds,ParentId,RemoteTrailers,SpecialEpisodeNumbers,"
-        "MediaSources,VoteCount,RecursiveItemCount,PrimaryImageAspectRatio"
+        "MediaSources,VoteCount,RecursiveItemCount,PrimaryImageAspectRatio,"
+        "SpecialFeatureCount"
     )
 
 

@@ -900,3 +900,151 @@ msgstr ""
 msgctxt "#30414"
 msgid "advancedsettings.xml enables cleanonupdate — incompatible with library sync"
 msgstr ""
+
+# 30450-30499 — Playback tab: media segments + Play Next
+
+msgctxt "#30450"
+msgid "Playback"
+msgstr ""
+
+msgctxt "#30451"
+msgid "Media segment skipping and the Play Next prompt."
+msgstr ""
+
+msgctxt "#30452"
+msgid "Media segments"
+msgstr ""
+
+msgctxt "#30453"
+msgid "React to media segments"
+msgstr ""
+
+msgctxt "#30454"
+msgid "Fetch Jellyfin media segments (intro, credits, recap, preview, commercial) during playback and act on them per type."
+msgstr ""
+
+msgctxt "#30455"
+msgid "Intros"
+msgstr ""
+
+msgctxt "#30456"
+msgid "Off ignores intro segments, Auto skips past them, Ask shows a skip button."
+msgstr ""
+
+msgctxt "#30457"
+msgid "Credits"
+msgstr ""
+
+msgctxt "#30458"
+msgid "Off ignores credits, Auto seeks past them, Ask offers Skip Outro — with Play Next when a next episode exists."
+msgstr ""
+
+msgctxt "#30459"
+msgid "Recaps"
+msgstr ""
+
+msgctxt "#30460"
+msgid "Off ignores recap segments, Auto skips past them, Ask shows a skip button."
+msgstr ""
+
+msgctxt "#30461"
+msgid "Previews"
+msgstr ""
+
+msgctxt "#30462"
+msgid "Off ignores preview segments, Auto skips past them, Ask shows a skip button."
+msgstr ""
+
+msgctxt "#30463"
+msgid "Commercials"
+msgstr ""
+
+msgctxt "#30464"
+msgid "Off ignores commercial segments, Auto skips past them, Ask shows a skip button."
+msgstr ""
+
+msgctxt "#30465"
+msgid "Off"
+msgstr ""
+
+msgctxt "#30466"
+msgid "Auto"
+msgstr ""
+
+msgctxt "#30467"
+msgid "Ask"
+msgstr ""
+
+msgctxt "#30468"
+msgid "Play next"
+msgstr ""
+
+msgctxt "#30469"
+msgid "Offer Play Next"
+msgstr ""
+
+msgctxt "#30470"
+msgid "Offer the next episode at the credits, or near the end when no credits segment exists."
+msgstr ""
+
+msgctxt "#30471"
+msgid "Play Next lead time"
+msgstr ""
+
+msgctxt "#30472"
+msgid "Seconds before the end to show the Play Next prompt for content without a credits segment."
+msgstr ""
+
+msgctxt "#30473"
+msgid "Autoplay next episode"
+msgstr ""
+
+msgctxt "#30474"
+msgid "Count down on the Play Next prompt and start the next episode automatically."
+msgstr ""
+
+msgctxt "#30481"
+msgid "Skip Intro"
+msgstr ""
+
+msgctxt "#30482"
+msgid "Skip Outro"
+msgstr ""
+
+msgctxt "#30483"
+msgid "Skip Recap"
+msgstr ""
+
+msgctxt "#30484"
+msgid "Skip Preview"
+msgstr ""
+
+msgctxt "#30485"
+msgid "Skip Ad"
+msgstr ""
+
+msgctxt "#30486"
+msgid "Play Next"
+msgstr ""
+
+msgctxt "#30487"
+msgid "Close"
+msgstr ""
+
+msgctxt "#30488"
+msgid "Skipped %s"
+msgstr ""
+
+msgctxt "#30489"
+msgid "Up next: %s"
+msgstr ""
+
+# 30500-30549 — extras
+
+msgctxt "#30500"
+msgid "Extras"
+msgstr ""
+
+msgctxt "#30501"
+msgid "Browse extras"
+msgstr ""

@@ -227,6 +227,33 @@ class Api:
             params["MaxStreamingBitrate"] = max_bitrate
         return self.post("/Items/%s/PlaybackInfo" % item_id, body, params)
 
+    # -- media segments / extras -------------------------------------------------
+
+    def media_segments(self, item_id: str) -> JsonDict:
+        """Media segments for an item (Jellyfin 10.10+ analyzed content).
+
+        Raises :class:`JellyfinError` when the endpoint is unavailable; the
+        callers treat segments as best-effort.
+        """
+        return self.get("/MediaSegments/%s" % item_id)
+
+    def special_features(self, item_id: str) -> List[JsonDict]:
+        """User-scoped special features (extras) of a movie/series/season."""
+        response = self._http.request(
+            "GET",
+            self._url("/Users/%s/Items/%s/SpecialFeatures" % (self.user_id, item_id)),
+            headers=self._headers(),
+        )
+        listing: List[JsonDict] = response.json() if response.content else []
+        return listing
+
+    def adjacent_episodes(self, series_id: str, item_id: str) -> JsonDict:
+        """The episode window around ``item_id`` (next-episode resolution)."""
+        return self.get(
+            "/Shows/%s/Episodes" % series_id,
+            {"userId": self.user_id, "adjacentTo": item_id, "Fields": "Overview"},
+        )
+
     # -- user data -------------------------------------------------------------
 
     def mark_played(self, item_id: str) -> None:

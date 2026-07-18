@@ -18,6 +18,12 @@
              recognized by their DBTYPE and resolved through kofin.db. -->
         <visible>!String.IsEmpty(ListItem.Property(kofin.id)) | String.IsEqual(ListItem.DBTYPE,movie) | String.IsEqual(ListItem.DBTYPE,episode) | String.IsEqual(ListItem.DBTYPE,musicvideo)</visible>
       </item>
+      <item library="context_extras.py">
+        <label>30501</label>
+        <!-- TV extras are a plugin browse (no native Kodi TV extras);
+             library shows/seasons resolve through kofin.db. -->
+        <visible>String.IsEqual(ListItem.DBTYPE,tvshow) | String.IsEqual(ListItem.DBTYPE,season)</visible>
+      </item>
     </menu>
   </extension>
   <extension point="xbmc.addon.metadata">

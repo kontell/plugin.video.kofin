@@ -6,6 +6,7 @@ from sqlite3 import DatabaseError
 
 from kofin.core.log import Logger
 
+from kofin.sync import schema
 from kofin.sync.kodidb.kodi import Kodi
 from kofin.sync.kodidb import queries as QU
 
@@ -26,6 +27,14 @@ class Movies(Kodi):
         except (IndexError, DatabaseError, TypeError) as e:
             LOG.warning("Unable to fetch videoversion itemtype: %s", e)
             self.itemtype = 0
+        # The EXTRA constant is schema-version keyed (renumbered on Piers);
+        # None disables the extras pass without touching the movie sync.
+        try:
+            self.cursor.execute(QU.get_version)
+            self.extra_itemtype = schema.EXTRA_ITEM_TYPE.get(self.cursor.fetchone()[0])
+        except (IndexError, DatabaseError, TypeError) as e:
+            LOG.warning("Unable to fetch video schema version: %s", e)
+            self.extra_itemtype = None
 
     def create_entry_unique_id(self):
         self.cursor.execute(QU.create_unique_id)
@@ -57,6 +66,40 @@ class Movies(Kodi):
         self.cursor.execute(QU.check_video_version)
         if self.cursor.fetchone()[0] == 1:
             self.cursor.execute(QU.add_video_version, args)
+
+    def get_extra_assets(self, movie_id, item_type):
+        """Existing extras rows: [(idFile, strFilename, idType)]."""
+        self.cursor.execute(QU.get_extra_assets, (movie_id, item_type))
+        return self.cursor.fetchall()
+
+    def get_extra_type_id(self, name, item_type):
+        """Find-or-create the named videoversiontype row for an extra (owner
+        USER, like Kodi's own convert-to-extra flow)."""
+        self.cursor.execute(QU.get_videoversiontype_by_name, (name, item_type))
+        row = self.cursor.fetchone()
+        if row:
+            return row[0]
+        self.cursor.execute(
+            QU.add_videoversiontype,
+            (name, schema.VIDEO_ASSET_OWNER_USER, item_type),
+        )
+        return self.cursor.lastrowid
+
+    def add_extra_asset(
+        self, path_id, filename, date_added, movie_id, item_type, type_id
+    ):
+        """One files row + one videoversion row for a special feature."""
+        file_id = self.add_file(path_id, filename)
+        self.update_file(path_id, filename, date_added, file_id)
+        self.cursor.execute(
+            QU.add_extra_version, (file_id, movie_id, item_type, type_id)
+        )
+        return file_id
+
+    def delete_extra_asset(self, file_id):
+        """Drop the files row; the delete_file trigger cascades the
+        videoversion, bookmark, settings, streamdetails and art rows."""
+        self.cursor.execute(QU.delete_extra_file, (file_id,))
 
     def update(self, *args):
         self.cursor.execute(QU.update_movie, args)

@@ -90,6 +90,51 @@ def test_play_state_payload():
     assert payload["Path"] == "http://u"
 
 
+def test_play_state_carries_series_id():
+    item = {"Id": "e1", "Type": "Episode", "SeriesId": "show9"}
+    payload = play.play_state(item, {}, "http://u", "DirectStream", "ps", "dev", 0)
+    assert payload["SeriesId"] == "show9"
+
+
+class SegmentsStubApi:
+    def __init__(self, response=None, fail=False):
+        self.response = response or {"Items": []}
+        self.fail = fail
+        self.calls = 0
+
+    def media_segments(self, item_id):
+        self.calls += 1
+        if self.fail:
+            raise JellyfinError("segments down")
+        return self.response
+
+
+def test_prefetch_segments_warm_path(monkeypatch):
+    monkeypatch.setattr("kofin.core.settings.get_bool", lambda sid: True)
+    api = SegmentsStubApi(
+        {"Items": [{"Type": "Intro", "StartTicks": 0, "EndTicks": 300_000_000}]}
+    )
+    segments = play.prefetch_segments(api, {"Id": "e1", "Type": "Episode"})
+    assert segments == [{"Type": "Introduction", "Start": 0.0, "End": 30.0}]
+
+
+def test_prefetch_segments_skips_non_video_and_disabled(monkeypatch):
+    monkeypatch.setattr("kofin.core.settings.get_bool", lambda sid: True)
+    api = SegmentsStubApi()
+    assert play.prefetch_segments(api, {"Id": "a1", "Type": "Audio"}) == []
+    assert api.calls == 0
+
+    monkeypatch.setattr("kofin.core.settings.get_bool", lambda sid: False)
+    assert play.prefetch_segments(api, {"Id": "e1", "Type": "Episode"}) == []
+    assert api.calls == 0
+
+
+def test_prefetch_segments_failure_defers_to_service(monkeypatch):
+    monkeypatch.setattr("kofin.core.settings.get_bool", lambda sid: True)
+    api = SegmentsStubApi(fail=True)
+    assert play.prefetch_segments(api, {"Id": "e1", "Type": "Episode"}) is None
+
+
 def test_router_parses_resume_argument(monkeypatch):
     seen = {}
 

@@ -109,6 +109,7 @@ def play_state(
     return {
         "Id": item.get("Id", ""),
         "Type": item.get("Type", ""),
+        "SeriesId": item.get("SeriesId", ""),
         "Path": url,
         "PlayMethod": play_method,
         "PlaySessionId": play_session_id,
@@ -119,6 +120,24 @@ def play_state(
         "SubtitleStreamIndex": source.get("DefaultSubtitleStreamIndex"),
         "CurrentPosition": start_seconds,
     }
+
+
+def prefetch_segments(api: Api, item: JsonDict) -> Optional[List[JsonDict]]:
+    """Warm the media-segments fetch on the play path (plan §2d): the parsed
+    segments ride the play-state queue so the service-side checker is armed
+    before the first frame, killing the t≈0 Intro race. None on failure —
+    the service then falls back to its own bounded-retry fetch."""
+    if item.get("Type") not in ("Movie", "Episode"):
+        return []
+    if not settings.get_bool("mediaSegmentsEnabled"):
+        return []
+    from kofin.service.segments import parse_segments
+
+    try:
+        return parse_segments(api.media_segments(item.get("Id", "")))
+    except Exception as error:
+        LOG.debug("segments prefetch failed for %s: %s", item.get("Id"), error)
+        return None
 
 
 def play(request: Request) -> None:
@@ -137,8 +156,9 @@ def play(request: Request) -> None:
     api = Api.from_credentials(Http(settings.get_bool("sslVerify")), creds)
     try:
         item = api.item(item_id)
+        from_start = request.params.get("fromstart") == "1"
         start_ticks = 0
-        if request.resume:
+        if request.resume and not from_start:
             userdata = item.get("UserData") or {}
             start_ticks = int(userdata.get("PlaybackPositionTicks") or 0)
 
@@ -163,6 +183,10 @@ def play(request: Request) -> None:
 
     LOG.info("play %s via %s", item_id, method)
     li = listitems.build(item, api.server)
+    if from_start:
+        # The ListItem carries the server resume point; clear it so PlayMedia
+        # does not seek the fresh Play Next start back into the item.
+        li.getVideoInfoTag().setResumePoint(0.0)
     # Library-item paths carry the Kodi database id (plan §2 path identity);
     # stamping it on the tag links the playback to the library row for
     # widgets invoked outside a library window.
@@ -178,17 +202,19 @@ def play(request: Request) -> None:
     if subtitles:
         li.setSubtitles(subtitles)
 
-    state.push_play_item(
-        play_state(
-            item,
-            source,
-            url,
-            method,
-            play_session_id,
-            creds.device_id,
-            start_ticks / 10_000_000,
-        )
+    play_item = play_state(
+        item,
+        source,
+        url,
+        method,
+        play_session_id,
+        creds.device_id,
+        start_ticks / 10_000_000,
     )
+    segments = prefetch_segments(api, item)
+    if segments is not None:
+        play_item["Segments"] = segments
+    state.push_play_item(play_item)
 
     if request.handle >= 0:
         xbmcplugin.setResolvedUrl(request.handle, True, li)

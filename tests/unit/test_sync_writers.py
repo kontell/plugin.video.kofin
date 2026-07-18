@@ -46,6 +46,13 @@ class FakeApi:
         self.items_by_id = {}
         self.boxset_children = {}
         self.seasons_by_series = {}
+        self.special_features_by_id = {}
+
+    def special_features(self, item_id):
+        features = self.special_features_by_id.get(item_id, [])
+        if isinstance(features, Exception):
+            raise features
+        return features
 
     def item(self, item_id):
         return self.items_by_id[item_id]
@@ -289,6 +296,137 @@ def test_movie_etag_change_updates_row(api):
     assert video_query("SELECT COUNT(*) FROM movie") == [(1,)]
     assert video_query("SELECT COUNT(*) FROM files") == [(1,)]
     assert video_query("SELECT COUNT(*) FROM rating") == [(1,)]
+
+
+# --- movie extras (phase 3: native videoversion assets) ----------------------
+
+FEATURES = [
+    {
+        "Id": "extra1",
+        "Name": "Making Of",
+        "Type": "Video",
+        "ExtraType": "BehindTheScenes",
+        "Path": "/media/movies/The Example (2020)/extras/making-of.mkv",
+    },
+    {
+        "Id": "extra2",
+        "Name": "Gone Too Soon",
+        "Type": "Video",
+        "ExtraType": "DeletedScene",
+        "Path": "/media/movies/The Example (2020)/extras/deleted.mkv",
+    },
+]
+
+
+def movie_with_extras(count=2, etag="etag-movie1-v1"):
+    payload = dto(MOVIE)
+    payload["SpecialFeatureCount"] = count
+    payload["Etag"] = etag
+    return payload
+
+
+def extras_rows():
+    return video_query(
+        "SELECT videoversion.idFile, videoversion.idMedia, videoversion.idType,"
+        " videoversiontype.name, videoversiontype.owner, videoversiontype.itemType"
+        " FROM videoversion"
+        " JOIN videoversiontype ON videoversiontype.id = videoversion.idType"
+        " WHERE videoversion.itemType = 1 ORDER BY videoversion.idFile"
+    )
+
+
+def test_movie_extras_written_as_native_assets(api):
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    api.special_features_by_id = {"movie1": FEATURES}
+    write_movie(api, movie_with_extras())
+
+    rows = extras_rows()
+    assert len(rows) == 2
+    assert {row[3] for row in rows} == {"Behind the Scenes", "Deleted Scene"}
+    for _file_id, id_media, _id_type, _name, owner, vvt_item_type in rows:
+        assert id_media == 1  # the movie's idMovie
+        assert owner == 2  # VideoAssetTypeOwner::USER
+        assert vvt_item_type == 1  # EXTRA on Omega
+
+    filenames = [
+        row[0] for row in video_query("SELECT strFilename FROM files ORDER BY idFile")
+    ]
+    extras_urls = [name for name in filenames if "id=extra" in name]
+    assert len(extras_urls) == 2
+    for url in extras_urls:
+        assert url.startswith("plugin://plugin.video.kofin/lib-movies/?")
+        assert "mode=play" in url
+
+    # The main version row is untouched (the A/B guard: extras must not
+    # perturb what phase 2 writes).
+    versions = video_query(
+        "SELECT idMedia, media_type, idType FROM videoversion WHERE itemType = 0"
+    )
+    assert versions == [(1, "movie", 40400)]
+
+
+def test_movie_extras_idempotent(api):
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    api.special_features_by_id = {"movie1": FEATURES}
+    write_movie(api, movie_with_extras())
+    first = dump(str(sync_db._path_overrides["video"]))
+
+    # Same payload: the checksum short-circuit leaves the database untouched.
+    write_movie(api, movie_with_extras())
+    assert dump(str(sync_db._path_overrides["video"])) == first
+
+    # A metadata change re-runs the extras pass; an unchanged feature set
+    # must not churn rows or duplicate videoversiontype entries.
+    before = extras_rows()
+    write_movie(api, movie_with_extras(etag="etag-movie1-v2"))
+    assert extras_rows() == before
+    type_names = video_query(
+        "SELECT name FROM videoversiontype WHERE itemType = 1 AND owner = 2"
+    )
+    assert len(type_names) == 2
+
+
+def test_movie_extras_pruned_when_feature_disappears(api):
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    api.special_features_by_id = {"movie1": FEATURES}
+    write_movie(api, movie_with_extras())
+    assert len(extras_rows()) == 2
+
+    api.special_features_by_id = {"movie1": FEATURES[:1]}
+    write_movie(api, movie_with_extras(count=1, etag="etag-movie1-v2"))
+
+    rows = extras_rows()
+    assert len(rows) == 1
+    assert rows[0][3] == "Behind the Scenes"
+    gone = video_query(
+        "SELECT COUNT(*) FROM files WHERE strFilename LIKE '%id=extra2%'"
+    )
+    assert gone == [(0,)]
+
+
+def test_movie_extras_removed_with_movie(api):
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    api.special_features_by_id = {"movie1": FEATURES}
+    write_movie(api, movie_with_extras())
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        Movies(api, kdb, vdb, library=LIBRARY).remove("movie1")
+
+    assert video_query("SELECT COUNT(*) FROM movie") == [(0,)]
+    assert video_query("SELECT COUNT(*) FROM videoversion") == [(0,)]
+    assert video_query("SELECT COUNT(*) FROM files") == [(0,)]
+    assert video_query(
+        "SELECT COUNT(*) FROM art WHERE media_type = 'videoversion'"
+    ) == [(0,)]
+
+
+def test_movie_extras_fetch_failure_never_gates_sync(api):
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    api.special_features_by_id = {"movie1": RuntimeError("special features down")}
+    write_movie(api, movie_with_extras())
+
+    assert video_query("SELECT COUNT(*) FROM movie") == [(1,)]
+    assert extras_rows() == []
 
 
 def test_boxset_links_and_removal(api):

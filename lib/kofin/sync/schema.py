@@ -40,6 +40,38 @@ SUPPORTED: Dict[str, Optional[set]] = {
 
 DATABASE_DIR = "special://database/"
 
+# Kodi's VideoAssetType::EXTRA value per MyVideos schema version. Omega (131)
+# uses 1; Piers renumbers it to 2 in migration 134 — that entry lands with the
+# Piers fixtures (plan §7: keyed here, never inlined in a writer). A version
+# missing from this map disables the extras pass, not the sync.
+EXTRA_ITEM_TYPE: Dict[int, int] = {131: 1}
+
+# VideoAssetTypeOwner::USER — the owner kofin stamps on videoversiontype rows
+# it creates (matches what Kodi's own "convert to extra" flow writes).
+VIDEO_ASSET_OWNER_USER = 2
+
+# Jellyfin ExtraType -> the named videoversiontype for the asset row.
+EXTRA_TYPE_NAMES: Dict[str, str] = {
+    "BehindTheScenes": "Behind the Scenes",
+    "DeletedScene": "Deleted Scene",
+    "Interview": "Interview",
+    "Featurette": "Featurette",
+    "Short": "Short",
+    "Clip": "Clip",
+    "Scene": "Scene",
+    "Sample": "Sample",
+    "ThemeSong": "Theme Song",
+    "ThemeVideo": "Theme Video",
+    "Trailer": "Trailer",
+}
+EXTRA_TYPE_DEFAULT_NAME = "Extra"
+
+
+def extra_type_name(extra_type: Optional[str]) -> str:
+    """The videoversiontype name for a Jellyfin ExtraType."""
+    return EXTRA_TYPE_NAMES.get(extra_type or "", EXTRA_TYPE_DEFAULT_NAME)
+
+
 _cache: Dict[str, Tuple[str, int]] = {}
 
 

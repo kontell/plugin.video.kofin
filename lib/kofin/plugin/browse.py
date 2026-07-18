@@ -274,7 +274,10 @@ def browse(request: Request) -> None:
 
     try:
         if not folder and media in NODES:
-            _node_menu(request, media, view_id)
+            _node_menu(request, api, media, view_id)
+            return
+        if folder == "extras" and media == "tvshows":
+            _extras_node(request, api, view_id)
             return
         items, content = _list_items(api, media, folder or "children", view_id, request)
     except JellyfinError as error:
@@ -283,6 +286,8 @@ def browse(request: Request) -> None:
         return
 
     _add_items(request, api, items, view_id, media)
+    if media in ("series", "season"):
+        _append_extras_entry(request, api, folder)
     xbmcplugin.setContent(request.handle, content)
     for method in (
         xbmcplugin.SORT_METHOD_UNSORTED,
@@ -294,9 +299,35 @@ def browse(request: Request) -> None:
     xbmcplugin.endOfDirectory(request.handle)
 
 
-def _node_menu(request: Request, media: str, view_id: str) -> None:
+def extras(request: Request) -> None:
+    """Special features of a series/season (mode=extras) — a live listing
+    over the SpecialFeatures endpoint, no DB writes (plan §2 TV extras)."""
+    if request.handle < 0:
+        return
+    api = _api()
+    if api is None:
+        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+        return
+
+    item_id = request.params.get("id", "")
+    try:
+        items = api.special_features(item_id)
+    except JellyfinError as error:
+        LOG.warning("extras listing failed (%s): %s", item_id, error)
+        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+        return
+
+    _add_items(request, api, items, "", "")
+    xbmcplugin.setContent(request.handle, "videos")
+    xbmcplugin.endOfDirectory(request.handle)
+
+
+def _node_menu(request: Request, api: Api, media: str, view_id: str) -> None:
+    nodes = list(NODES[media])
+    if media == "tvshows" and _view_has_specials(api, view_id):
+        nodes.append(("extras", 30500))
     entries = []
-    for key, label_id in NODES[media]:
+    for key, label_id in nodes:
         li = xbmcgui.ListItem(settings.localized(label_id))
         li.setArt({"icon": node_icon(media, key)})
         path = listitems.plugin_url(
@@ -306,6 +337,62 @@ def _node_menu(request: Request, media: str, view_id: str) -> None:
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
     xbmcplugin.setContent(request.handle, "files")
     xbmcplugin.endOfDirectory(request.handle)
+
+
+def _extras_node(request: Request, api: Api, view_id: str) -> None:
+    """The Extras node: series in the view that advertise special features,
+    each opening its extras listing."""
+    result = api.items(
+        {
+            "ParentId": view_id,
+            "IncludeItemTypes": "Series",
+            "Recursive": True,
+            "HasSpecialFeature": True,
+            "Fields": BROWSE_FIELDS,
+            "SortBy": "SortName",
+            "SortOrder": "Ascending",
+        }
+    )
+    entries = []
+    for item in result.get("Items", []):
+        li = listitems.build(item, api.server)
+        path = listitems.plugin_url({"mode": "extras", "id": item.get("Id", "")})
+        entries.append((path, li, True))
+    xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
+    xbmcplugin.setContent(request.handle, "tvshows")
+    xbmcplugin.endOfDirectory(request.handle)
+
+
+def _view_has_specials(api: Api, view_id: str) -> bool:
+    """Whether any series in the view has special features (gates the node)."""
+    try:
+        result = api.items(
+            {
+                "ParentId": view_id,
+                "IncludeItemTypes": "Series",
+                "Recursive": True,
+                "HasSpecialFeature": True,
+                "Limit": 1,
+            }
+        )
+    except JellyfinError:
+        return False
+    return bool(result.get("Items"))
+
+
+def _append_extras_entry(request: Request, api: Api, item_id: str) -> None:
+    """An Extras entry at the end of a series/season drill-down when its DTO
+    reports special features."""
+    try:
+        count = api.item(item_id).get("SpecialFeatureCount") or 0
+    except JellyfinError:
+        return
+    if not count:
+        return
+    li = xbmcgui.ListItem(settings.localized(30500))
+    li.setArt({"icon": "DefaultVideo.png"})
+    path = listitems.plugin_url({"mode": "extras", "id": item_id})
+    xbmcplugin.addDirectoryItems(request.handle, [(path, li, True)], 1)
 
 
 def _list_items(

@@ -11,6 +11,7 @@ from kofin.sync import downloader as server
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import queries_map as QUEM
 from kofin.sync import fields as api
+from kofin.sync import schema
 from kofin.sync.fields import check_unchanged, find_library
 from kofin.sync.shims import stop, jellyfin_item, values, Local
 
@@ -139,6 +140,7 @@ class Movies(KodiDb):
         self.add_people(*values(obj, QU.add_people_movie_obj))
         self.add_streams(*values(obj, QU.add_streams_obj))
         self.artwork.add(obj["Artwork"], obj["MovieId"], "movie")
+        self.extras(obj, item)
         self.item_ids.append(obj["Id"])
 
         return not update
@@ -223,6 +225,71 @@ class Movies(KodiDb):
             "mode": "play",
         }
         obj["Filename"] = "%s?%s" % (obj["Path"], urlencode(params))
+
+    def extras(self, obj, item):
+        """Sync special features as native Kodi extras: one ``files`` +
+        ``videoversion`` row per feature (plan §2 — movies are native,
+        ``itemType`` = the schema-keyed EXTRA constant). Upserts against the
+        stored play URLs so an unchanged set writes nothing; best-effort —
+        a failed fetch or write never gates the movie sync."""
+        item_type = self.extra_itemtype
+        if item_type is None:
+            return
+
+        try:
+            existing = {
+                row[1]: row[0]  # strFilename -> idFile
+                for row in self.get_extra_assets(obj["MovieId"], item_type)
+            }
+            count = item.get("SpecialFeatureCount") or 0
+            if not count and not existing:
+                return
+
+            features = self.server.special_features(obj["Id"]) if count else []
+            desired = {}
+            for feature in features:
+                if feature.get("Id"):
+                    desired[self.extra_filename(obj, feature)] = feature
+
+            for filename, file_id in existing.items():
+                if filename not in desired:
+                    self.delete_extra_asset(file_id)
+                    LOG.debug("DELETE extra [%s] %s", file_id, obj["Id"])
+
+            for filename, feature in desired.items():
+                if filename in existing:
+                    continue
+                name = schema.extra_type_name(feature.get("ExtraType"))
+                type_id = self.get_extra_type_id(name, item_type)
+                file_id = self.add_extra_asset(
+                    obj["PathId"],
+                    filename,
+                    obj["DateAdded"],
+                    obj["MovieId"],
+                    item_type,
+                    type_id,
+                )
+                LOG.debug(
+                    "ADD extra [%s/%s] %s: %s",
+                    file_id,
+                    name,
+                    obj["Id"],
+                    feature.get("Name"),
+                )
+        except Exception as error:
+            LOG.exception("extras failed for %s: %s", obj["Id"], error)
+
+    def extra_filename(self, obj, feature):
+        """The plugin play URL stored as the extra's files row (same
+        path-identity convention as the movie's own file)."""
+        path = feature.get("Path") or ""
+        basename = path.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
+        params = {
+            "filename": basename or "%s.extra" % feature["Id"],
+            "id": feature["Id"],
+            "mode": "play",
+        }
+        return "%s?%s" % (obj["Path"], urlencode(params))
 
     @stop
     @jellyfin_item
@@ -382,6 +449,7 @@ class Movies(KodiDb):
         self.artwork.delete(obj["KodiId"], obj["Media"])
 
         if obj["Media"] == "movie":
+            self.remove_extras(obj["KodiId"])
             self.delete(*values(obj, QU.delete_movie_obj))
         elif obj["Media"] == "set":
 
@@ -407,3 +475,13 @@ class Movies(KodiDb):
             obj["KodiId"],
             obj["Id"],
         )
+
+    def remove_extras(self, movie_id):
+        """Drop every extras asset of a movie (the movie delete trigger only
+        cascades the movie's own file, not the extra files rows)."""
+        item_type = self.extra_itemtype
+        if item_type is None:
+            return
+
+        for row in self.get_extra_assets(movie_id, item_type):
+            self.delete_extra_asset(row[0])

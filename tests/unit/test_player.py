@@ -2,7 +2,7 @@ import pytest
 
 from kofin.core import state
 from kofin.service.player import Player
-from tests.unit.fakes import FakeWindow
+from tests.unit.fakes import FakeAddon, FakeWindow
 
 
 class RecordingApi:
@@ -26,11 +26,17 @@ class FakeMonitor:
     def waitForAbort(self, seconds=0):
         return False
 
+    def abortRequested(self):
+        return False
+
 
 @pytest.fixture(autouse=True)
 def kodi_fakes(monkeypatch):
     FakeWindow.store = {}
+    # Every toggle reads false: no segment engine unless a test opts in.
+    FakeAddon.store = {}
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr("xbmc.Monitor", FakeMonitor)
     monkeypatch.setattr(
         "xbmc.executeJSONRPC",

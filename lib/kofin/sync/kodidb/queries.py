@@ -430,6 +430,33 @@ get_videoversion_itemtype_obj = ["{VideoVersionId}"]
 check_video_version = """
 SELECT COUNT(name) FROM sqlite_master WHERE type='table' AND name='videoversion'
 """
+get_extra_assets = """
+SELECT      videoversion.idFile, files.strFilename, videoversion.idType
+FROM        videoversion
+JOIN        files
+ON          files.idFile = videoversion.idFile
+WHERE       videoversion.idMedia = ?
+AND         videoversion.media_type = 'movie'
+AND         videoversion.itemType = ?
+"""
+get_videoversiontype_by_name = """
+SELECT      id
+FROM        videoversiontype
+WHERE       name = ? COLLATE NOCASE
+AND         itemType = ?
+"""
+add_videoversiontype = """
+INSERT INTO videoversiontype(id, name, owner, itemType)
+VALUES      (NULL, ?, ?, ?)
+"""
+add_extra_version = """
+INSERT INTO videoversion(idFile, idMedia, media_type, itemType, idType)
+VALUES      (?, ?, 'movie', ?, ?)
+"""
+delete_extra_file = """
+DELETE FROM files
+WHERE       idFile = ?
+"""
 add_musicvideo = """
 INSERT INTO     musicvideo(idMVideo, idFile, c00, c04, c05, c06, c07, c08, c09, c10,
                 c11, c12, premiered)

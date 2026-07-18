@@ -70,3 +70,16 @@ def play_with_transcode() -> None:
             {"mode": "play", "id": item_id, "transcode": "1", "bitrate": bitrate}
         )
     )
+
+
+def browse_extras() -> None:
+    """Open the extras listing for the focused library show/season."""
+    item_id = _focused_item_id()
+    if not item_id:
+        LOG.warning("extras context invoked without a kofin item")
+        return
+    LOG.info("context extras for %s", item_id)
+    xbmc.executebuiltin(
+        "ActivateWindow(Videos,%s,return)"
+        % plugin_url({"mode": "extras", "id": item_id})
+    )

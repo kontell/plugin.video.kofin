@@ -13,7 +13,7 @@ Date: 2026-07-16 Scope: whether and how to rewrite `jellyfin-kodi` (+ its compan
 | **Port nearly verbatim** | `objects/` (Kodi DB writers + `obj_map.json` mapping), `database/` (jellyfin.db + discovery, with fork's indexes), sync pipeline (`library.py`/`downloader.py`/`full_sync.py` with phase-1 fixes), `syncplay/` package, segments logic, websocket client | Years of edge cases + fresh fixes + tests; the riskiest code to reinvent |
 | **Rewrite** | entry points, service lifecycle, settings (all of it), connection/login, `playutils` (device profile), dialogs (delete most), views regen policy, helpers/state/IPC | This is where the UX spec and the maintainability problems live |
 | **Drop** | native/direct-paths mode, live TV browse+playback, multi-server, custom resume/source/audio-sub/transcode dialogs, backup, theme media (tvtunes), logLevel & maskInfo settings, AddonSignals + dateutil deps, module-reload restart hack | §7 |
-| **New** | settings-driven everything, movie extras in the Kodi library, TV extras browsing, segment/Up Next coordination, transcode-bitrate context popup, KofinSyncQueue server plugin (clean protocol) | §8 |
+| **New** | settings-driven everything, movie extras in the Kodi library, TV extras browsing, segment skipping + Play Next (one kofin-owned dialog), transcode-bitrate context popup, KofinSyncQueue server plugin (clean protocol) | §8 |
 
 A fresh addon id also means **no migration burden**: no legacy `data.json`, no old settings to honor, no upgrade paths through the emby→jellyfin renames. First run = clean sync. The old addon remains installable in parallel for A/B comparison during development (different id, different addon_data, different jellyfin.db) — just not simultaneously *enabled*, since both would write to the same MyVideos database.
 
@@ -113,7 +113,7 @@ Replace the window-property soup with three explicit tiers:
 
 ### IPC
 
-Keep Kodi-native `NotifyAll` + `Monitor.onNotification` (it's what the addon already does — no AddonSignals). One `ipc.py` module declares every message name/payload both sides use; the Up Next wire format (hexlified JSON array, `sender=<id>.SIGNAL`, reply on `upnextprovider.<id>_play_action`) is producible with the same primitive (verified against `service.upnext/resources/lib/monitor.py:115-129`).
+Keep Kodi-native `NotifyAll` + `Monitor.onNotification` (it's what the addon already does — no AddonSignals). One `ipc.py` module declares every message name/payload both sides use. (An earlier draft used the same primitive to speak service.upnext's wire format — hexlified JSON array, reply on `upnextprovider.<id>_play_action`; that integration was dropped in §8.2, so the module now carries only kofin's own messages.)
 
 ### Reliable restart (fixing "has never worked")
 
@@ -229,7 +229,7 @@ Carried from today, tuned per spec: `syncNotification` **bool, default off** (re
 
 ### Tab: Playback
 
-Groups: resume/`resumeJumpBack`, `markPlayed` threshold, offer-delete group (`offerDelete`, `deleteTV`, `deleteMovies`), cinema mode (`enableCinema`, `askCinema`), `enableExternalSubs`, remote control group (`remoteControl` on/off — Jellyfin remote-play commands), **media segments group** (fork's: `mediaSegmentsEnabled` + per-type Off/Auto/Ask for Intro/Credits/Recap/Preview/ Commercial + Up Next coordination toggle, §8.2). Transcoding got its own tab (above), so the old playback-tab transcode block disappears.
+Groups: resume/`resumeJumpBack`, `markPlayed` threshold, offer-delete group (`offerDelete`, `deleteTV`, `deleteMovies`), cinema mode (`enableCinema`, `askCinema`), `enableExternalSubs`, remote control group (`remoteControl` on/off — Jellyfin remote-play commands), **media segments group** (`mediaSegmentsEnabled` + per-type Off/Auto/Ask for Intro/Credits/Recap/Preview/Commercial) and **Play Next group** (`playNextEnabled`, `playNextLeadTime`, `playNextAutoplay`, §8.2). Transcoding got its own tab (above), so the old playback-tab transcode block disappears.
 
 ### Tab: SyncPlay
 
@@ -268,7 +268,7 @@ Reliability policies (system-wide, cheap to state, expensive to retrofit): no mo
 
 * Settings v1 XML with tooltips and visibility dependencies, **all at a single level** (no basic/standard/expert split — Kodi's level selector never comes into it; the only other level used is 4/internal for hidden state) — and no custom "settings via addon menus" (§4 moves them).
 * `InfoTagVideo`/`InfoTagMusic` setters instead of deprecated `setInfo`/`addStreamInfo`/ property hacks; `setResumePoint` for native resume; `SORT_METHOD_*` where sortable.
-* Native dialogs only (`xbmcgui.Dialog`): keyboard, select, multiselect, yesno, notification, busy — the only custom skin window left is the segment-skip button overlay (Kodi has no native skip-button primitive; service.upnext made the same call).
+* Native dialogs only (`xbmcgui.Dialog`): keyboard, select, multiselect, yesno, notification, busy — the only custom skin window left is the segment-skip / Play Next overlay (Kodi has no native skip-button primitive; service.upnext made the same call for its own popup).
 * Logging at real Kodi levels; debug visibility follows Kodi's toggle; sensitive values always masked.
 * Kodi's own library backup guidance (userdata backup / the Backup addon) instead of a bespoke backup — the addon's data is *reconstructible by design* (resync + server-side userdata).
 * Context menus via `addon.xml` context-item extensions (as today), gated by the two Interface toggles.
@@ -299,20 +299,23 @@ Kept deliberately (cheap, in use): music-video sync, photos/homevideos/books dyn
 
 ### 8.1 SyncPlay
 
-Port the fork's `syncplay/` package (manager / playback / timesync / ui + 1.8k lines of tests) unchanged except imports and settings ids. It implements the plan in `ref/syncplay-report.md` §9: NTP-style timesync over `/GetUtcTime` (min-RTT-of-8), scheduled command execution against offset-corrected local clock, `Player.SetTempo` drift correction with micro-seek fallback and dead-zone, `onAVStarted` as the Ready trigger, group UI, and guards so programmatic actions don't echo (the up-next suppression inside a group is already in `player.py:297-301`). The `feat/syncplay-protocol-v2` branch tracks the server-side robustness work — kofin should stay protocol-v1-compatible and adopt v2 opportunistically (that battle is on the server side; the report's §6 surgical fixes are upstream PRs, not kofin work).
+Port the fork's `syncplay/` package (manager / playback / timesync / ui + 1.8k lines of tests) unchanged except imports and settings ids. It implements the plan in `ref/syncplay-report.md` §9: NTP-style timesync over `/GetUtcTime` (min-RTT-of-8), scheduled command execution against offset-corrected local clock, `Player.SetTempo` drift correction with micro-seek fallback and dead-zone, `onAVStarted` as the Ready trigger, group UI, and guards so programmatic actions don't echo (the Play Next suppression inside a group is already in `player.py:297-301`). The `feat/syncplay-protocol-v2` branch tracks the server-side robustness work — kofin should stay protocol-v1-compatible and adopt v2 opportunistically (that battle is on the server side; the report's §6 surgical fixes are upstream PRs, not kofin work).
 
-### 8.2 Segment skipping + Up Next, side by side
+### 8.2 Segment skipping + Play Next — one kofin-owned dialog
 
-Current state: the fork polls position 1×/s (`segments.py`), auto-skips or shows a skip button per segment type, and sends `upnext_data` at 2% progress; on a Credits segment it *also* triggers the Up Next data send (`player.py:648-650`). Two popups can still stack at the end of an episode.
+**Rev. 2026-07-18** — supersedes the original `service.upnext` hand-off with a self-contained kofin dialog (drives phase-3 plan §2/§8.2). Rationale: the credits dialog is triggered by the Jellyfin *segment* (which only kofin sees) and one of its actions is *skip outro* (pure segment logic), so `service.upnext` — which fires on its own `notification_time` seconds-before-end heuristic and knows nothing of Jellyfin segments — *cannot* own that moment. Everything the dialog needs (segment bounds, next-episode id, the play path) is already kofin's, so `service.upnext` is dropped entirely rather than integrated or forked.
 
-Design — **one popup at a time, Jellyfin segments drive Up Next timing**:
+Current state (fork): position polled 1×/s (`segments.py`), auto-skip or skip-button per segment type, and on a Credits segment it *also* fires the `upnext_data` send (`player.py:648-650`) — so two popups can stack, and the timing is unreliable (below).
 
-1. On playback start of an episode, fetch segments (already done) and next-episode info; send `upnext_data` immediately **with `notification_time` = credits/outro segment start** (when a Credits segment exists). service.upnext then fires its popup exactly when credits begin — verified supported: `notification_time`/`notification_offset` in `service.upnext/resources/lib/api.py:186-193`.
-2. Suppression rule in our skip logic: if a next episode exists *and* Up Next is installed+enabled (`System.HasAddon(service.upnext)` + our toggle), the **Credits segment does not show our skip button** — Up Next's popup owns that moment (its Watch Now/Cancel already covers "skip to next"). Intro/Recap/Preview/Commercial segments behave normally (auto/button per settings).
-3. Fallbacks: no Up Next, or a movie, or the season's last episode ⇒ our credits skip button appears as normal. Inside a SyncPlay group ⇒ neither (group queue is authoritative — already handled).
-4. The skip-button monitor loop stops blocking the checker thread (event-driven timer instead of the `_monitor_skip_dialog` busy-loop).
+Design — **kofin owns the credits moment; Jellyfin segments drive it directly**:
 
-Full integration *into* service.upnext (replacing its popup) is indeed not feasible/needed — it's a separate addon with its own state machine; the data+play_info signal API is the sanctioned integration point and we already use it (`monitor.py:95-107` handles the play-back signal).
+1. **Timing robustness (the core reliability fix).** The fork polls at 1 Hz and tests integer-truncated membership `start <= int(getTime()) <= end` (`segments.py:39`, `player.py:31,611`), so short or late-loaded segments are missed and the permanent `skip_prompted` set never re-offers them — this is why the button appears late or not at all. kofin: 0.25 s tick on `float(getTime())`; **boundary-crossing** detection (`prev < start <= now`, *or* already-inside, catching seeks and late fetches); a pre-armed next boundary; a warm media-segments fetch on the play path (gate the first arm on segments-loaded, killing the t≈0 Intro race); recoverable dedup; post-seek settle.
+2. **One dialog, decided from segment + next-episode state.** At the Credits/Outro crossing kofin raises a single multi-action overlay: next episode + not in a SyncPlay group → **[Skip Outro] [Play Next] [Close]**; finale or in a group → **[Skip Outro] [Close]** (group queue authoritative, `player.py:297-301`); `skipCreditsMode = Auto` auto-seeks and shows nothing unless a Play Next is on offer. Intro/Recap/Preview/Commercial → **[Skip \<type>] [Close]**, never Play Next.
+3. **Play Next is kofin's own path — no IPC, no upnext.** The next episode is resolved up front (fork `next_up` adjacency, `player.py:309-323`); the button starts it through the normal `play` handler by kofin id. No `upnext_data`/`upnextprovider` round-trip, no `notification_time` contract. (That contract was mis-read in this section's first draft: `notification_time` is *seconds-before-end*, not an absolute credits position — `api.py:186-193` — so passing the segment start would have fired the popup near the episode's *start*.)
+4. **No segment data → kofin's own near-end prompt.** For content Jellyfin hasn't analyzed, kofin shows the same overlay as a **[Play Next] [Close]** prompt at `end − playNextLeadTime` — replacing what upnext used to provide, with kofin controlling the timing.
+5. **Event-driven overlay.** Lifetime driven by the segment tick (open at the crossing, auto-close past `end`, close on button press) — the `_monitor_skip_dialog` busy-loop that blocked the checker thread (`player.py:773-807`, the fork's `fix/segment-checker-shutdown-hang`) is gone.
+
+This keeps the segment-skip overlay as the single custom skin window (§6) and removes `service.upnext` from the dependency graph entirely (YAGNI §9).
 
 ### 8.3 Extras (Kodi-native for movies, browseable for TV)
 
@@ -354,7 +357,7 @@ Covered in §3 Playback and §4 Transcoding: `contextBitrates` multiselect drive
 
 * No plugin-free sync as default (fallback only, Phase 4) — the plugin path is strictly better while upstream lacks tombstones/userdata cursors.
 * No Kodi "versions" sync of Jellyfin MediaSources in v1 (play default version; native versions UI is a clean later addition since extras already exercise the asset tables).
-* No custom Up Next popup, no vendored fork of service.upnext.
+* No vendored or forked service.upnext, and (revised 2026-07-18, §8.2) no dependency on it at all — kofin's own segment overlay carries Play Next off the segment tick. The original ruling here was "use upnext's signal API"; the segment-triggered unified dialog made a self-contained overlay the simpler call.
 * No theme-media replacement, no backup subsystem, no path-substitution UI (unless a real network-share use case shows up post-native-mode).
 * No parallel video∥music sync. The fork built it (one writer per Kodi DB, music full-sync on its own thread) and it tested as a bust; the architecture says why: both writers still serialize on the single-writer jellyfin.db mapping DB, the Python GIL serializes the CPU side of item mapping, and the download stage — the actual bottleneck, bounded by server-side DTO builds — was already parallel (3 workers) and gains nothing from a second consumer. A honest fix would need per-media mapping DBs plus more download concurrency the server wouldn't reward: real complexity for a marginal, unproven win. Sequential sync is also simpler to report progress for and to resume. The goal it chased (shorter perceived wait) is served instead by priority ordering and the Phase-3 full-sync overhaul (newest-first, fewer round trips).
 * No settings for HTTP tunables, thread counts beyond the two existing tuning knobs, WS intervals, or per-library sync schedules.
@@ -369,7 +372,7 @@ Covered in §3 Playback and §4 Transcoding: `contextBitrates` multiselect drive
 |---|---|---|
 | **Kodi schema churn** (annual) | Piers already renumbers asset types and adds columns (§3); MyVideos 131→146 in one cycle | Schema-gated constants; write-sync disable on unknown versions; CI creating both Omega+Piers DBs from Kodi's own DDL and running writer fixtures against them (port `tests/`) |
 | **Writers are the crown jewels** | Direct-SQL correctness is the whole product | Transplant, don't rewrite; keep fixtures; feature-flag any writer change |
-| **service.upnext variants** (im85288 vs MoojMidge fork) | Signal API is compatible across both; `notification_time` supported since v1.1.0 | Integration behind capability check; graceful without it |
+| **Segment-skip timing** (fork appears late/never — 1 Hz poll + integer membership test) | Root cause in `segments.py:39` / `player.py:31,611`; kofin uses a 0.25 s tick + boundary-crossing + warm fetch (§8.2) | Live-verify on a t≈0 intro and a seek-over case (testing-plan S3.1/S3.2) |
 | **Jellyfin locks down anonymous static streams** (music/theme URLs in MyMusic rely on it) | Verified: Audio stream endpoints carry no `[Authorize]` today | Keep an `api_key`-in-URL fallback path ready behind a constant; regenerate music paths on demand |
 | **Settings v1 quirks** (dynamic lists, apply-on-OK) | Verified: `close=true` saves-then-runs; multiselect via dialog round-trip | Prototype the Library tab first (it exercises every mechanism) |
 | **Restart semantics** | Soft restart depends on zero module-level state | Enforce via lint rule (no mutable module globals in service code) + the SetAddonEnabled hard path |
@@ -382,7 +385,7 @@ Covered in §3 Playback and §4 Transcoding: `contextBitrates` multiselect drive
 
 1. **Skeleton + Account/Transcoding settings + login + dynamic browse + playback** — a working sync-less Jellyfin addon: router, listitems via InfoTagVideo, device profile port (pvr.kofin), playback reporting, native resume, transcode context popup. *This validates the settings mechanics and playback stack before any DB writing exists.*
 2. **Sync transplant** — writers + jellyfin.db + pipeline (fork phase 1 included), Library tab (select/update/repair), views/nodes, widget refresh policy, schema gate. Syncs against the **official KodiSyncQueue** from day one (the transplanted pipeline already speaks it). Old addon → kofin side-by-side comparison on a test profile.
-3. **Player features** — segments + Up Next coordination (8.2), movie extras + TV extras browse (8.3).
+3. **Player features** — segments + Play Next coordination (8.2), movie extras + TV extras browse (8.3).
 4. **SyncPlay port** (8.1) + SyncPlay tab + root entry.
 5. **KofinSyncQueue** (8.4) + addon adoption (typed ordering, retention-overrun repair) + full-sync overhaul (plan Phase 3).
 6. **Hardening** — Piers validation pass, plugin-free fallback (plan Phase 4), translations, repo packaging (repository.kontell).

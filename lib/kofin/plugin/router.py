@@ -62,6 +62,7 @@ def _handlers() -> Dict[str, Callable[[Request], None]]:
         "": _root,
         "browse": browse.browse,
         "nextepisodes": browse.next_episodes,
+        "extras": browse.extras,
         "play": play.play,
         "login": account.login,
         "logout": account.logout,
