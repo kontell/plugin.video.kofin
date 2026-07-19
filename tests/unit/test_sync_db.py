@@ -105,7 +105,7 @@ def test_version_row_is_single(kofin_path):
 
 
 def test_unsupported_kodi_schema_refused(monkeypatch, tmp_path):
-    monkeypatch.setattr("xbmcvfs.listdir", lambda path: ([], ["MyVideos146.db"]))
+    monkeypatch.setattr("xbmcvfs.listdir", lambda path: ([], ["MyVideos999.db"]))
     monkeypatch.setattr("xbmcvfs.translatePath", lambda path: str(tmp_path))
 
     from kofin.sync import schema

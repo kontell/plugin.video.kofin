@@ -88,8 +88,16 @@ class FakeMonitor:
         return False
 
 
-@pytest.fixture(autouse=True)
-def sync_env(monkeypatch, tmp_path):
+@pytest.fixture(
+    autouse=True,
+    params=[
+        (kodifixtures.VIDEO_VERSION, kodifixtures.MUSIC_VERSION),
+        (kodifixtures.PIERS_VIDEO_VERSION, kodifixtures.PIERS_MUSIC_VERSION),
+    ],
+    ids=["omega", "piers"],
+)
+def sync_env(request, monkeypatch, tmp_path):
+    video_version, music_version = request.param
     FakeAddon.store = {
         "enableCoverArt": "true",
         "compressArt": "false",
@@ -108,10 +116,16 @@ def sync_env(monkeypatch, tmp_path):
 
     sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
     sync_db.set_path_override(
-        "video", kodifixtures.create_video_db(str(tmp_path / "MyVideos131.db"))
+        "video",
+        kodifixtures.create_video_db(
+            str(tmp_path / ("MyVideos%d.db" % video_version)), video_version
+        ),
     )
     sync_db.set_path_override(
-        "music", kodifixtures.create_music_db(str(tmp_path / "MyMusic83.db"))
+        "music",
+        kodifixtures.create_music_db(
+            str(tmp_path / ("MyMusic%d.db" % music_version)), music_version
+        ),
     )
     yield
     sync_db.reset_overrides()
@@ -325,13 +339,26 @@ def movie_with_extras(count=2, etag="etag-movie1-v1"):
     return payload
 
 
+def extra_item_type():
+    """VideoAssetType::EXTRA for the fixture under test (schema-keyed)."""
+    version = video_query("SELECT idVersion FROM version")[0][0]
+    return schema.EXTRA_ITEM_TYPE[version]
+
+
+def version_item_type():
+    """VideoAssetType::VERSION, read the way the writer reads it: the
+    itemType Kodi stamped on the seeded Standard Edition row."""
+    return video_query("SELECT itemType FROM videoversiontype WHERE id = 40400")[0][0]
+
+
 def extras_rows():
     return video_query(
         "SELECT videoversion.idFile, videoversion.idMedia, videoversion.idType,"
         " videoversiontype.name, videoversiontype.owner, videoversiontype.itemType"
         " FROM videoversion"
         " JOIN videoversiontype ON videoversiontype.id = videoversion.idType"
-        " WHERE videoversion.itemType = 1 ORDER BY videoversion.idFile"
+        " WHERE videoversion.itemType = ? ORDER BY videoversion.idFile",
+        (extra_item_type(),),
     )
 
 
@@ -346,7 +373,7 @@ def test_movie_extras_written_as_native_assets(api):
     for _file_id, id_media, _id_type, _name, owner, vvt_item_type in rows:
         assert id_media == 1  # the movie's idMovie
         assert owner == 2  # VideoAssetTypeOwner::USER
-        assert vvt_item_type == 1  # EXTRA on Omega
+        assert vvt_item_type == extra_item_type()
 
     filenames = [
         row[0] for row in video_query("SELECT strFilename FROM files ORDER BY idFile")
@@ -360,7 +387,8 @@ def test_movie_extras_written_as_native_assets(api):
     # The main version row is untouched (the A/B guard: extras must not
     # perturb what phase 2 writes).
     versions = video_query(
-        "SELECT idMedia, media_type, idType FROM videoversion WHERE itemType = 0"
+        "SELECT idMedia, media_type, idType FROM videoversion WHERE itemType = ?",
+        (version_item_type(),),
     )
     assert versions == [(1, "movie", 40400)]
 
@@ -381,7 +409,8 @@ def test_movie_extras_idempotent(api):
     write_movie(api, movie_with_extras(etag="etag-movie1-v2"))
     assert extras_rows() == before
     type_names = video_query(
-        "SELECT name FROM videoversiontype WHERE itemType = 1 AND owner = 2"
+        "SELECT name FROM videoversiontype WHERE itemType = ? AND owner = 2",
+        (extra_item_type(),),
     )
     assert len(type_names) == 2
 

@@ -37,18 +37,25 @@ def test_missing_database_raises(monkeypatch):
         schema.check("video")
 
 
-def test_supported_versions_pass_the_gate(monkeypatch):
+def test_supported_omega_versions_pass_the_gate(monkeypatch):
     fake_database_dir(monkeypatch, ["MyVideos131.db", "MyMusic83.db"])
     assert schema.check("video") == 131
     assert schema.check("music") == 83
     assert schema.gate_status() is None
 
 
+def test_supported_piers_versions_pass_the_gate(monkeypatch):
+    fake_database_dir(monkeypatch, ["MyVideos146.db", "MyMusic84.db"])
+    assert schema.check("video") == 146
+    assert schema.check("music") == 84
+    assert schema.gate_status() is None
+
+
 def test_unknown_version_is_refused(monkeypatch):
-    fake_database_dir(monkeypatch, ["MyVideos146.db", "MyMusic83.db"])
+    fake_database_dir(monkeypatch, ["MyVideos999.db", "MyMusic83.db"])
     with pytest.raises(schema.SchemaUnsupported) as excinfo:
         schema.check("video")
-    assert excinfo.value.version == 146
+    assert excinfo.value.version == 999
     assert excinfo.value.kind == "video"
 
     failure = schema.gate_status()
@@ -56,11 +63,11 @@ def test_unknown_version_is_refused(monkeypatch):
 
 
 def test_gate_status_scopes_to_requested_kinds(monkeypatch):
-    fake_database_dir(monkeypatch, ["MyVideos131.db", "MyMusic84.db"])
+    fake_database_dir(monkeypatch, ["MyVideos131.db", "MyMusic999.db"])
     assert schema.gate_status(("video",)) is None
     failure = schema.gate_status(("video", "music"))
     assert isinstance(failure, schema.SchemaUnsupported)
-    assert failure.version == 84
+    assert failure.version == 999
 
 
 def test_database_path_joins_dir_and_gate(monkeypatch):

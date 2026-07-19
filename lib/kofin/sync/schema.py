@@ -7,9 +7,9 @@ refuses any version not in the map — write sync is disabled, one notification
 is raised by the library manager, and the Library tab status line explains.
 Never write blind (plan §2).
 
-Version map: Kodi 21 (Omega) ships MyVideos131/MyMusic83. Kodi 22 (Piers)
-ships MyVideos146/MyMusic84, but the gate refuses those until Piers fixture
-databases exist and the L2 suite runs against them (phase-2 hardening item).
+Version map: Kodi 21 (Omega) ships MyVideos131/MyMusic83; Kodi 22 (Piers)
+ships MyVideos146/MyMusic84. Both are fixture-backed — the L2 writer suite
+runs against schema dumps of each before a version enters the map.
 
 Allowed module-level state: the discovery cache. Database filenames cannot
 change within a Kodi process (a version bump requires a Kodi upgrade and
@@ -33,18 +33,18 @@ PREFIXES = {"video": "MyVideos", "music": "MyMusic", "texture": "Textures"}
 # kind -> allowed schema versions. Texture is unversioned here because phase 2
 # never writes it; the entry exists so discovery can resolve the path.
 SUPPORTED: Dict[str, Optional[set]] = {
-    "video": {131},
-    "music": {83},
+    "video": {131, 146},
+    "music": {83, 84},
     "texture": None,
 }
 
 DATABASE_DIR = "special://database/"
 
-# Kodi's VideoAssetType::EXTRA value per MyVideos schema version. Omega (131)
-# uses 1; Piers renumbers it to 2 in migration 134 — that entry lands with the
-# Piers fixtures (plan §7: keyed here, never inlined in a writer). A version
-# missing from this map disables the extras pass, not the sync.
-EXTRA_ITEM_TYPE: Dict[int, int] = {131: 1}
+# Kodi's VideoAssetType::EXTRA value per MyVideos schema version. Piers shifts
+# the whole enum up by one (VERSION 0->1, EXTRA 1->2), confirmed against the
+# Bravia install's seed rows (plan §7: keyed here, never inlined in a writer).
+# A version missing from this map disables the extras pass, not the sync.
+EXTRA_ITEM_TYPE: Dict[int, int] = {131: 1, 146: 2}
 
 # VideoAssetTypeOwner::USER — the owner kofin stamps on videoversiontype rows
 # it creates (matches what Kodi's own "convert to extra" flow writes).
