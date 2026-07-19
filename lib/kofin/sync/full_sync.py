@@ -17,6 +17,7 @@ import datetime
 import xbmc
 
 from kofin.core import settings, state
+from kofin.core.http import HttpError
 from kofin.core.log import Logger
 from kofin.sync import downloader as server
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
@@ -140,6 +141,11 @@ class FullSync(object):
         else:
             self.mapping()
 
+        # A queue that crashed mid-run resumes with its unfinished tail, and
+        # repeated crashes re-append the same ids; syncing a library twice is
+        # wasted work, so collapse duplicates while preserving order.
+        self.sync["Libraries"] = list(dict.fromkeys(self.sync["Libraries"]))
+
         if self.sync["Libraries"]:
             self.start()
 
@@ -214,10 +220,11 @@ class FullSync(object):
         try:
             for library in libraries:
 
-                self.process_library(library)
+                synced = self.process_library(library)
 
                 if (
-                    not library.startswith("Boxsets:")
+                    synced
+                    and not library.startswith("Boxsets:")
                     and library not in self.sync["Whitelist"]
                 ):
                     self.sync["Whitelist"].append(library)
@@ -244,7 +251,11 @@ class FullSync(object):
         self.sync["RestorePoints"].pop(key, None)
 
     def process_library(self, library_id):
-        """Add a library by its id. Create a node and a playlist whenever appropriate."""
+        """Add a library by its id. Create a node and a playlist whenever appropriate.
+
+        Returns True when the library was processed (and may be whitelisted),
+        False when it was dropped because the server no longer has it.
+        """
         media = {
             "movies": self.movies,
             "musicvideos": self.musicvideos,
@@ -277,9 +288,21 @@ class FullSync(object):
                     else:
                         self.boxsets(boxset_library)
 
-                return
+                return True
 
-            library = self.server.item(library_id.replace("Mixed:", ""))
+            try:
+                library = self.server.item(library_id.replace("Mixed:", ""))
+            except HttpError as error:
+                # Deleted server-side while queued. Dropping it here (instead
+                # of raising) keeps a dead id from wedging every future sync
+                # run on the same 404.
+                if error.status != 404:
+                    raise
+                LOG.warning(
+                    "library %s is gone from the server; dropped from the sync queue",
+                    library_id,
+                )
+                return False
 
             if library_id.startswith("Mixed:"):
                 for mixed in ("movies", "tvshows"):
@@ -287,6 +310,7 @@ class FullSync(object):
                     media[mixed](library)
             else:
                 media[library["CollectionType"]](library)
+            return True
         except LibraryException as error:
             # TODO: Fixme; We're catching all LibraryException here,
             # but silently ignoring any that isn't the exit condition.
@@ -295,6 +319,7 @@ class FullSync(object):
                 save_sync(self.sync)
                 raise
             LOG.warning("Ignoring exception %s", error)
+            return True
 
         except Exception as error:
             notification(localized(30406), error=True)
