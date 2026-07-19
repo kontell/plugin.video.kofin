@@ -33,7 +33,7 @@
     <summary lang="en_GB">Jellyfin client with native Kodi integration</summary>
     <description lang="en_GB">Browse and play media from a Jellyfin server. Library sync, SyncPlay and segment skipping arrive in later phases.</description>
     <assets>
-      <icon>resources/icon.png</icon>
+      <icon>resources/media/icon.png</icon>
     </assets>
   </extension>
 </addon>
