@@ -7,6 +7,7 @@ zero orphans in any link table).
 """
 
 import datetime
+import re
 import sqlite3
 
 import pytest
@@ -167,6 +168,17 @@ def dump(path):
         return "\n".join(conn.iterdump())
     finally:
         conn.close()
+
+
+_DATETIME_LITERAL = re.compile(r"'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'")
+
+
+def music_dump(path):
+    """Music dump with datetime literals masked. Kodi's own schema triggers
+    (tgrInsertSong/tgrUpdateSong and the album/artist pair) stamp dateNew and
+    dateModified with SQLite's DATETIME('now'), which no Python-side clock
+    freeze can reach — a write pair straddling a second boundary flips them."""
+    return _DATETIME_LITERAL.sub("'<clock>'", dump(path))
 
 
 def video_query(sql, args=()):
@@ -766,11 +778,11 @@ def test_music_artist_album_song_write(api, frozen_music_clock):
 
 def test_music_write_is_idempotent(api, frozen_music_clock):
     write_music_tree(api)
-    first = dump(str(sync_db._path_overrides["music"]))
+    first = music_dump(str(sync_db._path_overrides["music"]))
     first_map = dump(str(sync_db._path_overrides["kofin"]))
 
     write_music_tree(api)
-    assert dump(str(sync_db._path_overrides["music"])) == first
+    assert music_dump(str(sync_db._path_overrides["music"])) == first
     assert dump(str(sync_db._path_overrides["kofin"])) == first_map
 
 
