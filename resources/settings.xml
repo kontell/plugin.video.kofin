@@ -166,6 +166,12 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
+        <!-- The list[string] settings below carry no forceDirectPlay visibility
+             dependency: on Omega, a <dependencies> block attached to a
+             list[string] setting silently unregisters the setting it
+             references, so forceDirectPlay vanished from the manager and
+             every lookup of it warned (Kodi settings-manager bug, verified
+             empirically on 21.3). -->
         <setting id="directPlayVideoCodecs" type="list[string]" label="30108" help="30109">
           <level>0</level>
           <default>h264,h264_10bit,hevc,hevc_rext,av1,mpeg2video,vp9,vc1</default>
@@ -182,11 +188,6 @@
             </options>
             <delimiter>,</delimiter>
           </constraints>
-          <dependencies>
-            <dependency type="visible">
-              <condition operator="is" setting="forceDirectPlay">false</condition>
-            </dependency>
-          </dependencies>
           <control type="list" format="string">
             <multiselect>true</multiselect>
             <hidevalue>true</hidevalue>
@@ -208,11 +209,6 @@
             </options>
             <delimiter>,</delimiter>
           </constraints>
-          <dependencies>
-            <dependency type="visible">
-              <condition operator="is" setting="forceDirectPlay">false</condition>
-            </dependency>
-          </dependencies>
           <control type="list" format="string">
             <multiselect>true</multiselect>
             <hidevalue>true</hidevalue>
@@ -236,11 +232,6 @@
             </options>
             <delimiter>,</delimiter>
           </constraints>
-          <dependencies>
-            <dependency type="visible">
-              <condition operator="is" setting="forceDirectPlay">false</condition>
-            </dependency>
-          </dependencies>
           <control type="list" format="string">
             <multiselect>true</multiselect>
             <hidevalue>true</hidevalue>
