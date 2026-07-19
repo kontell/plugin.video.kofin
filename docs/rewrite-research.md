@@ -231,9 +231,9 @@ Carried from today, tuned per spec: `syncNotification` **bool, default off** (re
 
 Groups: resume/`resumeJumpBack`, `markPlayed` threshold, offer-delete group (`offerDelete`, `deleteTV`, `deleteMovies`), cinema mode (`enableCinema`, `askCinema`), `enableExternalSubs`, remote control group (`remoteControl` on/off — Jellyfin remote-play commands), **media segments group** (`mediaSegmentsEnabled` + per-type Off/Auto/Ask for Intro/Credits/Recap/Preview/Commercial) and **Play Next group** (`playNextEnabled`, `playNextLeadTime`, `playNextAutoplay`, §8.2). Transcoding got its own tab (above), so the old playback-tab transcode block disappears.
 
-### Tab: SyncPlay
+### Playback-tab group: SyncPlay
 
-(Was crammed into Playback in the fork.) `syncPlayEnabled` (shows root item), `syncPlayDriftCorrection`, `syncPlayTolerance`, `syncPlayNotifications` (member join/leave toasts).
+*(Originally proposed as a dedicated tab; phase 4 landed it as **group 3 of the Playback tab** instead — four settings do not earn a tab, and they sit naturally beside the other player-behavior groups. Deviation recorded in `phase4-implementation-plan.md` §4.)* `syncPlayEnabled` (shows root item), `syncPlayDriftCorrection`, `syncPlayTolerance`, `syncPlayNotifications` (member join/leave toasts).
 
 ### Tab: Interface
 
@@ -386,7 +386,7 @@ Covered in §3 Playback and §4 Transcoding: `contextBitrates` multiselect drive
 1. **Skeleton + Account/Transcoding settings + login + dynamic browse + playback** — a working sync-less Jellyfin addon: router, listitems via InfoTagVideo, device profile port (pvr.kofin), playback reporting, native resume, transcode context popup. *This validates the settings mechanics and playback stack before any DB writing exists.*
 2. **Sync transplant** — writers + jellyfin.db + pipeline (fork phase 1 included), Library tab (select/update/repair), views/nodes, widget refresh policy, schema gate. Syncs against the **official KodiSyncQueue** from day one (the transplanted pipeline already speaks it). Old addon → kofin side-by-side comparison on a test profile.
 3. **Player features** — segments + Play Next coordination (8.2), movie extras + TV extras browse (8.3).
-4. **SyncPlay port** (8.1) + SyncPlay tab + root entry.
+4. **SyncPlay port** (8.1) + SyncPlay settings group (Playback tab, §4) + root entry.
 5. **KofinSyncQueue** (8.4) + addon adoption (typed ordering, retention-overrun repair) + full-sync overhaul (plan Phase 3).
 6. **Hardening** — Piers validation pass, plugin-free fallback (plan Phase 4), translations, repo packaging (repository.kontell).
 
