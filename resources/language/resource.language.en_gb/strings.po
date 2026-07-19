@@ -1191,3 +1191,21 @@ msgstr ""
 msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr ""
+
+# 30600-30619 — phase 5: KofinSyncQueue tier + retention + progress
+
+msgctxt "#30600"
+msgid "KofinSyncQueue companion (fast path)"
+msgstr ""
+
+msgctxt "#30601"
+msgid "Change-queue retention exceeded — updating libraries to recover"
+msgstr ""
+
+msgctxt "#30602"
+msgid "New: %s | Updates: %s | User data: %s"
+msgstr ""
+
+msgctxt "#30603"
+msgid "Comparing with the server"
+msgstr ""

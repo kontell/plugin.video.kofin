@@ -21,8 +21,8 @@ import xbmc
 import xbmcgui
 
 from kofin.core import settings, state
-from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
+from kofin.sync import changefeed
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
 from kofin.sync.kodidb import Movies as KodiDb
 from kofin.sync.db import Database, get_sync, save_sync
@@ -30,7 +30,7 @@ from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import schema
 from kofin.sync.full_sync import FullSync
 from kofin.sync.views import Views
-from kofin.sync.downloader import GetItemWorker
+from kofin.sync.downloader import GetItemWorker, basic_info
 from kofin.sync import fields as api
 from kofin.sync.shims import (
     LibraryException,
@@ -61,8 +61,11 @@ PROGRESS_DISPLAY = 50
 NEW_VIDEO_TIME = 5000
 NEW_MUSIC_TIME = 2000
 
-TIER_OFFICIAL = "official"
-TIER_NONE = "none"
+# Companion tiers come from the change-feed ladder (phase 5, plan §2); the
+# aliases keep the phase-2 names working.
+TIER_KOFIN = changefeed.TIER_KOFIN
+TIER_OFFICIAL = changefeed.TIER_OFFICIAL
+TIER_NONE = changefeed.TIER_NONE
 
 
 class Library(threading.Thread):
@@ -84,12 +87,25 @@ class Library(threading.Thread):
         self.dthreads = settings.get_int("limitThreads") or 3
         self.monitor = xbmc.Monitor()
         self.companion_tier = TIER_NONE
+        # The change-feed provider behind companion_tier (None on tier none).
+        self.changefeed = None
+        # Envelope of the last catch-up response: watermark + retention facts.
+        # Consumed (once) by save_last_sync so a later realtime drain cannot
+        # rewind the watermark to a stale query time.
+        self.last_envelope = None
+        # Held True from retention-overrun detection until the targeted
+        # update pass completes; the watermark must not advance in between
+        # (plan §2 retention overrun).
+        self.retention_repair_pending = False
         self.startup_done = False
         self.commands = queue.Queue()
         self.added_queue = queue.Queue()
         self.updated_queue = queue.Queue()
         self.userdata_queue = queue.Queue()
         self.removed_queue = queue.Queue()
+        # Image-only updates (tier 1): downloaded last with minimal fields,
+        # written through the artwork-only path instead of the full cascade.
+        self.artwork_queue = queue.Queue()
         self.added_output = self.__new_queues__()
         self.updated_output = self.__new_queues__()
         self.userdata_output = self.__new_queues__()
@@ -100,6 +116,15 @@ class Library(threading.Thread):
         # when it changed. Empty outside the incremental path (full sync tags
         # nothing and keeps applying userdata).
         self.userdata_changed_ids = set()
+        # Ids routed to the artwork-only class this cycle: downloads are
+        # tagged so the writer applies art tables + checksum only. The
+        # UpdateWorker fallback discards an id before re-queueing it for the
+        # full path, so the retry downloads untagged.
+        self.artwork_only_ids = set()
+        # Per-class counts of the current catch-up for the progress dialog
+        # ("New: 12 | Updates: 340"), so a metadata backlog is visibly not
+        # blocking new content (sync-plan §3).
+        self.class_counts = {}
 
         self.jellyfin_threads = []
         self.download_threads = []
@@ -158,6 +183,8 @@ class Library(threading.Thread):
 
         if failure is not None:
             status = localized(30413) % getattr(failure, "version", 0)
+        elif self.companion_tier == TIER_KOFIN:
+            status = localized(30600)
         elif self.companion_tier == TIER_OFFICIAL:
             status = localized(30411)
         else:
@@ -175,14 +202,12 @@ class Library(threading.Thread):
         settings.set_str("syncedLibraries", ", ".join(names))
 
     def detect_companion(self):
-        """Tier probe (plan §2): GetServerDateTime answers only when the
-        official KodiSyncQueue plugin is installed and enabled."""
-        try:
-            self.api.server_time()
-            self.companion_tier = TIER_OFFICIAL
-        except JellyfinError as error:
-            LOG.info("no KodiSyncQueue companion detected (%s)", error)
-            self.companion_tier = TIER_NONE
+        """The tier ladder (plan §2): KofinSyncQueue → official KodiSyncQueue
+        → none. The provider instance is what fast_sync consumes."""
+        self.changefeed = changefeed.detect(self.api)
+        self.companion_tier = (
+            self.changefeed.tier if self.changefeed is not None else TIER_NONE
+        )
 
         return self.companion_tier
 
@@ -308,42 +333,34 @@ class Library(threading.Thread):
             if self.total_updates > PROGRESS_DISPLAY:
                 queue_size = self.worker_queue_size()
 
+                # Per-class counts (sync-plan §3): a large metadata backlog
+                # is visibly not blocking new content.
+                if self.class_counts:
+                    message = localized(30602) % (
+                        self.class_counts.get("new", 0),
+                        self.class_counts.get("updates", 0),
+                        self.class_counts.get("userdata", 0),
+                    )
+                elif queue_size:
+                    message = "%s: %s" % (localized(30401), queue_size)
+                else:
+                    message = localized(30401)
+
                 if self.progress_updates is None:
 
                     self.progress_updates = xbmcgui.DialogProgressBG()
                     self.progress_updates.create("Kofin", localized(30401))
-                    self.progress_updates.update(
-                        int(
-                            (
-                                float(self.total_updates - queue_size)
-                                / float(self.total_updates)
-                            )
-                            * 100
-                        ),
-                        message="%s: %s" % (localized(30401), queue_size),
-                    )
-                elif queue_size:
-                    self.progress_updates.update(
-                        int(
-                            (
-                                float(self.total_updates - queue_size)
-                                / float(self.total_updates)
-                            )
-                            * 100
-                        ),
-                        message="%s: %s" % (localized(30401), queue_size),
-                    )
-                else:
-                    self.progress_updates.update(
-                        int(
-                            (
-                                float(self.total_updates - queue_size)
-                                / float(self.total_updates)
-                            )
-                            * 100
-                        ),
-                        message=localized(30401),
-                    )
+
+                self.progress_updates.update(
+                    int(
+                        (
+                            float(self.total_updates - queue_size)
+                            / float(self.total_updates)
+                        )
+                        * 100
+                    ),
+                    message=message,
+                )
 
             if not settings.get_bool("dbSyncScreensaver") and self.screensaver is None:
 
@@ -361,6 +378,7 @@ class Library(threading.Thread):
             and not self.updated_queue.qsize()
             and not self.userdata_queue.qsize()
             and not self.removed_queue.qsize()
+            and not self.artwork_queue.qsize()
             and not self.worker_queue_size()
         ):
             self.pending_refresh = False
@@ -377,6 +395,7 @@ class Library(threading.Thread):
                 self.retry_delay = 60
 
             self.total_updates = 0
+            self.class_counts = {}
             state.set_sync_active(False)
 
             if self.progress_updates:
@@ -431,11 +450,22 @@ class Library(threading.Thread):
                 elif command == "UpdateLibrary":
                     whitelist = self.whitelist()
                     if whitelist:
-                        self.add_library(",".join(whitelist), update=True)
+                        ok = self.add_library(",".join(whitelist), update=True)
+
+                        if ok and self.retention_repair_pending:
+                            # The targeted pass has planned/enqueued the
+                            # heal; release the watermark hold. With work
+                            # still queued the drain-success path saves as
+                            # usual; on a clean tree nothing will drain, so
+                            # save here — the prune verified everything.
+                            self.retention_repair_pending = False
+
+                            if not self.pending_refresh:
+                                self.save_last_sync()
                 elif command == "RefreshBoxsets":
                     self.add_library("Boxsets:Refresh")
                 elif command == "FastSync":
-                    if self.companion_tier == TIER_OFFICIAL:
+                    if self.companion_tier != TIER_NONE:
                         if not self.fast_sync():
                             self.schedule_retry()
                 else:
@@ -523,6 +553,12 @@ class Library(threading.Thread):
         if not self.added_downloads_pending():
             sources.append(("updated", self.updated_queue, self.updated_output))
 
+            if not self.updated_queue.qsize():
+                # Image-only updates are pure polish: they download last,
+                # with minimal fields, into the updated outputs (the tag on
+                # each item routes it to the artwork-only write).
+                sources.append(("artwork", self.artwork_queue, self.updated_output))
+
         for source, work_queue, output in sources:
             if work_queue.qsize() and len(self.download_threads) < self.dthreads:
 
@@ -532,6 +568,8 @@ class Library(threading.Thread):
                     output,
                     self.download_errors,
                     self.userdata_changed_ids,
+                    artwork_ids=self.artwork_only_ids,
+                    fields=basic_info() if source == "artwork" else None,
                 )
                 new_thread.source = source
                 new_thread.start()
@@ -579,6 +617,7 @@ class Library(threading.Thread):
                     db_file,
                     self.api_factory(),
                     notify_enabled=source == "added",
+                    artwork_fallback=self.requeue_full,
                 )
                 new_thread.db_file = db_file
                 new_thread.source = source
@@ -679,7 +718,7 @@ class Library(threading.Thread):
 
     def metadata_pending(self):
         """Whether metadata-only updates are still queued or being written."""
-        if self.updated_queue.qsize():
+        if self.updated_queue.qsize() or self.artwork_queue.qsize():
             return True
 
         if any(self.updated_output[queues].qsize() for queues in self.updated_output):
@@ -808,7 +847,7 @@ class Library(threading.Thread):
                 except Exception as error:
                     LOG.exception(error)
 
-            if self.whitelist() and self.companion_tier == TIER_OFFICIAL:
+            if self.whitelist() and self.companion_tier != TIER_NONE:
 
                 if self.fast_sync():
                     LOG.info("--<[ retrieve changes ]")
@@ -831,46 +870,107 @@ class Library(threading.Thread):
 
         return False
 
-    def fast_sync(self):
-        """Movie and userdata not provided by server yet."""
-        last_sync = settings.get_str("lastIncrementalSync")
+    def _include_types(self):
+        """Media-type classes of the synced libraries, from the local view
+        table (stored by Views().get_views() at startup; asking the server
+        again would cost one round trip per library)."""
         include = []
-        filters = ["tvshows", "boxsets", "musicvideos", "music", "movies"]
-        sync = get_sync()
-        whitelist = [x.replace("Mixed:", "") for x in sync["Whitelist"]]
-        LOG.info("--[ retrieve changes ] %s", last_sync)
+        whitelist = [x.replace("Mixed:", "") for x in self.whitelist()]
 
-        # Get the media type of each synced library from the local view table
-        # and build the list of types to request. The types were stored by
-        # Views().get_views() at startup; asking the server again would cost
-        # one round-trip per library.
         with Database("kofin") as kofin_db:
             views = jellyfin_db.JellyfinDatabase(kofin_db.cursor).get_views()
 
         for view in views:
-            if view.view_id in whitelist and view.media_type in filters:
+            if view.view_id in whitelist and view.media_type in changefeed.ALL_TYPES:
                 include.append(view.media_type)
 
         # Include boxsets if movies are synced
         if "movies" in include:
             include.append("boxsets")
 
-        # Filter down to the list of library types we want to exclude
-        query_filter = list(set(filters) - set(include))
+        return include
+
+    def _stored_checksums(self, records):
+        """Stored reference checksums for the record ids that carry an Etag,
+        keyed by jellyfin id — the lookup side of skip-before-download.
+        Loaded per jellyfin_type via the existing get_checksum query; empty
+        when no record carries an Etag (tier 2)."""
+        types = {r.item_type for r in records if r.etag and r.item_type}
+
+        if not types:
+            return {}
+
+        checksums = {}
+        with Database("kofin") as kofin_db:
+            db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
+
+            for jellyfin_type in sorted(types):
+                for row in db.get_checksum(jellyfin_type):
+                    checksums[row[0]] = row[1]
+
+        return checksums
+
+    def _known_parent_test(self, records):
+        """A predicate over the parent ids referenced by added child records:
+        True when kofin.db already tracks the id (one connection, indexed
+        lookups; the planner calls it per candidate)."""
+        candidates = changefeed.parent_candidates(records)
+        known = set()
+
+        if candidates:
+            with Database("kofin") as kofin_db:
+                db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
+
+                for candidate in candidates:
+                    if db.get_item_by_id(candidate) is not None:
+                        known.add(candidate)
+
+        return lambda item_id: item_id in known
+
+    def fast_sync(self):
+        """Incremental catch-up through the change-feed provider."""
+        if self.changefeed is None:
+            return True
+
+        last_sync = settings.get_str("lastIncrementalSync")
+        include = self._include_types()
+        LOG.info("--[ retrieve changes ] %s", last_sync)
 
         try:
-            # Get list of updates from server for synced library types and populate work queues
-            result = self.api.sync_queue(last_sync, ",".join([x for x in query_filter]))
+            change_set = self.changefeed.changes(last_sync, include)
+            self.last_envelope = change_set.envelope
 
-            if result is None:
-                return True
+            if changefeed.retention_overrun(
+                last_sync, change_set.envelope.retention_cutoff
+            ):
+                # The server's queue no longer reaches our watermark: records
+                # in the gap are gone. Process what we got (idempotent), then
+                # heal with a targeted update pass; the watermark holds until
+                # it completes (sync-plan R5 — no more silent loss).
+                if not self.retention_repair_pending:
+                    LOG.warning(
+                        "sync queue retention exceeded (watermark %s < cutoff %s); "
+                        "scheduling a library update",
+                        last_sync,
+                        change_set.envelope.retention_cutoff,
+                    )
+                    notification(localized(30601))
+                    self.retention_repair_pending = True
+                    self.enqueue_command("UpdateLibrary")
 
-            added = result["ItemsAdded"]
-            updated = result["ItemsUpdated"]
-            userdata = result["UserDataChanged"]
-            removed = result["ItemsRemoved"]
+            plan = changefeed.build_plan(
+                change_set.records,
+                change_set.userdata,
+                self._stored_checksums(change_set.records),
+                self._known_parent_test(change_set.records),
+            )
 
-            total = len(added) + len(updated) + len(userdata)
+            total = (
+                len(plan.added)
+                + len(plan.updated)
+                + len(plan.artwork)
+                + len(plan.userdata)
+            )
 
             if settings.get_bool("syncNotification") and total > (
                 settings.get_int("syncNotificationCount") or 1000
@@ -880,29 +980,27 @@ class Library(threading.Thread):
                 # lose those changes once the watermark advanced.
                 notification(localized(30402) % total)
 
-            # Downloaded items are tagged with whether they carried a userdata
-            # change, so an Etag-unchanged write applies userdata only when it
-            # actually changed rather than on every metadata-only update. This
-            # is the full set, before the dedup below removes the overlap.
-            self.userdata_changed_ids = set(dto.get("ItemId") for dto in userdata)
+            if plan.skipped:
+                # The tier-1 no-op class: dropped before download (S2.5's
+                # 3067 fetches → 0). The request-count grep keys off this.
+                LOG.info("---[ skipped unchanged:%s ]", plan.skipped)
 
-            # An item changed in the window can appear in UserDataChanged as
-            # well as ItemsAdded/ItemsUpdated. The added/updated path downloads
-            # the full item and applies its userdata -- through the write
-            # cascade, or directly when the metadata Etag matches -- so a
-            # separate userdata pass would just rewrite the same rows. Drop the
-            # overlap here so each item's userdata is applied once.
-            metadata_ids = set(added) | set(updated)
-            userdata = [
-                dto for dto in userdata if dto.get("ItemId") not in metadata_ids
-            ]
+            self.userdata_changed_ids = plan.userdata_changed_ids
+            self.artwork_only_ids = set(plan.artwork)
+            self.class_counts = {
+                "new": len(plan.added),
+                "updates": len(plan.updated) + len(plan.artwork),
+                "userdata": len(plan.userdata),
+            }
 
             # Priority order: userdata and removals are cheap and local,
-            # new content downloads next, metadata-only updates last.
-            self.userdata(userdata)
-            self.removed(removed)
-            self.added(added)
-            self.updated(updated)
+            # new content downloads next, metadata updates after, image-only
+            # artwork touches last.
+            self.userdata(plan.userdata)
+            self.removed(plan.removed)
+            self.added(plan.added)
+            self.updated(plan.updated)
+            self.artwork(plan.artwork)
 
         except Exception as error:
             LOG.exception(error)
@@ -927,13 +1025,36 @@ class Library(threading.Thread):
     def save_last_sync(self):
         """Advance the incremental watermark, preferring the server clock.
 
-        The fork read the Date header of the last HTTP response; kofin asks
-        the companion plugin's GetServerDateTime (one extra round trip, same
-        clock) and falls back to client time when it is unavailable.
+        Tier 1 uses the feed envelope's ServerTime — the clock at *query*
+        time, sampled by the same response, so no extra round trip and no
+        skew fudge. Tier 2 keeps the fork-faithful shape: the envelope
+        (GetServerDateTime moved from drain to query time) minus the 2-minute
+        tolerance, or a fresh GetServerDateTime on envelope-less drains
+        (realtime cycles), exactly as before. The envelope is consumed once
+        so a later drain can never rewind the watermark to a stale sample.
+
+        While a retention repair is pending the watermark must not move at
+        all — the gap before the cutoff is only covered once the targeted
+        update pass completes.
         """
+        if self.retention_repair_pending:
+            LOG.info("--[ sync watermark held: retention repair pending ]")
+            return
+
+        envelope, self.last_envelope = self.last_envelope, None
         time_now = None
 
-        if self.companion_tier == TIER_OFFICIAL:
+        if envelope is not None and envelope.server_time:
+            time_now = self._naive_utc(envelope.server_time)
+        elif self.companion_tier == TIER_KOFIN:
+            try:
+                server_now = self.changefeed.server_now()
+                if server_now:
+                    time_now = self._naive_utc(server_now)
+            except Exception as error:
+                LOG.warning(error)
+                LOG.warning("Failed to fetch server time, falling back to client time.")
+        elif self.companion_tier == TIER_OFFICIAL:
             try:
                 raw = self.api.server_time().get("ServerDateTime", "")
                 time_now = datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ")
@@ -944,12 +1065,45 @@ class Library(threading.Thread):
         if time_now is None:
             time_now = datetime.now(timezone.utc).replace(tzinfo=None)
 
-        # Add some tolerance in case time is out of sync with server
-        time_now -= timedelta(minutes=2)
+        if self.companion_tier != TIER_KOFIN:
+            # Add some tolerance in case time is out of sync with server
+            time_now -= timedelta(minutes=2)
 
         last_sync = time_now.strftime("%Y-%m-%dT%H:%M:%SZ")
         settings.set_str("lastIncrementalSync", last_sync)
         LOG.info("--[ sync/%s ]", last_sync)
+
+    @staticmethod
+    def _naive_utc(unix):
+        """Unix seconds → naive UTC datetime (the watermark's internal shape)."""
+        return datetime.fromtimestamp(unix, tz=timezone.utc).replace(tzinfo=None)
+
+    def stamp_watermark_if_empty(self):
+        """Watermark-at-start (plan §2): the very first full sync stamps the
+        watermark with the server clock *before* paging begins, so the first
+        catch-up replays everything that changed during the sync — the Etag
+        skip makes the replay nearly free. Full syncs never advance the
+        watermark at their end (that jumped it past pending queue records
+        for other libraries); the incremental path is the sole owner.
+        """
+        if settings.get_str("lastIncrementalSync"):
+            return
+
+        server_now = None
+
+        if self.changefeed is not None:
+            try:
+                server_now = self.changefeed.server_now()
+            except Exception as error:
+                LOG.warning("server clock unavailable for the start stamp: %s", error)
+
+        if server_now:
+            stamp = changefeed.unix_to_watermark(server_now)
+        else:
+            stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        settings.set_str("lastIncrementalSync", stamp)
+        LOG.info("--[ watermark stamped at full-sync start/%s ]", stamp)
 
     def add_library(self, library_id, update=False):
 
@@ -1042,6 +1196,21 @@ class Library(threading.Thread):
         """Add item_id to updated queue."""
         self._enqueue_downloads(self.updated_queue, data, "updated")
 
+    def artwork(self, data):
+        """Add item_id to the artwork queue (image-only updates, tier 1):
+        downloaded after everything else, minimal fields, artwork-only
+        write."""
+        self._enqueue_downloads(self.artwork_queue, data, "artwork")
+
+    def requeue_full(self, item_id):
+        """Fall an artwork-only item back to the full update path (called
+        from a writer thread; Queue.put is thread-safe). The id is untagged
+        first so the re-download takes the normal cascade."""
+        self.artwork_only_ids.discard(item_id)
+        self.updated_queue.put([item_id])
+        self.total_updates += 1
+        LOG.info("---[ artwork fallback -> full update: %s ]", item_id)
+
     def removed(self, data):
         """Add item_id to removed queue."""
         if not data:
@@ -1075,6 +1244,7 @@ class UpdateWorker(threading.Thread):
         database,
         server=None,
         notify_enabled=False,
+        artwork_fallback=None,
         *args,
     ):
         self.queue = queue
@@ -1084,15 +1254,41 @@ class UpdateWorker(threading.Thread):
         self.database = Database(database)
         self.args = args
         self.server = server
+        # Callable(item_id) that re-queues an item for the full update path
+        # when the artwork-only write cannot handle it (phase 5).
+        self.artwork_fallback = artwork_fallback
         threading.Thread.__init__(self)
+
+    def _artwork_only(self, item, writers):
+        """Apply an image-only item through the artwork-only path; fall back
+        to a full re-download when it cannot be handled (unknown reference,
+        unexpected payload). Returns True when the item is consumed."""
+        writer = writers.get(item["Type"])
+
+        handled = writer is not None and api.artwork_only(
+            writer, item, writer.jellyfin_db.get_item_by_id(item["Id"])
+        )
+
+        if not handled and self.artwork_fallback is not None:
+            self.artwork_fallback(item["Id"])
+
+        return True
 
     def run(self):
         with self.lock, self.database as kodidb, Database("kofin") as jellyfindb:
             default_args = (self.server, jellyfindb, kodidb)
+            artwork_writers = {}
             if kodidb.db_file == "video":
                 movies = Movies(*default_args)
                 tvshows = TVShows(*default_args)
                 musicvideos = MusicVideos(*default_args)
+                artwork_writers = {
+                    "Movie": movies,
+                    "Series": tvshows,
+                    "Season": tvshows,
+                    "Episode": tvshows,
+                    "MusicVideo": musicvideos,
+                }
             elif kodidb.db_file == "music":
                 music = Music(*default_args)
             else:
@@ -1113,7 +1309,9 @@ class UpdateWorker(threading.Thread):
 
                 try:
                     LOG.debug("{} - {}".format(item["Type"], item["Name"]))
-                    if item["Type"] == "Movie":
+                    if item.get("_artwork_only"):
+                        self._artwork_only(item, artwork_writers)
+                    elif item["Type"] == "Movie":
                         movies.movie(item)
                     elif item["Type"] == "BoxSet":
                         movies.boxset(item)

@@ -35,6 +35,16 @@ from kofin.sync.shims import (
 
 LOG = Logger(__name__)
 
+# Server-side item types the update-mode prune diffs per library class
+# (phase 5). Boxsets keep their own refresh path; MusicArtist is deliberately
+# absent — see _local_reference_map.
+PRUNE_SERVER_TYPES = {
+    "movies": "Movie",
+    "tvshows": "Series,Season,Episode",
+    "musicvideos": "MusicVideo",
+    "music": "MusicAlbum,Audio",
+}
+
 
 def split_libraries(libraries, media_type_for):
     """Partition sync-list entries into (video, music), preserving order
@@ -67,6 +77,7 @@ class FullSync(object):
     sync = None
     running = False
     screensaver = None
+    update_library = False
 
     def __init__(self, library, server):
         """You can call all big syncing methods here.
@@ -182,6 +193,13 @@ class FullSync(object):
         save_sync(self.sync)
         start_time = datetime.datetime.now()
 
+        # Watermark-at-start (phase 5, plan §2): the very first sync stamps
+        # the watermark before paging begins, so the first catch-up replays
+        # the sync window. Full syncs never advance the watermark at their
+        # end — that jumped it past pending queue records for other
+        # libraries; the incremental path is the sole owner.
+        self.library.stamp_watermark_if_empty()
+
         libraries = list(self.sync["Libraries"])
         failures = []
 
@@ -191,7 +209,6 @@ class FullSync(object):
             raise failures[0]
 
         elapsed = datetime.datetime.now() - start_time
-        self.library.save_last_sync()
         save_sync(self.sync)
 
         # Refresh the databases this sync actually wrote. Refreshing only video
@@ -304,6 +321,13 @@ class FullSync(object):
                 )
                 return False
 
+            if self.update_library:
+                # Update mode is the ids+Etag prune (phase 5, research §3
+                # "update that works"): plan the diff, enqueue the work
+                # through the incremental pipeline — no full walk.
+                self.prune(library, library_id)
+                return True
+
             if library_id.startswith("Mixed:"):
                 for mixed in ("movies", "tvshows"):
                     # Each pass keeps its own restore point slot.
@@ -340,184 +364,171 @@ class FullSync(object):
 
     @progress()
     def movies(self, library, dialog):
-        """Process movies from a single library."""
-        processed_ids = []
+        """Process movies from a single library.
+
+        Connections are held across the pass (phase 5, sync-plan Phase 3);
+        the writer lock is still taken and the transaction committed per
+        page, so realtime writers interleave exactly as before — only the
+        per-page open/close churn is gone.
+        """
         restore_key = "%s/movies" % library["Id"]
 
-        for items in server.get_items(
-            self.server,
-            library["Id"],
-            "Movie",
-            False,
-            self.get_restore_point(restore_key),
-        ):
+        with Database() as videodb, Database("kofin") as jellyfindb:
+            for items in server.get_items(
+                self.server,
+                library["Id"],
+                "Movie",
+                False,
+                self.get_restore_point(restore_key),
+            ):
 
-            with self.video_database_locks() as (videodb, jellyfindb):
-                obj = Movies(self.server, jellyfindb, videodb, library)
+                with self.library.database_lock:
+                    obj = Movies(self.server, jellyfindb, videodb, library)
 
-                self.set_restore_point(restore_key, items["RestorePoint"])
-                start_index = items["RestorePoint"]["params"]["StartIndex"]
+                    self.set_restore_point(restore_key, items["RestorePoint"])
+                    start_index = items["RestorePoint"]["params"]["StartIndex"]
 
-                for index, movie in enumerate(items["Items"]):
+                    for index, movie in enumerate(items["Items"]):
 
-                    dialog.update(
-                        int(
-                            (
-                                float(start_index + index)
-                                / float(items["TotalRecordCount"])
-                            )
-                            * 100
-                        ),
-                        heading="%s: %s" % ("Kofin", library["Name"]),
-                        message=movie["Name"],
-                    )
-                    obj.movie(movie)
-                    processed_ids.append(movie["Id"])
+                        dialog.update(
+                            int(
+                                (
+                                    float(start_index + index)
+                                    / float(items["TotalRecordCount"])
+                                )
+                                * 100
+                            ),
+                            heading="%s: %s" % ("Kofin", library["Name"]),
+                            message=movie["Name"],
+                        )
+                        obj.movie(movie)
 
-        with self.video_database_locks() as (videodb, jellyfindb):
-            obj = Movies(self.server, jellyfindb, videodb, library)
-            obj.item_ids = processed_ids
-
-            if self.update_library:
-                self.movies_compare(library, obj, jellyfindb)
+                    videodb.conn.commit()
+                    jellyfindb.conn.commit()
 
         self.clear_restore_point(restore_key)
-
-    def movies_compare(self, library, obj, jellyfinydb):
-        """Compare entries from library to what's in the jellyfindb. Remove surplus"""
-        db = jellyfin_db.JellyfinDatabase(jellyfinydb.cursor)
-
-        items = db.get_item_by_media_folder(library["Id"])
-        current = obj.item_ids
-
-        for x in items:
-            if x[0] not in current and x[1] == "Movie":
-                obj.remove(x[0])
 
     @progress()
     def tvshows(self, library, dialog):
-        """Process tvshows and episodes from a single library."""
-        processed_ids = []
-        restore_key = "%s/tvshows" % library["Id"]
+        """Process tvshows, seasons and episodes from a single library.
 
-        for items in server.get_items(
-            self.server,
-            library["Id"],
-            "Series",
-            False,
-            self.get_restore_point(restore_key),
-        ):
+        Three per-library passes (phase 5, sync-plan P5) instead of one
+        episode request per show: Series pages, then Season pages, then
+        Episode pages — parents land before children by construction, and
+        a 500-show library costs pages, not 500+ requests. Restore points
+        are per pass and cleared together at the end: an interruption
+        resumes inside the pass it happened in, completed passes re-do only
+        their final page (writes are idempotent and Etag-short-circuited).
+        A pre-phase-5 pending ``{lib}/tvshows`` key simply restarts the
+        library's passes; it is cleared alongside.
+        """
+        heading = "%s: %s" % ("Kofin", library["Name"])
 
-            with self.video_database_locks() as (videodb, jellyfindb):
-                obj = TVShows(self.server, jellyfindb, videodb, library, True)
+        with Database() as videodb, Database("kofin") as jellyfindb:
 
-                self.set_restore_point(restore_key, items["RestorePoint"])
-                start_index = items["RestorePoint"]["params"]["StartIndex"]
+            def tvshows_pass(item_type, key_suffix, apply, describe):
+                restore_key = "%s/tvshows-%s" % (library["Id"], key_suffix)
 
-                for index, show in enumerate(items["Items"]):
+                for items in server.get_items(
+                    self.server,
+                    library["Id"],
+                    item_type,
+                    False,
+                    self.get_restore_point(restore_key),
+                ):
 
-                    percent = int(
-                        (float(start_index + index) / float(items["TotalRecordCount"]))
-                        * 100
-                    )
-                    message = show["Name"]
-                    dialog.update(
-                        percent,
-                        heading="%s: %s" % ("Kofin", library["Name"]),
-                        message=message,
-                    )
+                    with self.library.database_lock:
+                        obj = TVShows(self.server, jellyfindb, videodb, library, True)
 
-                    if obj.tvshow(show) is not False:
+                        self.set_restore_point(restore_key, items["RestorePoint"])
+                        start_index = items["RestorePoint"]["params"]["StartIndex"]
 
-                        for episodes in server.get_episode_by_show(
-                            self.server, show["Id"]
-                        ):
-                            for episode in episodes["Items"]:
-                                if episode.get("Path"):
-                                    dialog.update(
-                                        percent,
-                                        message="%s/%s"
-                                        % (message, episode["Name"][:10]),
+                        for index, item in enumerate(items["Items"]):
+
+                            dialog.update(
+                                int(
+                                    (
+                                        float(start_index + index)
+                                        / float(items["TotalRecordCount"])
                                     )
-                                    obj.episode(episode)
-                    processed_ids.append(show["Id"])
+                                    * 100
+                                ),
+                                heading=heading,
+                                message=describe(item),
+                            )
+                            apply(obj, item)
 
-        with self.video_database_locks() as (videodb, jellyfindb):
-            obj = TVShows(self.server, jellyfindb, videodb, library, True)
-            obj.item_ids = processed_ids
-            if self.update_library:
-                self.tvshows_compare(library, obj, jellyfindb)
+                        videodb.conn.commit()
+                        jellyfindb.conn.commit()
 
-        self.clear_restore_point(restore_key)
+            def child_label(item):
+                return "%s / %s" % (item.get("SeriesName") or "", item.get("Name"))
 
-    def tvshows_compare(self, library, obj, jellyfindb):
-        """Compare entries from library to what's in the jellyfindb. Remove surplus"""
-        db = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
+            tvshows_pass(
+                "Series",
+                "series",
+                lambda obj, show: obj.tvshow(show),
+                lambda show: show["Name"],
+            )
+            tvshows_pass(
+                "Season",
+                "seasons",
+                lambda obj, season: obj.season(season),
+                child_label,
+            )
+            tvshows_pass(
+                "Episode",
+                "episodes",
+                lambda obj, episode: (
+                    obj.episode(episode) if episode.get("Path") else None
+                ),
+                child_label,
+            )
 
-        items = db.get_item_by_media_folder(library["Id"])
-        for x in list(items):
-            items.extend(obj.get_child(x[0]))
-
-        current = obj.item_ids
-
-        for x in items:
-            if x[0] not in current and x[1] == "Series":
-                obj.remove(x[0])
+        for key_suffix in ("series", "seasons", "episodes"):
+            self.clear_restore_point("%s/tvshows-%s" % (library["Id"], key_suffix))
+        # Legacy single-pass key from a pre-phase-5 interrupted sync.
+        self.clear_restore_point("%s/tvshows" % library["Id"])
 
     @progress()
     def musicvideos(self, library, dialog):
         """Process musicvideos from a single library."""
-        processed_ids = []
         restore_key = "%s/musicvideos" % library["Id"]
 
-        for items in server.get_items(
-            self.server,
-            library["Id"],
-            "MusicVideo",
-            False,
-            self.get_restore_point(restore_key),
-        ):
+        with Database() as videodb, Database("kofin") as jellyfindb:
+            for items in server.get_items(
+                self.server,
+                library["Id"],
+                "MusicVideo",
+                False,
+                self.get_restore_point(restore_key),
+            ):
 
-            with self.video_database_locks() as (videodb, jellyfindb):
-                obj = MusicVideos(self.server, jellyfindb, videodb, library)
+                with self.library.database_lock:
+                    obj = MusicVideos(self.server, jellyfindb, videodb, library)
 
-                self.set_restore_point(restore_key, items["RestorePoint"])
-                start_index = items["RestorePoint"]["params"]["StartIndex"]
+                    self.set_restore_point(restore_key, items["RestorePoint"])
+                    start_index = items["RestorePoint"]["params"]["StartIndex"]
 
-                for index, mvideo in enumerate(items["Items"]):
+                    for index, mvideo in enumerate(items["Items"]):
 
-                    dialog.update(
-                        int(
-                            (
-                                float(start_index + index)
-                                / float(items["TotalRecordCount"])
-                            )
-                            * 100
-                        ),
-                        heading="%s: %s" % ("Kofin", library["Name"]),
-                        message=mvideo["Name"],
-                    )
-                    obj.musicvideo(mvideo)
-                    processed_ids.append(mvideo["Id"])
+                        dialog.update(
+                            int(
+                                (
+                                    float(start_index + index)
+                                    / float(items["TotalRecordCount"])
+                                )
+                                * 100
+                            ),
+                            heading="%s: %s" % ("Kofin", library["Name"]),
+                            message=mvideo["Name"],
+                        )
+                        obj.musicvideo(mvideo)
 
-        with self.video_database_locks() as (videodb, jellyfindb):
-            obj = MusicVideos(self.server, jellyfindb, videodb, library)
-            obj.item_ids = processed_ids
-            if self.update_library:
-                self.musicvideos_compare(library, obj, jellyfindb)
+                    videodb.conn.commit()
+                    jellyfindb.conn.commit()
 
         self.clear_restore_point(restore_key)
-
-    def musicvideos_compare(self, library, obj, jellyfindb):
-        """Compare entries from library to what's in the jellyfindb. Remove surplus"""
-        db = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
-
-        items = db.get_item_by_media_folder(library["Id"])
-        current = obj.item_ids
-
-        for x in items:
-            if x[0] not in current and x[1] == "MusicVideo":
-                obj.remove(x[0])
 
     @progress()
     def music(self, library, dialog):
@@ -594,22 +605,137 @@ class FullSync(object):
                             obj.song(item)
                             count += 1
 
-                    if self.update_library:
-                        self.music_compare(library, obj, jellyfindb)
+    @progress()
+    def prune(self, library, library_id, dialog):
+        """Update-mode pass (phase 5, research §3 "update that works"):
+        page the library's id+Etag set, diff against kofin.db three ways —
+        missing here → fetch; stale here → remove; Etag mismatch → fetch;
+        match → nothing — and enqueue the work through the incremental
+        pipeline (downloads Etag-short-circuit again on write, removals
+        route through the SortWorker). The catch-up that runs alongside
+        (Update = sync-queue catch-up **plus** this prune) covers userdata.
+        """
+        if library_id.startswith("Mixed:"):
+            classes = ("movies", "tvshows")
+        else:
+            classes = (library.get("CollectionType"),)
 
-    def music_compare(self, library, obj, jellyfindb):
-        """Compare entries from library to what's in the jellyfindb. Remove surplus"""
-        db = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
+        missing = []
+        changed = []
+        stale = []
 
-        items = db.get_item_by_media_folder(library["Id"])
-        for x in list(items):
-            items.extend(obj.get_child(x[0]))
+        for media_class in classes:
+            server_types = PRUNE_SERVER_TYPES.get(media_class)
 
-        current = obj.item_ids
+            if not server_types:
+                LOG.info("prune skips %s (%s)", library["Id"], media_class)
+                continue
 
-        for x in items:
-            if x[0] not in current and x[1] == "MusicArtist":
-                obj.remove(x[0])
+            dialog.update(
+                0,
+                heading="%s: %s" % ("Kofin", library["Name"]),
+                message=localized(30603),
+            )
+
+            server_map = server.get_id_etag_map(
+                self.server, library["Id"], server_types
+            )
+            local_map = self._local_reference_map(library["Id"], media_class)
+
+            for item_id, (etag, _item_type) in server_map.items():
+                if item_id not in local_map:
+                    missing.append(item_id)
+                    continue
+
+                # No Etag from the server (unexpected with Fields=Etag) →
+                # re-fetch: the safe direction is a redundant download.
+                if not etag or local_map[item_id] != "%s|plugin" % etag:
+                    changed.append(item_id)
+
+            for item_id in local_map:
+                if item_id not in server_map:
+                    stale.append(item_id)
+
+        LOG.info(
+            "--[ prune/%s ] missing:%s changed:%s stale:%s",
+            library["Id"],
+            len(missing),
+            len(changed),
+            len(stale),
+        )
+
+        self.library.removed(stale)
+        self.library.added(missing)
+        self.library.updated(changed)
+
+    def _local_reference_map(self, library_id, media_class):
+        """{jellyfin_id: stored checksum} for everything kofin.db attributes
+        to the library.
+
+        Movies/musicvideos/music rows carry media_folder directly. TV
+        children (seasons/episodes) do not — they are collected through the
+        kodi-id parent chain plus the jellyfin_parent_id fallback, mirroring
+        the writers' get_child walk. Checksums load once per involved
+        jellyfin_type via the existing get_checksum query.
+        """
+        top_types = {
+            "movies": ("Movie",),
+            "tvshows": ("Series",),
+            "musicvideos": ("MusicVideo",),
+            # MusicArtist rows also carry media_folder but are not pruned:
+            # artists are not reliably reachable via /Items under a library
+            # parent, so a stale artist row lingers until Repair (rare —
+            # artists rarely vanish without their albums going too).
+            "music": ("MusicAlbum", "Audio"),
+        }[media_class]
+
+        checksum_types = {
+            "movies": ("Movie",),
+            "tvshows": ("Series", "Season", "Episode"),
+            "musicvideos": ("MusicVideo",),
+            "music": ("MusicAlbum", "Audio"),
+        }[media_class]
+
+        with Database("kofin") as kofin_db:
+            db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
+
+            checksums = {}
+            for jellyfin_type in checksum_types:
+                for row in db.get_checksum(jellyfin_type):
+                    checksums[row[0]] = row[1]
+
+            ids = []
+            series_ids = []
+
+            for row in db.get_item_by_media_folder(library_id):
+                if row[1] in top_types:
+                    ids.append(row[0])
+                if row[1] == "Series":
+                    series_ids.append(row[0])
+
+            if media_class == "tvshows":
+                for series_id in series_ids:
+                    reference = db.get_item_by_id(series_id)
+
+                    if reference is None:
+                        continue
+
+                    for season in db.get_item_id_by_parent_id(
+                        reference.kodi_id, "season"
+                    ):
+                        ids.append(season[0])
+
+                        for episode in db.get_item_id_by_parent_id(
+                            season[1], "episode"
+                        ):
+                            ids.append(episode[0])
+
+                    # Episodes referencing the series directly (the writers'
+                    # get_child fallback arm).
+                    for row in db.get_media_by_parent_id(series_id):
+                        ids.append(row[0])
+
+        return {item_id: checksums.get(item_id) for item_id in dict.fromkeys(ids)}
 
     @progress(30407)
     def boxsets(self, library, dialog=None):

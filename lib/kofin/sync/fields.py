@@ -386,6 +386,46 @@ def check_unchanged(writer, obj, item, e_item, update, apply_userdata=True):
     return True
 
 
+# Art media types the artwork-only path can stamp (Kodi video art tables).
+ARTWORK_MEDIA = ("movie", "tvshow", "season", "episode", "musicvideo")
+
+
+def artwork_only(writer, item, e_item):
+    """Apply an image-only update: artwork rows + reference checksum, no
+    write cascade (phase 5, plan §2).
+
+    Writer-adjacent, not a writer change — it reuses the exact seam every
+    writer already exercises (``self.artwork.add(...)`` on the mapped
+    Artwork object) plus the update_reference checksum stamp. Returns False
+    on anything unexpected (unknown reference, missing ids); the caller
+    falls the item back to the full update path.
+    """
+    if e_item is None:
+        LOG.debug("artwork-only: %s unknown locally", item.get("Id"))
+        return False
+
+    try:
+        kodi_id = e_item[0]
+        media = e_item[4]
+
+        if not kodi_id or media not in ARTWORK_MEDIA:
+            return False
+
+        item_api = API(item, writer.server.server)
+        artwork = item_api.get_all_artwork(writer.objects.map(item, "Artwork"))
+        writer.artwork.add(artwork, kodi_id, media)
+
+        checksum = sync_checksum(item, writer.direct_path)
+        if checksum:
+            writer.jellyfin_db.update_reference(checksum, item["Id"])
+
+        LOG.debug("Artwork-only update %s %s", media, item["Id"])
+        return True
+    except Exception as error:
+        LOG.exception(error)
+        return False
+
+
 def find_library(server, item):
     """The whitelisted ancestor view of an item that arrived without library
     context (realtime events), or {} when it belongs to no synced library.

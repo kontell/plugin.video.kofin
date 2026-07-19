@@ -5,7 +5,7 @@ import queue
 
 import pytest
 
-from kofin.core.http import ServerUnreachable
+from kofin.core.http import JellyfinError, ServerUnreachable
 from kofin.sync import db as sync_db
 from kofin.sync import kofindb
 from kofin.sync import library as library_mod
@@ -21,6 +21,10 @@ class FakeApi:
     def __init__(self):
         self.sync_queue_result = None
         self.server_time_result = {"ServerDateTime": "2026-07-17T10:00:00Z"}
+        # Default: no KofinSyncQueue installed — the ladder lands on tier 2.
+        self.kofin_info_result = JellyfinError("404")
+        self.kofin_queue_result = {}
+        self.kofin_queue_requests = []
         self.items_requests = []
         self.items_result = {"Items": []}
 
@@ -32,6 +36,17 @@ class FakeApi:
         if isinstance(self.server_time_result, Exception):
             raise self.server_time_result
         return self.server_time_result
+
+    def kofin_sync_info(self):
+        if isinstance(self.kofin_info_result, Exception):
+            raise self.kofin_info_result
+        return self.kofin_info_result
+
+    def kofin_sync_queue(self, since, types):
+        self.kofin_queue_requests.append((since, types))
+        if isinstance(self.kofin_queue_result, Exception):
+            raise self.kofin_queue_result
+        return self.kofin_queue_result
 
     def items(self, params):
         self.items_requests.append(params)
@@ -104,6 +119,7 @@ def test_fast_sync_routes_and_dedupes(monkeypatch):
     seed_whitelist("lib1")
 
     manager, api = make_library()
+    manager.detect_companion()
     api.sync_queue_result = {
         "ItemsAdded": ["new1", "new2"],
         "ItemsUpdated": ["upd1", "both1"],
@@ -153,6 +169,7 @@ def test_fast_sync_music_userdata_falls_back_to_download():
     seed_whitelist("lib2")
 
     manager, api = make_library()
+    manager.detect_companion()
     api.sync_queue_result = {
         "ItemsAdded": [],
         "ItemsUpdated": [],
@@ -173,6 +190,7 @@ def test_fast_sync_music_userdata_falls_back_to_download():
 def test_fast_sync_failure_returns_false():
     seed_whitelist("lib1")
     manager, api = make_library()
+    manager.detect_companion()
 
     class Boom(Exception):
         pass
@@ -477,3 +495,183 @@ def test_library_commands_enqueue(monkeypatch):
     encoded = json.dumps([{"Id": "lib1"}])
     service.onNotification("plugin.video.kofin", "Other.SyncLibrary", encoded)
     assert commands == [("SyncLibrary", {"Id": "lib1"})]
+
+
+# --- phase 5: tier-1 change feed ---------------------------------------------
+
+
+def make_tier1_library(server_time=1789000000):
+    manager, api = make_library()
+    api.kofin_info_result = {
+        "ProtocolVersion": 1,
+        "ServerTime": server_time,
+        "RetentionCutoff": 0,
+    }
+    manager.detect_companion()
+    return manager, api
+
+
+def test_tier1_detection_sets_tier_and_provider():
+    manager, _api = make_tier1_library()
+    assert manager.companion_tier == library_mod.TIER_KOFIN
+    assert manager.changefeed is not None
+
+
+def test_tier1_protocol_mismatch_falls_to_official():
+    manager, api = make_library()
+    api.kofin_info_result = {"ProtocolVersion": 2}
+    assert manager.detect_companion() == library_mod.TIER_OFFICIAL
+
+
+def test_tier1_fast_sync_skips_orders_and_routes():
+    from kofin.sync.changefeed import unix_to_watermark
+
+    seed_views(("lib1", "Movies", "movies"))
+    seed_whitelist("lib1")
+    manager, api = make_tier1_library()
+
+    with sync_db.Database("kofin") as opened:
+        mapping = kofindb.JellyfinDatabase(opened.cursor)
+        mapping.add_reference(
+            "m_skip", 1, 2, 3, "Movie", "movie", None, "eS|plugin", "lib1", None
+        )
+        mapping.add_reference(
+            "m_art", 4, 5, 6, "Movie", "movie", None, "old|plugin", "lib1", None
+        )
+
+    api.kofin_queue_result = {
+        "ServerTime": 1789000123,
+        "RetentionCutoff": 0,
+        "Items": [
+            {
+                "Id": "m_new",
+                "Status": "Added",
+                "ItemType": "Movie",
+                "MediaType": "movies",
+                "LastModified": 10,
+                "Etag": "eN",
+            },
+            {"Id": "m_skip", "Status": "Updated", "ItemType": "Movie", "Etag": "eS"},
+            {
+                "Id": "m_art",
+                "Status": "Updated",
+                "ItemType": "Movie",
+                "UpdateReason": "ImageUpdate",
+                "Etag": "eA",
+            },
+            {"Id": "gone1", "Status": "Removed", "ItemType": "Movie"},
+        ],
+        "UserData": [{"ItemId": "m_skip"}],
+    }
+
+    assert manager.fast_sync() is True
+
+    # Include list sent directly — no exclude inversion on tier 1.
+    assert api.kofin_queue_requests[-1][1] == "movies,boxsets"
+
+    assert drain(manager.added_queue) == [["m_new"]]
+    assert drain(manager.updated_queue) == []  # Etag match: skipped pre-download
+    assert drain(manager.artwork_queue) == [["m_art"]]
+    assert drain(manager.removed_queue) == ["gone1"]
+    assert manager.artwork_only_ids == {"m_art"}
+
+    # The skipped item's userdata still applies through the dto path.
+    userdata_items = drain(manager.userdata_output["Movie"])
+    assert [x["Id"] for x in userdata_items] == ["m_skip"]
+
+    # Watermark: envelope ServerTime exact — no fudge, no extra round trip.
+    manager.save_last_sync()
+    assert FakeAddon.store["lastIncrementalSync"] == unix_to_watermark(1789000123)
+
+
+def test_tier1_envelope_consumed_once():
+    from kofin.sync.changefeed import Envelope, unix_to_watermark
+
+    manager, api = make_tier1_library()
+    manager.last_envelope = Envelope(server_time=1789000123)
+    manager.save_last_sync()
+    assert FakeAddon.store["lastIncrementalSync"] == unix_to_watermark(1789000123)
+
+    # Envelope gone: a later (realtime) drain probes Info fresh instead of
+    # rewinding to the stale sample.
+    api.kofin_info_result = {"ProtocolVersion": 1, "ServerTime": 1789000200}
+    manager.save_last_sync()
+    assert FakeAddon.store["lastIncrementalSync"] == unix_to_watermark(1789000200)
+
+
+def test_retention_overrun_schedules_update_and_holds_watermark():
+    from kofin.sync.changefeed import watermark_to_unix
+
+    seed_views(("lib1", "Movies", "movies"))
+    seed_whitelist("lib1")
+    manager, api = make_tier1_library()
+    FakeAddon.store["lastIncrementalSync"] = "2026-01-01T00:00:00Z"
+
+    api.kofin_queue_result = {
+        "ServerTime": 1789000123,
+        "RetentionCutoff": watermark_to_unix("2026-06-01T00:00:00Z"),
+        "Items": [],
+        "UserData": [],
+    }
+
+    assert manager.fast_sync() is True
+    assert manager.retention_repair_pending is True
+    assert ("UpdateLibrary", {}) in drain(manager.commands)
+
+    # Held until the targeted pass completes.
+    manager.save_last_sync()
+    assert FakeAddon.store["lastIncrementalSync"] == "2026-01-01T00:00:00Z"
+
+    manager.retention_repair_pending = False
+    manager.save_last_sync()
+    assert FakeAddon.store["lastIncrementalSync"] != "2026-01-01T00:00:00Z"
+
+
+def test_stamp_watermark_if_empty():
+    from kofin.sync.changefeed import unix_to_watermark
+
+    manager, _api = make_tier1_library(server_time=1789000555)
+    FakeAddon.store.pop("lastIncrementalSync", None)
+
+    manager.stamp_watermark_if_empty()
+    assert FakeAddon.store["lastIncrementalSync"] == unix_to_watermark(1789000555)
+
+    # An existing watermark is never touched (older = safer).
+    FakeAddon.store["lastIncrementalSync"] = "2026-01-01T00:00:00Z"
+    manager.stamp_watermark_if_empty()
+    assert FakeAddon.store["lastIncrementalSync"] == "2026-01-01T00:00:00Z"
+
+
+def test_artwork_downloads_gated_and_light():
+    manager, api = make_tier1_library()
+    manager.artwork_only_ids = {"a1"}
+    manager.updated_queue.put(["u1"])
+    manager.artwork_queue.put(["a1"])
+    api.items_result = {"Items": [{"Id": "u1", "Type": "Movie", "Name": "U"}]}
+
+    manager.worker_downloads()
+    assert {t.source for t in manager.download_threads} == {"updated"}
+    for thread in manager.download_threads:
+        thread.join(5)
+    manager.download_threads = []
+
+    api.items_result = {"Items": [{"Id": "a1", "Type": "Movie", "Name": "A"}]}
+    manager.worker_downloads()
+    assert {t.source for t in manager.download_threads} == {"artwork"}
+    for thread in manager.download_threads:
+        thread.join(5)
+
+    fields_used = [r["Fields"] for r in api.items_requests]
+    assert fields_used[0] != "Etag" and fields_used[-1] == "Etag"
+
+    items = drain(manager.updated_output["Movie"])
+    tags = {i["Id"]: i.get("_artwork_only", False) for i in items}
+    assert tags == {"u1": False, "a1": True}
+
+
+def test_requeue_full_untags_and_requeues():
+    manager, _api = make_library()
+    manager.artwork_only_ids = {"x1"}
+    manager.requeue_full("x1")
+    assert manager.artwork_only_ids == set()
+    assert drain(manager.updated_queue) == [["x1"]]

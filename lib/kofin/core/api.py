@@ -198,6 +198,18 @@ class Api:
         (404 means the plugin is absent or disabled)."""
         return self.get("/Jellyfin.Plugin.KodiSyncQueue/GetServerDateTime")
 
+    # -- KofinSyncQueue companion plugin (tier 1, phase 5) ---------------------
+
+    def kofin_sync_info(self) -> JsonDict:
+        """KofinSyncQueue probe: protocol version, server clock and retention
+        cutoff in one round trip (404 means the plugin is absent)."""
+        return self.get("/Kofin/SyncQueue/Info")
+
+    def kofin_sync_queue(self, since: int, types: str) -> JsonDict:
+        """Typed change records since the unix-seconds watermark. ``types``
+        is an include list (the legacy exclude-list inversion dies here)."""
+        return self.get("/Kofin/SyncQueue", {"since": since, "types": types})
+
     # -- playback -------------------------------------------------------------
 
     def playback_info(

@@ -19,7 +19,7 @@ import queue
 from kofin.core import settings, state
 from kofin.core.http import JellyfinError, ServerUnreachable
 from kofin.core.log import Logger
-from kofin.sync.shims import stop
+from kofin.sync.shims import LibraryExitException, stop
 
 LOG = Logger(__name__)
 
@@ -120,9 +120,14 @@ def get_items(api, parent_id, item_type=None, basic=False, params=None):
         "url": "/Users/%s/Items" % api.user_id,
         "params": {
             "ParentId": parent_id,
-            "IncludeItemTypes": item_type,
-            "SortBy": "SortName",
-            "SortOrder": "Ascending",
+            # Newest first (phase 5, sync-plan Phase 3): fresh content is
+            # browsable minutes into an initial sync. SortName breaks the
+            # tie so pagination stays deterministic under equal timestamps
+            # (bulk imports share DateCreated); the 10.11 composite
+            # DateCreated indexes make this cheap. Callers that need a
+            # structural order (music) override via ``params``.
+            "SortBy": "DateCreated,SortName",
+            "SortOrder": "Descending,Ascending",
             "Fields": basic_info() if basic else info(),
             "CollapseBoxSetItems": False,
             "IsVirtualUnaired": False,
@@ -137,6 +142,55 @@ def get_items(api, parent_id, item_type=None, basic=False, params=None):
 
     for items in _get_items(api, query):
         yield items
+
+
+PRUNE_PAGE_SIZE = 500
+
+
+def get_id_etag_map(api, parent_id, item_types):
+    """Page a library's id → (Etag, Type) map — the server side of the
+    update-mode prune (phase 5, research §3 "update that works").
+
+    Ids-only pages are cheap even at 10^5 items: Fields=Etag adds only the
+    MD5(DateLastSaved) string the server computes without touching People
+    or MediaStreams. Sequential paging, no restore point — the prune is
+    idempotent and simply reruns after an interruption. Errors propagate to
+    the caller (the library stays pending and is retried).
+    """
+    url = "/Users/%s/Items" % api.user_id
+    params = {
+        "ParentId": parent_id,
+        "IncludeItemTypes": item_types,
+        "SortBy": "SortName",
+        "SortOrder": "Ascending",
+        "Fields": basic_info(),
+        "EnableUserData": False,
+        "EnableImages": False,
+        "EnableTotalRecordCount": False,
+        "CollapseBoxSetItems": False,
+        "IsVirtualUnaired": False,
+        "LocationTypes": "FileSystem,Remote,Offline",
+        "IsMissing": False,
+        "Recursive": True,
+    }
+
+    result = {}
+    start = 0
+
+    while True:
+        if state.should_stop():
+            raise LibraryExitException("Should stop flag raised, exiting...")
+
+        page = api.get(url, dict(params, StartIndex=start, Limit=PRUNE_PAGE_SIZE))
+        items = page.get("Items") or []
+
+        for item in items:
+            result[item["Id"]] = (item.get("Etag"), item.get("Type"))
+
+        if len(items) < PRUNE_PAGE_SIZE:
+            return result
+
+        start += PRUNE_PAGE_SIZE
 
 
 def get_artists(api, parent_id=None):
@@ -275,7 +329,16 @@ class GetItemWorker(threading.Thread):
 
     is_done = False
 
-    def __init__(self, server, queue, output, error_event=None, userdata_ids=None):
+    def __init__(
+        self,
+        server,
+        queue,
+        output,
+        error_event=None,
+        userdata_ids=None,
+        artwork_ids=None,
+        fields=None,
+    ):
 
         # ``server`` is a per-worker Api instance (own Http session), the
         # kofin equivalent of the fork's per-thread requests.Session.
@@ -290,6 +353,11 @@ class GetItemWorker(threading.Thread):
         # changed, instead of on every metadata-only update. Empty (the
         # default) tags nothing, so untagged items keep applying userdata.
         self.userdata_ids = userdata_ids if userdata_ids is not None else set()
+        # Ids classified image-only (tier 1): tagged so the writer applies
+        # the artwork-only path instead of the full cascade.
+        self.artwork_ids = artwork_ids if artwork_ids is not None else set()
+        # Field set per chunk; the artwork source downloads minimal fields.
+        self.fields = fields
         threading.Thread.__init__(self)
 
     def _flag_error(self):
@@ -309,7 +377,7 @@ class GetItemWorker(threading.Thread):
 
             params = {
                 "Ids": ",".join(str(x) for x in item_ids),
-                "Fields": info(),
+                "Fields": self.fields or info(),
             }
 
             try:
@@ -319,6 +387,8 @@ class GetItemWorker(threading.Thread):
 
                     if item["Type"] in self.output:
                         item["_userdata_changed"] = item.get("Id") in self.userdata_ids
+                        if item.get("Id") in self.artwork_ids:
+                            item["_artwork_only"] = True
                         self.output[item["Type"]].put(item)
             except ServerUnreachable as error:
                 LOG.error("--[ server unreachable: %s ]", error)
