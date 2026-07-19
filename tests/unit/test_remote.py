@@ -112,3 +112,36 @@ def test_general_volume_and_navigation(fakes):
 def test_unknown_messages_are_unhandled_but_safe(fakes):
     assert RemoteHandler().handle("LibraryChanged", {}) is False
     assert RemoteHandler().handle("GeneralCommand", {"Name": "Zap"}) is True
+
+
+class RecordingManager:
+    """Stands in for the SyncPlay manager's on_notification entry point."""
+
+    def __init__(self):
+        self.notifications = []
+
+    def on_notification(self, message_type, data):
+        self.notifications.append((message_type, data))
+
+
+def test_syncplay_messages_route_to_the_manager(fakes):
+    handler = RemoteHandler()
+    manager = RecordingManager()
+    handler.syncplay = manager
+
+    command = {"Command": "Unpause", "GroupId": "g1"}
+    update = {"Type": "PlayQueue", "GroupId": "g1"}
+    assert handler.handle("SyncPlayCommand", command) is True
+    assert handler.handle("SyncPlayGroupUpdate", update) is True
+
+    # Enqueue-only, order preserved — the websocket thread never blocks.
+    assert manager.notifications == [
+        ("SyncPlayCommand", command),
+        ("SyncPlayGroupUpdate", update),
+    ]
+
+
+def test_syncplay_messages_without_manager_are_claimed_and_dropped(fakes):
+    handler = RemoteHandler()
+    assert handler.handle("SyncPlayCommand", {"Command": "Pause"}) is True
+    assert handler.handle("SyncPlayGroupUpdate", {"Type": "GroupJoined"}) is True

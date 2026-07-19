@@ -161,6 +161,12 @@ def play(request: Request) -> None:
         if request.resume and not from_start:
             userdata = item.get("UserData") or {}
             start_ticks = int(userdata.get("PlaybackPositionTicks") or 0)
+        # An explicit start position wins over resume/fromstart: SyncPlay
+        # group starts say exactly where the group timeline is (plan §2).
+        try:
+            start_ticks = int(request.params.get("startticks") or start_ticks)
+        except ValueError:
+            pass
 
         profile = deviceprofile.build(
             deviceprofile.ProfileConfig.from_settings(),

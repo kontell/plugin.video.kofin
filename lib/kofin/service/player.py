@@ -17,7 +17,7 @@ kofin's own play path; no ``service.upnext`` anywhere.
 
 import json
 import threading
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 import xbmc
 import xbmcgui
@@ -26,6 +26,9 @@ from kofin.core import settings, state
 from kofin.core.api import Api
 from kofin.core.log import Logger
 from kofin.service.segments import SegmentChecker, parse_segments
+
+if TYPE_CHECKING:
+    from kofin.syncplay.manager import SyncPlayManager
 
 LOG = Logger(__name__)
 
@@ -161,9 +164,11 @@ class Player(xbmc.Player):
         self._item: Optional[JsonDict] = None
         self._ticker: Optional[_Ticker] = None
         self._lock = threading.Lock()
-        # Set by SyncPlay (phase 4); while True, Play Next is withheld — the
-        # group queue is authoritative.
+        # Driven by SyncPlay (phase 4); while True, Play Next is withheld —
+        # the group queue is authoritative.
         self.syncplay_group_active = False
+        # The SyncPlay manager, attached by the service when built.
+        self.syncplay: Optional["SyncPlayManager"] = None
         self._checker: Optional[SegmentChecker] = None
         self._segments: List[JsonDict] = []
         self._segments_loaded = False
@@ -186,9 +191,31 @@ class Player(xbmc.Player):
         self._overlay_autoplay = False
         self._skip_target: Optional[float] = None
 
+    # -- syncplay forwarding ---------------------------------------------------
+
+    def _syncplay_event(self, name: str, *args: Any) -> None:
+        """Forward a player callback to SyncPlay without ever letting it
+        break regular playback reporting."""
+        if self.syncplay is None:
+            return
+        try:
+            getattr(self.syncplay, name)(*args)
+        except Exception as error:
+            LOG.exception("SyncPlay hook %s failed: %s", name, error)
+
+    def current_item(self) -> Optional[JsonDict]:
+        """The claimed play state of the current kofin playback (SyncPlay's
+        identity source), or None for idle/foreign playback."""
+        with self._lock:
+            return self._item
+
     # -- kodi callbacks ------------------------------------------------------
 
     def onPlayBackStarted(self) -> None:
+        # Before anything that can block this callback thread: a start that
+        # must wait for a SyncPlay group is paused at its first instant, not
+        # seconds later when the claim and round trip complete.
+        self._syncplay_event("on_playback_started")
         self.finalize()  # a previous kofin play that never got its stop event
         claimed = self._claim()
         if claimed is None:
@@ -201,25 +228,35 @@ class Player(xbmc.Player):
         self._start_ticker()
         self._start_segment_engine(claimed)
 
+    def onAVStarted(self) -> None:
+        """First frame rendered: the SyncPlay Ready trigger."""
+        self._syncplay_event("on_avstarted")
+
     def onPlayBackPaused(self) -> None:
+        self._syncplay_event("on_paused")
         self._set_paused(True)
 
     def onPlayBackResumed(self) -> None:
+        self._syncplay_event("on_resumed")
         self._set_paused(False)
 
     def onPlayBackSeek(self, time: int, seekOffset: int) -> None:
+        self._syncplay_event("on_seek", time / 1000.0)
         if self._item is not None:
             self._update_position(time / 1000.0)
             self._report(self.api.session_progress, event="timeupdate")
             self.note_seek(time / 1000.0)
 
     def onPlayBackStopped(self) -> None:
+        self._syncplay_event("on_stopped")
         self.finalize()
 
     def onPlayBackEnded(self) -> None:
+        self._syncplay_event("on_ended")
         self.finalize()
 
     def onPlayBackError(self) -> None:
+        self._syncplay_event("on_error")
         self.finalize()
 
     # -- reporting -----------------------------------------------------------

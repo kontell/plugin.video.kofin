@@ -254,6 +254,99 @@ class Api:
             {"userId": self.user_id, "adjacentTo": item_id, "Fields": "Overview"},
         )
 
+    # -- SyncPlay (phase 4) ----------------------------------------------------
+
+    def get_utc_time(self) -> JsonDict:
+        """NTP-style timestamps: {RequestReceptionTime, ResponseTransmissionTime}."""
+        return self.get("/GetUtcTime")
+
+    def syncplay_list(self) -> List[JsonDict]:
+        response = self._http.request(
+            "GET", self._url("/SyncPlay/List"), headers=self._headers()
+        )
+        listing: List[JsonDict] = response.json() if response.content else []
+        return listing
+
+    def syncplay_new(self, group_name: str) -> None:
+        self.post("/SyncPlay/New", {"GroupName": group_name})
+
+    def syncplay_join(self, group_id: str) -> None:
+        self.post("/SyncPlay/Join", {"GroupId": group_id})
+
+    def syncplay_leave(self) -> None:
+        self.post("/SyncPlay/Leave")
+
+    def syncplay_ready(
+        self, when: str, position_ticks: int, is_playing: bool, playlist_item_id: str
+    ) -> None:
+        self.post(
+            "/SyncPlay/Ready",
+            {
+                "When": when,
+                "PositionTicks": int(position_ticks),
+                "IsPlaying": is_playing,
+                "PlaylistItemId": playlist_item_id,
+            },
+        )
+
+    def syncplay_buffering(
+        self, when: str, position_ticks: int, is_playing: bool, playlist_item_id: str
+    ) -> None:
+        self.post(
+            "/SyncPlay/Buffering",
+            {
+                "When": when,
+                "PositionTicks": int(position_ticks),
+                "IsPlaying": is_playing,
+                "PlaylistItemId": playlist_item_id,
+            },
+        )
+
+    def syncplay_ping(self, ping_ms: int) -> None:
+        self.post("/SyncPlay/Ping", {"Ping": int(ping_ms)})
+
+    def syncplay_unpause(self) -> None:
+        self.post("/SyncPlay/Unpause")
+
+    def syncplay_pause(self) -> None:
+        self.post("/SyncPlay/Pause")
+
+    def syncplay_stop(self) -> None:
+        self.post("/SyncPlay/Stop")
+
+    def syncplay_seek(self, position_ticks: int) -> None:
+        self.post("/SyncPlay/Seek", {"PositionTicks": int(position_ticks)})
+
+    def syncplay_set_new_queue(
+        self,
+        item_ids: List[str],
+        playing_item_position: int = 0,
+        start_position_ticks: int = 0,
+    ) -> None:
+        self.post(
+            "/SyncPlay/SetNewQueue",
+            {
+                "PlayingQueue": item_ids,
+                "PlayingItemPosition": playing_item_position,
+                "StartPositionTicks": int(start_position_ticks),
+            },
+        )
+
+    def syncplay_set_playlist_item(self, playlist_item_id: str) -> None:
+        self.post("/SyncPlay/SetPlaylistItem", {"PlaylistItemId": playlist_item_id})
+
+    def syncplay_queue(self, item_ids: List[str], mode: str = "Queue") -> None:
+        self.post("/SyncPlay/Queue", {"ItemIds": item_ids, "Mode": mode})
+
+    def syncplay_next_item(self, playlist_item_id: str) -> None:
+        self.post("/SyncPlay/NextItem", {"PlaylistItemId": playlist_item_id})
+
+    def syncplay_previous_item(self, playlist_item_id: str) -> None:
+        self.post("/SyncPlay/PreviousItem", {"PlaylistItemId": playlist_item_id})
+
+    def syncplay_set_ignore_wait(self, ignore_wait: bool) -> None:
+        self.post("/SyncPlay/SetIgnoreWait", {"IgnoreWait": bool(ignore_wait)})
+
     # -- user data -------------------------------------------------------------
 
     def mark_played(self, item_id: str) -> None:

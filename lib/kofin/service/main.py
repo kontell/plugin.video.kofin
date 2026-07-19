@@ -5,6 +5,8 @@ builds a fresh one. Nothing may survive a cycle at module level; all state
 lives on the objects rebuilt each pass.
 """
 
+import json
+import threading
 import time
 from typing import Any, Dict, Optional
 
@@ -88,6 +90,8 @@ class Service(xbmc.Monitor):
         self.player = Player(self.api)
         self.remote = RemoteHandler()
         self.library: Optional[Any] = None  # kofin.sync.library.Library
+        self.syncplay: Optional[Any] = None  # kofin.syncplay.SyncPlayManager
+        self._syncplay_menu: Optional[threading.Thread] = None
         self._online = False
         self._backoff = Backoff()
         self.settings_apply = SettingsApplier(self)
@@ -140,6 +144,7 @@ class Service(xbmc.Monitor):
         self._backoff.succeeded()
         self._online = True
         state.set_online(True)
+        self._start_syncplay()  # before the websocket: messages route into it
         self._start_websocket()
         self._start_library()
 
@@ -177,6 +182,68 @@ class Service(xbmc.Monitor):
             Http(settings.get_bool("sslVerify")), Credentials.load()
         )
 
+    # -- syncplay (phase 4) ----------------------------------------------------
+
+    def _start_syncplay(self) -> None:
+        """Build the SyncPlay manager when enabled. Contained like the
+        library manager: playback and remote control must survive a broken
+        SyncPlay stack (degrade, don't die)."""
+        if self.syncplay is not None:
+            return
+        if not settings.get_bool("syncPlayEnabled"):
+            LOG.debug("syncPlayEnabled off; no SyncPlay manager built")
+            return
+        try:
+            from kofin.syncplay import SyncPlayManager
+
+            self.syncplay = SyncPlayManager(self.api, self.player)
+            self.player.syncplay = self.syncplay
+            self.remote.syncplay = self.syncplay
+            LOG.info("SyncPlay manager started")
+        except Exception:
+            LOG.exception("SyncPlay manager failed to start")
+            self.syncplay = None
+
+    def _stop_syncplay(self) -> None:
+        manager = self.syncplay
+        if manager is None:
+            return
+        self.syncplay = None
+        self.player.syncplay = None
+        self.remote.syncplay = None
+        try:
+            manager.stop()
+        except Exception:
+            LOG.exception("SyncPlay manager failed to stop")
+
+    def _open_syncplay_menu(self) -> None:
+        """SyncPlayMenu IPC: run the (dialog-blocking) menu on a dedicated
+        worker thread — never on the notification thread."""
+        manager = self.syncplay
+        if manager is None:
+            # The plugin gates on syncPlayEnabled, so this is the service
+            # not (yet) online/built — tell the user rather than nothing.
+            import xbmcgui
+
+            xbmcgui.Dialog().notification(
+                "SyncPlay",
+                settings.localized(30574),
+                xbmcgui.NOTIFICATION_INFO,
+                4000,
+                False,
+            )
+            return
+        if self._syncplay_menu is not None and self._syncplay_menu.is_alive():
+            LOG.debug("SyncPlay menu already open")
+            return
+        from kofin.syncplay import show_menu
+
+        self._syncplay_menu = threading.Thread(
+            target=show_menu, args=(manager,), name="kofin-syncplay-menu"
+        )
+        self._syncplay_menu.daemon = True
+        self._syncplay_menu.start()
+
     def _start_websocket(self) -> None:
         header = auth.build_auth_header(
             settings.get_str("deviceName") or "Kodi",
@@ -201,6 +268,10 @@ class Service(xbmc.Monitor):
             LOG.info("capabilities registered")
         except JellyfinError as error:
             LOG.warning("capabilities registration failed: %s", error)
+        if self.syncplay is not None:
+            # Reconnect contract (plan §2): after any WS drop assume kicked;
+            # the manager probes /SyncPlay/List and rejoins on its own thread.
+            self.syncplay.on_notification("WebSocketConnected", {})
 
     def _on_ws_event(self, message_type: str, data: Dict[str, Any]) -> None:
         if self.remote.handle(message_type, data):
@@ -232,6 +303,14 @@ class Service(xbmc.Monitor):
             ):
                 LOG.info("screensaver deactivated; catching up")
                 self.library.enqueue_command("FastSync")
+            # Independent of the sync kick above (plan §7): a broken manager
+            # must never suppress the library catch-up, and vice versa.
+            if method in ("GUI.OnScreensaverDeactivated", "System.OnWake"):
+                self._syncplay_forward("on_wake")
+            elif method == "System.OnSleep":
+                self._syncplay_forward("on_sleep")
+            elif method == "Player.OnPlay":
+                self._syncplay_forward("on_kodi_play", _decode_kodi_data(data))
             return
         if sender != ipc.SENDER:
             return
@@ -242,12 +321,23 @@ class Service(xbmc.Monitor):
         elif name == ipc.AUTH_CHANGED:
             LOG.info("auth changed; restarting service cycle")
             self._restart_requested = True
+        elif name == ipc.SYNCPLAY_MENU:
+            self._open_syncplay_menu()
         elif name in LIBRARY_COMMANDS:
             self._start_library()
             if self.library is None:
                 LOG.warning("library command %s ignored: manager not running", name)
                 return
             self.library.enqueue_command(name, ipc.decode(data))
+
+    def _syncplay_forward(self, name: str, *args: Any) -> None:
+        manager = self.syncplay
+        if manager is None:
+            return
+        try:
+            getattr(manager, name)(*args)
+        except Exception:
+            LOG.exception("SyncPlay %s hook failed", name)
 
     def onSettingsChanged(self) -> None:
         self.settings_apply.apply()
@@ -256,6 +346,7 @@ class Service(xbmc.Monitor):
 
     def _shutdown(self) -> None:
         state.set_should_stop(True)
+        self._stop_syncplay()
         if self.library is not None:
             self.library.stop_client()
             self.library.join(timeout=15)
@@ -268,6 +359,15 @@ class Service(xbmc.Monitor):
             self.ws = None
         self.http.close()
         state.clear_all()
+
+
+def _decode_kodi_data(data: str) -> Dict[str, Any]:
+    """Kodi-bus notification payloads are plain JSON objects."""
+    try:
+        payload = json.loads(data) if data else {}
+    except ValueError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def run_forever() -> None:

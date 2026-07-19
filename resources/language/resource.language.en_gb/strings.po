@@ -1048,3 +1048,146 @@ msgstr ""
 msgctxt "#30501"
 msgid "Browse extras"
 msgstr ""
+
+# 30550-30599 — SyncPlay (settings group 30550-30558, menu/toasts 30560+;
+# fork ids 33262-33302 remapped)
+
+msgctxt "#30550"
+msgid "SyncPlay"
+msgstr ""
+
+msgctxt "#30551"
+msgid "Enable SyncPlay"
+msgstr ""
+
+msgctxt "#30552"
+msgid "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads."
+msgstr ""
+
+msgctxt "#30553"
+msgid "Drift correction"
+msgstr ""
+
+msgctxt "#30554"
+msgid "Gently adjusts playback speed to hold position with the group (needs Kodi's 'Sync playback to display'). Off: follow scheduled commands only."
+msgstr ""
+
+msgctxt "#30555"
+msgid "Sync tolerance (ms)"
+msgstr ""
+
+msgctxt "#30556"
+msgid "Drift below this is left alone; correction engages only past it. Lower is tighter but corrects more often."
+msgstr ""
+
+msgctxt "#30557"
+msgid "Group notifications"
+msgstr ""
+
+msgctxt "#30558"
+msgid "Show member join/leave and group-waiting notifications. Errors are always shown."
+msgstr ""
+
+msgctxt "#30560"
+msgid "SyncPlay"
+msgstr ""
+
+msgctxt "#30561"
+msgid "New group..."
+msgstr ""
+
+msgctxt "#30562"
+msgid "Leave group"
+msgstr ""
+
+msgctxt "#30563"
+msgid "Joined group: %s"
+msgstr ""
+
+msgctxt "#30564"
+msgid "Left the group"
+msgstr ""
+
+msgctxt "#30565"
+msgid "%s joined the group"
+msgstr ""
+
+msgctxt "#30566"
+msgid "%s left the group"
+msgstr ""
+
+msgctxt "#30567"
+msgid "Group name"
+msgstr ""
+
+msgctxt "#30568"
+msgid "Playback stopped — what should the group do?"
+msgstr ""
+
+msgctxt "#30569"
+msgid "Spectator mode: the group will not wait for you"
+msgstr ""
+
+msgctxt "#30570"
+msgid "SyncPlay needs a working websocket connection to the server"
+msgstr ""
+
+msgctxt "#30571"
+msgid "Removed from the group"
+msgstr ""
+
+msgctxt "#30572"
+msgid "Members"
+msgstr ""
+
+msgctxt "#30573"
+msgid "Resync with group"
+msgstr ""
+
+msgctxt "#30574"
+msgid "SyncPlay is unavailable (server not reachable?)"
+msgstr ""
+
+msgctxt "#30575"
+msgid "External players cannot be synchronized"
+msgstr ""
+
+msgctxt "#30576"
+msgid "Playback could not be synchronized"
+msgstr ""
+
+msgctxt "#30577"
+msgid "buffering"
+msgstr ""
+
+msgctxt "#30578"
+msgid "Could not join the group"
+msgstr ""
+
+msgctxt "#30579"
+msgid "You don't have access to some items in the group's queue"
+msgstr ""
+
+msgctxt "#30580"
+msgid "Become a spectator (group won't wait for me)"
+msgstr ""
+
+msgctxt "#30581"
+msgid "Wait for me again (leave spectator mode)"
+msgstr ""
+
+msgctxt "#30582"
+msgid "disconnected"
+msgstr ""
+
+msgctxt "#30583"
+msgid "The group will wait for you again"
+msgstr ""
+
+msgctxt "#30584"
+msgid "Stop playback for everyone"
+msgstr ""
+
+msgctxt "#30585"
+msgid "Waiting for the group..."
+msgstr ""

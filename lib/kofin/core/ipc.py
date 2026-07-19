@@ -24,6 +24,11 @@ REPAIR_LIBRARY = "RepairLibrary"
 UPDATE_LIBRARY = "UpdateLibrary"
 REFRESH_BOXSETS = "RefreshBoxsets"
 
+# SyncPlay (phase 4): the root entry's plugin invocation asks the service —
+# the single owner of all SyncPlay state — to open the group menu on its
+# worker thread. No payload.
+SYNCPLAY_MENU = "SyncPlayMenu"
+
 _REGISTRY = frozenset(
     {
         RESTART,
@@ -33,6 +38,7 @@ _REGISTRY = frozenset(
         REPAIR_LIBRARY,
         UPDATE_LIBRARY,
         REFRESH_BOXSETS,
+        SYNCPLAY_MENU,
     }
 )
 

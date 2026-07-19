@@ -227,6 +227,15 @@ def root(request: Request) -> None:
         adduser_li = xbmcgui.ListItem(settings.localized(30041))
         adduser_li.setArt({"icon": "DefaultUser.png"})
         entries.append((listitems.plugin_url({"mode": "adduser"}), adduser_li, False))
+
+    # SyncPlay root entry (phase 4): gated on the master toggle, read fresh
+    # each listing, and hidden when an external player is configured.
+    from kofin.plugin import syncplay
+
+    if api is not None and syncplay.available():
+        syncplay_li = xbmcgui.ListItem(settings.localized(30560))
+        syncplay_li.setArt({"icon": "DefaultUser.png"})
+        entries.append((listitems.plugin_url({"mode": "syncplay"}), syncplay_li, False))
     settings_li = xbmcgui.ListItem(xbmc.getLocalizedString(5))  # "Settings"
     settings_li.setArt({"icon": "DefaultAddonService.png"})
     entries.append((listitems.plugin_url({"mode": "settings"}), settings_li, False))

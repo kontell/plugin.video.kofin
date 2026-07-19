@@ -552,6 +552,51 @@
           <control type="toggle"/>
         </setting>
       </group>
+      <group id="3" label="30550">
+        <setting id="syncPlayEnabled" type="boolean" label="30551" help="30552">
+          <level>0</level>
+          <default>false</default>
+          <control type="toggle"/>
+        </setting>
+        <setting id="syncPlayDriftCorrection" type="boolean" label="30553" help="30554">
+          <level>0</level>
+          <default>true</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="syncPlayEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <setting id="syncPlayTolerance" type="integer" label="30555" help="30556">
+          <level>0</level>
+          <default>75</default>
+          <constraints>
+            <minimum>50</minimum>
+            <step>25</step>
+            <maximum>1000</maximum>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="syncPlayEnabled">true</condition>
+            </dependency>
+            <dependency type="enable">
+              <condition operator="is" setting="syncPlayDriftCorrection">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="slider" format="integer"/>
+        </setting>
+        <setting id="syncPlayNotifications" type="boolean" label="30557" help="30558">
+          <level>0</level>
+          <default>true</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="syncPlayEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+      </group>
     </category>
 
     <!-- Library -->

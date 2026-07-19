@@ -122,3 +122,98 @@ def test_pause_resume_report_state(monkeypatch):
     assert api.calls[-1][1]["IsPaused"] is True
     player.onPlayBackResumed()
     assert api.calls[-1][1]["IsPaused"] is False
+
+
+# --- SyncPlay forwarding (phase 4) -------------------------------------------
+
+
+class RecordingSyncPlay:
+    def __init__(self):
+        self.events = []
+
+    def __getattr__(self, name):
+        def hook(*args):
+            self.events.append((name,) + args)
+
+        return hook
+
+
+def test_syncplay_callbacks_forwarded_when_attached(monkeypatch):
+    player, api = make_player(monkeypatch)
+    syncplay = RecordingSyncPlay()
+    player.syncplay = syncplay
+    queue_item()
+
+    player.onPlayBackStarted()
+    player.onAVStarted()
+    player.onPlayBackPaused()
+    player.onPlayBackResumed()
+    player.onPlayBackSeek(65_000, 0)
+    player.onPlayBackStopped()
+
+    names = [event[0] for event in syncplay.events]
+    assert names == [
+        "on_playback_started",
+        "on_avstarted",
+        "on_paused",
+        "on_resumed",
+        "on_seek",
+        "on_stopped",
+    ]
+    # The seek forwards seconds, as the manager expects.
+    assert syncplay.events[4] == ("on_seek", 65.0)
+
+
+def test_syncplay_ended_and_error_forwarded(monkeypatch):
+    player, api = make_player(monkeypatch)
+    syncplay = RecordingSyncPlay()
+    player.syncplay = syncplay
+    queue_item()
+    player.onPlayBackStarted()
+
+    player.onPlayBackEnded()
+    assert ("on_ended",) in syncplay.events
+
+    queue_item()
+    player.onPlayBackStarted()
+    player.onPlayBackError()
+    assert ("on_error",) in syncplay.events
+
+
+def test_syncplay_detached_is_a_noop(monkeypatch):
+    player, api = make_player(monkeypatch)
+    queue_item()
+    player.onPlayBackStarted()  # syncplay is None: nothing to forward
+    player.onAVStarted()
+    player.onPlayBackStopped()
+    kinds = [kind for kind, _data in api.calls]
+    assert kinds[0] == "playing" and kinds[-1] == "stopped"
+
+
+def test_broken_syncplay_hook_never_breaks_reporting(monkeypatch):
+    player, api = make_player(monkeypatch)
+
+    class Exploding:
+        def __getattr__(self, name):
+            def hook(*args):
+                raise RuntimeError("boom")
+
+            return hook
+
+    player.syncplay = Exploding()
+    queue_item()
+    player.onPlayBackStarted()
+    player.onPlayBackStopped()
+    kinds = [kind for kind, _data in api.calls]
+    assert "playing" in kinds and "stopped" in kinds
+
+
+def test_current_item_exposes_claim(monkeypatch):
+    player, api = make_player(monkeypatch)
+    assert player.current_item() is None
+    queue_item()
+    player.onPlayBackStarted()
+    item = player.current_item()
+    assert item is not None and item["Id"] == "m1"
+    player.onPlayBackStopped()
+    assert player.current_item() is None

@@ -38,6 +38,7 @@ class SettingsApplier:
             "deviceName": self._device_name_changed,
             "sslVerify": self._ssl_verify_changed,
             "librarySelection": self._library_selection_changed,
+            "syncPlayEnabled": self._syncplay_enabled_changed,
         }
         self.snapshot: Dict[str, str] = self._read_all()
 
@@ -86,6 +87,16 @@ class SettingsApplier:
     def _ssl_verify_changed(self, old: str, new: str) -> None:
         LOG.info("sslVerify changed; restarting service cycle")
         self.service._restart_requested = True  # type: ignore[attr-defined]
+
+    def _syncplay_enabled_changed(self, old: str, new: str) -> None:
+        """The SyncPlay master toggle builds/tears down the manager live —
+        off means no manager thread at all (plan §4)."""
+        service = self.service
+        if new == "true":
+            if getattr(service, "_online", False):
+                service._start_syncplay()  # type: ignore[attr-defined]
+        else:
+            service._stop_syncplay()  # type: ignore[attr-defined]
 
     def _library_selection_changed(self, old: str, new: str) -> None:
         """The apply-on-save path for the library multiselect."""

@@ -1,17 +1,23 @@
-"""Remote control: Play / Playstate / GeneralCommand from the websocket.
+"""Remote control: Play / Playstate / GeneralCommand from the websocket,
+plus the SyncPlay message routing (phase 4).
 
 Runs on the websocket thread; every handler is a quick JSON-RPC call or
-builtin. Unknown commands log and return — never raise.
+builtin — the SyncPlay messages only enqueue onto the manager's dispatcher
+thread, so ordering is preserved and this thread never blocks. Unknown
+commands log and return — never raise.
 """
 
 import json
-from typing import Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import xbmc
 import xbmcgui
 
 from kofin.core.log import Logger
 from kofin.plugin.listitems import plugin_url
+
+if TYPE_CHECKING:
+    from kofin.syncplay.manager import SyncPlayManager
 
 LOG = Logger(__name__)
 
@@ -37,6 +43,11 @@ INPUT_ACTIONS = {
 
 
 class RemoteHandler:
+    def __init__(self) -> None:
+        # The SyncPlay manager (attached by the service while one is built);
+        # all control-plane websocket traffic routes through this handler.
+        self.syncplay: Optional["SyncPlayManager"] = None
+
     def handle(self, message_type: str, data: JsonDict) -> bool:
         """Dispatch a websocket message; returns True when handled."""
         if message_type == "Play":
@@ -45,6 +56,14 @@ class RemoteHandler:
             self._playstate(data)
         elif message_type == "GeneralCommand":
             self._general(data)
+        elif message_type in ("SyncPlayCommand", "SyncPlayGroupUpdate"):
+            manager = self.syncplay
+            if manager is None:
+                LOG.debug("%s with no SyncPlay manager; dropped", message_type)
+            else:
+                # Enqueue-only: the manager's dispatcher thread preserves
+                # message ordering and the websocket thread never blocks.
+                manager.on_notification(message_type, data)
         else:
             return False
         return True
