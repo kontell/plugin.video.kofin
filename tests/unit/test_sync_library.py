@@ -293,7 +293,8 @@ def test_no_skin_reload_when_library_genuinely_empty(monkeypatch, tmp_path):
 
 
 def test_music_only_sync_never_reloads_skin(monkeypatch, tmp_path):
-    """A music-only sync must not scan video or bounce the skin."""
+    """A music-only sync must not scan video or bounce the skin. It does fire
+    the nonexistent-path probe, which is what makes direct writes visible."""
     calls = []
     monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: calls.append(cmd))
     monkeypatch.setattr("xbmc.getCondVisibility", lambda cond: False)
@@ -302,22 +303,45 @@ def test_music_only_sync_never_reloads_skin(monkeypatch, tmp_path):
     manager, _api = make_library()
     manager.refresh_libraries({"music"})
 
+    assert calls == ["UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE]
+    assert not any("ReloadSkin" in c or "video" in c for c in calls)
+
+
+def test_music_refresh_never_scans_the_real_library(builtins):
+    """A *bare* UpdateLibrary(music) would probe every song's remote path
+    (~21k requests) and overlapping scans have crashed Kodi -- fork e4f8dc3f.
+    The probe path must always be present, and must not exist on disk."""
+    manager, _api = make_library()
+    manager.refresh_libraries({"music"})
+
+    assert builtins == ["UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE]
+    assert "UpdateLibrary(music)" not in builtins
+
+
+def test_music_refresh_skipped_while_a_scan_is_running(monkeypatch):
+    """Stacking scans is the crash path: cancelling an in-flight music scan
+    is what took Kodi down on Android."""
+    calls = []
+    monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(
+        "xbmc.getCondVisibility", lambda cond: cond == "Library.IsScanningMusic"
+    )
+
+    manager, _api = make_library()
+    manager.refresh_libraries({"music"})
+
     assert calls == []
 
 
-def test_music_refresh_never_scans(builtins):
-    """UpdateLibrary(music) would probe every song's remote path (~21k
-    requests) and overlapping scans have crashed Kodi -- fork e4f8dc3f."""
-    manager, _api = make_library()
-    manager.refresh_libraries({"music"})
-    assert builtins == []
-    assert not any("UpdateLibrary" in c for c in builtins)
-
-
 def test_mixed_refresh_scans_video_but_not_music(builtins):
+    """Video gets its real (no-op) scan; music gets the nonexistent-path probe.
+    Neither may ever be a bare UpdateLibrary(music)."""
     manager, _api = make_library()
     manager.refresh_libraries({"video", "music"})
-    assert builtins == ["UpdateLibrary(video)"]
+    assert builtins == [
+        "UpdateLibrary(video)",
+        "UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE,
+    ]
     assert "UpdateLibrary(music)" not in builtins
 
 
@@ -327,7 +351,10 @@ def test_container_refresh_only_in_media_window(monkeypatch):
     monkeypatch.setattr("xbmc.getCondVisibility", lambda cond: cond == "Window.IsMedia")
     manager, _api = make_library()
     manager.refresh_libraries({"music"})
-    assert calls == ["Container.Refresh"]
+    assert calls == [
+        "UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE,
+        "Container.Refresh",
+    ]
 
 
 def test_refresh_noop_without_databases(builtins):

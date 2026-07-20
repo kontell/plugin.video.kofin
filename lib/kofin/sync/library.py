@@ -55,6 +55,10 @@ MUSIC_QUEUES = ("Audio", "MusicArtist", "AlbumArtist", "MusicAlbum")
 # unbounded drain-long transaction would block another writer past its busy
 # timeout.
 COMMIT_INTERVAL = 50
+# Deliberately nonexistent: scanning it is how music gets a library-change
+# event without a real walk (see Library._refresh_music). Must never be
+# created — if it existed the scan would descend into it.
+MUSIC_REFRESH_PROBE = "special://temp/kofin-music-refresh-probe/"
 # Queue backlog above which the background progress dialog appears.
 PROGRESS_DISPLAY = 50
 # Notification display times (ms), fork defaults.
@@ -676,8 +680,39 @@ class Library(threading.Thread):
                 LOG.info("first video content synced; reloading skin for home widgets")
                 xbmc.executebuiltin("ReloadSkin()")
 
+        if "music" in databases:
+            self._refresh_music()
+
         if xbmc.getCondVisibility("Window.IsMedia"):
             xbmc.executebuiltin("Container.Refresh")
+
+    def _refresh_music(self):
+        """Give music the library event that direct SQLite writes never fire.
+
+        Without it the data is right and the *display* is stale indefinitely:
+        home-screen ``musicdb://`` widgets ("Recently played albums") keep the
+        rows they were built with, so an album played on another client lands
+        in the database and never appears. Kodi keeps Home alive, so
+        navigating away and back does not rebuild them either.
+
+        A bare ``UpdateLibrary(music)`` is the obvious fix and is unusable —
+        see ``refresh_libraries`` for why (no ``noUpdate`` column on MyMusic's
+        path table, ~21k remote probes, and a crash on Android when scans
+        overlap).
+
+        Scanning a directory that **does not exist** gets the event without
+        the walk: Kodi logs "does not exist - skipping scan", finishes in 0 s
+        having probed nothing, and still completes the scan cycle that
+        invalidates the cached containers. Verified on both generations —
+        Omega (0 s, zero song requests) and Piers, where a stale "Recently
+        played albums" widget picked up an album played seconds earlier on
+        another client.
+        """
+        if xbmc.getCondVisibility("Library.IsScanningMusic"):
+            # Never stack scans: cancelling an in-flight one is the crash path.
+            return
+
+        xbmc.executebuiltin("UpdateLibrary(music,%s)" % MUSIC_REFRESH_PROBE)
 
     def _video_content_hidden(self):
         """Whether Kodi still believes the video library is empty while rows
