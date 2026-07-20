@@ -254,6 +254,34 @@ def test_get_items_defaults_to_newest_first():
         assert params["SortOrder"] == "Descending,Ascending"
 
 
+def test_item_type_filter_reaches_the_query():
+    """The phase-5 sort flip dropped IncludeItemTypes from get_items, so every
+    tvshows pass fetched the whole library and applied the wrong writer to
+    each item — a show's /Seasons 404s on an episode id and the sync aborted
+    on every service start. The three passes are only three different queries
+    because of this parameter."""
+    for item_type in ("Series", "Season", "Episode"):
+        api = PagingApi([[{"Id": "x1", "Type": item_type}]])
+
+        for _batch in downloader.get_items(api, "lib1", item_type):
+            pass
+
+        assert api.requests
+        for _url, params in api.requests:
+            assert params["IncludeItemTypes"] == item_type
+
+
+def test_item_type_absent_means_unfiltered():
+    """Callers that genuinely want every type pass None (boxsets, mixed)."""
+    api = PagingApi([[{"Id": "x1", "Type": "Movie"}]])
+
+    for _batch in downloader.get_items(api, "lib1"):
+        pass
+
+    for _url, params in api.requests:
+        assert params["IncludeItemTypes"] is None
+
+
 def test_restore_point_resumes_under_recorded_sort():
     """A pre-phase-5 restore point carries SortBy=SortName in its params; the
     resumed query must keep it (never mix sort orders mid-walk)."""

@@ -61,6 +61,42 @@ def test_401_raises_unauthorized_without_retry(monkeypatch):
     assert len(session.calls) == 1
 
 
+def test_every_request_is_logged_for_counting(monkeypatch):
+    """The scenario gates assert request counts ("zero per-show /Episodes
+    calls", "3067 fetches to 0"); those are ungreppable unless successes are
+    logged too, not only failures."""
+    lines = []
+    monkeypatch.setattr(http.LOG, "debug", lambda msg, *a: lines.append(msg % a))
+
+    response = FakeResponse(200, {"ok": 1})
+    response.request = type("Sent", (), {"url": "http://s/Items?Ids=abc"})()
+    transport, _ = make_http(monkeypatch, [response])
+    transport.request("GET", "http://s/Items")
+
+    assert any("Items?Ids=abc" in line and "-> 200" in line for line in lines)
+
+
+def test_request_log_survives_a_response_without_a_request(monkeypatch):
+    """Not every response object carries .request; fall back to the url."""
+    lines = []
+    monkeypatch.setattr(http.LOG, "debug", lambda msg, *a: lines.append(msg % a))
+
+    transport, _ = make_http(monkeypatch, [FakeResponse(200, {"ok": 1})])
+    transport.request("GET", "http://s/plain")
+
+    assert any("http://s/plain" in line for line in lines)
+
+
+def test_request_log_is_masked_like_every_other_line():
+    """The log chokepoint must redact a token even if one reaches a URL."""
+    from kofin.core import log as log_module
+
+    log_module.register_secret("tok-secret-value")
+    assert "tok-secret-value" not in log_module.mask(
+        "http GET http://s/Items?api_key=tok-secret-value -> 200"
+    )
+
+
 def test_500_raises_http_error_with_status(monkeypatch):
     transport, _ = make_http(monkeypatch, [FakeResponse(503)])
     with pytest.raises(http.HttpError) as exc:

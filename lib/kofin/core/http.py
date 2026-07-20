@@ -94,6 +94,19 @@ class Http:
                 last_error = error
                 continue
 
+            # Every request, not just the failures: the scenario gates assert
+            # request *counts* ("zero per-show /Episodes calls", "3067 fetches
+            # to 0"), and those are ungreppable if only errors are logged.
+            # Debug level, and masked like every other line — kofin's auth
+            # rides in headers, so the query string carries no secret.
+            sent = getattr(response, "request", None)
+            LOG.debug(
+                "http %s %s -> %d",
+                method,
+                getattr(sent, "url", None) or url,
+                response.status_code,
+            )
+
             if response.status_code in (401, 403):
                 raise Unauthorized("%s %s -> %d" % (method, url, response.status_code))
             if response.status_code >= 400:

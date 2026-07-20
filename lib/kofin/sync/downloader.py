@@ -120,6 +120,11 @@ def get_items(api, parent_id, item_type=None, basic=False, params=None):
         "url": "/Users/%s/Items" % api.user_id,
         "params": {
             "ParentId": parent_id,
+            # Load-bearing: the 3-pass tvshows walk (Series, then Season,
+            # then Episode) is only three *different* queries because of
+            # this. Dropping it makes every pass fetch the whole library and
+            # apply the wrong writer to each item.
+            "IncludeItemTypes": item_type,
             # Newest first (phase 5, sync-plan Phase 3): fresh content is
             # browsable minutes into an initial sync. SortName breaks the
             # tie so pagination stays deterministic under equal timestamps

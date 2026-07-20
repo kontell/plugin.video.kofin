@@ -16,6 +16,13 @@ to *remove a synced library* on a plain Kodi restart. So the applier ignores
 every change until the service marks it ready, then re-baselines against the
 now-stable store. A genuine user edit only ever happens interactively, long
 after startup.
+
+The same read can fail *after* ready, though (phase 5 live testing: Kodi
+logged "failed to load addon settings from ...settings.xml" four minutes into
+a ready session and handed back "" for librarySelection, which proposed
+removing all six synced libraries). So emptying a guarded setting is
+corroborated by a second read before it is believed — see
+``_is_spurious_clear``.
 """
 
 from typing import Any, Callable, Dict, List, Optional
@@ -28,6 +35,10 @@ from kofin.core.log import Logger
 LOG = Logger(__name__)
 
 Handler = Callable[[str, str], None]
+
+# Settings whose emptied value destroys data if believed too readily, so an
+# empty read is corroborated before it is acted on (``_is_spurious_clear``).
+GUARDED_CLEARS = ("librarySelection",)
 
 
 class SettingsApplier:
@@ -69,12 +80,45 @@ class SettingsApplier:
             old = self.snapshot.get(setting_id, "")
             if new == old:
                 continue
+            if self._is_spurious_clear(setting_id, old, new):
+                # Snapshot deliberately not advanced: the real value is still
+                # pending, and a later genuine edit must still register.
+                continue
             self.snapshot[setting_id] = new
             LOG.info("setting %s changed: %r -> %r; applying", setting_id, old, new)
             try:
                 handler(old, new)
             except Exception:
                 LOG.exception("apply failed for %s", setting_id)
+
+    def _is_spurious_clear(self, setting_id: str, old: str, new: str) -> bool:
+        """Whether an emptied setting is a failed read rather than an edit.
+
+        The startup guard above covers transient empty reads *before* ready;
+        this covers the same failure after it. Kodi can fail to load
+        settings.xml mid-session ("failed to load addon settings from
+        special://profile/addon_data/.../settings.xml") and hand back "" for
+        a setting that is intact on disk — observed live during phase 5, four
+        minutes into a ready session, which read as "user deselected every
+        library" and prompted removal of all six. ``get_str`` builds a fresh
+        ``Addon()`` per call, so the cheap discriminator is a second read:
+        the failure is in one Addon instantiation and a new one lands the
+        real value, while a genuine clear reads empty twice and proceeds.
+        """
+        if setting_id not in GUARDED_CLEARS or new != "" or old == "":
+            return False
+
+        confirm = settings.get_str(setting_id)
+        if confirm == new:
+            return False
+
+        LOG.warning(
+            "ignoring spurious empty read of %s (re-read returned %r); "
+            "treating it as a failed settings load, not a user edit",
+            setting_id,
+            confirm,
+        )
+        return True
 
     # -- handlers -------------------------------------------------------------
 

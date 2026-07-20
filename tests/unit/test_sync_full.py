@@ -57,6 +57,42 @@ def test_other_http_errors_still_fail_and_keep_the_entry(fullsync):
     assert fullsync.sync["Whitelist"] == []
 
 
+def test_item_gone_server_side_is_skipped_not_fatal(fullsync):
+    """A show deleted after it was paged 404s on the writer's /Seasons fetch.
+    Live phase 5: that aborted the whole library and re-fired a sync-failed
+    toast on every service start, forever."""
+
+    def apply(obj, item):
+        raise HttpError(404, "GET /Shows/%s/Seasons -> 404" % item["Id"])
+
+    assert fullsync.apply_or_skip(apply, None, {"Id": "gone-show"}, "Series") is False
+
+
+def test_item_other_http_error_still_aborts_the_pass(fullsync):
+    """The guard is for dead ids only — a 500 is a real failure and must not
+    be downgraded into a silently incomplete library."""
+
+    def apply(obj, item):
+        raise HttpError(500, "GET /Shows/%s/Seasons -> 500" % item["Id"])
+
+    with pytest.raises(HttpError):
+        fullsync.apply_or_skip(apply, None, {"Id": "flaky-show"}, "Series")
+
+
+def test_item_applied_normally_reports_success(fullsync):
+    written = []
+    assert (
+        fullsync.apply_or_skip(
+            lambda obj, item: written.append(item["Id"]),
+            None,
+            {"Id": "live-show"},
+            "Series",
+        )
+        is True
+    )
+    assert written == ["live-show"]
+
+
 def test_synced_library_still_whitelisted(fullsync, monkeypatch):
     fullsync.server = FakeServer({"lib1": 200})
     fullsync.sync["Libraries"] = ["lib1"]

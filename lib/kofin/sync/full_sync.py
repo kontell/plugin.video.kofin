@@ -408,6 +408,29 @@ class FullSync(object):
 
         self.clear_restore_point(restore_key)
 
+    def apply_or_skip(self, apply, obj, item, item_type):
+        """Write one item; True on success, False if it is gone server-side.
+
+        The library-level drop in ``process_library``, one level down. An
+        item deleted after it was paged 404s on the child fetches its writer
+        makes (a show's ``/Seasons``), and an unguarded raise aborts the
+        whole library — wedging every future run on the same dead id, which
+        surfaces as a sync-failed toast on every service start. Anything but
+        a 404 is a real failure and still stops the pass.
+        """
+        try:
+            apply(obj, item)
+            return True
+        except HttpError as error:
+            if error.status != 404:
+                raise
+            LOG.warning(
+                "%s %s is gone from the server; skipped",
+                item_type,
+                item.get("Id"),
+            )
+            return False
+
     @progress()
     def tvshows(self, library, dialog):
         """Process tvshows, seasons and episodes from a single library.
@@ -428,6 +451,7 @@ class FullSync(object):
 
             def tvshows_pass(item_type, key_suffix, apply, describe):
                 restore_key = "%s/tvshows-%s" % (library["Id"], key_suffix)
+                skipped = []
 
                 for items in server.get_items(
                     self.server,
@@ -456,10 +480,20 @@ class FullSync(object):
                                 heading=heading,
                                 message=describe(item),
                             )
-                            apply(obj, item)
+
+                            if not self.apply_or_skip(apply, obj, item, item_type):
+                                skipped.append(item.get("Id"))
 
                         videodb.conn.commit()
                         jellyfindb.conn.commit()
+
+                if skipped:
+                    # Never let a partial pass look complete in the log.
+                    LOG.warning(
+                        "--[ %s pass: %d gone server-side, skipped ]",
+                        item_type,
+                        len(skipped),
+                    )
 
             def child_label(item):
                 return "%s / %s" % (item.get("SeriesName") or "", item.get("Name"))

@@ -248,6 +248,66 @@ def test_startup_transient_empty_does_not_prompt_removal():
     assert not any(c[0] == "yesno" for c in FakeDialog.calls)
 
 
+class FailOnceAddon(FakeAddon):
+    """One Addon instantiation whose settings load failed: it hands back ""
+    for the guarded setting. Every later instance reads correctly — the shape
+    of the live failure, where get_str builds a fresh Addon per call."""
+
+    failed_reads = 0
+    fail_setting = "librarySelection"
+
+    def getSetting(self, setting_id: str) -> str:
+        if setting_id == FailOnceAddon.fail_setting and FailOnceAddon.failed_reads:
+            FailOnceAddon.failed_reads -= 1
+            return ""
+        return self.store.get(setting_id, "")
+
+
+def test_post_ready_empty_read_is_corroborated_not_obeyed(monkeypatch):
+    """The phase-5 live bug: settings.xml failed to load four minutes into a
+    ready session, librarySelection read "", and every synced library was
+    proposed for removal. A single failed read must never reach the handler."""
+    seed_views(("v-docs", "Documentaries", "tvshows"))
+    seed_whitelist("v-docs")
+    FakeAddon.store["librarySelection"] = "v-docs"
+    service = FakeService()
+    applier = ready_applier(service)
+
+    monkeypatch.setattr("xbmcaddon.Addon", FailOnceAddon)
+    FailOnceAddon.failed_reads = 1
+    applier.apply()
+
+    # Not prompted, not removed, and the snapshot still holds the real value
+    # so the library is not "already emptied" from the applier's point of view.
+    assert service.library.commands == []
+    assert not any(c[0] == "yesno" for c in FakeDialog.calls)
+    assert applier.snapshot["librarySelection"] == "v-docs"
+
+    # The failed read left nothing latched: a later genuine edit still applies.
+    FailOnceAddon.failed_reads = 0
+    seed_views(("v-docs", "Documentaries", "tvshows"), ("v-new", "New", "movies"))
+    FakeAddon.store["librarySelection"] = "v-docs,v-new"
+    applier.apply()
+    assert service.library.commands == [("SyncLibrary", {"Id": "v-new"})]
+
+
+def test_deliberate_deselect_all_still_removes(monkeypatch):
+    """The guard must not swallow intent: an empty selection that survives the
+    corroborating re-read is a real deselect-all and proceeds to the prompt."""
+    seed_views(("v-docs", "Documentaries", "tvshows"))
+    seed_whitelist("v-docs")
+    FakeAddon.store["librarySelection"] = "v-docs"
+    service = FakeService()
+    applier = ready_applier(service)
+
+    FakeDialog.yesno_result = True
+    FakeAddon.store["librarySelection"] = ""  # reads empty every time
+    applier.apply()
+
+    assert service.library.commands == [("RemoveLibrary", {"Id": "v-docs"})]
+    assert any(c[0] == "yesno" for c in FakeDialog.calls)
+
+
 def test_mark_ready_rebaselines_and_is_idempotent():
     seed_views(("v-movies", "Movies", "movies"))
     seed_whitelist()

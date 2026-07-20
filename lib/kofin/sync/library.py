@@ -1487,6 +1487,41 @@ class SortWorker(threading.Thread):
         self.is_done = True
 
 
+# Which writer removes which item kind. Returned per item rather than
+# assigned in the drain loop: the loop used to keep the previous iteration's
+# writer for any kind it did not match, so a BoxSet removal following a Movie
+# removal ran movies.remove against a set id — and, as the first item in a
+# drain, raised UnboundLocalError and left the rows in place. Found live on
+# tier 1, where the change feed delivers BoxSet records the fork's dispatch
+# never expected.
+REMOVAL_WRITERS = {
+    # Movies.remove dispatches on the mapping row's media ("movie" / "set"),
+    # so a boxset id removes the set through the same entry point.
+    "Movie": "movies",
+    "BoxSet": "movies",
+    "Series": "tvshows",
+    "Season": "tvshows",
+    "Episode": "tvshows",
+    "MusicAlbum": "music",
+    "MusicArtist": "music",
+    "AlbumArtist": "music",
+    "Audio": "music",
+    "MusicVideo": "musicvideos",
+}
+
+
+def removal_writer_for(item_type, movies, tvshows, music, musicvideos):
+    """The bound ``remove`` for this kind, or None when nothing handles it."""
+    writer = {
+        "movies": movies,
+        "tvshows": tvshows,
+        "music": music,
+        "musicvideos": musicvideos,
+    }.get(REMOVAL_WRITERS.get(item_type))
+
+    return None if writer is None else writer.remove
+
+
 class RemovedWorker(threading.Thread):
 
     is_done = False
@@ -1503,6 +1538,9 @@ class RemovedWorker(threading.Thread):
 
         with self.lock, self.database as kodidb, Database("kofin") as jellyfindb:
             default_args = (self.server, jellyfindb, kodidb)
+            # Only one family is built per worker (video or music), but the
+            # dispatch is handed all four, so the unbuilt ones must exist.
+            movies = tvshows = musicvideos = music = None
             if kodidb.db_file == "video":
                 movies = Movies(*default_args)
                 tvshows = TVShows(*default_args)
@@ -1525,22 +1563,19 @@ class RemovedWorker(threading.Thread):
                 except queue.Empty:
                     break
 
-                if item["Type"] == "Movie":
-                    obj = movies.remove
-                elif item["Type"] in ["Series", "Season", "Episode"]:
-                    obj = tvshows.remove
-                elif item["Type"] in [
-                    "MusicAlbum",
-                    "MusicArtist",
-                    "AlbumArtist",
-                    "Audio",
-                ]:
-                    obj = music.remove
-                elif item["Type"] == "MusicVideo":
-                    obj = musicvideos.remove
+                obj = removal_writer_for(
+                    item["Type"], movies, tvshows, music, musicvideos
+                )
 
                 try:
-                    obj(item["Id"])
+                    if obj is None:
+                        LOG.warning(
+                            "no removal writer for type %s; %s left in place",
+                            item["Type"],
+                            item["Id"],
+                        )
+                    else:
+                        obj(item["Id"])
                 except LibraryException as error:
                     # TODO: Fixme; We're catching all LibraryException here,
                     # but silently ignoring any that isn't the exit condition.

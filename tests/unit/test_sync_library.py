@@ -675,3 +675,93 @@ def test_requeue_full_untags_and_requeues():
     manager.requeue_full("x1")
     assert manager.artwork_only_ids == set()
     assert drain(manager.updated_queue) == [["x1"]]
+
+
+class FakeWriter:
+    def __init__(self, name):
+        self.name = name
+        self.removed = []
+
+    def remove(self, item_id):
+        self.removed.append(item_id)
+
+
+def _writers():
+    return (
+        FakeWriter("movies"),
+        FakeWriter("tvshows"),
+        FakeWriter("music"),
+        FakeWriter("musicvideos"),
+    )
+
+
+def test_boxset_removal_routes_to_the_movies_writer():
+    """Live on tier 1: the feed delivers BoxSet removals, which the fork's
+    dispatch never matched — the removal raised UnboundLocalError and the
+    collections stayed in Kodi. Movies.remove dispatches on the mapping row's
+    media, so a set id belongs there."""
+    movies, tvshows, music, musicvideos = _writers()
+
+    writer = library_mod.removal_writer_for(
+        "BoxSet", movies, tvshows, music, musicvideos
+    )
+
+    assert writer is not None
+    writer("set-1")
+    assert movies.removed == ["set-1"]
+
+
+def test_every_synced_kind_has_a_removal_writer():
+    """The nine kinds the change feed records must each route somewhere;
+    a kind with no writer silently never gets deleted."""
+    movies, tvshows, music, musicvideos = _writers()
+
+    for kind in (
+        "Movie",
+        "BoxSet",
+        "Series",
+        "Season",
+        "Episode",
+        "MusicVideo",
+        "MusicAlbum",
+        "MusicArtist",
+        "Audio",
+    ):
+        assert (
+            library_mod.removal_writer_for(kind, movies, tvshows, music, musicvideos)
+            is not None
+        ), kind
+
+
+def test_unknown_kind_returns_none_never_a_stale_writer():
+    """The hazard the old loop carried: an unhandled kind kept the previous
+    iteration's writer and was deleted through it."""
+    movies, tvshows, music, musicvideos = _writers()
+
+    assert (
+        library_mod.removal_writer_for("Photo", movies, tvshows, music, musicvideos)
+        is None
+    )
+    assert movies.removed == []
+
+
+def test_dispatch_tolerates_the_unbuilt_writer_family():
+    """A RemovedWorker builds video *or* music writers, never both, so the
+    other family arrives as None. Handing those to the dispatch must return
+    None rather than raise — the music worker sees a BoxSet record on tier 1
+    only as a routing miss, not a crash."""
+    movies, tvshows, _music, musicvideos = _writers()
+
+    # Music worker: video writers unbuilt.
+    assert library_mod.removal_writer_for("Movie", None, None, None, None) is None
+    assert library_mod.removal_writer_for("BoxSet", None, None, None, None) is None
+
+    # Video worker: music writer unbuilt, video kinds still route.
+    assert (
+        library_mod.removal_writer_for("Audio", movies, tvshows, None, musicvideos)
+        is None
+    )
+    assert (
+        library_mod.removal_writer_for("Movie", movies, tvshows, None, musicvideos)
+        is not None
+    )

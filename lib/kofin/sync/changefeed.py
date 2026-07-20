@@ -268,6 +268,11 @@ def detect(api: Any) -> Optional[Any]:
         version = _as_int(info.get("ProtocolVersion"))
 
         if version == PROTOCOL_VERSION:
+            LOG.info(
+                "KofinSyncQueue companion detected (plugin %s, protocol %s)",
+                info.get("PluginVersion", "?"),
+                version,
+            )
             return KofinFeed(api)
 
         LOG.warning(
