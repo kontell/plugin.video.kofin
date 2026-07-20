@@ -217,3 +217,134 @@ def test_current_item_exposes_claim(monkeypatch):
     assert item is not None and item["Id"] == "m1"
     player.onPlayBackStopped()
     assert player.current_item() is None
+
+
+# --- library-originated claims (music) ---------------------------------------
+
+
+class LookupApi(RecordingApi):
+    """Serves the one item the back-fill fetches after the id mapping."""
+
+    def __init__(self, item=None, error=None):
+        super().__init__()
+        self.item_requests = []
+        self._item = item or {
+            "Id": "jf-song-1",
+            "Type": "Audio",
+            "RunTimeTicks": 1800000000,
+            "MediaSources": [{"Id": "src-1"}],
+        }
+        self._error = error
+
+    def item(self, item_id):
+        self.item_requests.append(item_id)
+        if self._error:
+            raise self._error
+        return self._item
+
+
+def _map_song(monkeypatch, jellyfin_id="jf-song-1"):
+    """Stand in for the kofin.db kodi_id -> jellyfin_id lookup."""
+
+    class FakeDb:
+        def __init__(self, cursor):
+            pass
+
+        def get_item_by_kodi_id(self, kodi_id, media):
+            return jellyfin_id if (kodi_id, media) == (55, "song") else None
+
+    class FakeOpened:
+        cursor = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr("kofin.sync.db.Database", lambda name: FakeOpened())
+    monkeypatch.setattr("kofin.sync.kofindb.JellyfinDatabase", FakeDb)
+
+
+def test_song_playback_is_claimed_via_backfill(monkeypatch):
+    """Songs are written as direct stream URLs, so nothing queues them from
+    the play route -- the Player.OnPlay notification has to."""
+    from kofin.service import player as player_mod
+
+    _map_song(monkeypatch)
+    api = LookupApi()
+    monkeypatch.setattr(
+        "xbmc.Player",
+        lambda: type(
+            "P", (), {"getPlayingFile": lambda self: "http://s/Audio/x/stream.mp3"}
+        )(),
+    )
+
+    pushed = player_mod.backfill_library_claim(
+        {"item": {"id": 55, "type": "song"}}, api  # type: ignore[arg-type]
+    )
+
+    assert pushed is True
+    assert api.item_requests == ["jf-song-1"]
+    claimed = state.claim_play_item("http://s/Audio/x/stream.mp3")
+    assert claimed is not None
+    assert claimed["Id"] == "jf-song-1"
+    assert claimed["PlayMethod"] == "DirectStream"
+    assert claimed["MediaSourceId"] == "src-1"
+
+
+def test_video_playback_is_never_backfilled(monkeypatch):
+    """Video always goes through plugin:// and is claimed the normal way;
+    back-filling it would risk double-claiming a legitimate play."""
+    from kofin.service import player as player_mod
+
+    _map_song(monkeypatch)
+    api = LookupApi()
+
+    for media in ("movie", "episode", "musicvideo"):
+        assert (
+            player_mod.backfill_library_claim(
+                {"item": {"id": 55, "type": media}}, api  # type: ignore[arg-type]
+            )
+            is False
+        )
+    assert api.item_requests == []
+
+
+def test_unmapped_row_stays_foreign(monkeypatch):
+    """A song Kodi knows about but kofin does not is somebody else's."""
+    from kofin.service import player as player_mod
+
+    _map_song(monkeypatch, jellyfin_id=None)
+    api = LookupApi()
+    monkeypatch.setattr(
+        "xbmc.Player",
+        lambda: type("P", (), {"getPlayingFile": lambda self: "http://s/x.mp3"})(),
+    )
+
+    assert (
+        player_mod.backfill_library_claim(
+            {"item": {"id": 55, "type": "song"}}, api  # type: ignore[arg-type]
+        )
+        is False
+    )
+    assert api.item_requests == []
+
+
+def test_backfill_survives_an_unreachable_server(monkeypatch):
+    """A failed fetch leaves the play unreported, never breaks playback."""
+    from kofin.service import player as player_mod
+
+    _map_song(monkeypatch)
+    api = LookupApi(error=RuntimeError("offline"))
+    monkeypatch.setattr(
+        "xbmc.Player",
+        lambda: type("P", (), {"getPlayingFile": lambda self: "http://s/x.mp3"})(),
+    )
+
+    assert (
+        player_mod.backfill_library_claim(
+            {"item": {"id": 55, "type": "song"}}, api  # type: ignore[arg-type]
+        )
+        is False
+    )

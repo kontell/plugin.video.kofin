@@ -18,7 +18,7 @@ from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials, addon_version
 from kofin.core.ws import WSClient
-from kofin.service.player import Player
+from kofin.service.player import Player, backfill_library_claim
 from kofin.service.remote import RemoteHandler
 from kofin.service.settings_apply import SettingsApplier
 
@@ -310,7 +310,9 @@ class Service(xbmc.Monitor):
             elif method == "System.OnSleep":
                 self._syncplay_forward("on_sleep")
             elif method == "Player.OnPlay":
-                self._syncplay_forward("on_kodi_play", _decode_kodi_data(data))
+                decoded = _decode_kodi_data(data)
+                self._syncplay_forward("on_kodi_play", decoded)
+                self._backfill_library_claim(decoded)
             return
         if sender != ipc.SENDER:
             return
@@ -338,6 +340,18 @@ class Service(xbmc.Monitor):
             getattr(manager, name)(*args)
         except Exception:
             LOG.exception("SyncPlay %s hook failed", name)
+
+    def _backfill_library_claim(self, data: Dict[str, Any]) -> None:
+        """Claim library playback that never passed through the play route.
+
+        Songs live in Kodi as direct stream URLs, so playing one from the music
+        library reports nothing without this. Never allowed to break playback:
+        a failed back-fill just means the play stays unreported, as before.
+        """
+        try:
+            backfill_library_claim(data, self.api)
+        except Exception:
+            LOG.exception("library claim back-fill failed")
 
     def onSettingsChanged(self) -> None:
         self.settings_apply.apply()

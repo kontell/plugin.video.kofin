@@ -18,6 +18,7 @@ kofin's own play path; no ``service.upnext`` anywhere.
 import json
 import threading
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+from uuid import uuid4
 
 import xbmc
 import xbmcgui
@@ -36,6 +37,10 @@ JsonDict = Dict[str, Any]
 
 PROGRESS_INTERVAL_SECONDS = 10.0
 CLAIM_TIMEOUT_SECONDS = 10.0
+# Grace for a claim that arrives from the Player.OnPlay notification instead
+# of the play route (see backfill_library_claim). Only library-originated
+# audio needs it, and only until the notification lands.
+AUDIO_BACKFILL_GRACE_SECONDS = 3.0
 
 # ~3 s of ticks: how long a lagging getTime() may keep reporting the pre-seek
 # position after our own skip seek before we give up waiting for it.
@@ -155,6 +160,97 @@ def next_episode_label(episode: JsonDict) -> str:
         prefix = "S%02dE%02d" % (int(season), int(number))
         return "%s. %s" % (prefix, name) if name else prefix
     return name
+
+
+# Kodi media types whose rows are written with a direct stream URL rather than
+# a plugin:// path, so playback from the library never reaches the play route.
+BACKFILL_MEDIA_TYPES = ("song",)
+
+
+def library_claim(kodi_id: int, media: str, path: str, api: Api) -> Optional[JsonDict]:
+    """The play-state a library-originated playback would have queued.
+
+    Songs are written into Kodi as ``<server>/Audio/<id>/stream.<ext>``, so
+    playing one from the music library never invokes ``mode=play`` and nothing
+    claims it — the player sees a file it did not queue and reports nothing,
+    which is why music never appeared on the dashboard and server playcounts
+    never advanced. The fork solves it the same way (``objects/actions.py``
+    ``on_play``): map the Kodi id back to a Jellyfin id, fetch the item, and
+    register it so the normal reporting path takes over.
+
+    Returns None when the row is not ours or the server cannot be reached —
+    genuinely foreign playback must stay unclaimed.
+    """
+    from kofin.sync import db as sync_db
+    from kofin.sync import kofindb
+
+    try:
+        with sync_db.Database("kofin") as opened:
+            jellyfin_id = kofindb.JellyfinDatabase(opened.cursor).get_item_by_kodi_id(
+                kodi_id, media
+            )
+    except Exception:
+        LOG.exception("library claim lookup failed for %s/%s", media, kodi_id)
+        return None
+
+    if not jellyfin_id:
+        return None
+
+    try:
+        item = api.item(jellyfin_id)
+    except Exception as error:
+        LOG.debug("library claim fetch failed for %s: %s", jellyfin_id, error)
+        return None
+
+    sources = item.get("MediaSources") or [{}]
+
+    return {
+        "Id": item.get("Id", jellyfin_id),
+        "Type": item.get("Type", ""),
+        "SeriesId": item.get("SeriesId", ""),
+        "Path": path,
+        # Direct stream: Kodi pulls the server's URL itself, untranscoded.
+        "PlayMethod": "DirectStream",
+        "PlaySessionId": uuid4().hex,
+        "MediaSourceId": sources[0].get("Id") or item.get("Id", jellyfin_id),
+        "DeviceId": settings.get_str("deviceId"),
+        "Runtime": int(item.get("RunTimeTicks") or 0),
+        "AudioStreamIndex": None,
+        "SubtitleStreamIndex": None,
+        "CurrentPosition": 0.0,
+    }
+
+
+def backfill_library_claim(data: JsonDict, api: Api) -> bool:
+    """Queue a claim for library playback that bypassed the play route.
+
+    Driven by the ``Player.OnPlay`` notification; True when a claim was
+    pushed. Only the media types in ``BACKFILL_MEDIA_TYPES`` qualify — video
+    always goes through ``plugin://`` and is claimed the normal way, so
+    back-filling it would risk double-claiming a legitimate play.
+    """
+    item = data.get("item") or {}
+    media = item.get("type") or ""
+    kodi_id = item.get("id")
+
+    if media not in BACKFILL_MEDIA_TYPES or not isinstance(kodi_id, int):
+        return False
+
+    try:
+        path = xbmc.Player().getPlayingFile()
+    except RuntimeError:
+        return False
+
+    if not path:
+        return False
+
+    claim = library_claim(kodi_id, media, path, api)
+    if claim is None:
+        return False
+
+    LOG.info("--> library claim %s (%s)", claim["Id"], media)
+    state.push_play_item(claim)
+    return True
 
 
 class Player(xbmc.Player):
@@ -783,6 +879,18 @@ class Player(xbmc.Player):
                 claimed = state.claim_play_item(current_file)
                 if claimed is not None:
                     return claimed
+                # Songs never pass through the play route — they are written
+                # into Kodi's library as direct ``<server>/Audio/<id>/`` stream
+                # URLs — so their claim is back-filled from the Player.OnPlay
+                # notification instead, which can land after this callback.
+                # Wait a beat for it rather than calling it foreign playback.
+                if (
+                    self.isPlayingAudio()
+                    and waited < AUDIO_BACKFILL_GRACE_SECONDS
+                    and not monitor.waitForAbort(0.25)
+                ):
+                    waited += 0.25
+                    continue
                 # A file is playing but nothing is queued: foreign playback.
                 return None
             if monitor.waitForAbort(0.5):
