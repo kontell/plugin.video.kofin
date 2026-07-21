@@ -64,6 +64,28 @@ def _set_favorite(request: Request, value: bool) -> None:
     _refresh()
 
 
+def delete_item(request: Request) -> None:
+    """Delete the item from the server, after opt-in and confirmation."""
+    if not settings.get_bool("enableDelete"):
+        return
+    item_id = request.params.get("id", "")
+    name = request.params.get("name", "")
+    if not xbmcgui.Dialog().yesno(
+        xbmc.getLocalizedString(117),  # Delete
+        settings.localized(30505) % name,
+    ):
+        return
+    try:
+        _api().delete_item(item_id)
+    except JellyfinError as error:
+        LOG.warning("delete failed: %s", error)
+        xbmcgui.Dialog().notification(
+            xbmc.getLocalizedString(117), settings.localized(30507)
+        )
+        return
+    _refresh()
+
+
 def open_settings(request: Request) -> None:
     xbmc.executebuiltin("Addon.OpenSettings(plugin.video.kofin)")
 

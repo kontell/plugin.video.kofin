@@ -83,6 +83,7 @@ def _handlers() -> Dict[str, Callable[[Request], None]]:
         "unwatched": actions.unwatched,
         "favorite": actions.favorite,
         "unfavorite": actions.unfavorite,
+        "delete": actions.delete_item,
         "selectlibraries": librarypicker.select_libraries,
         "updatelibs": actions.update_libraries,
         "repairlibs": actions.repair_libraries,

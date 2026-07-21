@@ -1,16 +1,25 @@
 """Context-menu entry points (invoked with a focused ListItem)."""
 
 import sys
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 import xbmc
 import xbmcgui
 
 from kofin.core import settings
+from kofin.core.api import Api
+from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
+from kofin.core.settings import Credentials
 from kofin.plugin.listitems import plugin_url
 
 LOG = Logger(__name__)
+
+
+def _api() -> Api:
+    return Api.from_credentials(
+        Http(settings.get_bool("sslVerify")), Credentials.load()
+    )
 
 
 def _focused_item_id() -> str:
@@ -99,3 +108,56 @@ def browse_extras() -> None:
         "ActivateWindow(Videos,%s,return)"
         % plugin_url({"mode": "extras", "id": item_id})
     )
+
+
+def _manage_options(item: dict) -> List[Tuple[str, dict]]:
+    """The (label, RunPlugin params) pairs for the Jellyfin actions menu.
+
+    Delete is offered only when the user has opted in on the Advanced tab;
+    the favorite entry's label reflects the server-reported state queried
+    when the menu opened.
+    """
+    item_id = item.get("Id", "")
+    is_favorite = bool((item.get("UserData") or {}).get("IsFavorite"))
+    options: List[Tuple[str, dict]] = []
+
+    fav_label = xbmc.getLocalizedString(14077 if is_favorite else 14076)
+    fav_mode = "unfavorite" if is_favorite else "favorite"
+    options.append((fav_label, {"mode": fav_mode, "id": item_id}))
+
+    if settings.get_bool("enableDelete"):
+        options.append(
+            (
+                xbmc.getLocalizedString(117),  # Delete
+                {"mode": "delete", "id": item_id, "name": item.get("Name", "")},
+            )
+        )
+
+    options.append((settings.localized(30504), {"mode": "settings"}))
+    return options
+
+
+def manage() -> None:
+    """Open the "Jellyfin actions" menu for the focused kofin item."""
+    item_id = _focused_item_id()
+    if not item_id:
+        LOG.warning("jellyfin actions invoked without a kofin item")
+        return
+
+    try:
+        item = _api().item(item_id)
+    except JellyfinError as error:
+        LOG.warning("manage: item fetch failed: %s", error)
+        xbmcgui.Dialog().notification(
+            settings.localized(30502), settings.localized(30507)
+        )
+        return
+
+    options = _manage_options(item)
+    index = xbmcgui.Dialog().contextmenu([label for label, _ in options])
+    if index < 0:
+        return
+
+    _, params = options[index]
+    LOG.info("manage: %s for %s", params.get("mode"), item_id)
+    xbmc.executebuiltin("RunPlugin(%s)" % plugin_url(params))

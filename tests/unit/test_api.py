@@ -65,6 +65,14 @@ def test_played_and_favorite_verbs(api):
     assert verbs[3][0] == "DELETE"
 
 
+def test_delete_item(api):
+    client, transport = api
+    client.delete_item("i1")
+    delete_call = transport.calls[0]
+    assert delete_call["method"] == "DELETE"
+    assert delete_call["url"] == "http://s:8096/Items/i1"
+
+
 def test_playback_info_optional_params(api):
     client, transport = api
     client.playback_info("item1", {"Name": "Kodi"})
