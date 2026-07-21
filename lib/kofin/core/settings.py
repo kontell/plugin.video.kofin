@@ -8,6 +8,7 @@ sole writer of those keys.
 import uuid
 from typing import List
 
+import xbmc
 import xbmcaddon
 
 from kofin.core import log
@@ -56,6 +57,13 @@ def addon_path() -> str:
 
 def localized(string_id: int) -> str:
     return _addon().getLocalizedString(string_id)
+
+
+def device_name() -> str:
+    """How this device names itself to Jellyfin: Kodi's own friendly name
+    (services.devicename, or "Kodi (host)" by default), matching pvr.kofin.
+    Replaces the former per-addon ``deviceName`` setting."""
+    return xbmc.getInfoLabel("System.FriendlyName") or "Kodi"
 
 
 class Credentials:

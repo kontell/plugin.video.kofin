@@ -187,3 +187,34 @@ def test_choose_bitrate_cancel_and_garbage(monkeypatch):
     monkeypatch.setattr("kofin.core.settings.localized", lambda sid: "x")
     assert context.choose_bitrate(["3", "10"]) is None
     assert context.choose_bitrate(["junk", "-5"]) == "10"  # falls back to default
+
+
+def test_choose_bitrate_source_and_fractional(monkeypatch):
+    from kofin.plugin import context
+
+    captured = {}
+
+    class PickFirst:
+        def select(self, heading, labels):
+            captured["labels"] = labels
+            return 0
+
+    monkeypatch.setattr("xbmcgui.Dialog", PickFirst)
+    monkeypatch.setattr(
+        "kofin.core.settings.localized",
+        lambda sid: "Source" if sid == 30206 else "Play with transcoding",
+    )
+    # 0 == source, plus a fractional option; both are valid tokens now.
+    assert context.choose_bitrate(["0", "0.5", "10"]) == "0"
+    assert captured["labels"] == ["Source", "0.5 Mbit/s", "10 Mbit/s"]
+
+
+def test_choose_bitrate_single_source_bypasses_dialog(monkeypatch):
+    from kofin.plugin import context
+
+    class ExplodingDialog:
+        def select(self, *args):
+            raise AssertionError("dialog should be bypassed")
+
+    monkeypatch.setattr("xbmcgui.Dialog", ExplodingDialog)
+    assert context.choose_bitrate(["0"]) == "0"

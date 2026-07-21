@@ -355,16 +355,12 @@ def test_mixed_whitelist_entries_survive_selection(monkeypatch):
     assert service.library.commands == [("RemoveLibrary", {"Id": "Mixed:v-mixed"})]
 
 
-def test_device_name_and_ssl_handlers(monkeypatch):
+def test_ssl_handler(monkeypatch):
+    # Device name is no longer a setting (kofin uses System.FriendlyName), so
+    # only sslVerify remains among the scalar handlers.
     service = FakeService()
-    FakeAddon.store["deviceName"] = "Kodi"
     FakeAddon.store["sslVerify"] = "true"
     applier = ready_applier(service)
-
-    FakeAddon.store["deviceName"] = "LivingRoom"
-    applier.apply()
-    assert service.reregistered == 1
-    assert service._restart_requested is False
 
     FakeAddon.store["sslVerify"] = "false"
     applier.apply()

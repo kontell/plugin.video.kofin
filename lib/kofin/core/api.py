@@ -33,7 +33,7 @@ class Api:
         return cls(
             http,
             creds.server_address,
-            settings.get_str("deviceName") or "Kodi",
+            settings.device_name(),
             creds.device_id,
             settings.addon_version(),
             creds.token,

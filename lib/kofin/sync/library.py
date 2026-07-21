@@ -59,8 +59,6 @@ COMMIT_INTERVAL = 50
 # event without a real walk (see Library._refresh_music). Must never be
 # created — if it existed the scan would descend into it.
 MUSIC_REFRESH_PROBE = "special://temp/kofin-music-refresh-probe/"
-# Queue backlog above which the background progress dialog appears.
-PROGRESS_DISPLAY = 50
 # Notification display times (ms), fork defaults.
 NEW_VIDEO_TIME = 5000
 NEW_MUSIC_TIME = 2000
@@ -334,7 +332,7 @@ class Library(threading.Thread):
         if self.pending_refresh:
             state.set_sync_active(True)
 
-            if self.total_updates > PROGRESS_DISPLAY:
+            if self.total_updates > settings.get_int("syncProgressThreshold"):
                 queue_size = self.worker_queue_size()
 
                 # Per-class counts (sync-plan §3): a large metadata backlog
@@ -452,20 +450,27 @@ class Library(threading.Thread):
                         else:
                             self.add_library(data["Id"])
                 elif command == "UpdateLibrary":
-                    whitelist = self.whitelist()
-                    if whitelist:
-                        ok = self.add_library(",".join(whitelist), update=True)
+                    ids = data.get("Id")
+                    if ids:
+                        # Targeted subset from the settings-button picker: no
+                        # retention bookkeeping — that belongs to the
+                        # full-whitelist pass below.
+                        self.add_library(ids, update=True)
+                    else:
+                        whitelist = self.whitelist()
+                        if whitelist:
+                            ok = self.add_library(",".join(whitelist), update=True)
 
-                        if ok and self.retention_repair_pending:
-                            # The targeted pass has planned/enqueued the
-                            # heal; release the watermark hold. With work
-                            # still queued the drain-success path saves as
-                            # usual; on a clean tree nothing will drain, so
-                            # save here — the prune verified everything.
-                            self.retention_repair_pending = False
+                            if ok and self.retention_repair_pending:
+                                # The targeted pass has planned/enqueued the
+                                # heal; release the watermark hold. With work
+                                # still queued the drain-success path saves as
+                                # usual; on a clean tree nothing will drain, so
+                                # save here — the prune verified everything.
+                                self.retention_repair_pending = False
 
-                            if not self.pending_refresh:
-                                self.save_last_sync()
+                                if not self.pending_refresh:
+                                    self.save_last_sync()
                 elif command == "RefreshBoxsets":
                     self.add_library("Boxsets:Refresh")
                 elif command == "FastSync":
@@ -1000,21 +1005,6 @@ class Library(threading.Thread):
                 self._known_parent_test(change_set.records),
             )
 
-            total = (
-                len(plan.added)
-                + len(plan.updated)
-                + len(plan.artwork)
-                + len(plan.userdata)
-            )
-
-            if settings.get_bool("syncNotification") and total > (
-                settings.get_int("syncNotificationCount") or 1000
-            ):
-                # Informational only, never a modal: a prompt here would block
-                # unattended boxes, and skipping the batch would permanently
-                # lose those changes once the watermark advanced.
-                notification(localized(30402) % total)
-
             if plan.skipped:
                 # The tier-1 no-op class: dropped before download (S2.5's
                 # 3067 fetches → 0). The request-count grep keys off this.
@@ -1284,7 +1274,10 @@ class UpdateWorker(threading.Thread):
     ):
         self.queue = queue
         self.notify_output = notify
-        self.notify = notify_enabled and settings.get_bool("syncNotification")
+        # Per-item "New content" toasts were removed (the syncNotification
+        # setting is gone); library-update visibility is the progress bar,
+        # gated by syncProgressThreshold. The notify machinery stays dormant.
+        self.notify = False
         self.lock = lock
         self.database = Database(database)
         self.args = args

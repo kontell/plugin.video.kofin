@@ -1,7 +1,7 @@
 """The settings diff engine: a registry of ``setting id -> handler(old, new)``
 consulted from the service's ``onSettingsChanged`` (plan §2).
 
-Phase 1's inline deviceName/sslVerify handlers live here now. Phase 2 adds
+Phase 1's inline sslVerify handler lives here now. Phase 2 adds
 ``librarySelection``: the whitelist csv written by the library picker. Its
 handler computes add/remove sets against the *synced* whitelist (sync.json)
 — not the previous csv — so a partially failed sync self-heals on the next
@@ -46,7 +46,6 @@ class SettingsApplier:
         self.service = service
         self.ready = False
         self.handlers: Dict[str, Handler] = {
-            "deviceName": self._device_name_changed,
             "sslVerify": self._ssl_verify_changed,
             "librarySelection": self._library_selection_changed,
             "syncPlayEnabled": self._syncplay_enabled_changed,
@@ -121,12 +120,6 @@ class SettingsApplier:
         return True
 
     # -- handlers -------------------------------------------------------------
-
-    def _device_name_changed(self, old: str, new: str) -> None:
-        service = self.service
-        if getattr(service, "_online", False):
-            LOG.info("device name changed; re-registering capabilities")
-            service._on_ws_connected()  # type: ignore[attr-defined]
 
     def _ssl_verify_changed(self, old: str, new: str) -> None:
         LOG.info("sslVerify changed; restarting service cycle")

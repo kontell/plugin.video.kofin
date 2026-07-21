@@ -149,9 +149,9 @@ def play(request: Request) -> None:
 
     transcode = request.params.get("transcode") == "1"
     try:
-        bitrate_mbps = int(request.params.get("bitrate", "0"))
+        bitrate_mbps = float(request.params.get("bitrate", "0"))
     except ValueError:
-        bitrate_mbps = 0
+        bitrate_mbps = 0.0
 
     api = Api.from_credentials(Http(settings.get_bool("sslVerify")), creds)
     try:

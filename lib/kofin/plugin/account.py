@@ -27,7 +27,7 @@ def _notification(message: str, icon: str = xbmcgui.NOTIFICATION_INFO) -> None:
 
 
 def _device_name() -> str:
-    return settings.get_str("deviceName") or "Kodi"
+    return settings.device_name()
 
 
 def login(request: Request) -> None:

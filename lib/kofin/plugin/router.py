@@ -78,7 +78,7 @@ def _handlers() -> Dict[str, Callable[[Request], None]]:
         "testconnection": account.test_connection,
         "restart": account.restart,
         "settings": actions.open_settings,
-        "adduser": adduser.add_user,
+        "adduser": adduser.who_is_watching,
         "watched": actions.watched,
         "unwatched": actions.unwatched,
         "favorite": actions.favorite,

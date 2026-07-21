@@ -42,7 +42,7 @@ DEFAULT_VIDEO_CODECS = [
     "vp9",
     "vc1",
 ]
-DEFAULT_AUDIO_CODECS = ["aac", "mp2", "mp3", "ac3", "eac3", "opus", "flac", "dts"]
+DEFAULT_AUDIO_CODECS = ["aac", "mp2", "mp3", "ac3", "opus", "flac", "dts"]
 
 
 class ProfileConfig:
@@ -109,20 +109,22 @@ class ProfileConfig:
 
 def build(
     config: ProfileConfig,
-    bitrate_override_mbps: int = 0,
+    bitrate_override_mbps: float = 0,
     force_transcode: bool = False,
 ) -> JsonDict:
     """The DeviceProfile JSON for PlaybackInfo requests.
 
     ``bitrate_override_mbps``/``force_transcode`` implement the transcode
     context item: a forced transcode at a chosen bitrate for this play only.
+    The override may be fractional (0.5/0.75 Mbit/s) or 0, which — like force
+    transcode itself — means the source bitrate (unlimited).
     """
     force_direct = config.force_direct_play and not force_transcode
     bitrate_mbps = bitrate_override_mbps or config.max_bitrate_mbps
     if force_direct or bitrate_mbps <= 0:
         max_bitrate = UNLIMITED_BITRATE
     else:
-        max_bitrate = bitrate_mbps * 1_000_000
+        max_bitrate = int(bitrate_mbps * 1_000_000)
 
     audio_codecs = _preferred_first(config.audio_codecs, config.preferred_audio)
     tokens = set(config.video_codecs)

@@ -1,7 +1,12 @@
-"""Add or remove additional users on this device's session."""
+"""'Who's watching?' — toggle additional users on this device's session.
 
-from typing import List, Union
+The session's primary (logged-in) user owns the session and is permanent:
+Jellyfin no-ops any attempt to add it as an additional user and offers no way
+to remove it, so it is shown in the dialog title rather than the toggle list.
+Everyone else is a checkbox; confirming applies the add/remove deltas.
+"""
 
+import xbmc
 import xbmcgui
 
 from kofin.core import settings
@@ -13,10 +18,8 @@ from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
 
-Choices = List[Union[str, xbmcgui.ListItem]]
 
-
-def add_user(request: Request) -> None:
+def who_is_watching(request: Request) -> None:
     creds = Credentials.load()
     if not creds.is_logged_in:
         return
@@ -33,43 +36,48 @@ def add_user(request: Request) -> None:
         )
         return
     session = sessions[0]
-    current = session.get("AdditionalUsers") or []
+    current_ids = {u.get("UserId") for u in (session.get("AdditionalUsers") or [])}
 
-    options: Choices = [settings.localized(30042)]
-    if current:
-        options.append(settings.localized(30043))
-    choice = xbmcgui.Dialog().select(settings.localized(30041), options)
-    if choice < 0:
-        return
-
-    try:
-        if choice == 0:
-            _add(api, session, current)
-        else:
-            _remove(api, session, current)
-    except JellyfinError as error:
-        LOG.warning("session user change failed: %s", error)
-
-
-def _add(api: Api, session: dict, current: list) -> None:
     try:
         users = api.users()
     except Unauthorized:
         users = api.public_users()
-    taken = {u.get("UserId") for u in current} | {api.user_id}
-    eligible = [u for u in users if u.get("Id") not in taken]
+    except JellyfinError as error:
+        LOG.warning("user list unavailable: %s", error)
+        return
+
+    # The primary user is permanent; it never appears in the toggle list.
+    eligible = [user for user in users if user.get("Id") != api.user_id]
     if not eligible:
         return
-    names: Choices = [u.get("Name", "") for u in eligible]
-    picked = xbmcgui.Dialog().select(settings.localized(30044), names)
-    if picked < 0:
-        return
-    api.session_add_user(session.get("Id", ""), eligible[picked].get("Id", ""))
+    names = [user.get("Name", "") for user in eligible]
+    preselect = [
+        index for index, user in enumerate(eligible) if user.get("Id") in current_ids
+    ]
 
+    title = settings.localized(30047) % (creds.display_user or "")
+    chosen = xbmcgui.Dialog().multiselect(title, names, preselect=preselect)
+    if chosen is None:
+        return  # cancelled; the session is left as-is
 
-def _remove(api: Api, session: dict, current: list) -> None:
-    names: Choices = [u.get("UserName", "") for u in current]
-    picked = xbmcgui.Dialog().select(settings.localized(30044), names)
-    if picked < 0:
-        return
-    api.session_remove_user(session.get("Id", ""), current[picked].get("UserId", ""))
+    picked_ids = {eligible[index].get("Id") for index in chosen}
+    session_id = session.get("Id", "")
+    changed = False
+    try:
+        for user in eligible:
+            user_id = user.get("Id", "")
+            was_on = user_id in current_ids
+            now_on = user_id in picked_ids
+            if now_on and not was_on:
+                api.session_add_user(session_id, user_id)
+                changed = True
+            elif was_on and not now_on:
+                api.session_remove_user(session_id, user_id)
+                changed = True
+    except JellyfinError as error:
+        LOG.warning("session user change failed: %s", error)
+
+    if changed:
+        # Redraw the addon root so the "Who's watching?" entry re-reads the
+        # session and shows the updated additional-user names.
+        xbmc.executebuiltin("Container.Refresh")

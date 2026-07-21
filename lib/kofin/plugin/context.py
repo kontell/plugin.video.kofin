@@ -38,18 +38,34 @@ def lookup_item_id(dbid: int, media_type: str) -> str:
     return row.jellyfin_id if row is not None else ""
 
 
-def choose_bitrate(configured: List[str]) -> Optional[str]:
-    """The bitrate to transcode at; None means the user cancelled.
+def _bitrate_value(value: str) -> Optional[float]:
+    """Parse a context-bitrate token (Mbit/s, '0' == source); None if junk."""
+    try:
+        parsed = float(value)
+    except ValueError:
+        return None
+    return parsed if parsed >= 0 else None
 
-    With exactly one configured bitrate the selection dialog is skipped.
+
+def _bitrate_label(value: str) -> str:
+    if _bitrate_value(value) == 0:
+        return settings.localized(30206)  # Source (original) bitrate
+    return "%s Mbit/s" % value
+
+
+def choose_bitrate(configured: List[str]) -> Optional[str]:
+    """The bitrate token to transcode at; None means the user cancelled.
+
+    A token of '0' means the source bitrate (unlimited) — the same result as
+    force transcode. With exactly one configured bitrate the dialog is skipped.
     """
-    valid = [value for value in configured if value.isdigit() and int(value) > 0]
+    valid = [value for value in configured if _bitrate_value(value) is not None]
     if not valid:
         valid = ["10"]
     if len(valid) == 1:
         return valid[0]
     labels: List[Union[str, xbmcgui.ListItem]] = [
-        "%s Mbit/s" % value for value in valid
+        _bitrate_label(value) for value in valid
     ]
     index = xbmcgui.Dialog().select(settings.localized(30010), labels)
     return valid[index] if index >= 0 else None

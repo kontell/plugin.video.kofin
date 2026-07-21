@@ -338,7 +338,7 @@ msgid "Maximum music bitrate"
 msgstr ""
 
 msgctxt "#30130"
-msgid "Music above this bitrate is transcoded using the codec and bitrate below."
+msgid "Music above this bitrate is transcoded using the codec and bitrate below. (not implemented yet)"
 msgstr ""
 
 msgctxt "#30131"
@@ -573,8 +573,20 @@ msgctxt "#30203"
 msgid "640 kbit/s"
 msgstr ""
 
+msgctxt "#30204"
+msgid "0.5 Mbit/s"
+msgstr ""
+
+msgctxt "#30205"
+msgid "0.75 Mbit/s"
+msgstr ""
+
+msgctxt "#30206"
+msgid "Source (original) bitrate"
+msgstr ""
+
 msgctxt "#30041"
-msgid "Add user to session"
+msgid "Who's watching?"
 msgstr ""
 
 msgctxt "#30042"
@@ -591,6 +603,14 @@ msgstr ""
 
 msgctxt "#30045"
 msgid "No active session on the server yet"
+msgstr ""
+
+msgctxt "#30046"
+msgid "Who's watching? (%s)"
+msgstr ""
+
+msgctxt "#30047"
+msgid "Who's watching? (signed in as %s)"
 msgstr ""
 
 # 30250-30299 — Library tab
@@ -620,11 +640,11 @@ msgid "The libraries currently mirrored into the Kodi database."
 msgstr ""
 
 msgctxt "#30256"
-msgid "Update all libraries"
+msgid "Update libraries"
 msgstr ""
 
 msgctxt "#30257"
-msgid "Catch up with server changes and prune removed items from every synced library."
+msgid "Catch up with server changes and prune removed items from the libraries you pick. Runs when you confirm the selection."
 msgstr ""
 
 msgctxt "#30258"
@@ -632,7 +652,7 @@ msgid "Repair libraries"
 msgstr ""
 
 msgctxt "#30259"
-msgid "Remove and re-sync selected libraries from scratch. Watched state is restored from the server."
+msgid "Remove and re-sync the libraries you pick from scratch, restoring watched state from the server. Runs when you confirm the selection."
 msgstr ""
 
 msgctxt "#30260"
@@ -640,7 +660,7 @@ msgid "Refresh boxsets"
 msgstr ""
 
 msgctxt "#30261"
-msgid "Rebuild movie set links from the server's collections."
+msgid "Rebuild movie set links from the server's collections. Runs immediately."
 msgstr ""
 
 msgctxt "#30262"
@@ -675,6 +695,10 @@ msgctxt "#30269"
 msgid "No libraries available"
 msgstr ""
 
+msgctxt "#30270"
+msgid "Update which libraries?"
+msgstr ""
+
 # 30300-30349 — Sync tab
 
 msgctxt "#30300"
@@ -686,19 +710,11 @@ msgid "How library changes are downloaded and written."
 msgstr ""
 
 msgctxt "#30302"
-msgid "Show sync notifications"
+msgid "Hide update status below (items)"
 msgstr ""
 
 msgctxt "#30303"
-msgid "Toast for new content and large pending updates. Never a blocking dialog."
-msgstr ""
-
-msgctxt "#30304"
-msgid "Notify above this many pending items"
-msgstr ""
-
-msgctxt "#30305"
-msgid "A catch-up larger than this shows an informational toast."
+msgid "Hide Kodi's library-update progress for syncs smaller than this. 0 always shows it."
 msgstr ""
 
 msgctxt "#30306"
@@ -722,7 +738,7 @@ msgid "Items per request"
 msgstr ""
 
 msgctxt "#30311"
-msgid "Page size for library downloads."
+msgid "Page size for library downloads. Recommended: 50."
 msgstr ""
 
 msgctxt "#30312"
@@ -730,7 +746,7 @@ msgid "Download threads"
 msgstr ""
 
 msgctxt "#30313"
-msgid "Parallel download connections during sync."
+msgid "Parallel download connections during sync. Recommended: 3; raise only for a fast server."
 msgstr ""
 
 msgctxt "#30314"

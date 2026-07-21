@@ -193,6 +193,29 @@ def _api() -> Optional[Api]:
     return Api.from_credentials(Http(settings.get_bool("sslVerify")), creds)
 
 
+def _who_is_watching_label(api: Api) -> str:
+    """Root label reflecting who is on the session: the base 'Who's watching?'
+    plus any additional users. One extra /Sessions round trip per root render —
+    negligible next to the views() call already made, and skipped silently on
+    error so the entry always renders."""
+    base = settings.localized(30041)
+    try:
+        sessions = api.device_sessions(Credentials.load().device_id)
+    except JellyfinError as error:
+        LOG.debug("who's-watching label: sessions unavailable: %s", error)
+        return base
+    if not sessions:
+        return base
+    names = [
+        user.get("UserName", "")
+        for user in (sessions[0].get("AdditionalUsers") or [])
+        if user.get("UserName")
+    ]
+    if not names:
+        return base
+    return settings.localized(30046) % ", ".join(names)
+
+
 def root(request: Request) -> None:
     if request.handle < 0:
         return
@@ -224,7 +247,7 @@ def root(request: Request) -> None:
     import xbmc
 
     if api is not None:
-        adduser_li = xbmcgui.ListItem(settings.localized(30041))
+        adduser_li = xbmcgui.ListItem(_who_is_watching_label(api))
         adduser_li.setArt({"icon": "DefaultUser.png"})
         entries.append((listitems.plugin_url({"mode": "adduser"}), adduser_li, False))
 

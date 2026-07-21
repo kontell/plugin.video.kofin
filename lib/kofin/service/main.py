@@ -246,7 +246,7 @@ class Service(xbmc.Monitor):
 
     def _start_websocket(self) -> None:
         header = auth.build_auth_header(
-            settings.get_str("deviceName") or "Kodi",
+            settings.device_name(),
             self.credentials.device_id,
             addon_version(),
             self.credentials.token,

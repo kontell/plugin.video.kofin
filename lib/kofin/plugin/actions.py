@@ -72,8 +72,26 @@ def open_settings(request: Request) -> None:
 
 
 def update_libraries(request: Request) -> None:
-    """Fast-sync catch-up + prune pass over all synced libraries (S2.10)."""
-    ipc.notify(ipc.UPDATE_LIBRARY, {})
+    """Per-library (or all) fast-sync catch-up + prune pass (S2.10)."""
+    whitelist = settings.get_list("librarySelection")
+    if not whitelist:
+        return
+
+    names = _selection_names(whitelist)
+    choices: List[Union[str, xbmcgui.ListItem]] = [settings.localized(30267)]
+    choices.extend(names)  # "All" first
+    picked = xbmcgui.Dialog().multiselect(settings.localized(30270), choices)
+
+    if not picked:  # cancelled or empty
+        return
+
+    if 0 in picked:
+        # Empty payload = the full-whitelist pass (keeps the retention-repair
+        # release path in the service intact).
+        ipc.notify(ipc.UPDATE_LIBRARY, {})
+    else:
+        selected = [whitelist[index - 1] for index in picked]
+        ipc.notify(ipc.UPDATE_LIBRARY, {"Id": ",".join(selected)})
 
 
 def refresh_boxsets(request: Request) -> None:

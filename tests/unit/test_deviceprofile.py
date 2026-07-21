@@ -85,6 +85,23 @@ def test_forced_transcode_override_wins():
     assert profile["DirectPlayProfiles"] == []
 
 
+def test_fractional_bitrate_override():
+    # The context 0.5/0.75 Mbit/s options must survive as integer bits/s.
+    config = ProfileConfig(force_direct_play=True)
+    profile = build(config, bitrate_override_mbps=0.5, force_transcode=True)
+    assert profile["MaxStreamingBitrate"] == 500_000
+    assert profile["DirectPlayProfiles"] == []
+
+
+def test_source_bitrate_override_is_unlimited():
+    # The context "Source" option (0) transcodes at the source bitrate, the
+    # same result as force transcode with no cap.
+    config = ProfileConfig(force_direct_play=True)
+    profile = build(config, bitrate_override_mbps=0, force_transcode=True)
+    assert profile["MaxStreamingBitrate"] == UNLIMITED_BITRATE
+    assert profile["DirectPlayProfiles"] == []
+
+
 def test_force_direct_play_wildcards():
     profile = build(ProfileConfig(force_direct_play=True, max_bitrate_mbps=10))
     assert profile["MaxStreamingBitrate"] == UNLIMITED_BITRATE
