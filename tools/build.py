@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # Path components skipped wherever they appear: VCS, virtualenvs, caches.
 EXCLUDE_ANYWHERE = {
+    "CLAUDE.md",
     ".git",
     ".venv",
     "venv",
