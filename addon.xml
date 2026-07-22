@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<addon id="plugin.video.kofin" name="Kofin" version="0.1.0" provider-name="kontell">
+<addon id="plugin.video.kofin" name="Kofin" version="0.2.0" provider-name="kontell">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="script.module.requests" version="2.22.0+matrix.1"/>
@@ -38,7 +38,7 @@
     <license>GPL-3.0-only</license>
     <source>https://github.com/kontell/plugin.video.kofin</source>
     <summary lang="en_GB">Jellyfin client with native Kodi integration</summary>
-    <description lang="en_GB">Browse and play media from a Jellyfin server. Library sync, SyncPlay and segment skipping arrive in later phases.</description>
+    <description lang="en_GB">Play media from a Jellyfin server.</description>
     <assets>
       <icon>resources/media/icon.png</icon>
     </assets>
