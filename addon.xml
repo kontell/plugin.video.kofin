@@ -12,6 +12,13 @@
   <extension point="xbmc.service" library="service.py" start="login"/>
   <extension point="kodi.context.item">
     <menu id="kodi.core.main">
+      <item library="context_manage.py">
+        <label>30502</label>
+        <!-- Jellyfin actions (favorites/delete/settings). kofin browse items
+             carry kofin.id; synced video-library items resolve through
+             kofin.db. Declared first so it sits above Play with transcoding. -->
+        <visible>!String.IsEmpty(ListItem.Property(kofin.id)) | String.IsEqual(ListItem.DBTYPE,movie) | String.IsEqual(ListItem.DBTYPE,episode) | String.IsEqual(ListItem.DBTYPE,musicvideo) | String.IsEqual(ListItem.DBTYPE,tvshow) | String.IsEqual(ListItem.DBTYPE,season) | String.IsEqual(ListItem.DBTYPE,set)</visible>
+      </item>
       <item library="context_play.py">
         <label>30010</label>
         <!-- kofin browse items carry kofin.id; synced library items are

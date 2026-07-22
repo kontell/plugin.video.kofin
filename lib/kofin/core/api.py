@@ -374,6 +374,10 @@ class Api:
         else:
             self.delete(path)
 
+    def delete_item(self, item_id: str) -> None:
+        """Permanently delete an item from the server (content deletion)."""
+        self.delete("/Items/%s" % item_id)
+
     # -- images ---------------------------------------------------------------
 
     def image_url(

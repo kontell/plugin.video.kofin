@@ -169,6 +169,22 @@ msgctxt "#30070"
 msgid "Connection"
 msgstr ""
 
+msgctxt "#30071"
+msgid "Advanced"
+msgstr ""
+
+msgctxt "#30072"
+msgid "SSL verification and other advanced options."
+msgstr ""
+
+msgctxt "#30073"
+msgid "Enable Delete from server"
+msgstr ""
+
+msgctxt "#30074"
+msgid "Adds a Delete entry to the item Manage… menu. Deletion is permanent and applies on the Jellyfin server."
+msgstr ""
+
 # 30030-30049 — browse nodes
 
 msgctxt "#30030"
@@ -1063,6 +1079,22 @@ msgstr ""
 
 msgctxt "#30501"
 msgid "Browse extras"
+msgstr ""
+
+msgctxt "#30502"
+msgid "Jellyfin actions"
+msgstr ""
+
+msgctxt "#30504"
+msgid "Settings"
+msgstr ""
+
+msgctxt "#30505"
+msgid "Permanently delete \"%s\" from the server? This cannot be undone."
+msgstr ""
+
+msgctxt "#30507"
+msgid "Server request failed"
 msgstr ""
 
 # 30550-30599 — SyncPlay (settings group 30550-30558, menu/toasts 30560+;

@@ -123,13 +123,7 @@
           </control>
         </setting>
         <!-- Device name is no longer a setting: kofin reports Kodi's own
-             friendly name (System.FriendlyName), matching pvr.kofin. sslVerify
-             lives here now that the "Connection" sub-section separator is gone. -->
-        <setting id="sslVerify" type="boolean" label="30066" help="30067">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
+             friendly name (System.FriendlyName), matching pvr.kofin. -->
       </group>
     </category>
 
@@ -759,6 +753,22 @@
             </options>
           </constraints>
           <control type="spinner" format="string"/>
+        </setting>
+      </group>
+    </category>
+
+    <!-- Advanced -->
+    <category id="advanced" label="30071" help="30072">
+      <group id="1">
+        <setting id="sslVerify" type="boolean" label="30066" help="30067">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
+        <setting id="enableDelete" type="boolean" label="30073" help="30074">
+          <level>0</level>
+          <default>false</default>
+          <control type="toggle"/>
         </setting>
       </group>
     </category>
