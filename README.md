@@ -6,7 +6,7 @@ Kodi video and music addon for [Jellyfin](https://jellyfin.org). Browse Jellyfin
 
 A rewrite of [jellyfin-kodi](https://github.com/jellyfin/jellyfin-kodi) on the principle "rewrite the shell, transplant the organs": new entry points, settings and lifecycle wrapped around the proven Kodi database writers. Native mode has been removed.
 
-For Jellyfin Live TV, see the companion [Kofin PVR for Jellyfin](https://github.com/kontell/pvr.kofin) addon.
+For Jellyfin Live TV, see the companion [Kofin PVR](https://github.com/kontell/pvr.kofin) addon.
 
 Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 
