@@ -11,6 +11,13 @@ from kofin.sync.kodidb.kodi import Kodi
 
 LOG = Logger(__name__)
 
+# Kodi's blank artist, written by MusicDatabase::CreateTables and reserved by
+# id (BLANKARTIST_ID/BLANKARTIST_NAME, xbmc/music/Artist.h). Untagged tracks
+# hang off it, and Kodi renders whatever occupies the id as "[Missing]".
+BLANKARTIST_ID = 1
+BLANKARTIST_NAME = "[Missing Tag]"
+BLANKARTIST_MBID = "Artist Tag Missing"
+
 ##################################################################################################
 
 
@@ -63,7 +70,13 @@ class Music(Kodi):
             artist_id_res = self.add_artist(artist_id, name, musicbrainz)
         else:
             if artist_name != name:
-                self.update_artist_name(artist_id, name)
+                # Args in the order the statement takes them (the spec beside
+                # it says so: update_artist_name_obj = [Name, ArtistId]). They
+                # were reversed, and against an INTEGER idArtist the name never
+                # matched anything, so this changed 0 rows — a rename has
+                # silently never applied. The id is the row we just found, not
+                # the caller's, which is None on this path.
+                self.update_artist_name(name, artist_id_res)
 
         return artist_id_res
 
@@ -74,10 +87,18 @@ class Music(Kodi):
             artist_id_res = self.cursor.fetchone()[0]
         except TypeError:
             artist_id_res = artist_id or self.create_entry()
+            # Insert the id we just worked out, not the one we were handed.
+            # ``artist_id`` is None for a new artist, and idArtist is an
+            # INTEGER PRIMARY KEY, so a NULL let sqlite pick the rowid: on an
+            # artist table with no rows that is 1, which Kodi reserves for the
+            # [Missing Tag] blank artist (BLANKARTIST_*, xbmc/music/Artist.h).
+            # The real artist then rendered as [Missing] everywhere, and it was
+            # recorded under create_entry()'s answer (2) rather than the 1 it
+            # actually landed on, so kofin.db pointed at somebody else's row.
             self.cursor.execute(
                 QU.add_artist,
                 (
-                    artist_id,
+                    artist_id_res,
                     name,
                 )
                 + args,
@@ -274,7 +295,56 @@ class Music(Kodi):
         return genre_id
 
     def delete(self, *args):
+        if args and args[0] == BLANKARTIST_ID:
+            # Kodi's own [Missing Tag] row. It is never ours to remove, and a
+            # reference pointing at it means something was mis-recorded
+            # earlier rather than that the row should go.
+            LOG.warning("refusing to delete Kodi's blank artist row")
+            return
+
         self.cursor.execute(QU.delete_artist, args)
+
+    def ensure_blank_artist(self):
+        """Put Kodi's [Missing Tag] artist back when the slot is empty.
+
+        Kodi writes this row when it creates MyMusic and reserves the id for
+        it; it is what untagged tracks hang off. Returns True when it inserted
+        something.
+
+        Three states, and only one of them is repairable here:
+
+        * absent — restore it, which is the whole point;
+        * correct — nothing to do;
+        * occupied by a real artist — the damage the NULL-id insert used to
+          cause. Warned about, deliberately not fixed. Evicting the occupant
+          means moving it to a free id and rewriting every album_artist,
+          song_artist and discography row that points at it, plus kofin.db's
+          mapping in a separate database — surgery across two files that has
+          no business running unattended at startup.
+        """
+        self.cursor.execute(QU.get_artist_by_id, (BLANKARTIST_ID,))
+        row = self.cursor.fetchone()
+
+        if row is None:
+            LOG.warning("Kodi's blank artist row is missing; restoring it")
+            self.cursor.execute(
+                QU.add_blank_artist,
+                (BLANKARTIST_ID, BLANKARTIST_NAME, BLANKARTIST_NAME, BLANKARTIST_MBID),
+            )
+            return True
+
+        self.cursor.execute(QU.get_artist_name_by_id, (BLANKARTIST_ID,))
+        name = (self.cursor.fetchone() or [None])[0]
+
+        if name != BLANKARTIST_NAME:
+            LOG.warning(
+                "artist %r occupies Kodi's blank-artist id %s; it will render as "
+                "[Missing] until the row is relocated",
+                name,
+                BLANKARTIST_ID,
+            )
+
+        return False
 
     def delete_album(self, *args):
         self.cursor.execute(QU.delete_album, args)

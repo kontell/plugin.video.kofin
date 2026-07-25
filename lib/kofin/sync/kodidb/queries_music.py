@@ -29,6 +29,20 @@ WHERE       strArtist = ?
             COLLATE NOCASE
 """
 get_artist_by_id = """
+SELECT      idArtist
+FROM        artist
+WHERE       idArtist = ?
+"""
+get_artist_name_by_id = """
+SELECT      strArtist
+FROM        artist
+WHERE       idArtist = ?
+"""
+add_blank_artist = """
+INSERT INTO     artist(idArtist, strArtist, strSortName, strMusicBrainzArtistID)
+VALUES          (?, ?, ?, ?)
+"""
+get_artist_by_id = """
 SELECT      *
 FROM        artist
 WHERE       idArtist = ?

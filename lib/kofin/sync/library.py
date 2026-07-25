@@ -25,6 +25,7 @@ from kofin.core.log import Logger
 from kofin.sync import changefeed
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
 from kofin.sync.kodidb import Movies as KodiDb
+from kofin.sync.kodidb import Music as MusicKodiDb
 from kofin.sync.db import Database, get_sync, save_sync
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import schema
@@ -328,6 +329,13 @@ class Library(threading.Thread):
                 LOG.info("changes detected, reloading skin")
                 xbmc.executebuiltin("UpdateLibrary(video)")
                 xbmc.executebuiltin("ReloadSkin()")
+
+        # Music Database Migrations. Only when a music library is synced —
+        # opening MyMusic otherwise would put the schema gate in front of
+        # users who never asked kofin to touch their music.
+        if "music" in self.required_kinds():
+            with Database("music") as musicdb:
+                MusicKodiDb(musicdb.cursor).ensure_blank_artist()
 
     @stop
     def service(self):
