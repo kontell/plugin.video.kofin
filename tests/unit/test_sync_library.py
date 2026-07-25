@@ -853,3 +853,132 @@ def test_removed_queue_holds_ids_not_chunks():
     lib.removed(["r1", "r2", "r3"])
 
     assert lib.pending_items() == 3
+
+
+# --- resuming an unfinished full sync ----------------------------------------
+
+
+def _pending(*library_ids):
+    sync = sync_db.get_sync()
+    sync["Libraries"] = list(library_ids)
+    sync_db.save_sync(sync)
+
+
+def _arm_resume(lib):
+    """Make the next tick due (the interval is otherwise a minute away)."""
+    lib.resume_at = None
+
+
+def test_resume_reenters_a_pending_full_sync(monkeypatch):
+    """startup() resumes the queue once, at thread start. If the server was
+    unreachable then — or went away mid-sync — the entry sat in sync.json
+    until Kodi restarted: resumed after a restart, but not after a
+    reconnection."""
+    lib, _api = make_library()
+    _pending("lib1")
+    resumed = []
+    monkeypatch.setattr(
+        lib, "add_library", lambda lib_id: resumed.append(lib_id) or True
+    )
+    monkeypatch.setattr(lib, "update_status_strings", lambda: None)
+    _arm_resume(lib)
+
+    lib.resume_pending_libraries()
+
+    # None is the whole-queue resume, the same entry point startup() takes.
+    assert resumed == [None]
+
+
+def test_resume_does_nothing_with_an_empty_queue(monkeypatch):
+    lib, _api = make_library()
+    _pending()
+    called = []
+    monkeypatch.setattr(
+        lib, "add_library", lambda lib_id: called.append(lib_id) or True
+    )
+    _arm_resume(lib)
+
+    lib.resume_pending_libraries()
+
+    assert called == []
+
+
+def test_resume_yields_to_a_running_sync(monkeypatch):
+    """FullSync is a Borg: re-entering while one runs raises at us."""
+    lib, _api = make_library()
+    _pending("lib1")
+    called = []
+    monkeypatch.setattr(
+        lib, "add_library", lambda lib_id: called.append(lib_id) or True
+    )
+    FakeWindow.store["kofin.sync.active"] = "true"
+    _arm_resume(lib)
+
+    lib.resume_pending_libraries()
+
+    assert called == []
+
+
+def test_resume_waits_while_offline(monkeypatch):
+    lib, _api = make_library()
+    _pending("lib1")
+    called = []
+    monkeypatch.setattr(
+        lib, "add_library", lambda lib_id: called.append(lib_id) or True
+    )
+    FakeWindow.store.pop("kofin.online", None)
+    _arm_resume(lib)
+
+    lib.resume_pending_libraries()
+
+    assert called == []
+
+
+def test_resume_is_rate_limited(monkeypatch):
+    """Without this the 'Resuming interrupted library sync' toast would fire
+    on every tick for as long as the queue stayed pending."""
+    lib, _api = make_library()
+    _pending("lib1")
+    calls = []
+    monkeypatch.setattr(lib, "add_library", lambda lib_id: calls.append(lib_id) or True)
+    monkeypatch.setattr(lib, "update_status_strings", lambda: None)
+    _arm_resume(lib)
+
+    lib.resume_pending_libraries()
+    lib.resume_pending_libraries()  # immediately again: still inside the window
+    lib.resume_pending_libraries()
+
+    assert len(calls) == 1
+
+
+def test_resume_backs_off_while_it_keeps_failing(monkeypatch):
+    """A server that stays down must not be retried on the base interval."""
+    lib, _api = make_library()
+    _pending("lib1")
+    monkeypatch.setattr(lib, "add_library", lambda lib_id: False)
+
+    delays = []
+    for _ in range(4):
+        _arm_resume(lib)
+        lib.resume_pending_libraries()
+        delays.append(lib.resume_delay)
+
+    assert delays == [120, 240, 480, 960]
+    assert lib.resume_delay <= library_mod.RESUME_POLL_MAX_SECONDS
+
+
+def test_resume_delay_resets_after_a_success(monkeypatch):
+    lib, _api = make_library()
+    _pending("lib1")
+    monkeypatch.setattr(lib, "add_library", lambda lib_id: False)
+    monkeypatch.setattr(lib, "update_status_strings", lambda: None)
+
+    _arm_resume(lib)
+    lib.resume_pending_libraries()
+    assert lib.resume_delay > library_mod.RESUME_POLL_SECONDS
+
+    monkeypatch.setattr(lib, "add_library", lambda lib_id: True)
+    _arm_resume(lib)
+    lib.resume_pending_libraries()
+
+    assert lib.resume_delay == library_mod.RESUME_POLL_SECONDS

@@ -809,14 +809,6 @@ msgctxt "#30325"
 msgid "2160p"
 msgstr ""
 
-msgctxt "#30326"
-msgid "Startup delay (seconds)"
-msgstr ""
-
-msgctxt "#30327"
-msgid "Wait this long after Kodi starts before the first sync."
-msgstr ""
-
 # 30350-30369 — library node labels
 
 msgctxt "#30350"

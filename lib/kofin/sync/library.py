@@ -55,6 +55,11 @@ MUSIC_QUEUES = ("Audio", "MusicArtist", "AlbumArtist", "MusicAlbum")
 # unbounded drain-long transaction would block another writer past its busy
 # timeout.
 COMMIT_INTERVAL = 50
+# How often the library thread re-checks sync.json for an unfinished full
+# sync, and the ceiling that interval backs off to while resuming keeps
+# failing (see Library.resume_pending_libraries).
+RESUME_POLL_SECONDS = 60
+RESUME_POLL_MAX_SECONDS = 1800
 # Deliberately nonexistent: scanning it is how music gets a library-change
 # event without a real walk (see Library._refresh_music). Must never be
 # created — if it existed the scan would descend into it.
@@ -137,6 +142,10 @@ class Library(threading.Thread):
         self.download_errors = threading.Event()
         self.retry_at = None
         self.retry_delay = 60
+        # Next time to re-check sync.json for a full sync that never finished
+        # (see resume_pending_libraries). None = check on the next tick.
+        self.resume_at = None
+        self.resume_delay = RESUME_POLL_SECONDS
         # Kodi databases ("video"/"music") that new content landed in, and that
         # anything at all was written to. Kodi is not told about writes made
         # straight to its SQLite files, so widgets only refresh when we say so.
@@ -219,12 +228,17 @@ class Library(threading.Thread):
         self.commands.put((command, data or {}))
 
     def run(self):
+        """Start syncing.
 
+        There is no startup delay to honour any more. The setting existed to
+        let a slow network settle before the first sync, which is a problem
+        the sync should solve rather than the user: a sync that cannot reach
+        the server now leaves its libraries pending and
+        ``resume_pending_libraries`` picks them up on the first tick after the
+        server answers. Delaying every start by a fixed guess was paying that
+        cost on every boot to paper over the case where it went wrong.
+        """
         LOG.info("--->[ library ]")
-
-        delay = settings.get_int("startupDelay")
-        if delay and self.monitor.waitForAbort(delay):
-            return
 
         try:
             startup_ok = self.startup()
@@ -301,6 +315,8 @@ class Library(threading.Thread):
         self.writer_threads["removed"] = [
             thread for thread in self.writer_threads["removed"] if not thread.is_done
         ]
+
+        self.resume_pending_libraries()
 
         if self.retry_at is not None and datetime.now() >= self.retry_at:
 
@@ -1077,6 +1093,65 @@ class Library(threading.Thread):
             return False
 
         return True
+
+    def resume_pending_libraries(self):
+        """Re-enter a full sync that sync.json still lists as unfinished.
+
+        ``startup`` resumes the pending queue exactly once, when the library
+        thread starts. If the server was unreachable at that moment — or went
+        away mid-sync — the entry stays in the queue and nothing looked at it
+        again until Kodi restarted. That is the reported behaviour: an
+        interrupted sync comes back after a restart but not after a
+        reconnection.
+
+        Polling sync.json is what makes this reconnection-proof. There is no
+        offline->online edge to trigger from: nothing in the addon ever calls
+        ``state.set_online(False)``, so the flag latches true on the first
+        connect and a later outage is invisible here. A periodic check needs
+        no such signal — it simply succeeds on the first tick after the server
+        answers again.
+        """
+        if self.resume_at is not None and datetime.now() < self.resume_at:
+            return
+
+        # A sync already under way owns the queue; FullSync is a Borg and
+        # would raise "Sync is already running" at us.
+        if state.is_sync_active() or not state.is_online():
+            self._schedule_resume()
+            return
+
+        try:
+            pending = get_sync()["Libraries"]
+        except Exception as error:
+            LOG.exception(error)
+            self._schedule_resume(failed=True)
+            return
+
+        if not pending:
+            self._schedule_resume()
+            return
+
+        LOG.info("--[ resume ] %s library(s) still pending", len(pending))
+
+        # Same entry point startup() uses. It swallows and reports its own
+        # failures, so a still-unreachable server simply leaves the queue
+        # alone and we back off before looking again — resuming on a fixed
+        # interval would re-toast "Resuming interrupted library sync" every
+        # minute for as long as the server stayed down.
+        resumed = self.add_library(None)
+        self._schedule_resume(failed=not resumed)
+
+        if resumed:
+            self.update_status_strings()
+
+    def _schedule_resume(self, failed=False):
+        """Arm the next pending-queue check; back off while resuming fails."""
+        if failed:
+            self.resume_delay = min(self.resume_delay * 2, RESUME_POLL_MAX_SECONDS)
+        else:
+            self.resume_delay = RESUME_POLL_SECONDS
+
+        self.resume_at = datetime.now() + timedelta(seconds=self.resume_delay)
 
     def schedule_retry(self):
         """Retry the incremental sync later, with exponential backoff.
