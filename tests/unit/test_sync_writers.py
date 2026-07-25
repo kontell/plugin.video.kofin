@@ -558,6 +558,31 @@ def test_series_season_episode_write(api):
     assert len(bookmarks) == 2
 
 
+def test_virtual_season_is_referenced_like_any_other(api):
+    """Jellyfin marks a season virtual when it has no folder of its own --
+    what a flat series layout looks like, episodes beside each other in the
+    series directory instead of under "Season 01". The episodes are real
+    files. get_season creates the Kodi row whatever the Location, so skipping
+    only the reference left kofin.db short by exactly the number of
+    flat-layout seasons: the prune reported them missing on every pass,
+    re-fetched them, and the writer declined again."""
+    api.seasons_by_series = {"series1": [dto(dict(SEASON_1, LocationType="Virtual"))]}
+    register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        TVShows(api, kdb, vdb, library=TV_LIBRARY).tvshow(dto(SERIES))
+
+    # Kodi gets the seasons row either way -- that was never in question.
+    assert video_query("SELECT COUNT(*) FROM seasons WHERE season=1") == [(1,)]
+
+    # ...and now kofin.db can account for it, so the prune converges and the
+    # row is removable through the mapping.
+    reference = kofin_query(
+        "SELECT media_type, checksum FROM jellyfin WHERE jellyfin_id='season1'"
+    )
+    assert reference == [("season", "etag-season1-v1|plugin")]
+
+
 ORPHAN_RULES = [
     (
         "genre_link media_id/movie",
