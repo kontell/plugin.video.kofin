@@ -48,6 +48,25 @@ def music_info():
     )
 
 
+# Costs the server a recursive child count per item on the page. Albums have
+# children, so it dominates their pages; measured on Jellyfin 10.11 against a
+# real library, one page of 100 albums took 19.8s with the field and 1.6s
+# without — the whole album pass, near enough. Only the Series and BrowseVideo
+# object maps read it, so the music passes drop it and the video passes cannot.
+_RECURSIVE_COUNT = "RecursiveItemCount"
+
+
+def music_page_info():
+    """``info()`` minus the field no music object maps.
+
+    The album and song passes need the full-fidelity field set (songs read
+    ``Path`` and ``MediaSources``, which ``music_info`` lacks), so this is
+    ``info()`` with the one expensive field removed rather than a smaller list
+    — nothing a music writer reads changes.
+    """
+    return ",".join(f for f in info().split(",") if f != _RECURSIVE_COUNT)
+
+
 def get_movies_by_boxset(api, boxset_id):
 
     for items in get_items(api, boxset_id, "Movie"):

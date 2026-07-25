@@ -430,6 +430,33 @@ class SlowPagingApi:
         return {"Items": [{"Id": "i%d" % (start + n)} for n in range(self.page_size)]}
 
 
+def test_music_pages_drop_the_recursive_child_count():
+    """RecursiveItemCount makes the server count every album's children. It cost
+    a 100-album page 19.8s against 1.6s without, on Jellyfin 10.11 — effectively
+    the entire album pass. Only Series and BrowseVideo map it, so no music
+    writer loses a field by dropping it."""
+    fields = downloader.music_page_info().split(",")
+
+    assert "RecursiveItemCount" not in fields
+    # Everything else the full-fidelity set carries is still there — songs read
+    # Path and MediaSources, which the lean music_info() does not carry.
+    assert set(fields) == set(downloader.info().split(",")) - {"RecursiveItemCount"}
+    for needed in ("Path", "MediaSources", "Etag", "ParentId", "DateCreated"):
+        assert needed in fields
+
+
+def test_video_pages_keep_the_recursive_child_count():
+    """The Series object map reads it; dropping it library-wide would empty the
+    show child counts."""
+    api = PagingApi([[{"Id": "s1", "Type": "Series"}]])
+
+    for _batch in downloader.get_items(api, "lib1", "Series"):
+        pass
+
+    for _url, params in api.requests:
+        assert "RecursiveItemCount" in params["Fields"]
+
+
 class CountingPagingApi:
     """Counts pages actually fetched, so a test can see how far ahead of the
     consumer the pool runs."""

@@ -620,6 +620,7 @@ class FullSync(object):
                         params={
                             "SortBy": "AlbumArtist,SortName",
                             "SortOrder": "Ascending,Ascending",
+                            "Fields": server.music_page_info(),
                         },
                     )
                     for batch in albums:
@@ -647,6 +648,7 @@ class FullSync(object):
                         params={
                             "SortBy": "AlbumArtist,Album,SortName",
                             "SortOrder": "Ascending,Ascending,Ascending",
+                            "Fields": server.music_page_info(),
                         },
                     )
                     for batch in songs:
