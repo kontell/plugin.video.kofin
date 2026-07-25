@@ -29,9 +29,9 @@ from kofin.sync.kodidb import Music as MusicKodiDb
 from kofin.sync.db import Database, get_sync, save_sync
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import schema
-from kofin.sync.full_sync import FullSync
+from kofin.sync.full_sync import FullSync, PRUNE_SERVER_TYPES, local_reference_map
 from kofin.sync.views import Views
-from kofin.sync.downloader import GetItemWorker, basic_info
+from kofin.sync.downloader import GetItemWorker, basic_info, get_prune_count
 from kofin.sync import fields as api
 from kofin.sync.shims import (
     LibraryException,
@@ -1008,6 +1008,14 @@ class Library(threading.Thread):
                     LOG.error("Failed to retrieve latest updates")
                     self.schedule_retry()
 
+            # After the catch-up, not instead of it: anything the change feed
+            # was going to explain is already queued, so what the probe still
+            # sees is drift the watermark cannot account for. It only
+            # measures -- the UpdateLibrary it may enqueue is processed by
+            # process_commands() on the first service() tick, once this
+            # thread has returned and the startup FullSync is provably done.
+            self.probe_divergence()
+
             self.update_status_strings()
 
             return True
@@ -1198,6 +1206,112 @@ class Library(threading.Thread):
             "%s item(s) did not apply (%s); scheduling a library update to recover",
             count,
             ", ".join(sample),
+        )
+        self.enqueue_command("UpdateLibrary")
+
+    def sync_allowed_now(self):
+        """Whether sync work may run at this moment.
+
+        The same rule ``service()`` applies to its writers: video playback
+        holds work back unless the user has said otherwise. With
+        ``syncDuringPlay`` on, playback is a *good* time to probe and heal --
+        the box is already awake and the user is not waiting on the library.
+        """
+        return (
+            not self.player.isPlayingVideo()
+            or settings.get_bool("syncDuringPlay")
+            or xbmc.getCondVisibility("VideoPlayer.Content(livetv)")
+        )
+
+    def probe_divergence(self):
+        """Compare per-library item counts against the server and heal on a
+        change.
+
+        The catch-up passes are watermark-driven: they replay what the server
+        recorded since the last sync. Nothing in them can see a hole that
+        opened with no server-side record -- the two seasons kofin itself
+        deleted during a prune were invisible to every one of them, and the
+        watermark was long past. Counting is the cheapest question that
+        notices anyway: one Limit=0 request per library, ~50ms against a
+        4889-item library, against ~12s to page its ids.
+
+        Only a *change* in the gap schedules a heal. A steady-state gap is
+        normal and permanent: the server counts items the writers decline to
+        store (virtual/unaired seasons, which no Jellyfin 10.11 filter --
+        IsVirtualUnaired, IsMissing, LocationTypes -- excludes from the
+        count). Healing on the raw number would prune every boot forever and
+        fix nothing, which is the failure mode this whole exercise started
+        with. Healing on the delta means the first probe records the gap and
+        later ones only react when it moves.
+        """
+        if not self.sync_allowed_now():
+            return
+
+        sync = get_sync()
+
+        if sync["Libraries"]:
+            # An unfinished full sync owns these libraries and resumes on its
+            # own; mid-sync they are legitimately short and every count would
+            # read as divergence.
+            return
+
+        if self.total_updates:
+            # The catch-up just queued work, so the local side is mid-flight:
+            # the gap the probe would measure is the work already in hand,
+            # and it would read as divergence now and again as divergence
+            # when it lands. Skipping leaves the residuals untouched and
+            # costs nothing -- the queued work is the heal.
+            return
+
+        residuals = sync.get("ProbeResiduals", {})
+        changed = {}
+        probed = set()
+
+        with Database("kofin") as kofin_db:
+            db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
+            views = {view.view_id: view.media_type for view in db.get_views()}
+
+        for entry in self.whitelist():
+            library_id = entry.replace("Mixed:", "").replace("Boxsets:", "")
+            media_class = views.get(library_id)
+            item_types = PRUNE_SERVER_TYPES.get(media_class)
+
+            if not item_types:
+                continue
+
+            probed.add(library_id)
+
+            try:
+                remote = get_prune_count(self.api, library_id, item_types)
+            except Exception as error:
+                # Never fatal: a probe that cannot reach the server has
+                # measured nothing, and the catch-up paths report their own
+                # connectivity failures.
+                LOG.warning("divergence probe failed for %s: %s", library_id, error)
+                continue
+
+            if remote is None:
+                continue
+
+            local = len(local_reference_map(library_id, media_class))
+            delta = remote - local
+
+            if delta != residuals.get(library_id):
+                changed[library_id] = delta
+
+            residuals[library_id] = delta
+
+        # Keep only what this pass actually measured, so the record cannot
+        # grow without bound as the whitelist is edited.
+        sync["ProbeResiduals"] = {k: v for k, v in residuals.items() if k in probed}
+        save_sync(sync)
+
+        if not changed:
+            return
+
+        LOG.warning(
+            "divergence probe: %s; scheduling a library update to recover",
+            ", ".join("%s delta %s" % (k, v) for k, v in sorted(changed.items())),
         )
         self.enqueue_command("UpdateLibrary")
 

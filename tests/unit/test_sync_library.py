@@ -1029,6 +1029,123 @@ def test_self_healing_paths_are_silent(monkeypatch):
     assert toasts == []
 
 
+# --- divergence probe --------------------------------------------------------
+
+
+def probe_library(monkeypatch, remote, local_ids, media="movies"):
+    """A library whose server count and local reference map the test sets."""
+    seed_views(("lib1", "Movies", media))
+    seed_whitelist("lib1")
+
+    lib, _api = make_library()
+
+    monkeypatch.setattr(
+        "kofin.sync.library.get_prune_count", lambda api, lid, types: remote
+    )
+    monkeypatch.setattr(
+        "kofin.sync.library.local_reference_map",
+        lambda lid, media_class: dict.fromkeys(local_ids),
+    )
+    return lib
+
+
+def commands_of(lib):
+    return [c for c, _d in list(lib.commands.queue)]
+
+
+def test_first_probe_verifies_the_gap_then_records_it(monkeypatch):
+    """With no baseline the probe cannot tell a real hole from the normal
+    residual -- the server counts items the writers decline to store (virtual
+    seasons; no Jellyfin 10.11 filter excludes them from a count) -- so it
+    heals once to find out rather than assuming. The recorded residual is
+    what keeps every later boot quiet."""
+    lib = probe_library(monkeypatch, remote=10, local_ids=["a", "b", "c"])
+
+    lib.probe_divergence()
+
+    assert commands_of(lib) == ["UpdateLibrary"]
+    assert sync_db.get_sync()["ProbeResiduals"] == {"lib1": 7}
+
+
+def test_probe_heals_when_the_gap_moves(monkeypatch):
+    """Two seasons vanishing left no server-side record, so no watermark pass
+    could see them. A count can."""
+    lib = probe_library(monkeypatch, remote=10, local_ids=["a", "b", "c"])
+    lib.probe_divergence()  # baseline 7
+
+    lib = probe_library(monkeypatch, remote=10, local_ids=["a"])
+    lib.probe_divergence()  # 35 episodes short -> delta 9
+
+    assert commands_of(lib) == ["UpdateLibrary"]
+    assert sync_db.get_sync()["ProbeResiduals"] == {"lib1": 9}
+
+
+def test_probe_is_quiet_once_the_gap_is_stable(monkeypatch):
+    lib = probe_library(monkeypatch, remote=10, local_ids=["a", "b", "c"])
+    lib.probe_divergence()
+
+    lib = probe_library(monkeypatch, remote=10, local_ids=["a", "b", "c"])
+    lib.probe_divergence()
+
+    assert commands_of(lib) == []
+
+
+def test_probe_skips_while_a_full_sync_is_pending(monkeypatch):
+    """A resuming library is legitimately short; every count would read as
+    divergence and FullSync is a Borg that would raise at a second entry."""
+    lib = probe_library(monkeypatch, remote=10, local_ids=[])
+    sync = sync_db.get_sync()
+    sync["Libraries"] = ["lib1"]
+    sync_db.save_sync(sync)
+
+    lib.probe_divergence()
+
+    assert commands_of(lib) == []
+    assert "ProbeResiduals" not in sync_db.get_sync()
+
+
+def test_probe_skips_when_the_catch_up_queued_work(monkeypatch):
+    """The gap would be the work already in hand: it would read as divergence
+    now, and again as divergence once it lands."""
+    lib = probe_library(monkeypatch, remote=10, local_ids=[])
+    lib.total_updates = 12
+
+    lib.probe_divergence()
+
+    assert commands_of(lib) == []
+    assert "ProbeResiduals" not in sync_db.get_sync()
+
+
+def test_probe_runs_during_playback_only_when_allowed(monkeypatch):
+    """syncDuringPlay makes playback a good time to probe -- the box is awake
+    and nobody is waiting on the library."""
+    monkeypatch.setattr("xbmc.getCondVisibility", lambda cond: False)
+
+    lib = probe_library(monkeypatch, remote=10, local_ids=["a"])
+    lib.player.isPlayingVideo = lambda: True
+
+    lib.probe_divergence()
+    assert "ProbeResiduals" not in sync_db.get_sync()
+
+    FakeAddon.store["syncDuringPlay"] = "true"
+    lib.probe_divergence()
+    assert sync_db.get_sync()["ProbeResiduals"] == {"lib1": 9}
+
+
+def test_probe_survives_an_unreachable_server(monkeypatch):
+    lib = probe_library(monkeypatch, remote=10, local_ids=["a"])
+
+    def boom(api, lid, types):
+        raise ServerUnreachable("down")
+
+    monkeypatch.setattr("kofin.sync.library.get_prune_count", boom)
+
+    lib.probe_divergence()
+
+    assert commands_of(lib) == []
+    assert sync_db.get_sync()["ProbeResiduals"] == {}
+
+
 def test_the_watermark_is_not_held_back():
     """Deliberate: holding it would let one permanently bad item pin the
     watermark forever, re-fetching the whole window on every retry."""

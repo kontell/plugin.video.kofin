@@ -66,6 +66,79 @@ def split_libraries(libraries, media_type_for):
     return video, music
 
 
+def local_reference_map(library_id, media_class):
+    """{jellyfin_id: stored checksum} for everything kofin.db attributes
+    to the library.
+
+    Movies/musicvideos/music rows carry media_folder directly. TV
+    children (seasons/episodes) do not — they are collected through the
+    kodi-id parent chain plus the jellyfin_parent_id fallback, mirroring
+    the writers' get_child walk. Checksums load once per involved
+    jellyfin_type via the existing get_checksum query.
+
+    Module-level so the divergence probe can measure the same local set the
+    prune diffs without constructing a FullSync: that is a Borg and raises
+    "Sync is already running" whenever one is in flight, which is precisely
+    when a probe must stay out of the way rather than throw. A probe that
+    counted a different set than the prune would schedule heals the prune
+    then reports nothing to do.
+    """
+    top_types = {
+        "movies": ("Movie",),
+        "tvshows": ("Series",),
+        "musicvideos": ("MusicVideo",),
+        # MusicArtist rows also carry media_folder but are not pruned:
+        # artists are not reliably reachable via /Items under a library
+        # parent, so a stale artist row lingers until Repair (rare —
+        # artists rarely vanish without their albums going too).
+        "music": ("MusicAlbum", "Audio"),
+    }[media_class]
+
+    checksum_types = {
+        "movies": ("Movie",),
+        "tvshows": ("Series", "Season", "Episode"),
+        "musicvideos": ("MusicVideo",),
+        "music": ("MusicAlbum", "Audio"),
+    }[media_class]
+
+    with Database("kofin") as kofin_db:
+        db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
+
+        checksums = {}
+        for jellyfin_type in checksum_types:
+            for row in db.get_checksum(jellyfin_type):
+                checksums[row[0]] = row[1]
+
+        ids = []
+        series_ids = []
+
+        for row in db.get_item_by_media_folder(library_id):
+            if row[1] in top_types:
+                ids.append(row[0])
+            if row[1] == "Series":
+                series_ids.append(row[0])
+
+        if media_class == "tvshows":
+            for series_id in series_ids:
+                reference = db.get_item_by_id(series_id)
+
+                if reference is None:
+                    continue
+
+                for season in db.get_item_id_by_parent_id(reference.kodi_id, "season"):
+                    ids.append(season[0])
+
+                    for episode in db.get_item_id_by_parent_id(season[1], "episode"):
+                        ids.append(episode[0])
+
+                # Episodes referencing the series directly (the writers'
+                # get_child fallback arm).
+                for row in db.get_media_by_parent_id(series_id):
+                    ids.append(row[0])
+
+    return {item_id: checksums.get(item_id) for item_id in dict.fromkeys(ids)}
+
+
 class FullSync(object):
     """This should be called like a context.
     i.e. with FullSync(library, server) as sync:
@@ -729,73 +802,9 @@ class FullSync(object):
         self.library.updated(changed)
 
     def _local_reference_map(self, library_id, media_class):
-        """{jellyfin_id: stored checksum} for everything kofin.db attributes
-        to the library.
-
-        Movies/musicvideos/music rows carry media_folder directly. TV
-        children (seasons/episodes) do not — they are collected through the
-        kodi-id parent chain plus the jellyfin_parent_id fallback, mirroring
-        the writers' get_child walk. Checksums load once per involved
-        jellyfin_type via the existing get_checksum query.
-        """
-        top_types = {
-            "movies": ("Movie",),
-            "tvshows": ("Series",),
-            "musicvideos": ("MusicVideo",),
-            # MusicArtist rows also carry media_folder but are not pruned:
-            # artists are not reliably reachable via /Items under a library
-            # parent, so a stale artist row lingers until Repair (rare —
-            # artists rarely vanish without their albums going too).
-            "music": ("MusicAlbum", "Audio"),
-        }[media_class]
-
-        checksum_types = {
-            "movies": ("Movie",),
-            "tvshows": ("Series", "Season", "Episode"),
-            "musicvideos": ("MusicVideo",),
-            "music": ("MusicAlbum", "Audio"),
-        }[media_class]
-
-        with Database("kofin") as kofin_db:
-            db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
-
-            checksums = {}
-            for jellyfin_type in checksum_types:
-                for row in db.get_checksum(jellyfin_type):
-                    checksums[row[0]] = row[1]
-
-            ids = []
-            series_ids = []
-
-            for row in db.get_item_by_media_folder(library_id):
-                if row[1] in top_types:
-                    ids.append(row[0])
-                if row[1] == "Series":
-                    series_ids.append(row[0])
-
-            if media_class == "tvshows":
-                for series_id in series_ids:
-                    reference = db.get_item_by_id(series_id)
-
-                    if reference is None:
-                        continue
-
-                    for season in db.get_item_id_by_parent_id(
-                        reference.kodi_id, "season"
-                    ):
-                        ids.append(season[0])
-
-                        for episode in db.get_item_id_by_parent_id(
-                            season[1], "episode"
-                        ):
-                            ids.append(episode[0])
-
-                    # Episodes referencing the series directly (the writers'
-                    # get_child fallback arm).
-                    for row in db.get_media_by_parent_id(series_id):
-                        ids.append(row[0])
-
-        return {item_id: checksums.get(item_id) for item_id in dict.fromkeys(ids)}
+        """Instance view of the module-level
+        :func:`local_reference_map` -- see there."""
+        return local_reference_map(library_id, media_class)
 
     @progress(30407)
     def boxsets(self, library, dialog=None):
