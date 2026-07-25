@@ -729,13 +729,31 @@ class TVShows(KodiDb):
 
         elif obj["Media"] == "season":
 
+            # Episodes hang off the season's *own* Kodi id. obj["ParentId"] is
+            # this season's parent -- the series' idShow -- and idShow/idSeason
+            # are separate Kodi sequences whose ranges overlap almost entirely
+            # (80 series against 335 seasons on the Piers box), so looking
+            # episodes up by it matched whichever unrelated season happened to
+            # carry that number as its idSeason.
+            #
+            # That is not theoretical: removing a stale Breaking Bad season
+            # (idShow 10) deleted The Americans S4 (idSeason 10), and a stale
+            # Yellowstone season (idShow 71) deleted Cheers S2 (idSeason 71) --
+            # 35 episodes gone from Kodi and from kofin.db, with the victims'
+            # own season rows left behind because only their children matched.
+            #
+            # The tvshow branch above already does this correctly: it sets
+            # ParentId to season[1], the season's kodi_id, before the identical
+            # lookup.
+            season_obj = dict(obj, ParentId=obj["KodiId"])
+
             for episode in self.jellyfin_db.get_item_by_parent_id(
-                *values(obj, QUEM.get_item_by_parent_episode_obj)
+                *values(season_obj, QUEM.get_item_by_parent_episode_obj)
             ):
                 self.remove_episode(episode[1], episode[2], obj["Id"])
             else:
                 self.jellyfin_db.remove_items_by_parent_id(
-                    *values(obj, QUEM.delete_item_by_parent_episode_obj)
+                    *values(season_obj, QUEM.delete_item_by_parent_episode_obj)
                 )
 
             self.remove_season(obj["KodiId"], obj["Id"])

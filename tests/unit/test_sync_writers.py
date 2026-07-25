@@ -707,6 +707,53 @@ def test_series_removal_leaves_no_orphans(api):
     )
 
 
+def test_season_removal_spares_a_colliding_seasons_episodes(api):
+    """Removing a season must not touch another season's episodes.
+
+    Episodes hang off their season's idSeason; a season row's own parent_id is
+    its series' idShow. Those are separate Kodi sequences with overlapping
+    ranges, so looking episodes up by the season's parent_id matched whichever
+    unrelated season carried that number as its idSeason.
+
+    Staged as it actually happened on the Piers box: a stale Breaking Bad
+    season (idShow 10) removed The Americans S4 (idSeason 10), taking 13
+    episodes with it, while S4's own season row survived because only its
+    children matched.
+    """
+    with sync_db.Database("kofin") as opened:
+        from kofin.sync import kofindb
+
+        db = kofindb.JellyfinDatabase(opened.cursor)
+        # (id, kodi_id, fileid, pathid, jf_type, media_type, parent, checksum,
+        #  media_folder, jf_parent)
+        # The series being pruned: idShow 10.
+        db.add_reference("bb", 10, None, 1, "Series", "tvshow", None, "c", "lib1", None)
+        db.add_reference(
+            "bb-s1", 99, None, None, "Season", "season", 10, "c", None, None
+        )
+        # An unrelated series whose season *idSeason* is also 10.
+        db.add_reference("ta", 4, None, 2, "Series", "tvshow", None, "c", "lib1", None)
+        db.add_reference(
+            "ta-s4", 10, None, None, "Season", "season", 4, "c", None, None
+        )
+        db.add_reference(
+            "ta-e1", 501, 601, 2, "Episode", "episode", 10, "c", None, "ta"
+        )
+        db.add_reference(
+            "ta-e2", 502, 602, 2, "Episode", "episode", 10, "c", None, "ta"
+        )
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        TVShows(api, kdb, vdb, library=TV_LIBRARY).remove("bb-s1")
+
+    remaining = {row[0] for row in kofin_query("SELECT jellyfin_id FROM jellyfin")}
+
+    # The season asked for is gone...
+    assert "bb-s1" not in remaining
+    # ...and the collision victim is untouched, episodes included.
+    assert {"ta", "ta-s4", "ta-e1", "ta-e2"} <= remaining
+
+
 def test_episode_removal_prunes_empty_show(api):
     write_series_tree(api)
 
