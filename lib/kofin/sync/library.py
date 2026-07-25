@@ -1104,7 +1104,6 @@ class Library(threading.Thread):
                         last_sync,
                         change_set.envelope.retention_cutoff,
                     )
-                    notification(localized(30601))
                     self.retention_repair_pending = True
                     self.enqueue_command("UpdateLibrary")
 
@@ -1200,7 +1199,6 @@ class Library(threading.Thread):
             count,
             ", ".join(sample),
         )
-        notification(localized(30419))
         self.enqueue_command("UpdateLibrary")
 
     def resume_pending_libraries(self):
@@ -1265,12 +1263,10 @@ class Library(threading.Thread):
     def schedule_retry(self):
         """Retry the incremental sync later, with exponential backoff.
 
-        Notifies once per failure episode (on the first schedule, not on
-        every backoff step).
+        Silent, like the other self-healing paths: the backoff resolves the
+        failure without the user doing anything, so a toast only invites
+        worry about work already in hand. The warning below is the record.
         """
-        if self.retry_delay == 60:
-            notification(localized(30403))
-
         self.retry_at = datetime.now() + timedelta(seconds=self.retry_delay)
         LOG.warning("Sync incomplete, retrying in %s seconds", self.retry_delay)
         self.retry_delay = min(self.retry_delay * 2, 1800)
