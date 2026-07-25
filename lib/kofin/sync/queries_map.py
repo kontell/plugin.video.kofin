@@ -136,7 +136,7 @@ add_reference_season_obj = [
     "Season",
     "season",
     "{ShowId}",
-    None,
+    "{Checksum}",
     None,
     None,
 ]
