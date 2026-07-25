@@ -114,6 +114,30 @@ def get_item_count(api, parent_id, item_type=None):
     return result.get("TotalRecordCount", 1)
 
 
+def align_sort_order(params):
+    """Make ``SortOrder`` carry exactly as many values as ``SortBy``.
+
+    Jellyfin 10.11 rejects a mismatched pair with an opaque 400 ("Error
+    processing request"). ``get_items``' default sort is composite
+    (DateCreated,SortName / Descending,Ascending), so a caller overriding
+    ``SortBy`` alone left two orders against one field — which 400'd every
+    album and song page of a music sync, and because the page generator
+    swallowed that error the pass wrote nothing and still reported success.
+    Padding here means an override can only ever specify the fields.
+    """
+    sort_by = params.get("SortBy")
+
+    if not sort_by:
+        return
+
+    fields = len(str(sort_by).split(","))
+    orders = str(params.get("SortOrder") or "Ascending").split(",")
+
+    if len(orders) != fields:
+        # Pad short with the last order given, truncate long.
+        params["SortOrder"] = ",".join((orders + [orders[-1]] * fields)[:fields])
+
+
 def get_items(api, parent_id, item_type=None, basic=False, params=None):
 
     query = {
@@ -143,7 +167,15 @@ def get_items(api, parent_id, item_type=None, basic=False, params=None):
         },
     }
     if params:
+        # Directions belong to the fields they were written for: a caller that
+        # names its own SortBy without a SortOrder gets a plain ascending
+        # order, not the default pair's Descending-then-Ascending.
+        if "SortBy" in params and "SortOrder" not in params:
+            query["params"]["SortOrder"] = "Ascending"
+
         query["params"].update(params)
+
+    align_sort_order(query["params"])
 
     for items in _get_items(api, query):
         yield items
@@ -251,6 +283,13 @@ def _get_items(api, query):
             error,
             params,
         )
+        # Raise, don't yield nothing. Swallowing here (the fork's behaviour)
+        # turns a rejected query into an empty pass: the caller writes no
+        # items, the library is dropped from sync.json as done and the sync
+        # reports success, so a library that never landed looks synced. An
+        # empty library is not this path — the count query answers 200 with
+        # TotalRecordCount 0. Failing keeps the library pending for retry.
+        raise
 
     else:
         params.setdefault("StartIndex", 0)
@@ -282,52 +321,71 @@ def _get_items(api, query):
             # create jobs
             jobs = [(p.submit(get_wrapper, param), param) for param in query_params]
 
+            def abandon_jobs():
+                """Let the executor shut down when the consumer stops early.
+
+                Every page is submitted up front and each worker blocks on
+                ``thread_buffer`` until the consumer releases a permit, so a
+                consumer that stops mid-iteration strands them: the
+                ``with ThreadPoolExecutor(...)`` exit calls
+                ``shutdown(wait=True)``, which waits on jobs nobody will ever
+                unblock, and the wait never ends. That is the multi-minute
+                freeze on quitting Kodi mid-sync — a writer's ``@stop`` raises
+                LibraryExitException, which closes this generator.
+
+                Cancelling covers the pages that have not started; releasing a
+                permit per job covers every worker that could still reach an
+                ``acquire`` while the cancellations land. Over-releasing is
+                harmless — the semaphore dies with the generator.
+                """
+                for pending, _ in jobs:
+                    if pending is not None and not pending.done():
+                        pending.cancel()
+
+                for _ in jobs:
+                    thread_buffer.release()
+
             # Consume pages strictly in submission order: the RestorePoint may
             # only ever advance past pages that have been handed to the caller.
             # Out-of-order consumption could persist a restore point beyond
             # pages that were still in flight, and a resumed sync would then
             # skip those items entirely. The semaphore still keeps up to
             # dthreads pages buffered ahead of the consumer.
-            for index, (job, param) in enumerate(jobs):
-                try:
-                    result = job.result() or {"Items": []}
-                except Exception as error:
-                    LOG.exception("Failed to retrieve page %s: %s", param, error)
-
-                    for pending, _ in jobs:
-                        if pending is not None and not pending.done():
-                            pending.cancel()
-
-                    # Unblock workers waiting on the buffer so the executor
-                    # can shut down instead of deadlocking.
-                    for _ in range(dthreads):
-                        thread_buffer.release()
-
-                    raise
-
-                # free job memory
-                jobs[index] = (None, None)
-                query["params"] = param
-
-                # Mitigates #216 till the server validates the date provided is valid
-                if result["Items"] and result["Items"][0].get("ProductionYear"):
+            try:
+                for index, (job, param) in enumerate(jobs):
                     try:
-                        date(result["Items"][0]["ProductionYear"], 1, 1)
-                    except ValueError:
-                        LOG.info(
-                            "#216 mitigation triggered. Setting ProductionYear to None"
-                        )
-                        result["Items"][0]["ProductionYear"] = None
+                        result = job.result() or {"Items": []}
+                    except Exception as error:
+                        LOG.exception("Failed to retrieve page %s: %s", param, error)
+                        # The finally below cancels the rest and unblocks the
+                        # workers, so the executor can actually shut down.
+                        raise
 
-                items["Items"].extend(result["Items"])
-                # Using items to return data and communicate a restore point back to the callee is
-                # a violation of the SRP. TODO: Separate responsibilities.
-                items["RestorePoint"] = query
-                yield items
-                del items["Items"][:]
+                    # free job memory
+                    jobs[index] = (None, None)
+                    query["params"] = param
 
-                # release the semaphore again
-                thread_buffer.release()
+                    # Mitigates #216 till the server validates the date provided is valid
+                    if result["Items"] and result["Items"][0].get("ProductionYear"):
+                        try:
+                            date(result["Items"][0]["ProductionYear"], 1, 1)
+                        except ValueError:
+                            LOG.info(
+                                "#216 mitigation triggered. Setting ProductionYear to None"
+                            )
+                            result["Items"][0]["ProductionYear"] = None
+
+                    items["Items"].extend(result["Items"])
+                    # Using items to return data and communicate a restore point back to the callee is
+                    # a violation of the SRP. TODO: Separate responsibilities.
+                    items["RestorePoint"] = query
+                    yield items
+                    del items["Items"][:]
+
+                    # release the semaphore again
+                    thread_buffer.release()
+            finally:
+                abandon_jobs()
 
 
 class GetItemWorker(threading.Thread):

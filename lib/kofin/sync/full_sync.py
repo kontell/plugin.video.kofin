@@ -223,10 +223,18 @@ class FullSync(object):
             databases.add("music")
 
         self.library.refresh_libraries(databases)
-        notification(
-            "%s %s" % (localized(30409), str(elapsed).split(".")[0]),
-        )
-        LOG.info("Full sync completed in: %s", str(elapsed).split(".")[0])
+
+        if self.update_library:
+            # Update mode only *plans*: prune diffs the library and hands the
+            # work to the incremental pipeline, which has its own progress bar
+            # and drain. Announcing a finished sync here claimed a 22k-item
+            # backlog was already written, seconds after queueing it.
+            LOG.info("Update pass planned in: %s", str(elapsed).split(".")[0])
+        else:
+            notification(
+                "%s %s" % (localized(30409), str(elapsed).split(".")[0]),
+            )
+            LOG.info("Full sync completed in: %s", str(elapsed).split(".")[0])
 
     def process_libraries(self, libraries, failures):
         """Process libraries in order, recording completion after each.
@@ -599,11 +607,20 @@ class FullSync(object):
                             obj.artist(item)
                             count += 1
 
+                    # Sort pairs are spelled in full: get_items' default is
+                    # composite, and overriding SortBy alone left a mismatched
+                    # SortOrder that Jellyfin 10.11 answers with a 400 (see
+                    # downloader.align_sort_order). SortName breaks the tie so
+                    # StartIndex paging stays deterministic under equal album
+                    # artists, exactly as the video default does.
                     albums = server.get_items(
                         self.server,
                         library_id,
                         item_type="MusicAlbum",
-                        params={"SortBy": "AlbumArtist"},
+                        params={
+                            "SortBy": "AlbumArtist,SortName",
+                            "SortOrder": "Ascending,Ascending",
+                        },
                     )
                     for batch in albums:
                         for item in batch["Items"]:
@@ -619,11 +636,18 @@ class FullSync(object):
                             obj.album(item)
                             count += 1
 
+                    # Album is in the song key so tracks arrive grouped by
+                    # album: songs whose album is somehow not in kodi yet
+                    # create it on demand (song_add), and grouping means that
+                    # costs one lookup per album instead of one per track.
                     songs = server.get_items(
                         self.server,
                         library_id,
                         item_type="Audio",
-                        params={"SortBy": "AlbumArtist"},
+                        params={
+                            "SortBy": "AlbumArtist,Album,SortName",
+                            "SortOrder": "Ascending,Ascending,Ascending",
+                        },
                     )
                     for batch in songs:
                         for item in batch["Items"]:
