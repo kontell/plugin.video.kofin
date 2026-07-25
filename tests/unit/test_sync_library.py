@@ -1063,6 +1063,56 @@ def test_unconsumed_type_is_reported_not_dropped():
     assert flagged == ["x1"]
 
 
+def test_container_types_are_ignored_not_flagged():
+    """A UserView/CollectionFolder can never route anywhere, and the server
+    broadcasts LibraryChanged for them on its own schedule. Flagging one cost
+    a user-facing "some items did not sync" plus a full prune of every
+    library, on nothing at all."""
+    flagged = []
+    work = queue.Queue()
+    work.put(["v1", "c1", "m1"])
+
+    class Api:
+        def items(self, params):
+            return {
+                "Items": [
+                    {"Id": "v1", "Type": "UserView", "Name": "Playlists"},
+                    {"Id": "c1", "Type": "CollectionFolder", "Name": "Movies"},
+                    {"Id": "m1", "Type": "Movie", "Name": "real"},
+                ]
+            }
+
+    movies = queue.Queue()
+    worker = GetItemWorker(
+        Api(), work, {"Movie": movies}, unapplied=lambda i, r: flagged.append(i)
+    )
+    worker.start()
+    worker.join(timeout=5)
+
+    assert flagged == []
+    assert movies.get_nowait()["Id"] == "m1"
+
+
+def test_synced_container_types_still_flag():
+    """The ignore list is about non-content, not about folders: a Season with
+    no queue is a real routing failure and must still be recovered."""
+    flagged = []
+    work = queue.Queue()
+    work.put(["s1"])
+
+    class Api:
+        def items(self, params):
+            return {"Items": [{"Id": "s1", "Type": "Season", "Name": "S1"}]}
+
+    worker = GetItemWorker(
+        Api(), work, {"Movie": queue.Queue()}, unapplied=lambda i, r: flagged.append(i)
+    )
+    worker.start()
+    worker.join(timeout=5)
+
+    assert flagged == ["s1"]
+
+
 # --- writer-queue backpressure -----------------------------------------------
 
 

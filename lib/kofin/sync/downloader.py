@@ -23,6 +23,34 @@ from kofin.sync.shims import LibraryExitException, stop
 
 LOG = Logger(__name__)
 
+# Jellyfin types that are containers or metadata nodes rather than library
+# content. The server broadcasts LibraryChanged for these as a matter of
+# course -- writing a playlist touches the Playlists view, a scan touches the
+# collection folder -- and no writer queue will ever consume one, so "nothing
+# consumes this type" is the expected outcome here and not a lost item.
+#
+# Deliberately narrower than ``plugin.listitems.FOLDER_TYPES``, which is about
+# what browses as a folder: Series/Season/BoxSet/MusicArtist/MusicAlbum are
+# folders there but are synced content here, and must keep reaching
+# ``_flag_unapplied`` when they fail to route.
+NON_CONTENT_TYPES = frozenset(
+    {
+        "AggregateFolder",
+        "CollectionFolder",
+        "Folder",
+        "Genre",
+        "ManualPlaylistsFolder",
+        "MusicGenre",
+        "Person",
+        "PhotoAlbum",
+        "Playlist",
+        "Studio",
+        "UserRootFolder",
+        "UserView",
+        "Year",
+    }
+)
+
 
 def basic_info():
     return "Etag"
@@ -522,6 +550,18 @@ class GetItemWorker(threading.Thread):
                         if item.get("Id") in self.artwork_ids:
                             item["_artwork_only"] = True
                         self._put(self.output[item["Type"]], item)
+                    elif item["Type"] in NON_CONTENT_TYPES:
+                        # Routine, not a failure: see NON_CONTENT_TYPES. Kept
+                        # visible at debug so the feed stays traceable, but it
+                        # must not reach _flag_unapplied -- flagging one costs
+                        # a user-facing warning and a full prune of every
+                        # library, forever, on a view folder the server
+                        # touches on its own schedule.
+                        LOG.debug(
+                            "ignoring %s (%s is not library content)",
+                            item.get("Id"),
+                            item["Type"],
+                        )
                     else:
                         # Downloaded, then dropped because nothing consumes
                         # this type. Never legitimate — the caller asked for
