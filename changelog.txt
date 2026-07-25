@@ -1,3 +1,12 @@
+v0.4.0
+- Fixed episodes of an unrelated show being deleted when a library update removed a season; two complete seasons vanished from Kodi this way. Anything already lost comes back on the next update
+- Library updates now settle: previously every season in a library was re-downloaded and rewritten on every run, so an update could never finish with nothing left to do
+- Seasons whose episodes sit directly in the show folder, with no season subfolder of their own, are now tracked like any other. They were re-added on every update and their Kodi entries could never be removed
+- Kofin now compares each synced library against the server when it starts and repairs anything missing on its own, including losses that leave no trace on the server for a normal sync to find
+- "Some items did not sync" is no longer reported for server folders that were never library content, nor is the full library update it used to trigger
+- Sync problems that kofin resolves by itself no longer interrupt with a notification; they are still recorded in the log
+- Note: the first update after upgrading is a large one, as every season is rewritten once to store the information that lets later updates skip it
+
 v0.3.0
 - Force transcode now actually re-encodes instead of quietly passing the original streams through, and is bounded by the source bitrate — this is also what makes the context menu's "Source" option meaningful
 - Transcoded audio bitrate now scales with the streaming limit, so low-bitrate transcodes are no longer rejected by the server
