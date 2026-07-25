@@ -1010,6 +1010,25 @@ def test_no_failures_schedules_nothing():
     assert list(lib.commands.queue) == []
 
 
+def test_self_healing_paths_are_silent(monkeypatch):
+    """A heal the user cannot act on and that fixes itself does not get a
+    toast: it only invites worry about work already in hand. The LOG.warning
+    on each path stays as the record."""
+    toasts = []
+    monkeypatch.setattr(
+        "kofin.sync.library.notification", lambda *a, **kw: toasts.append(a)
+    )
+
+    lib, _api = make_library()
+
+    lib.flag_unapplied("m1", "Movie: boom")
+    lib.schedule_recovery_prune()
+    lib.schedule_retry()
+
+    assert [c for c, _d in list(lib.commands.queue)] == ["UpdateLibrary"]
+    assert toasts == []
+
+
 def test_the_watermark_is_not_held_back():
     """Deliberate: holding it would let one permanently bad item pin the
     watermark forever, re-fetching the whole window on every retry."""
