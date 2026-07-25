@@ -1,0 +1,19 @@
+v0.3.0
+- Force transcode now actually re-encodes instead of quietly passing the original streams through, and is bounded by the source bitrate — this is also what makes the context menu's "Source" option meaningful
+- Transcoded audio bitrate now scales with the streaming limit, so low-bitrate transcodes are no longer rejected by the server
+- Added E-AC3 (Dolby Digital Plus) to the direct-play audio codecs, and 480p/1440p to the maximum-resolution options (existing installs keep their saved codec selection; E-AC3 is only in the default for new installs)
+- "Play with transcoding" is hidden when no context bitrates are configured, instead of transcoding at a rate that was never chosen
+- Fixed music library sync failing with an opaque server error, reporting success when nothing had synced, and hanging Kodi on quit
+- Sync now resumes where it left off after a dropped connection and catches up on changes missed while disconnected, instead of waiting for the next full cycle; the startup delay setting is gone
+- Items that were downloaded but never written are now recovered rather than silently missing from the library
+- A large catch-up sync no longer grows unbounded in memory
+- Faster music sync: the server is no longer asked to count every album's children, and downloads prefetch further ahead
+- Repairing a library no longer asks for confirmation twice, and sync progress no longer reports a misleading percentage
+- Optional notifications when the server connects, disconnects or restarts
+- Fixed a real artist occupying Kodi's reserved blank-artist slot and displaying as "[Missing]". New syncs are correct; a library already affected is detected and reported in the log, but still needs a manual repair
+
+v0.2.0
+- Added the "Jellyfin actions" context menu (favourites, delete, settings)
+
+v0.1.0
+- First release
