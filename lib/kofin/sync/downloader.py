@@ -436,6 +436,7 @@ class GetItemWorker(threading.Thread):
         userdata_ids=None,
         artwork_ids=None,
         fields=None,
+        unapplied=None,
     ):
 
         # ``server`` is a per-worker Api instance (own Http session), the
@@ -456,11 +457,20 @@ class GetItemWorker(threading.Thread):
         self.artwork_ids = artwork_ids if artwork_ids is not None else set()
         # Field set per chunk; the artwork source downloads minimal fields.
         self.fields = fields
+        # Callable(item_id, reason) for items downloaded but never handed to a
+        # writer, so the library can schedule a recovery prune.
+        self.unapplied = unapplied
         threading.Thread.__init__(self)
 
     def _flag_error(self):
         if self.error_event is not None:
             self.error_event.set()
+
+    def _flag_unapplied(self, item_id, reason):
+        if self.unapplied is not None:
+            self.unapplied(item_id, reason)
+        else:
+            LOG.warning("could not apply %s (%s)", item_id, reason)
 
     def run(self):
         while True:
@@ -480,14 +490,38 @@ class GetItemWorker(threading.Thread):
 
             try:
                 result = self.server.items(params)
+                returned = set()
 
                 for item in result["Items"]:
+                    returned.add(item.get("Id"))
 
                     if item["Type"] in self.output:
                         item["_userdata_changed"] = item.get("Id") in self.userdata_ids
                         if item.get("Id") in self.artwork_ids:
                             item["_artwork_only"] = True
                         self.output[item["Type"]].put(item)
+                    else:
+                        # Downloaded, then dropped because nothing consumes
+                        # this type. Never legitimate — the caller asked for
+                        # these ids — and it left no trace at all, while the
+                        # watermark advanced past the item regardless.
+                        self._flag_unapplied(
+                            item.get("Id"), "no queue for type %s" % item["Type"]
+                        )
+
+                missing = [i for i in item_ids if i not in returned]
+
+                if missing:
+                    # Usually benign: an item removed server-side between the
+                    # change feed reporting it and this fetch. Logged rather
+                    # than flagged for that reason — but logged, because
+                    # "requested and never seen again" was previously silent.
+                    LOG.warning(
+                        "%s of %s requested id(s) not returned: %s",
+                        len(missing),
+                        len(item_ids),
+                        ", ".join(str(i) for i in missing[:5]),
+                    )
             except ServerUnreachable as error:
                 LOG.error("--[ server unreachable: %s ]", error)
                 self._flag_error()

@@ -982,3 +982,81 @@ def test_resume_delay_resets_after_a_success(monkeypatch):
     lib.resume_pending_libraries()
 
     assert lib.resume_delay == library_mod.RESUME_POLL_SECONDS
+
+
+# --- recovery from items that never applied ----------------------------------
+
+
+def test_writer_failure_schedules_a_recovery_prune():
+    """Only the download side held the watermark back, so anything that failed
+    *after* a good download was logged and forgotten while the watermark moved
+    past it — and the change feed, queried from that watermark, can never offer
+    it again. That is a film added on the 22nd still missing on the 25th."""
+    lib, _api = make_library()
+
+    lib.flag_unapplied("m1", "Movie: boom")
+    lib.flag_unapplied("m2", "Movie: boom")
+    lib.schedule_recovery_prune()
+
+    assert [c for c, _d in list(lib.commands.queue)] == ["UpdateLibrary"]
+
+
+def test_no_failures_schedules_nothing():
+    lib, _api = make_library()
+
+    lib.schedule_recovery_prune()
+
+    assert list(lib.commands.queue) == []
+
+
+def test_the_watermark_is_not_held_back():
+    """Deliberate: holding it would let one permanently bad item pin the
+    watermark forever, re-fetching the whole window on every retry."""
+    lib, _api = make_library()
+
+    lib.flag_unapplied("m1", "Movie: boom")
+
+    assert not lib.download_errors.is_set()
+
+
+def test_recovery_prune_is_rate_limited():
+    """A prune that itself fails to apply something would otherwise schedule
+    the next one immediately, forever."""
+    lib, _api = make_library()
+
+    lib.flag_unapplied("m1", "Movie: boom")
+    lib.schedule_recovery_prune()
+    lib.flag_unapplied("m2", "Movie: boom")
+    lib.schedule_recovery_prune()
+
+    assert [c for c, _d in list(lib.commands.queue)] == ["UpdateLibrary"]
+
+
+def test_counters_reset_between_cycles():
+    lib, _api = make_library()
+
+    lib.flag_unapplied("m1", "Movie: boom")
+    lib.schedule_recovery_prune()
+
+    assert lib.unapplied_count == 0
+    assert lib.unapplied_sample == set()
+
+
+def test_unconsumed_type_is_reported_not_dropped():
+    """The item was asked for by id, downloaded, then discarded because no
+    queue wanted its type — previously with no trace at all."""
+    flagged = []
+    work = queue.Queue()
+    work.put(["x1"])
+
+    class Api:
+        def items(self, params):
+            return {"Items": [{"Id": "x1", "Type": "Photo", "Name": "n"}]}
+
+    worker = GetItemWorker(
+        Api(), work, {"Movie": queue.Queue()}, unapplied=lambda i, r: flagged.append(i)
+    )
+    worker.start()
+    worker.join(timeout=5)
+
+    assert flagged == ["x1"]

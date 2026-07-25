@@ -945,6 +945,10 @@ msgctxt "#30418"
 msgid "Server is shutting down"
 msgstr ""
 
+msgctxt "#30419"
+msgid "Some items did not sync; updating libraries to recover"
+msgstr ""
+
 msgctxt "#30414"
 msgid "advancedsettings.xml enables cleanonupdate — incompatible with library sync"
 msgstr ""

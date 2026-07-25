@@ -60,6 +60,12 @@ COMMIT_INTERVAL = 50
 # failing (see Library.resume_pending_libraries).
 RESUME_POLL_SECONDS = 60
 RESUME_POLL_MAX_SECONDS = 1800
+# Ids kept for the log when items fail to apply; the count is exact, this only
+# bounds how many are named.
+UNAPPLIED_SAMPLE = 5
+# Floor between automatic recovery prunes. A prune that itself fails to apply
+# something would otherwise schedule the next one immediately, forever.
+AUTO_PRUNE_MIN_SECONDS = 3600
 # Deliberately nonexistent: scanning it is how music gets a library-change
 # event without a real walk (see Library._refresh_music). Must never be
 # created — if it existed the scan would descend into it.
@@ -146,6 +152,13 @@ class Library(threading.Thread):
         # (see resume_pending_libraries). None = check on the next tick.
         self.resume_at = None
         self.resume_delay = RESUME_POLL_SECONDS
+        # Items the pipeline could not apply this cycle (see flag_unapplied).
+        # Written from worker threads; ints and set.add are atomic enough here,
+        # and an undercount only delays a recovery prune by one cycle.
+        self.unapplied_count = 0
+        self.unapplied_sample = set()
+        # Earliest time another automatic recovery prune may be scheduled.
+        self.auto_prune_at = None
         # Kodi databases ("video"/"music") that new content landed in, and that
         # anything at all was written to. Kodi is not told about writes made
         # straight to its SQLite files, so widgets only refresh when we say so.
@@ -409,6 +422,12 @@ class Library(threading.Thread):
                 self.save_last_sync()
                 self.retry_delay = 60
 
+            # After the watermark decision, not instead of it: these items
+            # were downloaded fine and failed later, so re-running the feed
+            # window would not offer them again. The prune is what reaches
+            # them.
+            self.schedule_recovery_prune()
+
             self.total_updates = 0
             self.class_counts = {}
             state.set_sync_active(False)
@@ -639,6 +658,7 @@ class Library(threading.Thread):
                     self.userdata_changed_ids,
                     artwork_ids=self.artwork_only_ids,
                     fields=basic_info() if source == "artwork" else None,
+                    unapplied=self.flag_unapplied,
                 )
                 new_thread.source = source
                 new_thread.start()
@@ -687,6 +707,7 @@ class Library(threading.Thread):
                     self.api_factory(),
                     notify_enabled=source == "added",
                     artwork_fallback=self.requeue_full,
+                    unapplied=self.flag_unapplied,
                 )
                 new_thread.db_file = db_file
                 new_thread.source = source
@@ -1094,6 +1115,65 @@ class Library(threading.Thread):
 
         return True
 
+    def flag_unapplied(self, item_id, reason):
+        """Record an item the pipeline could not apply. Called from workers.
+
+        Only the download side held the watermark back, so anything that
+        failed *after* a successful download — a writer raising, an item the
+        server returned under a type nothing consumes — was logged and
+        forgotten while the watermark advanced past it. The change feed is
+        queried from that watermark, so such an item can never be offered
+        again: it is lost until a human runs a library update. That is how a
+        film added on the 22nd was still missing on the 25th with the
+        watermark already three days past it.
+        """
+        self.unapplied_count += 1
+
+        if len(self.unapplied_sample) < UNAPPLIED_SAMPLE:
+            self.unapplied_sample.add(item_id)
+
+        LOG.warning("could not apply %s (%s)", item_id, reason)
+
+    def schedule_recovery_prune(self):
+        """Recover unapplied items through the update-mode prune.
+
+        Deliberately *not* by holding the watermark: one permanently bad item
+        would then pin it forever, re-fetching the whole window on every
+        retry and never converging. The prune diffs ids and Etags without
+        consulting the watermark, so it finds anything missing however it went
+        missing — it is what recovered the film above when run by hand.
+
+        Same shape as the retention-overrun heal above: warn, tell the user,
+        enqueue an update pass.
+        """
+        count = self.unapplied_count
+        sample = sorted(self.unapplied_sample)
+        self.unapplied_count = 0
+        self.unapplied_sample = set()
+
+        if not count:
+            return
+
+        now = datetime.now()
+
+        if self.auto_prune_at is not None and now < self.auto_prune_at:
+            LOG.warning(
+                "%s item(s) did not apply (%s); a recovery update is already "
+                "scheduled, not queueing another",
+                count,
+                ", ".join(sample),
+            )
+            return
+
+        self.auto_prune_at = now + timedelta(seconds=AUTO_PRUNE_MIN_SECONDS)
+        LOG.warning(
+            "%s item(s) did not apply (%s); scheduling a library update to recover",
+            count,
+            ", ".join(sample),
+        )
+        notification(localized(30419))
+        self.enqueue_command("UpdateLibrary")
+
     def resume_pending_libraries(self):
         """Re-enter a full sync that sync.json still lists as unfinished.
 
@@ -1389,6 +1469,7 @@ class UpdateWorker(threading.Thread):
         server=None,
         notify_enabled=False,
         artwork_fallback=None,
+        unapplied=None,
         *args,
     ):
         self.queue = queue
@@ -1404,7 +1485,14 @@ class UpdateWorker(threading.Thread):
         # Callable(item_id) that re-queues an item for the full update path
         # when the artwork-only write cannot handle it (phase 5).
         self.artwork_fallback = artwork_fallback
+        # Callable(item_id, reason) for items this worker could not write, so
+        # the library can schedule a recovery prune (see flag_unapplied).
+        self.unapplied = unapplied
         threading.Thread.__init__(self)
+
+    def _report_unapplied(self, item, error):
+        if self.unapplied is not None:
+            self.unapplied(item.get("Id"), "%s: %s" % (item.get("Type"), error))
 
     def _artwork_only(self, item, writers):
         """Apply an image-only item through the artwork-only path; fall back
@@ -1484,14 +1572,16 @@ class UpdateWorker(threading.Thread):
                             (item["Type"], api.API(item).get_naming())
                         )
                 except LibraryException as error:
-                    # TODO: Fixme; We're catching all LibraryException here,
-                    # but silently ignoring any that isn't the exit condition.
-                    # Investigate what would be appropriate behavior here.
+                    # Still swallowed so one bad item cannot stop the drain,
+                    # but no longer forgotten: it never landed, and the
+                    # watermark is about to move past it.
                     if isinstance(error, LibraryExitException):
                         break
                     LOG.warning("Ignoring exception %s", error)
+                    self._report_unapplied(item, error)
                 except Exception as error:
                     LOG.exception(error)
+                    self._report_unapplied(item, error)
 
                 self.queue.task_done()
                 processed += 1
