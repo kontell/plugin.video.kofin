@@ -41,13 +41,19 @@ class WSClient(threading.Thread):
         auth_header: str,
         on_event: EventCallback,
         on_connected: ConnectedCallback,
+        on_disconnected: Optional[ConnectedCallback] = None,
     ) -> None:
         super().__init__(name="kofin-ws")
         self._url = socket_url(server_address)
         self._header = auth_header
         self._on_event = on_event
         self._on_connected = on_connected
+        self._on_disconnected = on_disconnected
         self._stop = False
+        # Whether the socket is currently up. run_forever(reconnect=) retries
+        # on its own and calls back repeatedly while a server is down, so the
+        # flag is what turns that stream into one edge per actual transition.
+        self._connected = False
         self._app: Optional[websocket.WebSocketApp] = None
         self._keepalive: Optional[_KeepAlive] = None
 
@@ -60,6 +66,7 @@ class WSClient(threading.Thread):
             on_open=self._handle_open,
             on_message=self._handle_message,
             on_error=self._handle_error,
+            on_close=self._handle_close,
         )
         while not self._stop:
             self._app.run_forever(ping_interval=10, reconnect=RECONNECT_SECONDS)
@@ -84,6 +91,7 @@ class WSClient(threading.Thread):
 
     def _handle_open(self, app: "websocket.WebSocketApp") -> None:
         LOG.info("websocket connected")
+        self._connected = True
         if self._keepalive is not None:
             self._keepalive.stop()
         self._keepalive = _KeepAlive(app)
@@ -92,6 +100,35 @@ class WSClient(threading.Thread):
             self._on_connected()
         except Exception:
             LOG.exception("on_connected callback failed")
+
+    def _handle_close(
+        self,
+        app: "websocket.WebSocketApp",
+        status_code: Optional[int] = None,
+        message: Optional[str] = None,
+    ) -> None:
+        """One callback per real drop.
+
+        Reported only when a socket that was actually open goes down, so a
+        server that stays unreachable — where run_forever keeps failing to
+        connect — does not fire this on every retry. A deliberate stop() is
+        not a drop either.
+        """
+        was_connected = self._connected
+        self._connected = False
+
+        if not was_connected or self._stop:
+            return
+
+        LOG.info("websocket disconnected (%s %s)", status_code, message)
+
+        if self._on_disconnected is None:
+            return
+
+        try:
+            self._on_disconnected()
+        except Exception:
+            LOG.exception("on_disconnected callback failed")
 
     def _handle_message(self, app: "websocket.WebSocketApp", raw: str) -> None:
         try:

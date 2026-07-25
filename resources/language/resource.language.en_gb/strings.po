@@ -809,6 +809,14 @@ msgctxt "#30325"
 msgid "2160p"
 msgstr ""
 
+msgctxt "#30326"
+msgid "Notify on server connection changes"
+msgstr ""
+
+msgctxt "#30327"
+msgid "Show a notification when the server connects, disconnects or restarts."
+msgstr ""
+
 # 30350-30369 — library node labels
 
 msgctxt "#30350"
@@ -919,6 +927,22 @@ msgstr ""
 
 msgctxt "#30413"
 msgid "Sync paused: unknown Kodi database v%s"
+msgstr ""
+
+msgctxt "#30415"
+msgid "Connected to %s"
+msgstr ""
+
+msgctxt "#30416"
+msgid "Lost connection to the server"
+msgstr ""
+
+msgctxt "#30417"
+msgid "Server is restarting"
+msgstr ""
+
+msgctxt "#30418"
+msgid "Server is shutting down"
 msgstr ""
 
 msgctxt "#30414"
