@@ -63,14 +63,17 @@ def _bitrate_label(value: str) -> str:
 
 
 def choose_bitrate(configured: List[str]) -> Optional[str]:
-    """The bitrate token to transcode at; None means the user cancelled.
+    """The bitrate token to transcode at; None means nothing to offer.
 
-    A token of '0' means the source bitrate (unlimited) — the same result as
-    force transcode. With exactly one configured bitrate the dialog is skipped.
+    A token of '0' means the source bitrate — a transcode capped at whatever
+    the MediaSource reports. With exactly one configured bitrate the dialog is
+    skipped. No valid bitrate means no transcode: addon.xml hides the context
+    item in that case, so falling back to an invented default would only
+    surface a bitrate the user never chose.
     """
     valid = [value for value in configured if _bitrate_value(value) is not None]
     if not valid:
-        valid = ["10"]
+        return None
     if len(valid) == 1:
         return valid[0]
     labels: List[Union[str, xbmcgui.ListItem]] = [

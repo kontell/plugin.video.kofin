@@ -1,5 +1,6 @@
 import pytest
 
+from kofin.core import deviceprofile
 from kofin.core.http import JellyfinError
 from kofin.plugin import play
 from kofin.plugin.router import dispatch
@@ -46,6 +47,26 @@ def test_stream_url_transcode():
     assert url == "http://s:8096/videos/m1/master.m3u8?x=1"
 
 
+def test_stream_url_remux_still_reports_transcode():
+    # Every stream off the transcoding endpoint reports as Transcode, remux
+    # included — matching pvr.kofin and jellyfin-kodi. The dashboard takes its
+    # remux wording from the server's TranscodingInfo, not from this value.
+    _, method = play.stream_url(
+        SERVER,
+        {"Type": "Movie", "Id": "m1"},
+        {
+            "Id": "src1",
+            "TranscodingUrl": (
+                "/videos/m1/master.m3u8?VideoCodec=av1"
+                "&TranscodeReasons=DirectPlayError"
+            ),
+        },
+        "d",
+        "p",
+    )
+    assert method == "Transcode"
+
+
 def test_stream_url_unplayable_raises():
     with pytest.raises(JellyfinError):
         play.stream_url(SERVER, {"Id": "m1"}, {"Id": "s"}, "d", "p")
@@ -55,6 +76,55 @@ def test_mime_for():
     assert play.mime_for("mkv", "DirectStream") == "video/x-matroska"
     assert play.mime_for("anything", "Transcode") == play.HLS_MIME
     assert play.mime_for("unknown", "DirectStream") == ""
+
+
+def test_transcode_budget_caps_forced_transcode_at_source():
+    source = {"Bitrate": 8_000_000}
+    # Unlimited profile cap: the source is what bounds a forced transcode,
+    # otherwise the server copies both streams and "force" does nothing.
+    assert (
+        play.transcode_budget(source, deviceprofile.UNLIMITED_BITRATE, True)
+        == 8_000_000
+    )
+    # A tighter user cap still wins over the source.
+    assert play.transcode_budget(source, 3_000_000, True) == 3_000_000
+    # Not forced: the cap alone applies, source bitrate is irrelevant.
+    assert play.transcode_budget(source, 3_000_000, False) == 3_000_000
+
+
+def test_transcode_budget_without_source_bitrate():
+    assert (
+        play.transcode_budget({}, deviceprofile.UNLIMITED_BITRATE, True)
+        == play.ASSUMED_SOURCE_BITRATE
+    )
+
+
+def test_rewrite_bitrates_replaces_server_values():
+    url = (
+        "http://s:8096/videos/m1/master.m3u8"
+        "?PlaySessionId=abc&VideoBitrate=139616000&AudioBitrate=384000&api_key=k"
+    )
+    out = play.rewrite_bitrates(url, 10_000_000, 384)
+    assert out.startswith("http://s:8096/videos/m1/master.m3u8?")
+    # Opaque params survive untouched, in their original order.
+    assert "PlaySessionId=abc" in out and "api_key=k" in out
+    assert out.count("VideoBitrate=") == 1 and out.count("AudioBitrate=") == 1
+    # audio = min(384k, budget/10) = 384k; video takes the rest.
+    assert "AudioBitrate=384000" in out
+    assert "VideoBitrate=9616000" in out
+
+
+def test_rewrite_bitrates_small_budget_keeps_video_positive():
+    # The bug a fixed 384k reservation causes: a 0.5 Mbit/s context transcode
+    # would leave VideoBitrate at 116000 with a flat reservation, and the
+    # server rejects anything negative once the budget drops below it.
+    out = play.rewrite_bitrates("http://s/x?a=1", 500_000, 384)
+    assert "AudioBitrate=50000" in out
+    assert "VideoBitrate=450000" in out
+
+
+def test_rewrite_bitrates_without_query_is_left_alone():
+    assert play.rewrite_bitrates("http://s/x", 500_000, 384) == "http://s/x"
 
 
 def test_external_subtitles_filtering():
@@ -186,7 +256,10 @@ def test_choose_bitrate_cancel_and_garbage(monkeypatch):
     monkeypatch.setattr("xbmcgui.Dialog", Cancel)
     monkeypatch.setattr("kofin.core.settings.localized", lambda sid: "x")
     assert context.choose_bitrate(["3", "10"]) is None
-    assert context.choose_bitrate(["junk", "-5"]) == "10"  # falls back to default
+    # No usable bitrate means nothing to offer; addon.xml hides the item, so
+    # inventing a default would transcode at a rate the user never picked.
+    assert context.choose_bitrate(["junk", "-5"]) is None
+    assert context.choose_bitrate([]) is None
 
 
 def test_choose_bitrate_source_and_fractional(monkeypatch):
