@@ -121,7 +121,14 @@ def refresh_boxsets(request: Request) -> None:
 
 
 def repair_libraries(request: Request) -> None:
-    """Per-library picker (or all) -> remove + re-add, after confirmation."""
+    """Per-library picker (or all) -> remove + re-add.
+
+    No confirmation: the picker is already the decision, and a repair is not
+    destructive — it rebuilds the same libraries from the server. The prompt
+    that used to sit here borrowed the *removal* copy ("Remove %s from the
+    Kodi library? The items are deleted from this device only."), which read
+    as though repairing would leave the library gone.
+    """
     whitelist = settings.get_list("librarySelection")
     if not whitelist:
         return
@@ -138,12 +145,6 @@ def repair_libraries(request: Request) -> None:
         selected = list(whitelist)
     else:
         selected = [whitelist[index - 1] for index in picked]
-
-    if not xbmcgui.Dialog().yesno(
-        settings.localized(30266),
-        settings.localized(30265) % ", ".join(_selection_names(selected)),
-    ):
-        return
 
     ipc.notify(ipc.REPAIR_LIBRARY, {"Id": ",".join(selected)})
 

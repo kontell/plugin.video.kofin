@@ -25,6 +25,7 @@ from kofin.core.log import Logger
 from kofin.sync import changefeed
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
 from kofin.sync.kodidb import Movies as KodiDb
+from kofin.sync.kodidb import Music as MusicKodiDb
 from kofin.sync.db import Database, get_sync, save_sync
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import schema
@@ -55,6 +56,24 @@ MUSIC_QUEUES = ("Audio", "MusicArtist", "AlbumArtist", "MusicAlbum")
 # unbounded drain-long transaction would block another writer past its busy
 # timeout.
 COMMIT_INTERVAL = 50
+# How often the library thread re-checks sync.json for an unfinished full
+# sync, and the ceiling that interval backs off to while resuming keeps
+# failing (see Library.resume_pending_libraries).
+RESUME_POLL_SECONDS = 60
+RESUME_POLL_MAX_SECONDS = 1800
+# Ids kept for the log when items fail to apply; the count is exact, this only
+# bounds how many are named.
+UNAPPLIED_SAMPLE = 5
+# Items a writer queue will hold before its downloader has to wait. The
+# download side has no other brake: workers run until their id queue is empty,
+# so a whole-library catch-up used to end up resident all at once — measured
+# against a real server, roughly 54 KB per movie, 31 KB per episode and 12 KB
+# per song once parsed, which is ~490 MB for the three libraries here and
+# fatal on an Android box. At this bound the same catch-up peaks around 50 MB.
+WRITE_QUEUE_MAX = 250
+# Floor between automatic recovery prunes. A prune that itself fails to apply
+# something would otherwise schedule the next one immediately, forever.
+AUTO_PRUNE_MIN_SECONDS = 3600
 # Deliberately nonexistent: scanning it is how music gets a library-change
 # event without a real walk (see Library._refresh_music). Must never be
 # created — if it existed the scan would descend into it.
@@ -108,8 +127,13 @@ class Library(threading.Thread):
         # Image-only updates (tier 1): downloaded last with minimal fields,
         # written through the artwork-only path instead of the full cascade.
         self.artwork_queue = queue.Queue()
-        self.added_output = self.__new_queues__()
-        self.updated_output = self.__new_queues__()
+        # Bounded: these two carry whole downloaded items, and the downloaders
+        # outrun the writers by a wide margin. Deliberately not applied to the
+        # other two — userdata_output is fed straight from this thread by
+        # userdata(), so a full queue would block the service tick itself, and
+        # removed_output holds ids.
+        self.added_output = self.__new_queues__(WRITE_QUEUE_MAX)
+        self.updated_output = self.__new_queues__(WRITE_QUEUE_MAX)
         self.userdata_output = self.__new_queues__()
         self.removed_output = self.__new_queues__()
         self.notify_output = queue.Queue()
@@ -137,6 +161,17 @@ class Library(threading.Thread):
         self.download_errors = threading.Event()
         self.retry_at = None
         self.retry_delay = 60
+        # Next time to re-check sync.json for a full sync that never finished
+        # (see resume_pending_libraries). None = check on the next tick.
+        self.resume_at = None
+        self.resume_delay = RESUME_POLL_SECONDS
+        # Items the pipeline could not apply this cycle (see flag_unapplied).
+        # Written from worker threads; ints and set.add are atomic enough here,
+        # and an undercount only delays a recovery prune by one cycle.
+        self.unapplied_count = 0
+        self.unapplied_sample = set()
+        # Earliest time another automatic recovery prune may be scheduled.
+        self.auto_prune_at = None
         # Kodi databases ("video"/"music") that new content landed in, and that
         # anything at all was written to. Kodi is not told about writes made
         # straight to its SQLite files, so widgets only refresh when we say so.
@@ -145,18 +180,27 @@ class Library(threading.Thread):
 
         threading.Thread.__init__(self, name="kofin-library")
 
-    def __new_queues__(self):
+    def __new_queues__(self, maxsize=0):
+        """Per-type writer queues.
+
+        ``maxsize`` is the backpressure bound for the sets that carry whole
+        downloaded items; 0 (the default) leaves a queue unbounded. Only the
+        two GetItemWorker feeds are bounded — see WRITE_QUEUE_MAX.
+        """
         return {
-            "Movie": queue.Queue(),
-            "BoxSet": queue.Queue(),
-            "MusicVideo": queue.Queue(),
-            "Series": queue.Queue(),
-            "Season": queue.Queue(),
-            "Episode": queue.Queue(),
-            "MusicAlbum": queue.Queue(),
-            "MusicArtist": queue.Queue(),
-            "AlbumArtist": queue.Queue(),
-            "Audio": queue.Queue(),
+            item_type: queue.Queue(maxsize=maxsize)
+            for item_type in (
+                "Movie",
+                "BoxSet",
+                "MusicVideo",
+                "Series",
+                "Season",
+                "Episode",
+                "MusicAlbum",
+                "MusicArtist",
+                "AlbumArtist",
+                "Audio",
+            )
         }
 
     # -- whitelist/status helpers (kofin-side plumbing) ------------------------
@@ -219,12 +263,17 @@ class Library(threading.Thread):
         self.commands.put((command, data or {}))
 
     def run(self):
+        """Start syncing.
 
+        There is no startup delay to honour any more. The setting existed to
+        let a slow network settle before the first sync, which is a problem
+        the sync should solve rather than the user: a sync that cannot reach
+        the server now leaves its libraries pending and
+        ``resume_pending_libraries`` picks them up on the first tick after the
+        server answers. Delaying every start by a fixed guess was paying that
+        cost on every boot to paper over the case where it went wrong.
+        """
         LOG.info("--->[ library ]")
-
-        delay = settings.get_int("startupDelay")
-        if delay and self.monitor.waitForAbort(delay):
-            return
 
         try:
             startup_ok = self.startup()
@@ -281,6 +330,13 @@ class Library(threading.Thread):
                 xbmc.executebuiltin("UpdateLibrary(video)")
                 xbmc.executebuiltin("ReloadSkin()")
 
+        # Music Database Migrations. Only when a music library is synced —
+        # opening MyMusic otherwise would put the schema gate in front of
+        # users who never asked kofin to touch their music.
+        if "music" in self.required_kinds():
+            with Database("music") as musicdb:
+                MusicKodiDb(musicdb.cursor).ensure_blank_artist()
+
     @stop
     def service(self):
         """If error is encountered, it will rerun this function.
@@ -301,6 +357,8 @@ class Library(threading.Thread):
         self.writer_threads["removed"] = [
             thread for thread in self.writer_threads["removed"] if not thread.is_done
         ]
+
+        self.resume_pending_libraries()
 
         if self.retry_at is not None and datetime.now() >= self.retry_at:
 
@@ -333,7 +391,10 @@ class Library(threading.Thread):
             state.set_sync_active(True)
 
             if self.total_updates > settings.get_int("syncProgressThreshold"):
-                queue_size = self.worker_queue_size()
+                # Everything still owed, not just what has been downloaded —
+                # the "Gathering: N" count under-reported for the same reason
+                # the percentage ran backwards.
+                queue_size = self.pending_items()
 
                 # Per-class counts (sync-plan §3): a large metadata backlog
                 # is visibly not blocking new content.
@@ -354,13 +415,7 @@ class Library(threading.Thread):
                     self.progress_updates.create("Kofin", localized(30401))
 
                 self.progress_updates.update(
-                    int(
-                        (
-                            float(self.total_updates - queue_size)
-                            / float(self.total_updates)
-                        )
-                        * 100
-                    ),
+                    self.progress_percent(),
                     message=message,
                 )
 
@@ -395,6 +450,12 @@ class Library(threading.Thread):
             else:
                 self.save_last_sync()
                 self.retry_delay = 60
+
+            # After the watermark decision, not instead of it: these items
+            # were downloaded fine and failed later, so re-running the feed
+            # window would not offer them again. The prune is what reaches
+            # them.
+            self.schedule_recovery_prune()
 
             self.total_updates = 0
             self.class_counts = {}
@@ -497,6 +558,53 @@ class Library(threading.Thread):
         self.pending_refresh = True
         state.set_sync_active(True)
 
+    def progress_percent(self):
+        """Share of this cycle's work already written, 0-100.
+
+        Clamped rather than trusted: work enqueued mid-drain raises both the
+        total and the pending count, and items in flight are counted in
+        neither, so the raw ratio can stray outside the range without
+        anything being wrong.
+        """
+        total = self.total_updates
+
+        if total <= 0:
+            return 0
+
+        done = total - self.pending_items()
+
+        return max(0, min(100, int(float(done) / float(total) * 100)))
+
+    def pending_items(self):
+        """Items enqueued this cycle that are not written yet.
+
+        The progress denominator is ``total_updates``, which counts work at
+        the moment it is *enqueued* — so the numerator has to count the same
+        population. ``worker_queue_size`` does not: it sees only the output
+        queues, which are empty at enqueue time because everything is still
+        waiting to be downloaded. Progress therefore opened at 100% and fell
+        as downloads landed, which is the percentage counting down.
+
+        The download queues hold chunks rather than ids (``removed_queue`` is
+        the exception and holds ids), so their contents are measured in items.
+        Anything in flight between a download and its writer is in neither
+        queue and simply reads as done a moment early; that errs upward and
+        never inverts.
+        """
+        total = self.removed_queue.qsize()
+
+        for work_queue in (
+            self.added_queue,
+            self.updated_queue,
+            self.userdata_queue,
+            self.artwork_queue,
+        ):
+            # list() snapshots the deque; the queues are only appended to by
+            # other threads, so a racing put is simply counted next tick.
+            total += sum(len(chunk) for chunk in list(work_queue.queue))
+
+        return total + self.worker_queue_size()
+
     def worker_queue_size(self):
         """Get how many items are queued up for worker threads."""
         total = 0
@@ -579,6 +687,7 @@ class Library(threading.Thread):
                     self.userdata_changed_ids,
                     artwork_ids=self.artwork_only_ids,
                     fields=basic_info() if source == "artwork" else None,
+                    unapplied=self.flag_unapplied,
                 )
                 new_thread.source = source
                 new_thread.start()
@@ -627,6 +736,7 @@ class Library(threading.Thread):
                     self.api_factory(),
                     notify_enabled=source == "added",
                     artwork_fallback=self.requeue_full,
+                    unapplied=self.flag_unapplied,
                 )
                 new_thread.db_file = db_file
                 new_thread.source = source
@@ -1034,6 +1144,124 @@ class Library(threading.Thread):
 
         return True
 
+    def flag_unapplied(self, item_id, reason):
+        """Record an item the pipeline could not apply. Called from workers.
+
+        Only the download side held the watermark back, so anything that
+        failed *after* a successful download — a writer raising, an item the
+        server returned under a type nothing consumes — was logged and
+        forgotten while the watermark advanced past it. The change feed is
+        queried from that watermark, so such an item can never be offered
+        again: it is lost until a human runs a library update. That is how a
+        film added on the 22nd was still missing on the 25th with the
+        watermark already three days past it.
+        """
+        self.unapplied_count += 1
+
+        if len(self.unapplied_sample) < UNAPPLIED_SAMPLE:
+            self.unapplied_sample.add(item_id)
+
+        LOG.warning("could not apply %s (%s)", item_id, reason)
+
+    def schedule_recovery_prune(self):
+        """Recover unapplied items through the update-mode prune.
+
+        Deliberately *not* by holding the watermark: one permanently bad item
+        would then pin it forever, re-fetching the whole window on every
+        retry and never converging. The prune diffs ids and Etags without
+        consulting the watermark, so it finds anything missing however it went
+        missing — it is what recovered the film above when run by hand.
+
+        Same shape as the retention-overrun heal above: warn, tell the user,
+        enqueue an update pass.
+        """
+        count = self.unapplied_count
+        sample = sorted(self.unapplied_sample)
+        self.unapplied_count = 0
+        self.unapplied_sample = set()
+
+        if not count:
+            return
+
+        now = datetime.now()
+
+        if self.auto_prune_at is not None and now < self.auto_prune_at:
+            LOG.warning(
+                "%s item(s) did not apply (%s); a recovery update is already "
+                "scheduled, not queueing another",
+                count,
+                ", ".join(sample),
+            )
+            return
+
+        self.auto_prune_at = now + timedelta(seconds=AUTO_PRUNE_MIN_SECONDS)
+        LOG.warning(
+            "%s item(s) did not apply (%s); scheduling a library update to recover",
+            count,
+            ", ".join(sample),
+        )
+        notification(localized(30419))
+        self.enqueue_command("UpdateLibrary")
+
+    def resume_pending_libraries(self):
+        """Re-enter a full sync that sync.json still lists as unfinished.
+
+        ``startup`` resumes the pending queue exactly once, when the library
+        thread starts. If the server was unreachable at that moment — or went
+        away mid-sync — the entry stays in the queue and nothing looked at it
+        again until Kodi restarted. That is the reported behaviour: an
+        interrupted sync comes back after a restart but not after a
+        reconnection.
+
+        Polling sync.json is what makes this reconnection-proof. There is no
+        offline->online edge to trigger from: nothing in the addon ever calls
+        ``state.set_online(False)``, so the flag latches true on the first
+        connect and a later outage is invisible here. A periodic check needs
+        no such signal — it simply succeeds on the first tick after the server
+        answers again.
+        """
+        if self.resume_at is not None and datetime.now() < self.resume_at:
+            return
+
+        # A sync already under way owns the queue; FullSync is a Borg and
+        # would raise "Sync is already running" at us.
+        if state.is_sync_active() or not state.is_online():
+            self._schedule_resume()
+            return
+
+        try:
+            pending = get_sync()["Libraries"]
+        except Exception as error:
+            LOG.exception(error)
+            self._schedule_resume(failed=True)
+            return
+
+        if not pending:
+            self._schedule_resume()
+            return
+
+        LOG.info("--[ resume ] %s library(s) still pending", len(pending))
+
+        # Same entry point startup() uses. It swallows and reports its own
+        # failures, so a still-unreachable server simply leaves the queue
+        # alone and we back off before looking again — resuming on a fixed
+        # interval would re-toast "Resuming interrupted library sync" every
+        # minute for as long as the server stayed down.
+        resumed = self.add_library(None)
+        self._schedule_resume(failed=not resumed)
+
+        if resumed:
+            self.update_status_strings()
+
+    def _schedule_resume(self, failed=False):
+        """Arm the next pending-queue check; back off while resuming fails."""
+        if failed:
+            self.resume_delay = min(self.resume_delay * 2, RESUME_POLL_MAX_SECONDS)
+        else:
+            self.resume_delay = RESUME_POLL_SECONDS
+
+        self.resume_at = datetime.now() + timedelta(seconds=self.resume_delay)
+
     def schedule_retry(self):
         """Retry the incremental sync later, with exponential backoff.
 
@@ -1270,6 +1498,7 @@ class UpdateWorker(threading.Thread):
         server=None,
         notify_enabled=False,
         artwork_fallback=None,
+        unapplied=None,
         *args,
     ):
         self.queue = queue
@@ -1285,7 +1514,14 @@ class UpdateWorker(threading.Thread):
         # Callable(item_id) that re-queues an item for the full update path
         # when the artwork-only write cannot handle it (phase 5).
         self.artwork_fallback = artwork_fallback
+        # Callable(item_id, reason) for items this worker could not write, so
+        # the library can schedule a recovery prune (see flag_unapplied).
+        self.unapplied = unapplied
         threading.Thread.__init__(self)
+
+    def _report_unapplied(self, item, error):
+        if self.unapplied is not None:
+            self.unapplied(item.get("Id"), "%s: %s" % (item.get("Type"), error))
 
     def _artwork_only(self, item, writers):
         """Apply an image-only item through the artwork-only path; fall back
@@ -1365,14 +1601,16 @@ class UpdateWorker(threading.Thread):
                             (item["Type"], api.API(item).get_naming())
                         )
                 except LibraryException as error:
-                    # TODO: Fixme; We're catching all LibraryException here,
-                    # but silently ignoring any that isn't the exit condition.
-                    # Investigate what would be appropriate behavior here.
+                    # Still swallowed so one bad item cannot stop the drain,
+                    # but no longer forgotten: it never landed, and the
+                    # watermark is about to move past it.
                     if isinstance(error, LibraryExitException):
                         break
                     LOG.warning("Ignoring exception %s", error)
+                    self._report_unapplied(item, error)
                 except Exception as error:
                     LOG.exception(error)
+                    self._report_unapplied(item, error)
 
                 self.queue.task_done()
                 processed += 1

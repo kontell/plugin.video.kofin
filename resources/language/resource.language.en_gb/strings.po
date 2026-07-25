@@ -810,11 +810,11 @@ msgid "2160p"
 msgstr ""
 
 msgctxt "#30326"
-msgid "Startup delay (seconds)"
+msgid "Notify on server connection changes"
 msgstr ""
 
 msgctxt "#30327"
-msgid "Wait this long after Kodi starts before the first sync."
+msgid "Show a notification when the server connects, disconnects or restarts."
 msgstr ""
 
 # 30350-30369 — library node labels
@@ -927,6 +927,26 @@ msgstr ""
 
 msgctxt "#30413"
 msgid "Sync paused: unknown Kodi database v%s"
+msgstr ""
+
+msgctxt "#30415"
+msgid "Connected to %s"
+msgstr ""
+
+msgctxt "#30416"
+msgid "Lost connection to the server"
+msgstr ""
+
+msgctxt "#30417"
+msgid "Server is restarting"
+msgstr ""
+
+msgctxt "#30418"
+msgid "Server is shutting down"
+msgstr ""
+
+msgctxt "#30419"
+msgid "Some items did not sync; updating libraries to recover"
 msgstr ""
 
 msgctxt "#30414"

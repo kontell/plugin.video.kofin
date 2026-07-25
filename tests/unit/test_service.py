@@ -206,3 +206,200 @@ def test_shutdown_stops_syncplay():
     assert manager.stopped is True
     assert service.syncplay is None
     assert service.player.syncplay is None
+
+
+# --- connection notifications ------------------------------------------------
+
+
+class RecordingDialog:
+    raised = []
+
+    def notification(self, heading, message, icon=None, time=None, sound=None):
+        RecordingDialog.raised.append((heading, message))
+
+
+@pytest.fixture
+def toasts(monkeypatch):
+    import xbmcgui
+
+    RecordingDialog.raised = []
+    monkeypatch.setattr(xbmcgui, "Dialog", RecordingDialog)
+    monkeypatch.setattr(
+        "kofin.core.settings.localized",
+        lambda i: {
+            30415: "Connected to %s",
+            30416: "Lost connection",
+            30417: "Restarting",
+            30418: "Shutting down",
+        }[i],
+    )
+    return RecordingDialog.raised
+
+
+def test_disconnect_is_announced(toasts):
+    FakeAddon.store["notifyConnection"] = "true"
+    service = Service()
+
+    service._on_ws_disconnected()
+
+    assert toasts == [("Kofin", "Lost connection")]
+
+
+def test_connect_names_the_server(toasts, monkeypatch):
+    """_on_ws_connected also waits on the monitor and registers capabilities;
+    the toast is the part under test here."""
+    FakeAddon.store["notifyConnection"] = "true"
+    FakeAddon.store["serverName"] = "minipie"
+    service = Service()
+
+    monkeypatch.setattr(service, "_register_capabilities", lambda: None)
+    monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
+
+    service._on_ws_connected()
+
+    assert toasts == [("Kofin", "Connected to minipie")]
+
+
+class _NoWaitMonitor:
+    def waitForAbort(self, seconds=0):
+        return False
+
+
+def test_uncached_string_does_not_break_the_connect_callback(monkeypatch):
+    """Kodi caches addon strings for the process lifetime, so an id added in
+    this release renders without its placeholder until the next full restart.
+    Formatting it then raised TypeError straight out of _on_ws_connected —
+    taking capabilities registration and the SyncPlay rejoin down with a
+    *notification*. Seen live, not theorised."""
+    import xbmcgui
+
+    RecordingDialog.raised = []
+    monkeypatch.setattr(xbmcgui, "Dialog", RecordingDialog)
+    monkeypatch.setattr("kofin.core.settings.localized", lambda i: "")
+
+    FakeAddon.store["notifyConnection"] = "true"
+    FakeAddon.store["serverName"] = "minipie"
+    service = Service()
+
+    registered = []
+    monkeypatch.setattr(
+        service, "_register_capabilities", lambda: registered.append(True)
+    )
+    monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
+
+    service._on_ws_connected()
+
+    assert registered == [True]
+    assert RecordingDialog.raised == [("Kofin", "")]
+
+
+def test_a_broken_dialog_does_not_break_the_connect_callback(monkeypatch):
+    def explode():
+        raise RuntimeError("no gui")
+
+    monkeypatch.setattr("xbmcgui.Dialog", explode)
+    monkeypatch.setattr("kofin.core.settings.localized", lambda i: "whatever")
+
+    FakeAddon.store["notifyConnection"] = "true"
+    service = Service()
+    registered = []
+    monkeypatch.setattr(
+        service, "_register_capabilities", lambda: registered.append(True)
+    )
+    monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
+
+    service._on_ws_connected()
+
+    assert registered == [True]
+
+
+def test_server_restart_is_announced(toasts):
+    FakeAddon.store["notifyConnection"] = "true"
+    service = Service()
+
+    service._on_ws_event("ServerRestarting", {})
+    service._on_ws_event("ServerShuttingDown", {})
+
+    assert [message for _heading, message in toasts] == [
+        "Restarting",
+        "Shutting down",
+    ]
+
+
+def test_notifications_can_be_switched_off(toasts):
+    FakeAddon.store["notifyConnection"] = "false"
+    service = Service()
+
+    service._on_ws_disconnected()
+    service._on_ws_event("ServerRestarting", {})
+
+    assert toasts == []
+
+
+def test_lifecycle_message_does_not_reach_the_library(toasts):
+    """A restart notice carries nothing the sync wants; it must not be
+    mistaken for a library event."""
+    FakeAddon.store["notifyConnection"] = "false"
+    service = Service()
+
+    class Boom:
+        startup_done = True
+
+        def added(self, ids):
+            raise AssertionError("lifecycle message routed to the library")
+
+        updated = removed = userdata = added
+
+    service.library = Boom()
+    service._on_ws_event("ServerRestarting", {})
+
+
+# --- reconnect catch-up ------------------------------------------------------
+
+
+class CatchUpLibrary:
+    def __init__(self, startup_done=True):
+        self.startup_done = startup_done
+        self.commands = []
+
+    def enqueue_command(self, name, data=None):
+        self.commands.append(name)
+
+
+def _connected(service, monkeypatch):
+    monkeypatch.setattr(service, "_register_capabilities", lambda: None)
+    monkeypatch.setattr(service, "_connection_toast", lambda *a: None)
+    monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
+    service._on_ws_connected()
+
+
+def test_reconnect_catches_up_on_missed_changes(monkeypatch):
+    """LibraryChanged is fire-and-forget: anything the server sends while the
+    socket is down is gone, and the socket reconnects silently. Seen on the
+    Piers box — a re-encoded film was announced at 14:38:45 while that client
+    was disconnected, the socket returned at 14:39:51, and the film stayed
+    missing while a client with a live socket applied it in seconds."""
+    service = Service()
+    service.library = CatchUpLibrary()
+
+    _connected(service, monkeypatch)
+
+    assert service.library.commands == ["FastSync"]
+
+
+def test_first_connect_does_not_double_up_with_startup(monkeypatch):
+    """startup() runs the same catch-up a moment later; the library reports
+    itself unfinished until then."""
+    service = Service()
+    service.library = CatchUpLibrary(startup_done=False)
+
+    _connected(service, monkeypatch)
+
+    assert service.library.commands == []
+
+
+def test_reconnect_without_a_library_is_harmless(monkeypatch):
+    service = Service()
+    service.library = None
+
+    _connected(service, monkeypatch)  # must not raise

@@ -2,6 +2,7 @@
 watermark handling and the ws-event wiring (plan §5 step 3)."""
 
 import queue
+import time
 
 import pytest
 
@@ -792,3 +793,360 @@ def test_dispatch_tolerates_the_unbuilt_writer_family():
         library_mod.removal_writer_for("Movie", movies, tvshows, None, musicvideos)
         is not None
     )
+
+
+# --- progress accounting -----------------------------------------------------
+
+
+def test_progress_rises_as_work_drains():
+    """The percentage used to count down. total_updates counts work when it is
+    *enqueued*, but the numerator only looked at the output queues, which are
+    empty at that moment because everything is still waiting to be downloaded
+    — so progress opened at 100% and fell as downloads landed."""
+    lib, _api = make_library()
+
+    lib.added(["m%d" % n for n in range(120)])
+    assert lib.total_updates == 120
+    # Nothing written yet: freshly queued work must read as 0%, not 100%.
+    assert lib.progress_percent() == 0
+    assert lib.pending_items() == 120
+
+    # Downloads land: items move from the download queue to a writer queue.
+    # That is a sideways move, not progress, and must not move the bar.
+    chunk = lib.added_queue.get_nowait()
+    for item_id in chunk:
+        lib.added_output["Movie"].put({"Id": item_id, "Type": "Movie"})
+    assert lib.pending_items() == 120
+    assert lib.progress_percent() == 0
+
+    # Writers drain half of that chunk: now it is real progress.
+    for _ in range(len(chunk) // 2):
+        lib.added_output["Movie"].get_nowait()
+    assert lib.progress_percent() > 0
+
+
+def test_progress_never_leaves_the_range():
+    """Work enqueued mid-drain lifts both sides of the ratio, and items in
+    flight are counted in neither, so the raw value can stray."""
+    lib, _api = make_library()
+
+    assert lib.progress_percent() == 0  # nothing enqueued: no division by zero
+
+    lib.added(["a1", "a2"])
+    lib.total_updates = 1  # denominator smaller than what is pending
+    assert 0 <= lib.progress_percent() <= 100
+
+
+def test_pending_counts_items_not_chunks():
+    """The download queues hold chunks; total_updates counts ids. Comparing
+    the two directly would make one chunk of 50 look like a single item."""
+    lib, _api = make_library()
+
+    lib.added(["m%d" % n for n in range(library_mod.DOWNLOAD_CHUNK + 10)])
+
+    assert lib.added_queue.qsize() == 2  # two chunks
+    assert lib.pending_items() == library_mod.DOWNLOAD_CHUNK + 10
+
+
+def test_removed_queue_holds_ids_not_chunks():
+    lib, _api = make_library()
+
+    lib.removed(["r1", "r2", "r3"])
+
+    assert lib.pending_items() == 3
+
+
+# --- resuming an unfinished full sync ----------------------------------------
+
+
+def _pending(*library_ids):
+    sync = sync_db.get_sync()
+    sync["Libraries"] = list(library_ids)
+    sync_db.save_sync(sync)
+
+
+def _arm_resume(lib):
+    """Make the next tick due (the interval is otherwise a minute away)."""
+    lib.resume_at = None
+
+
+def test_resume_reenters_a_pending_full_sync(monkeypatch):
+    """startup() resumes the queue once, at thread start. If the server was
+    unreachable then — or went away mid-sync — the entry sat in sync.json
+    until Kodi restarted: resumed after a restart, but not after a
+    reconnection."""
+    lib, _api = make_library()
+    _pending("lib1")
+    resumed = []
+    monkeypatch.setattr(
+        lib, "add_library", lambda lib_id: resumed.append(lib_id) or True
+    )
+    monkeypatch.setattr(lib, "update_status_strings", lambda: None)
+    _arm_resume(lib)
+
+    lib.resume_pending_libraries()
+
+    # None is the whole-queue resume, the same entry point startup() takes.
+    assert resumed == [None]
+
+
+def test_resume_does_nothing_with_an_empty_queue(monkeypatch):
+    lib, _api = make_library()
+    _pending()
+    called = []
+    monkeypatch.setattr(
+        lib, "add_library", lambda lib_id: called.append(lib_id) or True
+    )
+    _arm_resume(lib)
+
+    lib.resume_pending_libraries()
+
+    assert called == []
+
+
+def test_resume_yields_to_a_running_sync(monkeypatch):
+    """FullSync is a Borg: re-entering while one runs raises at us."""
+    lib, _api = make_library()
+    _pending("lib1")
+    called = []
+    monkeypatch.setattr(
+        lib, "add_library", lambda lib_id: called.append(lib_id) or True
+    )
+    FakeWindow.store["kofin.sync.active"] = "true"
+    _arm_resume(lib)
+
+    lib.resume_pending_libraries()
+
+    assert called == []
+
+
+def test_resume_waits_while_offline(monkeypatch):
+    lib, _api = make_library()
+    _pending("lib1")
+    called = []
+    monkeypatch.setattr(
+        lib, "add_library", lambda lib_id: called.append(lib_id) or True
+    )
+    FakeWindow.store.pop("kofin.online", None)
+    _arm_resume(lib)
+
+    lib.resume_pending_libraries()
+
+    assert called == []
+
+
+def test_resume_is_rate_limited(monkeypatch):
+    """Without this the 'Resuming interrupted library sync' toast would fire
+    on every tick for as long as the queue stayed pending."""
+    lib, _api = make_library()
+    _pending("lib1")
+    calls = []
+    monkeypatch.setattr(lib, "add_library", lambda lib_id: calls.append(lib_id) or True)
+    monkeypatch.setattr(lib, "update_status_strings", lambda: None)
+    _arm_resume(lib)
+
+    lib.resume_pending_libraries()
+    lib.resume_pending_libraries()  # immediately again: still inside the window
+    lib.resume_pending_libraries()
+
+    assert len(calls) == 1
+
+
+def test_resume_backs_off_while_it_keeps_failing(monkeypatch):
+    """A server that stays down must not be retried on the base interval."""
+    lib, _api = make_library()
+    _pending("lib1")
+    monkeypatch.setattr(lib, "add_library", lambda lib_id: False)
+
+    delays = []
+    for _ in range(4):
+        _arm_resume(lib)
+        lib.resume_pending_libraries()
+        delays.append(lib.resume_delay)
+
+    assert delays == [120, 240, 480, 960]
+    assert lib.resume_delay <= library_mod.RESUME_POLL_MAX_SECONDS
+
+
+def test_resume_delay_resets_after_a_success(monkeypatch):
+    lib, _api = make_library()
+    _pending("lib1")
+    monkeypatch.setattr(lib, "add_library", lambda lib_id: False)
+    monkeypatch.setattr(lib, "update_status_strings", lambda: None)
+
+    _arm_resume(lib)
+    lib.resume_pending_libraries()
+    assert lib.resume_delay > library_mod.RESUME_POLL_SECONDS
+
+    monkeypatch.setattr(lib, "add_library", lambda lib_id: True)
+    _arm_resume(lib)
+    lib.resume_pending_libraries()
+
+    assert lib.resume_delay == library_mod.RESUME_POLL_SECONDS
+
+
+# --- recovery from items that never applied ----------------------------------
+
+
+def test_writer_failure_schedules_a_recovery_prune():
+    """Only the download side held the watermark back, so anything that failed
+    *after* a good download was logged and forgotten while the watermark moved
+    past it — and the change feed, queried from that watermark, can never offer
+    it again. That is a film added on the 22nd still missing on the 25th."""
+    lib, _api = make_library()
+
+    lib.flag_unapplied("m1", "Movie: boom")
+    lib.flag_unapplied("m2", "Movie: boom")
+    lib.schedule_recovery_prune()
+
+    assert [c for c, _d in list(lib.commands.queue)] == ["UpdateLibrary"]
+
+
+def test_no_failures_schedules_nothing():
+    lib, _api = make_library()
+
+    lib.schedule_recovery_prune()
+
+    assert list(lib.commands.queue) == []
+
+
+def test_the_watermark_is_not_held_back():
+    """Deliberate: holding it would let one permanently bad item pin the
+    watermark forever, re-fetching the whole window on every retry."""
+    lib, _api = make_library()
+
+    lib.flag_unapplied("m1", "Movie: boom")
+
+    assert not lib.download_errors.is_set()
+
+
+def test_recovery_prune_is_rate_limited():
+    """A prune that itself fails to apply something would otherwise schedule
+    the next one immediately, forever."""
+    lib, _api = make_library()
+
+    lib.flag_unapplied("m1", "Movie: boom")
+    lib.schedule_recovery_prune()
+    lib.flag_unapplied("m2", "Movie: boom")
+    lib.schedule_recovery_prune()
+
+    assert [c for c, _d in list(lib.commands.queue)] == ["UpdateLibrary"]
+
+
+def test_counters_reset_between_cycles():
+    lib, _api = make_library()
+
+    lib.flag_unapplied("m1", "Movie: boom")
+    lib.schedule_recovery_prune()
+
+    assert lib.unapplied_count == 0
+    assert lib.unapplied_sample == set()
+
+
+def test_unconsumed_type_is_reported_not_dropped():
+    """The item was asked for by id, downloaded, then discarded because no
+    queue wanted its type — previously with no trace at all."""
+    flagged = []
+    work = queue.Queue()
+    work.put(["x1"])
+
+    class Api:
+        def items(self, params):
+            return {"Items": [{"Id": "x1", "Type": "Photo", "Name": "n"}]}
+
+    worker = GetItemWorker(
+        Api(), work, {"Movie": queue.Queue()}, unapplied=lambda i, r: flagged.append(i)
+    )
+    worker.start()
+    worker.join(timeout=5)
+
+    assert flagged == ["x1"]
+
+
+# --- writer-queue backpressure -----------------------------------------------
+
+
+class _SlowWriterApi:
+    """Returns a chunk of items of one type, so the test can fill a queue."""
+
+    def __init__(self, item_type, count):
+        self.item_type = item_type
+        self.count = count
+        self.calls = 0
+
+    def items(self, params):
+        self.calls += 1
+        return {
+            "Items": [
+                {"Id": "i%d-%d" % (self.calls, n), "Type": self.item_type, "Name": "n"}
+                for n in range(self.count)
+            ]
+        }
+
+
+def test_only_the_item_carrying_queues_are_bounded():
+    """userdata_output is fed straight from the library thread by userdata(),
+    so bounding it would block the service tick itself; removed_output holds
+    ids, not items."""
+    lib, _api = make_library()
+
+    assert lib.added_output["Movie"].maxsize == library_mod.WRITE_QUEUE_MAX
+    assert lib.updated_output["Movie"].maxsize == library_mod.WRITE_QUEUE_MAX
+    assert lib.userdata_output["Movie"].maxsize == 0
+    assert lib.removed_output["Movie"].maxsize == 0
+
+
+def test_downloader_waits_instead_of_growing_the_queue():
+    """Against the library's own queues, not a hand-made bounded one — the
+    point is that the real write queues have a ceiling. Nothing else throttles
+    the download side: workers run until their id queue is empty, so a
+    whole-library catch-up used to end up resident all at once (~490 MB across
+    the three libraries measured here)."""
+    lib, _api = make_library()
+    bound = library_mod.WRITE_QUEUE_MAX
+    work = queue.Queue()
+    work.put(["a"])  # one chunk yielding more items than the bound
+
+    worker = GetItemWorker(_SlowWriterApi("Movie", bound + 50), work, lib.added_output)
+    worker.daemon = True
+    worker.start()
+    try:
+        deadline = time.time() + 10
+        while lib.added_output["Movie"].qsize() < bound and time.time() < deadline:
+            time.sleep(0.01)
+
+        # Parked at the ceiling rather than pulling the whole chunk into RAM.
+        time.sleep(0.3)
+        assert lib.added_output["Movie"].qsize() == bound
+        assert worker.is_alive()
+
+        # Draining a slot lets exactly one more through.
+        lib.added_output["Movie"].get_nowait()
+        deadline = time.time() + 5
+        while lib.added_output["Movie"].qsize() < bound and time.time() < deadline:
+            time.sleep(0.01)
+        assert lib.added_output["Movie"].qsize() == bound
+    finally:
+        FakeWindow.store["kofin.sync.stop"] = "true"
+        worker.join(timeout=10)
+
+
+def test_a_blocked_downloader_still_stops():
+    """A bare blocking put is how a slow writer becomes a Kodi that will not
+    quit — the same trap the page pool fell into."""
+    out = {"Movie": queue.Queue(maxsize=2)}
+    work = queue.Queue()
+    work.put(["a"])
+
+    worker = GetItemWorker(_SlowWriterApi("Movie", 50), work, out)
+    worker.daemon = True
+    worker.start()
+
+    deadline = time.time() + 5
+    while out["Movie"].qsize() < 2 and time.time() < deadline:
+        time.sleep(0.01)
+
+    FakeWindow.store["kofin.sync.stop"] = "true"
+    worker.join(timeout=10)
+
+    assert not worker.is_alive(), "downloader hung on a full queue during shutdown"

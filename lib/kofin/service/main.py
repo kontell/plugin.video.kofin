@@ -39,6 +39,14 @@ LIBRARY_COMMANDS = frozenset(
 # edit within this window; a real change always lands well after it.
 SETTINGS_READY_DELAY = 5.0
 
+# Server lifecycle websocket messages -> the string announcing them. These are
+# the server telling us it is about to go away; the websocket drop that
+# follows is then explained rather than mysterious.
+SERVER_LIFECYCLE_MESSAGES = {
+    "ServerRestarting": 30417,
+    "ServerShuttingDown": 30418,
+}
+
 CAPABILITIES: Dict[str, Any] = {
     "PlayableMediaTypes": "Audio,Video",
     "SupportsMediaControl": True,
@@ -256,25 +264,108 @@ class Service(xbmc.Monitor):
             header,
             on_event=self._on_ws_event,
             on_connected=self._on_ws_connected,
+            on_disconnected=self._on_ws_disconnected,
         )
         self.ws.start()
 
-    def _on_ws_connected(self) -> None:
-        # The server registers the socket's session asynchronously; give it a
-        # beat before attaching capabilities to that session.
-        xbmc.Monitor().waitForAbort(2)
+    def _connection_toast(self, string_id: int, *args: Any) -> None:
+        """Tell the user the server came, went or is restarting.
+
+        The websocket is the honest source for this: it is the connection the
+        user perceives, and it reports its own open and close. Opt-out lives
+        in the advanced sync settings for anyone who does not want the noise.
+
+        Nothing in here may raise. It is called first thing from
+        ``_on_ws_connected``, which goes on to register capabilities and
+        rejoin SyncPlay — losing those because a *notification* failed would
+        be a poor trade. That is not hypothetical: Kodi caches addon strings
+        for the process lifetime, so a newly added id renders without its
+        placeholder until the next full restart, and formatting it then
+        raised TypeError straight out of the callback.
+        """
+        if not settings.get_bool("notifyConnection"):
+            return
+
+        try:
+            message = settings.localized(string_id)
+
+            if args:
+                try:
+                    message = message % args
+                except TypeError:
+                    # No placeholder to fill (uncached id, or a language pack
+                    # without this string): show the bare text.
+                    pass
+
+            import xbmcgui
+
+            xbmcgui.Dialog().notification(
+                "Kofin",
+                message,
+                xbmcgui.NOTIFICATION_INFO,
+                4000,
+                False,
+            )
+        except Exception as error:  # pragma: no cover - defensive
+            LOG.warning("connection notification failed: %s", error)
+
+    def _register_capabilities(self) -> None:
         try:
             self.api.post_capabilities(CAPABILITIES)
             LOG.info("capabilities registered")
         except JellyfinError as error:
             LOG.warning("capabilities registration failed: %s", error)
+
+    def _on_ws_disconnected(self) -> None:
+        self._connection_toast(30416)
+
+    def _on_ws_connected(self) -> None:
+        self._connection_toast(30415, self.credentials.server_name or "")
+
+        # The server registers the socket's session asynchronously; give it a
+        # beat before attaching capabilities to that session.
+        xbmc.Monitor().waitForAbort(2)
+        self._register_capabilities()
+        self._catch_up_after_reconnect()
         if self.syncplay is not None:
             # Reconnect contract (plan §2): after any WS drop assume kicked;
             # the manager probes /SyncPlay/List and rejoins on its own thread.
             self.syncplay.on_notification("WebSocketConnected", {})
 
+    def _catch_up_after_reconnect(self) -> None:
+        """Replay what the library missed while the socket was down.
+
+        LibraryChanged is fire-and-forget: a message sent while the websocket
+        is disconnected is gone, and the socket reconnects itself silently, so
+        nothing ever noticed the hole. Observed on the Piers box — the server
+        emitted LibraryChanged for a re-encoded film at 14:38:45, that client's
+        socket was down and came back at 14:39:51, and the film stayed missing
+        indefinitely while a second client with a live socket applied it in
+        seconds.
+
+        The incremental catch-up already covers exactly this: it asks the
+        change feed for everything since the sync watermark, which is only
+        advanced once a drain completes. Skipped on the first connect of a
+        session, where startup() runs the same pass a moment later.
+        """
+        library = self.library
+
+        if library is None or not library.startup_done:
+            return
+
+        LOG.info("websocket reconnected; catching up on missed changes")
+        library.enqueue_command("FastSync")
+
     def _on_ws_event(self, message_type: str, data: Dict[str, Any]) -> None:
         if self.remote.handle(message_type, data):
+            return
+
+        # Announced by the server before it goes, so the drop that follows is
+        # explained rather than mysterious. Handled ahead of the library
+        # events: neither carries a payload the sync cares about.
+        if message_type in SERVER_LIFECYCLE_MESSAGES:
+            LOG.info("[ %s ]", message_type)
+            self._connection_toast(SERVER_LIFECYCLE_MESSAGES[message_type])
             return
 
         library = self.library

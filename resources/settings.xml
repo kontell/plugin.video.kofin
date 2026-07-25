@@ -266,15 +266,10 @@
           </constraints>
           <control type="slider" format="integer"/>
         </setting>
-        <setting id="startupDelay" type="integer" label="30326" help="30327">
+        <setting id="notifyConnection" type="boolean" label="30326" help="30327">
           <level>1</level>
-          <default>0</default>
-          <constraints>
-            <minimum>0</minimum>
-            <step>5</step>
-            <maximum>120</maximum>
-          </constraints>
-          <control type="slider" format="integer"/>
+          <default>true</default>
+          <control type="toggle"/>
         </setting>
       </group>
       <group id="2">
