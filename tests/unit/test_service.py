@@ -352,3 +352,54 @@ def test_lifecycle_message_does_not_reach_the_library(toasts):
 
     service.library = Boom()
     service._on_ws_event("ServerRestarting", {})
+
+
+# --- reconnect catch-up ------------------------------------------------------
+
+
+class CatchUpLibrary:
+    def __init__(self, startup_done=True):
+        self.startup_done = startup_done
+        self.commands = []
+
+    def enqueue_command(self, name, data=None):
+        self.commands.append(name)
+
+
+def _connected(service, monkeypatch):
+    monkeypatch.setattr(service, "_register_capabilities", lambda: None)
+    monkeypatch.setattr(service, "_connection_toast", lambda *a: None)
+    monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
+    service._on_ws_connected()
+
+
+def test_reconnect_catches_up_on_missed_changes(monkeypatch):
+    """LibraryChanged is fire-and-forget: anything the server sends while the
+    socket is down is gone, and the socket reconnects silently. Seen on the
+    Piers box — a re-encoded film was announced at 14:38:45 while that client
+    was disconnected, the socket returned at 14:39:51, and the film stayed
+    missing while a client with a live socket applied it in seconds."""
+    service = Service()
+    service.library = CatchUpLibrary()
+
+    _connected(service, monkeypatch)
+
+    assert service.library.commands == ["FastSync"]
+
+
+def test_first_connect_does_not_double_up_with_startup(monkeypatch):
+    """startup() runs the same catch-up a moment later; the library reports
+    itself unfinished until then."""
+    service = Service()
+    service.library = CatchUpLibrary(startup_done=False)
+
+    _connected(service, monkeypatch)
+
+    assert service.library.commands == []
+
+
+def test_reconnect_without_a_library_is_harmless(monkeypatch):
+    service = Service()
+    service.library = None
+
+    _connected(service, monkeypatch)  # must not raise

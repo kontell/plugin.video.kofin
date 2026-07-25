@@ -326,10 +326,35 @@ class Service(xbmc.Monitor):
         # beat before attaching capabilities to that session.
         xbmc.Monitor().waitForAbort(2)
         self._register_capabilities()
+        self._catch_up_after_reconnect()
         if self.syncplay is not None:
             # Reconnect contract (plan §2): after any WS drop assume kicked;
             # the manager probes /SyncPlay/List and rejoins on its own thread.
             self.syncplay.on_notification("WebSocketConnected", {})
+
+    def _catch_up_after_reconnect(self) -> None:
+        """Replay what the library missed while the socket was down.
+
+        LibraryChanged is fire-and-forget: a message sent while the websocket
+        is disconnected is gone, and the socket reconnects itself silently, so
+        nothing ever noticed the hole. Observed on the Piers box — the server
+        emitted LibraryChanged for a re-encoded film at 14:38:45, that client's
+        socket was down and came back at 14:39:51, and the film stayed missing
+        indefinitely while a second client with a live socket applied it in
+        seconds.
+
+        The incremental catch-up already covers exactly this: it asks the
+        change feed for everything since the sync watermark, which is only
+        advanced once a drain completes. Skipped on the first connect of a
+        session, where startup() runs the same pass a moment later.
+        """
+        library = self.library
+
+        if library is None or not library.startup_done:
+            return
+
+        LOG.info("websocket reconnected; catching up on missed changes")
+        library.enqueue_command("FastSync")
 
     def _on_ws_event(self, message_type: str, data: Dict[str, Any]) -> None:
         if self.remote.handle(message_type, data):
