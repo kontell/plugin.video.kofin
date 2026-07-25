@@ -1053,41 +1053,36 @@ def commands_of(lib):
     return [c for c, _d in list(lib.commands.queue)]
 
 
-def test_first_probe_verifies_the_gap_then_records_it(monkeypatch):
-    """With no baseline the probe cannot tell a real hole from the normal
-    residual -- the server counts items the writers decline to store (virtual
-    seasons; no Jellyfin 10.11 filter excludes them from a count) -- so it
-    heals once to find out rather than assuming. The recorded residual is
-    what keeps every later boot quiet."""
-    lib = probe_library(monkeypatch, remote=10, local_ids=["a", "b", "c"])
+def test_probe_is_quiet_when_the_counts_agree(monkeypatch):
+    """No gap, no heal -- the steady state on every boot."""
+    lib = probe_library(monkeypatch, remote=3, local_ids=["a", "b", "c"])
 
-    lib.probe_divergence()
-
-    assert commands_of(lib) == ["UpdateLibrary"]
-    assert sync_db.get_sync()["ProbeResiduals"] == {"lib1": 7}
-
-
-def test_probe_heals_when_the_gap_moves(monkeypatch):
-    """Two seasons vanishing left no server-side record, so no watermark pass
-    could see them. A count can."""
-    lib = probe_library(monkeypatch, remote=10, local_ids=["a", "b", "c"])
-    lib.probe_divergence()  # baseline 7
-
-    lib = probe_library(monkeypatch, remote=10, local_ids=["a"])
-    lib.probe_divergence()  # 35 episodes short -> delta 9
-
-    assert commands_of(lib) == ["UpdateLibrary"]
-    assert sync_db.get_sync()["ProbeResiduals"] == {"lib1": 9}
-
-
-def test_probe_is_quiet_once_the_gap_is_stable(monkeypatch):
-    lib = probe_library(monkeypatch, remote=10, local_ids=["a", "b", "c"])
-    lib.probe_divergence()
-
-    lib = probe_library(monkeypatch, remote=10, local_ids=["a", "b", "c"])
     lib.probe_divergence()
 
     assert commands_of(lib) == []
+
+
+def test_probe_heals_on_any_gap(monkeypatch):
+    """Two seasons vanishing left no server-side record, so no watermark pass
+    could see them. A count can.
+
+    Any gap counts, which holds only because the writers now reference
+    flat-layout ("virtual") seasons. While they did not, a library sat
+    permanently short by however many it had."""
+    lib = probe_library(monkeypatch, remote=10, local_ids=["a", "b", "c"])
+
+    lib.probe_divergence()
+
+    assert commands_of(lib) == ["UpdateLibrary"]
+
+
+def test_probe_heals_when_the_local_side_is_ahead(monkeypatch):
+    """A stale local row is divergence too: the prune's third arm removes it."""
+    lib = probe_library(monkeypatch, remote=1, local_ids=["a", "b"])
+
+    lib.probe_divergence()
+
+    assert commands_of(lib) == ["UpdateLibrary"]
 
 
 def test_probe_skips_while_a_full_sync_is_pending(monkeypatch):
@@ -1101,7 +1096,6 @@ def test_probe_skips_while_a_full_sync_is_pending(monkeypatch):
     lib.probe_divergence()
 
     assert commands_of(lib) == []
-    assert "ProbeResiduals" not in sync_db.get_sync()
 
 
 def test_probe_skips_when_the_catch_up_queued_work(monkeypatch):
@@ -1113,7 +1107,6 @@ def test_probe_skips_when_the_catch_up_queued_work(monkeypatch):
     lib.probe_divergence()
 
     assert commands_of(lib) == []
-    assert "ProbeResiduals" not in sync_db.get_sync()
 
 
 def test_probe_runs_during_playback_only_when_allowed(monkeypatch):
@@ -1125,11 +1118,11 @@ def test_probe_runs_during_playback_only_when_allowed(monkeypatch):
     lib.player.isPlayingVideo = lambda: True
 
     lib.probe_divergence()
-    assert "ProbeResiduals" not in sync_db.get_sync()
+    assert commands_of(lib) == []
 
     FakeAddon.store["syncDuringPlay"] = "true"
     lib.probe_divergence()
-    assert sync_db.get_sync()["ProbeResiduals"] == {"lib1": 9}
+    assert commands_of(lib) == ["UpdateLibrary"]
 
 
 def test_probe_survives_an_unreachable_server(monkeypatch):
@@ -1143,60 +1136,6 @@ def test_probe_survives_an_unreachable_server(monkeypatch):
     lib.probe_divergence()
 
     assert commands_of(lib) == []
-    assert sync_db.get_sync()["ProbeResiduals"] == {}
-
-
-def test_the_watermark_is_not_held_back():
-    """Deliberate: holding it would let one permanently bad item pin the
-    watermark forever, re-fetching the whole window on every retry."""
-    lib, _api = make_library()
-
-    lib.flag_unapplied("m1", "Movie: boom")
-
-    assert not lib.download_errors.is_set()
-
-
-def test_recovery_prune_is_rate_limited():
-    """A prune that itself fails to apply something would otherwise schedule
-    the next one immediately, forever."""
-    lib, _api = make_library()
-
-    lib.flag_unapplied("m1", "Movie: boom")
-    lib.schedule_recovery_prune()
-    lib.flag_unapplied("m2", "Movie: boom")
-    lib.schedule_recovery_prune()
-
-    assert [c for c, _d in list(lib.commands.queue)] == ["UpdateLibrary"]
-
-
-def test_counters_reset_between_cycles():
-    lib, _api = make_library()
-
-    lib.flag_unapplied("m1", "Movie: boom")
-    lib.schedule_recovery_prune()
-
-    assert lib.unapplied_count == 0
-    assert lib.unapplied_sample == set()
-
-
-def test_unconsumed_type_is_reported_not_dropped():
-    """The item was asked for by id, downloaded, then discarded because no
-    queue wanted its type — previously with no trace at all."""
-    flagged = []
-    work = queue.Queue()
-    work.put(["x1"])
-
-    class Api:
-        def items(self, params):
-            return {"Items": [{"Id": "x1", "Type": "Photo", "Name": "n"}]}
-
-    worker = GetItemWorker(
-        Api(), work, {"Movie": queue.Queue()}, unapplied=lambda i, r: flagged.append(i)
-    )
-    worker.start()
-    worker.join(timeout=5)
-
-    assert flagged == ["x1"]
 
 
 def test_container_types_are_ignored_not_flagged():

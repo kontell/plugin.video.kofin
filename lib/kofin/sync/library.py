@@ -1224,8 +1224,8 @@ class Library(threading.Thread):
         )
 
     def probe_divergence(self):
-        """Compare per-library item counts against the server and heal on a
-        change.
+        """Compare per-library item counts against the server and heal on any
+        gap.
 
         The catch-up passes are watermark-driven: they replay what the server
         recorded since the last sync. Nothing in them can see a hole that
@@ -1235,21 +1235,24 @@ class Library(threading.Thread):
         notices anyway: one Limit=0 request per library, ~50ms against a
         4889-item library, against ~12s to page its ids.
 
-        Only a *change* in the gap schedules a heal. A steady-state gap is
-        normal and permanent: the server counts items the writers decline to
-        store (virtual/unaired seasons, which no Jellyfin 10.11 filter --
-        IsVirtualUnaired, IsMissing, LocationTypes -- excludes from the
-        count). Healing on the raw number would prune every boot forever and
-        fix nothing, which is the failure mode this whole exercise started
-        with. Healing on the delta means the first probe records the gap and
-        later ones only react when it moves.
+        Any gap at all is a real gap, which is only true because the writers
+        no longer decline to reference flat-layout ("virtual") seasons. While
+        they did, a library sat permanently short by however many such
+        seasons it had -- a number that moves whenever a show is added or a
+        folder reorganised, so it could not be treated as a baseline either.
+        If a steady non-zero gap ever reappears here it is a writer dropping
+        something, not a fact of life: fix it there rather than teaching this
+        to tolerate it.
+
+        Counting is sensitive, not precise: equal counts can still hide
+        compensating changes. That is the trade for a probe cheap enough to
+        run every boot, and the prune it schedules does the real id-level
+        diff.
         """
         if not self.sync_allowed_now():
             return
 
-        sync = get_sync()
-
-        if sync["Libraries"]:
+        if get_sync()["Libraries"]:
             # An unfinished full sync owns these libraries and resumes on its
             # own; mid-sync they are legitimately short and every count would
             # read as divergence.
@@ -1259,13 +1262,10 @@ class Library(threading.Thread):
             # The catch-up just queued work, so the local side is mid-flight:
             # the gap the probe would measure is the work already in hand,
             # and it would read as divergence now and again as divergence
-            # when it lands. Skipping leaves the residuals untouched and
-            # costs nothing -- the queued work is the heal.
+            # when it lands. The queued work is the heal.
             return
 
-        residuals = sync.get("ProbeResiduals", {})
-        changed = {}
-        probed = set()
+        diverged = {}
 
         with Database("kofin") as kofin_db:
             db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
@@ -1278,8 +1278,6 @@ class Library(threading.Thread):
 
             if not item_types:
                 continue
-
-            probed.add(library_id)
 
             try:
                 remote = get_prune_count(self.api, library_id, item_types)
@@ -1294,24 +1292,16 @@ class Library(threading.Thread):
                 continue
 
             local = len(local_reference_map(library_id, media_class))
-            delta = remote - local
 
-            if delta != residuals.get(library_id):
-                changed[library_id] = delta
+            if remote != local:
+                diverged[library_id] = remote - local
 
-            residuals[library_id] = delta
-
-        # Keep only what this pass actually measured, so the record cannot
-        # grow without bound as the whitelist is edited.
-        sync["ProbeResiduals"] = {k: v for k, v in residuals.items() if k in probed}
-        save_sync(sync)
-
-        if not changed:
+        if not diverged:
             return
 
         LOG.warning(
             "divergence probe: %s; scheduling a library update to recover",
-            ", ".join("%s delta %s" % (k, v) for k, v in sorted(changed.items())),
+            ", ".join("%s server:%+d" % (k, v) for k, v in sorted(diverged.items())),
         )
         self.enqueue_command("UpdateLibrary")
 
