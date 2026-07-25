@@ -106,6 +106,52 @@ def test_synced_library_still_whitelisted(fullsync, monkeypatch):
     assert fullsync.sync["Whitelist"] == ["lib1"]
 
 
+class RecordingLibrary:
+    """The Library slice start() touches once the passes are done."""
+
+    def __init__(self):
+        self.refreshed = []
+
+    def stamp_watermark_if_empty(self):
+        pass
+
+    def refresh_libraries(self, databases):
+        self.refreshed.append(set(databases))
+
+
+def run_start(fullsync, monkeypatch, update):
+    toasts = []
+    monkeypatch.setattr(
+        "kofin.sync.full_sync.notification",
+        lambda *a, **kw: toasts.append(a[0] if a else kw),
+    )
+    monkeypatch.setattr("kofin.sync.full_sync.localized", lambda code: str(code))
+    monkeypatch.setattr(fullsync, "_media_type", lambda library_id: "music")
+    monkeypatch.setattr(fullsync, "process_libraries", lambda libraries, failures: None)
+
+    fullsync.library = RecordingLibrary()
+    fullsync.update_library = update
+    fullsync.sync["Libraries"] = ["lib2"]
+    fullsync.start()
+
+    return toasts
+
+
+def test_update_mode_does_not_announce_a_completed_sync(fullsync, monkeypatch):
+    """Update mode only plans: prune diffs the library and hands the work to
+    the incremental pipeline, which reports its own progress. The completion
+    toast fired seconds after queueing a 22k-item backlog, claiming it was
+    already written."""
+    assert run_start(fullsync, monkeypatch, update=True) == []
+
+
+def test_full_sync_still_announces_completion(fullsync, monkeypatch):
+    toasts = run_start(fullsync, monkeypatch, update=False)
+
+    assert len(toasts) == 1
+    assert "30409" in toasts[0]
+
+
 def test_resumed_queue_is_deduplicated(fullsync, monkeypatch):
     monkeypatch.setattr(
         "kofin.sync.full_sync.get_sync",

@@ -49,6 +49,8 @@ class TVShows(KodiDb):
         self.objects = Objects()
         self.item_ids = []
         self.library = library
+        # Memo for find_library, per writer instance (see fields.find_library).
+        self.library_cache = {}
 
         KodiDb.__init__(self, videodb.cursor)
 
@@ -76,7 +78,9 @@ class TVShows(KodiDb):
             update = False
             LOG.debug("ShowId %s not found", obj["Id"])
 
-            library = self.library or find_library(self.server, item)
+            library = self.library or find_library(
+                self.server, item, self.library_cache
+            )
             if not library:
                 # This item doesn't belong to a whitelisted library
                 return
@@ -340,7 +344,9 @@ class TVShows(KodiDb):
             update = False
             LOG.debug("EpisodeId %s not found", obj["Id"])
 
-            library = self.library or find_library(self.server, item)
+            library = self.library or find_library(
+                self.server, item, self.library_cache
+            )
             if not library:
                 # This item doesn't belong to a whitelisted library
                 return
@@ -502,7 +508,7 @@ class TVShows(KodiDb):
             obj["Filename"] = obj["Path"].rsplit("/", 1)[1]
 
         # We need LibraryId
-        library = self.library or find_library(self.server, obj)
+        library = self.library or find_library(self.server, obj, self.library_cache)
         obj["LibraryId"] = library["Id"]
         obj["Path"] = "plugin://plugin.video.kofin/%s/%s/" % (
             obj["LibraryId"],

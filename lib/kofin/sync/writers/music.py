@@ -38,6 +38,8 @@ class Music(KodiDb):
         self.objects = Objects()
         self.item_ids = []
         self.library = library
+        # Memo for find_library, per writer instance (see fields.find_library).
+        self.library_cache = {}
 
         KodiDb.__init__(self, musicdb.cursor)
 
@@ -59,7 +61,11 @@ class Music(KodiDb):
         except TypeError:
             update = False
 
-            library = library or self.library or find_library(self.server, item)
+            library = (
+                library
+                or self.library
+                or find_library(self.server, item, self.library_cache)
+            )
             if not library:
                 # This item doesn't belong to a whitelisted library
                 return
@@ -143,7 +149,9 @@ class Music(KodiDb):
         except TypeError:
             update = False
 
-            library = self.library or find_library(self.server, item)
+            library = self.library or find_library(
+                self.server, item, self.library_cache
+            )
             if not library:
                 # This item doesn't belong to a whitelisted library
                 return
@@ -277,7 +285,9 @@ class Music(KodiDb):
         except TypeError:
             update = False
 
-            library = self.library or find_library(self.server, item)
+            library = self.library or find_library(
+                self.server, item, self.library_cache
+            )
             if not library:
                 # This item doesn't belong to a whitelisted library
                 return

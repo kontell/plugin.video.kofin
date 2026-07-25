@@ -1,10 +1,18 @@
 """L1 units for the phase-5 full-sync overhaul: the update-mode prune
 planner (ids+Etag three-way diff), the local reference map incl. the TV
 child walk, the ids+Etag pager, the newest-first default sort, and restore
-points resuming under their recorded sort (plan §6)."""
+points resuming under their recorded sort (plan §6).
+
+Also the pager's failure behaviour: sort pairs the server will accept, a
+rejected query failing its pass rather than emptying it, and abandoning the
+generator (Kodi quitting mid-sync) not deadlocking on executor shutdown."""
+
+import threading
+import time
 
 import pytest
 
+from kofin.core.http import HttpError
 from kofin.sync import db as sync_db
 from kofin.sync import downloader
 from kofin.sync import kofindb
@@ -314,3 +322,248 @@ def test_music_sort_override_survives():
 
     for _url, params in api.requests:
         assert params["SortBy"] == "AlbumArtist"
+
+
+# --- sort pair arity ----------------------------------------------------------
+
+
+def test_sort_order_arity_always_matches_sort_by():
+    """Jellyfin 10.11 answers a mismatched SortBy/SortOrder pair with an opaque
+    400, and get_items' default pair is composite — so a caller overriding
+    SortBy alone used to send two orders for one field. That 400'd every album
+    and song page of a music sync."""
+    for override, expected_fields in (
+        ({"SortBy": "AlbumArtist"}, 1),
+        ({"SortBy": "AlbumArtist,SortName"}, 2),
+        ({"SortBy": "AlbumArtist,Album,SortName"}, 3),
+        ({"SortBy": "SortName", "SortOrder": "Descending,Ascending"}, 1),
+        ({"SortBy": "A,B,C", "SortOrder": "Descending"}, 3),
+    ):
+        api = PagingApi([[{"Id": "x1", "Type": "MusicAlbum"}]])
+
+        for _batch in downloader.get_items(
+            api, "lib2", "MusicAlbum", params=dict(override)
+        ):
+            pass
+
+        assert api.requests
+        for _url, params in api.requests:
+            assert len(params["SortBy"].split(",")) == expected_fields
+            assert len(params["SortOrder"].split(",")) == expected_fields
+
+
+def test_sort_field_override_alone_gets_ascending():
+    """The default pair's directions belong to the default's fields; inheriting
+    them would silently reverse a caller's own sort."""
+    api = PagingApi([[{"Id": "al1", "Type": "MusicAlbum"}]])
+
+    for _batch in downloader.get_items(
+        api, "lib2", "MusicAlbum", params={"SortBy": "AlbumArtist"}
+    ):
+        pass
+
+    for _url, params in api.requests:
+        assert params["SortOrder"] == "Ascending"
+
+
+def test_default_sort_pair_is_untouched():
+    api = PagingApi([[{"Id": "m1", "Type": "Movie"}]])
+
+    for _batch in downloader.get_items(api, "lib1", "Movie"):
+        pass
+
+    for _url, params in api.requests:
+        assert params["SortBy"] == "DateCreated,SortName"
+        assert params["SortOrder"] == "Descending,Ascending"
+
+
+# --- failure and abandonment --------------------------------------------------
+
+
+class FailingCountApi:
+    """Rejects the count probe the way a bad query does."""
+
+    user_id = "user1"
+
+    def __init__(self):
+        self.data_requests = 0
+
+    def get(self, url, params=None):
+        params = dict(params or {})
+        if params.get("Limit") == 1 and params.get("EnableTotalRecordCount"):
+            raise HttpError(400, "GET %s -> 400" % url)
+        self.data_requests += 1
+        return {"Items": []}
+
+
+def test_rejected_query_fails_the_pass_instead_of_emptying_it():
+    """A swallowed count-probe error yielded zero pages, so the caller wrote
+    nothing, the library was dropped from sync.json as done and the sync
+    reported success — a library that never landed looked synced."""
+    api = FailingCountApi()
+
+    with pytest.raises(HttpError):
+        for _batch in downloader.get_items(api, "lib2", "MusicAlbum"):
+            pass
+
+    assert api.data_requests == 0
+
+
+class SlowPagingApi:
+    """A library of many pages, each costing a little wall time — so the pager
+    still has jobs queued and in flight when the consumer walks away."""
+
+    user_id = "user1"
+
+    def __init__(self, total, page_size, page_seconds=0.02):
+        self.total = total
+        self.page_size = page_size
+        self.page_seconds = page_seconds
+
+    def get(self, url, params=None):
+        params = dict(params or {})
+        if params.get("Limit") == 1 and params.get("EnableTotalRecordCount"):
+            return {"TotalRecordCount": self.total, "Items": []}
+
+        time.sleep(self.page_seconds)
+        start = params.get("StartIndex", 0)
+        return {"Items": [{"Id": "i%d" % (start + n)} for n in range(self.page_size)]}
+
+
+def test_music_pages_drop_the_recursive_child_count():
+    """RecursiveItemCount makes the server count every album's children. It cost
+    a 100-album page 19.8s against 1.6s without, on Jellyfin 10.11 — effectively
+    the entire album pass. Only Series and BrowseVideo map it, so no music
+    writer loses a field by dropping it."""
+    fields = downloader.music_page_info().split(",")
+
+    assert "RecursiveItemCount" not in fields
+    # Everything else the full-fidelity set carries is still there — songs read
+    # Path and MediaSources, which the lean music_info() does not carry.
+    assert set(fields) == set(downloader.info().split(",")) - {"RecursiveItemCount"}
+    for needed in ("Path", "MediaSources", "Etag", "ParentId", "DateCreated"):
+        assert needed in fields
+
+
+def test_video_pages_keep_the_recursive_child_count():
+    """The Series object map reads it; dropping it library-wide would empty the
+    show child counts."""
+    api = PagingApi([[{"Id": "s1", "Type": "Series"}]])
+
+    for _batch in downloader.get_items(api, "lib1", "Series"):
+        pass
+
+    for _url, params in api.requests:
+        assert "RecursiveItemCount" in params["Fields"]
+
+
+class CountingPagingApi:
+    """Counts pages actually fetched, so a test can see how far ahead of the
+    consumer the pool runs."""
+
+    user_id = "user1"
+
+    def __init__(self, total, page_size):
+        self.total = total
+        self.page_size = page_size
+        self.served = 0
+        self.lock = threading.Lock()
+
+    def get(self, url, params=None):
+        params = dict(params or {})
+        if params.get("Limit") == 1 and params.get("EnableTotalRecordCount"):
+            return {"TotalRecordCount": self.total, "Items": []}
+
+        with self.lock:
+            self.served += 1
+        start = params.get("StartIndex", 0)
+        return {"Items": [{"Id": "i%d" % (start + n)} for n in range(self.page_size)]}
+
+
+def test_pool_prefetches_deeper_than_it_is_wide(monkeypatch):
+    """The buffer permit is held until the consumer is done with a page, so a
+    depth equal to the pool width meant no fetch could start while the writer
+    worked — the album pass sat idle 26% of its wall time waiting on pages it
+    could have had already."""
+    FakeAddon.store = dict(FakeAddon.store, limitThreads="2", limitIndex="50")
+    dthreads = 2
+
+    api = CountingPagingApi(total=10000, page_size=50)
+    pager = downloader.get_items(api, "lib1", "Audio")
+
+    assert next(pager)["Items"]  # one page consumed, one permit released
+
+    # Let the pool run until it stops making progress on its own.
+    settled = 0
+    for _ in range(200):
+        before = api.served
+        time.sleep(0.02)
+        if api.served == before:
+            settled += 1
+            if settled == 5:
+                break
+        else:
+            settled = 0
+
+    try:
+        # Width alone would cap this at dthreads (+1 for the released permit).
+        assert api.served >= dthreads * downloader.PREFETCH_PAGES, (
+            "pool only ran %d pages ahead; buffer depth is not deeper than the "
+            "pool width" % api.served
+        )
+        # Still bounded — it must not race off and page the whole library.
+        assert api.served <= dthreads * downloader.PREFETCH_PAGES + 1
+    finally:
+        pager.close()
+
+
+class _TrackingSemaphore(threading.Semaphore):
+    """Hands the test a handle on the pager's buffer semaphore.
+
+    Only so a regression fails instead of hanging: the executor's threads are
+    non-daemon and interpreter shutdown joins them, so a pager that strands
+    workers wedges the whole suite at exit rather than failing this one test.
+    The test drains the semaphore itself before asserting.
+    """
+
+    instances: list = []
+
+    def __init__(self, value=1):
+        super().__init__(value)
+        _TrackingSemaphore.instances.append(self)
+
+
+def test_abandoned_pager_does_not_deadlock_on_shutdown(monkeypatch):
+    """Quitting Kodi mid-sync raises LibraryExitException in a writer, which
+    closes this generator mid-page. Every page is submitted up front and each
+    worker blocks on the buffer semaphore only the consumer releases, so an
+    abandoned generator left ThreadPoolExecutor.shutdown(wait=True) waiting on
+    pages nobody would ever unblock — Kodi froze until it force-killed the
+    interpreter. Closing must return in about one page's time, not never."""
+    _TrackingSemaphore.instances.clear()
+    monkeypatch.setattr("threading.Semaphore", _TrackingSemaphore)
+
+    api = SlowPagingApi(total=20000, page_size=50)
+    pager = downloader.get_items(api, "lib1", "Audio")
+
+    assert next(pager)["Items"]
+
+    closed = threading.Event()
+
+    def close_it():
+        pager.close()
+        closed.set()
+
+    closer = threading.Thread(target=close_it, daemon=True)
+    closer.start()
+    closer.join(timeout=15)
+    timed_out = not closed.is_set()
+
+    if timed_out:
+        # Unblock the stranded workers so the suite can still exit.
+        for semaphore in _TrackingSemaphore.instances:
+            for _ in range(500):
+                semaphore.release()
+        closer.join(timeout=30)
+
+    assert not timed_out, "generator close deadlocked in executor shutdown"

@@ -426,19 +426,40 @@ def artwork_only(writer, item, e_item):
         return False
 
 
-def find_library(server, item):
+def find_library(server, item, cache=None):
     """The whitelisted ancestor view of an item that arrived without library
     context (realtime events), or {} when it belongs to no synced library.
 
     ``server`` is the kofin Api.
+
+    ``cache`` is an optional dict owned by the caller (one per writer
+    instance). The ``/Items/{id}/Ancestors`` walk this needs is a round trip
+    the server is slow to answer — ~450ms against a real library — and it was
+    being charged once per item, which is what capped a queued backlog at
+    roughly one item a second. The answer depends only on the whitelist and
+    the item's parent, so resolving it once per parent is exact: siblings
+    share a parent, hence a library. Songs key on their album and albums on
+    their artist, so a 20k-track backlog pays per album rather than per track.
     """
     from kofin.sync.db import get_sync
 
     sync = get_sync()
     whitelist = [x.replace("Mixed:", "") for x in sync["Whitelist"]]
+    # The whitelist is part of the key: it can change mid-drain from the
+    # settings dialog, and a memo that outlived it would keep writing items
+    # into a library the user just de-selected.
+    key = (frozenset(whitelist), item.get("ParentId"))
+    cacheable = cache is not None and key[1]
+
+    if cacheable and key in cache:
+        return cache[key]
+
     ancestors = server.ancestors(item["Id"])
     for ancestor in ancestors:
         if ancestor["Id"] in whitelist:
+            if cacheable:
+                cache[key] = ancestor
+
             return ancestor
 
     LOG.error("No ancestor found, not syncing item with ID: %s", item["Id"])
