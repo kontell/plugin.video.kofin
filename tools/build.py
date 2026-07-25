@@ -22,6 +22,11 @@ ROOT = Path(__file__).resolve().parent.parent
 # Path components skipped wherever they appear: VCS, virtualenvs, caches.
 EXCLUDE_ANYWHERE = {
     "CLAUDE.md",
+    # Sits alongside CLAUDE.md rather than in EXCLUDE_TOP because agent config
+    # can be directory-scoped, and it holds local settings that must never
+    # reach an installed addon. It is gitignored, but the build copies the
+    # working tree, so being ignored is not enough on its own.
+    ".claude",
     ".git",
     ".venv",
     "venv",
