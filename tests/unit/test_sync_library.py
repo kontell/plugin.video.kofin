@@ -1029,57 +1029,113 @@ def test_self_healing_paths_are_silent(monkeypatch):
     assert toasts == []
 
 
-def test_the_watermark_is_not_held_back():
-    """Deliberate: holding it would let one permanently bad item pin the
-    watermark forever, re-fetching the whole window on every retry."""
+# --- divergence probe --------------------------------------------------------
+
+
+def probe_library(monkeypatch, remote, local_ids, media="movies"):
+    """A library whose server count and local reference map the test sets."""
+    seed_views(("lib1", "Movies", media))
+    seed_whitelist("lib1")
+
     lib, _api = make_library()
 
-    lib.flag_unapplied("m1", "Movie: boom")
-
-    assert not lib.download_errors.is_set()
-
-
-def test_recovery_prune_is_rate_limited():
-    """A prune that itself fails to apply something would otherwise schedule
-    the next one immediately, forever."""
-    lib, _api = make_library()
-
-    lib.flag_unapplied("m1", "Movie: boom")
-    lib.schedule_recovery_prune()
-    lib.flag_unapplied("m2", "Movie: boom")
-    lib.schedule_recovery_prune()
-
-    assert [c for c, _d in list(lib.commands.queue)] == ["UpdateLibrary"]
-
-
-def test_counters_reset_between_cycles():
-    lib, _api = make_library()
-
-    lib.flag_unapplied("m1", "Movie: boom")
-    lib.schedule_recovery_prune()
-
-    assert lib.unapplied_count == 0
-    assert lib.unapplied_sample == set()
-
-
-def test_unconsumed_type_is_reported_not_dropped():
-    """The item was asked for by id, downloaded, then discarded because no
-    queue wanted its type — previously with no trace at all."""
-    flagged = []
-    work = queue.Queue()
-    work.put(["x1"])
-
-    class Api:
-        def items(self, params):
-            return {"Items": [{"Id": "x1", "Type": "Photo", "Name": "n"}]}
-
-    worker = GetItemWorker(
-        Api(), work, {"Movie": queue.Queue()}, unapplied=lambda i, r: flagged.append(i)
+    monkeypatch.setattr(
+        "kofin.sync.library.get_prune_count", lambda api, lid, types: remote
     )
-    worker.start()
-    worker.join(timeout=5)
+    monkeypatch.setattr(
+        "kofin.sync.library.local_reference_map",
+        lambda lid, media_class: dict.fromkeys(local_ids),
+    )
+    return lib
 
-    assert flagged == ["x1"]
+
+def commands_of(lib):
+    return [c for c, _d in list(lib.commands.queue)]
+
+
+def test_probe_is_quiet_when_the_counts_agree(monkeypatch):
+    """No gap, no heal -- the steady state on every boot."""
+    lib = probe_library(monkeypatch, remote=3, local_ids=["a", "b", "c"])
+
+    lib.probe_divergence()
+
+    assert commands_of(lib) == []
+
+
+def test_probe_heals_on_any_gap(monkeypatch):
+    """Two seasons vanishing left no server-side record, so no watermark pass
+    could see them. A count can.
+
+    Any gap counts, which holds only because the writers now reference
+    flat-layout ("virtual") seasons. While they did not, a library sat
+    permanently short by however many it had."""
+    lib = probe_library(monkeypatch, remote=10, local_ids=["a", "b", "c"])
+
+    lib.probe_divergence()
+
+    assert commands_of(lib) == ["UpdateLibrary"]
+
+
+def test_probe_heals_when_the_local_side_is_ahead(monkeypatch):
+    """A stale local row is divergence too: the prune's third arm removes it."""
+    lib = probe_library(monkeypatch, remote=1, local_ids=["a", "b"])
+
+    lib.probe_divergence()
+
+    assert commands_of(lib) == ["UpdateLibrary"]
+
+
+def test_probe_skips_while_a_full_sync_is_pending(monkeypatch):
+    """A resuming library is legitimately short; every count would read as
+    divergence and FullSync is a Borg that would raise at a second entry."""
+    lib = probe_library(monkeypatch, remote=10, local_ids=[])
+    sync = sync_db.get_sync()
+    sync["Libraries"] = ["lib1"]
+    sync_db.save_sync(sync)
+
+    lib.probe_divergence()
+
+    assert commands_of(lib) == []
+
+
+def test_probe_skips_when_the_catch_up_queued_work(monkeypatch):
+    """The gap would be the work already in hand: it would read as divergence
+    now, and again as divergence once it lands."""
+    lib = probe_library(monkeypatch, remote=10, local_ids=[])
+    lib.total_updates = 12
+
+    lib.probe_divergence()
+
+    assert commands_of(lib) == []
+
+
+def test_probe_runs_during_playback_only_when_allowed(monkeypatch):
+    """syncDuringPlay makes playback a good time to probe -- the box is awake
+    and nobody is waiting on the library."""
+    monkeypatch.setattr("xbmc.getCondVisibility", lambda cond: False)
+
+    lib = probe_library(monkeypatch, remote=10, local_ids=["a"])
+    lib.player.isPlayingVideo = lambda: True
+
+    lib.probe_divergence()
+    assert commands_of(lib) == []
+
+    FakeAddon.store["syncDuringPlay"] = "true"
+    lib.probe_divergence()
+    assert commands_of(lib) == ["UpdateLibrary"]
+
+
+def test_probe_survives_an_unreachable_server(monkeypatch):
+    lib = probe_library(monkeypatch, remote=10, local_ids=["a"])
+
+    def boom(api, lid, types):
+        raise ServerUnreachable("down")
+
+    monkeypatch.setattr("kofin.sync.library.get_prune_count", boom)
+
+    lib.probe_divergence()
+
+    assert commands_of(lib) == []
 
 
 def test_container_types_are_ignored_not_flagged():

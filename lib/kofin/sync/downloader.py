@@ -282,6 +282,39 @@ def get_id_etag_map(api, parent_id, item_types):
         start += PRUNE_PAGE_SIZE
 
 
+def get_prune_count(api, parent_id, item_types):
+    """How many items the prune's server side would see for a library.
+
+    Deliberately the *same* query as ``get_id_etag_map`` with Limit=0 and the
+    count switched on, so the number is comparable with the local reference
+    map. It exists to answer "has anything diverged" without paging the
+    library: measured against a real 4889-item Shows library, the count is
+    one ~50ms request where the id+Etag paging is ~12s.
+
+    ``get_item_count`` is not reused: it omits IsVirtualUnaired/IsMissing, so
+    its total counts a different set than the prune diffs, and a probe that
+    disagrees with the prune schedules heals that then find nothing.
+    """
+    result = api.get(
+        "/Users/%s/Items" % api.user_id,
+        {
+            "ParentId": parent_id,
+            "IncludeItemTypes": item_types,
+            "EnableUserData": False,
+            "EnableImages": False,
+            "EnableTotalRecordCount": True,
+            "CollapseBoxSetItems": False,
+            "IsVirtualUnaired": False,
+            "LocationTypes": "FileSystem,Remote,Offline",
+            "IsMissing": False,
+            "Recursive": True,
+            "Limit": 0,
+        },
+    )
+
+    return result.get("TotalRecordCount")
+
+
 def get_artists(api, parent_id=None):
 
     query = {
