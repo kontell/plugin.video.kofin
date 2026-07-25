@@ -430,6 +430,66 @@ class SlowPagingApi:
         return {"Items": [{"Id": "i%d" % (start + n)} for n in range(self.page_size)]}
 
 
+class CountingPagingApi:
+    """Counts pages actually fetched, so a test can see how far ahead of the
+    consumer the pool runs."""
+
+    user_id = "user1"
+
+    def __init__(self, total, page_size):
+        self.total = total
+        self.page_size = page_size
+        self.served = 0
+        self.lock = threading.Lock()
+
+    def get(self, url, params=None):
+        params = dict(params or {})
+        if params.get("Limit") == 1 and params.get("EnableTotalRecordCount"):
+            return {"TotalRecordCount": self.total, "Items": []}
+
+        with self.lock:
+            self.served += 1
+        start = params.get("StartIndex", 0)
+        return {"Items": [{"Id": "i%d" % (start + n)} for n in range(self.page_size)]}
+
+
+def test_pool_prefetches_deeper_than_it_is_wide(monkeypatch):
+    """The buffer permit is held until the consumer is done with a page, so a
+    depth equal to the pool width meant no fetch could start while the writer
+    worked — the album pass sat idle 26% of its wall time waiting on pages it
+    could have had already."""
+    FakeAddon.store = dict(FakeAddon.store, limitThreads="2", limitIndex="50")
+    dthreads = 2
+
+    api = CountingPagingApi(total=10000, page_size=50)
+    pager = downloader.get_items(api, "lib1", "Audio")
+
+    assert next(pager)["Items"]  # one page consumed, one permit released
+
+    # Let the pool run until it stops making progress on its own.
+    settled = 0
+    for _ in range(200):
+        before = api.served
+        time.sleep(0.02)
+        if api.served == before:
+            settled += 1
+            if settled == 5:
+                break
+        else:
+            settled = 0
+
+    try:
+        # Width alone would cap this at dthreads (+1 for the released permit).
+        assert api.served >= dthreads * downloader.PREFETCH_PAGES, (
+            "pool only ran %d pages ahead; buffer depth is not deeper than the "
+            "pool width" % api.served
+        )
+        # Still bounded — it must not race off and page the whole library.
+        assert api.served <= dthreads * downloader.PREFETCH_PAGES + 1
+    finally:
+        pager.close()
+
+
 class _TrackingSemaphore(threading.Semaphore):
     """Hands the test a handle on the pager's buffer semaphore.
 

@@ -183,6 +183,11 @@ def get_items(api, parent_id, item_type=None, basic=False, params=None):
 
 PRUNE_PAGE_SIZE = 500
 
+# Pages the look-ahead pool may hold per thread (see the buffer semaphore in
+# _get_items). Anything above 1 stops the writer's own work from stalling the
+# next fetch.
+PREFETCH_PAGES = 2
+
 
 def get_id_etag_map(api, parent_id, item_types):
     """Page a library's id → (Etag, Type) map — the server side of the
@@ -310,8 +315,19 @@ def _get_items(api, query):
         # allows for completed tasks to be processed while other tasks are completed on other
         # threads. Don't be a dummy.Pool, be a ThreadPoolExecutor
         with concurrent.futures.ThreadPoolExecutor(dthreads) as p:
-            # semaphore to avoid fetching complete library to memory
-            thread_buffer = threading.Semaphore(dthreads)
+            # Semaphore to avoid fetching the complete library into memory,
+            # deliberately deeper than the pool is wide. A permit is held from
+            # the moment a worker starts a page until the consumer is done with
+            # it, so a depth equal to the width let the network idle whenever
+            # the writer was the faster side: the album pass drained its three
+            # buffered pages in about a second and then waited ~9s for the next
+            # three — measured at 26% of that pass's wall time. An extra page
+            # per thread keeps ``dthreads`` fetches in flight while finished
+            # pages wait their turn, and still bounds memory to
+            # ``PREFETCH_PAGES * dthreads * limit`` items (600 at the
+            # defaults). Consumption stays in submission order either way, so
+            # the restore point is unaffected.
+            thread_buffer = threading.Semaphore(dthreads * PREFETCH_PAGES)
 
             # wrapper function for api.get that uses a semaphore
             def get_wrapper(params):
@@ -349,8 +365,8 @@ def _get_items(api, query):
             # only ever advance past pages that have been handed to the caller.
             # Out-of-order consumption could persist a restore point beyond
             # pages that were still in flight, and a resumed sync would then
-            # skip those items entirely. The semaphore still keeps up to
-            # dthreads pages buffered ahead of the consumer.
+            # skip those items entirely. The semaphore still bounds how far
+            # ahead of the consumer the pool may run.
             try:
                 for index, (job, param) in enumerate(jobs):
                     try:
