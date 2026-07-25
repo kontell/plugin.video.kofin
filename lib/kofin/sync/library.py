@@ -63,6 +63,13 @@ RESUME_POLL_MAX_SECONDS = 1800
 # Ids kept for the log when items fail to apply; the count is exact, this only
 # bounds how many are named.
 UNAPPLIED_SAMPLE = 5
+# Items a writer queue will hold before its downloader has to wait. The
+# download side has no other brake: workers run until their id queue is empty,
+# so a whole-library catch-up used to end up resident all at once — measured
+# against a real server, roughly 54 KB per movie, 31 KB per episode and 12 KB
+# per song once parsed, which is ~490 MB for the three libraries here and
+# fatal on an Android box. At this bound the same catch-up peaks around 50 MB.
+WRITE_QUEUE_MAX = 250
 # Floor between automatic recovery prunes. A prune that itself fails to apply
 # something would otherwise schedule the next one immediately, forever.
 AUTO_PRUNE_MIN_SECONDS = 3600
@@ -119,8 +126,13 @@ class Library(threading.Thread):
         # Image-only updates (tier 1): downloaded last with minimal fields,
         # written through the artwork-only path instead of the full cascade.
         self.artwork_queue = queue.Queue()
-        self.added_output = self.__new_queues__()
-        self.updated_output = self.__new_queues__()
+        # Bounded: these two carry whole downloaded items, and the downloaders
+        # outrun the writers by a wide margin. Deliberately not applied to the
+        # other two — userdata_output is fed straight from this thread by
+        # userdata(), so a full queue would block the service tick itself, and
+        # removed_output holds ids.
+        self.added_output = self.__new_queues__(WRITE_QUEUE_MAX)
+        self.updated_output = self.__new_queues__(WRITE_QUEUE_MAX)
         self.userdata_output = self.__new_queues__()
         self.removed_output = self.__new_queues__()
         self.notify_output = queue.Queue()
@@ -167,18 +179,27 @@ class Library(threading.Thread):
 
         threading.Thread.__init__(self, name="kofin-library")
 
-    def __new_queues__(self):
+    def __new_queues__(self, maxsize=0):
+        """Per-type writer queues.
+
+        ``maxsize`` is the backpressure bound for the sets that carry whole
+        downloaded items; 0 (the default) leaves a queue unbounded. Only the
+        two GetItemWorker feeds are bounded — see WRITE_QUEUE_MAX.
+        """
         return {
-            "Movie": queue.Queue(),
-            "BoxSet": queue.Queue(),
-            "MusicVideo": queue.Queue(),
-            "Series": queue.Queue(),
-            "Season": queue.Queue(),
-            "Episode": queue.Queue(),
-            "MusicAlbum": queue.Queue(),
-            "MusicArtist": queue.Queue(),
-            "AlbumArtist": queue.Queue(),
-            "Audio": queue.Queue(),
+            item_type: queue.Queue(maxsize=maxsize)
+            for item_type in (
+                "Movie",
+                "BoxSet",
+                "MusicVideo",
+                "Series",
+                "Season",
+                "Episode",
+                "MusicAlbum",
+                "MusicArtist",
+                "AlbumArtist",
+                "Audio",
+            )
         }
 
     # -- whitelist/status helpers (kofin-side plumbing) ------------------------

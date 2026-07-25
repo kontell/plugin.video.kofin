@@ -472,6 +472,28 @@ class GetItemWorker(threading.Thread):
         else:
             LOG.warning("could not apply %s (%s)", item_id, reason)
 
+    def _put(self, output_queue, item):
+        """Hand an item to its writer, waiting when the writer is behind.
+
+        The wait is the point: nothing else throttles this side, so without it
+        a large catch-up holds every downloaded item in memory at once. It has
+        to stay interruptible though — a bare blocking put is how you turn a
+        slow writer into a Kodi that will not quit, the same trap the page
+        pool fell into.
+
+        ``should_stop`` is the whole test: the service sets it before joining
+        the library thread on every teardown path, including a Kodi abort, and
+        once the writers have exited on their own ``@stop`` nothing will ever
+        drain this queue again.
+        """
+        while True:
+            try:
+                output_queue.put(item, timeout=1)
+                return
+            except queue.Full:
+                if state.should_stop():
+                    raise LibraryExitException("stopping with writer queues full")
+
     def run(self):
         while True:
             try:
@@ -499,7 +521,7 @@ class GetItemWorker(threading.Thread):
                         item["_userdata_changed"] = item.get("Id") in self.userdata_ids
                         if item.get("Id") in self.artwork_ids:
                             item["_artwork_only"] = True
-                        self.output[item["Type"]].put(item)
+                        self._put(self.output[item["Type"]], item)
                     else:
                         # Downloaded, then dropped because nothing consumes
                         # this type. Never legitimate — the caller asked for
@@ -522,6 +544,15 @@ class GetItemWorker(threading.Thread):
                         len(item_ids),
                         ", ".join(str(i) for i in missing[:5]),
                     )
+            except LibraryExitException:
+                # Shutting down while waiting on a full writer queue. Not a
+                # failure, and not an error to flag: the window is unfinished,
+                # which the watermark already reflects because the drain never
+                # completed.
+                LOG.info("--[ download stopping: shutdown requested ]")
+
+                break
+
             except ServerUnreachable as error:
                 LOG.error("--[ server unreachable: %s ]", error)
                 self._flag_error()

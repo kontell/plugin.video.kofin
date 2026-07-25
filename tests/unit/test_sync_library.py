@@ -2,6 +2,7 @@
 watermark handling and the ws-event wiring (plan §5 step 3)."""
 
 import queue
+import time
 
 import pytest
 
@@ -1060,3 +1061,92 @@ def test_unconsumed_type_is_reported_not_dropped():
     worker.join(timeout=5)
 
     assert flagged == ["x1"]
+
+
+# --- writer-queue backpressure -----------------------------------------------
+
+
+class _SlowWriterApi:
+    """Returns a chunk of items of one type, so the test can fill a queue."""
+
+    def __init__(self, item_type, count):
+        self.item_type = item_type
+        self.count = count
+        self.calls = 0
+
+    def items(self, params):
+        self.calls += 1
+        return {
+            "Items": [
+                {"Id": "i%d-%d" % (self.calls, n), "Type": self.item_type, "Name": "n"}
+                for n in range(self.count)
+            ]
+        }
+
+
+def test_only_the_item_carrying_queues_are_bounded():
+    """userdata_output is fed straight from the library thread by userdata(),
+    so bounding it would block the service tick itself; removed_output holds
+    ids, not items."""
+    lib, _api = make_library()
+
+    assert lib.added_output["Movie"].maxsize == library_mod.WRITE_QUEUE_MAX
+    assert lib.updated_output["Movie"].maxsize == library_mod.WRITE_QUEUE_MAX
+    assert lib.userdata_output["Movie"].maxsize == 0
+    assert lib.removed_output["Movie"].maxsize == 0
+
+
+def test_downloader_waits_instead_of_growing_the_queue():
+    """Against the library's own queues, not a hand-made bounded one — the
+    point is that the real write queues have a ceiling. Nothing else throttles
+    the download side: workers run until their id queue is empty, so a
+    whole-library catch-up used to end up resident all at once (~490 MB across
+    the three libraries measured here)."""
+    lib, _api = make_library()
+    bound = library_mod.WRITE_QUEUE_MAX
+    work = queue.Queue()
+    work.put(["a"])  # one chunk yielding more items than the bound
+
+    worker = GetItemWorker(_SlowWriterApi("Movie", bound + 50), work, lib.added_output)
+    worker.daemon = True
+    worker.start()
+    try:
+        deadline = time.time() + 10
+        while lib.added_output["Movie"].qsize() < bound and time.time() < deadline:
+            time.sleep(0.01)
+
+        # Parked at the ceiling rather than pulling the whole chunk into RAM.
+        time.sleep(0.3)
+        assert lib.added_output["Movie"].qsize() == bound
+        assert worker.is_alive()
+
+        # Draining a slot lets exactly one more through.
+        lib.added_output["Movie"].get_nowait()
+        deadline = time.time() + 5
+        while lib.added_output["Movie"].qsize() < bound and time.time() < deadline:
+            time.sleep(0.01)
+        assert lib.added_output["Movie"].qsize() == bound
+    finally:
+        FakeWindow.store["kofin.sync.stop"] = "true"
+        worker.join(timeout=10)
+
+
+def test_a_blocked_downloader_still_stops():
+    """A bare blocking put is how a slow writer becomes a Kodi that will not
+    quit — the same trap the page pool fell into."""
+    out = {"Movie": queue.Queue(maxsize=2)}
+    work = queue.Queue()
+    work.put(["a"])
+
+    worker = GetItemWorker(_SlowWriterApi("Movie", 50), work, out)
+    worker.daemon = True
+    worker.start()
+
+    deadline = time.time() + 5
+    while out["Movie"].qsize() < 2 and time.time() < deadline:
+        time.sleep(0.01)
+
+    FakeWindow.store["kofin.sync.stop"] = "true"
+    worker.join(timeout=10)
+
+    assert not worker.is_alive(), "downloader hung on a full queue during shutdown"
