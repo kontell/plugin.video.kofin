@@ -299,17 +299,31 @@ class TVShows(KodiDb):
         obj["SeasonId"] = self.get_season(*values(obj, QU.get_season_obj))
         obj["Artwork"] = API.get_all_artwork(self.objects.map(item, "Artwork"))
 
-        if obj["Location"] != "Virtual":
-            # Seasons stored no checksum at all, which was invisible in the
-            # fork (nothing read one) and became load-bearing here: the
-            # update-mode prune compares the stored value against
-            # "<Etag>|plugin", so a NULL made every season read as changed on
-            # every pass and the prune could never converge. Same stamp the
-            # other types get via check_unchanged, which season() does not
-            # call -- it has no skip path and always writes.
-            obj["Checksum"] = sync_checksum(item, self.direct_path)
-            self.jellyfin_db.add_reference(*values(obj, QUEM.add_reference_season_obj))
-            self.item_ids.append(obj["Id"])
+        # Unconditional, including Location == "Virtual". A virtual season is
+        # not phantom content: Jellyfin marks a season virtual when it has no
+        # folder of its own, which is what a flat series layout looks like --
+        # episodes sitting beside each other in the series directory rather
+        # than under "Season 01". Those episodes are real files and play. On
+        # the Piers box all 8 virtual seasons in the Shows library held only
+        # FileSystem episodes with paths on disk.
+        #
+        # get_season above is get-or-create and runs whatever the Location,
+        # so Kodi already has the seasons row (and the artwork below lands on
+        # it). Skipping only the reference left kofin.db permanently short by
+        # exactly the number of flat-layout seasons: the prune reported those
+        # 8 missing on every pass, re-fetched them, and the writer declined
+        # again -- and nothing could ever remove their Kodi rows, because the
+        # mapping to remove them by was never written.
+        #
+        # Seasons stored no checksum either, which was invisible in the fork
+        # (nothing read one) and became load-bearing here: the prune compares
+        # the stored value against "<Etag>|plugin", so a NULL made every
+        # season read as changed on every pass. Same stamp the other types
+        # get via check_unchanged, which season() does not call -- it has no
+        # skip path and always writes.
+        obj["Checksum"] = sync_checksum(item, self.direct_path)
+        self.jellyfin_db.add_reference(*values(obj, QUEM.add_reference_season_obj))
+        self.item_ids.append(obj["Id"])
 
         self.artwork.add(obj["Artwork"], obj["SeasonId"], "season")
         LOG.debug(
