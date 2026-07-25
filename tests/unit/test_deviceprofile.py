@@ -1,5 +1,33 @@
 from kofin.core import deviceprofile
-from kofin.core.deviceprofile import ProfileConfig, UNLIMITED_BITRATE, build
+from kofin.core.deviceprofile import (
+    ProfileConfig,
+    UNLIMITED_BITRATE,
+    audio_bitrate_bps,
+    build,
+)
+
+
+def audio_condition(profile):
+    return profile["TranscodingProfiles"][0]["Conditions"][0]["Value"]
+
+
+def test_audio_bitrate_split_scales_with_budget():
+    # Unlimited leaves the configured value alone.
+    assert audio_bitrate_bps(384, UNLIMITED_BITRATE) == 384_000
+    assert audio_bitrate_bps(384, 0) == 384_000
+    # A budget big enough for the setting keeps it.
+    assert audio_bitrate_bps(384, 10_000_000) == 384_000
+    # Below 10x the setting, audio scales down so video keeps 9/10.
+    assert audio_bitrate_bps(384, 3_000_000) == 300_000
+    assert audio_bitrate_bps(384, 500_000) == 50_000
+    # A lower configured cap is never exceeded.
+    assert audio_bitrate_bps(128, 10_000_000) == 128_000
+
+
+def test_transcoding_profile_audio_cap_follows_budget():
+    # The profile condition must agree with what play.py writes into the URL.
+    assert audio_condition(build(ProfileConfig(max_bitrate_mbps=3))) == "300000"
+    assert audio_condition(build(ProfileConfig(max_bitrate_mbps=10))) == "384000"
 
 
 def hdr_profiles(profile):
@@ -43,6 +71,12 @@ def test_defaults_direct_play_everything():
     assert "av1" not in transcoding[0]["VideoCodec"]
     assert transcoding[2]["AudioCodec"] == "opus"
     assert profile["MusicStreamingTranscodingBitrate"] == 128_000
+
+
+def test_eac3_direct_plays_by_default():
+    # Missing from the original port; pvr.kofin has carried it since day one.
+    assert "eac3" in deviceprofile.DEFAULT_AUDIO_CODECS
+    assert "eac3" in build(ProfileConfig())["DirectPlayProfiles"][0]["AudioCodec"]
 
 
 def test_bit_depth_and_profile_caps():

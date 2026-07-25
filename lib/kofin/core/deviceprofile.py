@@ -42,7 +42,25 @@ DEFAULT_VIDEO_CODECS = [
     "vp9",
     "vc1",
 ]
-DEFAULT_AUDIO_CODECS = ["aac", "mp2", "mp3", "ac3", "opus", "flac", "dts"]
+DEFAULT_AUDIO_CODECS = ["aac", "mp2", "mp3", "ac3", "eac3", "opus", "flac", "dts"]
+
+
+def audio_bitrate_bps(audio_cap_kbps: int, budget_bps: int) -> int:
+    """The audio allowance for a transcode confined to ``budget_bps``.
+
+    pvr.kofin splits the budget rather than reserving a fixed share, because
+    a fixed reservation pushes VideoBitrate negative whenever the budget is
+    below it — a 0.5 Mbit/s context transcode, or force-transcoding a source
+    that reports less than the reservation — and the server rejects a
+    negative bitrate. Deviation from the C++ source, which hardcodes 384k and
+    divides by 8: kofin has a configurable transcode audio bitrate, so the
+    share is min(setting, budget/10). An unlimited budget carves nothing off
+    and leaves the setting to stand on its own.
+    """
+    cap = max(audio_cap_kbps, 0) * 1000
+    if budget_bps <= 0 or budget_bps >= UNLIMITED_BITRATE:
+        return cap
+    return min(cap, budget_bps // 10)
 
 
 class ProfileConfig:
@@ -149,7 +167,7 @@ def build(
         "MusicStreamingTranscodingBitrate": config.music_bitrate_kbps * 1000,
         "TimelineOffsetSeconds": 5,
         "TranscodingProfiles": _transcoding_profiles(
-            config, audio_codecs, video_codecs
+            config, audio_codecs, video_codecs, max_bitrate
         ),
         "DirectPlayProfiles": _direct_play_profiles(
             config, audio_codecs, video_codecs, force_direct, force_transcode
@@ -173,7 +191,10 @@ def _preferred_first(codecs: List[str], preferred: str) -> List[str]:
 
 
 def _transcoding_profiles(
-    config: ProfileConfig, audio_codecs: List[str], video_codecs: List[str]
+    config: ProfileConfig,
+    audio_codecs: List[str],
+    video_codecs: List[str],
+    max_bitrate: int,
 ) -> List[JsonDict]:
     # TS codec list: everything except av1 (which can't ride MPEG-TS and gets
     # its own fMP4 profile). The lead codec is the forced-transcode target:
@@ -200,13 +221,16 @@ def _transcoding_profiles(
         "MinSegments": "1",
         "BreakOnNonKeyFrames": True,
     }
-    if config.audio_bitrate_kbps > 0:
+    audio_bps = audio_bitrate_bps(config.audio_bitrate_kbps, max_bitrate)
+    if audio_bps > 0:
         # Output constraint for transcodes only — never a direct-play gate.
+        # Capped against the streaming budget so the profile agrees with the
+        # split ``plugin/play.py`` writes into the transcoding URL.
         common["Conditions"] = [
             {
                 "Condition": "LessThanEqual",
                 "Property": "AudioBitrate",
-                "Value": str(config.audio_bitrate_kbps * 1000),
+                "Value": str(audio_bps),
                 "IsRequired": False,
             }
         ]

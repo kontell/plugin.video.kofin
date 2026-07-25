@@ -531,13 +531,14 @@
         </setting>
         <setting id="directPlayAudioCodecs" type="list[string]" label="30110" help="30111">
           <level>0</level>
-          <default>aac,mp2,mp3,ac3,opus,flac,dts</default>
+          <default>aac,mp2,mp3,ac3,eac3,opus,flac,dts</default>
           <constraints>
             <options>
               <option label="30158">aac</option>
               <option label="30159">mp2</option>
               <option label="30160">mp3</option>
               <option label="30161">ac3</option>
+              <option label="30162">eac3</option>
               <option label="30163">opus</option>
               <option label="30164">flac</option>
               <option label="30165">dts</option>
@@ -649,8 +650,10 @@
           <constraints>
             <options>
               <option label="30176">0</option>
+              <option label="30604">854</option>
               <option label="30177">1280</option>
               <option label="30178">1920</option>
+              <option label="30605">2560</option>
               <option label="30179">3840</option>
             </options>
           </constraints>

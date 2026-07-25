@@ -22,8 +22,16 @@
       <item library="context_play.py">
         <label>30010</label>
         <!-- kofin browse items carry kofin.id; synced library items are
-             recognized by their DBTYPE and resolved through kofin.db. -->
-        <visible>!String.IsEmpty(ListItem.Property(kofin.id)) | String.IsEqual(ListItem.DBTYPE,movie) | String.IsEqual(ListItem.DBTYPE,episode) | String.IsEqual(ListItem.DBTYPE,musicvideo)</visible>
+             recognized by their DBTYPE and resolved through kofin.db. The
+             trailing clause hides the item outright when no context bitrates
+             are configured — there would be nothing to offer. The service
+             mirrors that setting into the window property because a visible
+             condition has no way to read an addon setting (core/state.py).
+             Grouping is [square brackets]: parentheses are infolabel argument
+             syntax, and using them here fails the whole expression to parse
+             ("Error parsing boolean expression"), which reads as the item
+             simply never appearing. -->
+        <visible>[!String.IsEmpty(ListItem.Property(kofin.id)) | String.IsEqual(ListItem.DBTYPE,movie) | String.IsEqual(ListItem.DBTYPE,episode) | String.IsEqual(ListItem.DBTYPE,musicvideo)] + !String.IsEmpty(Window(Home).Property(kofin.context.bitrates))</visible>
       </item>
       <item library="context_extras.py">
         <label>30501</label>

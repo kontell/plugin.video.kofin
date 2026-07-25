@@ -14,6 +14,11 @@ PROP_PLAY_QUEUE = "kofin.play.json"
 PROP_PLAYING_ID = "kofin.playing.id"
 PROP_SYNC_STOP = "kofin.sync.stop"
 PROP_SYNC_ACTIVE = "kofin.sync.active"
+# Earns its place here because addon.xml's <visible> can only test window
+# properties: there is no infolabel that reads an addon setting, so hiding
+# "Play with transcoding" when no bitrates are configured needs the setting
+# mirrored into one.
+PROP_CONTEXT_BITRATES = "kofin.context.bitrates"
 
 _HOME_WINDOW = 10000
 
@@ -92,6 +97,19 @@ def is_sync_active() -> bool:
     return _window().getProperty(PROP_SYNC_ACTIVE) == "true"
 
 
+def set_context_bitrates(bitrates: str) -> None:
+    """Mirror the configured context bitrates so addon.xml can hide the
+    "Play with transcoding" item when the user has selected none."""
+    if bitrates:
+        _window().setProperty(PROP_CONTEXT_BITRATES, bitrates)
+    else:
+        _window().clearProperty(PROP_CONTEXT_BITRATES)
+
+
+def get_context_bitrates() -> str:
+    return _window().getProperty(PROP_CONTEXT_BITRATES)
+
+
 def clear_all() -> None:
     window = _window()
     for prop in (
@@ -100,6 +118,7 @@ def clear_all() -> None:
         PROP_PLAYING_ID,
         PROP_SYNC_STOP,
         PROP_SYNC_ACTIVE,
+        PROP_CONTEXT_BITRATES,
     ):
         window.clearProperty(prop)
 

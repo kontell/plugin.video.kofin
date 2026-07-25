@@ -29,7 +29,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import xbmcgui
 
-from kofin.core import settings
+from kofin.core import settings, state
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
@@ -49,6 +49,7 @@ class SettingsApplier:
             "sslVerify": self._ssl_verify_changed,
             "librarySelection": self._library_selection_changed,
             "syncPlayEnabled": self._syncplay_enabled_changed,
+            "contextBitrates": self._context_bitrates_changed,
         }
         self.snapshot: Dict[str, str] = self._read_all()
 
@@ -64,6 +65,9 @@ class SettingsApplier:
             return
         self.snapshot = self._read_all()
         self.ready = True
+        # Publish rather than wait for a change: the plugin process reads this
+        # property on every context-menu draw, including the first.
+        state.set_context_bitrates(self.snapshot.get("contextBitrates", ""))
         LOG.debug("settings applier ready; baseline re-read")
 
     def apply(self) -> None:
@@ -134,6 +138,10 @@ class SettingsApplier:
                 service._start_syncplay()  # type: ignore[attr-defined]
         else:
             service._stop_syncplay()  # type: ignore[attr-defined]
+
+    def _context_bitrates_changed(self, old: str, new: str) -> None:
+        """Keep the property addon.xml gates the transcode context item on."""
+        state.set_context_bitrates(new)
 
     def _library_selection_changed(self, old: str, new: str) -> None:
         """The apply-on-save path for the library multiselect."""

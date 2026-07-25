@@ -44,6 +44,9 @@ HLS_MIME = "application/x-mpegURL"
 
 AUDIO_TYPES = frozenset({"Audio"})
 
+# pvr.kofin's stand-in for a MediaSource that reports no bitrate.
+ASSUMED_SOURCE_BITRATE = 30_000_000
+
 
 def stream_url(
     server: str,
@@ -52,7 +55,15 @@ def stream_url(
     device_id: str,
     play_session_id: str,
 ) -> Tuple[str, str]:
-    """(url, play method) for a MediaSource; raises on unplayable."""
+    """(url, play method) for a MediaSource; raises on unplayable.
+
+    Every stream served off the transcoding endpoint reports as Transcode,
+    remux included — the same call pvr.kofin and jellyfin-kodi make. The
+    dashboard's remux-vs-transcode wording comes from the server's own
+    TranscodingInfo (IsVideoDirect/IsAudioDirect), not from this value, so
+    reporting a stream copy as DirectStream here buys nothing and costs the
+    session-close and drift-correction paths their signal.
+    """
     if source.get("SupportsDirectPlay") or source.get("SupportsDirectStream"):
         kind = "Audio" if item.get("Type") in AUDIO_TYPES else "Videos"
         container = (source.get("Container") or "").split(",")[0]
@@ -82,6 +93,44 @@ def mime_for(container: str, play_method: str) -> str:
     if play_method == "Transcode":
         return HLS_MIME
     return MIME_BY_CONTAINER.get(container.lower(), "")
+
+
+def transcode_budget(
+    source: JsonDict, max_bitrate_bps: int, force_transcode: bool
+) -> int:
+    """The bits/s a transcode must fit into.
+
+    A forced transcode caps at the source bitrate so the server actually
+    re-encodes: with an unlimited budget and no direct-play profile Jellyfin
+    still picks a transcoding profile but copies both codecs, which is why
+    forcing a transcode appeared to do nothing. The source bitrate comes from
+    the PlaybackInfo response and is never uncapped.
+    """
+    if not force_transcode:
+        return max_bitrate_bps
+    source_bps = int(source.get("Bitrate") or 0) or ASSUMED_SOURCE_BITRATE
+    return min(source_bps, max_bitrate_bps)
+
+
+def rewrite_bitrates(url: str, budget_bps: int, audio_cap_kbps: int) -> str:
+    """Replace the server's bitrates with our split of ``budget_bps``.
+
+    Params are spliced textually rather than re-encoded, as pvr.kofin does:
+    the transcoding URL carries opaque values (PlaySessionId, api_key) that a
+    parse/re-encode round trip has no business touching.
+    """
+    base, _, query = url.partition("?")
+    if not query:
+        return url
+    kept = [
+        param
+        for param in query.split("&")
+        if not param.startswith(("VideoBitrate=", "AudioBitrate="))
+    ]
+    audio = deviceprofile.audio_bitrate_bps(audio_cap_kbps, budget_bps)
+    kept.append("VideoBitrate=%d" % max(budget_bps - audio, 0))
+    kept.append("AudioBitrate=%d" % audio)
+    return "%s?%s" % (base, "&".join(kept))
 
 
 def external_subtitles(server: str, source: JsonDict) -> List[str]:
@@ -168,8 +217,9 @@ def play(request: Request) -> None:
         except ValueError:
             pass
 
+        config = deviceprofile.ProfileConfig.from_settings()
         profile = deviceprofile.build(
-            deviceprofile.ProfileConfig.from_settings(),
+            config,
             bitrate_override_mbps=bitrate_mbps,
             force_transcode=transcode,
         )
@@ -182,6 +232,17 @@ def play(request: Request) -> None:
         url, method = stream_url(
             api.server, item, source, creds.device_id, play_session_id
         )
+        if method == "Transcode":
+            # The server sizes its own VideoBitrate/AudioBitrate off the
+            # profile cap alone; recompute them so a forced transcode is
+            # bounded by the source and the audio share stays proportional.
+            budget = transcode_budget(
+                source,
+                int(profile["MaxStreamingBitrate"]),
+                transcode or config.force_transcode,
+            )
+            if budget < deviceprofile.UNLIMITED_BITRATE:
+                url = rewrite_bitrates(url, budget, config.audio_bitrate_kbps)
     except JellyfinError as error:
         LOG.warning("play resolve failed for %s: %s", item_id, error)
         _fail(request)

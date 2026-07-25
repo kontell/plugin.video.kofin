@@ -1277,3 +1277,12 @@ msgstr ""
 msgctxt "#30603"
 msgid "Comparing with the server"
 msgstr ""
+
+# 30604-30605 — maximum-resolution steps missing from the original port
+msgctxt "#30604"
+msgid "480p"
+msgstr ""
+
+msgctxt "#30605"
+msgid "1440p"
+msgstr ""
