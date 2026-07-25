@@ -541,6 +541,17 @@ def test_series_season_episode_write(api):
     assert mapping["season1"] == "season"
     assert mapping["episode1"] == "episode"
 
+    # Every reference carries the Etag checksum the update-mode prune diffs
+    # against. Seasons stored NULL here, so the prune reported all of them
+    # changed on every pass and could never converge.
+    checksums = dict(
+        (row[0], row[1])
+        for row in kofin_query("SELECT jellyfin_id, checksum FROM jellyfin")
+    )
+    assert checksums["series1"] == "etag-series1-v1|plugin"
+    assert checksums["season1"] == "etag-season1-v1|plugin"
+    assert checksums["episode1"] == "etag-episode1-v1|plugin"
+
     # Resume bookmark, both on the episode file and the widget alias file.
     bookmarks = video_query("SELECT timeInSeconds FROM bookmark")
     assert all(b == (300.0,) for b in bookmarks)

@@ -166,6 +166,10 @@ SEASON_1 = {
     "Id": "season1",
     "Name": "Season 1",
     "Type": "Season",
+    # get_seasons fetches with Fields=info(), which carries Etag -- the DTO
+    # had none, which is how a season write storing no checksum looked
+    # correct here for as long as it did.
+    "Etag": "etag-season1-v1",
     "IndexNumber": 1,
     "SeriesId": "series1",
     "LocationType": "FileSystem",

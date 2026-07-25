@@ -12,7 +12,7 @@ from kofin.sync import downloader as server
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import queries_map as QUEM
 from kofin.sync import fields as api
-from kofin.sync.fields import check_unchanged, find_library
+from kofin.sync.fields import check_unchanged, find_library, sync_checksum
 from kofin.sync.shims import stop, jellyfin_item, values, Local
 
 from kofin.sync.obj import Objects
@@ -300,6 +300,14 @@ class TVShows(KodiDb):
         obj["Artwork"] = API.get_all_artwork(self.objects.map(item, "Artwork"))
 
         if obj["Location"] != "Virtual":
+            # Seasons stored no checksum at all, which was invisible in the
+            # fork (nothing read one) and became load-bearing here: the
+            # update-mode prune compares the stored value against
+            # "<Etag>|plugin", so a NULL made every season read as changed on
+            # every pass and the prune could never converge. Same stamp the
+            # other types get via check_unchanged, which season() does not
+            # call -- it has no skip path and always writes.
+            obj["Checksum"] = sync_checksum(item, self.direct_path)
             self.jellyfin_db.add_reference(*values(obj, QUEM.add_reference_season_obj))
             self.item_ids.append(obj["Id"])
 

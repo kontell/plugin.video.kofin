@@ -108,6 +108,42 @@ def test_prune_three_way_diff(monkeypatch):
     assert calls["removed"] == ["m3"]  # gone from the server
 
 
+def test_prune_converges_on_unchanged_seasons(monkeypatch):
+    """Seasons stored no checksum, so every one of them failed the Etag
+    comparison on every pass: a library of 335 seasons re-downloaded and
+    rewrote all 335 forever, and the prune never reached a quiet state."""
+    with sync_db.Database("kofin") as opened:
+        db = kofindb.JellyfinDatabase(opened.cursor)
+        add_ref(
+            db, "s1", 100, None, 7, "Series", "tvshow", None, "cs|plugin", "lib1", None
+        )
+        add_ref(
+            db,
+            "se1",
+            200,
+            None,
+            None,
+            "Season",
+            "season",
+            100,
+            "cse|plugin",
+            None,
+            None,
+        )
+
+    server_map = {"s1": ("cs", "Series"), "se1": ("cse", "Season")}
+    monkeypatch.setattr(
+        "kofin.sync.full_sync.server.get_id_etag_map",
+        lambda api, parent_id, types: dict(server_map),
+    )
+
+    fullsync = make_fullsync()
+    fullsync.prune({"Id": "lib1", "Name": "Shows", "CollectionType": "tvshows"}, "lib1")
+
+    calls = fullsync.library.calls
+    assert calls == {"removed": [], "added": [], "updated": []}
+
+
 def test_prune_mixed_covers_both_classes(monkeypatch):
     requested = []
 
@@ -152,7 +188,19 @@ def test_local_reference_map_walks_tv_children():
             db, "s1", 100, None, 7, "Series", "tvshow", None, "cs|plugin", "lib1", None
         )
         # Season: parent_id is the series *kodi* id.
-        add_ref(db, "se1", 200, None, None, "Season", "season", 100, None, None, None)
+        add_ref(
+            db,
+            "se1",
+            200,
+            None,
+            None,
+            "Season",
+            "season",
+            100,
+            "cse|plugin",
+            None,
+            None,
+        )
         # Episode under the season (parent_id = season kodi id).
         add_ref(
             db, "ep1", 300, 301, 302, "Episode", "episode", 200, "ce|plugin", None, "s1"
@@ -180,7 +228,7 @@ def test_local_reference_map_walks_tv_children():
     assert set(local) == {"s1", "se1", "ep1", "ep2"}
     assert local["s1"] == "cs|plugin"
     assert local["ep1"] == "ce|plugin"
-    assert local["se1"] is None
+    assert local["se1"] == "cse|plugin"
 
 
 def test_local_reference_map_music_needs_no_walk():
