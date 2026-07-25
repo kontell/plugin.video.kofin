@@ -792,3 +792,64 @@ def test_dispatch_tolerates_the_unbuilt_writer_family():
         library_mod.removal_writer_for("Movie", movies, tvshows, None, musicvideos)
         is not None
     )
+
+
+# --- progress accounting -----------------------------------------------------
+
+
+def test_progress_rises_as_work_drains():
+    """The percentage used to count down. total_updates counts work when it is
+    *enqueued*, but the numerator only looked at the output queues, which are
+    empty at that moment because everything is still waiting to be downloaded
+    — so progress opened at 100% and fell as downloads landed."""
+    lib, _api = make_library()
+
+    lib.added(["m%d" % n for n in range(120)])
+    assert lib.total_updates == 120
+    # Nothing written yet: freshly queued work must read as 0%, not 100%.
+    assert lib.progress_percent() == 0
+    assert lib.pending_items() == 120
+
+    # Downloads land: items move from the download queue to a writer queue.
+    # That is a sideways move, not progress, and must not move the bar.
+    chunk = lib.added_queue.get_nowait()
+    for item_id in chunk:
+        lib.added_output["Movie"].put({"Id": item_id, "Type": "Movie"})
+    assert lib.pending_items() == 120
+    assert lib.progress_percent() == 0
+
+    # Writers drain half of that chunk: now it is real progress.
+    for _ in range(len(chunk) // 2):
+        lib.added_output["Movie"].get_nowait()
+    assert lib.progress_percent() > 0
+
+
+def test_progress_never_leaves_the_range():
+    """Work enqueued mid-drain lifts both sides of the ratio, and items in
+    flight are counted in neither, so the raw value can stray."""
+    lib, _api = make_library()
+
+    assert lib.progress_percent() == 0  # nothing enqueued: no division by zero
+
+    lib.added(["a1", "a2"])
+    lib.total_updates = 1  # denominator smaller than what is pending
+    assert 0 <= lib.progress_percent() <= 100
+
+
+def test_pending_counts_items_not_chunks():
+    """The download queues hold chunks; total_updates counts ids. Comparing
+    the two directly would make one chunk of 50 look like a single item."""
+    lib, _api = make_library()
+
+    lib.added(["m%d" % n for n in range(library_mod.DOWNLOAD_CHUNK + 10)])
+
+    assert lib.added_queue.qsize() == 2  # two chunks
+    assert lib.pending_items() == library_mod.DOWNLOAD_CHUNK + 10
+
+
+def test_removed_queue_holds_ids_not_chunks():
+    lib, _api = make_library()
+
+    lib.removed(["r1", "r2", "r3"])
+
+    assert lib.pending_items() == 3

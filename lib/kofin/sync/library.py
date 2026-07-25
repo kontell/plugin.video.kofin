@@ -333,7 +333,10 @@ class Library(threading.Thread):
             state.set_sync_active(True)
 
             if self.total_updates > settings.get_int("syncProgressThreshold"):
-                queue_size = self.worker_queue_size()
+                # Everything still owed, not just what has been downloaded —
+                # the "Gathering: N" count under-reported for the same reason
+                # the percentage ran backwards.
+                queue_size = self.pending_items()
 
                 # Per-class counts (sync-plan §3): a large metadata backlog
                 # is visibly not blocking new content.
@@ -354,13 +357,7 @@ class Library(threading.Thread):
                     self.progress_updates.create("Kofin", localized(30401))
 
                 self.progress_updates.update(
-                    int(
-                        (
-                            float(self.total_updates - queue_size)
-                            / float(self.total_updates)
-                        )
-                        * 100
-                    ),
+                    self.progress_percent(),
                     message=message,
                 )
 
@@ -496,6 +493,53 @@ class Library(threading.Thread):
         """When there's an active thread. Let the main thread know."""
         self.pending_refresh = True
         state.set_sync_active(True)
+
+    def progress_percent(self):
+        """Share of this cycle's work already written, 0-100.
+
+        Clamped rather than trusted: work enqueued mid-drain raises both the
+        total and the pending count, and items in flight are counted in
+        neither, so the raw ratio can stray outside the range without
+        anything being wrong.
+        """
+        total = self.total_updates
+
+        if total <= 0:
+            return 0
+
+        done = total - self.pending_items()
+
+        return max(0, min(100, int(float(done) / float(total) * 100)))
+
+    def pending_items(self):
+        """Items enqueued this cycle that are not written yet.
+
+        The progress denominator is ``total_updates``, which counts work at
+        the moment it is *enqueued* — so the numerator has to count the same
+        population. ``worker_queue_size`` does not: it sees only the output
+        queues, which are empty at enqueue time because everything is still
+        waiting to be downloaded. Progress therefore opened at 100% and fell
+        as downloads landed, which is the percentage counting down.
+
+        The download queues hold chunks rather than ids (``removed_queue`` is
+        the exception and holds ids), so their contents are measured in items.
+        Anything in flight between a download and its writer is in neither
+        queue and simply reads as done a moment early; that errs upward and
+        never inverts.
+        """
+        total = self.removed_queue.qsize()
+
+        for work_queue in (
+            self.added_queue,
+            self.updated_queue,
+            self.userdata_queue,
+            self.artwork_queue,
+        ):
+            # list() snapshots the deque; the queues are only appended to by
+            # other threads, so a racing put is simply counted next tick.
+            total += sum(len(chunk) for chunk in list(work_queue.queue))
+
+        return total + self.worker_queue_size()
 
     def worker_queue_size(self):
         """Get how many items are queued up for worker threads."""
