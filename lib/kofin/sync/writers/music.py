@@ -502,8 +502,22 @@ class Music(KodiDb):
     def song_artist_link(self, obj):
         """Assign main artists to song.
         Artist does not exist in jellyfin database, create the reference.
+
+        Deviation from the fork: fall back to the album artists when the song
+        carries no ArtistItems of its own. Jellyfin serves an empty
+        ArtistItems for a song whose artist tag it could not resolve to an
+        artist entity, and the fork then wrote no song_artist row at all.
+        Kodi reaches an album's songs through song_artist whenever the path
+        runs under an artist, so those songs vanished from the artist browse
+        while the album itself still listed them -- an album that opens empty.
+        Seen live on files whose TPE1 frames had their smart quotes truncated
+        to control characters while TPE2 stayed clean, so AlbumArtists
+        resolved and ArtistItems did not. Kodi's own scanner credits an
+        untagged song to the album artist the same way.
         """
-        for index, artist in enumerate(obj["ArtistItems"] or []):
+        # Still the {Name, Id} dicts here: song_artist_discography flattens
+        # AlbumArtists to names, but it runs after this.
+        for index, artist in enumerate(obj["ArtistItems"] or obj["AlbumArtists"] or []):
 
             temp_obj = dict(obj)
             temp_obj["Name"] = artist["Name"]

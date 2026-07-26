@@ -979,13 +979,13 @@ def frozen_music_clock(monkeypatch):
     monkeypatch.setattr("kofin.sync.writers.music.datetime", frozen)
 
 
-def write_music_tree(api):
+def write_music_tree(api, song=None):
     register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
         music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
         music.artist(dto(ARTIST))
         music.album(dto(ALBUM))
-        music.song(dto(SONG))
+        music.song(dto(song or SONG))
 
 
 def test_music_artist_album_song_write(api, frozen_music_clock):
@@ -1027,6 +1027,54 @@ def test_music_artist_album_song_write(api, frozen_music_clock):
         for row in kofin_query("SELECT jellyfin_id, media_type FROM jellyfin")
     )
     assert mapping == {"artist1": "artist", "album1": "album", "song1": "song"}
+
+
+def test_music_song_without_artist_items_credits_album_artist(api, frozen_music_clock):
+    # Jellyfin serves an empty ArtistItems for a song whose own artist tag it
+    # could not resolve to an artist entity; AlbumArtists still resolves when
+    # only the song-level tag is damaged. Kodi reaches an album's songs
+    # through song_artist under an artist path, so with no row here the album
+    # opens empty there while still listing its songs on its own.
+    write_music_tree(api, song=dict(SONG, ArtistItems=[]))
+
+    artist_id = music_query("SELECT idArtist FROM artist WHERE strArtist='The Band'")[
+        0
+    ][0]
+    song_id = music_query("SELECT idSong FROM song")[0][0]
+    assert music_query("SELECT idArtist, idSong, iOrder FROM song_artist") == [
+        (artist_id, song_id, 0)
+    ]
+    # The join Kodi runs for artist -> album -> songs.
+    assert music_query(
+        "SELECT s.strTitle FROM song s"
+        " JOIN song_artist sa ON sa.idSong = s.idSong"
+        " WHERE sa.idArtist = ?",
+        (artist_id,),
+    ) == [("Opening Track",)]
+
+
+def test_music_song_artist_items_win_over_album_artists(api, frozen_music_clock):
+    # The fallback is a last resort: a song that names its own artist is
+    # credited to that artist, not to whoever released the album.
+    api.items_by_id["artist2"] = dict(dto(ARTIST), Id="artist2", Name="Guest Star")
+    write_music_tree(
+        api, song=dict(SONG, ArtistItems=[{"Name": "Guest Star", "Id": "artist2"}])
+    )
+
+    credited = music_query(
+        "SELECT a.strArtist FROM song_artist sa"
+        " JOIN artist a ON a.idArtist = sa.idArtist"
+    )
+    assert credited == [("Guest Star",)]
+
+
+def test_music_album_artist_fallback_is_idempotent(api, frozen_music_clock):
+    song = dict(SONG, ArtistItems=[])
+    write_music_tree(api, song=song)
+    first = music_dump(str(sync_db._path_overrides["music"]))
+
+    write_music_tree(api, song=song)
+    assert music_dump(str(sync_db._path_overrides["music"])) == first
 
 
 def test_music_transcode_writes_plugin_paths(api, frozen_music_clock):
