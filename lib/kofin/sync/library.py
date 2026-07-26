@@ -50,7 +50,15 @@ LOG = Logger(__name__)
 # round-trips, while this only trades URL length and response size.
 DOWNLOAD_CHUNK = 50
 TARGET_DB_VERSION = 1
-MUSIC_QUEUES = ("Audio", "MusicArtist", "AlbumArtist", "MusicAlbum")
+# No "AlbumArtist" here or in the queue set below, unlike the fork: it is not
+# a Jellyfin BaseItemKind at all. /Artists and /Artists/AlbumArtists both
+# answer with Type "MusicArtist", the artist writer stamps jellyfin_type
+# "MusicArtist" unconditionally, and the sync-queue plugin's classifier drops
+# anything outside its own switch -- so no route could ever put an item of
+# that type in a queue. The fork carried the Emby-era name through its queue
+# set, both writer dispatches and its removal map, all of it dead, dispatching
+# to a Music.albumartist that does not exist in either codebase.
+MUSIC_QUEUES = ("Audio", "MusicArtist", "MusicAlbum")
 # Writers commit every N items: kofin.db is shared by the writers of every
 # category, and sqlite allows only one open write transaction per file — an
 # unbounded drain-long transaction would block another writer past its busy
@@ -198,7 +206,6 @@ class Library(threading.Thread):
                 "Episode",
                 "MusicAlbum",
                 "MusicArtist",
-                "AlbumArtist",
                 "Audio",
             )
         }
@@ -1519,7 +1526,7 @@ class Library(threading.Thread):
                     LOG.debug("Skipping userdata for untracked item %s", item_id)
                     continue
 
-                if media in ("MusicAlbum", "MusicArtist", "AlbumArtist"):
+                if media in ("MusicAlbum", "MusicArtist"):
                     fallback.append(item_id)
                     count += 1
                 elif media in self.userdata_output:
@@ -1695,8 +1702,6 @@ class UpdateWorker(threading.Thread):
                         music.album(item)
                     elif item["Type"] == "MusicArtist":
                         music.artist(item)
-                    elif item["Type"] == "AlbumArtist":
-                        music.albumartist(item)
                     elif item["Type"] == "Audio":
                         music.song(item)
 
@@ -1777,8 +1782,6 @@ class UserDataWorker(threading.Thread):
                         music.album(item)
                     elif item["Type"] == "MusicArtist":
                         music.artist(item)
-                    elif item["Type"] == "AlbumArtist":
-                        music.albumartist(item)
                     elif item["Type"] == "Audio":
                         music.userdata(item)
                 except LibraryException as error:
@@ -1874,7 +1877,6 @@ REMOVAL_WRITERS = {
     "Episode": "tvshows",
     "MusicAlbum": "music",
     "MusicArtist": "music",
-    "AlbumArtist": "music",
     "Audio": "music",
     "MusicVideo": "musicvideos",
 }

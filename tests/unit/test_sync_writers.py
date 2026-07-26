@@ -7,14 +7,18 @@ zero orphans in any link table).
 """
 
 import datetime
+import queue
 import re
 import sqlite3
+import threading
 
 import pytest
 
 from kofin.sync import db as sync_db
 from kofin.sync import schema
 from kofin.sync.kodidb.kodi import Kodi
+from kofin.sync.library import UpdateWorker
+from kofin.sync.shims import LibraryOrphanException
 from kofin.sync.writers import Movies, MusicVideos, TVShows, Music
 from tests.unit import kodifixtures, sync_dtos
 from tests.unit.fakes import FakeAddon, FakeWindow
@@ -581,6 +585,97 @@ def test_virtual_season_is_referenced_like_any_other(api):
         "SELECT media_type, checksum FROM jellyfin WHERE jellyfin_id='season1'"
     )
     assert reference == [("season", "etag-season1-v1|plugin")]
+
+
+def test_orphan_season_pulls_its_series(api):
+    """A season can reach the writer before its series: the change feed's
+    parent prefetch only covers Added records, and the prune enqueues
+    Series/Season/Episode together in SortName order. The fork looked the
+    series up, missed, and returned False -- not an exception, so the
+    UpdateWorker never flagged the item unapplied and no recovery prune was
+    scheduled. The season's Kodi row and its kofin.db reference were both
+    silently absent while the watermark moved past the change. Seasons now
+    self-heal through get_show_id, exactly as orphan episodes do."""
+    register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        TVShows(api, kdb, vdb, library=TV_LIBRARY).season(dto(SEASON_1))
+
+    # The series was fetched and written on the season's behalf.
+    assert video_query("SELECT c00 FROM tvshow") == [("The Show",)]
+
+    seasons = video_query("SELECT idShow, season FROM seasons ORDER BY season")
+    assert (1, 1) in seasons
+
+    mapping = dict(
+        (row[0], row[1])
+        for row in kofin_query("SELECT jellyfin_id, media_type FROM jellyfin")
+    )
+    assert mapping["series1"] == "tvshow"
+    assert mapping["season1"] == "season"
+
+    # And the reference is a normal one -- checksum included, so the prune
+    # converges instead of re-fetching this season on every pass.
+    assert kofin_query("SELECT checksum FROM jellyfin WHERE jellyfin_id='season1'") == [
+        ("etag-season1-v1|plugin",)
+    ]
+
+
+def test_orphan_season_declines_when_series_is_gone(api):
+    """The self-heal cannot invent a series the server no longer serves. That
+    leg raises rather than returning False, which in this file is what the
+    unchanged short-circuit means -- and it writes nothing at all, rather than
+    leaving a season row behind with no mapping to remove it by."""
+    register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
+    orphan = dto(dict(SEASON_1, SeriesId="series-gone"))
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        with pytest.raises(LibraryOrphanException):
+            TVShows(api, kdb, vdb, library=TV_LIBRARY).season(orphan)
+
+    assert video_query("SELECT COUNT(*) FROM tvshow") == [(0,)]
+    assert video_query("SELECT COUNT(*) FROM seasons") == [(0,)]
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin") == [(0,)]
+
+
+def test_worker_flags_an_unresolvable_child_unapplied(api):
+    """The reporting the silent drop never got. The raise lands in the
+    UpdateWorker's LibraryException handler, so the item is flagged and the
+    cycle schedules a recovery prune -- and the drain carries on, because one
+    bad item still must not stop it."""
+    register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
+    # The worker builds its writers without a library, the way the service
+    # does, so they resolve one per item off the whitelist and the ancestor
+    # walk. Both legs below go through that.
+    sync = sync_db.get_sync()
+    sync["Whitelist"] = ["lib-shows"]
+    sync_db.save_sync(sync)
+    api.ancestors = lambda item_id: [{"Id": "lib-shows", "Name": "Shows"}]
+
+    work = queue.Queue()
+    work.put(dto(dict(SEASON_1, SeriesId="series-gone")))
+    work.put(dto(SEASON_1))  # resolvable: heals, and proves the drain lived
+    flagged = []
+
+    worker = UpdateWorker(
+        work,
+        queue.Queue(),
+        threading.Lock(),
+        "video",
+        api,
+        unapplied=lambda item_id, reason: flagged.append((item_id, reason)),
+    )
+    worker.run()
+
+    assert [item_id for item_id, _reason in flagged] == ["season1"]
+    assert "unresolved series series-gone" in flagged[0][1]
+    assert worker.is_done is True
+
+    # The item behind it still landed, series pulled in on its behalf.
+    assert video_query("SELECT c00 FROM tvshow") == [("The Show",)]
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin WHERE jellyfin_id='season1'") == [
+        (1,)
+    ]
 
 
 ORPHAN_RULES = [

@@ -108,6 +108,57 @@ def test_prune_three_way_diff(monkeypatch):
     assert calls["removed"] == ["m3"]  # gone from the server
 
 
+def test_prune_enqueues_missing_parents_first(monkeypatch):
+    """get_id_etag_map pages in SortName order, so Series/Season/Episode
+    interleave and a child could be downloaded and written while its parent
+    was still in a later chunk -- the writers heal that by fetching the parent
+    inside the write lock, which is a fallback, not a route to plan work
+    through. Stable, so SortName order survives within a rank."""
+    server_map = {
+        "ep-a": ("e1", "Episode"),
+        "se-b": ("e2", "Season"),
+        "s-c": ("e3", "Series"),
+        "ep-d": ("e4", "Episode"),
+        "se-e": ("e5", "Season"),
+        "s-f": ("e6", "Series"),
+    }
+    monkeypatch.setattr(
+        "kofin.sync.full_sync.server.get_id_etag_map",
+        lambda api, parent_id, types: dict(server_map),
+    )
+
+    fullsync = make_fullsync()
+    fullsync.prune({"Id": "lib1", "Name": "Shows", "CollectionType": "tvshows"}, "lib1")
+
+    assert fullsync.library.calls["added"] == [
+        "s-c",
+        "s-f",
+        "se-b",
+        "se-e",
+        "ep-a",
+        "ep-d",
+    ]
+
+
+def test_prune_orders_music_children_after_albums(monkeypatch):
+    """Same ranks carry the music classes: an album before the songs that
+    would otherwise create it on demand."""
+    server_map = {
+        "song-a": ("e1", "Audio"),
+        "album-b": ("e2", "MusicAlbum"),
+        "song-c": ("e3", "Audio"),
+    }
+    monkeypatch.setattr(
+        "kofin.sync.full_sync.server.get_id_etag_map",
+        lambda api, parent_id, types: dict(server_map),
+    )
+
+    fullsync = make_fullsync()
+    fullsync.prune({"Id": "lib2", "Name": "Music", "CollectionType": "music"}, "lib2")
+
+    assert fullsync.library.calls["added"] == ["album-b", "song-a", "song-c"]
+
+
 def test_prune_converges_on_unchanged_seasons(monkeypatch):
     """Seasons stored no checksum, so every one of them failed the Etag
     comparison on every pass: a library of 335 seasons re-downloaded and
