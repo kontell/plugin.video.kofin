@@ -228,11 +228,11 @@
       <group id="1">
         <setting id="syncProgressThreshold" type="integer" label="30302" help="30303">
           <level>0</level>
-          <default>20</default>
+          <default>500</default>
           <constraints>
             <minimum>0</minimum>
-            <step>10</step>
-            <maximum>1000</maximum>
+            <step>100</step>
+            <maximum>5000</maximum>
           </constraints>
           <control type="slider" format="integer"/>
         </setting>
@@ -265,11 +265,6 @@
             <maximum>8</maximum>
           </constraints>
           <control type="slider" format="integer"/>
-        </setting>
-        <setting id="notifyConnection" type="boolean" label="30326" help="30327">
-          <level>1</level>
-          <default>true</default>
-          <control type="toggle"/>
         </setting>
       </group>
       <group id="2">
@@ -477,7 +472,7 @@
       <group id="1">
         <setting id="forceDirectPlay" type="boolean" label="30102" help="30103">
           <level>0</level>
-          <default>false</default>
+          <default>true</default>
           <control type="toggle"/>
         </setting>
         <setting id="forceRemux" type="boolean" label="30104" help="30105">
@@ -594,16 +589,23 @@
           <constraints>
             <options>
               <option label="30158">aac</option>
-              <option label="30161">ac3</option>
               <option label="30160">mp3</option>
               <option label="30163">opus</option>
             </options>
           </constraints>
           <control type="spinner" format="string"/>
         </setting>
+        <!-- Always visible, no forceDirectPlay dependency: the ceiling
+             describes the device, not the transcoder, and force direct play is
+             now the default — the dependency hid it in the shipped
+             configuration. Caveat for whoever reads this next: the value only
+             reaches TranscodingProfiles.MaxAudioChannels (deviceprofile.py).
+             Capping *direct-played* audio needs an AudioChannels
+             codec-profile condition, which force direct play deliberately
+             suppresses along with every other video-side constraint. -->
         <setting id="maxAudioChannels" type="integer" label="30118" help="30119">
           <level>0</level>
-          <default>6</default>
+          <default>8</default>
           <constraints>
             <options>
               <option label="30180">2</option>
@@ -611,11 +613,6 @@
               <option label="30182">8</option>
             </options>
           </constraints>
-          <dependencies>
-            <dependency type="visible">
-              <condition operator="is" setting="forceDirectPlay">false</condition>
-            </dependency>
-          </dependencies>
           <control type="spinner" format="string"/>
         </setting>
         <setting id="maxStreamingBitrate" type="integer" label="30120" help="30121">
@@ -781,14 +778,64 @@
     <!-- Advanced -->
     <category id="advanced" label="30071" help="30072">
       <group id="1">
+        <!-- Hidden state written by the who's-watching shortlist picker only. -->
+        <setting id="whoIsWatchingShortlist" type="string">
+          <level>4</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="edit" format="string"/>
+        </setting>
+
         <setting id="sslVerify" type="boolean" label="30066" help="30067">
           <level>0</level>
           <default>true</default>
           <control type="toggle"/>
         </setting>
+        <setting id="notifyConnection" type="boolean" label="30326" help="30327">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
+        <setting id="selectWhoIsWatching" type="string" label="30079" help="30080">
+          <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <dependencies>
+            <dependency type="enable">
+              <condition operator="is" setting="isLoggedIn">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=whoshortlist)</data>
+            <close>true</close>
+          </control>
+        </setting>
         <setting id="enableDelete" type="boolean" label="30073" help="30074">
           <level>0</level>
           <default>false</default>
+          <control type="toggle"/>
+        </setting>
+        <setting id="deleteNoConfirm" type="boolean" label="30075" help="30076">
+          <level>0</level>
+          <default>false</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="enableDelete">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <!-- Deliberately not covered by deleteNoConfirm: this prompt *is* the
+             feature, and a silent auto-delete at the end of every episode is
+             not something an opt-out on the manual Delete entry should buy. -->
+        <setting id="deleteAfterWatching" type="boolean" label="30077" help="30078">
+          <level>0</level>
+          <default>false</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="enableDelete">true</condition>
+            </dependency>
+          </dependencies>
           <control type="toggle"/>
         </setting>
         <setting id="resumeJumpBack" type="integer" label="30475" help="30476">

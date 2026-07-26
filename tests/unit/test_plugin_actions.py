@@ -85,3 +85,74 @@ def test_repair_without_a_whitelist_does_nothing(wired, monkeypatch):
 
     assert dialog.multiselects == []
     assert notified == []
+
+
+# --- delete from server ------------------------------------------------------
+
+
+class DeletingApi:
+    def __init__(self):
+        self.deleted = []
+
+    def delete_item(self, item_id):
+        self.deleted.append(item_id)
+
+
+@pytest.fixture
+def delete_wired(wired, monkeypatch):
+    dialog, _ = wired
+    api = DeletingApi()
+    toggles = {"enableDelete": True, "deleteNoConfirm": False}
+    monkeypatch.setattr(actions, "_api", lambda: api)
+    monkeypatch.setattr(
+        actions.settings, "get_bool", lambda key: toggles.get(key, False)
+    )
+    monkeypatch.setattr(actions.xbmc, "executebuiltin", lambda command: None)
+    return dialog, api, toggles
+
+
+def _delete_request():
+    return actions.Request(
+        "plugin://plugin.video.kofin/", -1, {"id": "i1", "name": "X"}
+    )
+
+
+def test_delete_confirms_first(delete_wired):
+    dialog, api, _ = delete_wired
+
+    actions.delete_item(_delete_request())
+
+    assert len(dialog.yesnos) == 1
+    assert api.deleted == ["i1"]
+
+
+def test_delete_declined_keeps_the_item(delete_wired):
+    dialog, api, _ = delete_wired
+    dialog.yesno_result = False
+
+    actions.delete_item(_delete_request())
+
+    assert api.deleted == []
+
+
+def test_delete_without_confirmation_skips_the_prompt(delete_wired):
+    """``deleteNoConfirm`` is scoped to the context-menu entry: picking Delete
+    off a menu is already the deliberate act the prompt was guarding."""
+    dialog, api, toggles = delete_wired
+    toggles["deleteNoConfirm"] = True
+
+    actions.delete_item(_delete_request())
+
+    assert dialog.yesnos == []
+    assert api.deleted == ["i1"]
+
+
+def test_delete_stays_off_without_the_opt_in(delete_wired):
+    dialog, api, toggles = delete_wired
+    toggles["enableDelete"] = False
+    toggles["deleteNoConfirm"] = True
+
+    actions.delete_item(_delete_request())
+
+    assert dialog.yesnos == []
+    assert api.deleted == []

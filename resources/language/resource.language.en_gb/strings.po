@@ -83,7 +83,7 @@ msgctxt "#30027"
 msgid "Sign in to %s"
 msgstr ""
 
-# 30050-30099 — Account tab
+# 30050-30099 — Account tab (30066-30067 and 30071-30080: Advanced tab)
 
 msgctxt "#30050"
 msgid "Account"
@@ -182,7 +182,31 @@ msgid "Enable Delete from server"
 msgstr ""
 
 msgctxt "#30074"
-msgid "Adds a Delete entry to the item Manage… menu. Deletion is permanent and applies on the Jellyfin server."
+msgid "Adds a Delete entry to an item's 'Jellyfin actions' context menu. Deletion is permanent: the file itself is removed on the Jellyfin server, for every user."
+msgstr ""
+
+msgctxt "#30075"
+msgid "Delete without confirmation"
+msgstr ""
+
+msgctxt "#30076"
+msgid "Delete the item as soon as the entry is picked, with no 'are you sure?' prompt. The deletion is still permanent and applies on the server."
+msgstr ""
+
+msgctxt "#30077"
+msgid "Offer to delete after watching"
+msgstr ""
+
+msgctxt "#30078"
+msgid "When a movie or episode finishes, ask whether to delete it from the server. Always asks, whatever 'Delete without confirmation' is set to."
+msgstr ""
+
+msgctxt "#30079"
+msgid "Who's watching shortlist"
+msgstr ""
+
+msgctxt "#30080"
+msgid "Choose which server users the addon's Who's watching? entry offers. Nothing selected offers everyone."
 msgstr ""
 
 # 30030-30049 — browse nodes
@@ -310,7 +334,7 @@ msgid "Maximum audio channels"
 msgstr ""
 
 msgctxt "#30119"
-msgid "Channel layout ceiling for transcoded audio."
+msgid "The most audio channels this device can play. Set it to what your amplifier or TV actually decodes."
 msgstr ""
 
 msgctxt "#30120"
@@ -634,7 +658,11 @@ msgid "Who's watching? (%s)"
 msgstr ""
 
 msgctxt "#30047"
-msgid "Who's watching? (signed in as %s)"
+msgid "Who's watching with %s?"
+msgstr ""
+
+msgctxt "#30048"
+msgid "Who can be added to the session"
 msgstr ""
 
 # 30250-30299 — Library tab
@@ -816,6 +844,9 @@ msgstr ""
 msgctxt "#30325"
 msgid "2160p"
 msgstr ""
+
+# 30326/30327 keep their sync-block ids: the setting moved to the Advanced
+# tab, and renumbering a shipped string only breaks translations.
 
 msgctxt "#30326"
 msgid "Notify on server connection changes"
@@ -1127,6 +1158,10 @@ msgstr ""
 
 msgctxt "#30505"
 msgid "Permanently delete \"%s\" from the server? This cannot be undone."
+msgstr ""
+
+msgctxt "#30506"
+msgid "Finished \"%s\". Permanently delete it from the server? This cannot be undone."
 msgstr ""
 
 msgctxt "#30507"
