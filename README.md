@@ -36,7 +36,7 @@ Install via the [Kontell Repository](https://github.com/kontell/repository.konte
 
 ## Migration from Jellyfin-Kodi
 
-1.  Remove all libraires via jellyfin
+1.  Remove all libraries via jellyfin
 2.  Reset local database
 
 ## Configuration
