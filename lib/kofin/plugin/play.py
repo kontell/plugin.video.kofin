@@ -265,10 +265,15 @@ def play(request: Request) -> None:
 
     LOG.info("play %s via %s", item_id, method)
     li = listitems.build(item, api.server)
-    if from_start:
-        # The ListItem carries the server resume point; clear it so PlayMedia
-        # does not seek the fresh Play Next start back into the item.
-        li.getVideoInfoTag().setResumePoint(0.0)
+    if not is_audio:
+        # Kodi seeks the resolved item to whatever resume point it carries,
+        # regardless of the resume:true|false it passed us — which is why
+        # "Play from beginning" still landed on the server resume point that
+        # build() had stamped, and why a fresh Play Next start needed the
+        # point cleared. State the intended start instead of trying to
+        # suppress a stale one: this is the single number Kodi acts on, and
+        # it is the same number reported as the play's start position.
+        li.getVideoInfoTag().setResumePoint(start_ticks / 10_000_000)
     # Library-item paths carry the Kodi database id (plan §2 path identity);
     # stamping it on the tag links the playback to the library row for
     # widgets invoked outside a library window.

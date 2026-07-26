@@ -310,3 +310,141 @@ def test_choose_bitrate_single_source_bypasses_dialog(monkeypatch):
 
     monkeypatch.setattr("xbmcgui.Dialog", ExplodingDialog)
     assert context.choose_bitrate(["0"]) == "0"
+
+
+# --- the resolved item's resume point ----------------------------------------
+#
+# Kodi seeks the resolved item to whatever resume point it carries, whatever
+# resume:true|false it passed in — so that point is the play route's statement
+# of where playback starts, not a leftover from the item's metadata.
+
+
+class ResumeTagRecorder:
+    def __init__(self):
+        self.resume_point = None
+        self.dbid = None
+
+    def setResumePoint(self, time, totaltime=0.0):
+        self.resume_point = time
+
+    def setDbId(self, dbid, *args):
+        self.dbid = dbid
+
+
+class ResumeListItem:
+    def __init__(self):
+        self.tag = ResumeTagRecorder()
+        self.path = ""
+
+    def getVideoInfoTag(self):
+        return self.tag
+
+    def getMusicInfoTag(self):
+        return self.tag
+
+    def setPath(self, path):
+        self.path = path
+
+    def setMimeType(self, mime):
+        pass
+
+    def setContentLookup(self, lookup):
+        pass
+
+    def setSubtitles(self, subtitles):
+        pass
+
+
+class ResumeApi:
+    server = "http://s:8096"
+
+    def __init__(self, item):
+        self._item = item
+        self.start_ticks = []
+
+    def item(self, item_id):
+        return self._item
+
+    def playback_info(self, item_id, profile, start_ticks=0, **kwargs):
+        self.start_ticks.append(start_ticks)
+        return {
+            "MediaSources": [
+                {"Id": "src1", "SupportsDirectStream": True, "Container": "mkv"}
+            ],
+            "PlaySessionId": "ps1",
+        }
+
+    def media_segments(self, item_id):
+        return {"Items": []}
+
+
+@pytest.fixture
+def resume_env(monkeypatch):
+    from kofin.core import state
+    from tests.unit.fakes import FakeAddon, FakeWindow
+
+    FakeAddon.store = {}
+    FakeWindow.store = {}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+
+    episode = {
+        "Id": "ep1",
+        "Type": "Episode",
+        "Name": "An Episode",
+        "RunTimeTicks": 1500 * 10_000_000,
+        "UserData": {"PlaybackPositionTicks": 600 * 10_000_000},
+    }
+    api = ResumeApi(episode)
+    listitem = ResumeListItem()
+    resolved = []
+
+    class Creds:
+        is_logged_in = True
+        device_id = "dev1"
+
+        @classmethod
+        def load(cls):
+            return cls()
+
+    class ApiFactory:
+        @staticmethod
+        def from_credentials(http, creds):
+            return api
+
+    monkeypatch.setattr(play, "Credentials", Creds)
+    monkeypatch.setattr(play, "Api", ApiFactory)
+    monkeypatch.setattr(play, "Http", lambda verify: None)
+    monkeypatch.setattr(play.listitems, "build", lambda item, server: listitem)
+    monkeypatch.setattr(
+        "xbmcplugin.setResolvedUrl", lambda h, ok, li: resolved.append(li)
+    )
+
+    state.clear_play_queue()
+    return {"api": api, "li": listitem, "resolved": resolved, "addon": FakeAddon}
+
+
+def run_play(params, resume):
+    from kofin.plugin.router import Request
+
+    play.play(Request("plugin://x/", 1, params, resume))
+
+
+def test_resume_true_starts_at_the_server_position(resume_env):
+    run_play({"id": "ep1"}, resume=True)
+    assert resume_env["api"].start_ticks == [600 * 10_000_000]
+    assert resume_env["li"].tag.resume_point == 600.0
+
+
+def test_play_from_beginning_clears_the_stamped_resume_point(resume_env):
+    # resume:false is Kodi saying "Play from beginning". It used to land on the
+    # server resume point anyway, because build() had stamped one on the item.
+    run_play({"id": "ep1"}, resume=False)
+    assert resume_env["api"].start_ticks == [0]
+    assert resume_env["li"].tag.resume_point == 0.0
+
+
+def test_play_next_start_overrides_a_resume_prompt(resume_env):
+    run_play({"id": "ep1", "fromstart": "1"}, resume=True)
+    assert resume_env["api"].start_ticks == [0]
+    assert resume_env["li"].tag.resume_point == 0.0
