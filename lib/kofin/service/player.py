@@ -53,13 +53,21 @@ SEEK_SETTLE_TICKS = 12
 # startup buffering. The notification fires only once the seek actually lands.
 SEEK_RETRIES = 6
 
-# On a playback transition (notably Play Next A->B) getTime() reports the
-# *previous* item's position — which keeps advancing, so it cannot be told from
-# real playback by stability alone — until Kodi switches players. Since Play Next
-# always fires near A's end, that stale value sits far above the new item's
-# intended start; the engine ignores positions more than this many seconds past
-# the intended start until playback actually reaches the new item.
-FRESH_START_MARGIN = 120.0
+# A starting playback is not at its start position yet, in either direction.
+# Below it: Kodi reports 0 while it seeks to the resume point, and an intro
+# beginning at 0.0 fires against that phantom zero. Above it: on a transition
+# (notably Play Next A->B) getTime() reports the *previous* item's position —
+# which keeps advancing, so it cannot be told from real playback by stability
+# alone — and Play Next fires near A's end, so that value sits far past B's
+# start. The engine holds off arming until the position is within this many
+# seconds of the one the play route resolved, which is generous enough for a
+# resume seek snapping back to a keyframe.
+FRESH_START_TOLERANCE = 30.0
+
+# ...but not forever: a seek that never lands must not leave the engine
+# disarmed for the whole item. ~10 s of ticks, then arm against whatever the
+# player reports.
+FRESH_START_MAX_TICKS = 40
 
 # Autoplay starts the next episode this close to the overlay deadline, so the
 # handoff lands before natural EOF tears the player down.
@@ -152,20 +160,25 @@ def plan_for_crossing(
     return False, ("playnext", "close") if offer_next else ()
 
 
-def segments_containing(
+def segments_entered_at(
     segments: List[JsonDict], position: float
 ) -> Set[Tuple[float, float]]:
-    """The ``(start, end)`` keys of every segment holding ``position``.
+    """The ``(start, end)`` keys of every segment ``position`` lands inside.
 
-    Used to mark the segments a playback *started* inside: resuming into the
-    middle of an intro must not fire that intro's skip prompt (the prompt
-    would open and auto-close a moment later, which is all the viewer sees).
+    Used to mark the segments a playback *started* part-way through: resuming
+    into the middle of an intro must not fire that intro's skip prompt, which
+    opens and auto-closes a moment later — all the viewer sees is a flash.
+
+    Strictly past the start, because a position exactly at a segment's start
+    has not entered it. Intros routinely begin at 0.0, and playing such an
+    episode from the beginning is about to watch that intro from its first
+    frame; offering to skip it is the entire feature.
     """
     keys = set()
     for segment in segments:
         start = float(segment["Start"])
         end = float(segment["End"])
-        if start <= position <= end:
+        if start < position <= end:
             keys.add((start, end))
     return keys
 
@@ -320,6 +333,7 @@ class Player(xbmc.Player):
         self._pending_notify: Optional[str] = None
         self._pending_jump = False
         self._fresh_start = False
+        self._fresh_start_ticks = 0
         self._next_episode: Optional[JsonDict] = None
         self._runtime = 0.0
         self._near_end_at: Optional[float] = None
@@ -559,6 +573,7 @@ class Player(xbmc.Player):
         self._near_end_prompted = False
         self._skip_target = None
         self._fresh_start = False
+        self._fresh_start_ticks = 0
 
     def _stop_checker(self) -> None:
         checker = self._checker
@@ -584,19 +599,23 @@ class Player(xbmc.Player):
             return
 
         if self._fresh_start:
-            # Hold off arming while getTime() still reports the previous item's
-            # position (Play Next A->B): that stale value sits far past the new
-            # item's intended start and would fire a phantom overlay.
+            # Hold off arming until the position getTime() reports is the one
+            # this playback was resolved to start at; anything else is a
+            # phantom that fires segments nobody is anywhere near.
             expected = float((self._item or {}).get("CurrentPosition") or 0.0)
-            if now > expected + FRESH_START_MARGIN:
+            self._fresh_start_ticks += 1
+            if (
+                abs(now - expected) > FRESH_START_TOLERANCE
+                and self._fresh_start_ticks < FRESH_START_MAX_TICKS
+            ):
                 self._prev_pos = now
                 return
             self._fresh_start = False
             self._prev_pos = None  # no crossing credit from the stale position
             # ``expected`` (the position the play route resolved) rather than
-            # ``now``: it is authoritative from the first tick, where getTime()
-            # can still read 0 while Kodi seeks to the resume point.
-            self._start_inside = segments_containing(self._segments, expected)
+            # ``now``: it is exact, where ``now`` carries whatever keyframe the
+            # resume seek snapped back to.
+            self._start_inside = segments_entered_at(self._segments, expected)
 
         if self._runtime <= 0:
             self._runtime = self._live_runtime()

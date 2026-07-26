@@ -19,6 +19,7 @@ from kofin.service.player import (
     next_episode_label,
     plan_for_crossing,
     safe_seek_end,
+    segments_entered_at,
 )
 from kofin.service.segments import parse_segments
 from tests.unit.fakes import FakeAddon, FakeWindow
@@ -329,7 +330,7 @@ def test_auto_skip_gives_up_after_retries_without_false_toast(engine, monkeypatc
 def test_fresh_start_ignores_stale_transition_position(engine):
     # Play Next A->B (started from the beginning): B's engine briefly sees A's
     # near-its-end position (1341), which lands inside B's own credits. Because
-    # it is far past B's intended start (0), it must not fire a phantom Skip
+    # it is far from B's intended start (0), it must not fire a phantom Skip
     # Outro; once playback reaches B the intro arms normally.
     engine.arm([seg("Introduction", 0, 80), seg("Credits", 1300, 1380)])
     engine.player._item["CurrentPosition"] = 0.0  # fromstart
@@ -339,6 +340,36 @@ def test_fresh_start_ignores_stale_transition_position(engine):
     engine.tick(0.4)  # B's real position near its start -> arm; intro auto-skips
     assert engine.seeks == [80.0]
     assert engine.overlay is None  # the stale credits never fired
+
+
+def test_fresh_start_waits_for_a_resume_seek_to_land(engine):
+    """The live failure: Kodi reports 0 while it seeks to the resume point, and
+    an intro beginning at 0.0 fired against that phantom zero -- the flash of
+    Skip Intro on every resume. The engine has to wait for the real position.
+    """
+    FakeAddon.store["skipIntroductionMode"] = "2"
+    engine.arm([seg("Introduction", 0, 88.4)])
+    engine.player._item["CurrentPosition"] = 180.3  # resolved resume position
+    engine.player._fresh_start = True
+    engine.tick(0.0)  # pre-seek phantom
+    engine.tick(0.0)
+    assert engine.overlays == []
+    engine.tick(178.9)  # the seek landed
+    assert engine.overlays == []  # the intro is long behind us
+    assert engine.player._fresh_start is False
+
+
+def test_fresh_start_gives_up_waiting_rather_than_disarming_the_item(engine):
+    # A seek that never lands must not cost the whole item its segments.
+    FakeAddon.store["skipIntroductionMode"] = "2"
+    engine.arm([seg("Introduction", 100, 130)])
+    engine.player._item["CurrentPosition"] = 900.0  # never reached
+    engine.player._fresh_start = True
+    for _ in range(player_mod.FRESH_START_MAX_TICKS):
+        engine.tick(0.0)
+    assert engine.player._fresh_start is False
+    engine.tick(101.0)
+    assert engine.overlay is not None  # armed again, offering the skip
 
 
 def test_resume_into_a_segment_offers_no_skip(engine):
@@ -392,13 +423,28 @@ def test_resume_suppression_lifts_once_the_segment_is_left(engine):
     assert engine.overlays[0].skip_label == "string-30481"
 
 
-def test_segments_containing_bounds_are_inclusive():
-    segments = [seg("Introduction", 10, 40), seg("Credits", 100, 130)]
-    assert player_mod.segments_containing(segments, 9.9) == set()
-    assert player_mod.segments_containing(segments, 10.0) == {(10.0, 40.0)}
-    assert player_mod.segments_containing(segments, 40.0) == {(10.0, 40.0)}
-    assert player_mod.segments_containing(segments, 40.1) == set()
-    assert player_mod.segments_containing(segments, 130.0) == {(100.0, 130.0)}
+def test_segments_entered_at_excludes_a_position_on_the_start():
+    # A playback starting exactly where a segment starts has not entered it --
+    # it is about to watch it, which is when the skip offer is worth having.
+    segments = [seg("Introduction", 0, 40), seg("Credits", 100, 130)]
+    assert segments_entered_at(segments, 0.0) == set()
+    assert segments_entered_at(segments, 0.1) == {(0.0, 40.0)}
+    assert segments_entered_at(segments, 40.0) == {(0.0, 40.0)}
+    assert segments_entered_at(segments, 40.1) == set()
+    assert segments_entered_at(segments, 100.0) == set()
+    assert segments_entered_at(segments, 130.0) == {(100.0, 130.0)}
+
+
+def test_playing_from_the_start_still_offers_to_skip_an_intro_at_zero(engine):
+    # The suppression must not swallow the ordinary case: intros routinely
+    # begin at 0.0, and every from-the-start playback begins there too.
+    FakeAddon.store["skipIntroductionMode"] = "2"
+    engine.arm([seg("Introduction", 0, 88.4)])
+    engine.player._item["CurrentPosition"] = 0.0
+    engine.player._fresh_start = True
+    engine.tick(0.1)
+    overlay = engine.overlay
+    assert overlay is not None and overlay.skip_label == "string-30481"
 
 
 def test_short_segment_stepped_over_still_fires(engine):
