@@ -53,13 +53,21 @@ SEEK_SETTLE_TICKS = 12
 # startup buffering. The notification fires only once the seek actually lands.
 SEEK_RETRIES = 6
 
-# On a playback transition (notably Play Next A->B) getTime() reports the
-# *previous* item's position — which keeps advancing, so it cannot be told from
-# real playback by stability alone — until Kodi switches players. Since Play Next
-# always fires near A's end, that stale value sits far above the new item's
-# intended start; the engine ignores positions more than this many seconds past
-# the intended start until playback actually reaches the new item.
-FRESH_START_MARGIN = 120.0
+# A starting playback is not at its start position yet, in either direction.
+# Below it: Kodi reports 0 while it seeks to the resume point, and an intro
+# beginning at 0.0 fires against that phantom zero. Above it: on a transition
+# (notably Play Next A->B) getTime() reports the *previous* item's position —
+# which keeps advancing, so it cannot be told from real playback by stability
+# alone — and Play Next fires near A's end, so that value sits far past B's
+# start. The engine holds off arming until the position is within this many
+# seconds of the one the play route resolved, which is generous enough for a
+# resume seek snapping back to a keyframe.
+FRESH_START_TOLERANCE = 30.0
+
+# ...but not forever: a seek that never lands must not leave the engine
+# disarmed for the whole item. ~10 s of ticks, then arm against whatever the
+# player reports.
+FRESH_START_MAX_TICKS = 40
 
 # Autoplay starts the next episode this close to the overlay deadline, so the
 # handoff lands before natural EOF tears the player down.
@@ -150,6 +158,29 @@ def plan_for_crossing(
             return False, ("skip", "playnext", "close")
         return False, ("skip", "close")
     return False, ("playnext", "close") if offer_next else ()
+
+
+def segments_entered_at(
+    segments: List[JsonDict], position: float
+) -> Set[Tuple[float, float]]:
+    """The ``(start, end)`` keys of every segment ``position`` lands inside.
+
+    Used to mark the segments a playback *started* part-way through: resuming
+    into the middle of an intro must not fire that intro's skip prompt, which
+    opens and auto-closes a moment later — all the viewer sees is a flash.
+
+    Strictly past the start, because a position exactly at a segment's start
+    has not entered it. Intros routinely begin at 0.0, and playing such an
+    episode from the beginning is about to watch that intro from its first
+    frame; offering to skip it is the entire feature.
+    """
+    keys = set()
+    for segment in segments:
+        start = float(segment["Start"])
+        end = float(segment["End"])
+        if start < position <= end:
+            keys.add((start, end))
+    return keys
 
 
 def next_episode_label(episode: JsonDict) -> str:
@@ -292,6 +323,9 @@ class Player(xbmc.Player):
         self._segments_loaded = False
         self._armed_index = 0
         self._prompted: Set[Tuple[float, float]] = set()
+        # Segments this playback started inside (resume point mid-segment):
+        # no skip prompt for them until the position leaves them.
+        self._start_inside: Set[Tuple[float, float]] = set()
         self._prev_pos: Optional[float] = None
         self._settle_target: Optional[float] = None
         self._settle_ticks = 0
@@ -299,6 +333,7 @@ class Player(xbmc.Player):
         self._pending_notify: Optional[str] = None
         self._pending_jump = False
         self._fresh_start = False
+        self._fresh_start_ticks = 0
         self._next_episode: Optional[JsonDict] = None
         self._runtime = 0.0
         self._near_end_at: Optional[float] = None
@@ -527,6 +562,7 @@ class Player(xbmc.Player):
         self._segments_loaded = False
         self._armed_index = 0
         self._prompted = set()
+        self._start_inside = set()
         self._prev_pos = None
         self._settle_target = None
         self._settle_ticks = 0
@@ -537,6 +573,7 @@ class Player(xbmc.Player):
         self._near_end_prompted = False
         self._skip_target = None
         self._fresh_start = False
+        self._fresh_start_ticks = 0
 
     def _stop_checker(self) -> None:
         checker = self._checker
@@ -562,15 +599,23 @@ class Player(xbmc.Player):
             return
 
         if self._fresh_start:
-            # Hold off arming while getTime() still reports the previous item's
-            # position (Play Next A->B): that stale value sits far past the new
-            # item's intended start and would fire a phantom overlay.
+            # Hold off arming until the position getTime() reports is the one
+            # this playback was resolved to start at; anything else is a
+            # phantom that fires segments nobody is anywhere near.
             expected = float((self._item or {}).get("CurrentPosition") or 0.0)
-            if now > expected + FRESH_START_MARGIN:
+            self._fresh_start_ticks += 1
+            if (
+                abs(now - expected) > FRESH_START_TOLERANCE
+                and self._fresh_start_ticks < FRESH_START_MAX_TICKS
+            ):
                 self._prev_pos = now
                 return
             self._fresh_start = False
             self._prev_pos = None  # no crossing credit from the stale position
+            # ``expected`` (the position the play route resolved) rather than
+            # ``now``: it is exact, where ``now`` carries whatever keyframe the
+            # resume seek snapped back to.
+            self._start_inside = segments_entered_at(self._segments, expected)
 
         if self._runtime <= 0:
             self._runtime = self._live_runtime()
@@ -640,6 +685,9 @@ class Player(xbmc.Player):
             len(segments),
         )
         self._prompted = {key for key in self._prompted if key[0] <= now <= key[1]}
+        self._start_inside = {
+            key for key in self._start_inside if key[0] <= now <= key[1]
+        }
         if self._near_end_at is not None and now < self._near_end_at:
             self._near_end_prompted = False
         # An overlay whose firing window the jump left is stale — close it
@@ -671,6 +719,7 @@ class Player(xbmc.Player):
                     break  # stay armed on this segment until we pass it
             if now > end:
                 self._prompted.discard(key)  # left it: re-arm for a seek back
+                self._start_inside.discard(key)
                 index += 1
                 continue
             break  # segment still ahead
@@ -715,9 +764,17 @@ class Player(xbmc.Player):
         )
         if auto_seek:
             self._auto_skip(segment, now)
-        if now >= float(segment["End"]) - 0.25:
-            # Stepped past the boundary already: a skip button would be noise,
-            # but a Play Next offer still stands.
+        started_inside = (
+            float(segment["Start"]),
+            float(segment["End"]),
+        ) in self._start_inside
+        if started_inside or now >= float(segment["End"]) - 0.25:
+            # No skip button. Either the crossing already stepped past the
+            # boundary, or playback *started* inside this segment — a resume
+            # point mid-intro, where the viewer asked to pick up exactly here
+            # and all the prompt does is flash and auto-close. Auto-skip is
+            # untouched ("always skip intros" must not lapse because a resume
+            # landed in one) and a Play Next offer still stands.
             buttons = tuple(button for button in buttons if button != "skip")
         if any(button in ("skip", "playnext") for button in buttons):
             self._open_overlay(segment, buttons)

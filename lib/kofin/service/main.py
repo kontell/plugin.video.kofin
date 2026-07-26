@@ -18,6 +18,7 @@ from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials, addon_version
 from kofin.core.ws import WSClient
+from kofin.service.kodiuserdata import KodiUserData
 from kofin.service.player import Player, backfill_library_claim
 from kofin.service.remote import RemoteHandler
 from kofin.service.settings_apply import SettingsApplier
@@ -97,6 +98,7 @@ class Service(xbmc.Monitor):
         self.ws: Optional[WSClient] = None
         self.player = Player(self.api)
         self.remote = RemoteHandler()
+        self.kodi_userdata = KodiUserData(self.api)
         self.library: Optional[Any] = None  # kofin.sync.library.Library
         self.syncplay: Optional[Any] = None  # kofin.syncplay.SyncPlayManager
         self._syncplay_menu: Optional[threading.Thread] = None
@@ -404,6 +406,11 @@ class Service(xbmc.Monitor):
                 decoded = _decode_kodi_data(data)
                 self._syncplay_forward("on_kodi_play", decoded)
                 self._backfill_library_claim(decoded)
+            elif method == "VideoLibrary.OnUpdate" and self.credentials.is_logged_in:
+                # Kodi's own "Mark as watched" / "Reset resume position" only
+                # touch MyVideos; without this they never reach the server and
+                # the next userdata sync undoes them.
+                self.kodi_userdata.submit(_decode_kodi_data(data))
             return
         if sender != ipc.SENDER:
             return
@@ -459,6 +466,7 @@ class Service(xbmc.Monitor):
                 LOG.warning("library thread did not stop within deadline")
             self.library = None
         self.player.stop_threads()
+        self.kodi_userdata.stop()
         if self.ws is not None:
             self.ws.stop()
             self.ws = None

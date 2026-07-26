@@ -1063,6 +1063,14 @@ msgctxt "#30474"
 msgid "Count down on the Play Next prompt and start the next episode automatically."
 msgstr ""
 
+msgctxt "#30475"
+msgid "Resume offset"
+msgstr ""
+
+msgctxt "#30476"
+msgid "Seconds to rewind before the stored resume point, so playback picks up a moment earlier."
+msgstr ""
+
 msgctxt "#30481"
 msgid "Skip Intro"
 msgstr ""

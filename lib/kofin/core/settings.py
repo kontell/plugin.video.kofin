@@ -66,6 +66,37 @@ def device_name() -> str:
     return xbmc.getInfoLabel("System.FriendlyName") or "Kodi"
 
 
+def resume_offset() -> float:
+    """Seconds a resume point is rewound by (Advanced tab, stored negative).
+
+    Never raises: the sync writers call this for every item they stamp a
+    bookmark on, and a settings read that failed must degrade to "no offset"
+    rather than take the item down with it.
+    """
+    try:
+        return abs(float(get_int("resumeJumpBack")))
+    except Exception:  # pragma: no cover - defensive
+        return 0.0
+
+
+def adjusted_resume(position_seconds: float) -> float:
+    """``position_seconds`` pulled back by :func:`resume_offset`.
+
+    The single rule behind three call sites that must agree — the Kodi
+    bookmark the sync writes, the resume point a listing advertises, and the
+    position playback actually starts at. If they disagree, Kodi's resume
+    prompt names one time and playback lands on another.
+
+    Fork ``adjust_resume`` semantics: a position shorter than the offset is
+    left alone rather than clamped to zero, so a barely-started item keeps its
+    in-progress bookmark instead of reverting to unwatched.
+    """
+    offset = resume_offset()
+    if position_seconds > offset:
+        return position_seconds - offset
+    return position_seconds
+
+
 class Credentials:
     """The hidden-settings credential record for the single server."""
 

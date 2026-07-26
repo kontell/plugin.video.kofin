@@ -56,3 +56,28 @@ def test_clear_logs_out_but_keeps_server_address_and_device():
     assert loaded.token == ""
     assert loaded.user_id == ""
     assert loaded.is_logged_in is False
+
+
+def test_resume_offset_is_a_magnitude():
+    # The slider stores a negative number ("-10s") because that reads right in
+    # the settings UI; every caller wants seconds to rewind by.
+    assert settings.resume_offset() == 0.0  # unset
+    FakeAddon.store["resumeJumpBack"] = "-10"
+    assert settings.resume_offset() == 10.0
+    FakeAddon.store["resumeJumpBack"] = "0"
+    assert settings.resume_offset() == 0.0
+
+
+def test_adjusted_resume_rewinds_by_the_offset():
+    FakeAddon.store["resumeJumpBack"] = "-10"
+    assert settings.adjusted_resume(600.0) == 590.0
+    assert settings.adjusted_resume(0.0) == 0.0
+
+
+def test_adjusted_resume_leaves_a_position_shorter_than_the_offset():
+    # Fork semantics: clamping to zero would flip a barely-started item back to
+    # unwatched, losing the in-progress bookmark the viewer expects to see.
+    FakeAddon.store["resumeJumpBack"] = "-60"
+    assert settings.adjusted_resume(45.0) == 45.0
+    assert settings.adjusted_resume(60.0) == 60.0
+    assert settings.adjusted_resume(60.5) == 0.5

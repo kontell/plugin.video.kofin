@@ -310,3 +310,220 @@ def test_choose_bitrate_single_source_bypasses_dialog(monkeypatch):
 
     monkeypatch.setattr("xbmcgui.Dialog", ExplodingDialog)
     assert context.choose_bitrate(["0"]) == "0"
+
+
+# --- the resolved item's resume point ----------------------------------------
+#
+# A resume point on the resolved item overrides the choice the user made at
+# Kodi's prompt, and cannot be cleared once stamped — so the play route builds
+# the item with the position it resolved, and 0 builds it without one.
+
+
+class ResumeTagRecorder:
+    def __init__(self):
+        self.resume_point = None
+        self.dbid = None
+
+    def setResumePoint(self, time, totaltime=0.0):
+        self.resume_point = time
+
+    def setDbId(self, dbid, *args):
+        self.dbid = dbid
+
+
+class ResumeListItem:
+    def __init__(self):
+        self.tag = ResumeTagRecorder()
+        self.path = ""
+
+    def getVideoInfoTag(self):
+        return self.tag
+
+    def getMusicInfoTag(self):
+        return self.tag
+
+    def setPath(self, path):
+        self.path = path
+
+    def setMimeType(self, mime):
+        pass
+
+    def setContentLookup(self, lookup):
+        pass
+
+    def setSubtitles(self, subtitles):
+        pass
+
+
+class ResumeApi:
+    server = "http://s:8096"
+
+    def __init__(self, item):
+        self._item = item
+        self.start_ticks = []
+
+    def item(self, item_id):
+        return self._item
+
+    def playback_info(self, item_id, profile, start_ticks=0, **kwargs):
+        self.start_ticks.append(start_ticks)
+        return {
+            "MediaSources": [
+                {"Id": "src1", "SupportsDirectStream": True, "Container": "mkv"}
+            ],
+            "PlaySessionId": "ps1",
+        }
+
+    def media_segments(self, item_id):
+        return {"Items": []}
+
+
+@pytest.fixture
+def resume_env(monkeypatch):
+    from kofin.core import state
+    from tests.unit.fakes import FakeAddon, FakeWindow
+
+    FakeAddon.store = {}
+    FakeWindow.store = {}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    # No Kodi library row unless a test seeds one.
+    monkeypatch.setattr(
+        "kofin.core.kodirpc.resume_seconds", lambda kodi_id, media: None
+    )
+
+    episode = {
+        "Id": "ep1",
+        "Type": "Episode",
+        "Name": "An Episode",
+        "RunTimeTicks": 1500 * 10_000_000,
+        "UserData": {"PlaybackPositionTicks": 600 * 10_000_000},
+    }
+    api = ResumeApi(episode)
+    listitem = ResumeListItem()
+    resolved = []
+
+    class Creds:
+        is_logged_in = True
+        device_id = "dev1"
+
+        @classmethod
+        def load(cls):
+            return cls()
+
+    class ApiFactory:
+        @staticmethod
+        def from_credentials(http, creds):
+            return api
+
+    built = {}
+
+    def fake_build(item, server, resume_seconds=None):
+        built["resume_seconds"] = resume_seconds
+        return listitem
+
+    monkeypatch.setattr(play, "Credentials", Creds)
+    monkeypatch.setattr(play, "Api", ApiFactory)
+    monkeypatch.setattr(play, "Http", lambda verify: None)
+    monkeypatch.setattr(play.listitems, "build", fake_build)
+    monkeypatch.setattr(
+        "xbmcplugin.setResolvedUrl", lambda h, ok, li: resolved.append(li)
+    )
+
+    state.clear_play_queue()
+    return {
+        "api": api,
+        "li": listitem,
+        "resolved": resolved,
+        "addon": FakeAddon,
+        "built": built,
+    }
+
+
+def run_play(params, resume):
+    from kofin.plugin.router import Request
+
+    play.play(Request("plugin://x/", 1, params, resume))
+
+
+def test_resume_true_starts_at_the_server_position(resume_env):
+    run_play({"id": "ep1"}, resume=True)
+    assert resume_env["api"].start_ticks == [600 * 10_000_000]
+    assert resume_env["built"]["resume_seconds"] == 600.0
+
+
+def test_play_from_beginning_builds_the_item_without_a_resume_point(resume_env):
+    # resume:false is Kodi saying "Play from beginning". It landed on the
+    # server resume point anyway, because build() stamps one on everything.
+    run_play({"id": "ep1"}, resume=False)
+    assert resume_env["api"].start_ticks == [0]
+    assert resume_env["built"]["resume_seconds"] == 0.0
+
+
+def test_play_next_start_overrides_a_resume_prompt(resume_env):
+    run_play({"id": "ep1", "fromstart": "1"}, resume=True)
+    assert resume_env["api"].start_ticks == [0]
+    assert resume_env["built"]["resume_seconds"] == 0.0
+
+
+def test_explicit_start_ticks_wins_and_is_exact(resume_env):
+    # A SyncPlay group start says exactly where the group timeline is; the
+    # resume offset must not shift it.
+    resume_env["addon"].store["resumeJumpBack"] = "-10"
+    run_play({"id": "ep1", "startticks": str(300 * 10_000_000)}, resume=True)
+    assert resume_env["api"].start_ticks == [300 * 10_000_000]
+    assert resume_env["built"]["resume_seconds"] == 300.0
+
+
+def test_resume_start_carries_the_offset(resume_env):
+    resume_env["addon"].store["resumeJumpBack"] = "-10"
+    run_play({"id": "ep1"}, resume=True)
+    assert resume_env["api"].start_ticks == [590 * 10_000_000]
+    assert resume_env["built"]["resume_seconds"] == 590.0
+
+
+# Kodi seeks a library item to the bookmark in its own database and ignores
+# what the resolved item says, so for a library row that bookmark is the start
+# position — and it already carries the offset, applied when the sync wrote it.
+
+
+def test_library_resume_starts_at_kodis_own_bookmark(resume_env, monkeypatch):
+    resume_env["addon"].store["resumeJumpBack"] = "-10"
+    monkeypatch.setattr(
+        "kofin.core.kodirpc.resume_seconds", lambda kodi_id, media: 200.0
+    )
+    run_play({"id": "ep1", "dbid": "8956"}, resume=True)
+    # 200, not 590: the server's position is not what Kodi is about to seek to,
+    # and not 190 either -- the offset is already in the bookmark.
+    assert resume_env["api"].start_ticks == [200 * 10_000_000]
+    assert resume_env["built"]["resume_seconds"] == 200.0
+
+
+def test_library_resume_honours_a_cleared_bookmark(resume_env, monkeypatch):
+    # Kodi will start at 0 whatever the server thinks; saying otherwise reports
+    # a position nothing is at.
+    monkeypatch.setattr("kofin.core.kodirpc.resume_seconds", lambda kodi_id, media: 0.0)
+    run_play({"id": "ep1", "dbid": "8956"}, resume=True)
+    assert resume_env["api"].start_ticks == [0]
+    assert resume_env["built"]["resume_seconds"] == 0.0
+
+
+def test_unreadable_row_falls_back_to_the_server_position(resume_env, monkeypatch):
+    resume_env["addon"].store["resumeJumpBack"] = "-10"
+    monkeypatch.setattr(
+        "kofin.core.kodirpc.resume_seconds", lambda kodi_id, media: None
+    )
+    run_play({"id": "ep1", "dbid": "8956"}, resume=True)
+    assert resume_env["api"].start_ticks == [590 * 10_000_000]
+
+
+def test_non_library_resume_uses_the_server_position(resume_env, monkeypatch):
+    # A plugin listing has no Kodi bookmark, so the resolved item's resume
+    # point is the only one in play and the server's position is the answer.
+    def explode(kodi_id, media):  # pragma: no cover - must not be reached
+        raise AssertionError("no dbid, so no library row to read")
+
+    resume_env["addon"].store["resumeJumpBack"] = "-10"
+    monkeypatch.setattr("kofin.core.kodirpc.resume_seconds", explode)
+    run_play({"id": "ep1"}, resume=True)
+    assert resume_env["api"].start_ticks == [590 * 10_000_000]
