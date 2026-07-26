@@ -11,7 +11,7 @@ import xbmc
 import xbmcgui
 import xbmcplugin
 
-from kofin.core import deviceprofile, settings, state
+from kofin.core import deviceprofile, kodirpc, settings, state
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
@@ -200,6 +200,35 @@ def prefetch_segments(api: Api, item: JsonDict) -> Optional[List[JsonDict]]:
         return None
 
 
+def resume_start_ticks(item: JsonDict, dbid: str) -> int:
+    """Where a resume actually starts, in ticks.
+
+    For a library row that is the bookmark in Kodi's own database, taken
+    verbatim. Kodi seeks a library item to that bookmark and ignores what the
+    resolved item says — measured: with the bookmark at 200s and the resolved
+    item stating 895s, playback landed at 200s — so any other answer is a
+    number nothing acts on. It is also the time Kodi's resume prompt just
+    quoted at the user, and the sync writes it from the server's position with
+    the resume offset already applied, so applying the offset again here would
+    double it.
+
+    Everything else — a plugin listing, a row kofin cannot read — has no Kodi
+    bookmark to seek to. There the resolved item's resume point is the only one
+    in play, so the server's position (offset applied here) is both the answer
+    and what Kodi will act on.
+
+    A readable row whose bookmark is 0 answers 0: Kodi will start at the
+    beginning whatever the server thinks, and saying so is the honest report.
+    """
+    media = listitems.MEDIATYPE.get(item.get("Type", ""), "")
+    if dbid.isdigit() and media in kodirpc.RESUME_QUERY:
+        kodi_resume = kodirpc.resume_seconds(int(dbid), media)
+        if kodi_resume is not None:
+            return int(kodi_resume * 10_000_000)
+    position = float((item.get("UserData") or {}).get("PlaybackPositionTicks") or 0)
+    return int(settings.adjusted_resume(position / 10_000_000) * 10_000_000)
+
+
 def play(request: Request) -> None:
     item_id = request.params.get("id", "")
     creds = Credentials.load()
@@ -217,11 +246,10 @@ def play(request: Request) -> None:
     try:
         item = api.item(item_id)
         from_start = request.params.get("fromstart") == "1"
+        dbid = request.params.get("dbid", "")
         start_ticks = 0
         if request.resume and not from_start:
-            userdata = item.get("UserData") or {}
-            position = float(userdata.get("PlaybackPositionTicks") or 0) / 10_000_000
-            start_ticks = int(settings.adjusted_resume(position) * 10_000_000)
+            start_ticks = resume_start_ticks(item, dbid)
         # An explicit start position wins over resume/fromstart: SyncPlay
         # group starts say exactly where the group timeline is (plan §2).
         try:
@@ -278,7 +306,6 @@ def play(request: Request) -> None:
     # Library-item paths carry the Kodi database id (plan §2 path identity);
     # stamping it on the tag links the playback to the library row for
     # widgets invoked outside a library window.
-    dbid = request.params.get("dbid", "")
     if dbid.isdigit() and item.get("Type") in ("Movie", "Episode", "MusicVideo"):
         li.getVideoInfoTag().setDbId(int(dbid))
     elif dbid.isdigit() and is_audio:

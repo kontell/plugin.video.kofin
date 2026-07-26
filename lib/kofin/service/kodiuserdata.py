@@ -19,13 +19,11 @@ No loop back from the sync: its writes go into MyVideos through SQLite, which
 bypasses Kodi's announcement system entirely.
 """
 
-import json
 import queue
 import threading
 from typing import Any, Dict, Optional, Tuple
 
-import xbmc
-
+from kofin.core import kodirpc
 from kofin.core.api import Api
 from kofin.core.log import Logger
 
@@ -40,17 +38,6 @@ UPDATE_RESUME = "resume"
 # record. Music is absent: AudioLibrary.OnUpdate is a different announcement
 # and Kodi has no watched/resume UI for songs.
 WATCHED_MEDIA = ("movie", "episode", "musicvideo")
-
-# media type -> (JSON-RPC method, id parameter, result key)
-RESUME_QUERY = {
-    "movie": ("VideoLibrary.GetMovieDetails", "movieid", "moviedetails"),
-    "episode": ("VideoLibrary.GetEpisodeDetails", "episodeid", "episodedetails"),
-    "musicvideo": (
-        "VideoLibrary.GetMusicVideoDetails",
-        "musicvideoid",
-        "musicvideodetails",
-    ),
-}
 
 
 def parse_update(data: JsonDict) -> Optional[Tuple[str, int, str, int]]:
@@ -74,29 +61,6 @@ def parse_update(data: JsonDict) -> Optional[Tuple[str, int, str, int]]:
     if not isinstance(kodi_id, int) or media not in WATCHED_MEDIA:
         return None
     return kind, kodi_id, str(media), playcount
-
-
-def kodi_resume_seconds(kodi_id: int, media: str) -> Optional[float]:
-    """Kodi's current resume position for a library row; None if unreadable."""
-    method, id_field, result_field = RESUME_QUERY[media]
-    try:
-        response = json.loads(
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": method,
-                        "params": {id_field: kodi_id, "properties": ["resume"]},
-                    }
-                )
-            )
-        )
-        details = response["result"][result_field]
-        return float(details["resume"]["position"])
-    except Exception as error:
-        LOG.debug("resume read failed for %s/%s: %s", media, kodi_id, error)
-        return None
 
 
 class KodiUserData:
@@ -169,7 +133,7 @@ class KodiUserData:
         # the bookmark really is gone before zeroing the server's position —
         # this is the one path that can discard a resume point the user never
         # asked to lose.
-        resume = kodi_resume_seconds(kodi_id, media)
+        resume = kodirpc.resume_seconds(kodi_id, media)
         if resume is None or resume > 0:
             return
         LOG.info("--> kodi %s %s resume reset", media, kodi_id)

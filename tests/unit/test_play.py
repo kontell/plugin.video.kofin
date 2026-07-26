@@ -387,6 +387,10 @@ def resume_env(monkeypatch):
     FakeWindow.store = {}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    # No Kodi library row unless a test seeds one.
+    monkeypatch.setattr(
+        "kofin.core.kodirpc.resume_seconds", lambda kodi_id, media: None
+    )
 
     episode = {
         "Id": "ep1",
@@ -476,3 +480,50 @@ def test_resume_start_carries_the_offset(resume_env):
     run_play({"id": "ep1"}, resume=True)
     assert resume_env["api"].start_ticks == [590 * 10_000_000]
     assert resume_env["built"]["resume_seconds"] == 590.0
+
+
+# Kodi seeks a library item to the bookmark in its own database and ignores
+# what the resolved item says, so for a library row that bookmark is the start
+# position — and it already carries the offset, applied when the sync wrote it.
+
+
+def test_library_resume_starts_at_kodis_own_bookmark(resume_env, monkeypatch):
+    resume_env["addon"].store["resumeJumpBack"] = "-10"
+    monkeypatch.setattr(
+        "kofin.core.kodirpc.resume_seconds", lambda kodi_id, media: 200.0
+    )
+    run_play({"id": "ep1", "dbid": "8956"}, resume=True)
+    # 200, not 590: the server's position is not what Kodi is about to seek to,
+    # and not 190 either -- the offset is already in the bookmark.
+    assert resume_env["api"].start_ticks == [200 * 10_000_000]
+    assert resume_env["built"]["resume_seconds"] == 200.0
+
+
+def test_library_resume_honours_a_cleared_bookmark(resume_env, monkeypatch):
+    # Kodi will start at 0 whatever the server thinks; saying otherwise reports
+    # a position nothing is at.
+    monkeypatch.setattr("kofin.core.kodirpc.resume_seconds", lambda kodi_id, media: 0.0)
+    run_play({"id": "ep1", "dbid": "8956"}, resume=True)
+    assert resume_env["api"].start_ticks == [0]
+    assert resume_env["built"]["resume_seconds"] == 0.0
+
+
+def test_unreadable_row_falls_back_to_the_server_position(resume_env, monkeypatch):
+    resume_env["addon"].store["resumeJumpBack"] = "-10"
+    monkeypatch.setattr(
+        "kofin.core.kodirpc.resume_seconds", lambda kodi_id, media: None
+    )
+    run_play({"id": "ep1", "dbid": "8956"}, resume=True)
+    assert resume_env["api"].start_ticks == [590 * 10_000_000]
+
+
+def test_non_library_resume_uses_the_server_position(resume_env, monkeypatch):
+    # A plugin listing has no Kodi bookmark, so the resolved item's resume
+    # point is the only one in play and the server's position is the answer.
+    def explode(kodi_id, media):  # pragma: no cover - must not be reached
+        raise AssertionError("no dbid, so no library row to read")
+
+    resume_env["addon"].store["resumeJumpBack"] = "-10"
+    monkeypatch.setattr("kofin.core.kodirpc.resume_seconds", explode)
+    run_play({"id": "ep1"}, resume=True)
+    assert resume_env["api"].start_ticks == [590 * 10_000_000]

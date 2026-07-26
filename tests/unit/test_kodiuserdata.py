@@ -153,4 +153,6 @@ def test_no_worker_thread_without_work():
 
 
 def test_resume_query_covers_every_watched_media_type():
-    assert set(kodiuserdata.RESUME_QUERY) == set(kodiuserdata.WATCHED_MEDIA)
+    from kofin.core import kodirpc
+
+    assert set(kodirpc.RESUME_QUERY) == set(kodiuserdata.WATCHED_MEDIA)
