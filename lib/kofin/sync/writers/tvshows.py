@@ -13,7 +13,13 @@ from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import queries_map as QUEM
 from kofin.sync import fields as api
 from kofin.sync.fields import check_unchanged, find_library, sync_checksum
-from kofin.sync.shims import stop, jellyfin_item, values, Local
+from kofin.sync.shims import (
+    LibraryOrphanException,
+    stop,
+    jellyfin_item,
+    values,
+    Local,
+)
 
 from kofin.sync.obj import Objects
 from kofin.sync.kodidb import TVShows as KodiDb
@@ -284,22 +290,24 @@ class TVShows(KodiDb):
 
         obj["ShowId"] = show_id
 
-        # Deviation from the fork: get_show_id in place of a bare lookup, so
-        # an orphan season self-heals exactly as an orphan episode does --
-        # fetch the series, write it, retry. The fork looked the series up and
-        # gave up on a miss, and because giving up was a `return False` rather
-        # than an exception, the UpdateWorker's handler never saw it: no
-        # unapplied flag, no recovery prune, and the season's Kodi row and
-        # kofin.db reference were both silently missing while the sync
-        # watermark moved past the change.
+        # Deviation from the fork: get_show_id in place of a bare lookup, so an
+        # orphan season self-heals exactly as an orphan episode does -- fetch
+        # the series, write it, retry. Ordering upstream (the prune's
+        # parent-first sort, the feed's parent prefetch) is what keeps this
+        # from being the normal path; the nested write inside tvshow() passes
+        # show_id, so it never re-enters get_show_id.
         #
-        # A season does reach the writer ahead of its series: the change
-        # feed's parent prefetch only covers Added records (an Updated season
-        # gets none), and the prune enqueues Series/Season/Episode together in
-        # SortName order with no parent-first pass. The nested write inside
-        # tvshow() passes show_id, so this never re-enters get_show_id.
+        # Unresolvable is raised, not returned: `return False` is what the
+        # unchanged short-circuit means in this file, so a caller could not
+        # tell "nothing to do" from "this never landed". That is how the fork
+        # dropped the write in silence -- no Kodi row, no kofin.db reference,
+        # and the watermark past it. The raise lands in the UpdateWorker's
+        # LibraryException handler, which flags the item unapplied and earns
+        # it a recovery prune.
         if obj["ShowId"] is None and not self.get_show_id(obj):
-            return False
+            raise LibraryOrphanException(
+                "season %s: unresolved series %s" % (obj["Id"], obj["SeriesId"])
+            )
 
         obj["SeasonId"] = self.get_season(*values(obj, QU.get_season_obj))
         obj["Artwork"] = API.get_all_artwork(self.objects.map(item, "Artwork"))
@@ -434,8 +442,14 @@ class TVShows(KodiDb):
         if obj["MultiEpisode"]:
             obj["Title"] = "| %02d | %s" % (obj["MultiEpisode"], obj["Title"])
 
+        # Same reporting as the season leg above: the fork's `return False`
+        # here was indistinguishable from its unchanged short-circuit, so an
+        # episode whose series could not be fetched was dropped as quietly as
+        # one that needed no work.
         if not self.get_show_id(obj):
-            return False
+            raise LibraryOrphanException(
+                "episode %s: unresolved series %s" % (obj["Id"], obj["SeriesId"])
+            )
 
         obj["SeasonId"] = self.get_season(*values(obj, QU.get_season_episode_obj))
 

@@ -39,6 +39,18 @@ class LibraryExitException(LibraryException):
     """Raised to propagate application/service exit through the sync stack."""
 
 
+class LibraryOrphanException(LibraryException):
+    """A child item whose parent could not be resolved or fetched.
+
+    Kofin-only, and an exception rather than the fork's ``return False``
+    because that value is already taken: ``movie``, ``musicvideo`` and
+    ``episode`` all return it for the *unchanged* short-circuit, which is a
+    success. A caller could not tell "nothing to do" from "this never
+    landed", so the failure went unreported -- the UpdateWorker's handler
+    only ever ran on exceptions, which is exactly the reporting this needs.
+    """
+
+
 _monitor_lock = threading.Lock()
 _monitor = None
 

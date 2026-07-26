@@ -7,14 +7,18 @@ zero orphans in any link table).
 """
 
 import datetime
+import queue
 import re
 import sqlite3
+import threading
 
 import pytest
 
 from kofin.sync import db as sync_db
 from kofin.sync import schema
 from kofin.sync.kodidb.kodi import Kodi
+from kofin.sync.library import UpdateWorker
+from kofin.sync.shims import LibraryOrphanException
 from kofin.sync.writers import Movies, MusicVideos, TVShows, Music
 from tests.unit import kodifixtures, sync_dtos
 from tests.unit.fakes import FakeAddon, FakeWindow
@@ -619,18 +623,59 @@ def test_orphan_season_pulls_its_series(api):
 
 def test_orphan_season_declines_when_series_is_gone(api):
     """The self-heal cannot invent a series the server no longer serves. That
-    leg still declines -- but it declines writing anything at all, rather than
+    leg raises rather than returning False, which in this file is what the
+    unchanged short-circuit means -- and it writes nothing at all, rather than
     leaving a season row behind with no mapping to remove it by."""
     register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
     orphan = dto(dict(SEASON_1, SeriesId="series-gone"))
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        result = TVShows(api, kdb, vdb, library=TV_LIBRARY).season(orphan)
+        with pytest.raises(LibraryOrphanException):
+            TVShows(api, kdb, vdb, library=TV_LIBRARY).season(orphan)
 
-    assert result is False
     assert video_query("SELECT COUNT(*) FROM tvshow") == [(0,)]
     assert video_query("SELECT COUNT(*) FROM seasons") == [(0,)]
     assert kofin_query("SELECT COUNT(*) FROM jellyfin") == [(0,)]
+
+
+def test_worker_flags_an_unresolvable_child_unapplied(api):
+    """The reporting the silent drop never got. The raise lands in the
+    UpdateWorker's LibraryException handler, so the item is flagged and the
+    cycle schedules a recovery prune -- and the drain carries on, because one
+    bad item still must not stop it."""
+    register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
+    # The worker builds its writers without a library, the way the service
+    # does, so they resolve one per item off the whitelist and the ancestor
+    # walk. Both legs below go through that.
+    sync = sync_db.get_sync()
+    sync["Whitelist"] = ["lib-shows"]
+    sync_db.save_sync(sync)
+    api.ancestors = lambda item_id: [{"Id": "lib-shows", "Name": "Shows"}]
+
+    work = queue.Queue()
+    work.put(dto(dict(SEASON_1, SeriesId="series-gone")))
+    work.put(dto(SEASON_1))  # resolvable: heals, and proves the drain lived
+    flagged = []
+
+    worker = UpdateWorker(
+        work,
+        queue.Queue(),
+        threading.Lock(),
+        "video",
+        api,
+        unapplied=lambda item_id, reason: flagged.append((item_id, reason)),
+    )
+    worker.run()
+
+    assert [item_id for item_id, _reason in flagged] == ["season1"]
+    assert "unresolved series series-gone" in flagged[0][1]
+    assert worker.is_done is True
+
+    # The item behind it still landed, series pulled in on its behalf.
+    assert video_query("SELECT c00 FROM tvshow") == [("The Show",)]
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin WHERE jellyfin_id='season1'") == [
+        (1,)
+    ]
 
 
 ORPHAN_RULES = [

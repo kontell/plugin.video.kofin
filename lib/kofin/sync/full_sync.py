@@ -27,6 +27,7 @@ from kofin.sync import kofindb as jellyfin_db
 from kofin.sync.shims import (
     LibraryException,
     LibraryExitException,
+    LibraryOrphanException,
     get_screensaver,
     localized,
     notification,
@@ -491,7 +492,7 @@ class FullSync(object):
         self.clear_restore_point(restore_key)
 
     def apply_or_skip(self, apply, obj, item, item_type):
-        """Write one item; True on success, False if it is gone server-side.
+        """Write one item; True on success, False if it could not be applied.
 
         The library-level drop in ``process_library``, one level down. An
         item deleted after it was paged 404s on the child fetches its writer
@@ -499,10 +500,22 @@ class FullSync(object):
         whole library — wedging every future run on the same dead id, which
         surfaces as a sync-failed toast on every service start. Anything but
         a 404 is a real failure and still stops the pass.
+
+        A child whose parent cannot be resolved is the same shape of problem:
+        one item's business, not the library's. The passes run parents before
+        children, so reaching this means the parent is genuinely unavailable —
+        the item is skipped and the pass carries on. In the service the same
+        raise is what flags an item unapplied; here the caller's skip count
+        already says a pass did not fully land.
         """
         try:
             apply(obj, item)
             return True
+        except LibraryOrphanException as error:
+            LOG.warning(
+                "%s %s could not be applied: %s", item_type, item.get("Id"), error
+            )
+            return False
         except HttpError as error:
             if error.status != 404:
                 raise
@@ -572,7 +585,7 @@ class FullSync(object):
                 if skipped:
                     # Never let a partial pass look complete in the log.
                     LOG.warning(
-                        "--[ %s pass: %d gone server-side, skipped ]",
+                        "--[ %s pass: %d not applied, skipped ]",
                         item_type,
                         len(skipped),
                     )
