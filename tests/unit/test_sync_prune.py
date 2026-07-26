@@ -7,7 +7,11 @@ Also the pager's failure behaviour: sort pairs the server will accept, a
 rejected query failing its pass rather than emptying it, abandoning the
 generator (Kodi quitting mid-sync) not deadlocking on executor shutdown, and
 the prune pager refusing a map that came back short of the server's count
-rather than handing the shortfall to the removal arm."""
+rather than handing the shortfall to the removal arm.
+
+And the removal arm's confirmation step: a stale candidate the server still
+resolves by id is spared, one it does not is still removed, and a failed
+confirmation removes nothing at all."""
 
 import threading
 import time
@@ -101,6 +105,10 @@ def test_prune_three_way_diff(monkeypatch):
         "kofin.sync.full_sync.server.get_id_etag_map",
         lambda api, parent_id, types: dict(server_map),
     )
+    # The server confirms m3 really is gone (see the stale-confirmation tests).
+    monkeypatch.setattr(
+        "kofin.sync.full_sync.server.get_existing_ids", lambda api, ids: set()
+    )
 
     fullsync = make_fullsync()
     fullsync.prune({"Id": "lib1", "Name": "Movies", "CollectionType": "movies"}, "lib1")
@@ -109,6 +117,151 @@ def test_prune_three_way_diff(monkeypatch):
     assert calls["added"] == ["m4", "m5"] or set(calls["added"]) == {"m4", "m5"}
     assert calls["updated"] == ["m2"]
     assert calls["removed"] == ["m3"]  # gone from the server
+
+
+def test_prune_spares_a_stale_candidate_the_server_resolves(monkeypatch):
+    """Absence from the library listing is not proof an item is gone.
+
+    Jellyfin can report one id for a season via /Shows/{id}/Seasons and another
+    for the same season in the /Items listing the prune diffs. The writers
+    reference the former, so it reads as stale forever -- and removing it
+    deletes the Kodi row both references share, leaving the survivor pointing
+    at nothing. Confirming by id is what stops that.
+    """
+    with sync_db.Database("kofin") as opened:
+        db = kofindb.JellyfinDatabase(opened.cursor)
+        add_ref(
+            db, "s1", 100, None, 7, "Series", "tvshow", None, "cs|plugin", "lib1", None
+        )
+        # Two ids, one Kodi season row (kodi_id 200): the alias the /Items
+        # listing does not carry, and the one it does.
+        for season_id in ("se-alias", "se-listed"):
+            add_ref(
+                db,
+                season_id,
+                200,
+                None,
+                None,
+                "Season",
+                "season",
+                100,
+                "cse|plugin",
+                None,
+                None,
+            )
+
+    monkeypatch.setattr(
+        "kofin.sync.full_sync.server.get_id_etag_map",
+        lambda api, parent_id, types: {
+            "s1": ("cs", "Series"),
+            "se-listed": ("cse", "Season"),
+        },
+    )
+    # The alias resolves by id -- it is a live season, just not in the listing.
+    monkeypatch.setattr(
+        "kofin.sync.full_sync.server.get_existing_ids",
+        lambda api, ids: {item_id for item_id in ids if item_id == "se-alias"},
+    )
+
+    fullsync = make_fullsync()
+    fullsync.prune({"Id": "lib1", "Name": "Shows", "CollectionType": "tvshows"}, "lib1")
+
+    assert fullsync.library.calls["removed"] == []
+
+
+def test_prune_still_removes_what_the_server_cannot_resolve(monkeypatch):
+    """The guard is a confirmation step, not an amnesty: an id the server does
+    not know is still removed."""
+    with sync_db.Database("kofin") as opened:
+        db = kofindb.JellyfinDatabase(opened.cursor)
+        add_ref(db, "m1", 1, 2, 3, "Movie", "movie", None, "e1|plugin", "lib1", None)
+        add_ref(db, "gone", 4, 5, 6, "Movie", "movie", None, "e2|plugin", "lib1", None)
+
+    monkeypatch.setattr(
+        "kofin.sync.full_sync.server.get_id_etag_map",
+        lambda api, parent_id, types: {"m1": ("e1", "Movie")},
+    )
+    monkeypatch.setattr(
+        "kofin.sync.full_sync.server.get_existing_ids", lambda api, ids: set()
+    )
+
+    fullsync = make_fullsync()
+    fullsync.prune({"Id": "lib1", "Name": "Movies", "CollectionType": "movies"}, "lib1")
+
+    assert fullsync.library.calls["removed"] == ["gone"]
+
+
+def test_prune_removes_nothing_when_confirmation_fails(monkeypatch):
+    """A confirmation that could not be made is not a confirmation. The error
+    propagates rather than falling back to the unverified set."""
+    with sync_db.Database("kofin") as opened:
+        db = kofindb.JellyfinDatabase(opened.cursor)
+        add_ref(db, "gone", 4, 5, 6, "Movie", "movie", None, "e2|plugin", "lib1", None)
+
+    def unreachable(api, ids):
+        raise HttpError(500, "server down")
+
+    monkeypatch.setattr(
+        "kofin.sync.full_sync.server.get_id_etag_map",
+        lambda api, parent_id, types: {},
+    )
+    monkeypatch.setattr("kofin.sync.full_sync.server.get_existing_ids", unreachable)
+
+    fullsync = make_fullsync()
+
+    with pytest.raises(HttpError):
+        fullsync.prune(
+            {"Id": "lib1", "Name": "Movies", "CollectionType": "movies"}, "lib1"
+        )
+
+    assert fullsync.library.calls["removed"] == []
+
+
+def test_get_existing_ids_asks_by_id_without_filters():
+    """The whole point is to bypass the listing's view of the library."""
+
+    class IdApi:
+        user_id = "user1"
+
+        def __init__(self):
+            self.calls = []
+
+        def items(self, params):
+            self.calls.append(params)
+            asked = params["Ids"].split(",")
+            return {"Items": [{"Id": i} for i in asked if i != "gone"]}
+
+    api = IdApi()
+
+    found = downloader.get_existing_ids(api, ["alive", "gone"])
+
+    assert found == {"alive"}
+    params = api.calls[0]
+    assert params["Ids"] == "alive,gone"
+    # None of the listing's filters may narrow an existence check.
+    for absent in ("LocationTypes", "IsMissing", "IsVirtualUnaired", "ParentId"):
+        assert absent not in params
+
+
+def test_get_existing_ids_batches_large_sets():
+    class IdApi:
+        user_id = "user1"
+
+        def __init__(self):
+            self.batches = []
+
+        def items(self, params):
+            asked = params["Ids"].split(",")
+            self.batches.append(len(asked))
+            return {"Items": [{"Id": i} for i in asked]}
+
+    api = IdApi()
+    ids = ["i%d" % n for n in range(downloader.STALE_CONFIRM_BATCH + 5)]
+
+    found = downloader.get_existing_ids(api, ids)
+
+    assert found == set(ids)
+    assert api.batches == [downloader.STALE_CONFIRM_BATCH, 5]
 
 
 def test_prune_enqueues_missing_parents_first(monkeypatch):
