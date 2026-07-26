@@ -52,7 +52,10 @@ class FakeService:
 
 @pytest.fixture(autouse=True)
 def env(monkeypatch, tmp_path):
-    FakeAddon.store = {}
+    # deviceId stands in for a real installation: Credentials.load generates it
+    # on first use and never clears it, which is what makes it usable as the
+    # settings-load canary in _is_spurious_clear.
+    FakeAddon.store = {"deviceId": "dev-1"}
     FakeWindow.store = {}
     FakeDialog.calls = []
     FakeDialog.multiselect_result = None
@@ -285,6 +288,44 @@ def test_post_ready_empty_read_is_corroborated_not_obeyed(monkeypatch):
 
     # The failed read left nothing latched: a later genuine edit still applies.
     FailOnceAddon.failed_reads = 0
+    seed_views(("v-docs", "Documentaries", "tvshows"), ("v-new", "New", "movies"))
+    FakeAddon.store["librarySelection"] = "v-docs,v-new"
+    applier.apply()
+    assert service.library.commands == [("SyncLibrary", {"Id": "v-new"})]
+
+
+class FailingLoadAddon(FakeAddon):
+    """A settings document that will not parse: *every* setting reads back "".
+
+    The live shape of the burst failure — Kodi logged "failed to load addon
+    settings" three times in a row, so re-reading hits another broken instance
+    rather than a good one.
+    """
+
+    def getSetting(self, setting_id: str) -> str:
+        return ""
+
+
+def test_burst_read_failure_is_caught_by_the_canary(monkeypatch):
+    """Re-reading is not enough when the failure persists across instances.
+    An empty deviceId proves the document did not load, so the emptied
+    selection is not an edit and nothing is proposed for removal."""
+    seed_views(("v-docs", "Documentaries", "tvshows"))
+    seed_whitelist("v-docs")
+    FakeAddon.store["librarySelection"] = "v-docs"
+    service = FakeService()
+    applier = ready_applier(service)
+
+    monkeypatch.setattr("xbmcaddon.Addon", FailingLoadAddon)
+    applier.apply()
+
+    assert service.library.commands == []
+    assert not any(c[0] == "yesno" for c in FakeDialog.calls)
+    assert applier.snapshot["librarySelection"] == "v-docs"
+
+    # And the loop is not latched: once the document loads again, a genuine
+    # edit still applies.
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     seed_views(("v-docs", "Documentaries", "tvshows"), ("v-new", "New", "movies"))
     FakeAddon.store["librarySelection"] = "v-docs,v-new"
     applier.apply()

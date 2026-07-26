@@ -344,6 +344,26 @@ delete_song = """
 DELETE FROM     song
 WHERE           idSong = ?
 """
+get_song_path_id = """
+SELECT          idPath
+FROM            song
+WHERE           idSong = ?
+"""
+delete_path_if_unused = """
+DELETE FROM     path
+WHERE           idPath = ?
+AND             NOT EXISTS (SELECT 1 FROM song WHERE song.idPath = ?)
+AND             NOT EXISTS (SELECT 1 FROM source_path WHERE source_path.idPath = ?)
+"""
+prune_orphan_paths = """
+DELETE FROM     path
+WHERE           NOT EXISTS (SELECT 1 FROM song WHERE song.idPath = path.idPath)
+AND             NOT EXISTS (SELECT 1 FROM source_path
+                            WHERE source_path.idPath = path.idPath)
+AND             (strPath LIKE 'plugin://plugin.video.kofin/%'
+                 OR strPath LIKE 'http://%/Audio/%'
+                 OR strPath LIKE 'https://%/Audio/%')
+"""
 get_version = """
 SELECT      idVersion
 FROM        version

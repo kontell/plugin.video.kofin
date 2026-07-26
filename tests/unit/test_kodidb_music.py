@@ -177,3 +177,116 @@ def test_an_impostor_in_the_slot_is_reported_not_silently_accepted(
     # Not evicted: relocating it means rewriting album_artist, song_artist and
     # discography plus kofin.db, which is not a startup job.
     assert artists(cur)[BLANKARTIST_ID] == "“Weird Al” Yankovic"
+
+
+def paths(cur):
+    return dict(cur.execute("SELECT idPath, strPath FROM path").fetchall())
+
+
+def add_song(cur, song_id, path_id, title):
+    cur.execute(
+        "INSERT INTO song(idSong, idPath, strTitle, strFileName) VALUES (?, ?, ?, ?)",
+        (song_id, path_id, title, "stream.flac?mode=play&id=x"),
+    )
+
+
+def test_deleting_a_song_takes_its_path_row(musicdb):
+    """Kodi's music schema has no cascade, so a song removal that leaves the
+    path row behind means every repair abandons one row per song."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    path_id = db.add_path("plugin://plugin.video.kofin/lib/song-1/")
+    add_song(cur, 1, path_id, "Doomed")
+
+    db.delete_song(1)
+
+    assert paths(cur) == {}
+
+
+def test_a_shared_path_row_outlives_one_of_its_songs(musicdb):
+    """The cleanup is conditional on purpose: the row goes only when nothing
+    else points at it."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    path_id = db.add_path("plugin://plugin.video.kofin/lib/")
+    add_song(cur, 1, path_id, "First")
+    add_song(cur, 2, path_id, "Second")
+
+    db.delete_song(1)
+
+    assert list(paths(cur)) == [path_id]
+
+    db.delete_song(2)
+
+    assert paths(cur) == {}
+
+
+def test_a_path_backing_a_music_source_is_left_alone(musicdb):
+    """A Kodi music source sharing the path is not kofin's to delete."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    path_id = db.add_path("/music/albums/doomed/")
+    add_song(cur, 1, path_id, "Doomed")
+    cur.execute(
+        "INSERT INTO source_path(idSource, idPath, strPath) VALUES (?, ?, ?)",
+        (1, path_id, "/music/albums/doomed/"),
+    )
+
+    db.delete_song(1)
+
+    assert list(paths(cur)) == [path_id]
+
+
+def test_deleting_a_song_that_is_not_there_is_harmless(musicdb):
+    cur, _conn = musicdb
+    db = Music(cur)
+    path_id = db.add_path("plugin://plugin.video.kofin/lib/song-1/")
+    add_song(cur, 1, path_id, "Doomed")
+
+    db.delete_song(99)
+
+    assert list(paths(cur)) == [path_id]
+
+
+def test_pruning_removes_paths_kofin_abandoned(musicdb):
+    """Heals databases leaked into before delete_song cleaned up: one dead row
+    per song per repair ever run."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    live = db.add_path("plugin://plugin.video.kofin/lib/song-1/")
+    add_song(cur, 1, live, "Kept")
+    db.add_path("plugin://plugin.video.kofin/lib/song-2/")  # leaked plugin row
+    db.add_path("http://server:8096/Audio/song-3/")  # leaked direct row
+    db.add_path("https://server/Audio/song-4/")
+
+    assert db.prune_orphan_paths() == 3
+    assert list(paths(cur)) == [live]
+
+
+def test_pruning_leaves_paths_that_are_not_kofins(musicdb):
+    """An orphaned path row is legitimate for Kodi -- its scanner keeps folder
+    rows holding no songs -- so a blanket sweep is not ours to make."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    theirs = db.add_path("/mnt/music/an empty folder/")
+    source = db.add_path("smb://nas/music/")
+    cur.execute(
+        "INSERT INTO source_path(idSource, idPath, strPath) VALUES (?, ?, ?)",
+        (1, source, "smb://nas/music/"),
+    )
+
+    assert db.prune_orphan_paths() == 0
+    assert sorted(paths(cur)) == sorted([theirs, source])
+
+
+def test_pruning_spares_a_kofin_path_a_source_still_claims(musicdb):
+    cur, _conn = musicdb
+    db = Music(cur)
+    claimed = db.add_path("http://server:8096/Audio/song-1/")
+    cur.execute(
+        "INSERT INTO source_path(idSource, idPath, strPath) VALUES (?, ?, ?)",
+        (1, claimed, "http://server:8096/Audio/song-1/"),
+    )
+
+    assert db.prune_orphan_paths() == 0
+    assert list(paths(cur)) == [claimed]

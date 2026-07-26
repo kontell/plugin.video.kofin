@@ -922,3 +922,6 @@ def test_music_artist_removal_no_orphans(api, frozen_music_clock):
         "SELECT COUNT(*) FROM song_genre WHERE idSong NOT IN (SELECT idSong FROM song)"
     ) == [(0,)]
     assert kofin_query("SELECT COUNT(*) FROM jellyfin") == [(0,)]
+    # The song's path row goes with it. Kodi's music schema has no cascade, so
+    # leaving it behind meant every repair abandoned one row per song.
+    assert music_query("SELECT COUNT(*) FROM path") == [(0,)]

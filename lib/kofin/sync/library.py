@@ -335,7 +335,11 @@ class Library(threading.Thread):
         # users who never asked kofin to touch their music.
         if "music" in self.required_kinds():
             with Database("music") as musicdb:
-                MusicKodiDb(musicdb.cursor).ensure_blank_artist()
+                music_db = MusicKodiDb(musicdb.cursor)
+                music_db.ensure_blank_artist()
+                pruned = music_db.prune_orphan_paths()
+                if pruned:
+                    LOG.info("pruned %s orphaned music path rows", pruned)
 
     @stop
     def service(self):
