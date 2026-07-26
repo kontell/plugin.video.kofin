@@ -6,7 +6,7 @@ from typing import List, Optional, Tuple, Union
 import xbmc
 import xbmcgui
 
-from kofin.core import settings
+from kofin.core import settings, toast
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
@@ -171,9 +171,9 @@ def manage() -> None:
         item = _api().item(item_id)
     except JellyfinError as error:
         LOG.warning("manage: item fetch failed: %s", error)
-        xbmcgui.Dialog().notification(
-            settings.localized(30502), settings.localized(30507)
-        )
+        # As with the delete failure: no icon and no sound argument meant
+        # Kodi's defaults showed this failure as info, with a beep.
+        toast.show(settings.localized(30507), toast.ERROR)
         return
 
     options = _manage_options(item)

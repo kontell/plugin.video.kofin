@@ -23,7 +23,7 @@ from functools import wraps
 import xbmc
 import xbmcgui
 
-from kofin.core import settings, state
+from kofin.core import settings, state, toast
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
@@ -135,16 +135,16 @@ def progress(message=None):
     return decorator
 
 
-def notification(message, time_ms=5000, sound=False, error=False):
+def notification(message, time_ms=5000, sound=False, error=False, warning=False):
     """Non-modal toast. The sync stack never raises modal dialogs from
-    service threads (report reliability policy)."""
-    xbmcgui.Dialog().notification(
-        ADDON_NAME,
-        message,
-        xbmcgui.NOTIFICATION_ERROR if error else xbmcgui.NOTIFICATION_INFO,
-        time_ms,
-        sound,
-    )
+    service threads (report reliability policy).
+
+    ``error``/``warning`` keep the fork's keyword shape; the icon each one
+    means is core/toast.py's to decide. ``warning`` is a kofin addition, for
+    the sync messages that refuse or advise rather than report a failure.
+    """
+    level = toast.ERROR if error else toast.WARNING if warning else toast.INFO
+    toast.show(message, level, heading=ADDON_NAME, time_ms=time_ms, sound=sound)
 
 
 def localized(string_id):

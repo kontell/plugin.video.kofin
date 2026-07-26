@@ -6,10 +6,9 @@ This handler only validates that a menu makes sense right now and sends
 ``SyncPlayMenu``; the service opens the menu on a dedicated worker thread.
 """
 
-import xbmcgui
 import xbmcvfs
 
-from kofin.core import ipc, settings, state
+from kofin.core import ipc, settings, state, toast
 from kofin.core.log import Logger
 from kofin.plugin.router import Request
 
@@ -49,6 +48,6 @@ def menu(request: Request) -> None:
 
 
 def _notify(message: str) -> None:
-    xbmcgui.Dialog().notification(
-        "SyncPlay", message, xbmcgui.NOTIFICATION_INFO, 4000, False
-    )
+    """Only ever used for "SyncPlay is unavailable", which is a failure --
+    the info glyph it used to carry read as though nothing were wrong."""
+    toast.show(message, toast.ERROR, heading="SyncPlay", time_ms=4000)

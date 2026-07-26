@@ -156,3 +156,31 @@ def test_delete_stays_off_without_the_opt_in(delete_wired):
 
     assert dialog.yesnos == []
     assert api.deleted == []
+
+
+def test_a_failed_delete_reads_as_an_error_and_stays_quiet(delete_wired, monkeypatch):
+    """This toast passed neither an icon nor a sound, so Kodi's defaults made a
+    failed deletion the one notification in kofin that showed the info glyph
+    *and* beeped."""
+    import xbmcgui
+
+    from kofin.core.http import JellyfinError
+
+    _dialog, api, _ = delete_wired
+    raised = []
+    monkeypatch.setattr(
+        actions.toast,
+        "show",
+        lambda message, level=actions.toast.INFO, **kwargs: raised.append(
+            (level, kwargs)
+        ),
+    )
+
+    def boom(item_id):
+        raise JellyfinError("nope")
+
+    monkeypatch.setattr(api, "delete_item", boom)
+
+    actions.delete_item(_delete_request())
+
+    assert raised == [(xbmcgui.NOTIFICATION_ERROR, {})]

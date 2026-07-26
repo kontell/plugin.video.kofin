@@ -11,7 +11,7 @@ import xbmc
 import xbmcgui
 import xbmcplugin
 
-from kofin.core import deviceprofile, kodirpc, settings, state
+from kofin.core import deviceprofile, kodirpc, settings, state, toast
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
@@ -348,6 +348,4 @@ def play(request: Request) -> None:
 def _fail(request: Request) -> None:
     if request.handle >= 0:
         xbmcplugin.setResolvedUrl(request.handle, False, xbmcgui.ListItem())
-    xbmcgui.Dialog().notification(
-        "Kofin", settings.localized(30018), xbmcgui.NOTIFICATION_ERROR, 4000, False
-    )
+    toast.show(settings.localized(30018), toast.ERROR, time_ms=4000)

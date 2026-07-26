@@ -984,8 +984,8 @@ msgctxt "#30418"
 msgid "Server is shutting down"
 msgstr ""
 
-msgctxt "#30419"
-msgid "Some items did not sync; updating libraries to recover"
+msgctxt "#30420"
+msgid "Library sync is off: %s"
 msgstr ""
 
 msgctxt "#30414"

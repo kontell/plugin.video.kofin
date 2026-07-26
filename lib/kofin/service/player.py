@@ -23,7 +23,7 @@ from uuid import uuid4
 import xbmc
 import xbmcgui
 
-from kofin.core import settings, state
+from kofin.core import settings, state, toast
 from kofin.core.api import Api
 from kofin.core.log import Logger
 from kofin.service.segments import SegmentChecker, parse_segments
@@ -536,7 +536,7 @@ class Player(xbmc.Player):
             self.api.delete_item(str(item["Id"]))
         except Exception as error:
             LOG.warning("delete after watching failed: %s", error)
-            self._notify(settings.localized(30507))
+            self._notify(settings.localized(30507), toast.ERROR)
             return
         # No refresh from here: the server's own library-changed event drives
         # the removal out of the Kodi database through the normal sync path.
@@ -1021,13 +1021,8 @@ class Player(xbmc.Player):
         url = plugin_url({"mode": "play", "id": str(nxt.get("Id")), "fromstart": "1"})
         xbmc.executebuiltin('PlayMedia("%s")' % url)
 
-    def _notify(self, message: str) -> None:
-        try:
-            xbmcgui.Dialog().notification(
-                "Kofin", message, xbmcgui.NOTIFICATION_INFO, 3000, False
-            )
-        except Exception:  # notifications are cosmetic
-            pass
+    def _notify(self, message: str, level: str = toast.INFO) -> None:
+        toast.show(message, level, time_ms=3000)
 
     # -- internals -------------------------------------------------------------
 

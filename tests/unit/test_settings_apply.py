@@ -149,6 +149,44 @@ def test_picker_cancel_changes_nothing(monkeypatch):
     assert FakeAddon.store["librarySelection"] == "v-shows"
 
 
+def test_picker_says_unreachable_when_the_server_is(monkeypatch):
+    """This reported "No libraries available" (30269) for a failed views()
+    call, which claimed the opposite of what happened: whether the server has
+    libraries is precisely what could not be learned."""
+    from kofin.core.http import JellyfinError
+
+    FakeAddon.store.update(
+        {"isLoggedIn": "true", "accessToken": "t", "serverAddress": "http://s"}
+    )
+
+    class Unreachable:
+        def views(self):
+            raise JellyfinError("offline")
+
+    monkeypatch.setattr(
+        "kofin.plugin.librarypicker.Api",
+        type(
+            "A",
+            (),
+            {"from_credentials": staticmethod(lambda http, creds: Unreachable())},
+        ),
+    )
+    shown = []
+    monkeypatch.setattr(
+        librarypicker.toast,
+        "show",
+        lambda message, level=librarypicker.toast.INFO, **kwargs: shown.append(
+            (message, level)
+        ),
+    )
+
+    librarypicker.select_libraries(Request("plugin://x", -1, {}))
+
+    ((message, level),) = shown
+    assert message.startswith("string-30018")  # Server unreachable
+    assert level == librarypicker.toast.ERROR
+
+
 # --- diff engine -------------------------------------------------------------
 
 

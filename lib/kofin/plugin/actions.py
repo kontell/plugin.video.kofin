@@ -6,7 +6,7 @@ from typing import List, Union
 import xbmc
 import xbmcgui
 
-from kofin.core import ipc, settings
+from kofin.core import ipc, settings, toast
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
@@ -84,9 +84,10 @@ def delete_item(request: Request) -> None:
         _api().delete_item(item_id)
     except JellyfinError as error:
         LOG.warning("delete failed: %s", error)
-        xbmcgui.Dialog().notification(
-            xbmc.getLocalizedString(117), settings.localized(30507)
-        )
+        # Was raised with neither an icon nor a sound argument, so Kodi's
+        # defaults made a failed deletion the one toast in kofin that showed
+        # the info glyph *and* beeped.
+        toast.show(settings.localized(30507), toast.ERROR)
         return
     _refresh()
 
