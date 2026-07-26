@@ -65,12 +65,17 @@ def _set_favorite(request: Request, value: bool) -> None:
 
 
 def delete_item(request: Request) -> None:
-    """Delete the item from the server, after opt-in and confirmation."""
+    """Delete the item from the server, after opt-in and confirmation.
+
+    ``deleteNoConfirm`` drops the confirmation only for this path — picking
+    Delete off the context menu is already a deliberate act. The
+    finished-watching offer (service/player.py) asks either way.
+    """
     if not settings.get_bool("enableDelete"):
         return
     item_id = request.params.get("id", "")
     name = request.params.get("name", "")
-    if not xbmcgui.Dialog().yesno(
+    if not settings.get_bool("deleteNoConfirm") and not xbmcgui.Dialog().yesno(
         xbmc.getLocalizedString(117),  # Delete
         settings.localized(30505) % name,
     ):

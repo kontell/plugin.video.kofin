@@ -193,7 +193,32 @@ class Movies(Kodi):
         if version_id >= 131:
             changes = self.omega_migration()
 
+        # Deliberately not folded into `changes`: this one moves a path row and
+        # nothing on screen depends on it, so it must not drag a library update
+        # and a skin reload along behind it.
+        self.root_content_migration()
+
         return changes
+
+    def root_content_migration(self):
+        """
+        Move the tvshows content/scraper off the addon root onto each synced
+        library's own path (kofin deviation, see writers/tvshows.py).
+
+        New syncs write the moved shape, but an install that adds no further
+        shows would keep the old one -- and with it a video info dialog that
+        silently refuses to open anywhere in kofin's own listings. Two narrow
+        UPDATEs, guarded so an already-migrated install does nothing and says
+        nothing.
+        """
+        self.cursor.execute(QU.get_root_tvshow_content)
+        if not self.cursor.fetchone():
+            return False
+
+        LOG.info("Moving the tvshows path content off the addon root")
+        self.cursor.execute(QU.set_library_tvshow_content)
+        self.cursor.execute(QU.clear_root_tvshow_content)
+        return True
 
     def omega_migration(self):
         """

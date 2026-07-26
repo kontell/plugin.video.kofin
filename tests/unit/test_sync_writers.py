@@ -534,6 +534,21 @@ def test_series_season_episode_write(api):
     assert "plugin://plugin.video.kofin/lib-shows/" in show_paths
     assert "plugin://plugin.video.kofin/lib-shows/series1/" in show_paths
 
+    # The content/scraper pair belongs to this library's path, and the addon
+    # root must stay bare. The fork stamped the root instead, and on Kodi 21
+    # that makes OnItemInfo bail out ("dont lookup on root tvshow folder") for
+    # every item in kofin's own plugin listings, whose paths live directly
+    # under the root -- no info dialog for movies or episodes, nothing logged.
+    content = dict(
+        (row[0], (row[1], row[2]))
+        for row in video_query("SELECT strPath, strContent, strScraper FROM path")
+    )
+    assert content["plugin://plugin.video.kofin/lib-shows/"] == (
+        "tvshows",
+        "metadata.local",
+    )
+    assert content["plugin://plugin.video.kofin/"] == (None, None)
+
     link = video_query("SELECT idShow, idPath FROM tvshowlinkpath")
     assert len(link) == 1
 
@@ -935,6 +950,81 @@ def test_episode_removal_drops_its_reference_when_the_season_moved(api):
     assert kofin_query(
         "SELECT COUNT(*) FROM jellyfin WHERE jellyfin_id='episode1'"
     ) == [(0,)]
+
+
+def _root_content():
+    return dict(
+        (row[0], (row[1], row[2]))
+        for row in video_query("SELECT strPath, strContent, strScraper FROM path")
+    )
+
+
+def _write_pre_migration_shape():
+    """Put the tvshows content/scraper back on the addon root, as installs
+    synced before the move still have it."""
+    conn = sqlite3.connect(str(sync_db._path_overrides["video"]))
+    try:
+        conn.execute(
+            "UPDATE path SET strContent=NULL, strScraper=NULL"
+            " WHERE strPath='plugin://plugin.video.kofin/lib-shows/'"
+        )
+        conn.execute(
+            "UPDATE path SET strContent='tvshows', strScraper='metadata.local'"
+            " WHERE strPath='plugin://plugin.video.kofin/'"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_root_content_migration_moves_the_pair_down(api):
+    """An install synced before the move keeps a tvshows content row on the
+    addon root, which is enough on its own to kill the info dialog in every
+    kofin listing. The startup migration moves it onto the library path."""
+    from kofin.sync.kodidb import Movies as KodiDb
+
+    write_series_tree(api)
+    _write_pre_migration_shape()
+
+    with sync_db.Database("video") as vdb:
+        assert KodiDb(vdb.cursor).root_content_migration() is True
+
+    content = _root_content()
+    assert content["plugin://plugin.video.kofin/"] == (None, None)
+    assert content["plugin://plugin.video.kofin/lib-shows/"] == (
+        "tvshows",
+        "metadata.local",
+    )
+
+
+def test_root_content_migration_is_a_noop_once_migrated(api):
+    from kofin.sync.kodidb import Movies as KodiDb
+
+    write_series_tree(api)
+    before = _root_content()
+
+    with sync_db.Database("video") as vdb:
+        assert KodiDb(vdb.cursor).root_content_migration() is False
+
+    assert _root_content() == before
+
+
+def test_root_content_migration_spares_other_content_rows(api):
+    """The movies library's own path row is already correct; the migration must
+    not touch it on its way past."""
+    from kofin.sync.kodidb import Movies as KodiDb
+
+    write_movie(api)
+    write_series_tree(api)
+    _write_pre_migration_shape()
+
+    with sync_db.Database("video") as vdb:
+        KodiDb(vdb.cursor).root_content_migration()
+
+    assert _root_content()["plugin://plugin.video.kofin/lib-movies/"] == (
+        "movies",
+        "metadata.local",
+    )
 
 
 # --- music videos ----------------------------------------------------------------

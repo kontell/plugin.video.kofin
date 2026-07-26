@@ -886,3 +886,33 @@ get_version = """
 SELECT      idVersion
 FROM        version
 """
+
+# -- addon-root tvshow content migration (see Movies.root_content_migration) ---
+#
+# Written by installs synced before the tvshows content/scraper pair moved off
+# the addon root onto each library's own path (writers/tvshows.py).
+get_root_tvshow_content = """
+SELECT      idPath
+FROM        path
+WHERE       strPath = 'plugin://plugin.video.kofin/'
+AND         strContent = 'tvshows'
+"""
+# The parent of every synced show's path is that library's top-level path --
+# the row Movies/MusicVideos already stamp, and where tvshows belongs too.
+set_library_tvshow_content = """
+UPDATE      path
+SET         strContent = 'tvshows', strScraper = 'metadata.local', noUpdate = 1
+WHERE       idPath IN (
+    SELECT      p.idParentPath
+    FROM        tvshowlinkpath tlp
+    JOIN        path p ON p.idPath = tlp.idPath
+    WHERE       p.idParentPath IS NOT NULL
+)
+AND         (strContent IS NULL OR strContent = '')
+"""
+clear_root_tvshow_content = """
+UPDATE      path
+SET         strContent = NULL, strScraper = NULL
+WHERE       strPath = 'plugin://plugin.video.kofin/'
+AND         strContent = 'tvshows'
+"""

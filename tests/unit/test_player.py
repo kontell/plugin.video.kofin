@@ -8,6 +8,13 @@ from tests.unit.fakes import FakeAddon, FakeWindow
 class RecordingApi:
     def __init__(self):
         self.calls = []
+        self.deleted = []
+        self.delete_error = None
+
+    def delete_item(self, item_id):
+        if self.delete_error is not None:
+            raise self.delete_error
+        self.deleted.append(item_id)
 
     def session_playing(self, data):
         self.calls.append(("playing", data))
@@ -409,3 +416,176 @@ def test_backfill_survives_an_unreachable_server(monkeypatch):
         )
         is False
     )
+
+
+# --- delete after watching ---------------------------------------------------
+
+
+TICK = 10_000_000  # RunTimeTicks per second
+
+
+def finished_item(item_type="Movie", position=95.0, runtime=100.0):
+    return {
+        "Id": "m1",
+        "Type": item_type,
+        "Name": "Some Film",
+        "Runtime": int(runtime * TICK),
+        "CurrentPosition": position,
+    }
+
+
+def enable_delete(**extra):
+    FakeAddon.store.update(
+        dict({"enableDelete": "true", "deleteAfterWatching": "true"}, **extra)
+    )
+
+
+def test_watched_to_end_uses_a_share_of_the_runtime():
+    from kofin.service.player import watched_to_end
+
+    assert watched_to_end(finished_item(position=90.0)) is True
+    assert watched_to_end(finished_item(position=89.9)) is False
+    # An item with no runtime cannot be judged, so it is never "finished".
+    assert watched_to_end(finished_item(runtime=0.0)) is False
+
+
+def offer_and_wait(player, item):
+    """``offer_delete`` dispatches the prompt onto its own thread; hand back
+    what that thread was asked to prompt for."""
+    import threading
+
+    prompted = []
+    fired = threading.Event()
+
+    def record(prompt_item):
+        prompted.append(prompt_item)
+        fired.set()
+
+    player._delete_prompt = record  # type: ignore[assignment]
+    offered = player.offer_delete(item)
+    if offered:
+        assert fired.wait(5), "the prompt thread never ran"
+    return offered, prompted
+
+
+def test_finished_movie_offers_deletion(monkeypatch):
+    player, _api = make_player(monkeypatch)
+    enable_delete()
+
+    offered, prompted = offer_and_wait(player, finished_item())
+
+    assert offered is True
+    assert prompted[0]["Id"] == "m1"
+
+
+def test_partly_watched_item_is_left_alone(monkeypatch):
+    player, _api = make_player(monkeypatch)
+    enable_delete()
+
+    assert offer_and_wait(player, finished_item(position=40.0))[0] is False
+
+
+def test_sub_option_off_never_offers(monkeypatch):
+    player, _api = make_player(monkeypatch)
+    enable_delete(deleteAfterWatching="false")
+
+    assert offer_and_wait(player, finished_item())[0] is False
+
+
+def test_delete_opt_in_owns_the_sub_option(monkeypatch):
+    """The Advanced-tab opt-in gates every deletion path, so a stale
+    sub-option left on cannot delete anything by itself."""
+    player, _api = make_player(monkeypatch)
+    enable_delete(enableDelete="false")
+
+    assert offer_and_wait(player, finished_item())[0] is False
+
+
+def test_music_is_not_offered_for_deletion(monkeypatch):
+    player, _api = make_player(monkeypatch)
+    enable_delete()
+
+    assert offer_and_wait(player, finished_item(item_type="Audio"))[0] is False
+
+
+def test_playback_end_offers_the_item_it_just_finished(monkeypatch):
+    """The offer is made against the claim ``finalize`` is about to clear."""
+    player, _api = make_player(monkeypatch)
+    offered = []
+    monkeypatch.setattr(player, "offer_delete", lambda item: offered.append(item))
+    queue_item()
+
+    player.onPlayBackStarted()
+    player.onPlayBackEnded()
+
+    assert [item["Id"] for item in offered] == ["m1"]
+
+
+def test_a_stale_play_cleaned_up_at_the_next_start_offers_nothing(monkeypatch):
+    """``finalize`` also runs as cleanup when a previous play never got its
+    stop event; that is not a playback anyone just finished."""
+    player, _api = make_player(monkeypatch)
+    offered = []
+    monkeypatch.setattr(player, "offer_delete", lambda item: offered.append(item))
+    queue_item()
+    player.onPlayBackStarted()
+
+    queue_item()
+    player.onPlayBackStarted()  # finalizes the first play on the way in
+
+    assert offered == []
+
+
+def prompt_dialog(monkeypatch, answer=True):
+    """A dialog fake plus a localized() that carries the item-name
+    placeholder — the stub's "string-30506" has none, which would fail the
+    formatting rather than exercise the prompt."""
+    from kofin.service import player as player_mod
+
+    dialog = PromptDialog(answer=answer)
+    monkeypatch.setattr("xbmcgui.Dialog", lambda: dialog)
+    monkeypatch.setattr(player_mod.settings, "localized", lambda i: "L%d %%s" % i)
+    return dialog
+
+
+class PromptDialog:
+    def __init__(self, answer=True):
+        self.answer = answer
+        self.asked = []
+        self.notified = []
+
+    def yesno(self, heading, message, **kwargs):
+        self.asked.append(message)
+        return self.answer
+
+    def notification(self, *args, **kwargs):
+        self.notified.append(args)
+
+
+def test_prompt_deletes_on_yes(monkeypatch):
+    player, api = make_player(monkeypatch)
+    dialog = prompt_dialog(monkeypatch, answer=True)
+
+    player._delete_prompt(finished_item())
+
+    assert api.deleted == ["m1"]
+    assert "Some Film" in dialog.asked[0]
+
+
+def test_prompt_keeps_the_item_on_no(monkeypatch):
+    player, api = make_player(monkeypatch)
+    prompt_dialog(monkeypatch, answer=False)
+
+    player._delete_prompt(finished_item())
+
+    assert api.deleted == []
+
+
+def test_a_failed_delete_notifies_and_does_not_raise(monkeypatch):
+    player, api = make_player(monkeypatch)
+    api.delete_error = RuntimeError("offline")
+    dialog = prompt_dialog(monkeypatch, answer=True)
+
+    player._delete_prompt(finished_item())
+
+    assert dialog.notified

@@ -526,7 +526,11 @@ def _add_items(
                     "series": item.get("SeriesId", ""),
                 }
             )
-        li.addContextMenuItems(listitems.watched_context(item))
+        # No addContextMenuItems here: Kodi pins a listing's own entries to the
+        # very top of the context menu, above its Play, and the two kofin used
+        # to add there duplicated the wording of Kodi's own "Mark as watched"
+        # and "Add to favourites" lower down. Both now live in the Jellyfin
+        # actions menu (plugin/context.py), which owns server-side actions.
         entries.append((path, li, listitems.is_folder(item)))
 
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))

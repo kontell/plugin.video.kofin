@@ -206,13 +206,26 @@ class TVShows(KodiDb):
 
         obj["TopPathId"] = self.add_path(obj["TopLevel"])
 
-        # Hack to allow cast information in add-on mode
-        # We create a path on top of all others that holds mediaType and scrapper
-        self.update_path(*values(obj, QU.update_path_toptvshow_addon_obj))
+        # Deviation from the fork, and the one place tvshow paths had to move:
+        # the content/scraper pair sits on this library's own path, exactly
+        # where Movies and MusicVideos put theirs -- never on the addon root.
+        #
+        # The fork stamped the root ("Hack to allow cast information in add-on
+        # mode") and on Kodi 21 that is what breaks the info dialog in kofin's
+        # own listings: a listing item's path is plugin://plugin.video.kofin/?...,
+        # whose *directory* is the addon root, so CGUIWindowVideoBase::OnItemInfo
+        # resolves tvshows content "found directly" there and returns early --
+        # "dont lookup on root tvshow folder" -- swallowing the action with no
+        # dialog and nothing logged, for movies and episodes alike. One level
+        # down, the root resolves no scraper at all and Kodi falls back to
+        # showing the listitem's own tag, which is what carries the cast the
+        # hack was reaching for. Library items are unaffected: they still drill
+        # up from <library>/<show>/ to the content row, one hop sooner.
+        self.update_path(*values(obj, QU.update_path_toptvshow_obj))
         temp_obj = dict()
         temp_obj["TopLevel"] = "plugin://plugin.video.kofin/"
         temp_obj["TopPathId"] = self.add_path(temp_obj["TopLevel"])
-        self.update_path(*values(temp_obj, QU.update_path_toptvshow_obj))
+        self.update_path(*values(temp_obj, QU.update_path_toptvshow_addon_obj))
         self.update_path_parent_id(obj["TopPathId"], temp_obj["TopPathId"])
 
         obj["PathId"] = self.add_path(*values(obj, QU.get_path_obj))

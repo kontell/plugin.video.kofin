@@ -169,6 +169,9 @@ def play_state(
     return {
         "Id": item.get("Id", ""),
         "Type": item.get("Type", ""),
+        # Carried so the service can name the item in a dialog after playback
+        # ends, without a round trip for something it already had.
+        "Name": item.get("Name", ""),
         "SeriesId": item.get("SeriesId", ""),
         "Path": url,
         "PlayMethod": play_method,

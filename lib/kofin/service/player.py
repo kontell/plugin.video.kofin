@@ -73,6 +73,14 @@ FRESH_START_MAX_TICKS = 40
 # handoff lands before natural EOF tears the player down.
 AUTOPLAY_MARGIN_SECONDS = 1.0
 
+# How far into an item counts as having watched it, for the
+# ``deleteAfterWatching`` offer. Jellyfin's own played threshold.
+WATCHED_FRACTION = 0.9
+
+# Item types the finished-watching delete offer applies to. A song or a music
+# video reaching its end is not an invitation to delete anything.
+DELETABLE_TYPES = ("Movie", "Episode")
+
 SEGMENT_MODE_SETTINGS = {
     "Introduction": "skipIntroductionMode",
     "Credits": "skipCreditsMode",
@@ -134,6 +142,22 @@ def near_end_prompt_at(runtime: float, lead: float) -> float:
     prompt still appears on items shorter than the configured lead."""
     lead = min(max(lead, 0.0), runtime / 2.0)
     return runtime - lead
+
+
+def watched_to_end(item: JsonDict) -> bool:
+    """True when this playback got close enough to the end to call it watched.
+
+    Not "did Kodi fire onPlayBackEnded": Play Next autoplay hands over about a
+    second before natural EOF, so the episode the viewer just finished ends as
+    a *stopped* playback. A share of the runtime catches both, and matches the
+    threshold the server itself uses to mark an item played. The last progress
+    tick can be up to ``PROGRESS_INTERVAL_SECONDS`` stale, which at this
+    threshold only matters for items under ~100 s.
+    """
+    runtime = float(item.get("Runtime") or 0) / 10_000_000
+    if runtime <= 0:
+        return False
+    return float(item.get("CurrentPosition") or 0) >= runtime * WATCHED_FRACTION
 
 
 def plan_for_crossing(
@@ -244,6 +268,7 @@ def library_claim(jellyfin_id: str, path: str, api: Api) -> Optional[JsonDict]:
     return {
         "Id": item.get("Id", jellyfin_id),
         "Type": item.get("Type", ""),
+        "Name": item.get("Name", ""),
         "SeriesId": item.get("SeriesId", ""),
         "Path": path,
         # Direct stream: Kodi pulls the server's URL itself, untranscoded.
@@ -402,11 +427,11 @@ class Player(xbmc.Player):
 
     def onPlayBackStopped(self) -> None:
         self._syncplay_event("on_stopped")
-        self.finalize()
+        self._finish()
 
     def onPlayBackEnded(self) -> None:
         self._syncplay_event("on_ended")
-        self.finalize()
+        self._finish()
 
     def onPlayBackError(self) -> None:
         self._syncplay_event("on_error")
@@ -423,6 +448,20 @@ class Player(xbmc.Player):
         except RuntimeError:  # nothing playing (race with stop)
             return
         self._report(self.api.session_progress, event="timeupdate")
+
+    def _finish(self) -> None:
+        """A playback the viewer ended: report the stop, then make any
+        finished-watching offer against what was playing.
+
+        ``finalize`` clears ``_item``, so the item is captured first. Only the
+        stop/end callbacks come through here — ``finalize``'s other caller
+        (a stale play discovered at the next start) is cleanup, not a
+        playback the viewer just finished.
+        """
+        item = self.current_item()
+        self.finalize()
+        if item is not None:
+            self.offer_delete(item)
 
     def finalize(self) -> None:
         """Report the stop and release all playback state."""
@@ -456,6 +495,52 @@ class Player(xbmc.Player):
         """Service shutdown: stop the ticker and checker without reporting."""
         self._segment_reset()
         self._stop_ticker()
+
+    # -- delete after watching -------------------------------------------------
+
+    def offer_delete(self, item: JsonDict) -> bool:
+        """Ask whether to delete an item the viewer just finished.
+
+        Returns whether the prompt was raised. Both settings must be on: the
+        Advanced tab's delete opt-in owns whether kofin deletes anything at
+        all, and this is a sub-option of it.
+        """
+        if item.get("Type") not in DELETABLE_TYPES or not item.get("Id"):
+            return False
+        if not settings.get_bool("enableDelete"):
+            return False
+        if not settings.get_bool("deleteAfterWatching"):
+            return False
+        if not watched_to_end(item):
+            return False
+        # Off the Kodi callback thread: this dialog waits on a person, and
+        # blocking that thread stalls the player callbacks behind it (Play
+        # Next's handoff to the following episode arrives on it). Daemon, so a
+        # prompt left open cannot hold up service shutdown.
+        threading.Thread(
+            target=self._delete_prompt,
+            args=(item,),
+            name="kofin-delete-prompt",
+            daemon=True,
+        ).start()
+        return True
+
+    def _delete_prompt(self, item: JsonDict) -> None:
+        name = item.get("Name") or ""
+        if not xbmcgui.Dialog().yesno(
+            xbmc.getLocalizedString(117),  # Delete
+            settings.localized(30506) % name,
+        ):
+            return
+        try:
+            self.api.delete_item(str(item["Id"]))
+        except Exception as error:
+            LOG.warning("delete after watching failed: %s", error)
+            self._notify(settings.localized(30507))
+            return
+        # No refresh from here: the server's own library-changed event drives
+        # the removal out of the Kodi database through the normal sync path.
+        LOG.info("deleted %s after watching", item["Id"])
 
     # -- segment engine: lifecycle -------------------------------------------
 
