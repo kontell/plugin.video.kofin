@@ -4,8 +4,10 @@ child walk, the ids+Etag pager, the newest-first default sort, and restore
 points resuming under their recorded sort (plan §6).
 
 Also the pager's failure behaviour: sort pairs the server will accept, a
-rejected query failing its pass rather than emptying it, and abandoning the
-generator (Kodi quitting mid-sync) not deadlocking on executor shutdown."""
+rejected query failing its pass rather than emptying it, abandoning the
+generator (Kodi quitting mid-sync) not deadlocking on executor shutdown, and
+the prune pager refusing a map that came back short of the server's count
+rather than handing the shortfall to the removal arm."""
 
 import threading
 import time
@@ -16,6 +18,7 @@ from kofin.core.http import HttpError
 from kofin.sync import db as sync_db
 from kofin.sync import downloader
 from kofin.sync import kofindb
+from kofin.sync import shims
 from kofin.sync.full_sync import FullSync
 from tests.unit.fakes import FakeAddon, FakeWindow
 
@@ -316,9 +319,10 @@ def test_local_reference_map_music_needs_no_walk():
 class PagingApi:
     user_id = "user1"
 
-    def __init__(self, pages, total=None):
+    def __init__(self, pages, total=None, report_total=True):
         self.pages = list(pages)
         self.total = total if total is not None else sum(len(p) for p in pages)
+        self.report_total = report_total
         self.requests = []
 
     def get(self, url, params=None):
@@ -327,7 +331,13 @@ class PagingApi:
         # The _get_items probe: Limit=1 + EnableTotalRecordCount.
         if params.get("Limit") == 1 and params.get("EnableTotalRecordCount"):
             return {"TotalRecordCount": self.total, "Items": []}
-        return {"Items": self.pages.pop(0) if self.pages else []}
+        page = {"Items": self.pages.pop(0) if self.pages else []}
+        # get_id_etag_map asks for the count on its first page and pages
+        # against it; report_total=False stands in for a server that will
+        # not give one.
+        if params.get("EnableTotalRecordCount") and self.report_total:
+            page["TotalRecordCount"] = self.total
+        return page
 
 
 def test_get_id_etag_map_pages_sequentially():
@@ -348,6 +358,57 @@ def test_get_id_etag_map_pages_sequentially():
     for _url, params in api.requests:
         assert params["Fields"] == "Etag"
         assert params["EnableUserData"] is False
+    # Counted once: the pages after the first ride on the sampled total.
+    counted = [p["EnableTotalRecordCount"] for _u, p in api.requests]
+    assert counted == [True, False]
+
+
+def test_get_id_etag_map_reasks_after_a_short_page():
+    """A short page mid-stream is the server rationing, not end-of-data.
+
+    The old ``len(items) < PRUNE_PAGE_SIZE`` test would have stopped on the
+    300-item page and dropped the remaining 201 ids -- which the prune reads
+    as 201 stale references and feeds to the removal arm.
+    """
+    short = [{"Id": "s%d" % n, "Etag": "e%d" % n, "Type": "Movie"} for n in range(300)]
+    rest = [{"Id": "r%d" % n, "Etag": "f%d" % n, "Type": "Movie"} for n in range(201)]
+    api = PagingApi([short, rest], total=501)
+
+    result = downloader.get_id_etag_map(api, "lib1", "Movie")
+
+    assert len(result) == 501
+    # StartIndex advances by what arrived, so nothing is skipped over.
+    assert [p["StartIndex"] for _u, p in api.requests] == [0, 300]
+
+
+def test_get_id_etag_map_raises_rather_than_truncate():
+    """Short of the server's count, the map is refused outright.
+
+    Returning it would hand every unlisted id to the prune as ``stale``.
+    """
+    page = [
+        {"Id": "i%d" % n, "Etag": "e%d" % n, "Type": "Movie"}
+        for n in range(downloader.PRUNE_PAGE_SIZE)
+    ]
+    api = PagingApi([page], total=1000)
+
+    with pytest.raises(shims.LibraryException) as excinfo:
+        downloader.get_id_etag_map(api, "lib1", "Movie")
+
+    assert "truncated" in str(excinfo.value)
+    assert "500 of 1000" in str(excinfo.value)
+
+
+def test_get_id_etag_map_without_a_count_falls_back_to_short_page():
+    """No TotalRecordCount to page against: end on a short page rather than
+    loop forever. The heuristic is the old behaviour, kept only for servers
+    that will not supply a count."""
+    api = PagingApi([[{"Id": "i1", "Etag": "e1", "Type": "Movie"}]], report_total=False)
+
+    result = downloader.get_id_etag_map(api, "lib1", "Movie")
+
+    assert set(result) == {"i1"}
+    assert len(api.requests) == 1
 
 
 def test_get_items_defaults_to_newest_first():

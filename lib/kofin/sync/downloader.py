@@ -19,7 +19,7 @@ import queue
 from kofin.core import settings, state
 from kofin.core.http import JellyfinError, ServerUnreachable
 from kofin.core.log import Logger
-from kofin.sync.shims import LibraryExitException, stop
+from kofin.sync.shims import LibraryException, LibraryExitException, stop
 
 LOG = Logger(__name__)
 
@@ -245,6 +245,25 @@ def get_id_etag_map(api, parent_id, item_types):
     or MediaStreams. Sequential paging, no restore point — the prune is
     idempotent and simply reruns after an interruption. Errors propagate to
     the caller (the library stays pending and is retried).
+
+    Every id this function fails to return becomes ``stale`` in the prune's
+    diff and is fed to the removal arm, so a truncated map is not a smaller
+    answer — it is a deletion order. Two guards, both about that asymmetry:
+
+    * Paging ends on the server's ``TotalRecordCount``, not on a short page.
+      The fork's ``len(items) < Limit`` test conflates "no more records" with
+      "fewer records than asked for this time", and a loaded server is
+      entitled to the latter. Against a 4889-item Shows library the pages ran
+      ``[500 x9, 389]`` and it never truncated in practice — the invariant is
+      what makes that safe rather than lucky.
+    * ``StartIndex`` advances by what the page actually carried, so a short
+      page re-asks for the records it did not deliver instead of skipping them.
+
+    Ending short of the count raises, which abandons this library's diff for
+    the pass (``FullSync.<media>`` logs the LibraryException and moves on) and
+    leaves the next update pass to redo it. The count is sampled on the first
+    page, so a library that shrinks mid-paging can trip this benignly: that
+    costs one skipped prune, where guessing costs rows.
     """
     url = "/Users/%s/Items" % api.user_id
     params = {
@@ -265,21 +284,62 @@ def get_id_etag_map(api, parent_id, item_types):
 
     result = {}
     start = 0
+    total = None
 
     while True:
         if state.should_stop():
             raise LibraryExitException("Should stop flag raised, exiting...")
 
-        page = api.get(url, dict(params, StartIndex=start, Limit=PRUNE_PAGE_SIZE))
+        page = api.get(
+            url,
+            dict(
+                params,
+                StartIndex=start,
+                Limit=PRUNE_PAGE_SIZE,
+                # Counted once, on the first page: the count is a COUNT(*) on
+                # the server and the pages after it are the cheap part.
+                EnableTotalRecordCount=(total is None),
+            ),
+        )
         items = page.get("Items") or []
+
+        if total is None:
+            total = page.get("TotalRecordCount")
 
         for item in items:
             result[item["Id"]] = (item.get("Etag"), item.get("Type"))
 
-        if len(items) < PRUNE_PAGE_SIZE:
-            return result
+        if not items:
+            # Nothing came back: either the library really is exhausted or the
+            # server has stopped answering with records. The count check below
+            # tells those apart -- looping again would spin forever.
+            break
 
-        start += PRUNE_PAGE_SIZE
+        start += len(items)
+
+        if total is None:
+            # No count to page against (older server, or the field switched
+            # off): fall back to the fork's short-page test rather than page
+            # forever. Logged because the destructive diff downstream is now
+            # trusting a heuristic.
+            if len(items) < PRUNE_PAGE_SIZE:
+                LOG.warning(
+                    "prune map for %s paged without a TotalRecordCount; "
+                    "ending on a short page (%s items)",
+                    parent_id,
+                    len(result),
+                )
+                break
+        elif start >= total:
+            break
+
+    if total is not None and len(result) < total:
+        raise LibraryException(
+            "prune map for %s truncated: %s of %s items — refusing to diff"
+            % (parent_id, len(result), total)
+        )
+
+    return result
 
 
 def get_prune_count(api, parent_id, item_types):

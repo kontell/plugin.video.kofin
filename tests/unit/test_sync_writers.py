@@ -862,6 +862,47 @@ def test_episode_removal_prunes_empty_show(api):
     assert kofin_query("SELECT COUNT(*) FROM jellyfin") == [(0,)]
 
 
+def test_episode_removal_drops_its_reference_when_the_season_moved(api):
+    """An unresolvable season must not leave the episode's reference behind.
+
+    The cascade looks the season up by the episode's *recorded* season
+    kodi_id, so it misses whenever the season has been re-created at a fresh
+    idSeason since -- a removed-then-re-added season leaves exactly that, the
+    episode rows still pointing at the old id. The fork returned on the miss,
+    which skipped the reference cleanup at the end of ``remove`` even though
+    the Kodi row had already been deleted. What survived was a reference to a
+    deleted row, which the prune reads as present because it diffs ids and
+    Etags.
+    """
+    write_series_tree(api)
+
+    episode_kodi_id = video_query("SELECT idEpisode FROM episode")[0][0]
+    # Re-create the season under a fresh idSeason, as a remove/re-add would,
+    # without rewriting the episode's parent_id.
+    with sync_db.Database("kofin") as opened:
+        from kofin.sync import kofindb
+
+        db = kofindb.JellyfinDatabase(opened.cursor)
+        stale_parent = kofin_query(
+            "SELECT parent_id FROM jellyfin WHERE jellyfin_id='episode1'"
+        )[0][0]
+        db.cursor.execute(
+            "UPDATE jellyfin SET kodi_id=? WHERE jellyfin_type='Season'",
+            (stale_parent + 500,),
+        )
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        TVShows(api, kdb, vdb, library=TV_LIBRARY).remove("episode1")
+
+    # The Kodi row went, so the reference must go with it.
+    assert video_query(
+        "SELECT COUNT(*) FROM episode WHERE idEpisode=?", (episode_kodi_id,)
+    ) == [(0,)]
+    assert kofin_query(
+        "SELECT COUNT(*) FROM jellyfin WHERE jellyfin_id='episode1'"
+    ) == [(0,)]
+
+
 # --- music videos ----------------------------------------------------------------
 
 
