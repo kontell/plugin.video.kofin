@@ -341,15 +341,64 @@ def test_fresh_start_ignores_stale_transition_position(engine):
     assert engine.overlay is None  # the stale credits never fired
 
 
-def test_fresh_start_arms_at_a_genuine_resume(engine):
-    # A legitimate resume into the credits is near the item's intended start
-    # position, so the engine arms and offers Skip Outro straight away.
+def test_resume_into_a_segment_offers_no_skip(engine):
+    # Resuming mid-credits is the viewer asking to pick up exactly there. The
+    # prompt used to open and auto-close a moment later, which is all they saw.
     engine.arm([seg("Credits", 1300, 1380)], next_episode=None)
     engine.player._item["CurrentPosition"] = 1341.0  # resumed here
     engine.player._fresh_start = True
     engine.tick(1341.0)
+    assert engine.overlay is None
+    assert engine.seeks == []
+
+
+def test_resume_into_a_segment_still_auto_skips(engine):
+    # Auto mode is "never watch an intro": a resume that lands inside one must
+    # not make the setting lapse for that playback.
+    FakeAddon.store["skipIntroductionMode"] = "1"
+    engine.arm([seg("Introduction", 100, 130)])
+    engine.player._item["CurrentPosition"] = 115.0
+    engine.player._fresh_start = True
+    engine.tick(115.0)
+    assert engine.seeks == [130.0]
+    assert engine.overlay is None
+
+
+def test_resume_into_credits_still_offers_play_next(engine):
+    # Only the skip button is withheld; the Play Next offer is the whole point
+    # of reaching the credits and stands either way.
+    engine.arm([seg("Credits", 1300, 1380)], next_episode=NEXT_EPISODE)
+    engine.player._item["CurrentPosition"] = 1341.0
+    engine.player._fresh_start = True
+    engine.tick(1341.0)
     overlay = engine.overlay
-    assert overlay is not None and overlay.skip_label == "string-30482"  # Skip Outro
+    assert overlay is not None
+    assert overlay.skip_label == ""
+    assert overlay.next_label == "string-30486"
+
+
+def test_resume_suppression_lifts_once_the_segment_is_left(engine):
+    # Seeking back into the segment later is a fresh request for the offer.
+    FakeAddon.store["skipIntroductionMode"] = "2"
+    engine.arm([seg("Introduction", 100, 130)])
+    engine.player._item["CurrentPosition"] = 115.0
+    engine.player._fresh_start = True
+    engine.tick(115.0)
+    assert engine.overlays == []
+    engine.tick(131.0)  # leave it
+    engine.player.note_seek(105.0)
+    engine.tick(105.0)  # and seek back in
+    assert len(engine.overlays) == 1
+    assert engine.overlays[0].skip_label == "string-30481"
+
+
+def test_segments_containing_bounds_are_inclusive():
+    segments = [seg("Introduction", 10, 40), seg("Credits", 100, 130)]
+    assert player_mod.segments_containing(segments, 9.9) == set()
+    assert player_mod.segments_containing(segments, 10.0) == {(10.0, 40.0)}
+    assert player_mod.segments_containing(segments, 40.0) == {(10.0, 40.0)}
+    assert player_mod.segments_containing(segments, 40.1) == set()
+    assert player_mod.segments_containing(segments, 130.0) == {(100.0, 130.0)}
 
 
 def test_short_segment_stepped_over_still_fires(engine):

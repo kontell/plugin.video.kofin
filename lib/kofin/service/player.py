@@ -152,6 +152,24 @@ def plan_for_crossing(
     return False, ("playnext", "close") if offer_next else ()
 
 
+def segments_containing(
+    segments: List[JsonDict], position: float
+) -> Set[Tuple[float, float]]:
+    """The ``(start, end)`` keys of every segment holding ``position``.
+
+    Used to mark the segments a playback *started* inside: resuming into the
+    middle of an intro must not fire that intro's skip prompt (the prompt
+    would open and auto-close a moment later, which is all the viewer sees).
+    """
+    keys = set()
+    for segment in segments:
+        start = float(segment["Start"])
+        end = float(segment["End"])
+        if start <= position <= end:
+            keys.add((start, end))
+    return keys
+
+
 def next_episode_label(episode: JsonDict) -> str:
     season = episode.get("ParentIndexNumber")
     number = episode.get("IndexNumber")
@@ -292,6 +310,9 @@ class Player(xbmc.Player):
         self._segments_loaded = False
         self._armed_index = 0
         self._prompted: Set[Tuple[float, float]] = set()
+        # Segments this playback started inside (resume point mid-segment):
+        # no skip prompt for them until the position leaves them.
+        self._start_inside: Set[Tuple[float, float]] = set()
         self._prev_pos: Optional[float] = None
         self._settle_target: Optional[float] = None
         self._settle_ticks = 0
@@ -527,6 +548,7 @@ class Player(xbmc.Player):
         self._segments_loaded = False
         self._armed_index = 0
         self._prompted = set()
+        self._start_inside = set()
         self._prev_pos = None
         self._settle_target = None
         self._settle_ticks = 0
@@ -571,6 +593,10 @@ class Player(xbmc.Player):
                 return
             self._fresh_start = False
             self._prev_pos = None  # no crossing credit from the stale position
+            # ``expected`` (the position the play route resolved) rather than
+            # ``now``: it is authoritative from the first tick, where getTime()
+            # can still read 0 while Kodi seeks to the resume point.
+            self._start_inside = segments_containing(self._segments, expected)
 
         if self._runtime <= 0:
             self._runtime = self._live_runtime()
@@ -640,6 +666,9 @@ class Player(xbmc.Player):
             len(segments),
         )
         self._prompted = {key for key in self._prompted if key[0] <= now <= key[1]}
+        self._start_inside = {
+            key for key in self._start_inside if key[0] <= now <= key[1]
+        }
         if self._near_end_at is not None and now < self._near_end_at:
             self._near_end_prompted = False
         # An overlay whose firing window the jump left is stale — close it
@@ -671,6 +700,7 @@ class Player(xbmc.Player):
                     break  # stay armed on this segment until we pass it
             if now > end:
                 self._prompted.discard(key)  # left it: re-arm for a seek back
+                self._start_inside.discard(key)
                 index += 1
                 continue
             break  # segment still ahead
@@ -715,9 +745,17 @@ class Player(xbmc.Player):
         )
         if auto_seek:
             self._auto_skip(segment, now)
-        if now >= float(segment["End"]) - 0.25:
-            # Stepped past the boundary already: a skip button would be noise,
-            # but a Play Next offer still stands.
+        started_inside = (
+            float(segment["Start"]),
+            float(segment["End"]),
+        ) in self._start_inside
+        if started_inside or now >= float(segment["End"]) - 0.25:
+            # No skip button. Either the crossing already stepped past the
+            # boundary, or playback *started* inside this segment — a resume
+            # point mid-intro, where the viewer asked to pick up exactly here
+            # and all the prompt does is flash and auto-close. Auto-skip is
+            # untouched ("always skip intros" must not lapse because a resume
+            # landed in one) and a Play Next offer still stands.
             buttons = tuple(button for button in buttons if button != "skip")
         if any(button in ("skip", "playnext") for button in buttons):
             self._open_overlay(segment, buttons)
