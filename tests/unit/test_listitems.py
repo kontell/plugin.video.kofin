@@ -1,6 +1,16 @@
+import pytest
+
 from kofin.plugin import listitems
+from tests.unit.fakes import FakeAddon
 
 SERVER = "http://s:8096"
+
+
+@pytest.fixture(autouse=True)
+def fake_addon(monkeypatch):
+    FakeAddon.store = {}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    return FakeAddon
 
 
 def test_path_for_playable_and_folder():
@@ -34,6 +44,17 @@ def test_resume_and_playcount():
     assert listitems.playcount_of(item) == 1
     assert listitems.playcount_of({"UserData": {"PlayCount": 3, "Played": True}}) == 3
     assert listitems.playcount_of({}) == 0
+
+
+def test_resume_of_carries_the_resume_offset(fake_addon):
+    # The listing has to advertise the position playback will actually start
+    # at, or Kodi's resume prompt names one time and lands on another.
+    fake_addon.store["resumeJumpBack"] = "-10"
+    item = {
+        "RunTimeTicks": 600 * 10_000_000,
+        "UserData": {"PlaybackPositionTicks": 300 * 10_000_000},
+    }
+    assert listitems.resume_of(item) == (290.0, 600.0)
 
 
 def test_art_primary_and_backdrop():

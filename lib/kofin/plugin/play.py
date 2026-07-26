@@ -220,7 +220,8 @@ def play(request: Request) -> None:
         start_ticks = 0
         if request.resume and not from_start:
             userdata = item.get("UserData") or {}
-            start_ticks = int(userdata.get("PlaybackPositionTicks") or 0)
+            position = float(userdata.get("PlaybackPositionTicks") or 0) / 10_000_000
+            start_ticks = int(settings.adjusted_resume(position) * 10_000_000)
         # An explicit start position wins over resume/fromstart: SyncPlay
         # group starts say exactly where the group timeline is (plan §2).
         try:

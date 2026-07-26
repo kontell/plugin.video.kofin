@@ -131,13 +131,10 @@ class API(object):
 
         resume = 0
         if resume_seconds:
-            resume = round(float(resume_seconds), 6)
-            # resumeJumpBack arrives with the phase-3 Playback tab; until then
-            # the missing setting reads as 0 and no jumpback is applied.
-            jumpback = int(settings.get_str("resumeJumpBack") or "0")
-            if resume > jumpback:
-                # To avoid negative bookmark
-                resume = resume - jumpback
+            # The jumpback rule itself lives in core.settings so the bookmark
+            # written here, the resume point a listing advertises and the
+            # position playback starts at cannot drift apart.
+            resume = settings.adjusted_resume(round(float(resume_seconds), 6))
 
         return resume
 

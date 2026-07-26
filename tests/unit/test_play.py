@@ -448,3 +448,19 @@ def test_play_next_start_overrides_a_resume_prompt(resume_env):
     run_play({"id": "ep1", "fromstart": "1"}, resume=True)
     assert resume_env["api"].start_ticks == [0]
     assert resume_env["li"].tag.resume_point == 0.0
+
+
+def test_explicit_start_ticks_wins_and_is_exact(resume_env):
+    # A SyncPlay group start says exactly where the group timeline is; the
+    # resume offset must not shift it.
+    resume_env["addon"].store["resumeJumpBack"] = "-10"
+    run_play({"id": "ep1", "startticks": str(300 * 10_000_000)}, resume=True)
+    assert resume_env["api"].start_ticks == [300 * 10_000_000]
+    assert resume_env["li"].tag.resume_point == 300.0
+
+
+def test_resume_start_carries_the_offset(resume_env):
+    resume_env["addon"].store["resumeJumpBack"] = "-10"
+    run_play({"id": "ep1"}, resume=True)
+    assert resume_env["api"].start_ticks == [590 * 10_000_000]
+    assert resume_env["li"].tag.resume_point == 590.0

@@ -132,3 +132,18 @@ def test_mixed_libraries_match_on_their_bare_id(whitelist):
     found = fields.find_library(api, {"Id": "m1", "ParentId": "p1"}, {})
 
     assert found == {"Id": "lib9", "Name": "Mixed"}
+
+
+# --- resume adjustment --------------------------------------------------------
+
+
+def test_adjust_resume_applies_the_shared_offset_rule(monkeypatch):
+    """The bookmark the writers stamp has to match where playback starts, so
+    the jumpback rule lives in core.settings and this is the delegation."""
+    monkeypatch.setattr("kofin.core.settings.resume_offset", lambda: 10.0)
+    assert fields.API.adjust_resume(600.0) == 590.0
+    assert fields.API.adjust_resume(0) == 0
+    assert fields.API.adjust_resume(None) == 0
+    # Shorter than the offset: left alone rather than clamped to zero, so a
+    # barely-started item keeps its in-progress bookmark.
+    assert fields.API.adjust_resume(4.0) == 4.0

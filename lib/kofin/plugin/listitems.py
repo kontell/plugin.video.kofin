@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 import xbmc
 import xbmcgui
 
+from kofin.core import settings
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
@@ -75,11 +76,15 @@ def path_for(item: JsonDict) -> str:
 
 
 def resume_of(item: JsonDict) -> Tuple[float, float]:
-    """(resume seconds, total seconds) from UserData/RunTimeTicks."""
+    """(resume seconds, total seconds) from UserData/RunTimeTicks.
+
+    The position carries the Advanced-tab resume offset, so the time Kodi's
+    resume prompt names is the time playback will actually start at.
+    """
     userdata = item.get("UserData") or {}
     position = float(userdata.get("PlaybackPositionTicks") or 0) / 10_000_000
     total = float(item.get("RunTimeTicks") or 0) / 10_000_000
-    return position, total
+    return settings.adjusted_resume(position), total
 
 
 def playcount_of(item: JsonDict) -> int:
