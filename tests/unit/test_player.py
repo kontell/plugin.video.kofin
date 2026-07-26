@@ -293,6 +293,67 @@ def test_song_playback_is_claimed_via_backfill(monkeypatch):
     assert claimed["MediaSourceId"] == "src-1"
 
 
+def test_plugin_song_is_not_claimed_twice_when_still_queued(monkeypatch):
+    """musicTranscode on: the play route queued this playback already, and the
+    OnPlay notification must not add a second entry."""
+    from kofin.service import player as player_mod
+
+    _map_song(monkeypatch)
+    api = LookupApi()
+    path = "http://s/audio/x/stream.opus?AudioBitrate=128000"
+    monkeypatch.setattr(
+        "xbmc.Player",
+        lambda: type("P", (), {"getPlayingFile": lambda self: path})(),
+    )
+    state.push_play_item({"Id": "jf-song-1", "Path": path})
+
+    assert (
+        player_mod.backfill_library_claim(
+            {"item": {"id": 55, "type": "song"}}, api  # type: ignore[arg-type]
+        )
+        is False
+    )
+    assert api.item_requests == []
+    # The play route's entry is untouched and still the only one.
+    assert state.claim_play_item(path) is not None
+    assert state.claim_play_item(path) is None
+
+
+def test_plugin_song_is_not_claimed_twice_after_the_player_claimed(monkeypatch):
+    """The same guard for the ordering seen live: onPlayBackStarted claims the
+    queued entry *before* Player.OnPlay arrives, so the queue is already empty
+    and only the published playing id says the play route handled it."""
+    from kofin.service import player as player_mod
+
+    _map_song(monkeypatch)
+    api = LookupApi()
+    path = "http://s/audio/x/stream.opus?AudioBitrate=128000"
+    monkeypatch.setattr(
+        "xbmc.Player",
+        lambda: type("P", (), {"getPlayingFile": lambda self: path})(),
+    )
+    state.set_playing_id("jf-song-1")
+
+    assert (
+        player_mod.backfill_library_claim(
+            {"item": {"id": 55, "type": "song"}}, api  # type: ignore[arg-type]
+        )
+        is False
+    )
+    assert api.item_requests == []
+    assert state.claim_play_item(path) is None
+
+    # A different item playing is no reason to skip: that is a genuine
+    # direct-path song starting while the previous one has not stopped yet.
+    state.set_playing_id("jf-other")
+    assert (
+        player_mod.backfill_library_claim(
+            {"item": {"id": 55, "type": "song"}}, api  # type: ignore[arg-type]
+        )
+        is True
+    )
+
+
 def test_video_playback_is_never_backfilled(monkeypatch):
     """Video always goes through plugin:// and is claimed the normal way;
     back-filling it would risk double-claiming a legitimate play."""

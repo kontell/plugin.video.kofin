@@ -73,9 +73,28 @@ def test_stream_url_unplayable_raises():
 
 
 def test_mime_for():
-    assert play.mime_for("mkv", "DirectStream") == "video/x-matroska"
-    assert play.mime_for("anything", "Transcode") == play.HLS_MIME
-    assert play.mime_for("unknown", "DirectStream") == ""
+    assert play.mime_for({"Container": "mkv"}, "DirectStream") == "video/x-matroska"
+    assert play.mime_for({"Container": "mkv,mp4"}, "DirectStream") == "video/x-matroska"
+    assert play.mime_for({"Container": "anything"}, "Transcode") == play.HLS_MIME
+    assert play.mime_for({"Container": "unknown"}, "DirectStream") == ""
+
+
+def test_mime_for_http_transcode_is_not_hls():
+    # The music transcoding profile is plain http; calling its stream an HLS
+    # playlist makes Kodi parse the audio as m3u8.
+    source = {
+        "Container": "flac",
+        "TranscodingSubProtocol": "http",
+        "TranscodingContainer": "opus",
+    }
+    assert play.mime_for(source, "Transcode") == "audio/ogg"
+    assert play.mime_for(dict(source, TranscodingContainer="mp3"), "Transcode") == (
+        "audio/mpeg"
+    )
+    # An hls sub-protocol, or none at all, still means HLS.
+    assert play.mime_for(dict(source, TranscodingSubProtocol="hls"), "Transcode") == (
+        play.HLS_MIME
+    )
 
 
 def test_transcode_budget_caps_forced_transcode_at_source():

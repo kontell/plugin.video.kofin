@@ -21,7 +21,9 @@ The same read can fail *after* ready, though (phase 5 live testing: Kodi
 logged "failed to load addon settings from ...settings.xml" four minutes into
 a ready session and handed back "" for librarySelection, which proposed
 removing all six synced libraries). So emptying a guarded setting is
-corroborated by a second read before it is believed — see
+corroborated before it is believed — by a re-read and by a canary setting that
+is never legitimately empty, because the failure arrives in bursts and a
+re-read on its own can land inside the same broken window. See
 ``_is_spurious_clear``.
 """
 
@@ -39,6 +41,12 @@ Handler = Callable[[str, str], None]
 # Settings whose emptied value destroys data if believed too readily, so an
 # empty read is corroborated before it is acted on (``_is_spurious_clear``).
 GUARDED_CLEARS = ("librarySelection",)
+
+# Non-empty for the whole life of an installed addon: Credentials.load
+# generates it on first use and logging out deliberately keeps it. So an empty
+# read of it never means "the user changed something" — it means the settings
+# document did not load.
+LOAD_CANARY = "deviceId"
 
 
 class SettingsApplier:
@@ -103,25 +111,41 @@ class SettingsApplier:
         special://profile/addon_data/.../settings.xml") and hand back "" for
         a setting that is intact on disk — observed live during phase 5, four
         minutes into a ready session, which read as "user deselected every
-        library" and prompted removal of all six. ``get_str`` builds a fresh
-        ``Addon()`` per call, so the cheap discriminator is a second read:
-        the failure is in one Addon instantiation and a new one lands the
-        real value, while a genuine clear reads empty twice and proceeds.
+        library" and prompted removal of all six.
+
+        A re-read alone is not enough. The failure comes in bursts: Kodi logged
+        it three times in a row while a repair was running, so the immediate
+        re-read landed inside the same broken window and the removal prompt
+        appeared anyway. The decisive test is a canary instead of a retry — a
+        failed load empties *every* setting, not just this one, so a
+        ``deviceId`` that reads empty proves the document did not parse. Both
+        checks are single reads, so a genuine clear still proceeds without
+        waiting on anything.
         """
         if setting_id not in GUARDED_CLEARS or new != "" or old == "":
             return False
 
         confirm = settings.get_str(setting_id)
-        if confirm == new:
-            return False
+        if confirm != new:
+            LOG.warning(
+                "ignoring spurious empty read of %s (re-read returned %r); "
+                "treating it as a failed settings load, not a user edit",
+                setting_id,
+                confirm,
+            )
+            return True
 
-        LOG.warning(
-            "ignoring spurious empty read of %s (re-read returned %r); "
-            "treating it as a failed settings load, not a user edit",
-            setting_id,
-            confirm,
-        )
-        return True
+        if settings.get_str(LOAD_CANARY) == "":
+            LOG.warning(
+                "ignoring empty read of %s: %s came back empty too, so the "
+                "settings document failed to load rather than %s being cleared",
+                setting_id,
+                LOAD_CANARY,
+                setting_id,
+            )
+            return True
+
+        return False
 
     # -- handlers -------------------------------------------------------------
 

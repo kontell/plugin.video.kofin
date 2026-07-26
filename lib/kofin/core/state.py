@@ -58,6 +58,15 @@ def claim_play_item(path: str) -> Optional[Dict[str, Any]]:
     return claimed
 
 
+def play_item_queued(path: str) -> bool:
+    """Whether a resolved play for ``path`` is already waiting to be claimed.
+
+    Read-only counterpart to :func:`claim_play_item`, for deciding not to
+    queue a second entry for a playback the play route already handled.
+    """
+    return any(item.get("Path") == path for item in _read_queue(_window()))
+
+
 def clear_play_queue() -> None:
     _window().clearProperty(PROP_PLAY_QUEUE)
 

@@ -350,7 +350,39 @@ class Music(Kodi):
         self.cursor.execute(QU.delete_album, args)
 
     def delete_song(self, *args):
+        """Delete a song and, with it, the path row it leaves behind.
+
+        Kodi's music schema has no cascade here and the fork never cleaned up,
+        so every removal abandoned the song's ``path`` row: a repair of a
+        21k-song library left 21k orphans and doubled the table, since the
+        re-add creates fresh rows. Deliberately conditional — the row goes only
+        when no other song and no Kodi music source still points at it, so a
+        shared path (or a real scanned source that happens to collide) is left
+        alone. The song is deleted first so its own reference does not count.
+        """
+        self.cursor.execute(QU.get_song_path_id, args)
+        row = self.cursor.fetchone()
+
         self.cursor.execute(QU.delete_song, args)
+
+        if row is not None:
+            path_id = row[0]
+            self.cursor.execute(QU.delete_path_if_unused, (path_id,) * 3)
+
+    def prune_orphan_paths(self):
+        """Drop path rows abandoned before ``delete_song`` learned to clean up.
+
+        That fix stops the bleeding; this heals databases already affected,
+        where the count is one dead row per song per repair ever run.
+
+        Deliberately narrow. An orphaned path row is perfectly legitimate for
+        Kodi — its scanner keeps folder rows that hold no songs — so only rows
+        that nothing references *and* whose path is a shape kofin writes itself
+        are ours to remove.
+        """
+        self.cursor.execute(QU.prune_orphan_paths)
+
+        return self.cursor.rowcount
 
     def get_version(self):
         self.cursor.execute(QU.get_version)

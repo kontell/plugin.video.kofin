@@ -712,18 +712,31 @@
         </setting>
       </group>
       <group id="2">
+        <setting id="musicTranscode" type="boolean" label="30135" help="30136">
+          <level>0</level>
+          <default>false</default>
+          <control type="toggle"/>
+        </setting>
+        <!-- The three settings below are spinners, not list[string]: a
+             <dependencies> block is safe here (see the musicTranscode note
+             and the contextBitrates comment above). -->
         <setting id="musicMaxBitrate" type="integer" label="30129" help="30130">
           <level>0</level>
-          <default>320</default>
+          <default>0</default>
           <constraints>
             <options>
+              <option label="30176">0</option>
               <option label="30197">128</option>
               <option label="30198">192</option>
               <option label="30199">256</option>
               <option label="30200">320</option>
-              <option label="30176">0</option>
             </options>
           </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="musicTranscode">true</condition>
+            </dependency>
+          </dependencies>
           <control type="spinner" format="string"/>
         </setting>
         <setting id="musicTranscodeCodec" type="string" label="30131" help="30132">
@@ -736,6 +749,11 @@
               <option label="30163">opus</option>
             </options>
           </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="musicTranscode">true</condition>
+            </dependency>
+          </dependencies>
           <control type="spinner" format="string"/>
         </setting>
         <setting id="musicTranscodeBitrate" type="integer" label="30133" help="30134">
@@ -750,6 +768,11 @@
               <option label="30200">320</option>
             </options>
           </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="musicTranscode">true</condition>
+            </dependency>
+          </dependencies>
           <control type="spinner" format="string"/>
         </setting>
       </group>

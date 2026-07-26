@@ -5,6 +5,11 @@ whenever a bitrate cap is set, because live-TV direct play ignores
 MaxStreamingBitrate server-side. For VOD the server honors the cap in its
 direct-play decision, so kofin keeps direct play available and lets the
 server gate it per item.
+
+``forceDirectPlay`` is scoped to video. It suppresses every video-side
+constraint (HDR, width, streaming bitrate), but music delivery belongs to
+``musicTranscode`` and its own cap, so forcing direct play for video does not
+silently uncap music.
 """
 
 from typing import Any, Dict, List, Optional
@@ -82,7 +87,7 @@ class ProfileConfig:
         audio_bitrate_kbps: int = 384,
         music_codec: str = "opus",
         music_bitrate_kbps: int = 128,
-        music_max_bitrate_kbps: int = 320,
+        music_max_bitrate_kbps: int = 0,
     ) -> None:
         self.force_direct_play = force_direct_play
         self.force_remux = force_remux
@@ -121,7 +126,17 @@ class ProfileConfig:
             audio_bitrate_kbps=settings.get_int("audioBitrate") or 384,
             music_codec=settings.get_str("musicTranscodeCodec") or "opus",
             music_bitrate_kbps=settings.get_int("musicTranscodeBitrate") or 128,
-            music_max_bitrate_kbps=settings.get_int("musicMaxBitrate"),
+            # ``musicTranscode`` owns the whole music group: with it off the
+            # cap must not apply, or a value left behind from an earlier
+            # session would still force transcodes on the paths that do reach
+            # PlaybackInfo (browsing the server directly). The transcoding
+            # profile itself stays either way — it is the server's fallback
+            # when a container cannot be direct played at all.
+            music_max_bitrate_kbps=(
+                settings.get_int("musicMaxBitrate")
+                if settings.get_bool("musicTranscode")
+                else 0
+            ),
         )
 
 
@@ -325,20 +340,24 @@ def _codec_profiles(
                 }
             )
 
-        if config.music_max_bitrate_kbps > 0:
-            profiles.append(
-                {
-                    "Type": "Audio",
-                    "Conditions": [
-                        {
-                            "Condition": "LessThanEqual",
-                            "Property": "AudioBitrate",
-                            "Value": str(config.music_max_bitrate_kbps * 1000),
-                            "IsRequired": False,
-                        }
-                    ],
-                }
-            )
+    # Outside the force-direct-play block on purpose: that toggle is scoped to
+    # video. Music delivery is owned by ``musicTranscode`` and its cap, so a
+    # user who forces direct play for video can still have the server hold
+    # music to a bitrate.
+    if config.music_max_bitrate_kbps > 0:
+        profiles.append(
+            {
+                "Type": "Audio",
+                "Conditions": [
+                    {
+                        "Condition": "LessThanEqual",
+                        "Property": "AudioBitrate",
+                        "Value": str(config.music_max_bitrate_kbps * 1000),
+                        "IsRequired": False,
+                    }
+                ],
+            }
+        )
 
     return profiles
 

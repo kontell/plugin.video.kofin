@@ -162,25 +162,16 @@ def next_episode_label(episode: JsonDict) -> str:
     return name
 
 
-# Kodi media types whose rows are written with a direct stream URL rather than
-# a plugin:// path, so playback from the library never reaches the play route.
+# Kodi media types whose rows may be written with a direct stream URL rather
+# than a plugin:// path, so playback from the library never reaches the play
+# route. Songs are written either way depending on ``musicTranscode``, which is
+# why the back-fill checks the play queue before claiming (see below).
 BACKFILL_MEDIA_TYPES = ("song",)
 
 
-def library_claim(kodi_id: int, media: str, path: str, api: Api) -> Optional[JsonDict]:
-    """The play-state a library-originated playback would have queued.
-
-    Songs are written into Kodi as ``<server>/Audio/<id>/stream.<ext>``, so
-    playing one from the music library never invokes ``mode=play`` and nothing
-    claims it — the player sees a file it did not queue and reports nothing,
-    which is why music never appeared on the dashboard and server playcounts
-    never advanced. The fork solves it the same way (``objects/actions.py``
-    ``on_play``): map the Kodi id back to a Jellyfin id, fetch the item, and
-    register it so the normal reporting path takes over.
-
-    Returns None when the row is not ours or the server cannot be reached —
-    genuinely foreign playback must stay unclaimed.
-    """
+def mapped_jellyfin_id(kodi_id: int, media: str) -> Optional[str]:
+    """The Jellyfin id kofin synced a Kodi library row from, or None if the row
+    is not ours (or the mapping database cannot be read)."""
     from kofin.sync import db as sync_db
     from kofin.sync import kofindb
 
@@ -193,9 +184,24 @@ def library_claim(kodi_id: int, media: str, path: str, api: Api) -> Optional[Jso
         LOG.exception("library claim lookup failed for %s/%s", media, kodi_id)
         return None
 
-    if not jellyfin_id:
-        return None
+    return str(jellyfin_id) if jellyfin_id else None
 
+
+def library_claim(jellyfin_id: str, path: str, api: Api) -> Optional[JsonDict]:
+    """The play-state a library-originated playback would have queued.
+
+    Unless ``musicTranscode`` is on, songs are written into Kodi as
+    ``<server>/Audio/<id>/stream.<ext>``, so playing one from the music library
+    never invokes ``mode=play`` and nothing
+    claims it — the player sees a file it did not queue and reports nothing,
+    which is why music never appeared on the dashboard and server playcounts
+    never advanced. The fork solves it the same way (``objects/actions.py``
+    ``on_play``): map the Kodi id back to a Jellyfin id, fetch the item, and
+    register it so the normal reporting path takes over.
+
+    Returns None when the server cannot be reached — genuinely foreign
+    playback must stay unclaimed.
+    """
     try:
         item = api.item(jellyfin_id)
     except Exception as error:
@@ -244,7 +250,23 @@ def backfill_library_claim(data: JsonDict, api: Api) -> bool:
     if not path:
         return False
 
-    claim = library_claim(kodi_id, media, path, api)
+    jellyfin_id = mapped_jellyfin_id(kodi_id, media)
+    if not jellyfin_id:
+        return False
+
+    # With ``musicTranscode`` on, songs are plugin:// rows that claim
+    # themselves through the play route, and a second claim here would be left
+    # in the queue for the next playback to adopt via claim_play_item's
+    # oldest-entry fallback. Both orderings have to be caught: this
+    # notification can land before onPlayBackStarted claims (the entry is
+    # still queued) or after it (the entry is gone, but the player has
+    # published what it is playing). Testing the play state rather than the
+    # setting also keeps the window between flipping it and repairing the
+    # library reported, where the rows are still direct URLs.
+    if state.play_item_queued(path) or state.get_playing_id() == jellyfin_id:
+        return False
+
+    claim = library_claim(jellyfin_id, path, api)
     if claim is None:
         return False
 
@@ -879,11 +901,12 @@ class Player(xbmc.Player):
                 claimed = state.claim_play_item(current_file)
                 if claimed is not None:
                     return claimed
-                # Songs never pass through the play route — they are written
-                # into Kodi's library as direct ``<server>/Audio/<id>/`` stream
-                # URLs — so their claim is back-filled from the Player.OnPlay
-                # notification instead, which can land after this callback.
-                # Wait a beat for it rather than calling it foreign playback.
+                # Songs written into Kodi's library as direct
+                # ``<server>/Audio/<id>/`` stream URLs never pass through the
+                # play route, so their claim is back-filled from the
+                # Player.OnPlay notification instead, which can land after
+                # this callback. Wait a beat for it rather than calling it
+                # foreign playback.
                 if (
                     self.isPlayingAudio()
                     and waited < AUDIO_BACKFILL_GRACE_SECONDS

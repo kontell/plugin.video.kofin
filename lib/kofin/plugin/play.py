@@ -89,9 +89,20 @@ def stream_url(
     )
 
 
-def mime_for(container: str, play_method: str) -> str:
+def mime_for(source: JsonDict, play_method: str) -> str:
+    """The MIME type to hand Kodi for the resolved stream.
+
+    A transcode is only HLS when the server says so. The music transcoding
+    profile is plain http (``TranscodingSubProtocol: "http"``), and labelling
+    that stream as an HLS playlist makes Kodi try to parse the audio as m3u8;
+    it gets the transcoded container's type instead.
+    """
     if play_method == "Transcode":
-        return HLS_MIME
+        if (source.get("TranscodingSubProtocol") or "hls").lower() == "hls":
+            return HLS_MIME
+        container = source.get("TranscodingContainer") or ""
+    else:
+        container = (source.get("Container") or "").split(",")[0]
     return MIME_BY_CONTAINER.get(container.lower(), "")
 
 
@@ -232,10 +243,14 @@ def play(request: Request) -> None:
         url, method = stream_url(
             api.server, item, source, creds.device_id, play_session_id
         )
-        if method == "Transcode":
+        is_audio = item.get("Type") in AUDIO_TYPES
+        if method == "Transcode" and not is_audio:
             # The server sizes its own VideoBitrate/AudioBitrate off the
             # profile cap alone; recompute them so a forced transcode is
             # bounded by the source and the audio share stays proportional.
+            # Music is exempt: its transcode is already sized by
+            # MusicStreamingTranscodingBitrate, and the video audio share
+            # would otherwise overwrite that with an unrelated number.
             budget = transcode_budget(
                 source,
                 int(profile["MaxStreamingBitrate"]),
@@ -260,8 +275,13 @@ def play(request: Request) -> None:
     dbid = request.params.get("dbid", "")
     if dbid.isdigit() and item.get("Type") in ("Movie", "Episode", "MusicVideo"):
         li.getVideoInfoTag().setDbId(int(dbid))
+    elif dbid.isdigit() and is_audio:
+        # setResolvedUrl replaces the library item's music tag wholesale, so
+        # the song's database id has to be restated or the link back to the
+        # Kodi row is lost for anything reading the tag.
+        li.getMusicInfoTag().setDbId(int(dbid), "song")
     li.setPath(url)
-    mime = mime_for((source.get("Container") or "").split(",")[0], method)
+    mime = mime_for(source, method)
     if mime:
         li.setMimeType(mime)
     li.setContentLookup(False)
