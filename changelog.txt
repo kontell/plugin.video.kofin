@@ -1,3 +1,17 @@
+v0.5.0
+- Resume now starts where Kodi's prompt said it would: "Play from beginning" plays from the beginning, and resuming lands on the time the dialog named. A new Advanced-tab slider rewinds a resume by up to a minute (10 seconds by default) so it picks up just before where you stopped
+- Kodi's own "Mark as watched", "Mark as unwatched" and "Reset resume position" now reach the server instead of staying on this device
+- Resuming into the middle of an intro no longer flashes the skip dialog and closes it again
+- The information dialog now opens for items in Kofin's own listings; pressing Info there previously did nothing at all, for movies and episodes alike (the cast is not listed there yet)
+- An item's context menu no longer offers "Mark as watched" and "Add to favourites" twice. Both Jellyfin actions live in the "Jellyfin actions" menu, which now marks watched as well
+- Notifications carry the Kofin icon when they are reporting something and Kodi's warning or error icon when something is wrong; two failures that showed an information icon and beeped are fixed, and a couple that described the wrong problem now say what actually happened
+- The music transcoding settings finally take effect, and a song that names no artist of its own is credited to its album artist instead of vanishing from its album
+- Sync no longer removes library rows it should have kept: candidates are confirmed by id before removal, and a short answer from the server is no longer read as an instruction to delete
+- Seasons that arrive before their show, and episodes whose season moved, now heal themselves instead of leaving orphans behind; an item that still cannot be placed is reported rather than quietly skipped
+- A failed settings read no longer looks like "every library was deselected" and offers to remove them all
+- New on the Advanced tab: a Who's watching shortlist, deleting from the server without a confirmation prompt, and an offer to delete a movie or episode once you finish watching it
+- Force direct play is now on by default and maximum audio channels defaults to 7.1; the hide-update-status threshold now runs to 5000 items (500 by default). AC3 is no longer offered as a transcode target — an install that had it selected falls back to AAC
+
 v0.4.0
 - Fixed episodes of an unrelated show being deleted when a library update removed a season; two complete seasons vanished from Kodi this way. Anything already lost comes back on the next update
 - Library updates now settle: previously every season in a library was re-downloaded and rewritten on every run, so an update could never finish with nothing left to do
