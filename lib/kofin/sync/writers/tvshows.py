@@ -688,38 +688,59 @@ class TVShows(KodiDb):
                 *values(obj, QUEM.delete_item_by_parent_season_obj)
             )
 
-            try:
+            # Deviation from the fork: an unresolvable season skips the parent
+            # cascade, it does not abandon the removal. The fork returned here,
+            # and that return jumped the tail of this method -- including the
+            # remove_item that drops this episode's own kofin.db reference.
+            # The Kodi row is already gone by then (remove_episode above), so
+            # what survived was a reference to a deleted row: exactly the
+            # damage the prune cannot see, because it diffs ids and Etags and
+            # so reads the surviving reference as present.
+            #
+            # Reached more often than "cannot happen" suggests. The lookup
+            # keys on the episode's *recorded* season kodi_id, so it misses
+            # whenever the season has since been re-created at a fresh
+            # idSeason -- which is what a removed-then-re-added season leaves
+            # behind, with the episode rows still pointing at the old id.
+            #
+            # Only the cascade needs the season: it decides whether the season
+            # (and then the series) is now empty enough to remove too. That
+            # question is unanswerable without the reference; this episode's
+            # own removal is not.
+            if season is not None:
                 temp_obj["Id"] = season[0]
                 temp_obj["ParentId"] = season[1]
-            except TypeError:
-                return
 
-            if not self.jellyfin_db.get_item_by_parent_id(
-                *values(obj, QUEM.get_item_by_parent_episode_obj)
-            ):
-
-                self.remove_season(obj["ParentId"], obj["Id"])
-                self.jellyfin_db.remove_item(*values(temp_obj, QUEM.delete_item_obj))
-
-            temp_obj["Id"] = self.jellyfin_db.get_item_by_kodi_id(
-                *values(temp_obj, QUEM.get_item_by_parent_tvshow_obj)
-            )
-
-            if not self.get_total_episodes(
-                *values(temp_obj, QU.get_total_episodes_obj)
-            ):
-
-                for season in self.jellyfin_db.get_item_by_parent_id(
-                    *values(temp_obj, QUEM.get_item_by_parent_season_obj)
+                if not self.jellyfin_db.get_item_by_parent_id(
+                    *values(obj, QUEM.get_item_by_parent_episode_obj)
                 ):
-                    self.remove_season(season[1], obj["Id"])
-                else:
-                    self.jellyfin_db.remove_items_by_parent_id(
-                        *values(temp_obj, QUEM.delete_item_by_parent_season_obj)
+
+                    self.remove_season(obj["ParentId"], obj["Id"])
+                    self.jellyfin_db.remove_item(
+                        *values(temp_obj, QUEM.delete_item_obj)
                     )
 
-                self.remove_tvshow(temp_obj["ParentId"], obj["Id"])
-                self.jellyfin_db.remove_item(*values(temp_obj, QUEM.delete_item_obj))
+                temp_obj["Id"] = self.jellyfin_db.get_item_by_kodi_id(
+                    *values(temp_obj, QUEM.get_item_by_parent_tvshow_obj)
+                )
+
+                if not self.get_total_episodes(
+                    *values(temp_obj, QU.get_total_episodes_obj)
+                ):
+
+                    for season in self.jellyfin_db.get_item_by_parent_id(
+                        *values(temp_obj, QUEM.get_item_by_parent_season_obj)
+                    ):
+                        self.remove_season(season[1], obj["Id"])
+                    else:
+                        self.jellyfin_db.remove_items_by_parent_id(
+                            *values(temp_obj, QUEM.delete_item_by_parent_season_obj)
+                        )
+
+                    self.remove_tvshow(temp_obj["ParentId"], obj["Id"])
+                    self.jellyfin_db.remove_item(
+                        *values(temp_obj, QUEM.delete_item_obj)
+                    )
 
         elif obj["Media"] == "tvshow":
             obj["ParentId"] = obj["KodiId"]
