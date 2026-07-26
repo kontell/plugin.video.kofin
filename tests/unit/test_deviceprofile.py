@@ -5,6 +5,7 @@ from kofin.core.deviceprofile import (
     audio_bitrate_bps,
     build,
 )
+from tests.unit.fakes import FakeAddon
 
 
 def audio_condition(profile):
@@ -48,16 +49,11 @@ def test_defaults_direct_play_everything():
     assert direct[0]["AudioCodec"].startswith("aac,")
     assert direct[1] == {"Type": "Audio"}
 
-    # All HDR types selected + 10bit/rext allowed: no video restrictions —
-    # only the music direct-play cap remains a codec profile. The video
-    # audio-track bitrate cap lives on the transcoding profiles (it must
-    # never gate direct play — a 448k ac3 track would otherwise transcode).
-    properties = [cp["Conditions"][0]["Property"] for cp in profile["CodecProfiles"]]
-    assert "VideoRangeType" not in properties
-    assert "VideoBitDepth" not in properties
-    assert "Width" not in properties
-    assert properties == ["AudioBitrate"]
-    assert [cp["Type"] for cp in profile["CodecProfiles"]] == ["Audio"]
+    # All HDR types selected + 10bit/rext allowed and music transcoding off:
+    # nothing constrains direct play. The video audio-track bitrate cap lives
+    # on the transcoding profiles (it must never gate direct play — a 448k ac3
+    # track would otherwise transcode).
+    assert profile["CodecProfiles"] == []
     for tp in profile["TranscodingProfiles"][:2]:
         condition = tp["Conditions"][0]
         assert condition["Property"] == "AudioBitrate"
@@ -208,3 +204,29 @@ def test_music_max_bitrate_caps_audio_direct_play():
 
     unlimited = build(ProfileConfig(music_max_bitrate_kbps=0))
     assert not [cp for cp in unlimited["CodecProfiles"] if cp["Type"] == "Audio"]
+
+
+def test_force_direct_play_is_scoped_to_video():
+    """forceDirectPlay uncaps video only. Music delivery belongs to
+    musicTranscode, so the music cap survives it."""
+    profile = build(ProfileConfig(force_direct_play=True, music_max_bitrate_kbps=192))
+    audio_caps = [cp for cp in profile["CodecProfiles"] if cp["Type"] == "Audio"]
+    assert audio_caps and audio_caps[0]["Conditions"][0]["Value"] == "192000"
+    # The video side is still fully uncapped, and the music transcoding
+    # profile is still there for the server to fall back on.
+    assert not [
+        cp
+        for cp in profile["CodecProfiles"]
+        if cp["Conditions"][0]["Property"] in ("Width", "VideoRangeType")
+    ]
+    assert profile["TranscodingProfiles"][-1]["Type"] == "Audio"
+
+
+def test_music_cap_only_applies_when_music_transcode_is_on(monkeypatch):
+    FakeAddon.store = {"musicMaxBitrate": "320", "musicTranscodeBitrate": "128"}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+
+    assert ProfileConfig.from_settings().music_max_bitrate_kbps == 0
+
+    FakeAddon.store["musicTranscode"] = "true"
+    assert ProfileConfig.from_settings().music_max_bitrate_kbps == 320

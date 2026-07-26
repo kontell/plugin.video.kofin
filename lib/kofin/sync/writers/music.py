@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """Artist/album/song writer (fork ``objects/music.py`` port). Adaptations
 per plan §3: imports/shims, ``direct_path`` branches stripped (songs stream
-from the server), ``self.server`` is the kofin Api."""
+from the server), ``self.server`` is the kofin Api, and the ``musicTranscode``
+setting picks between the fork's direct stream URLs and kofin plugin paths."""
 
 import datetime
 
+from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import queries_map as QUEM
@@ -33,6 +35,11 @@ class Music(KodiDb):
         # Native mode is gone; the flag stays because the checksum format
         # bakes it in ("<etag>|plugin") and check_unchanged reads it.
         self.direct_path = False
+        # Read once per writer rather than per song: settings.get_bool builds
+        # a fresh xbmcaddon.Addon each call and a music library is tens of
+        # thousands of songs. A flip only takes effect on the repair the
+        # setting's help text asks for, which rebuilds the writers anyway.
+        self.music_transcode = settings.get_bool("musicTranscode")
 
         self.jellyfin_db = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
         self.objects = Objects()
@@ -406,13 +413,47 @@ class Music(KodiDb):
         )
 
     def get_song_path_filename(self, obj, api):
-        """Get the path and filename and build it into protocol://path"""
+        """Get the path and filename and build it into protocol://path
+
+        Kodi rebuilds a song's playable path as
+        ``URIUtils::AddFileToFolder(path.strPath, song.strFileName)`` — unlike
+        the video database there is no "a full URL in strFileName wins" arm
+        (``CVideoDatabase::ConstructPath``), so the plugin form has to survive
+        that join. Appending to the folder's own filename part gives back
+        ``plugin://…/<library>/<id>/stream.<ext>?mode=play&id=<id>``, which the
+        router reads by query alone.
+
+        The ``stream.<ext>`` component is load-bearing, not decoration: Kodi
+        addresses a library song as ``musicdb://songs/<idSong><ext>`` where
+        ``<ext>`` comes from this filename, and
+        ``CMusicDatabaseFile::TranslateUrl`` rejects the id outright when that
+        extension is missing or disagrees with the row (verified live — an
+        extensionless filename fails at ``Init: Error opening file
+        musicdb://songs/<id>``, before any plugin resolution). Direct mode
+        below has always carried one for the same reason.
+
+        The row stays one path per song, as in direct mode, so
+        ``song_update``'s in-place ``update_path`` keeps touching only its own
+        song.
+        """
         obj["Path"] = api.get_file_path(obj["Path"])
         obj["Filename"] = (
             obj["Path"].rsplit("\\", 1)[1]
             if "\\" in obj["Path"]
             else obj["Path"].rsplit("/", 1)[1]
         )
+
+        if self.music_transcode:
+            obj["Path"] = "plugin://plugin.video.kofin/%s/%s/" % (
+                obj["LibraryId"],
+                obj["Id"],
+            )
+            obj["Filename"] = "stream.%s?mode=play&id=%s&dbid=%s" % (
+                obj["Container"],
+                obj["Id"],
+                obj["SongId"],
+            )
+            return
 
         server_address = self.server.server
         obj["Path"] = "%s/Audio/%s/" % (server_address, obj["Id"])

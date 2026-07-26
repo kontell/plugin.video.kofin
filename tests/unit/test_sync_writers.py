@@ -859,6 +859,38 @@ def test_music_artist_album_song_write(api, frozen_music_clock):
     assert mapping == {"artist1": "artist", "album1": "album", "song1": "song"}
 
 
+def test_music_transcode_writes_plugin_paths(api, frozen_music_clock):
+    # With musicTranscode on the song row addresses the play route instead of
+    # the server, so the device profile gets a say in how music is delivered.
+    FakeAddon.store["musicTranscode"] = "true"
+    write_music_tree(api)
+
+    path = music_query("SELECT strPath FROM path")[0][0]
+    song_id, filename = music_query("SELECT idSong, strFileName FROM song")[0]
+    assert path == "plugin://plugin.video.kofin/lib-music/song1/"
+    assert filename == "stream.flac?mode=play&id=song1&dbid=%d" % song_id
+    # The extension is required: Kodi addresses the song as
+    # musicdb://songs/<idSong><ext> and CMusicDatabaseFile::TranslateUrl
+    # refuses the id when <ext> is missing.
+    assert filename.split("?", 1)[0].endswith(".flac")
+    # Kodi rebuilds the playable path by appending the filename to the folder's
+    # own filename part (URIUtils::AddFileToFolder), which has to give a plugin
+    # URL the router can parse.
+    assert path + filename == (
+        "plugin://plugin.video.kofin/lib-music/song1/"
+        "stream.flac?mode=play&id=song1&dbid=%d" % song_id
+    )
+
+
+def test_music_transcode_write_is_idempotent(api, frozen_music_clock):
+    FakeAddon.store["musicTranscode"] = "true"
+    write_music_tree(api)
+    first = music_dump(str(sync_db._path_overrides["music"]))
+
+    write_music_tree(api)
+    assert music_dump(str(sync_db._path_overrides["music"])) == first
+
+
 def test_music_write_is_idempotent(api, frozen_music_clock):
     write_music_tree(api)
     first = music_dump(str(sync_db._path_overrides["music"]))

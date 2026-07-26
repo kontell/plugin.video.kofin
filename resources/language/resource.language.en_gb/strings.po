@@ -246,7 +246,7 @@ msgid "Force direct play"
 msgstr ""
 
 msgctxt "#30103"
-msgid "Always play the original file. Overrides every other transcoding setting; playback fails if the device cannot handle the media."
+msgid "Always play the original video file. Overrides every other video transcoding setting; playback fails if the device cannot handle the media. Music is unaffected — see 'Transcode music'."
 msgstr ""
 
 msgctxt "#30104"
@@ -354,7 +354,7 @@ msgid "Maximum music bitrate"
 msgstr ""
 
 msgctxt "#30130"
-msgid "Music above this bitrate is transcoded using the codec and bitrate below. (not implemented yet)"
+msgid "Music above this bitrate is transcoded using the codec and bitrate below. Unlimited never transcodes."
 msgstr ""
 
 msgctxt "#30131"
@@ -371,6 +371,14 @@ msgstr ""
 
 msgctxt "#30134"
 msgid "Bitrate for transcoded music streams."
+msgstr ""
+
+msgctxt "#30135"
+msgid "Transcode music"
+msgstr ""
+
+msgctxt "#30136"
+msgid "Route music playback through the add-on so the settings below apply. Off, songs stream straight from the server untouched. Changing this needs a library repair of your music libraries to rewrite their paths."
 msgstr ""
 
 msgctxt "#30150"
