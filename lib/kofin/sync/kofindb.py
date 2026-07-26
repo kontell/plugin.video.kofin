@@ -121,6 +121,10 @@ class JellyfinDatabase:
     def remove_item_by_kodi_id(self, *args):
         self.cursor.execute(QU.delete_item_by_kodi, args)
 
+    def remove_item_alias_by_kodi_id(self, *args):
+        """Drop other references to one Kodi row, keeping the id given last."""
+        self.cursor.execute(QU.delete_item_alias_by_kodi, args)
+
     def remove_wild_item(self, item_id):
         self.cursor.execute(QU.delete_item_by_wild, (item_id + "%",))
 

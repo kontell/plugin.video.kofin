@@ -230,6 +230,12 @@ def get_items(api, parent_id, item_type=None, basic=False, params=None):
 
 PRUNE_PAGE_SIZE = 500
 
+# Ids per request when confirming the prune's stale candidates (see
+# get_existing_ids). Stale sets are small in normal operation -- this only
+# matters when a whole library has gone -- and 100 keeps the query string
+# well inside anything a reverse proxy will forward.
+STALE_CONFIRM_BATCH = 100
+
 # Pages the look-ahead pool may hold per thread (see the buffer semaphore in
 # _get_items). Anything above 1 stops the writer's own work from stalling the
 # next fetch.
@@ -373,6 +379,55 @@ def get_prune_count(api, parent_id, item_types):
     )
 
     return result.get("TotalRecordCount")
+
+
+def get_existing_ids(api, item_ids):
+    """Which of ``item_ids`` the server still resolves, asked by id alone.
+
+    The prune infers "stale" from absence: an id in kofin.db that the library
+    listing did not return. That inference carries a filtered query's whole
+    view of the library with it -- ``LocationTypes``, ``IsMissing``,
+    ``IsVirtualUnaired``, and whichever endpoint the listing came from -- and
+    the removal arm downstream is destructive. "Not in that listing" and "gone
+    from the server" are different questions, and only the second one is
+    grounds for deleting rows.
+
+    So this asks the second one directly: no filters, no parent, no recursion,
+    just ``Ids`` -- does the server still know this item. An id that resolves
+    is not stale no matter why the listing omitted it.
+
+    Concretely: seasons reached through ``/Shows/{id}/Seasons`` can carry a
+    different id than the ``/Items`` listing reports for the same season, and
+    the writers reference the former while the prune diffs the latter. Those
+    ids resolve here, so they stop being removed. This is the general guard,
+    though -- it does not need to know which asymmetry it is covering.
+
+    Failures propagate: a confirmation that could not be made is not a
+    confirmation, and the caller must not fall back to deleting on the
+    unverified set.
+    """
+    found = set()
+    ids = [item_id for item_id in item_ids if item_id]
+
+    for start in range(0, len(ids), STALE_CONFIRM_BATCH):
+        if state.should_stop():
+            raise LibraryExitException("Should stop flag raised, exiting...")
+
+        result = api.items(
+            {
+                "Ids": ",".join(ids[start : start + STALE_CONFIRM_BATCH]),
+                "Fields": "Etag",
+                "EnableUserData": False,
+                "EnableImages": False,
+                "EnableTotalRecordCount": False,
+            }
+        )
+
+        for item in result.get("Items") or []:
+            if item.get("Id"):
+                found.add(item["Id"])
+
+    return found
 
 
 def get_artists(api, parent_id=None):

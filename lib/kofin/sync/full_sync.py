@@ -813,13 +813,45 @@ class FullSync(object):
         missing.sort(key=lambda entry: entry[0])
         missing_ids = [item_id for _rank, item_id in missing]
 
+        # Confirm every stale candidate by id before deleting anything. The
+        # diff above infers "stale" from absence in a *filtered listing*, and
+        # a listing can omit an item that is alive and well -- so the removal
+        # arm, the only destructive one here, asks the server directly instead
+        # of trusting the inference. See get_existing_ids.
+        #
+        # Failure to confirm leaves the candidate alone: the invariant is that
+        # nothing is removed on an unverified id, so a confirmation that could
+        # not be made must not read as "gone".
+        spared = []
+
+        if stale:
+            resolved = server.get_existing_ids(self.server, stale)
+
+            if resolved:
+                spared = [item_id for item_id in stale if item_id in resolved]
+                stale = [item_id for item_id in stale if item_id not in resolved]
+
         LOG.info(
-            "--[ prune/%s ] missing:%s changed:%s stale:%s",
+            "--[ prune/%s ] missing:%s changed:%s stale:%s spared:%s",
             library["Id"],
             len(missing_ids),
             len(changed),
             len(stale),
+            len(spared),
         )
+
+        if spared:
+            # Not routine. Either the library listing and the reference set
+            # disagree about an item's id, or a filter is hiding something the
+            # writers referenced -- both are kofin bugs that this guard only
+            # stops short of acting on.
+            LOG.warning(
+                "prune/%s spared %s stale candidate(s) the server still "
+                "resolves: %s",
+                library["Id"],
+                len(spared),
+                ", ".join(sorted(spared)[:10]),
+            )
 
         self.library.removed(stale)
         self.library.added(missing_ids)

@@ -849,6 +849,40 @@ def test_season_removal_spares_a_colliding_seasons_episodes(api):
     assert {"ta", "ta-s4", "ta-e1", "ta-e2"} <= remaining
 
 
+def test_duplicate_season_ids_collapse_to_one_reference(api):
+    """Two Jellyfin ids for one season must not leave two references.
+
+    Jellyfin hands out two: the id /Shows/{id}/Seasons reports for a season can
+    differ from the one the /Items listing reports for it, and season() is
+    reached from both. get_season is keyed on (idShow, season), so both resolve
+    to the same idSeason -- and two references to one Kodi row is what makes
+    the prune destructive, since the id the listing lacks reads as stale on
+    every pass and removing it deletes the row the survivor still points at.
+    """
+    write_series_tree(api)
+
+    season_rows = video_query("SELECT idSeason FROM seasons WHERE season = 1")
+    assert len(season_rows) == 1
+    season_kodi_id = season_rows[0][0]
+
+    # The same season arriving under the other id, as the Season pass delivers
+    # it after the per-series walk has already written the first.
+    alias = dict(dto(SEASON_1))
+    alias["Id"] = "season1-alias"
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        TVShows(api, kdb, vdb, library=TV_LIBRARY).season(alias, show_id=1)
+
+    # Still one Kodi row -- get_season found it rather than adding another.
+    assert video_query("SELECT COUNT(*) FROM seasons WHERE season = 1") == [(1,)]
+    # ...and exactly one reference to it, the id that wrote last.
+    refs = kofin_query(
+        "SELECT jellyfin_id FROM jellyfin WHERE media_type='season' AND kodi_id=?",
+        (season_kodi_id,),
+    )
+    assert refs == [("season1-alias",)]
+
+
 def test_episode_removal_prunes_empty_show(api):
     write_series_tree(api)
 

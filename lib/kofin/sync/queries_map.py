@@ -258,6 +258,13 @@ DELETE FROM     jellyfin
 WHERE           kodi_id = ?
 AND             media_type = ?
 """
+delete_item_alias_by_kodi = """
+DELETE FROM     jellyfin
+WHERE           kodi_id = ?
+AND             media_type = ?
+AND             jellyfin_id != ?
+"""
+delete_alias_season_obj = ["{SeasonId}", "season", "{Id}"]
 delete_item_by_wild = """
 DELETE FROM     jellyfin
 WHERE           jellyfin_id LIKE ?

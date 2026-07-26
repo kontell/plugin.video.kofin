@@ -336,6 +336,29 @@ class TVShows(KodiDb):
         # skip path and always writes.
         obj["Checksum"] = sync_checksum(item, self.direct_path)
         self.jellyfin_db.add_reference(*values(obj, QUEM.add_reference_season_obj))
+
+        # One reference per Kodi season row. get_season above is keyed on
+        # (idShow, season), so two Jellyfin ids for the same season resolve to
+        # the same idSeason -- and Jellyfin does hand out two: the id
+        # /Shows/{id}/Seasons reports for a season can differ from the one the
+        # /Items listing reports for it, and this writer is reached from both
+        # (the per-series walk in tvshow() and the library's Season pass).
+        #
+        # Two references to one row is not a cosmetic duplicate. The prune
+        # diffs against the /Items listing, so the other id reads as stale on
+        # every pass; removing it deletes the *shared* row and its episodes,
+        # and the surviving reference is left pointing at nothing -- which the
+        # prune cannot see, because its id and Etag both still match. On the
+        # Omega box that took Breaking Bad S1/S3/S4 and Yellowstone S1 out of
+        # the library on every prune, and put them back on every series walk.
+        #
+        # Dropping the alias here makes the reference set converge on whichever
+        # id wrote last. Within a full sync that is the Season pass, i.e. the
+        # /Items family the prune diffs -- so the set the prune compares
+        # against is the set it queried, and the churn has nothing to feed on.
+        self.jellyfin_db.remove_item_alias_by_kodi_id(
+            *values(obj, QUEM.delete_alias_season_obj)
+        )
         self.item_ids.append(obj["Id"])
 
         self.artwork.add(obj["Artwork"], obj["SeasonId"], "season")
