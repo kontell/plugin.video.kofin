@@ -148,8 +148,17 @@ def art_for(item: JsonDict, server: str) -> Dict[str, str]:
     return art
 
 
-def build(item: JsonDict, server: str) -> xbmcgui.ListItem:
-    """A fully populated ListItem for a Jellyfin DTO."""
+def build(
+    item: JsonDict, server: str, resume_seconds: Optional[float] = None
+) -> xbmcgui.ListItem:
+    """A fully populated ListItem for a Jellyfin DTO.
+
+    ``resume_seconds`` replaces the resume point derived from the item's
+    UserData, and 0 means no resume point at all. The play route passes the
+    position this playback was resolved to start at: a resume point stamped on
+    a *resolved* item makes Kodi resume whatever the user chose at the prompt,
+    so it has to say exactly what this playback means (see ``plugin.play``).
+    """
     li = xbmcgui.ListItem(item.get("Name", ""), offscreen=True)
     li.setArt(art_for(item, server))
     li.setProperty("kofin.id", item.get("Id", ""))
@@ -157,14 +166,16 @@ def build(item: JsonDict, server: str) -> xbmcgui.ListItem:
     if item.get("Type") in MUSIC_TYPES:
         _fill_music(li, item)
     elif item.get("Type") not in ("Photo", "PhotoAlbum", "Genre"):
-        _fill_video(li, item)
+        _fill_video(li, item, resume_seconds)
 
     if not is_folder(item) and item.get("Type") != "Photo":
         li.setProperty("IsPlayable", "true")
     return li
 
 
-def _fill_video(li: xbmcgui.ListItem, item: JsonDict) -> None:
+def _fill_video(
+    li: xbmcgui.ListItem, item: JsonDict, resume_seconds: Optional[float] = None
+) -> None:
     tag = li.getVideoInfoTag()
     item_type = item.get("Type", "")
     tag.setMediaType(MEDIATYPE.get(item_type, "video"))
@@ -221,6 +232,11 @@ def _fill_video(li: xbmcgui.ListItem, item: JsonDict) -> None:
 
     tag.setPlaycount(playcount_of(item))
     position, total = resume_of(item)
+    if resume_seconds is not None:
+        position = resume_seconds
+    # There is no way to unset a resume point once stamped -- Kodi reads one as
+    # set from its total, which a later zero-time call leaves in place -- so a
+    # position of 0 has to mean "never call this".
     if position > 0 and total > 0:
         tag.setResumePoint(position, total)
 

@@ -97,3 +97,65 @@ def test_watched_context_toggles():
     commands = [command for _label, command in entries]
     assert any("mode=unwatched" in command for command in commands)
     assert any("mode=favorite" in command for command in commands)
+
+
+class RecordingTag:
+    """Records the resume point, ignoring every other setter."""
+
+    def __init__(self):
+        self.resume_calls = []
+
+    def setResumePoint(self, time, totaltime=0.0):
+        self.resume_calls.append((time, totaltime))
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+
+
+class RecordingListItem:
+    def __init__(self, label="", offscreen=False):
+        self.tag = RecordingTag()
+
+    def getVideoInfoTag(self):
+        return self.tag
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+
+
+EPISODE = {
+    "Type": "Episode",
+    "Name": "An Episode",
+    "RunTimeTicks": 600 * 10_000_000,
+    "UserData": {"PlaybackPositionTicks": 300 * 10_000_000},
+}
+
+
+@pytest.fixture
+def recorded(monkeypatch):
+    items = []
+
+    def factory(label="", offscreen=False):
+        item = RecordingListItem(label, offscreen)
+        items.append(item)
+        return item
+
+    monkeypatch.setattr("xbmcgui.ListItem", factory)
+    return items
+
+
+def test_build_stamps_the_items_own_resume_point_by_default(recorded):
+    listitems.build(EPISODE, SERVER)
+    assert recorded[-1].tag.resume_calls == [(300.0, 600.0)]
+
+
+def test_build_resume_override_states_the_start_position(recorded):
+    listitems.build(EPISODE, SERVER, resume_seconds=120.0)
+    assert recorded[-1].tag.resume_calls == [(120.0, 600.0)]
+
+
+def test_build_with_a_zero_override_stamps_nothing(recorded):
+    # A stamped resume point cannot be cleared afterwards and Kodi resumes on
+    # its presence, so "start at 0" has to mean the setter is never called.
+    listitems.build(EPISODE, SERVER, resume_seconds=0.0)
+    assert recorded[-1].tag.resume_calls == []

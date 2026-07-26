@@ -314,9 +314,9 @@ def test_choose_bitrate_single_source_bypasses_dialog(monkeypatch):
 
 # --- the resolved item's resume point ----------------------------------------
 #
-# Kodi seeks the resolved item to whatever resume point it carries, whatever
-# resume:true|false it passed in — so that point is the play route's statement
-# of where playback starts, not a leftover from the item's metadata.
+# A resume point on the resolved item overrides the choice the user made at
+# Kodi's prompt, and cannot be cleared once stamped — so the play route builds
+# the item with the position it resolved, and 0 builds it without one.
 
 
 class ResumeTagRecorder:
@@ -412,16 +412,28 @@ def resume_env(monkeypatch):
         def from_credentials(http, creds):
             return api
 
+    built = {}
+
+    def fake_build(item, server, resume_seconds=None):
+        built["resume_seconds"] = resume_seconds
+        return listitem
+
     monkeypatch.setattr(play, "Credentials", Creds)
     monkeypatch.setattr(play, "Api", ApiFactory)
     monkeypatch.setattr(play, "Http", lambda verify: None)
-    monkeypatch.setattr(play.listitems, "build", lambda item, server: listitem)
+    monkeypatch.setattr(play.listitems, "build", fake_build)
     monkeypatch.setattr(
         "xbmcplugin.setResolvedUrl", lambda h, ok, li: resolved.append(li)
     )
 
     state.clear_play_queue()
-    return {"api": api, "li": listitem, "resolved": resolved, "addon": FakeAddon}
+    return {
+        "api": api,
+        "li": listitem,
+        "resolved": resolved,
+        "addon": FakeAddon,
+        "built": built,
+    }
 
 
 def run_play(params, resume):
@@ -433,21 +445,21 @@ def run_play(params, resume):
 def test_resume_true_starts_at_the_server_position(resume_env):
     run_play({"id": "ep1"}, resume=True)
     assert resume_env["api"].start_ticks == [600 * 10_000_000]
-    assert resume_env["li"].tag.resume_point == 600.0
+    assert resume_env["built"]["resume_seconds"] == 600.0
 
 
-def test_play_from_beginning_clears_the_stamped_resume_point(resume_env):
-    # resume:false is Kodi saying "Play from beginning". It used to land on the
-    # server resume point anyway, because build() had stamped one on the item.
+def test_play_from_beginning_builds_the_item_without_a_resume_point(resume_env):
+    # resume:false is Kodi saying "Play from beginning". It landed on the
+    # server resume point anyway, because build() stamps one on everything.
     run_play({"id": "ep1"}, resume=False)
     assert resume_env["api"].start_ticks == [0]
-    assert resume_env["li"].tag.resume_point == 0.0
+    assert resume_env["built"]["resume_seconds"] == 0.0
 
 
 def test_play_next_start_overrides_a_resume_prompt(resume_env):
     run_play({"id": "ep1", "fromstart": "1"}, resume=True)
     assert resume_env["api"].start_ticks == [0]
-    assert resume_env["li"].tag.resume_point == 0.0
+    assert resume_env["built"]["resume_seconds"] == 0.0
 
 
 def test_explicit_start_ticks_wins_and_is_exact(resume_env):
@@ -456,11 +468,11 @@ def test_explicit_start_ticks_wins_and_is_exact(resume_env):
     resume_env["addon"].store["resumeJumpBack"] = "-10"
     run_play({"id": "ep1", "startticks": str(300 * 10_000_000)}, resume=True)
     assert resume_env["api"].start_ticks == [300 * 10_000_000]
-    assert resume_env["li"].tag.resume_point == 300.0
+    assert resume_env["built"]["resume_seconds"] == 300.0
 
 
 def test_resume_start_carries_the_offset(resume_env):
     resume_env["addon"].store["resumeJumpBack"] = "-10"
     run_play({"id": "ep1"}, resume=True)
     assert resume_env["api"].start_ticks == [590 * 10_000_000]
-    assert resume_env["li"].tag.resume_point == 590.0
+    assert resume_env["built"]["resume_seconds"] == 590.0
