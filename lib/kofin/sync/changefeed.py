@@ -45,10 +45,11 @@ ALL_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music")
 
 # Parent-first ranks: parents download ahead of children so the orphan
 # re-queue dance never engages on tier 1. Unranked types sit mid-field.
+# ("AlbumArtist" was ranked here too, from the fork; it is not a Jellyfin
+# item kind and never reaches a record -- see the note in library.py.)
 _TYPE_RANK = {
     "Series": 0,
     "MusicArtist": 0,
-    "AlbumArtist": 0,
     "Season": 1,
     "MusicAlbum": 1,
     "Episode": 2,

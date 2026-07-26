@@ -284,17 +284,22 @@ class TVShows(KodiDb):
 
         obj["ShowId"] = show_id
 
-        if obj["ShowId"] is None:
-
-            try:
-                obj["ShowId"] = self.jellyfin_db.get_item_by_id(
-                    *values(obj, QUEM.get_item_series_obj)
-                )[0]
-            except (KeyError, TypeError) as error:
-                LOG.error("Unable to add series %s", obj["SeriesId"])
-                LOG.exception(error)
-
-                return False
+        # Deviation from the fork: get_show_id in place of a bare lookup, so
+        # an orphan season self-heals exactly as an orphan episode does --
+        # fetch the series, write it, retry. The fork looked the series up and
+        # gave up on a miss, and because giving up was a `return False` rather
+        # than an exception, the UpdateWorker's handler never saw it: no
+        # unapplied flag, no recovery prune, and the season's Kodi row and
+        # kofin.db reference were both silently missing while the sync
+        # watermark moved past the change.
+        #
+        # A season does reach the writer ahead of its series: the change
+        # feed's parent prefetch only covers Added records (an Updated season
+        # gets none), and the prune enqueues Series/Season/Episode together in
+        # SortName order with no parent-first pass. The nested write inside
+        # tvshow() passes show_id, so this never re-enters get_show_id.
+        if obj["ShowId"] is None and not self.get_show_id(obj):
+            return False
 
         obj["SeasonId"] = self.get_season(*values(obj, QU.get_season_obj))
         obj["Artwork"] = API.get_all_artwork(self.objects.map(item, "Artwork"))

@@ -583,6 +583,56 @@ def test_virtual_season_is_referenced_like_any_other(api):
     assert reference == [("season", "etag-season1-v1|plugin")]
 
 
+def test_orphan_season_pulls_its_series(api):
+    """A season can reach the writer before its series: the change feed's
+    parent prefetch only covers Added records, and the prune enqueues
+    Series/Season/Episode together in SortName order. The fork looked the
+    series up, missed, and returned False -- not an exception, so the
+    UpdateWorker never flagged the item unapplied and no recovery prune was
+    scheduled. The season's Kodi row and its kofin.db reference were both
+    silently absent while the watermark moved past the change. Seasons now
+    self-heal through get_show_id, exactly as orphan episodes do."""
+    register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        TVShows(api, kdb, vdb, library=TV_LIBRARY).season(dto(SEASON_1))
+
+    # The series was fetched and written on the season's behalf.
+    assert video_query("SELECT c00 FROM tvshow") == [("The Show",)]
+
+    seasons = video_query("SELECT idShow, season FROM seasons ORDER BY season")
+    assert (1, 1) in seasons
+
+    mapping = dict(
+        (row[0], row[1])
+        for row in kofin_query("SELECT jellyfin_id, media_type FROM jellyfin")
+    )
+    assert mapping["series1"] == "tvshow"
+    assert mapping["season1"] == "season"
+
+    # And the reference is a normal one -- checksum included, so the prune
+    # converges instead of re-fetching this season on every pass.
+    assert kofin_query("SELECT checksum FROM jellyfin WHERE jellyfin_id='season1'") == [
+        ("etag-season1-v1|plugin",)
+    ]
+
+
+def test_orphan_season_declines_when_series_is_gone(api):
+    """The self-heal cannot invent a series the server no longer serves. That
+    leg still declines -- but it declines writing anything at all, rather than
+    leaving a season row behind with no mapping to remove it by."""
+    register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
+    orphan = dto(dict(SEASON_1, SeriesId="series-gone"))
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        result = TVShows(api, kdb, vdb, library=TV_LIBRARY).season(orphan)
+
+    assert result is False
+    assert video_query("SELECT COUNT(*) FROM tvshow") == [(0,)]
+    assert video_query("SELECT COUNT(*) FROM seasons") == [(0,)]
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin") == [(0,)]
+
+
 ORPHAN_RULES = [
     (
         "genre_link media_id/movie",

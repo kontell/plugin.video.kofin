@@ -916,7 +916,6 @@ class FullSync(object):
                                 elif item[1] in (
                                     "MusicAlbum",
                                     "MusicArtist",
-                                    "AlbumArtist",
                                     "Audio",
                                 ):
                                     Music(*default_args).remove(item[0])
