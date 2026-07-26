@@ -403,3 +403,31 @@ def test_reconnect_without_a_library_is_harmless(monkeypatch):
     service.library = None
 
     _connected(service, monkeypatch)  # must not raise
+
+
+def test_library_update_reaches_the_userdata_watcher():
+    service = Service()
+    service.credentials.is_logged_in = True
+    submitted = []
+    service.kodi_userdata.submit = submitted.append  # type: ignore[method-assign]
+
+    service.onNotification(
+        "xbmc",
+        "VideoLibrary.OnUpdate",
+        '{"item": {"id": 5910, "type": "episode"}, "playcount": 1}',
+    )
+
+    assert submitted == [{"item": {"id": 5910, "type": "episode"}, "playcount": 1}]
+
+
+def test_library_update_ignored_while_logged_out():
+    service = Service()
+    service.credentials.is_logged_in = False
+    submitted = []
+    service.kodi_userdata.submit = submitted.append  # type: ignore[method-assign]
+
+    service.onNotification(
+        "xbmc", "VideoLibrary.OnUpdate", '{"id": 5910, "type": "episode"}'
+    )
+
+    assert submitted == []

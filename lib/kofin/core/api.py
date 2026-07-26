@@ -367,6 +367,21 @@ class Api:
     def mark_unplayed(self, item_id: str) -> None:
         self.delete("/Users/%s/PlayedItems/%s" % (self.user_id, item_id))
 
+    def set_resume_position(self, item_id: str, position_ticks: int) -> None:
+        """Move an item's stored resume point (Jellyfin 10.10+ user data).
+
+        There is no dedicated "clear the resume point" call; a user-data
+        update with a zero position is it. The body is a partial
+        UpdateUserItemDataDto and the server keeps every field left out, so
+        this touches neither the played flag, the play count nor the
+        favourite state (verified against 10.11).
+        """
+        self.post(
+            "/UserItems/%s/UserData" % item_id,
+            {"PlaybackPositionTicks": int(position_ticks)},
+            {"userId": self.user_id},
+        )
+
     def set_favorite(self, item_id: str, favorite: bool) -> None:
         path = "/Users/%s/FavoriteItems/%s" % (self.user_id, item_id)
         if favorite:
