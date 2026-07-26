@@ -6,7 +6,7 @@ from typing import Optional
 import xbmc
 import xbmcgui
 
-from kofin.core import auth, ipc, settings
+from kofin.core import auth, ipc, settings, toast
 from kofin.core.http import Http, JellyfinError, ServerUnreachable, Unauthorized
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
@@ -22,8 +22,8 @@ def _text(string_id: int) -> str:
     return settings.localized(string_id)
 
 
-def _notification(message: str, icon: str = xbmcgui.NOTIFICATION_INFO) -> None:
-    xbmcgui.Dialog().notification("Kofin", message, icon, 4000, sound=False)
+def _notification(message: str, level: str = toast.INFO) -> None:
+    toast.show(message, level, time_ms=4000)
 
 
 def _device_name() -> str:
@@ -48,7 +48,7 @@ def login(request: Request) -> None:
         info = auth.public_info(transport, address)
     except JellyfinError as error:
         LOG.warning("server ping failed for %s: %s", address, error)
-        _notification(_text(30018), xbmcgui.NOTIFICATION_ERROR)
+        _notification(_text(30018), toast.ERROR)
         return
 
     header = auth.build_auth_header(
@@ -59,11 +59,11 @@ def login(request: Request) -> None:
     try:
         result = _authenticate(transport, address, header, server_name)
     except Unauthorized:
-        _notification(_text(30017), xbmcgui.NOTIFICATION_ERROR)
+        _notification(_text(30017), toast.ERROR)
         return
     except JellyfinError as error:
         LOG.warning("sign-in failed: %s", error)
-        _notification(_text(30018), xbmcgui.NOTIFICATION_ERROR)
+        _notification(_text(30018), toast.ERROR)
         return
     finally:
         transport.close()
@@ -142,7 +142,7 @@ def _login_quick_connect(
                 return None
     finally:
         progress.close()
-    _notification(_text(30024), xbmcgui.NOTIFICATION_ERROR)
+    _notification(_text(30024), toast.WARNING)
     return None
 
 
@@ -181,10 +181,10 @@ def test_connection(request: Request) -> None:
         info = api.public_info()
         api.views()
     except Unauthorized:
-        _notification(_text(30022), xbmcgui.NOTIFICATION_ERROR)
+        _notification(_text(30022), toast.ERROR)
         return
     except ServerUnreachable:
-        _notification(_text(30018), xbmcgui.NOTIFICATION_ERROR)
+        _notification(_text(30018), toast.ERROR)
         return
     finally:
         transport.close()

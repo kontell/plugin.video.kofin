@@ -213,9 +213,11 @@ def test_shutdown_stops_syncplay():
 
 class RecordingDialog:
     raised = []
+    icons = []
 
     def notification(self, heading, message, icon=None, time=None, sound=None):
         RecordingDialog.raised.append((heading, message))
+        RecordingDialog.icons.append(icon)
 
 
 @pytest.fixture
@@ -223,6 +225,7 @@ def toasts(monkeypatch):
     import xbmcgui
 
     RecordingDialog.raised = []
+    RecordingDialog.icons = []
     monkeypatch.setattr(xbmcgui, "Dialog", RecordingDialog)
     monkeypatch.setattr(
         "kofin.core.settings.localized",
@@ -324,6 +327,27 @@ def test_server_restart_is_announced(toasts):
         "Restarting",
         "Shutting down",
     ]
+
+
+def test_only_connecting_is_good_news(toasts, monkeypatch):
+    """Connecting carries the addon icon; losing the connection and a server
+    going away are adverse, and read faster with Kodi's warning glyph."""
+    import xbmcgui
+
+    FakeAddon.store["notifyConnection"] = "true"
+    FakeAddon.store["serverName"] = "minipie"
+    service = Service()
+    monkeypatch.setattr(service, "_register_capabilities", lambda: None)
+    monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
+
+    service._on_ws_connected()
+    assert RecordingDialog.icons[-1].endswith("icon.png")
+
+    service._on_ws_disconnected()
+    assert RecordingDialog.icons[-1] == xbmcgui.NOTIFICATION_WARNING
+
+    service._on_ws_event("ServerRestarting", {})
+    assert RecordingDialog.icons[-1] == xbmcgui.NOTIFICATION_WARNING
 
 
 def test_notifications_can_be_switched_off(toasts):

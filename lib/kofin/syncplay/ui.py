@@ -7,7 +7,7 @@ worker thread, never on the notification loop.
 
 import xbmcgui
 
-from kofin.core import settings
+from kofin.core import settings, toast
 from kofin.core.log import Logger
 
 #################################################################################################
@@ -28,12 +28,10 @@ def _join_menu(manager):
     groups = manager.list_groups()
 
     if groups is None:
-        xbmcgui.Dialog().notification(
-            "SyncPlay",
-            settings.localized(30574),
-            xbmcgui.NOTIFICATION_INFO,
-            3000,
-            False,
+        # Listing the groups failed, which is why there is nothing to show --
+        # an error, not the news the info glyph made it look like.
+        toast.show(
+            settings.localized(30574), toast.ERROR, heading="SyncPlay", time_ms=3000
         )
         return
 

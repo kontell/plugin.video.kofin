@@ -11,8 +11,8 @@ import json
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import xbmc
-import xbmcgui
 
+from kofin.core import toast
 from kofin.core.log import Logger
 from kofin.plugin.listitems import plugin_url
 
@@ -163,12 +163,12 @@ class RemoteHandler:
             mute = {"Mute": True, "Unmute": False, "ToggleMute": "toggle"}[name]
             self._rpc("Application.SetMute", {"mute": mute})
         elif name == "DisplayMessage":
-            xbmcgui.Dialog().notification(
-                arguments.get("Header") or "Jellyfin",
+            # The server's own message, relayed by kofin: its heading stands,
+            # and the icon says which client put it on screen.
+            toast.show(
                 arguments.get("Text") or "",
-                xbmcgui.NOTIFICATION_INFO,
-                int(arguments.get("TimeoutMs") or 5000),
-                False,
+                heading=arguments.get("Header") or "Jellyfin",
+                time_ms=int(arguments.get("TimeoutMs") or 5000),
             )
         elif name == "SendString":
             self._rpc(

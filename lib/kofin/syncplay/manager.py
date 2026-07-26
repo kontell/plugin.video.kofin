@@ -18,7 +18,7 @@ from queue import Queue
 import xbmc
 import xbmcgui
 
-from kofin.core import settings, state
+from kofin.core import settings, state, toast
 from kofin.core.http import JellyfinError, Unauthorized
 from kofin.core.log import Logger
 from kofin.syncplay import utils
@@ -305,20 +305,12 @@ class SyncPlayManager(object):
         except (TypeError, ValueError):
             return "%s %s" % (template, value)
 
-    def _toast(self, message, error=False):
-        if not settings.get_bool("syncPlayNotifications") and not error:
+    def _toast(self, message, error=False, warning=False):
+        if not settings.get_bool("syncPlayNotifications") and not (error or warning):
             return
 
-        try:
-            xbmcgui.Dialog().notification(
-                "SyncPlay",
-                message,
-                xbmcgui.NOTIFICATION_ERROR if error else xbmcgui.NOTIFICATION_INFO,
-                3000,
-                False,
-            )
-        except Exception:
-            pass
+        level = toast.ERROR if error else toast.WARNING if warning else toast.INFO
+        toast.show(message, level, heading="SyncPlay", time_ms=3000)
 
     # ------------------------------------------------------------------
     # Group membership (menu-facing)
@@ -601,7 +593,7 @@ class SyncPlayManager(object):
         except Exception as error:
             LOG.warning("SyncPlay rejoin failed: %s", error)
             self._leave_locally()
-            self._toast(settings.localized(30571), error=True)
+            self._toast(settings.localized(30571), warning=True)
 
     def _on_ws_connected(self):
         """Reconnect contract (§9, report R2): after any WS drop assume we
@@ -633,7 +625,7 @@ class SyncPlayManager(object):
 
         LOG.info("Group %s no longer exists after reconnect", group_id)
         self._leave_locally()
-        self._toast(settings.localized(30571), error=True)
+        self._toast(settings.localized(30571), warning=True)
 
     # ------------------------------------------------------------------
     # Queue mirror (SYNCPLAY.md §5.3, report §9.5.1)

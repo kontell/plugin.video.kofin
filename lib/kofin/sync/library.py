@@ -985,7 +985,10 @@ class Library(threading.Thread):
             # Never write blind (plan §2): unknown Kodi database disables
             # write sync; realtime browsing keeps working.
             LOG.error("schema gate: %s", error)
-            notification(str(error), error=True)
+            # The exception carries the *reason* ("unknown video database
+            # v999"), which is a fragment, not something to hand a user on its
+            # own -- wrap it in a sentence that says what it costs them.
+            notification(localized(30420) % str(error), error=True)
             self.update_status_strings()
             return False
 

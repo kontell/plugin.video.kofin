@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 import xbmc
 import xbmcgui
 
-from kofin.core import settings
+from kofin.core import settings, toast
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError, Unauthorized
 from kofin.core.log import Logger
@@ -64,9 +64,7 @@ def who_is_watching(request: Request) -> None:
         LOG.warning("session lookup failed: %s", error)
         sessions = []
     if not sessions:
-        xbmcgui.Dialog().notification(
-            "Kofin", settings.localized(30045), xbmcgui.NOTIFICATION_INFO, 4000, False
-        )
+        toast.show(settings.localized(30045), time_ms=4000)
         return
     session = sessions[0]
     current_ids = {u.get("UserId") for u in (session.get("AdditionalUsers") or [])}
@@ -135,9 +133,7 @@ def select_shortlist(request: Request) -> None:
         users = api.public_users()
     except JellyfinError as error:
         LOG.warning("shortlist: user list unavailable: %s", error)
-        xbmcgui.Dialog().notification(
-            "Kofin", settings.localized(30507), xbmcgui.NOTIFICATION_ERROR, 4000, False
-        )
+        toast.show(settings.localized(30507), toast.ERROR, time_ms=4000)
         return
 
     # The primary user is on every session by definition, so it is no more

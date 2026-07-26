@@ -161,7 +161,9 @@ class FullSync(object):
         self.__dict__ = self._shared_state
 
         if self.running:
-            notification(localized(30410), error=True)
+            # Deviation from the fork: a refusal, not a failure — the sync
+            # already under way is fine and is what the user wanted.
+            notification(localized(30410), warning=True)
 
             raise Exception("Sync is already running.")
 

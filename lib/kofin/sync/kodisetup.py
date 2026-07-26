@@ -55,7 +55,10 @@ def warn_incompatible_settings():
             "this is incompatible with plugin paths — library sync rows "
             "would be removed by Kodi's clean pass. Please remove it."
         )
-        notification(localized(30414), time_ms=8000, error=True)
+        # A warning, not an error: nothing has failed yet — the user is being
+        # told to remove a setting that will cost them library rows if they
+        # don't.
+        notification(localized(30414), time_ms=8000, warning=True)
         return True
 
     return False

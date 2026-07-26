@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 
 import xbmc
 
-from kofin.core import auth, ipc, log, settings, state
+from kofin.core import auth, ipc, log, settings, state, toast
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
@@ -233,14 +233,8 @@ class Service(xbmc.Monitor):
         if manager is None:
             # The plugin gates on syncPlayEnabled, so this is the service
             # not (yet) online/built — tell the user rather than nothing.
-            import xbmcgui
-
-            xbmcgui.Dialog().notification(
-                "SyncPlay",
-                settings.localized(30574),
-                xbmcgui.NOTIFICATION_INFO,
-                4000,
-                False,
+            toast.show(
+                settings.localized(30574), toast.ERROR, heading="SyncPlay", time_ms=4000
             )
             return
         if self._syncplay_menu is not None and self._syncplay_menu.is_alive():
@@ -270,12 +264,18 @@ class Service(xbmc.Monitor):
         )
         self.ws.start()
 
-    def _connection_toast(self, string_id: int, *args: Any) -> None:
+    def _connection_toast(
+        self, string_id: int, *args: Any, level: str = toast.INFO
+    ) -> None:
         """Tell the user the server came, went or is restarting.
 
         The websocket is the honest source for this: it is the connection the
         user perceives, and it reports its own open and close. Opt-out lives
         in the advanced sync settings for anyone who does not want the noise.
+
+        Connecting is the only good news here; losing the connection, and a
+        server restarting or shutting down, are all adverse and carry Kodi's
+        warning glyph rather than kofin's icon.
 
         Nothing in here may raise. It is called first thing from
         ``_on_ws_connected``, which goes on to register capabilities and
@@ -299,15 +299,7 @@ class Service(xbmc.Monitor):
                     # without this string): show the bare text.
                     pass
 
-            import xbmcgui
-
-            xbmcgui.Dialog().notification(
-                "Kofin",
-                message,
-                xbmcgui.NOTIFICATION_INFO,
-                4000,
-                False,
-            )
+            toast.show(message, level, time_ms=4000)
         except Exception as error:  # pragma: no cover - defensive
             LOG.warning("connection notification failed: %s", error)
 
@@ -319,7 +311,7 @@ class Service(xbmc.Monitor):
             LOG.warning("capabilities registration failed: %s", error)
 
     def _on_ws_disconnected(self) -> None:
-        self._connection_toast(30416)
+        self._connection_toast(30416, level=toast.WARNING)
 
     def _on_ws_connected(self) -> None:
         self._connection_toast(30415, self.credentials.server_name or "")
@@ -367,7 +359,9 @@ class Service(xbmc.Monitor):
         # events: neither carries a payload the sync cares about.
         if message_type in SERVER_LIFECYCLE_MESSAGES:
             LOG.info("[ %s ]", message_type)
-            self._connection_toast(SERVER_LIFECYCLE_MESSAGES[message_type])
+            self._connection_toast(
+                SERVER_LIFECYCLE_MESSAGES[message_type], level=toast.WARNING
+            )
             return
 
         library = self.library
