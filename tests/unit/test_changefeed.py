@@ -342,9 +342,39 @@ def test_plan_userdata_dedup_spares_skipped_and_artwork():
     assert plan.userdata_changed_ids == {"dl1", "skip1", "art1"}
 
 
-def test_parent_candidates_only_from_added():
+def test_parent_candidates_from_every_live_status():
+    """ "Updated" is the server's word about its own item and says nothing
+    about whether we ever synced it, so an updated child's parent is a
+    candidate too -- that was the one deterministic way a child still reached
+    the writer parentless. Removals bring no parent of their own."""
     records = [
         rec("ep1", "Updated", item_type="Episode", series_id="s1"),
         rec("ep2", "Added", item_type="Episode", series_id="s2", season_id="se2"),
+        rec("ep3", "Removed", item_type="Episode", series_id="s3"),
     ]
-    assert parent_candidates(records) == ["s2", "se2"]
+    assert parent_candidates(records) == ["s1", "s2", "se2"]
+
+
+def test_plan_prefetches_parent_of_updated_child():
+    """The prefetched series joins plan.added even though the season that
+    wanted it is an update -- that ordering is the point: every addition is
+    downloaded and written before any update is downloaded at all."""
+    records = [rec("season1", "Updated", item_type="Season", series_id="s9")]
+
+    plan = build_plan(records, [], {}, nobody_known)
+
+    assert plan.added == ["s9"]
+    assert plan.updated == ["season1"]
+
+
+def test_plan_skipped_records_prefetch_nothing():
+    """A skipped record's Etag matched a stored checksum, so it is in kofin.db
+    and its parent went in with it. Prefetching there would download a series
+    per unchanged episode."""
+    records = [rec("ep1", "Updated", etag="same", item_type="Episode", series_id="s9")]
+
+    plan = build_plan(records, [], {"ep1": "same|plugin"}, nobody_known)
+
+    assert plan.added == []
+    assert plan.updated == []
+    assert plan.skipped == 1

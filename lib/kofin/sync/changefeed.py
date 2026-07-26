@@ -326,22 +326,36 @@ def _is_image_only(record: ChangeRecord) -> bool:
     return reasons == {"ImageUpdate"}
 
 
-def _added_sort_key(record: ChangeRecord) -> Any:
-    rank = _TYPE_RANK.get(record.item_type or "", _RANK_DEFAULT)
+def type_rank(item_type: Optional[str]) -> int:
+    """Parent-first rank for an item type. Public because the update-mode
+    prune sorts by it too: its id/Etag pages arrive in SortName order, which
+    interleaves Series/Season/Episode, so it needs the same ordering the typed
+    feed gives additions."""
+    return _TYPE_RANK.get(item_type or "", _RANK_DEFAULT)
 
-    return (rank, -(record.last_modified or 0))
+
+def _added_sort_key(record: ChangeRecord) -> Any:
+    return (type_rank(record.item_type), -(record.last_modified or 0))
 
 
 def parent_candidates(records: Sequence[ChangeRecord]) -> List[str]:
-    """Parent ids (series first, then seasons) that added child records
-    reference — the caller checks these against kofin.db and passes the
-    unknown-locally survivors to build_plan as prefetch material."""
+    """Parent ids (series first, then seasons) that child records reference —
+    the caller checks these against kofin.db and passes the unknown-locally
+    survivors to build_plan as prefetch material.
+
+    Updated records count, not only Added ones: "Updated" is the server's word
+    about its own item, and says nothing about whether we ever synced it. An
+    updated season whose series kofin.db has never seen was the one
+    deterministic way a child still reached the writer parentless — the
+    writers heal that inline now, but a fetch inside the write lock is the
+    fallback, not the plan.
+    """
     batch = {record.id for record in records}
     series: List[str] = []
     seasons: List[str] = []
 
     for record in records:
-        if record.status != "Added":
+        if record.status == "Removed":
             continue
 
         if record.series_id and record.series_id not in batch:
@@ -369,8 +383,8 @@ def build_plan(
       userdata list (the dedup below only considers records that will
       actually download).
     * Ordering: parents ahead of children, newest first within rank.
-    * Parent prefetch: unknown series/seasons referenced by added children
-      are prepended as their own additions.
+    * Parent prefetch: unknown series/seasons referenced by any child that
+      will download — added or updated — are prepended as their own additions.
     * Image-only demotion: reason == ImageUpdate exactly → the artwork
       class (lowest priority, artwork-only write).
     """
@@ -380,6 +394,7 @@ def build_plan(
     }
 
     added_records: List[ChangeRecord] = []
+    downloading_records: List[ChangeRecord] = []
 
     for record in records:
         if record.status == "Removed":
@@ -397,11 +412,21 @@ def build_plan(
         else:
             plan.updated.append(record.id)
 
+        downloading_records.append(record)
+
     added_records.sort(key=_added_sort_key)
 
+    # Candidates come from everything that will download, not just the
+    # additions: an updated or image-only child can reference a parent we have
+    # never synced. Skipped records are excluded by construction — their Etag
+    # matched a stored checksum, so they are in kofin.db and so are we.
+    #
+    # A prefetched parent joins plan.added even when the child that wanted it
+    # is an update, which is what makes the ordering hold: additions are
+    # downloaded and written before any update is downloaded at all.
     prefetch = [
         parent
-        for parent in parent_candidates(added_records)
+        for parent in parent_candidates(downloading_records)
         if not known_parents(parent)
     ]
     plan.added = prefetch + [record.id for record in added_records]

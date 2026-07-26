@@ -19,6 +19,7 @@ import xbmc
 from kofin.core import settings, state
 from kofin.core.http import HttpError
 from kofin.core.log import Logger
+from kofin.sync import changefeed
 from kofin.sync import downloader as server
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
 from kofin.sync.db import Database, get_sync, save_sync
@@ -775,9 +776,9 @@ class FullSync(object):
             )
             local_map = self._local_reference_map(library["Id"], media_class)
 
-            for item_id, (etag, _item_type) in server_map.items():
+            for item_id, (etag, item_type) in server_map.items():
                 if item_id not in local_map:
-                    missing.append(item_id)
+                    missing.append((changefeed.type_rank(item_type), item_id))
                     continue
 
                 # No Etag from the server (unexpected with Fields=Etag) →
@@ -789,16 +790,26 @@ class FullSync(object):
                 if item_id not in server_map:
                     stale.append(item_id)
 
+        # Parent-first, by the same ranks the typed feed sorts additions by:
+        # get_id_etag_map pages in SortName order, which interleaves
+        # Series/Season/Episode (and MusicAlbum/Audio), so a child could be
+        # downloaded and written while its parent sat in a later chunk. The
+        # writers heal that by fetching the parent inside the write lock,
+        # which is a fallback and not something to route work into. Stable, so
+        # SortName order survives within a rank and paging stays predictable.
+        missing.sort(key=lambda entry: entry[0])
+        missing_ids = [item_id for _rank, item_id in missing]
+
         LOG.info(
             "--[ prune/%s ] missing:%s changed:%s stale:%s",
             library["Id"],
-            len(missing),
+            len(missing_ids),
             len(changed),
             len(stale),
         )
 
         self.library.removed(stale)
-        self.library.added(missing)
+        self.library.added(missing_ids)
         self.library.updated(changed)
 
     def _local_reference_map(self, library_id, media_class):
