@@ -1168,6 +1168,17 @@ msgctxt "#30507"
 msgid "Server request failed"
 msgstr ""
 
+# 30508/30509 deliberately name the server: Kodi contributes its own
+# "Mark as watched" (16103/16104) to the same context menu.
+
+msgctxt "#30508"
+msgid "Mark as watched on Jellyfin"
+msgstr ""
+
+msgctxt "#30509"
+msgid "Mark as unwatched on Jellyfin"
+msgstr ""
+
 # 30550-30599 — SyncPlay (settings group 30550-30558, menu/toasts 30560+;
 # fork ids 33262-33302 remapped)
 

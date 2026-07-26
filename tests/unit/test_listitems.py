@@ -90,15 +90,6 @@ def test_art_parent_fallbacks_for_episode():
     assert art["fanart"].endswith("s1/Images/Backdrop/0?tag=sb")
 
 
-def test_watched_context_toggles():
-    entries = listitems.watched_context(
-        {"Type": "Movie", "Id": "m1", "UserData": {"Played": True, "IsFavorite": False}}
-    )
-    commands = [command for _label, command in entries]
-    assert any("mode=unwatched" in command for command in commands)
-    assert any("mode=favorite" in command for command in commands)
-
-
 class RecordingTag:
     """Records the resume point, ignoring every other setter."""
 

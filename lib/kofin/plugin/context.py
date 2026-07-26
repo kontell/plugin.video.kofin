@@ -11,7 +11,7 @@ from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
-from kofin.plugin.listitems import plugin_url
+from kofin.plugin.listitems import PLAYABLE_TYPES, plugin_url
 
 LOG = Logger(__name__)
 
@@ -113,16 +113,36 @@ def browse_extras() -> None:
     )
 
 
+# Same reach the listing-level toggle had: anything playable, plus the
+# containers Jellyfin tracks played state for.
+WATCHED_TYPES = PLAYABLE_TYPES | {"Series", "Season", "BoxSet"}
+
+
 def _manage_options(item: dict) -> List[Tuple[str, dict]]:
     """The (label, RunPlugin params) pairs for the Jellyfin actions menu.
 
-    Delete is offered only when the user has opted in on the Advanced tab;
-    the favorite entry's label reflects the server-reported state queried
-    when the menu opened.
+    Every server-side action for an item lives here, watched state included:
+    a listing's own context entries are pinned to the very top of Kodi's menu
+    (``CGUIMediaWindow::OnPopupMenu`` builds plugin items, then the global
+    menu, then window buttons, then addon extensions), and up there kofin's
+    watched toggle sat above Kodi's Play wearing the same wording as Kodi's own
+    "Mark as watched" further down. Delete is offered only when the user has
+    opted in on the Advanced tab; the watched and favorite labels reflect the
+    server-reported state queried when the menu opened.
     """
     item_id = item.get("Id", "")
-    is_favorite = bool((item.get("UserData") or {}).get("IsFavorite"))
+    userdata = item.get("UserData") or {}
+    is_favorite = bool(userdata.get("IsFavorite"))
     options: List[Tuple[str, dict]] = []
+
+    if item.get("Type") in WATCHED_TYPES:
+        played = bool(userdata.get("Played"))
+        options.append(
+            (
+                settings.localized(30509 if played else 30508),
+                {"mode": "unwatched" if played else "watched", "id": item_id},
+            )
+        )
 
     fav_label = xbmc.getLocalizedString(14077 if is_favorite else 14076)
     fav_mode = "unfavorite" if is_favorite else "favorite"

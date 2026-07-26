@@ -31,3 +31,45 @@ def test_manage_options_delete_gated_by_setting(monkeypatch):
     assert modes == ["favorite", "delete", "settings"]
     delete_params = next(params for _, params in on if params["mode"] == "delete")
     assert delete_params["name"] == "The Movie"
+
+
+# --- the watched toggle (moved here off the listing's own context menu) -------
+
+
+def test_manage_options_watched_label_follows_state(monkeypatch):
+    """Kodi pins a listing's own context entries above its Play and offers its
+    own "Mark as watched" further down, so kofin's toggle -- the only one that
+    reaches the server -- lives here instead, named for the server."""
+    unplayed = _options(
+        monkeypatch, {"Id": "i1", "Type": "Movie", "UserData": {"Played": False}}, False
+    )
+    assert unplayed[0] == ("L30508", {"mode": "watched", "id": "i1"})
+
+    played = _options(
+        monkeypatch, {"Id": "i1", "Type": "Movie", "UserData": {"Played": True}}, False
+    )
+    assert played[0] == ("L30509", {"mode": "unwatched", "id": "i1"})
+
+
+def test_manage_options_watched_leads_the_menu(monkeypatch):
+    item = {"Id": "i1", "Name": "The Movie", "Type": "Episode", "UserData": {}}
+
+    modes = [params["mode"] for _, params in _options(monkeypatch, item, True)]
+    assert modes == ["watched", "favorite", "delete", "settings"]
+
+
+def test_manage_options_watched_reaches_songs_and_containers(monkeypatch):
+    """The listing-level toggle covered every playable type plus series,
+    seasons and boxsets; moving it must not quietly narrow that."""
+    for item_type in ("Audio", "Trailer", "Recording", "Series", "Season", "BoxSet"):
+        options = _options(
+            monkeypatch, {"Id": "i1", "Type": item_type, "UserData": {}}, False
+        )
+        assert options[0][1]["mode"] == "watched", item_type
+
+
+def test_manage_options_omits_watched_where_there_is_no_state(monkeypatch):
+    options = _options(
+        monkeypatch, {"Id": "a1", "Type": "MusicArtist", "UserData": {}}, False
+    )
+    assert [params["mode"] for _, params in options] == ["favorite", "settings"]

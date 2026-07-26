@@ -306,29 +306,3 @@ def _fill_music(li: xbmcgui.ListItem, item: JsonDict) -> None:
         tag.setDisc(int(item["ParentIndexNumber"]))
     if item.get("Genres"):
         tag.setGenres(list(item["Genres"]))
-
-
-def watched_context(item: JsonDict) -> List[Tuple[str, str]]:
-    """Watched/favorite toggles for the context menu."""
-    item_id = item.get("Id", "")
-    userdata = item.get("UserData") or {}
-    entries: List[Tuple[str, str]] = []
-
-    if item.get("Type") in PLAYABLE_TYPES or item.get("Type") in (
-        "Series",
-        "Season",
-        "BoxSet",
-    ):
-        mode = "unwatched" if userdata.get("Played") else "watched"
-        label = xbmc.getLocalizedString(16104 if userdata.get("Played") else 16103)
-        entries.append(
-            (label, "RunPlugin(%s)" % plugin_url({"mode": mode, "id": item_id}))
-        )
-
-    favorite = bool(userdata.get("IsFavorite"))
-    fav_mode = "unfavorite" if favorite else "favorite"
-    fav_label = xbmc.getLocalizedString(14077 if favorite else 14076)
-    entries.append(
-        (fav_label, "RunPlugin(%s)" % plugin_url({"mode": fav_mode, "id": item_id}))
-    )
-    return entries
