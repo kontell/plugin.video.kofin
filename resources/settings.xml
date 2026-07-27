@@ -465,6 +465,13 @@
           <control type="toggle"/>
         </setting>
       </group>
+      <group id="4">
+        <setting id="musicLyrics" type="boolean" label="30606" help="30607">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
+      </group>
     </category>
 
     <!-- Transcoding -->

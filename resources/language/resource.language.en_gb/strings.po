@@ -1348,3 +1348,12 @@ msgstr ""
 msgctxt "#30605"
 msgid "1440p"
 msgstr ""
+
+# 30606-30607 — Jellyfin song lyrics
+msgctxt "#30606"
+msgid "Provide Jellyfin song lyrics"
+msgstr ""
+
+msgctxt "#30607"
+msgid "Hand a song's lyrics from Jellyfin to Kodi when it starts playing, so a lyrics addon shows those instead of searching online. Requires an addon that displays lyrics, such as CU LRC Lyrics — Kodi's own skins do not show them."
+msgstr ""

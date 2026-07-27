@@ -1,3 +1,6 @@
+v0.6.0
+- Song lyrics held on your Jellyfin server are now handed to Kodi the moment a track starts, so a lyrics addon shows the copy from your own library instead of searching the internet and sometimes settling on the wrong song. Lyrics that carry timings scroll along with the music. This needs an addon that displays lyrics, such as CU LRC Lyrics, because Kodi's own skins do not show them; it can be switched off on the Playback tab
+
 v0.5.0
 - Resume now starts where Kodi's prompt said it would: "Play from beginning" plays from the beginning, and resuming lands on the time the dialog named. A new Advanced-tab slider rewinds a resume by up to a minute (10 seconds by default) so it picks up just before where you stopped
 - Kodi's own "Mark as watched", "Mark as unwatched" and "Reset resume position" now reach the server instead of staying on this device

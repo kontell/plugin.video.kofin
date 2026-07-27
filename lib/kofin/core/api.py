@@ -3,13 +3,17 @@
 from typing import Any, Dict, List, Optional
 
 from kofin.core import auth, settings
-from kofin.core.http import Http
+from kofin.core.http import Http, HttpError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 
 LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
+
+# Connect/read budget for the lyrics fetch. Deliberately far below the
+# transport default: see Api.lyrics.
+LYRICS_TIMEOUT = (2.0, 3.0)
 
 
 class Api:
@@ -183,6 +187,33 @@ class Api:
 
     def media_folders(self) -> JsonDict:
         return self.get("/Library/MediaFolders")
+
+    def lyrics(self, item_id: str) -> JsonDict:
+        """Lyrics for a song, or {} when the server has none.
+
+        Called on the playback-start callback, where the whole budget is the
+        gap before Kodi renders its first frame — a lyrics addon searching
+        online wins the moment we are late, and it caches that result, so a
+        slow answer is worth no more than no answer. Hence the short timeout
+        and no retries: forfeit rather than hold up the callback.
+
+        404 is the ordinary "no lyrics for this track" reply and is not worth
+        an exception to the caller.
+        """
+        try:
+            response = self._http.request(
+                "GET",
+                self._url("/Audio/%s/Lyrics" % item_id),
+                headers=self._headers(),
+                timeout=LYRICS_TIMEOUT,
+                retries=0,
+            )
+        except HttpError as error:
+            if error.status == 404:
+                return {}
+            raise
+        body: JsonDict = response.json() if response.content else {}
+        return body
 
     # -- KodiSyncQueue companion plugin ---------------------------------------
 
