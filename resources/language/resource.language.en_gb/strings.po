@@ -1355,7 +1355,7 @@ msgid "Jellyfin song lyrics"
 msgstr ""
 
 msgctxt "#30607"
-msgid "Show a song's lyrics from Jellyfin as it plays, instead of a lyrics addon searching online for them. \"Overlay on the skin\" draws them over the visualisation and needs a skin that supports it; \"Hand to a lyrics addon\" works with any skin but needs an addon such as CU LRC Lyrics installed."
+msgid "Show a song's lyrics from Jellyfin as it plays, instead of a lyrics addon searching online for them. \"Show with Kofin Lyrics\" hands them to the Kofin Lyrics addon, which draws them itself or lets a skin do it. \"Hand to a lyrics addon\" works with any lyrics addon, such as CU LRC Lyrics."
 msgstr ""
 
 msgctxt "#30608"
@@ -1363,7 +1363,7 @@ msgid "Off"
 msgstr ""
 
 msgctxt "#30609"
-msgid "Overlay on the skin"
+msgid "Show with Kofin Lyrics"
 msgstr ""
 
 msgctxt "#30610"
