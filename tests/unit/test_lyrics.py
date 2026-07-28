@@ -2,6 +2,7 @@ import pytest
 
 from kofin.core import http as http_module
 from kofin.core import lyrics
+from kofin.core import state
 from kofin.core.api import Api
 from kofin.core.http import Http, HttpError
 from kofin.service.player import Player, playing_jellyfin_id
@@ -205,7 +206,53 @@ def test_foreign_playback_is_not_claimed(monkeypatch):
     assert playing_jellyfin_id(FakeListItem(dbid=0), "/home/me/song.mp3") is None
 
 
-# -- pushing onto the playing item -------------------------------------------
+# -- structured lines, for the skin overlay ----------------------------------
+
+
+def test_timed_payload_becomes_seconds_and_text():
+    assert lyrics.to_lines(SYNCED) == [
+        (0.58, "Tonight"),
+        (94.6, "I just want to take you higher"),
+    ]
+
+
+def test_untimed_payload_has_no_starts():
+    assert lyrics.to_lines(PLAIN) == [
+        (None, "Sunrise, wrong side of another day"),
+        (None, "Sky high"),
+    ]
+    assert lyrics.to_lines({}) == []
+
+
+@pytest.mark.parametrize(
+    "position,expected",
+    [
+        (0.0, None),  # before the first stamp: nothing is current yet
+        (0.57, None),
+        (0.58, 0),  # exactly on a stamp is that line
+        (50.0, 0),
+        (94.6, 1),
+        (9999.0, 1),  # past the last line it stays on the last line
+    ],
+)
+def test_active_index_follows_the_clock(position, expected):
+    assert lyrics.active_index(lyrics.to_lines(SYNCED), position) == expected
+
+
+def test_untimed_lyrics_have_no_active_line():
+    assert lyrics.active_index(lyrics.to_lines(PLAIN), 30.0) is None
+    assert lyrics.active_index([], 30.0) is None
+
+
+def test_repeated_stamps_resolve_to_the_last_line():
+    """A stacked '[00:12.00]' pair is one moment with two lines; the later one
+    is what should be lit."""
+    lines = [(0.0, "a"), (12.0, "b"), (12.0, "c"), (20.0, "d")]
+    assert lyrics.active_index(lines, 12.0) == 2
+    assert lyrics.active_index(lines, 19.9) == 2
+
+
+# -- driving it from the player ----------------------------------------------
 
 
 class LyricsApi:
@@ -224,7 +271,8 @@ class LyricsApi:
 @pytest.fixture(autouse=True)
 def kodi_fakes(monkeypatch):
     FakeWindow.store = {}
-    FakeAddon.store = {"musicLyrics": "true"}
+    # Default the suite to publishing; the hand-off tests opt in.
+    FakeAddon.store = {"musicLyricsMode": "1"}
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
 
@@ -240,7 +288,6 @@ def make_player(monkeypatch, api, path=DIRECT, audio=True, landed=True):
     monkeypatch.setattr(
         "kofin.service.player.mapped_jellyfin_id", lambda kodi_id, media: JID
     )
-    # Kodi echoing back what the push landed, or refusing it.
     monkeypatch.setattr(
         "xbmc.getInfoLabel",
         lambda label: (
@@ -252,60 +299,111 @@ def make_player(monkeypatch, api, path=DIRECT, audio=True, landed=True):
     return player, pushed
 
 
-def test_push_sets_lyrics_and_source(monkeypatch):
+def test_publishes_timed_lines(monkeypatch):
     api = LyricsApi()
     player, pushed = make_player(monkeypatch, api)
 
-    player.push_lyrics()
+    player.start_lyrics()
 
     assert api.asked == [JID]
+    assert FakeWindow.store.get(state.PROP_LYRIC_HAS) == "true"
+    # Timings ride along: deciding which line is current belongs to whatever
+    # renders them, not to kofin.
+    assert state.lyric_lines() == [
+        [0.58, "Tonight"],
+        [94.6, "I just want to take you higher"],
+    ]
+    assert state.lyric_texts() == ["Tonight", "I just want to take you higher"]
+    # The path carries the song id, so it differs per song and a skin's list
+    # re-reads it instead of showing the previous song's lines.
+    assert FakeWindow.store[state.PROP_LYRIC_PATH].endswith("id=" + JID)
+    assert pushed == []  # publishing must not also drive a lyrics addon
+
+
+def test_untimed_lines_publish_with_no_starts(monkeypatch):
+    api = LyricsApi(payload=PLAIN)
+    player, _ = make_player(monkeypatch, api)
+
+    player.start_lyrics()
+
+    assert state.lyric_lines() == [
+        [None, "Sunrise, wrong side of another day"],
+        [None, "Sky high"],
+    ]
+
+
+def test_finalize_releases_the_lyrics(monkeypatch):
+    api = LyricsApi()
+    player, _ = make_player(monkeypatch, api)
+    player.start_lyrics()
+    assert FakeWindow.store.get(state.PROP_LYRIC_HAS) == "true"
+
+    player.finalize()
+
+    # Lyrics must not outlive the playback that fetched them.
+    assert state.PROP_LYRIC_HAS not in FakeWindow.store
+    assert state.lyric_lines() == []
+
+
+def test_addon_mode_sets_lyrics_and_source(monkeypatch):
+    FakeAddon.store = {"musicLyricsMode": "2"}
+    api = LyricsApi()
+    player, pushed = make_player(monkeypatch, api)
+
+    player.start_lyrics()
+
     assert len(pushed) == 1
     # setInfo, not the info tag setter: only setInfo marks the tag loaded, and
     # an unloaded tag is re-read from the music database, which clears it.
     assert pushed[0].info["music"]["lyrics"] == lyrics.to_text(SYNCED)
     assert pushed[0].props["culrc.source"] == "Jellyfin"
+    # The hand-off must not also publish for a renderer.
+    assert state.PROP_LYRIC_HAS not in FakeWindow.store
 
 
-def test_push_is_skipped_when_disabled(monkeypatch):
-    FakeAddon.store = {"musicLyrics": "false"}
+def test_addon_mode_retries_until_kodi_accepts_it(monkeypatch):
+    FakeAddon.store = {"musicLyricsMode": "2"}
+    api = LyricsApi()
+    player, pushed = make_player(monkeypatch, api, landed=False)
+    monkeypatch.setattr("xbmc.sleep", lambda ms: None)
+
+    player.start_lyrics()
+
+    assert len(pushed) == 4  # retried, then gave up rather than looping
+
+
+def test_off_asks_the_server_for_nothing(monkeypatch):
+    FakeAddon.store = {"musicLyricsMode": "0"}
     api = LyricsApi()
     player, pushed = make_player(monkeypatch, api)
 
-    player.push_lyrics()
+    player.start_lyrics()
 
     assert api.asked == []
     assert pushed == []
+    assert state.PROP_LYRIC_HAS not in FakeWindow.store
 
 
 def test_video_playback_is_left_alone(monkeypatch):
     api = LyricsApi()
     player, pushed = make_player(monkeypatch, api, audio=False)
 
-    player.push_lyrics()
+    player.start_lyrics()
 
     assert api.asked == []
     assert pushed == []
+    assert state.PROP_LYRIC_HAS not in FakeWindow.store
 
 
-def test_song_without_lyrics_pushes_nothing(monkeypatch):
+def test_song_without_lyrics_shows_nothing(monkeypatch):
     api = LyricsApi(payload={})
     player, pushed = make_player(monkeypatch, api)
 
-    player.push_lyrics()
+    player.start_lyrics()
 
     assert api.asked == [JID]
     assert pushed == []
-
-
-def test_push_retries_until_kodi_accepts_it(monkeypatch):
-    api = LyricsApi()
-    player, pushed = make_player(monkeypatch, api, landed=False)
-    monkeypatch.setattr("xbmc.sleep", lambda ms: None)
-
-    player.push_lyrics()
-
-    # Rejected every time: retried, then gave up rather than looping.
-    assert len(pushed) == 4
+    assert state.PROP_LYRIC_HAS not in FakeWindow.store
 
 
 def test_a_failing_server_never_breaks_playback(monkeypatch):
@@ -314,15 +412,16 @@ def test_a_failing_server_never_breaks_playback(monkeypatch):
     api = LyricsApi(error=ServerUnreachable("down"))
     player, pushed = make_player(monkeypatch, api)
 
-    player.push_lyrics()  # must not raise
+    player.start_lyrics()  # must not raise
 
     assert pushed == []
+    assert state.PROP_LYRIC_HAS not in FakeWindow.store
 
 
 def test_unexpected_errors_never_break_playback(monkeypatch):
     api = LyricsApi(error=ValueError("bug"))
     player, pushed = make_player(monkeypatch, api)
 
-    player.push_lyrics()  # must not raise
+    player.start_lyrics()  # must not raise
 
     assert pushed == []

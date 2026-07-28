@@ -62,6 +62,7 @@ def _handlers() -> Dict[str, Callable[[Request], None]]:
         adduser,
         browse,
         librarypicker,
+        lyrics,
         play,
         syncplay,
     )
@@ -71,6 +72,7 @@ def _handlers() -> Dict[str, Callable[[Request], None]]:
         "browse": browse.browse,
         "nextepisodes": browse.next_episodes,
         "extras": browse.extras,
+        "lyrics": lyrics.lyrics,
         "play": play.play,
         "syncplay": syncplay.menu,
         "login": account.login,

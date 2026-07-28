@@ -1,3 +1,7 @@
+v0.6.1
+- Song lyrics are now drawn by the new Kofin Lyrics add-on, installed alongside Kofin. It shows them in its own window on any skin, and lets a skin that draws lyrics itself do it instead - Contuary 2.2.0 does. Kofin's part is fetching them from the server as each track starts
+- Lyrics settings moved to a choice: off, shown by Kofin Lyrics, or handed to whatever lyrics add-on you already use
+
 v0.6.0
 - Song lyrics held on your Jellyfin server are now handed to Kodi the moment a track starts, so a lyrics addon shows the copy from your own library instead of searching the internet and sometimes settling on the wrong song. Lyrics that carry timings scroll along with the music. This needs an addon that displays lyrics, such as CU LRC Lyrics, because Kodi's own skins do not show them; it can be switched off on the Playback tab
 

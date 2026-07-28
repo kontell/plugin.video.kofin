@@ -1349,11 +1349,23 @@ msgctxt "#30605"
 msgid "1440p"
 msgstr ""
 
-# 30606-30607 — Jellyfin song lyrics
+# 30606-30610 — Jellyfin song lyrics
 msgctxt "#30606"
-msgid "Provide Jellyfin song lyrics"
+msgid "Jellyfin song lyrics"
 msgstr ""
 
 msgctxt "#30607"
-msgid "Hand a song's lyrics from Jellyfin to Kodi when it starts playing, so a lyrics addon shows those instead of searching online. Requires an addon that displays lyrics, such as CU LRC Lyrics — Kodi's own skins do not show them."
+msgid "Show a song's lyrics from Jellyfin as it plays, instead of a lyrics addon searching online for them. \"Show with Kofin Lyrics\" hands them to the Kofin Lyrics addon, which draws them itself or lets a skin do it. \"Hand to a lyrics addon\" works with any lyrics addon, such as CU LRC Lyrics."
+msgstr ""
+
+msgctxt "#30608"
+msgid "Off"
+msgstr ""
+
+msgctxt "#30609"
+msgid "Show with Kofin Lyrics"
+msgstr ""
+
+msgctxt "#30610"
+msgid "Hand to a lyrics addon"
 msgstr ""

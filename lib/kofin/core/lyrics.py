@@ -16,9 +16,15 @@ for a ``[mm:ss]`` stamp and runs the matching pass before every scraper, while
 the plain-text pass runs after all of them.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 JsonDict = Dict[str, Any]
+
+# One rendered line: its start time in seconds, or None when the payload
+# carries no timings at all (or this particular line was left unstamped).
+LyricLine = Tuple[Optional[float], str]
+
+TICKS_PER_SECOND = 10_000_000
 
 # Jellyfin timestamps are .NET ticks; one centisecond is 100_000 of them.
 # Rounding to centiseconds *before* splitting into minutes and seconds keeps
@@ -69,3 +75,43 @@ def to_text(payload: Optional[JsonDict]) -> Optional[str]:
 
     body = "\n".join(rendered)
     return body if body.strip() else None
+
+
+def to_lines(payload: Optional[JsonDict]) -> List[LyricLine]:
+    """The payload as ``(start_seconds, text)`` pairs for the skin overlay.
+
+    The counterpart to :func:`to_text`: that renders LRC for a lyrics addon to
+    re-parse, this keeps the timings we already have so nothing has to parse
+    a timestamp back out of a string we just formatted.
+    """
+    lines: List[JsonDict] = (payload or {}).get("Lyrics") or []
+    if not lines:
+        return []
+
+    timed = is_synced(payload)
+    out: List[LyricLine] = []
+    for line in lines:
+        text = line.get("Text") or ""
+        start = line.get("Start")
+        if timed and start is not None:
+            out.append((max(0.0, int(start) / TICKS_PER_SECOND), text))
+        else:
+            out.append((None, text))
+    return out
+
+
+def active_index(lines: List[LyricLine], position: float) -> Optional[int]:
+    """Index of the line playing at ``position`` seconds.
+
+    None when the lyrics carry no timings, or when playback has not yet
+    reached the first stamped line — both cases mean "nothing to highlight"
+    rather than "highlight line zero".
+
+    Lines are searched from the end so repeated stamps resolve to the last
+    line sharing the time, which is how a stacked ``[00:12.00]`` pair reads.
+    """
+    for index in range(len(lines) - 1, -1, -1):
+        start = lines[index][0]
+        if start is not None and start <= position:
+            return index
+    return None
