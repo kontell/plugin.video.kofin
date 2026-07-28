@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<addon id="plugin.video.kofin" name="Kofin" version="0.6.0" provider-name="kontell">
+<addon id="plugin.video.kofin" name="Kofin" version="0.6.1" provider-name="kontell">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="script.module.requests" version="2.22.0+matrix.1"/>
     <import addon="script.module.websocket" version="1.6.4"/>
+    <!-- Renders the lyrics kofin publishes. Not optional: Kodi does not
+         install optional dependencies, and lyrics are meant to work without
+         the viewer hunting for a second addon. Served from the same
+         repository as kofin, so it resolves. -->
+    <import addon="script.kofin.lyrics" version="0.1.0"/>
   </requires>
   <extension point="xbmc.python.pluginsource" library="default.py">
     <provides>video audio image</provides>
