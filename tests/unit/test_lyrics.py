@@ -252,47 +252,6 @@ def test_repeated_stamps_resolve_to_the_last_line():
     assert lyrics.active_index(lines, 19.9) == 2
 
 
-# -- the slot ladder ---------------------------------------------------------
-
-LADDER = [(float(n), "line%d" % n) for n in range(10)]
-
-
-def test_active_line_sits_in_the_centre_slot():
-    slots = lyrics.slots(LADDER, active=5, size=5)
-    assert slots == ["line3", "line4", "line5", "line6", "line7"]
-    assert slots[5 // 2] == "line5"
-
-
-def test_ladder_is_blank_beyond_the_ends():
-    """Lyrics scroll in and out rather than the highlight sliding down a
-    static block, so the centre slot is the active line even at line zero."""
-    assert lyrics.slots(LADDER, active=0, size=5) == ["", "", "line0", "line1", "line2"]
-    assert lyrics.slots(LADDER, active=9, size=5) == [
-        "line7",
-        "line8",
-        "line9",
-        "",
-        "",
-    ]
-
-
-def test_ladder_is_always_exactly_size_long():
-    for active in (None, 0, 4, 9):
-        assert len(lyrics.slots(LADDER, active, 9)) == 9
-    assert lyrics.slots([], None, 9) == [""] * 9
-    assert lyrics.slots(LADDER, 3, 0) == []
-
-
-def test_untimed_lyrics_sit_at_the_top():
-    lines = lyrics.to_lines(PLAIN)
-    assert lyrics.slots(lines, None, 4) == [
-        "Sunrise, wrong side of another day",
-        "Sky high",
-        "",
-        "",
-    ]
-
-
 # -- driving it from the player ----------------------------------------------
 
 
@@ -342,63 +301,126 @@ def make_player(monkeypatch, api, path=DIRECT, audio=True, landed=True, position
     return player, pushed
 
 
-def published():
-    """The ladder as the skin would read it."""
-    return [
-        FakeWindow.store.get(state.PROP_LYRIC_SLOT % n, "")
-        for n in range(state.LYRIC_SLOTS)
-    ]
+import re
+
+CONTROL = 9500
 
 
-def test_skin_mode_publishes_the_ladder(monkeypatch):
+def arm_skin(monkeypatch, where):
+    """A skin that has declared a lyrics list, with the list actually obeying.
+
+    The real list moves when Control.SetFocus reaches it, and the service only
+    polices manual scrolling once it has seen that happen -- so a fake that
+    never moves would never be believed.
+    """
+    FakeWindow.store[state.PROP_LYRIC_CONTROL] = str(CONTROL)
+    focus = []
+
+    def run(cmd):
+        focus.append(cmd)
+        match = re.match(r"Control\.SetFocus\(\d+,(\d+),absolute\)", cmd)
+        if match:
+            where[0] = int(match.group(1))
+
+    monkeypatch.setattr("xbmc.executebuiltin", run)
+    monkeypatch.setattr("kofin.service.player._list_position", lambda control: where[0])
+    return focus
+
+
+def test_skin_mode_publishes_the_lines(monkeypatch):
     api = LyricsApi()
     player, pushed = make_player(monkeypatch, api, position=95.0)
+    where = [0]
+    focus = arm_skin(monkeypatch, where)
 
     player.start_lyrics()
 
     assert api.asked == [JID]
     assert FakeWindow.store.get(state.PROP_LYRIC_HAS) == "true"
-    assert FakeWindow.store.get(state.PROP_LYRIC_ACTIVE) == "true"
-    # Second line is current at 95s, and lands in the centre slot.
-    assert published()[state.LYRIC_SLOTS // 2] == "I just want to take you higher"
-    # Skin mode must not also drive a lyrics addon.
-    assert pushed == []
+    # The lines themselves go to the plugin process, which serves them as the
+    # list's directory.
+    assert state.lyric_lines() == ["Tonight", "I just want to take you higher"]
+    # The path carries the song id, so it differs per song and the skin's
+    # list re-reads it instead of showing the previous song's lines.
+    assert FakeWindow.store[state.PROP_LYRIC_PATH].endswith("id=" + JID)
+    assert "Control.SetFocus(9500,1,absolute)" in focus
+    assert pushed == []  # skin mode must not also drive a lyrics addon
 
 
-def test_skin_mode_marks_untimed_lyrics_as_unhighlightable(monkeypatch):
-    api = LyricsApi(payload=PLAIN)
-    player, _ = make_player(monkeypatch, api, position=30.0)
-
-    player.start_lyrics()
-
-    assert FakeWindow.store.get(state.PROP_LYRIC_HAS) == "true"
-    assert state.PROP_LYRIC_ACTIVE not in FakeWindow.store
-    assert published()[0] == "Sunrise, wrong side of another day"
-
-
-def test_tick_republishes_only_when_the_line_changes(monkeypatch):
+def test_tick_moves_the_highlight_only_when_the_line_changes(monkeypatch):
     api = LyricsApi()
     player, _ = make_player(monkeypatch, api, position=0.6)
+    where = [0]
+    focus = arm_skin(monkeypatch, where)
+    player.start_lyrics()
+    focus.clear()
+
+    player.lyrics_tick()
+    player.lyrics_tick()
+    assert focus == []  # same line, nothing sent
+
+    monkeypatch.setattr(player, "getTime", lambda: 95.0)
+    player.lyrics_tick()
+    assert focus == ["Control.SetFocus(9500,1,absolute)"]
+
+
+def test_manual_scroll_stops_the_follow(monkeypatch):
+    api = LyricsApi()
+    player, _ = make_player(monkeypatch, api, position=0.6)
+    where = [0]
+    focus = arm_skin(monkeypatch, where)
+    player.start_lyrics()
+    focus.clear()
+
+    # Settle: the list has agreed with us, so we are now policing it.
+    player.lyrics_tick()
+    focus.clear()
+    # The viewer scrolls: the list is no longer where we left it.
+    where[0] = 7
+    monkeypatch.setattr(player, "getTime", lambda: 95.0)
+    player.lyrics_tick()
+    player.lyrics_tick()
+
+    assert focus == []  # we stopped driving rather than fighting them
+
+
+def test_the_next_track_takes_the_follow_back(monkeypatch):
+    api = LyricsApi()
+    player, _ = make_player(monkeypatch, api, position=0.6)
+    where = [0]
+    focus = arm_skin(monkeypatch, where)
+    player.start_lyrics()
+    player.lyrics_tick()  # settle
+    where[0] = 7  # scrolled away
+    monkeypatch.setattr(player, "getTime", lambda: 95.0)
+    player.lyrics_tick()
+    focus.clear()
+
+    where[0] = 0
+    player.start_lyrics()  # next track
+
+    assert any(cmd.startswith("Control.SetFocus") for cmd in focus)
+
+
+def test_nothing_is_driven_without_a_skin_that_asked(monkeypatch):
+    """A skin declares the control it wants driven; silence otherwise."""
+    api = LyricsApi()
+    player, _ = make_player(monkeypatch, api, position=95.0)
+    where = [0]
+    focus = arm_skin(monkeypatch, where)
+    FakeWindow.store.pop(state.PROP_LYRIC_CONTROL, None)
+
     player.start_lyrics()
 
-    writes = []
-    monkeypatch.setattr(
-        "kofin.core.state.publish_lyrics",
-        lambda slots, active: writes.append(slots),
-    )
-
-    player.lyrics_tick()  # same line
-    player.lyrics_tick()
-    assert writes == []
-
-    monkeypatch.setattr(player, "getTime", lambda: 95.0)  # next line
-    player.lyrics_tick()
-    assert len(writes) == 1
+    assert FakeWindow.store.get(state.PROP_LYRIC_HAS) == "true"  # lines still published
+    assert not any(cmd.startswith("Control.SetFocus") for cmd in focus)
 
 
 def test_finalize_releases_the_overlay(monkeypatch):
     api = LyricsApi()
     player, _ = make_player(monkeypatch, api, position=95.0)
+    where = [0]
+    arm_skin(monkeypatch, where)
     player.start_lyrics()
     assert FakeWindow.store.get(state.PROP_LYRIC_HAS) == "true"
 
@@ -406,19 +428,7 @@ def test_finalize_releases_the_overlay(monkeypatch):
 
     # Lyrics must not outlive the playback that fetched them.
     assert state.PROP_LYRIC_HAS not in FakeWindow.store
-    assert published() == [""] * state.LYRIC_SLOTS
-
-
-def test_tick_after_playback_ended_is_survivable(monkeypatch):
-    api = LyricsApi()
-    player, _ = make_player(monkeypatch, api, position=1.0)
-    player.start_lyrics()
-
-    def gone():
-        raise RuntimeError("Kodi is not playing any file")
-
-    monkeypatch.setattr(player, "getTime", gone)
-    player.lyrics_tick()  # must not raise
+    assert state.lyric_lines() == []
 
 
 def test_addon_mode_sets_lyrics_and_source(monkeypatch):

@@ -294,6 +294,20 @@ def playing_jellyfin_id(item: xbmcgui.ListItem, path: str) -> Optional[str]:
     return None
 
 
+def _list_position(control: int) -> int:
+    """Which line the skin's lyrics list is on, or -1 if it cannot be read.
+
+    CurrentItem, not Position: on a fixedlist Position is the pinned cursor
+    row and never moves, so it says nothing about where the list is. And it
+    counts from one.
+    """
+    raw = xbmc.getInfoLabel("Container(%d).CurrentItem" % control)
+    try:
+        return int(raw) - 1
+    except (TypeError, ValueError):
+        return -1
+
+
 def library_claim(jellyfin_id: str, path: str, api: Api) -> Optional[JsonDict]:
     """The play-state a library-originated playback would have queued.
 
@@ -420,13 +434,14 @@ class Player(xbmc.Player):
         self._overlay_window: Optional[Tuple[float, float]] = None
         self._overlay_autoplay = False
         self._skip_target: Optional[float] = None
-        # Lyrics for the playing song, and the ladder frame last published.
-        # _lyric_published distinguishes "no line is current" from "nothing
-        # published yet" — both hold active None, but only the second must
-        # still write a frame.
+        # Lyrics for the playing song, and the line index last pushed to the
+        # skin's list. _lyric_sent doubles as how a manual scroll is spotted:
+        # the list stays where we put it, so any other position is the
+        # viewer's, and following stands down until the next track.
         self._lyric_lines: List[lyrics_render.LyricLine] = []
-        self._lyric_active: Optional[int] = None
-        self._lyric_published = False
+        self._lyric_sent: Optional[int] = None
+        self._lyric_following = False
+        self._lyric_confirmed = False
         self._lyric_ticker: Optional[LyricsTicker] = None
 
     # -- syncplay forwarding ---------------------------------------------------
@@ -499,35 +514,65 @@ class Player(xbmc.Player):
             return
         with self._lock:
             self._lyric_lines = lines
-            self._lyric_active = None
-            self._lyric_published = False
+            self._lyric_sent = None
+            self._lyric_following = True
+            self._lyric_confirmed = False
+        state.publish_lyrics([text for _, text in lines], jellyfin_id)
         LOG.info("--> lyrics %s (%d lines, skin)", jellyfin_id, len(lines))
-        # Publish the opening frame here rather than waiting for the first
-        # tick, so the overlay is up before the song is audible.
         self.lyrics_tick()
         self._start_lyrics_ticker()
 
     def lyrics_tick(self) -> None:
-        """Republish the ladder when the current line changes. Cheap by
-        design — it runs four times a second for the length of every song."""
+        """Move the skin's highlight onto the line being sung.
+
+        Runs four times a second for the length of every song, so everything
+        here is a property read or an early return until a line changes.
+        """
         with self._lock:
             lines = self._lyric_lines
-        if not lines:
+            following = self._lyric_following
+            sent = self._lyric_sent
+            confirmed = self._lyric_confirmed
+        if not lines or not following:
             return
+
+        control = state.lyric_control_id()
+        if not control:
+            return  # no lyrics-capable window on screen
+
+        where = _list_position(control)
+
+        # Until the list has agreed with us once, a mismatch means our command
+        # went nowhere -- the directory loads asynchronously, so the opening
+        # SetFocus usually lands in an empty list. Keep re-issuing rather than
+        # reading that as the viewer scrolling, which would stand us down for
+        # the whole song before the first line ever lit.
+        if not confirmed:
+            if sent is not None and where == sent:
+                with self._lock:
+                    self._lyric_confirmed = True
+        elif sent is not None and where != sent:
+            # Confirmed, and it moved somewhere we did not put it: theirs.
+            with self._lock:
+                self._lyric_following = False
+            LOG.debug("lyrics: yielding to manual scroll")
+            return
+
         try:
             position = self.getTime()
         except RuntimeError:
             return  # playback ended between the tick and here
 
         active = lyrics_render.active_index(lines, position)
+        if active is None:
+            return
         with self._lock:
-            if self._lyric_published and active == self._lyric_active:
+            if active == self._lyric_sent and self._lyric_confirmed:
                 return
-            self._lyric_active = active
-            self._lyric_published = True
-        state.publish_lyrics(
-            lyrics_render.slots(lines, active, state.LYRIC_SLOTS), active is not None
-        )
+            self._lyric_sent = active
+        # absolute: without it the position is taken relative to the visible
+        # page, which lands on a different line every time the list scrolls.
+        xbmc.executebuiltin("Control.SetFocus(%d,%d,absolute)" % (control, active))
 
     def _start_lyrics_ticker(self) -> None:
         self._stop_lyrics_ticker()
@@ -547,8 +592,9 @@ class Player(xbmc.Player):
         self._stop_lyrics_ticker()
         with self._lock:
             self._lyric_lines = []
-            self._lyric_active = None
-            self._lyric_published = False
+            self._lyric_sent = None
+            self._lyric_following = False
+            self._lyric_confirmed = False
         state.clear_lyrics()
 
     def _push_lyrics_to_tag(self, payload: JsonDict, jellyfin_id: str) -> None:

@@ -3,7 +3,7 @@
 Anything else someone wants to share between the plugin and service processes
 must argue its way into this module. Two groups here are read by skin XML
 rather than by kofin's other process — the context bitrates and the lyrics
-ladder — because a <visible> condition and a skin control can read a window
+overlay — because a <visible> condition and a skin control can read a window
 property and nothing else.
 """
 
@@ -29,13 +29,28 @@ PROP_CONTEXT_BITRATES = "kofin.context.bitrates"
 # database has no lyrics column, and an addon window cannot draw a passive
 # overlay (it becomes the active window and swallows the OSD).
 #
-# A fixed ladder of slots rather than a list, because skin XML cannot iterate
-# a property. The active line is always LYRIC_SLOTS // 2, so the skin styles
-# one constant index. Written only by the service's lyrics tick.
-LYRIC_SLOTS = 9
+# The skin renders the lines in a fixedlist so Kodi animates the scroll; the
+# service drives which line is current with Control.SetFocus. PROP_LYRIC_JSON
+# carries the lines to the plugin process, which serves them as the list's
+# directory -- the alternative was fetching them from Jellyfin a second time.
+#
+# PROP_LYRIC_PATH is that directory's address, and it carries the song id so
+# that it *changes* per song: the skin binds its list content to this, and a
+# changed path is what makes Kodi re-read the directory. Container.Refresh
+# cannot do it -- the visualisation window is not a media window, so it has no
+# container for that builtin to act on.
+#
+# PROP_LYRIC_CONTROL runs the other way: the *skin* sets it, naming the
+# control to drive. So the service drives whatever id a skin declares, and
+# stays silent for skins that declare nothing.
 PROP_LYRIC_HAS = "kofin.lyric.has"
-PROP_LYRIC_ACTIVE = "kofin.lyric.active"
-PROP_LYRIC_SLOT = "kofin.lyric.%d"
+PROP_LYRIC_JSON = "kofin.lyric.json"
+PROP_LYRIC_PATH = "kofin.lyric.path"
+PROP_LYRIC_CONTROL = "kofin.lyric.control"
+
+# The song id is a cache-buster as much as an argument: the path has to differ
+# between songs for the skin's list to notice.
+LYRICS_DIRECTORY = "plugin://plugin.video.kofin/?mode=lyrics&id=%s"
 
 _HOME_WINDOW = 10000
 
@@ -136,21 +151,38 @@ def get_context_bitrates() -> str:
     return _window().getProperty(PROP_CONTEXT_BITRATES)
 
 
-def publish_lyrics(slots: List[str], active: bool) -> None:
-    """Put one frame of the lyrics ladder in front of the skin.
-
-    ``active`` is False for untimed lyrics, which have no line to highlight;
-    the skin drops the highlight rather than marking an arbitrary line.
-    """
+def publish_lyrics(lines: List[str], item_id: str) -> None:
+    """Hand the song's lines to the skin's list and raise the visibility gate."""
     window = _window()
-    for index in range(LYRIC_SLOTS):
-        text = slots[index] if index < len(slots) else ""
-        window.setProperty(PROP_LYRIC_SLOT % index, text)
-    if active:
-        window.setProperty(PROP_LYRIC_ACTIVE, "true")
-    else:
-        window.clearProperty(PROP_LYRIC_ACTIVE)
+    window.setProperty(PROP_LYRIC_JSON, json.dumps(lines))
+    window.setProperty(PROP_LYRIC_PATH, LYRICS_DIRECTORY % item_id)
     window.setProperty(PROP_LYRIC_HAS, "true")
+
+
+def lyric_lines() -> List[str]:
+    """The published lines, for the plugin process to serve as a directory."""
+    raw = _window().getProperty(PROP_LYRIC_JSON)
+    if not raw:
+        return []
+    try:
+        lines = json.loads(raw)
+    except ValueError:
+        return []
+    return [str(line) for line in lines] if isinstance(lines, list) else []
+
+
+def lyric_control_id() -> int:
+    """The list control a skin has asked us to drive, or 0 if none has.
+
+    Set by the skin's window on load and cleared on unload, so this doubles as
+    "is a lyrics-capable window on screen" -- Control.SetFocus only reaches the
+    active window anyway.
+    """
+    raw = _window().getProperty(PROP_LYRIC_CONTROL)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
 
 
 def clear_lyrics() -> None:
@@ -158,9 +190,8 @@ def clear_lyrics() -> None:
     stops lyrics outliving the song that owned them."""
     window = _window()
     window.clearProperty(PROP_LYRIC_HAS)
-    window.clearProperty(PROP_LYRIC_ACTIVE)
-    for index in range(LYRIC_SLOTS):
-        window.clearProperty(PROP_LYRIC_SLOT % index)
+    window.clearProperty(PROP_LYRIC_JSON)
+    window.clearProperty(PROP_LYRIC_PATH)
 
 
 def has_lyrics() -> bool:

@@ -115,31 +115,3 @@ def active_index(lines: List[LyricLine], position: float) -> Optional[int]:
         if start is not None and start <= position:
             return index
     return None
-
-
-def slots(lines: List[LyricLine], active: Optional[int], size: int) -> List[str]:
-    """Exactly ``size`` lines of text with the active one pinned to the centre.
-
-    A skin cannot iterate a list held in window properties, so the overlay is
-    a fixed ladder of slots that this rewrites as the song moves. Pinning the
-    active line to the middle slot means the skin styles one constant index
-    and never computes anything; scrolling is the text changing underneath it.
-
-    Positions before the first line and past the last are blank, so the lyrics
-    scroll in and out rather than the highlight sliding down a static block.
-
-    Untimed lyrics have no active line, so they sit at the top and do not
-    move — there is nothing to follow. Only the first ``size`` lines are ever
-    visible in that case, which is the honest limit of an unsynced payload.
-    """
-    if size <= 0:
-        return []
-    if active is None:
-        texts = [text for _, text in lines[:size]]
-        return texts + [""] * (size - len(texts))
-
-    first = active - size // 2
-    return [
-        lines[index][1] if 0 <= index < len(lines) else ""
-        for index in range(first, first + size)
-    ]
