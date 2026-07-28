@@ -151,16 +151,21 @@ def get_context_bitrates() -> str:
     return _window().getProperty(PROP_CONTEXT_BITRATES)
 
 
-def publish_lyrics(lines: List[str], item_id: str) -> None:
-    """Hand the song's lines to the skin's list and raise the visibility gate."""
+def publish_lyrics(lines: List[Any], item_id: str) -> None:
+    """Publish the song's lyrics for whatever is going to render them.
+
+    ``lines`` is ``[[start_seconds_or_null, text], ...]``. The timings ride
+    along because the renderer decides which line is current -- kofin's job
+    ends at fetching them.
+    """
     window = _window()
     window.setProperty(PROP_LYRIC_JSON, json.dumps(lines))
     window.setProperty(PROP_LYRIC_PATH, LYRICS_DIRECTORY % item_id)
     window.setProperty(PROP_LYRIC_HAS, "true")
 
 
-def lyric_lines() -> List[str]:
-    """The published lines, for the plugin process to serve as a directory."""
+def lyric_lines() -> List[Any]:
+    """The published ``[start, text]`` pairs, or [] when there are none."""
     raw = _window().getProperty(PROP_LYRIC_JSON)
     if not raw:
         return []
@@ -168,7 +173,12 @@ def lyric_lines() -> List[str]:
         lines = json.loads(raw)
     except ValueError:
         return []
-    return [str(line) for line in lines] if isinstance(lines, list) else []
+    return lines if isinstance(lines, list) else []
+
+
+def lyric_texts() -> List[str]:
+    """Just the text of each line, for serving the list's directory."""
+    return [str(line[1]) for line in lyric_lines() if isinstance(line, list) and line]
 
 
 def lyric_control_id() -> int:

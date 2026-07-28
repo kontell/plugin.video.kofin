@@ -271,13 +271,13 @@ class LyricsApi:
 @pytest.fixture(autouse=True)
 def kodi_fakes(monkeypatch):
     FakeWindow.store = {}
-    # Default the suite to the skin overlay; the hand-off tests opt in.
+    # Default the suite to publishing; the hand-off tests opt in.
     FakeAddon.store = {"musicLyricsMode": "1"}
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
 
 
-def make_player(monkeypatch, api, path=DIRECT, audio=True, landed=True, position=0.0):
+def make_player(monkeypatch, api, path=DIRECT, audio=True, landed=True):
     player = Player(api)  # type: ignore[arg-type]
     pushed = []
 
@@ -285,8 +285,6 @@ def make_player(monkeypatch, api, path=DIRECT, audio=True, landed=True, position
     monkeypatch.setattr(player, "getPlayingFile", lambda: path)
     monkeypatch.setattr(player, "getPlayingItem", lambda: FakeListItem(dbid=10851))
     monkeypatch.setattr(player, "updateInfoTag", lambda item: pushed.append(item))
-    monkeypatch.setattr(player, "getTime", lambda: position)
-    monkeypatch.setattr(player, "_start_lyrics_ticker", lambda: None)
     monkeypatch.setattr(
         "kofin.service.player.mapped_jellyfin_id", lambda kodi_id, media: JID
     )
@@ -301,126 +299,42 @@ def make_player(monkeypatch, api, path=DIRECT, audio=True, landed=True, position
     return player, pushed
 
 
-import re
-
-CONTROL = 9500
-
-
-def arm_skin(monkeypatch, where):
-    """A skin that has declared a lyrics list, with the list actually obeying.
-
-    The real list moves when Control.SetFocus reaches it, and the service only
-    polices manual scrolling once it has seen that happen -- so a fake that
-    never moves would never be believed.
-    """
-    FakeWindow.store[state.PROP_LYRIC_CONTROL] = str(CONTROL)
-    focus = []
-
-    def run(cmd):
-        focus.append(cmd)
-        match = re.match(r"Control\.SetFocus\(\d+,(\d+),absolute\)", cmd)
-        if match:
-            where[0] = int(match.group(1))
-
-    monkeypatch.setattr("xbmc.executebuiltin", run)
-    monkeypatch.setattr("kofin.service.player._list_position", lambda control: where[0])
-    return focus
-
-
-def test_skin_mode_publishes_the_lines(monkeypatch):
+def test_publishes_timed_lines(monkeypatch):
     api = LyricsApi()
-    player, pushed = make_player(monkeypatch, api, position=95.0)
-    where = [0]
-    focus = arm_skin(monkeypatch, where)
+    player, pushed = make_player(monkeypatch, api)
 
     player.start_lyrics()
 
     assert api.asked == [JID]
     assert FakeWindow.store.get(state.PROP_LYRIC_HAS) == "true"
-    # The lines themselves go to the plugin process, which serves them as the
-    # list's directory.
-    assert state.lyric_lines() == ["Tonight", "I just want to take you higher"]
-    # The path carries the song id, so it differs per song and the skin's
-    # list re-reads it instead of showing the previous song's lines.
+    # Timings ride along: deciding which line is current belongs to whatever
+    # renders them, not to kofin.
+    assert state.lyric_lines() == [
+        [0.58, "Tonight"],
+        [94.6, "I just want to take you higher"],
+    ]
+    assert state.lyric_texts() == ["Tonight", "I just want to take you higher"]
+    # The path carries the song id, so it differs per song and a skin's list
+    # re-reads it instead of showing the previous song's lines.
     assert FakeWindow.store[state.PROP_LYRIC_PATH].endswith("id=" + JID)
-    assert "Control.SetFocus(9500,1,absolute)" in focus
-    assert pushed == []  # skin mode must not also drive a lyrics addon
+    assert pushed == []  # publishing must not also drive a lyrics addon
 
 
-def test_tick_moves_the_highlight_only_when_the_line_changes(monkeypatch):
-    api = LyricsApi()
-    player, _ = make_player(monkeypatch, api, position=0.6)
-    where = [0]
-    focus = arm_skin(monkeypatch, where)
-    player.start_lyrics()
-    focus.clear()
-
-    player.lyrics_tick()
-    player.lyrics_tick()
-    assert focus == []  # same line, nothing sent
-
-    monkeypatch.setattr(player, "getTime", lambda: 95.0)
-    player.lyrics_tick()
-    assert focus == ["Control.SetFocus(9500,1,absolute)"]
-
-
-def test_manual_scroll_stops_the_follow(monkeypatch):
-    api = LyricsApi()
-    player, _ = make_player(monkeypatch, api, position=0.6)
-    where = [0]
-    focus = arm_skin(monkeypatch, where)
-    player.start_lyrics()
-    focus.clear()
-
-    # Settle: the list has agreed with us, so we are now policing it.
-    player.lyrics_tick()
-    focus.clear()
-    # The viewer scrolls: the list is no longer where we left it.
-    where[0] = 7
-    monkeypatch.setattr(player, "getTime", lambda: 95.0)
-    player.lyrics_tick()
-    player.lyrics_tick()
-
-    assert focus == []  # we stopped driving rather than fighting them
-
-
-def test_the_next_track_takes_the_follow_back(monkeypatch):
-    api = LyricsApi()
-    player, _ = make_player(monkeypatch, api, position=0.6)
-    where = [0]
-    focus = arm_skin(monkeypatch, where)
-    player.start_lyrics()
-    player.lyrics_tick()  # settle
-    where[0] = 7  # scrolled away
-    monkeypatch.setattr(player, "getTime", lambda: 95.0)
-    player.lyrics_tick()
-    focus.clear()
-
-    where[0] = 0
-    player.start_lyrics()  # next track
-
-    assert any(cmd.startswith("Control.SetFocus") for cmd in focus)
-
-
-def test_nothing_is_driven_without_a_skin_that_asked(monkeypatch):
-    """A skin declares the control it wants driven; silence otherwise."""
-    api = LyricsApi()
-    player, _ = make_player(monkeypatch, api, position=95.0)
-    where = [0]
-    focus = arm_skin(monkeypatch, where)
-    FakeWindow.store.pop(state.PROP_LYRIC_CONTROL, None)
+def test_untimed_lines_publish_with_no_starts(monkeypatch):
+    api = LyricsApi(payload=PLAIN)
+    player, _ = make_player(monkeypatch, api)
 
     player.start_lyrics()
 
-    assert FakeWindow.store.get(state.PROP_LYRIC_HAS) == "true"  # lines still published
-    assert not any(cmd.startswith("Control.SetFocus") for cmd in focus)
+    assert state.lyric_lines() == [
+        [None, "Sunrise, wrong side of another day"],
+        [None, "Sky high"],
+    ]
 
 
-def test_finalize_releases_the_overlay(monkeypatch):
+def test_finalize_releases_the_lyrics(monkeypatch):
     api = LyricsApi()
-    player, _ = make_player(monkeypatch, api, position=95.0)
-    where = [0]
-    arm_skin(monkeypatch, where)
+    player, _ = make_player(monkeypatch, api)
     player.start_lyrics()
     assert FakeWindow.store.get(state.PROP_LYRIC_HAS) == "true"
 
@@ -443,7 +357,7 @@ def test_addon_mode_sets_lyrics_and_source(monkeypatch):
     # an unloaded tag is re-read from the music database, which clears it.
     assert pushed[0].info["music"]["lyrics"] == lyrics.to_text(SYNCED)
     assert pushed[0].props["culrc.source"] == "Jellyfin"
-    # The hand-off must not also drive the skin overlay.
+    # The hand-off must not also publish for a renderer.
     assert state.PROP_LYRIC_HAS not in FakeWindow.store
 
 

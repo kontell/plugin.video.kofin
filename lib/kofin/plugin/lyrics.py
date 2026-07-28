@@ -25,7 +25,7 @@ JsonDict = Dict[str, Any]
 
 def lyrics(request: Any) -> None:
     """Serve the published lines as a directory."""
-    lines = state.lyric_lines()
+    lines = state.lyric_texts()
     LOG.debug("lyrics directory: %d lines", len(lines))
     for line in lines:
         # A blank line still has to occupy a row: the service addresses lines
