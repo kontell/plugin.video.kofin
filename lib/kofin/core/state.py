@@ -1,7 +1,10 @@
-"""The only cross-process live state: three window properties on window 10000.
+"""The only cross-process live state: a few window properties on window 10000.
 
 Anything else someone wants to share between the plugin and service processes
-must argue its way into this module.
+must argue its way into this module. Two groups here are read by skin XML
+rather than by kofin's other process — the context bitrates and the lyrics
+ladder — because a <visible> condition and a skin control can read a window
+property and nothing else.
 """
 
 import json
@@ -19,6 +22,20 @@ PROP_SYNC_ACTIVE = "kofin.sync.active"
 # "Play with transcoding" when no bitrates are configured needs the setting
 # mirrored into one.
 PROP_CONTEXT_BITRATES = "kofin.context.bitrates"
+
+# The lyrics overlay's channel to the skin. These earn their place for the
+# same reason as PROP_CONTEXT_BITRATES: a skin can only read window
+# properties, and lyrics cannot reach it any other way -- Kodi's music
+# database has no lyrics column, and an addon window cannot draw a passive
+# overlay (it becomes the active window and swallows the OSD).
+#
+# A fixed ladder of slots rather than a list, because skin XML cannot iterate
+# a property. The active line is always LYRIC_SLOTS // 2, so the skin styles
+# one constant index. Written only by the service's lyrics tick.
+LYRIC_SLOTS = 9
+PROP_LYRIC_HAS = "kofin.lyric.has"
+PROP_LYRIC_ACTIVE = "kofin.lyric.active"
+PROP_LYRIC_SLOT = "kofin.lyric.%d"
 
 _HOME_WINDOW = 10000
 
@@ -119,6 +136,37 @@ def get_context_bitrates() -> str:
     return _window().getProperty(PROP_CONTEXT_BITRATES)
 
 
+def publish_lyrics(slots: List[str], active: bool) -> None:
+    """Put one frame of the lyrics ladder in front of the skin.
+
+    ``active`` is False for untimed lyrics, which have no line to highlight;
+    the skin drops the highlight rather than marking an arbitrary line.
+    """
+    window = _window()
+    for index in range(LYRIC_SLOTS):
+        text = slots[index] if index < len(slots) else ""
+        window.setProperty(PROP_LYRIC_SLOT % index, text)
+    if active:
+        window.setProperty(PROP_LYRIC_ACTIVE, "true")
+    else:
+        window.clearProperty(PROP_LYRIC_ACTIVE)
+    window.setProperty(PROP_LYRIC_HAS, "true")
+
+
+def clear_lyrics() -> None:
+    """Drop the overlay. The skin hides on PROP_LYRIC_HAS, so this is what
+    stops lyrics outliving the song that owned them."""
+    window = _window()
+    window.clearProperty(PROP_LYRIC_HAS)
+    window.clearProperty(PROP_LYRIC_ACTIVE)
+    for index in range(LYRIC_SLOTS):
+        window.clearProperty(PROP_LYRIC_SLOT % index)
+
+
+def has_lyrics() -> bool:
+    return _window().getProperty(PROP_LYRIC_HAS) == "true"
+
+
 def clear_all() -> None:
     window = _window()
     for prop in (
@@ -130,6 +178,7 @@ def clear_all() -> None:
         PROP_CONTEXT_BITRATES,
     ):
         window.clearProperty(prop)
+    clear_lyrics()
 
 
 def _read_queue(window: xbmcgui.Window) -> List[Dict[str, Any]]:

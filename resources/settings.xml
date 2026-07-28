@@ -466,10 +466,17 @@
         </setting>
       </group>
       <group id="4">
-        <setting id="musicLyrics" type="boolean" label="30606" help="30607">
+        <setting id="musicLyricsMode" type="integer" label="30606" help="30607">
           <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
+          <default>1</default>
+          <constraints>
+            <options>
+              <option label="30608">0</option>
+              <option label="30609">1</option>
+              <option label="30610">2</option>
+            </options>
+          </constraints>
+          <control type="spinner" format="string"/>
         </setting>
       </group>
     </category>

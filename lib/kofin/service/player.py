@@ -29,6 +29,7 @@ from kofin.core import settings, state, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
+from kofin.service.lyrics import LyricsTicker
 from kofin.service.segments import SegmentChecker, parse_segments
 
 if TYPE_CHECKING:
@@ -262,6 +263,13 @@ LYRICS_SOURCE = "Jellyfin"
 LYRICS_PUSH_ATTEMPTS = 4
 LYRICS_PUSH_RETRY_SECONDS = 0.05
 
+# musicLyricsMode. Two ways to show the same lyrics, and they must not both
+# run: with a lyrics addon installed, the skin overlay and the addon's own
+# window would draw the same words twice.
+LYRICS_OFF = 0
+LYRICS_SKIN = 1  # publish for the skin to render (see core/state.py)
+LYRICS_ADDON = 2  # hand to a lyrics addon via the playing item's music tag
+
 
 def playing_jellyfin_id(item: xbmcgui.ListItem, path: str) -> Optional[str]:
     """The Jellyfin id of the song Kodi is playing, or None if it is not ours.
@@ -412,6 +420,14 @@ class Player(xbmc.Player):
         self._overlay_window: Optional[Tuple[float, float]] = None
         self._overlay_autoplay = False
         self._skip_target: Optional[float] = None
+        # Lyrics for the playing song, and the ladder frame last published.
+        # _lyric_published distinguishes "no line is current" from "nothing
+        # published yet" — both hold active None, but only the second must
+        # still write a frame.
+        self._lyric_lines: List[lyrics_render.LyricLine] = []
+        self._lyric_active: Optional[int] = None
+        self._lyric_published = False
+        self._lyric_ticker: Optional[LyricsTicker] = None
 
     # -- syncplay forwarding ---------------------------------------------------
 
@@ -433,33 +449,37 @@ class Player(xbmc.Player):
 
     # -- lyrics ---------------------------------------------------------------
 
-    def push_lyrics(self) -> None:
-        """Hand the playing song's Jellyfin lyrics to Kodi. Never raises.
+    def start_lyrics(self) -> None:
+        """Show the playing song's Jellyfin lyrics. Never raises.
 
         Kodi's music database has no lyrics column, so lyrics cannot be synced
-        into the library the way everything else is — they only exist on the
-        item being played, and only for as long as it is playing. That is true
-        whichever path a song was written with, so this one route covers both
-        direct rows and the plugin:// rows musicTranscode writes.
+        into the library the way everything else is — they exist only on the
+        playback that is running, and only while it runs. That holds whichever
+        path a song was written with, so this one route covers both direct
+        rows and the plugin:// rows musicTranscode writes.
 
-        Timing is the whole design. script.cu.lrclyrics — the only addon that
-        renders lyrics, since no stock skin does — searches on onAVStarted and
-        memoises the result per song, and its own force-refresh does not clear
-        that memo. Lyrics that arrive after it has looked are not merely late,
-        they are ignored until the song falls out of its cache. So this runs
-        synchronously at the top of playback start, before the claim, and the
-        fetch behind it forfeits rather than stalls (see Api.lyrics).
+        Two destinations, never both (see the LYRICS_* modes). The skin
+        overlay is the seamless one; the lyrics-addon hand-off is what works
+        on skins that draw nothing themselves.
+
+        Timing only binds on the addon path: script.cu.lrclyrics searches on
+        onAVStarted and memoises the result per song, and its own force
+        refresh does not clear that memo, so lyrics arriving after it looked
+        are ignored until the song leaves its cache. Hence this runs
+        synchronously at the top of playback start, ahead of the claim, and
+        the fetch behind it forfeits rather than stalls (see Api.lyrics).
         """
-        if not settings.get_bool("musicLyrics"):
+        mode = settings.get_int("musicLyricsMode")
+        if mode == LYRICS_OFF:
             return
         try:
-            self._push_lyrics()
+            self._start_lyrics(mode)
         except JellyfinError as error:
             LOG.debug("lyrics unavailable: %s", error)
         except Exception:
-            LOG.exception("lyrics push failed")
+            LOG.exception("lyrics start failed")
 
-    def _push_lyrics(self) -> None:
+    def _start_lyrics(self, mode: int) -> None:
         if not self.isPlayingAudio():
             return
 
@@ -467,7 +487,72 @@ class Player(xbmc.Player):
         if jellyfin_id is None:
             return
 
-        text = lyrics_render.to_text(self.api.lyrics(jellyfin_id))
+        payload = self.api.lyrics(jellyfin_id)
+        if mode == LYRICS_SKIN:
+            self._show_lyrics_in_skin(payload, jellyfin_id)
+        else:
+            self._push_lyrics_to_tag(payload, jellyfin_id)
+
+    def _show_lyrics_in_skin(self, payload: JsonDict, jellyfin_id: str) -> None:
+        lines = lyrics_render.to_lines(payload)
+        if not lines:
+            return
+        with self._lock:
+            self._lyric_lines = lines
+            self._lyric_active = None
+            self._lyric_published = False
+        LOG.info("--> lyrics %s (%d lines, skin)", jellyfin_id, len(lines))
+        # Publish the opening frame here rather than waiting for the first
+        # tick, so the overlay is up before the song is audible.
+        self.lyrics_tick()
+        self._start_lyrics_ticker()
+
+    def lyrics_tick(self) -> None:
+        """Republish the ladder when the current line changes. Cheap by
+        design — it runs four times a second for the length of every song."""
+        with self._lock:
+            lines = self._lyric_lines
+        if not lines:
+            return
+        try:
+            position = self.getTime()
+        except RuntimeError:
+            return  # playback ended between the tick and here
+
+        active = lyrics_render.active_index(lines, position)
+        with self._lock:
+            if self._lyric_published and active == self._lyric_active:
+                return
+            self._lyric_active = active
+            self._lyric_published = True
+        state.publish_lyrics(
+            lyrics_render.slots(lines, active, state.LYRIC_SLOTS), active is not None
+        )
+
+    def _start_lyrics_ticker(self) -> None:
+        self._stop_lyrics_ticker()
+        ticker = LyricsTicker(self)
+        self._lyric_ticker = ticker
+        ticker.start()
+
+    def _stop_lyrics_ticker(self) -> None:
+        if self._lyric_ticker is not None:
+            self._lyric_ticker.stop()
+            self._lyric_ticker = None
+
+    def _reset_lyrics(self) -> None:
+        """Release the overlay. Called from finalize, so lyrics never outlive
+        the playback that fetched them — including the error and stale-play
+        paths, which are the ones that would otherwise leave them stranded."""
+        self._stop_lyrics_ticker()
+        with self._lock:
+            self._lyric_lines = []
+            self._lyric_active = None
+            self._lyric_published = False
+        state.clear_lyrics()
+
+    def _push_lyrics_to_tag(self, payload: JsonDict, jellyfin_id: str) -> None:
+        text = lyrics_render.to_text(payload)
         if not text:
             return
 
@@ -499,11 +584,13 @@ class Player(xbmc.Player):
         # must wait for a SyncPlay group is paused at its first instant, not
         # seconds later when the claim and round trip complete.
         self._syncplay_event("on_playback_started")
-        # Also before the claim, and for the same reason: the lyrics addon
-        # searches on onAVStarted, so anything that waits on a round trip
-        # first has already lost the race. See push_lyrics.
-        self.push_lyrics()
         self.finalize()  # a previous kofin play that never got its stop event
+        # Ahead of the claim, and before anything else that blocks: the lyrics
+        # addon searches on onAVStarted, so a round trip taken first has
+        # already lost the race. After finalize only because that is what
+        # releases the previous song's lyrics — it is a no-op on the normal
+        # path, where the last playback stopped cleanly. See start_lyrics.
+        self.start_lyrics()
         claimed = self._claim()
         if claimed is None:
             return
@@ -576,6 +663,7 @@ class Player(xbmc.Player):
         """Report the stop and release all playback state."""
         self._segment_reset()
         self._stop_ticker()
+        self._reset_lyrics()
         with self._lock:
             item = self._item
             self._item = None
