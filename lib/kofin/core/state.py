@@ -103,6 +103,18 @@ def clear_play_queue() -> None:
     _window().clearProperty(PROP_PLAY_QUEUE)
 
 
+def drop_play_items_for_id(item_id: str) -> None:
+    """Remove queued play-state entries for ``item_id`` (restart hygiene)."""
+    if not item_id:
+        return
+    window = _window()
+    queue = [item for item in _read_queue(window) if item.get("Id") != item_id]
+    if queue:
+        window.setProperty(PROP_PLAY_QUEUE, json.dumps(queue))
+    else:
+        window.clearProperty(PROP_PLAY_QUEUE)
+
+
 def set_playing_id(item_id: str) -> None:
     _window().setProperty(PROP_PLAYING_ID, item_id)
 

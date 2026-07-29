@@ -314,6 +314,97 @@ def test_apply_stream_switch_subtitle_when_ready(monkeypatch):
     assert player.current_item()["SubtitleStreamIndex"] == 3
 
 
+def test_transcode_audio_restart_no_double_stop_or_delete(monkeypatch):
+    player, api = make_player(monkeypatch)
+    played = []
+    monkeypatch.setattr(player, "play", lambda url, li=None: played.append(url))
+    monkeypatch.setattr(player, "getTime", lambda: 120.0)
+
+    source = {
+        "Id": "src1",
+        "SupportsDirectStream": False,
+        "TranscodingUrl": "/videos/m1/master.m3u8?x=1",
+        "TranscodingSubProtocol": "hls",
+        "DefaultAudioStreamIndex": 2,
+        "DefaultSubtitleStreamIndex": None,
+        "MediaStreams": [
+            {"Type": "Audio", "Index": 1, "Language": "eng", "Codec": "aac"},
+            {"Type": "Audio", "Index": 2, "Language": "jpn", "Codec": "aac"},
+        ],
+        "Bitrate": 5_000_000,
+    }
+
+    class RestartApi(RecordingApi):
+        server = "http://s:8096"
+
+        def item(self, item_id):
+            return {"Id": item_id, "Type": "Movie", "Name": "M", "RunTimeTicks": 0}
+
+        def playback_info(self, item_id, profile, start_ticks=0, **kwargs):
+            return {"MediaSources": [source], "PlaySessionId": "ps-new"}
+
+    api2 = RestartApi()
+    player.api = api2  # type: ignore[assignment]
+
+    queue_item(
+        method="Transcode",
+        ForceTranscode=True,
+        BitrateOverrideMbps=2.0,
+        AudioMap={"1": 0, "2": 1},
+        AudioStreamIndex=1,
+        Path="http://s/old",
+    )
+    # Claim with matching path
+    monkeypatch.setattr(player, "getPlayingFile", lambda: "http://s/old")
+    player.onPlayBackStarted()
+    assert player.current_item()["PlayMethod"] == "Transcode"
+
+    # Attach helpers used by restart
+    monkeypatch.setattr(
+        "kofin.plugin.play.attach_text_subtitles",
+        lambda api, source, ps: ([], {}),
+    )
+    monkeypatch.setattr(
+        "kofin.plugin.listitems.build",
+        lambda *a, **k: type(
+            "LI",
+            (),
+            {
+                "setPath": lambda self, p: None,
+                "setMimeType": lambda self, m: None,
+                "setContentLookup": lambda self, v: None,
+                "setSubtitles": lambda self, s: None,
+            },
+        )(),
+    )
+
+    offered = []
+    monkeypatch.setattr(
+        player, "offer_delete", lambda item: offered.append(item) or False
+    )
+
+    ok = player.apply_stream_switch("audio", 2)
+    assert ok is True
+    assert played  # Player.play called with new URL
+    assert player._stream_restart is True or player._restart_teardown_done is True
+    # Synthetic stop must not delete
+    player.onPlayBackStopped()
+    assert offered == []
+    # Exactly one session_stopped for old session (restart teardown)
+    stopped = [c for c in api2.calls if c[0] == "stopped"]
+    assert len(stopped) == 1
+    assert stopped[0][1]["PlaySessionId"] == "ps1"
+
+
+def test_syncplay_refuses_stream_switch(monkeypatch):
+    player, api = make_player(monkeypatch)
+    queue_item(method="Transcode", AudioMap={"1": 0, "2": 1})
+    player.onPlayBackStarted()
+    player.syncplay_group_active = True
+    ok = player.apply_stream_switch("audio", 2)
+    assert ok is False
+
+
 def test_syncplay_detached_is_a_noop(monkeypatch):
     player, api = make_player(monkeypatch)
     queue_item()

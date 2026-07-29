@@ -7,11 +7,14 @@ control lives here so the websocket handler stays enqueue-only.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from kofin.core import deviceprofile, streammaps
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
+
+if TYPE_CHECKING:
+    from kofin.core.api import Api
 
 LOG = Logger(__name__)
 
@@ -279,3 +282,57 @@ def eligible_audio_streams(source: Mapping[str, Any]) -> List[JsonDict]:
     return [
         dict(s) for s in (source.get("MediaStreams") or []) if s.get("Type") == "Audio"
     ]
+
+
+# Position band for corrective seek after a restart (design §6.5).
+RESTART_SEEK_TOLERANCE_SECONDS = 2.0
+
+
+def resolve_restart_stream(
+    api: "Api",
+    *,
+    item_id: str,
+    media_source_id: str,
+    device_id: str,
+    force_transcode: bool,
+    bitrate_override_mbps: float,
+    audio_index: Optional[int],
+    subtitle_index: Optional[int],
+    start_ticks: int,
+) -> Tuple[str, str, JsonDict, str, JsonDict]:
+    """PlaybackInfo + URL for a mid-play stream restart (PR3b).
+
+    Returns ``(url, play_method, source, play_session_id, profile)``.
+    Reuses the same profile force/bitrate and bitrate rewrite as the plugin
+    play path so context force-transcode survives the restart.
+    """
+    config = deviceprofile.ProfileConfig.from_settings()
+    profile = deviceprofile.build(
+        config,
+        bitrate_override_mbps=bitrate_override_mbps,
+        force_transcode=force_transcode,
+    )
+    info = api.playback_info(
+        item_id,
+        profile,
+        start_ticks=start_ticks,
+        audio_index=audio_index,
+        subtitle_index=subtitle_index,
+        media_source_id=media_source_id or None,
+    )
+    sources = info.get("MediaSources") or []
+    if not sources:
+        raise JellyfinError("no media sources for restart of %s" % item_id)
+    source = pick_media_source(sources, media_source_id)
+    play_session_id = info.get("PlaySessionId", "")
+    item_stub: JsonDict = {"Id": item_id, "Type": "Movie"}
+    url, method = stream_url(api.server, item_stub, source, device_id, play_session_id)
+    if method == "Transcode":
+        budget = transcode_budget(
+            source,
+            int(profile["MaxStreamingBitrate"]),
+            force_transcode or config.force_transcode,
+        )
+        if budget < deviceprofile.UNLIMITED_BITRATE:
+            url = rewrite_bitrates(url, budget, config.audio_bitrate_kbps)
+    return url, method, source, play_session_id, profile
