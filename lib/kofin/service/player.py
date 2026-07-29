@@ -25,7 +25,7 @@ import xbmc
 import xbmcgui
 
 from kofin.core import lyrics as lyrics_render
-from kofin.core import settings, state, toast
+from kofin.core import settings, state, streammaps, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
@@ -554,6 +554,14 @@ class Player(xbmc.Player):
     def onAVStarted(self) -> None:
         """First frame rendered: the SyncPlay Ready trigger."""
         self._syncplay_event("on_avstarted")
+        # PR2: absolute external-sub map + first index observation once demux
+        # and setSubtitles tracks are visible to the player.
+        self._reconcile_subs_mapping()
+        self._observe_stream_indexes()
+
+    def onAVChange(self) -> None:
+        """Audio/subtitle/video stream changed in the player (PR2 observation)."""
+        self._observe_stream_indexes()
 
     def onPlayBackPaused(self) -> None:
         self._syncplay_event("on_paused")
@@ -592,6 +600,8 @@ class Player(xbmc.Player):
             self._update_position(self.getTime())
         except RuntimeError:  # nothing playing (race with stop)
             return
+        # Catch OSD stream switches if onAVChange did not fire (some builds).
+        self._observe_stream_indexes()
         self._report(self.api.session_progress, event="timeupdate")
 
     def _finish(self) -> None:
@@ -1221,6 +1231,77 @@ class Player(xbmc.Player):
         if self._item is not None and seconds >= 0:
             self._item["CurrentPosition"] = seconds
 
+    def _reconcile_subs_mapping(self) -> None:
+        """Resolve absolute Kodi subtitle indexes for external attach tracks."""
+        item = self._item
+        if item is None:
+            return
+        attach_order = item.get("SubsAttachOrder") or []
+        try:
+            names = list(self.getAvailableSubtitleStreams() or [])
+        except RuntimeError:
+            names = []
+        # JSON-RPC often has richer names/paths than the Python list.
+        rpc_names = _jsonrpc_subtitle_names()
+        if rpc_names:
+            names = rpc_names
+        mapping, ready = streammaps.reconcile_subs_mapping(
+            attach_order_jf=attach_order,
+            subs_paths=item.get("SubsPaths") or [],
+            kodi_sub_names=names,
+            embedded_map_jf_to_kodi=item.get("EmbeddedSubMap") or {},
+        )
+        with self._lock:
+            if self._item is not item:
+                return
+            item["SubsMapping"] = streammaps.stringify_map(mapping)
+            item["SubsMappingReady"] = ready
+        if ready:
+            LOG.info(
+                "SubsMapping ready (%d absolute entries, %d external)",
+                len(mapping),
+                len(attach_order),
+            )
+        elif attach_order:
+            LOG.debug(
+                "SubsMapping provisional (%d kodi names, %d external)",
+                len(names),
+                len(attach_order),
+            )
+
+    def _observe_stream_indexes(self) -> None:
+        """Update AudioStreamIndex / SubtitleStreamIndex from the player OSD.
+
+        Never restarts playback — progress reporting only (stream selection PR2).
+        """
+        item = self._item
+        if item is None:
+            return
+        # Music has no multi-stream OSD of interest for JF MediaStream indexes.
+        if item.get("Type") in ("Audio",):
+            return
+        state_now = _jsonrpc_current_streams()
+        if state_now is None:
+            # Fallback: cannot read player; leave defaults.
+            return
+        kodi_audio = state_now.get("audio")
+        kodi_sub = state_now.get("subtitle")
+        sub_on = bool(state_now.get("subtitleenabled"))
+        audio_jf, sub_jf = streammaps.observe_jellyfin_indexes(
+            item,
+            kodi_audio=kodi_audio,
+            kodi_sub=kodi_sub,
+            subtitle_enabled=sub_on,
+        )
+        with self._lock:
+            if self._item is not item:
+                return
+            if audio_jf is not None:
+                item["AudioStreamIndex"] = audio_jf
+            else:
+                item["AudioStreamIndex"] = item.get("AudioStreamIndex")
+            item["SubtitleStreamIndex"] = sub_jf
+
     def _report(self, poster: Any, event: Optional[str]) -> None:
         item = self._item
         if item is None:
@@ -1275,6 +1356,109 @@ class _Ticker(threading.Thread):
                 self._player.report_progress()
             except Exception as error:  # pragma: no cover - defensive
                 LOG.warning("progress tick failed: %s", error)
+
+
+def _active_player_id() -> Optional[int]:
+    try:
+        response = json.loads(
+            xbmc.executeJSONRPC(
+                json.dumps(
+                    {"jsonrpc": "2.0", "id": 1, "method": "Player.GetActivePlayers"}
+                )
+            )
+        )
+        players = response.get("result") or []
+        for entry in players:
+            if entry.get("type") in ("video", "audio"):
+                return int(entry["playerid"])
+        if players:
+            return int(players[0]["playerid"])
+    except Exception as error:
+        LOG.debug("active player id failed: %s", error)
+    return None
+
+
+def _jsonrpc_current_streams() -> Optional[JsonDict]:
+    """Current audio/subtitle absolute indexes from Player.GetProperties."""
+    player_id = _active_player_id()
+    if player_id is None:
+        return None
+    try:
+        response = json.loads(
+            xbmc.executeJSONRPC(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "Player.GetProperties",
+                        "params": {
+                            "playerid": player_id,
+                            "properties": [
+                                "currentaudiostream",
+                                "currentsubtitle",
+                                "subtitleenabled",
+                            ],
+                        },
+                    }
+                )
+            )
+        )
+        result = response.get("result") or {}
+    except Exception as error:
+        LOG.debug("stream properties read failed: %s", error)
+        return None
+    audio = result.get("currentaudiostream") or {}
+    sub = result.get("currentsubtitle") or {}
+    audio_idx = audio.get("index") if isinstance(audio, dict) else None
+    sub_idx = sub.get("index") if isinstance(sub, dict) else None
+    try:
+        audio_i = int(audio_idx) if audio_idx is not None else None
+    except (TypeError, ValueError):
+        audio_i = None
+    try:
+        sub_i = int(sub_idx) if sub_idx is not None else None
+    except (TypeError, ValueError):
+        sub_i = None
+    return {
+        "audio": audio_i,
+        "subtitle": sub_i,
+        "subtitleenabled": bool(result.get("subtitleenabled")),
+    }
+
+
+def _jsonrpc_subtitle_names() -> List[str]:
+    """Subtitle stream names/paths for basename reconcile."""
+    player_id = _active_player_id()
+    if player_id is None:
+        return []
+    try:
+        response = json.loads(
+            xbmc.executeJSONRPC(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "Player.GetProperties",
+                        "params": {
+                            "playerid": player_id,
+                            "properties": ["subtitles"],
+                        },
+                    }
+                )
+            )
+        )
+        subs = (response.get("result") or {}).get("subtitles") or []
+    except Exception as error:
+        LOG.debug("subtitle list read failed: %s", error)
+        return []
+    names: List[str] = []
+    for entry in subs:
+        if not isinstance(entry, dict):
+            names.append(str(entry))
+            continue
+        # Prefer name; some builds put the path/filename there for externals.
+        names.append(str(entry.get("name") or entry.get("language") or ""))
+    return names
 
 
 def _volume_state() -> "tuple[int, bool]":

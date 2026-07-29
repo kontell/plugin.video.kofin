@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from kofin.core import state
@@ -37,6 +39,30 @@ class FakeMonitor:
         return False
 
 
+def _fake_jsonrpc(query: str) -> str:
+    req = json.loads(query)
+    method = req.get("method")
+    if method == "Application.GetProperties":
+        return json.dumps({"result": {"volume": 77, "muted": False}})
+    if method == "Player.GetActivePlayers":
+        return json.dumps({"result": [{"playerid": 1, "type": "video"}]})
+    if method == "Player.GetProperties":
+        props = set(req.get("params", {}).get("properties") or [])
+        result = {}
+        if "currentaudiostream" in props or "currentsubtitle" in props:
+            result["currentaudiostream"] = {"index": 1, "language": "jpn"}
+            result["currentsubtitle"] = {"index": 2, "name": "00.eng.srt"}
+            result["subtitleenabled"] = True
+        if "subtitles" in props:
+            result["subtitles"] = [
+                {"index": 0, "name": "English PGS"},
+                {"index": 1, "name": "French PGS"},
+                {"index": 2, "name": "00.eng.srt"},
+            ]
+        return json.dumps({"result": result})
+    return json.dumps({"result": {}})
+
+
 @pytest.fixture(autouse=True)
 def kodi_fakes(monkeypatch):
     FakeWindow.store = {}
@@ -45,10 +71,7 @@ def kodi_fakes(monkeypatch):
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr("xbmc.Monitor", FakeMonitor)
-    monkeypatch.setattr(
-        "xbmc.executeJSONRPC",
-        lambda q: '{"result": {"volume": 77, "muted": false}}',
-    )
+    monkeypatch.setattr("xbmc.executeJSONRPC", _fake_jsonrpc)
 
 
 def make_player(monkeypatch, url="http://s/stream"):
@@ -57,25 +80,36 @@ def make_player(monkeypatch, url="http://s/stream"):
     monkeypatch.setattr(player, "getPlayingFile", lambda: url)
     monkeypatch.setattr(player, "getTime", lambda: 42.0)
     monkeypatch.setattr(player, "_start_ticker", lambda: None)
+    monkeypatch.setattr(
+        player,
+        "getAvailableSubtitleStreams",
+        lambda: ["English PGS", "French PGS", "00.eng.srt"],
+    )
     return player, api
 
 
-def queue_item(url="http://s/stream", method="DirectStream"):
-    state.push_play_item(
-        {
-            "Id": "m1",
-            "Type": "Movie",
-            "Path": url,
-            "PlayMethod": method,
-            "PlaySessionId": "ps1",
-            "MediaSourceId": "src1",
-            "DeviceId": "dev1",
-            "Runtime": 0,
-            "AudioStreamIndex": 1,
-            "SubtitleStreamIndex": None,
-            "CurrentPosition": 10.0,
-        }
-    )
+def queue_item(url="http://s/stream", method="DirectStream", **extra):
+    payload = {
+        "Id": "m1",
+        "Type": "Movie",
+        "Path": url,
+        "PlayMethod": method,
+        "PlaySessionId": "ps1",
+        "MediaSourceId": "src1",
+        "DeviceId": "dev1",
+        "Runtime": 0,
+        "AudioStreamIndex": 1,
+        "SubtitleStreamIndex": None,
+        "CurrentPosition": 10.0,
+        "AudioMap": {"1": 0, "2": 1},
+        "EmbeddedSubMap": {"5": 0},
+        "SubsAttachOrder": [3],
+        "SubsPaths": ["/cache/ps1/00.eng.srt"],
+        "SubsMapping": {},
+        "SubsMappingReady": False,
+    }
+    payload.update(extra)
+    state.push_play_item(payload)
 
 
 def test_claim_and_report_lifecycle(monkeypatch):
@@ -185,6 +219,57 @@ def test_syncplay_ended_and_error_forwarded(monkeypatch):
     player.onPlayBackStarted()
     player.onPlayBackError()
     assert ("on_error",) in syncplay.events
+
+
+def test_on_av_started_reconciles_subs_and_observes_indexes(monkeypatch):
+    player, api = make_player(monkeypatch)
+    queue_item()
+    player.onPlayBackStarted()
+    player.onAVStarted()
+
+    item = player.current_item()
+    assert item is not None
+    assert item["SubsMappingReady"] is True
+    # Embedded 5→0,  external 3 at absolute 2 (basename 00.eng.srt)
+    assert item["SubsMapping"]["0"] == 5
+    assert item["SubsMapping"]["2"] == 3
+    # JSON-RPC current audio index 1 → JF 2; sub index 2 → JF 3
+    assert item["AudioStreamIndex"] == 2
+    assert item["SubtitleStreamIndex"] == 3
+
+    player.report_progress()
+    progress = [data for kind, data in api.calls if kind == "progress"][-1]
+    assert progress["AudioStreamIndex"] == 2
+    assert progress["SubtitleStreamIndex"] == 3
+
+
+def test_on_av_change_updates_indexes(monkeypatch):
+    player, api = make_player(monkeypatch)
+    queue_item()
+    player.onPlayBackStarted()
+    player.onAVStarted()
+
+    def rpc_switched(query: str) -> str:
+        req = json.loads(query)
+        if req.get("method") == "Player.GetProperties":
+            props = set(req.get("params", {}).get("properties") or [])
+            if "currentaudiostream" in props:
+                return json.dumps(
+                    {
+                        "result": {
+                            "currentaudiostream": {"index": 0},
+                            "currentsubtitle": {"index": 0},
+                            "subtitleenabled": True,
+                        }
+                    }
+                )
+        return _fake_jsonrpc(query)
+
+    monkeypatch.setattr("xbmc.executeJSONRPC", rpc_switched)
+    player.onAVChange()
+    item = player.current_item()
+    assert item["AudioStreamIndex"] == 1
+    assert item["SubtitleStreamIndex"] == 5
 
 
 def test_syncplay_detached_is_a_noop(monkeypatch):

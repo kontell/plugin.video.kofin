@@ -191,6 +191,16 @@ def test_play_state_payload():
         "RunTimeTicks": 200,
         "DefaultAudioStreamIndex": 1,
         "DefaultSubtitleStreamIndex": 3,
+        "MediaStreams": [
+            {"Type": "Audio", "Index": 1, "Language": "eng", "Codec": "aac"},
+            {
+                "Type": "Subtitle",
+                "Index": 3,
+                "Language": "eng",
+                "Codec": "srt",
+                "DeliveryMethod": "External",
+            },
+        ],
     }
     payload = play.play_state(
         item,
@@ -213,6 +223,8 @@ def test_play_state_payload():
     assert payload["Path"] == "http://u"
     assert payload["SubsAttachOrder"] == [3]
     assert payload["SubsMappingReady"] is False
+    assert payload["AudioMap"] == {"1": 0}
+    assert payload["EmbeddedSubMap"] == {}
 
 
 def test_play_state_carries_series_id():
