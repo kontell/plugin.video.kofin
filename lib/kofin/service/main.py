@@ -97,7 +97,7 @@ class Service(xbmc.Monitor):
         self.api = Api.from_credentials(self.http, self.credentials)
         self.ws: Optional[WSClient] = None
         self.player = Player(self.api)
-        self.remote = RemoteHandler()
+        self.remote = RemoteHandler(self.player)
         self.kodi_userdata = KodiUserData(self.api)
         self.library: Optional[Any] = None  # kofin.sync.library.Library
         self.syncplay: Optional[Any] = None  # kofin.syncplay.SyncPlayManager
