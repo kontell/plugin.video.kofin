@@ -405,6 +405,50 @@ msgctxt "#30136"
 msgid "Route music playback through the add-on so the settings below apply. Off, songs stream straight from the server untouched. Changing this needs a library repair of your music libraries to rewrite their paths."
 msgstr ""
 
+msgctxt "#30137"
+msgid "Audio track"
+msgstr ""
+
+msgctxt "#30138"
+msgid "Subtitles"
+msgstr ""
+
+msgctxt "#30139"
+msgid "No subtitles"
+msgstr ""
+
+msgctxt "#30140"
+msgid "Ask for tracks when transcoding"
+msgstr ""
+
+msgctxt "#30141"
+msgid "Before a transcode starts, ask which audio and/or subtitle track to use when there is more than one. Never is the default — Kodi and the server defaults apply."
+msgstr ""
+
+msgctxt "#30142"
+msgid "Never"
+msgstr ""
+
+msgctxt "#30143"
+msgid "Audio and subtitles"
+msgstr ""
+
+msgctxt "#30144"
+msgid "Audio only"
+msgstr ""
+
+msgctxt "#30145"
+msgid "Subtitles only"
+msgstr ""
+
+msgctxt "#30146"
+msgid "Allow burned-in subtitles"
+msgstr ""
+
+msgctxt "#30147"
+msgid "When transcoding, allow image-based subtitles (PGS, DVD) to be burned into the video. Uses more CPU and locks that track for the session. Off by default."
+msgstr ""
+
 msgctxt "#30150"
 msgid "H.264 (AVC)"
 msgstr ""

@@ -812,6 +812,7 @@ class TestPlayPathRetarget:
         assert url.startswith("plugin://plugin.video.kofin/")
         assert "mode=play" in url
         assert "id=item-1" in url
+        assert "syncplay=1" in url
         assert "startticks=%d" % start_ticks in url
         plays = [a for a in player.actions if isinstance(a, tuple) and a[0] == "play"]
         assert plays and plays[0][2] == 0  # startpos 0
@@ -826,6 +827,7 @@ class TestPlayPathRetarget:
 
         playlist = FakePlaylist.instances[xbmc.PLAYLIST_VIDEO]
         assert "startticks" not in playlist.entries[0]
+        assert "syncplay=1" in playlist.entries[0]
         assert "stop" in player.actions  # the previous item was torn down
 
     def test_audio_items_use_the_music_playlist(self):

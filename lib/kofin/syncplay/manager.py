@@ -532,6 +532,9 @@ class SyncPlayManager(object):
         # cinema/near-end prompts are withheld (the group queue is
         # authoritative).
         self.player.syncplay_group_active = True
+        from kofin.core import state as kofin_state
+
+        kofin_state.set_syncplay_active(True)
 
         if self.timesync is None:
             self.timesync = TimeSync(self)
@@ -571,6 +574,9 @@ class SyncPlayManager(object):
         self.ignore_wait = False
         self._join_pending_since = 0.0
         self.player.syncplay_group_active = False
+        from kofin.core import state as kofin_state
+
+        kofin_state.set_syncplay_active(False)
         self._release_hold()
         LOG.info("---<[ syncplay group ]")
 

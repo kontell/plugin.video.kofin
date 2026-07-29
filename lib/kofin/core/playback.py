@@ -336,3 +336,85 @@ def resolve_restart_stream(
         if budget < deviceprofile.UNLIMITED_BITRATE:
             url = rewrite_bitrates(url, budget, config.audio_bitrate_kbps)
     return url, method, source, play_session_id, profile
+
+
+# Image codecs that may appear in the pre-play dialog only when burn-in is on.
+_IMAGE_SUB_CODECS = frozenset(
+    {"pgssub", "pgs", "dvdsub", "dvbsub", "xsub", "vobsub", "sup", "hdmv_pgs_subtitle"}
+)
+
+
+def eligible_dialog_subs(
+    source: Mapping[str, Any], *, allow_burned: bool
+) -> List[JsonDict]:
+    """Subtitle streams offered in the pre-play Transcode dialog (PR4)."""
+    from kofin.core import subtitles as sub_mod
+
+    out: List[JsonDict] = []
+    for stream in source.get("MediaStreams") or []:
+        if stream.get("Type") != "Subtitle":
+            continue
+        codec = sub_mod.normalize_codec(dict(stream))
+        if codec in _IMAGE_SUB_CODECS:
+            if allow_burned:
+                out.append(dict(stream))
+            continue
+        if stream.get("IsTextSubtitleStream") or codec in sub_mod.TEXT_SUB_CODECS:
+            out.append(dict(stream))
+    return out
+
+
+# transcodeStreamSelect spinner values
+STREAM_SELECT_NEVER = 0
+STREAM_SELECT_AUDIO_AND_SUBS = 1
+STREAM_SELECT_AUDIO_ONLY = 2
+STREAM_SELECT_SUBS_ONLY = 3
+
+VIDEO_TYPES = frozenset({"Movie", "Episode", "Video", "MusicVideo"})
+
+# Jellyfin PlaybackInfo: -1 means no subtitle track (web client convention).
+SUBTITLE_OFF_INDEX = -1
+
+
+def suppress_stream_dialogs(request_params: Mapping[str, Any]) -> bool:
+    """True when pre-play stream dialogs must not run (SyncPlay)."""
+    if str(request_params.get("syncplay") or "") == "1":
+        return True
+    from kofin.core import state
+
+    return state.is_syncplay_active()
+
+
+def stream_select_wants_audio(mode: int) -> bool:
+    return mode in (STREAM_SELECT_AUDIO_AND_SUBS, STREAM_SELECT_AUDIO_ONLY)
+
+
+def stream_select_wants_subs(mode: int) -> bool:
+    return mode in (STREAM_SELECT_AUDIO_AND_SUBS, STREAM_SELECT_SUBS_ONLY)
+
+
+def needs_preplay_stream_dialog(
+    *,
+    play_method: str,
+    item_type: str,
+    select_mode: int,
+    source: Mapping[str, Any],
+    allow_burned: bool,
+    suppress: bool,
+) -> Tuple[bool, bool]:
+    """Return (ask_audio, ask_subs) for the pre-play Transcode dialogs."""
+    if suppress or select_mode == STREAM_SELECT_NEVER:
+        return False, False
+    if play_method != "Transcode":
+        return False, False
+    if item_type not in VIDEO_TYPES:
+        return False, False
+    ask_audio = (
+        stream_select_wants_audio(select_mode)
+        and len(eligible_audio_streams(source)) > 1
+    )
+    ask_subs = (
+        stream_select_wants_subs(select_mode)
+        and len(eligible_dialog_subs(source, allow_burned=allow_burned)) > 1
+    )
+    return ask_audio, ask_subs
