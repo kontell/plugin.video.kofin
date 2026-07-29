@@ -330,6 +330,8 @@ def test_movie_etag_change_updates_row(api):
 
 # --- movie extras (phase 3: native videoversion assets) ----------------------
 
+# Extra1 is 60s; the parent film is 7200s (MOVIE RunTimeTicks). Duration
+# must land on the extra's file_id, not the film's.
 FEATURES = [
     {
         "Id": "extra1",
@@ -337,6 +339,29 @@ FEATURES = [
         "Type": "Video",
         "ExtraType": "BehindTheScenes",
         "Path": "/media/movies/The Example (2020)/extras/making-of.mkv",
+        "RunTimeTicks": 600_000_000,
+        "MediaSources": [
+            {
+                "Id": "extra1",
+                "Container": "mkv",
+                "RunTimeTicks": 600_000_000,
+                "MediaStreams": [
+                    {
+                        "Type": "Video",
+                        "Codec": "h264",
+                        "Width": 1920,
+                        "Height": 1080,
+                        "AspectRatio": "16:9",
+                    },
+                    {
+                        "Type": "Audio",
+                        "Codec": "aac",
+                        "Channels": 2,
+                        "Language": "eng",
+                    },
+                ],
+            }
+        ],
     },
     {
         "Id": "extra2",
@@ -344,6 +369,22 @@ FEATURES = [
         "Type": "Video",
         "ExtraType": "DeletedScene",
         "Path": "/media/movies/The Example (2020)/extras/deleted.mkv",
+        "RunTimeTicks": 120_000_000,
+        "MediaSources": [
+            {
+                "Id": "extra2",
+                "Container": "mkv",
+                "RunTimeTicks": 120_000_000,
+                "MediaStreams": [
+                    {
+                        "Type": "Video",
+                        "Codec": "h264",
+                        "Width": 1280,
+                        "Height": 720,
+                    }
+                ],
+            }
+        ],
     },
 ]
 
@@ -472,6 +513,75 @@ def test_movie_extras_fetch_failure_never_gates_sync(api):
 
     assert video_query("SELECT COUNT(*) FROM movie") == [(1,)]
     assert extras_rows() == []
+
+
+def test_movie_extras_duration_not_film_duration(api):
+    """Extras must carry their own streamdetails duration (video-versions plan
+    PR 1). Without it Kodi falls back to the parent film's runtime until the
+    extra is played once."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    api.special_features_by_id = {"movie1": FEATURES}
+    write_movie(api, movie_with_extras())
+
+    film_file_id = video_query("SELECT idFile FROM movie")[0][0]
+    film_duration = video_query(
+        "SELECT iVideoDuration FROM streamdetails"
+        " WHERE idFile = ? AND iStreamType = 0",
+        (film_file_id,),
+    )[0][0]
+    assert film_duration == 7200  # MOVIE RunTimeTicks / 1e7
+
+    by_feature = {}
+    for file_id, _media, _type, name, _owner, _vt in extras_rows():
+        duration = video_query(
+            "SELECT iVideoDuration FROM streamdetails"
+            " WHERE idFile = ? AND iStreamType = 0",
+            (file_id,),
+        )[0][0]
+        by_feature[name] = (file_id, duration)
+
+    assert by_feature["Behind the Scenes"][1] == 60
+    assert by_feature["Deleted Scene"][1] == 12
+    assert by_feature["Behind the Scenes"][1] != film_duration
+    assert by_feature["Deleted Scene"][1] != film_duration
+
+    # Streams land on the extra's file, not the film's.
+    for file_id, _ in by_feature.values():
+        assert file_id != film_file_id
+        codec = video_query(
+            "SELECT strVideoCodec FROM streamdetails"
+            " WHERE idFile = ? AND iStreamType = 0",
+            (file_id,),
+        )[0][0]
+        assert codec == "h264"
+
+
+def test_movie_extras_duration_from_runtime_only(api):
+    """A feature with RunTimeTicks but no MediaStreams still gets a duration
+    row (stub video track) so the UI is correct."""
+    bare = [
+        {
+            "Id": "extra-bare",
+            "Name": "Bare Extra",
+            "Type": "Video",
+            "ExtraType": "Clip",
+            "Path": "/media/movies/The Example (2020)/extras/bare.mkv",
+            "RunTimeTicks": 90_000_000,
+        }
+    ]
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    api.special_features_by_id = {"movie1": bare}
+    write_movie(api, movie_with_extras(count=1))
+
+    rows = extras_rows()
+    assert len(rows) == 1
+    file_id = rows[0][0]
+    duration = video_query(
+        "SELECT iVideoDuration FROM streamdetails"
+        " WHERE idFile = ? AND iStreamType = 0",
+        (file_id,),
+    )[0][0]
+    assert duration == 9
 
 
 def test_boxset_links_and_removal(api):

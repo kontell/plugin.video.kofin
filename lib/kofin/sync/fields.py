@@ -332,6 +332,60 @@ class API(object):
         return url
 
 
+def streams_and_runtime(item):
+    """``(streams, runtime_seconds)`` for ``add_streams`` from a Jellyfin DTO.
+
+    Used for movie extras (and later video versions). Prefers
+    ``MediaSources[0]`` streams — the same shape the Movie map uses — and
+    falls back to top-level ``MediaStreams``. When the payload has a runtime
+    but no video track, a stub video row is synthesised so Kodi still gets
+    ``iVideoDuration`` (without it the extras UI falls back to the film's
+    length). Track dicts are copied so the caller's DTO is not mutated.
+    """
+    sources = item.get("MediaSources") or []
+    if sources:
+        source = sources[0]
+        raw = source.get("MediaStreams") or []
+        container = source.get("Container") or item.get("Container")
+        ticks = source.get("RunTimeTicks")
+        if ticks is None:
+            ticks = item.get("RunTimeTicks") or item.get("CumulativeRunTimeTicks") or 0
+    else:
+        raw = item.get("MediaStreams") or []
+        container = item.get("Container")
+        ticks = item.get("RunTimeTicks") or item.get("CumulativeRunTimeTicks") or 0
+
+    runtime = round(float(ticks or 0) / 10000000.0, 6)
+    # Only stamp keys with real values: video_streams does
+    # item.get("AspectRatio", fallback).split(":") and a present-but-None
+    # AspectRatio would raise.
+    shaped = {"RunTimeTicks": ticks or 0}
+    if item.get("Video3DFormat") is not None:
+        shaped["Video3DFormat"] = item["Video3DFormat"]
+    if item.get("AspectRatio"):
+        shaped["AspectRatio"] = item["AspectRatio"]
+    helper = API(shaped)
+    video = [dict(s) for s in raw if s.get("Type") == "Video"]
+    audio = [dict(s) for s in raw if s.get("Type") == "Audio"]
+    subs = [s.get("Language") for s in raw if s.get("Type") == "Subtitle"]
+    video = helper.video_streams(video, container)
+    audio = helper.audio_streams(audio)
+    if runtime and not video:
+        video = [
+            {
+                "codec": "",
+                "profile": "",
+                "aspect": None,
+                "width": None,
+                "height": None,
+                "3d": None,
+                "hdrtype": "",
+                "duration": runtime,
+            }
+        ]
+    return helper.media_streams(video, audio, subs), runtime
+
+
 def sync_checksum(item, direct_path):
     """Reference checksum stored with a fully synced item.
 
