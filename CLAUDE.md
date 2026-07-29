@@ -26,6 +26,31 @@ tools/build.py [OUTDIR]     # Kodi-installable zip (default ./dist)
 
 Live verification happens against a running Kodi (JSON-RPC on `localhost:8080`, `kodi:kodi`) per the scenarios in `docs/testing-plan.md`; scenario evidence lives in `tests/live/results/` (gitignored). A service-only change needs an addon disable/enable bounce; new `strings.po` ids need a full Kodi restart (string cache).
 
+## CI and releases
+
+GitHub Actions mirrors the pvr.kofin split (quality gate vs tag release):
+
+- `.github/workflows/ci.yml` — on every PR and push to `main`: `black`, `mypy`, and `pytest tests/unit` as separate Checks jobs, plus a `package` job that uploads a Kodi-installable zip artifact (`plugin.video.kofin-<ver>-prN-<sha>.zip` / `…-main-<sha>.zip`, 14-day retention). Live tests are not run in CI.
+- `.github/workflows/release.yml` — on a `v*` tag: re-runs the quality gate, builds `plugin.video.kofin-<ver>.zip`, asserts the tag matches `addon.xml`, and opens a **draft** GitHub release whose body is the top paragraph of `changelog.txt`.
+
+### Cutting a release
+
+1. Bump `version="X.Y.Z"` in `addon.xml`.
+2. Prepend a new top entry to `changelog.txt`:
+   ```
+   vX.Y.Z
+   - <bullet>
+   - <bullet>
+
+   v…
+   ```
+   The top paragraph (up to the first blank line) becomes the release body.
+3. Commit, merge to `main`, wait for CI green.
+4. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+5. Review the draft on GitHub (`gh release view vX.Y.Z`), edit if needed, publish.
+
+PR zips are Actions artifacts only; production install zips come from published GitHub releases.
+
 ## Architecture
 
 **Two processes, three entry points.** `default.py` → `lib/kofin/plugin/router.py` handles every `plugin://` invocation (browse, play, settings buttons); `service.py` → `lib/kofin/service/main.py` is the long-running background service (sync, websocket, player monitoring, SyncPlay); `context_*.py` are context-menu shims. The plugin process is short-lived and must stay thin — anything stateful belongs to the service.

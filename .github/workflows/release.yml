@@ -1,0 +1,133 @@
+# Tag release: quality gate, build the install zip, draft a GitHub release
+# whose body is the top paragraph of changelog.txt. Mirrors pvr.kofin
+# release.yml (single zip, not a multi-arch matrix — this addon is pure Python).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Skip release creation — run checks and build only"
+        type: boolean
+        default: false
+
+# Least privilege by default: check/package only read. The release job alone
+# needs write to create the draft.
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+  APP_ID: plugin.video.kofin
+
+jobs:
+  check:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: black
+            command: black --check --diff .
+          - name: mypy
+            command: mypy
+          - name: test
+            command: pytest tests/unit -q
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run ${{ matrix.name }}
+        run: ${{ matrix.command }}
+
+  package:
+    name: package
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build zip
+        run: python3 tools/build.py dist
+
+      - name: Assert tag matches addon.xml version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python3 -c "
+          import xml.etree.ElementTree as ET
+          print(ET.parse('addon.xml').getroot().get('version'))
+          ")"
+          tag="${GITHUB_REF_NAME#v}"
+          echo "addon.xml version=$version  tag=$tag"
+          if [[ "$tag" != "$version" ]]; then
+            echo "tag v$tag does not match addon.xml version $version" >&2
+            exit 1
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin.video.kofin-release-zip
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # draft GitHub release + asset upload
+    if: |
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'true')
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download zip
+        uses: actions/download-artifact@v4
+        with:
+          name: plugin.video.kofin-release-zip
+          path: dist
+
+      - name: Get version and changelog
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python3 -c "
+          import xml.etree.ElementTree as ET
+          print(ET.parse('addon.xml').getroot().get('version'))
+          ")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          fi
+          # First blank-line-delimited paragraph — same rule as pvr.kofin.
+          changes="$(awk -v RS= 'NR==1' changelog.txt)"
+          EOF="$(dd if=/dev/urandom bs=15 count=1 status=none | base64)"
+          {
+            echo "changes<<$EOF"
+            echo "$changes"
+            echo "$EOF"
+          } >> "$GITHUB_OUTPUT"
+          ls -la dist/
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ env.APP_ID }} ${{ steps.meta.outputs.version }}
+          body: ${{ steps.meta.outputs.changes }}
+          draft: true
+          files: dist/*.zip
