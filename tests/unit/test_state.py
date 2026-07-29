@@ -45,8 +45,23 @@ def test_claim_on_empty_and_garbage():
 def test_clear_all():
     state.set_online(True)
     state.set_playing_id("42")
+    state.set_playing_pick_audio(True)
+    state.set_syncplay_active(True)
     state.push_play_item({"Path": "p"})
     state.clear_all()
     assert state.is_online() is False
     assert state.get_playing_id() == ""
+    assert state.is_playing_pick_audio() is False
+    assert state.is_syncplay_active() is False
     assert state.claim_play_item("p") is None
+
+
+def test_playing_pick_audio_round_trip():
+    assert state.is_playing_pick_audio() is False
+    state.set_playing_pick_audio(True)
+    assert state.is_playing_pick_audio() is True
+    state.set_playing_pick_audio(False)
+    assert state.is_playing_pick_audio() is False
+    state.set_playing_pick_audio(True)
+    state.clear_playing_pick_audio()
+    assert state.is_playing_pick_audio() is False

@@ -102,6 +102,7 @@ class Service(xbmc.Monitor):
         self.library: Optional[Any] = None  # kofin.sync.library.Library
         self.syncplay: Optional[Any] = None  # kofin.syncplay.SyncPlayManager
         self._syncplay_menu: Optional[threading.Thread] = None
+        self._pick_audio_thread: Optional[threading.Thread] = None
         self._online = False
         self._backoff = Backoff()
         self.settings_apply = SettingsApplier(self)
@@ -254,6 +255,22 @@ class Service(xbmc.Monitor):
         )
         self._syncplay_menu.daemon = True
         self._syncplay_menu.start()
+
+    def _open_pick_audio_track(self) -> None:
+        """PickAudioTrack IPC: Dialog.select must not run on the NotifyAll thread."""
+        if self._pick_audio_thread is not None and self._pick_audio_thread.is_alive():
+            LOG.debug("pick-audio dialog already open")
+            return
+
+        def _run() -> None:
+            try:
+                self.player.pick_audio_track()
+            except Exception:
+                LOG.exception("pick audio track failed")
+
+        self._pick_audio_thread = threading.Thread(target=_run, name="kofin-pick-audio")
+        self._pick_audio_thread.daemon = True
+        self._pick_audio_thread.start()
 
     def _start_websocket(self) -> None:
         header = auth.build_auth_header(
@@ -445,6 +462,8 @@ class Service(xbmc.Monitor):
             self._restart_requested = True
         elif name == ipc.SYNCPLAY_MENU:
             self._open_syncplay_menu()
+        elif name == ipc.PICK_AUDIO_TRACK:
+            self._open_pick_audio_track()
         elif name in LIBRARY_COMMANDS:
             self._start_library()
             if self.library is None:

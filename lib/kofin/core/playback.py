@@ -284,6 +284,19 @@ def eligible_audio_streams(source: Mapping[str, Any]) -> List[JsonDict]:
     ]
 
 
+def should_offer_pick_audio(item: Mapping[str, Any]) -> bool:
+    """True when the local mid-play TC audio picker is useful (PR5).
+
+    Only Transcode sessions lack demuxed multi-audio in the native OSD;
+    DirectStream already exposes tracks via Kodi. Need more than one source
+    audio stream to switch between.
+    """
+    if item.get("PlayMethod") != "Transcode":
+        return False
+    streams = item.get("AudioStreams") or []
+    return len(streams) > 1
+
+
 # Position band for corrective seek after a restart (design §6.5).
 RESTART_SEEK_TOLERANCE_SECONDS = 2.0
 

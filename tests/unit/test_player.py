@@ -405,6 +405,101 @@ def test_syncplay_refuses_stream_switch(monkeypatch):
     assert ok is False
 
 
+def _tc_multi_audio_extra():
+    return {
+        "method": "Transcode",
+        "AudioMap": {"1": 0, "2": 1},
+        "AudioStreamIndex": 1,
+        "AudioStreams": [
+            {"Index": 1, "DisplayTitle": "English", "Language": "eng", "Codec": "aac"},
+            {"Index": 2, "DisplayTitle": "Japanese", "Language": "jpn", "Codec": "aac"},
+        ],
+    }
+
+
+def test_claim_sets_pick_audio_prop_for_tc_multi(monkeypatch):
+    player, api = make_player(monkeypatch)
+    queue_item(**_tc_multi_audio_extra())
+    player.onPlayBackStarted()
+    assert state.is_playing_pick_audio() is True
+    player.onPlayBackStopped()
+    assert state.is_playing_pick_audio() is False
+
+
+def test_claim_clears_pick_audio_for_directstream(monkeypatch):
+    player, api = make_player(monkeypatch)
+    queue_item(
+        method="DirectStream",
+        AudioStreams=[
+            {"Index": 1, "DisplayTitle": "A"},
+            {"Index": 2, "DisplayTitle": "B"},
+        ],
+    )
+    player.onPlayBackStarted()
+    assert state.is_playing_pick_audio() is False
+
+
+def test_pick_audio_track_applies_choice(monkeypatch):
+    player, api = make_player(monkeypatch)
+    queue_item(**_tc_multi_audio_extra())
+    player.onPlayBackStarted()
+
+    class FakeDialog:
+        def select(self, heading, labels, preselect=0):
+            assert "English" in labels
+            assert "Japanese" in labels
+            assert preselect == 0  # current AudioStreamIndex 1
+            return 1  # Japanese
+
+    switched = []
+    monkeypatch.setattr("xbmcgui.Dialog", FakeDialog)
+    monkeypatch.setattr(
+        player,
+        "apply_stream_switch",
+        lambda kind, idx: switched.append((kind, idx)) or True,
+    )
+    assert player.pick_audio_track() is True
+    assert switched == [("audio", 2)]
+
+
+def test_pick_audio_track_cancel_and_same_index(monkeypatch):
+    player, api = make_player(monkeypatch)
+    queue_item(**_tc_multi_audio_extra())
+    player.onPlayBackStarted()
+    switched = []
+    monkeypatch.setattr(
+        player,
+        "apply_stream_switch",
+        lambda kind, idx: switched.append((kind, idx)) or True,
+    )
+
+    class CancelDialog:
+        def select(self, heading, labels, preselect=0):
+            return -1
+
+    monkeypatch.setattr("xbmcgui.Dialog", CancelDialog)
+    assert player.pick_audio_track() is False
+    assert switched == []
+
+    class KeepDialog:
+        def select(self, heading, labels, preselect=0):
+            return 0  # same as current index 1
+
+    monkeypatch.setattr("xbmcgui.Dialog", KeepDialog)
+    assert player.pick_audio_track() is True
+    assert switched == []
+
+
+def test_pick_audio_track_refuses_syncplay_and_empty(monkeypatch):
+    player, api = make_player(monkeypatch)
+    assert player.pick_audio_track() is False  # nothing playing
+
+    queue_item(**_tc_multi_audio_extra())
+    player.onPlayBackStarted()
+    player.syncplay_group_active = True
+    assert player.pick_audio_track() is False
+
+
 def test_syncplay_detached_is_a_noop(monkeypatch):
     player, api = make_player(monkeypatch)
     queue_item()

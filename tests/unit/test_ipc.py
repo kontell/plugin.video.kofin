@@ -37,3 +37,10 @@ def test_decode_garbage_is_empty():
 def test_method_name_strips_kodi_prefix():
     assert ipc.method_name("Other.Restart") == "Restart"
     assert ipc.method_name("Restart") == "Restart"
+
+
+def test_pick_audio_track_is_registered(monkeypatch):
+    sent = []
+    monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: sent.append(cmd))
+    ipc.notify(ipc.PICK_AUDIO_TRACK)
+    assert sent and "PickAudioTrack" in sent[0]

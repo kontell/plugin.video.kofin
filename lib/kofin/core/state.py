@@ -26,6 +26,10 @@ PROP_SYNCPLAY_ACTIVE = "kofin.syncplay.active"
 # "Play with transcoding" when no bitrates are configured needs the setting
 # mirrored into one.
 PROP_CONTEXT_BITRATES = "kofin.context.bitrates"
+# Mid-play "Audio tracks…" (PR5): true when the claimed session is Transcode
+# with more than one Jellyfin audio stream. addon.xml hides the context item
+# otherwise; native OSD already covers multi-audio DirectStream.
+PROP_PLAYING_PICK_AUDIO = "kofin.playing.pick_audio"
 
 # The lyrics overlay's channel to the skin. These earn their place for the
 # same reason as PROP_CONTEXT_BITRATES: a skin can only read window
@@ -129,6 +133,22 @@ def get_playing_id() -> str:
 
 def clear_playing_id() -> None:
     _window().clearProperty(PROP_PLAYING_ID)
+
+
+def set_playing_pick_audio(offer: bool) -> None:
+    """Mirror whether the TC audio-track fallback picker should be offered."""
+    if offer:
+        _window().setProperty(PROP_PLAYING_PICK_AUDIO, "true")
+    else:
+        _window().clearProperty(PROP_PLAYING_PICK_AUDIO)
+
+
+def is_playing_pick_audio() -> bool:
+    return _window().getProperty(PROP_PLAYING_PICK_AUDIO) == "true"
+
+
+def clear_playing_pick_audio() -> None:
+    _window().clearProperty(PROP_PLAYING_PICK_AUDIO)
 
 
 def set_should_stop(stop: bool) -> None:
@@ -244,7 +264,9 @@ def clear_all() -> None:
         PROP_PLAYING_ID,
         PROP_SYNC_STOP,
         PROP_SYNC_ACTIVE,
+        PROP_SYNCPLAY_ACTIVE,
         PROP_CONTEXT_BITRATES,
+        PROP_PLAYING_PICK_AUDIO,
     ):
         window.clearProperty(prop)
     clear_lyrics()

@@ -449,6 +449,14 @@ msgctxt "#30147"
 msgid "When transcoding, allow image-based subtitles (PGS, DVD) to be burned into the video. Uses more CPU and locks that track for the session. Off by default."
 msgstr ""
 
+msgctxt "#30148"
+msgid "Audio tracks…"
+msgstr ""
+
+msgctxt "#30149"
+msgid "No alternate audio tracks for this playback"
+msgstr ""
+
 msgctxt "#30150"
 msgid "H.264 (AVC)"
 msgstr ""

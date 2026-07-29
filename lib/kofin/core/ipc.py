@@ -29,6 +29,11 @@ REFRESH_BOXSETS = "RefreshBoxsets"
 # worker thread. No payload.
 SYNCPLAY_MENU = "SyncPlayMenu"
 
+# PR5: local mid-play TC audio picker. Service owns the player session and
+# shows Dialog.select on a worker thread, then restarts via enqueue_stream_switch.
+# No payload — tracks come from the claimed play-state AudioStreams.
+PICK_AUDIO_TRACK = "PickAudioTrack"
+
 _REGISTRY = frozenset(
     {
         RESTART,
@@ -39,6 +44,7 @@ _REGISTRY = frozenset(
         UPDATE_LIBRARY,
         REFRESH_BOXSETS,
         SYNCPLAY_MENU,
+        PICK_AUDIO_TRACK,
     }
 )
 

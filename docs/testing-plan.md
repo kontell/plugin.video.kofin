@@ -135,6 +135,24 @@ Two defects found live and fixed, both outside the sync path:
 
 Also fixed in the plugin: an api-key request to `/Kofin/SyncQueue` returned 400 with a stack trace instead of 401, because an api key carries an all-zeros user claim that `Guid.TryParse` accepts and `GetUserById(Guid.Empty)` then throws.
 
+### Stream selection (transcoding) — S-TS
+
+Companion design: `docs/transcoding-stream-selection-design.md`. Unit coverage lives under `tests/unit/test_streammaps.py`, `test_subtitles.py`, `test_playback.py`, `test_player.py`, `test_play.py`, `test_audiotracks.py`. Live scenarios:
+
+* **[ ] S-TS.1** DP multi external SRT — labels language-like, not URLs.
+* **[ ] S-TS.2** DP switch external sub — progress `SubtitleStreamIndex` updates.
+* **[ ] S-TS.3** TC multi text sub — switch without restart.
+* **[ ] S-TS.4** TC multi audio via remote — restart; position within ±2s; correct language.
+* **[ ] S-TS.5** Pre-play Audio & Subs — dialog only on TC multi; cancel aborts; second PlaybackInfo in logs.
+* **[ ] S-TS.6** `allowBurnedSubs=false`, only PGS — no Encode; not forced.
+* **[ ] S-TS.7** `allowBurnedSubs=true`, choose PGS — burn-in TC.
+* **[ ] S-TS.8** SyncPlay active — no dialog, no restart, remote refuse + toast; external sub OSD still works.
+* **[ ] S-TS.9** Segments + restart mid-film — skip engine sane vs `FRESH_START_TOLERANCE`.
+* **[ ] S-TS.10** Context force TC + remote audio — still Transcode + budget family.
+* **[ ] S-TS.11** delete-after-watch ON + restart near end — **no** delete prompt.
+* **[ ] S-TS.12** Preferred Kodi sub language + eng.srt external — auto-enable behaviour recorded.
+* **[ ] S-TS.13** Local TC “Audio tracks…” (PR5) — while multi-audio Transcode plays, `Window(Home).Property(kofin.playing.pick_audio)=true`; context item / `plugin://…?mode=audiotracks` shows DisplayTitle list; pick restarts at prior position (±2s) with new language; cancel leaves session; DirectStream multi-audio never offers the item; SyncPlay refuses with toast.
+
 ## 5. Performance baselines (record, don't guess)
 
 Captured by the scenario scripts into `tests/live/results/` per run: initial full-sync wall time for the test set; catch-up latency for 100 mixed pending changes (per tier); addon HTTP request count per scenario (debug-log grep); Kodi-start→library-browsable delta; S2.5 download counts per tier. Regressions between runs of the same scenario on the same data are release blockers.

@@ -26,6 +26,40 @@ def test_format_stream_label_prefers_display_title():
     )
 
 
+def test_should_offer_pick_audio_only_multi_tc():
+    multi = [
+        {"Index": 1, "DisplayTitle": "Eng"},
+        {"Index": 2, "DisplayTitle": "Jpn"},
+    ]
+    assert (
+        playback.should_offer_pick_audio(
+            {"PlayMethod": "Transcode", "AudioStreams": multi}
+        )
+        is True
+    )
+    assert (
+        playback.should_offer_pick_audio(
+            {"PlayMethod": "DirectStream", "AudioStreams": multi}
+        )
+        is False
+    )
+    assert (
+        playback.should_offer_pick_audio(
+            {
+                "PlayMethod": "Transcode",
+                "AudioStreams": [{"Index": 1, "DisplayTitle": "Eng"}],
+            }
+        )
+        is False
+    )
+    assert (
+        playback.should_offer_pick_audio(
+            {"PlayMethod": "Transcode", "AudioStreams": []}
+        )
+        is False
+    )
+
+
 def test_suppress_stream_dialogs_syncplay_param_and_prop(monkeypatch):
     from tests.unit.fakes import FakeWindow
 

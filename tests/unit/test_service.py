@@ -147,6 +147,21 @@ def test_syncplay_menu_without_manager_is_contained():
     assert service._syncplay_menu is None
 
 
+def test_pick_audio_track_ipc_runs_on_worker(monkeypatch):
+    service = Service()
+    called = []
+    monkeypatch.setattr(
+        service.player, "pick_audio_track", lambda: called.append(True) or True
+    )
+
+    service.onNotification(ipc.SENDER, "Other.PickAudioTrack", "[]")
+
+    thread = service._pick_audio_thread
+    assert thread is not None
+    thread.join(timeout=2)
+    assert called == [True]
+
+
 def test_wake_and_sleep_forwarded():
     service = Service()
     manager = RecordingSyncPlay()

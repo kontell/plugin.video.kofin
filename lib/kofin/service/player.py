@@ -492,6 +492,80 @@ class Player(xbmc.Player):
             self._report(self.api.session_progress, event="timeupdate")
             return True
 
+    def pick_audio_track(self) -> bool:
+        """Local TC audio fallback: Dialog.select → stream switch (PR5).
+
+        Must run off the websocket / NotifyAll thread (dialog blocks). Offered
+        only for Transcode sessions with multiple source audio tracks; native
+        OSD covers DirectStream multi-audio.
+        """
+        item = self._item
+        if item is None:
+            LOG.info("pick audio ignored: nothing playing")
+            toast.show(
+                settings.localized(30149),
+                toast.WARNING,
+                time_ms=3000,
+            )
+            return False
+        if self.syncplay_group_active:
+            LOG.info("pick audio refused: SyncPlay group active")
+            toast.show(
+                "Stream changes are disabled while SyncPlay is active",
+                toast.WARNING,
+                time_ms=3000,
+            )
+            return False
+        if not playback.should_offer_pick_audio(item):
+            LOG.info(
+                "pick audio ignored: method=%s tracks=%s",
+                item.get("PlayMethod"),
+                len(item.get("AudioStreams") or []),
+            )
+            toast.show(
+                settings.localized(30149),
+                toast.WARNING,
+                time_ms=3000,
+            )
+            return False
+
+        streams = list(item.get("AudioStreams") or [])
+        # Compact summaries lack Type; inject so format_stream_label can
+        # fall back to lang-codec-channels when DisplayTitle is empty.
+        labels = [
+            playback.format_stream_label({**dict(s), "Type": "Audio"}) for s in streams
+        ]
+        current = item.get("AudioStreamIndex")
+        preselect = 0
+        for i, stream in enumerate(streams):
+            if stream.get("Index") == current:
+                preselect = i
+                break
+
+        choice = xbmcgui.Dialog().select(
+            settings.localized(30148),
+            labels,  # type: ignore[arg-type]
+            preselect=preselect,
+        )
+        if choice < 0:
+            LOG.debug("pick audio cancelled")
+            return False
+
+        jellyfin_index = streams[choice].get("Index")
+        try:
+            jf = int(jellyfin_index) if jellyfin_index is not None else None
+        except (TypeError, ValueError):
+            jf = None
+        if jf is None:
+            LOG.warning("pick audio: stream missing Index")
+            return False
+        if jf == current:
+            LOG.debug("pick audio: already on index %s", jf)
+            return True
+
+        LOG.info("pick audio: switching to jf index %s", jf)
+        return self.apply_stream_switch("audio", jf)
+
     def _restart_for_stream_switch(
         self, item: JsonDict, kind: str, jellyfin_index: Optional[int]
     ) -> bool:
@@ -764,6 +838,7 @@ class Player(xbmc.Player):
         with self._lock:
             self._item = claimed
         state.set_playing_id(claimed["Id"])
+        state.set_playing_pick_audio(playback.should_offer_pick_audio(claimed))
         LOG.info("--> play %s (%s)", claimed["Id"], claimed["PlayMethod"])
         self._report(self.api.session_playing, event=None)
         self._start_ticker()
@@ -888,6 +963,7 @@ class Player(xbmc.Player):
         except Exception as error:  # pragma: no cover - defensive
             LOG.debug("subtitle session cleanup failed: %s", error)
         state.clear_playing_id()
+        state.clear_playing_pick_audio()
 
     def _apply_restart_position(self) -> None:
         """Corrective seek after a stream restart (design §6.5)."""
