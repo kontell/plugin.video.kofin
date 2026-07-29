@@ -73,6 +73,62 @@ def test_delete_item(api):
     assert delete_call["url"] == "http://s:8096/Items/i1"
 
 
+def test_music_playlists_and_items(api):
+    client, transport = api
+
+    class Response:
+        def __init__(self, body):
+            self.content = b"{}"
+            self._body = body
+
+        def json(self):
+            return self._body
+
+    # First call: list playlists (one page, includes a video playlist to filter)
+    # Second call: playlist items page
+    bodies = [
+        {
+            "Items": [
+                {"Id": "a", "Name": "Gym", "MediaType": "Audio", "Type": "Playlist"},
+                {"Id": "v", "Name": "Movies", "MediaType": "Video", "Type": "Playlist"},
+                {"Id": "e", "Name": "Empty", "MediaType": "", "Type": "Playlist"},
+            ],
+            "TotalRecordCount": 3,
+        },
+        {
+            "Items": [{"Id": "s1", "Type": "Audio", "Name": "Song"}],
+            "TotalRecordCount": 1,
+        },
+    ]
+    idx = {"n": 0}
+
+    def request(method, url, headers=None, params=None, json_body=None, **kwargs):
+        transport.calls.append(
+            {
+                "method": method,
+                "url": url,
+                "headers": headers,
+                "params": params,
+                "json": json_body,
+            }
+        )
+        body = bodies[idx["n"]]
+        idx["n"] += 1
+        return Response(body)
+
+    transport.request = request  # type: ignore[method-assign]
+
+    listed = client.music_playlists()
+    assert [p["Id"] for p in listed] == ["a", "e"]
+    assert "/Users/uid/Items" in transport.calls[0]["url"]
+    assert transport.calls[0]["params"]["IncludeItemTypes"] == "Playlist"
+
+    items = client.playlist_items("a")
+    assert items["Items"][0]["Id"] == "s1"
+    assert transport.calls[1]["url"].endswith("/Playlists/a/Items")
+    assert transport.calls[1]["params"]["UserId"] == "uid"
+
+
 def test_playback_info_optional_params(api):
     client, transport = api
     client.playback_info("item1", {"Name": "Kodi"})

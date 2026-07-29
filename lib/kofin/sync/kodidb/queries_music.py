@@ -349,6 +349,12 @@ SELECT          idPath
 FROM            song
 WHERE           idSong = ?
 """
+get_song_path_filename = """
+SELECT          path.strPath, song.strFileName, song.strTitle
+FROM            song
+JOIN            path ON path.idPath = song.idPath
+WHERE           song.idSong = ?
+"""
 delete_path_if_unused = """
 DELETE FROM     path
 WHERE           idPath = ?

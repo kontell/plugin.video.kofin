@@ -301,6 +301,11 @@ class FullSync(object):
 
         self.library.refresh_libraries(databases)
 
+        # Music playlists are files, not MyMusic rows — refresh after a
+        # successful library pass when the setting is on. Soft-fail so a
+        # playlist error never fails the music library sync itself.
+        self._maybe_refresh_music_playlists()
+
         if self.update_library:
             # Update mode only *plans*: prune diffs the library and hands the
             # work to the incremental pipeline, which has its own progress bar
@@ -312,6 +317,18 @@ class FullSync(object):
                 "%s %s" % (localized(30409), str(elapsed).split(".")[0]),
             )
             LOG.info("Full sync completed in: %s", str(elapsed).split(".")[0])
+
+    def _maybe_refresh_music_playlists(self):
+        """Rewrite ``playlists/music/Kofin/*.m3u8`` from the server (one-way)."""
+        if not settings.get_bool("syncMusicPlaylists"):
+            return
+        try:
+            from kofin.sync import playlists as music_playlists
+
+            with self.library.music_database_lock:
+                music_playlists.refresh_with_databases(self.server)
+        except Exception:
+            LOG.exception("music playlist refresh failed (library sync kept)")
 
     def process_libraries(self, libraries, failures):
         """Process libraries in order, recording completion after each.

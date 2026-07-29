@@ -241,6 +241,11 @@
           <default>true</default>
           <control type="toggle"/>
         </setting>
+        <setting id="syncMusicPlaylists" type="boolean" label="30611" help="30612">
+          <level>0</level>
+          <default>false</default>
+          <control type="toggle"/>
+        </setting>
         <setting id="dbSyncScreensaver" type="boolean" label="30308" help="30309">
           <level>0</level>
           <default>true</default>

@@ -444,3 +444,40 @@ def test_ssl_handler(monkeypatch):
     FakeAddon.store["sslVerify"] = "false"
     applier.apply()
     assert service._restart_requested is True
+
+
+def test_sync_music_playlists_enable_disable():
+    service = FakeService()
+    FakeAddon.store["syncMusicPlaylists"] = "false"
+    applier = ready_applier(service)
+
+    FakeAddon.store["syncMusicPlaylists"] = "true"
+    applier.apply()
+    assert service.library.commands == [("SyncMusicPlaylists", None)]
+
+    service.library.commands.clear()
+    FakeAddon.store["syncMusicPlaylists"] = "false"
+    applier.apply()
+    assert service.library.commands == [("CleanupMusicPlaylists", None)]
+
+
+def test_music_transcode_rematerializes_when_playlists_on():
+    service = FakeService()
+    FakeAddon.store["syncMusicPlaylists"] = "true"
+    FakeAddon.store["musicTranscode"] = "false"
+    applier = ready_applier(service)
+
+    FakeAddon.store["musicTranscode"] = "true"
+    applier.apply()
+    assert service.library.commands == [("SyncMusicPlaylists", None)]
+
+
+def test_music_transcode_skips_when_playlists_off():
+    service = FakeService()
+    FakeAddon.store["syncMusicPlaylists"] = "false"
+    FakeAddon.store["musicTranscode"] = "false"
+    applier = ready_applier(service)
+
+    FakeAddon.store["musicTranscode"] = "true"
+    applier.apply()
+    assert service.library.commands == []

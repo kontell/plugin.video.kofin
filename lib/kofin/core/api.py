@@ -424,6 +424,58 @@ class Api:
         """Permanently delete an item from the server (content deletion)."""
         self.delete("/Items/%s" % item_id)
 
+    # -- music playlists -------------------------------------------------------
+
+    def music_playlists(self) -> List[JsonDict]:
+        """User-visible music playlists (Type=Playlist, MediaType Audio or empty).
+
+        Empty playlists often have no MediaType yet; video playlists are
+        excluded. Paged so a large account does not load in one response.
+        """
+        results: List[JsonDict] = []
+        start = 0
+        page_size = 100
+        while True:
+            body = self.get(
+                "/Users/%s/Items" % self.user_id,
+                {
+                    "IncludeItemTypes": "Playlist",
+                    "Recursive": True,
+                    "StartIndex": start,
+                    "Limit": page_size,
+                    "EnableTotalRecordCount": True,
+                    "Fields": "MediaType,Overview",
+                    "SortBy": "SortName",
+                    "SortOrder": "Ascending",
+                },
+            )
+            items = body.get("Items") or []
+            for item in items:
+                media_type = item.get("MediaType") or ""
+                if media_type and media_type != "Audio":
+                    continue
+                results.append(item)
+            total = int(body.get("TotalRecordCount") or 0)
+            start += len(items)
+            if not items or start >= total:
+                break
+        return results
+
+    def playlist_items(
+        self, playlist_id: str, start_index: int = 0, limit: int = 100
+    ) -> JsonDict:
+        """One page of ordered playlist entries (use ``PlaylistItemId`` if writing)."""
+        return self.get(
+            "/Playlists/%s/Items" % playlist_id,
+            {
+                "UserId": self.user_id,
+                "StartIndex": start_index,
+                "Limit": limit,
+                "EnableTotalRecordCount": True,
+                "Fields": "BasicSyncInfo",
+            },
+        )
+
     # -- images ---------------------------------------------------------------
 
     def image_url(

@@ -58,6 +58,8 @@ class SettingsApplier:
             "librarySelection": self._library_selection_changed,
             "syncPlayEnabled": self._syncplay_enabled_changed,
             "contextBitrates": self._context_bitrates_changed,
+            "syncMusicPlaylists": self._sync_music_playlists_changed,
+            "musicTranscode": self._music_transcode_changed,
         }
         self.snapshot: Dict[str, str] = self._read_all()
 
@@ -166,6 +168,27 @@ class SettingsApplier:
     def _context_bitrates_changed(self, old: str, new: str) -> None:
         """Keep the property addon.xml gates the transcode context item on."""
         state.set_context_bitrates(new)
+
+    def _sync_music_playlists_changed(self, old: str, new: str) -> None:
+        """Enable → materialize all; disable → delete managed Kofin/ folder."""
+        library = self._library_manager()
+        if library is None:
+            LOG.warning("syncMusicPlaylists changed but library manager unavailable")
+            return
+        if new == "true":
+            library.enqueue_command("SyncMusicPlaylists")
+        else:
+            library.enqueue_command("CleanupMusicPlaylists")
+
+    def _music_transcode_changed(self, old: str, new: str) -> None:
+        """Path mode flip rewrites MyMusic rows later; rematerialize playlists
+        so lines match the new path form when playlist sync is on."""
+        if not settings.get_bool("syncMusicPlaylists"):
+            return
+        library = self._library_manager()
+        if library is None:
+            return
+        library.enqueue_command("SyncMusicPlaylists")
 
     def _library_selection_changed(self, old: str, new: str) -> None:
         """The apply-on-save path for the library multiselect."""
