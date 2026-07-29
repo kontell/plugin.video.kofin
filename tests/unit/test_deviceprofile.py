@@ -191,6 +191,18 @@ def test_subtitle_profiles_cover_embed_and_external():
     assert {"Format": "srt", "Method": "External"} in subs
     assert {"Format": "pgssub", "Method": "Embed"} in subs
     assert len(subs) == len(deviceprofile.SUBTITLE_FORMATS) * 2
+    assert not any(p.get("Method") == "Encode" for p in subs)
+
+
+def test_subtitle_profiles_encode_when_burned_allowed():
+    subs = build(ProfileConfig(allow_burned_subs=True))["SubtitleProfiles"]
+    assert {"Format": "pgs", "Method": "Encode"} in subs
+    assert {"Format": "pgssub", "Method": "Encode"} in subs
+    assert {"Format": "dvdsub", "Method": "Encode"} in subs
+    # Text formats never get Encode.
+    assert not any(
+        p.get("Format") == "srt" and p.get("Method") == "Encode" for p in subs
+    )
 
 
 def test_music_max_bitrate_caps_audio_direct_play():

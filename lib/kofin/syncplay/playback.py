@@ -311,7 +311,12 @@ class PlaybackController(object):
         if not item_id:
             raise ValueError("queue item without an Id")
 
-        params = {"mode": "play", "id": str(item_id)}
+        params = {
+            "mode": "play",
+            "id": str(item_id),
+            # PR4: plugin process must not show pre-play stream dialogs in a group.
+            "syncplay": "1",
+        }
 
         if start_ticks:
             params["startticks"] = str(int(start_ticks))

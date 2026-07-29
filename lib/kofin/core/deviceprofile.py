@@ -35,6 +35,8 @@ ALL_HDR_TYPES = [
 VP9_HDR_TYPES = ["HDR10", "HLG", "HDR10Plus"]
 
 SUBTITLE_FORMATS = ["srt", "ass", "sub", "ssa", "smi", "pgssub", "dvdsub", "pgs"]
+# Image formats that may need Encode (burn-in) when the client opts in (PR4).
+ENCODE_SUBTITLE_FORMATS = ["pgssub", "pgs", "dvdsub"]
 
 
 DEFAULT_VIDEO_CODECS = [
@@ -88,6 +90,7 @@ class ProfileConfig:
         music_codec: str = "opus",
         music_bitrate_kbps: int = 128,
         music_max_bitrate_kbps: int = 0,
+        allow_burned_subs: bool = False,
     ) -> None:
         self.force_direct_play = force_direct_play
         self.force_remux = force_remux
@@ -108,6 +111,7 @@ class ProfileConfig:
         self.music_codec = music_codec
         self.music_bitrate_kbps = music_bitrate_kbps
         self.music_max_bitrate_kbps = music_max_bitrate_kbps
+        self.allow_burned_subs = allow_burned_subs
 
     @classmethod
     def from_settings(cls) -> "ProfileConfig":
@@ -137,6 +141,7 @@ class ProfileConfig:
                 if settings.get_bool("musicTranscode")
                 else 0
             ),
+            allow_burned_subs=settings.get_bool("allowBurnedSubs"),
         )
 
 
@@ -190,13 +195,24 @@ def build(
         "CodecProfiles": _codec_profiles(
             config, force_direct, h264, h264_10bit, hevc, hevc_rext, tokens
         ),
-        "SubtitleProfiles": [
-            {"Format": fmt, "Method": method}
-            for fmt in SUBTITLE_FORMATS
-            for method in ("Embed", "External")
-        ],
+        "SubtitleProfiles": _subtitle_profiles(config),
     }
     return profile
+
+
+def _subtitle_profiles(config: ProfileConfig) -> List[JsonDict]:
+    profiles: List[JsonDict] = [
+        {"Format": fmt, "Method": method}
+        for fmt in SUBTITLE_FORMATS
+        for method in ("Embed", "External")
+    ]
+    # Opt-in Encode for image formats only (PR4). Default off — burn-in is
+    # CPU-heavy and locks the track for the session.
+    if config.allow_burned_subs:
+        profiles.extend(
+            {"Format": fmt, "Method": "Encode"} for fmt in ENCODE_SUBTITLE_FORMATS
+        )
+    return profiles
 
 
 def _preferred_first(codecs: List[str], preferred: str) -> List[str]:

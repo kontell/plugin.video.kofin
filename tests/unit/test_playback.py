@@ -26,6 +26,100 @@ def test_format_stream_label_prefers_display_title():
     )
 
 
+def test_suppress_stream_dialogs_syncplay_param_and_prop(monkeypatch):
+    from tests.unit.fakes import FakeWindow
+
+    FakeWindow.store = {}
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    assert playback.suppress_stream_dialogs({}) is False
+    assert playback.suppress_stream_dialogs({"syncplay": "1"}) is True
+    from kofin.core import state
+
+    state.set_syncplay_active(True)
+    assert playback.suppress_stream_dialogs({}) is True
+    state.set_syncplay_active(False)
+    assert playback.suppress_stream_dialogs({}) is False
+
+
+def test_needs_preplay_stream_dialog_matrix():
+    source = {
+        "MediaStreams": [
+            {"Type": "Audio", "Index": 1, "Language": "eng"},
+            {"Type": "Audio", "Index": 2, "Language": "ita"},
+            {
+                "Type": "Subtitle",
+                "Index": 3,
+                "IsTextSubtitleStream": True,
+                "Codec": "srt",
+                "Language": "eng",
+            },
+            {
+                "Type": "Subtitle",
+                "Index": 4,
+                "IsTextSubtitleStream": True,
+                "Codec": "srt",
+                "Language": "fra",
+            },
+        ]
+    }
+    assert playback.needs_preplay_stream_dialog(
+        play_method="DirectStream",
+        item_type="Movie",
+        select_mode=playback.STREAM_SELECT_AUDIO_AND_SUBS,
+        source=source,
+        allow_burned=False,
+        suppress=False,
+    ) == (False, False)
+    assert playback.needs_preplay_stream_dialog(
+        play_method="Transcode",
+        item_type="Movie",
+        select_mode=playback.STREAM_SELECT_NEVER,
+        source=source,
+        allow_burned=False,
+        suppress=False,
+    ) == (False, False)
+    assert playback.needs_preplay_stream_dialog(
+        play_method="Transcode",
+        item_type="Movie",
+        select_mode=playback.STREAM_SELECT_AUDIO_AND_SUBS,
+        source=source,
+        allow_burned=False,
+        suppress=False,
+    ) == (True, True)
+    assert playback.needs_preplay_stream_dialog(
+        play_method="Transcode",
+        item_type="Movie",
+        select_mode=playback.STREAM_SELECT_AUDIO_ONLY,
+        source=source,
+        allow_burned=False,
+        suppress=False,
+    ) == (True, False)
+    assert playback.needs_preplay_stream_dialog(
+        play_method="Transcode",
+        item_type="Movie",
+        select_mode=playback.STREAM_SELECT_AUDIO_AND_SUBS,
+        source=source,
+        allow_burned=False,
+        suppress=True,
+    ) == (False, False)
+
+
+def test_eligible_dialog_subs_text_and_burned():
+    source = {
+        "MediaStreams": [
+            {
+                "Type": "Subtitle",
+                "Index": 0,
+                "Codec": "subrip",
+                "IsTextSubtitleStream": True,
+            },
+            {"Type": "Subtitle", "Index": 5, "Codec": "pgssub"},
+        ]
+    }
+    assert len(playback.eligible_dialog_subs(source, allow_burned=False)) == 1
+    assert len(playback.eligible_dialog_subs(source, allow_burned=True)) == 2
+
+
 def test_resolve_audio_direct_stream():
     item = {
         "PlayMethod": "DirectStream",

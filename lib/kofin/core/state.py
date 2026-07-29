@@ -17,6 +17,10 @@ PROP_PLAY_QUEUE = "kofin.play.json"
 PROP_PLAYING_ID = "kofin.playing.id"
 PROP_SYNC_STOP = "kofin.sync.stop"
 PROP_SYNC_ACTIVE = "kofin.sync.active"
+# SyncPlay group membership (not library sync). Plugin process reads this to
+# suppress pre-play stream dialogs; service writes it when join/leave flip
+# player.syncplay_group_active.
+PROP_SYNCPLAY_ACTIVE = "kofin.syncplay.active"
 # Earns its place here because addon.xml's <visible> can only test window
 # properties: there is no infolabel that reads an addon setting, so hiding
 # "Play with transcoding" when no bitrates are configured needs the setting
@@ -148,6 +152,18 @@ def set_sync_active(active: bool) -> None:
 
 def is_sync_active() -> bool:
     return _window().getProperty(PROP_SYNC_ACTIVE) == "true"
+
+
+def set_syncplay_active(active: bool) -> None:
+    """Mirror SyncPlay group membership for the plugin process (PR4)."""
+    if active:
+        _window().setProperty(PROP_SYNCPLAY_ACTIVE, "true")
+    else:
+        _window().clearProperty(PROP_SYNCPLAY_ACTIVE)
+
+
+def is_syncplay_active() -> bool:
+    return _window().getProperty(PROP_SYNCPLAY_ACTIVE) == "true"
 
 
 def set_context_bitrates(bitrates: str) -> None:

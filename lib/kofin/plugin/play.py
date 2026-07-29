@@ -1,6 +1,8 @@
 """Playback resolve: PlaybackInfo -> stream URL -> setResolvedUrl.
 
-No interactive dialogs in this path — the device profile decides everything.
+The device profile decides direct play vs transcode. Optional pre-play
+audio/subtitle dialogs (Transcoding → Ask for tracks) may run in this
+plugin process before setResolvedUrl when the play will Transcode.
 The resolved play's state is queued on kofin.play.json for the service-side
 player to claim and report.
 """
@@ -14,6 +16,7 @@ import xbmcplugin
 from kofin.core import (
     deviceprofile,
     kodirpc,
+    playback,
     settings,
     state,
     streammaps,
@@ -206,6 +209,8 @@ def play(request: Request) -> None:
         bitrate_mbps = 0.0
 
     api = Api.from_credentials(Http(settings.get_bool("sslVerify")), creds)
+    audio_index: Optional[int] = None
+    subtitle_index: Optional[int] = None
     try:
         item = api.item(item_id)
         from_start = request.params.get("fromstart") == "1"
@@ -236,6 +241,40 @@ def play(request: Request) -> None:
             api.server, item, source, creds.device_id, play_session_id
         )
         is_audio = item.get("Type") in AUDIO_TYPES
+
+        # PR4: optional pre-play audio/sub pick when the server will Transcode.
+        # Second PlaybackInfo carries the chosen indexes (planning phase).
+        audio_index = source.get("DefaultAudioStreamIndex")
+        subtitle_index = source.get("DefaultSubtitleStreamIndex")
+        if method == "Transcode" and not is_audio:
+            chosen = _preplay_stream_choice(request, item, source, config)
+            if chosen is None:
+                # User cancelled a dialog.
+                _fail(request)
+                return
+            audio_index, subtitle_index = chosen
+            if (
+                audio_index != source.get("DefaultAudioStreamIndex")
+                or subtitle_index != source.get("DefaultSubtitleStreamIndex")
+                or subtitle_index == playback.SUBTITLE_OFF_INDEX
+            ):
+                info = api.playback_info(
+                    item_id,
+                    profile,
+                    start_ticks=start_ticks,
+                    audio_index=audio_index,
+                    subtitle_index=subtitle_index,
+                    media_source_id=source.get("Id"),
+                )
+                sources = info.get("MediaSources") or []
+                if not sources:
+                    raise JellyfinError("no media sources after stream select")
+                source = pick_media_source(sources, source.get("Id"))
+                play_session_id = info.get("PlaySessionId", "")
+                url, method = stream_url(
+                    api.server, item, source, creds.device_id, play_session_id
+                )
+
         if method == "Transcode" and not is_audio:
             # The server sizes its own VideoBitrate/AudioBitrate off the
             # profile cap alone; recompute them so a forced transcode is
@@ -297,6 +336,13 @@ def play(request: Request) -> None:
         force_transcode=transcode or config.force_transcode,
         bitrate_override_mbps=bitrate_mbps,
     )
+    # Prefer indexes chosen in pre-play / second PlaybackInfo over source defaults.
+    if audio_index is not None:
+        play_item["AudioStreamIndex"] = audio_index
+    if subtitle_index == playback.SUBTITLE_OFF_INDEX:
+        play_item["SubtitleStreamIndex"] = None
+    elif subtitle_index is not None:
+        play_item["SubtitleStreamIndex"] = subtitle_index
     segments = prefetch_segments(api, item)
     if segments is not None:
         play_item["Segments"] = segments
@@ -312,3 +358,75 @@ def _fail(request: Request) -> None:
     if request.handle >= 0:
         xbmcplugin.setResolvedUrl(request.handle, False, xbmcgui.ListItem())
     toast.show(settings.localized(30018), toast.ERROR, time_ms=4000)
+
+
+def _preplay_stream_choice(
+    request: Request,
+    item: JsonDict,
+    source: JsonDict,
+    config: deviceprofile.ProfileConfig,
+) -> Optional[Tuple[Optional[int], Optional[int]]]:
+    """Optional Dialog.select for Transcode audio/subs. None = cancelled.
+
+    Returns ``(audio_index, subtitle_index)``. ``subtitle_index`` may be
+    ``SUBTITLE_OFF_INDEX`` (-1) when the user picks No subtitles.
+    """
+    select_mode = settings.get_int("transcodeStreamSelect")
+    # Empty store → 0 (Never), matching settings default.
+    ask_audio, ask_subs = playback.needs_preplay_stream_dialog(
+        play_method="Transcode",
+        item_type=str(item.get("Type") or ""),
+        select_mode=select_mode,
+        source=source,
+        allow_burned=config.allow_burned_subs,
+        suppress=playback.suppress_stream_dialogs(request.params),
+    )
+    audio_index: Optional[int] = source.get("DefaultAudioStreamIndex")
+    subtitle_index: Optional[int] = source.get("DefaultSubtitleStreamIndex")
+    if not ask_audio and not ask_subs:
+        return audio_index, subtitle_index
+
+    if ask_audio:
+        streams = playback.eligible_audio_streams(source)
+        labels = [playback.format_stream_label(s) for s in streams]
+        default = 0
+        for i, stream in enumerate(streams):
+            if stream.get("Index") == audio_index:
+                default = i
+                break
+        choice = xbmcgui.Dialog().select(
+            settings.localized(30137),
+            labels,  # type: ignore[arg-type]
+            preselect=default,
+        )
+        if choice < 0:
+            return None
+        audio_index = int(streams[choice].get("Index") or 0)
+
+    if ask_subs:
+        streams = playback.eligible_dialog_subs(
+            source, allow_burned=config.allow_burned_subs
+        )
+        # Leading "No subtitles" → SUBTITLE_OFF_INDEX on PlaybackInfo #2.
+        labels = [settings.localized(30139)] + [
+            playback.format_stream_label(s) for s in streams
+        ]
+        default = 0  # No subtitles preselected when server default is none
+        if subtitle_index is not None and subtitle_index >= 0:
+            for i, stream in enumerate(streams):
+                if stream.get("Index") == subtitle_index:
+                    default = i + 1
+                    break
+        choice = xbmcgui.Dialog().select(
+            settings.localized(30138),
+            labels,  # type: ignore[arg-type]
+            preselect=default,
+        )
+        if choice < 0:
+            return None
+        if choice == 0:
+            subtitle_index = playback.SUBTITLE_OFF_INDEX
+        else:
+            subtitle_index = int(streams[choice - 1].get("Index") or 0)
+
+    return audio_index, subtitle_index
