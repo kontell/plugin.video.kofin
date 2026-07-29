@@ -302,6 +302,11 @@
     <!-- Playback -->
     <category id="playback" label="30450" help="30451">
       <group id="1">
+        <setting id="enableExternalSubs" type="boolean" label="30477" help="30478">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
         <setting id="mediaSegmentsEnabled" type="boolean" label="30453" help="30454">
           <level>0</level>
           <default>true</default>

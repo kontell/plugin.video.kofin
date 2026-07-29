@@ -1,9 +1,9 @@
 """The Jellyfin API surface kofin uses (phase 1: browse, playback, sessions)."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from kofin.core import auth, settings
-from kofin.core.http import Http, HttpError
+from kofin.core.http import Http, HttpError, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 
@@ -81,6 +81,53 @@ class Api:
 
     def _headers(self) -> Dict[str, str]:
         return {"Authorization": self._header, "Accept": "application/json"}
+
+    def get_bytes(
+        self,
+        url: str,
+        *,
+        timeout: Optional[Tuple[float, float]] = None,
+        max_bytes: Optional[int] = None,
+        retries: int = 1,
+    ) -> bytes:
+        """GET an absolute URL as raw bytes (subtitle files, small assets).
+
+        Raises :class:`JellyfinError` when the body exceeds ``max_bytes`` or
+        the transport fails. Accept is ``*/*`` so text/image content-types
+        from DeliveryUrl streams are not rejected.
+        """
+        headers = dict(self._headers())
+        headers["Accept"] = "*/*"
+        response = self._http.request(
+            "GET",
+            url,
+            headers=headers,
+            timeout=timeout,
+            retries=retries,
+        )
+        content_length = response.headers.get("Content-Length")
+        if max_bytes is not None and content_length:
+            try:
+                if int(content_length) > max_bytes:
+                    raise JellyfinError(
+                        "response too large (%s > %s)" % (content_length, max_bytes)
+                    )
+            except ValueError:
+                pass
+        # Prefer streaming so a missing Content-Length cannot fill memory with
+        # an accidental multi-megabyte body.
+        if max_bytes is None:
+            return response.content
+        chunks: List[bytes] = []
+        total = 0
+        for chunk in response.iter_content(8192):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > max_bytes:
+                raise JellyfinError("response too large (>%s bytes)" % max_bytes)
+            chunks.append(chunk)
+        return b"".join(chunks)
 
     # -- system / session ---------------------------------------------------
 

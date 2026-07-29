@@ -112,6 +112,13 @@ class Service(xbmc.Monitor):
         """Run until abort or restart; returns True when a rebuild is wanted."""
         LOG.info("--->>> kofin service %s", addon_version())
         LOG.info("kodi %s", xbmc.getInfoLabel("System.BuildVersion"))
+        # Age out abandoned subtitle downloads left by crashes / killed Kodi.
+        try:
+            from kofin.core.subtitles import reap_old_subs
+
+            reap_old_subs()
+        except Exception:  # pragma: no cover - defensive
+            LOG.exception("subtitle cache reaper failed at service start")
         started = time.time()
         try:
             while not self.abortRequested():
@@ -426,6 +433,14 @@ class Service(xbmc.Monitor):
             LOG.info("restart requested")
             self._restart_requested = True
         elif name == ipc.AUTH_CHANGED:
+            # Prior user's dialogue files must not outlive a who-is-watching
+            # switch (PR1 subtitle cache).
+            try:
+                from kofin.core.subtitles import wipe_subs_cache
+
+                wipe_subs_cache()
+            except Exception:  # pragma: no cover - defensive
+                LOG.exception("subtitle cache wipe on auth change failed")
             LOG.info("auth changed; restarting service cycle")
             self._restart_requested = True
         elif name == ipc.SYNCPLAY_MENU:

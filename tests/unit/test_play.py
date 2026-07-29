@@ -151,15 +151,37 @@ def test_external_subtitles_filtering():
         "MediaStreams": [
             {
                 "Type": "Subtitle",
+                "Index": 1,
+                "Codec": "srt",
                 "IsExternal": True,
                 "DeliveryMethod": "External",
                 "DeliveryUrl": "/subs/1.srt",
             },
-            {"Type": "Subtitle", "IsExternal": False, "DeliveryUrl": "/subs/2.srt"},
+            # Extractable text without IsExternal — still eligible when External.
+            {
+                "Type": "Subtitle",
+                "Index": 2,
+                "Codec": "ass",
+                "IsExternal": False,
+                "DeliveryMethod": "External",
+                "DeliveryUrl": "/subs/2.ass",
+            },
+            # Image external — never attached as text.
+            {
+                "Type": "Subtitle",
+                "Index": 3,
+                "Codec": "pgs",
+                "DeliveryMethod": "External",
+                "DeliveryUrl": "/subs/3.sup",
+            },
+            {"Type": "Subtitle", "IsExternal": False, "DeliveryUrl": "/subs/x.srt"},
             {"Type": "Audio", "DeliveryUrl": "/nope"},
         ]
     }
-    assert play.external_subtitles(SERVER, source) == ["http://s:8096/subs/1.srt"]
+    assert play.external_subtitles(SERVER, source) == [
+        "http://s:8096/subs/1.srt",
+        "http://s:8096/subs/2.ass",
+    ]
 
 
 def test_play_state_payload():
@@ -171,12 +193,26 @@ def test_play_state_payload():
         "DefaultSubtitleStreamIndex": 3,
     }
     payload = play.play_state(
-        item, source, "http://u", "DirectStream", "ps", "dev", 12.5
+        item,
+        source,
+        "http://u",
+        "DirectStream",
+        "ps",
+        "dev",
+        12.5,
+        subtitle_fields={
+            "SubsAttachOrder": [3],
+            "SubsPaths": ["/tmp/03.eng.srt"],
+            "SubsMapping": {},
+            "SubsMappingReady": False,
+        },
     )
     assert payload["Runtime"] == 200
     assert payload["AudioStreamIndex"] == 1
     assert payload["CurrentPosition"] == 12.5
     assert payload["Path"] == "http://u"
+    assert payload["SubsAttachOrder"] == [3]
+    assert payload["SubsMappingReady"] is False
 
 
 def test_play_state_carries_series_id():
