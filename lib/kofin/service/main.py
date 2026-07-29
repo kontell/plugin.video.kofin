@@ -320,11 +320,24 @@ class Service(xbmc.Monitor):
         # beat before attaching capabilities to that session.
         xbmc.Monitor().waitForAbort(2)
         self._register_capabilities()
+        # Capabilities attach this device's session; re-apply the Who's
+        # watching? set the plugin saved, which does not survive a new
+        # session (Kodi restart or a reconnect that minted a fresh one).
+        self._restore_additional_users()
         self._catch_up_after_reconnect()
         if self.syncplay is not None:
             # Reconnect contract (plan §2): after any WS drop assume kicked;
             # the manager probes /SyncPlay/List and rejoins on its own thread.
             self.syncplay.on_notification("WebSocketConnected", {})
+
+    def _restore_additional_users(self) -> None:
+        """Re-attach saved co-watchers. Contained: must never break connect."""
+        try:
+            from kofin.plugin import adduser
+
+            adduser.restore_additional_users(self.api, self.credentials.device_id)
+        except Exception as error:  # pragma: no cover - defensive
+            LOG.warning("who's-watching restore failed: %s", error)
 
     def _catch_up_after_reconnect(self) -> None:
         """Replay what the library missed while the socket was down.
