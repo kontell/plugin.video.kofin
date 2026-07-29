@@ -635,6 +635,13 @@ class Player(xbmc.Player):
                 self.api.close_transcode(item["DeviceId"], item["PlaySessionId"])
             except Exception as error:
                 LOG.debug("close transcode failed: %s", error)
+        # Drop materialised external text subs for this session (PR1).
+        try:
+            from kofin.core.subtitles import cleanup_session_subs
+
+            cleanup_session_subs(item.get("PlaySessionId"))
+        except Exception as error:  # pragma: no cover - defensive
+            LOG.debug("subtitle session cleanup failed: %s", error)
         state.clear_playing_id()
 
     def stop_threads(self) -> None:

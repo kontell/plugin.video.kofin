@@ -184,6 +184,31 @@ def test_playback_info_optional_params(api):
     assert second["params"]["AudioStreamIndex"] == 2
 
 
+def test_get_bytes_respects_max_and_accept(api):
+    client, transport = api
+
+    class FatResponse:
+        headers = {"Content-Length": "10"}
+        content = b"0123456789"
+
+        def iter_content(self, size=8192):
+            yield self.content
+
+    def request(method, url, headers=None, params=None, json_body=None, **kwargs):
+        transport.calls.append({"method": method, "url": url, "headers": headers})
+        return FatResponse()
+
+    transport.request = request  # type: ignore[method-assign]
+    body = client.get_bytes("http://s:8096/subs/1.srt", max_bytes=100)
+    assert body == b"0123456789"
+    assert transport.calls[-1]["headers"]["Accept"] == "*/*"
+
+    from kofin.core.http import JellyfinError
+
+    with pytest.raises(JellyfinError):
+        client.get_bytes("http://s:8096/subs/1.srt", max_bytes=5)
+
+
 def test_image_url(api):
     client, _ = api
     assert (

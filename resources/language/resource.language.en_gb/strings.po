@@ -1102,6 +1102,14 @@ msgctxt "#30476"
 msgid "Seconds to rewind before the stored resume point, so playback picks up a moment earlier."
 msgstr ""
 
+msgctxt "#30477"
+msgid "External subtitles"
+msgstr ""
+
+msgctxt "#30478"
+msgid "Download text subtitles (SRT, ASS, …) and attach them for Kodi's native subtitle dialog on direct play and transcode. Turn off if downloads are slow or unwanted."
+msgstr ""
+
 msgctxt "#30481"
 msgid "Skip Intro"
 msgstr ""

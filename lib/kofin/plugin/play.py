@@ -11,7 +11,7 @@ import xbmc
 import xbmcgui
 import xbmcplugin
 
-from kofin.core import deviceprofile, kodirpc, settings, state, toast
+from kofin.core import deviceprofile, kodirpc, settings, state, subtitles, toast
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
@@ -165,16 +165,68 @@ def rewrite_bitrates(url: str, budget_bps: int, audio_cap_kbps: int) -> str:
 
 
 def external_subtitles(server: str, source: JsonDict) -> List[str]:
-    urls = []
-    for stream in source.get("MediaStreams") or []:
-        if (
-            stream.get("Type") == "Subtitle"
-            and stream.get("IsExternal")
-            and stream.get("DeliveryUrl")
-            and stream.get("DeliveryMethod") == "External"
-        ):
-            urls.append(server + stream["DeliveryUrl"])
-    return urls
+    """Absolute DeliveryUrls for eligible text external subs.
+
+    Kept as a pure URL listing for tests and callers that only need the
+    DeliveryUrl set. Playback uses :func:`attach_text_subtitles`, which
+    materialises labelled local files when possible.
+    """
+    return subtitles.external_subtitle_urls(server, source)
+
+
+def _download_subtitle(api: Api, url: str) -> Optional[bytes]:
+    try:
+        return api.get_bytes(
+            url,
+            timeout=subtitles.SUB_DOWNLOAD_TIMEOUT,
+            max_bytes=subtitles.MAX_SUB_BYTES,
+            retries=1,
+        )
+    except Exception as error:
+        LOG.debug("subtitle download failed for %s: %s", url, error)
+        return None
+
+
+def attach_text_subtitles(
+    api: Api, source: JsonDict, play_session_id: str
+) -> Tuple[List[str], JsonDict]:
+    """Materialise text external subs for ``setSubtitles`` + play-state fields.
+
+    Returns ``(paths_for_listitem, play_state_subtitle_fields)``. When the
+    Playback setting is off or nothing is eligible, both are empty.
+    """
+    # settings.xml default is true. Empty store / unset → enabled, so unit
+    # tests and first-run installs match that default (getSettingBool("") is
+    # false and would otherwise disable attach silently).
+    if settings.get_str("enableExternalSubs") == "false":
+        return [], {}
+    paths, order, local_paths = subtitles.materialize_text_subs(
+        api.server,
+        source,
+        play_session_id,
+        lambda url: _download_subtitle(api, url),
+    )
+    if not paths:
+        # Visible when debug is off: empty attach is the #1 "subs missing" cause.
+        n_sub = sum(
+            1
+            for stream in (source.get("MediaStreams") or [])
+            if stream.get("Type") == "Subtitle"
+        )
+        LOG.info(
+            "no external text subs attached for session %s (%d subtitle stream(s))",
+            play_session_id,
+            n_sub,
+        )
+        return [], {}
+    LOG.info(
+        "attached %d external text sub(s) for session %s",
+        len(paths),
+        play_session_id,
+    )
+    # SubsPaths prefers local files for PR2 basename reconcile; URL-only
+    # fallbacks still appear in the listitem attach list.
+    return paths, subtitles.play_state_subtitle_fields(order, local_paths or paths)
 
 
 def play_state(
@@ -185,8 +237,9 @@ def play_state(
     play_session_id: str,
     device_id: str,
     start_seconds: float,
+    subtitle_fields: Optional[JsonDict] = None,
 ) -> JsonDict:
-    return {
+    payload: JsonDict = {
         "Id": item.get("Id", ""),
         "Type": item.get("Type", ""),
         # Carried so the service can name the item in a dialog after playback
@@ -203,6 +256,9 @@ def play_state(
         "SubtitleStreamIndex": source.get("DefaultSubtitleStreamIndex"),
         "CurrentPosition": start_seconds,
     }
+    if subtitle_fields:
+        payload.update(subtitle_fields)
+    return payload
 
 
 def prefetch_segments(api: Api, item: JsonDict) -> Optional[List[JsonDict]]:
@@ -341,9 +397,9 @@ def play(request: Request) -> None:
     if mime:
         li.setMimeType(mime)
     li.setContentLookup(False)
-    subtitles = external_subtitles(api.server, source)
-    if subtitles:
-        li.setSubtitles(subtitles)
+    sub_paths, sub_fields = attach_text_subtitles(api, source, play_session_id)
+    if sub_paths:
+        li.setSubtitles(sub_paths)
 
     play_item = play_state(
         item,
@@ -353,6 +409,7 @@ def play(request: Request) -> None:
         play_session_id,
         creds.device_id,
         start_ticks / 10_000_000,
+        subtitle_fields=sub_fields or None,
     )
     segments = prefetch_segments(api, item)
     if segments is not None:
