@@ -40,7 +40,10 @@ Handler = Callable[[str, str], None]
 
 # Settings whose emptied value destroys data if believed too readily, so an
 # empty read is corroborated before it is acted on (``_is_spurious_clear``).
-GUARDED_CLEARS = ("librarySelection",)
+# ``syncMusicPlaylists`` is here too: a failed settings load during materialize
+# was observed live as true→"" which fired CleanupMusicPlaylists and wiped
+# the just-written ``playlists/music/Kofin/`` folder.
+GUARDED_CLEARS = ("librarySelection", "syncMusicPlaylists")
 
 # Non-empty for the whole life of an installed addon: Credentials.load
 # generates it on first use and logging out deliberately keeps it. So an empty
@@ -87,6 +90,16 @@ class SettingsApplier:
             # transient empty read of librarySelection looks like "user removed
             # every library" and prompts a destructive removal.
             LOG.debug("settings change before ready; ignored")
+            return
+        # Whole-document load failures blank every setting (or, for booleans
+        # with a default of false, surface the default). Acting on that once
+        # wiped managed music playlists live: true→false CleanupMusicPlaylists
+        # mid-materialize. If the canary is empty, trust nothing this cycle.
+        if settings.get_str(LOAD_CANARY) == "":
+            LOG.warning(
+                "settings document failed to load (%s empty); skipping apply cycle",
+                LOAD_CANARY,
+            )
             return
         for setting_id, handler in self.handlers.items():
             new = settings.get_str(setting_id)
@@ -177,8 +190,22 @@ class SettingsApplier:
             return
         if new == "true":
             library.enqueue_command("SyncMusicPlaylists")
-        else:
-            library.enqueue_command("CleanupMusicPlaylists")
+            return
+        # Disable path is destructive (deletes playlists/music/Kofin/). Live
+        # testing showed failed settings loads can surface the boolean default
+        # ("false") while the document is mid-rewrite after setSettingBool —
+        # corroborate before wiping.
+        confirm = settings.get_str("syncMusicPlaylists")
+        if settings.get_str(LOAD_CANARY) == "" or confirm == "true":
+            LOG.warning(
+                "ignoring unconfirmed syncMusicPlaylists off "
+                "(confirm=%r, canary empty=%s); leaving managed playlists",
+                confirm,
+                settings.get_str(LOAD_CANARY) == "",
+            )
+            self.snapshot["syncMusicPlaylists"] = "true"
+            return
+        library.enqueue_command("CleanupMusicPlaylists")
 
     def _music_transcode_changed(self, old: str, new: str) -> None:
         """Path mode flip rewrites MyMusic rows later; rematerialize playlists

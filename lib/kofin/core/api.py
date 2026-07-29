@@ -431,8 +431,13 @@ class Api:
 
         Empty playlists often have no MediaType yet; video playlists are
         excluded. Paged so a large account does not load in one response.
+
+        Dedupes by item id: some Jellyfin builds report a ``TotalRecordCount``
+        higher than the unique set and re-emit earlier rows on later pages
+        (live: count 13, eight unique, page 2 repeated Shuffle 02–07 + UHD).
         """
         results: List[JsonDict] = []
+        seen: set[str] = set()
         start = 0
         page_size = 100
         while True:
@@ -450,14 +455,22 @@ class Api:
                 },
             )
             items = body.get("Items") or []
+            new_on_page = 0
             for item in items:
+                item_id = item.get("Id") or ""
+                if not item_id or item_id in seen:
+                    continue
+                seen.add(item_id)
+                new_on_page += 1
                 media_type = item.get("MediaType") or ""
                 if media_type and media_type != "Audio":
                     continue
                 results.append(item)
             total = int(body.get("TotalRecordCount") or 0)
             start += len(items)
-            if not items or start >= total:
+            # Stop on empty page, exhausted count, or a page that added no
+            # new ids (server repeating itself past the real set).
+            if not items or start >= total or new_on_page == 0:
                 break
         return results
 

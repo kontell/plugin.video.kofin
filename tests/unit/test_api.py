@@ -129,6 +129,48 @@ def test_music_playlists_and_items(api):
     assert transport.calls[1]["params"]["UserId"] == "uid"
 
 
+def test_music_playlists_dedupes_repeated_pages(api):
+    """Jellyfin can over-report TotalRecordCount and re-emit rows on page 2."""
+    client, transport = api
+
+    class Response:
+        def __init__(self, body):
+            self.content = b"{}"
+            self._body = body
+
+        def json(self):
+            return self._body
+
+    page1 = {
+        "Items": [
+            {"Id": "a", "Name": "Shuffle 02", "MediaType": "Audio"},
+            {"Id": "b", "Name": "Leo", "MediaType": "Audio"},
+        ],
+        "TotalRecordCount": 5,
+    }
+    page2 = {
+        "Items": [
+            {"Id": "a", "Name": "Shuffle 02", "MediaType": "Audio"},
+            {"Id": "b", "Name": "Leo", "MediaType": "Audio"},
+        ],
+        "TotalRecordCount": 5,
+    }
+    pages = [page1, page2]
+    idx = {"n": 0}
+
+    def request(method, url, headers=None, params=None, json_body=None, **kwargs):
+        transport.calls.append({"params": params})
+        body = pages[min(idx["n"], len(pages) - 1)]
+        idx["n"] += 1
+        return Response(body)
+
+    transport.request = request  # type: ignore[method-assign]
+    listed = client.music_playlists()
+    assert [p["Id"] for p in listed] == ["a", "b"]
+    # Stopped after the repeated page (no third request chasing the fake total).
+    assert idx["n"] == 2
+
+
 def test_playback_info_optional_params(api):
     client, transport = api
     client.playback_info("item1", {"Name": "Kodi"})
