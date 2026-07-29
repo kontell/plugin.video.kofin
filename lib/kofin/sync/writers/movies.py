@@ -12,7 +12,7 @@ from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import queries_map as QUEM
 from kofin.sync import fields as api
 from kofin.sync import schema
-from kofin.sync.fields import check_unchanged, find_library
+from kofin.sync.fields import check_unchanged, find_library, streams_and_runtime
 from kofin.sync.shims import stop, jellyfin_item, values, Local
 
 from kofin.sync.obj import Objects
@@ -234,8 +234,10 @@ class Movies(KodiDb):
         """Sync special features as native Kodi extras: one ``files`` +
         ``videoversion`` row per feature (plan §2 — movies are native,
         ``itemType`` = the schema-keyed EXTRA constant). Upserts against the
-        stored play URLs so an unchanged set writes nothing; best-effort —
-        a failed fetch or write never gates the movie sync."""
+        stored play URLs; streamdetails (including duration) are always
+        rewritten for the desired set so the extras UI does not fall back to
+        the film's runtime. Best-effort — a failed fetch or write never
+        gates the movie sync."""
         item_type = self.extra_itemtype
         if item_type is None:
             return
@@ -262,24 +264,29 @@ class Movies(KodiDb):
 
             for filename, feature in desired.items():
                 if filename in existing:
-                    continue
-                name = schema.extra_type_name(feature.get("ExtraType"))
-                type_id = self.get_extra_type_id(name, item_type)
-                file_id = self.add_extra_asset(
-                    obj["PathId"],
-                    filename,
-                    obj["DateAdded"],
-                    obj["MovieId"],
-                    item_type,
-                    type_id,
-                )
-                LOG.debug(
-                    "ADD extra [%s/%s] %s: %s",
-                    file_id,
-                    name,
-                    obj["Id"],
-                    feature.get("Name"),
-                )
+                    file_id = existing[filename]
+                else:
+                    name = schema.extra_type_name(feature.get("ExtraType"))
+                    type_id = self.get_extra_type_id(name, item_type)
+                    file_id = self.add_extra_asset(
+                        obj["PathId"],
+                        filename,
+                        obj["DateAdded"],
+                        obj["MovieId"],
+                        item_type,
+                        type_id,
+                    )
+                    LOG.debug(
+                        "ADD extra [%s/%s] %s: %s",
+                        file_id,
+                        name,
+                        obj["Id"],
+                        feature.get("Name"),
+                    )
+                # Always (re)write streams so duration is correct even for
+                # extras added before this fix (on the next movie update).
+                streams, runtime = streams_and_runtime(feature)
+                self.add_streams(file_id, streams, runtime)
         except Exception as error:
             LOG.exception("extras failed for %s: %s", obj["Id"], error)
 
