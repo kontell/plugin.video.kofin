@@ -96,6 +96,25 @@ def test_playstate_commands(fakes):
     assert FakePlayer.actions == ["stop", "pause", ("seek", 30.0)]
 
 
+def test_set_audio_stream_index_enqueues(monkeypatch, fakes):
+    calls = []
+
+    class FakeKofinPlayer:
+        def enqueue_stream_switch(self, kind, index):
+            calls.append((kind, index))
+
+    handler = RemoteHandler(FakeKofinPlayer())  # type: ignore[arg-type]
+    handler.handle(
+        "GeneralCommand",
+        {"Name": "SetAudioStreamIndex", "Arguments": {"Index": 4}},
+    )
+    handler.handle(
+        "GeneralCommand",
+        {"Name": "SetSubtitleStreamIndex", "Arguments": {"SubtitleStreamIndex": 0}},
+    )
+    assert calls == [("audio", 4), ("subtitle", 0)]
+
+
 def test_general_volume_and_navigation(fakes):
     handler = RemoteHandler()
     handler.handle(

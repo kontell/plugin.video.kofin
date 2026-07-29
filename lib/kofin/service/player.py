@@ -25,7 +25,7 @@ import xbmc
 import xbmcgui
 
 from kofin.core import lyrics as lyrics_render
-from kofin.core import settings, state, streammaps, toast
+from kofin.core import playback, settings, state, streammaps, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
@@ -419,6 +419,75 @@ class Player(xbmc.Player):
         self._overlay_window: Optional[Tuple[float, float]] = None
         self._overlay_autoplay = False
         self._skip_target: Optional[float] = None
+        # Remote SetAudio/SetSubtitle (PR3a): worker threads only; never the
+        # websocket callback thread.
+        self._stream_switch_lock = threading.Lock()
+
+    # -- remote stream switch (PR3a local apply) --------------------------------
+
+    def enqueue_stream_switch(self, kind: str, jellyfin_index: Optional[int]) -> None:
+        """Queue a remote stream change off the websocket thread."""
+        threading.Thread(
+            target=self._stream_switch_worker,
+            args=(kind, jellyfin_index),
+            name="kofin-stream-switch",
+            daemon=True,
+        ).start()
+
+    def _stream_switch_worker(self, kind: str, jellyfin_index: Optional[int]) -> None:
+        try:
+            self.apply_stream_switch(kind, jellyfin_index)
+        except Exception:
+            LOG.exception("stream switch failed (%s %s)", kind, jellyfin_index)
+
+    def apply_stream_switch(self, kind: str, jellyfin_index: Optional[int]) -> bool:
+        """Apply a Jellyfin stream index locally when possible. Returns success.
+
+        Transcode audio (and unmapped TC subs) need PlaybackInfo restart —
+        refused here until PR3b with a log line (and toast for the user).
+        """
+        with self._stream_switch_lock:
+            item = self._item
+            if item is None:
+                LOG.info("stream switch ignored: nothing playing")
+                return False
+            action, kodi_index, reason = playback.resolve_local_stream_switch(
+                item, kind=kind, jellyfin_index=jellyfin_index
+            )
+            if action == "refuse":
+                LOG.info("stream switch refused: %s", reason)
+                return False
+            if action == "needs_restart":
+                LOG.info("stream switch needs restart: %s", reason)
+                toast.show(
+                    "Cannot change that stream without reopening playback yet",
+                    toast.WARNING,
+                    time_ms=3000,
+                )
+                return False
+            try:
+                if action == "audio" and kodi_index is not None:
+                    self.setAudioStream(int(kodi_index))
+                    item["AudioStreamIndex"] = jellyfin_index
+                elif action == "subtitle" and kodi_index is not None:
+                    self.setSubtitleStream(int(kodi_index))
+                    self.showSubtitles(True)
+                    item["SubtitleStreamIndex"] = jellyfin_index
+                elif action == "subtitle_off":
+                    self.showSubtitles(False)
+                    item["SubtitleStreamIndex"] = None
+                else:
+                    LOG.info("stream switch no-op: %s", reason)
+                    return False
+            except RuntimeError as error:
+                LOG.warning("Kodi stream apply failed: %s", error)
+                return False
+            LOG.info(
+                "stream switch ok %s jf=%s kodi=%s", kind, jellyfin_index, kodi_index
+            )
+            # Progress immediately so the dashboard tracks the remote command.
+            self._report(self.api.session_progress, event="timeupdate")
+            return True
 
     # -- syncplay forwarding ---------------------------------------------------
 

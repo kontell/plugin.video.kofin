@@ -272,6 +272,48 @@ def test_on_av_change_updates_indexes(monkeypatch):
     assert item["SubtitleStreamIndex"] == 5
 
 
+def test_apply_stream_switch_local_audio(monkeypatch):
+    player, api = make_player(monkeypatch)
+    queue_item()
+    player.onPlayBackStarted()
+    player.onAVStarted()
+    applied = []
+    monkeypatch.setattr(player, "setAudioStream", lambda i: applied.append(i))
+    ok = player.apply_stream_switch("audio", 2)
+    assert ok is True
+    assert applied == [1]  # AudioMap 2 -> kodi 1
+    assert player.current_item()["AudioStreamIndex"] == 2
+    assert any(kind == "progress" for kind, _ in api.calls)
+
+
+def test_apply_stream_switch_refuses_unready_external_sub(monkeypatch):
+    player, api = make_player(monkeypatch)
+    queue_item(SubsMappingReady=False, SubsMapping={})
+    player.onPlayBackStarted()
+    # Do not reconcile — mapping stays unready with SubsAttachOrder present.
+    applied = []
+    monkeypatch.setattr(player, "setSubtitleStream", lambda i: applied.append(i))
+    ok = player.apply_stream_switch("subtitle", 3)
+    assert ok is False
+    assert applied == []
+
+
+def test_apply_stream_switch_subtitle_when_ready(monkeypatch):
+    player, api = make_player(monkeypatch)
+    queue_item()
+    player.onPlayBackStarted()
+    player.onAVStarted()
+    applied = []
+    shown = []
+    monkeypatch.setattr(player, "setSubtitleStream", lambda i: applied.append(i))
+    monkeypatch.setattr(player, "showSubtitles", lambda v: shown.append(v))
+    ok = player.apply_stream_switch("subtitle", 3)
+    assert ok is True
+    assert applied == [2]
+    assert shown == [True]
+    assert player.current_item()["SubtitleStreamIndex"] == 3
+
+
 def test_syncplay_detached_is_a_noop(monkeypatch):
     player, api = make_player(monkeypatch)
     queue_item()

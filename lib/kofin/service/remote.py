@@ -12,11 +12,12 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import xbmc
 
-from kofin.core import toast
+from kofin.core import playback, toast
 from kofin.core.log import Logger
 from kofin.plugin.listitems import plugin_url
 
 if TYPE_CHECKING:
+    from kofin.service.player import Player
     from kofin.syncplay.manager import SyncPlayManager
 
 LOG = Logger(__name__)
@@ -43,7 +44,10 @@ INPUT_ACTIONS = {
 
 
 class RemoteHandler:
-    def __init__(self) -> None:
+    def __init__(self, player: Optional["Player"] = None) -> None:
+        # Playback owner for stream-index commands (PR3a). Optional so unit
+        # tests can construct a handler without a full Player.
+        self.player = player
         # The SyncPlay manager (attached by the service while one is built);
         # all control-plane websocket traffic routes through this handler.
         self.syncplay: Optional["SyncPlayManager"] = None
@@ -176,10 +180,30 @@ class RemoteHandler:
                 {"text": arguments.get("String") or "", "done": False},
             )
         elif name in ("SetAudioStreamIndex", "SetSubtitleStreamIndex"):
-            # Jellyfin stream indexes need source-mapping; deferred.
-            LOG.info("%s not yet mapped", name)
+            self._stream_index_command(name, arguments)
         else:
             LOG.info("unhandled general command %s", name)
+
+    def _stream_index_command(self, name: str, arguments: JsonDict) -> None:
+        """Map dashboard stream picks onto the local player (PR3a).
+
+        Enqueues onto the Player worker — never blocks the websocket thread
+        and never restarts playback here (TC audio restart is PR3b).
+        """
+        player = self.player
+        if player is None:
+            LOG.info("%s ignored: no player", name)
+            return
+        index = playback.parse_remote_stream_index(arguments)
+        if index is None and name == "SetSubtitleStreamIndex":
+            # Some clients omit Index to mean "off".
+            index = -1
+        if index is None:
+            LOG.info("%s missing stream index in %s", name, arguments)
+            return
+        kind = "audio" if name == "SetAudioStreamIndex" else "subtitle"
+        LOG.info("remote %s -> %s index %s", name, kind, index)
+        player.enqueue_stream_switch(kind, index)
 
     def _rpc(self, method: str, params: JsonDict) -> None:
         xbmc.executeJSONRPC(
