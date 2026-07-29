@@ -204,9 +204,9 @@ def reconcile_subs_mapping(
 
     if not kodi_sub_names:
         # Streams not visible yet — provisional demux-then-external layout.
-        mapping = reverse_map(emb)
-        mapping.update(provisional_external_offset_map(attach_order, len(emb)))
-        return mapping, False
+        provisional = reverse_map(emb)
+        provisional.update(provisional_external_offset_map(attach_order, len(emb)))
+        return provisional, False
 
     external = match_external_by_basename(attach_order, subs_paths, kodi_sub_names)
     if len(external) < len(attach_order):
