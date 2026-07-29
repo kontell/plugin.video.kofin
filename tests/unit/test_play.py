@@ -508,6 +508,61 @@ def test_library_resume_honours_a_cleared_bookmark(resume_env, monkeypatch):
     assert resume_env["built"]["resume_seconds"] == 0.0
 
 
+def test_pick_media_source_prefers_matching_id():
+    sources = [{"Id": "a"}, {"Id": "b"}, {"Id": "c"}]
+    assert play.pick_media_source(sources, "b")["Id"] == "b"
+    assert play.pick_media_source(sources, None)["Id"] == "a"
+    assert play.pick_media_source(sources, "")["Id"] == "a"
+    assert play.pick_media_source(sources, "missing")["Id"] == "a"
+
+
+def test_play_mediasourceid_selects_that_source(resume_env, monkeypatch):
+    """Version library rows pass mediasourceid; play must use that source."""
+    resume_env["api"].playback_info = lambda *a, **k: {
+        "MediaSources": [
+            {
+                "Id": "src-primary",
+                "SupportsDirectStream": True,
+                "Container": "mkv",
+            },
+            {
+                "Id": "src-dc",
+                "SupportsDirectStream": True,
+                "Container": "mkv",
+            },
+        ],
+        "PlaySessionId": "ps1",
+    }
+    chosen = []
+
+    def capture_stream_url(server, item, source, device_id, play_session_id):
+        chosen.append(source.get("Id"))
+        return ("http://s/stream", "DirectStream")
+
+    monkeypatch.setattr(play, "stream_url", capture_stream_url)
+    run_play({"id": "ep1", "mediasourceid": "src-dc"}, resume=False)
+    assert chosen == ["src-dc"]
+
+
+def test_play_without_mediasourceid_uses_first_source(resume_env, monkeypatch):
+    resume_env["api"].playback_info = lambda *a, **k: {
+        "MediaSources": [
+            {"Id": "src-primary", "SupportsDirectStream": True, "Container": "mkv"},
+            {"Id": "src-dc", "SupportsDirectStream": True, "Container": "mkv"},
+        ],
+        "PlaySessionId": "ps1",
+    }
+    chosen = []
+
+    def capture_stream_url(server, item, source, device_id, play_session_id):
+        chosen.append(source.get("Id"))
+        return ("http://s/stream", "DirectStream")
+
+    monkeypatch.setattr(play, "stream_url", capture_stream_url)
+    run_play({"id": "ep1"}, resume=False)
+    assert chosen == ["src-primary"]
+
+
 def test_unreadable_row_falls_back_to_the_server_position(resume_env, monkeypatch):
     resume_env["addon"].store["resumeJumpBack"] = "-10"
     monkeypatch.setattr(

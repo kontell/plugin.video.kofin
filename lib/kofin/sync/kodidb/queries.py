@@ -421,8 +421,13 @@ add_video_version_obj = [
     "{MovieId}",
     "movie",
     "{VideoVersionItemType}",
-    40400,
+    "{VideoVersionTypeId}",
 ]
+update_video_version_type = """
+UPDATE      videoversion
+SET         idType = ?
+WHERE       idFile = ?
+"""
 get_videoversion_itemtype = """
 SELECT itemType FROM videoversiontype WHERE id = ?
 """

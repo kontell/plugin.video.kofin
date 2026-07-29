@@ -18,6 +18,7 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 - SyncPlay - watch in sync with other Jellyfin clients
 - Integrated media segment skipping and play next episode prompt
 - Access movie special features / extras natively
+- Multi-version movies as native Kodi video versions (Jellyfin MediaSources)
 - Jellyfin song lyrics, timed or plain, handed to Kodi as a song starts - needs an addon that displays lyrics, such as CU LRC Lyrics, since no stock skin shows them
 - Flexible playback methods - direct play, remux or transcode. Choose supported HDR formats & max resolution
 - Play with transcoding context item: pick a bitrate
