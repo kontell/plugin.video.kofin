@@ -8,6 +8,10 @@ Everyone else is a checkbox; confirming applies the add/remove deltas.
 The Advanced tab's shortlist (``whoIsWatchingShortlist``) narrows that list to
 the handful of people who actually watch on this device — a server with fifty
 accounts otherwise makes the dialog useless.
+
+The chosen set is also written to the hidden ``whoIsWatching`` setting so the
+service can re-attach those users when a new session comes up after a Kodi
+restart or websocket reconnect. Jellyfin sessions do not survive either.
 """
 
 from typing import Any, Dict, List, Optional, Sequence, Set
@@ -25,6 +29,10 @@ from kofin.plugin.router import Request
 LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
+
+# Hidden setting holding the additional-user ids to re-apply on session start.
+# Empty means nobody extra (unlike the shortlist, where empty means everyone).
+WHO_IS_WATCHING = "whoIsWatching"
 
 
 def offerable(
@@ -50,6 +58,79 @@ def offerable(
         for user in eligible
         if user.get("Id") in allowed or user.get("Id") in on_session
     ]
+
+
+def users_to_restore(desired: Sequence[str], on_session: Set[str]) -> List[str]:
+    """Ids in ``desired`` that are not already on the session.
+
+    Order follows ``desired`` so the setting's left-to-right order is the
+    restore order. Empty entries are dropped; the primary user is never in
+    this list when the dialog wrote it, but a stale id is harmless (Jellyfin
+    no-ops adding the session owner).
+    """
+    already = set(on_session)
+    restored: List[str] = []
+    for user_id in desired:
+        if not user_id or user_id in already:
+            continue
+        restored.append(user_id)
+        already.add(user_id)  # de-dupe within desired itself
+    return restored
+
+
+def persist_who_is_watching(user_ids: Sequence[Optional[str]]) -> None:
+    """Write the full chosen set. Empty clears the setting ("nobody extra")."""
+    cleaned = [str(user_id) for user_id in user_ids if user_id]
+    settings.set_str(WHO_IS_WATCHING, ",".join(cleaned))
+
+
+def restore_additional_users(api: Api, device_id: str) -> None:
+    """Re-attach saved additional users to the current device session.
+
+    Best-effort and additive only: removals happen through the picker, not
+    here. A missing session or a failed add is logged and skipped so a
+    websocket connect path is never taken down by this.
+    """
+    desired = settings.get_list(WHO_IS_WATCHING)
+    if not desired:
+        return
+
+    try:
+        sessions = api.device_sessions(device_id)
+    except JellyfinError as error:
+        LOG.warning("who's-watching restore: session lookup failed: %s", error)
+        return
+    if not sessions:
+        LOG.debug("who's-watching restore: no device session yet")
+        return
+
+    session = sessions[0]
+    session_id = session.get("Id", "")
+    if not session_id:
+        return
+
+    on_session = {
+        str(user.get("UserId"))
+        for user in (session.get("AdditionalUsers") or [])
+        if user.get("UserId")
+    }
+    # Never try to re-add the primary user; Jellyfin no-ops it, but a stale
+    # setting from a previous primary should not spam the log either.
+    primary = api.user_id or ""
+    missing = [
+        user_id
+        for user_id in users_to_restore(desired, on_session)
+        if user_id != primary
+    ]
+    if not missing:
+        return
+
+    for user_id in missing:
+        try:
+            api.session_add_user(session_id, user_id)
+            LOG.info("who's-watching restored user %s", user_id)
+        except JellyfinError as error:
+            LOG.warning("who's-watching restore failed for %s: %s", user_id, error)
 
 
 def who_is_watching(request: Request) -> None:
@@ -90,16 +171,22 @@ def who_is_watching(request: Request) -> None:
     title = settings.localized(30047) % (creds.display_user or "")
     chosen = xbmcgui.Dialog().multiselect(title, names, preselect=preselect)
     if chosen is None:
-        return  # cancelled; the session is left as-is
+        return  # cancelled; the session and the saved set are left as-is
 
-    picked_ids = {eligible[index].get("Id") for index in chosen}
+    # Preserve dialog order so the setting is stable across confirms.
+    picked_ids = [eligible[index].get("Id") for index in chosen]
+    picked_set = {user_id for user_id in picked_ids if user_id}
+    # Persist the intended set before the API round trips so a partial failure
+    # still re-applies on the next session (service restore retries).
+    persist_who_is_watching(picked_ids)
+
     session_id = session.get("Id", "")
     changed = False
     try:
         for user in eligible:
             user_id = user.get("Id", "")
             was_on = user_id in current_ids
-            now_on = user_id in picked_ids
+            now_on = user_id in picked_set
             if now_on and not was_on:
                 api.session_add_user(session_id, user_id)
                 changed = True

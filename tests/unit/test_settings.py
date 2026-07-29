@@ -58,6 +58,21 @@ def test_clear_logs_out_but_keeps_server_address_and_device():
     assert loaded.is_logged_in is False
 
 
+def test_clear_drops_who_is_watching_but_keeps_the_shortlist():
+    """Additional-user membership is tied to this primary user; the shortlist
+    is a device preference about who the picker offers and survives logout."""
+    FakeAddon.store["whoIsWatching"] = "u2,u4"
+    FakeAddon.store["whoIsWatchingShortlist"] = "u2,u3,u4"
+    creds = settings.Credentials.load()
+    creds.is_logged_in = True
+    creds.save()
+
+    settings.Credentials.clear()
+
+    assert FakeAddon.store.get("whoIsWatching", "") == ""
+    assert FakeAddon.store["whoIsWatchingShortlist"] == "u2,u3,u4"
+
+
 def test_resume_offset_is_a_magnitude():
     # The slider stores a negative number ("-10s") because that reads right in
     # the settings UI; every caller wants seconds to rewind by.

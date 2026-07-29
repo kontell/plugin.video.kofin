@@ -799,6 +799,14 @@
           <constraints><allowempty>true</allowempty></constraints>
           <control type="edit" format="string"/>
         </setting>
+        <!-- Hidden state written by the Who's watching? picker; re-applied by
+             the service when a session comes up after restart/reconnect. -->
+        <setting id="whoIsWatching" type="string">
+          <level>4</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="edit" format="string"/>
+        </setting>
 
         <setting id="sslVerify" type="boolean" label="30066" help="30067">
           <level>0</level>

@@ -155,6 +155,8 @@ def test_logout_clears_and_notifies(kodi_fakes, monkeypatch):
     creds.user_id = "uid9"
     creds.is_logged_in = True
     creds.save()
+    FakeAddon.store["whoIsWatching"] = "u2,u4"
+    FakeAddon.store["whoIsWatchingShortlist"] = "u2,u3"
     called = []
     monkeypatch.setattr(account.auth, "logout", lambda h, a, hdr: called.append(a))
 
@@ -165,4 +167,6 @@ def test_logout_clears_and_notifies(kodi_fakes, monkeypatch):
     assert loaded.is_logged_in is False
     assert loaded.token == ""
     assert loaded.server_address == "http://minipie:8096"
+    assert FakeAddon.store.get("whoIsWatching", "") == ""
+    assert FakeAddon.store["whoIsWatchingShortlist"] == "u2,u3"
     assert any("AuthChanged" in cmd for cmd in kodi_fakes)

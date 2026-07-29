@@ -151,13 +151,20 @@ class Credentials:
 
     @classmethod
     def clear(cls) -> None:
-        """Log out: drop the session, keep the server address and device id."""
+        """Log out: drop the session, keep the server address and device id.
+
+        Also clears ``whoIsWatching``: additional-user membership is tied to
+        this primary user on this device. A later login as someone else must
+        not re-attach the previous household's co-watchers. The shortlist is
+        left alone — it is a device preference about who the picker offers.
+        """
         for setting_id in (
             "serverName",
             "serverId",
             "userId",
             "displayUser",
             "accessToken",
+            "whoIsWatching",
         ):
             set_str(setting_id, "")
         set_bool("isLoggedIn", False)

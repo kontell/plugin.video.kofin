@@ -411,6 +411,90 @@ def test_reconnect_catches_up_on_missed_changes(monkeypatch):
     assert service.library.commands == ["FastSync"]
 
 
+# --- Who's watching? restore on session attach -------------------------------
+
+
+class RecordingSessionApi:
+    def __init__(self, additional=None):
+        self.user_id = "primary"
+        self.additional = list(additional or [])
+        self.added = []
+
+    def device_sessions(self, device_id):
+        return [
+            {
+                "Id": "sess1",
+                "AdditionalUsers": [{"UserId": uid} for uid in self.additional],
+            }
+        ]
+
+    def session_add_user(self, session_id, user_id):
+        self.added.append(user_id)
+        self.additional.append(user_id)
+
+
+def test_ws_connect_restores_who_is_watching(monkeypatch):
+    """A fresh session after restart has empty AdditionalUsers; the service
+    re-attaches the set the picker saved, after capabilities attach the
+    session."""
+    FakeAddon.store["whoIsWatching"] = "u2,u4"
+    api = RecordingSessionApi()
+    service = Service()
+    service.api = api
+    service.credentials.device_id = "dev1"
+    order = []
+
+    monkeypatch.setattr(
+        service, "_register_capabilities", lambda: order.append("capabilities")
+    )
+    monkeypatch.setattr(service, "_connection_toast", lambda *a: None)
+    monkeypatch.setattr(
+        service, "_catch_up_after_reconnect", lambda: order.append("catchup")
+    )
+    monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
+
+    service._on_ws_connected()
+
+    assert order == ["capabilities", "catchup"]
+    assert api.added == ["u2", "u4"]
+
+
+def test_ws_connect_skips_restore_when_nobody_saved(monkeypatch):
+    FakeAddon.store.pop("whoIsWatching", None)
+    api = RecordingSessionApi()
+    service = Service()
+    service.api = api
+    service.credentials.device_id = "dev1"
+    _connected(service, monkeypatch)
+    assert api.added == []
+
+
+def test_ws_connect_survives_a_broken_restore(monkeypatch):
+    """Restore is best-effort: an unexpected failure must not block catch-up."""
+    FakeAddon.store["whoIsWatching"] = "u2"
+    service = Service()
+    caught_up = []
+
+    class BoomApi:
+        user_id = "primary"
+
+        def device_sessions(self, device_id):
+            raise RuntimeError("session lookup exploded")
+
+    service.api = BoomApi()
+    service.credentials.device_id = "dev1"
+    monkeypatch.setattr(service, "_register_capabilities", lambda: None)
+    monkeypatch.setattr(service, "_connection_toast", lambda *a: None)
+    monkeypatch.setattr(
+        service, "_catch_up_after_reconnect", lambda: caught_up.append(True)
+    )
+    monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
+
+    service._on_ws_connected()
+
+    assert caught_up == [True]
+
+
 def test_first_connect_does_not_double_up_with_startup(monkeypatch):
     """startup() runs the same catch-up a moment later; the library reports
     itself unfinished until then."""
