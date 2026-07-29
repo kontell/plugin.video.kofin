@@ -1369,3 +1369,12 @@ msgstr ""
 msgctxt "#30610"
 msgid "Hand to a lyrics addon"
 msgstr ""
+
+# 30611-30612 — music playlist sync
+msgctxt "#30611"
+msgid "Sync music playlists"
+msgstr ""
+
+msgctxt "#30612"
+msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin, using each song's library path. Local edits in that folder are overwritten on the next sync."
+msgstr ""

@@ -40,7 +40,10 @@ Handler = Callable[[str, str], None]
 
 # Settings whose emptied value destroys data if believed too readily, so an
 # empty read is corroborated before it is acted on (``_is_spurious_clear``).
-GUARDED_CLEARS = ("librarySelection",)
+# ``syncMusicPlaylists`` is here too: a failed settings load during materialize
+# was observed live as true→"" which fired CleanupMusicPlaylists and wiped
+# the just-written ``playlists/music/Kofin/`` folder.
+GUARDED_CLEARS = ("librarySelection", "syncMusicPlaylists")
 
 # Non-empty for the whole life of an installed addon: Credentials.load
 # generates it on first use and logging out deliberately keeps it. So an empty
@@ -58,6 +61,8 @@ class SettingsApplier:
             "librarySelection": self._library_selection_changed,
             "syncPlayEnabled": self._syncplay_enabled_changed,
             "contextBitrates": self._context_bitrates_changed,
+            "syncMusicPlaylists": self._sync_music_playlists_changed,
+            "musicTranscode": self._music_transcode_changed,
         }
         self.snapshot: Dict[str, str] = self._read_all()
 
@@ -85,6 +90,16 @@ class SettingsApplier:
             # transient empty read of librarySelection looks like "user removed
             # every library" and prompts a destructive removal.
             LOG.debug("settings change before ready; ignored")
+            return
+        # Whole-document load failures blank every setting (or, for booleans
+        # with a default of false, surface the default). Acting on that once
+        # wiped managed music playlists live: true→false CleanupMusicPlaylists
+        # mid-materialize. If the canary is empty, trust nothing this cycle.
+        if settings.get_str(LOAD_CANARY) == "":
+            LOG.warning(
+                "settings document failed to load (%s empty); skipping apply cycle",
+                LOAD_CANARY,
+            )
             return
         for setting_id, handler in self.handlers.items():
             new = settings.get_str(setting_id)
@@ -166,6 +181,41 @@ class SettingsApplier:
     def _context_bitrates_changed(self, old: str, new: str) -> None:
         """Keep the property addon.xml gates the transcode context item on."""
         state.set_context_bitrates(new)
+
+    def _sync_music_playlists_changed(self, old: str, new: str) -> None:
+        """Enable → materialize all; disable → delete managed Kofin/ folder."""
+        library = self._library_manager()
+        if library is None:
+            LOG.warning("syncMusicPlaylists changed but library manager unavailable")
+            return
+        if new == "true":
+            library.enqueue_command("SyncMusicPlaylists")
+            return
+        # Disable path is destructive (deletes playlists/music/Kofin/). Live
+        # testing showed failed settings loads can surface the boolean default
+        # ("false") while the document is mid-rewrite after setSettingBool —
+        # corroborate before wiping.
+        confirm = settings.get_str("syncMusicPlaylists")
+        if settings.get_str(LOAD_CANARY) == "" or confirm == "true":
+            LOG.warning(
+                "ignoring unconfirmed syncMusicPlaylists off "
+                "(confirm=%r, canary empty=%s); leaving managed playlists",
+                confirm,
+                settings.get_str(LOAD_CANARY) == "",
+            )
+            self.snapshot["syncMusicPlaylists"] = "true"
+            return
+        library.enqueue_command("CleanupMusicPlaylists")
+
+    def _music_transcode_changed(self, old: str, new: str) -> None:
+        """Path mode flip rewrites MyMusic rows later; rematerialize playlists
+        so lines match the new path form when playlist sync is on."""
+        if not settings.get_bool("syncMusicPlaylists"):
+            return
+        library = self._library_manager()
+        if library is None:
+            return
+        library.enqueue_command("SyncMusicPlaylists")
 
     def _library_selection_changed(self, old: str, new: str) -> None:
         """The apply-on-save path for the library multiselect."""

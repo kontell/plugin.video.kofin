@@ -21,6 +21,7 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 - Jellyfin song lyrics, timed or plain, handed to Kodi as a song starts - needs an addon that displays lyrics, such as CU LRC Lyrics, since no stock skin shows them
 - Flexible playback methods - direct play, remux or transcode. Choose supported HDR formats & max resolution
 - Play with transcoding context item: pick a bitrate
+- Sync Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin
 
 ### Legacy
 

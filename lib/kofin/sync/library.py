@@ -269,6 +269,28 @@ class Library(threading.Thread):
         library thread so IPC handling never blocks on a sync."""
         self.commands.put((command, data or {}))
 
+    def sync_music_playlists(self):
+        """Rewrite managed music playlist files from the server (one-way)."""
+        if not settings.get_bool("syncMusicPlaylists"):
+            LOG.debug("syncMusicPlaylists off; skip SyncMusicPlaylists command")
+            return
+        try:
+            from kofin.sync import playlists as music_playlists
+
+            with self.music_database_lock:
+                music_playlists.refresh_with_databases(self.api)
+        except Exception:
+            LOG.exception("SyncMusicPlaylists failed")
+
+    def cleanup_music_playlists(self):
+        """Remove the managed ``playlists/music/Kofin/`` folder."""
+        try:
+            from kofin.sync import playlists as music_playlists
+
+            music_playlists.cleanup_managed_playlists()
+        except Exception:
+            LOG.exception("CleanupMusicPlaylists failed")
+
     def run(self):
         """Start syncing.
 
@@ -549,6 +571,10 @@ class Library(threading.Thread):
                     if self.companion_tier != TIER_NONE:
                         if not self.fast_sync():
                             self.schedule_retry()
+                elif command == "SyncMusicPlaylists":
+                    self.sync_music_playlists()
+                elif command == "CleanupMusicPlaylists":
+                    self.cleanup_music_playlists()
                 else:
                     LOG.warning("unknown library command %s", command)
             except Exception as error:

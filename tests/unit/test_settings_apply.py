@@ -444,3 +444,73 @@ def test_ssl_handler(monkeypatch):
     FakeAddon.store["sslVerify"] = "false"
     applier.apply()
     assert service._restart_requested is True
+
+
+def test_sync_music_playlists_enable_disable():
+    service = FakeService()
+    FakeAddon.store["syncMusicPlaylists"] = "false"
+    applier = ready_applier(service)
+
+    FakeAddon.store["syncMusicPlaylists"] = "true"
+    applier.apply()
+    assert service.library.commands == [("SyncMusicPlaylists", None)]
+
+    service.library.commands.clear()
+    FakeAddon.store["syncMusicPlaylists"] = "false"
+    applier.apply()
+    assert service.library.commands == [("CleanupMusicPlaylists", None)]
+
+
+def test_music_transcode_rematerializes_when_playlists_on():
+    service = FakeService()
+    FakeAddon.store["syncMusicPlaylists"] = "true"
+    FakeAddon.store["musicTranscode"] = "false"
+    applier = ready_applier(service)
+
+    FakeAddon.store["musicTranscode"] = "true"
+    applier.apply()
+    assert service.library.commands == [("SyncMusicPlaylists", None)]
+
+
+def test_music_transcode_skips_when_playlists_off():
+    service = FakeService()
+    FakeAddon.store["syncMusicPlaylists"] = "false"
+    FakeAddon.store["musicTranscode"] = "false"
+    applier = ready_applier(service)
+
+    FakeAddon.store["musicTranscode"] = "true"
+    applier.apply()
+    assert service.library.commands == []
+
+
+def test_spurious_empty_sync_music_playlists_does_not_cleanup():
+    """Failed settings load must not wipe managed playlist files (live finding)."""
+    service = FakeService()
+    FakeAddon.store["syncMusicPlaylists"] = "true"
+    FakeAddon.store["deviceId"] = "dev-1"
+    applier = ready_applier(service)
+
+    # Burst empty reads: syncMusicPlaylists and the canary both blank.
+    FakeAddon.store["syncMusicPlaylists"] = ""
+    FakeAddon.store["deviceId"] = ""
+    applier.apply()
+    assert service.library.commands == []
+
+
+def test_failed_settings_load_does_not_treat_bool_default_as_disable():
+    """When the settings document fails, booleans fall back to their default
+    (false) rather than "" — that must not fire CleanupMusicPlaylists."""
+    service = FakeService()
+    FakeAddon.store["syncMusicPlaylists"] = "true"
+    FakeAddon.store["deviceId"] = "dev-1"
+    applier = ready_applier(service)
+
+    FakeAddon.store["syncMusicPlaylists"] = "false"  # default, not a real edit
+    FakeAddon.store["deviceId"] = ""  # canary proves the document did not load
+    applier.apply()
+    assert service.library.commands == []
+    # Snapshot not advanced — a later real false after recovery still applies.
+    FakeAddon.store["deviceId"] = "dev-1"
+    FakeAddon.store["syncMusicPlaylists"] = "false"
+    applier.apply()
+    assert service.library.commands == [("CleanupMusicPlaylists", None)]
