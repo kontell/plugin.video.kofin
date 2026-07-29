@@ -584,6 +584,215 @@ def test_movie_extras_duration_from_runtime_only(api):
     assert duration == 9
 
 
+# --- movie video versions (MediaSources → native VERSION assets) ------------
+
+
+def _version_source(source_id, name, path, ticks, width=1920, height=1080):
+    return {
+        "Id": source_id,
+        "Name": name,
+        "Path": path,
+        "Container": "mkv",
+        "RunTimeTicks": ticks,
+        "MediaStreams": [
+            {
+                "Type": "Video",
+                "Codec": "h264",
+                "Width": width,
+                "Height": height,
+                "AspectRatio": "16:9",
+            }
+        ],
+    }
+
+
+def movie_with_versions(etag="etag-movie1-v1"):
+    """Primary matches item Id; alternate is Director's Cut (seeded builtin)."""
+    payload = dto(MOVIE)
+    payload["Etag"] = etag
+    payload["MediaSources"] = [
+        _version_source(
+            "movie1",
+            "Theatrical Cut",
+            "/media/movies/The Example (2020)/The Example - Theatrical.mkv",
+            72000000000,
+        ),
+        _version_source(
+            "source-dc",
+            "Director's Cut",
+            "/media/movies/The Example (2020)/The Example - Directors Cut.mkv",
+            80000000000,
+            width=3840,
+            height=2160,
+        ),
+    ]
+    return payload
+
+
+def version_rows():
+    """VERSION assets (primary + alternates), ordered by idFile."""
+    return video_query(
+        "SELECT videoversion.idFile, videoversion.idMedia, videoversion.idType,"
+        " videoversiontype.name, videoversiontype.owner, videoversiontype.itemType,"
+        " files.strFilename"
+        " FROM videoversion"
+        " JOIN videoversiontype ON videoversiontype.id = videoversion.idType"
+        " JOIN files ON files.idFile = videoversion.idFile"
+        " WHERE videoversion.itemType = ? ORDER BY videoversion.idFile",
+        (version_item_type(),),
+    )
+
+
+def test_movie_versions_written_as_native_assets(api):
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api, movie_with_versions())
+
+    rows = version_rows()
+    assert len(rows) == 2
+    film_file_id = video_query("SELECT idFile FROM movie")[0][0]
+    primary = next(r for r in rows if r[0] == film_file_id)
+    alternate = next(r for r in rows if r[0] != film_file_id)
+
+    assert primary[1] == 1  # idMedia
+    assert primary[3] == "Theatrical Cut"
+    # Builtin Theatrical Cut is seeded (40406); owner 0 system, not USER.
+    assert primary[5] == version_item_type()
+
+    assert alternate[1] == 1
+    assert alternate[3] == "Director's Cut"
+    assert alternate[5] == version_item_type()
+    assert "mediasourceid=source-dc" in alternate[6]
+    assert "id=movie1" in alternate[6]
+    assert "mode=play" in alternate[6]
+    assert alternate[6].startswith("plugin://plugin.video.kofin/lib-movies/?")
+
+    # Alternate has its own duration (8000s), not the film's primary streams alone.
+    alt_duration = video_query(
+        "SELECT iVideoDuration FROM streamdetails"
+        " WHERE idFile = ? AND iStreamType = 0",
+        (alternate[0],),
+    )[0][0]
+    assert alt_duration == 8000
+
+
+def test_movie_single_named_primary_version(api):
+    """One MediaSource named Director's Cut → primary idType is that builtin."""
+    payload = dto(MOVIE)
+    payload["MediaSources"] = [
+        _version_source(
+            "movie1",
+            "Director's Cut",
+            "/media/movies/The Example (2020)/The Example.mkv",
+            72000000000,
+        )
+    ]
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api, payload)
+
+    rows = version_rows()
+    assert len(rows) == 1
+    film_file_id = video_query("SELECT idFile FROM movie")[0][0]
+    assert rows[0][0] == film_file_id
+    assert rows[0][3] == "Director's Cut"
+    assert rows[0][2] != 40400
+
+
+def test_movie_versions_idempotent(api):
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api, movie_with_versions())
+    first = dump(str(sync_db._path_overrides["video"]))
+
+    write_movie(api, movie_with_versions())
+    assert dump(str(sync_db._path_overrides["video"])) == first
+
+    before = version_rows()
+    write_movie(api, movie_with_versions(etag="etag-movie1-v2"))
+    assert version_rows() == before
+
+
+def test_movie_versions_pruned_when_source_disappears(api):
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api, movie_with_versions())
+    assert len(version_rows()) == 2
+
+    payload = movie_with_versions(etag="etag-movie1-v2")
+    payload["MediaSources"] = payload["MediaSources"][:1]  # primary only
+    write_movie(api, payload)
+
+    rows = version_rows()
+    assert len(rows) == 1
+    film_file_id = video_query("SELECT idFile FROM movie")[0][0]
+    assert rows[0][0] == film_file_id
+    gone = video_query(
+        "SELECT COUNT(*) FROM files WHERE strFilename LIKE '%mediasourceid=source-dc%'"
+    )
+    assert gone == [(0,)]
+
+
+def test_movie_versions_removed_with_movie(api):
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api, movie_with_versions())
+    assert len(version_rows()) == 2
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        Movies(api, kdb, vdb, library=LIBRARY).remove("movie1")
+
+    assert video_query("SELECT COUNT(*) FROM movie") == [(0,)]
+    assert video_query("SELECT COUNT(*) FROM videoversion") == [(0,)]
+    assert video_query("SELECT COUNT(*) FROM files") == [(0,)]
+    assert video_query("SELECT COUNT(*) FROM streamdetails") == [(0,)]
+
+
+def test_movie_versions_failure_never_gates_sync(api, monkeypatch):
+    """A failure inside the versions pass must not roll back the movie row."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+
+    def boom(_feature):
+        raise RuntimeError("streams down")
+
+    monkeypatch.setattr("kofin.sync.writers.movies.streams_and_runtime", boom)
+    write_movie(api, movie_with_versions())
+
+    assert video_query("SELECT COUNT(*) FROM movie") == [(1,)]
+    film_file_id = video_query("SELECT idFile FROM movie")[0][0]
+    # Primary version row is written in movie_add before versions() runs.
+    primary = video_query(
+        "SELECT idType FROM videoversion WHERE idFile = ?", (film_file_id,)
+    )
+    assert primary == [(40406,)]  # Theatrical Cut builtin
+
+
+def test_movie_novel_version_name_creates_user_type(api):
+    payload = dto(MOVIE)
+    payload["MediaSources"] = [
+        _version_source(
+            "movie1",
+            "Standard Edition",
+            "/media/movies/The Example (2020)/a.mkv",
+            72000000000,
+        ),
+        _version_source(
+            "source-imax",
+            "IMAX Exclusive",
+            "/media/movies/The Example (2020)/b.mkv",
+            75000000000,
+        ),
+    ]
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api, payload)
+
+    rows = version_rows()
+    assert len(rows) == 2
+    imax = next(r for r in rows if r[3] == "IMAX Exclusive")
+    assert imax[4] == 2  # VIDEO_ASSET_OWNER_USER
+    # Second write reuses the same type id (no duplicate names).
+    write_movie(api, {**payload, "Etag": "etag-movie1-v2"})
+    type_names = video_query(
+        "SELECT name FROM videoversiontype WHERE name = 'IMAX Exclusive'"
+    )
+    assert len(type_names) == 1
+
+
 def test_boxset_links_and_removal(api):
     register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
     write_movie(api)

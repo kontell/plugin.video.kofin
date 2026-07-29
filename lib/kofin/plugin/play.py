@@ -48,6 +48,26 @@ AUDIO_TYPES = frozenset({"Audio"})
 ASSUMED_SOURCE_BITRATE = 30_000_000
 
 
+def pick_media_source(
+    sources: List[JsonDict], mediasource_id: Optional[str] = None
+) -> JsonDict:
+    """Select a MediaSource for playback.
+
+    Library version rows pass ``mediasourceid`` so the alternate file is used;
+    primary movie URLs omit it and take the first source. A missing id falls
+    back to the first source (server may have reorganized sources).
+    """
+    if not sources:
+        raise JellyfinError("no media sources")
+    wanted = (mediasource_id or "").strip()
+    if wanted:
+        for source in sources:
+            if source.get("Id") == wanted:
+                return source
+        LOG.warning("mediasourceid %s not in PlaybackInfo; using first source", wanted)
+    return sources[0]
+
+
 def stream_url(
     server: str,
     item: JsonDict,
@@ -270,7 +290,7 @@ def play(request: Request) -> None:
         sources = info.get("MediaSources") or []
         if not sources:
             raise JellyfinError("no media sources for %s" % item_id)
-        source = sources[0]
+        source = pick_media_source(sources, request.params.get("mediasourceid"))
         play_session_id = info.get("PlaySessionId", "")
         url, method = stream_url(
             api.server, item, source, creds.device_id, play_session_id

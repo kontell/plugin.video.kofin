@@ -67,14 +67,24 @@ class Movies(Kodi):
         if self.cursor.fetchone()[0] == 1:
             self.cursor.execute(QU.add_video_version, args)
 
+    def set_video_version_type(self, file_id, type_id):
+        """Rewrite the primary (or any) version row's idType."""
+        self.cursor.execute(QU.check_video_version)
+        if self.cursor.fetchone()[0] == 1:
+            self.cursor.execute(QU.update_video_version_type, (type_id, file_id))
+
     def get_extra_assets(self, movie_id, item_type):
-        """Existing extras rows: [(idFile, strFilename, idType)]."""
+        """Existing asset rows for a movie: [(idFile, strFilename, idType)].
+
+        ``item_type`` is VERSION or EXTRA (schema-keyed); used for both.
+        """
         self.cursor.execute(QU.get_extra_assets, (movie_id, item_type))
         return self.cursor.fetchall()
 
     def get_extra_type_id(self, name, item_type):
-        """Find-or-create the named videoversiontype row for an extra (owner
-        USER, like Kodi's own convert-to-extra flow)."""
+        """Find-or-create the named videoversiontype row (owner USER, like
+        Kodi's own convert-to-extra flow). Matches builtins first via name
+        + itemType (e.g. Director's Cut at 40407)."""
         self.cursor.execute(QU.get_videoversiontype_by_name, (name, item_type))
         row = self.cursor.fetchone()
         if row:
@@ -85,10 +95,21 @@ class Movies(Kodi):
         )
         return self.cursor.lastrowid
 
+    def resolve_version_type(self, name):
+        """Map ``MediaSource.Name`` to a VERSION ``videoversiontype`` id.
+
+        Empty / ``Standard Edition`` → the seeded Standard Edition (40400).
+        Otherwise find-or-create under VERSION itemType (builtins first).
+        """
+        name = (name or "").strip()
+        if not name or name.lower() == "standard edition":
+            return 40400
+        return self.get_extra_type_id(name, self.itemtype)
+
     def add_extra_asset(
         self, path_id, filename, date_added, movie_id, item_type, type_id
     ):
-        """One files row + one videoversion row for a special feature."""
+        """One files row + one videoversion row (extra or alternate version)."""
         file_id = self.add_file(path_id, filename)
         self.update_file(path_id, filename, date_added, file_id)
         self.cursor.execute(

@@ -130,6 +130,12 @@ class Movies(KodiDb):
 
         obj["Tags"] = tags
 
+        primary, _alternates = self.split_media_sources(item)
+        obj["VideoVersionItemType"] = self.itemtype
+        obj["VideoVersionTypeId"] = self.resolve_version_type(
+            primary.get("Name") if primary else None
+        )
+
         if update:
             self.movie_update(obj)
         else:
@@ -144,6 +150,7 @@ class Movies(KodiDb):
         self.add_people(*values(obj, QU.add_people_movie_obj))
         self.add_streams(*values(obj, QU.add_streams_obj))
         self.artwork.add(obj["Artwork"], obj["MovieId"], "movie")
+        self.versions(obj, item)
         self.extras(obj, item)
         self.item_ids.append(obj["Id"])
 
@@ -160,6 +167,7 @@ class Movies(KodiDb):
         obj["PathId"] = self.add_path(*values(obj, QU.add_path_obj))
         obj["FileId"] = self.add_file(*values(obj, QU.add_file_obj))
         obj["VideoVersionItemType"] = self.itemtype
+        obj.setdefault("VideoVersionTypeId", 40400)
 
         self.add(*values(obj, QU.add_movie_obj))
         self.add_videoversion(*values(obj, QU.add_video_version_obj))
@@ -182,6 +190,7 @@ class Movies(KodiDb):
         self.update_unique_id(*values(obj, QU.update_unique_id_movie_obj))
 
         self.update(*values(obj, QU.update_movie_obj))
+        self.set_video_version_type(obj["FileId"], obj.get("VideoVersionTypeId", 40400))
         self.jellyfin_db.update_reference(*values(obj, QUEM.update_reference_obj))
         LOG.debug(
             "UPDATE movie [%s/%s/%s] %s: %s",
@@ -229,6 +238,101 @@ class Movies(KodiDb):
             "mode": "play",
         }
         obj["Filename"] = "%s?%s" % (obj["Path"], urlencode(params))
+
+    @staticmethod
+    def split_media_sources(item):
+        """(primary MediaSource or None, alternate MediaSources).
+
+        Primary is the source whose Id matches the item Id when present,
+        otherwise the first source (Jellyfin's usual default). A non-list
+        MediaSources payload is treated as empty so a bad DTO cannot sink
+        the movie write before the versions pass's try/except.
+        """
+        raw = item.get("MediaSources")
+        if not isinstance(raw, list) or not raw:
+            return None, []
+        sources = raw
+        item_id = item.get("Id")
+        primary = None
+        for source in sources:
+            if isinstance(source, dict) and source.get("Id") == item_id:
+                primary = source
+                break
+        if primary is None:
+            primary = sources[0] if isinstance(sources[0], dict) else None
+            if primary is None:
+                return None, []
+        primary_id = primary.get("Id")
+        alternates = [
+            source
+            for source in sources
+            if isinstance(source, dict)
+            and source.get("Id")
+            and source.get("Id") != primary_id
+        ]
+        return primary, alternates
+
+    def versions(self, obj, item):
+        """Sync alternate MediaSources as native Kodi video versions
+        (``itemType`` = VERSION from the seeded 40400 row). Primary type is
+        set in movie_add/update; this pass only manages non-primary files.
+        Best-effort — never gates the movie sync."""
+        try:
+            _primary, alternates = self.split_media_sources(item)
+            existing = {
+                row[1]: row[0]  # strFilename -> idFile
+                for row in self.get_extra_assets(obj["MovieId"], self.itemtype)
+                if row[0] != obj["FileId"]  # never touch the primary file
+            }
+            if not alternates and not existing:
+                return
+
+            desired = {}
+            for source in alternates:
+                desired[self.version_filename(obj, source)] = source
+
+            for filename, file_id in existing.items():
+                if filename not in desired:
+                    self.delete_extra_asset(file_id)
+                    LOG.debug("DELETE version [%s] %s", file_id, obj["Id"])
+
+            for filename, source in desired.items():
+                if filename in existing:
+                    file_id = existing[filename]
+                else:
+                    type_id = self.resolve_version_type(source.get("Name"))
+                    file_id = self.add_extra_asset(
+                        obj["PathId"],
+                        filename,
+                        obj["DateAdded"],
+                        obj["MovieId"],
+                        self.itemtype,
+                        type_id,
+                    )
+                    LOG.debug(
+                        "ADD version [%s/%s] %s: %s",
+                        file_id,
+                        type_id,
+                        obj["Id"],
+                        source.get("Name"),
+                    )
+                streams, runtime = streams_and_runtime(source)
+                self.add_streams(file_id, streams, runtime)
+        except Exception as error:
+            LOG.exception("versions failed for %s: %s", obj["Id"], error)
+
+    def version_filename(self, obj, source):
+        """Plugin play URL for an alternate MediaSource (movie id +
+        mediasourceid so play resolves the right source)."""
+        path = source.get("Path") or ""
+        basename = path.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
+        params = {
+            "filename": basename or "%s.version" % source["Id"],
+            "id": obj["Id"],
+            "mediasourceid": source["Id"],
+            "mode": "play",
+        }
+        return "%s?%s" % (obj["Path"], urlencode(params))
 
     def extras(self, obj, item):
         """Sync special features as native Kodi extras: one ``files`` +
@@ -460,6 +564,7 @@ class Movies(KodiDb):
         self.artwork.delete(obj["KodiId"], obj["Media"])
 
         if obj["Media"] == "movie":
+            self.remove_versions(obj["KodiId"], obj["FileId"])
             self.remove_extras(obj["KodiId"])
             self.delete(*values(obj, QU.delete_movie_obj))
         elif obj["Media"] == "set":
@@ -486,6 +591,12 @@ class Movies(KodiDb):
             obj["KodiId"],
             obj["Id"],
         )
+
+    def remove_versions(self, movie_id, primary_file_id):
+        """Drop alternate VERSION asset files (not the primary movie file)."""
+        for row in self.get_extra_assets(movie_id, self.itemtype):
+            if row[0] != primary_file_id:
+                self.delete_extra_asset(row[0])
 
     def remove_extras(self, movie_id):
         """Drop every extras asset of a movie (the movie delete trigger only
