@@ -419,11 +419,15 @@ class Player(xbmc.Player):
         self._overlay_window: Optional[Tuple[float, float]] = None
         self._overlay_autoplay = False
         self._skip_target: Optional[float] = None
-        # Remote SetAudio/SetSubtitle (PR3a): worker threads only; never the
+        # Remote SetAudio/SetSubtitle (PR3a/3b): worker threads only; never the
         # websocket callback thread.
         self._stream_switch_lock = threading.Lock()
+        # Mid-play PlaybackInfo restart (PR3b).
+        self._stream_restart = False
+        self._restart_teardown_done = False
+        self._restart_target_pos: Optional[float] = None
 
-    # -- remote stream switch (PR3a local apply) --------------------------------
+    # -- remote stream switch (PR3a local / PR3b restart) -----------------------
 
     def enqueue_stream_switch(self, kind: str, jellyfin_index: Optional[int]) -> None:
         """Queue a remote stream change off the websocket thread."""
@@ -441,15 +445,19 @@ class Player(xbmc.Player):
             LOG.exception("stream switch failed (%s %s)", kind, jellyfin_index)
 
     def apply_stream_switch(self, kind: str, jellyfin_index: Optional[int]) -> bool:
-        """Apply a Jellyfin stream index locally when possible. Returns success.
-
-        Transcode audio (and unmapped TC subs) need PlaybackInfo restart —
-        refused here until PR3b with a log line (and toast for the user).
-        """
+        """Apply a Jellyfin stream index locally or via PlaybackInfo restart."""
         with self._stream_switch_lock:
             item = self._item
             if item is None:
                 LOG.info("stream switch ignored: nothing playing")
+                return False
+            if self.syncplay_group_active:
+                LOG.info("stream switch refused: SyncPlay group active")
+                toast.show(
+                    "Stream changes are disabled while SyncPlay is active",
+                    toast.WARNING,
+                    time_ms=3000,
+                )
                 return False
             action, kodi_index, reason = playback.resolve_local_stream_switch(
                 item, kind=kind, jellyfin_index=jellyfin_index
@@ -458,13 +466,8 @@ class Player(xbmc.Player):
                 LOG.info("stream switch refused: %s", reason)
                 return False
             if action == "needs_restart":
-                LOG.info("stream switch needs restart: %s", reason)
-                toast.show(
-                    "Cannot change that stream without reopening playback yet",
-                    toast.WARNING,
-                    time_ms=3000,
-                )
-                return False
+                LOG.info("stream switch restart: %s", reason)
+                return self._restart_for_stream_switch(item, kind, jellyfin_index)
             try:
                 if action == "audio" and kodi_index is not None:
                     self.setAudioStream(int(kodi_index))
@@ -488,6 +491,148 @@ class Player(xbmc.Player):
             # Progress immediately so the dashboard tracks the remote command.
             self._report(self.api.session_progress, event="timeupdate")
             return True
+
+    def _restart_for_stream_switch(
+        self, item: JsonDict, kind: str, jellyfin_index: Optional[int]
+    ) -> bool:
+        """Position-preserving PlaybackInfo restart (design §6.3)."""
+        pos = float(item.get("CurrentPosition") or 0.0)
+        try:
+            pos = max(pos, float(self.getTime()))
+        except RuntimeError:
+            pass
+
+        audio_index = item.get("AudioStreamIndex")
+        subtitle_index = item.get("SubtitleStreamIndex")
+        if kind == "audio":
+            audio_index = jellyfin_index
+        elif kind == "subtitle":
+            subtitle_index = jellyfin_index if (jellyfin_index or 0) >= 0 else None
+
+        force_transcode = bool(item.get("ForceTranscode"))
+        bitrate_override = float(item.get("BitrateOverrideMbps") or 0.0)
+        # HLS: StartTimeTicks positions the playlist; DirectStream uses client
+        # seek after AV start. Always pass ticks — static ignores them for seek.
+        start_ticks = int(pos * 10_000_000)
+
+        try:
+            url, method, source, play_session_id, _profile = (
+                playback.resolve_restart_stream(
+                    self.api,
+                    item_id=str(item["Id"]),
+                    media_source_id=str(item.get("MediaSourceId") or ""),
+                    device_id=str(item.get("DeviceId") or ""),
+                    force_transcode=force_transcode,
+                    bitrate_override_mbps=bitrate_override,
+                    audio_index=int(audio_index) if audio_index is not None else None,
+                    subtitle_index=(
+                        int(subtitle_index) if subtitle_index is not None else None
+                    ),
+                    start_ticks=start_ticks,
+                )
+            )
+        except Exception as error:
+            LOG.warning("stream restart resolve failed: %s", error)
+            toast.show("Could not change stream", toast.ERROR, time_ms=3000)
+            return False
+
+        # Deliberate single session teardown before Player.play.
+        self._stop_ticker()
+        self._stream_restart = True
+        self._restart_target_pos = pos
+        self._teardown_session_for_restart(item, pos)
+        self._restart_teardown_done = True
+
+        from kofin.plugin import listitems, play as play_mod
+
+        dto = item
+        try:
+            dto = self.api.item(str(item["Id"]))
+        except Exception as error:
+            LOG.debug("restart item fetch failed, using play-state: %s", error)
+
+        sub_paths, sub_fields = play_mod.attach_text_subtitles(
+            self.api, source, play_session_id
+        )
+        # No resume point on the listitem — seek / StartTimeTicks own position.
+        li = listitems.build(dto, self.api.server, resume_seconds=0)
+        li.setPath(url)
+        mime = playback.mime_for(source, method)
+        if mime:
+            li.setMimeType(mime)
+        li.setContentLookup(False)
+        if sub_paths:
+            li.setSubtitles(sub_paths)
+
+        play_item = play_mod.play_state(
+            dto,
+            source,
+            url,
+            method,
+            play_session_id,
+            str(item.get("DeviceId") or ""),
+            pos,
+            subtitle_fields=sub_fields or None,
+            force_transcode=force_transcode,
+            bitrate_override_mbps=bitrate_override,
+        )
+        if audio_index is not None:
+            play_item["AudioStreamIndex"] = audio_index
+        if kind == "subtitle":
+            play_item["SubtitleStreamIndex"] = subtitle_index
+        if item.get("Segments") is not None:
+            play_item["Segments"] = item.get("Segments")
+        play_item["Name"] = item.get("Name") or play_item.get("Name")
+        play_item["SeriesId"] = item.get("SeriesId") or play_item.get("SeriesId")
+
+        state.drop_play_items_for_id(str(item["Id"]))
+        state.push_play_item(play_item)
+        with self._lock:
+            self._item = None
+
+        LOG.info(
+            "stream restart play %s via %s at %.1fs (audio=%s sub=%s)",
+            item["Id"],
+            method,
+            pos,
+            audio_index,
+            subtitle_index,
+        )
+        try:
+            self.play(url, li)
+        except Exception as error:
+            LOG.warning("Player.play after restart failed: %s", error)
+            self._stream_restart = False
+            self._restart_teardown_done = False
+            self._restart_target_pos = None
+            return False
+        return True
+
+    def _teardown_session_for_restart(self, item: JsonDict, pos: float) -> None:
+        """One session_stopped + close_transcode for the old PlaySessionId."""
+        LOG.info("<-- stop (restart) %s @ %.1fs", item["Id"], pos)
+        try:
+            self.api.session_stopped(
+                {
+                    "ItemId": item["Id"],
+                    "MediaSourceId": item["MediaSourceId"],
+                    "PlaySessionId": item["PlaySessionId"],
+                    "PositionTicks": int(pos * 10_000_000),
+                }
+            )
+        except Exception as error:
+            LOG.warning("restart stop report failed: %s", error)
+        if item.get("PlayMethod") == "Transcode":
+            try:
+                self.api.close_transcode(item["DeviceId"], item["PlaySessionId"])
+            except Exception as error:
+                LOG.debug("restart close_transcode failed: %s", error)
+        try:
+            from kofin.core.subtitles import cleanup_session_subs
+
+            cleanup_session_subs(item.get("PlaySessionId"))
+        except Exception as error:  # pragma: no cover
+            LOG.debug("restart sub cleanup failed: %s", error)
 
     # -- syncplay forwarding ---------------------------------------------------
 
@@ -602,6 +747,7 @@ class Player(xbmc.Player):
         # must wait for a SyncPlay group is paused at its first instant, not
         # seconds later when the claim and round trip complete.
         self._syncplay_event("on_playback_started")
+        was_restart = self._stream_restart
         self.finalize()  # a previous kofin play that never got its stop event
         # Ahead of the claim, and before anything else that blocks: the lyrics
         # addon searches on onAVStarted, so a round trip taken first has
@@ -611,6 +757,9 @@ class Player(xbmc.Player):
         self.start_lyrics()
         claimed = self._claim()
         if claimed is None:
+            if was_restart:
+                self._stream_restart = False
+                self._restart_teardown_done = False
             return
         with self._lock:
             self._item = claimed
@@ -619,6 +768,10 @@ class Player(xbmc.Player):
         self._report(self.api.session_playing, event=None)
         self._start_ticker()
         self._start_segment_engine(claimed)
+        if was_restart:
+            # Successful claim of the restarted session.
+            self._stream_restart = False
+            self._restart_teardown_done = False
 
     def onAVStarted(self) -> None:
         """First frame rendered: the SyncPlay Ready trigger."""
@@ -627,6 +780,7 @@ class Player(xbmc.Player):
         # and setSubtitles tracks are visible to the player.
         self._reconcile_subs_mapping()
         self._observe_stream_indexes()
+        self._apply_restart_position()
 
     def onAVChange(self) -> None:
         """Audio/subtitle/video stream changed in the player (PR2 observation)."""
@@ -663,6 +817,9 @@ class Player(xbmc.Player):
 
     def report_progress(self) -> None:
         """Ticker callback: refresh position and post progress."""
+        if self._stream_restart:
+            # Never post PositionTicks=0 during a synthetic restart gap.
+            return
         if self._item is None:
             return
         try:
@@ -682,6 +839,10 @@ class Player(xbmc.Player):
         (a stale play discovered at the next start) is cleanup, not a
         playback the viewer just finished.
         """
+        if self._stream_restart:
+            # Synthetic stop for stream restart: no delete-after-watch.
+            self.finalize()
+            return
         item = self.current_item()
         self.finalize()
         if item is not None:
@@ -692,6 +853,11 @@ class Player(xbmc.Player):
         self._segment_reset()
         self._stop_ticker()
         self._reset_lyrics()
+        if self._stream_restart and self._restart_teardown_done:
+            # Session already closed in _teardown_session_for_restart.
+            with self._lock:
+                self._item = None
+            return
         with self._lock:
             item = self._item
             self._item = None
@@ -722,6 +888,29 @@ class Player(xbmc.Player):
         except Exception as error:  # pragma: no cover - defensive
             LOG.debug("subtitle session cleanup failed: %s", error)
         state.clear_playing_id()
+
+    def _apply_restart_position(self) -> None:
+        """Corrective seek after a stream restart (design §6.5)."""
+        target = self._restart_target_pos
+        if target is None:
+            return
+        self._restart_target_pos = None
+        item = self._item
+        if item is None:
+            return
+        try:
+            current = float(self.getTime())
+        except RuntimeError:
+            return
+        if abs(current - target) <= playback.RESTART_SEEK_TOLERANCE_SECONDS:
+            self._update_position(current)
+            return
+        try:
+            self.seekTime(target)
+            self._update_position(target)
+            LOG.info("restart seek %.1fs -> %.1fs (was %.1fs)", target, target, current)
+        except RuntimeError as error:
+            LOG.debug("restart seek failed: %s", error)
 
     def stop_threads(self) -> None:
         """Service shutdown: stop the ticker and checker without reporting."""

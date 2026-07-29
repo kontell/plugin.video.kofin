@@ -117,6 +117,8 @@ def play_state(
     device_id: str,
     start_seconds: float,
     subtitle_fields: Optional[JsonDict] = None,
+    force_transcode: bool = False,
+    bitrate_override_mbps: float = 0.0,
 ) -> JsonDict:
     payload: JsonDict = {
         "Id": item.get("Id", ""),
@@ -134,6 +136,9 @@ def play_state(
         "AudioStreamIndex": source.get("DefaultAudioStreamIndex"),
         "SubtitleStreamIndex": source.get("DefaultSubtitleStreamIndex"),
         "CurrentPosition": start_seconds,
+        # PR3b: mid-play restart must rebuild the same force/bitrate policy.
+        "ForceTranscode": bool(force_transcode),
+        "BitrateOverrideMbps": float(bitrate_override_mbps or 0.0),
     }
     # Audio/embedded maps + external attach fields for PR2 progress mapping.
     payload.update(streammaps.play_state_stream_fields(source, subtitle_fields))
@@ -289,6 +294,8 @@ def play(request: Request) -> None:
         creds.device_id,
         start_ticks / 10_000_000,
         subtitle_fields=sub_fields or None,
+        force_transcode=transcode or config.force_transcode,
+        bitrate_override_mbps=bitrate_mbps,
     )
     segments = prefetch_segments(api, item)
     if segments is not None:

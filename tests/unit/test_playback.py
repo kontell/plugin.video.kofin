@@ -119,3 +119,42 @@ def test_pick_media_source_and_stream_url():
     )
     assert method == "DirectStream"
     assert "static=true" in url
+
+
+def test_resolve_restart_stream_preserves_force_and_indexes():
+    class Api:
+        server = "http://s:8096"
+
+        def playback_info(self, item_id, profile, start_ticks=0, **kwargs):
+            assert kwargs.get("audio_index") == 2
+            assert kwargs.get("media_source_id") == "src1"
+            assert profile["DirectPlayProfiles"] == []
+            return {
+                "PlaySessionId": "ps-r",
+                "MediaSources": [
+                    {
+                        "Id": "src1",
+                        "Bitrate": 8_000_000,
+                        "TranscodingUrl": (
+                            "/v/master.m3u8?VideoBitrate=1&AudioBitrate=1"
+                        ),
+                        "TranscodingSubProtocol": "hls",
+                    }
+                ],
+            }
+
+    url, method, source, ps, profile = playback.resolve_restart_stream(
+        Api(),  # type: ignore[arg-type]
+        item_id="m1",
+        media_source_id="src1",
+        device_id="dev",
+        force_transcode=True,
+        bitrate_override_mbps=2.0,
+        audio_index=2,
+        subtitle_index=None,
+        start_ticks=1_200_000_000,
+    )
+    assert method == "Transcode"
+    assert ps == "ps-r"
+    assert "VideoBitrate=" in url
+    assert source["Id"] == "src1"

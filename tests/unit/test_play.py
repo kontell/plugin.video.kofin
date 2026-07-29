@@ -225,6 +225,24 @@ def test_play_state_payload():
     assert payload["SubsMappingReady"] is False
     assert payload["AudioMap"] == {"1": 0}
     assert payload["EmbeddedSubMap"] == {}
+    assert payload["ForceTranscode"] is False
+    assert payload["BitrateOverrideMbps"] == 0.0
+
+
+def test_play_state_force_transcode_fields():
+    payload = play.play_state(
+        {"Id": "m1", "Type": "Movie"},
+        {"Id": "src"},
+        "http://u",
+        "Transcode",
+        "ps",
+        "dev",
+        0,
+        force_transcode=True,
+        bitrate_override_mbps=1.5,
+    )
+    assert payload["ForceTranscode"] is True
+    assert payload["BitrateOverrideMbps"] == 1.5
 
 
 def test_play_state_carries_series_id():
