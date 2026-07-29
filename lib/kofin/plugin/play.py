@@ -11,7 +11,15 @@ import xbmc
 import xbmcgui
 import xbmcplugin
 
-from kofin.core import deviceprofile, kodirpc, settings, state, subtitles, toast
+from kofin.core import (
+    deviceprofile,
+    kodirpc,
+    settings,
+    state,
+    streammaps,
+    subtitles,
+    toast,
+)
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
@@ -256,8 +264,8 @@ def play_state(
         "SubtitleStreamIndex": source.get("DefaultSubtitleStreamIndex"),
         "CurrentPosition": start_seconds,
     }
-    if subtitle_fields:
-        payload.update(subtitle_fields)
+    # Audio/embedded maps + external attach fields for PR2 progress mapping.
+    payload.update(streammaps.play_state_stream_fields(source, subtitle_fields))
     return payload
 
 
