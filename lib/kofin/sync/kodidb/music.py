@@ -150,9 +150,14 @@ class Music(Kodi):
         except TypeError:
             return
 
-    def get_song_path_filename(self, song_id):
-        """Return ``(strPath, strFileName, strTitle)`` for a song, or None."""
-        self.cursor.execute(QU.get_song_path_filename, (song_id,))
+    def get_song_playlist_row(self, song_id):
+        """Everything a playlist line needs about a song, or None.
+
+        ``(strPath, strFileName, strTitle, strArtistDisp, iTrack, iDuration)``
+        — the path Kodi rebuilds playback from, plus the fields that make an
+        ``#EXTINF`` line self-describing (see ``sync/playlists.py``).
+        """
+        self.cursor.execute(QU.get_song_playlist_row, (song_id,))
         return self.cursor.fetchone()
 
     def get_album(self, album_id, name, musicbrainz, artists=None, *args):

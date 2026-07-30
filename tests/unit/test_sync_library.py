@@ -3,9 +3,11 @@ watermark handling and the ws-event wiring (plan §5 step 3)."""
 
 import queue
 import time
+from datetime import datetime, timedelta
 
 import pytest
 
+from kofin.core import state
 from kofin.core.http import JellyfinError, ServerUnreachable
 from kofin.sync import db as sync_db
 from kofin.sync import kofindb
@@ -1275,3 +1277,73 @@ def test_a_blocked_downloader_still_stops():
     worker.join(timeout=10)
 
     assert not worker.is_alive(), "downloader hung on a full queue during shutdown"
+
+
+# -- music playlist poll --------------------------------------------------
+
+
+def _playlist_library(monkeypatch):
+    """A library whose playlist refresh only records that it ran."""
+    lib, _api = make_library()
+    runs = []
+    monkeypatch.setattr(lib, "sync_music_playlists", lambda: runs.append(1))
+    FakeAddon.store["syncMusicPlaylists"] = "true"
+    state.set_online(True)
+    return lib, runs
+
+
+def test_playlists_are_polled_on_the_first_tick(monkeypatch):
+    """Nothing pushes playlist edits (Jellyfin sends no websocket message for
+    them), so an edit made while Kodi was off must be picked up at startup."""
+    lib, runs = _playlist_library(monkeypatch)
+
+    lib.poll_music_playlists()
+
+    assert runs == [1]
+
+
+def test_playlist_poll_is_rate_limited(monkeypatch):
+    """The library thread ticks every two seconds; the poll is per-interval."""
+    lib, runs = _playlist_library(monkeypatch)
+
+    lib.poll_music_playlists()
+    lib.poll_music_playlists()
+    lib.poll_music_playlists()
+
+    assert len(runs) == 1
+
+    lib.playlist_poll_at = datetime.now() - timedelta(seconds=1)
+    lib.poll_music_playlists()
+
+    assert len(runs) == 2
+
+
+def test_playlist_poll_waits_for_the_setting(monkeypatch):
+    lib, runs = _playlist_library(monkeypatch)
+    FakeAddon.store["syncMusicPlaylists"] = "false"
+
+    lib.poll_music_playlists()
+
+    assert runs == []
+
+
+def test_playlist_poll_yields_to_a_running_sync(monkeypatch):
+    """The refresh reads song rows a drain is still writing; it would only
+    have to run again once the cycle finished."""
+    lib, runs = _playlist_library(monkeypatch)
+    lib.pending_refresh = True
+
+    lib.poll_music_playlists()
+
+    assert runs == []
+    # Not consumed either: the poll must still happen once the sync lands.
+    assert lib.playlist_poll_at is None
+
+
+def test_playlist_poll_waits_while_offline(monkeypatch):
+    lib, runs = _playlist_library(monkeypatch)
+    state.set_online(False)
+
+    lib.poll_music_playlists()
+
+    assert runs == []

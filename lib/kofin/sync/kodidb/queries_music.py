@@ -349,8 +349,9 @@ SELECT          idPath
 FROM            song
 WHERE           idSong = ?
 """
-get_song_path_filename = """
-SELECT          path.strPath, song.strFileName, song.strTitle
+get_song_playlist_row = """
+SELECT          path.strPath, song.strFileName, song.strTitle,
+                song.strArtistDisp, song.iTrack, song.iDuration
 FROM            song
 JOIN            path ON path.idPath = song.idPath
 WHERE           song.idSong = ?
