@@ -589,3 +589,134 @@ def test_a_failed_delete_notifies_and_does_not_raise(monkeypatch):
     player._delete_prompt(finished_item())
 
     assert dialog.notified
+
+
+# --- Jellyfin default tracks and the stream menu -------------------------------
+#
+# The server resolves both defaults from the viewer's Jellyfin profile and
+# returns them on every MediaSource; nothing had ever applied them, so Kodi
+# picked from its own language settings instead (plan §2.9).
+
+
+AUDIO_1 = {"Index": 1, "Type": "Audio", "Codec": "ac3"}
+AUDIO_2 = {"Index": 2, "Type": "Audio", "Codec": "aac"}
+SUB_3 = {
+    "Index": 3,
+    "Type": "Subtitle",
+    "Codec": "subrip",
+    "IsTextSubtitleStream": True,
+}
+SUB_4 = {
+    "Index": 4,
+    "Type": "Subtitle",
+    "Codec": "PGSSUB",
+    "IsTextSubtitleStream": False,
+}
+
+
+class TrackRecorder:
+    def __init__(self):
+        self.audio = []
+        self.subtitle = []
+        self.shown = []
+
+
+def stream_player(monkeypatch, method="DirectStream", audio=1, subtitle=3, attached=()):
+    player, api = make_player(monkeypatch)
+    tracks = TrackRecorder()
+    monkeypatch.setattr(player, "setAudioStream", tracks.audio.append)
+    monkeypatch.setattr(player, "setSubtitleStream", tracks.subtitle.append)
+    monkeypatch.setattr(player, "showSubtitles", tracks.shown.append)
+    state.push_play_item(
+        {
+            "Id": "m1",
+            "Type": "Movie",
+            "Path": "http://s/stream",
+            "PlayMethod": method,
+            "PlaySessionId": "ps1",
+            "MediaSourceId": "src1",
+            "DeviceId": "dev1",
+            "Runtime": 0,
+            "AudioStreamIndex": audio,
+            "SubtitleStreamIndex": subtitle,
+            "CurrentPosition": 0.0,
+            "Streams": {
+                "MediaStreams": [AUDIO_1, AUDIO_2, SUB_3, SUB_4],
+                "Attached": list(attached),
+                "Request": {},
+            },
+        }
+    )
+    FakeAddon.store["honourJellyfinDefaultTracks"] = "true"
+    return player, tracks
+
+
+def test_direct_play_starts_on_the_jellyfin_default_tracks(monkeypatch):
+    player, tracks = stream_player(monkeypatch, audio=2, subtitle=4)
+    player.onPlayBackStarted()
+    player.onAVStarted()
+    # Ordinal within its kind: Jellyfin audio 2 is Kodi 1, subtitle 4 is Kodi 1.
+    assert tracks.audio == [1]
+    assert tracks.subtitle == [1]
+    assert tracks.shown == [True]
+
+
+def test_a_transcode_only_applies_the_subtitle(monkeypatch):
+    # The transcode carries the one audio track the server already encoded to
+    # our request, so there is nothing to select.
+    player, tracks = stream_player(
+        monkeypatch, method="Transcode", audio=2, subtitle=3, attached=[3]
+    )
+    player.onPlayBackStarted()
+    player.onAVStarted()
+    assert tracks.audio == []
+    assert tracks.subtitle == [0]  # attached first and only
+
+
+def test_no_default_subtitle_turns_them_off(monkeypatch):
+    # A Jellyfin profile that wants no subtitle must be obeyed, not left to
+    # whatever Kodi auto-selected.
+    player, tracks = stream_player(monkeypatch, subtitle=None)
+    player.onPlayBackStarted()
+    player.onAVStarted()
+    assert tracks.shown == [False]
+    assert tracks.subtitle == []
+
+
+def test_the_setting_is_respected(monkeypatch):
+    player, tracks = stream_player(monkeypatch)
+    FakeAddon.store["honourJellyfinDefaultTracks"] = "false"
+    player.onPlayBackStarted()
+    player.onAVStarted()
+    assert tracks.audio == [] and tracks.subtitle == [] and tracks.shown == []
+
+
+def test_streams_are_published_for_the_context_item(monkeypatch):
+    player, _ = stream_player(monkeypatch, method="Transcode", attached=[3])
+    player.onPlayBackStarted()
+    published = state.playing_streams()
+    assert published["Id"] == "m1"
+    assert published["PlayMethod"] == "Transcode"
+    assert published["Attached"] == [3]
+    # Two audio tracks and a selectable subtitle: the menu offers both.
+    assert FakeWindow.store[state.PROP_PLAYING_MENU] == "both"
+
+
+def test_publishing_stops_when_the_playback_does(monkeypatch):
+    player, _ = stream_player(monkeypatch)
+    player.onPlayBackStarted()
+    assert state.playing_streams()
+    player.onPlayBackStopped()
+    assert state.playing_streams() == {}
+    assert state.PROP_PLAYING_MENU not in FakeWindow.store
+
+
+def test_a_syncplay_group_withdraws_the_menu(monkeypatch):
+    # A restart to change audio would desync everyone else in the group.
+    player, _ = stream_player(monkeypatch)
+    player.onPlayBackStarted()
+    assert FakeWindow.store[state.PROP_PLAYING_MENU] == "both"
+    player.syncplay_group_active = True
+    assert state.PROP_PLAYING_MENU not in FakeWindow.store
+    player.syncplay_group_active = False
+    assert FakeWindow.store[state.PROP_PLAYING_MENU] == "both"

@@ -25,7 +25,7 @@ import xbmc
 import xbmcgui
 
 from kofin.core import lyrics as lyrics_render
-from kofin.core import settings, state, toast
+from kofin.core import settings, state, streams, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
@@ -391,7 +391,7 @@ class Player(xbmc.Player):
         self._lock = threading.Lock()
         # Driven by SyncPlay (phase 4); while True, Play Next is withheld —
         # the group queue is authoritative.
-        self.syncplay_group_active = False
+        self._syncplay_group_active = False
         # The SyncPlay manager, attached by the service when built.
         self.syncplay: Optional["SyncPlayManager"] = None
         self._checker: Optional[SegmentChecker] = None
@@ -419,6 +419,22 @@ class Player(xbmc.Player):
         self._overlay_window: Optional[Tuple[float, float]] = None
         self._overlay_autoplay = False
         self._skip_target: Optional[float] = None
+
+    # A property so joining or leaving a group also withdraws or restores the
+    # stream menu, without the SyncPlay manager having to know the menu exists:
+    # it writes this attribute and nothing else (syncplay/manager.py is ported
+    # fork code and stays that way). Changing audio means restarting playback,
+    # which in a group would desync everyone else, so the entry disappears.
+    @property
+    def syncplay_group_active(self) -> bool:
+        return self._syncplay_group_active
+
+    @syncplay_group_active.setter
+    def syncplay_group_active(self, active: bool) -> None:
+        self._syncplay_group_active = active
+        item = self.current_item()
+        if item is not None:
+            self._publish_streams(item)
 
     # -- syncplay forwarding ---------------------------------------------------
 
@@ -546,14 +562,17 @@ class Player(xbmc.Player):
         with self._lock:
             self._item = claimed
         state.set_playing_id(claimed["Id"])
+        self._publish_streams(claimed)
         LOG.info("--> play %s (%s)", claimed["Id"], claimed["PlayMethod"])
         self._report(self.api.session_playing, event=None)
         self._start_ticker()
         self._start_segment_engine(claimed)
 
     def onAVStarted(self) -> None:
-        """First frame rendered: the SyncPlay Ready trigger."""
+        """First frame rendered: the SyncPlay Ready trigger, and the earliest
+        moment Kodi's stream lists are populated enough to pick from."""
         self._syncplay_event("on_avstarted")
+        self.apply_default_tracks()
 
     def onPlayBackPaused(self) -> None:
         self._syncplay_event("on_paused")
@@ -636,6 +655,7 @@ class Player(xbmc.Player):
             except Exception as error:
                 LOG.debug("close transcode failed: %s", error)
         state.clear_playing_id()
+        state.clear_playing_streams()
 
     def stop_threads(self) -> None:
         """Service shutdown: stop the ticker and checker without reporting."""
@@ -687,6 +707,85 @@ class Player(xbmc.Player):
         # No refresh from here: the server's own library-changed event drives
         # the removal out of the Kodi database through the normal sync path.
         LOG.info("deleted %s after watching", item["Id"])
+
+    # -- stream selection ------------------------------------------------------
+
+    def _publish_streams(self, item: JsonDict) -> None:
+        """Hand the claimed playback's streams to the context item.
+
+        The play route resolved them; this moves them somewhere a later plugin
+        invocation can read, and states in one word what the menu should
+        offer so addon.xml can pick a label (see core/state.py). Never raises:
+        a menu that fails to appear must not take the playback with it.
+        """
+        try:
+            payload = dict(item.get("Streams") or {})
+            if not payload:
+                state.clear_playing_streams()
+                return
+            media_streams = payload.get("MediaStreams") or []
+            attached = payload.get("Attached") or []
+            method = str(item.get("PlayMethod") or "")
+            payload["PlayMethod"] = method
+            payload["Id"] = item.get("Id", "")
+            payload["MediaSourceId"] = item.get("MediaSourceId", "")
+            payload["AudioStreamIndex"] = item.get("AudioStreamIndex")
+            offer = streams.menu_offer(media_streams, attached, method)
+            if self._syncplay_group_active:
+                offer = streams.OFFER_NONE
+            state.publish_playing_streams(payload, offer)
+        except Exception:
+            LOG.exception("publishing playing streams failed")
+
+    def apply_default_tracks(self) -> None:
+        """Start on the tracks the Jellyfin *user profile* nominates.
+
+        Kodi otherwise picks from its own language settings, so a viewer whose
+        Jellyfin account asks for Japanese audio with English subtitles got
+        neither. The server has already resolved both against that account and
+        returns them on every MediaSource; nothing had ever applied them.
+
+        Runs at first frame rather than at claim because Kodi's stream lists
+        do not exist until then — and because running here cannot delay the
+        picture, only follow it. Never raises.
+        """
+        if not settings.get_bool("honourJellyfinDefaultTracks"):
+            return
+        item = self.current_item()
+        if item is None:
+            return
+        try:
+            self._apply_default_tracks(item)
+        except Exception:
+            LOG.exception("applying Jellyfin default tracks failed")
+
+    def _apply_default_tracks(self, item: JsonDict) -> None:
+        payload = item.get("Streams") or {}
+        media_streams = payload.get("MediaStreams") or []
+        attached = payload.get("Attached") or []
+        method = str(item.get("PlayMethod") or "")
+
+        # Audio only on a direct play: a transcode carries the single track the
+        # server already encoded to our request, so there is nothing to choose
+        # and Kodi's only index is 0.
+        if streams.is_direct(method):
+            ordinal = streams.audio_ordinal(media_streams, item.get("AudioStreamIndex"))
+            if ordinal is not None:
+                self.setAudioStream(ordinal)
+                LOG.info("--> audio track %s (Jellyfin default)", ordinal)
+
+        wanted = item.get("SubtitleStreamIndex")
+        if wanted is None or int(wanted) < 0:
+            # The profile asks for no subtitle. Say so rather than leaving
+            # whatever Kodi auto-selected running.
+            self.showSubtitles(False)
+            return
+        ordinal = streams.subtitle_ordinal(media_streams, wanted, attached, method)
+        if ordinal is None:
+            return
+        self.setSubtitleStream(ordinal)
+        self.showSubtitles(True)
+        LOG.info("--> subtitle track %s (Jellyfin default)", ordinal)
 
     # -- segment engine: lifecycle -------------------------------------------
 

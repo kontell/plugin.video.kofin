@@ -1378,3 +1378,33 @@ msgstr ""
 msgctxt "#30612"
 msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin, using each song's library path. Local edits in that folder are overwritten on the next sync."
 msgstr ""
+
+# 30613-30617 — transcoding stream selection
+msgctxt "#30613"
+msgid "Audio and subtitle streams"
+msgstr ""
+
+msgctxt "#30614"
+msgid "Audio stream"
+msgstr ""
+
+msgctxt "#30615"
+msgid "Subtitles"
+msgstr ""
+
+msgctxt "#30616"
+msgid "Restarting to change stream..."
+msgstr ""
+
+msgctxt "#30617"
+msgid "burned in, restarts playback"
+msgstr ""
+
+# 30618-30619 — Jellyfin default tracks
+msgctxt "#30618"
+msgid "Use Jellyfin's default tracks"
+msgstr ""
+
+msgctxt "#30619"
+msgid "Start playback on the audio and subtitle tracks your Jellyfin account asks for, instead of the ones Kodi's own language settings pick. The server resolves both from your Jellyfin profile, so the choice follows you to every client."
+msgstr ""

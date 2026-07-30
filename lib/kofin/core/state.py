@@ -23,6 +23,25 @@ PROP_SYNC_ACTIVE = "kofin.sync.active"
 # mirrored into one.
 PROP_CONTEXT_BITRATES = "kofin.context.bitrates"
 
+# The playing item's selectable streams, and the one-word summary addon.xml
+# tests to choose the stream context item's label.
+#
+# PROP_PLAYING_STREAMS is here because no other surface reaches: the streams
+# are resolved in the *plugin* process (the play route's PlaybackInfo already
+# answers them), the service claims the playback and empties the play queue,
+# and the thing that needs them is a *third* process — the context item, run
+# minutes later. Putting them on the play-state alone would mean they vanish
+# at the moment the menu becomes reachable.
+#
+# PROP_PLAYING_MENU earns its place the same way PROP_CONTEXT_BITRATES does: a
+# context item's <label> is a fixed string id, so an entry whose wording
+# depends on what the item offers has to be three declared entries whose
+# <visible> conditions are mutually exclusive — and a boolean expression can
+# read a window property and nothing else. The service publishes one of
+# streams.OFFER_* when it claims; "" hides all three.
+PROP_PLAYING_STREAMS = "kofin.playing.streams"
+PROP_PLAYING_MENU = "kofin.playing.menu"
+
 # The lyrics overlay's channel to the skin. These earn their place for the
 # same reason as PROP_CONTEXT_BITRATES: a skin can only read window
 # properties, and lyrics cannot reach it any other way -- Kodi's music
@@ -151,6 +170,39 @@ def get_context_bitrates() -> str:
     return _window().getProperty(PROP_CONTEXT_BITRATES)
 
 
+def publish_playing_streams(payload: Dict[str, Any], offer: str) -> None:
+    """Publish the playing item's streams and what the menu should offer.
+
+    Written when the service claims a playback, cleared when it ends, so the
+    properties' lifetime is exactly the playback's and a stale menu can never
+    act on an item that stopped.
+    """
+    window = _window()
+    window.setProperty(PROP_PLAYING_STREAMS, json.dumps(payload))
+    if offer:
+        window.setProperty(PROP_PLAYING_MENU, offer)
+    else:
+        window.clearProperty(PROP_PLAYING_MENU)
+
+
+def playing_streams() -> Dict[str, Any]:
+    """The published streams payload, or {} when nothing kofin owns is on."""
+    raw = _window().getProperty(PROP_PLAYING_STREAMS)
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def clear_playing_streams() -> None:
+    window = _window()
+    window.clearProperty(PROP_PLAYING_STREAMS)
+    window.clearProperty(PROP_PLAYING_MENU)
+
+
 def publish_lyrics(lines: List[Any], item_id: str) -> None:
     """Publish the song's lyrics for whatever is going to render them.
 
@@ -217,6 +269,8 @@ def clear_all() -> None:
         PROP_SYNC_STOP,
         PROP_SYNC_ACTIVE,
         PROP_CONTEXT_BITRATES,
+        PROP_PLAYING_STREAMS,
+        PROP_PLAYING_MENU,
     ):
         window.clearProperty(prop)
     clear_lyrics()

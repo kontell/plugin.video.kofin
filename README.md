@@ -2,9 +2,9 @@
 
 # Kofin for Jellyfin
 
-Kodi video and music addon for [Jellyfin](https://jellyfin.org). Browse Jellyfin libraries through the add-on or sync selected libraries directly into Kodi's own databases, so Jellyfin content appears as a native Kodi library - browsable in the standard views, widgets and skins.
+Kodi video and music addon for [Jellyfin](https://jellyfin.org). Browse Jellyfin libraries through the add-on or sync selected libraries directly into Kodi's own databases, so Jellyfin content appears as a native Kodi library.
 
-A rewrite of [jellyfin-kodi](https://github.com/jellyfin/jellyfin-kodi) on the principle "rewrite the shell, transplant the organs": new entry points, settings and lifecycle wrapped around the proven Kodi database writers. Native mode has been removed.
+A rewrite of [jellyfin-kodi](https://github.com/jellyfin/jellyfin-kodi) on the principle "rewrite the shell, transplant the organs": new entry points, settings and lifecycle wrapped around the proven Kodi database writers.
 
 For Jellyfin Live TV, see the companion [Kofin PVR](https://github.com/kontell/pvr.kofin) addon.
 
@@ -21,6 +21,7 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 - Multi-version movies as native Kodi video versions (Jellyfin MediaSources)
 - Jellyfin song lyrics, timed or plain, handed to Kodi as a song starts - needs an addon that displays lyrics, such as CU LRC Lyrics, since no stock skin shows them
 - Flexible playback methods - direct play, remux or transcode. Choose supported HDR formats & max resolution
+    - For transcoded playback, audio streams and image-based subtitles can be accessed *after playback starts* by returning to the playing item and bringing up the context menu.
 - Play with transcoding context item: pick a bitrate
 - Sync Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin
 
@@ -32,6 +33,10 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 - Incremental and full sync
 - Real-time updates over websocket, with a fast change-feed path when the server companion plugin is installed
 - Login with username and password, or Quick Connect
+
+### Removed
+
+- Native mode playback, all playback is streamed via Jellyfin.
 
 ## Installation
 
@@ -58,11 +63,11 @@ Install via the [Kontell Repository](https://github.com/kontell/repository.konte
 
 ## Companion server plugin
 
-For improved syncing peformance install the [KofinSyncQueue](https://github.com/kontell/repository.kontell/tree/main#jellyfin-server-plugins) server plugin. it gives the add-on a typed change feed so catch-up only touches what actually changed. Without it Kofin still works, using the official KodiSyncQueue plugin or real-time websocket updates.
+For improved syncing performance install the [KofinSyncQueue](https://github.com/kontell/repository.kontell/tree/main#jellyfin-server-plugins) server plugin. it gives the add-on a typed change feed so catch-up only touches what actually changed. Without it Kofin still works, using the official KodiSyncQueue plugin or real-time websocket updates.
 
 ## Supported platforms
 
-Kofin is pure Python and runs anywhere Kodi 21/22 does. Because library sync writes Kodi's own database, it is gated to the schema versions it has been proven against; any other version is refused for writing (browsing and playback still work) until support is added.
+Kofin is pure Python and runs anywhere Kodi 21 /22 does. Because library sync writes Kodi's own database, it is gated to the schema versions it has been proven against; any other version is refused for writing (browsing and playback still work) until support is added.
 
 | Kodi | Video database | Music database |
 | --- | --- | --- |

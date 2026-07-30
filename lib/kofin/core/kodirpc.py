@@ -27,6 +27,55 @@ RESUME_QUERY = {
 }
 
 
+def current_subtitle() -> Optional[int]:
+    """Kodi's number for the subtitle on screen, or None when none is.
+
+    Read over JSON-RPC rather than through ``Player.getSubtitles()``, which
+    answers with the track's *name*: every subtitle kofin attaches as a file is
+    named "Stream (External)" — Jellyfin's delivery route has a fixed filename
+    — so looking a name up in the available list finds whichever came first.
+    Only the index distinguishes them.
+    """
+    try:
+        players: Dict[str, Any] = json.loads(
+            xbmc.executeJSONRPC(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "Player.GetActivePlayers",
+                    }
+                )
+            )
+        )
+        active = players["result"]
+        if not active:
+            return None
+        response: Dict[str, Any] = json.loads(
+            xbmc.executeJSONRPC(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "Player.GetProperties",
+                        "params": {
+                            "playerid": active[0]["playerid"],
+                            "properties": ["currentsubtitle", "subtitleenabled"],
+                        },
+                    }
+                )
+            )
+        )
+        result = response["result"]
+        if not result.get("subtitleenabled"):
+            return None
+        index = result.get("currentsubtitle", {}).get("index")
+        return int(index) if index is not None else None
+    except Exception as error:
+        LOG.debug("current subtitle read failed: %s", error)
+        return None
+
+
 def resume_seconds(kodi_id: int, media: str) -> Optional[float]:
     """Kodi's stored resume position for a library row.
 

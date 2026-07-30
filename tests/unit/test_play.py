@@ -143,20 +143,14 @@ def test_deny_video_stream_copy_without_query_is_left_alone():
     assert play.deny_video_stream_copy("http://s/x") == "http://s/x"
 
 
-def test_external_subtitles_filtering():
-    source = {
-        "MediaStreams": [
-            {
-                "Type": "Subtitle",
-                "IsExternal": True,
-                "DeliveryMethod": "External",
-                "DeliveryUrl": "/subs/1.srt",
-            },
-            {"Type": "Subtitle", "IsExternal": False, "DeliveryUrl": "/subs/2.srt"},
-            {"Type": "Audio", "DeliveryUrl": "/nope"},
-        ]
-    }
-    assert play.external_subtitles(SERVER, source) == ["http://s:8096/subs/1.srt"]
+def test_stream_index_param_parsing():
+    # -1 is meaningful — it is how "no subtitle" is stated, as distinct from
+    # omitting the parameter and letting the Jellyfin profile choose.
+    assert play._stream_index("-1") == -1
+    assert play._stream_index("3") == 3
+    assert play._stream_index(None) is None
+    assert play._stream_index("") is None
+    assert play._stream_index("junk") is None
 
 
 def test_play_state_payload():
@@ -358,15 +352,33 @@ class ResumeApi:
     def __init__(self, item):
         self._item = item
         self.start_ticks = []
+        self.kwargs = []
 
     def item(self, item_id):
         return self._item
 
     def playback_info(self, item_id, profile, start_ticks=0, **kwargs):
         self.start_ticks.append(start_ticks)
+        self.kwargs.append(kwargs)
         return {
             "MediaSources": [
-                {"Id": "src1", "SupportsDirectStream": True, "Container": "mkv"}
+                {
+                    "Id": "src1",
+                    "SupportsDirectStream": True,
+                    "Container": "mkv",
+                    "MediaStreams": [
+                        {"Index": 1, "Type": "Audio", "Codec": "ac3"},
+                        {
+                            "Index": 2,
+                            "Type": "Subtitle",
+                            "Codec": "subrip",
+                            "IsExternal": True,
+                            "IsTextSubtitleStream": True,
+                            "DeliveryMethod": "External",
+                            "DeliveryUrl": "/subs/2.srt",
+                        },
+                    ],
+                }
             ],
             "PlaySessionId": "ps1",
         }
@@ -687,3 +699,72 @@ def test_music_transcode_is_not_touched(resume_env, monkeypatch):
     api._item = {"Id": "s1", "Type": "Audio", "Name": "A Song", "RunTimeTicks": 100}
     run_play({"id": "s1"}, resume=False)
     assert "allowVideoStreamCopy" not in resume_env["li"].path
+
+
+# --- stream selection ---------------------------------------------------------
+#
+# The indices only bind when MediaSourceId travels with them: measured, a
+# PlaybackInfo carrying AudioStreamIndex and no source id came back with the
+# server's own default and no error (plan §2.6).
+
+
+def test_stream_indices_travel_with_the_source_id(resume_env):
+    run_play(
+        {
+            "id": "ep1",
+            "mediasourceid": "src1",
+            "audioindex": "3",
+            "subtitleindex": "-1",
+        },
+        resume=False,
+    )
+    sent = resume_env["api"].kwargs[0]
+    assert sent["media_source_id"] == "src1"
+    assert sent["audio_index"] == 3
+    assert sent["subtitle_index"] == -1
+
+
+def test_a_plain_play_names_no_source_and_no_indices(resume_env):
+    run_play({"id": "ep1"}, resume=False)
+    sent = resume_env["api"].kwargs[0]
+    assert sent["media_source_id"] is None
+    assert sent["audio_index"] is None
+    assert sent["subtitle_index"] is None
+
+
+def test_play_state_carries_what_the_stream_menu_needs(resume_env):
+    from kofin.core import state
+
+    run_play({"id": "ep1", "dbid": "77"}, resume=False)
+    queued = state.claim_play_item("")
+    published = queued["Streams"]
+    # Summarized, not the raw MediaStreams: this rides a window property.
+    assert [stream["Index"] for stream in published["MediaStreams"]] == [1, 2]
+    # The sidecar attached, so the menu can map its Jellyfin index to a Kodi one.
+    assert published["Attached"] == [2]
+    # The originating params, so a restart reproduces this play method.
+    assert published["Request"]["dbid"] == "77"
+
+
+def test_burn_subtitles_withdraws_the_image_formats(resume_env, monkeypatch):
+    from kofin.core import deviceprofile
+
+    seen = {}
+    original = deviceprofile.build
+
+    def spy(config, **kwargs):
+        seen.update(kwargs)
+        return original(config, **kwargs)
+
+    monkeypatch.setattr(play.deviceprofile, "build", spy)
+    run_play({"id": "ep1", "burnsubs": "1"}, resume=False)
+    assert seen["burn_subtitles"] is True
+
+    profile = original(
+        deviceprofile.ProfileConfig(), force_transcode=True, burn_subtitles=True
+    )
+    formats = {entry["Format"] for entry in profile["SubtitleProfiles"]}
+    # Withdrawing the image formats is what makes the server answer Encode
+    # for a PGS track instead of handing back a 37 MB .sup (plan §2.2).
+    assert "pgssub" not in formats and "dvdsub" not in formats
+    assert "srt" in formats
