@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| **Date** | 2026-07-29 |
-| **Status** | Draft (simplified) |
+| **Date** | 2026-07-29 (revised 2026-07-30) |
+| **Status** | Shipped (PR24); path form and refresh cadence revised 2026-07-30 |
 | **Addon** | `plugin.video.kofin` |
 
 ---
@@ -29,6 +29,8 @@ special://profile/playlists/music/Kofin/<Server Playlist Name>.m3u8
 ```
 
 Kodi's Music → Playlists UI shows folders; the user opens **Kofin** and sees playlists under their **server names**. Party Mode / skins that browse the tree still work. Folder name is fixed: `Kofin`.
+
+**Subfolders confirmed** (Omega, 2026-07-30): `special://musicplaylists/` lists `Kofin` as a directory beside "Party mode playlist" and "New playlist…", the folder opens, and a playlist inside it browses and plays. So the folder stays the ownership boundary — no `Kofin | <name>.m3u` filename prefix is needed, and the server names stay unprefixed.
 
 **Do not rename for branding.** Keep the Jellyfin display name as the file stem. Only strip characters the filesystem cannot store (`/`, `\`, null, etc.).
 
@@ -57,13 +59,30 @@ Same idea as video smart playlists in `views.py` (files under `playlists/…`), 
 Example line (default install, `musicTranscode=false`):
 
 ```
-#EXTINF:-1,Track Title
+#EXTINF:213,04. Artist - Track Title
 http://jellyfin:8096/Audio/{id}/stream.mp3?static=true
 ```
 
 With `musicTranscode=true`, same lines as MyMusic plugin paths.
 
 **Do not invent a second path format.** Read what is already in MyMusic for that song.
+
+---
+
+## Why the line is a MyMusic path and not `musicdb://`
+
+The path *is* the library link, and it is what Kodi itself writes. Verified live (Omega, 2026-07-30) by queueing a library album and using Kodi's own Music playlist → Options → **Save**: the file it wrote carries the same `plugin://…/stream.flac?mode=play&id=…&dbid=…` rows kofin writes, one per song, not `musicdb://` URLs.
+
+That path is enough for Kodi to recognise the song. Playing a kofin playlist line reports `"type": "song"` with the Kodi database id over JSON-RPC, the browse list shows `NN. Artist - Title` with the real duration, the song info dialog shows artwork, genre, play count and last played, and kofin's own claim path reports the play to Jellyfin.
+
+`musicdb://songs/<idSong><ext>` — the URL that looks like the library link — cannot be used:
+
+| Where | Result |
+|---|---|
+| Browsing an m3u of `musicdb://` lines | Works; full library metadata |
+| Playing one, `musicTranscode=true` | **Fails**: `Init: Error opening file musicdb://songs/9469.mp3`, from the GUI and from `Player.Open` alike |
+
+`CMusicDatabaseFile` translates the id back to the song's stored path and re-opens it *at the file layer*, where a `plugin://` path has nothing to resolve it — the DynPath that makes `musicdb://` work inside the library UI cannot be expressed in an m3u file. Direct rows (plain http) would open, but a line form that breaks whenever `musicTranscode` is on is not a line form.
 
 ---
 
@@ -77,11 +96,13 @@ Keep triggers dumb:
 | Setting `syncMusicPlaylists` turned on | Refresh all |
 | Setting turned off | Delete the whole `Kofin/` playlist folder |
 | Manual "Update" / repair of music | Refresh all |
-| Optional later | Websocket playlist change → refresh that one (or all) |
+| Every `PLAYLIST_POLL_SECONDS` (15 min), and on the library thread's first tick | Refresh all |
 
 **v1 does not need** a dirty set, UpdateWorker branch, or change-feed type. Playlist counts are small; re-writing every managed `.m3u8` after a music full sync is fine.
 
-Incremental polish (per-playlist rewrite on LibraryChanged) can wait until one-way works.
+**There is no websocket trigger to have.** Verified live against 10.11: creating a playlist and adding a track to an existing one produce *no* websocket message at all — no `LibraryChanged`, nothing. `Playlist` is also in `downloader.NON_CONTENT_TYPES`, so the change feed never carries one either. Before the poll, a playlist edited on the server stayed invisible in Kodi until someone ran a full sync.
+
+So the poll is the trigger (`Library.poll_music_playlists`). It costs one request plus one per playlist, holds off while a sync cycle is in flight or the client is offline, and **writes nothing that has not changed** — an untouched playlist keeps its mtime, so skins that sort by date and Kodi's directory cache are left alone.
 
 ---
 
@@ -198,8 +219,10 @@ def refresh_music_playlists(server, jellyfindb, musicdb):
 
 ### PR 3 (optional) — Live updates
 
-- On websocket playlist create/update/delete, refresh one or all
-- Only if PR 1–2 feel solid; not blocking for usefulness
+- ~~On websocket playlist create/update/delete, refresh one or all~~ — no such event exists (see "When to run"); done instead as a 15-minute poll that skips unchanged files
+- `#EXTINF` states the real duration and Kodi's own `NN. Artist - Title` label, from the same MyMusic row as the path
+- Paging ends on a short page rather than trusting `TotalRecordCount`, with a hard stop for a server that keeps re-emitting pages
+- A partial playlist logs how many of its tracks are not in the Kodi library instead of dropping them silently
 
 ---
 
@@ -218,6 +241,7 @@ def refresh_music_playlists(server, jellyfindb, musicdb):
 ## References
 
 - Song path construction: `lib/kofin/sync/writers/music.py` `get_song_path_filename`
+- What a playlist line reads out of MyMusic: `kodidb/music.py` `get_song_playlist_row`
 - Video playlist files (prior art for folder writes): `lib/kofin/sync/views.py`, `kodisetup.py`
 - Playlist ignored today: `downloader.NON_CONTENT_TYPES` includes `"Playlist"`
 - Kodi basic playlists: https://kodi.wiki/view/Basic_playlists

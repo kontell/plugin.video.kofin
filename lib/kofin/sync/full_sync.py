@@ -327,6 +327,7 @@ class FullSync(object):
 
             with self.library.music_database_lock:
                 music_playlists.refresh_with_databases(self.server)
+            self.library.defer_playlist_poll()
         except Exception:
             LOG.exception("music playlist refresh failed (library sync kept)")
 

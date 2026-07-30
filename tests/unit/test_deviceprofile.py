@@ -145,9 +145,29 @@ def test_force_direct_play_wildcards():
     assert "VideoRangeType" not in properties
 
 
-def test_force_remux_disables_direct_play():
+def test_force_remux_disables_video_direct_play():
     profile = build(ProfileConfig(force_remux=True))
-    assert profile["DirectPlayProfiles"] == []
+    assert profile["DirectPlayProfiles"] == [{"Type": "Audio"}]
+
+
+def test_video_force_settings_never_transcode_music():
+    """forceRemux/forceTranscode describe the video pipe. Taking the audio
+    DirectPlayProfile with them left the server no way to direct play a song:
+    measured against 10.11, an mp3 came back SupportsDirectPlay=false with a
+    stream.opus TranscodingUrl however musicTranscode was set."""
+    for config in (
+        ProfileConfig(force_remux=True),
+        ProfileConfig(force_transcode=True),
+        ProfileConfig(video_codecs=[]),  # nothing direct plays on the video side
+    ):
+        direct = build(config)["DirectPlayProfiles"]
+        assert {"Type": "Audio"} in direct
+        assert not [dp for dp in direct if dp["Type"] == "Video"]
+
+
+def test_the_transcode_context_item_still_takes_everything():
+    """A per-play forced transcode is asked for by name, on this item only."""
+    assert build(ProfileConfig(), force_transcode=True)["DirectPlayProfiles"] == []
 
 
 def test_av1_preferred_ordering_and_ts_lead():

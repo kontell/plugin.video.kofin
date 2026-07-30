@@ -82,6 +82,14 @@ WRITE_QUEUE_MAX = 250
 # Floor between automatic recovery prunes. A prune that itself fails to apply
 # something would otherwise schedule the next one immediately, forever.
 AUTO_PRUNE_MIN_SECONDS = 3600
+# How often managed music playlists are re-read from the server. Nothing
+# pushes playlist edits: Jellyfin sends no websocket message when a playlist
+# is created or a track is added to one (verified live against 10.11 — neither
+# LibraryChanged nor anything else arrives), and Playlist is a
+# NON_CONTENT_TYPE so the change feed never carries one either. A poll is the
+# only way an edit reaches Kodi without a full sync; it costs one request plus
+# one per playlist, and rewrites nothing that has not changed.
+PLAYLIST_POLL_SECONDS = 900
 # Deliberately nonexistent: scanning it is how music gets a library-change
 # event without a real walk (see Library._refresh_music). Must never be
 # created — if it existed the scan would descend into it.
@@ -180,6 +188,10 @@ class Library(threading.Thread):
         self.unapplied_sample = set()
         # Earliest time another automatic recovery prune may be scheduled.
         self.auto_prune_at = None
+        # Next music playlist poll (see poll_music_playlists). None = poll on
+        # the first tick, so a playlist edited while Kodi was off is picked up
+        # at startup rather than at the next full sync.
+        self.playlist_poll_at = None
         # Kodi databases ("video"/"music") that new content landed in, and that
         # anything at all was written to. Kodi is not told about writes made
         # straight to its SQLite files, so widgets only refresh when we say so.
@@ -274,6 +286,8 @@ class Library(threading.Thread):
         if not settings.get_bool("syncMusicPlaylists"):
             LOG.debug("syncMusicPlaylists off; skip SyncMusicPlaylists command")
             return
+        # However this refresh was asked for, it is the poll's answer too.
+        self.defer_playlist_poll()
         try:
             from kofin.sync import playlists as music_playlists
 
@@ -281,6 +295,39 @@ class Library(threading.Thread):
                 music_playlists.refresh_with_databases(self.api)
         except Exception:
             LOG.exception("SyncMusicPlaylists failed")
+
+    def defer_playlist_poll(self):
+        """Start the poll interval again: playlists were just re-read.
+
+        Also called by the full sync's own refresh, which runs on the sync
+        thread with its own Api — without it the first tick after a sync
+        re-reads every playlist for nothing.
+        """
+        self.playlist_poll_at = datetime.now() + timedelta(
+            seconds=PLAYLIST_POLL_SECONDS
+        )
+
+    def poll_music_playlists(self):
+        """Re-read managed music playlists on the PLAYLIST_POLL_SECONDS clock.
+
+        Playlist edits reach no other path (see PLAYLIST_POLL_SECONDS): before
+        this, a track added on the server stayed invisible until someone ran a
+        full sync. Held off while a sync cycle is in flight — the refresh reads
+        song rows the drain is still writing, and would only have to run again.
+        """
+        if not settings.get_bool("syncMusicPlaylists"):
+            return
+
+        if self.pending_refresh or not state.is_online():
+            return
+
+        if self.playlist_poll_at is not None and datetime.now() < self.playlist_poll_at:
+            return
+
+        # Before the refresh, not after: one that raises must not retry on
+        # every two-second tick.
+        self.defer_playlist_poll()
+        self.sync_music_playlists()
 
     def cleanup_music_playlists(self):
         """Remove the managed ``playlists/music/Kofin/`` folder."""
@@ -419,6 +466,7 @@ class Library(threading.Thread):
             self.worker_remove()
             self.worker_notify()
             self.refresh_added()
+            self.poll_music_playlists()
 
         if self.pending_refresh:
             state.set_sync_active(True)

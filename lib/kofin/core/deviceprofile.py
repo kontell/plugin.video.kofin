@@ -10,6 +10,11 @@ server gate it per item.
 constraint (HDR, width, streaming bitrate), but music delivery belongs to
 ``musicTranscode`` and its own cap, so forcing direct play for video does not
 silently uncap music.
+
+The same scoping holds the other way: ``forceRemux`` and ``forceTranscode``
+withdraw the *video* DirectPlayProfile, never the audio one. A profile with no
+audio DirectPlayProfile makes the server re-encode every song no matter what
+the music settings say.
 """
 
 from typing import Any, Dict, List, Optional
@@ -301,10 +306,24 @@ def _direct_play_profiles(
             {"Type": "Video", "Container": "", "VideoCodec": "", "AudioCodec": ""},
             {"Type": "Audio"},
         ]
-    if force_transcode or config.force_remux or config.force_transcode:
+    if force_transcode:
+        # This play only, and the user asked for it by name (the transcode
+        # context item), so it takes the audio entry with it.
         return []
-    if not video_codecs:
-        return []
+
+    # Scoped to video, like forceDirectPlay above: forceRemux/forceTranscode
+    # and the direct-play codec list all describe the *video* pipe. Dropping
+    # the audio entry with them left no audio DirectPlayProfile at all, so the
+    # server re-encoded every song — measured against 10.11: an mp3 came back
+    # SupportsDirectPlay=false with a stream.opus TranscodingUrl, whatever
+    # musicTranscode and the music bitrate cap said. Music delivery is owned
+    # by musicTranscode and its cap, which gate direct play through the audio
+    # CodecProfile in _codec_profiles.
+    audio = [{"Type": "Audio"}]
+
+    if config.force_remux or config.force_transcode or not video_codecs:
+        return audio
+
     direct_video = list(video_codecs)
     if config.preferred_video not in direct_video:
         # Preferring a codec implies the device decodes it.
@@ -314,9 +333,8 @@ def _direct_play_profiles(
             "Type": "Video",
             "VideoCodec": ",".join(direct_video),
             "AudioCodec": ",".join(audio_codecs),
-        },
-        {"Type": "Audio"},
-    ]
+        }
+    ] + audio
 
 
 def _codec_profiles(

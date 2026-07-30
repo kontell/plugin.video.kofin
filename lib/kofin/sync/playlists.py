@@ -5,13 +5,28 @@ playlists under ``special://profile/playlists/music/Kofin/``.
 Download each Audio playlist, rewrite track lines to the same path already
 stored for that song in MyMusic, write ``<Server Name>.m3u8``. The folder is
 the ownership boundary — never touch sibling files under ``playlists/music/``.
+
+**The path is the library link.** A line carries the song's own MyMusic
+``path.strPath + song.strFileName``, which is exactly what Kodi itself writes
+when it saves a playlist of library songs (verified live: Kodi's own
+``Save`` wrote the same ``plugin://…/stream.flac?mode=play&id=…&dbid=…`` rows
+kofin writes). Kodi matches that path back to the song row, so playing a line
+reports ``"type": "song"`` with the Kodi database id and gets the full library
+treatment — artwork, play count, last played, song info.
+
+``musicdb://songs/<id><ext>`` — the URL that *looks* like the library link —
+is not usable here: ``CMusicDatabaseFile`` re-opens the translated path at the
+file layer with no plugin resolution, so with ``musicTranscode`` on every line
+fails at "Init: Error opening file musicdb://songs/<id>.mp3" before playback
+starts (verified live, both from the GUI and ``Player.Open``). The DynPath that
+makes musicdb:// work inside the library UI cannot be expressed in an m3u.
 """
 
 from __future__ import annotations
 
 import os
 import re
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set
 
 import xbmcvfs
 
@@ -26,9 +41,34 @@ FOLDER_NAME = "Kofin"
 PLAYLISTS_MUSIC = "special://profile/playlists/music"
 PAGE_SIZE = 100
 
+# A stop for a server that over-reports ``TotalRecordCount`` and re-emits
+# earlier rows on later pages (seen live on the playlist *list* query — see
+# ``Api.music_playlists``). Paging ends on a short page, so this only bites
+# when full pages keep coming; a playlist longer than this is not real.
+MAX_PLAYLIST_ITEMS = 20000
+
 # Characters the filesystem or playlist path cannot carry. Keep the server
 # name otherwise intact (Unicode allowed).
 _UNSAFE = re.compile(r'[/\\<>:"|?*\x00-\x1f]')
+
+# Kodi packs the disc number into the high half of iTrack.
+_TRACK_MASK = 0xFFFF
+
+
+class Entry(NamedTuple):
+    """One playlist line, with what Kodi needs to render it before playback.
+
+    ``path`` is the MyMusic path; the rest fills the ``#EXTINF`` header so the
+    file reads correctly on its own (Kodi replaces the label from the song row
+    once the list resolves, but a playlist that has to state a duration —
+    "Total duration" before anything is queued — has one).
+    """
+
+    path: str
+    title: str
+    artist: str = ""
+    track: int = 0
+    duration: int = 0
 
 
 def managed_dir(root: Optional[str] = None) -> str:
@@ -56,13 +96,23 @@ def join_song_path(str_path: str, str_filename: str) -> str:
     return path + filename
 
 
-def render_m3u8(entries: Iterable[Tuple[str, str]]) -> str:
-    """Build extended m3u8 text. Each entry is ``(title, play_path)``."""
+def entry_label(entry: Entry) -> str:
+    """The ``#EXTINF`` label Kodi writes for a library song: ``NN. Artist - Title``."""
+    label = entry.title or ""
+    if entry.artist:
+        label = "%s - %s" % (entry.artist, label) if label else entry.artist
+    if entry.track:
+        label = "%02d. %s" % (entry.track, label) if label else "%02d." % entry.track
+    return label
+
+
+def render_m3u8(entries: Iterable[Entry]) -> str:
+    """Build extended m3u8 text."""
     lines = ["#EXTM3U"]
-    for title, play_path in entries:
-        safe_title = (title or "").replace("\n", " ").replace("\r", "")
-        lines.append("#EXTINF:-1,%s" % safe_title)
-        lines.append(play_path)
+    for entry in entries:
+        label = entry_label(entry).replace("\n", " ").replace("\r", "")
+        lines.append("#EXTINF:%d,%s" % (entry.duration or -1, label))
+        lines.append(entry.path)
     lines.append("")
     return "\n".join(lines)
 
@@ -78,20 +128,26 @@ def _unique_stem(name: str, taken: Set[str]) -> str:
     return candidate
 
 
-def song_play_path(
+def song_entry(
     mapping: jellyfin_db.JellyfinDatabase, music: MusicKodiDb, jellyfin_id: str
-) -> Optional[Tuple[str, str]]:
-    """Return ``(play_path, title)`` for a mapped Audio id, or None if unsynced."""
+) -> Optional[Entry]:
+    """The playlist line for a mapped Audio id, or None if unsynced."""
     row = mapping.get_item_by_id(jellyfin_id)
     if row is None or row.media_type != "song":
         return None
-    path_row = music.get_song_path_filename(row.kodi_id)
-    if path_row is None:
+    song = music.get_song_playlist_row(row.kodi_id)
+    if song is None:
         return None
-    str_path, str_filename, title = path_row[0], path_row[1], path_row[2]
+    str_path, str_filename = song[0], song[1]
     if not str_path or not str_filename:
         return None
-    return join_song_path(str_path, str_filename), title or ""
+    return Entry(
+        path=join_song_path(str_path, str_filename),
+        title=song[2] or "",
+        artist=song[3] or "",
+        track=int(song[4] or 0) & _TRACK_MASK,
+        duration=int(song[5] or 0),
+    )
 
 
 def _iter_playlist_items(api: Any, playlist_id: str) -> List[Dict[str, Any]]:
@@ -100,15 +156,45 @@ def _iter_playlist_items(api: Any, playlist_id: str) -> List[Dict[str, Any]]:
     while True:
         body = api.playlist_items(playlist_id, start_index=start, limit=PAGE_SIZE)
         page = body.get("Items") or []
+        if not page:
+            break
         items.extend(page)
-        total = int(body.get("TotalRecordCount") or 0)
+        if len(page) < PAGE_SIZE:
+            # A short page is the end of the playlist, whatever the count says.
+            break
         start += len(page)
-        if not page or start >= total:
+        total = int(body.get("TotalRecordCount") or 0)
+        if total and start >= total:
+            break
+        if start >= MAX_PLAYLIST_ITEMS:
+            LOG.warning(
+                "playlist %s still paging at %d items; stopping",
+                playlist_id,
+                start,
+            )
             break
     return items
 
 
-def _write_text(path: str, content: str) -> None:
+def _read_text(path: str) -> Optional[str]:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return handle.read()
+    except OSError:
+        return None
+
+
+def _write_text(path: str, content: str) -> bool:
+    """Write the file unless it already says this. True when it was written.
+
+    The refresh runs on a poll (see ``LibraryManager.poll_music_playlists``),
+    and a playlist nobody edited must not churn its mtime every time — skins
+    sort playlist folders by date, and a rewrite invalidates Kodi's directory
+    cache for the folder.
+    """
+    if _read_text(path) == content:
+        return False
+
     directory = os.path.dirname(path)
     if directory and not os.path.isdir(directory):
         os.makedirs(directory)
@@ -117,6 +203,7 @@ def _write_text(path: str, content: str) -> None:
     with open(tmp, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(content)
     os.replace(tmp, path)
+    return True
 
 
 def _list_files(directory: str) -> List[str]:
@@ -159,7 +246,7 @@ def refresh_music_playlists(
 ) -> Dict[str, int]:
     """Download all music playlists and rewrite the managed folder.
 
-    Returns counts: playlists, tracks, skipped, pruned.
+    Returns counts: playlists, written, tracks, skipped, pruned.
     """
     directory = managed_dir(root)
     if not os.path.isdir(directory):
@@ -170,6 +257,7 @@ def refresh_music_playlists(
     want: Set[str] = set()
     track_total = 0
     skipped = 0
+    written = 0
 
     for playlist in playlists:
         playlist_id = playlist.get("Id") or ""
@@ -177,30 +265,43 @@ def refresh_music_playlists(
         if not playlist_id:
             continue
 
-        entries: List[Tuple[str, str]] = []
+        entries: List[Entry] = []
+        missing = 0
         for item in _iter_playlist_items(api, playlist_id):
             item_id = item.get("Id")
             # Prefer Audio items; still try mapping if Type is missing.
             item_type = item.get("Type") or ""
             if item_type and item_type != "Audio":
-                skipped += 1
+                missing += 1
                 continue
             if not item_id:
-                skipped += 1
+                missing += 1
                 continue
-            resolved = song_play_path(mapping, music, item_id)
-            if resolved is None:
-                skipped += 1
+            entry = song_entry(mapping, music, item_id)
+            if entry is None:
+                missing += 1
                 continue
-            play_path, title = resolved
-            entries.append((title or item.get("Name") or "", play_path))
+            entries.append(entry)
             track_total += 1
 
         stem = _unique_stem(name, taken)
         filename = stem + ".m3u8"
         path = os.path.join(directory, filename)
-        _write_text(path, render_m3u8(entries))
+        if _write_text(path, render_m3u8(entries)):
+            written += 1
         want.add(filename)
+        skipped += missing
+
+        if missing:
+            # A partial playlist is otherwise silent: the user sees a short
+            # playlist and nothing says the rest is in a library they did not
+            # sync (or has not been written yet).
+            LOG.info(
+                "music playlist %s: %d track(s), %d not in the Kodi library",
+                name,
+                len(entries),
+                missing,
+            )
 
     pruned = 0
     for existing in _list_files(directory):
@@ -219,13 +320,16 @@ def refresh_music_playlists(
 
     stats = {
         "playlists": len(want),
+        "written": written,
         "tracks": track_total,
         "skipped": skipped,
         "pruned": pruned,
     }
     LOG.info(
-        "music playlists: %d playlist(s), %d track(s), %d skipped, %d pruned",
+        "music playlists: %d playlist(s), %d rewritten, %d track(s), "
+        "%d skipped, %d pruned",
         stats["playlists"],
+        stats["written"],
         stats["tracks"],
         stats["skipped"],
         stats["pruned"],
