@@ -1,12 +1,12 @@
 """Context-menu entry points (invoked with a focused ListItem)."""
 
 import sys
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import xbmc
 import xbmcgui
 
-from kofin.core import settings, toast
+from kofin.core import kodirpc, settings, toast
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
@@ -22,8 +22,12 @@ def _api() -> Api:
     )
 
 
+def _focused_listitem() -> Optional[xbmcgui.ListItem]:
+    return getattr(sys, "listitem", None)
+
+
 def _focused_item_id() -> str:
-    listitem: Optional[xbmcgui.ListItem] = getattr(sys, "listitem", None)
+    listitem = _focused_listitem()
     if listitem is None:
         return ""
     item_id = listitem.getProperty("kofin.id")
@@ -48,7 +52,7 @@ def lookup_item_id(dbid: int, media_type: str) -> str:
 
 
 def _bitrate_value(value: str) -> Optional[float]:
-    """Parse a context-bitrate token (Mbit/s, '0' == source); None if junk."""
+    """Parse a context-bitrate token (Mbit/s, '0' == no override); None if junk."""
     try:
         parsed = float(value)
     except ValueError:
@@ -58,18 +62,21 @@ def _bitrate_value(value: str) -> Optional[float]:
 
 def _bitrate_label(value: str) -> str:
     if _bitrate_value(value) == 0:
-        return settings.localized(30206)  # Source (original) bitrate
+        return settings.localized(30206)  # Default (max streaming bitrate)
     return "%s Mbit/s" % value
 
 
 def choose_bitrate(configured: List[str]) -> Optional[str]:
     """The bitrate token to transcode at; None means nothing to offer.
 
-    A token of '0' means the source bitrate — a transcode capped at whatever
-    the MediaSource reports. With exactly one configured bitrate the dialog is
-    skipped. No valid bitrate means no transcode: addon.xml hides the context
-    item in that case, so falling back to an invented default would only
-    surface a bitrate the user never chose.
+    A token of '0' overrides nothing: ``deviceprofile.build`` falls back to the
+    max-streaming-bitrate setting, and only when that is unset too does the
+    server size the transcode itself. It never meant the source bitrate when a
+    cap was configured, and now means it nowhere -- hence the label. With
+    exactly one configured bitrate the dialog is skipped. No valid bitrate
+    means no transcode: addon.xml hides the context item in that case, so
+    falling back to an invented default would only surface a bitrate the user
+    never chose.
     """
     valid = [value for value in configured if _bitrate_value(value) is not None]
     if not valid:
@@ -83,21 +90,106 @@ def choose_bitrate(configured: List[str]) -> Optional[str]:
     return valid[index] if index >= 0 else None
 
 
+def _focused_resume() -> Tuple[str, float]:
+    """(the ``dbid`` play param, the position that item would resume at).
+
+    The two travel together so the prompt cannot quote one position while the
+    play route starts at another: ``play.resume_start_ticks`` reads a readable
+    library row's bookmark out of Kodi's own database and everything else --
+    a kofin listing, a row kofin cannot read -- off the resolved item, whose
+    resume point ``listitems.resume_of`` already pulled back by the Advanced-tab
+    offset. So the dbid is handed on only where the bookmark is the answer, and
+    the seconds are read from whichever source that leaves in play.
+    """
+    listitem = _focused_listitem()
+    tag = listitem.getVideoInfoTag() if listitem is not None else None
+    if tag is None:
+        return "", 0.0
+    dbid, media = tag.getDbId(), tag.getMediaType()
+    if dbid and dbid > 0 and media in kodirpc.RESUME_QUERY:
+        return str(dbid), kodirpc.resume_seconds(dbid, media) or 0.0
+    return "", max(tag.getResumeTime(), 0.0)
+
+
+def _resume_label(seconds: float) -> str:
+    """Kodi's "Resume from HH:MM:SS", stamped the way Kodi stamps it.
+
+    ``SecondsToTimeString(..., TIME_FORMAT_HH_MM_SS)`` zero-pads all three
+    fields. The string is a fmt template ("Resume from {0:s}") that a
+    translation may write differently, so a substitution that does not take
+    falls back to the bare time rather than to a label with braces in it.
+    """
+    whole = int(round(seconds))
+    stamp = "%02d:%02d:%02d" % (whole // 3600, whole % 3600 // 60, whole % 60)
+    try:
+        return xbmc.getLocalizedString(12022).format(stamp)  # Resume from {0:s}
+    except (IndexError, KeyError, ValueError):
+        return stamp
+
+
+def choose_resume(resume_seconds: float) -> Optional[bool]:
+    """Whether to resume; None when the user backed out of the question.
+
+    Kodi never asks it on this path. It prompts for the playbacks it starts
+    itself, and the transcode item starts its own, so a partially watched item
+    transcoded from the context menu used to silently restart. Same wording,
+    options and order as ``CGUIWindowVideoBase::ShowResumeMenu``; nothing to
+    ask means resume=False.
+    """
+    if resume_seconds <= 0:
+        return False
+    index = xbmcgui.Dialog().contextmenu(
+        [
+            _resume_label(resume_seconds),
+            xbmc.getLocalizedString(12021),  # Play from beginning
+        ]
+    )
+    if index < 0:
+        return None
+    return index == 0
+
+
 def play_with_transcode() -> None:
     item_id = _focused_item_id()
     if not item_id:
         LOG.warning("transcode context invoked without a kofin item")
         return
+    dbid, resume_seconds = _focused_resume()
+    resume = choose_resume(resume_seconds)
+    if resume is None:
+        return
     bitrate = choose_bitrate(settings.get_list("contextBitrates"))
     if bitrate is None:
         return
-    LOG.info("context transcode %s at %s Mbit/s", item_id, bitrate)
-    xbmc.executebuiltin(
-        "RunPlugin(%s)"
-        % plugin_url(
-            {"mode": "play", "id": item_id, "transcode": "1", "bitrate": bitrate}
-        )
+    params: Dict[str, str] = {
+        "mode": "play",
+        "id": item_id,
+        "transcode": "1",
+        "bitrate": bitrate,
+    }
+    if dbid:
+        params["dbid"] = dbid
+    # The answer is stated outright, because Kodi will not carry it: PlayMedia's
+    # own "resume" flag is gated on GetItemResumeInformation().isResumable, and
+    # the bare plugin:// path it builds an item from has no resume information
+    # to find ("LoadDetails: Unsupported item type"), so the flag downgrades
+    # itself to noresume and the play route is handed resume:false either way.
+    # A start position in the params owes Kodi nothing: the play route resolves
+    # the stream at that offset and stamps it on the item Kodi then seeks.
+    if resume:
+        params["startticks"] = str(int(resume_seconds * 10_000_000))
+    else:
+        params["fromstart"] = "1"
+    LOG.info(
+        "context transcode %s at %s Mbit/s (%s)",
+        item_id,
+        bitrate,
+        "resume" if resume else "from start",
     )
+    # PlayMedia, not RunPlugin: playback Kodi starts is resolved through
+    # setResolvedUrl, the path every other kofin playback takes, and the one
+    # whose resume point Kodi acts on.
+    xbmc.executebuiltin("PlayMedia(%s)" % plugin_url(params))
 
 
 def browse_extras() -> None:

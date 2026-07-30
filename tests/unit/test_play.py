@@ -1,6 +1,5 @@
 import pytest
 
-from kofin.core import deviceprofile
 from kofin.core.http import JellyfinError
 from kofin.plugin import play
 from kofin.plugin.router import dispatch
@@ -97,27 +96,6 @@ def test_mime_for_http_transcode_is_not_hls():
     )
 
 
-def test_transcode_budget_caps_forced_transcode_at_source():
-    source = {"Bitrate": 8_000_000}
-    # Unlimited profile cap: the source is what bounds a forced transcode,
-    # otherwise the server copies both streams and "force" does nothing.
-    assert (
-        play.transcode_budget(source, deviceprofile.UNLIMITED_BITRATE, True)
-        == 8_000_000
-    )
-    # A tighter user cap still wins over the source.
-    assert play.transcode_budget(source, 3_000_000, True) == 3_000_000
-    # Not forced: the cap alone applies, source bitrate is irrelevant.
-    assert play.transcode_budget(source, 3_000_000, False) == 3_000_000
-
-
-def test_transcode_budget_without_source_bitrate():
-    assert (
-        play.transcode_budget({}, deviceprofile.UNLIMITED_BITRATE, True)
-        == play.ASSUMED_SOURCE_BITRATE
-    )
-
-
 def test_rewrite_bitrates_replaces_server_values():
     url = (
         "http://s:8096/videos/m1/master.m3u8"
@@ -144,6 +122,25 @@ def test_rewrite_bitrates_small_budget_keeps_video_positive():
 
 def test_rewrite_bitrates_without_query_is_left_alone():
     assert play.rewrite_bitrates("http://s/x", 500_000, 384) == "http://s/x"
+
+
+def test_deny_video_stream_copy_states_the_intent():
+    url = "http://s:8096/videos/m1/master.m3u8?PlaySessionId=abc&VideoBitrate=1"
+    out = play.deny_video_stream_copy(url)
+    assert out.startswith("http://s:8096/videos/m1/master.m3u8?")
+    assert "PlaySessionId=abc" in out and "VideoBitrate=1" in out
+    assert out.endswith("&allowVideoStreamCopy=false")
+
+
+def test_deny_video_stream_copy_replaces_a_server_supplied_value():
+    out = play.deny_video_stream_copy("http://s/x?a=1&allowVideoStreamCopy=true&b=2")
+    assert out.count("allowVideoStreamCopy=") == 1
+    assert "allowVideoStreamCopy=false" in out
+    assert "a=1" in out and "b=2" in out
+
+
+def test_deny_video_stream_copy_without_query_is_left_alone():
+    assert play.deny_video_stream_copy("http://s/x") == "http://s/x"
 
 
 def test_external_subtitles_filtering():
@@ -294,11 +291,11 @@ def test_choose_bitrate_source_and_fractional(monkeypatch):
     monkeypatch.setattr("xbmcgui.Dialog", PickFirst)
     monkeypatch.setattr(
         "kofin.core.settings.localized",
-        lambda sid: "Source" if sid == 30206 else "Play with transcoding",
+        lambda sid: "Default" if sid == 30206 else "Play with transcoding",
     )
-    # 0 == source, plus a fractional option; both are valid tokens now.
+    # 0 == no override, plus a fractional option; both are valid tokens now.
     assert context.choose_bitrate(["0", "0.5", "10"]) == "0"
-    assert captured["labels"] == ["Source", "0.5 Mbit/s", "10 Mbit/s"]
+    assert captured["labels"] == ["Default", "0.5 Mbit/s", "10 Mbit/s"]
 
 
 def test_choose_bitrate_single_source_bypasses_dialog(monkeypatch):
@@ -582,3 +579,111 @@ def test_non_library_resume_uses_the_server_position(resume_env, monkeypatch):
     monkeypatch.setattr("kofin.core.kodirpc.resume_seconds", explode)
     run_play({"id": "ep1"}, resume=True)
     assert resume_env["api"].start_ticks == [590 * 10_000_000]
+
+
+# --- forcing the video re-encode through the whole play route -----------------
+
+
+def _transcoding_source(resume_env, monkeypatch, **overrides):
+    """Point the fake api at a transcode-only MediaSource."""
+    api = resume_env["api"]
+
+    def playback_info(item_id, profile, start_ticks=0, **kwargs):
+        api.start_ticks.append(start_ticks)
+        return {
+            "MediaSources": [
+                dict(
+                    {
+                        "Id": "src1",
+                        "Bitrate": 2_231_688,
+                        "TranscodingSubProtocol": "hls",
+                        "TranscodingContainer": "ts",
+                        "TranscodingUrl": (
+                            "/videos/m1/master.m3u8?PlaySessionId=ps1"
+                            "&VideoBitrate=2007688&AudioBitrate=224000"
+                        ),
+                    },
+                    **overrides,
+                )
+            ],
+            "PlaySessionId": "ps1",
+        }
+
+    monkeypatch.setattr(api, "playback_info", playback_info)
+    return api
+
+
+def test_forced_transcode_denies_the_video_stream_copy(resume_env, monkeypatch):
+    """The context item's forced transcode must re-encode the video: sizing it
+    to the source alone let the server copy the video and squeeze the audio."""
+    _transcoding_source(resume_env, monkeypatch)
+    run_play({"id": "ep1", "transcode": "1", "bitrate": "3"}, resume=False)
+    assert "allowVideoStreamCopy=false" in resume_env["li"].path
+
+
+def test_force_transcode_setting_denies_it_too(resume_env, monkeypatch):
+    """Same for the Advanced-tab toggle, which is how the copy was observed."""
+    resume_env["addon"].store["forceTranscode"] = "true"
+    _transcoding_source(resume_env, monkeypatch)
+    run_play({"id": "ep1"}, resume=False)
+    assert "allowVideoStreamCopy=false" in resume_env["li"].path
+
+
+def test_unforced_transcode_leaves_the_copy_decision_alone(resume_env, monkeypatch):
+    """A transcode the server chose for itself is not a forced one: denying the
+    copy there would re-encode video the profile was happy to stream."""
+    _transcoding_source(resume_env, monkeypatch)
+    run_play({"id": "ep1"}, resume=False)
+    assert "allowVideoStreamCopy" not in resume_env["li"].path
+
+
+def test_forced_transcode_spends_the_bitrate_the_user_picked(resume_env, monkeypatch):
+    """The 3 Mbit/s pick is the budget, not a ceiling the source lowers.
+
+    The source here reports 2,231,688 — sizing the transcode down to that was
+    what left the video share above the source's own video bitrate, which is
+    the copy Jellyfin then took.
+    """
+    _transcoding_source(resume_env, monkeypatch)
+    run_play({"id": "ep1", "transcode": "1", "bitrate": "3"}, resume=False)
+    path = resume_env["li"].path
+    # audio = min(384k, 3 Mbit/s / 10) = 300k; video takes the rest.
+    assert "VideoBitrate=2700000" in path
+    assert "AudioBitrate=300000" in path
+
+
+def test_forced_transcode_keeps_the_audio_copy_available(resume_env, monkeypatch):
+    """Video only: the audio share is left to stand on its own, so audio that
+    fits the budget (this source's 224k inside a 300k share) can still be
+    copied."""
+    _transcoding_source(resume_env, monkeypatch)
+    run_play({"id": "ep1", "transcode": "1", "bitrate": "3"}, resume=False)
+    path = resume_env["li"].path
+    assert "enableAutoStreamCopy" not in path
+    assert "allowAudioStreamCopy" not in path
+
+
+def test_uncapped_forced_transcode_leaves_the_server_to_size_it(
+    resume_env, monkeypatch
+):
+    """ "Source (original) bitrate" and an unset cap send no bitrates at all:
+    with nothing to split, the server's own reservation stands and only the
+    copy denial is added."""
+    _transcoding_source(resume_env, monkeypatch)
+    resume_env["addon"].store["forceTranscode"] = "true"
+    run_play({"id": "ep1"}, resume=False)
+    path = resume_env["li"].path
+    # Untouched, exactly as the server wrote them.
+    assert "VideoBitrate=2007688" in path
+    assert "AudioBitrate=224000" in path
+    assert "allowVideoStreamCopy=false" in path
+
+
+def test_music_transcode_is_not_touched(resume_env, monkeypatch):
+    """The flag is meaningless on the music transcoding profile, which has no
+    video stream and its own bitrate."""
+    resume_env["addon"].store["forceTranscode"] = "true"
+    api = _transcoding_source(resume_env, monkeypatch)
+    api._item = {"Id": "s1", "Type": "Audio", "Name": "A Song", "RunTimeTicks": 100}
+    run_play({"id": "s1"}, resume=False)
+    assert "allowVideoStreamCopy" not in resume_env["li"].path

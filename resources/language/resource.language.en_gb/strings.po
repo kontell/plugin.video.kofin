@@ -630,7 +630,7 @@ msgid "0.75 Mbit/s"
 msgstr ""
 
 msgctxt "#30206"
-msgid "Source (original) bitrate"
+msgid "Default (max streaming bitrate)"
 msgstr ""
 
 msgctxt "#30041"
