@@ -44,9 +44,6 @@ HLS_MIME = "application/x-mpegURL"
 
 AUDIO_TYPES = frozenset({"Audio"})
 
-# pvr.kofin's stand-in for a MediaSource that reports no bitrate.
-ASSUMED_SOURCE_BITRATE = 30_000_000
-
 
 def pick_media_source(
     sources: List[JsonDict], mediasource_id: Optional[str] = None
@@ -126,23 +123,6 @@ def mime_for(source: JsonDict, play_method: str) -> str:
     return MIME_BY_CONTAINER.get(container.lower(), "")
 
 
-def transcode_budget(
-    source: JsonDict, max_bitrate_bps: int, force_transcode: bool
-) -> int:
-    """The bits/s a transcode must fit into.
-
-    A forced transcode caps at the source bitrate so the server actually
-    re-encodes: with an unlimited budget and no direct-play profile Jellyfin
-    still picks a transcoding profile but copies both codecs, which is why
-    forcing a transcode appeared to do nothing. The source bitrate comes from
-    the PlaybackInfo response and is never uncapped.
-    """
-    if not force_transcode:
-        return max_bitrate_bps
-    source_bps = int(source.get("Bitrate") or 0) or ASSUMED_SOURCE_BITRATE
-    return min(source_bps, max_bitrate_bps)
-
-
 def rewrite_bitrates(url: str, budget_bps: int, audio_cap_kbps: int) -> str:
     """Replace the server's bitrates with our split of ``budget_bps``.
 
@@ -161,6 +141,37 @@ def rewrite_bitrates(url: str, budget_bps: int, audio_cap_kbps: int) -> str:
     audio = deviceprofile.audio_bitrate_bps(audio_cap_kbps, budget_bps)
     kept.append("VideoBitrate=%d" % max(budget_bps - audio, 0))
     kept.append("AudioBitrate=%d" % audio)
+    return "%s?%s" % (base, "&".join(kept))
+
+
+def deny_video_stream_copy(url: str) -> str:
+    """Take the video stream copy off the table for a forced transcode.
+
+    No bitrate can do this. Jellyfin allows the copy whenever the requested
+    VideoBitrate is at or above the source's, so a budget high enough to be
+    worth asking for is a budget that permits a copy -- and any budget low
+    enough to forbid one is a quality choice the user did not make. Measured
+    before this call existed, on an HEVC 2,000,962 + AAC 224,000 source sized
+    to its own 2,231,688 total: kofin asked for 2,008,520 video, the server
+    answered ``-codec:v:0 copy`` and re-encoded the audio instead, which had
+    missed its share by 832 bits. Which stream got re-encoded turned on the
+    source's audio share rather than on anything the user asked for.
+
+    So the intent is stated instead of implied: ``allowVideoStreamCopy=false``
+    makes ``CanStreamCopyVideo`` answer no whatever the bitrates say. Video
+    only -- ``enableAutoStreamCopy=false`` would deny the audio copy too, and
+    forcing a video transcode is no reason to re-encode audio that already
+    fits.
+    """
+    base, _, query = url.partition("?")
+    if not query:
+        return url
+    kept = [
+        param
+        for param in query.split("&")
+        if not param.startswith("allowVideoStreamCopy=")
+    ]
+    kept.append("allowVideoStreamCopy=false")
     return "%s?%s" % (base, "&".join(kept))
 
 
@@ -297,19 +308,22 @@ def play(request: Request) -> None:
         )
         is_audio = item.get("Type") in AUDIO_TYPES
         if method == "Transcode" and not is_audio:
-            # The server sizes its own VideoBitrate/AudioBitrate off the
-            # profile cap alone; recompute them so a forced transcode is
-            # bounded by the source and the audio share stays proportional.
+            # The bitrate the user asked for is the budget, whether it came from
+            # the context item or the setting: the server reserves its own audio
+            # share off that cap, so the split is recomputed to keep audio
+            # proportional to the budget rather than to the source. Nothing caps
+            # this against the source bitrate — sizing a transcode down to the
+            # source was only ever a way to provoke a re-encode, which
+            # ``deny_video_stream_copy`` now states outright.
+            #
             # Music is exempt: its transcode is already sized by
-            # MusicStreamingTranscodingBitrate, and the video audio share
-            # would otherwise overwrite that with an unrelated number.
-            budget = transcode_budget(
-                source,
-                int(profile["MaxStreamingBitrate"]),
-                transcode or config.force_transcode,
-            )
+            # MusicStreamingTranscodingBitrate, and the video audio share would
+            # otherwise overwrite that with an unrelated number.
+            budget = int(profile["MaxStreamingBitrate"])
             if budget < deviceprofile.UNLIMITED_BITRATE:
                 url = rewrite_bitrates(url, budget, config.audio_bitrate_kbps)
+            if transcode or config.force_transcode:
+                url = deny_video_stream_copy(url)
     except JellyfinError as error:
         LOG.warning("play resolve failed for %s: %s", item_id, error)
         _fail(request)
