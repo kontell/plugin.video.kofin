@@ -11,7 +11,7 @@ import xbmc
 import xbmcgui
 import xbmcplugin
 
-from kofin.core import deviceprofile, kodirpc, settings, state, toast
+from kofin.core import deviceprofile, kodirpc, settings, state, streams, toast
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
@@ -175,19 +175,6 @@ def deny_video_stream_copy(url: str) -> str:
     return "%s?%s" % (base, "&".join(kept))
 
 
-def external_subtitles(server: str, source: JsonDict) -> List[str]:
-    urls = []
-    for stream in source.get("MediaStreams") or []:
-        if (
-            stream.get("Type") == "Subtitle"
-            and stream.get("IsExternal")
-            and stream.get("DeliveryUrl")
-            and stream.get("DeliveryMethod") == "External"
-        ):
-            urls.append(server + stream["DeliveryUrl"])
-    return urls
-
-
 def play_state(
     item: JsonDict,
     source: JsonDict,
@@ -196,6 +183,8 @@ def play_state(
     play_session_id: str,
     device_id: str,
     start_seconds: float,
+    attached: Optional[List[int]] = None,
+    request_params: Optional[Dict[str, str]] = None,
 ) -> JsonDict:
     return {
         "Id": item.get("Id", ""),
@@ -213,6 +202,21 @@ def play_state(
         "AudioStreamIndex": source.get("DefaultAudioStreamIndex"),
         "SubtitleStreamIndex": source.get("DefaultSubtitleStreamIndex"),
         "CurrentPosition": start_seconds,
+        # Everything the stream menu needs, resolved here because the
+        # PlaybackInfo that answers it has just been made — the menu costs no
+        # round trip and is complete before the first frame. The service moves
+        # this to a window property when it claims the playback, since by then
+        # the queue entry is gone and the context item runs in a third process.
+        "Streams": {
+            "MediaStreams": streams.summarize(source),
+            # The setSubtitles order, which is what makes a Jellyfin index
+            # translatable to a Kodi subtitle number at all.
+            "Attached": list(attached or []),
+            # A restart has to reproduce *this* play method, and a context
+            # transcode's bitrate lives nowhere else — the settings would
+            # resolve it back to direct play.
+            "Request": dict(request_params or {}),
+        },
     }
 
 
@@ -263,6 +267,21 @@ def resume_start_ticks(item: JsonDict, dbid: str) -> int:
     return int(settings.adjusted_resume(position / 10_000_000) * 10_000_000)
 
 
+def _stream_index(raw: Optional[str]) -> Optional[int]:
+    """A stream-index play param, or None when absent or junk.
+
+    ``-1`` is meaningful and passes through: it is how Jellyfin is told "no
+    subtitle", as distinct from omitting the parameter and letting the user's
+    profile choose one.
+    """
+    if raw is None or raw == "":
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
 def play(request: Request) -> None:
     item_id = request.params.get("id", "")
     creds = Credentials.load()
@@ -296,12 +315,28 @@ def play(request: Request) -> None:
             config,
             bitrate_override_mbps=bitrate_mbps,
             force_transcode=transcode,
+            burn_subtitles=request.params.get("burnsubs") == "1",
         )
-        info = api.playback_info(item_id, profile, start_ticks=start_ticks)
+        # The stream indices only bind when MediaSourceId travels with them:
+        # measured, a PlaybackInfo carrying AudioStreamIndex=3 and no source id
+        # came back with the server's own default and no complaint. The first
+        # call cannot name a source it has not seen yet, so a request that
+        # selects streams states which source it is selecting them on.
+        wanted_source = request.params.get("mediasourceid") or ""
+        audio_index = _stream_index(request.params.get("audioindex"))
+        subtitle_index = _stream_index(request.params.get("subtitleindex"))
+        info = api.playback_info(
+            item_id,
+            profile,
+            start_ticks=start_ticks,
+            audio_index=audio_index,
+            subtitle_index=subtitle_index,
+            media_source_id=wanted_source or None,
+        )
         sources = info.get("MediaSources") or []
         if not sources:
             raise JellyfinError("no media sources for %s" % item_id)
-        source = pick_media_source(sources, request.params.get("mediasourceid"))
+        source = pick_media_source(sources, wanted_source)
         play_session_id = info.get("PlaySessionId", "")
         url, method = stream_url(
             api.server, item, source, creds.device_id, play_session_id
@@ -355,9 +390,13 @@ def play(request: Request) -> None:
     if mime:
         li.setMimeType(mime)
     li.setContentLookup(False)
-    subtitles = external_subtitles(api.server, source)
-    if subtitles:
-        li.setSubtitles(subtitles)
+    # Free: measured identical time to first frame with 0, 2 and 20 subtitles
+    # attached (4.0 s each), because Kodi fetches them only when one is
+    # selected. On a transcode this is the *only* way any subtitle reaches the
+    # screen — the transcoded stream carries none.
+    attached = streams.attached_subtitles(api.server, source, method)
+    if attached:
+        li.setSubtitles([url for _, url in attached])
 
     play_item = play_state(
         item,
@@ -367,6 +406,8 @@ def play(request: Request) -> None:
         play_session_id,
         creds.device_id,
         start_ticks / 10_000_000,
+        attached=[index for index, _ in attached],
+        request_params=request.params,
     )
     segments = prefetch_segments(api, item)
     if segments is not None:

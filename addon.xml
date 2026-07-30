@@ -38,6 +38,30 @@
              simply never appearing. -->
         <visible>[!String.IsEmpty(ListItem.Property(kofin.id)) | String.IsEqual(ListItem.DBTYPE,movie) | String.IsEqual(ListItem.DBTYPE,episode) | String.IsEqual(ListItem.DBTYPE,musicvideo)] + !String.IsEmpty(Window(Home).Property(kofin.context.bitrates))</visible>
       </item>
+      <!-- Stream selection for the item currently playing. Three declarations
+           of one handler, because a context item's <label> is a fixed string
+           id and this entry has to name what the item actually offers. The
+           service publishes which of audio/subtitle/both applies when it
+           claims the playback (core/state.py); an empty property hides all
+           three, which is also how a SyncPlay group withdraws the entry.
+
+           ListItem.IsPlaying is what makes this an in-playback menu: fullscreen
+           video has no context menu at all, but Back leaves it without
+           stopping playback, and the played item stays focused with this true.
+           Square brackets for grouping — parentheses fail to parse (see the
+           note on "Play with transcoding" below). -->
+      <item library="context_streams.py">
+        <label>30613</label>
+        <visible>ListItem.IsPlaying + String.IsEqual(Window(Home).Property(kofin.playing.menu),both)</visible>
+      </item>
+      <item library="context_streams.py">
+        <label>30614</label>
+        <visible>ListItem.IsPlaying + String.IsEqual(Window(Home).Property(kofin.playing.menu),audio)</visible>
+      </item>
+      <item library="context_streams.py">
+        <label>30615</label>
+        <visible>ListItem.IsPlaying + String.IsEqual(Window(Home).Property(kofin.playing.menu),subtitle)</visible>
+      </item>
       <item library="context_extras.py">
         <label>30501</label>
         <!-- TV extras are a plugin browse (no native Kodi TV extras);

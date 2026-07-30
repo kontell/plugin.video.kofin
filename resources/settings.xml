@@ -471,6 +471,11 @@
         </setting>
       </group>
       <group id="4">
+        <setting id="honourJellyfinDefaultTracks" type="boolean" label="30618" help="30619">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
         <setting id="musicLyricsMode" type="integer" label="30606" help="30607">
           <level>0</level>
           <default>1</default>

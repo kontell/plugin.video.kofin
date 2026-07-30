@@ -35,6 +35,9 @@ ALL_HDR_TYPES = [
 VP9_HDR_TYPES = ["HDR10", "HLG", "HDR10Plus"]
 
 SUBTITLE_FORMATS = ["srt", "ass", "sub", "ssa", "smi", "pgssub", "dvdsub", "pgs"]
+# The same list without the image formats. Offering only these is how a
+# burn-in is requested — see _subtitle_profiles.
+TEXT_SUBTITLE_FORMATS = ["srt", "ass", "sub", "ssa", "smi"]
 
 
 DEFAULT_VIDEO_CODECS = [
@@ -144,6 +147,7 @@ def build(
     config: ProfileConfig,
     bitrate_override_mbps: float = 0,
     force_transcode: bool = False,
+    burn_subtitles: bool = False,
 ) -> JsonDict:
     """The DeviceProfile JSON for PlaybackInfo requests.
 
@@ -151,6 +155,13 @@ def build(
     context item: a forced transcode at a chosen bitrate for this play only.
     The override may be fractional (0.5/0.75 Mbit/s) or 0, which — like force
     transcode itself — means the source bitrate (unlimited).
+
+    ``burn_subtitles`` withdraws the image formats from SubtitleProfiles for
+    this play only, which is what makes the server answer ``Encode`` for a
+    PGS/DVDSUB track instead of ``External``. It is the single case where kofin
+    asks for burn-in: an image subtitle chosen on a transcode, where the
+    stream carries no subtitles and the ``.sup`` the External delivery would
+    serve is neither small enough to fetch nor something Kodi can render.
     """
     force_direct = config.force_direct_play and not force_transcode
     bitrate_mbps = bitrate_override_mbps or config.max_bitrate_mbps
@@ -190,13 +201,26 @@ def build(
         "CodecProfiles": _codec_profiles(
             config, force_direct, h264, h264_10bit, hevc, hevc_rext, tokens
         ),
-        "SubtitleProfiles": [
-            {"Format": fmt, "Method": method}
-            for fmt in SUBTITLE_FORMATS
-            for method in ("Embed", "External")
-        ],
+        "SubtitleProfiles": _subtitle_profiles(burn_subtitles),
     }
     return profile
+
+
+def _subtitle_profiles(burn_subtitles: bool) -> List[JsonDict]:
+    """Declaring a format here is what keeps the server from burning it in.
+
+    With the image formats present the server answers ``External`` for every
+    subtitle, embedded PGS included — which is why kofin has never burned
+    anything in. Withdrawing them is therefore an explicit request for
+    ``Encode``, not a tidy-up; the text formats stay either way so a text
+    subtitle chosen alongside is still delivered as a file.
+    """
+    formats = TEXT_SUBTITLE_FORMATS if burn_subtitles else SUBTITLE_FORMATS
+    return [
+        {"Format": fmt, "Method": method}
+        for fmt in formats
+        for method in ("Embed", "External")
+    ]
 
 
 def _preferred_first(codecs: List[str], preferred: str) -> List[str]:

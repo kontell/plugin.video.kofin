@@ -64,11 +64,13 @@ def _handlers() -> Dict[str, Callable[[Request], None]]:
         librarypicker,
         lyrics,
         play,
+        streams,
         syncplay,
     )
 
     return {
         "": _root,
+        "streams": streams.menu,
         "browse": browse.browse,
         "nextepisodes": browse.next_episodes,
         "extras": browse.extras,
