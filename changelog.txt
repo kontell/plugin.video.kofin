@@ -1,3 +1,12 @@
+v0.7.0
+- Music is no longer re-encoded by the server when "Force remux" or "Force transcode" is on. Those two settings describe video, but they were quietly taking music with them, so every song was transcoded whatever the music settings said
+- Your Jellyfin music playlists now keep themselves up to date under Music - Playlists - Kofin. Kofin re-reads them from the server every fifteen minutes, so a playlist you change on the server shows the change in Kodi without waiting for a full sync. Tracks now carry their real length and "01. Artist - Title" naming, and still play as library songs, with play counts going back to the server
+- Films your server holds in more than one version now appear as one entry with its versions listed under it, the way Kodi's own video versions work
+- Audio and subtitle tracks can be chosen for a transcode, both before playback starts and from the OSD while it plays. Picture-based subtitles (PGS, VobSub) can be burned in when you ask for them
+- The transcode context item now offers the resume prompt, and re-encodes the video instead of copying the original
+- Movie extras now show their own running time instead of the film's
+- The "Who's watching" choice survives a Kodi restart
+
 v0.6.1
 - Song lyrics are now drawn by the new Kofin Lyrics add-on, installed alongside Kofin. It shows them in its own window on any skin, and lets a skin that draws lyrics itself do it instead - Contuary 2.2.0 does. Kofin's part is fetching them from the server as each track starts
 - Lyrics settings moved to a choice: off, shown by Kofin Lyrics, or handed to whatever lyrics add-on you already use
