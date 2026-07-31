@@ -2,7 +2,7 @@
 
 # Kofin for Jellyfin
 
-Kodi video and music addon for [Jellyfin](https://jellyfin.org). Browse Jellyfin libraries through the add-on or sync selected libraries directly into Kodi's own databases, so Jellyfin content appears as a native Kodi library.
+Kodi video & music addon for Jellyfin. Browse Jellyfin libraries through the add-on or sync selected libraries directly into Kodi's own databases, so Jellyfin content appears as a native Kodi library.
 
 A rewrite of [jellyfin-kodi](https://github.com/jellyfin/jellyfin-kodi) on the principle "rewrite the shell, transplant the organs": new entry points, settings and lifecycle wrapped around the proven Kodi database writers.
 
@@ -20,11 +20,11 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 - Integrated media segment skipping and play next episode prompt
 - Access movie special features/ extras natively
 - Multi-version movies as native Kodi video versions (Jellyfin MediaSources)
-- Jellyfin song lyrics, timed or plain (via companion add-on)
 - Flexible playback methods - direct play, remux or transcode. Choose supported HDR formats & max resolution
     - For transcoded playback, audio streams and image-based subtitles can be accessed *after playback starts* by returning to the playing item and bringing up the context menu.
 - Play with transcoding context item: pick a bitrate
 - Transcode music
+- Jellyfin song lyrics, timed or plain (via companion add-on)
 - Sync Jellyfin music playlists into Kodi (one way only)
 - Who's watching? - toggle additional users onto the session for multi-user watch state (persistent after restart)
 
@@ -48,6 +48,7 @@ Install via the [Kontell Repository](https://github.com/kontell/repository.konte
 
 1.  Remove all libraries via jellyfin-kodi
 2.  Reset local database from jellyfin-kodi add-on root
+3.  Uninstall/ disable jellyfin-kodi
 
 ## Configuration
 
