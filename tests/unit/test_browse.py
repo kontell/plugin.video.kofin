@@ -3,7 +3,14 @@ import pytest
 import xbmcplugin
 
 from kofin.plugin import browse
-from kofin.plugin.browse import _genre_types, _guess_content, _node_content, node_query
+from kofin.plugin.browse import (
+    _collection_type,
+    _genre_types,
+    _guess_content,
+    _node_content,
+    node_icon,
+    node_query,
+)
 from kofin.plugin.router import Request
 from tests.unit.fakes import FakeAddon, FakeWindow
 
@@ -49,6 +56,15 @@ def test_content_helpers():
     assert _genre_types("musicvideos") == "MusicVideo"
     assert _guess_content([{"Type": "Photo"}]) == "images"
     assert _guess_content([{"Type": "Unknown"}]) == "videos"
+
+
+def test_collection_type_infers_recordings_when_jellyfin_omits_enum():
+    assert (
+        _collection_type({"Name": "Recordings", "CollectionType": ""}) == "recordings"
+    )
+    assert _collection_type({"Name": "Recordings"}) == "recordings"
+    assert _collection_type({"Name": "Movies", "CollectionType": "movies"}) == "movies"
+    assert node_icon("recordings") == "DefaultPVRRecordings.png"
 
 
 # --- TV extras (phase 3: plugin browse over SpecialFeatures) -----------------
@@ -298,3 +314,85 @@ def test_root_leads_with_continue_watching(monkeypatch, directory):
     assert "mode=continuewatching" in paths[0]
     assert directory["entries"][0][2] is True  # a folder to open
     assert "view=v1" in paths[1]  # the libraries follow it
+
+
+def test_addon_media_joins_under_resources_media(monkeypatch):
+    monkeypatch.setattr(browse.settings, "addon_path", lambda: "/tmp/kofin")
+    assert browse._addon_media("person-search.png") == (
+        "/tmp/kofin/resources/media/person-search.png"
+    )
+
+
+def test_addon_media_empty_when_path_unknown(monkeypatch):
+    monkeypatch.setattr(browse.settings, "addon_path", lambda: "")
+    assert browse._addon_media("person-search.png") == ""
+
+
+def test_root_art_icon_and_thumb(monkeypatch, directory):
+    """Root rows set list icon + focus art: continue watching mirrors stock
+    art on both; libraries put stock Default*.png on icon/thumb (Contuary
+    ListItem.Icon prefers thumb) and server Primary on poster; action rows
+    use addon media for both."""
+    import xbmcgui
+
+    arts = []
+    real_listitem = xbmcgui.ListItem
+
+    class RecordingListItem(real_listitem):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._art = {}
+
+        def setArt(self, dictionary):
+            self._art.update(dictionary)
+            arts.append(dict(self._art))
+
+        def getArt(self, key):
+            return self._art.get(key, "")
+
+    monkeypatch.setattr(xbmcgui, "ListItem", RecordingListItem)
+    monkeypatch.setattr(browse.xbmcgui, "ListItem", RecordingListItem)
+    monkeypatch.setattr(browse.listitems.xbmcgui, "ListItem", RecordingListItem)
+    FakeAddon.store["syncPlayEnabled"] = "true"
+    monkeypatch.setattr(
+        "kofin.plugin.syncplay.external_player_configured", lambda: False
+    )
+
+    api = ResumeApi(
+        views=[
+            {
+                "Id": "v1",
+                "Name": "Movies",
+                "CollectionType": "movies",
+                "ImageTags": {"Primary": "p1"},
+            }
+        ]
+    )
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.root(Request("plugin://x", 1, {}))
+
+    by_mode = {}
+    for path, li, _folder in directory["entries"]:
+        if "mode=" in path:
+            mode = path.split("mode=")[1].split("&")[0]
+        else:
+            mode = ""
+        by_mode[mode] = li
+
+    resume = by_mode["continuewatching"]
+    assert resume.getArt("icon") == "DefaultInProgressShows.png"
+    assert resume.getArt("thumb") == "DefaultInProgressShows.png"
+
+    view = by_mode["browse"]
+    assert view.getArt("icon") == "DefaultMovies.png"
+    assert view.getArt("thumb") == "DefaultMovies.png"
+    assert "Images/Primary" in view.getArt("poster")
+
+    watching = by_mode["adduser"]
+    assert watching.getArt("icon").endswith("person-search.png")
+    assert watching.getArt("thumb") == watching.getArt("icon")
+
+    syncplay = by_mode["syncplay"]
+    assert syncplay.getArt("icon").endswith("syncplay-groups.png")
+    assert syncplay.getArt("thumb") == syncplay.getArt("icon")

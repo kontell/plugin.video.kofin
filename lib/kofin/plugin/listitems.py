@@ -173,13 +173,24 @@ def build(
     return li
 
 
+# Library containers (addon root views, etc.) are folders, not playable
+# media — do not stamp setMediaType("video") (ListItem.DBTYPE).
+_CONTAINER_TYPES = frozenset({"CollectionFolder", "UserView"})
+
+
 def _fill_video(
     li: xbmcgui.ListItem, item: JsonDict, resume_seconds: Optional[float] = None
 ) -> None:
     tag = li.getVideoInfoTag()
     item_type = item.get("Type", "")
-    tag.setMediaType(MEDIATYPE.get(item_type, "video"))
     tag.setTitle(item.get("Name", ""))
+
+    if item_type in _CONTAINER_TYPES:
+        if item.get("Overview"):
+            tag.setPlot(item["Overview"])
+        return
+
+    tag.setMediaType(MEDIATYPE.get(item_type, "video"))
 
     if item.get("OriginalTitle"):
         tag.setOriginalTitle(item["OriginalTitle"])
