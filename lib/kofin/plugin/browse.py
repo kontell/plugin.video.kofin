@@ -223,6 +223,17 @@ def root(request: Request) -> None:
     entries: List[Tuple[str, xbmcgui.ListItem, bool]] = []
 
     if api is not None:
+        # First, the way the web client leads with it: the one entry that is
+        # about what the viewer was in the middle of rather than about where it
+        # is filed. Offered without asking the server whether it has anything —
+        # every root render would pay for that question, and the answer changes
+        # with every playback.
+        resume_li = xbmcgui.ListItem(settings.localized(30049))
+        resume_li.setArt({"icon": node_icon("", "inprogress")})
+        entries.append(
+            (listitems.plugin_url({"mode": "continuewatching"}), resume_li, True)
+        )
+
         try:
             views = api.views().get("Items", [])
         except JellyfinError as error:
@@ -289,6 +300,41 @@ def next_episodes(request: Request) -> None:
 
     _add_items(request, api, items, view_id, "tvshows")
     xbmcplugin.setContent(request.handle, "episodes")
+    xbmcplugin.endOfDirectory(request.handle)
+
+
+def continue_watching(request: Request) -> None:
+    """In-progress items across every library (mode=continuewatching).
+
+    A live listing, like the extras node: nothing is written and nothing is
+    cached, because a resume point is exactly the thing that has changed by the
+    time the viewer comes back to it. The per-library "In progress" nodes ask
+    /Items for one library's resumable items; this asks the server for the list
+    it already keeps, so the entries and their order are the ones the web
+    client shows.
+
+    No sort methods are offered. The server hands these back most recently
+    played first, which is the whole point of the listing -- letting Kodi sort
+    them by title would throw that away.
+    """
+    if request.handle < 0:
+        return
+    api = _api()
+    if api is None:
+        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+        return
+
+    try:
+        items = api.resume(BROWSE_FIELDS).get("Items", [])
+    except JellyfinError as error:
+        LOG.warning("continue watching failed: %s", error)
+        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+        return
+
+    _add_items(request, api, items, "", "")
+    # Movies and episodes in one listing: "videos" is the content type that
+    # describes both, and the items carry their own media type for the skin.
+    xbmcplugin.setContent(request.handle, "videos")
     xbmcplugin.endOfDirectory(request.handle)
 
 

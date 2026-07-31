@@ -244,3 +244,20 @@ def test_syncplay_endpoints(api):
     assert calls["/SyncPlay/NextItem"]["json"] == {"PlaylistItemId": "pl-1"}
     assert calls["/SyncPlay/PreviousItem"]["json"] == {"PlaylistItemId": "pl-1"}
     assert calls["/SyncPlay/SetIgnoreWait"]["json"] == {"IgnoreWait": True}
+
+
+def test_resume_asks_the_server_for_its_own_list(api):
+    """Continue watching comes off /Items/Resume rather than an IsResumable
+    filter, so what counts as in progress -- and in what order -- stays the
+    server's judgement."""
+    client, transport = api
+    client.resume("Overview", limit=10)
+    call = transport.calls[0]
+    assert call["url"] == "http://s:8096/Users/uid/Items/Resume"
+    assert call["params"] == {
+        "Limit": 10,
+        "MediaTypes": "Video",
+        "Recursive": True,
+        "EnableTotalRecordCount": False,
+        "Fields": "Overview",
+    }

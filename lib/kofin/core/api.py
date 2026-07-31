@@ -172,6 +172,28 @@ class Api:
             params["fields"] = fields
         return self.get("/Shows/NextUp", params)
 
+    def resume(self, fields: str = "", limit: int = 25) -> JsonDict:
+        """In-progress items across every library — "Continue watching".
+
+        The server's own endpoint rather than an /Items query filtered on
+        IsResumable, so the list matches what the other clients show: which
+        items count as in progress is the server's judgement (its min/max
+        resume percentages decide when something enters and leaves), and so is
+        the order they come back in, most recently played first.
+
+        MediaTypes limits it to video. Audiobooks are the other thing the
+        server tracks a position for, and Kodi has nowhere to resume one.
+        """
+        params: JsonDict = {
+            "Limit": limit,
+            "MediaTypes": "Video",
+            "Recursive": True,
+            "EnableTotalRecordCount": False,
+        }
+        if fields:
+            params["Fields"] = fields
+        return self.get("/Users/%s/Items/Resume" % self.user_id, params)
+
     def artists(self, parent_id: str) -> JsonDict:
         return self.get("/Artists", {"userId": self.user_id, "parentId": parent_id})
 

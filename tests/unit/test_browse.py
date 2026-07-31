@@ -205,3 +205,96 @@ def test_series_drilldown_appends_extras_entry(directory):
         Request("plugin://x", 1, {}), ExtrasApi(fail=True), "series1"
     )
     assert directory["entries"] == []
+
+
+# --- Continue watching (the server's own resume list) -------------------------
+
+
+class ResumeApi:
+    server = "http://server:8096"
+
+    def __init__(self, items=None, fail=False, views=None):
+        self.items = items if items is not None else []
+        self.fail = fail
+        self._views = views or []
+        self.resume_calls = []
+
+    def resume(self, fields="", limit=25):
+        self.resume_calls.append((fields, limit))
+        if self.fail:
+            from kofin.core.http import JellyfinError
+
+            raise JellyfinError("down")
+        return {"Items": self.items}
+
+    def views(self):
+        return {"Items": self._views}
+
+    def device_sessions(self, device_id):
+        return []
+
+
+MOVIE_DTO = {
+    "Id": "m1",
+    "Name": "Rio Bravo",
+    "Type": "Movie",
+    "ImageTags": {},
+    "RunTimeTicks": 84000000000,
+    "UserData": {"PlaybackPositionTicks": 12243410000},
+}
+
+EPISODE_DTO = {
+    "Id": "e1",
+    "Name": "Mole Hunt",
+    "Type": "Episode",
+    "SeriesName": "Archer",
+    "ImageTags": {},
+}
+
+
+def test_continue_watching_lists_the_server_order(monkeypatch, directory):
+    """Movies and episodes in one listing, in the order the server sent them:
+    most recently played first is what the listing is for."""
+    api = ResumeApi(items=[MOVIE_DTO, EPISODE_DTO])
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.continue_watching(Request("plugin://x", 1, {"mode": "continuewatching"}))
+
+    assert directory["succeeded"] is True
+    assert directory["content"] == "videos"
+    paths = [path for path, _li, _folder in directory["entries"]]
+    assert ["id=m1" in paths[0], "id=e1" in paths[1]] == [True, True]
+    assert all("mode=play" in path for path in paths)
+    assert [folder for _path, _li, folder in directory["entries"]] == [False, False]
+    assert api.resume_calls == [(browse.BROWSE_FIELDS, 25)]
+
+
+def test_continue_watching_failure_fails_directory(monkeypatch, directory):
+    monkeypatch.setattr(browse, "_api", lambda: ResumeApi(fail=True))
+
+    browse.continue_watching(Request("plugin://x", 1, {"mode": "continuewatching"}))
+
+    assert directory["succeeded"] is False
+
+
+def test_continue_watching_empty_is_still_a_listing(monkeypatch, directory):
+    """Nothing in progress is an empty listing, not a failed one -- the entry is
+    offered without asking the server first, so arriving at nothing is normal."""
+    monkeypatch.setattr(browse, "_api", lambda: ResumeApi(items=[]))
+
+    browse.continue_watching(Request("plugin://x", 1, {"mode": "continuewatching"}))
+
+    assert directory["succeeded"] is True
+    assert directory["entries"] == []
+
+
+def test_root_leads_with_continue_watching(monkeypatch, directory):
+    api = ResumeApi(views=[{"Id": "v1", "Name": "Movies", "CollectionType": "movies"}])
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.root(Request("plugin://x", 1, {}))
+
+    paths = [path for path, _li, _folder in directory["entries"]]
+    assert "mode=continuewatching" in paths[0]
+    assert directory["entries"][0][2] is True  # a folder to open
+    assert "view=v1" in paths[1]  # the libraries follow it
