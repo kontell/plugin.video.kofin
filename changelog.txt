@@ -1,3 +1,9 @@
+v0.8.0
+- Continue watching now leads the addon's own listing, the way it does in Jellyfin's web client: everything you are part-way through, across every library, most recently played first
+- The audio and subtitle chooser now appears for every transcode that has something to offer. It only ever showed up when the item had both a second audio track and subtitles to switch to, so a film with three subtitle tracks and one audio track offered nothing at all
+- "Mark as watched on Jellyfin" no longer sits beside Kodi's own "Mark as watched" on items in a synced library. Kodi's already reaches the server there; the Jellyfin one stays on items browsed straight from the server, where nothing else does
+- Music playlists now show artist, album and title, and report to the Jellyfin dashboard, on installs whose music library was synced with "Transcode music" off. Their tracks were written as plain server links, which Kodi cannot match back to the song in its own library, so it showed the bare playlist line and Kofin never saw the playback
+
 v0.7.0
 - Music is no longer re-encoded by the server when "Force remux" or "Force transcode" is on. Those two settings describe video, but they were quietly taking music with them, so every song was transcoded whatever the music settings said
 - Your Jellyfin music playlists now keep themselves up to date under Music - Playlists - Kofin. Kofin re-reads them from the server every fifteen minutes, so a playlist you change on the server shows the change in Kodi without waiting for a full sync. Tracks now carry their real length and "01. Artist - Title" naming, and still play as library songs, with play counts going back to the server

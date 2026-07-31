@@ -12,22 +12,24 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 
 ## Features
 
-### New
+### New & Improved
 
 - Robust, resumable sync
+- Consolidated, simplified settings for all add-on configuration.
 - SyncPlay - watch in sync with other Jellyfin clients
 - Integrated media segment skipping and play next episode prompt
-- Access movie special features / extras natively
+- Access movie special features/ extras natively
 - Multi-version movies as native Kodi video versions (Jellyfin MediaSources)
-- Jellyfin song lyrics, timed or plain, handed to Kodi as a song starts - needs an addon that displays lyrics, such as CU LRC Lyrics, since no stock skin shows them
+- Jellyfin song lyrics, timed or plain (via companion add-on)
 - Flexible playback methods - direct play, remux or transcode. Choose supported HDR formats & max resolution
     - For transcoded playback, audio streams and image-based subtitles can be accessed *after playback starts* by returning to the playing item and bringing up the context menu.
 - Play with transcoding context item: pick a bitrate
-- Sync Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin
+- Transcode music
+- Sync Jellyfin music playlists into Kodi (one way only)
+- Who's watching? - toggle additional users onto the session for multi-user watch state (persistent after restart)
 
 ### Legacy
 
-- Who's watching? - toggle additional users onto the session for multi-user watch state
 - Sync Jellyfin movies, TV shows, music and music videos into Kodi's native library
 - Real Kodi database rows - skins, widgets and "recently added" work with no plugin awareness
 - Incremental and full sync
@@ -44,8 +46,8 @@ Install via the [Kontell Repository](https://github.com/kontell/repository.konte
 
 ## Migration from Jellyfin-Kodi
 
-1.  Remove all libraries via jellyfin
-2.  Reset local database
+1.  Remove all libraries via jellyfin-kodi
+2.  Reset local database from jellyfin-kodi add-on root
 
 ## Configuration
 
