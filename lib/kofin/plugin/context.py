@@ -26,16 +26,29 @@ def _focused_listitem() -> Optional[xbmcgui.ListItem]:
     return getattr(sys, "listitem", None)
 
 
-def _focused_item_id() -> str:
+def _focused_dynamic_id() -> str:
+    """The Jellyfin id of the focused item when it is one kofin listed itself.
+
+    Only kofin's own listings build their items, so only they carry the
+    property: a synced library's rows are Kodi's, and reach their Jellyfin id
+    through the database mapping instead. That makes this the test for "is this
+    item from a dynamic library", which decides whether the watched toggle is
+    worth offering.
+    """
     listitem = _focused_listitem()
     if listitem is None:
         return ""
-    item_id = listitem.getProperty("kofin.id")
+    return listitem.getProperty("kofin.id")
+
+
+def _focused_item_id() -> str:
+    item_id = _focused_dynamic_id()
     if item_id:
         return item_id
     # Library items carry no kofin.id property; resolve the Kodi database id
     # through the kofin.db mapping instead.
-    tag = listitem.getVideoInfoTag()
+    listitem = _focused_listitem()
+    tag = listitem.getVideoInfoTag() if listitem is not None else None
     if tag is None:
         return ""
     return lookup_item_id(tag.getDbId(), tag.getMediaType())
@@ -210,24 +223,32 @@ def browse_extras() -> None:
 WATCHED_TYPES = PLAYABLE_TYPES | {"Series", "Season", "BoxSet"}
 
 
-def _manage_options(item: dict) -> List[Tuple[str, dict]]:
+def _manage_options(item: dict, dynamic: bool) -> List[Tuple[str, dict]]:
     """The (label, RunPlugin params) pairs for the Jellyfin actions menu.
 
-    Every server-side action for an item lives here, watched state included:
-    a listing's own context entries are pinned to the very top of Kodi's menu
+    Every server-side action for an item lives here: a listing's own context
+    entries are pinned to the very top of Kodi's menu
     (``CGUIMediaWindow::OnPopupMenu`` builds plugin items, then the global
     menu, then window buttons, then addon extensions), and up there kofin's
     watched toggle sat above Kodi's Play wearing the same wording as Kodi's own
     "Mark as watched" further down. Delete is offered only when the user has
     opted in on the Advanced tab; the watched and favorite labels reflect the
     server-reported state queried when the menu opened.
+
+    ``dynamic`` says the item came from one of kofin's own listings rather than
+    from a synced library, and only there is the watched toggle the only way to
+    reach the server. A library row already has Kodi's own "Mark as watched",
+    which ``service/kodiuserdata.py`` forwards to Jellyfin — including the
+    per-episode announcements a whole season fires — so offering a second,
+    server-named entry beside it only asked the viewer to tell two identical
+    actions apart.
     """
     item_id = item.get("Id", "")
     userdata = item.get("UserData") or {}
     is_favorite = bool(userdata.get("IsFavorite"))
     options: List[Tuple[str, dict]] = []
 
-    if item.get("Type") in WATCHED_TYPES:
+    if dynamic and item.get("Type") in WATCHED_TYPES:
         played = bool(userdata.get("Played"))
         options.append(
             (
@@ -268,7 +289,7 @@ def manage() -> None:
         toast.show(settings.localized(30507), toast.ERROR)
         return
 
-    options = _manage_options(item)
+    options = _manage_options(item, dynamic=bool(_focused_dynamic_id()))
     index = xbmcgui.Dialog().contextmenu([label for label, _ in options])
     if index < 0:
         return

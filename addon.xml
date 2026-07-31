@@ -49,16 +49,25 @@
            video has no context menu at all, but Back leaves it without
            stopping playback, and the played item stays focused with this true.
            Square brackets for grouping — parentheses fail to parse (see the
-           note on "Play with transcoding" below). -->
-      <item library="context_streams.py">
+           note on "Play with transcoding" below).
+
+           The args are what keep the three declarations three: Kodi loads addon
+           context items through CContextMenuManager::ReloadAddonItems, which
+           drops any item already in the list, and CContextMenuItem::operator==
+           compares parent, library, addon id and args — neither the label nor
+           the visible condition. Without them only the first declaration
+           survives, so a playback offering just audio or just subtitles showed
+           no entry at all. Nothing reads the value; the handler takes what to
+           offer from the same window property the conditions test. -->
+      <item library="context_streams.py" args="both">
         <label>30613</label>
         <visible>ListItem.IsPlaying + String.IsEqual(Window(Home).Property(kofin.playing.menu),both)</visible>
       </item>
-      <item library="context_streams.py">
+      <item library="context_streams.py" args="audio">
         <label>30614</label>
         <visible>ListItem.IsPlaying + String.IsEqual(Window(Home).Property(kofin.playing.menu),audio)</visible>
       </item>
-      <item library="context_streams.py">
+      <item library="context_streams.py" args="subtitle">
         <label>30615</label>
         <visible>ListItem.IsPlaying + String.IsEqual(Window(Home).Property(kofin.playing.menu),subtitle)</visible>
       </item>

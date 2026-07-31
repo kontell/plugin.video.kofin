@@ -3,11 +3,11 @@ import sys
 from kofin.plugin import context
 
 
-def _options(monkeypatch, item, enable_delete):
+def _options(monkeypatch, item, enable_delete, dynamic=True):
     monkeypatch.setattr(context.settings, "get_bool", lambda key: enable_delete)
     monkeypatch.setattr(context.settings, "localized", lambda i: "L%d" % i)
     monkeypatch.setattr(context.xbmc, "getLocalizedString", lambda i: "K%d" % i)
-    return context._manage_options(item)
+    return context._manage_options(item, dynamic)
 
 
 def test_manage_options_favorite_label_follows_state(monkeypatch):
@@ -74,6 +74,15 @@ def test_manage_options_omits_watched_where_there_is_no_state(monkeypatch):
     options = _options(
         monkeypatch, {"Id": "a1", "Type": "MusicArtist", "UserData": {}}, False
     )
+    assert [params["mode"] for _, params in options] == ["favorite", "settings"]
+
+
+def test_manage_options_omits_watched_on_a_library_row(monkeypatch):
+    """A synced row already has Kodi's own "Mark as watched", which the service
+    forwards to Jellyfin, so the server-named twin is offered only where nothing
+    else reaches the server: kofin's own listings."""
+    item = {"Id": "i1", "Type": "Episode", "UserData": {}}
+    options = _options(monkeypatch, item, False, dynamic=False)
     assert [params["mode"] for _, params in options] == ["favorite", "settings"]
 
 
@@ -205,3 +214,42 @@ def test_resume_label_stamps_the_time_like_kodi(monkeypatch):
 def test_resume_label_survives_a_template_without_a_placeholder(monkeypatch):
     monkeypatch.setattr(context.xbmc, "getLocalizedString", lambda i: "Resume {}{}")
     assert context._resume_label(65) == "00:01:05"
+
+
+# --- which menu the focused item gets -----------------------------------------
+
+
+class _Api:
+    def __init__(self, item):
+        self._item = item
+
+    def item(self, item_id):
+        return self._item
+
+
+def _manage(monkeypatch, listitem, item):
+    """Run manage() over a focused item; return the labels it offered."""
+    dialog = _Dialog(-1)  # backs out: only the menu it built is under test
+    monkeypatch.setattr(sys, "listitem", listitem, raising=False)
+    monkeypatch.setattr(context, "_api", lambda: _Api(item))
+    monkeypatch.setattr(context, "lookup_item_id", lambda dbid, media: "jf1")
+    monkeypatch.setattr(context.xbmcgui, "Dialog", lambda: dialog)
+    monkeypatch.setattr(context.settings, "get_bool", lambda key: False)
+    monkeypatch.setattr(context.settings, "localized", lambda i: "L%d" % i)
+    monkeypatch.setattr(context.xbmc, "getLocalizedString", lambda i: "K%d" % i)
+    context.manage()
+    return dialog.asked[0]
+
+
+def test_manage_offers_the_watched_toggle_on_a_dynamic_item(monkeypatch):
+    item = {"Id": "jf1", "Type": "Episode", "UserData": {}}
+    listitem = _ListItem(_Tag(), kofin_id="jf1")
+    assert _manage(monkeypatch, listitem, item)[0] == "L30508"
+
+
+def test_manage_drops_the_watched_toggle_on_a_library_item(monkeypatch):
+    """Same item, reached through the kofin.db mapping instead of a property:
+    that is what tells a synced row from one of kofin's own listings."""
+    item = {"Id": "jf1", "Type": "Episode", "UserData": {}}
+    listitem = _ListItem(_Tag(dbid=200, media="episode"))
+    assert _manage(monkeypatch, listitem, item) == ["K14076", "L30504"]
