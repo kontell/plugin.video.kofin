@@ -255,6 +255,10 @@ msgctxt "#30040"
 msgid "Albums"
 msgstr ""
 
+msgctxt "#30049"
+msgid "Continue watching"
+msgstr ""
+
 # 30100-30203 — Transcoding tab (30150+ are option labels)
 
 msgctxt "#30100"
