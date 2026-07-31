@@ -1,5 +1,6 @@
 """Directory listings: addon root, library nodes, and drill-down browsing."""
 
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import xbmcgui
@@ -74,11 +75,13 @@ MEDIA_ICONS = {
     "movies": "DefaultMovies.png",
     "tvshows": "DefaultTVShows.png",
     "musicvideos": "DefaultMusicVideos.png",
-    "music": "DefaultMusicAlbums.png",
+    "music": "DefaultAddonMusic.png",
     "books": "DefaultAddonInformation.png",
     "homevideos": "DefaultAddonVideo.png",
     "playlists": "DefaultPlaylist.png",
     "boxsets": "DefaultSets.png",
+    # Jellyfin DVR UserView often has no CollectionType; we map it to this key.
+    "recordings": "DefaultPVRRecordings.png",
 }
 
 NODE_ICONS: Dict[str, Any] = {
@@ -105,6 +108,37 @@ def node_icon(media: str, node: str = "") -> str:
     if isinstance(icon, dict):
         icon = icon.get(media)
     return icon or MEDIA_ICONS.get(media, "DefaultVideo.png")
+
+
+def _collection_type(view: JsonDict) -> str:
+    """Jellyfin CollectionType for a root view, with recordings inferred.
+
+    The DVR Recordings UserView commonly ships with an empty CollectionType,
+    so node_icon would fall through to DefaultVideo.png. Name-match is the
+    stable signal Jellyfin clients use when the enum is missing.
+    """
+    collection = view.get("CollectionType") or ""
+    if collection:
+        return collection
+    name = (view.get("Name") or "").lower()
+    if "recording" in name:
+        return "recordings"
+    return ""
+
+
+def _addon_media(filename: str) -> str:
+    """Absolute path to a file under resources/media/.
+
+    Empty when the addon path is unknown (same defensive posture as
+    toast.addon_icon): Kodi draws a blank glyph for a path to nowhere.
+    """
+    try:
+        path = settings.addon_path()
+    except Exception:  # pragma: no cover - defensive
+        return ""
+    if not path:
+        return ""
+    return os.path.join(path, "resources", "media", filename)
 
 
 def node_query(media: str, node: str, view_id: str) -> Optional[JsonDict]:
@@ -227,9 +261,11 @@ def root(request: Request) -> None:
         # about what the viewer was in the middle of rather than about where it
         # is filed. Offered without asking the server whether it has anything —
         # every root render would pay for that question, and the answer changes
-        # with every playback.
+        # with every playback. Stock art on icon and thumb: Contuary list
+        # glyphs bind ListItem.Icon, which prefers thumb over Art(icon).
         resume_li = xbmcgui.ListItem(settings.localized(30049))
-        resume_li.setArt({"icon": node_icon("", "inprogress")})
+        resume_art = node_icon("", "inprogress")
+        resume_li.setArt({"icon": resume_art, "thumb": resume_art})
         entries.append(
             (listitems.plugin_url({"mode": "continuewatching"}), resume_li, True)
         )
@@ -242,14 +278,20 @@ def root(request: Request) -> None:
         for view in views:
             if view.get("CollectionType") == "livetv":
                 continue  # live TV is pvr.kofin's job
-            collection = view.get("CollectionType") or ""
+            collection = _collection_type(view)
             li = listitems.build(view, api.server)
-            # Stock icon fallback for views without server art; a view's own
-            # Primary image (set by listitems.build) is real media art and
-            # takes precedence.
-            art = li.getArt("icon")
-            if not art and not li.getArt("thumb"):
-                li.setArt({"icon": node_icon(collection)})
+            # Contuary binds the list glyph to ListItem.Icon, which prefers
+            # thumb over Art(icon). Put stock Default*.png on icon *and*
+            # thumb so the list shows themed icons; keep server Primary on
+            # poster for the focus pane (InfoWallThumbVar prefers poster).
+            art = listitems.art_for(view, api.server)
+            icon = node_icon(collection)
+            primary = art.get("thumb") or art.get("poster")
+            art["icon"] = icon
+            art["thumb"] = icon
+            if primary:
+                art["poster"] = primary
+            li.setArt(art)
             params = {"mode": "browse", "view": view.get("Id", ""), "type": collection}
             if collection not in NODES:
                 params["folder"] = "children"
@@ -259,7 +301,8 @@ def root(request: Request) -> None:
 
     if api is not None:
         adduser_li = xbmcgui.ListItem(_who_is_watching_label(api))
-        adduser_li.setArt({"icon": "DefaultUser.png"})
+        watching_art = _addon_media("person-search.png") or "DefaultUser.png"
+        adduser_li.setArt({"icon": watching_art, "thumb": watching_art})
         entries.append((listitems.plugin_url({"mode": "adduser"}), adduser_li, False))
 
     # SyncPlay root entry (phase 4): gated on the master toggle, read fresh
@@ -268,14 +311,20 @@ def root(request: Request) -> None:
 
     if api is not None and syncplay.available():
         syncplay_li = xbmcgui.ListItem(settings.localized(30560))
-        syncplay_li.setArt({"icon": "DefaultUser.png"})
+        syncplay_art = _addon_media("syncplay-groups.png") or "DefaultUser.png"
+        syncplay_li.setArt({"icon": syncplay_art, "thumb": syncplay_art})
         entries.append((listitems.plugin_url({"mode": "syncplay"}), syncplay_li, False))
     settings_li = xbmcgui.ListItem(xbmc.getLocalizedString(5))  # "Settings"
-    settings_li.setArt({"icon": "DefaultAddonService.png"})
+    settings_art = "DefaultAddonService.png"
+    settings_li.setArt({"icon": settings_art, "thumb": settings_art})
     entries.append((listitems.plugin_url({"mode": "settings"}), settings_li, False))
 
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
-    xbmcplugin.setContent(request.handle, "files")
+    # Empty content (not "files"): Contuary/Estuary WideList only binds
+    # $INFO[ListItem.Icon] when Container.Content() is empty — with "files"
+    # it uses ListWatchedIconVar (folder/dot status overlays) and ignores
+    # setArt(icon=…). Library focus art stays on poster (see above).
+    xbmcplugin.setContent(request.handle, "")
     xbmcplugin.endOfDirectory(request.handle)
 
 

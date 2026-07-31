@@ -91,13 +91,17 @@ def test_art_parent_fallbacks_for_episode():
 
 
 class RecordingTag:
-    """Records the resume point, ignoring every other setter."""
+    """Records resume point and media type; ignores every other setter."""
 
     def __init__(self):
         self.resume_calls = []
+        self.media_type = None
 
     def setResumePoint(self, time, totaltime=0.0):
         self.resume_calls.append((time, totaltime))
+
+    def setMediaType(self, media_type):
+        self.media_type = media_type
 
     def __getattr__(self, name):
         return lambda *args, **kwargs: None
@@ -119,6 +123,15 @@ EPISODE = {
     "Name": "An Episode",
     "RunTimeTicks": 600 * 10_000_000,
     "UserData": {"PlaybackPositionTicks": 300 * 10_000_000},
+}
+
+VIEW = {
+    "Type": "CollectionFolder",
+    "Name": "Movies",
+    "Id": "v1",
+    "CollectionType": "movies",
+    "Overview": "All the movies",
+    "ImageTags": {"Primary": "p1"},
 }
 
 
@@ -150,3 +163,14 @@ def test_build_with_a_zero_override_stamps_nothing(recorded):
     # its presence, so "start at 0" has to mean the setter is never called.
     listitems.build(EPISODE, SERVER, resume_seconds=0.0)
     assert recorded[-1].tag.resume_calls == []
+
+
+def test_build_does_not_stamp_mediatype_on_library_views(recorded):
+    """CollectionFolder/UserView are containers, not video media rows."""
+    listitems.build(VIEW, SERVER)
+    assert recorded[-1].tag.media_type is None
+
+
+def test_build_stamps_mediatype_on_episodes(recorded):
+    listitems.build(EPISODE, SERVER)
+    assert recorded[-1].tag.media_type == "episode"
