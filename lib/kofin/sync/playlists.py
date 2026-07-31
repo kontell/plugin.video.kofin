@@ -6,20 +6,35 @@ Download each Audio playlist, rewrite track lines to the same path already
 stored for that song in MyMusic, write ``<Server Name>.m3u8``. The folder is
 the ownership boundary — never touch sibling files under ``playlists/music/``.
 
-**The path is the library link.** A line carries the song's own MyMusic
-``path.strPath + song.strFileName``, which is exactly what Kodi itself writes
-when it saves a playlist of library songs (verified live: Kodi's own
-``Save`` wrote the same ``plugin://…/stream.flac?mode=play&id=…&dbid=…`` rows
-kofin writes). Kodi matches that path back to the song row, so playing a line
-reports ``"type": "song"`` with the Kodi database id and gets the full library
-treatment — artwork, play count, last played, song info.
+**The line has to be one Kodi can trace back to the song row**, and which line
+that is depends on how the row was written — so it is decided per row, not from
+the setting that produced it (a ``musicTranscode`` flip changes new rows only,
+which is exactly how two installs on the same settings ended up with different
+path forms).
 
-``musicdb://songs/<id><ext>`` — the URL that *looks* like the library link —
-is not usable here: ``CMusicDatabaseFile`` re-opens the translated path at the
-file layer with no plugin resolution, so with ``musicTranscode`` on every line
-fails at "Init: Error opening file musicdb://songs/<id>.mp3" before playback
-starts (verified live, both from the GUI and ``Player.Open``). The DynPath that
-makes musicdb:// work inside the library UI cannot be expressed in an m3u.
+*Plugin rows* (``musicTranscode`` on) carry the song's own MyMusic
+``path.strPath + song.strFileName``, which is what Kodi itself writes when it
+saves a playlist of library songs (verified live: Kodi's own ``Save`` wrote the
+same ``plugin://…/stream.flac?mode=play&id=…&dbid=…`` rows kofin writes).
+Playing one runs the play route, which resolves the stream, stamps the song's
+tag and database id on the resolved item and reports the playback.
+
+``musicdb://songs/<id><ext>`` cannot be used for those rows:
+``CMusicDatabaseFile`` re-opens the translated path at the file layer with no
+plugin resolution, so every line fails at "Init: Error opening file
+musicdb://songs/<id>.mp3" before playback starts (verified live, both from the
+GUI and ``Player.Open``).
+
+*Direct rows* (``musicTranscode`` off) are the other way round, and the raw
+path is the one that cannot work. Kodi does not match a bare
+``https://…/Audio/<id>/stream.flac?static=true`` back to its song row — played
+by path it comes back with no database id, no title, artist or album, only the
+``#EXTINF`` label (verified live on Piers: the same track opened by ``songid``
+answers with all of it, opened by ``file`` with none of it). Without the
+database id nothing identifies the item, so the service cannot claim it either
+and the playback never reaches the Jellyfin dashboard. ``musicdb://`` is what
+those rows take: ``GetSongByFileName`` reads the id straight out of the URL,
+and the file layer opens the direct path underneath with nothing to resolve.
 """
 
 from __future__ import annotations
@@ -40,6 +55,10 @@ LOG = Logger(__name__)
 FOLDER_NAME = "Kofin"
 PLAYLISTS_MUSIC = "special://profile/playlists/music"
 PAGE_SIZE = 100
+
+# What tells a plugin row from a direct one (writers/music.py writes one or the
+# other into path.strPath, per the musicTranscode setting at sync time).
+PLUGIN_PREFIX = "plugin://"
 
 # A stop for a server that over-reports ``TotalRecordCount`` and re-emits
 # earlier rows on later pages (seen live on the playlist *list* query — see
@@ -84,6 +103,27 @@ def safe_filename(name: str) -> str:
     cleaned = _UNSAFE.sub("_", (name or "").strip())
     cleaned = cleaned.rstrip(" .")
     return cleaned or "playlist"
+
+
+def playlist_line(kodi_id: int, str_path: str, str_filename: str) -> str:
+    """The path to write for a song row: its own, or the musicdb URL for it.
+
+    Which one is read off the row rather than off ``musicTranscode``: the row
+    is what the line has to agree with, and the setting can have moved since it
+    was written (see the module docstring for why each form only works for the
+    rows it belongs to).
+
+    The extension is load-bearing — ``CMusicDatabaseFile::TranslateUrl`` checks
+    it against the row and refuses the id when it disagrees — so a direct row
+    whose filename carries none keeps its own path. That is no worse than
+    today, and better than a line that cannot open.
+    """
+    if str_path.startswith(PLUGIN_PREFIX):
+        return join_song_path(str_path, str_filename)
+    extension = os.path.splitext(str_filename.split("?", 1)[0])[1]
+    if not extension:
+        return join_song_path(str_path, str_filename)
+    return "musicdb://songs/%d%s" % (kodi_id, extension)
 
 
 def join_song_path(str_path: str, str_filename: str) -> str:
@@ -142,7 +182,7 @@ def song_entry(
     if not str_path or not str_filename:
         return None
     return Entry(
-        path=join_song_path(str_path, str_filename),
+        path=playlist_line(row.kodi_id, str_path, str_filename),
         title=song[2] or "",
         artist=song[3] or "",
         track=int(song[4] or 0) & _TRACK_MASK,

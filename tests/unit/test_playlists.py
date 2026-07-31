@@ -122,10 +122,12 @@ def test_refresh_writes_server_names_and_paths(tmp_path):
     )
     music = FakeMusic(
         {
+            # One row of each form, because the line written depends on the row
+            # rather than on the setting that produced it.
             10: ("http://s/Audio/a1/", "stream.mp3?static=true", "Track 1", "A", 1, 60),
             20: (
-                "http://s/Audio/a2/",
-                "stream.flac?static=true",
+                "plugin://plugin.video.kofin/lib/a2/",
+                "stream.flac?mode=play&id=a2&dbid=20",
                 "Track 2",
                 "B",
                 2,
@@ -145,11 +147,14 @@ def test_refresh_writes_server_names_and_paths(tmp_path):
 
     gym = (tmp_path / "Kofin" / "Gym.m3u8").read_text(encoding="utf-8")
     assert "#EXTINF:60,01. A - Track 1" in gym
-    assert "http://s/Audio/a1/stream.mp3?static=true" in gym
+    assert "musicdb://songs/10.mp3" in gym  # direct row: named by its song id
     assert "Gone" not in gym
 
     trip = (tmp_path / "Kofin" / "Road Trip.m3u8").read_text(encoding="utf-8")
-    assert "http://s/Audio/a2/stream.flac?static=true" in trip
+    # Plugin row: its own path, which the play route resolves.
+    assert "plugin://plugin.video.kofin/lib/a2/stream.flac?mode=play&id=a2&dbid=20" in (
+        trip
+    )
 
 
 def test_unchanged_playlists_are_not_rewritten(tmp_path):
@@ -252,3 +257,44 @@ def test_empty_playlist_writes_header_only(tmp_path):
     )
     text = (tmp_path / "Kofin" / "Empty.m3u8").read_text(encoding="utf-8")
     assert text.strip() == "#EXTM3U"
+
+
+# --- which path form a row gets ----------------------------------------------
+
+
+def test_playlist_line_keeps_the_row_path_for_plugin_rows():
+    """A plugin row plays through the play route, which resolves the stream and
+    stamps the song's tag and database id on it; musicdb:// cannot reach that
+    route at all (module docstring)."""
+    assert playlists.playlist_line(
+        10,
+        "plugin://plugin.video.kofin/lib/id/",
+        "stream.mp3?mode=play&id=id&dbid=10",
+    ) == ("plugin://plugin.video.kofin/lib/id/stream.mp3?mode=play&id=id&dbid=10")
+
+
+def test_playlist_line_uses_musicdb_for_direct_rows():
+    """Kodi does not match a bare server URL back to its song row, so a direct
+    row's line names the row instead -- and keeps its extension, which
+    CMusicDatabaseFile checks against it."""
+    assert (
+        playlists.playlist_line(10, "https://s/Audio/id/", "stream.flac?static=true")
+        == "musicdb://songs/10.flac"
+    )
+
+
+def test_playlist_line_falls_back_without_an_extension():
+    """No extension means musicdb:// would be refused, so the row keeps the
+    path it has: no worse than before, and it still opens."""
+    assert (
+        playlists.playlist_line(10, "https://s/Audio/id/", "stream?static=true")
+        == "https://s/Audio/id/stream?static=true"
+    )
+
+
+def test_song_entry_writes_the_musicdb_line_for_a_direct_row():
+    mapping = FakeMapping({"a1": SimpleNamespace(media_type="song", kodi_id=42)})
+    music = FakeMusic(
+        {42: ("https://s/Audio/a1/", "stream.flac?static=true", "T", "A", 1, 90)}
+    )
+    assert playlists.song_entry(mapping, music, "a1").path == "musicdb://songs/42.flac"
