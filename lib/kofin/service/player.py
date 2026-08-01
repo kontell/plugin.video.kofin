@@ -227,6 +227,21 @@ def next_episode_label(episode: JsonDict) -> str:
 BACKFILL_MEDIA_TYPES = ("song",)
 
 
+# A song played from a saved playlist is a bare ``musicdb://songs/<id><ext>``
+# line: nothing ever loads its music tag, so Kodi announces the playback
+# without a database id. Measured on Kodi 21 — the same song started from the
+# library announces ``{"id": 7005, "type": "song"}``, started from a playlist
+# ``{"title": "04. Golden Earring - Radar Love", "type": "song"}``. The id is
+# still in the path, which is the only thing that identifies the row.
+_MUSICDB_SONG = re.compile(r"^musicdb://songs/(\d+)")
+
+
+def musicdb_song_id(path: str) -> Optional[int]:
+    """The Kodi song id in a ``musicdb://songs/<id><ext>`` path, or None."""
+    match = _MUSICDB_SONG.match(path or "")
+    return int(match.group(1)) if match else None
+
+
 def mapped_jellyfin_id(kodi_id: int, media: str) -> Optional[str]:
     """The Jellyfin id kofin synced a Kodi library row from, or None if the row
     is not ours (or the mapping database cannot be read)."""
@@ -276,11 +291,18 @@ def playing_jellyfin_id(item: xbmcgui.ListItem, path: str) -> Optional[str]:
     Prefers the Kodi database id, which is authoritative and cannot collide
     with foreign playback; falls back to reading the id out of the path for
     songs played from kofin's browse listing, which never get a library row.
+
+    A playlist line carries its database id in the path rather than the tag
+    (see :func:`musicdb_song_id`), so that is tried as the library id before
+    the path is read for a Jellyfin one.
     """
     try:
         kodi_id = item.getMusicInfoTag().getDbId()
     except Exception:  # pragma: no cover - defensive, tag may be absent
         kodi_id = 0
+
+    if not (kodi_id and kodi_id > 0):
+        kodi_id = musicdb_song_id(path) or 0
 
     if kodi_id and kodi_id > 0:
         mapped = mapped_jellyfin_id(kodi_id, "song")
@@ -341,12 +363,19 @@ def backfill_library_claim(data: JsonDict, api: Api) -> bool:
     pushed. Only the media types in ``BACKFILL_MEDIA_TYPES`` qualify — video
     always goes through ``plugin://`` and is claimed the normal way, so
     back-filling it would risk double-claiming a legitimate play.
+
+    The announcement is not required to carry the database id: playback
+    started from a saved playlist never has one, and the id has to come out of
+    the path instead (see :func:`musicdb_song_id`). Without that, a whole
+    playlist plays unclaimed and unreported — the server's play counts stand
+    still while Kodi's own keep advancing, and the next userdata sync writes
+    the server's stale number back over them.
     """
     item = data.get("item") or {}
     media = item.get("type") or ""
     kodi_id = item.get("id")
 
-    if media not in BACKFILL_MEDIA_TYPES or not isinstance(kodi_id, int):
+    if media not in BACKFILL_MEDIA_TYPES:
         return False
 
     try:
@@ -355,6 +384,11 @@ def backfill_library_claim(data: JsonDict, api: Api) -> bool:
         return False
 
     if not path:
+        return False
+
+    if not isinstance(kodi_id, int):
+        kodi_id = musicdb_song_id(path)
+    if kodi_id is None:
         return False
 
     jellyfin_id = mapped_jellyfin_id(kodi_id, media)
