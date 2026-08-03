@@ -6,6 +6,16 @@ MyVideos146/MyMusic84 from the Bravia install — so the fixtures are exact by
 construction. Seed files carry the rows Kodi itself writes at creation time
 (videoversiontype for video, the default 'Artist' role for music); the
 version row is inserted here because its number is the fixture's identity.
+
+``myvideos147.sql`` is the one fixture that was not dumped from an install,
+because no 147 install existed when it was added: it is a byte-for-byte copy
+of the 146 dump, which is what a 147 database actually contains. Kodi's DDL
+(``CreateTables``/``CreateAnalytics``/``VideoDatabaseDDL.cpp``) is unchanged
+between the two, and the 146->147 migration is data-only — it rewrites
+``rar://`` and DOS paths and adds no schema at all. Evidence and the exact
+upstream revisions are in ``docs/myvideos147-gate.md``; replace the file with
+a real dump when a 147 install is to hand, and ``cmp`` against 146 should
+still come back clean.
 """
 
 import os
@@ -21,6 +31,11 @@ TEXTURE_VERSION = 13
 PIERS_VIDEO_VERSION = 146
 PIERS_MUSIC_VERSION = 84
 PIERS_TEXTURE_VERSION = 14
+
+# Piers bumped MyVideos to 147 mid-beta; both numbers are in the wild (an
+# install that never ran the newer build still has 146), so both are legs of
+# the L2 suite. Music and textures did not move with it.
+PIERS_VIDEO_VERSION_147 = 147
 
 
 def _apply(conn: sqlite3.Connection, filename: str) -> None:
