@@ -29,6 +29,7 @@ from kofin.core import settings, state, streams, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
+from kofin.service import chapters
 from kofin.service.segments import SegmentChecker, parse_segments
 
 if TYPE_CHECKING:
@@ -453,6 +454,7 @@ class Player(xbmc.Player):
         self._overlay_window: Optional[Tuple[float, float]] = None
         self._overlay_autoplay = False
         self._skip_target: Optional[float] = None
+        self._chapter_thumbs: Optional[chapters.ChapterThumbs] = None
 
     # A property so joining or leaving a group also withdraws or restores the
     # stream menu, without the SyncPlay manager having to know the menu exists:
@@ -601,6 +603,7 @@ class Player(xbmc.Player):
         self._report(self.api.session_playing, event=None)
         self._start_ticker()
         self._start_segment_engine(claimed)
+        self._start_chapter_thumbs(claimed)
 
     def onAVStarted(self) -> None:
         """First frame rendered: the SyncPlay Ready trigger, and the earliest
@@ -665,6 +668,7 @@ class Player(xbmc.Player):
         """Report the stop and release all playback state."""
         self._segment_reset()
         self._stop_ticker()
+        self._stop_chapter_thumbs()
         self._reset_lyrics()
         with self._lock:
             item = self._item
@@ -692,9 +696,16 @@ class Player(xbmc.Player):
         state.clear_playing_streams()
 
     def stop_threads(self) -> None:
-        """Service shutdown: stop the ticker and checker without reporting."""
+        """Service shutdown: stop the ticker and checker without reporting.
+
+        Chapter thumbs are reverted too — the entries are per-play and this
+        Player is their only owner, so they must not outlive it. The cost is
+        a playback that survives a mid-play service restart losing its
+        chapter tiles; the startup sweep would otherwise never dare touch
+        them while that playback is live."""
         self._segment_reset()
         self._stop_ticker()
+        self._stop_chapter_thumbs()
 
     # -- delete after watching -------------------------------------------------
 
@@ -1382,6 +1393,20 @@ class Player(xbmc.Player):
         if self._ticker is not None:
             self._ticker.stop()
             self._ticker = None
+
+    def _start_chapter_thumbs(self, item: JsonDict) -> None:
+        if not settings.get_bool("chapterImages"):
+            return
+        if not chapters.eligible(item):
+            return
+        self._stop_chapter_thumbs()  # belt: no owner leaks across claims
+        self._chapter_thumbs = chapters.ChapterThumbs(self.api, item)
+        self._chapter_thumbs.start()
+
+    def _stop_chapter_thumbs(self) -> None:
+        if self._chapter_thumbs is not None:
+            self._chapter_thumbs.stop()
+            self._chapter_thumbs = None
 
 
 class _Ticker(threading.Thread):
