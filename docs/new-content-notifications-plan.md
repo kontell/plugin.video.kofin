@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-08-03 |
-| **Status** | Implemented on `feat/new-content-notifications` (unit-tested; live scenario S-newcontent outstanding) |
+| **Status** | Implemented on `feat/new-content-notifications`; unit-tested and live-verified (S-newcontent, 2026-08-03) |
 | **Addon** | `plugin.video.kofin` |
 
 ---
@@ -278,6 +278,10 @@ Evidence to `tests/live/results/` per the live-test conventions.
 
 ---
 
-## Live verification outstanding
+## Live verification
 
-`docs/testing-plan.md` carries this as **S-newcontent** in the Phase 2 gate, unrun. Everything above is covered by unit tests; what only a real Kodi can show is that the toasts appear when they should, read correctly, and stay out of the way during playback.
+Run 2026-08-03 on Omega 21.3 against Jellyfin 10.11.11, recorded as **S-newcontent** in `docs/testing-plan.md` with evidence in `tests/live/results/S-newcontent-notifications.md`. 10 of 12 sub-cases pass live: every message form as specified, the watched movie silent inside a batch of four, a new show's episodes suppressed behind its show line, an album's songs silent, the setting-off case silent, and the held toast landing 1.3 s after playback stopped.
+
+Two variants could not be produced on that box and stay L1-covered. **Artists**: `PRUNE_SERVER_TYPES["music"]` is `MusicAlbum,Audio`, so the prune never enumerates artists — a removed artist comes back as a side effect of its album's write, and the run produced the album line instead. Only a genuine server-side `MusicArtist` add through the change feed reaches the artist line. **Music videos**: no music-video library is synced there.
+
+One rendering note: Estuary's notification label fits ~32 characters and *scrolls* rather than truncates, so a 44-character episode line reads in full across the 5 s. Nothing to change; a single screenshot of a long toast just looks clipped.
