@@ -146,6 +146,29 @@ class TVShows(KodiDb):
             self.tvshow_add(obj)
 
         self.link(*values(obj, QU.update_tvshow_link_obj))
+
+        # Second deviation from the fork on tvshow paths, and the one the info
+        # dialog's cast actually rides on: this row -- the show's own path --
+        # carries a content/scraper pair as well.
+        #
+        # CGUIWindowVideoBase::ShowInfo only re-reads the item from the database
+        # (GetTvShowInfo/GetEpisodeInfo, VideoDbDetailsAll) when a scraper
+        # resolves for the item's path; with none it keeps the tag the listing
+        # built, and that tag has never held cast, tags, country, director or
+        # writer. GetScraperForPath drills up when the path itself has no
+        # content -- but URIUtils::GetParentPath does not step one level for a
+        # plugin:// URL, it drops the whole filename (SetFileName("")), so
+        # <library>/<show>/ resolves straight to plugin://plugin.video.kofin/
+        # and the library row stamped in tvshow_add is never even visited. The
+        # root is the only ancestor a plugin path has, which is exactly why the
+        # fork stamped it; kofin cannot, so the pair has to sit here.
+        #
+        # useFolderNames is not decoration. Found on the item's own row the
+        # scraper comes back foundDirectly with parent_name_root false, and
+        # OnItemInfo answers that with "dont lookup on root tvshow folder" --
+        # no dialog at all. The flag makes GetScraperForPath set
+        # parent_name_root = (iFound == 1), which is true here, and the guard
+        # stays quiet.
         self.update_path(*values(obj, QU.update_path_tvshow_obj))
         self.add_tags(*values(obj, QU.add_tags_tvshow_obj))
         self.add_people(*values(obj, QU.add_people_tvshow_obj))
@@ -494,6 +517,11 @@ class TVShows(KodiDb):
         else:
             self.episode_add(obj)
 
+        # An episode's path is its series' path (get_episode_path_filename
+        # builds the same string), so this is the row the show write already
+        # stamped -- the episode object repeats the pair rather than clearing
+        # it back out. Episodes are written after their show, so NULLs here
+        # would undo the stamp for every show in the library.
         self.update_path(*values(obj, QU.update_path_episode_obj))
         self.update_file(*values(obj, QU.update_file_obj))
         self.add_people(*values(obj, QU.add_people_episode_obj))

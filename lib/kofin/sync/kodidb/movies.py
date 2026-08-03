@@ -214,10 +214,11 @@ class Movies(Kodi):
         if version_id >= 131:
             changes = self.omega_migration()
 
-        # Deliberately not folded into `changes`: this one moves a path row and
-        # nothing on screen depends on it, so it must not drag a library update
-        # and a skin reload along behind it.
+        # Deliberately not folded into `changes`: these only touch path rows,
+        # and nothing on screen depends on them, so they must not drag a library
+        # update and a skin reload along behind them.
         self.root_content_migration()
+        self.show_path_migration()
 
         return changes
 
@@ -239,6 +240,26 @@ class Movies(Kodi):
         LOG.info("Moving the tvshows path content off the addon root")
         self.cursor.execute(QU.set_library_tvshow_content)
         self.cursor.execute(QU.clear_root_tvshow_content)
+        return True
+
+    def show_path_migration(self):
+        """
+        Stamp the tvshows content/scraper pair onto every synced show's own
+        path row (kofin deviation, see writers/tvshows.py).
+
+        Without it Kodi resolves no scraper for a show or episode, so the info
+        dialog never re-reads the item from the database and falls back to the
+        listing's own tag -- which carries no cast, tags, director or writer.
+        New syncs write the stamp; an install that adds no further shows would
+        keep the bare rows it was synced with. One UPDATE, guarded so an
+        already-stamped install does nothing and says nothing.
+        """
+        self.cursor.execute(QU.get_unstamped_show_paths)
+        if not self.cursor.fetchone():
+            return False
+
+        LOG.info("Stamping the tvshows content/scraper onto the show path rows")
+        self.cursor.execute(QU.set_show_path_content)
         return True
 
     def omega_migration(self):
