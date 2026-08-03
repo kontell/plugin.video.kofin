@@ -189,6 +189,12 @@ class JellyfinDatabase:
 
         return self.cursor.fetchall()
 
+    def get_item_ids_by_media(self, *args):
+        """(jellyfin_id, kodi_id) pairs for a media type."""
+        self.cursor.execute(QU.get_item_ids_by_media, args)
+
+        return self.cursor.fetchall()
+
     def remove_media_by_parent_id(self, *args):
         self.cursor.execute(QU.delete_media_by_parent_id, args)
 

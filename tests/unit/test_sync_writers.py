@@ -1045,6 +1045,64 @@ def test_boxset_state_dies_with_the_set(api):
     assert video_query("SELECT COUNT(*) FROM sets") == [(0,)]
 
 
+def make_fullsync(api):
+    """A FullSync wired for direct method calls (no context manager, no
+    Kodi): only the database lock is real."""
+    from types import SimpleNamespace
+
+    from kofin.sync.full_sync import FullSync
+
+    FullSync._shared_state.clear()
+    sync = FullSync(library=SimpleNamespace(database_lock=threading.Lock()), server=api)
+    sync.sync = {"Libraries": [], "Whitelist": [], "RestorePoints": {}}
+    return sync
+
+
+def test_boxset_sweep_removes_stale(api):
+    """A set deleted server-side with no feed record to say so (tier 2,
+    retention gap) is removed by the walk's sweep — reference, sets row,
+    state row and links all go."""
+    linked_boxset(api)
+
+    ghost = dto(BOXSET)
+    ghost["Id"] = "set2"
+    ghost["Name"] = "Ghost Collection"
+    ghost["Etag"] = "etag-set2-v1"
+    api.boxset_children["set2"] = []
+    write_boxset(api, ghost)
+    assert video_query("SELECT COUNT(*) FROM sets") == [(2,)]
+
+    fullsync = make_fullsync(api)
+    try:
+        assert fullsync.sweep_stale_boxsets({"set1"}) == 1
+    finally:
+        type(fullsync)._shared_state.clear()
+
+    assert kofin_query("SELECT jellyfin_id FROM jellyfin WHERE media_type = 'set'") == [
+        ("set1",)
+    ]
+    assert video_query("SELECT strSet FROM sets") == [("Example Collection",)]
+    assert kofin_query("SELECT jellyfin_id FROM boxset_state") == [("set1",)]
+    assert video_query("SELECT COUNT(*) FROM movie WHERE idSet = 1") == [(2,)]
+
+
+def test_boxset_sweep_refuses_an_empty_listing(api):
+    """An empty walk against existing references is not a deletion order:
+    permission and filter failures look exactly like it."""
+    linked_boxset(api)
+
+    fullsync = make_fullsync(api)
+    try:
+        assert fullsync.sweep_stale_boxsets(set()) == 0
+    finally:
+        type(fullsync)._shared_state.clear()
+
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin WHERE media_type = 'set'") == [
+        (1,)
+    ]
+    assert video_query("SELECT COUNT(*) FROM sets") == [(1,)]
+
+
 # --- tv shows ------------------------------------------------------------------
 
 

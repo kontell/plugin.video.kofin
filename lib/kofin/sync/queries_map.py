@@ -91,6 +91,11 @@ SELECT      jellyfin_id
 FROM        jellyfin
 WHERE       media_type = ?
 """
+get_item_ids_by_media = """
+SELECT      jellyfin_id, kodi_id
+FROM        jellyfin
+WHERE       media_type = ?
+"""
 get_version = """
 SELECT      idVersion
 FROM        version

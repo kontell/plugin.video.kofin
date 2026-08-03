@@ -1160,6 +1160,7 @@ class Library(threading.Thread):
             # process_commands() on the first service() tick, once this
             # thread has returned and the startup FullSync is provably done.
             self.probe_divergence()
+            self.probe_boxset_drift()
 
             self.update_status_strings()
 
@@ -1449,6 +1450,82 @@ class Library(threading.Thread):
             ", ".join("%s server:%+d" % (k, v) for k, v in sorted(diverged.items())),
         )
         self.enqueue_command("UpdateLibrary")
+
+    def probe_boxset_drift(self):
+        """Schedule a boxsets pass when local set state disagrees with itself.
+
+        The Etag gate cannot see local drift: a member removed and re-added
+        arrives as a fresh movie row with no idSet while the set's Etag never
+        moves (docs/boxsets-robustness-plan.md). This probe is the recurring
+        eye that gap needs — pure-local, kofin.db's set references and
+        boxset_state against one GROUP BY over MyVideos, no server traffic —
+        so it can run on every startup tick alongside probe_divergence. Any
+        disagreement enqueues the targeted boxsets pass, where the writer
+        heals exactly the drifted sets and Etag-matched healthy sets stay
+        skipped.
+
+        Convergence: a healed set stamps fresh state; a guarded set kept its
+        links, so stored still equals current; members outside the synced
+        libraries count into neither side. A probe->walk->probe loop cannot
+        form.
+        """
+        if not self.sync_allowed_now():
+            return
+
+        if get_sync()["Libraries"]:
+            # An unfinished full sync owns the field, and its queue may well
+            # include the boxsets pass this probe would schedule.
+            return
+
+        if self.total_updates:
+            # Catch-up work in flight: boxset writes may be queued, and half
+            # of them would read as drift now and heal on their own.
+            return
+
+        with Database("kofin") as kofin_db:
+            db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
+
+            if not db.get_views_by_media("boxsets"):
+                # No collections view: nothing can have synced, and the pass
+                # this probe schedules would have nothing to walk.
+                return
+
+            references = list(db.get_item_ids_by_media("set"))
+
+            if not references:
+                return
+
+            states = dict(db.get_boxset_states())
+
+        with self.database_lock:
+            with Database() as videodb:
+                kodi = KodiDb(videodb.cursor)
+                set_rows = set(kodi.get_boxset_ids())
+                counts = kodi.get_boxset_movie_counts()
+
+        drifted = []
+
+        for jellyfin_id, kodi_id in references:
+            stored = states.get(jellyfin_id)
+
+            if (
+                kodi_id not in set_rows
+                or stored is None
+                or stored != counts.get(kodi_id, 0)
+            ):
+                drifted.append(jellyfin_id)
+
+        if not drifted:
+            return
+
+        LOG.warning(
+            "boxset drift probe: %s of %s set(s) unhealthy (%s); "
+            "scheduling a boxsets pass to heal",
+            len(drifted),
+            len(references),
+            ", ".join(drifted[:5]),
+        )
+        self.enqueue_command("SyncLibrary", {"Id": "Boxsets:"})
 
     def resume_pending_libraries(self):
         """Re-enter a full sync that sync.json still lists as unfinished.
