@@ -488,6 +488,11 @@
           </constraints>
           <control type="spinner" format="string"/>
         </setting>
+        <setting id="chapterImages" type="boolean" label="30620" help="30621">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
       </group>
     </category>
 

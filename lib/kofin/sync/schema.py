@@ -30,12 +30,13 @@ LOG = Logger(__name__)
 
 PREFIXES = {"video": "MyVideos", "music": "MyMusic", "texture": "Textures"}
 
-# kind -> allowed schema versions. Texture is unversioned here because phase 2
-# never writes it; the entry exists so discovery can resolve the path.
+# kind -> allowed schema versions. Texture entered the map with the chapter
+# thumbnail feature: Omega ships Textures13, Piers Textures14, both
+# fixture-backed like the video/music legs.
 SUPPORTED: Dict[str, Optional[set]] = {
     "video": {131, 146},
     "music": {83, 84},
-    "texture": None,
+    "texture": {13, 14},
 }
 
 DATABASE_DIR = "special://database/"
@@ -49,6 +50,14 @@ EXTRA_ITEM_TYPE: Dict[int, int] = {131: 1, 146: 2}
 # VideoAssetTypeOwner::USER — the owner kofin stamps on videoversiontype rows
 # it creates (matches what Kodi's own "convert to extra" flow writes).
 VIDEO_ASSET_OWNER_USER = 2
+
+# The chapter-thumb cache key per Textures schema version: Omega's bookmarks
+# dialog requests the raw "chapter://{dynpath}/{n}" string, Piers wraps the
+# same request as a canonical "image://video@{encoded}/?chapter={n}" URL
+# (GUIDialogVideoBookmarks in each; bench-verified on both, see
+# docs/chapter-thumbnails-feasibility.md §4). Keyed here like EXTRA_ITEM_TYPE:
+# a version missing from this map disables chapter-thumb seeding, not playback.
+CHAPTER_ART_WRAPPED: Dict[int, bool] = {13: False, 14: True}
 
 # Jellyfin ExtraType -> the named videoversiontype for the asset row.
 EXTRA_TYPE_NAMES: Dict[str, str] = {

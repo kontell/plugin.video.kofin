@@ -520,3 +520,30 @@ class Api:
         if tag:
             url += "?tag=%s" % tag
         return url
+
+    def chapters(self, item_id: str) -> List[JsonDict]:
+        """The item's chapter list: name, start ticks, and — when the server
+        has extracted a chapter image — its ImageTag."""
+        item = self.get(
+            "/Users/%s/Items/%s" % (self.user_id, item_id), {"Fields": "Chapters"}
+        )
+        chapters = item.get("Chapters")
+        return chapters if isinstance(chapters, list) else []
+
+    def chapter_image_url(
+        self, item_id: str, index: int, tag: str, max_width: int
+    ) -> str:
+        """The server-extracted image for chapter ``index`` (0-based, the
+        server's ChapterIndex). Anonymous like every other art URL."""
+        return "%s/Items/%s/Images/Chapter/%d?tag=%s&maxWidth=%d" % (
+            self.server,
+            item_id,
+            index,
+            tag,
+            max_width,
+        )
+
+    def download(self, url: str) -> bytes:
+        """Raw bytes of a server resource (chapter thumbnail downloads)."""
+        response = self._http.request("GET", url, headers=self._headers())
+        return response.content or b""

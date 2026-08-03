@@ -18,6 +18,7 @@ from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials, addon_version
 from kofin.core.ws import WSClient
+from kofin.service import chapters
 from kofin.service.kodiuserdata import KodiUserData
 from kofin.service.player import Player, backfill_library_claim
 from kofin.service.remote import RemoteHandler
@@ -103,6 +104,7 @@ class Service(xbmc.Monitor):
         self.syncplay: Optional[Any] = None  # kofin.syncplay.SyncPlayManager
         self._syncplay_menu: Optional[threading.Thread] = None
         self._who_is_watching: Optional[threading.Thread] = None
+        self._chapter_sweep: Optional[threading.Thread] = None
         self._online = False
         self._backoff = Backoff()
         self.settings_apply = SettingsApplier(self)
@@ -113,6 +115,7 @@ class Service(xbmc.Monitor):
         """Run until abort or restart; returns True when a rebuild is wanted."""
         LOG.info("--->>> kofin service %s", addon_version())
         LOG.info("kodi %s", xbmc.getInfoLabel("System.BuildVersion"))
+        self._start_chapter_sweep()
         started = time.time()
         try:
             while not self.abortRequested():
@@ -270,6 +273,26 @@ class Service(xbmc.Monitor):
             adduser.show_picker(self.api, self.credentials)
         except Exception:
             LOG.exception("who's-watching picker failed")
+
+    def _start_chapter_sweep(self) -> None:
+        """One-shot at service start: drop chapter-thumb cache rows a crashed
+        playback left behind (their keys carry this install's deviceId).
+        Deferred while a kofin playback is live — its entries are in use; a
+        service restart mid-play leaves them to the next quiet start."""
+        if state.get_playing_id():
+            LOG.debug("chapter sweep deferred: playback live")
+            return
+        self._chapter_sweep = threading.Thread(
+            target=self._run_chapter_sweep, name="kofin-chapter-sweep"
+        )
+        self._chapter_sweep.daemon = True
+        self._chapter_sweep.start()
+
+    def _run_chapter_sweep(self) -> None:
+        try:
+            chapters.sweep(self.credentials.device_id)
+        except Exception:
+            LOG.exception("chapter thumb sweep failed")
 
     def _start_websocket(self) -> None:
         header = auth.build_auth_header(
