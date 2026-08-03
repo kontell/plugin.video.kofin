@@ -39,7 +39,7 @@ Date: 2026-07-29. Extends the phase-3 movie-extras work (native `videoversion` a
 | Streams / runtime | **not written** ← duration bug |
 | Playstate / artwork on the asset | not written |
 | kofin.db reference for the asset | none (extras play by Jellyfin id in the URL) |
-| Schema constants | VERSION read from seed row `40400`; EXTRA from `schema.EXTRA_ITEM_TYPE` `{131: 1, 146: 2}` |
+| Schema constants | VERSION read from seed row `40400`; EXTRA from `schema.EXTRA_ITEM_TYPE` `{131: 1, 146: 2, 147: 2}` (147 keeps Piers's numbering — `docs/myvideos147-gate.md`) |
 | Failure mode | best-effort; never gates movie sync |
 | Setting | none (always on) |
 

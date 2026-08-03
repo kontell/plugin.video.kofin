@@ -1,6 +1,9 @@
+import os
+
 import pytest
 
 from kofin.sync import schema
+from tests.unit import kodifixtures
 
 
 @pytest.fixture(autouse=True)
@@ -51,6 +54,23 @@ def test_supported_piers_versions_pass_the_gate(monkeypatch):
     assert schema.gate_status() is None
 
 
+def test_supported_piers_147_versions_pass_the_gate(monkeypatch):
+    """Piers bumped MyVideos to 147 mid-beta. An install that never ran the
+    newer build still has 146, so both numbers are in the wild and both pass;
+    music did not move with it."""
+    fake_database_dir(monkeypatch, ["MyVideos147.db", "MyMusic84.db"])
+    assert schema.check("video") == 147
+    assert schema.check("music") == 84
+    assert schema.gate_status() is None
+
+
+def test_discovery_prefers_147_over_a_left_behind_146(monkeypatch):
+    """Kodi leaves the old file behind when it migrates, so both sit in the
+    directory and the newest is the live one."""
+    fake_database_dir(monkeypatch, ["MyVideos146.db", "MyVideos147.db"])
+    assert schema.discover("video") == ("MyVideos147.db", 147)
+
+
 def test_unknown_version_is_refused(monkeypatch):
     fake_database_dir(monkeypatch, ["MyVideos999.db", "MyMusic83.db"])
     with pytest.raises(schema.SchemaUnsupported) as excinfo:
@@ -84,3 +104,29 @@ def test_texture_is_version_gated_like_the_others(monkeypatch):
     fake_database_dir(monkeypatch, ["Textures99.db"])
     with pytest.raises(schema.SchemaUnsupported):
         schema.check("texture")
+
+
+def test_every_supported_video_version_is_backed(monkeypatch):
+    """The gate may only name versions the suite can actually prove: a fixture
+    to write against, and the asset-type number the extras pass needs. Opening
+    the gate without either is how a schema bump becomes silent corruption."""
+    for version in schema.SUPPORTED["video"]:
+        assert os.path.exists(
+            os.path.join(kodifixtures.FIXTURES, "myvideos%d.sql" % version)
+        ), ("no schema fixture for MyVideos%d" % version)
+        assert os.path.exists(
+            os.path.join(kodifixtures.FIXTURES, "myvideos%d_seed.sql" % version)
+        ), ("no seed fixture for MyVideos%d" % version)
+        assert version in schema.EXTRA_ITEM_TYPE
+
+
+def test_every_supported_music_and_texture_version_is_backed():
+    for version in schema.SUPPORTED["music"]:
+        assert os.path.exists(
+            os.path.join(kodifixtures.FIXTURES, "mymusic%d.sql" % version)
+        )
+    for version in schema.SUPPORTED["texture"]:
+        assert os.path.exists(
+            os.path.join(kodifixtures.FIXTURES, "textures%d.sql" % version)
+        )
+        assert version in schema.CHAPTER_ART_WRAPPED
