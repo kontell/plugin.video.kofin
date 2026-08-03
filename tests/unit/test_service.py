@@ -147,6 +147,38 @@ def test_syncplay_menu_without_manager_is_contained():
     assert service._syncplay_menu is None
 
 
+def test_who_is_watching_ipc_runs_picker_thread(monkeypatch):
+    from kofin.plugin import adduser
+
+    service = Service()
+    shown = []
+    monkeypatch.setattr(adduser, "show_picker", lambda api, creds: shown.append(api))
+
+    service.onNotification(ipc.SENDER, "Other.WhoIsWatching", "[]")
+
+    picker = service._who_is_watching
+    assert picker is not None
+    picker.join(timeout=2)
+    assert shown == [service.api]
+
+
+def test_who_is_watching_picker_failure_is_contained(monkeypatch):
+    from kofin.plugin import adduser
+
+    service = Service()
+
+    def boom(api, creds):
+        raise RuntimeError("dialog exploded")
+
+    monkeypatch.setattr(adduser, "show_picker", boom)
+
+    service.onNotification(ipc.SENDER, "Other.WhoIsWatching", "[]")
+
+    picker = service._who_is_watching
+    assert picker is not None
+    picker.join(timeout=2)  # the thread must not take the service down
+
+
 def test_wake_and_sleep_forwarded():
     service = Service()
     manager = RecordingSyncPlay()

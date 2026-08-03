@@ -39,7 +39,11 @@ def dispatch(argv: List[str]) -> None:
     resume = len(argv) > 3 and argv[3].split(":", 1)[-1] == "true"
     request = Request(base_url, handle, params, resume)
 
-    mode = params.get("mode", "")
+    # A library node's <path> is a folder path, so it is natural (and, for
+    # some Kodi paths, automatic) to write it with a trailing slash — which
+    # lands here as mode="syncplay/" and would silently fall back to the root
+    # listing instead of running the route.
+    mode = params.get("mode", "").rstrip("/")
     handler = _handlers().get(mode)
     LOG.debug("dispatch mode=%s params=%s handle=%s", mode or "<root>", params, handle)
     if handler is None:

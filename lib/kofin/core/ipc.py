@@ -29,6 +29,12 @@ REFRESH_BOXSETS = "RefreshBoxsets"
 # worker thread. No payload.
 SYNCPLAY_MENU = "SyncPlayMenu"
 
+# Who's watching?: same shape, and for the same reason. A plugin invocation
+# that blocks on a dialog cannot be reached as a library node — Kodi runs the
+# node's <path> as a directory fetch, and the modal fights it. Firing this and
+# exiting lets the fetch fail out cleanly while the service puts the picker up.
+WHO_IS_WATCHING = "WhoIsWatching"
+
 _REGISTRY = frozenset(
     {
         RESTART,
@@ -39,6 +45,7 @@ _REGISTRY = frozenset(
         UPDATE_LIBRARY,
         REFRESH_BOXSETS,
         SYNCPLAY_MENU,
+        WHO_IS_WATCHING,
     }
 )
 

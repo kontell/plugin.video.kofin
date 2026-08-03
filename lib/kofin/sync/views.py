@@ -27,6 +27,27 @@ from kofin.sync.shims import localized, window_prop
 
 LOG = Logger(__name__)
 
+# Every generated node lives under one folder in the video library root, so
+# Kodi shows a single "Kofin" entry instead of one per synced library.
+NODE_ROOT = "kofin"
+
+# Shape/label revision of the generated tree, folded into views_hash() so a
+# change here regenerates on upgrade even when the view set is untouched.
+NODE_LAYOUT = 2
+
+# Order of the "Kofin" parent among Kodi's own top-level video nodes (movies
+# 10, tvshows 20, musicvideos 30). Written once, on creation only — the user's
+# own ordering is never overwritten (plan §3).
+NODE_ROOT_ORDER = 15
+
+# The one structural entry that is allowed addon art: this node *is* the addon,
+# so a skin has nothing of its own to substitute. Kodi resolves special:// for
+# textures (URIUtils::IsHD translates it), so the path stays valid wherever the
+# addon is installed — unlike an absolute one baked into the XML.
+NODE_ROOT_ICON = (
+    "special://home/addons/plugin.video.kofin/resources/media/kofin-node.png"
+)
+
 # (node key, label). Ints are Kodi-core string ids that node XML resolves
 # natively; ours are resolved at generation time.
 NODES = {
@@ -149,6 +170,32 @@ def _label(value, fallback=""):
     return value or fallback
 
 
+def _node_label(value, fallback=""):
+    """``<label>`` text for a node file.
+
+    Kodi resolves a *numeric* node label against its own strings
+    (``CGUIControlFactory::FilterLabel``, from ``CLibraryDirectory``), where
+    the 30000+ addon range is empty — a bare ``30350`` renders blank in the
+    library and in the node editor. Ours therefore go in as text; Kodi-core
+    ids stay numeric so they keep following the UI language.
+    """
+    if isinstance(value, int):
+        return localized(value) if value >= 30000 else str(value)
+    return value or fallback
+
+
+def node_root_path():
+    """Directory holding every generated node."""
+    return os.path.join(
+        xbmcvfs.translatePath("special://profile/library/video"), NODE_ROOT
+    )
+
+
+def node_folder(view):
+    """Per-library folder name inside :data:`NODE_ROOT`."""
+    return "kofin%s%s" % (view["Media"], view["Id"])
+
+
 class Views(object):
 
     limit = 25
@@ -252,6 +299,9 @@ class Views(object):
         )
         parts.append("whitelist:%s" % ",".join(sorted(self.sync["Whitelist"])))
         parts.append("order:%s" % ",".join(self.sync["SortedViews"]))
+        # Without this a change to the generated tree would never reach an
+        # install whose view set happens to be unchanged.
+        parts.append("layout:%s" % NODE_LAYOUT)
         return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()
 
     def get_nodes(self):
@@ -267,12 +317,28 @@ class Views(object):
             self.window_nodes()
             return
 
-        node_path = xbmcvfs.translatePath("special://profile/library/video")
         playlist_path = xbmcvfs.translatePath("special://profile/playlists/video")
         index = 0
 
+        # Anything left where the pre-NODE_ROOT layout put it (loose folders
+        # and kofin_*.xml in the video library root) belongs to no library any
+        # more; the tree below replaces it.
+        self.migrate_flat_nodes()
+
+        if not self.sync["Whitelist"]:
+            # Nothing is synced: the whole tree goes, favourites included.
+            self.delete_nodes()
+            self.delete_playlists()
+            settings.set_str("viewsHash", current_hash)
+            self.window_nodes()
+            return
+
+        node_path = node_root_path()
+
         if not os.path.isdir(node_path):
             os.makedirs(node_path)
+
+        self.node_parent(node_path)
 
         with Database("kofin") as kofin_db:
             db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
@@ -329,8 +395,29 @@ class Views(object):
             self.add_single_node(node_path, index, "favorites", single)
             index += 1
 
+        # A library can leave the whitelist by a route that never called
+        # remove_library (server-side deletion, a settings diff, an install
+        # that leaked before this pass existed). The tree above is the whole
+        # truth, so anything else under it is stale.
+        self.prune_nodes(node_path)
+
         settings.set_str("viewsHash", current_hash)
         self.window_nodes()
+
+    def node_parent(self, node_path):
+        """The ``Kofin`` folder node itself.
+
+        Written on creation only: ``order`` and ``label`` are the user's to
+        change afterwards (the fork pinned its own layout; kofin does not).
+        """
+        file = os.path.join(node_path, "index.xml")
+
+        if os.path.isfile(file):
+            return
+
+        xml = self.node_root("main", NODE_ROOT_ORDER, NODE_ROOT_ICON)
+        etree.SubElement(xml, "label").text = settings.addon_name()
+        etree.ElementTree(xml).write(file)
 
     def add_playlist(self, path, view, mixed=False):
         """Create or update the xps file."""
@@ -369,7 +456,7 @@ class Views(object):
 
     def add_nodes(self, path, view, mixed=False):
         """Create or update the video node file."""
-        folder = os.path.join(path, "kofin%s%s" % (view["Media"], view["Id"]))
+        folder = os.path.join(path, node_folder(view))
 
         if not xbmcvfs.exists(folder):
             xbmcvfs.mkdir(folder)
@@ -529,7 +616,7 @@ class Views(object):
             etree.SubElement(xml, "content")
 
         label = xml.find("label")
-        label.text = str(name) if isinstance(name, int) else name
+        label.text = _node_label(name)
 
         content = xml.find("content")
         content.text = view["Media"]
@@ -564,7 +651,7 @@ class Views(object):
             etree.SubElement(xml, "content")
 
         label = xml.find("label")
-        label.text = _label(name)
+        label.text = _node_label(name)
 
         getattr(self, "node_" + node)(xml, path)
         tree = etree.ElementTree(xml)
@@ -954,7 +1041,10 @@ class Views(object):
 
     def window_single_node(self, index, item_type, view):
         """Single destination node."""
-        path = "library://video/kofin_%s.xml" % view["Tag"].replace(" ", "")
+        path = "library://video/%s/kofin_%s.xml" % (
+            NODE_ROOT,
+            view["Tag"].replace(" ", ""),
+        )
         window_path = "ActivateWindow(Videos,%s,return)" % path
 
         window_prop_name = "Kofin.nodes.%s" % index
@@ -1032,7 +1122,11 @@ class Views(object):
                 window_prop("%s.artwork" % prop, clear=True)
 
     def window_path(self, view, node):
-        return "library://video/kofin%s%s/%s.xml" % (view["Media"], view["Id"], node)
+        return "library://video/%s/%s/%s.xml" % (
+            NODE_ROOT,
+            node_folder(view),
+            node,
+        )
 
     def window_music(self, view):
         return "library://music/"
@@ -1121,37 +1215,97 @@ class Views(object):
         xbmcvfs.delete(path)
         LOG.info("DELETE node %s", path)
 
+    def delete_node_folder(self, path):
+        """Delete a generated node folder and everything in it."""
+        _, files = xbmcvfs.listdir(path)
+
+        for file in files:
+            self.delete_node(os.path.join(path, file))
+
+        xbmcvfs.rmdir(path)
+
     def delete_nodes(self):
-        """Remove node and children files."""
-        path = xbmcvfs.translatePath("special://profile/library/video/")
+        """Remove the whole generated tree.
+
+        Name-gated throughout: only ``kofin``-prefixed entries and the
+        parent's own index.xml go, so hand-made node files living beside them
+        survive (they are the user's, not ours).
+        """
+        path = node_root_path()
+
+        if not os.path.isdir(path):
+            return
+
         dirs, files = xbmcvfs.listdir(path)
 
         for file in files:
-
-            if file.startswith("kofin"):
+            if file.startswith("kofin") or file == "index.xml":
                 self.delete_node(os.path.join(path, file))
 
         for directory in dirs:
-
             if directory.startswith("kofin"):
-                _, files = xbmcvfs.listdir(os.path.join(path, directory))
+                self.delete_node_folder(os.path.join(path, directory))
 
-                for file in files:
-                    self.delete_node(os.path.join(path, directory, file))
+        # Only ours were in there; an empty parent is ours to remove too.
+        dirs, files = xbmcvfs.listdir(path)
 
-                xbmcvfs.rmdir(os.path.join(path, directory))
+        if not dirs and not files:
+            xbmcvfs.rmdir(path)
 
     def delete_node_by_id(self, view_id):
         """Remove node and children files based on view_id."""
-        path = xbmcvfs.translatePath("special://profile/library/video/")
-        dirs, files = xbmcvfs.listdir(path)
+        path = node_root_path()
+
+        if not os.path.isdir(path):
+            return
+
+        dirs, _ = xbmcvfs.listdir(path)
 
         for directory in dirs:
 
             if directory.startswith("kofin") and directory.endswith(view_id):
-                _, files = xbmcvfs.listdir(os.path.join(path, directory))
+                self.delete_node_folder(os.path.join(path, directory))
 
-                for file in files:
-                    self.delete_node(os.path.join(path, directory, file))
+    def prune_nodes(self, node_path):
+        """Drop node folders for libraries that are no longer whitelisted.
 
-                xbmcvfs.rmdir(os.path.join(path, directory))
+        A library can leave the whitelist without ``remove_library`` running
+        (deleted server-side, dropped by a settings diff, or leaked by an
+        older build), so generation ends by reconciling the tree against the
+        whitelist rather than trusting every removal path to have cleaned up.
+        """
+        wanted = {library.replace("Mixed:", "") for library in self.sync["Whitelist"]}
+        dirs, _ = xbmcvfs.listdir(node_path)
+
+        for directory in dirs:
+
+            if not directory.startswith("kofin"):
+                continue
+
+            if not any(directory.endswith(view_id) for view_id in wanted):
+                LOG.info("--[ nodes ] pruning stale folder %s", directory)
+                self.delete_node_folder(os.path.join(node_path, directory))
+
+    def migrate_flat_nodes(self):
+        """Clear out the pre-:data:`NODE_ROOT` layout.
+
+        Before the ``kofin`` parent, every library node folder and the three
+        ``kofin_Favorite*.xml`` sat directly in the video library root. They
+        are regenerated under the parent, so the old copies are dead weight
+        that would also show up twice in the library.
+        """
+        path = xbmcvfs.translatePath("special://profile/library/video/")
+
+        if not os.path.isdir(path):
+            return
+
+        dirs, files = xbmcvfs.listdir(path)
+
+        for file in files:
+            if file.startswith("kofin"):
+                self.delete_node(os.path.join(path, file))
+
+        for directory in dirs:
+            # NODE_ROOT itself is the new home, not a leftover.
+            if directory.startswith("kofin") and directory != NODE_ROOT:
+                self.delete_node_folder(os.path.join(path, directory))

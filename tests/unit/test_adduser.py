@@ -196,7 +196,7 @@ def test_toggle_persists_chosen_ids(toggle):
     dialog, api = toggle
     dialog.result = [0, 2]  # Bob, Dan
 
-    adduser.who_is_watching(_request("adduser"))
+    adduser.show_picker(api, _logged_in())
 
     assert FakeAddon.store["whoIsWatching"] == "u2,u4"
     assert api.added == [("sess1", "u2"), ("sess1", "u4")]
@@ -208,7 +208,7 @@ def test_toggle_cleared_persists_nobody(toggle):
     FakeAddon.store["whoIsWatching"] = "u3"
     dialog.result = []
 
-    adduser.who_is_watching(_request("adduser"))
+    adduser.show_picker(api, _logged_in())
 
     assert FakeAddon.store["whoIsWatching"] == ""
     assert api.removed == [("sess1", "u3")]
@@ -219,7 +219,7 @@ def test_toggle_cancelled_changes_nothing(toggle):
     FakeAddon.store["whoIsWatching"] = "u2"
     dialog.result = None
 
-    adduser.who_is_watching(_request("adduser"))
+    adduser.show_picker(api, _logged_in())
 
     assert FakeAddon.store["whoIsWatching"] == "u2"
     assert api.added == []
@@ -236,9 +236,61 @@ def test_toggle_persists_even_when_session_api_fails(toggle, monkeypatch):
 
     api.session_add_user = boom
 
-    adduser.who_is_watching(_request("adduser"))
+    adduser.show_picker(api, _logged_in())
 
     assert FakeAddon.store["whoIsWatching"] == "u2"
+
+
+# --- the route handler (service hand-off) ------------------------------------
+
+
+@pytest.fixture
+def route(monkeypatch):
+    FakeAddon.store = {}
+    sent = []
+    dialog = FakeDialog()
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    monkeypatch.setattr(adduser.xbmcgui, "Dialog", lambda: dialog)
+    monkeypatch.setattr(
+        adduser.ipc, "notify", lambda method, data=None: sent.append(method)
+    )
+    monkeypatch.setattr(
+        adduser.Credentials, "load", classmethod(lambda cls: _logged_in())
+    )
+    monkeypatch.setattr(adduser.state, "is_online", lambda: True)
+    return sent, dialog
+
+
+def test_route_hands_off_to_the_service(route):
+    """The dialog must not run here: a plugin invocation that blocks on a modal
+    cannot be reached as a library node (Kodi runs the node <path> as a
+    directory fetch and the two fight)."""
+    sent, dialog = route
+
+    adduser.who_is_watching(_request("adduser"))
+
+    assert sent == [adduser.ipc.WHO_IS_WATCHING]
+    assert dialog.calls == []
+
+
+def test_route_is_quiet_when_logged_out(route, monkeypatch):
+    sent, _ = route
+    creds = adduser.Credentials(user_id="", token="", device_id="d")
+    creds.is_logged_in = False
+    monkeypatch.setattr(adduser.Credentials, "load", classmethod(lambda cls: creds))
+
+    adduser.who_is_watching(_request("adduser"))
+
+    assert sent == []
+
+
+def test_route_does_not_notify_when_offline(route, monkeypatch):
+    sent, _ = route
+    monkeypatch.setattr(adduser.state, "is_online", lambda: False)
+
+    adduser.who_is_watching(_request("adduser"))
+
+    assert sent == []
 
 
 # --- restore_additional_users ------------------------------------------------

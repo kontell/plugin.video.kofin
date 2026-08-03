@@ -12,6 +12,11 @@ accounts otherwise makes the dialog useless.
 The chosen set is also written to the hidden ``whoIsWatching`` setting so the
 service can re-attach those users when a new session comes up after a Kodi
 restart or websocket reconnect. Jellyfin sessions do not survive either.
+
+The picker runs in the **service**, like SyncPlay's menu: ``who_is_watching``
+is only a route handler that validates and fires ``ipc.WHO_IS_WATCHING``, and
+``show_picker`` is what the service's worker thread calls. See the note on the
+route handler for why blocking in the plugin process breaks node invocation.
 """
 
 from typing import Any, Dict, List, Optional, Sequence, Set
@@ -19,7 +24,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 import xbmc
 import xbmcgui
 
-from kofin.core import settings, toast
+from kofin.core import ipc, settings, state, toast
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError, Unauthorized
 from kofin.core.log import Logger
@@ -134,11 +139,27 @@ def restore_additional_users(api: Api, device_id: str) -> None:
 
 
 def who_is_watching(request: Request) -> None:
-    creds = Credentials.load()
-    if not creds.is_logged_in:
-        return
-    api = Api.from_credentials(Http(settings.get_bool("sslVerify")), creds)
+    """Route handler: ask the service to open the picker, then get out.
 
+    The dialog itself runs in the service (``show_picker``) for the same
+    reason SyncPlay's does — a plugin invocation that blocks on a modal cannot
+    be reached as a library node, because Kodi runs the node's ``<path>`` as a
+    directory fetch and the two fight. Firing and exiting lets that fetch fail
+    out at once while the picker comes up over whatever is on screen.
+    """
+    if not Credentials.load().is_logged_in:
+        return
+    if not state.is_online():
+        toast.show(settings.localized(30045), time_ms=4000)
+        return
+
+    LOG.debug("requesting the who's-watching picker from the service")
+    ipc.notify(ipc.WHO_IS_WATCHING)
+
+
+def show_picker(api: Api, creds: Credentials) -> None:
+    """Toggle additional users on this device's session. Blocks on a dialog —
+    the service runs it on a dedicated worker thread."""
     try:
         sessions = api.device_sessions(creds.device_id)
     except JellyfinError as error:
@@ -196,9 +217,12 @@ def who_is_watching(request: Request) -> None:
     except JellyfinError as error:
         LOG.warning("session user change failed: %s", error)
 
-    if changed:
+    if changed and xbmc.getCondVisibility("Window.IsMedia"):
         # Redraw the addon root so the "Who's watching?" entry re-reads the
-        # session and shows the updated additional-user names.
+        # session and shows the updated additional-user names. Guarded because
+        # this now runs in the service: with no media window up there is no
+        # container for the builtin to act on (same policy as sync's widget
+        # refresh in sync/library.py).
         xbmc.executebuiltin("Container.Refresh")
 
 
