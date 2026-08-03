@@ -545,21 +545,35 @@ where       idPath = ?
 
 update_path = """
 UPDATE      path
-SET         strPath = ?, strContent = ?, strScraper = ?, noUpdate = ?
+SET         strPath = ?, strContent = ?, strScraper = ?, noUpdate = ?,
+            useFolderNames = ?
 WHERE       idPath = ?
 """
-update_path_movie_obj = ["{Path}", "movies", "metadata.local", 1, "{PathId}"]
+update_path_movie_obj = ["{Path}", "movies", "metadata.local", 1, None, "{PathId}"]
 update_path_toptvshow_obj = [
     "{TopLevel}",
     "tvshows",
     "metadata.local",
     1,
+    None,
     "{TopPathId}",
 ]
-update_path_toptvshow_addon_obj = ["{TopLevel}", None, None, 1, "{TopPathId}"]
-update_path_tvshow_obj = ["{Path}", None, None, 1, "{PathId}"]
-update_path_episode_obj = ["{Path}", None, None, 1, "{PathId}"]
-update_path_mvideo_obj = ["{Path}", "musicvideos", "metadata.local", 1, "{PathId}"]
+update_path_toptvshow_addon_obj = ["{TopLevel}", None, None, 1, None, "{TopPathId}"]
+# The show's own path row carries the pair too, useFolderNames included -- the
+# library row above is unreachable from it, and the flag is what keeps the info
+# dialog from refusing to open. See writers/tvshows.py for the whole argument.
+# Episodes share this row, so their object repeats the stamp; writing NULLs here
+# would strip what the show write just put down.
+update_path_tvshow_obj = ["{Path}", "tvshows", "metadata.local", 1, 1, "{PathId}"]
+update_path_episode_obj = ["{Path}", "tvshows", "metadata.local", 1, 1, "{PathId}"]
+update_path_mvideo_obj = [
+    "{Path}",
+    "musicvideos",
+    "metadata.local",
+    1,
+    None,
+    "{PathId}",
+]
 
 update_file = """
 UPDATE      files
@@ -920,4 +934,28 @@ UPDATE      path
 SET         strContent = NULL, strScraper = NULL
 WHERE       strPath = 'plugin://plugin.video.kofin/'
 AND         strContent = 'tvshows'
+"""
+
+# -- show-path scraper stamp migration (see Movies.show_path_migration) --------
+#
+# Written by installs synced before each show's own path row carried the
+# content/scraper pair (writers/tvshows.py). Both statements share one
+# predicate: a show path that is not already in the target shape. Episodes hang
+# off these same rows, so stamping them covers the episode dialog as well.
+get_unstamped_show_paths = """
+SELECT      idPath
+FROM        path
+WHERE       idPath IN (SELECT idPath FROM tvshowlinkpath)
+AND         (strContent IS NOT 'tvshows'
+             OR strScraper IS NOT 'metadata.local'
+             OR useFolderNames IS NOT 1)
+"""
+set_show_path_content = """
+UPDATE      path
+SET         strContent = 'tvshows', strScraper = 'metadata.local',
+            useFolderNames = 1
+WHERE       idPath IN (SELECT idPath FROM tvshowlinkpath)
+AND         (strContent IS NOT 'tvshows'
+             OR strScraper IS NOT 'metadata.local'
+             OR useFolderNames IS NOT 1)
 """

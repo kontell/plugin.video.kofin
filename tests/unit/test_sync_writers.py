@@ -870,6 +870,16 @@ def test_series_season_episode_write(api):
     )
     assert content["plugin://plugin.video.kofin/"] == (None, None)
 
+    # The show's own path row carries the pair as well, useFolderNames and all:
+    # a plugin:// path drills up to the addon root in one hop, so the library
+    # row above is never consulted and the info dialog loads no cast without
+    # this. Asserted after the episode write, which targets the same row and
+    # used to blank it. See writers/tvshows.py.
+    assert video_query(
+        "SELECT strContent, strScraper, useFolderNames, noUpdate FROM path"
+        " WHERE strPath = 'plugin://plugin.video.kofin/lib-shows/series1/'"
+    ) == [("tvshows", "metadata.local", 1, 1)]
+
     link = video_query("SELECT idShow, idPath FROM tvshowlinkpath")
     assert len(link) == 1
 
@@ -1397,6 +1407,99 @@ def test_root_content_migration_spares_other_content_rows(api):
         "movies",
         "metadata.local",
     )
+
+
+def _show_path_stamp():
+    return video_query(
+        "SELECT strContent, strScraper, useFolderNames FROM path"
+        " WHERE strPath = 'plugin://plugin.video.kofin/lib-shows/series1/'"
+    )
+
+
+def _strip_show_path_stamp():
+    """Bare the show's path row, the shape installs synced before the stamp
+    still have."""
+    conn = sqlite3.connect(str(sync_db._path_overrides["video"]))
+    try:
+        conn.execute(
+            "UPDATE path SET strContent=NULL, strScraper=NULL, useFolderNames=NULL"
+            " WHERE strPath='plugin://plugin.video.kofin/lib-shows/series1/'"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_show_path_migration_stamps_existing_shows(api):
+    """A show synced before the stamp keeps a bare path row, which leaves Kodi
+    with no scraper to resolve and so an info dialog with no cast. The startup
+    migration stamps it."""
+    from kofin.sync.kodidb import Movies as KodiDb
+
+    write_series_tree(api)
+    _strip_show_path_stamp()
+    assert _show_path_stamp() == [(None, None, None)]
+
+    with sync_db.Database("video") as vdb:
+        assert KodiDb(vdb.cursor).show_path_migration() is True
+
+    assert _show_path_stamp() == [("tvshows", "metadata.local", 1)]
+
+
+def test_show_path_migration_is_a_noop_once_stamped(api):
+    """A freshly synced show already has the stamp, so a restart must not
+    report work it did not do."""
+    from kofin.sync.kodidb import Movies as KodiDb
+
+    write_series_tree(api)
+    before = _root_content()
+
+    with sync_db.Database("video") as vdb:
+        assert KodiDb(vdb.cursor).show_path_migration() is False
+
+    assert _root_content() == before
+
+
+def test_show_path_migration_completes_a_half_stamped_row(api):
+    """useFolderNames alone missing is still broken -- the info dialog refuses
+    to open at all -- so the guard cannot key on the content pair only."""
+    from kofin.sync.kodidb import Movies as KodiDb
+
+    write_series_tree(api)
+    conn = sqlite3.connect(str(sync_db._path_overrides["video"]))
+    try:
+        conn.execute(
+            "UPDATE path SET useFolderNames=NULL"
+            " WHERE strPath='plugin://plugin.video.kofin/lib-shows/series1/'"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    with sync_db.Database("video") as vdb:
+        assert KodiDb(vdb.cursor).show_path_migration() is True
+
+    assert _show_path_stamp() == [("tvshows", "metadata.local", 1)]
+
+
+def test_show_path_migration_spares_non_show_paths(api):
+    """Only rows a tvshow actually links to; the movies library row and the
+    addon root sit in the same table and are none of its business."""
+    from kofin.sync.kodidb import Movies as KodiDb
+
+    write_movie(api)
+    write_series_tree(api)
+    _strip_show_path_stamp()
+
+    with sync_db.Database("video") as vdb:
+        KodiDb(vdb.cursor).show_path_migration()
+
+    content = _root_content()
+    assert content["plugin://plugin.video.kofin/lib-movies/"] == (
+        "movies",
+        "metadata.local",
+    )
+    assert content["plugin://plugin.video.kofin/"] == (None, None)
 
 
 # --- music videos ----------------------------------------------------------------

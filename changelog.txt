@@ -1,3 +1,14 @@
+v0.9.0
+- Kodi 22 (Piers) is supported: its MyVideos147 database is now through the schema gate
+- Chapter images from Jellyfin now appear in Kodi's native chapter list
+- The generated library nodes sit under a single "Kofin" parent, with readable labels and a "Who's watching?" node
+- New content on the server raises a notification, one per content type
+- Cast is back in the info dialog for shows and episodes in Kodi library views, along with tags, country, director and writer
+- Watched flags in dynamic listings follow Jellyfin's Played state rather than the play count
+- HDR flags now show on dynamically browsed items
+- Stock icons in the movies, shows and music sub-sections
+- Music playlist lines played from the Kodi library now report to Jellyfin and pick up lyrics
+
 v0.8.0
 - Continue watching now leads the addon's own listing, the way it does in Jellyfin's web client: everything you are part-way through, across every library, most recently played first
 - The audio and subtitle chooser now appears for every transcode that has something to offer. It only ever showed up when the item had both a second audio track and subtitles to switch to, so a film with three subtitle tracks and one audio track offered nothing at all
