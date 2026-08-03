@@ -23,6 +23,7 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 - Flexible playback methods - direct play, remux or transcode. Choose supported HDR formats & max resolution
     - For transcoded playback, audio streams and image-based subtitles can be accessed *after playback starts* by returning to the playing item and bringing up the context menu.
 - Play with transcoding context item: pick a bitrate
+- Jellyfin chapter images in Kodi's native chapter list (needs chapter image extraction enabled per library on the server; direct-played items)
 - Transcode music
 - Jellyfin song lyrics, timed or plain (via companion add-on)
 - Sync Jellyfin music playlists into Kodi (one way only)
