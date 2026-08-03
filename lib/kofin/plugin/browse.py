@@ -110,6 +110,23 @@ def node_icon(media: str, node: str = "") -> str:
     return icon or MEDIA_ICONS.get(media, "DefaultVideo.png")
 
 
+def structural_art(icon: str) -> Dict[str, str]:
+    """Art for a structural row: a node-menu entry, a genre, an Extras link.
+
+    Both keys, always. Contuary binds the list glyph to ListItem.Icon, which
+    prefers thumb over Art(icon), so an icon-only row draws nothing at all --
+    and the listing that holds these rows has to leave its content type empty
+    for the same reason the root does: with "files" the skin switches to
+    ListWatchedIconVar (folder and status overlays) and ignores setArt(icon)
+    outright. The two rules only work together, which is why they are
+    described in one place.
+
+    Server artwork never comes through here. These rows stand for a query, not
+    for a thing that has a poster.
+    """
+    return {"icon": icon, "thumb": icon}
+
+
 def _collection_type(view: JsonDict) -> str:
     """Jellyfin CollectionType for a root view, with recordings inferred.
 
@@ -265,7 +282,7 @@ def root(request: Request) -> None:
         # glyphs bind ListItem.Icon, which prefers thumb over Art(icon).
         resume_li = xbmcgui.ListItem(settings.localized(30049))
         resume_art = node_icon("", "inprogress")
-        resume_li.setArt({"icon": resume_art, "thumb": resume_art})
+        resume_li.setArt(structural_art(resume_art))
         entries.append(
             (listitems.plugin_url({"mode": "continuewatching"}), resume_li, True)
         )
@@ -302,7 +319,7 @@ def root(request: Request) -> None:
     if api is not None:
         adduser_li = xbmcgui.ListItem(_who_is_watching_label(api))
         watching_art = _addon_media("person-search.png") or "DefaultUser.png"
-        adduser_li.setArt({"icon": watching_art, "thumb": watching_art})
+        adduser_li.setArt(structural_art(watching_art))
         entries.append((listitems.plugin_url({"mode": "adduser"}), adduser_li, False))
 
     # SyncPlay root entry (phase 4): gated on the master toggle, read fresh
@@ -312,11 +329,11 @@ def root(request: Request) -> None:
     if api is not None and syncplay.available():
         syncplay_li = xbmcgui.ListItem(settings.localized(30560))
         syncplay_art = _addon_media("syncplay-groups.png") or "DefaultUser.png"
-        syncplay_li.setArt({"icon": syncplay_art, "thumb": syncplay_art})
+        syncplay_li.setArt(structural_art(syncplay_art))
         entries.append((listitems.plugin_url({"mode": "syncplay"}), syncplay_li, False))
     settings_li = xbmcgui.ListItem(xbmc.getLocalizedString(5))  # "Settings"
     settings_art = "DefaultAddonService.png"
-    settings_li.setArt({"icon": settings_art, "thumb": settings_art})
+    settings_li.setArt(structural_art(settings_art))
     entries.append((listitems.plugin_url({"mode": "settings"}), settings_li, False))
 
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
@@ -456,13 +473,13 @@ def _node_menu(request: Request, api: Api, media: str, view_id: str) -> None:
     entries = []
     for key, label_id in nodes:
         li = xbmcgui.ListItem(settings.localized(label_id))
-        li.setArt({"icon": node_icon(media, key)})
+        li.setArt(structural_art(node_icon(media, key)))
         path = listitems.plugin_url(
             {"mode": "browse", "view": view_id, "type": media, "folder": key}
         )
         entries.append((path, li, True))
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
-    xbmcplugin.setContent(request.handle, "files")
+    xbmcplugin.setContent(request.handle, "")
     xbmcplugin.endOfDirectory(request.handle)
 
 
@@ -517,7 +534,7 @@ def _append_extras_entry(request: Request, api: Api, item_id: str) -> None:
     if not count:
         return
     li = xbmcgui.ListItem(settings.localized(30500))
-    li.setArt({"icon": "DefaultVideo.png"})
+    li.setArt(structural_art("DefaultVideo.png"))
     path = listitems.plugin_url({"mode": "extras", "id": item_id})
     xbmcplugin.addDirectoryItems(request.handle, [(path, li, True)], 1)
 
@@ -531,8 +548,11 @@ def _list_items(
         result = api.next_up(view_id)
         return result.get("Items", []), "episodes"
     if folder == "genres":
+        # Empty content, like the node menu above it: genres are structural
+        # rows carrying a stock glyph, and "files" is what hides it
+        # (structural_art).
         result = api.genres(view_id, _genre_types(media))
-        return result.get("Items", []), "files"
+        return result.get("Items", []), ""
     if folder == "artists":
         result = api.artists(view_id)
         return result.get("Items", []), "artists"
@@ -593,7 +613,7 @@ def _add_items(
 
         if item_type in ("Genre", "MusicGenre"):
             if not li.getArt("thumb"):
-                li.setArt({"icon": "DefaultGenre.png"})
+                li.setArt(structural_art("DefaultGenre.png"))
             path = listitems.plugin_url(
                 {
                     "mode": "browse",
