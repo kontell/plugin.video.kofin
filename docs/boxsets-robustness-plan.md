@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-08-03 |
-| **Status** | Planned — reviewed against live server evidence; no code yet |
+| **Status** | Implemented on `fix/boxsets-healing`; L2/L1-tested and live-verified (S-boxsets, 2026-08-03) |
 | **Addon** | `plugin.video.kofin` |
 | **Symptom** | Collections drift into an unlinked state (sets exist, `movie.idSet` gone) and stay that way until a manual **Refresh boxsets** |
 
