@@ -18,6 +18,7 @@ from kofin.sync import db as sync_db
 from kofin.sync import schema
 from kofin.sync.kodidb.kodi import Kodi
 from kofin.sync.library import UpdateWorker
+from kofin.sync.newcontent import Entry
 from kofin.sync.shims import LibraryOrphanException
 from kofin.sync.writers import Movies, MusicVideos, TVShows, Music
 from tests.unit import kodifixtures, sync_dtos
@@ -1010,6 +1011,57 @@ def test_worker_flags_an_unresolvable_child_unapplied(api):
     assert kofin_query("SELECT COUNT(*) FROM jellyfin WHERE jellyfin_id='season1'") == [
         (1,)
     ]
+
+
+def seed_movie_library(api):
+    """The whitelist and ancestor lookup a worker-built writer resolves its
+    library through, the way the service leaves them."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    sync = sync_db.get_sync()
+    sync["Whitelist"] = ["lib-movies"]
+    sync_db.save_sync(sync)
+    api.ancestors = lambda item_id: [{"Id": "lib-movies", "Name": "Movies"}]
+
+
+def test_added_writer_reports_only_what_should_be_announced(api):
+    """The notify payload as the writers actually produce it: a watched
+    addition is written like any other and simply never reported, which is
+    where "watched gets no notification" is enforced for real items rather
+    than for hand-built dicts."""
+    seed_movie_library(api)
+
+    work = queue.Queue()
+    work.put(dto(MOVIE))  # UserData.Played is True -- watched
+    work.put(dto(MOVIE_2))  # unwatched
+    notify = queue.Queue()
+
+    worker = UpdateWorker(
+        work, notify, threading.Lock(), "video", api, notify_enabled=True
+    )
+    worker.run()
+
+    # Both were written; only the unwatched one is announceable.
+    assert video_query("SELECT COUNT(*) FROM movie") == [(2,)]
+    reported = []
+    while not notify.empty():
+        reported.append(notify.get())
+
+    assert reported == [Entry("Movie", "movie2", "Second Feature")]
+
+
+def test_metadata_writers_cannot_announce_anything(api):
+    """Only the added writers are built with notify_enabled, which is what
+    keeps an updated item from arriving as news."""
+    seed_movie_library(api)
+
+    work = queue.Queue()
+    work.put(dto(MOVIE_2))
+    notify = queue.Queue()
+
+    UpdateWorker(work, notify, threading.Lock(), "video", api).run()
+
+    assert video_query("SELECT COUNT(*) FROM movie") == [(1,)]
+    assert notify.qsize() == 0
 
 
 ORPHAN_RULES = [

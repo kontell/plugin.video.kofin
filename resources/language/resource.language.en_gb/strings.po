@@ -1421,3 +1421,64 @@ msgstr ""
 msgctxt "#30621"
 msgid "Show Jellyfin's chapter images in Kodi's chapter list during playback. Needs chapter image extraction enabled on the server (a per-library setting) and an item that direct plays — transcoded streams carry no chapters."
 msgstr ""
+
+# 30622-30636 — new-content notifications
+msgctxt "#30622"
+msgid "Notify about new content"
+msgstr ""
+
+msgctxt "#30623"
+msgid "Show a notification when new films, shows, episodes, music videos, artists or albums are added to your library. One notification per kind of content per sync; anything you have already watched is never announced, and a library you have just selected syncs quietly."
+msgstr ""
+
+msgctxt "#30624"
+msgid "%s movie added to library"
+msgstr ""
+
+msgctxt "#30625"
+msgid "%s movies added to library"
+msgstr ""
+
+msgctxt "#30626"
+msgid "%s show added to library"
+msgstr ""
+
+msgctxt "#30627"
+msgid "%s new shows added to library"
+msgstr ""
+
+msgctxt "#30628"
+msgid "%s episode of %s added to library"
+msgstr ""
+
+msgctxt "#30629"
+msgid "%s episodes of %s added to library"
+msgstr ""
+
+msgctxt "#30630"
+msgid "%s episodes added to library"
+msgstr ""
+
+msgctxt "#30631"
+msgid "%s music video added to library"
+msgstr ""
+
+msgctxt "#30632"
+msgid "%s music videos added to library"
+msgstr ""
+
+msgctxt "#30633"
+msgid "%s added to music library"
+msgstr ""
+
+msgctxt "#30634"
+msgid "%s artists added to library"
+msgstr ""
+
+msgctxt "#30635"
+msgid "%s added to music library"
+msgstr ""
+
+msgctxt "#30636"
+msgid "%s albums added to library"
+msgstr ""

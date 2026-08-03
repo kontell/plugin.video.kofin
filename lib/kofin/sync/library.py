@@ -23,6 +23,7 @@ import xbmcgui
 from kofin.core import settings, state
 from kofin.core.log import Logger
 from kofin.sync import changefeed
+from kofin.sync import newcontent
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
 from kofin.sync.kodidb import Movies as KodiDb
 from kofin.sync.kodidb import Music as MusicKodiDb
@@ -94,9 +95,10 @@ PLAYLIST_POLL_SECONDS = 900
 # event without a real walk (see Library._refresh_music). Must never be
 # created — if it existed the scan would descend into it.
 MUSIC_REFRESH_PROBE = "special://temp/kofin-music-refresh-probe/"
-# Notification display times (ms), fork defaults.
-NEW_VIDEO_TIME = 5000
-NEW_MUSIC_TIME = 2000
+# New-content toast display time (ms), the fork's video default. One time for
+# every line: the fork's shorter music toast existed because music notified
+# per song and a synced album fired a dozen of them, which aggregation ends.
+NEW_CONTENT_TIME = 5000
 
 # Companion tiers come from the change-feed ladder (phase 5, plan §2); the
 # aliases keep the phase-2 names working.
@@ -153,6 +155,10 @@ class Library(threading.Thread):
         self.userdata_output = self.__new_queues__()
         self.removed_output = self.__new_queues__()
         self.notify_output = queue.Queue()
+        # Announceable additions written this cycle, drained from
+        # notify_output by notify_new_content and held until the cycle's
+        # additions are all in (and, during playback, until it ends).
+        self.new_content = []
         # Ids the last incremental sync reported as userdata changes; used to
         # tag downloaded items so an Etag-unchanged write applies userdata only
         # when it changed. Empty outside the incremental path (full sync tags
@@ -170,7 +176,6 @@ class Library(threading.Thread):
 
         self.jellyfin_threads = []
         self.download_threads = []
-        self.notify_threads = []
         self.writer_threads = {"updated": [], "userdata": [], "removed": []}
         self.database_lock = threading.Lock()
         self.music_database_lock = threading.Lock()
@@ -464,9 +469,13 @@ class Library(threading.Thread):
             self.worker_updates()
             self.worker_userdata()
             self.worker_remove()
-            self.worker_notify()
             self.refresh_added()
             self.poll_music_playlists()
+
+        # Outside the playback gate on purpose: a summary accumulated with
+        # syncDuringPlay on is held while video plays, and this is the tick
+        # that raises it once playback ends.
+        self.notify_new_content()
 
         if self.pending_refresh:
             state.set_sync_active(True)
@@ -1035,14 +1044,62 @@ class Library(threading.Thread):
         """Remove items from the Kodi database."""
         self.start_writers("removed", RemovedWorker)
 
-    def worker_notify(self):
-        """Notify the user of new additions."""
-        if self.notify_output.qsize() and not len(self.notify_threads):
+    def notify_new_content(self):
+        """Announce what this cycle added: one toast per content type.
 
-            new_thread = NotifyWorker(self.notify_output, self.player)
-            new_thread.start()
-            LOG.info("-->[ q:notify/%s ]", id(new_thread))
-            self.notify_threads.append(new_thread)
+        The fork toasted once per item, from the writer thread that wrote it —
+        a queue's worth of "New Episode: ..." for a single season. Aggregation
+        has to happen somewhere that can see a whole cycle, which is here, so
+        the writers only report and this decides what any of it adds up to.
+
+        Nothing about the accumulator is allowed to cost the sync: the flush
+        is guarded because a message that cannot be built is a message lost,
+        while an exception reaching ``service`` ends the library thread until
+        Kodi restarts.
+        """
+        while True:
+            try:
+                self.new_content.append(self.notify_output.get_nowait())
+            except queue.Empty:
+                break
+
+        if not self.new_content:
+            return
+
+        if not settings.get_bool("notifyNewContent"):
+            # Read here rather than where the entries are made, so turning it
+            # off silences the cycle already in flight.
+            self.new_content = []
+            return
+
+        if self.added_pending():
+            # More additions still landing: the same predicate refresh_added
+            # uses, so the toast arrives with the content rather than after
+            # the metadata backlog queued behind it drains.
+            return
+
+        if self.player.isPlayingVideo() and not xbmc.getCondVisibility(
+            "VideoPlayer.Content(livetv)"
+        ):
+            # Hold, do not drop. Additions only get written during playback
+            # with syncDuringPlay on, and the news keeps until it ends.
+            return
+
+        pending, self.new_content = self.new_content, []
+
+        try:
+            messages = newcontent.summarize(pending)
+        except Exception:
+            LOG.exception("could not summarize %s new item(s)", len(pending))
+            return
+
+        if not messages:
+            return
+
+        LOG.info("--[ new content ] %s", " | ".join(messages))
+
+        for message in messages:
+            notification(message, time_ms=NEW_CONTENT_TIME)
 
     def startup(self):
         """Run at startup.
@@ -1691,10 +1748,10 @@ class UpdateWorker(threading.Thread):
     ):
         self.queue = queue
         self.notify_output = notify
-        # Per-item "New content" toasts were removed (the syncNotification
-        # setting is gone); library-update visibility is the progress bar,
-        # gated by syncProgressThreshold. The notify machinery stays dormant.
-        self.notify = False
+        # Only the added writers report new content (worker_updates passes
+        # notify_enabled=True for those alone), which is why a metadata-only
+        # update can never announce itself as new.
+        self.notify = notify_enabled
         self.lock = lock
         self.database = Database(database)
         self.args = args
@@ -1783,9 +1840,13 @@ class UpdateWorker(threading.Thread):
                         music.song(item)
 
                     if self.notify:
-                        self.notify_output.put(
-                            (item["Type"], api.API(item).get_naming())
-                        )
+                        # What is announceable, and what it is called, is
+                        # newcontent's to decide; a watched item comes back
+                        # None here and is never reported.
+                        entry = newcontent.entry_for(item)
+
+                        if entry is not None:
+                            self.notify_output.put(entry)
                 except LibraryException as error:
                     # Still swallowed so one bad item cannot stop the drain,
                     # but no longer forgotten: it never landed, and the
@@ -2047,45 +2108,4 @@ class RemovedWorker(threading.Thread):
                     break
 
         LOG.info("--<[ q:removed/%s ]", id(self))
-        self.is_done = True
-
-
-class NotifyWorker(threading.Thread):
-
-    is_done = False
-
-    def __init__(self, queue, player):
-
-        self.queue = queue
-        self.video_time = NEW_VIDEO_TIME
-        self.music_time = NEW_MUSIC_TIME
-        self.player = player
-        threading.Thread.__init__(self)
-
-    def run(self):
-
-        while True:
-
-            try:
-                item = self.queue.get(timeout=3)
-            except queue.Empty:
-                break
-
-            time = self.music_time if item[0] == "Audio" else self.video_time
-
-            if time and (
-                not self.player.isPlayingVideo()
-                or xbmc.getCondVisibility("VideoPlayer.Content(livetv)")
-            ):
-                notification(
-                    "%s %s: %s" % (localized(30405), item[0], item[1]),
-                    time_ms=time,
-                )
-
-            self.queue.task_done()
-
-            if state.should_stop():
-                break
-
-        LOG.info("--<[ q:notify/%s ]", id(self))
         self.is_done = True

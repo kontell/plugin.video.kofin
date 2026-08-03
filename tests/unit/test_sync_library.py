@@ -12,6 +12,7 @@ from kofin.core.http import JellyfinError, ServerUnreachable
 from kofin.sync import db as sync_db
 from kofin.sync import kofindb
 from kofin.sync import library as library_mod
+from kofin.sync import newcontent
 from kofin.sync.downloader import GetItemWorker
 from kofin.sync.library import Library
 from tests.unit.fakes import FakeAddon, FakeWindow
@@ -59,8 +60,10 @@ class FakeApi:
 
 
 class FakePlayer:
+    playing = False
+
     def isPlayingVideo(self):
-        return False
+        return self.playing
 
 
 @pytest.fixture(autouse=True)
@@ -1347,3 +1350,150 @@ def test_playlist_poll_waits_while_offline(monkeypatch):
     lib.poll_music_playlists()
 
     assert runs == []
+
+
+# --- new-content notifications ------------------------------------------------
+
+
+def _notify_library(monkeypatch, *entries):
+    """A library holding ``entries`` on its writers' notify queue, plus the
+    list its toasts land in."""
+    lib, _api = make_library()
+    FakeAddon.store["notifyNewContent"] = "true"
+    sent = []
+    monkeypatch.setattr(
+        library_mod, "notification", lambda message, **kwargs: sent.append(message)
+    )
+    monkeypatch.setattr(
+        library_mod.settings, "localized", lambda string_id: "L%d %%s" % string_id
+    )
+    # Kodistubs answers every condition True, which would read as live TV.
+    monkeypatch.setattr(library_mod.xbmc, "getCondVisibility", lambda condition: False)
+
+    for entry in entries:
+        lib.notify_output.put(entry)
+
+    return lib, sent
+
+
+MOVIE_ENTRY = newcontent.Entry("Movie", "movie1", "The Example")
+ALBUM_ENTRY = newcontent.Entry("MusicAlbum", "album1", "Inner Song")
+
+
+def test_new_content_toasts_once_per_content_type(monkeypatch):
+    lib, sent = _notify_library(monkeypatch, MOVIE_ENTRY, ALBUM_ENTRY)
+
+    lib.notify_new_content()
+
+    assert len(sent) == 2
+    assert lib.new_content == []
+
+
+def test_new_content_waits_for_the_cycle_to_finish_adding(monkeypatch):
+    """The same predicate refresh_added uses: the toast belongs with the
+    content, not with whatever is still being downloaded for it."""
+    lib, sent = _notify_library(monkeypatch, MOVIE_ENTRY)
+    lib.added_queue.put(["movie2"])
+
+    lib.notify_new_content()
+
+    assert sent == []
+    # Held, not dropped -- and off the queue, so nothing re-reads it.
+    assert lib.new_content == [MOVIE_ENTRY]
+    assert lib.notify_output.qsize() == 0
+
+    lib.added_queue.get()
+    lib.notify_new_content()
+
+    assert len(sent) == 1
+
+
+def test_new_content_summarizes_a_whole_cycle_not_each_writer(monkeypatch):
+    """Two writers reporting a movie each is one message, which is the whole
+    point of collecting them here instead of toasting per item."""
+    lib, sent = _notify_library(
+        monkeypatch, MOVIE_ENTRY, newcontent.Entry("Movie", "movie2", "Another One")
+    )
+    lib.added_queue.put(["movie3"])
+
+    lib.notify_new_content()
+    lib.added_queue.get()
+    lib.notify_output.put(newcontent.Entry("Movie", "movie3", "A Third"))
+    lib.notify_new_content()
+
+    assert sent == ["L30625 3"]
+
+
+def test_new_content_respects_the_setting(monkeypatch):
+    lib, sent = _notify_library(monkeypatch, MOVIE_ENTRY)
+    FakeAddon.store["notifyNewContent"] = "false"
+
+    lib.notify_new_content()
+
+    assert sent == []
+    # Cleared rather than held: turning it off silences the cycle in flight.
+    assert lib.new_content == []
+
+
+def test_new_content_holds_while_video_plays(monkeypatch):
+    """Toasting over fullscreen video is the intrusion this feature must not
+    become; the news keeps until playback ends."""
+    lib, sent = _notify_library(monkeypatch, MOVIE_ENTRY)
+    lib.player.playing = True
+
+    lib.notify_new_content()
+
+    assert sent == []
+    assert lib.new_content == [MOVIE_ENTRY]
+
+    lib.player.playing = False
+    lib.notify_new_content()
+
+    assert len(sent) == 1
+
+
+def test_new_content_toasts_over_live_tv(monkeypatch):
+    lib, sent = _notify_library(monkeypatch, MOVIE_ENTRY)
+    lib.player.playing = True
+    monkeypatch.setattr(
+        library_mod.xbmc,
+        "getCondVisibility",
+        lambda condition: condition == "VideoPlayer.Content(livetv)",
+    )
+
+    lib.notify_new_content()
+
+    assert len(sent) == 1
+
+
+def test_new_content_does_not_repeat_itself_next_cycle(monkeypatch):
+    lib, sent = _notify_library(monkeypatch, MOVIE_ENTRY)
+
+    lib.notify_new_content()
+    lib.notify_new_content()
+
+    assert len(sent) == 1
+
+
+def test_an_empty_cycle_says_nothing(monkeypatch):
+    lib, sent = _notify_library(monkeypatch)
+
+    lib.notify_new_content()
+
+    assert sent == []
+
+
+def test_a_broken_message_costs_the_toast_and_not_the_thread(monkeypatch):
+    """service() ends the library thread on an exception, so a summary that
+    cannot be built has to stop here."""
+    lib, sent = _notify_library(monkeypatch, MOVIE_ENTRY)
+    monkeypatch.setattr(
+        library_mod.newcontent,
+        "summarize",
+        lambda entries: (_ for _ in ()).throw(TypeError("not enough arguments")),
+    )
+
+    lib.notify_new_content()
+
+    assert sent == []
+    assert lib.new_content == []
