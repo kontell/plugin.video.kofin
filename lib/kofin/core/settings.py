@@ -55,6 +55,10 @@ def addon_path() -> str:
     return _addon().getAddonInfo("path")
 
 
+def addon_name() -> str:
+    return _addon().getAddonInfo("name")
+
+
 def localized(string_id: int) -> str:
     return _addon().getLocalizedString(string_id)
 
