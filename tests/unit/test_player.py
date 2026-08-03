@@ -361,6 +361,53 @@ def test_plugin_song_is_not_claimed_twice_after_the_player_claimed(monkeypatch):
     )
 
 
+def test_playlist_song_is_claimed_from_the_musicdb_path(monkeypatch):
+    """A saved playlist plays ``musicdb://songs/<id>`` with no music tag, so
+    Kodi announces the song without a database id (measured on Kodi 21). The
+    play still has to be claimed, or the whole playlist goes unreported."""
+    from kofin.service import player as player_mod
+
+    _map_song(monkeypatch)
+    api = LookupApi()
+    path = "musicdb://songs/55.flac"
+    monkeypatch.setattr(
+        "xbmc.Player",
+        lambda: type("P", (), {"getPlayingFile": lambda self: path})(),
+    )
+
+    pushed = player_mod.backfill_library_claim(
+        {"item": {"title": "04. Golden Earring - Radar Love", "type": "song"}},
+        api,  # type: ignore[arg-type]
+    )
+
+    assert pushed is True
+    claimed = state.claim_play_item(path)
+    assert claimed is not None
+    assert claimed["Id"] == "jf-song-1"
+
+
+def test_idless_announcement_off_a_musicdb_path_stays_foreign(monkeypatch):
+    """No database id and nothing in the path to recover one: somebody
+    else's audio, which must never be claimed."""
+    from kofin.service import player as player_mod
+
+    _map_song(monkeypatch)
+    api = LookupApi()
+    monkeypatch.setattr(
+        "xbmc.Player",
+        lambda: type("P", (), {"getPlayingFile": lambda self: "/home/me/song.mp3"})(),
+    )
+
+    assert (
+        player_mod.backfill_library_claim(
+            {"item": {"title": "Some Track", "type": "song"}},
+            api,  # type: ignore[arg-type]
+        )
+        is False
+    )
+    assert api.item_requests == []
+
+
 def test_video_playback_is_never_backfilled(monkeypatch):
     """Video always goes through plugin:// and is claimed the normal way;
     back-filling it would risk double-claiming a legitimate play."""

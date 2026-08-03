@@ -199,6 +199,22 @@ def test_id_falls_back_to_the_path(monkeypatch, path):
     assert playing_jellyfin_id(FakeListItem(dbid=0), path) == JID
 
 
+def test_playlist_line_resolves_through_the_musicdb_id(monkeypatch):
+    """A playlist line has no music tag, so its database id is in the path;
+    without it a playlist plays with no lyrics at all."""
+    seen = []
+
+    def lookup(kodi_id, media):
+        seen.append((kodi_id, media))
+        return "from-db"
+
+    monkeypatch.setattr("kofin.service.player.mapped_jellyfin_id", lookup)
+    assert playing_jellyfin_id(FakeListItem(dbid=0), "musicdb://songs/10851.flac") == (
+        "from-db"
+    )
+    assert seen == [(10851, "song")]
+
+
 def test_foreign_playback_is_not_claimed(monkeypatch):
     monkeypatch.setattr(
         "kofin.service.player.mapped_jellyfin_id", lambda kodi_id, media: None
