@@ -46,6 +46,27 @@ def test_resume_and_playcount():
     assert listitems.playcount_of({}) == 0
 
 
+def test_playcount_follows_played_not_the_count():
+    """An item marked unwatched is unwatched, whatever its history.
+
+    Jellyfin keeps PlayCount when Played goes false, so the count on its own
+    says "has been watched before", not "is watched" -- on a real library that
+    is a few percent of the items, which is what made the watched flags in
+    dynamic listings look randomly wrong.
+    """
+    unmarked = {"UserData": {"PlayCount": 4, "Played": False}}
+    assert listitems.playcount_of(unmarked) == 0
+    # ...and one still in progress, which is the same shape plus a position.
+    rewatching = {
+        "UserData": {
+            "PlayCount": 2,
+            "Played": False,
+            "PlaybackPositionTicks": 300 * 10_000_000,
+        }
+    }
+    assert listitems.playcount_of(rewatching) == 0
+
+
 def test_resume_of_carries_the_resume_offset(fake_addon):
     # The listing has to advertise the position playback will actually start
     # at, or Kodi's resume prompt names one time and lands on another.
@@ -174,3 +195,59 @@ def test_build_does_not_stamp_mediatype_on_library_views(recorded):
 def test_build_stamps_mediatype_on_episodes(recorded):
     listitems.build(EPISODE, SERVER)
     assert recorded[-1].tag.media_type == "episode"
+
+
+@pytest.mark.parametrize(
+    "stream, expected",
+    [
+        # Every VideoRangeType a real library reports, sampled from the test
+        # server: the DOVI* variants all carry DvProfile, which is why the
+        # profile and not the range type is what decides Dolby Vision.
+        ({"VideoRangeType": "DOVIWithHDR10", "DvProfile": 8}, "dolbyvision"),
+        ({"VideoRangeType": "DOVIWithHDR10Plus", "DvProfile": 10}, "dolbyvision"),
+        ({"VideoRangeType": "DOVIInvalid", "DvProfile": 5}, "dolbyvision"),
+        ({"VideoRangeType": "DOVI", "DvProfile": 5}, "dolbyvision"),
+        ({"VideoRangeType": "HDR10"}, "hdr10"),
+        ({"VideoRangeType": "HDR10Plus"}, "hdr10"),
+        ({"VideoRangeType": "HLG"}, "hlg"),
+        ({"VideoRangeType": "DOVIWithHLG"}, "hlg"),  # no profile: HLG is left
+        ({"VideoRangeType": "SDR"}, ""),
+        ({}, ""),
+    ],
+)
+def test_hdr_type_mapping(stream, expected):
+    assert listitems.hdr_type(stream) == expected
+
+
+def test_build_passes_hdr_type_to_the_video_stream(recorded, monkeypatch):
+    """Kodistubs' VideoStreamDetail stores nothing and its getters return
+    constants, so the call is what there is to assert on."""
+    calls = []
+    monkeypatch.setattr(
+        listitems.xbmc,
+        "VideoStreamDetail",
+        lambda **kwargs: calls.append(kwargs),
+    )
+    item = dict(
+        EPISODE,
+        MediaStreams=[
+            {
+                "Type": "Video",
+                "Width": 3840,
+                "Height": 2160,
+                "Codec": "hevc",
+                "VideoRangeType": "DOVIWithHDR10",
+                "DvProfile": 8,
+            }
+        ],
+    )
+    listitems.build(item, SERVER)
+    assert calls == [
+        {
+            "width": 3840,
+            "height": 2160,
+            "codec": "hevc",
+            "duration": 600,
+            "hdrtype": "dolbyvision",
+        }
+    ]

@@ -147,6 +147,32 @@ def directory(monkeypatch):
     return captured
 
 
+@pytest.fixture
+def recording_art(monkeypatch):
+    """A ListItem that remembers setArt -- Kodistubs' accepts it and forgets.
+
+    Patched in all three namespaces the listing code reaches ListItem through,
+    so an item built by browse or by listitems records either way.
+    """
+    import xbmcgui
+
+    class RecordingListItem(xbmcgui.ListItem):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._art = {}
+
+        def setArt(self, dictionary):
+            self._art.update(dictionary)
+
+        def getArt(self, key):
+            return self._art.get(key, "")
+
+    monkeypatch.setattr(xbmcgui, "ListItem", RecordingListItem)
+    monkeypatch.setattr(browse.xbmcgui, "ListItem", RecordingListItem)
+    monkeypatch.setattr(browse.listitems.xbmcgui, "ListItem", RecordingListItem)
+    return RecordingListItem
+
+
 def test_extras_listing_routes_to_play(monkeypatch, directory):
     api = ExtrasApi(features=[FEATURE])
     monkeypatch.setattr(browse, "_api", lambda: api)
@@ -328,31 +354,11 @@ def test_addon_media_empty_when_path_unknown(monkeypatch):
     assert browse._addon_media("person-search.png") == ""
 
 
-def test_root_art_icon_and_thumb(monkeypatch, directory):
+def test_root_art_icon_and_thumb(monkeypatch, directory, recording_art):
     """Root rows set list icon + focus art: continue watching mirrors stock
     art on both; libraries put stock Default*.png on icon/thumb (Contuary
     ListItem.Icon prefers thumb) and server Primary on poster; action rows
     use addon media for both."""
-    import xbmcgui
-
-    arts = []
-    real_listitem = xbmcgui.ListItem
-
-    class RecordingListItem(real_listitem):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self._art = {}
-
-        def setArt(self, dictionary):
-            self._art.update(dictionary)
-            arts.append(dict(self._art))
-
-        def getArt(self, key):
-            return self._art.get(key, "")
-
-    monkeypatch.setattr(xbmcgui, "ListItem", RecordingListItem)
-    monkeypatch.setattr(browse.xbmcgui, "ListItem", RecordingListItem)
-    monkeypatch.setattr(browse.listitems.xbmcgui, "ListItem", RecordingListItem)
     FakeAddon.store["syncPlayEnabled"] = "true"
     monkeypatch.setattr(
         "kofin.plugin.syncplay.external_player_configured", lambda: False
@@ -396,3 +402,79 @@ def test_root_art_icon_and_thumb(monkeypatch, directory):
     syncplay = by_mode["syncplay"]
     assert syncplay.getArt("icon").endswith("syncplay-groups.png")
     assert syncplay.getArt("thumb") == syncplay.getArt("icon")
+
+
+# --- sub-section rows get the root's icon treatment (PR #39) -----------------
+
+
+def _by_folder(entries):
+    return {path.split("folder=")[1].split("&")[0]: li for path, li, _f in entries}
+
+
+@pytest.mark.parametrize(
+    "media, node, icon",
+    [
+        ("movies", "all", "DefaultMovies.png"),
+        ("movies", "sets", "DefaultSets.png"),
+        ("movies", "genres", "DefaultGenre.png"),
+        ("tvshows", "recentepisodes", "DefaultRecentlyAddedEpisodes.png"),
+        ("tvshows", "nextup", "DefaultInProgressShows.png"),
+        ("music", "artists", "DefaultMusicArtists.png"),
+        ("music", "albums", "DefaultMusicAlbums.png"),
+        ("musicvideos", "all", "DefaultMusicVideos.png"),
+    ],
+)
+def test_node_menu_rows_carry_stock_art_on_both_keys(
+    recording_art, directory, media, node, icon
+):
+    """Contuary binds the list glyph to ListItem.Icon, which prefers thumb --
+    so an icon-only row draws nothing. Same rule the root already follows."""
+    browse._node_menu(Request("plugin://x", 1, {}), ExtrasApi(), media, "v1")
+    li = _by_folder(directory["entries"])[node]
+    assert li.getArt("icon") == icon
+    assert li.getArt("thumb") == icon
+
+
+def test_node_menu_leaves_content_empty(recording_art, directory):
+    """With "files" the skin switches to ListWatchedIconVar and ignores
+    setArt(icon) outright, which is what left these menus glyphless."""
+    browse._node_menu(Request("plugin://x", 1, {}), ExtrasApi(), "movies", "v1")
+    assert directory["content"] == ""
+
+
+def test_extras_entry_carries_art_on_both_keys(recording_art, directory):
+    browse._append_extras_entry(
+        Request("plugin://x", 1, {}), ExtrasApi(series_count=2), "series1"
+    )
+    li = directory["entries"][0][1]
+    assert li.getArt("icon") == "DefaultVideo.png"
+    assert li.getArt("thumb") == "DefaultVideo.png"
+
+
+class GenresApi(ExtrasApi):
+    def genres(self, parent_id, include_types=None):
+        return {"Items": [{"Type": "Genre", "Id": "g1", "Name": "Drama"}]}
+
+
+def test_genres_listing_leaves_content_empty():
+    items, content = browse._list_items(
+        GenresApi(), "movies", "genres", "v1", Request("plugin://x", 1, {})
+    )
+    assert content == ""
+    assert items[0]["Name"] == "Drama"
+
+
+def test_genre_rows_carry_stock_art_on_both_keys(recording_art, directory):
+    """A genre has no server artwork to fall back on, so the stock glyph is
+    the whole row -- it has to land on both keys like every other structural
+    entry."""
+    browse._add_items(
+        Request("plugin://x", 1, {}),
+        ExtrasApi(),
+        [{"Type": "Genre", "Id": "g1", "Name": "Drama"}],
+        "v1",
+        "movies",
+    )
+    li = directory["entries"][0][1]
+    assert li.getArt("icon") == "DefaultGenre.png"
+    assert li.getArt("thumb") == "DefaultGenre.png"
