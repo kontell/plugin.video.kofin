@@ -102,6 +102,7 @@ class Service(xbmc.Monitor):
         self.library: Optional[Any] = None  # kofin.sync.library.Library
         self.syncplay: Optional[Any] = None  # kofin.syncplay.SyncPlayManager
         self._syncplay_menu: Optional[threading.Thread] = None
+        self._who_is_watching: Optional[threading.Thread] = None
         self._online = False
         self._backoff = Backoff()
         self.settings_apply = SettingsApplier(self)
@@ -247,6 +248,28 @@ class Service(xbmc.Monitor):
         )
         self._syncplay_menu.daemon = True
         self._syncplay_menu.start()
+
+    def _open_who_is_watching(self) -> None:
+        """WhoIsWatching IPC: same contract as the SyncPlay menu — the picker
+        blocks on a dialog, so it gets its own worker thread, never the
+        notification thread."""
+        if self._who_is_watching is not None and self._who_is_watching.is_alive():
+            LOG.debug("who's-watching picker already open")
+            return
+
+        self._who_is_watching = threading.Thread(
+            target=self._run_who_is_watching, name="kofin-whoswatching"
+        )
+        self._who_is_watching.daemon = True
+        self._who_is_watching.start()
+
+    def _run_who_is_watching(self) -> None:
+        from kofin.plugin import adduser
+
+        try:
+            adduser.show_picker(self.api, self.credentials)
+        except Exception:
+            LOG.exception("who's-watching picker failed")
 
     def _start_websocket(self) -> None:
         header = auth.build_auth_header(
@@ -430,6 +453,8 @@ class Service(xbmc.Monitor):
             self._restart_requested = True
         elif name == ipc.SYNCPLAY_MENU:
             self._open_syncplay_menu()
+        elif name == ipc.WHO_IS_WATCHING:
+            self._open_who_is_watching()
         elif name in LIBRARY_COMMANDS:
             self._start_library()
             if self.library is None:
