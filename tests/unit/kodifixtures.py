@@ -16,9 +16,11 @@ FIXTURES = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "fixtur
 # Omega defaults; the L2 writer suite parameterizes over these and Piers.
 VIDEO_VERSION = 131
 MUSIC_VERSION = 83
+TEXTURE_VERSION = 13
 
 PIERS_VIDEO_VERSION = 146
 PIERS_MUSIC_VERSION = 84
+PIERS_TEXTURE_VERSION = 14
 
 
 def _apply(conn: sqlite3.Connection, filename: str) -> None:
@@ -46,6 +48,21 @@ def create_music_db(path: str, version: int = MUSIC_VERSION) -> str:
     try:
         _apply(conn, "mymusic%d.sql" % version)
         _apply(conn, "mymusic%d_seed.sql" % version)
+        conn.execute(
+            "INSERT INTO version (idVersion, iCompressCount) VALUES (?, 0)",
+            (version,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return path
+
+
+def create_texture_db(path: str, version: int = TEXTURE_VERSION) -> str:
+    """Textures has no creation-time seed rows — schema plus version only."""
+    conn = sqlite3.connect(path)
+    try:
+        _apply(conn, "textures%d.sql" % version)
         conn.execute(
             "INSERT INTO version (idVersion, iCompressCount) VALUES (?, 0)",
             (version,),

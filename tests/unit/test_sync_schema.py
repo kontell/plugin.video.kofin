@@ -75,6 +75,12 @@ def test_database_path_joins_dir_and_gate(monkeypatch):
     assert schema.database_path("video") == "/kodi/database/MyVideos131.db"
 
 
-def test_texture_is_not_version_gated(monkeypatch):
+def test_texture_is_version_gated_like_the_others(monkeypatch):
+    # Gated since the chapter-thumb feature writes it: known versions pass,
+    # an unknown one refuses (seeding then disables itself, playback lives).
+    fake_database_dir(monkeypatch, ["Textures13.db"])
+    assert schema.check("texture") == 13
+    schema.reset_cache()
     fake_database_dir(monkeypatch, ["Textures99.db"])
-    assert schema.check("texture") == 99
+    with pytest.raises(schema.SchemaUnsupported):
+        schema.check("texture")
