@@ -220,6 +220,11 @@
           <enable>false</enable>
           <control type="edit" format="string"/>
         </setting>
+        <setting id="notifyNewContent" type="boolean" label="30622" help="30623">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
       </group>
     </category>
 
