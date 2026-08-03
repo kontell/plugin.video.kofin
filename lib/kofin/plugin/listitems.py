@@ -88,11 +88,19 @@ def resume_of(item: JsonDict) -> Tuple[float, float]:
 
 
 def playcount_of(item: JsonDict) -> int:
+    """Kodi playcount for a DTO -- 0 unless the server calls the item played.
+
+    ``Played`` is the watch state and ``PlayCount`` only sizes it. Reading the
+    count as the state instead gets one case wrong, and gets it wrong on a
+    scattered few percent of a real library: Jellyfin *keeps* the count when an
+    item is marked unwatched, so everything ever watched and then unmarked came
+    back as watched. The sync path has always tied the two this way
+    (``sync/fields.get_playcount``); dynamic listings now agree with it.
+    """
     userdata = item.get("UserData") or {}
-    count = int(userdata.get("PlayCount") or 0)
-    if userdata.get("Played") and count == 0:
-        count = 1
-    return count
+    if not userdata.get("Played"):
+        return 0
+    return int(userdata.get("PlayCount") or 0) or 1
 
 
 def art_for(item: JsonDict, server: str) -> Dict[str, str]:

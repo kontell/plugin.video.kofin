@@ -46,6 +46,27 @@ def test_resume_and_playcount():
     assert listitems.playcount_of({}) == 0
 
 
+def test_playcount_follows_played_not_the_count():
+    """An item marked unwatched is unwatched, whatever its history.
+
+    Jellyfin keeps PlayCount when Played goes false, so the count on its own
+    says "has been watched before", not "is watched" -- on a real library that
+    is a few percent of the items, which is what made the watched flags in
+    dynamic listings look randomly wrong.
+    """
+    unmarked = {"UserData": {"PlayCount": 4, "Played": False}}
+    assert listitems.playcount_of(unmarked) == 0
+    # ...and one still in progress, which is the same shape plus a position.
+    rewatching = {
+        "UserData": {
+            "PlayCount": 2,
+            "Played": False,
+            "PlaybackPositionTicks": 300 * 10_000_000,
+        }
+    }
+    assert listitems.playcount_of(rewatching) == 0
+
+
 def test_resume_of_carries_the_resume_offset(fake_addon):
     # The listing has to advertise the position playback will actually start
     # at, or Kodi's resume prompt names one time and lands on another.
