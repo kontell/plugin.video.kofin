@@ -133,11 +133,12 @@ class Database(object):
 
 
 def kofin_tables(cursor: "sqlite3.Cursor") -> None:
-    """Create the mapping tables: jellyfin, view, version.
+    """Create the mapping tables: jellyfin, view, version, boxset_state.
 
-    Byte-identical to the fork's jellyfin.db schema, fork indexes included
-    (plan §2). The fork's jellyfin_parent_id column migration is dropped —
-    kofin has no pre-existing installs.
+    jellyfin/view/version are byte-identical to the fork's jellyfin.db
+    schema, fork indexes included (plan §2). The fork's jellyfin_parent_id
+    column migration is dropped — kofin has no pre-existing installs.
+    boxset_state is a kofin addition (docs/boxsets-robustness-plan.md).
     """
     cursor.execute("""CREATE TABLE IF NOT EXISTS jellyfin(
         jellyfin_id TEXT UNIQUE, media_folder TEXT, jellyfin_type TEXT, media_type TEXT,
@@ -146,6 +147,15 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
     cursor.execute("""CREATE TABLE IF NOT EXISTS view(
         view_id TEXT UNIQUE, view_name TEXT, media_type TEXT)""")
     cursor.execute("CREATE TABLE IF NOT EXISTS version(idVersion TEXT)")
+    # Each set's MyVideos link count measured at its last successful
+    # membership pass. Drift detection compares against it, so a set heals
+    # even when its server Etag never moves (a member removed and re-added
+    # comes back as a fresh movie row with no idSet and no Etag movement).
+    # No timestamps: the L2 suite diffs whole database dumps byte-for-byte.
+    # Absent rows read as "unknown" and force one relink per set — the
+    # upgrade migration.
+    cursor.execute("""CREATE TABLE IF NOT EXISTS boxset_state(
+        jellyfin_id TEXT PRIMARY KEY, linked_count INTEGER NOT NULL)""")
 
     cursor.execute("""CREATE INDEX IF NOT EXISTS idx_jellyfin_kodi
         ON jellyfin(kodi_id, media_type)""")

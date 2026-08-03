@@ -23,7 +23,29 @@ from kofin.sync.kodidb import queries as QU
 
 LOG = Logger(__name__)
 
+# Outcome codes boxset() reports back to the walk's summary line
+# (full_sync.boxsets). Strings, not an enum: they are logged as-is.
+BOXSET_UNCHANGED = "unchanged"
+BOXSET_WRITTEN = "written"
+BOXSET_HEALED = "healed"
+BOXSET_GUARDED = "guarded"
+
 ##################################################################################################
+
+
+def server_children(item):
+    """The DTO's own claim about a set's child count.
+
+    ``ChildCount`` when the fetch asked for it (the boxsets walk does), else
+    ``RecursiveItemCount`` — already in ``info()``, but it recurses into a
+    series' seasons and episodes, so it is only a non-empty signal — else
+    None for unknown. Direct children of any type count (a mixed set of
+    series reads > 0 with zero movie members), which is why the callers only
+    ever compare against zero.
+    """
+    count = item.get("ChildCount")
+
+    return item.get("RecursiveItemCount") if count is None else count
 
 
 class Movies(KodiDb):
@@ -414,27 +436,99 @@ class Movies(KodiDb):
 
         Process movies inside boxset.
         Process removals from boxset.
+
+        Deliberate deviations from the fork (docs/boxsets-robustness-plan.md):
+        membership can drift while the set's Etag stands still (a member
+        removed and re-added arrives as a fresh movie row with no idSet), so
+        an Etag match alone no longer skips the pass — it must also pass
+        boxset_healthy. A suspicious empty membership answer never
+        mass-unlinks, and a pass that ends with zero members leaves the
+        reference checksum unstamped so the set is re-verified every walk.
+
+        Returns one of the BOXSET_* outcome codes for the walk's summary.
         """
         server_address = self.server.server
         API = api.API(item, server_address)
         obj = self.objects.map(item, "Boxset")
 
+        force_relink = False
+
         if check_unchanged(
             self, obj, item, e_item, e_item is not None, apply_userdata=False
         ):
-            return
+            if self.boxset_healthy(obj, item, e_item):
+                return BOXSET_UNCHANGED
+
+            force_relink = True
+            LOG.info("healing boxset [%s] %s", obj["Id"], obj["Title"])
 
         obj["Overview"] = API.get_overview(obj["Overview"])
+        obj["SetId"] = e_item[0] if e_item else None
 
-        try:
-            obj["SetId"] = e_item[0]
-            self.update_boxset(*values(obj, QU.update_set_obj))
-        except TypeError:
+        if obj["SetId"] is not None and self.get_boxset(obj["SetId"]) is None:
+            # The fork keyed update-vs-add on the reference row alone; a sets
+            # row deleted underneath it (Kodi's clean-library drops memberless
+            # sets) took the update leg and UPDATEd nothing, leaving links
+            # pointing at a dead id. Clear those and take the add leg.
+            LOG.info("SetId %s missing from kodi. repairing the entry.", obj["SetId"])
+
+            for movie in self.jellyfin_db.get_item_id_by_parent_id(
+                obj["SetId"], "movie"
+            ):
+                temp_obj = dict(obj)
+                temp_obj["Movie"] = movie[0]
+                temp_obj["MovieId"] = movie[1]
+                self.remove_from_boxset(*values(temp_obj, QU.delete_movie_set_obj))
+                self.jellyfin_db.update_parent_id(
+                    *values(temp_obj, QUEM.delete_parent_boxset_obj)
+                )
+
+            obj["SetId"] = None
+            force_relink = True
+
+        if obj["SetId"] is None:
             LOG.debug("SetId %s not found", obj["Id"])
             obj["SetId"] = self.add_boxset(*values(obj, QU.add_set_obj))
+        else:
+            self.update_boxset(*values(obj, QU.update_set_obj))
 
-        self.boxset_current(obj)
+        fetched = self.boxset_current(obj, force_relink)
         obj["Artwork"] = API.get_all_artwork(self.objects.map(item, "Artwork"))
+        children = server_children(item)
+
+        if obj["Current"] and not fetched and children != 0:
+            # 200-with-zero-items while the server says the set has children
+            # (or will not say): permission and filter edges look exactly
+            # like this, and unlinking on it is how a whole library's sets go
+            # empty in one pass. Keep the links and the old checksum — a
+            # changed Etag retries on the next walk — and warn once per set.
+            LOG.warning(
+                "boxset [%s] %s: server returned 0 members but reports %s "
+                "children; keeping %s local link(s). A permissions or filter "
+                "change can cause this; Refresh boxsets forces a relink.",
+                obj["Id"],
+                obj["Title"],
+                "unknown" if children is None else children,
+                len(obj["Current"]),
+            )
+            self.artwork.add(obj["Artwork"], obj["SetId"], "set")
+
+            return BOXSET_GUARDED
+
+        if obj["Current"] and not fetched:
+            LOG.info(
+                "boxset [%s] %s emptied server-side; unlinking %s member(s)",
+                obj["Id"],
+                obj["Title"],
+                len(obj["Current"]),
+            )
+        elif obj["Current"]:
+            LOG.info(
+                "unlinking %s member(s) no longer in boxset [%s] %s",
+                len(obj["Current"]),
+                obj["Id"],
+                obj["Title"],
+            )
 
         for movie in obj["Current"]:
 
@@ -453,11 +547,57 @@ class Movies(KodiDb):
             )
 
         self.artwork.add(obj["Artwork"], obj["SetId"], "set")
+
+        linked = self.get_boxset_movie_count(obj["SetId"])
+        self.jellyfin_db.add_boxset_state(obj["Id"], linked)
+
+        if not linked:
+            # A memberless pass never stamps its checksum: the reference row
+            # is still written (mapping and removal dispatch need it) but
+            # with a NULL checksum, so every walk re-verifies membership and
+            # the set springs back the moment the server shows members again
+            # (a permission flap restoring) without any Etag movement.
+            obj["Checksum"] = None
+
         self.jellyfin_db.add_reference(*values(obj, QUEM.add_reference_boxset_obj))
         LOG.debug("UPDATE boxset [%s] %s", obj["SetId"], obj["Title"])
 
-    def boxset_current(self, obj):
-        """Add or removes movies based on the current movies found in the boxset."""
+        return BOXSET_HEALED if force_relink else BOXSET_WRITTEN
+
+    def boxset_healthy(self, obj, item, e_item):
+        """Whether an Etag-matched set may skip the membership pass.
+
+        Local-only checks: the sets row exists, the MyVideos link count
+        equals the count stamped at the last successful pass, and kofin.db's
+        parent rows agree. A missing state row (first pass after upgrade) is
+        unhealthy on purpose — the one-time relink migration. Zero members
+        while the DTO itself reports children is never healthy, Etag or no
+        Etag.
+        """
+        set_id = e_item[0]
+
+        if self.get_boxset(set_id) is None:
+            return False
+
+        linked = self.get_boxset_movie_count(set_id)
+        stored = self.jellyfin_db.get_boxset_state(obj["Id"])
+
+        if stored is None or stored != linked:
+            return False
+
+        if len(self.jellyfin_db.get_item_id_by_parent_id(set_id, "movie")) != linked:
+            return False
+
+        return bool(linked) or not server_children(item)
+
+    def boxset_current(self, obj, force=False):
+        """Add or removes movies based on the current movies found in the boxset.
+
+        Returns how many members the server yielded. ``force`` rewrites every
+        link even when kofin.db already claims it (heal mode: MyVideos can be
+        damaged while the mapping still looks right, and the normal diff
+        would pop the member as current and fix nothing).
+        """
         try:
             current = self.jellyfin_db.get_item_id_by_parent_id(
                 *values(obj, QUEM.get_item_id_by_parent_boxset_obj)
@@ -467,10 +607,13 @@ class Movies(KodiDb):
             movies = {}
 
         obj["Current"] = movies
+        fetched = 0
+        unsynced = 0
 
         for all_movies in server.get_movies_by_boxset(self.server, obj["Id"]):
             for movie in all_movies["Items"]:
 
+                fetched += 1
                 temp_obj = dict(obj)
                 temp_obj["Title"] = movie["Name"]
                 temp_obj["Id"] = movie["Id"]
@@ -480,11 +623,14 @@ class Movies(KodiDb):
                         *values(temp_obj, QUEM.get_item_obj)
                     )[0]
                 except TypeError:
-                    LOG.info("Failed to process %s to boxset.", temp_obj["Title"])
+                    # Routine for members outside the synced libraries;
+                    # counted below instead of shouting per member.
+                    LOG.debug("boxset member %s not synced, skipped", temp_obj["Id"])
+                    unsynced += 1
 
                     continue
 
-                if temp_obj["Id"] not in obj["Current"]:
+                if force or temp_obj["Id"] not in obj["Current"]:
 
                     self.set_boxset(*values(temp_obj, QU.update_movie_set_obj))
                     self.jellyfin_db.update_parent_id(
@@ -497,14 +643,28 @@ class Movies(KodiDb):
                         temp_obj["Title"],
                         temp_obj["Id"],
                     )
-                else:
-                    obj["Current"].pop(temp_obj["Id"])
+
+                obj["Current"].pop(temp_obj["Id"], None)
+
+        if unsynced:
+            LOG.debug(
+                "boxset [%s] %s: %s member(s) not in any synced library",
+                obj["Id"],
+                obj["Title"],
+                unsynced,
+            )
+
+        return fetched
 
     def boxsets_reset(self):
         """Special function to remove all existing boxsets."""
         boxsets = self.jellyfin_db.get_items_by_media("set")
         for boxset in boxsets:
             self.remove(boxset[0])
+
+        # remove() drops each set's own state row; this catches strays whose
+        # reference was already gone (a state row can never outlive a reset).
+        self.jellyfin_db.remove_boxset_states()
 
     @stop
     @jellyfin_item
@@ -582,6 +742,7 @@ class Movies(KodiDb):
                 )
 
             self.delete_boxset(*values(obj, QU.delete_set_obj))
+            self.jellyfin_db.remove_boxset_state(obj["Id"])
 
         self.jellyfin_db.remove_item(*values(obj, QUEM.delete_item_obj))
         LOG.debug(
