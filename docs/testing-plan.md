@@ -145,9 +145,9 @@ Run 2026-08-03 on the `kofin-test` profile (Omega 21.3) against `jelly.konell.xy
 
 Live gates for the refresh rework; run against the `kofin-test` profile with the probe-scan log line (`does not exist - skipping scan`) and `VideoInfoScanner` lines as the counters, kofin's own `widgets moved/unchanged` INFO lines as the gate's self-report.
 
-* **[PENDING] W1 quiet wake**: screensaver wake with a quiet server → zero `UpdateLibrary` builtins (pre-rework baseline, live 2026-08-04: two no-op scans per wake); the catch-up itself still runs and logs.
-* **[PENDING] W2 update command**: per-library update from settings → exactly one probe scan / video scan, at drain time (was two: plan-time + drain).
-* **[PENDING] W3 echo suppression**: pause/unpause or stop of a video whose state Kodi already wrote natively → `widgets unchanged … refresh suppressed` in the log, zero scans; a genuine watched flip on another client → exactly one refresh after the settle.
+* **[PASS] W1 quiet wake** (2026-08-04, stack tip): screensaver wake → `screensaver deactivated; catching up` + `retrieve changes`, **zero** scans (pre-rework baseline the same morning: two no-op scans per wake).
+* **[PASS] W2 update command** (2026-08-04, full-whitelist variant): `UpdateLibrary` command on a clean tree → `Update pass planned in: 0:01:18`, nothing queued, **zero** refreshes (was plan-time + tail = two per command); the per-library-with-changes variant (exactly one drain-time refresh) still owed a run.
+* **[PASS] W3 echo suppression** (2026-08-04): an unfavorite echo ran the full cycle then logged `widgets unchanged: video; refresh suppressed`, zero scans; a genuine watched flip logged `widgets moved: video/userdata` with exactly one scan ~5 s after the drain (the settle), and the flip back likewise.
 * **[PENDING] W4 track change**: music playlist next-track → at most one music refresh (two echoes fold into the settle); same-album next-track → zero (order unchanged).
 * **[PENDING] W5 removal**: removing a music library → albums leave the music widgets without a restart (music probe fired, not video).
 * **[PENDING] W6 first content**: fresh-profile first video sync and first music-only sync → widget sections appear with no manual reload; reload deferred while video plays and fired at stop.
