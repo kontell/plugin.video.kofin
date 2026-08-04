@@ -442,11 +442,14 @@ class Service(xbmc.Monitor):
 
     def onNotification(self, sender: str, method: str, data: str) -> None:
         if sender == "xbmc":
-            if (
-                method == "GUI.OnScreensaverDeactivated"
-                and settings.get_bool("dbSyncScreensaver")
-                and self.library is not None
-            ):
+            if method == "GUI.OnScreensaverDeactivated" and self.library is not None:
+                # Unconditional: the wake catch-up is the only cover for a
+                # websocket that went half-open during long idle (a dead
+                # socket that never reported closing delivers nothing, and
+                # the reconnect catch-up only fires on *detected* drops). An
+                # empty catch-up costs one request. The screensaver itself
+                # never pauses sync — verified live, docs/widget-refresh-plan.md
+                # F9 — so there is nothing to "resume" here, only to re-check.
                 LOG.info("screensaver deactivated; catching up")
                 self.library.enqueue_command("FastSync")
             # Independent of the sync kick above (plan §7): a broken manager

@@ -251,11 +251,6 @@
           <default>false</default>
           <control type="toggle"/>
         </setting>
-        <setting id="dbSyncScreensaver" type="boolean" label="30308" help="30309">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
         <setting id="limitIndex" type="integer" label="30310" help="30311">
           <level>1</level>
           <default>50</default>

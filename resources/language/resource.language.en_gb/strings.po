@@ -781,14 +781,6 @@ msgctxt "#30307"
 msgid "Keep applying library updates while a video is playing."
 msgstr ""
 
-msgctxt "#30308"
-msgid "Allow screensaver during sync"
-msgstr ""
-
-msgctxt "#30309"
-msgid "When disabled, the screensaver is inhibited while a sync runs. A catch-up sync always runs when the screensaver ends."
-msgstr ""
-
 msgctxt "#30310"
 msgid "Items per request"
 msgstr ""

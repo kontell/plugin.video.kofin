@@ -34,11 +34,9 @@ from kofin.sync.shims import (
     LibraryException,
     LibraryExitException,
     LibraryOrphanException,
-    get_screensaver,
     localized,
     notification,
     progress,
-    set_screensaver,
 )
 
 LOG = Logger(__name__)
@@ -157,7 +155,6 @@ class FullSync(object):
     _shared_state: dict = {}
     sync = None
     running = False
-    screensaver = None
     update_library = False
 
     def __init__(self, library, server):
@@ -180,12 +177,10 @@ class FullSync(object):
         """Do everything we need before the sync"""
         LOG.info("-->[ fullsync ]")
 
-        if not settings.get_bool("dbSyncScreensaver"):
-
-            xbmc.executebuiltin("InhibitIdleShutdown(true)")
-            self.screensaver = get_screensaver()
-            set_screensaver(value="")
-
+        # No screensaver/idle-shutdown fiddling any more: the screensaver
+        # never pauses sync (verified live, docs/widget-refresh-plan.md F9),
+        # and an interrupted sync resumes from sync.json, so there is nothing
+        # here worth overwriting a user setting to protect.
         self.running = True
         state.set_sync_active(True)
 
@@ -1099,10 +1094,5 @@ class FullSync(object):
         """Exiting sync"""
         self.running = False
         state.set_sync_active(False)
-
-        if not settings.get_bool("dbSyncScreensaver") and self.screensaver is not None:
-
-            xbmc.executebuiltin("InhibitIdleShutdown(false)")
-            set_screensaver(value=self.screensaver)
 
         LOG.info("--<[ fullsync ]")

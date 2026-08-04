@@ -37,10 +37,8 @@ from kofin.sync import fields as api
 from kofin.sync.shims import (
     LibraryException,
     LibraryExitException,
-    get_screensaver,
     localized,
     notification,
-    set_screensaver,
     split_list,
     stop,
 )
@@ -113,7 +111,6 @@ class Library(threading.Thread):
     stop_thread = False
     suspend = False
     pending_refresh = False
-    screensaver = None
     progress_updates = None
     total_updates = 0
 
@@ -509,12 +506,6 @@ class Library(threading.Thread):
                     message=message,
                 )
 
-            if not settings.get_bool("dbSyncScreensaver") and self.screensaver is None:
-
-                xbmc.executebuiltin("InhibitIdleShutdown(true)")
-                self.screensaver = get_screensaver()
-                set_screensaver(value="")
-
         if (
             self.pending_refresh
             and not self.download_threads
@@ -555,15 +546,6 @@ class Library(threading.Thread):
 
                 self.progress_updates.close()
                 self.progress_updates = None
-
-            if (
-                not settings.get_bool("dbSyncScreensaver")
-                and self.screensaver is not None
-            ):
-
-                xbmc.executebuiltin("InhibitIdleShutdown(false)")
-                set_screensaver(value=self.screensaver)
-                self.screensaver = None
 
             # Refresh whatever this cycle actually wrote. Previously only the
             # video database was refreshed, so newly synced albums never showed
