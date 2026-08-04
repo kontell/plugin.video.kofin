@@ -409,6 +409,79 @@ def test_lifecycle_message_does_not_reach_the_library(toasts):
     service._on_ws_event("ServerRestarting", {})
 
 
+# --- userdata belongs to one user --------------------------------------------
+
+
+CONOR = "215f5fc3f7ff4a5581e8518b28203a4f"
+COWATCHER = "c4bbf728450842f983f637ac870b1de6"
+
+
+class RecordingLibrary:
+    startup_done = True
+
+    def __init__(self):
+        self.applied = []
+
+    def userdata(self, data):
+        self.applied.append(data)
+
+
+def _userdata_service(user_id=CONOR):
+    FakeAddon.store["userId"] = user_id
+    FakeAddon.store["notifyConnection"] = "false"
+    service = Service()
+    service.library = RecordingLibrary()
+    return service
+
+
+def _message(user_id, item_id="11e6dabd26a8241c9e355306a5aa52bb"):
+    return {
+        "UserId": user_id,
+        "UserDataList": [{"ItemId": item_id, "Played": True, "PlayCount": 1}],
+    }
+
+
+def test_our_own_userdata_is_applied():
+    service = _userdata_service()
+
+    service._on_ws_event("UserDataChanged", _message(CONOR))
+
+    assert service.library.applied == [_message(CONOR)["UserDataList"]]
+
+
+def test_a_co_watchers_userdata_is_not_applied():
+    """Who's watching? attaches a co-watcher to this device's session, and
+    Jellyfin then sends this client every userdata change of theirs — from
+    their phone, a browser, another Kodi box. Live regression: the local box
+    (kofin-test) played Fallen Angels, and the Bravia, logged in as conor with
+    kofin-test attached, wrote a 3084 s resume point and that lastplayed into
+    conor's library. Conor's userdata on the server never moved."""
+    service = _userdata_service(CONOR)
+
+    service._on_ws_event("UserDataChanged", _message(COWATCHER))
+
+    assert service.library.applied == []
+
+
+def test_userdata_ownership_ignores_guid_formatting():
+    """The same id arrives dashed or dashless depending on the endpoint."""
+    service = _userdata_service("215F5FC3-F7FF-4A55-81E8-518B28203A4F")
+
+    service._on_ws_event("UserDataChanged", _message(CONOR))
+
+    assert len(service.library.applied) == 1
+
+
+def test_userdata_without_a_subject_is_still_applied():
+    """The field is Jellyfin's to send; dropping messages that lack it would
+    silently stop userdata sync against a server that omits it."""
+    service = _userdata_service()
+
+    service._on_ws_event("UserDataChanged", {"UserDataList": [{"ItemId": "x"}]})
+
+    assert service.library.applied == [[{"ItemId": "x"}]]
+
+
 # --- reconnect catch-up ------------------------------------------------------
 
 

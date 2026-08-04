@@ -432,6 +432,10 @@ class Service(xbmc.Monitor):
                 library.removed(data.get("ItemsRemoved") or [])
                 return
             if message_type == "UserDataChanged":
+                if not own_userdata(data, self.api.user_id):
+                    # A co-watcher's own viewing, not ours. See own_userdata.
+                    LOG.debug("[ UserDataChanged ] ignored: another user's")
+                    return
                 LOG.info("[ UserDataChanged ] %s", log.mask(str(data)))
                 library.userdata(data.get("UserDataList") or [])
                 return
@@ -530,6 +534,37 @@ class Service(xbmc.Monitor):
             self.ws = None
         self.http.close()
         state.clear_all()
+
+
+def _guid(value: Any) -> str:
+    """Jellyfin ids compare dashless and case-insensitively."""
+    return str(value or "").replace("-", "").lower()
+
+
+def own_userdata(data: Dict[str, Any], user_id: str) -> bool:
+    """Whether a UserDataChanged payload is about the user this client mirrors.
+
+    The message names its subject, and on a device running "Who's watching?"
+    that is regularly somebody else. Jellyfin delivers UserDataChanged to
+    every session that *contains* the subject user, and a session contains
+    its additional users as well as its owner (``SessionInfo.ContainsUser``),
+    so attaching a co-watcher subscribes this device to everything they watch
+    **anywhere** — their phone, a browser, another Kodi box. Applied
+    unfiltered, that wrote a stranger's watched flag and resume point into
+    this Kodi's library, while the server-side userdata of the logged-in user
+    stayed correct: a purely local corruption, and a durable one, since the
+    server has no reason to ever send our real value for that item again.
+
+    Who's watching? is meant to work one way — playing *here* credits the
+    co-watchers, which the server does on its own from the session. Nothing
+    they do elsewhere belongs in this library.
+
+    An unstated subject is treated as ours: the field is Jellyfin's to send,
+    and dropping messages without it would silently stop userdata sync
+    against any server that omits it.
+    """
+    subject = _guid(data.get("UserId"))
+    return not subject or subject == _guid(user_id)
 
 
 def _decode_kodi_data(data: str) -> Dict[str, Any]:
