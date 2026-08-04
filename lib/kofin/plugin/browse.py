@@ -18,6 +18,13 @@ LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
 
+# The addon fanart asset, used as the backdrop behind structural listings.
+# Named rather than imported from service/backdrop.py (which owns the file and
+# rewrites it): the plugin process has no business importing service code for
+# a filename. Keep the two in step — this is the same asset addon.xml declares,
+# so whatever the backdrop setting has put there is what listings show.
+BACKDROP_IMAGE = "fanart.png"
+
 BROWSE_FIELDS = (
     "Overview,Genres,Studios,Taglines,PremiereDate,ProductionYear,"
     "OfficialRating,CommunityRating,RunTimeTicks,DateCreated,MediaStreams,"
@@ -123,8 +130,52 @@ def structural_art(icon: str) -> Dict[str, str]:
 
     Server artwork never comes through here. These rows stand for a query, not
     for a thing that has a poster.
+
+    The addon backdrop comes from :func:`with_backdrop`, not from here: a
+    structural row is only one of the kinds of row that has no fanart of its
+    own.
     """
-    return {"icon": icon, "thumb": icon}
+    return with_backdrop({"icon": icon, "thumb": icon})
+
+
+def with_backdrop(art: Dict[str, str]) -> Dict[str, str]:
+    """Fill in the addon backdrop for an item that has no fanart of its own.
+
+    A fallback, not a decoration — it only ever fills an empty slot, so an
+    item with real server artwork keeps it.
+
+    Two kinds of row need this, which is why it is not folded into
+    :func:`structural_art`. Structural rows stand for a query and have no art
+    at all. Library rows *look* like they should be covered — they carry a
+    Primary image, which is what the skin's side panel shows — but a Jellyfin
+    UserView has no ``BackdropImageTags``, so ``art_for`` never sets fanart
+    for one and the background stayed empty on exactly the rows the addon
+    root is mostly made of.
+
+    It goes on the *item* because that is the only mechanism that works:
+    ``setPluginFanart`` and ``setProperty(handle, "fanart_image")`` were both
+    measured live on Kodi 21 and left ``Container.Art(fanart)`` empty with
+    nothing drawn. Being per-item, the backdrop tracks focus, and Kodi's
+    synthesised ".." row carries no art and takes none, so the background
+    still blanks while the parent row is focused. Fixing that needs a
+    skin-side fallback; there is no addon-side hook for it.
+    """
+    if not art.get("fanart"):
+        backdrop = _addon_media(BACKDROP_IMAGE)
+        if backdrop:
+            art["fanart"] = backdrop
+    return art
+
+
+def apply_backdrop(li: xbmcgui.ListItem) -> None:
+    """:func:`with_backdrop` for a row whose art is already on the ListItem.
+
+    Media rows usually carry a server backdrop and keep it; this is for the
+    ones that do not (a movie with no Backdrop image, a genre), so that no
+    row in a kofin listing leaves the background empty.
+    """
+    if not li.getArt("fanart"):
+        li.setArt(with_backdrop({}))
 
 
 def _collection_type(view: JsonDict) -> str:
@@ -308,7 +359,7 @@ def root(request: Request) -> None:
             art["thumb"] = icon
             if primary:
                 art["poster"] = primary
-            li.setArt(art)
+            li.setArt(with_backdrop(art))
             params = {"mode": "browse", "view": view.get("Id", ""), "type": collection}
             if collection not in NODES:
                 params["folder"] = "children"
@@ -500,6 +551,7 @@ def _extras_node(request: Request, api: Api, view_id: str) -> None:
     entries = []
     for item in result.get("Items", []):
         li = listitems.build(item, api.server)
+        apply_backdrop(li)
         path = listitems.plugin_url({"mode": "extras", "id": item.get("Id", "")})
         entries.append((path, li, True))
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
@@ -609,6 +661,7 @@ def _add_items(
     entries = []
     for item in items:
         li = listitems.build(item, api.server)
+        apply_backdrop(li)
         item_type = item.get("Type", "")
 
         if item_type in ("Genre", "MusicGenre"):
