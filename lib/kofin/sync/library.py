@@ -112,6 +112,16 @@ CONTENT_FLAG_POLL_SECONDS = 0.25
 # every line: the fork's shorter music toast existed because music notified
 # per song and a synced album fired a dozen of them, which aggregation ends.
 NEW_CONTENT_TIME = 5000
+# Drain-completion refreshes wait out this settle, so the mini-cycles one
+# user action fans out into (a music track change is two userdata echoes,
+# stop-of-A and start-of-B, seconds apart) fold into a single refresh
+# instead of re-rendering every widget per echo (widget-refresh-plan F3/D3).
+# Two service ticks: long enough to catch the trailing echo, short enough
+# that a lone change is visible almost as fast as before.
+REFRESH_SETTLE_SECONDS = 4
+# ...but never wait longer than this from the first deferred cycle: a steady
+# event stream re-arms the settle forever, and bounded staleness beats none.
+REFRESH_MAX_HOLD_SECONDS = 15
 
 # Companion tiers come from the change-feed ladder (phase 5, plan §2); the
 # aliases keep the phase-2 names working.
@@ -217,6 +227,11 @@ class Library(threading.Thread):
         # straight to its SQLite files, so widgets only refresh when we say so.
         self.added_databases = set()
         self.touched_databases = set()
+        # Databases whose drain-completion refresh is waiting out the settle,
+        # and the two clocks that release it (see _arm_refresh_settle).
+        self.refresh_pending = set()
+        self.refresh_due_at = None
+        self.refresh_hold_until = None
 
         threading.Thread.__init__(self, name="kofin-library")
 
@@ -500,8 +515,10 @@ class Library(threading.Thread):
         # syncDuringPlay on is held while video plays, and this is the tick
         # that raises it once playback ends.
         self.notify_new_content()
-        # Same shape: a first-content reload held during playback fires here.
+        # Same shape: a first-content reload held during playback fires here,
+        # and so does a drain refresh whose settle has run out.
         self.flush_pending_reload()
+        self.flush_refresh_settle()
 
         if self.pending_refresh:
             state.set_sync_active(True)
@@ -576,10 +593,12 @@ class Library(threading.Thread):
                 self.progress_updates.close()
                 self.progress_updates = None
 
-            # Refresh whatever this cycle actually wrote. Previously only the
-            # video database was refreshed, so newly synced albums never showed
-            # up in the music widgets until something else triggered a scan.
-            self.refresh_libraries(self.touched_databases)
+            # Refresh whatever this cycle actually wrote — deferred behind the
+            # settle so back-to-back mini-cycles cost one refresh. (Previously
+            # only the video database was refreshed, so newly synced albums
+            # never showed up in the music widgets until something else
+            # triggered a scan.)
+            self._arm_refresh_settle(self.touched_databases)
             self.touched_databases = set()
             self.added_databases = set()
 
@@ -918,6 +937,17 @@ class Library(threading.Thread):
         if not databases:
             return
 
+        # Whatever is being refreshed right now no longer owes a deferred
+        # refresh: the immediate paths (refresh_added, command-owned
+        # refreshes) settle the debt for their databases as they fire. The
+        # clocks clear with the last debt, or a stale hold cap would leak
+        # into the next deferral sequence.
+        self.refresh_pending -= set(databases)
+
+        if not self.refresh_pending:
+            self.refresh_due_at = None
+            self.refresh_hold_until = None
+
         if "video" in databases:
             # Catch the empty -> non-empty transition before the scan clears
             # Kodi's cache, because the scan alone is not enough: see
@@ -944,6 +974,50 @@ class Library(threading.Thread):
 
         if xbmc.getCondVisibility("Window.IsMedia"):
             xbmc.executebuiltin("Container.Refresh")
+
+    def _arm_refresh_settle(self, databases):
+        """Defer a drain-completion refresh behind the settle window.
+
+        Each drain pushes the due clock out by REFRESH_SETTLE_SECONDS; the
+        hold clock is stamped once, by the first deferred drain, and caps how
+        long re-arming can postpone the refresh.
+        """
+        if not databases:
+            return
+
+        now = datetime.now()
+        self.refresh_pending |= set(databases)
+        self.refresh_due_at = now + timedelta(seconds=REFRESH_SETTLE_SECONDS)
+
+        if self.refresh_hold_until is None:
+            self.refresh_hold_until = now + timedelta(seconds=REFRESH_MAX_HOLD_SECONDS)
+
+    def flush_refresh_settle(self):
+        """Fire the deferred drain refresh once it has settled.
+
+        Runs on the service tick. Waits for quiet — never before the settle
+        is out, and an active cycle holds it (that cycle's completion folds
+        its own databases in and re-arms) — but never past the hold cap, so
+        a steady stream of server events cannot postpone visibility
+        indefinitely.
+        """
+        if not self.refresh_pending:
+            return
+
+        now = datetime.now()
+        capped = self.refresh_hold_until is not None and now >= self.refresh_hold_until
+
+        if not capped:
+            if self.refresh_due_at is not None and now < self.refresh_due_at:
+                return
+
+            if self.pending_refresh:
+                return
+
+        databases, self.refresh_pending = self.refresh_pending, set()
+        self.refresh_due_at = None
+        self.refresh_hold_until = None
+        self.refresh_libraries(databases)
 
     def _reload_skin_for_content(self, conditions):
         """Rebuild the skin for the empty -> populated transition, once the

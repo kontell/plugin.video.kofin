@@ -522,6 +522,74 @@ def test_no_music_probe_for_unsynced_music(monkeypatch, tmp_path):
     assert calls == ["UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE]
 
 
+def test_drain_refresh_waits_out_the_settle(builtins):
+    """Two mini-cycles seconds apart — a track change's pair of userdata
+    echoes — produce one refresh, not two (widget-refresh-plan F3/D3)."""
+    manager, _api = make_library()
+
+    manager._arm_refresh_settle({"video"})
+    manager.flush_refresh_settle()  # inside the settle: nothing fires
+    assert builtins == []
+
+    manager._arm_refresh_settle({"music"})  # the second echo folds in
+
+    manager.refresh_due_at = datetime.now() - timedelta(seconds=1)
+    manager.flush_refresh_settle()
+
+    assert builtins == [
+        "UpdateLibrary(video)",
+        "UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE,
+    ]
+    assert manager.refresh_pending == set()
+    assert manager.refresh_hold_until is None
+
+
+def test_settle_holds_while_a_cycle_is_draining(builtins):
+    """An active cycle keeps the deferred refresh back: its completion folds
+    its own databases in and re-arms, so the eventual refresh covers both."""
+    manager, _api = make_library()
+    manager._arm_refresh_settle({"video"})
+    manager.refresh_due_at = datetime.now() - timedelta(seconds=1)
+    manager.pending_refresh = True
+
+    manager.flush_refresh_settle()
+
+    assert builtins == []
+    assert manager.refresh_pending == {"video"}
+
+
+def test_settle_cap_bounds_the_wait(builtins):
+    """A steady event stream re-arms the settle forever; the hold cap fires
+    the refresh anyway, mid-drain or not, so staleness stays bounded."""
+    manager, _api = make_library()
+    manager._arm_refresh_settle({"video"})
+    manager.pending_refresh = True
+    manager.refresh_due_at = datetime.now() + timedelta(seconds=60)
+    manager.refresh_hold_until = datetime.now() - timedelta(seconds=1)
+
+    manager.flush_refresh_settle()
+
+    assert builtins == ["UpdateLibrary(video)"]
+
+
+def test_immediate_refresh_settles_the_deferred_debt(builtins):
+    """refresh_added and command-owned refreshes fire immediately; the
+    databases they cover leave the deferred set (and the clocks clear with
+    the last of them) so the settle cannot double-refresh them."""
+    manager, _api = make_library()
+    manager._arm_refresh_settle({"video"})
+
+    manager.refresh_libraries({"video"})
+
+    assert builtins == ["UpdateLibrary(video)"]
+    assert manager.refresh_pending == set()
+    assert manager.refresh_hold_until is None
+
+    manager.refresh_due_at = datetime.now() - timedelta(seconds=1)
+    manager.flush_refresh_settle()
+    assert builtins == ["UpdateLibrary(video)"]  # no second refresh
+
+
 def test_status_strings_write_only_on_change(monkeypatch):
     """Every settings write rewrites settings.xml and fires onSettingsChanged;
     the old per-command rewrites raced the applier's re-read into transient
