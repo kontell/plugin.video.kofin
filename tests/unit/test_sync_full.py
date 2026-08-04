@@ -152,6 +152,22 @@ def test_full_sync_still_announces_completion(fullsync, monkeypatch):
     assert "30409" in toasts[0]
 
 
+def test_update_mode_plans_without_refreshing(fullsync, monkeypatch):
+    """Update mode hands every write to the incremental pipeline, so the
+    refresh belongs to the drain that lands it: refreshing at plan time
+    re-rendered every widget for rows that had not changed yet
+    (widget-refresh-plan F2/D4)."""
+    run_start(fullsync, monkeypatch, update=True)
+
+    assert fullsync.library.refreshed == []
+
+
+def test_full_sync_refreshes_what_it_wrote(fullsync, monkeypatch):
+    run_start(fullsync, monkeypatch, update=False)
+
+    assert fullsync.library.refreshed == [{"music"}]
+
+
 def test_resumed_queue_is_deduplicated(fullsync, monkeypatch):
     monkeypatch.setattr(
         "kofin.sync.full_sync.get_sync",

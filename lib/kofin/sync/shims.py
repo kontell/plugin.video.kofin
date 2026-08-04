@@ -262,21 +262,3 @@ def get_grouped_set():
         {"setting": "videolibrary.groupmoviesets"}
     )
     return result.get("result", {}).get("value", False)
-
-
-def get_screensaver():
-    """Get the current screensaver value."""
-    result = JSONRPC("Settings.GetSettingValue").execute(
-        {"setting": "screensaver.mode"}
-    )
-    try:
-        return result["result"]["value"]
-    except KeyError:
-        return ""
-
-
-def set_screensaver(value):
-    """Toggle the screensaver"""
-    params = {"setting": "screensaver.mode", "value": value}
-    result = JSONRPC("Settings.SetSettingValue").execute(params)
-    LOG.info("---[ screensaver/%s ] %s", value, result)

@@ -32,15 +32,14 @@ from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import schema
 from kofin.sync.full_sync import FullSync, PRUNE_SERVER_TYPES, local_reference_map
 from kofin.sync.views import Views
+from kofin.sync import widgetstate
 from kofin.sync.downloader import GetItemWorker, basic_info, get_prune_count
 from kofin.sync import fields as api
 from kofin.sync.shims import (
     LibraryException,
     LibraryExitException,
-    get_screensaver,
     localized,
     notification,
-    set_screensaver,
     split_list,
     stop,
 )
@@ -95,10 +94,35 @@ PLAYLIST_POLL_SECONDS = 900
 # event without a real walk (see Library._refresh_music). Must never be
 # created — if it existed the scan would descend into it.
 MUSIC_REFRESH_PROBE = "special://temp/kofin-music-refresh-probe/"
+# The Library.HasContent flags each database's first-content reload waits on
+# (see _reload_skin_for_content). Per database because a music-only first
+# sync flips only the music bool.
+VIDEO_CONTENT_FLAGS = (
+    "Library.HasContent(Movies)",
+    "Library.HasContent(TVShows)",
+    "Library.HasContent(MusicVideos)",
+)
+MUSIC_CONTENT_FLAGS = ("Library.HasContent(Music)",)
+# How long the first-content reload waits for the scan cycle to flip
+# Library.HasContent before reloading anyway. The old fixed 2 s wait was a
+# guess: a slow box rebuilt the skin against still-false bools, and the
+# hidden-content checks are self-disarming, so the race could never retry.
+CONTENT_FLAG_TIMEOUT_SECONDS = 10.0
+CONTENT_FLAG_POLL_SECONDS = 0.25
 # New-content toast display time (ms), the fork's video default. One time for
 # every line: the fork's shorter music toast existed because music notified
 # per song and a synced album fired a dozen of them, which aggregation ends.
 NEW_CONTENT_TIME = 5000
+# Drain-completion refreshes wait out this settle, so the mini-cycles one
+# user action fans out into (a music track change is two userdata echoes,
+# stop-of-A and start-of-B, seconds apart) fold into a single refresh
+# instead of re-rendering every widget per echo (widget-refresh-plan F3/D3).
+# Two service ticks: long enough to catch the trailing echo, short enough
+# that a lone change is visible almost as fast as before.
+REFRESH_SETTLE_SECONDS = 4
+# ...but never wait longer than this from the first deferred cycle: a steady
+# event stream re-arms the settle forever, and bounded staleness beats none.
+REFRESH_MAX_HOLD_SECONDS = 15
 
 # Companion tiers come from the change-feed ladder (phase 5, plan §2); the
 # aliases keep the phase-2 names working.
@@ -113,7 +137,9 @@ class Library(threading.Thread):
     stop_thread = False
     suspend = False
     pending_refresh = False
-    screensaver = None
+    # A first-content skin reload held back because video was playing; fired
+    # by the service tick once playback ends (see _reload_skin_for_content).
+    pending_skin_reload = False
     progress_updates = None
     total_updates = 0
 
@@ -202,6 +228,16 @@ class Library(threading.Thread):
         # straight to its SQLite files, so widgets only refresh when we say so.
         self.added_databases = set()
         self.touched_databases = set()
+        # Databases whose drain-completion refresh is waiting out the settle,
+        # and the two clocks that release it (see _arm_refresh_settle).
+        self.refresh_pending = set()
+        self.refresh_due_at = None
+        self.refresh_hold_until = None
+        # Last-refresh widget fingerprints per database (the D2 gate's
+        # memory). Instance state on purpose: a service restart forgets, and
+        # an unknown fingerprint refreshes once — pvr.kofin's first-poll
+        # rule, never a missed refresh.
+        self.widget_fingerprints = {}
 
         threading.Thread.__init__(self, name="kofin-library")
 
@@ -260,8 +296,6 @@ class Library(threading.Thread):
         else:
             status = localized(30412)
 
-        settings.set_str("syncStatus", status)
-
         names = []
         with Database("kofin") as kofin_db:
             db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
@@ -269,7 +303,18 @@ class Library(threading.Thread):
                 view = db.get_view(library_id.replace("Mixed:", ""))
                 if view:
                     names.append(view.view_name)
-        settings.set_str("syncedLibraries", ", ".join(names))
+
+        # Write-on-change: every set rewrites the whole settings.xml and fires
+        # onSettingsChanged, and this runs per processed command — the
+        # unconditional writes raced the applier's re-read into transient
+        # "failed to load addon settings" (widget-refresh-plan F9).
+        if settings.get_str("syncStatus") != status:
+            settings.set_str("syncStatus", status)
+
+        joined = ", ".join(names)
+
+        if settings.get_str("syncedLibraries") != joined:
+            settings.set_str("syncedLibraries", joined)
 
     def detect_companion(self):
         """The tier ladder (plan §2): KofinSyncQueue → official KodiSyncQueue
@@ -476,6 +521,10 @@ class Library(threading.Thread):
         # syncDuringPlay on is held while video plays, and this is the tick
         # that raises it once playback ends.
         self.notify_new_content()
+        # Same shape: a first-content reload held during playback fires here,
+        # and so does a drain refresh whose settle has run out.
+        self.flush_pending_reload()
+        self.flush_refresh_settle()
 
         if self.pending_refresh:
             state.set_sync_active(True)
@@ -508,12 +557,6 @@ class Library(threading.Thread):
                     self.progress_percent(),
                     message=message,
                 )
-
-            if not settings.get_bool("dbSyncScreensaver") and self.screensaver is None:
-
-                xbmc.executebuiltin("InhibitIdleShutdown(true)")
-                self.screensaver = get_screensaver()
-                set_screensaver(value="")
 
         if (
             self.pending_refresh
@@ -556,19 +599,12 @@ class Library(threading.Thread):
                 self.progress_updates.close()
                 self.progress_updates = None
 
-            if (
-                not settings.get_bool("dbSyncScreensaver")
-                and self.screensaver is not None
-            ):
-
-                xbmc.executebuiltin("InhibitIdleShutdown(false)")
-                set_screensaver(value=self.screensaver)
-                self.screensaver = None
-
-            # Refresh whatever this cycle actually wrote. Previously only the
-            # video database was refreshed, so newly synced albums never showed
-            # up in the music widgets until something else triggered a scan.
-            self.refresh_libraries(self.touched_databases)
+            # Refresh whatever this cycle actually wrote — deferred behind the
+            # settle so back-to-back mini-cycles cost one refresh. (Previously
+            # only the video database was refreshed, so newly synced albums
+            # never showed up in the music widgets until something else
+            # triggered a scan.)
+            self._arm_refresh_settle(self.touched_databases)
             self.touched_databases = set()
             self.added_databases = set()
 
@@ -588,9 +624,25 @@ class Library(threading.Thread):
                         self.add_library(data["Id"], data.get("Update", False))
                 elif command == "RemoveLibrary":
                     if data.get("Id"):
+                        kinds = set()
+
                         for lib in data["Id"].split(","):
+                            # Before the removal deletes the view row.
+                            kind = self._removal_kind(lib)
+
                             if not self.remove_library(lib):
                                 break
+
+                            if kind:
+                                kinds.add(kind)
+
+                        # Removal is the one write path with no other refresh
+                        # owner, and it must aim at the removed library's own
+                        # database — the old blanket refresh aimed at video,
+                        # so a removed music library lingered in the music
+                        # widgets indefinitely (widget-refresh-plan F5).
+                        if kinds:
+                            self.refresh_libraries(kinds)
                 elif command == "RepairLibrary":
                     if data.get("Id"):
                         libraries = data["Id"].split(",")
@@ -638,11 +690,28 @@ class Library(threading.Thread):
                 LOG.exception(error)
 
             self.update_status_strings()
-            # Widget refresh policy (fork e4f8dc3f): refresh only when a
-            # media window is up, never UpdateLibrary().
-            self.refresh_libraries(self.touched_databases or {"video"})
+            # No blanket refresh here: every path that writes owns its own
+            # refresh — FullSync at its end, removals above, queued work at
+            # the drain. The old tail refresh fired UpdateLibrary(video)
+            # after *every* command (a no-op FastSync on each screensaver
+            # wake included) and aimed at the wrong database for music-only
+            # commands (widget-refresh-plan F1/D4).
 
             self.commands.task_done()
+
+    def _removal_kind(self, library_id):
+        """Which Kodi database ("video"/"music") removing this library writes,
+        from the still-present view row; None when the view is unknown (the
+        removal will no-op). Mixed libraries are video by definition."""
+        with Database("kofin") as kofin_db:
+            view = jellyfin_db.JellyfinDatabase(kofin_db.cursor).get_view(
+                library_id.replace("Mixed:", "")
+            )
+
+        if view is None:
+            return None
+
+        return "music" if view.media_type == "music" else "video"
 
     def stop_client(self):
         self.stop_thread = True
@@ -874,7 +943,33 @@ class Library(threading.Thread):
         if not databases:
             return
 
-        if "video" in databases:
+        # Whatever is being refreshed right now no longer owes a deferred
+        # refresh: the immediate paths (refresh_added, command-owned
+        # refreshes) settle the debt for their databases as they fire. The
+        # clocks clear with the last debt, or a stale hold cap would leak
+        # into the next deferral sequence.
+        self.refresh_pending -= set(databases)
+
+        if not self.refresh_pending:
+            self.refresh_due_at = None
+            self.refresh_hold_until = None
+
+        # The fingerprint gate (widget-refresh-plan D2): every builtin below
+        # makes Kodi re-fetch and re-render widgets with no same-content
+        # check of its own, so a candidate database only proceeds when what
+        # widgets render actually moved. The echo of our own playback
+        # reporting — identical userdata written back moments after Kodi's
+        # native write — is the class this suppresses.
+        moved = self._moved_databases(set(databases))
+
+        if not moved:
+            LOG.info(
+                "--[ widgets unchanged: %s; refresh suppressed ]",
+                "+".join(sorted(databases)),
+            )
+            return
+
+        if "video" in moved:
             # Catch the empty -> non-empty transition before the scan clears
             # Kodi's cache, because the scan alone is not enough: see
             # _video_content_hidden().
@@ -883,17 +978,198 @@ class Library(threading.Thread):
             xbmc.executebuiltin("UpdateLibrary(video)")
 
             if rebuild_home:
-                # Let the (no-op) scan finish so Library.HasContent is true
-                # again before the skin rebuilds its windows against it.
-                self.monitor.waitForAbort(2)
-                LOG.info("first video content synced; reloading skin for home widgets")
-                xbmc.executebuiltin("ReloadSkin()")
+                self._reload_skin_for_content(VIDEO_CONTENT_FLAGS)
 
-        if "music" in databases:
+        if "music" in moved:
+            # Checked before the probe scan flips the cached bool: the music
+            # widget sections have the same empty->populated blindness as the
+            # video ones (baked include conditions plus providers that go
+            # deaf when their last fetch was empty), and nothing else can
+            # reveal a *first* music sync (widget-refresh-plan F6).
+            rebuild_home = self._music_content_hidden()
+
             self._refresh_music()
 
-        if xbmc.getCondVisibility("Window.IsMedia"):
+            if rebuild_home:
+                self._reload_skin_for_content(MUSIC_CONTENT_FLAGS)
+
+        # Scoped to the window's own content family (widget-refresh-plan D6):
+        # a music-only cycle must not re-fetch the movie listing the user is
+        # browsing. Unknown path families refresh as before.
+        if xbmc.getCondVisibility("Window.IsMedia") and (
+            widgetstate.container_wants_refresh(
+                xbmc.getInfoLabel("Container.FolderPath"), moved
+            )
+        ):
             xbmc.executebuiltin("Container.Refresh")
+
+    def _moved_databases(self, databases):
+        """The candidate databases whose widget fingerprint moved since the
+        last refresh; unknown fingerprints count as moved (pvr.kofin's
+        first-poll rule — a service restart refreshes once).
+
+        Computed only here, at refresh decision time, for the candidates only
+        ("only hashed when needed"): behind the settle that is at most one
+        fingerprint pass per user action. No process lock is taken — the
+        connections run WAL, so the read never blocks a mid-drain writer and
+        must not block the service tick; a mid-drain snapshot at worst costs
+        one extra refresh when that drain completes and re-arms.
+
+        An unreadable fingerprint refreshes: firing for nothing is
+        recoverable, suppressing a real change is not.
+        """
+        moved = set()
+
+        for db_file in sorted(databases):
+            if db_file == "music" and "music" not in self.required_kinds():
+                # Never open MyMusic for users who never synced music (the
+                # check_version rule): pass the refresh through ungated.
+                moved.add(db_file)
+                continue
+
+            try:
+                current = widgetstate.fingerprint(db_file)
+            except Exception as error:
+                LOG.warning(
+                    "widget fingerprint failed for %s (%s); refreshing",
+                    db_file,
+                    error,
+                )
+                self.widget_fingerprints.pop(db_file, None)
+                moved.add(db_file)
+                continue
+
+            stored = self.widget_fingerprints.get(db_file)
+            changed = widgetstate.moved_sections(stored or {}, current)
+
+            if changed:
+                LOG.info(
+                    "--[ widgets moved: %s/%s ]",
+                    db_file,
+                    "+".join(sorted(changed)),
+                )
+                self.widget_fingerprints[db_file] = current
+                moved.add(db_file)
+
+        return moved
+
+    def _arm_refresh_settle(self, databases):
+        """Defer a drain-completion refresh behind the settle window.
+
+        Each drain pushes the due clock out by REFRESH_SETTLE_SECONDS; the
+        hold clock is stamped once, by the first deferred drain, and caps how
+        long re-arming can postpone the refresh.
+        """
+        if not databases:
+            return
+
+        now = datetime.now()
+        self.refresh_pending |= set(databases)
+        self.refresh_due_at = now + timedelta(seconds=REFRESH_SETTLE_SECONDS)
+
+        if self.refresh_hold_until is None:
+            self.refresh_hold_until = now + timedelta(seconds=REFRESH_MAX_HOLD_SECONDS)
+
+    def flush_refresh_settle(self):
+        """Fire the deferred drain refresh once it has settled.
+
+        Runs on the service tick. Waits for quiet — never before the settle
+        is out, and an active cycle holds it (that cycle's completion folds
+        its own databases in and re-arms) — but never past the hold cap, so
+        a steady stream of server events cannot postpone visibility
+        indefinitely.
+        """
+        if not self.refresh_pending:
+            return
+
+        now = datetime.now()
+        capped = self.refresh_hold_until is not None and now >= self.refresh_hold_until
+
+        if not capped:
+            if self.refresh_due_at is not None and now < self.refresh_due_at:
+                return
+
+            if self.pending_refresh:
+                return
+
+        databases, self.refresh_pending = self.refresh_pending, set()
+        self.refresh_due_at = None
+        self.refresh_hold_until = None
+        self.refresh_libraries(databases)
+
+    def _reload_skin_for_content(self, conditions):
+        """Rebuild the skin for the empty -> populated transition, once the
+        scan cycle has flipped a matching ``Library.HasContent`` bool.
+
+        A reload is the only mechanism that works here: the skin's widget
+        sections are gated on ``Library.HasContent`` conditions that bake at
+        window load, and a widget container whose last fetch was empty is
+        deaf to library announcements (widget-refresh-plan, the
+        DirectoryProvider facts). Polling for the flag replaces the old fixed
+        2 s wait; on timeout the reload still fires, because a reload against
+        stale bools at least becomes right on the next one, while not
+        reloading leaves the section invisible until Kodi restarts.
+
+        Held while video plays — a skin reload rebuilds the OSD under the
+        viewer — and fired by the service tick once playback ends.
+        """
+        for _ in range(int(CONTENT_FLAG_TIMEOUT_SECONDS / CONTENT_FLAG_POLL_SECONDS)):
+            if any(xbmc.getCondVisibility(flag) for flag in conditions):
+                break
+
+            if self.monitor.waitForAbort(CONTENT_FLAG_POLL_SECONDS):
+                return
+        else:
+            LOG.warning(
+                "Library.HasContent did not flip within %ss; reloading anyway",
+                CONTENT_FLAG_TIMEOUT_SECONDS,
+            )
+
+        if self.player.isPlayingVideo():
+            LOG.info("holding the first-content skin reload until playback ends")
+            self.pending_skin_reload = True
+            return
+
+        self._fire_skin_reload()
+
+    def flush_pending_reload(self):
+        """Fire a held first-content reload once video playback has ended."""
+        if not self.pending_skin_reload or self.player.isPlayingVideo():
+            return
+
+        self.pending_skin_reload = False
+        self._fire_skin_reload()
+
+    def _fire_skin_reload(self):
+        LOG.info("first content synced; reloading skin for home widgets")
+        xbmc.executebuiltin("ReloadSkin()")
+
+    def _music_content_hidden(self):
+        """The music twin of ``_video_content_hidden``: MyMusic holds rows
+        while Kodi still believes there is no music library.
+
+        Guarded on the whitelist actually requiring music so this never puts
+        the music schema gate in front of users who never asked kofin to
+        touch their music (same rule as ``check_version``). Self-limiting
+        exactly like the video probe: once the reload has happened the cache
+        is right and this returns False forever after.
+        """
+        if xbmc.getCondVisibility("Library.HasContent(Music)"):
+            return False
+
+        if "music" not in self.required_kinds():
+            return False
+
+        try:
+            with Database("music") as musicdb:
+                for table in ("album", "song"):
+                    musicdb.cursor.execute("SELECT 1 FROM %s LIMIT 1" % table)
+                    if musicdb.cursor.fetchone():
+                        return True
+        except Exception:
+            LOG.exception("could not determine music library content state")
+
+        return False
 
     def _refresh_music(self):
         """Give music the library event that direct SQLite writes never fire.

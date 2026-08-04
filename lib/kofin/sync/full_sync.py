@@ -34,11 +34,9 @@ from kofin.sync.shims import (
     LibraryException,
     LibraryExitException,
     LibraryOrphanException,
-    get_screensaver,
     localized,
     notification,
     progress,
-    set_screensaver,
 )
 
 LOG = Logger(__name__)
@@ -157,7 +155,6 @@ class FullSync(object):
     _shared_state: dict = {}
     sync = None
     running = False
-    screensaver = None
     update_library = False
 
     def __init__(self, library, server):
@@ -180,12 +177,10 @@ class FullSync(object):
         """Do everything we need before the sync"""
         LOG.info("-->[ fullsync ]")
 
-        if not settings.get_bool("dbSyncScreensaver"):
-
-            xbmc.executebuiltin("InhibitIdleShutdown(true)")
-            self.screensaver = get_screensaver()
-            set_screensaver(value="")
-
+        # No screensaver/idle-shutdown fiddling any more: the screensaver
+        # never pauses sync (verified live, docs/widget-refresh-plan.md F9),
+        # and an interrupted sync resumes from sync.json, so there is nothing
+        # here worth overwriting a user setting to protect.
         self.running = True
         state.set_sync_active(True)
 
@@ -296,16 +291,22 @@ class FullSync(object):
 
         # Refresh the databases this sync actually wrote. Refreshing only video
         # left a freshly synced music library invisible in the music widgets.
-        synced_video, synced_music = split_libraries(libraries, self._media_type)
-        databases = set()
+        # Update mode refreshes nothing here: it only *plans* (the prune hands
+        # every write to the incremental pipeline), so the refresh belongs to
+        # the drain that lands the work — refreshing at plan time re-rendered
+        # every widget for rows that had not changed yet, doubling the update
+        # command's cost for nothing (widget-refresh-plan F2/D4).
+        if not self.update_library:
+            synced_video, synced_music = split_libraries(libraries, self._media_type)
+            databases = set()
 
-        if synced_video:
-            databases.add("video")
+            if synced_video:
+                databases.add("video")
 
-        if synced_music:
-            databases.add("music")
+            if synced_music:
+                databases.add("music")
 
-        self.library.refresh_libraries(databases)
+            self.library.refresh_libraries(databases)
 
         # Music playlists are files, not MyMusic rows — refresh after a
         # successful library pass when the setting is on. Soft-fail so a
@@ -1099,10 +1100,5 @@ class FullSync(object):
         """Exiting sync"""
         self.running = False
         state.set_sync_active(False)
-
-        if not settings.get_bool("dbSyncScreensaver") and self.screensaver is not None:
-
-            xbmc.executebuiltin("InhibitIdleShutdown(false)")
-            set_screensaver(value=self.screensaver)
 
         LOG.info("--<[ fullsync ]")

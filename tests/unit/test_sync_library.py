@@ -92,7 +92,11 @@ class _FakeMonitor:
 
 def make_library():
     api = FakeApi()
-    return Library(api, FakePlayer(), lambda: api), api
+    manager = Library(api, FakePlayer(), lambda: api)
+    # Kodistubs' Monitor.waitForAbort answers True ("aborting"), which would
+    # end every poll loop on its first wait.
+    manager.monitor = _FakeMonitor()
+    return manager, api
 
 
 def seed_views(*views):
@@ -367,6 +371,250 @@ def test_refresh_noop_without_databases(builtins):
     manager, _api = make_library()
     manager.refresh_libraries(set())
     assert builtins == []
+
+
+def test_commands_never_blanket_refresh(builtins, monkeypatch):
+    """A processed command fires no builtins of its own: refreshes belong to
+    the paths that write (FullSync's end, removals, the drain). The old tail
+    refresh cost an UpdateLibrary(video) per command — one per screensaver
+    wake for the FastSync kick alone (widget-refresh-plan F1/D4)."""
+    manager, _api = make_library()
+    monkeypatch.setattr(manager, "update_status_strings", lambda: None)
+
+    manager.enqueue_command("FastSync")  # tier none: queues nothing
+    manager.enqueue_command("SyncMusicPlaylists")  # setting off: no-op
+    manager.process_commands()
+
+    assert builtins == []
+
+
+def test_remove_library_refreshes_the_removed_kind(builtins, monkeypatch):
+    """Removing a music library refreshes *music* — the old blanket refresh
+    aimed at video, so removed albums lingered in the music widgets
+    indefinitely (widget-refresh-plan F5)."""
+    seed_views(("lib2", "Tunes", "music"))
+
+    manager, _api = make_library()
+    monkeypatch.setattr(manager, "update_status_strings", lambda: None)
+    monkeypatch.setattr(manager, "remove_library", lambda lib: True)
+
+    manager.enqueue_command("RemoveLibrary", {"Id": "lib2"})
+    manager.process_commands()
+
+    assert builtins == ["UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE]
+
+
+def test_first_content_reload_polls_for_hascontent(monkeypatch, tmp_path):
+    """The reload waits for the scan cycle to flip Library.HasContent instead
+    of guessing 2 s: a reload against still-false bools builds Home without
+    its widget sections, and the hidden-content probe is self-disarming so
+    that race could never retry (widget-refresh-plan D5)."""
+    calls = []
+    progress = {"polls": 0, "flips_after": 3}
+
+    def cond(flag):
+        if flag.startswith("Library.HasContent"):
+            return progress["polls"] >= progress["flips_after"]
+        return False
+
+    class CountingMonitor:
+        def waitForAbort(self, seconds=0):
+            progress["polls"] += 1
+            return False
+
+        def abortRequested(self):
+            return False
+
+    monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr("xbmc.getCondVisibility", cond)
+    _fake_video_db(monkeypatch, tmp_path, rows=True)
+
+    manager, _api = make_library()
+    manager.monitor = CountingMonitor()
+    manager.refresh_libraries({"video"})
+
+    assert calls == ["UpdateLibrary(video)", "ReloadSkin()"]
+    assert progress["polls"] == progress["flips_after"]
+
+
+def test_first_content_reload_held_during_playback(monkeypatch, tmp_path):
+    """A skin reload rebuilds the OSD under the viewer: with video playing
+    the reveal waits, and the service tick fires it once playback ends."""
+    calls = []
+    monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr("xbmc.getCondVisibility", lambda cond: False)
+    _fake_video_db(monkeypatch, tmp_path, rows=True)
+
+    manager, _api = make_library()
+    manager.player.playing = True
+    manager.refresh_libraries({"video"})
+
+    assert calls == ["UpdateLibrary(video)"]
+    assert manager.pending_skin_reload is True
+
+    manager.flush_pending_reload()
+    assert calls == ["UpdateLibrary(video)"]  # still playing: held
+
+    manager.player.playing = False
+    manager.flush_pending_reload()
+    assert calls == ["UpdateLibrary(video)", "ReloadSkin()"]
+    assert manager.pending_skin_reload is False
+
+
+def _fake_music_db(tmp_path, rows):
+    """A music database whose album/song tables are (non)empty."""
+    import sqlite3
+
+    path = str(tmp_path / "MyMusic83.db")
+    conn = sqlite3.connect(path)
+    for table in ("album", "song"):
+        conn.execute("CREATE TABLE %s (id INTEGER)" % table)
+    if rows:
+        conn.execute("INSERT INTO album VALUES (1)")
+    conn.commit()
+    conn.close()
+    sync_db.set_path_override("music", path)
+
+
+def test_first_music_content_reloads_skin(monkeypatch, tmp_path):
+    """A first *music* sync has the same empty->populated blindness as video
+    and previously no reveal path at all (widget-refresh-plan F6): the probe
+    scan fires, and the skin reloads (here via the poll's timeout fallback —
+    reloading late beats leaving the section invisible until restart)."""
+    seed_views(("lib2", "Tunes", "music"))
+    seed_whitelist("lib2")
+
+    calls = []
+    monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr("xbmc.getCondVisibility", lambda cond: False)
+    _fake_music_db(tmp_path, rows=True)
+
+    manager, _api = make_library()
+    manager.refresh_libraries({"music"})
+
+    assert calls == [
+        "UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE,
+        "ReloadSkin()",
+    ]
+
+
+def test_no_music_probe_for_unsynced_music(monkeypatch, tmp_path):
+    """Without a music library in the whitelist the hidden-content check must
+    not open MyMusic at all: opening it puts the music schema gate in front
+    of users who never asked kofin to touch their music."""
+    calls = []
+    monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr("xbmc.getCondVisibility", lambda cond: False)
+
+    opened = []
+    original_init = sync_db.Database.__init__
+
+    def spying_init(self, file="video", *args, **kwargs):
+        opened.append(file)
+        original_init(self, file, *args, **kwargs)
+
+    monkeypatch.setattr(sync_db.Database, "__init__", spying_init)
+
+    manager, _api = make_library()
+    manager.refresh_libraries({"music"})
+
+    assert "music" not in opened
+    assert calls == ["UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE]
+
+
+def test_drain_refresh_waits_out_the_settle(builtins):
+    """Two mini-cycles seconds apart — a track change's pair of userdata
+    echoes — produce one refresh, not two (widget-refresh-plan F3/D3)."""
+    manager, _api = make_library()
+
+    manager._arm_refresh_settle({"video"})
+    manager.flush_refresh_settle()  # inside the settle: nothing fires
+    assert builtins == []
+
+    manager._arm_refresh_settle({"music"})  # the second echo folds in
+
+    manager.refresh_due_at = datetime.now() - timedelta(seconds=1)
+    manager.flush_refresh_settle()
+
+    assert builtins == [
+        "UpdateLibrary(video)",
+        "UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE,
+    ]
+    assert manager.refresh_pending == set()
+    assert manager.refresh_hold_until is None
+
+
+def test_settle_holds_while_a_cycle_is_draining(builtins):
+    """An active cycle keeps the deferred refresh back: its completion folds
+    its own databases in and re-arms, so the eventual refresh covers both."""
+    manager, _api = make_library()
+    manager._arm_refresh_settle({"video"})
+    manager.refresh_due_at = datetime.now() - timedelta(seconds=1)
+    manager.pending_refresh = True
+
+    manager.flush_refresh_settle()
+
+    assert builtins == []
+    assert manager.refresh_pending == {"video"}
+
+
+def test_settle_cap_bounds_the_wait(builtins):
+    """A steady event stream re-arms the settle forever; the hold cap fires
+    the refresh anyway, mid-drain or not, so staleness stays bounded."""
+    manager, _api = make_library()
+    manager._arm_refresh_settle({"video"})
+    manager.pending_refresh = True
+    manager.refresh_due_at = datetime.now() + timedelta(seconds=60)
+    manager.refresh_hold_until = datetime.now() - timedelta(seconds=1)
+
+    manager.flush_refresh_settle()
+
+    assert builtins == ["UpdateLibrary(video)"]
+
+
+def test_immediate_refresh_settles_the_deferred_debt(builtins):
+    """refresh_added and command-owned refreshes fire immediately; the
+    databases they cover leave the deferred set (and the clocks clear with
+    the last of them) so the settle cannot double-refresh them."""
+    manager, _api = make_library()
+    manager._arm_refresh_settle({"video"})
+
+    manager.refresh_libraries({"video"})
+
+    assert builtins == ["UpdateLibrary(video)"]
+    assert manager.refresh_pending == set()
+    assert manager.refresh_hold_until is None
+
+    manager.refresh_due_at = datetime.now() - timedelta(seconds=1)
+    manager.flush_refresh_settle()
+    assert builtins == ["UpdateLibrary(video)"]  # no second refresh
+
+
+def test_status_strings_write_only_on_change(monkeypatch):
+    """Every settings write rewrites settings.xml and fires onSettingsChanged;
+    the old per-command rewrites raced the applier's re-read into transient
+    load failures (widget-refresh-plan F9). Unchanged values write nothing."""
+    seed_views(("lib1", "Movies", "movies"))
+    seed_whitelist("lib1")
+    monkeypatch.setattr(library_mod.schema, "gate_status", lambda kinds=None: None)
+
+    manager, _api = make_library()
+
+    writes = []
+    original = FakeAddon.setSetting
+
+    def counting(self, key, value):
+        writes.append(key)
+        original(self, key, value)
+
+    monkeypatch.setattr(FakeAddon, "setSetting", counting)
+
+    manager.update_status_strings()
+    assert "syncStatus" in writes and "syncedLibraries" in writes
+
+    writes.clear()
+    manager.update_status_strings()
+    assert writes == []
 
 
 # --- retry / watermark -------------------------------------------------------

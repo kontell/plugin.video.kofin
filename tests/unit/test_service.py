@@ -219,7 +219,6 @@ def test_broken_syncplay_never_suppresses_the_sync_kick():
         def enqueue_command(self, name, data=None):
             self.commands.append(name)
 
-    FakeAddon.store["dbSyncScreensaver"] = "true"
     service = Service()
     service.library = RecordingLibrary()
     service.syncplay = ExplodingSyncPlay()
