@@ -3,9 +3,21 @@
 ``addon.xml`` names ``resources/media/fanart.png`` as the addon's fanart, and
 Kodi reads that manifest once at install/scan time — there is no runtime API to
 repoint an asset. So the backdrop is changed the only way it can be: by
-rewriting the file the manifest already names. ``fanart-default.png`` sits
-beside it as the pristine bundled copy, which is what turning the setting off
-restores from.
+rewriting the file the manifest already names.
+
+Restoring it therefore needs an unmodified copy, and that copy is *captured*
+into addon_data rather than shipped beside the original. Shipping a second
+identical PNG would mean two sources of truth for one image, which drift the
+first time somebody updates the artwork and edits only one of them. Nor can
+the shipped asset simply be generated on first run instead: Kodi's addon
+browser fetches ``<assets>`` straight from the repository over HTTP *before
+the addon is installed*, so a manifest naming a file that is not in the zip
+shows no fanart at all until someone installs it.
+
+The capture is taken whenever the recorded state is absent or stale, because
+both of those mean nobody has swapped the file since the addon was unpacked —
+a fresh install, or an update that has just rewritten ``resources/``. That
+also repairs the copy on every addon update, for free.
 
 Three things make that safe to do repeatedly:
 
@@ -41,7 +53,8 @@ from kofin.core.log import Logger
 
 LOG = Logger(__name__)
 
-# The asset addon.xml names, and the pristine copy shipped beside it.
+# The asset addon.xml names (shipped), and the captured copy of it as bundled
+# (written to addon_data at runtime — see the module docstring).
 LIVE_NAME = "fanart.png"
 DEFAULT_NAME = "fanart-default.png"
 MEDIA_DIR = os.path.join("resources", "media")
@@ -66,7 +79,7 @@ def live_path() -> str:
 
 
 def default_path() -> str:
-    return os.path.join(settings.addon_path(), MEDIA_DIR, DEFAULT_NAME)
+    return os.path.join(settings.addon_data_path(), DEFAULT_NAME)
 
 
 def _state_path() -> str:
@@ -115,6 +128,13 @@ def _install(data: bytes, source: str, now: float) -> bool:
     the asset to cache it and a half-written PNG would be cached as-is — with
     the hash then asserting the backdrop is up to date.
     """
+    if _live_digest() == _digest(data):
+        # Already exactly this. Record the state so the caller's bookkeeping is
+        # right, but do not touch the file or drop the texture: re-caching a
+        # 2.3MB image for no visible change is the cost this avoids.
+        _write_state(source, _digest(data), now)
+        return True
+
     target = live_path()
     temp = target + ".part"
     try:
@@ -138,6 +158,36 @@ def _install(data: bytes, source: str, now: float) -> bool:
     return True
 
 
+def _capture_default() -> None:
+    """Snapshot the live asset as the bundled artwork.
+
+    Only ever called when the caller has established that nothing has swapped
+    the asset since it was unpacked, so what is on disk *is* what shipped.
+    Overwrites any previous capture, which is how an addon update carrying new
+    artwork replaces a snapshot of the old.
+    """
+    try:
+        with open(live_path(), "rb") as handle:
+            data = handle.read()
+    except OSError as error:
+        LOG.warning("backdrop: bundled artwork unreadable (%s); not captured", error)
+        return
+    target = default_path()
+    temp = target + ".part"
+    try:
+        directory = settings.addon_data_path()
+        if not os.path.isdir(directory):
+            os.makedirs(directory)
+        with open(temp, "wb") as handle:
+            handle.write(data)
+        os.replace(temp, target)
+        LOG.debug("backdrop: captured bundled artwork (%s bytes)", len(data))
+    except OSError as error:
+        # Without it the setting cannot be turned back off until the next
+        # addon update offers another chance to capture.
+        LOG.warning("backdrop: bundled artwork not captured (%s)", error)
+
+
 def _restore_default(now: float, state: dict) -> None:
     """Put the bundled artwork back, unless it is already live."""
     if state.get("source") == SOURCE_DEFAULT:
@@ -146,8 +196,9 @@ def _restore_default(now: float, state: dict) -> None:
         with open(default_path(), "rb") as handle:
             data = handle.read()
     except OSError as error:
-        # An addon update replaces both files, so this only happens if the
-        # install is damaged — in which case the live file is the better bet.
+        # The capture is taken on first run and refreshed on every addon
+        # update, so this means addon_data was cleared while a server image
+        # was live — leave that in place rather than blank the backdrop.
         LOG.warning(
             "bundled backdrop unreadable (%s); leaving the current image", error
         )
@@ -180,6 +231,15 @@ def _apply(api: Optional[Api], now: float, force: bool) -> None:
     if state and state.get("hash") != _live_digest():
         LOG.info("backdrop asset changed underneath us (addon update?); reinstalling")
         state = {}
+
+    # No recorded state means nothing has swapped the asset since it was
+    # unpacked — a first run, or the drift reset just above after an update
+    # rewrote resources/. Either way the file on disk is the shipped artwork,
+    # and this is the only moment we can be sure of that, so it is the moment
+    # to snapshot it. An update carrying new artwork refreshes the snapshot on
+    # the same path.
+    if not state:
+        _capture_default()
 
     if not settings.get_bool("useServerBackdrop"):
         _restore_default(now, state)

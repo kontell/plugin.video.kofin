@@ -48,7 +48,8 @@ def env(monkeypatch, tmp_path):
     addon_dir = tmp_path / "addon"
     media = addon_dir / "resources" / "media"
     media.mkdir(parents=True)
-    (media / backdrop.DEFAULT_NAME).write_bytes(DEFAULT_BYTES)
+    # Only the live asset ships; the pristine copy is captured into addon_data
+    # on first run (a second shipped PNG would be a second source of truth).
     (media / backdrop.LIVE_NAME).write_bytes(DEFAULT_BYTES)
 
     data_dir = tmp_path / "addon_data"
@@ -263,3 +264,80 @@ def test_missing_asset_counts_as_drift(env):
     backdrop.apply(FakeApi(), now=1001.0)
 
     assert live(env) == SPLASH_BYTES
+
+
+# --- the bundled copy is captured, not shipped twice -------------------------
+
+
+def test_bundled_artwork_is_captured_into_addon_data_not_shipped(env):
+    """Only the asset addon.xml names ships. A second identical PNG beside it
+    would be a second source of truth for one image."""
+    assert not (env["media"] / backdrop.DEFAULT_NAME).exists()
+
+    backdrop.apply(FakeApi(), now=1000.0)
+
+    captured = env["data"] / backdrop.DEFAULT_NAME
+    assert captured.read_bytes() == DEFAULT_BYTES
+    assert live(env) == SPLASH_BYTES  # and the swap still happened
+
+
+def test_capture_is_taken_before_the_first_swap_even_when_offline(env):
+    backdrop.apply(None, now=1000.0)  # no api: nothing to fetch
+
+    assert (env["data"] / backdrop.DEFAULT_NAME).read_bytes() == DEFAULT_BYTES
+
+
+def test_addon_update_with_new_artwork_refreshes_the_capture(env):
+    backdrop.apply(FakeApi(), now=1000.0)
+    assert (env["data"] / backdrop.DEFAULT_NAME).read_bytes() == DEFAULT_BYTES
+
+    # An update ships different bundled artwork and rewrites resources/.
+    new_bundled = b"redesigned-bundled-artwork"
+    (env["media"] / backdrop.LIVE_NAME).write_bytes(new_bundled)
+
+    backdrop.apply(FakeApi(), now=1001.0)
+
+    assert (env["data"] / backdrop.DEFAULT_NAME).read_bytes() == new_bundled
+    FakeAddon.store["useServerBackdrop"] = "false"
+    backdrop.apply(None, now=1002.0)
+    assert live(env) == new_bundled
+
+
+def test_capture_is_not_retaken_once_the_server_image_is_live(env):
+    """The snapshot may only be taken while the asset is still what shipped —
+    re-taking it after a swap would record the splashscreen as the default."""
+    backdrop.apply(FakeApi(), now=1000.0)
+    assert live(env) == SPLASH_BYTES
+
+    backdrop.apply(FakeApi(), now=1000.0 + backdrop.REFRESH_INTERVAL_SECONDS + 1)
+
+    assert (env["data"] / backdrop.DEFAULT_NAME).read_bytes() == DEFAULT_BYTES
+
+
+def test_lost_capture_leaves_the_live_image_rather_than_blanking(env):
+    """addon_data cleared while a server image was live: there is nothing to
+    restore, and a blank backdrop is worse than a stale one."""
+    backdrop.apply(FakeApi(), now=1000.0)
+    (env["data"] / backdrop.DEFAULT_NAME).unlink()
+    env["dropped"].clear()
+
+    FakeAddon.store["useServerBackdrop"] = "false"
+    backdrop.apply(None, now=2000.0)
+
+    assert live(env) == SPLASH_BYTES
+    assert env["dropped"] == []
+
+
+def test_reinstalling_identical_bytes_touches_nothing(env):
+    """The drift reset re-runs the install path; when the bytes already match
+    it must not rewrite the file or evict the texture."""
+    FakeAddon.store["useServerBackdrop"] = "false"
+    backdrop.apply(None, now=1000.0)
+    before = (env["media"] / backdrop.LIVE_NAME).stat().st_mtime_ns
+    env["dropped"].clear()
+
+    (env["data"] / backdrop.STATE_NAME).unlink()  # forces the install path again
+    backdrop.apply(None, now=2000.0)
+
+    assert (env["media"] / backdrop.LIVE_NAME).stat().st_mtime_ns == before
+    assert env["dropped"] == []
