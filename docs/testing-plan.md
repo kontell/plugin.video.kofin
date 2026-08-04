@@ -141,6 +141,18 @@ Also fixed in the plugin: an api-key request to `/Kofin/SyncQueue` returned 400 
 
 Run 2026-08-03 on the `kofin-test` profile (Omega 21.3) against `jelly.konell.xyz` (Jellyfin 10.11.11), branch `fix/boxsets-healing` per `docs/boxsets-robustness-plan.md`. **All four gates pass** — evidence in `tests/live/results/S-boxsets.md` (local, gitignored): (1) **post-upgrade migration** — first boot after install, the drift probe flagged all 54 sets (no `boxset_state` rows), the scheduled pass healed all 54 in 11 s (`boxsets: 54 checked (… 54 healed …)`), stamped counts agree with MyVideos exactly, and the next boot is silent; (2) **manufactured drift + ghost** — one member's `idSet`/`parent_id` nulled (the remove/re-add shape) plus a planted set reference absent from the server: one service bounce produced `2 of 55 set(s) unhealthy` → `1 healed, 1 swept`, links and mappings verified restored by SQL; (3) **Refresh boxsets button** end-to-end on the new code (`reset 54 set(s)` → `54 written`, state consistent after); (4) the **unlink guard** is L2-only (a 200-with-zero-items answer for a populated set cannot be manufactured against the real server) with its server-behaviour basis verified live: deleted/bogus ParentId membership queries fail loudly with HTTP 400, and ChildCount is absent unless requested, user-scoped, and counts non-movie children (mixed probe set: ChildCount 2 vs 1 movie member).
 
+### Widget refresh gates — ownership, settle, fingerprint (docs/widget-refresh-plan.md)
+
+Live gates for the refresh rework; run against the `kofin-test` profile with the probe-scan log line (`does not exist - skipping scan`) and `VideoInfoScanner` lines as the counters, kofin's own `widgets moved/unchanged` INFO lines as the gate's self-report.
+
+* **[PENDING] W1 quiet wake**: screensaver wake with a quiet server → zero `UpdateLibrary` builtins (pre-rework baseline, live 2026-08-04: two no-op scans per wake); the catch-up itself still runs and logs.
+* **[PENDING] W2 update command**: per-library update from settings → exactly one probe scan / video scan, at drain time (was two: plan-time + drain).
+* **[PENDING] W3 echo suppression**: pause/unpause or stop of a video whose state Kodi already wrote natively → `widgets unchanged … refresh suppressed` in the log, zero scans; a genuine watched flip on another client → exactly one refresh after the settle.
+* **[PENDING] W4 track change**: music playlist next-track → at most one music refresh (two echoes fold into the settle); same-album next-track → zero (order unchanged).
+* **[PENDING] W5 removal**: removing a music library → albums leave the music widgets without a restart (music probe fired, not video).
+* **[PENDING] W6 first content**: fresh-profile first video sync and first music-only sync → widget sections appear with no manual reload; reload deferred while video plays and fired at stop.
+* **[PENDING] W7 container scoping**: browsing a movie listing during a music-only cycle → no `Container.Refresh` on the video window.
+
 ## 5. Performance baselines (record, don't guess)
 
 Captured by the scenario scripts into `tests/live/results/` per run: initial full-sync wall time for the test set; catch-up latency for 100 mixed pending changes (per tier); addon HTTP request count per scenario (debug-log grep); Kodi-start→library-browsable delta; S2.5 download counts per tier. Regressions between runs of the same scenario on the same data are release blockers.

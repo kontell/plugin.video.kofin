@@ -77,3 +77,15 @@ Phase 3 (D2, D6): fingerprint gate + container scoping. Live gates: replayed unc
 Phase 4: docs — CLAUDE.md constraint bullet (fingerprint fields must cover widget-rendered fields; the settle must never be re-inlined "for snappiness"; the tail refresh must not come back), testing-plan rows for the gates above, and this plan updated with as-built deviations.
 
 Measurement across all phases: count `UpdateLibrary`/probe-scan/`Container.Refresh` lines in kodi.log per scenario before and after (the probe scan's "does not exist - skipping scan" line is a reliable marker; add a one-line INFO log per fired/suppressed refresh with the moved fingerprint sections so suppression is auditable).
+
+## As built (phases 1–3 implemented 2026-08-04, stacked PRs)
+
+All three implementation phases landed as designed — D9 first (the setting removal, committed ahead on the phase-1 branch), then D4/D5, D3, and D2/D6 — with these deviations and decisions worth recording:
+
+- The music fingerprint hashes the recently-added and recently-played *album orders* plus the reference checksums, and deliberately nothing per-song: raw play counts and lastplayed values move on every echo while contuary renders neither, which is what makes the same-album-replay case a zero-refresh cycle. A skin that renders play counts on Home (Estuary-style "most played" rows) would need a section added — the module docstring carries the contract.
+- The video ``userdata`` section carries the movie→set link (``idSet``), so boxset membership healing refreshes without the reference checksums moving (the memberless-set NULL-checksum rule means reference digests deliberately cannot see membership).
+- Fingerprint reads take no process lock: every ``Database`` connection runs WAL, so the reads never block a mid-drain writer and the service tick never stalls behind one; a mid-drain snapshot at worst costs one extra refresh when that drain completes and re-arms the settle. Kodi-native writes (Kodi marking watched itself) land between refreshes and read as moved on the next echo cycle — one refresh where none was strictly needed, accepted as the residual.
+- ``_moved_databases`` never opens MyMusic when the whitelist has no music library (the ``check_version`` rule); the refresh passes through ungated instead.
+- Settle constants: 4 s settle re-armed per drain, 15 s hold cap from the first deferral; the immediate paths (``refresh_added``, command-owned refreshes) clear the deferred debt for their databases so nothing fires twice.
+- The first-content reload polls ``Library.HasContent`` at 250 ms up to 10 s and then reloads anyway (a late reload beats an invisible section); it is held during video playback and flushed by the service tick at stop.
+- Phase-4 constraint bullets live in CLAUDE.md; the live gates are W1–W7 in docs/testing-plan.md, pending their first full run.
