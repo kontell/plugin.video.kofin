@@ -1143,6 +1143,152 @@ def test_probe_survives_an_unreachable_server(monkeypatch):
     assert commands_of(lib) == []
 
 
+# --- boxset drift probe -------------------------------------------------------
+
+
+def boxset_probe_library(tmp_path):
+    """A library with a real (pristine) MyVideos and a boxsets view.
+
+    The drift probe is pure-local — kofin.db against MyVideos — so unlike
+    probe_library above there is nothing to monkeypatch; the tests seed the
+    two databases directly.
+    """
+    from tests.unit import kodifixtures
+
+    seed_views(("bs1", "Collections", "boxsets"))
+    sync_db.set_path_override(
+        "video",
+        kodifixtures.create_video_db(
+            str(tmp_path / "MyVideos131.db"), kodifixtures.VIDEO_VERSION
+        ),
+    )
+    lib, _api = make_library()
+    return lib
+
+
+def seed_set_reference(jellyfin_id, kodi_id, state=None):
+    with sync_db.Database("kofin") as opened:
+        mapping = kofindb.JellyfinDatabase(opened.cursor)
+        mapping.add_reference(
+            jellyfin_id,
+            kodi_id,
+            None,
+            None,
+            "BoxSet",
+            "set",
+            None,
+            "x|plugin",
+            None,
+            None,
+        )
+        if state is not None:
+            mapping.add_boxset_state(jellyfin_id, state)
+
+
+def seed_kodi_set(kodi_id, linked, first_movie_id=100):
+    import sqlite3
+
+    conn = sqlite3.connect(str(sync_db._path_overrides["video"]))
+    try:
+        conn.execute(
+            "INSERT INTO sets(idSet, strSet) VALUES (?, ?)",
+            (kodi_id, "Set %s" % kodi_id),
+        )
+        for offset in range(linked):
+            conn.execute(
+                "INSERT INTO movie(idMovie, idSet) VALUES (?, ?)",
+                (first_movie_id + offset, kodi_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def boxset_commands(lib):
+    return list(lib.commands.queue)
+
+
+def test_boxset_probe_quiet_when_state_agrees(tmp_path):
+    lib = boxset_probe_library(tmp_path)
+    seed_set_reference("set1", 1, state=2)
+    seed_kodi_set(1, linked=2)
+
+    lib.probe_boxset_drift()
+
+    assert boxset_commands(lib) == []
+
+
+def test_boxset_probe_quiet_on_a_legitimately_empty_set(tmp_path):
+    """A mixed collection can hold zero movies forever; stored 0 == linked 0
+    must never loop."""
+    lib = boxset_probe_library(tmp_path)
+    seed_set_reference("set1", 1, state=0)
+    seed_kodi_set(1, linked=0)
+
+    lib.probe_boxset_drift()
+
+    assert boxset_commands(lib) == []
+
+
+def test_boxset_probe_schedules_on_count_drift(tmp_path):
+    """The V1 shape: a member removed and re-added dropped the MyVideos link
+    while the stamped expectation still says two."""
+    lib = boxset_probe_library(tmp_path)
+    seed_set_reference("set1", 1, state=2)
+    seed_kodi_set(1, linked=1)
+
+    lib.probe_boxset_drift()
+
+    assert boxset_commands(lib) == [("SyncLibrary", {"Id": "Boxsets:"})]
+
+
+def test_boxset_probe_schedules_on_missing_state(tmp_path):
+    """First boot after upgrade: no state rows exist, every set heals once."""
+    lib = boxset_probe_library(tmp_path)
+    seed_set_reference("set1", 1, state=None)
+    seed_kodi_set(1, linked=2)
+
+    lib.probe_boxset_drift()
+
+    assert boxset_commands(lib) == [("SyncLibrary", {"Id": "Boxsets:"})]
+
+
+def test_boxset_probe_schedules_on_missing_sets_row(tmp_path):
+    """Kodi's clean-library dropped the memberless sets row while the
+    reference lives on."""
+    lib = boxset_probe_library(tmp_path)
+    seed_set_reference("set1", 1, state=0)
+
+    lib.probe_boxset_drift()
+
+    assert boxset_commands(lib) == [("SyncLibrary", {"Id": "Boxsets:"})]
+
+
+def test_boxset_probe_quiet_without_a_boxsets_view(tmp_path):
+    """No collections view: nothing can have synced and the pass it would
+    schedule has nothing to walk. Returns before touching MyVideos."""
+    seed_views(("lib1", "Movies", "movies"))
+    lib, _api = make_library()
+    seed_set_reference("set1", 1, state=2)
+
+    lib.probe_boxset_drift()
+
+    assert boxset_commands(lib) == []
+
+
+def test_boxset_probe_skips_while_a_full_sync_is_pending(tmp_path):
+    lib = boxset_probe_library(tmp_path)
+    seed_set_reference("set1", 1, state=2)
+    seed_kodi_set(1, linked=0)
+    sync = sync_db.get_sync()
+    sync["Libraries"] = ["lib1"]
+    sync_db.save_sync(sync)
+
+    lib.probe_boxset_drift()
+
+    assert boxset_commands(lib) == []
+
+
 def test_container_types_are_ignored_not_flagged():
     """A UserView/CollectionFolder can never route anywhere, and the server
     broadcasts LibraryChanged for them on its own schedule. Flagging one cost

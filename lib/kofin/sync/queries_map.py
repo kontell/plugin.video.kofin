@@ -48,6 +48,15 @@ SELECT      jellyfin_id, checksum
 FROM        jellyfin
 WHERE       jellyfin_type = ?
 """
+get_boxset_state = """
+SELECT      linked_count
+FROM        boxset_state
+WHERE       jellyfin_id = ?
+"""
+get_boxset_states = """
+SELECT      jellyfin_id, linked_count
+FROM        boxset_state
+"""
 get_view_name = """
 SELECT      view_name
 FROM        view
@@ -79,6 +88,11 @@ WHERE       media_type = ?
 """
 get_items_by_media = """
 SELECT      jellyfin_id
+FROM        jellyfin
+WHERE       media_type = ?
+"""
+get_item_ids_by_media = """
+SELECT      jellyfin_id, kodi_id
 FROM        jellyfin
 WHERE       media_type = ?
 """
@@ -212,6 +226,10 @@ add_reference_song_obj = [
     "{LibraryId}",
     "{JellyfinParentId}",
 ]
+add_boxset_state = """
+INSERT OR REPLACE INTO      boxset_state(jellyfin_id, linked_count)
+VALUES                      (?, ?)
+"""
 add_view = """
 INSERT OR REPLACE INTO      view(view_id, view_name, media_type)
 VALUES                      (?, ?, ?)
@@ -274,6 +292,13 @@ DELETE FROM     view
 WHERE           view_id = ?
 """
 delete_parent_boxset_obj = [None, "{Movie}"]
+delete_boxset_state = """
+DELETE FROM     boxset_state
+WHERE           jellyfin_id = ?
+"""
+delete_boxset_states = """
+DELETE FROM     boxset_state
+"""
 delete_media_by_parent_id = """
 DELETE FROM     jellyfin
 WHERE           jellyfin_parent_id = ?

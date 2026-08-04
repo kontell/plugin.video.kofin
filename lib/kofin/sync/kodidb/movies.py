@@ -201,6 +201,30 @@ class Movies(Kodi):
     def delete_boxset(self, *args):
         self.cursor.execute(QU.delete_set, args)
 
+    def get_boxset(self, set_id):
+        """The sets row's id when it exists, else None (repair check)."""
+        self.cursor.execute(QU.get_set_by_id, (set_id,))
+        row = self.cursor.fetchone()
+
+        return row[0] if row else None
+
+    def get_boxset_movie_count(self, set_id):
+        """Movies currently linked to the set — the user-visible truth."""
+        self.cursor.execute(QU.get_movie_count_by_set, (set_id,))
+
+        return self.cursor.fetchone()[0]
+
+    def get_boxset_ids(self):
+        self.cursor.execute(QU.get_sets)
+
+        return [row[0] for row in self.cursor.fetchall()]
+
+    def get_boxset_movie_counts(self):
+        """{idSet: linked movie count} over the whole movie table."""
+        self.cursor.execute(QU.get_movie_counts_by_set)
+
+        return dict(self.cursor.fetchall())
+
     def migrations(self):
         """
         Used to trigger required database migrations for new versions

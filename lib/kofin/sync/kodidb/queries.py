@@ -148,6 +148,26 @@ FROM        sets
 WHERE       strSet = ?
             COLLATE NOCASE
 """
+get_set_by_id = """
+SELECT      idSet
+FROM        sets
+WHERE       idSet = ?
+"""
+get_sets = """
+SELECT      idSet
+FROM        sets
+"""
+get_movie_count_by_set = """
+SELECT      COUNT(*)
+FROM        movie
+WHERE       idSet = ?
+"""
+get_movie_counts_by_set = """
+SELECT      idSet, COUNT(*)
+FROM        movie
+WHERE       idSet IS NOT NULL
+GROUP BY    idSet
+"""
 get_musicvideo = """
 SELECT      *
 FROM        musicvideo

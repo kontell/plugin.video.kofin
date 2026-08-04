@@ -21,6 +21,12 @@ from kofin.sync.library import UpdateWorker
 from kofin.sync.newcontent import Entry
 from kofin.sync.shims import LibraryOrphanException
 from kofin.sync.writers import Movies, MusicVideos, TVShows, Music
+from kofin.sync.writers.movies import (
+    BOXSET_GUARDED,
+    BOXSET_HEALED,
+    BOXSET_UNCHANGED,
+    BOXSET_WRITTEN,
+)
 from tests.unit import kodifixtures, sync_dtos
 from tests.unit.fakes import FakeAddon, FakeWindow
 from tests.unit.sync_dtos import (
@@ -166,6 +172,11 @@ def register_views(*views):
 def write_movie(api, payload=None):
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
         Movies(api, kdb, vdb, library=LIBRARY).movie(payload or dto(MOVIE))
+
+
+def write_boxset(api, payload=None):
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        return Movies(api, kdb, vdb, library=LIBRARY).boxset(payload or dto(BOXSET))
 
 
 def dump(path):
@@ -821,6 +832,275 @@ def test_boxset_links_and_removal(api):
     ]
     # Movies survive their boxset.
     assert video_query("SELECT COUNT(*) FROM movie") == [(2,)]
+
+
+def video_exec(sql, args=()):
+    conn = sqlite3.connect(str(sync_db._path_overrides["video"]))
+    try:
+        conn.execute(sql, args)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def kofin_exec(sql, args=()):
+    conn = sqlite3.connect(str(sync_db._path_overrides["kofin"]))
+    try:
+        conn.execute(sql, args)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@pytest.fixture
+def boxset_log(monkeypatch):
+    """Recorded (level, message) tuples from the movies writer's logger."""
+    from kofin.sync.writers import movies as writers_movies
+
+    calls = []
+
+    def record(level):
+        def _log(msg, *args):
+            calls.append((level, msg % args if args else msg))
+
+        return _log
+
+    for level in ("warning", "info"):
+        monkeypatch.setattr(writers_movies.LOG, level, record(level))
+
+    return calls
+
+
+def linked_boxset(api):
+    """movie1+movie2 written and linked into set1; returns nothing."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    write_movie(api, dto(MOVIE_2))
+    api.boxset_children = {"set1": [dto(MOVIE), dto(MOVIE_2)]}
+    assert write_boxset(api) == BOXSET_WRITTEN
+    assert video_query("SELECT COUNT(*) FROM movie WHERE idSet = 1") == [(2,)]
+    assert kofin_query("SELECT linked_count FROM boxset_state") == [(2,)]
+
+
+def test_boxset_second_write_unchanged_and_idempotent(api):
+    linked_boxset(api)
+    first = dump(str(sync_db._path_overrides["video"]))
+    first_map = dump(str(sync_db._path_overrides["kofin"]))
+
+    assert write_boxset(api) == BOXSET_UNCHANGED
+    assert dump(str(sync_db._path_overrides["video"])) == first
+    assert dump(str(sync_db._path_overrides["kofin"])) == first_map
+
+
+def test_boxset_heals_readded_member(api):
+    """The V1 drift: a member removed and re-added comes back as a fresh
+    movie row with no idSet while the set's Etag never moves. The health
+    check must catch the count mismatch and force a relink."""
+    linked_boxset(api)
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        Movies(api, kdb, vdb, library=LIBRARY).remove("movie1")
+    write_movie(api)
+
+    assert video_query("SELECT COUNT(*) FROM movie WHERE idSet = 1") == [(1,)]
+
+    assert write_boxset(api) == BOXSET_HEALED
+    assert video_query("SELECT COUNT(*) FROM movie WHERE idSet = 1") == [(2,)]
+    assert kofin_query("SELECT linked_count FROM boxset_state") == [(2,)]
+    assert kofin_query("SELECT checksum FROM jellyfin WHERE jellyfin_id = 'set1'") == [
+        ("etag-set1-v1|plugin",)
+    ]
+
+    assert write_boxset(api) == BOXSET_UNCHANGED
+
+
+def test_boxset_guard_blocks_suspicious_empty(api, boxset_log):
+    """A membership query answering 200-with-zero-items while the DTO says
+    the set has children must not mass-unlink, and must not advance the
+    checksum (so a changed Etag retries on the next walk)."""
+    linked_boxset(api)
+
+    api.boxset_children = {"set1": []}
+    payload = dto(BOXSET)
+    payload["Etag"] = "etag-set1-v2"
+    payload["ChildCount"] = 2
+
+    assert write_boxset(api, payload) == BOXSET_GUARDED
+    assert video_query("SELECT COUNT(*) FROM movie WHERE idSet = 1") == [(2,)]
+    assert kofin_query("SELECT checksum FROM jellyfin WHERE jellyfin_id = 'set1'") == [
+        ("etag-set1-v1|plugin",)
+    ]
+    assert kofin_query("SELECT linked_count FROM boxset_state") == [(2,)]
+
+    warnings = [msg for level, msg in boxset_log if level == "warning"]
+    assert len(warnings) == 1
+    assert "0 members" in warnings[0]
+
+    # Unknown children signal (no ChildCount/RecursiveItemCount in the DTO)
+    # is just as suspicious: block and warn again on the retry.
+    del payload["ChildCount"]
+    assert write_boxset(api, dict(payload)) == BOXSET_GUARDED
+    assert video_query("SELECT COUNT(*) FROM movie WHERE idSet = 1") == [(2,)]
+
+
+def test_boxset_confirmed_empty_unlinks_and_springs_back(api, boxset_log):
+    """ChildCount 0 confirms a genuinely emptied set: unlink, but leave the
+    checksum unstamped so the set is re-verified every walk and springs back
+    without any Etag movement (the permission-flap recovery)."""
+    linked_boxset(api)
+
+    api.boxset_children = {"set1": []}
+    payload = dto(BOXSET)
+    payload["Etag"] = "etag-set1-v2"
+    payload["ChildCount"] = 0
+
+    assert write_boxset(api, dict(payload)) == BOXSET_WRITTEN
+    assert video_query("SELECT COUNT(*) FROM movie WHERE idSet = 1") == [(0,)]
+    assert kofin_query("SELECT linked_count FROM boxset_state") == [(0,)]
+    assert kofin_query("SELECT checksum FROM jellyfin WHERE jellyfin_id = 'set1'") == [
+        (None,)
+    ]
+    assert not [msg for level, msg in boxset_log if level == "warning"]
+
+    # Members reappear with the same Etag: the NULL checksum forces the
+    # pass, which relinks and stamps the checksum again.
+    api.boxset_children = {"set1": [dto(MOVIE)]}
+    payload["ChildCount"] = 1
+    assert write_boxset(api, dict(payload)) == BOXSET_WRITTEN
+    assert video_query("SELECT COUNT(*) FROM movie WHERE idSet = 1") == [(1,)]
+    assert kofin_query("SELECT checksum FROM jellyfin WHERE jellyfin_id = 'set1'") == [
+        ("etag-set1-v2|plugin",)
+    ]
+
+
+def test_boxset_repairs_missing_sets_row(api):
+    """A sets row deleted underneath a live reference (Kodi's clean-library
+    drops memberless sets) previously took the update leg and UPDATEd
+    nothing; now it is recreated and every member relinked."""
+    linked_boxset(api)
+
+    video_exec("DELETE FROM sets")
+    # A decoy keeps SQLite from handing the recreated set the old rowid, so
+    # the assertions can tell "relinked to the new row" from "old id reused".
+    video_exec("INSERT INTO sets(idSet, strSet) VALUES (5, 'decoy')")
+    assert write_boxset(api) == BOXSET_HEALED
+
+    sets = video_query("SELECT idSet, strSet FROM sets ORDER BY idSet")
+    assert sets == [(5, "decoy"), (6, "Example Collection")]
+    assert video_query("SELECT COUNT(*) FROM movie WHERE idSet = 6") == [(2,)]
+    assert video_query("SELECT COUNT(*) FROM movie WHERE idSet = 1") == [(0,)]
+    assert kofin_query("SELECT kodi_id FROM jellyfin WHERE jellyfin_id = 'set1'") == [
+        (6,)
+    ]
+    assert kofin_query(
+        "SELECT COUNT(*) FROM jellyfin WHERE parent_id = 6 AND media_type = 'movie'"
+    ) == [(2,)]
+    assert kofin_query("SELECT linked_count FROM boxset_state") == [(2,)]
+
+
+def test_boxset_zero_movie_set_never_stamps_and_stays_quiet(api, boxset_log):
+    """A set with children but no movie members (mixed collections are
+    legitimate) writes cleanly with no warning, keeps a NULL checksum, and
+    never enters a heal loop."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    api.boxset_children = {"set1": []}
+    payload = dto(BOXSET)
+    payload["ChildCount"] = 2
+
+    assert write_boxset(api, dict(payload)) == BOXSET_WRITTEN
+    assert kofin_query("SELECT checksum FROM jellyfin WHERE jellyfin_id = 'set1'") == [
+        (None,)
+    ]
+    assert kofin_query("SELECT linked_count FROM boxset_state") == [(0,)]
+
+    assert write_boxset(api, dict(payload)) == BOXSET_WRITTEN
+    assert not [msg for level, msg in boxset_log if level == "warning"]
+
+
+def test_boxset_missing_state_forces_one_heal(api):
+    """A stamped set without a boxset_state row (the first pass after
+    upgrade) heals exactly once, then goes quiet."""
+    linked_boxset(api)
+    kofin_exec("DELETE FROM boxset_state")
+
+    assert write_boxset(api) == BOXSET_HEALED
+    assert kofin_query("SELECT linked_count FROM boxset_state") == [(2,)]
+    assert write_boxset(api) == BOXSET_UNCHANGED
+
+
+def test_boxset_state_dies_with_the_set(api):
+    linked_boxset(api)
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        Movies(api, kdb, vdb, library=LIBRARY).remove("set1")
+    assert kofin_query("SELECT COUNT(*) FROM boxset_state") == [(0,)]
+
+    api.boxset_children = {"set1": [dto(MOVIE)]}
+    assert write_boxset(api) == BOXSET_WRITTEN
+    assert kofin_query("SELECT COUNT(*) FROM boxset_state") == [(1,)]
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        Movies(api, kdb, vdb, library=LIBRARY).boxsets_reset()
+    assert kofin_query("SELECT COUNT(*) FROM boxset_state") == [(0,)]
+    assert video_query("SELECT COUNT(*) FROM sets") == [(0,)]
+
+
+def make_fullsync(api):
+    """A FullSync wired for direct method calls (no context manager, no
+    Kodi): only the database lock is real."""
+    from types import SimpleNamespace
+
+    from kofin.sync.full_sync import FullSync
+
+    FullSync._shared_state.clear()
+    sync = FullSync(library=SimpleNamespace(database_lock=threading.Lock()), server=api)
+    sync.sync = {"Libraries": [], "Whitelist": [], "RestorePoints": {}}
+    return sync
+
+
+def test_boxset_sweep_removes_stale(api):
+    """A set deleted server-side with no feed record to say so (tier 2,
+    retention gap) is removed by the walk's sweep — reference, sets row,
+    state row and links all go."""
+    linked_boxset(api)
+
+    ghost = dto(BOXSET)
+    ghost["Id"] = "set2"
+    ghost["Name"] = "Ghost Collection"
+    ghost["Etag"] = "etag-set2-v1"
+    api.boxset_children["set2"] = []
+    write_boxset(api, ghost)
+    assert video_query("SELECT COUNT(*) FROM sets") == [(2,)]
+
+    fullsync = make_fullsync(api)
+    try:
+        assert fullsync.sweep_stale_boxsets({"set1"}) == 1
+    finally:
+        type(fullsync)._shared_state.clear()
+
+    assert kofin_query("SELECT jellyfin_id FROM jellyfin WHERE media_type = 'set'") == [
+        ("set1",)
+    ]
+    assert video_query("SELECT strSet FROM sets") == [("Example Collection",)]
+    assert kofin_query("SELECT jellyfin_id FROM boxset_state") == [("set1",)]
+    assert video_query("SELECT COUNT(*) FROM movie WHERE idSet = 1") == [(2,)]
+
+
+def test_boxset_sweep_refuses_an_empty_listing(api):
+    """An empty walk against existing references is not a deletion order:
+    permission and filter failures look exactly like it."""
+    linked_boxset(api)
+
+    fullsync = make_fullsync(api)
+    try:
+        assert fullsync.sweep_stale_boxsets(set()) == 0
+    finally:
+        type(fullsync)._shared_state.clear()
+
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin WHERE media_type = 'set'") == [
+        (1,)
+    ]
+    assert video_query("SELECT COUNT(*) FROM sets") == [(1,)]
 
 
 # --- tv shows ------------------------------------------------------------------

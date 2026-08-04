@@ -71,6 +71,31 @@ class JellyfinDatabase:
 
         return self.cursor.fetchall()
 
+    def get_boxset_state(self, *args):
+        """linked_count stamped at the set's last successful membership
+        pass, or None when never stamped (docs/boxsets-robustness-plan.md).
+        """
+        self.cursor.execute(QU.get_boxset_state, args)
+
+        try:
+            return self.cursor.fetchone()[0]
+        except TypeError:
+            return
+
+    def get_boxset_states(self):
+        self.cursor.execute(QU.get_boxset_states)
+
+        return self.cursor.fetchall()
+
+    def add_boxset_state(self, *args):
+        self.cursor.execute(QU.add_boxset_state, args)
+
+    def remove_boxset_state(self, *args):
+        self.cursor.execute(QU.delete_boxset_state, args)
+
+    def remove_boxset_states(self):
+        self.cursor.execute(QU.delete_boxset_states)
+
     def get_item_by_kodi_id(self, *args):
 
         try:
@@ -161,6 +186,12 @@ class JellyfinDatabase:
 
     def get_items_by_media(self, *args):
         self.cursor.execute(QU.get_items_by_media, args)
+
+        return self.cursor.fetchall()
+
+    def get_item_ids_by_media(self, *args):
+        """(jellyfin_id, kodi_id) pairs for a media type."""
+        self.cursor.execute(QU.get_item_ids_by_media, args)
 
         return self.cursor.fetchall()
 

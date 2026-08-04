@@ -22,6 +22,12 @@ from kofin.core.log import Logger
 from kofin.sync import changefeed
 from kofin.sync import downloader as server
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
+from kofin.sync.writers.movies import (
+    BOXSET_GUARDED,
+    BOXSET_HEALED,
+    BOXSET_UNCHANGED,
+    BOXSET_WRITTEN,
+)
 from kofin.sync.db import Database, get_sync, save_sync
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync.shims import (
@@ -884,15 +890,31 @@ class FullSync(object):
 
     @progress(30407)
     def boxsets(self, library, dialog=None):
-        """Process all boxsets."""
+        """Process all boxsets.
+
+        Beyond the fork (docs/boxsets-robustness-plan.md): the walk asks the
+        server for ChildCount — the unlink guard's server signal, measured
+        harmless at set counts and deliberately not added to the shared
+        info() field list — tallies per-set outcomes into one summary line,
+        and sweeps references the server listing no longer contains.
+        """
         restore_key = "%s/boxsets" % library["Id"]
+        restore_point = self.get_restore_point(restore_key)
+        resumed = restore_point is not None
+        walked = set()
+        stats = {
+            BOXSET_UNCHANGED: 0,
+            BOXSET_WRITTEN: 0,
+            BOXSET_HEALED: 0,
+            BOXSET_GUARDED: 0,
+        }
 
         for items in server.get_items(
             self.server,
             library["Id"],
             "BoxSet",
             False,
-            self.get_restore_point(restore_key),
+            restore_point or {"Fields": "%s,ChildCount" % server.info()},
         ):
 
             with self.video_database_locks() as (videodb, jellyfindb):
@@ -914,16 +936,75 @@ class FullSync(object):
                         heading="%s: %s" % ("Kofin", localized(30407)),
                         message=boxset["Name"],
                     )
-                    obj.boxset(boxset)
+                    walked.add(boxset["Id"])
+                    outcome = obj.boxset(boxset)
+
+                    if outcome in stats:
+                        stats[outcome] += 1
 
         self.clear_restore_point(restore_key)
+
+        # A resumed walk never listed its earlier pages, so only a fresh,
+        # complete walk may treat absence from the listing as deletion.
+        swept = 0 if resumed else self.sweep_stale_boxsets(walked)
+
+        LOG.info(
+            "boxsets: %s checked (%s unchanged, %s written, %s healed, "
+            "%s guarded, %s swept)",
+            len(walked),
+            stats[BOXSET_UNCHANGED],
+            stats[BOXSET_WRITTEN],
+            stats[BOXSET_HEALED],
+            stats[BOXSET_GUARDED],
+            swept,
+        )
+
+    def sweep_stale_boxsets(self, walked):
+        """Remove set references the server listing no longer contains.
+
+        The walk is the same listing the writes came from, so a reference
+        absent from it is a set deleted server-side with no record to say so
+        — the prune never covers boxsets, and without a change-feed Removed
+        record such a set was a ghost forever. An empty listing against
+        existing references is not a deletion order (permission and filter
+        failures look exactly like it): skip and warn, mirroring the prune's
+        get_existing_ids philosophy.
+        """
+        with self.video_database_locks() as (videodb, jellyfindb):
+            db = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
+            known = [row[0] for row in db.get_items_by_media("set")]
+            stale = [item_id for item_id in known if item_id not in walked]
+
+            if not walked and known:
+                LOG.warning(
+                    "boxsets walk listed no sets while %s are referenced; "
+                    "skipping the sweep (an empty listing is not a deletion "
+                    "order)",
+                    len(known),
+                )
+                return 0
+
+            if not stale:
+                return 0
+
+            obj = Movies(self.server, jellyfindb, videodb)
+
+            for item_id in stale:
+                obj.remove(item_id)
+
+        LOG.info("swept %s stale boxset(s): %s", len(stale), ", ".join(stale[:5]))
+
+        return len(stale)
 
     def refresh_boxsets(self, library):
         """Delete all existing boxsets and re-add."""
         with self.video_database_locks() as (videodb, jellyfindb):
+            db = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
+            before = len(db.get_items_by_media("set"))
             obj = Movies(self.server, jellyfindb, videodb, library)
             obj.boxsets_reset()
 
+        LOG.info("refresh boxsets: reset %s set(s), re-adding", before)
         self.boxsets(library)
 
     @progress(30408)
