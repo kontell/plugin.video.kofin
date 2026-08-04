@@ -261,3 +261,58 @@ def test_resume_asks_the_server_for_its_own_list(api):
         "EnableTotalRecordCount": False,
         "Fields": "Overview",
     }
+
+
+# --- branding / splashscreen -------------------------------------------------
+
+
+class ImageHttp(Http):
+    """Answers with raw bytes, the way the splashscreen endpoint does."""
+
+    def __init__(self, payload=b"\x89PNG-bytes"):
+        super().__init__()
+        self.payload = payload
+        self.calls = []
+
+    def request(self, method, url, headers=None, params=None, json_body=None, **kwargs):
+        self.calls.append({"url": url, "headers": headers, "params": params, **kwargs})
+        payload = self.payload
+
+        class Response:
+            content = payload
+
+            def json(self):
+                raise AssertionError("an image is not json")
+
+        return Response()
+
+
+def image_api(transport):
+    return Api(transport, "http://s:8096", "Kodi", "dev1", "0.1.0", token="tok")
+
+
+def test_splashscreen_asks_for_the_servers_own_encoding():
+    """No transcode params: the endpoint ignores `quality` outright and the
+    image is already 1920x1080, so asking for Jpg would only add a lossy
+    generation ahead of the one Kodi's texture cache applies."""
+    transport = ImageHttp()
+    assert image_api(transport).splashscreen() == b"\x89PNG-bytes"
+
+    call = transport.calls[0]
+    assert call["url"] == "http://s:8096/Branding/Splashscreen"
+    assert call["params"] is None
+    assert call["headers"]["Accept"] == "image/*"
+    # A ~2.3MB image the server may render on demand needs more than the
+    # transport default read budget.
+    assert call["timeout"] == (6.0, 60.0)
+
+
+def test_splashscreen_returns_empty_bytes_rather_than_none():
+    assert image_api(ImageHttp(payload=b"")).splashscreen() == b""
+
+
+def test_branding_configuration_is_a_plain_get(api):
+    client, transport = api
+    client.branding_configuration()
+    assert transport.calls[0]["url"] == "http://s:8096/Branding/Configuration"
+    assert transport.calls[0]["method"] == "GET"

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<addon id="plugin.video.kofin" name="Kofin" version="0.9.0" provider-name="kontell">
+<addon id="plugin.video.kofin" name="Kofin" version="0.10.0" provider-name="kontell">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="script.module.requests" version="2.22.0+matrix.1"/>
@@ -85,8 +85,15 @@
     <source>https://github.com/kontell/plugin.video.kofin</source>
     <summary lang="en_GB">Jellyfin client with native Kodi integration</summary>
     <description lang="en_GB">Play media from a Jellyfin server.</description>
+    <!-- fanart.png is the *live* backdrop: service/backdrop.py rewrites it in
+         place when the server-splashscreen setting is on, and restores it from
+         a copy it captures into addon_data. The asset path has to stay fixed
+         because addon.xml is read once at install/scan time, and the file has
+         to be present in the zip because Kodi's addon browser fetches assets
+         from the repository before the addon is installed. -->
     <assets>
       <icon>resources/media/icon.png</icon>
+      <fanart>resources/media/fanart.png</fanart>
     </assets>
   </extension>
 </addon>

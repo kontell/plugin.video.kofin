@@ -1,3 +1,12 @@
+v0.10.0
+- Kofin now has a backdrop: your Jellyfin server's own splashscreen, drawn behind the add-on and its listings. Advanced settings turns it off for the bundled Jellyfin artwork instead
+- Home-screen widgets no longer redraw on every playback. Kodi re-renders every widget whenever the library is refreshed, with no check of its own whether anything actually changed, so Kofin now hashes exactly what the widgets show and only refreshes when that moved
+- Bursts of small changes now fold into a single refresh, where changing track used to cause two of them seconds apart, and each sync refreshes only the library it actually wrote - removed music libraries used to linger in the music widgets because the refresh aimed at the wrong database
+- Newly synced content appears on the home screen without a restart: the reload now waits for Kodi to report content instead of guessing at two seconds
+- Collections repair themselves. Membership can drift while the collection still looks unchanged to the server - a film removed and re-added comes back outside the set - and what used to need a manual "Refresh boxsets" is now found and fixed on the next service start
+- A collection is no longer emptied by a server that answers it has no members. A permission flap used to unlink every film and leave it that way
+- The "pause sync while the screensaver is on" setting is gone. It never paused anything, and it could lose your screensaver setting for good if Kodi quit mid-sync
+
 v0.9.0
 - Kodi 22 (Piers) is supported: its MyVideos147 database is now through the schema gate
 - Chapter images from Jellyfin now appear in Kodi's native chapter list

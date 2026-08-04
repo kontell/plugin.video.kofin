@@ -63,6 +63,7 @@ class SettingsApplier:
             "contextBitrates": self._context_bitrates_changed,
             "syncMusicPlaylists": self._sync_music_playlists_changed,
             "musicTranscode": self._music_transcode_changed,
+            "useServerBackdrop": self._server_backdrop_changed,
         }
         self.snapshot: Dict[str, str] = self._read_all()
 
@@ -206,6 +207,17 @@ class SettingsApplier:
             self.snapshot["syncMusicPlaylists"] = "true"
             return
         library.enqueue_command("CleanupMusicPlaylists")
+
+    def _server_backdrop_changed(self, old: str, new: str) -> None:
+        """Swap the addon fanart now rather than at the next connect.
+
+        ``force`` because the daily fetch floor is there to stop reconnect
+        churn, not to make a deliberate toggle wait a day. Off needs no server
+        and no thread of its own, but goes the same way so the two directions
+        cannot disagree about what is on disk.
+        """
+        service = self.service
+        service._start_backdrop(force=True)  # type: ignore[attr-defined]
 
     def _music_transcode_changed(self, old: str, new: str) -> None:
         """Path mode flip rewrites MyMusic rows later; rematerialize playlists

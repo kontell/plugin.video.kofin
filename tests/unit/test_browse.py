@@ -478,3 +478,55 @@ def test_genre_rows_carry_stock_art_on_both_keys(recording_art, directory):
     li = directory["entries"][0][1]
     assert li.getArt("icon") == "DefaultGenre.png"
     assert li.getArt("thumb") == "DefaultGenre.png"
+
+
+# --- addon backdrop fallback -------------------------------------------------
+
+
+def test_every_root_row_gets_a_backdrop_including_library_rows(
+    monkeypatch, directory, recording_art
+):
+    """The library rows are the ones this is really about. They carry a
+    Primary image, so they *look* covered -- but a Jellyfin UserView has no
+    BackdropImageTags, so art_for never sets fanart for one and they bypass
+    structural_art entirely. Live, that left the background empty on exactly
+    the rows the addon root is mostly made of."""
+    FakeAddon.store["syncPlayEnabled"] = "true"
+    monkeypatch.setattr(
+        "kofin.plugin.syncplay.external_player_configured", lambda: False
+    )
+    api = ResumeApi(
+        views=[
+            {
+                "Id": "v1",
+                "Name": "Movies",
+                "CollectionType": "movies",
+                "ImageTags": {"Primary": "p1"},
+            }
+        ]
+    )
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.root(Request("plugin://x", 1, {}))
+
+    backdrop = browse._addon_media(browse.BACKDROP_IMAGE)
+    assert backdrop  # the fixture's addon path resolves
+    for path, li, _folder in directory["entries"]:
+        assert li.getArt("fanart") == backdrop, path
+
+
+def test_backdrop_never_displaces_real_server_artwork(recording_art):
+    """A fallback, not a decoration."""
+    own = "https://s/Items/x/Images/Backdrop/0?tag=t"
+    assert browse.with_backdrop({"fanart": own})["fanart"] == own
+
+    li = recording_art("x")
+    li.setArt({"fanart": own})
+    browse.apply_backdrop(li)
+    assert li.getArt("fanart") == own
+
+
+def test_backdrop_fills_a_media_row_that_has_none(recording_art):
+    li = recording_art("x")
+    browse.apply_backdrop(li)
+    assert li.getArt("fanart") == browse._addon_media(browse.BACKDROP_IMAGE)

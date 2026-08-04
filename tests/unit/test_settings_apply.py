@@ -42,9 +42,13 @@ class FakeService:
         self._restart_requested = False
         self.library = FakeLibraryManager()
         self.reregistered = 0
+        self.backdrop_refreshes = []
 
     def _start_library(self):
         pass
+
+    def _start_backdrop(self, force=False):
+        self.backdrop_refreshes.append(force)
 
     def _on_ws_connected(self):
         self.reregistered += 1
@@ -481,6 +485,19 @@ def test_music_transcode_skips_when_playlists_off():
     FakeAddon.store["musicTranscode"] = "true"
     applier.apply()
     assert service.library.commands == []
+
+
+@pytest.mark.parametrize("target", ["true", "false"])
+def test_server_backdrop_toggle_refreshes_both_ways(target):
+    """Both directions go through the service so the file on disk cannot end
+    up disagreeing with the setting; force skips the daily fetch floor."""
+    service = FakeService()
+    FakeAddon.store["useServerBackdrop"] = "false" if target == "true" else "true"
+    applier = ready_applier(service)
+
+    FakeAddon.store["useServerBackdrop"] = target
+    applier.apply()
+    assert service.backdrop_refreshes == [True]
 
 
 def test_spurious_empty_sync_music_playlists_does_not_cleanup():
