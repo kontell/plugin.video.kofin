@@ -61,3 +61,76 @@ def test_each_query_asks_the_matching_method(monkeypatch):
         assert kodirpc.resume_seconds(42, media) == 7.0
         assert seen["method"] == method
         assert seen["params"][id_field] == 42
+
+
+# --- texture invalidation ----------------------------------------------------
+
+
+class TextureRpc:
+    """Records the calls a texture drop makes; answers the lookup with rows."""
+
+    def __init__(self, textures):
+        self.textures = textures
+        self.calls = []
+
+    def __call__(self, query):
+        request = json.loads(query)
+        self.calls.append(request)
+        if request["method"] == "Textures.GetTextures":
+            return json.dumps({"result": {"textures": self.textures}})
+        return json.dumps({"result": "OK"})
+
+
+def test_drop_cached_texture_removes_every_match(monkeypatch):
+    rpc = TextureRpc(
+        [
+            {"textureid": 7, "url": "image://…%2fplugin.video.kofin%2f…fanart.png/"},
+            {"textureid": 9, "url": "image://…%2fkofin%2ffanart.png/transform?x=1"},
+        ]
+    )
+    monkeypatch.setattr("xbmc.executeJSONRPC", rpc)
+
+    assert kodirpc.drop_cached_texture("plugin.video.kofin", require="fanart.png") == 2
+
+    lookup = rpc.calls[0]
+    # Filtered server-side: a real install's cache runs to thousands of rows.
+    assert lookup["params"]["filter"] == {
+        "field": "url",
+        "operator": "contains",
+        "value": "plugin.video.kofin",
+    }
+    # Without this Kodi answers with bare ids and `require` has nothing to test.
+    assert lookup["params"]["properties"] == ["url"]
+    assert [c["params"]["textureid"] for c in rpc.calls[1:]] == [7, 9]
+
+
+def test_drop_cached_texture_spares_another_addons_file_of_the_same_name():
+    """Live finding: plugin.video.jellyfin ships its own resources/fanart.png,
+    so a filename-only match would evict a texture that is not ours."""
+    rpc = TextureRpc(
+        [
+            {"textureid": 7, "url": "image://…%2fplugin.video.kofin%2ffanart.png/"},
+            {"textureid": 8, "url": "image://…%2fplugin.video.kofin%2ficon.png/"},
+        ]
+    )
+    import xbmc
+
+    original, xbmc.executeJSONRPC = xbmc.executeJSONRPC, rpc
+    try:
+        assert (
+            kodirpc.drop_cached_texture("plugin.video.kofin", require="fanart.png") == 1
+        )
+    finally:
+        xbmc.executeJSONRPC = original
+    assert [c["params"]["textureid"] for c in rpc.calls[1:]] == [7]
+
+
+def test_drop_cached_texture_survives_a_failed_lookup(monkeypatch):
+    monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
+    assert kodirpc.drop_cached_texture("plugin.video.kofin") == 0
+
+
+def test_drop_cached_texture_reports_nothing_to_do(monkeypatch):
+    rpc = TextureRpc([])
+    monkeypatch.setattr("xbmc.executeJSONRPC", rpc)
+    assert kodirpc.drop_cached_texture("plugin.video.kofin") == 0

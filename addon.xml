@@ -85,8 +85,15 @@
     <source>https://github.com/kontell/plugin.video.kofin</source>
     <summary lang="en_GB">Jellyfin client with native Kodi integration</summary>
     <description lang="en_GB">Play media from a Jellyfin server.</description>
+    <!-- fanart.png is the *live* backdrop and is rewritten in place by
+         service/backdrop.py when the server-splashscreen setting is on;
+         fanart-default.png is the pristine bundled copy it restores from.
+         The asset path has to stay fixed because addon.xml is read once at
+         install/scan time — swapping the file is the only way to change the
+         backdrop at runtime. -->
     <assets>
       <icon>resources/media/icon.png</icon>
+      <fanart>resources/media/fanart.png</fanart>
     </assets>
   </extension>
 </addon>

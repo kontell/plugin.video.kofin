@@ -1474,3 +1474,12 @@ msgstr ""
 msgctxt "#30636"
 msgid "%s albums added to library"
 msgstr ""
+
+# 30637-30638 — server splashscreen backdrop
+msgctxt "#30637"
+msgid "Use the server's splashscreen as the backdrop"
+msgstr ""
+
+msgctxt "#30638"
+msgid "Show the Jellyfin server's splashscreen behind the addon instead of the bundled artwork. Refreshed when the service connects, at most once a day."
+msgstr ""

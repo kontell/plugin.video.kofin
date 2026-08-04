@@ -3,6 +3,10 @@
 Both processes need these. The play route has to start where Kodi is about to
 seek, and the service has to confirm a resume bookmark really is gone before
 acting on the announcement that says so.
+
+``drop_cached_texture`` is the one write: rewriting a file in place leaves
+Kodi's texture cache serving the bytes it already cached, so the backdrop swap
+has to invalidate the entry itself.
 """
 
 import json
@@ -74,6 +78,77 @@ def current_subtitle() -> Optional[int]:
     except Exception as error:
         LOG.debug("current subtitle read failed: %s", error)
         return None
+
+
+def drop_cached_texture(needle: str, require: str = "") -> int:
+    """Remove cached textures whose url contains ``needle`` (and ``require``,
+    if given); returns how many went. Best effort — a failure only means a
+    stale image.
+
+    Kodi keys its texture cache on the source url, so overwriting a file the
+    cache already holds changes nothing on screen: it re-reads only when its
+    own hash check falls due, which is not on any timescale a user connects to
+    the action that caused the change. Removing the row forces the next draw
+    to re-cache from disk.
+
+    Two-stage matching because the cache runs to thousands of rows on a real
+    install, and Kodi's filter takes exactly one substring. ``needle`` narrows
+    the query server-side; ``require`` then makes the match exact in Python.
+    Both are needed: filtering on the bare filename is not ours to do — a live
+    install had ``plugin.video.jellyfin`` holding its own ``fanart.png``, which
+    a filename-only match would have evicted — and filtering on the addon id
+    alone would take every image the addon ships. The url is percent-encoded
+    by Kodi (``image://%2fhome%2f…%2fplugin.video.kofin%2f…``), so neither
+    substring may span a path separator.
+    """
+    try:
+        listed: Dict[str, Any] = json.loads(
+            xbmc.executeJSONRPC(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "Textures.GetTextures",
+                        "params": {
+                            # Without an explicit properties list Kodi answers
+                            # with bare texture ids, and ``require`` would have
+                            # no url to test.
+                            "properties": ["url"],
+                            "filter": {
+                                "field": "url",
+                                "operator": "contains",
+                                "value": needle,
+                            },
+                        },
+                    }
+                )
+            )
+        )
+        textures = listed["result"].get("textures", [])
+    except Exception as error:
+        LOG.warning("texture lookup failed for %r: %s", needle, error)
+        return 0
+
+    removed = 0
+    for texture in textures:
+        if require and require not in str(texture.get("url", "")):
+            continue
+        try:
+            xbmc.executeJSONRPC(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "Textures.RemoveTexture",
+                        "params": {"textureid": int(texture["textureid"])},
+                    }
+                )
+            )
+            removed += 1
+        except Exception as error:
+            LOG.warning("texture removal failed for %r: %s", texture, error)
+    LOG.debug("dropped %s cached texture(s) matching %r", removed, needle)
+    return removed
 
 
 def resume_seconds(kodi_id: int, media: str) -> Optional[float]:

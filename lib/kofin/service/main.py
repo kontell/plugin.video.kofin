@@ -18,7 +18,7 @@ from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials, addon_version
 from kofin.core.ws import WSClient
-from kofin.service import chapters
+from kofin.service import backdrop, chapters
 from kofin.service.kodiuserdata import KodiUserData
 from kofin.service.player import Player, backfill_library_claim
 from kofin.service.remote import RemoteHandler
@@ -105,6 +105,7 @@ class Service(xbmc.Monitor):
         self._syncplay_menu: Optional[threading.Thread] = None
         self._who_is_watching: Optional[threading.Thread] = None
         self._chapter_sweep: Optional[threading.Thread] = None
+        self._backdrop: Optional[threading.Thread] = None
         self._online = False
         self._backoff = Backoff()
         self.settings_apply = SettingsApplier(self)
@@ -161,6 +162,7 @@ class Service(xbmc.Monitor):
         self._start_syncplay()  # before the websocket: messages route into it
         self._start_websocket()
         self._start_library()
+        self._start_backdrop()
 
     def _start_library(self) -> None:
         """Start the sync manager once online, when there is anything to sync
@@ -293,6 +295,27 @@ class Service(xbmc.Monitor):
             chapters.sweep(self.credentials.device_id)
         except Exception:
             LOG.exception("chapter thumb sweep failed")
+
+    def _start_backdrop(self, force: bool = False) -> None:
+        """Refresh the addon fanart from the server's splashscreen.
+
+        On its own thread because it downloads a couple of megabytes and
+        nothing waits on the result — a backdrop that lands a few seconds into
+        the session is indistinguishable from one that was always there.
+        Restarted rather than joined: the previous run is idempotent and its
+        own worst case is a redundant write.
+        """
+        if self._backdrop is not None and self._backdrop.is_alive():
+            LOG.debug("backdrop refresh already running")
+            return
+        self._backdrop = threading.Thread(
+            target=self._run_backdrop, name="kofin-backdrop", args=(force,)
+        )
+        self._backdrop.daemon = True
+        self._backdrop.start()
+
+    def _run_backdrop(self, force: bool) -> None:
+        backdrop.apply(self.api if self._online else None, time.time(), force=force)
 
     def _start_websocket(self) -> None:
         header = auth.build_auth_header(

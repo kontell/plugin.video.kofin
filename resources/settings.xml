@@ -833,6 +833,13 @@
           <default>true</default>
           <control type="toggle"/>
         </setting>
+        <!-- Deliberately not gated on isLoggedIn: /Branding/Splashscreen is an
+             anonymous endpoint, so a configured server address is enough. -->
+        <setting id="useServerBackdrop" type="boolean" label="30637" help="30638">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
         <setting id="selectWhoIsWatching" type="string" label="30079" help="30080">
           <level>0</level>
           <default></default>

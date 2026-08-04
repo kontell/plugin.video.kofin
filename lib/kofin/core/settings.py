@@ -10,6 +10,7 @@ from typing import List
 
 import xbmc
 import xbmcaddon
+import xbmcvfs
 
 from kofin.core import log
 
@@ -53,6 +54,16 @@ def addon_version() -> str:
 
 def addon_path() -> str:
     return _addon().getAddonInfo("path")
+
+
+def addon_data_path() -> str:
+    """The profile's addon_data directory for kofin.
+
+    ``sync.db`` resolves the same directory for the transplant's own files;
+    this is the shell-side reader so a shell module does not have to import
+    the sync stack (and inherit its failure modes) to find a scratch path.
+    """
+    return xbmcvfs.translatePath("special://profile/addon_data/" + ADDON_ID + "/")
 
 
 def addon_name() -> str:

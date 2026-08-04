@@ -15,6 +15,11 @@ JsonDict = Dict[str, Any]
 # transport default: see Api.lyrics.
 LYRICS_TIMEOUT = (2.0, 3.0)
 
+# The splashscreen is a ~2.3MB PNG the server may render on demand, so it gets
+# a longer read budget than the default. It runs on its own worker thread and
+# nothing waits on it, so a slow server costs nothing but a late backdrop.
+SPLASHSCREEN_TIMEOUT = (6.0, 60.0)
+
 
 class Api:
     def __init__(
@@ -86,6 +91,28 @@ class Api:
 
     def public_info(self) -> JsonDict:
         return self.get("/System/Info/Public")
+
+    def branding_configuration(self) -> JsonDict:
+        return self.get("/Branding/Configuration")
+
+    def splashscreen(self) -> bytes:
+        """The server's splashscreen image, exactly as the server encodes it.
+
+        No transcode parameters, deliberately. The endpoint ignores ``quality``
+        outright (40/70/90/100 all return byte-identical output) and the image
+        is already 1920x1080, so ``maxWidth``/``maxHeight`` are no-ops on the
+        only dimension that could matter. That leaves ``format``, and asking
+        for Jpg would only add a lossy generation ahead of the one Kodi's own
+        texture cache applies — the splash is a poster collage full of fine
+        text, which is exactly the content that shows it.
+        """
+        response = self._http.request(
+            "GET",
+            self._url("/Branding/Splashscreen"),
+            headers={"Authorization": self._header, "Accept": "image/*"},
+            timeout=SPLASHSCREEN_TIMEOUT,
+        )
+        return bytes(response.content)
 
     def post_capabilities(self, capabilities: JsonDict) -> None:
         self.post("/Sessions/Capabilities/Full", capabilities)
