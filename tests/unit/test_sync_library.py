@@ -726,6 +726,9 @@ def test_ws_events_route_into_library(monkeypatch):
 
     service = Service.__new__(Service)
     service.remote = type("R", (), {"handle": lambda self, m, d: False})()
+    # UserDataChanged is routed only when it is about the user we mirror
+    # (see kofin.service.main.own_userdata).
+    service.api = type("A", (), {"user_id": "u1"})()
     service.library = FakeLibrary()
 
     service._on_ws_event(
@@ -734,7 +737,9 @@ def test_ws_events_route_into_library(monkeypatch):
     )
     assert calls == {"added": ["a"], "updated": ["u"], "removed": ["r"]}
 
-    service._on_ws_event("UserDataChanged", {"UserDataList": [{"ItemId": "x"}]})
+    service._on_ws_event(
+        "UserDataChanged", {"UserId": "u1", "UserDataList": [{"ItemId": "x"}]}
+    )
     assert calls["userdata"] == [{"ItemId": "x"}]
 
 
