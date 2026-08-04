@@ -36,11 +36,11 @@ msgid "Enter code [B]%s[/B] in the Jellyfin app or web interface."
 msgstr ""
 
 msgctxt "#30016"
-msgid "Signed in as %s"
+msgid "Logged in as %s"
 msgstr ""
 
 msgctxt "#30017"
-msgid "Sign-in failed: wrong username or password"
+msgid "Login failed: wrong username or password"
 msgstr ""
 
 msgctxt "#30018"
@@ -48,11 +48,11 @@ msgid "Server unreachable"
 msgstr ""
 
 msgctxt "#30019"
-msgid "Sign out from %s?"
+msgid "Log out from %s?"
 msgstr ""
 
 msgctxt "#30020"
-msgid "Signed out"
+msgid "Logged out"
 msgstr ""
 
 msgctxt "#30021"
@@ -60,7 +60,7 @@ msgid "Connection OK — %s (%s)"
 msgstr ""
 
 msgctxt "#30022"
-msgid "Session rejected — sign in again from the Account tab"
+msgid "Session rejected — log in again from the Account tab"
 msgstr ""
 
 msgctxt "#30023"
@@ -72,15 +72,15 @@ msgid "Quick Connect timed out"
 msgstr ""
 
 msgctxt "#30025"
-msgid "Already signed in"
+msgid "Already logged in"
 msgstr ""
 
 msgctxt "#30026"
-msgid "Not signed in"
+msgid "Not logged in"
 msgstr ""
 
 msgctxt "#30027"
-msgid "Sign in to %s"
+msgid "Log in to %s"
 msgstr ""
 
 # 30050-30099 — Account tab (30066-30067 and 30071-30080: Advanced tab)
@@ -102,7 +102,7 @@ msgid "Host name, IP address or full URL of the Jellyfin server. A bare host use
 msgstr ""
 
 msgctxt "#30054"
-msgid "Sign in…"
+msgid "Log in…"
 msgstr ""
 
 msgctxt "#30055"
@@ -118,7 +118,7 @@ msgid "The connected Jellyfin server."
 msgstr ""
 
 msgctxt "#30058"
-msgid "Signed-in user"
+msgid "Logged-in user"
 msgstr ""
 
 msgctxt "#30059"
@@ -134,7 +134,7 @@ msgid "Check that the server is reachable and the session is still valid."
 msgstr ""
 
 msgctxt "#30062"
-msgid "Sign out"
+msgid "Log out"
 msgstr ""
 
 msgctxt "#30063"
@@ -1091,7 +1091,7 @@ msgid "Count down on the Play Next prompt and start the next episode automatical
 msgstr ""
 
 msgctxt "#30475"
-msgid "Resume offset"
+msgid "Resume offset (seconds)"
 msgstr ""
 
 msgctxt "#30476"
