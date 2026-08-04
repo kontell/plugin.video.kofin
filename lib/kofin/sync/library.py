@@ -93,6 +93,21 @@ PLAYLIST_POLL_SECONDS = 900
 # event without a real walk (see Library._refresh_music). Must never be
 # created — if it existed the scan would descend into it.
 MUSIC_REFRESH_PROBE = "special://temp/kofin-music-refresh-probe/"
+# The Library.HasContent flags each database's first-content reload waits on
+# (see _reload_skin_for_content). Per database because a music-only first
+# sync flips only the music bool.
+VIDEO_CONTENT_FLAGS = (
+    "Library.HasContent(Movies)",
+    "Library.HasContent(TVShows)",
+    "Library.HasContent(MusicVideos)",
+)
+MUSIC_CONTENT_FLAGS = ("Library.HasContent(Music)",)
+# How long the first-content reload waits for the scan cycle to flip
+# Library.HasContent before reloading anyway. The old fixed 2 s wait was a
+# guess: a slow box rebuilt the skin against still-false bools, and the
+# hidden-content checks are self-disarming, so the race could never retry.
+CONTENT_FLAG_TIMEOUT_SECONDS = 10.0
+CONTENT_FLAG_POLL_SECONDS = 0.25
 # New-content toast display time (ms), the fork's video default. One time for
 # every line: the fork's shorter music toast existed because music notified
 # per song and a synced album fired a dozen of them, which aggregation ends.
@@ -111,6 +126,9 @@ class Library(threading.Thread):
     stop_thread = False
     suspend = False
     pending_refresh = False
+    # A first-content skin reload held back because video was playing; fired
+    # by the service tick once playback ends (see _reload_skin_for_content).
+    pending_skin_reload = False
     progress_updates = None
     total_updates = 0
 
@@ -257,8 +275,6 @@ class Library(threading.Thread):
         else:
             status = localized(30412)
 
-        settings.set_str("syncStatus", status)
-
         names = []
         with Database("kofin") as kofin_db:
             db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
@@ -266,7 +282,18 @@ class Library(threading.Thread):
                 view = db.get_view(library_id.replace("Mixed:", ""))
                 if view:
                     names.append(view.view_name)
-        settings.set_str("syncedLibraries", ", ".join(names))
+
+        # Write-on-change: every set rewrites the whole settings.xml and fires
+        # onSettingsChanged, and this runs per processed command — the
+        # unconditional writes raced the applier's re-read into transient
+        # "failed to load addon settings" (widget-refresh-plan F9).
+        if settings.get_str("syncStatus") != status:
+            settings.set_str("syncStatus", status)
+
+        joined = ", ".join(names)
+
+        if settings.get_str("syncedLibraries") != joined:
+            settings.set_str("syncedLibraries", joined)
 
     def detect_companion(self):
         """The tier ladder (plan §2): KofinSyncQueue → official KodiSyncQueue
@@ -473,6 +500,8 @@ class Library(threading.Thread):
         # syncDuringPlay on is held while video plays, and this is the tick
         # that raises it once playback ends.
         self.notify_new_content()
+        # Same shape: a first-content reload held during playback fires here.
+        self.flush_pending_reload()
 
         if self.pending_refresh:
             state.set_sync_active(True)
@@ -570,9 +599,25 @@ class Library(threading.Thread):
                         self.add_library(data["Id"], data.get("Update", False))
                 elif command == "RemoveLibrary":
                     if data.get("Id"):
+                        kinds = set()
+
                         for lib in data["Id"].split(","):
+                            # Before the removal deletes the view row.
+                            kind = self._removal_kind(lib)
+
                             if not self.remove_library(lib):
                                 break
+
+                            if kind:
+                                kinds.add(kind)
+
+                        # Removal is the one write path with no other refresh
+                        # owner, and it must aim at the removed library's own
+                        # database — the old blanket refresh aimed at video,
+                        # so a removed music library lingered in the music
+                        # widgets indefinitely (widget-refresh-plan F5).
+                        if kinds:
+                            self.refresh_libraries(kinds)
                 elif command == "RepairLibrary":
                     if data.get("Id"):
                         libraries = data["Id"].split(",")
@@ -620,11 +665,28 @@ class Library(threading.Thread):
                 LOG.exception(error)
 
             self.update_status_strings()
-            # Widget refresh policy (fork e4f8dc3f): refresh only when a
-            # media window is up, never UpdateLibrary().
-            self.refresh_libraries(self.touched_databases or {"video"})
+            # No blanket refresh here: every path that writes owns its own
+            # refresh — FullSync at its end, removals above, queued work at
+            # the drain. The old tail refresh fired UpdateLibrary(video)
+            # after *every* command (a no-op FastSync on each screensaver
+            # wake included) and aimed at the wrong database for music-only
+            # commands (widget-refresh-plan F1/D4).
 
             self.commands.task_done()
+
+    def _removal_kind(self, library_id):
+        """Which Kodi database ("video"/"music") removing this library writes,
+        from the still-present view row; None when the view is unknown (the
+        removal will no-op). Mixed libraries are video by definition."""
+        with Database("kofin") as kofin_db:
+            view = jellyfin_db.JellyfinDatabase(kofin_db.cursor).get_view(
+                library_id.replace("Mixed:", "")
+            )
+
+        if view is None:
+            return None
+
+        return "music" if view.media_type == "music" else "video"
 
     def stop_client(self):
         self.stop_thread = True
@@ -865,17 +927,97 @@ class Library(threading.Thread):
             xbmc.executebuiltin("UpdateLibrary(video)")
 
             if rebuild_home:
-                # Let the (no-op) scan finish so Library.HasContent is true
-                # again before the skin rebuilds its windows against it.
-                self.monitor.waitForAbort(2)
-                LOG.info("first video content synced; reloading skin for home widgets")
-                xbmc.executebuiltin("ReloadSkin()")
+                self._reload_skin_for_content(VIDEO_CONTENT_FLAGS)
 
         if "music" in databases:
+            # Checked before the probe scan flips the cached bool: the music
+            # widget sections have the same empty->populated blindness as the
+            # video ones (baked include conditions plus providers that go
+            # deaf when their last fetch was empty), and nothing else can
+            # reveal a *first* music sync (widget-refresh-plan F6).
+            rebuild_home = self._music_content_hidden()
+
             self._refresh_music()
+
+            if rebuild_home:
+                self._reload_skin_for_content(MUSIC_CONTENT_FLAGS)
 
         if xbmc.getCondVisibility("Window.IsMedia"):
             xbmc.executebuiltin("Container.Refresh")
+
+    def _reload_skin_for_content(self, conditions):
+        """Rebuild the skin for the empty -> populated transition, once the
+        scan cycle has flipped a matching ``Library.HasContent`` bool.
+
+        A reload is the only mechanism that works here: the skin's widget
+        sections are gated on ``Library.HasContent`` conditions that bake at
+        window load, and a widget container whose last fetch was empty is
+        deaf to library announcements (widget-refresh-plan, the
+        DirectoryProvider facts). Polling for the flag replaces the old fixed
+        2 s wait; on timeout the reload still fires, because a reload against
+        stale bools at least becomes right on the next one, while not
+        reloading leaves the section invisible until Kodi restarts.
+
+        Held while video plays — a skin reload rebuilds the OSD under the
+        viewer — and fired by the service tick once playback ends.
+        """
+        for _ in range(int(CONTENT_FLAG_TIMEOUT_SECONDS / CONTENT_FLAG_POLL_SECONDS)):
+            if any(xbmc.getCondVisibility(flag) for flag in conditions):
+                break
+
+            if self.monitor.waitForAbort(CONTENT_FLAG_POLL_SECONDS):
+                return
+        else:
+            LOG.warning(
+                "Library.HasContent did not flip within %ss; reloading anyway",
+                CONTENT_FLAG_TIMEOUT_SECONDS,
+            )
+
+        if self.player.isPlayingVideo():
+            LOG.info("holding the first-content skin reload until playback ends")
+            self.pending_skin_reload = True
+            return
+
+        self._fire_skin_reload()
+
+    def flush_pending_reload(self):
+        """Fire a held first-content reload once video playback has ended."""
+        if not self.pending_skin_reload or self.player.isPlayingVideo():
+            return
+
+        self.pending_skin_reload = False
+        self._fire_skin_reload()
+
+    def _fire_skin_reload(self):
+        LOG.info("first content synced; reloading skin for home widgets")
+        xbmc.executebuiltin("ReloadSkin()")
+
+    def _music_content_hidden(self):
+        """The music twin of ``_video_content_hidden``: MyMusic holds rows
+        while Kodi still believes there is no music library.
+
+        Guarded on the whitelist actually requiring music so this never puts
+        the music schema gate in front of users who never asked kofin to
+        touch their music (same rule as ``check_version``). Self-limiting
+        exactly like the video probe: once the reload has happened the cache
+        is right and this returns False forever after.
+        """
+        if xbmc.getCondVisibility("Library.HasContent(Music)"):
+            return False
+
+        if "music" not in self.required_kinds():
+            return False
+
+        try:
+            with Database("music") as musicdb:
+                for table in ("album", "song"):
+                    musicdb.cursor.execute("SELECT 1 FROM %s LIMIT 1" % table)
+                    if musicdb.cursor.fetchone():
+                        return True
+        except Exception:
+            LOG.exception("could not determine music library content state")
+
+        return False
 
     def _refresh_music(self):
         """Give music the library event that direct SQLite writes never fire.

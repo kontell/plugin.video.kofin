@@ -291,16 +291,22 @@ class FullSync(object):
 
         # Refresh the databases this sync actually wrote. Refreshing only video
         # left a freshly synced music library invisible in the music widgets.
-        synced_video, synced_music = split_libraries(libraries, self._media_type)
-        databases = set()
+        # Update mode refreshes nothing here: it only *plans* (the prune hands
+        # every write to the incremental pipeline), so the refresh belongs to
+        # the drain that lands the work — refreshing at plan time re-rendered
+        # every widget for rows that had not changed yet, doubling the update
+        # command's cost for nothing (widget-refresh-plan F2/D4).
+        if not self.update_library:
+            synced_video, synced_music = split_libraries(libraries, self._media_type)
+            databases = set()
 
-        if synced_video:
-            databases.add("video")
+            if synced_video:
+                databases.add("video")
 
-        if synced_music:
-            databases.add("music")
+            if synced_music:
+                databases.add("music")
 
-        self.library.refresh_libraries(databases)
+            self.library.refresh_libraries(databases)
 
         # Music playlists are files, not MyMusic rows — refresh after a
         # successful library pass when the setting is on. Soft-fail so a
