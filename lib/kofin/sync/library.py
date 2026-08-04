@@ -32,6 +32,7 @@ from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import schema
 from kofin.sync.full_sync import FullSync, PRUNE_SERVER_TYPES, local_reference_map
 from kofin.sync.views import Views
+from kofin.sync import widgetstate
 from kofin.sync.downloader import GetItemWorker, basic_info, get_prune_count
 from kofin.sync import fields as api
 from kofin.sync.shims import (
@@ -232,6 +233,11 @@ class Library(threading.Thread):
         self.refresh_pending = set()
         self.refresh_due_at = None
         self.refresh_hold_until = None
+        # Last-refresh widget fingerprints per database (the D2 gate's
+        # memory). Instance state on purpose: a service restart forgets, and
+        # an unknown fingerprint refreshes once — pvr.kofin's first-poll
+        # rule, never a missed refresh.
+        self.widget_fingerprints = {}
 
         threading.Thread.__init__(self, name="kofin-library")
 
@@ -948,7 +954,22 @@ class Library(threading.Thread):
             self.refresh_due_at = None
             self.refresh_hold_until = None
 
-        if "video" in databases:
+        # The fingerprint gate (widget-refresh-plan D2): every builtin below
+        # makes Kodi re-fetch and re-render widgets with no same-content
+        # check of its own, so a candidate database only proceeds when what
+        # widgets render actually moved. The echo of our own playback
+        # reporting — identical userdata written back moments after Kodi's
+        # native write — is the class this suppresses.
+        moved = self._moved_databases(set(databases))
+
+        if not moved:
+            LOG.info(
+                "--[ widgets unchanged: %s; refresh suppressed ]",
+                "+".join(sorted(databases)),
+            )
+            return
+
+        if "video" in moved:
             # Catch the empty -> non-empty transition before the scan clears
             # Kodi's cache, because the scan alone is not enough: see
             # _video_content_hidden().
@@ -959,7 +980,7 @@ class Library(threading.Thread):
             if rebuild_home:
                 self._reload_skin_for_content(VIDEO_CONTENT_FLAGS)
 
-        if "music" in databases:
+        if "music" in moved:
             # Checked before the probe scan flips the cached bool: the music
             # widget sections have the same empty->populated blindness as the
             # video ones (baked include conditions plus providers that go
@@ -972,8 +993,65 @@ class Library(threading.Thread):
             if rebuild_home:
                 self._reload_skin_for_content(MUSIC_CONTENT_FLAGS)
 
-        if xbmc.getCondVisibility("Window.IsMedia"):
+        # Scoped to the window's own content family (widget-refresh-plan D6):
+        # a music-only cycle must not re-fetch the movie listing the user is
+        # browsing. Unknown path families refresh as before.
+        if xbmc.getCondVisibility("Window.IsMedia") and (
+            widgetstate.container_wants_refresh(
+                xbmc.getInfoLabel("Container.FolderPath"), moved
+            )
+        ):
             xbmc.executebuiltin("Container.Refresh")
+
+    def _moved_databases(self, databases):
+        """The candidate databases whose widget fingerprint moved since the
+        last refresh; unknown fingerprints count as moved (pvr.kofin's
+        first-poll rule — a service restart refreshes once).
+
+        Computed only here, at refresh decision time, for the candidates only
+        ("only hashed when needed"): behind the settle that is at most one
+        fingerprint pass per user action. No process lock is taken — the
+        connections run WAL, so the read never blocks a mid-drain writer and
+        must not block the service tick; a mid-drain snapshot at worst costs
+        one extra refresh when that drain completes and re-arms.
+
+        An unreadable fingerprint refreshes: firing for nothing is
+        recoverable, suppressing a real change is not.
+        """
+        moved = set()
+
+        for db_file in sorted(databases):
+            if db_file == "music" and "music" not in self.required_kinds():
+                # Never open MyMusic for users who never synced music (the
+                # check_version rule): pass the refresh through ungated.
+                moved.add(db_file)
+                continue
+
+            try:
+                current = widgetstate.fingerprint(db_file)
+            except Exception as error:
+                LOG.warning(
+                    "widget fingerprint failed for %s (%s); refreshing",
+                    db_file,
+                    error,
+                )
+                self.widget_fingerprints.pop(db_file, None)
+                moved.add(db_file)
+                continue
+
+            stored = self.widget_fingerprints.get(db_file)
+            changed = widgetstate.moved_sections(stored or {}, current)
+
+            if changed:
+                LOG.info(
+                    "--[ widgets moved: %s/%s ]",
+                    db_file,
+                    "+".join(sorted(changed)),
+                )
+                self.widget_fingerprints[db_file] = current
+                moved.add(db_file)
+
+        return moved
 
     def _arm_refresh_settle(self, databases):
         """Defer a drain-completion refresh behind the settle window.
