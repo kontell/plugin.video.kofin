@@ -99,6 +99,15 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _live_digest() -> str:
+    """Hash of the asset as it actually is on disk, or "" if unreadable."""
+    try:
+        with open(live_path(), "rb") as handle:
+            return _digest(handle.read())
+    except OSError:
+        return ""
+
+
 def _install(data: bytes, source: str, now: float) -> bool:
     """Put ``data`` in the live asset and invalidate the cached texture.
 
@@ -160,6 +169,17 @@ def apply(api: Optional[Api], now: float, force: bool = False) -> None:
 
 def _apply(api: Optional[Api], now: float, force: bool) -> None:
     state = _read_state()
+
+    # An addon update replaces the whole resources/ tree, putting the bundled
+    # artwork back under a state file that still claims the server's splash is
+    # installed — and the daily floor would then leave it wrong for a day.
+    # Kodi's texture cache makes it worse than cosmetic: it keeps serving the
+    # image it cached, so disk, state and screen can disagree three ways.
+    # Re-hashing the asset costs one local read of a file we would otherwise
+    # be downloading, and it is the only way to notice.
+    if state and state.get("hash") != _live_digest():
+        LOG.info("backdrop asset changed underneath us (addon update?); reinstalling")
+        state = {}
 
     if not settings.get_bool("useServerBackdrop"):
         _restore_default(now, state)

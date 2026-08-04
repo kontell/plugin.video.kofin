@@ -220,3 +220,46 @@ def test_write_is_atomic_and_leaves_no_partial_file(env, monkeypatch):
     assert live(env) == DEFAULT_BYTES
     assert not (env["media"] / (backdrop.LIVE_NAME + ".part")).exists()
     assert env["dropped"] == []
+
+
+# --- the asset being replaced underneath us ----------------------------------
+
+
+def test_addon_update_replacing_the_asset_is_noticed_and_healed(env):
+    """An addon update restores the bundled artwork under a state file that
+    still claims the server splash is installed. Without a re-hash the daily
+    floor leaves that wrong for a day, and Kodi keeps serving the old texture
+    on top of it."""
+    backdrop.apply(FakeApi(), now=1000.0)
+    assert live(env) == SPLASH_BYTES
+    env["dropped"].clear()
+
+    # What an addon update (or dev-install rsync) does: file back to bundled,
+    # state file untouched.
+    (env["media"] / backdrop.LIVE_NAME).write_bytes(DEFAULT_BYTES)
+
+    # Well inside the daily floor, which would otherwise skip the fetch.
+    backdrop.apply(FakeApi(), now=1001.0)
+
+    assert live(env) == SPLASH_BYTES
+    assert env["dropped"] == [(backdrop.settings.ADDON_ID, backdrop.LIVE_NAME)]
+
+
+def test_drift_check_does_not_fire_when_the_asset_is_intact(env):
+    backdrop.apply(FakeApi(), now=1000.0)
+    env["dropped"].clear()
+
+    api = FakeApi()
+    backdrop.apply(api, now=1001.0)
+
+    assert api.branding_calls == 0  # floor still holds; no false drift
+    assert env["dropped"] == []
+
+
+def test_missing_asset_counts_as_drift(env):
+    backdrop.apply(FakeApi(), now=1000.0)
+    (env["media"] / backdrop.LIVE_NAME).unlink()
+
+    backdrop.apply(FakeApi(), now=1001.0)
+
+    assert live(env) == SPLASH_BYTES
