@@ -63,6 +63,21 @@ VIDEO_ASSET_OWNER_USER = 2
 # a version missing from this map disables chapter-thumb seeding, not playback.
 CHAPTER_ART_WRAPPED: Dict[int, bool] = {13: False, 14: True}
 
+# Rows Kodi itself writes at music-database creation: the "Default role" from
+# MusicDatabase::CreateTables and the BLANKARTIST_* "[Missing Tag]" artist —
+# the same statements as tests/fixtures/mymusic8*_seed.sql. The cleaner
+# re-inserts them after its wipe: a bare DELETE of every table lands *below*
+# pristine, which is the jellyfin-kodi reset bug the cleaner exists to not
+# repeat (docs/clean-databases-plan.md G2). Keyed per version like
+# EXTRA_ITEM_TYPE; a new music version must state its seeds here
+# (test_sync_schema refuses a SUPPORTED entry without them).
+_MUSIC_SEEDS: Tuple[str, ...] = (
+    "INSERT INTO role (idRole, strRole) VALUES (1, 'Artist')",
+    "INSERT INTO artist (idArtist, strArtist, strSortName, strMusicBrainzArtistID) "
+    "VALUES (1, '[Missing Tag]', '[Missing Tag]', 'Artist Tag Missing')",
+)
+MUSIC_SEED_SQL: Dict[int, Tuple[str, ...]] = {83: _MUSIC_SEEDS, 84: _MUSIC_SEEDS}
+
 # Jellyfin ExtraType -> the named videoversiontype for the asset row.
 EXTRA_TYPE_NAMES: Dict[str, str] = {
     "BehindTheScenes": "Behind the Scenes",

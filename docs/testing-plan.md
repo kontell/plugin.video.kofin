@@ -153,6 +153,10 @@ Live gates for the refresh rework; run against the `kofin-test` profile with the
 * **[PENDING] W6 first content**: fresh-profile first video sync and first music-only sync → widget sections appear with no manual reload; reload deferred while video plays and fired at stop.
 * **[PENDING] W7 container scoping**: browsing a movie listing during a music-only cycle → no `Container.Refresh` on the video window.
 
+### Clean databases gate — the migration cleaner (docs/clean-databases-plan.md)
+
+Run 2026-08-05 on the `jellyfin-kodi` fixture profile (Omega 21.3; 1771 movies / 83 shows / 4502 episodes / 20770 songs synced by jellyfin-kodi 1.6.4, 29664 `jellyfin.db` mappings, 5 view playlists, full node tree), jellyfin-kodi disabled first per the README order; dialogs driven over JSON-RPC. **[PASS]** — evidence in `tests/live/results/cleaner-live/` (local, gitignored): MyVideos left with only `version` and the 387 owner-0 `videoversiontype` seeds; MyMusic left *pristine with seeds* (`[Missing Tag]` artist + `Artist` role re-inserted — the repair jellyfin-kodi's own reset lacks); `jellyfin.db`/`-wal`/`-shm` deleted; the texture purge removed all 93 `/Items/` art rows and their files while keeping the 142 addon/skin rows; every `jellyfin*`/`kofin*` node and playlist entry removed with the copied standard tree and hand-made files untouched (user-nodes toggle declined, the shipped default); the detection-driven music prompt focused Yes with 20k `/Audio/` rows present (screenshot-verified); `RestartApp` respawned Kodi cleanly. The fixture was restored from the pre-reset snapshot afterwards and jellyfin-kodi re-enabled (catch-up sync clean).
+
 ## 5. Performance baselines (record, don't guess)
 
 Captured by the scenario scripts into `tests/live/results/` per run: initial full-sync wall time for the test set; catch-up latency for 100 mixed pending changes (per tier); addon HTTP request count per scenario (debug-log grep); Kodi-start→library-browsable delta; S2.5 download counts per tier. Regressions between runs of the same scenario on the same data are release blockers.
