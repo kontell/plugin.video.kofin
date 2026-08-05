@@ -19,9 +19,27 @@ Three facts shape it, all measured (docs/transcode-stream-selection-plan.md §2)
   position within its kind.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional
 
 JsonDict = Dict[str, Any]
+
+
+class Attachment(NamedTuple):
+    """One subtitle to hand ``setSubtitles``, and what it takes to name it.
+
+    ``url`` is where the server serves it and is always a working answer.
+    The rest is for :mod:`kofin.plugin.subtitles`, which gives the sidecar
+    ones a local filename Kodi can read a language out of — Jellyfin's
+    delivery route cannot carry one (``Stream.eng.srt`` is a 400).
+    """
+
+    stream_index: int
+    url: str
+    sidecar: bool
+    language: str
+    title: str
+    forced: bool
+
 
 # The play methods whose stream *is* the original file, so Kodi reads the
 # embedded tracks straight out of it. Everything else is a transcode, which
@@ -41,6 +59,9 @@ _SUMMARY_FIELDS = (
     "IsForced",
     "IsExternal",
     "IsTextSubtitleStream",
+    # One short string per stream, and it is the only record of a burned-in
+    # subtitle there is — see burned_subtitle().
+    "DeliveryMethod",
 )
 
 # What the context item's <visible> tests to pick its label. Published as a
@@ -71,8 +92,8 @@ def of_type(streams: List[JsonDict], kind: str) -> List[JsonDict]:
 
 def attached_subtitles(
     server: str, source: JsonDict, play_method: str
-) -> List[Tuple[int, str]]:
-    """``(jellyfin index, url)`` for every subtitle to hand ``setSubtitles``.
+) -> List[Attachment]:
+    """Every subtitle to hand ``setSubtitles``, in the order it will see them.
 
     Two disjoint groups, and which apply turns on the play method:
 
@@ -94,7 +115,7 @@ def attached_subtitles(
     Order is the order Kodi will list them in, which is what makes
     ``subtitle_ordinal`` able to answer at all.
     """
-    attached: List[Tuple[int, str]] = []
+    attached: List[Attachment] = []
     direct = is_direct(play_method)
     for stream in source.get("MediaStreams") or []:
         if stream.get("Type") != "Subtitle":
@@ -105,10 +126,19 @@ def attached_subtitles(
         index = stream.get("Index")
         if not url or index is None:
             continue
-        if stream.get("IsExternal"):
-            attached.append((int(index), server + url))
-        elif not direct and stream.get("IsTextSubtitleStream"):
-            attached.append((int(index), server + url))
+        sidecar = bool(stream.get("IsExternal"))
+        if not sidecar and (direct or not stream.get("IsTextSubtitleStream")):
+            continue
+        attached.append(
+            Attachment(
+                stream_index=int(index),
+                url=server + url,
+                sidecar=sidecar,
+                language=str(stream.get("Language") or ""),
+                title=str(stream.get("Title") or ""),
+                forced=bool(stream.get("IsForced")),
+            )
+        )
     return attached
 
 
@@ -124,6 +154,45 @@ def audio_ordinal(streams: List[JsonDict], index: Optional[int]) -> Optional[int
         if stream.get("Index") == index:
             return ordinal
     return None
+
+
+def audio_index_at(streams: List[JsonDict], ordinal: Optional[int]) -> Optional[int]:
+    """``audio_ordinal`` inverted: the Jellyfin index of Kodi's nth track.
+
+    What the player answers has to be translatable back, because on a direct
+    play Kodi's own audio menu can change the track without kofin hearing of
+    it, and the published index is then the one the playback *started* on
+    rather than the one being heard.
+    """
+    tracks = of_type(streams, "Audio")
+    if ordinal is None or ordinal < 0 or ordinal >= len(tracks):
+        return None
+    return tracks[ordinal].get("Index")
+
+
+def burned_subtitle(
+    streams: List[JsonDict], selected: Optional[int], play_method: str
+) -> bool:
+    """Whether the subtitle this playback was resolved with is in the picture.
+
+    A burned-in subtitle is not a track. It is pixels in the video, so no
+    question put to the player reports it — ``currentsubtitle`` answers with
+    whatever else is loaded, or nothing — and the only record of it is the
+    server's own answer: on a transcode whose profile withdrew the image
+    formats, the stream comes back ``DeliveryMethod: Encode``.
+
+    ``selected`` is therefore load-bearing, not a convenience. Measured against
+    10.11: a burn profile flips *every* image subtitle to ``Encode``, not only
+    the one requested — twenty of them on one film — so the delivery method
+    alone identifies a set of candidates, and only the index the playback was
+    resolved with says which of them is the one on screen.
+    """
+    if selected is None or is_direct(play_method):
+        return False
+    for stream in of_type(streams, "Subtitle"):
+        if stream.get("Index") == selected:
+            return stream.get("DeliveryMethod") == "Encode"
+    return False
 
 
 def subtitle_ordinal(

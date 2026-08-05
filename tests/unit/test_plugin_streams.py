@@ -32,16 +32,19 @@ class Recorder:
 
     def __init__(self):
         self.selected = []
+        self.preselected = []
         self.context = []
         self.builtins = []
         self.subtitle_stream = []
+        self.audio_stream = []
         self.shown = []
         self.toasts = []
         self.answers = []
         self.context_answers = []
 
-    def select(self, heading, options):
+    def select(self, heading, options, preselect=-1):
         self.selected.append((heading, list(options)))
+        self.preselected.append(preselect)
         return self.answers.pop(0) if self.answers else -1
 
     def contextmenu(self, options):
@@ -58,8 +61,8 @@ def env(monkeypatch):
     rec = Recorder()
 
     class Dialog:
-        def select(self, heading, options):
-            return rec.select(heading, options)
+        def select(self, heading, options, preselect=-1):
+            return rec.select(heading, options, preselect)
 
         def contextmenu(self, options):
             return rec.contextmenu(options)
@@ -74,6 +77,9 @@ def env(monkeypatch):
         def setSubtitleStream(self, index):
             rec.subtitle_stream.append(index)
 
+        def setAudioStream(self, index):
+            rec.audio_stream.append(index)
+
         def showSubtitles(self, show):
             rec.shown.append(show)
 
@@ -86,15 +92,24 @@ def env(monkeypatch):
     monkeypatch.setattr(menu.toast, "show", lambda *a, **k: rec.toasts.append(a))
     monkeypatch.setattr(menu.settings, "localized", lambda i: "S%d" % i)
     monkeypatch.setattr(menu.kodirpc, "current_subtitle", lambda: None)
+    monkeypatch.setattr(menu.kodirpc, "current_audio", lambda: None)
     return rec
 
 
-def publish(method="Transcode", attached=(3,), media_streams=None, request=None):
+def publish(
+    method="Transcode",
+    attached=(3,),
+    media_streams=None,
+    request=None,
+    subtitle_index=None,
+    audio_index=1,
+):
     payload = {
         "Id": "m1",
         "MediaSourceId": "src1",
         "PlayMethod": method,
-        "AudioStreamIndex": 1,
+        "AudioStreamIndex": audio_index,
+        "SubtitleStreamIndex": subtitle_index,
         "MediaStreams": media_streams or [AUDIO_1, AUDIO_2, SUB_3, SUB_4],
         "Attached": list(attached),
         "Request": dict(request or {}),
@@ -243,3 +258,139 @@ def test_dbid_from_path_ignores_anything_that_is_not_one():
     assert menu.dbid_from_path("plugin://x/?dbid=abc") == ""
     assert menu.dbid_from_path("plugin://x/?id=m1") == ""
     assert menu.dbid_from_path("") == ""
+
+
+# -- a burned-in subtitle ------------------------------------------------------
+
+# What the server answers once the profile has withdrawn the image formats:
+# the chosen image track comes back Encode, i.e. in the picture rather than in
+# a track of its own.
+SUB_4_BURNED = dict(SUB_4, DeliveryMethod="Encode")
+
+
+def burned(**kwargs):
+    publish(
+        method="Transcode",
+        attached=[3],
+        media_streams=[AUDIO_1, AUDIO_2, SUB_3, SUB_4_BURNED],
+        subtitle_index=4,
+        **kwargs,
+    )
+
+
+def test_a_burned_in_subtitle_is_the_marked_row(env):
+    """It is pixels in the video, so the player reports no subtitle at all --
+    which used to mark "None" as the current one and leave the subtitle
+    actually on screen looking unselected."""
+    burned()
+    env.context_answers = [1]
+    env.answers = [-1]
+    menu.context_menu()
+
+    _, options = env.selected[0]
+    assert options[0] == "K231"  # "None", unmarked
+    assert options[2] == "English SDH - PGSSUB K461"
+    # …and the cursor opens on it, the way Kodi's own stream dialogs do.
+    assert env.preselected == [2]
+
+
+def test_the_burn_in_warning_is_dropped_once_it_is_burned_in(env):
+    burned()
+    env.context_answers = [1]
+    env.answers = [-1]
+    menu.context_menu()
+    _, options = env.selected[0]
+    assert "S30617" not in options[2]  # nothing left to warn about
+
+
+def test_choosing_the_burned_in_subtitle_again_does_nothing(env):
+    """Re-picking it used to re-resolve the stream: a five-second gap to
+    arrive exactly where we already were."""
+    burned()
+    env.context_answers = [1]
+    env.answers = [2]
+    menu.context_menu()
+    assert env.builtins == [] and env.subtitle_stream == []
+
+
+def test_turning_off_a_burned_in_subtitle_needs_a_new_stream(env):
+    """showSubtitles(False) cannot touch it -- there is no track to hide."""
+    burned()
+    env.context_answers = [1]
+    env.answers = [0]  # "None"
+    menu.context_menu()
+
+    assert env.shown == []  # not something the player can answer
+    params = restart_params(env)
+    assert params["subtitleindex"] == "-1"  # explicit: not "server, you choose"
+    assert "burnsubs" not in params
+    assert params["audioindex"] == "1"  # the track being heard survives it
+
+
+def test_an_audio_switch_keeps_the_burned_in_subtitle(env):
+    """The server resolves what it is not told from the user's profile, so an
+    audio restart that named only the audio came back without the burn-in."""
+    burned()
+    env.context_answers = [0]
+    env.answers = [1]
+    menu.context_menu()
+
+    params = restart_params(env)
+    assert params["audioindex"] == "2"
+    assert params["subtitleindex"] == "4"
+    assert params["burnsubs"] == "1"
+
+
+def test_a_burn_in_keeps_the_audio_track(env):
+    """The other direction: burning a subtitle in used to drop back to the
+    profile's audio track."""
+    publish(method="Transcode", attached=[3], audio_index=2)
+    env.context_answers = [1]
+    env.answers = [2]  # the image sub
+    menu.context_menu()
+
+    params = restart_params(env)
+    assert params["subtitleindex"] == "4" and params["burnsubs"] == "1"
+    assert params["audioindex"] == "2"
+
+
+def test_a_restart_states_that_no_subtitle_is_wanted(env):
+    """Nothing showing has to be said out loud, or the server picks the
+    profile's own and a subtitle the viewer turned off comes back."""
+    publish(method="Transcode", attached=[3])
+    env.context_answers = [0]
+    env.answers = [1]
+    menu.context_menu()
+    assert restart_params(env)["subtitleindex"] == "-1"
+
+
+# -- audio on a direct play ----------------------------------------------------
+
+
+def test_audio_on_a_direct_play_switches_in_place(env, monkeypatch):
+    """Kodi holds every track; restarting to reach one would cost five seconds
+    to arrive at what setAudioStream does immediately."""
+    publish(method="DirectStream", attached=[])
+    monkeypatch.setattr(menu.kodirpc, "current_audio", lambda: 0)
+    env.context_answers = [0]
+    env.answers = [1]
+    menu.context_menu()
+
+    assert env.audio_stream == [1]  # Kodi ordinal for Jellyfin index 2
+    assert env.builtins == []  # no restart, no toast about a gap
+    assert env.toasts == []
+
+
+def test_the_marked_audio_row_is_the_one_being_heard(env, monkeypatch):
+    """Kodi's own audio menu moves the track without kofin hearing of it, so
+    the resolved index is not necessarily what is playing."""
+    publish(method="DirectStream", attached=[])
+    monkeypatch.setattr(menu.kodirpc, "current_audio", lambda: 1)  # not the 1st
+    env.context_answers = [0]
+    env.answers = [-1]
+    menu.context_menu()
+
+    _, options = env.selected[0]
+    assert options[0] == "English - AC3"
+    assert options[1] == "Commentary - AAC K461"
+    assert env.preselected == [1]

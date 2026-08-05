@@ -41,10 +41,12 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set
 
 import xbmcvfs
 
+from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync.db import Database
@@ -55,6 +57,32 @@ LOG = Logger(__name__)
 FOLDER_NAME = "Kofin"
 PLAYLISTS_MUSIC = "special://profile/playlists/music"
 PAGE_SIZE = 100
+
+# How a managed playlist folder gets the addon's own icon instead of Kodi's
+# generic folder glyph. Both halves were measured on Piers (Kodi 22), in the
+# music and the video playlist windows alike:
+#
+# * The *name* is not ours to choose. Kodi only looks for the names in its
+#   art lists (advancedsettings ``<musicthumbs>``, and the video equivalent),
+#   and ``folder.jpg`` is in them where ``folder.png`` is not — a folder.png
+#   drew the plain glyph, nothing else.
+# * The *content* is ours. Kodi picks the decoder off the bytes, not off the
+#   extension, so the addon's own PNG goes in under the .jpg name and keeps
+#   its transparency. It has to: kofin-node.png is grey+alpha, and a real
+#   JPEG of it renders as the glyph on a black tile.
+#
+# Nothing extra ships for this — the file is a copy of the icon the node tree
+# already uses (views.NODE_ROOT_ICON), made when the folder is written.
+#
+# One caveat, also measured: Kodi resolves a folder's art while building the
+# listing that holds it, and keeps that listing for the session. An icon
+# written into a folder Kodi has *already* shown appears the next time the
+# listing is built cold — a Container.Refresh did not do it (Piers), a first
+# visit in a later session did (Omega) — so in the worst case, the next start.
+# The poll that writes the icon never shows it. New installs never notice: the
+# folder and the icon are written together, before anything has listed either.
+FOLDER_ICON = "folder.jpg"
+FOLDER_ICON_SOURCE = "kofin-node.png"
 
 # What tells a plugin row from a direct one (writers/music.py writes one or the
 # other into path.strPath, per the musicTranscode setting at sync time).
@@ -96,6 +124,45 @@ def managed_dir(root: Optional[str] = None) -> str:
         return root
     base = xbmcvfs.translatePath(PLAYLISTS_MUSIC)
     return os.path.join(base, FOLDER_NAME)
+
+
+def _icon_source() -> str:
+    """Absolute path to the shipped icon, or '' when the addon path is unknown.
+
+    Same defensive posture as ``browse._addon_media``: a missing icon costs a
+    folder glyph, and must never cost a playlist refresh.
+    """
+    try:
+        path = settings.addon_path()
+    except Exception:  # pragma: no cover - defensive
+        return ""
+    if not path:
+        return ""
+    return os.path.join(path, "resources", "media", FOLDER_ICON_SOURCE)
+
+
+def write_folder_icon(directory: str) -> bool:
+    """Put :data:`FOLDER_ICON` in a managed folder. True when it was written.
+
+    Skipped when the file is already the right size, because this runs on the
+    playlist poll: rewriting it every pass would churn the folder's mtime for
+    nothing (see :func:`_write_text`). Size is the cheap proxy for "the same
+    icon" — the only way it changes is a new addon version shipping a new one.
+    """
+    source = _icon_source()
+    if not source or not os.path.isfile(source):
+        return False
+    target = os.path.join(directory, FOLDER_ICON)
+    try:
+        if os.path.isfile(target) and os.path.getsize(target) == os.path.getsize(
+            source
+        ):
+            return False
+        shutil.copyfile(source, target)
+    except OSError:
+        LOG.exception("failed to write the playlist folder icon to %s", directory)
+        return False
+    return True
 
 
 def safe_filename(name: str) -> str:
@@ -291,6 +358,7 @@ def refresh_music_playlists(
     directory = managed_dir(root)
     if not os.path.isdir(directory):
         os.makedirs(directory)
+    write_folder_icon(directory)
 
     playlists = api.music_playlists()
     taken: Set[str] = set()
@@ -350,6 +418,9 @@ def refresh_music_playlists(
                 os.remove(os.path.join(directory, existing))
             except OSError:
                 pass
+            continue
+        if existing == FOLDER_ICON:
+            # Ours, and not a playlist: the prune is against the server's set.
             continue
         if existing not in want:
             try:

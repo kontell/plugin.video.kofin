@@ -23,6 +23,7 @@ from kofin.core.log import Logger
 from kofin.sync.db import Database, get_sync, save_sync
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import fields as api
+from kofin.sync.playlists import FOLDER_ICON, FOLDER_NAME, write_folder_icon
 from kofin.sync.shims import localized, window_prop
 
 LOG = Logger(__name__)
@@ -31,9 +32,17 @@ LOG = Logger(__name__)
 # Kodi shows a single "Kofin" entry instead of one per synced library.
 NODE_ROOT = "kofin"
 
+# The generated smart playlists get a folder of their own under Kodi's video
+# playlists, for the same reason the nodes do: they used to sit loose among the
+# user's own, and a folder is the only thing that can carry the addon's icon —
+# a .tbn beside an .xsp does nothing (measured on Piers). Same name as the
+# music side, so the two managed folders read as one addon's.
+PLAYLIST_FOLDER = FOLDER_NAME
+
 # Shape/label revision of the generated tree, folded into views_hash() so a
 # change here regenerates on upgrade even when the view set is untouched.
-NODE_LAYOUT = 2
+# 3: the playlists moved into PLAYLIST_FOLDER.
+NODE_LAYOUT = 3
 
 # Order of the "Kofin" parent among Kodi's own top-level video nodes (movies
 # 10, tvshows 20, musicvideos 30). Written once, on creation only — the user's
@@ -196,6 +205,16 @@ def node_folder(view):
     return "kofin%s%s" % (view["Media"], view["Id"])
 
 
+def playlists_path():
+    """Kodi's own video playlist directory — the user's, not ours."""
+    return xbmcvfs.translatePath("special://profile/playlists/video")
+
+
+def playlist_root_path():
+    """Directory holding every generated smart playlist."""
+    return os.path.join(playlists_path(), PLAYLIST_FOLDER)
+
+
 class Views(object):
 
     limit = 25
@@ -317,13 +336,15 @@ class Views(object):
             self.window_nodes()
             return
 
-        playlist_path = xbmcvfs.translatePath("special://profile/playlists/video")
+        playlist_path = playlist_root_path()
         index = 0
 
         # Anything left where the pre-NODE_ROOT layout put it (loose folders
-        # and kofin_*.xml in the video library root) belongs to no library any
-        # more; the tree below replaces it.
+        # and kofin_*.xml in the video library root, loose kofin*.xsp among the
+        # user's playlists) belongs to no library any more; the tree below
+        # replaces it.
         self.migrate_flat_nodes()
+        self.migrate_flat_playlists()
 
         if not self.sync["Whitelist"]:
             # Nothing is synced: the whole tree goes, favourites included.
@@ -339,6 +360,7 @@ class Views(object):
             os.makedirs(node_path)
 
         self.node_parent(node_path)
+        self.playlist_parent(playlist_path)
 
         with Database("kofin") as kofin_db:
             db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
@@ -418,6 +440,18 @@ class Views(object):
         xml = self.node_root("main", NODE_ROOT_ORDER, NODE_ROOT_ICON)
         etree.SubElement(xml, "label").text = settings.addon_name()
         etree.ElementTree(xml).write(file)
+
+    def playlist_parent(self, playlist_path):
+        """The managed playlist folder, with the addon's icon on it.
+
+        Unlike ``node_parent`` this runs every generation: the folder holds
+        only generated files, so there is no user ordering or label to
+        preserve, and the icon write is a no-op once it is there.
+        """
+        if not os.path.isdir(playlist_path):
+            os.makedirs(playlist_path)
+
+        write_folder_icon(playlist_path)
 
     def add_playlist(self, path, view, mixed=False):
         """Create or update the xps file."""
@@ -1193,22 +1227,44 @@ class Views(object):
         LOG.info("DELETE playlist %s", path)
 
     def delete_playlists(self):
-        """Remove all kofin playlists."""
-        path = xbmcvfs.translatePath("special://profile/playlists/video/")
-        _, files = xbmcvfs.listdir(path)
-        for file in files:
-            if file.startswith("kofin"):
-                self.delete_playlist(os.path.join(path, file))
+        """Remove all kofin playlists, the managed folder with them.
+
+        Name-gated inside the folder the way ``delete_nodes`` is: the
+        generated files and the folder's own icon go, the folder goes once it
+        is empty, and anything else in there is not ours to remove.
+        """
+        path = playlist_root_path()
+
+        if os.path.isdir(path):
+            _, files = xbmcvfs.listdir(path)
+
+            for file in files:
+                if file.startswith("kofin") or file == FOLDER_ICON:
+                    self.delete_playlist(os.path.join(path, file))
+
+            dirs, files = xbmcvfs.listdir(path)
+
+            if not dirs and not files:
+                xbmcvfs.rmdir(path)
+
+        self.migrate_flat_playlists()
 
     def delete_playlist_by_id(self, view_id):
-        """Remove playlist based on view_id."""
-        path = xbmcvfs.translatePath("special://profile/playlists/video/")
-        _, files = xbmcvfs.listdir(path)
-        for file in files:
-            file = file
+        """Remove playlist based on view_id.
 
-            if file.startswith("kofin") and file.endswith("%s.xsp" % view_id):
-                self.delete_playlist(os.path.join(path, file))
+        Both homes: a library removed between the upgrade and the next
+        generation still has its playlist out in the old flat layout.
+        """
+        for path in (playlist_root_path(), playlists_path()):
+
+            if not os.path.isdir(path):
+                continue
+
+            _, files = xbmcvfs.listdir(path)
+
+            for file in files:
+                if file.startswith("kofin") and file.endswith("%s.xsp" % view_id):
+                    self.delete_playlist(os.path.join(path, file))
 
     def delete_node(self, path):
 
@@ -1309,3 +1365,27 @@ class Views(object):
             # NODE_ROOT itself is the new home, not a leftover.
             if directory.startswith("kofin") and directory != NODE_ROOT:
                 self.delete_node_folder(os.path.join(path, directory))
+
+    def migrate_flat_playlists(self):
+        """Clear out the pre-:data:`PLAYLIST_FOLDER` layout.
+
+        The generated smart playlists used to sit directly in the user's
+        ``playlists/video/``. They are regenerated inside the managed folder,
+        so the old copies are dead weight — and, being smart playlists over
+        the same tag, would show up twice under two names.
+
+        Narrower than ``migrate_flat_nodes``: that sweeps a directory only
+        kofin writes to, this one sweeps the user's, so only a generated
+        ``kofin*.xsp`` qualifies. The managed folder is a directory and is
+        never in ``files``.
+        """
+        path = playlists_path()
+
+        if not os.path.isdir(path):
+            return
+
+        _, files = xbmcvfs.listdir(path)
+
+        for file in files:
+            if file.startswith("kofin") and file.endswith(".xsp"):
+                self.delete_playlist(os.path.join(path, file))

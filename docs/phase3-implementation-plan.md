@@ -50,7 +50,7 @@ The Playback tab itself is a phase-3 addition (phase 2 shipped Account/Transcodi
 
 | id | type/control | notes |
 |---|---|---|
-| `mediaSegmentsEnabled` | bool, default **true** | master toggle; gates the checker thread and the API fetch |
+| `mediaSegmentsEnabled` | bool, default **false** (shipped as **true**, flipped after) | master toggle; gates the checker thread and the API fetch |
 | `skipIntroductionMode` | spinner Off/Auto/Ask, default **Auto** | 0/1/2; Auto seeks past, Ask shows the skip button |
 | `skipCreditsMode` | spinner Off/Auto/Ask, default **Ask** | Ask → the unified overlay; Auto → auto-seek past credits (Play Next still offered if enabled) |
 | `skipRecapMode` | spinner Off/Auto/Ask, default **Ask** | |

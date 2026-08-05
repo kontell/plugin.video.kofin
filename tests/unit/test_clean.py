@@ -261,8 +261,12 @@ def test_remove_all_nodes(tmp_path):
 
 
 def test_sweep_playlists(tmp_path):
+    """Both managed folders and both addons' flat files, with the user's own
+    left alone. The folders are named rather than swept -- "Kofin" does not
+    match the lower-case prefix the flat sweep uses."""
     base = tmp_path / "playlists"
-    _touch(str(base / "video" / "kofinmoviesabc.xsp"))
+    _touch(str(base / "video" / "Kofin" / "kofinmoviesabc.xsp"))
+    _touch(str(base / "video" / "kofinmoviesabc.xsp"))  # pre-folder layout
     _touch(str(base / "video" / "jellyfinmoviesabc.xsp"))
     _touch(str(base / "video" / "mylist.xsp"))
     _touch(str(base / "music" / "Kofin" / "Leo.m3u8"))
@@ -272,7 +276,7 @@ def test_sweep_playlists(tmp_path):
 
     assert sorted(os.listdir(str(base / "video"))) == ["mylist.xsp"]
     assert sorted(os.listdir(str(base / "music"))) == ["own.m3u8"]
-    assert len(removed) == 3
+    assert len(removed) == 4
 
 
 def test_remove_jellyfin_state(tmp_path):

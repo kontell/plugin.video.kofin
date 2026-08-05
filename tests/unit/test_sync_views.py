@@ -8,7 +8,13 @@ import pytest
 from kofin.sync import db as sync_db
 from kofin.sync import kofindb
 from kofin.sync import kodisetup
-from kofin.sync.views import NODE_ROOT, NODE_ROOT_ICON, Views, node_icon
+from kofin.sync.views import (
+    NODE_ROOT,
+    NODE_ROOT_ICON,
+    PLAYLIST_FOLDER,
+    Views,
+    node_icon,
+)
 from tests.unit.fakes import FakeAddon, FakeWindow
 
 
@@ -103,6 +109,16 @@ def kofin_root(views_env):
     return video_root(views_env) / NODE_ROOT
 
 
+def playlists_root(views_env):
+    """Kodi's own video playlist directory -- the user's."""
+    return views_env["profile"] / "playlists" / "video"
+
+
+def playlist_root(views_env):
+    """The managed folder inside it -- ours."""
+    return playlists_root(views_env) / PLAYLIST_FOLDER
+
+
 def test_get_nodes_generates_files_with_stock_icons(views_env):
     seed([("lib1", "Movies", "movies")], ["lib1"])
 
@@ -121,7 +137,7 @@ def test_get_nodes_generates_files_with_stock_icons(views_env):
     assert "<icon>DefaultRecentlyAddedMovies.png</icon>" in recent_xml
     assert "Movies" in recent_xml  # tag rule on the library name
 
-    playlist = views_env["profile"] / "playlists" / "video" / "kofinmovieslib1.xsp"
+    playlist = playlist_root(views_env) / "kofinmovieslib1.xsp"
     assert playlist.is_file()
     assert "<value>Movies</value>" in playlist.read_text()
 
@@ -237,7 +253,7 @@ def test_get_nodes_removes_the_tree_when_nothing_is_synced(views_env):
 
     # The parent goes with the last library, favourites and playlists included.
     assert not kofin_root(views_env).exists()
-    assert not list((views_env["profile"] / "playlists" / "video").glob("kofin*.xsp"))
+    assert not playlist_root(views_env).exists()
     assert (hand_made / "syncplay.xml").is_file()
 
 
@@ -275,7 +291,7 @@ def test_remove_library_resets_hash_and_deletes_files(views_env):
     assert FakeAddon.store["viewsHash"] == ""
     node_dir = kofin_root(views_env) / "kofinmovieslib1"
     assert not node_dir.exists()
-    playlist = views_env["profile"] / "playlists" / "video" / "kofinmovieslib1.xsp"
+    playlist = playlist_root(views_env) / "kofinmovieslib1.xsp"
     assert not playlist.exists()
     with sync_db.Database("kofin") as opened:
         assert kofindb.JellyfinDatabase(opened.cursor).get_view("lib1") is None
@@ -309,3 +325,76 @@ def test_cleanonupdate_detection(views_env, monkeypatch):
     assert kodisetup.warn_incompatible_settings() is True
     assert (profile / "advancedsettings.xml").read_text() == before
     assert notified
+
+
+# --- the managed playlist folder ---------------------------------------------
+
+
+def test_generated_playlists_live_in_the_managed_folder(views_env):
+    """They used to sit loose among the user's own, where nothing said whose
+    they were and no icon could be attached to them."""
+    seed([("lib1", "Movies", "movies"), ("lib2", "Shows", "tvshows")], ["lib1", "lib2"])
+
+    Views(FakeApi()).get_nodes()
+
+    assert sorted(p.name for p in playlist_root(views_env).glob("*.xsp")) == [
+        "kofinmovieslib1.xsp",
+        "kofintvshowslib2.xsp",
+    ]
+    # Nothing of ours loose in the user's directory.
+    assert not list(playlists_root(views_env).glob("*.xsp"))
+
+
+def test_playlist_folder_carries_the_addon_icon(views_env, monkeypatch):
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    monkeypatch.setattr("kofin.core.settings.addon_path", lambda: repo)
+    seed([("lib1", "Movies", "movies")], ["lib1"])
+
+    Views(FakeApi()).get_nodes()
+
+    icon = playlist_root(views_env) / "folder.jpg"
+    assert icon.is_file()
+    assert icon.read_bytes()[:4] == b"\x89PNG"  # named .jpg, PNG inside
+
+
+def test_flat_playlists_are_migrated_into_the_folder(views_env):
+    """The old copies would otherwise stay: same tag rule, second name, two
+    identical entries in the playlists window."""
+    seed([("lib1", "Movies", "movies")], ["lib1"])
+    (playlists_root(views_env) / "kofinmovieslib1.xsp").write_text("<smartplaylist/>")
+    (playlists_root(views_env) / "kofintvshowsgone.xsp").write_text("<smartplaylist/>")
+    (playlists_root(views_env) / "mylist.xsp").write_text("<smartplaylist/>")
+
+    Views(FakeApi()).get_nodes()
+
+    assert sorted(p.name for p in playlists_root(views_env).iterdir()) == [
+        PLAYLIST_FOLDER,
+        "mylist.xsp",  # the user's, and never ours to remove
+    ]
+    assert (playlist_root(views_env) / "kofinmovieslib1.xsp").is_file()
+
+
+def test_delete_playlists_spares_what_is_not_ours(views_env):
+    seed([("lib1", "Movies", "movies")], ["lib1"])
+    Views(FakeApi()).get_nodes()
+    (playlist_root(views_env) / "mine.xsp").write_text("<smartplaylist/>")
+
+    sync = sync_db.get_sync()
+    sync["Whitelist"] = []
+    sync_db.save_sync(sync)
+    Views(FakeApi()).get_nodes()
+
+    # The folder stays for the file that is not ours; ours are gone from it.
+    assert not list(playlist_root(views_env).glob("kofin*.xsp"))
+    assert (playlist_root(views_env) / "mine.xsp").is_file()
+
+
+def test_remove_library_finds_a_playlist_in_either_home(views_env):
+    """A library dropped between the upgrade and the next generation still has
+    its playlist out in the old flat layout."""
+    seed([("lib1", "Movies", "movies")], ["lib1"])
+    (playlists_root(views_env) / "kofinmovieslib1.xsp").write_text("<smartplaylist/>")
+
+    Views().remove_library("lib1")
+
+    assert not (playlists_root(views_env) / "kofinmovieslib1.xsp").exists()

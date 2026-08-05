@@ -16,7 +16,7 @@ from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
-from kofin.plugin import listitems
+from kofin.plugin import listitems, subtitles
 from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
@@ -295,7 +295,8 @@ def play(request: Request) -> None:
     except ValueError:
         bitrate_mbps = 0.0
 
-    api = Api.from_credentials(Http(settings.get_bool("sslVerify")), creds)
+    http = Http(settings.get_bool("sslVerify"))
+    api = Api.from_credentials(http, creds)
     try:
         item = api.item(item_id)
         from_start = request.params.get("fromstart") == "1"
@@ -394,9 +395,15 @@ def play(request: Request) -> None:
     # attached (4.0 s each), because Kodi fetches them only when one is
     # selected. On a transcode this is the *only* way any subtitle reaches the
     # screen — the transcoded stream carries none.
+    #
+    # Sidecar ones are fetched here rather than linked, because Kodi reads a
+    # subtitle's language out of its filename and Jellyfin's route cannot carry
+    # one (plugin/subtitles.py). That is the one place this route pays for
+    # anything, which is why it is capped, short-timeout and falls back to the
+    # URL.
     attached = streams.attached_subtitles(api.server, source, method)
     if attached:
-        li.setSubtitles([url for _, url in attached])
+        li.setSubtitles(subtitles.localize(http, attached))
 
     play_item = play_state(
         item,
@@ -406,7 +413,7 @@ def play(request: Request) -> None:
         play_session_id,
         creds.device_id,
         start_ticks / 10_000_000,
-        attached=[index for index, _ in attached],
+        attached=[item.stream_index for item in attached],
         request_params=request.params,
     )
     segments = prefetch_segments(api, item)

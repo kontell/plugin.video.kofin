@@ -668,7 +668,14 @@ class TrackRecorder:
         self.shown = []
 
 
-def stream_player(monkeypatch, method="DirectStream", audio=1, subtitle=3, attached=()):
+def stream_player(
+    monkeypatch,
+    method="DirectStream",
+    audio=1,
+    subtitle=3,
+    attached=(),
+    media_streams=None,
+):
     player, api = make_player(monkeypatch)
     tracks = TrackRecorder()
     monkeypatch.setattr(player, "setAudioStream", tracks.audio.append)
@@ -688,7 +695,7 @@ def stream_player(monkeypatch, method="DirectStream", audio=1, subtitle=3, attac
             "SubtitleStreamIndex": subtitle,
             "CurrentPosition": 0.0,
             "Streams": {
-                "MediaStreams": [AUDIO_1, AUDIO_2, SUB_3, SUB_4],
+                "MediaStreams": media_streams or [AUDIO_1, AUDIO_2, SUB_3, SUB_4],
                 "Attached": list(attached),
                 "Request": {},
             },
@@ -767,3 +774,30 @@ def test_a_syncplay_group_withdraws_the_menu(monkeypatch):
     assert state.PROP_PLAYING_MENU not in FakeWindow.store
     player.syncplay_group_active = False
     assert FakeWindow.store[state.PROP_PLAYING_MENU] == "both"
+
+
+def test_a_burned_in_subtitle_leaves_kodis_own_off(monkeypatch):
+    """It is already in the picture. Anything Kodi auto-selects on top of it is
+    a second subtitle over the first -- and there is an attached text track
+    here for it to pick."""
+    player, tracks = stream_player(
+        monkeypatch,
+        method="Transcode",
+        subtitle=4,
+        attached=[3],
+        media_streams=[AUDIO_1, AUDIO_2, SUB_3, dict(SUB_4, DeliveryMethod="Encode")],
+    )
+    player.onPlayBackStarted()
+    player.onAVStarted()
+    assert tracks.subtitle == []
+    assert tracks.shown == [False]
+
+
+def test_the_published_payload_carries_both_indices(monkeypatch):
+    """A burned-in subtitle is not a Kodi track, so this is the only thing the
+    menu can identify it from."""
+    player, _ = stream_player(monkeypatch, method="Transcode", subtitle=4, attached=[3])
+    player.onPlayBackStarted()
+    published = state.playing_streams()
+    assert published["AudioStreamIndex"] == 1
+    assert published["SubtitleStreamIndex"] == 4

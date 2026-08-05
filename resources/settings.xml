@@ -321,9 +321,13 @@
     <!-- Playback -->
     <category id="playback" label="30450" help="30451">
       <group id="1">
+        <!-- Off by default: acting on segments moves the picture without being
+             asked, and a viewer who has not opted in reads that as the addon
+             skipping ahead on its own. The per-type modes below keep their own
+             defaults for whoever turns it on. -->
         <setting id="mediaSegmentsEnabled" type="boolean" label="30453" help="30454">
           <level>0</level>
-          <default>true</default>
+          <default>false</default>
           <control type="toggle"/>
         </setting>
         <setting id="skipIntroductionMode" type="integer" label="30455" help="30456">

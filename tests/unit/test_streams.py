@@ -79,6 +79,7 @@ def test_summarize_drops_video_and_keeps_only_menu_fields():
         "IsForced",
         "IsExternal",
         "IsTextSubtitleStream",
+        "DeliveryMethod",
     }
 
 
@@ -88,7 +89,10 @@ def test_summarize_drops_video_and_keeps_only_menu_fields():
 def test_transcode_attaches_embedded_text_and_the_sidecar_not_the_image():
     # A transcode carries no subtitles at all, so the embedded text ones have
     # to arrive as files; the image one cannot (a raw .sup Kodi will not draw).
-    assert streams.attached_subtitles(SERVER, LAYOUT, "Transcode") == [
+    assert [
+        (item.stream_index, item.url)
+        for item in streams.attached_subtitles(SERVER, LAYOUT, "Transcode")
+    ] == [
         (3, SERVER + "/subs/3.srt"),
         (4, SERVER + "/subs/4.srt"),
         (6, SERVER + "/subs/6.srt"),
@@ -99,9 +103,10 @@ def test_direct_play_attaches_only_the_sidecar():
     # The container already holds 3, 4 and 5. Attaching them again would list
     # every track twice.
     for method in ("DirectPlay", "DirectStream"):
-        assert streams.attached_subtitles(SERVER, LAYOUT, method) == [
-            (6, SERVER + "/subs/6.srt")
-        ]
+        assert [
+            (item.stream_index, item.url, item.sidecar)
+            for item in streams.attached_subtitles(SERVER, LAYOUT, method)
+        ] == [(6, SERVER + "/subs/6.srt", True)]
 
 
 def test_attach_skips_streams_the_server_will_not_deliver():
@@ -246,3 +251,64 @@ def test_label_falls_back_through_language_to_codec(monkeypatch):
     assert streams.label_for({"Language": "eng", "Codec": "ac3"}, False) == "eng"
     assert streams.label_for({"Codec": "ac3"}, False) == "ac3"
     assert streams.label_for({"Type": "Audio"}, False) == "Audio"
+
+
+# -- what is actually playing ------------------------------------------------
+
+
+def test_audio_index_at_inverts_the_ordinal():
+    assert streams.audio_index_at(SUMMARY, 0) == 1
+    assert streams.audio_index_at(SUMMARY, 1) == 2
+    assert streams.audio_index_at(SUMMARY, 2) is None  # past the end
+    assert streams.audio_index_at(SUMMARY, -1) is None
+    assert streams.audio_index_at(SUMMARY, None) is None
+
+
+def test_a_burned_in_subtitle_is_the_selected_encode_one():
+    """A burn profile flips *every* image subtitle to Encode, not only the one
+    asked for (measured against 10.11) — so Encode alone is a set of
+    candidates, and the index the playback was resolved with is what says which
+    of them is on screen."""
+    burned = streams.summarize(
+        source(
+            audio(1),
+            text_sub(3),
+            image_sub(5, DeliveryMethod="Encode"),
+            image_sub(7, DeliveryMethod="Encode"),
+        )
+    )
+    assert streams.burned_subtitle(burned, 5, "Transcode") is True
+    # The text one is still delivered as a file, Encode neighbours or not.
+    assert streams.burned_subtitle(burned, 3, "Transcode") is False
+    # 7 is a candidate and would answer True if it were the selection; only
+    # one index can be, which is the whole point of asking with it.
+    assert streams.burned_subtitle(burned, 7, "Transcode") is True
+
+
+def test_nothing_is_burned_in_on_a_direct_play():
+    """The stream is the file; the server encoded nothing for it."""
+    assert streams.burned_subtitle(SUMMARY, 5, "DirectPlay") is False
+    assert streams.burned_subtitle(SUMMARY, 5, "DirectStream") is False
+
+
+def test_burned_subtitle_of_nothing():
+    assert streams.burned_subtitle(SUMMARY, None, "Transcode") is False
+    assert streams.burned_subtitle(SUMMARY, 99, "Transcode") is False
+
+
+def test_an_attachment_carries_what_it_takes_to_name_it():
+    """Kodi reads a subtitle's language off its filename, and Jellyfin's route
+    cannot carry one -- so the naming fields ride along with the URL."""
+    layout = source(
+        text_sub(3, IsExternal=True, Language="ger", Title="Kommentar", IsForced=True)
+    )
+    (item,) = streams.attached_subtitles(SERVER, layout, "DirectStream")
+    assert item.sidecar is True
+    assert (item.language, item.title, item.forced) == ("ger", "Kommentar", True)
+
+
+def test_an_embedded_attachment_is_not_a_sidecar():
+    embedded, sidecar = streams.attached_subtitles(
+        SERVER, source(text_sub(3), text_sub(6, IsExternal=True)), "Transcode"
+    )
+    assert embedded.sidecar is False and sidecar.sidecar is True
