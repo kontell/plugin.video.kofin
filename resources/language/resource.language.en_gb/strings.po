@@ -1548,3 +1548,12 @@ msgstr ""
 msgctxt "#30665"
 msgid "Clean complete. Kodi will now restart."
 msgstr ""
+
+# 30666-30667 — critic ratings
+msgctxt "#30666"
+msgid "Movies: prefer critic rating"
+msgstr ""
+
+msgctxt "#30667"
+msgid "Show your server's critic rating (Rotten Tomatoes, where the OMDb plugin has one) instead of the community rating. Percentages are rescaled for Kodi, so 78% becomes 7.8, and a film with no critic rating keeps its community one. Changing this applies to films already in the library straight away; films synced before this option existed only gain a critic rating once they are re-synced, so run Repair libraries to fetch them all at once."
+msgstr ""

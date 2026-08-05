@@ -150,6 +150,70 @@ class Movies(Kodi):
         """Update rating by rating_id."""
         self.cursor.execute(QU.update_rating, args)
 
+    def sync_ratings(self, movie_id, ratings, preferred):
+        """Write the movie's rating rows; return the default one's rating_id.
+
+        Deviation from the fork, which wrote exactly one row per item typed
+        ``default``. Kodi's rating table is a set keyed by (media, type) and
+        ``movie.c05`` names which member is the default -- what ``movie_view``
+        joins on and what ``ListItem.Rating`` renders -- so kofin writes every
+        rating the server has and picks the pointer (:func:`fields.ratings`).
+
+        ``ratings`` is ordered ``{type: (rating, votes)}``; its first entry is
+        the fallback pointer when ``preferred`` is absent, so an item the
+        server has no critic rating for keeps showing its community one. Types
+        no longer sent are deleted, and the pointer is rewritten on every pass,
+        so a dropped rating can never leave ``c05`` dangling at a deleted row
+        (the LEFT JOIN would render the movie unrated).
+
+        Insertion order is the caller's dict order, which keeps rating_id
+        allocation deterministic for the idempotency dumps.
+        """
+        self.cursor.execute(QU.get_ratings, ("movie", movie_id))
+        existing = dict(self.cursor.fetchall())
+        default_id = None
+
+        for rating_type, (rating, votes) in ratings.items():
+            rating_id = existing.pop(rating_type, None)
+
+            if rating_id is None:
+                rating_id = self.create_entry_rating()
+                self.add_ratings(
+                    rating_id, movie_id, "movie", rating_type, rating, votes
+                )
+            else:
+                self.update_ratings(
+                    movie_id, "movie", rating_type, rating, votes, rating_id
+                )
+
+            if default_id is None or rating_type == preferred:
+                default_id = rating_id
+
+        for rating_id in existing.values():
+            self.cursor.execute(QU.delete_rating, (rating_id,))
+
+        return default_id
+
+    def repoint_ratings(self, movie_ids, preferred):
+        """Move the default-rating pointer of already-synced movies.
+
+        The settings flip's apply path: the rows are local already, so nothing
+        is fetched and nothing is rewritten but ``c05``. Chunked because the id
+        list comes from kofin.db, a different connection, and SQLite caps
+        variables per statement.
+        """
+        updated = 0
+
+        for start in range(0, len(movie_ids), 500):
+            chunk = movie_ids[start : start + 500]
+            placeholders = ",".join("?" * len(chunk))
+            self.cursor.execute(
+                QU.repoint_movie_rating % placeholders, [preferred] + list(chunk)
+            )
+            updated += self.cursor.rowcount
+
+        return updated
+
     def get_unique_id(self, *args):
 
         try:

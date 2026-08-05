@@ -233,6 +233,45 @@ def test_boxset_membership_moves(tmp_path, version):
     assert moved_after(before, "video") == {"userdata"}
 
 
+@pytest.mark.parametrize("version", VIDEO_LEGS)
+def test_default_rating_pointer_moves_ratings(tmp_path, version):
+    """The repoint pass rewrites c05 and nothing else — no checksum, no
+    userdata — so ratings is the only section that can carry it to the
+    widgets."""
+    path = make_video_db(tmp_path, version)
+    seed_movie(path, 1, "Alpha", "2026-01-01 10:00:00")
+    execute(
+        path,
+        "INSERT INTO rating (rating_id, media_id, media_type, rating_type, rating) "
+        "VALUES (1, 1, 'movie', 'default', 7.1), (2, 1, 'movie', 'critic', 8.9)",
+    )
+    execute(path, "UPDATE movie SET c05 = '1'")
+    before = widgetstate.fingerprint("video")
+
+    execute(path, "UPDATE movie SET c05 = '2'")
+
+    assert moved_after(before, "video") == {"ratings"}
+
+
+@pytest.mark.parametrize("version", VIDEO_LEGS)
+def test_non_default_rating_edit_holds(tmp_path, version):
+    """Only the rating Kodi renders is hashed: a row nothing points at moving
+    is not visible state."""
+    path = make_video_db(tmp_path, version)
+    seed_movie(path, 1, "Alpha", "2026-01-01 10:00:00")
+    execute(
+        path,
+        "INSERT INTO rating (rating_id, media_id, media_type, rating_type, rating) "
+        "VALUES (1, 1, 'movie', 'default', 7.1), (2, 1, 'movie', 'critic', 8.9)",
+    )
+    execute(path, "UPDATE movie SET c05 = '1'")
+    before = widgetstate.fingerprint("video")
+
+    execute(path, "UPDATE rating SET rating = 9.4 WHERE rating_id = 2")
+
+    assert moved_after(before, "video") == set()
+
+
 # --- music ---------------------------------------------------------------------
 
 

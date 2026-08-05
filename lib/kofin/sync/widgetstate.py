@@ -22,6 +22,11 @@ What is hashed is the *rendered* state, not the stored one:
   finer), and the movie's set link (set widgets render membership). Raw play
   counts, timestamps and lastPlayed *values* are deliberately absent: they
   move on every playback echo while rendering nothing.
+- ``ratings`` (video) — per item, the rating Kodi renders: the *default* one,
+  the row the item's rating pointer names, not the whole set. A sync that
+  changes a rating moves ``reference`` too, so this section exists for the
+  one writer that moves nothing else — the ``preferCriticRating`` flip's
+  repoint pass, which rewrites pointers and no checksums.
 - ``recency`` — the *order* of the top-N ids the recently-added and (music)
   recently-played widgets show. An order-preserving timestamp bump — the
   same album played again, a lastPlayed touch — holds the digest still;
@@ -58,21 +63,27 @@ TOP_N = 25
 VIDEO_REFERENCE_TYPES = ("Movie", "BoxSet", "Series", "Season", "Episode", "MusicVideo")
 MUSIC_REFERENCE_TYPES = ("MusicAlbum", "MusicArtist", "Audio")
 
-# (table, id column, carries idSet) — the video item tables widgets render.
+# (table, id column, carries idSet, default-rating pointer column) — the video
+# item tables widgets render. The pointer column is the one the matching
+# ``*_view`` joins the rating table on; musicvideo has no rating at all.
 _VIDEO_TABLES = (
-    ("movie", "idMovie", True),
-    ("episode", "idEpisode", False),
-    ("musicvideo", "idMVideo", False),
+    ("movie", "idMovie", True, "c05"),
+    ("episode", "idEpisode", False, "c03"),
+    ("musicvideo", "idMVideo", False, None),
 )
 
+# One scan, two digests: the rating rides along on the pass that already walks
+# every row of the table rather than paying for a second one.
 _VIDEO_USERDATA = """
 SELECT      i.%(id)s, %(idset)s,
             COALESCE(f.playCount, 0) > 0,
             CAST(100.0 * COALESCE(b.timeInSeconds, 0)
-                 / MAX(COALESCE(b.totalTimeInSeconds, 0), 1) AS INTEGER)
+                 / MAX(COALESCE(b.totalTimeInSeconds, 0), 1) AS INTEGER),
+            %(rating)s
 FROM        %(table)s i
 JOIN        files f ON f.idFile = i.idFile
 LEFT JOIN   bookmark b ON b.idFile = i.idFile AND b.type = 1
+%(ratingjoin)s
 ORDER BY    i.%(id)s
 """
 
@@ -140,23 +151,31 @@ def _reference_digest(types: Iterable[str]) -> str:
 
 def _video_fingerprint() -> Dict[str, str]:
     userdata = hashlib.md5()
+    ratings = hashlib.md5()
     recency = hashlib.md5()
     inprogress = hashlib.md5()
 
     with Database("video") as videodb:
         cursor = videodb.cursor
 
-        for table, id_column, has_set in _VIDEO_TABLES:
+        for table, id_column, has_set, rating_column in _VIDEO_TABLES:
             params = {
                 "table": table,
                 "id": id_column,
                 "idset": "i.idSet" if has_set else "0",
+                "rating": "r.rating" if rating_column else "NULL",
+                "ratingjoin": (
+                    "LEFT JOIN   rating r ON r.rating_id = i.%s" % rating_column
+                    if rating_column
+                    else ""
+                ),
                 "limit": TOP_N,
             }
 
             cursor.execute(_VIDEO_USERDATA % params)
             for row in cursor.fetchall():
-                userdata.update(repr((table, row)).encode("utf-8"))
+                userdata.update(repr((table, row[:4])).encode("utf-8"))
+                ratings.update(repr((table, row[0], row[4])).encode("utf-8"))
 
             cursor.execute(_VIDEO_RECENT % params)
             recency.update(repr((table, cursor.fetchall())).encode("utf-8"))
@@ -167,6 +186,7 @@ def _video_fingerprint() -> Dict[str, str]:
     return {
         "reference": _reference_digest(VIDEO_REFERENCE_TYPES),
         "userdata": userdata.hexdigest(),
+        "ratings": ratings.hexdigest(),
         "recency": recency.hexdigest(),
         "inprogress": inprogress.hexdigest(),
     }

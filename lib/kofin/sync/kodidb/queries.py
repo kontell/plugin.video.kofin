@@ -125,8 +125,13 @@ FROM        rating
 WHERE       media_type = ?
 AND         media_id = ?
 """
-get_rating_movie_obj = ["movie", "{MovieId}"]
 get_rating_episode_obj = ["episode", "{EpisodeId}"]
+get_ratings = """
+SELECT      rating_type, rating_id
+FROM        rating
+WHERE       media_type = ?
+AND         media_id = ?
+"""
 get_unique_id = """
 SELECT      uniqueid_id
 FROM        uniqueid
@@ -374,14 +379,6 @@ add_rating = """
 INSERT INTO     rating(rating_id, media_id, media_type, rating_type, rating, votes)
 VALUES          (?, ?, ?, ?, ?, ?)
 """
-add_rating_movie_obj = [
-    "{RatingId}",
-    "{MovieId}",
-    "movie",
-    "default",
-    "{Rating}",
-    "{Votes}",
-]
 add_rating_tvshow_obj = [
     "{RatingId}",
     "{ShowId}",
@@ -675,14 +672,30 @@ UPDATE      rating
 SET         media_id = ?, media_type = ?, rating_type = ?, rating = ?, votes = ?
 WHERE       rating_id = ?
 """
-update_rating_movie_obj = [
-    "{MovieId}",
-    "movie",
-    "default",
-    "{Rating}",
-    "{Votes}",
-    "{RatingId}",
-]
+# The default-rating pointer alone (movie.c05 is what movie_view joins the
+# rating table on). Both rows are already local, so switching which one Kodi
+# calls the default is a pointer rewrite, not a resync. The COALESCE arms are
+# the fallback rule: keep the community row when the item has no rating of the
+# preferred type (Jellyfin has no critic rating for ~10% of movies), and keep
+# the current pointer when it has neither. The id list is the caller's
+# kofin-owned chunk -- Kodi's own scrapers write 'default'-typed rows too, and
+# their default is not ours to move.
+repoint_movie_rating = """
+UPDATE      movie
+SET         c05 = COALESCE(
+                (SELECT rating_id
+                 FROM   rating
+                 WHERE  media_id = movie.idMovie
+                 AND    media_type = 'movie'
+                 AND    rating_type = ?),
+                (SELECT rating_id
+                 FROM   rating
+                 WHERE  media_id = movie.idMovie
+                 AND    media_type = 'movie'
+                 AND    rating_type = 'default'),
+                c05)
+WHERE       idMovie IN (%s)
+"""
 update_rating_tvshow_obj = [
     "{ShowId}",
     "tvshow",
@@ -861,6 +874,10 @@ DELETE FROM     tag_link
 WHERE           tag_id = ?
 AND             media_id = ?
 AND             media_type = ?
+"""
+delete_rating = """
+DELETE FROM     rating
+WHERE           rating_id = ?
 """
 delete_tag_movie_obj = ["Favorite movies", "{MovieId}", "movie"]
 delete_tag_mvideo_obj = ["Favorite musicvideos", "{MvideoId}", "musicvideo"]

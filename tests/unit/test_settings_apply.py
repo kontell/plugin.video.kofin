@@ -488,6 +488,18 @@ def test_music_transcode_skips_when_playlists_off():
 
 
 @pytest.mark.parametrize("target", ["true", "false"])
+def test_prefer_critic_rating_repoints_both_ways(target):
+    """Either direction is a local pointer rewrite, never a resync."""
+    service = FakeService()
+    FakeAddon.store["preferCriticRating"] = "false" if target == "true" else "true"
+    applier = ready_applier(service)
+
+    FakeAddon.store["preferCriticRating"] = target
+    applier.apply()
+    assert service.library.commands == [("RepointRatings", None)]
+
+
+@pytest.mark.parametrize("target", ["true", "false"])
 def test_server_backdrop_toggle_refreshes_both_ways(target):
     """Both directions go through the service so the file on disk cannot end
     up disagreeing with the setting; force skips the daily fetch floor."""

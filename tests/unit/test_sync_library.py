@@ -388,6 +388,71 @@ def test_commands_never_blanket_refresh(builtins, monkeypatch):
     assert builtins == []
 
 
+def _rated_video_db(tmp_path):
+    """A real (gated-schema) video database with one movie carrying both
+    rating rows, its pointer on the community one."""
+    import sqlite3
+
+    from tests.unit import kodifixtures
+
+    path = str(tmp_path / ("MyVideos%d.db" % kodifixtures.VIDEO_VERSION))
+    kodifixtures.create_video_db(path, kodifixtures.VIDEO_VERSION)
+    sync_db.set_path_override("video", path)
+
+    conn = sqlite3.connect(path)
+    try:
+        conn.executescript(
+            "INSERT INTO movie (idMovie, idFile, c00, c05) VALUES (1, 1, 'Alpha', '1');"
+            "INSERT INTO rating (rating_id, media_id, media_type, rating_type, rating)"
+            " VALUES (1, 1, 'movie', 'default', 7.1), (2, 1, 'movie', 'critic', 8.9);"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return path
+
+
+def test_repoint_ratings_moves_synced_movies_and_refreshes(
+    builtins, monkeypatch, tmp_path
+):
+    """The preferCriticRating flip's whole apply path: the rows are already
+    local, so the command rewrites pointers and refreshes — no server call."""
+    import sqlite3
+
+    path = _rated_video_db(tmp_path)
+
+    with sync_db.Database("kofin") as opened:
+        kofindb.JellyfinDatabase(opened.cursor).add_reference(
+            "jf1", 1, None, None, "Movie", "movie", None, "etag1", "lib1", None
+        )
+
+    FakeAddon.store["preferCriticRating"] = "true"
+    manager, _api = make_library()
+    monkeypatch.setattr(manager, "update_status_strings", lambda: None)
+
+    manager.enqueue_command("RepointRatings")
+    manager.process_commands()
+
+    conn = sqlite3.connect(path)
+    try:
+        assert conn.execute("SELECT c05 FROM movie").fetchall() == [("2",)]
+    finally:
+        conn.close()
+    assert builtins == ["UpdateLibrary(video)"]
+
+
+def test_repoint_ratings_without_synced_movies_is_a_noop(builtins, monkeypatch):
+    """Nothing synced: no video database is opened and no refresh fires."""
+    manager, _api = make_library()
+    monkeypatch.setattr(manager, "update_status_strings", lambda: None)
+
+    manager.enqueue_command("RepointRatings")
+    manager.process_commands()
+
+    assert builtins == []
+
+
 def test_remove_library_refreshes_the_removed_kind(builtins, monkeypatch):
     """Removing a music library refreshes *music* — the old blanket refresh
     aimed at video, so removed albums lingered in the music widgets

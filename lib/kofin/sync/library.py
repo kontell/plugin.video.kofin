@@ -388,6 +388,38 @@ class Library(threading.Thread):
         except Exception:
             LOG.exception("CleanupMusicPlaylists failed")
 
+    def repoint_ratings(self):
+        """Point synced films at the rating row the user now prefers.
+
+        The ``preferCriticRating`` flip's apply path. Both rating rows are
+        written at sync time, so this fetches nothing and rewrites nothing but
+        ``movie.c05`` — and only for kofin-owned films: Kodi's own scrapers
+        write ``default``-typed ratings too, and which of a scraped film's
+        ratings is its default is not ours to move.
+
+        The refresh is this command's own (widget-refresh-plan D4): ratings are
+        a hashed section, so it fires when a pointer actually moved and stays
+        quiet when the pass was a no-op.
+        """
+        rating_type = "critic" if settings.get_bool("preferCriticRating") else "default"
+
+        with Database("kofin") as kofin_db:
+            db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
+            movie_ids = [kodi_id for _, kodi_id in db.get_item_ids_by_media("movie")]
+
+        if not movie_ids:
+            return
+
+        with self.database_lock:
+            with Database() as videodb:
+                updated = KodiDb(videodb.cursor).repoint_ratings(movie_ids, rating_type)
+
+        # rowcount is films considered, not films moved: the UPDATE matches
+        # every id it is handed, and one already on the preferred row is a
+        # no-op write.
+        LOG.info("--[ ratings repointed to %s over %s film(s) ]", rating_type, updated)
+        self.refresh_libraries({"video"})
+
     def run(self):
         """Start syncing.
 
@@ -684,6 +716,8 @@ class Library(threading.Thread):
                     self.sync_music_playlists()
                 elif command == "CleanupMusicPlaylists":
                     self.cleanup_music_playlists()
+                elif command == "RepointRatings":
+                    self.repoint_ratings()
                 else:
                     LOG.warning("unknown library command %s", command)
             except Exception as error:
