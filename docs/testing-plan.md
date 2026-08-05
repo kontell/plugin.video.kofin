@@ -185,6 +185,16 @@ Run on the `kofin-test` profile (Omega 21.3) against `jelly.konell.xyz`, branch 
 * **[PASS] M5 audio on a direct play switches in place** — *3:10 to Yuma* (dts + ac3, DirectStream): the dialog opens preselected on the DTS-HD track being heard, and picking the commentary logged `audio -> jellyfin 2 (kodi 1)` with Kodi's `currentaudiostream` moving to ac3 and playback continuing through 46s. No restart, no toast. It used to re-resolve the stream for a track Kodi already held.
 * **Incidental, and worth recording**: the first M1 attempt omitted `mediasourceid` from the play URL and the server silently ignored `subtitleindex`, answering with the profile's own default — §2.6 of the plan, reproduced live from the play route rather than from curl.
 
+### External subtitle labels — sidecars as local files (2026-08-05)
+
+Run on the `kofin-test` profile (Omega 21.3) against `jelly.konell.xyz`, branch `fix/external-sub-labels`.
+
+* **[PASS] X1 the defect, and the fix** — *…And Justice for All* (DirectStream, one sidecar SRT) listed in Kodi as `name: "(External)", language: ""` before the change and `name: "English (External)", language: "eng"` after it. The empty label was not merely missing a language: Jellyfin serves the file as `Stream.subrip`, whose stem matches the video stream's own `/Videos/<id>/stream.mkv`, so Kodi stripped it as a redundant prefix and had nothing left.
+* **[PASS] X2 cost** — the fetch is one round trip on the play route: `play … via DirectStream` at 17:18:27.383, `fetched 1 sidecar subtitle(s)` at 17:18:27.405. **22 ms**, against the 4.0 s baseline to first frame.
+* **[PASS] X3 sidecars only** — *After Hours* transcoded with **28 embedded text subtitles and no sidecar**: nothing fetched, cache directory empty, and all 28 still attached by URL (labelled `Stream (External)`, which is what kofin's own stream dialog is for). Paying for 28 fetches before `setResolvedUrl` is the startup delay the design forbids.
+* **[PASS] X4 the format conversion** — the file written is `English.eng.srt`, 128,891 bytes, fetched from the route asked for `.srt` rather than the `.subrip` the server offered. Kodi has no parser registered for `.subrip`.
+* **Filename grammar**, measured by adding real files to a running playback: `English.eng.srt` → name "English (External)", language eng; `Commentary.eng.forced.srt` → forced flag set, token consumed; `eng.srt` → language but no name; `English SDH.eng.sdh.srt` → **`sdh` is not a flag** and leaks into the name. Hence name + language + `forced`, and nothing else.
+
 ## 5. Performance baselines (record, don't guess)
 
 Captured by the scenario scripts into `tests/live/results/` per run: initial full-sync wall time for the test set; catch-up latency for 100 mixed pending changes (per tier); addon HTTP request count per scenario (debug-log grep); Kodi-start→library-browsable delta; S2.5 download counts per tier. Regressions between runs of the same scenario on the same data are release blockers.

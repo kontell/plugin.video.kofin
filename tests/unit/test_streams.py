@@ -89,7 +89,10 @@ def test_summarize_drops_video_and_keeps_only_menu_fields():
 def test_transcode_attaches_embedded_text_and_the_sidecar_not_the_image():
     # A transcode carries no subtitles at all, so the embedded text ones have
     # to arrive as files; the image one cannot (a raw .sup Kodi will not draw).
-    assert streams.attached_subtitles(SERVER, LAYOUT, "Transcode") == [
+    assert [
+        (item.stream_index, item.url)
+        for item in streams.attached_subtitles(SERVER, LAYOUT, "Transcode")
+    ] == [
         (3, SERVER + "/subs/3.srt"),
         (4, SERVER + "/subs/4.srt"),
         (6, SERVER + "/subs/6.srt"),
@@ -100,9 +103,10 @@ def test_direct_play_attaches_only_the_sidecar():
     # The container already holds 3, 4 and 5. Attaching them again would list
     # every track twice.
     for method in ("DirectPlay", "DirectStream"):
-        assert streams.attached_subtitles(SERVER, LAYOUT, method) == [
-            (6, SERVER + "/subs/6.srt")
-        ]
+        assert [
+            (item.stream_index, item.url, item.sidecar)
+            for item in streams.attached_subtitles(SERVER, LAYOUT, method)
+        ] == [(6, SERVER + "/subs/6.srt", True)]
 
 
 def test_attach_skips_streams_the_server_will_not_deliver():
@@ -290,3 +294,21 @@ def test_nothing_is_burned_in_on_a_direct_play():
 def test_burned_subtitle_of_nothing():
     assert streams.burned_subtitle(SUMMARY, None, "Transcode") is False
     assert streams.burned_subtitle(SUMMARY, 99, "Transcode") is False
+
+
+def test_an_attachment_carries_what_it_takes_to_name_it():
+    """Kodi reads a subtitle's language off its filename, and Jellyfin's route
+    cannot carry one -- so the naming fields ride along with the URL."""
+    layout = source(
+        text_sub(3, IsExternal=True, Language="ger", Title="Kommentar", IsForced=True)
+    )
+    (item,) = streams.attached_subtitles(SERVER, layout, "DirectStream")
+    assert item.sidecar is True
+    assert (item.language, item.title, item.forced) == ("ger", "Kommentar", True)
+
+
+def test_an_embedded_attachment_is_not_a_sidecar():
+    embedded, sidecar = streams.attached_subtitles(
+        SERVER, source(text_sub(3), text_sub(6, IsExternal=True)), "Transcode"
+    )
+    assert embedded.sidecar is False and sidecar.sidecar is True

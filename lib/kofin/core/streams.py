@@ -19,9 +19,27 @@ Three facts shape it, all measured (docs/transcode-stream-selection-plan.md §2)
   position within its kind.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional
 
 JsonDict = Dict[str, Any]
+
+
+class Attachment(NamedTuple):
+    """One subtitle to hand ``setSubtitles``, and what it takes to name it.
+
+    ``url`` is where the server serves it and is always a working answer.
+    The rest is for :mod:`kofin.plugin.subtitles`, which gives the sidecar
+    ones a local filename Kodi can read a language out of — Jellyfin's
+    delivery route cannot carry one (``Stream.eng.srt`` is a 400).
+    """
+
+    stream_index: int
+    url: str
+    sidecar: bool
+    language: str
+    title: str
+    forced: bool
+
 
 # The play methods whose stream *is* the original file, so Kodi reads the
 # embedded tracks straight out of it. Everything else is a transcode, which
@@ -74,8 +92,8 @@ def of_type(streams: List[JsonDict], kind: str) -> List[JsonDict]:
 
 def attached_subtitles(
     server: str, source: JsonDict, play_method: str
-) -> List[Tuple[int, str]]:
-    """``(jellyfin index, url)`` for every subtitle to hand ``setSubtitles``.
+) -> List[Attachment]:
+    """Every subtitle to hand ``setSubtitles``, in the order it will see them.
 
     Two disjoint groups, and which apply turns on the play method:
 
@@ -97,7 +115,7 @@ def attached_subtitles(
     Order is the order Kodi will list them in, which is what makes
     ``subtitle_ordinal`` able to answer at all.
     """
-    attached: List[Tuple[int, str]] = []
+    attached: List[Attachment] = []
     direct = is_direct(play_method)
     for stream in source.get("MediaStreams") or []:
         if stream.get("Type") != "Subtitle":
@@ -108,10 +126,19 @@ def attached_subtitles(
         index = stream.get("Index")
         if not url or index is None:
             continue
-        if stream.get("IsExternal"):
-            attached.append((int(index), server + url))
-        elif not direct and stream.get("IsTextSubtitleStream"):
-            attached.append((int(index), server + url))
+        sidecar = bool(stream.get("IsExternal"))
+        if not sidecar and (direct or not stream.get("IsTextSubtitleStream")):
+            continue
+        attached.append(
+            Attachment(
+                stream_index=int(index),
+                url=server + url,
+                sidecar=sidecar,
+                language=str(stream.get("Language") or ""),
+                title=str(stream.get("Title") or ""),
+                forced=bool(stream.get("IsForced")),
+            )
+        )
     return attached
 
 
