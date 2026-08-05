@@ -74,11 +74,13 @@ PAGE_SIZE = 100
 # Nothing extra ships for this — the file is a copy of the icon the node tree
 # already uses (views.NODE_ROOT_ICON), made when the folder is written.
 #
-# One caveat, also measured: Kodi resolves a folder's art when it first lists
-# the folder, and neither a Container.Refresh nor a re-entry re-checks it. A
-# folder Kodi has already seen therefore picks the icon up on the next Kodi
-# start, not the poll that wrote it. New installs never notice — the folder and
-# the icon are written together, before anything has listed it.
+# One caveat, also measured: Kodi resolves a folder's art while building the
+# listing that holds it, and keeps that listing for the session. An icon
+# written into a folder Kodi has *already* shown appears the next time the
+# listing is built cold — a Container.Refresh did not do it (Piers), a first
+# visit in a later session did (Omega) — so in the worst case, the next start.
+# The poll that writes the icon never shows it. New installs never notice: the
+# folder and the icon are written together, before anything has listed either.
 FOLDER_ICON = "folder.jpg"
 FOLDER_ICON_SOURCE = "kofin-node.png"
 
