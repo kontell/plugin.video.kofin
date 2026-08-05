@@ -1,8 +1,21 @@
 """Unit tests for one-way music playlist materialization."""
 
+import os
 from types import SimpleNamespace
 
+import pytest
+
 from kofin.sync import playlists
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+@pytest.fixture(autouse=True)
+def addon_media(monkeypatch):
+    """Point ``addon_path`` at the checkout, so a refresh copies the icon it
+    really ships the way it does in Kodi -- and fails here if that asset ever
+    moves."""
+    monkeypatch.setattr(playlists.settings, "addon_path", lambda: REPO_ROOT)
 
 
 class FakeApi:
@@ -219,8 +232,10 @@ def test_refresh_prunes_removed_and_handles_rename(tmp_path):
 
     assert stats["playlists"] == 1
     assert stats["pruned"] == 2
+    # The icon is ours and is not a playlist: the prune is against the
+    # server's set, and it must not take the folder's own artwork with it.
     names = sorted(p.name for p in root.iterdir())
-    assert names == ["New Name.m3u8"]
+    assert names == ["New Name.m3u8", playlists.FOLDER_ICON]
 
 
 def test_duplicate_names_disambiguated(tmp_path):
@@ -235,7 +250,7 @@ def test_duplicate_names_disambiguated(tmp_path):
         api, FakeMapping({}), FakeMusic({}), root=str(tmp_path / "Kofin")
     )
     names = sorted(p.name for p in (tmp_path / "Kofin").iterdir())
-    assert names == ["Mix (2).m3u8", "Mix.m3u8"]
+    assert names == ["Mix (2).m3u8", "Mix.m3u8", playlists.FOLDER_ICON]
 
 
 def test_cleanup_removes_folder(tmp_path):
@@ -298,3 +313,71 @@ def test_song_entry_writes_the_musicdb_line_for_a_direct_row():
         {42: ("https://s/Audio/a1/", "stream.flac?static=true", "T", "A", 1, 90)}
     )
     assert playlists.song_entry(mapping, music, "a1").path == "musicdb://songs/42.flac"
+
+
+# --- the managed folder's own icon -------------------------------------------
+
+
+def test_refresh_writes_the_folder_icon(tmp_path):
+    """Kodi finds a folder's art by name, and folder.jpg is the name it looks
+    for -- the bytes stay PNG so the glyph keeps its transparency."""
+    api = FakeApi(playlist_list=[], items_by_id={})
+    root = tmp_path / "Kofin"
+
+    playlists.refresh_music_playlists(
+        api, FakeMapping({}), FakeMusic({}), root=str(root)
+    )
+
+    icon = root / playlists.FOLDER_ICON
+    assert icon.is_file()
+    source = os.path.join(REPO_ROOT, "resources", "media", "kofin-node.png")
+    assert icon.read_bytes() == open(source, "rb").read()
+    assert icon.read_bytes()[:4] == b"\x89PNG"
+
+
+def test_folder_icon_is_not_rewritten_once_it_is_there(tmp_path):
+    """It rides the playlist poll, so a rewrite every pass would churn the
+    folder's mtime for nothing."""
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    assert playlists.write_folder_icon(str(root)) is True
+    stamped = (root / playlists.FOLDER_ICON).stat().st_mtime_ns
+
+    assert playlists.write_folder_icon(str(root)) is False
+    assert (root / playlists.FOLDER_ICON).stat().st_mtime_ns == stamped
+
+
+def test_folder_icon_is_replaced_when_the_shipped_one_changes(tmp_path):
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    (root / playlists.FOLDER_ICON).write_bytes(b"stale")
+
+    assert playlists.write_folder_icon(str(root)) is True
+    assert (root / playlists.FOLDER_ICON).read_bytes()[:4] == b"\x89PNG"
+
+
+def test_missing_icon_costs_a_glyph_not_a_refresh(tmp_path, monkeypatch):
+    monkeypatch.setattr(playlists.settings, "addon_path", lambda: "")
+    api = FakeApi(
+        playlist_list=[{"Id": "pl1", "Name": "Gym", "MediaType": "Audio"}],
+        items_by_id={"pl1": []},
+    )
+    root = tmp_path / "Kofin"
+
+    stats = playlists.refresh_music_playlists(
+        api, FakeMapping({}), FakeMusic({}), root=str(root)
+    )
+
+    assert stats["playlists"] == 1
+    assert not (root / playlists.FOLDER_ICON).exists()
+    assert sorted(p.name for p in root.iterdir()) == ["Gym.m3u8"]
+
+
+def test_cleanup_takes_the_icon_with_the_folder(tmp_path):
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    playlists.write_folder_icon(str(root))
+    (root / "A.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
+
+    assert playlists.cleanup_managed_playlists(root=str(root)) == 2
+    assert not root.exists()
