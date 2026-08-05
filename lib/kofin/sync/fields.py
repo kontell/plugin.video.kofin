@@ -214,7 +214,7 @@ class API(object):
 
     def get_user_artwork(self, user_id):
         """Get jellyfin user profile picture."""
-        return "%s/Users/%s/Images/Primary?Format=original" % (self.server, user_id)
+        return "%s/UserImage?userId=%s&Format=original" % (self.server, user_id)
 
     def get_people_artwork(self, people):
         """Get people (actor, director, etc) artwork."""

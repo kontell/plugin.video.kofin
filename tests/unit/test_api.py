@@ -58,11 +58,44 @@ def test_played_and_favorite_verbs(api):
     client.mark_unplayed("i1")
     client.set_favorite("i1", True)
     client.set_favorite("i1", False)
-    verbs = [(c["method"], c["url"].rsplit("/", 3)[-3:]) for c in transport.calls]
-    assert verbs[0][0] == "POST" and "PlayedItems" in transport.calls[0]["url"]
-    assert verbs[1][0] == "DELETE"
-    assert verbs[2][0] == "POST" and "FavoriteItems" in transport.calls[2]["url"]
-    assert verbs[3][0] == "DELETE"
+    assert [(c["method"], c["url"], c["params"]) for c in transport.calls] == [
+        ("POST", "http://s:8096/UserPlayedItems/i1", {"userId": "uid"}),
+        ("DELETE", "http://s:8096/UserPlayedItems/i1", {"userId": "uid"}),
+        ("POST", "http://s:8096/UserFavoriteItems/i1", {"userId": "uid"}),
+        ("DELETE", "http://s:8096/UserFavoriteItems/i1", {"userId": "uid"}),
+    ]
+
+
+def test_user_scoped_calls_use_the_documented_routes(api):
+    """Jellyfin 10.9 moved user-scoped routes off ``/Users/{userId}/…`` onto a
+    top-level path with a ``userId`` query parameter, and 10.11 dropped the old
+    shape from its OpenAPI spec while still serving it — the state a route is
+    usually in right before it stops answering. Every call below was verified
+    body-identical against the old one on a live 10.11.11 server.
+
+    A ``/Users/`` path reappearing here is the regression: it works today,
+    which is exactly why nothing else would catch it.
+    """
+    client, transport = api
+    client.views()
+    client.item("i1")
+    client.items({"IncludeItemTypes": "Movie"})
+    client.resume()
+    client.special_features("i1")
+    client.chapters("i1")
+
+    for call in transport.calls:
+        assert "/Users/" not in call["url"], call["url"]
+        assert call["params"].get("userId") == "uid", call["url"]
+
+    assert [c["url"].replace("http://s:8096", "") for c in transport.calls] == [
+        "/UserViews",
+        "/Items/i1",
+        "/Items",
+        "/UserItems/Resume",
+        "/Items/i1/SpecialFeatures",
+        "/Items/i1",
+    ]
 
 
 def test_delete_item(api):
@@ -120,7 +153,8 @@ def test_music_playlists_and_items(api):
 
     listed = client.music_playlists()
     assert [p["Id"] for p in listed] == ["a", "e"]
-    assert "/Users/uid/Items" in transport.calls[0]["url"]
+    assert transport.calls[0]["url"] == "http://s:8096/Items"
+    assert transport.calls[0]["params"]["userId"] == "uid"
     assert transport.calls[0]["params"]["IncludeItemTypes"] == "Playlist"
 
     items = client.playlist_items("a")
@@ -247,14 +281,15 @@ def test_syncplay_endpoints(api):
 
 
 def test_resume_asks_the_server_for_its_own_list(api):
-    """Continue watching comes off /Items/Resume rather than an IsResumable
-    filter, so what counts as in progress -- and in what order -- stays the
-    server's judgement."""
+    """Continue watching comes off /UserItems/Resume rather than an
+    IsResumable filter, so what counts as in progress -- and in what order --
+    stays the server's judgement."""
     client, transport = api
     client.resume("Overview", limit=10)
     call = transport.calls[0]
-    assert call["url"] == "http://s:8096/Users/uid/Items/Resume"
+    assert call["url"] == "http://s:8096/UserItems/Resume"
     assert call["params"] == {
+        "userId": "uid",
         "Limit": 10,
         "MediaTypes": "Video",
         "Recursive": True,

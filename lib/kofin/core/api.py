@@ -84,6 +84,26 @@ class Api:
     def _url(self, path: str) -> str:
         return self.server + (path if path.startswith("/") else "/" + path)
 
+    def _as_user(self, params: Optional[JsonDict] = None) -> JsonDict:
+        """Query params naming the logged-in user.
+
+        Jellyfin 10.9 moved every user-scoped route off ``/Users/{userId}/…``
+        onto a top-level path taking ``userId`` as a query parameter. 10.11
+        still answers the old shape but has dropped it from its OpenAPI spec,
+        which is how a route stops being served — so kofin asks the documented
+        way. Safe without a fallback: the addon's floor is 10.11 (README,
+        docs/rewrite-research.md), well past the move.
+
+        A caller's own ``userId`` wins. Nothing passes one today; the merge
+        order is stated so it cannot become a surprise.
+        """
+        merged: JsonDict = {"userId": self.user_id}
+
+        if params:
+            merged.update(params)
+
+        return merged
+
     def _headers(self) -> Dict[str, str]:
         return {"Authorization": self._header, "Accept": "application/json"}
 
@@ -165,13 +185,13 @@ class Api:
     # -- library browse ------------------------------------------------------
 
     def views(self) -> JsonDict:
-        return self.get("/Users/%s/Views" % self.user_id)
+        return self.get("/UserViews", self._as_user())
 
     def item(self, item_id: str) -> JsonDict:
-        return self.get("/Users/%s/Items/%s" % (self.user_id, item_id))
+        return self.get("/Items/%s" % item_id, self._as_user())
 
     def items(self, params: JsonDict) -> JsonDict:
-        return self.get("/Users/%s/Items" % self.user_id, params)
+        return self.get("/Items", self._as_user(params))
 
     def seasons(self, series_id: str) -> JsonDict:
         return self.get(
@@ -219,7 +239,7 @@ class Api:
         }
         if fields:
             params["Fields"] = fields
-        return self.get("/Users/%s/Items/Resume" % self.user_id, params)
+        return self.get("/UserItems/Resume", self._as_user(params))
 
     def artists(self, parent_id: str) -> JsonDict:
         return self.get("/Artists", {"userId": self.user_id, "parentId": parent_id})
@@ -333,8 +353,9 @@ class Api:
         """User-scoped special features (extras) of a movie/series/season."""
         response = self._http.request(
             "GET",
-            self._url("/Users/%s/Items/%s/SpecialFeatures" % (self.user_id, item_id)),
+            self._url("/Items/%s/SpecialFeatures" % item_id),
             headers=self._headers(),
+            params=self._as_user(),
         )
         listing: List[JsonDict] = response.json() if response.content else []
         return listing
@@ -442,10 +463,10 @@ class Api:
     # -- user data -------------------------------------------------------------
 
     def mark_played(self, item_id: str) -> None:
-        self.post("/Users/%s/PlayedItems/%s" % (self.user_id, item_id))
+        self.post("/UserPlayedItems/%s" % item_id, params=self._as_user())
 
     def mark_unplayed(self, item_id: str) -> None:
-        self.delete("/Users/%s/PlayedItems/%s" % (self.user_id, item_id))
+        self.delete("/UserPlayedItems/%s" % item_id, self._as_user())
 
     def set_resume_position(self, item_id: str, position_ticks: int) -> None:
         """Move an item's stored resume point (Jellyfin 10.10+ user data).
@@ -459,15 +480,15 @@ class Api:
         self.post(
             "/UserItems/%s/UserData" % item_id,
             {"PlaybackPositionTicks": int(position_ticks)},
-            {"userId": self.user_id},
+            self._as_user(),
         )
 
     def set_favorite(self, item_id: str, favorite: bool) -> None:
-        path = "/Users/%s/FavoriteItems/%s" % (self.user_id, item_id)
+        path = "/UserFavoriteItems/%s" % item_id
         if favorite:
-            self.post(path)
+            self.post(path, params=self._as_user())
         else:
-            self.delete(path)
+            self.delete(path, self._as_user())
 
     def delete_item(self, item_id: str) -> None:
         """Permanently delete an item from the server (content deletion)."""
@@ -491,17 +512,19 @@ class Api:
         page_size = 100
         while True:
             body = self.get(
-                "/Users/%s/Items" % self.user_id,
-                {
-                    "IncludeItemTypes": "Playlist",
-                    "Recursive": True,
-                    "StartIndex": start,
-                    "Limit": page_size,
-                    "EnableTotalRecordCount": True,
-                    "Fields": "MediaType,Overview",
-                    "SortBy": "SortName",
-                    "SortOrder": "Ascending",
-                },
+                "/Items",
+                self._as_user(
+                    {
+                        "IncludeItemTypes": "Playlist",
+                        "Recursive": True,
+                        "StartIndex": start,
+                        "Limit": page_size,
+                        "EnableTotalRecordCount": True,
+                        "Fields": "MediaType,Overview",
+                        "SortBy": "SortName",
+                        "SortOrder": "Ascending",
+                    }
+                ),
             )
             items = body.get("Items") or []
             new_on_page = 0
@@ -551,9 +574,7 @@ class Api:
     def chapters(self, item_id: str) -> List[JsonDict]:
         """The item's chapter list: name, start ticks, and — when the server
         has extracted a chapter image — its ImageTag."""
-        item = self.get(
-            "/Users/%s/Items/%s" % (self.user_id, item_id), {"Fields": "Chapters"}
-        )
+        item = self.get("/Items/%s" % item_id, self._as_user({"Fields": "Chapters"}))
         chapters = item.get("Chapters")
         return chapters if isinstance(chapters, list) else []
 
