@@ -110,6 +110,39 @@ NODE_ICONS: Dict[str, Any] = {
 }
 
 
+# Rows that stand for a piece of media rather than for a place to go. The
+# addon backdrop never fills one (:func:`apply_backdrop` is called only for
+# the others): it is the *addon's* artwork, and drawn behind a media item it
+# reads as that item's own. Recordings are where that showed — a DVR library's
+# items carry a Primary thumbnail and no backdrop at all, so every row in it
+# was backed by kofin's fanart. An empty background is the honest answer for an
+# item the server has no artwork for; filling it is the skin's call, not ours.
+#
+# Everything else a listing holds — genres, folders, playlists, library rows,
+# the Extras link — stands for a query or a container and keeps the backdrop.
+MEDIA_TYPES = frozenset(
+    {
+        "Movie",
+        "Episode",
+        "Series",
+        "Season",
+        "MusicVideo",
+        "Video",
+        "Trailer",
+        "Recording",
+        "BoxSet",
+        "Audio",
+        "MusicAlbum",
+        "MusicArtist",
+        "Photo",
+    }
+)
+
+
+def is_media_row(item: JsonDict) -> bool:
+    return item.get("Type", "") in MEDIA_TYPES
+
+
 def node_icon(media: str, node: str = "") -> str:
     icon = NODE_ICONS.get(node)
     if isinstance(icon, dict):
@@ -142,7 +175,8 @@ def with_backdrop(art: Dict[str, str]) -> Dict[str, str]:
     """Fill in the addon backdrop for an item that has no fanart of its own.
 
     A fallback, not a decoration — it only ever fills an empty slot, so an
-    item with real server artwork keeps it.
+    item with real server artwork keeps it. Media rows are excluded at the
+    call site rather than here (see :data:`MEDIA_TYPES`).
 
     Two kinds of row need this, which is why it is not folded into
     :func:`structural_art`. Structural rows stand for a query and have no art
@@ -170,9 +204,10 @@ def with_backdrop(art: Dict[str, str]) -> Dict[str, str]:
 def apply_backdrop(li: xbmcgui.ListItem) -> None:
     """:func:`with_backdrop` for a row whose art is already on the ListItem.
 
-    Media rows usually carry a server backdrop and keep it; this is for the
-    ones that do not (a movie with no Backdrop image, a genre), so that no
-    row in a kofin listing leaves the background empty.
+    For the structural rows a listing holds — a genre, a folder, a playlist —
+    which carry no server artwork of their own and would otherwise leave the
+    background empty. Media rows are the caller's to exclude
+    (:func:`is_media_row`).
     """
     if not li.getArt("fanart"):
         li.setArt(with_backdrop({}))
@@ -550,8 +585,9 @@ def _extras_node(request: Request, api: Api, view_id: str) -> None:
     )
     entries = []
     for item in result.get("Items", []):
+        # No apply_backdrop: these are series rows, and a media row keeps
+        # whatever backdrop the server gave it or none (MEDIA_TYPES).
         li = listitems.build(item, api.server)
-        apply_backdrop(li)
         path = listitems.plugin_url({"mode": "extras", "id": item.get("Id", "")})
         entries.append((path, li, True))
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
@@ -661,7 +697,8 @@ def _add_items(
     entries = []
     for item in items:
         li = listitems.build(item, api.server)
-        apply_backdrop(li)
+        if not is_media_row(item):
+            apply_backdrop(li)
         item_type = item.get("Type", "")
 
         if item_type in ("Genre", "MusicGenre"):

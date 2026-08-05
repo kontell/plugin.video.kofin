@@ -526,7 +526,55 @@ def test_backdrop_never_displaces_real_server_artwork(recording_art):
     assert li.getArt("fanart") == own
 
 
-def test_backdrop_fills_a_media_row_that_has_none(recording_art):
+def test_backdrop_fills_a_row_that_has_none(recording_art):
     li = recording_art("x")
     browse.apply_backdrop(li)
+    assert li.getArt("fanart") == browse._addon_media(browse.BACKDROP_IMAGE)
+
+
+def test_media_rows_never_take_the_addon_backdrop(recording_art, directory):
+    """A DVR recording is the case this is about: Primary thumbnail, no
+    BackdropImageTags, so art_for sets no fanart and every row in the library
+    drew the addon's own artwork as if it were the recording's."""
+    browse._add_items(
+        Request("plugin://x", 1, {}),
+        ExtrasApi(),
+        [
+            {
+                "Type": "Movie",
+                "Id": "r1",
+                "Name": "Nations Champ Rugby",
+                "ImageTags": {"Primary": "p1"},
+            }
+        ],
+        "v1",
+        "",
+    )
+    li = directory["entries"][0][1]
+    assert li.getArt("fanart") == ""
+
+
+def test_media_rows_keep_their_own_backdrop(recording_art, directory):
+    browse._add_items(
+        Request("plugin://x", 1, {}),
+        ExtrasApi(),
+        [{"Type": "Movie", "Id": "m1", "Name": "Heat", "BackdropImageTags": ["b1"]}],
+        "v1",
+        "movies",
+    )
+    li = directory["entries"][0][1]
+    assert li.getArt("fanart").endswith("/Items/m1/Images/Backdrop/0?tag=b1")
+
+
+def test_structural_rows_in_a_listing_still_take_the_backdrop(recording_art, directory):
+    """The other half of the rule: a genre stands for a query, has no artwork
+    of its own, and would otherwise leave the background empty."""
+    browse._add_items(
+        Request("plugin://x", 1, {}),
+        ExtrasApi(),
+        [{"Type": "Genre", "Id": "g1", "Name": "Drama"}],
+        "v1",
+        "movies",
+    )
+    li = directory["entries"][0][1]
     assert li.getArt("fanart") == browse._addon_media(browse.BACKDROP_IMAGE)
