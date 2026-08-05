@@ -147,3 +147,31 @@ def test_adjust_resume_applies_the_shared_offset_rule(monkeypatch):
     # Shorter than the offset: left alone rather than clamped to zero, so a
     # barely-started item keeps its in-progress bookmark.
     assert fields.API.adjust_resume(4.0) == 4.0
+
+
+# --- ratings ------------------------------------------------------------------
+
+
+def test_community_rating_is_always_a_row():
+    """Kodi's default-rating pointer names a row, so an unrated item needs one
+    too — and it keeps the fork's ``default`` type name so no existing install
+    is rewritten for cosmetics."""
+    assert fields.ratings({}) == {"default": (None, None)}
+    assert fields.ratings({"Rating": 7.1, "Votes": 12}) == {"default": (7.1, 12)}
+
+
+def test_critic_rating_is_rescaled_onto_kodis_ten_point_scale():
+    """Jellyfin's CriticRating is a percentage; Kodi's star ratings and rating
+    sorts assume 0-10, so 78% becomes 7.8 rather than a 78 that would peg
+    every star meter it touched."""
+    rows = fields.ratings({"Rating": 7.1, "Votes": 12, "CriticRating": 78})
+
+    assert rows == {"default": (7.1, 12), "critic": (7.8, None)}
+    # Community first: sync_ratings allocates rating_ids in this order and
+    # falls back to the first entry when the preferred type is missing.
+    assert list(rows) == ["default", "critic"]
+
+
+def test_zero_critic_rating_is_still_a_rating():
+    """0% is a review, not a missing one — only None drops the row."""
+    assert "critic" in fields.ratings({"CriticRating": 0})

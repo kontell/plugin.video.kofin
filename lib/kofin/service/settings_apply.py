@@ -64,6 +64,7 @@ class SettingsApplier:
             "syncMusicPlaylists": self._sync_music_playlists_changed,
             "musicTranscode": self._music_transcode_changed,
             "useServerBackdrop": self._server_backdrop_changed,
+            "preferCriticRating": self._prefer_critic_rating_changed,
         }
         self.snapshot: Dict[str, str] = self._read_all()
 
@@ -228,6 +229,21 @@ class SettingsApplier:
         if library is None:
             return
         library.enqueue_command("SyncMusicPlaylists")
+
+    def _prefer_critic_rating_changed(self, old: str, new: str) -> None:
+        """Point already-synced films at the other rating row.
+
+        No resync: both rows are written at sync time, so the flip is a
+        pointer rewrite over MyVideos (``library.repoint_ratings``). Films
+        that predate the option have no critic row yet and simply keep their
+        community rating until a Repair fetches one — which is what the
+        setting's help text asks for.
+        """
+        library = self._library_manager()
+        if library is None:
+            LOG.warning("preferCriticRating changed but library manager unavailable")
+            return
+        library.enqueue_command("RepointRatings")
 
     def _library_selection_changed(self, old: str, new: str) -> None:
         """The apply-on-save path for the library multiselect."""

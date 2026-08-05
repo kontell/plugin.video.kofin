@@ -6,6 +6,7 @@ stripped (plugin mode only — ``get_path_filename`` keeps the plugin:// arm),
 
 from urllib.parse import urlencode
 
+from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import downloader as server
 from kofin.sync import kofindb as jellyfin_db
@@ -65,6 +66,14 @@ class Movies(KodiDb):
         self.library = library
         # Memo for find_library, per writer instance (see fields.find_library).
         self.library_cache = {}
+        # Which rating row Kodi treats as the default. Read once per writer
+        # rather than per movie (settings.get_bool builds a fresh
+        # xbmcaddon.Addon each call); a flip mid-sync is picked up by the next
+        # writer, and for everything already written by the settings handler's
+        # repoint pass (service/settings_apply.py).
+        self.rating_type = (
+            "critic" if settings.get_bool("preferCriticRating") else "default"
+        )
 
         KodiDb.__init__(self, videodb.cursor)
 
@@ -180,8 +189,9 @@ class Movies(KodiDb):
 
     def movie_add(self, obj):
         """Add object to kodi."""
-        obj["RatingId"] = self.create_entry_rating()
-        self.add_ratings(*values(obj, QU.add_rating_movie_obj))
+        obj["RatingId"] = self.sync_ratings(
+            obj["MovieId"], api.ratings(obj), self.rating_type
+        )
 
         obj["Unique"] = self.create_entry_unique_id()
         self.add_unique_id(*values(obj, QU.add_unique_id_movie_obj))
@@ -205,8 +215,9 @@ class Movies(KodiDb):
 
     def movie_update(self, obj):
         """Update object to kodi."""
-        obj["RatingId"] = self.get_rating_id(*values(obj, QU.get_rating_movie_obj))
-        self.update_ratings(*values(obj, QU.update_rating_movie_obj))
+        obj["RatingId"] = self.sync_ratings(
+            obj["MovieId"], api.ratings(obj), self.rating_type
+        )
 
         obj["Unique"] = self.get_unique_id(*values(obj, QU.get_unique_id_movie_obj))
         self.update_unique_id(*values(obj, QU.update_unique_id_movie_obj))

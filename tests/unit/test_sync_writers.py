@@ -254,8 +254,18 @@ def test_movie_write_full_fidelity(api):
     assert "id=movie1" in files[0]
     assert files[1] == 2  # playcount
 
-    rating = video_query("SELECT rating, votes FROM rating WHERE media_type='movie'")[0]
-    assert rating == (7.8, 1234)
+    # Community rating first (the fork's single 'default'-typed row), then the
+    # server's critic rating rescaled onto Kodi's 0-10 scale: 81 -> 8.1.
+    ratings = video_query(
+        "SELECT rating_type, rating, votes FROM rating "
+        "WHERE media_type='movie' ORDER BY rating_id"
+    )
+    assert ratings == [("default", 7.8, 1234), ("critic", 8.1, None)]
+    # c05 is the default-rating pointer movie_view joins on: community, unless
+    # the user asked for critic.
+    assert row["c05"] == str(
+        video_query("SELECT rating_id FROM rating WHERE rating_type='default'")[0][0]
+    )
 
     unique = video_query(
         "SELECT value, type FROM uniqueid WHERE media_type='movie' ORDER BY uniqueid_id"
@@ -338,7 +348,108 @@ def test_movie_etag_change_updates_row(api):
     # Still exactly one of everything.
     assert video_query("SELECT COUNT(*) FROM movie") == [(1,)]
     assert video_query("SELECT COUNT(*) FROM files") == [(1,)]
-    assert video_query("SELECT COUNT(*) FROM rating") == [(1,)]
+    # Community + critic, still one of each: the second write updates the rows
+    # it found rather than adding a set.
+    assert video_query("SELECT COUNT(*) FROM rating") == [(2,)]
+
+
+def _pointer(rating_type):
+    """(c05, the rating_id of that type) — the pointer test in one place."""
+    rows = video_query(
+        "SELECT rating_id FROM rating WHERE media_type='movie' AND rating_type=?",
+        (rating_type,),
+    )
+    return (
+        video_query("SELECT c05 FROM movie")[0][0],
+        str(rows[0][0]) if rows else None,
+    )
+
+
+def test_movie_prefer_critic_points_at_the_critic_row(api):
+    FakeAddon.store["preferCriticRating"] = "true"
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+
+    pointer, critic_id = _pointer("critic")
+    assert pointer == critic_id
+    # Both rows are always written; only which one Kodi calls the default moves.
+    assert video_query("SELECT COUNT(*) FROM rating") == [(2,)]
+
+
+def test_movie_prefer_critic_falls_back_to_community(api):
+    """A film the server has no critic rating for keeps its community one."""
+    FakeAddon.store["preferCriticRating"] = "true"
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+
+    payload = dto(MOVIE)
+    del payload["CriticRating"]
+    write_movie(api, payload)
+
+    pointer, community_id = _pointer("default")
+    assert pointer == community_id
+    assert video_query("SELECT rating_type FROM rating") == [("default",)]
+
+
+def test_movie_dropped_critic_rating_never_dangles(api):
+    """The server losing a rating deletes its row — and the pointer with it,
+    or movie_view's LEFT JOIN would render the film unrated."""
+    FakeAddon.store["preferCriticRating"] = "true"
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+
+    dropped = dto(MOVIE)
+    dropped["Etag"] = "etag-movie1-v2"
+    del dropped["CriticRating"]
+    write_movie(api, dropped)
+
+    assert video_query("SELECT rating_type FROM rating") == [("default",)]
+    pointer, community_id = _pointer("default")
+    assert pointer == community_id
+    assert video_query(
+        "SELECT rating FROM rating WHERE rating_id = (SELECT c05 FROM movie)"
+    ) == [(7.8,)]
+
+
+def test_movie_repoint_ratings_moves_the_pointer_only(api):
+    """The settings flip's apply path: no resync, just the pointer."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    before = video_query(
+        "SELECT rating_id, rating_type, rating FROM rating ORDER BY rating_id"
+    )
+
+    with sync_db.Database("video") as vdb:
+        from kofin.sync.kodidb import Movies as KodiDb
+
+        assert KodiDb(vdb.cursor).repoint_ratings([1], "critic") == 1
+
+    assert _pointer("critic")[0] == _pointer("critic")[1]
+    assert (
+        video_query(
+            "SELECT rating_id, rating_type, rating FROM rating ORDER BY rating_id"
+        )
+        == before
+    )
+
+    with sync_db.Database("video") as vdb:
+        KodiDb(vdb.cursor).repoint_ratings([1], "default")
+
+    assert _pointer("default")[0] == _pointer("default")[1]
+
+
+def test_movie_repoint_ratings_leaves_foreign_movies_alone(api):
+    """Kodi's own scraped rows carry 'default' ratings too; theirs is not ours
+    to move, so only the ids the caller owns are touched."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    scraped_pointer = video_query("SELECT c05 FROM movie")[0][0]
+
+    with sync_db.Database("video") as vdb:
+        from kofin.sync.kodidb import Movies as KodiDb
+
+        assert KodiDb(vdb.cursor).repoint_ratings([999], "critic") == 0
+
+    assert video_query("SELECT c05 FROM movie")[0][0] == scraped_pointer
 
 
 # --- movie extras (phase 3: native videoversion assets) ----------------------

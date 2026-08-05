@@ -239,6 +239,11 @@
           <default>true</default>
           <control type="toggle"/>
         </setting>
+        <setting id="preferCriticRating" type="boolean" label="30666" help="30667">
+          <level>0</level>
+          <default>false</default>
+          <control type="toggle"/>
+        </setting>
       </group>
     </category>
 
