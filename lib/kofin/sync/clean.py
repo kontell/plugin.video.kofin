@@ -36,7 +36,7 @@ from kofin.core.log import Logger
 from kofin.sync import schema
 from kofin.sync.db import Database, addon_data_path
 from kofin.sync.kodidb.texture import TextureCache
-from kofin.sync.playlists import FOLDER_NAME as MUSIC_PLAYLIST_FOLDER
+from kofin.sync.playlists import FOLDER_NAME as MANAGED_PLAYLIST_FOLDER
 
 LOG = Logger(__name__)
 
@@ -216,18 +216,26 @@ def remove_all_nodes(library_root: Optional[str] = None) -> List[str]:
 
 
 def sweep_playlists(playlists_root: Optional[str] = None) -> List[str]:
-    """Both addons' video smart playlists plus kofin's managed music folder.
+    """Both addons' generated playlists: the managed folders and the flat files.
 
-    The folder is the ownership boundary on the music side — sibling files
-    under ``playlists/music/`` are the user's and stay.
+    The folder is the ownership boundary in both trees — sibling files under
+    ``playlists/music/`` and ``playlists/video/`` are the user's and stay. The
+    two managed folders are named rather than swept: ``_sweep_prefixed``
+    matches case-sensitively and the folder is ``Kofin``, so a prefix sweep
+    walks straight past it.
+
+    The flat sweep stays for what the folders replaced — jellyfin-kodi's
+    ``jellyfin*.xsp`` and the ``kofin*.xsp`` kofin itself wrote there before
+    ``views.PLAYLIST_FOLDER``.
     """
     base = playlists_root or xbmcvfs.translatePath(PLAYLISTS_ROOT)
     removed = _sweep_prefixed(os.path.join(base, "video"))
-    managed = os.path.join(base, "music", MUSIC_PLAYLIST_FOLDER)
-    if os.path.isdir(managed):
-        shutil.rmtree(managed)
-        LOG.info("removed %s", managed)
-        removed.append(managed)
+    for tree in ("video", "music"):
+        managed = os.path.join(base, tree, MANAGED_PLAYLIST_FOLDER)
+        if os.path.isdir(managed):
+            shutil.rmtree(managed)
+            LOG.info("removed %s", managed)
+            removed.append(managed)
     return removed
 
 
