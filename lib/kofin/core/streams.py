@@ -41,6 +41,9 @@ _SUMMARY_FIELDS = (
     "IsForced",
     "IsExternal",
     "IsTextSubtitleStream",
+    # One short string per stream, and it is the only record of a burned-in
+    # subtitle there is — see burned_subtitle().
+    "DeliveryMethod",
 )
 
 # What the context item's <visible> tests to pick its label. Published as a
@@ -124,6 +127,45 @@ def audio_ordinal(streams: List[JsonDict], index: Optional[int]) -> Optional[int
         if stream.get("Index") == index:
             return ordinal
     return None
+
+
+def audio_index_at(streams: List[JsonDict], ordinal: Optional[int]) -> Optional[int]:
+    """``audio_ordinal`` inverted: the Jellyfin index of Kodi's nth track.
+
+    What the player answers has to be translatable back, because on a direct
+    play Kodi's own audio menu can change the track without kofin hearing of
+    it, and the published index is then the one the playback *started* on
+    rather than the one being heard.
+    """
+    tracks = of_type(streams, "Audio")
+    if ordinal is None or ordinal < 0 or ordinal >= len(tracks):
+        return None
+    return tracks[ordinal].get("Index")
+
+
+def burned_subtitle(
+    streams: List[JsonDict], selected: Optional[int], play_method: str
+) -> bool:
+    """Whether the subtitle this playback was resolved with is in the picture.
+
+    A burned-in subtitle is not a track. It is pixels in the video, so no
+    question put to the player reports it — ``currentsubtitle`` answers with
+    whatever else is loaded, or nothing — and the only record of it is the
+    server's own answer: on a transcode whose profile withdrew the image
+    formats, the stream comes back ``DeliveryMethod: Encode``.
+
+    ``selected`` is therefore load-bearing, not a convenience. Measured against
+    10.11: a burn profile flips *every* image subtitle to ``Encode``, not only
+    the one requested — twenty of them on one film — so the delivery method
+    alone identifies a set of candidates, and only the index the playback was
+    resolved with says which of them is the one on screen.
+    """
+    if selected is None or is_direct(play_method):
+        return False
+    for stream in of_type(streams, "Subtitle"):
+        if stream.get("Index") == selected:
+            return stream.get("DeliveryMethod") == "Encode"
+    return False
 
 
 def subtitle_ordinal(

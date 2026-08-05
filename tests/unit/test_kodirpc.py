@@ -13,6 +13,18 @@ def responder(payload):
     return lambda query: json.dumps(payload)
 
 
+def _player_responder(properties):
+    """GetActivePlayers then GetProperties, in that order."""
+
+    def answer(query):
+        method = json.loads(query)["method"]
+        if method == "Player.GetActivePlayers":
+            return json.dumps({"result": [{"playerid": 1}]})
+        return json.dumps({"result": properties})
+
+    return answer
+
+
 def test_resume_seconds_reads_the_position(monkeypatch):
     monkeypatch.setattr(
         "xbmc.executeJSONRPC",
@@ -134,3 +146,40 @@ def test_drop_cached_texture_reports_nothing_to_do(monkeypatch):
     rpc = TextureRpc([])
     monkeypatch.setattr("xbmc.executeJSONRPC", rpc)
     assert kodirpc.drop_cached_texture("plugin.video.kofin") == 0
+
+
+# -- what the player is currently playing -------------------------------------
+
+
+def test_current_audio_reads_the_stream_index(monkeypatch):
+    monkeypatch.setattr(
+        "xbmc.executeJSONRPC",
+        _player_responder({"currentaudiostream": {"index": 2, "name": "AC3"}}),
+    )
+    assert kodirpc.current_audio() == 2
+
+
+def test_current_audio_without_a_player(monkeypatch):
+    monkeypatch.setattr("xbmc.executeJSONRPC", responder({"result": []}))
+    assert kodirpc.current_audio() is None
+
+
+def test_current_audio_survives_a_junk_answer(monkeypatch):
+    monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
+    assert kodirpc.current_audio() is None
+
+
+def test_current_subtitle_is_none_when_subtitles_are_off(monkeypatch):
+    monkeypatch.setattr(
+        "xbmc.executeJSONRPC",
+        _player_responder({"currentsubtitle": {"index": 1}, "subtitleenabled": False}),
+    )
+    assert kodirpc.current_subtitle() is None
+
+
+def test_current_subtitle_reads_the_index(monkeypatch):
+    monkeypatch.setattr(
+        "xbmc.executeJSONRPC",
+        _player_responder({"currentsubtitle": {"index": 1}, "subtitleenabled": True}),
+    )
+    assert kodirpc.current_subtitle() == 1

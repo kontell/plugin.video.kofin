@@ -18,7 +18,7 @@ route's own PlaybackInfo and published when the service claimed the playback,
 so the menu is complete before the first frame and opening it costs nothing.
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 from urllib.parse import parse_qsl, urlparse
 
 import xbmc
@@ -38,6 +38,51 @@ JsonDict = Dict[str, Any]
 STR_AUDIO_STREAM = 460
 STR_SUBTITLES = 287
 STR_NONE = 231
+
+
+class Playing(NamedTuple):
+    """What the picture is actually made of right now.
+
+    Not what the playback was resolved with: Kodi's own menus move both tracks
+    without kofin hearing of it, and a burned-in subtitle is not a track at all
+    (see :func:`_playing`). Every menu marks its rows against this, and a
+    restart reproduces it with one field replaced — which is what keeps a
+    burned-in subtitle through an audio change, and the audio track through a
+    burn-in.
+    """
+
+    audio: Optional[int]
+    subtitle: Optional[int]
+    burned: bool
+
+
+def _playing(
+    payload: JsonDict, media_streams: List[JsonDict], attached: List[int], method: str
+) -> Playing:
+    audio = payload.get("AudioStreamIndex")
+    if streams.is_direct(method):
+        # A transcode has one audio track by construction, so the resolved
+        # index is the only answer there. Direct play is the opposite: Kodi
+        # holds them all and its own menu can have moved.
+        live = streams.audio_index_at(media_streams, kodirpc.current_audio())
+        if live is not None:
+            audio = live
+
+    wanted = payload.get("SubtitleStreamIndex")
+    if streams.burned_subtitle(media_streams, wanted, method):
+        return Playing(audio, wanted, True)
+    return Playing(
+        audio, _current_subtitle_index(media_streams, attached, method), False
+    )
+
+
+def _row_of(index: Optional[int], rows: List[Optional[int]]) -> int:
+    """Which row to put the cursor on, or -1 for none.
+
+    Kodi's own stream dialogs open on the running track; marking it in the text
+    and then opening on row 0 is half the job.
+    """
+    return rows.index(index) if index in rows else -1
 
 
 def menu(request: Request) -> None:
@@ -77,29 +122,53 @@ def context_menu() -> None:
             return
         offer = streams.OFFER_AUDIO if kind == 0 else streams.OFFER_SUBTITLE
 
+    playing = _playing(payload, media_streams, attached, method)
+
     if offer == streams.OFFER_AUDIO:
-        _choose_audio(payload, audio)
+        _choose_audio(payload, audio, media_streams, method, playing)
     else:
-        _choose_subtitle(payload, subtitles, media_streams, attached, method)
+        _choose_subtitle(payload, subtitles, media_streams, attached, method, playing)
 
 
 # -- audio -------------------------------------------------------------------
 
 
-def _choose_audio(payload: JsonDict, audio: List[JsonDict]) -> None:
-    current = payload.get("AudioStreamIndex")
+def _choose_audio(
+    payload: JsonDict,
+    audio: List[JsonDict],
+    media_streams: List[JsonDict],
+    method: str,
+    playing: Playing,
+) -> None:
     # Annotated the way context.choose_bitrate is: Dialog.select takes
     # list[str | ListItem], and a bare list[str] is not that (list is invariant).
     labels: List[Union[str, xbmcgui.ListItem]] = [
-        streams.label_for(stream, stream.get("Index") == current) for stream in audio
+        streams.label_for(stream, stream.get("Index") == playing.audio)
+        for stream in audio
     ]
-    index = xbmcgui.Dialog().select(xbmc.getLocalizedString(STR_AUDIO_STREAM), labels)
+    index = xbmcgui.Dialog().select(
+        xbmc.getLocalizedString(STR_AUDIO_STREAM),
+        labels,
+        preselect=_row_of(playing.audio, [stream.get("Index") for stream in audio]),
+    )
     if index < 0:
         return
     chosen = audio[index]
-    if chosen.get("Index") == current:
+    if chosen.get("Index") == playing.audio:
         return  # already playing; nothing worth a five-second restart
-    _restart(payload, audio_index=chosen.get("Index"))
+
+    if streams.is_direct(method):
+        # The tracks are all in the stream Kodi opened, so this is a switch,
+        # not a new playback. Restarting here would cost five seconds to
+        # arrive at what setAudioStream does immediately.
+        ordinal = streams.audio_ordinal(media_streams, chosen.get("Index"))
+        if ordinal is None:
+            return
+        xbmc.Player().setAudioStream(ordinal)
+        LOG.info("audio -> jellyfin %s (kodi %s)", chosen.get("Index"), ordinal)
+        return
+
+    _restart(payload, playing._replace(audio=chosen.get("Index")))
 
 
 # -- subtitles ---------------------------------------------------------------
@@ -111,39 +180,56 @@ def _choose_subtitle(
     media_streams: List[JsonDict],
     attached: List[int],
     method: str,
+    playing: Playing,
 ) -> None:
     if not subtitles:
         return
-    current = _current_subtitle_index(media_streams, attached, method)
     rows: List[Tuple[Optional[JsonDict], str]] = [
         (
             None,
             streams.label_for(
-                {"DisplayTitle": xbmc.getLocalizedString(STR_NONE)}, current is None
+                {"DisplayTitle": xbmc.getLocalizedString(STR_NONE)},
+                playing.subtitle is None,
             ),
         )
     ]
     for stream in subtitles:
-        label = streams.label_for(stream, stream.get("Index") == current)
-        if streams.needs_restart(stream, method):
+        active = stream.get("Index") == playing.subtitle
+        label = streams.label_for(stream, active)
+        if streams.needs_restart(stream, method) and not active:
             # Burn-in is not a like-for-like alternative to the others in this
             # list — it re-encodes the video and restarts playback — so the row
             # says so rather than surprising the viewer with a five-second gap.
+            # The one already burned in has nothing left to warn about.
             label = "%s (%s)" % (label, settings.localized(30617))
         rows.append((stream, label))
 
     labels: List[Union[str, xbmcgui.ListItem]] = [label for _, label in rows]
-    index = xbmcgui.Dialog().select(xbmc.getLocalizedString(STR_SUBTITLES), labels)
+    index = xbmcgui.Dialog().select(
+        xbmc.getLocalizedString(STR_SUBTITLES),
+        labels,
+        preselect=_row_of(
+            playing.subtitle,
+            [None if stream is None else stream.get("Index") for stream, _ in rows],
+        ),
+    )
     if index < 0:
         return
     chosen = rows[index][0]
 
     if chosen is None:
+        if playing.burned:
+            # Nothing can turn this one off: it is in the picture, not in a
+            # track. Only a stream without it is an answer.
+            _restart(payload, playing._replace(subtitle=None, burned=False))
+            return
         xbmc.Player().showSubtitles(False)
         LOG.info("subtitles off")
         return
+    if chosen.get("Index") == playing.subtitle:
+        return  # already on screen; never pay a restart to arrive where we are
     if streams.needs_restart(chosen, method):
-        _restart(payload, subtitle_index=chosen.get("Index"), burn=True)
+        _restart(payload, playing._replace(subtitle=chosen.get("Index"), burned=True))
         return
     ordinal = streams.subtitle_ordinal(
         media_streams, chosen.get("Index"), attached, method
@@ -182,13 +268,15 @@ def _current_subtitle_index(
 # -- restart -----------------------------------------------------------------
 
 
-def _restart(
-    payload: JsonDict,
-    audio_index: Optional[int] = None,
-    subtitle_index: Optional[int] = None,
-    burn: bool = False,
-) -> None:
-    """Resolve a new stream with the chosen index and pick up where we were.
+def _restart(payload: JsonDict, playing: Playing) -> None:
+    """Resolve a new stream that is ``playing``, and pick up where we were.
+
+    Every field is stated, not just the one the viewer changed. The server
+    resolves what it is not told from the user's profile, so an audio switch
+    that named only the audio track came back with the profile's subtitle —
+    losing a burned-in one, or bringing back one that had been turned off — and
+    a burn-in that named only the subtitle came back on the profile's audio.
+    Restating all three makes a restart a change of one thing.
 
     The position is stated in the params rather than left to Kodi: PlayMedia's
     resume flag is gated on ``GetItemResumeInformation().isResumable``, which a
@@ -220,11 +308,14 @@ def _restart(
         dbid = _playing_dbid()
         if dbid:
             params["dbid"] = dbid
-    if audio_index is not None:
-        params["audioindex"] = str(audio_index)
-    if subtitle_index is not None:
-        params["subtitleindex"] = str(subtitle_index)
-    if burn:
+    if playing.audio is not None:
+        params["audioindex"] = str(playing.audio)
+    # -1 is how Jellyfin is told "no subtitle", as distinct from omitting the
+    # parameter and letting the user's profile choose one (plugin.play).
+    params["subtitleindex"] = str(
+        playing.subtitle if playing.subtitle is not None else -1
+    )
+    if playing.burned:
         params["burnsubs"] = "1"
     if position > 0:
         params["startticks"] = str(int(position * 10_000_000))
@@ -235,9 +326,9 @@ def _restart(
         "restarting %s at %.1fs (audio=%s subtitle=%s burn=%s)",
         item_id,
         position,
-        audio_index,
-        subtitle_index,
-        burn,
+        playing.audio,
+        playing.subtitle,
+        playing.burned,
     )
     # Nothing here reports the stop: the restart replaces the playback, and the
     # player's own onPlayBackStopped finalize() posts the position and closes

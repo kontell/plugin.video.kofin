@@ -775,6 +775,10 @@ class Player(xbmc.Player):
             payload["Id"] = item.get("Id", "")
             payload["MediaSourceId"] = item.get("MediaSourceId", "")
             payload["AudioStreamIndex"] = item.get("AudioStreamIndex")
+            # Both indices, not just audio: a burned-in subtitle is not a Kodi
+            # track, so this is the only thing that tells the menu which row is
+            # the one in the picture (core/streams.burned_subtitle).
+            payload["SubtitleStreamIndex"] = item.get("SubtitleStreamIndex")
             offer = streams.menu_offer(media_streams, attached, method)
             if self._syncplay_group_active:
                 offer = streams.OFFER_NONE
@@ -824,6 +828,13 @@ class Player(xbmc.Player):
             # The profile asks for no subtitle. Say so rather than leaving
             # whatever Kodi auto-selected running.
             self.showSubtitles(False)
+            return
+        if streams.burned_subtitle(media_streams, wanted, method):
+            # It is already in the picture. Anything Kodi shows on top of it is
+            # a second subtitle over the first, which is what an auto-selected
+            # attached track would be here.
+            self.showSubtitles(False)
+            LOG.info("--> subtitle %s is burned in; Kodi's own left off", wanted)
             return
         ordinal = streams.subtitle_ordinal(media_streams, wanted, attached, method)
         if ordinal is None:

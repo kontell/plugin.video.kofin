@@ -10,7 +10,7 @@ has to invalidate the entry itself.
 """
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import xbmc
 
@@ -31,6 +31,41 @@ RESUME_QUERY = {
 }
 
 
+def _player_properties(properties: List[str]) -> Optional[Dict[str, Any]]:
+    """Properties of whichever player is active, or None when none is."""
+    players: Dict[str, Any] = json.loads(
+        xbmc.executeJSONRPC(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "Player.GetActivePlayers",
+                }
+            )
+        )
+    )
+    active = players["result"]
+    if not active:
+        return None
+    response: Dict[str, Any] = json.loads(
+        xbmc.executeJSONRPC(
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "Player.GetProperties",
+                    "params": {
+                        "playerid": active[0]["playerid"],
+                        "properties": properties,
+                    },
+                }
+            )
+        )
+    )
+    result: Dict[str, Any] = response["result"]
+    return result
+
+
 def current_subtitle() -> Optional[int]:
     """Kodi's number for the subtitle on screen, or None when none is.
 
@@ -41,42 +76,32 @@ def current_subtitle() -> Optional[int]:
     Only the index distinguishes them.
     """
     try:
-        players: Dict[str, Any] = json.loads(
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "Player.GetActivePlayers",
-                    }
-                )
-            )
-        )
-        active = players["result"]
-        if not active:
-            return None
-        response: Dict[str, Any] = json.loads(
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "Player.GetProperties",
-                        "params": {
-                            "playerid": active[0]["playerid"],
-                            "properties": ["currentsubtitle", "subtitleenabled"],
-                        },
-                    }
-                )
-            )
-        )
-        result = response["result"]
-        if not result.get("subtitleenabled"):
+        result = _player_properties(["currentsubtitle", "subtitleenabled"])
+        if result is None or not result.get("subtitleenabled"):
             return None
         index = result.get("currentsubtitle", {}).get("index")
         return int(index) if index is not None else None
     except Exception as error:
         LOG.debug("current subtitle read failed: %s", error)
+        return None
+
+
+def current_audio() -> Optional[int]:
+    """Kodi's number for the audio track being heard, or None.
+
+    Asked for the same reason as the subtitle above: on a direct play Kodi's
+    own audio menu switches tracks without kofin hearing of it, so the index
+    the playback was resolved with is not necessarily the one playing, and a
+    menu that marks it as current would be marking the wrong row.
+    """
+    try:
+        result = _player_properties(["currentaudiostream"])
+        if result is None:
+            return None
+        index = (result.get("currentaudiostream") or {}).get("index")
+        return int(index) if index is not None else None
+    except Exception as error:
+        LOG.debug("current audio read failed: %s", error)
         return None
 
 
