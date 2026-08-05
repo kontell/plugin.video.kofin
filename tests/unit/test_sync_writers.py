@@ -76,7 +76,8 @@ class FakeApi:
             return {"Items": self.seasons_by_series.get(series_id, [])}
         if path.endswith("/LocalTrailers"):
             return []
-        if path == "/Users/%s/Items" % self.user_id:
+        if path == "/Items":
+            assert params.get("userId") == self.user_id, "item query lost its user"
             children = self.boxset_children.get(params.get("ParentId"), [])
             if params.get("Limit") == 1 and params.get("EnableTotalRecordCount"):
                 return {"TotalRecordCount": len(children), "Items": []}
@@ -86,7 +87,9 @@ class FakeApi:
         raise AssertionError("unexpected GET %s %s" % (path, params))
 
     def items(self, params):
-        return self.get("/Users/%s/Items" % self.user_id, params)
+        merged = {"userId": self.user_id}
+        merged.update(params or {})
+        return self.get("/Items", merged)
 
     def ancestors(self, item_id):
         return []

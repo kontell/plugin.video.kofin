@@ -140,14 +140,15 @@ def get_seasons(api, show_id):
 
 
 def get_local_trailers(api, item_id):
-    return api.get("/Users/%s/Items/%s/LocalTrailers" % (api.user_id, item_id))
+    return api.get("/Items/%s/LocalTrailers" % item_id, {"userId": api.user_id})
 
 
 def get_item_count(api, parent_id, item_type=None):
 
-    url = "/Users/%s/Items" % api.user_id
+    url = "/Items"
 
     query_params = {
+        "userId": api.user_id,
         "ParentId": parent_id,
         "IncludeItemTypes": item_type,
         "EnableTotalRecordCount": True,
@@ -188,8 +189,9 @@ def align_sort_order(params):
 def get_items(api, parent_id, item_type=None, basic=False, params=None):
 
     query = {
-        "url": "/Users/%s/Items" % api.user_id,
+        "url": "/Items",
         "params": {
+            "userId": api.user_id,
             "ParentId": parent_id,
             # Load-bearing: the 3-pass tvshows walk (Series, then Season,
             # then Episode) is only three *different* queries because of
@@ -271,8 +273,9 @@ def get_id_etag_map(api, parent_id, item_types):
     page, so a library that shrinks mid-paging can trip this benignly: that
     costs one skipped prune, where guessing costs rows.
     """
-    url = "/Users/%s/Items" % api.user_id
+    url = "/Items"
     params = {
+        "userId": api.user_id,
         "ParentId": parent_id,
         "IncludeItemTypes": item_types,
         "SortBy": "SortName",
@@ -362,8 +365,9 @@ def get_prune_count(api, parent_id, item_types):
     disagrees with the prune schedules heals that then find nothing.
     """
     result = api.get(
-        "/Users/%s/Items" % api.user_id,
+        "/Items",
         {
+            "userId": api.user_id,
             "ParentId": parent_id,
             "IncludeItemTypes": item_types,
             "EnableUserData": False,

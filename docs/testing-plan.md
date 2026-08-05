@@ -166,6 +166,14 @@ Run 2026-08-05 on the `kofin-test` profile (Omega 21.3, 1771 synced films) again
 * **[PASS] R3 setting → service → refresh** — the toggle renders on the Library tab with its help text (full Kodi restart first: new `strings.po` ids). Flipping it on logged `setting preferCriticRating changed: 'false' -> 'true'; applying` → `command/RepointRatings` → `ratings repointed to critic over 1771 film(s)` → a video refresh; flipping it back logged the pass again and then `widgets unchanged: video; refresh suppressed` — correct on both counts, because with no critic rows in this library yet the pass genuinely moved nothing. Live database verified intact afterwards (1771/1771 valid pointers).
 * **[PENDING] R4 rendered in the UI** — needs a Movies repair to backfill critic rows into an existing library; nothing here has been re-synced since the writer changed, so the flip is a no-op on this profile by construction.
 
+### User-route migration gate — off `/Users/{userId}/…` (2026-08-05)
+
+Prompted by an audit of every route the addon calls against the live server's own OpenAPI document (10.11.11): nine endpoints were absent from the spec while still answering 200, all of them the `/Users/{userId}/…` shape Jellyfin 10.9 replaced.
+
+* **[PASS] U1 equivalence, old vs new** — all six read replacements returned **byte-identical bodies** to the routes they replace. `/UserViews` appeared to differ; the only field was `ChildCount`, which returns different values on three consecutive identical calls *on both routes* (server-side noise kofin does not read). Both mutating pairs (`/UserPlayedItems/{id}`, `/UserFavoriteItems/{id}`) returned 200 for POST and DELETE, with the probe item's state recorded and restored.
+* **[PASS] U2 the migrated code against the server** — the real `Api` and `downloader`, not hand-written URLs: `views()` 9 libraries, `items()`/`item()` the same film, `resume()` 18 in progress, `chapters()` 27 chapters on *8½*, `get_item_count()` 1765, `get_items()` a full first page, `get_user_artwork()` on `/UserImage`, and the played/favourite toggles round-tripped with state restored. 13/13.
+* **[N/A] extras and trailers** — `special_features()` answers 0 because **no item in the library has extras** (1854 sampled, zero with `SpecialFeatureCount`), so its equivalence rests on U1's identical-body comparison. `get_local_trailers()` was proven on real data: the library's one film with a local trailer (*Poolhall Junkies*) returns it through the new route.
+
 ## 5. Performance baselines (record, don't guess)
 
 Captured by the scenario scripts into `tests/live/results/` per run: initial full-sync wall time for the test set; catch-up latency for 100 mixed pending changes (per tier); addon HTTP request count per scenario (debug-log grep); Kodi-start→library-browsable delta; S2.5 download counts per tier. Regressions between runs of the same scenario on the same data are release blockers.
