@@ -47,9 +47,17 @@ Install via the [Kontell Repository](https://github.com/kontell/repository.konte
 
 ## Migration from Jellyfin-Kodi
 
-1.  Remove all libraries via jellyfin-kodi
-2.  Reset local database from jellyfin-kodi add-on root
-3.  Uninstall/ disable jellyfin-kodi
+1.  Disable or uninstall jellyfin-kodi — its background service must not be running.
+2.  Install Kofin, open Settings → Account and run **Clean databases** (the button is visible while signed out). It removes all jellyfin-kodi and Kofin library data, nodes and playlists, and optionally the music library, cached server artwork and custom library nodes.
+3.  After Kodi restarts, sign in and select libraries.
+
+Jellyfin-kodi's own "Reset local Kodi database" works as a first step too, but it leaves its node tree, its `jellyfin.db` file and Kodi's music seed rows behind — Clean databases removes or repairs those as well, and works when jellyfin-kodi is already uninstalled.
+
+Not touched by cleaning: favourites pointing at old plugin paths, skin home-widget assignments (re-pick them afterwards), and `sources.xml`/`passwords.xml` entries from direct-path installs. Cleaning is per Kodi profile — run it in each profile that synced.
+
+## Uninstalling Kofin
+
+Sign out (Settings → Account), run **Clean databases**, then uninstall the add-on and accept Kodi's offer to delete the add-on data.
 
 ## Configuration
 

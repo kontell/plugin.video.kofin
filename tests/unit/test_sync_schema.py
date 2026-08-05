@@ -125,6 +125,12 @@ def test_every_supported_music_and_texture_version_is_backed():
         assert os.path.exists(
             os.path.join(kodifixtures.FIXTURES, "mymusic%d.sql" % version)
         )
+        assert os.path.exists(
+            os.path.join(kodifixtures.FIXTURES, "mymusic%d_seed.sql" % version)
+        )
+        # The cleaner re-inserts these after its wipe; a music version
+        # without stated seeds would wipe below pristine (plan G2).
+        assert version in schema.MUSIC_SEED_SQL
     for version in schema.SUPPORTED["texture"]:
         assert os.path.exists(
             os.path.join(kodifixtures.FIXTURES, "textures%d.sql" % version)

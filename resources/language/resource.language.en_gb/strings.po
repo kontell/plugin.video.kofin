@@ -1483,3 +1483,68 @@ msgstr ""
 msgctxt "#30638"
 msgid "Show the Jellyfin server's splashscreen behind the addon instead of the bundled artwork. Refreshed when the service connects, at most once a day."
 msgstr ""
+
+# 30650-30665 — Clean databases (the logged-out migration cleaner)
+msgctxt "#30650"
+msgid "Clean databases"
+msgstr ""
+
+msgctxt "#30651"
+msgid "Remove all Kofin and Jellyfin for Kodi library data, nodes and playlists from this Kodi profile. For migrating from Jellyfin for Kodi, or before uninstalling Kofin. The Jellyfin server is not touched."
+msgstr ""
+
+msgctxt "#30652"
+msgid "Sign out before cleaning the databases."
+msgstr ""
+
+msgctxt "#30653"
+msgid "A sync is still running — try again when it finishes."
+msgstr ""
+
+msgctxt "#30654"
+msgid "Disable or uninstall the Jellyfin for Kodi add-on first: its background service would sync everything straight back."
+msgstr ""
+
+msgctxt "#30655"
+msgid "Unsupported Kodi database: %s"
+msgstr ""
+
+msgctxt "#30656"
+msgid "This removes EVERYTHING from Kodi's video library — including items added by other add-ons or local sources — together with watched states and resume points. The Jellyfin server is not touched. Continue?"
+msgstr ""
+
+msgctxt "#30657"
+msgid "Also clean the music library? Every song, album and artist in this profile's Kodi music library will be removed."
+msgstr ""
+
+msgctxt "#30658"
+msgid "Also remove ALL library nodes, including hand-made and node-editor files? Kodi's menus revert to their defaults. Choose No to remove only Kofin's and Jellyfin for Kodi's own nodes."
+msgstr ""
+
+msgctxt "#30659"
+msgid "Also remove cached server artwork? Kodi re-downloads any images it still needs."
+msgstr ""
+
+msgctxt "#30660"
+msgid "Cleaning video library…"
+msgstr ""
+
+msgctxt "#30661"
+msgid "Cleaning music library…"
+msgstr ""
+
+msgctxt "#30662"
+msgid "Removing add-on state…"
+msgstr ""
+
+msgctxt "#30663"
+msgid "Removing library nodes and playlists…"
+msgstr ""
+
+msgctxt "#30664"
+msgid "Removing cached artwork…"
+msgstr ""
+
+msgctxt "#30665"
+msgid "Clean complete. Kodi will now restart."
+msgstr ""

@@ -113,6 +113,20 @@
             <close>true</close>
           </control>
         </setting>
+        <setting id="cleanDatabases" type="string" label="30650" help="30651">
+          <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="isLoggedIn">false</condition>
+            </dependency>
+          </dependencies>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=cleandatabases)</data>
+            <close>true</close>
+          </control>
+        </setting>
         <setting id="restartAddon" type="string" label="30064" help="30065">
           <level>0</level>
           <default></default>
