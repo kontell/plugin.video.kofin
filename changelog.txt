@@ -1,3 +1,13 @@
+v0.11.0
+- "Clean databases" in Settings / Account removes every trace of Kofin and jellyfin-kodi from Kodi's databases, nodes and playlists - for migrating in or uninstalling cleanly
+- Critic ratings are imported from the server, and can replace the community rating as the one Kodi shows
+- Media segment skipping is now off by default. Turn it on in Settings / Playback
+- The stream menu marks the track actually playing and opens on it, a burned-in subtitle included, and can turn one off again; changing audio during direct playback no longer restarts the film
+- Subtitle files beside your media now show their language instead of "(External)"
+- Kofin's generated playlists moved into a "Kofin" folder in both the music and video playlist lists, with the add-on's icon on it
+- The add-on's own fanart no longer sits behind recordings and other items that have no artwork of their own
+- Moved off the Jellyfin API routes 10.11 no longer documents, before a future release stops answering them
+
 v0.10.0
 - Kofin now has a backdrop: your Jellyfin server's own splashscreen, drawn behind the add-on and its listings. Advanced settings turns it off for the bundled Jellyfin artwork instead
 - Home-screen widgets no longer redraw on every playback. Kodi re-renders every widget whenever the library is refreshed, with no check of its own whether anything actually changed, so Kofin now hashes exactly what the widgets show and only refreshes when that moved

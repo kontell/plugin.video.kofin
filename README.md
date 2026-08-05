@@ -37,9 +37,10 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 - Real-time updates over websocket, with a fast change-feed path when the server companion plugin is installed
 - Login with username and password, or Quick Connect
 
-### Removed
+### Not implemented
 
-- Native mode playback, all playback is streamed via Jellyfin.
+- Native mode playback (bypassing Jellyfin server on a local network)
+- Cinema mode
 
 ## Installation
 
@@ -47,26 +48,18 @@ Install via the [Kontell Repository](https://github.com/kontell/repository.konte
 
 ## Migration from Jellyfin-Kodi
 
-1.  Disable or uninstall jellyfin-kodi — its background service must not be running.
-2.  Install Kofin, open Settings → Account and run **Clean databases** (the button is visible while signed out). It removes all jellyfin-kodi and Kofin library data, nodes and playlists, and optionally the music library, cached server artwork and custom library nodes.
-3.  After Kodi restarts, sign in and select libraries.
+1.  Disable or uninstall jellyfin-kodi, its background service must not be running.
+2.  Install Kofin, open Settings -> Account and run `Clean databases` (the button is only visible while signed out). It removes all jellyfin-kodi and Kofin library data, nodes and playlists, and optionally the music library, cached server artwork and custom library nodes.
 
-Jellyfin-kodi's own "Reset local Kodi database" works as a first step too, but it leaves its node tree, its `jellyfin.db` file and Kodi's music seed rows behind — Clean databases removes or repairs those as well, and works when jellyfin-kodi is already uninstalled.
-
-Not touched by cleaning: favourites pointing at old plugin paths, skin home-widget assignments (re-pick them afterwards), and `sources.xml`/`passwords.xml` entries from direct-path installs. Cleaning is per Kodi profile — run it in each profile that synced.
-
-## Uninstalling Kofin
-
-Sign out (Settings → Account), run **Clean databases**, then uninstall the add-on and accept Kodi's offer to delete the add-on data.
+Cleaning is per Kodi profile, run it in each profile that synced.
 
 ## Configuration
 
-- After install the addon appears under Add-ons → Video add-ons → Kofin.
+- After install the addon appears under Add-ons -> Video add-ons -> Kofin.
 - Enter settings and open the Account tab, enter your server address and sign in.
 - Libraries can now be browsed in a similar manner to typical Kodi add-ons.
 - To sync libraries into the local Kodi database:
     - From settings go to the Library tab, choose which server libraries to mirror. The background service syncs them into Kodi's library - the first sync can take a while, later ones are incremental.
-- Sync, Playback and Transcoding each have their own settings tab for sync behaviour, media segments / Play Next / SyncPlay, and the transcoding profiles.
 
 ### Server address
 
@@ -84,4 +77,8 @@ Kofin is pure Python and runs anywhere Kodi 21 /22 does. Because library sync wr
 | Kodi | Video database | Music database |
 | --- | --- | --- |
 | 21 "Omega" | MyVideos131 | MyMusic83 |
-| 22 "Piers" | MyVideos146 | MyMusic84 |
+| 22 "Piers" | MyVideos147 | MyMusic84 |
+
+## Uninstalling Kofin
+
+Sign out (Settings -> Account), run `Clean databases`, then uninstall the add-on and accept Kodi's offer to delete the add-on data.
