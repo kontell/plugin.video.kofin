@@ -203,19 +203,26 @@ def subtitle_ordinal(
 ) -> Optional[int]:
     """Kodi's subtitle number for a Jellyfin index, or None if unreachable.
 
-    Kodi lists the subtitles it demuxed out of the stream first, in their
-    container order, then the ones ``setSubtitles`` attached, in the order they
-    were passed. So on a transcode — where nothing is demuxed — the attached
-    list *is* the whole list, and on direct play it follows the embedded ones.
+    Kodi lists the ones ``setSubtitles`` attached *first*, in the order they
+    were passed, then the ones it demuxed out of the stream, in their container
+    order. The attached ones lead because Kodi registers a ListItem's subtitle
+    files during ``OpenInputStream``, which runs before ``OpenDemuxStream``
+    adds the container's own tracks. So on a transcode — where nothing is
+    demuxed — the attached list *is* the whole list, and on direct play the
+    embedded tracks start after it.
+
+    The other order looks equally plausible and is wrong in a way nothing
+    reports: every embedded track shifts by the sidecar count, so the viewer
+    silently gets a neighbouring language.
     """
     if index is None:
         return None
+    if index in attached:
+        return attached.index(index)
     embedded = _embedded_subtitles(streams) if is_direct(play_method) else []
     for ordinal, stream in enumerate(embedded):
         if stream.get("Index") == index:
-            return ordinal
-    if index in attached:
-        return len(embedded) + attached.index(index)
+            return len(attached) + ordinal
     return None
 
 

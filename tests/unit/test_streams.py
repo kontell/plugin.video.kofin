@@ -137,23 +137,60 @@ def test_subtitle_ordinal_on_a_transcode_is_the_attached_order():
     assert streams.subtitle_ordinal(SUMMARY, 5, attached, "Transcode") is None
 
 
-def test_subtitle_ordinal_on_direct_play_puts_attached_after_embedded():
+def test_subtitle_ordinal_on_direct_play_puts_attached_before_embedded():
+    # Kodi registers a ListItem's subtitle files in OpenInputStream, before
+    # OpenDemuxStream adds the container's tracks, so the sidecar leads and
+    # every embedded track starts one along.
     attached = [6]
-    assert streams.subtitle_ordinal(SUMMARY, 3, attached, "DirectStream") == 0
-    assert streams.subtitle_ordinal(SUMMARY, 4, attached, "DirectStream") == 1
-    assert streams.subtitle_ordinal(SUMMARY, 5, attached, "DirectStream") == 2
-    assert streams.subtitle_ordinal(SUMMARY, 6, attached, "DirectStream") == 3
+    assert streams.subtitle_ordinal(SUMMARY, 6, attached, "DirectStream") == 0
+    assert streams.subtitle_ordinal(SUMMARY, 3, attached, "DirectStream") == 1
+    assert streams.subtitle_ordinal(SUMMARY, 4, attached, "DirectStream") == 2
+    assert streams.subtitle_ordinal(SUMMARY, 5, attached, "DirectStream") == 3
 
 
-def test_subtitle_ordinal_excludes_sidecars_from_the_embedded_count():
-    # A sidecar occupies a Jellyfin index but is not in the container, so it
-    # must not push the embedded tracks along.
+def test_subtitle_ordinal_counts_embedded_in_container_order_not_jellyfin():
+    # The sidecar's own Jellyfin index is lower than both embedded ones here,
+    # but it is not in the container: the embedded pair keeps its container
+    # order behind the attached sidecar rather than being renumbered by index.
     layout = streams.summarize(
         source(text_sub(3, IsExternal=True), text_sub(4), text_sub(5))
     )
-    assert streams.subtitle_ordinal(layout, 4, [3], "DirectStream") == 0
-    assert streams.subtitle_ordinal(layout, 5, [3], "DirectStream") == 1
-    assert streams.subtitle_ordinal(layout, 3, [3], "DirectStream") == 2
+    assert streams.subtitle_ordinal(layout, 3, [3], "DirectStream") == 0
+    assert streams.subtitle_ordinal(layout, 4, [3], "DirectStream") == 1
+    assert streams.subtitle_ordinal(layout, 5, [3], "DirectStream") == 2
+
+
+def test_subtitle_ordinal_direct_play_with_no_sidecar_is_the_container_order():
+    layout = streams.summarize(source(text_sub(3), text_sub(4), text_sub(5)))
+    assert streams.subtitle_ordinal(layout, 3, [], "DirectStream") == 0
+    assert streams.subtitle_ordinal(layout, 4, [], "DirectStream") == 1
+    assert streams.subtitle_ordinal(layout, 5, [], "DirectStream") == 2
+
+
+def test_subtitle_ordinal_regression_12_angry_men():
+    """The live case: one sidecar plus 20 embedded PGS tracks.
+
+    Measured on Piers via Player.GetProperties — Kodi listed the sidecar at 0,
+    Korean at 12 and Norwegian at 13. Asking for Jellyfin 17 (Norwegian) used
+    to return 12, so the viewer got Korean.
+    """
+    langs = "eng zho zho dan nld fin fra deu isl ita jpn kor nor pol por por spa spa swe jpn"
+    layout = streams.summarize(
+        source(
+            text_sub(0, IsExternal=True, Language="eng"),
+            {"Index": 1, "Type": "Video", "Codec": "h265"},
+            audio(2),
+            audio(3),
+            audio(4),
+            *(
+                image_sub(5 + offset, Language=language)
+                for offset, language in enumerate(langs.split())
+            ),
+        )
+    )
+    assert streams.subtitle_ordinal(layout, 0, [0], "DirectStream") == 0
+    assert streams.subtitle_ordinal(layout, 16, [0], "DirectStream") == 12  # kor
+    assert streams.subtitle_ordinal(layout, 17, [0], "DirectStream") == 13  # nor
 
 
 def test_subtitle_ordinal_of_nothing():
