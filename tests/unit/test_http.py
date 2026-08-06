@@ -1,3 +1,7 @@
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 import requests
 
@@ -102,3 +106,18 @@ def test_500_raises_http_error_with_status(monkeypatch):
     with pytest.raises(http.HttpError) as exc:
         transport.request("GET", "http://s/x")
     assert exc.value.status == 503
+
+
+def test_importing_the_transport_does_not_import_requests():
+    """requests costs ~1 s inside Kodi's Python (no bytecode cache), and
+    routes that never talk to the server still import this module through the
+    Api plumbing — the import must stay deferred to first use (perf plan
+    W1.2). Checked in a subprocess so the suite's own imports cannot mask a
+    regression."""
+    lib = str(Path(__file__).resolve().parents[2] / "lib")
+    code = (
+        "import sys; sys.path.insert(0, %r); "
+        "import kofin.core.http; "
+        "assert 'requests' not in sys.modules, 'requests imported at module load'" % lib
+    )
+    subprocess.check_call([sys.executable, "-c", code])

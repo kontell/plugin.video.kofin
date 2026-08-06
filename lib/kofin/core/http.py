@@ -1,15 +1,23 @@
 """HTTP transport: one persistent session per process, retries, error taxonomy.
 
 Pure python (no Kodi imports) so the whole network stack is unit-testable.
+
+``requests`` is imported inside the methods that use it, not at module load:
+importing this module must stay free. The requests tree costs ~1 s inside
+Kodi's Python (no bytecode cache, and on builds that never reuse the language
+invoker it is paid per invocation), and routes that never talk to the server —
+a node menu, a settings button — import this module through the Api plumbing
+all the same (docs/perf-hardening-plan.md W1.2).
 """
 
 import random
 import time
-from typing import Any, Dict, Optional, Tuple
-
-import requests
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 from kofin.core.log import Logger
+
+if TYPE_CHECKING:  # runtime import is deferred; see module docstring
+    import requests
 
 LOG = Logger(__name__)
 
@@ -41,9 +49,11 @@ class Http:
 
     def __init__(self, verify_ssl: bool = True) -> None:
         self._verify_ssl = verify_ssl
-        self._session: Optional[requests.Session] = None
+        self._session: Optional["requests.Session"] = None
 
-    def session(self) -> requests.Session:
+    def session(self) -> "requests.Session":
+        import requests
+
         if self._session is None:
             session = requests.Session()
             session.verify = self._verify_ssl
@@ -68,7 +78,9 @@ class Http:
         json_body: Optional[Dict[str, Any]] = None,
         timeout: Optional[Tuple[float, float]] = None,
         retries: int = RETRIES,
-    ) -> requests.Response:
+    ) -> "requests.Response":
+        import requests
+
         last_error: Optional[Exception] = None
         for attempt in range(retries + 1):
             if attempt:

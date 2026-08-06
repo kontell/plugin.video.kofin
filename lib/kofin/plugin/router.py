@@ -1,6 +1,7 @@
 """Route plugin invocations (pluginsource and RunPlugin) to handlers."""
 
-from typing import Callable, Dict, List
+from importlib import import_module
+from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl
 
 from kofin.core.log import Logger
@@ -24,6 +25,60 @@ class Request:
         self.resume = resume
 
 
+# The handler registry, as (module under kofin.plugin, attribute) pairs
+# resolved per dispatch. Dotted names rather than imported callables because a
+# plugin invocation must only pay for the module it routes to: on builds where
+# the language invoker is never reused (this repo's primary test box, see
+# docs/perf-hardening-plan.md W1.2), every invocation re-imports from scratch,
+# and importing all ten handler modules pulled in the whole requests tree —
+# ~1 s inside Kodi's Python — for routes that never touch the network.
+ROUTES: Dict[str, Tuple[str, str]] = {
+    "": ("browse", "root"),
+    "streams": ("streams", "menu"),
+    "browse": ("browse", "browse"),
+    "continuewatching": ("browse", "continue_watching"),
+    "nextepisodes": ("browse", "next_episodes"),
+    "extras": ("browse", "extras"),
+    "lyrics": ("lyrics", "lyrics"),
+    "play": ("play", "play"),
+    "syncplay": ("syncplay", "menu"),
+    "login": ("account", "login"),
+    "logout": ("account", "logout"),
+    "cleandatabases": ("clean", "clean_databases"),
+    "testconnection": ("account", "test_connection"),
+    "restart": ("account", "restart"),
+    "settings": ("actions", "open_settings"),
+    "adduser": ("adduser", "who_is_watching"),
+    "whoshortlist": ("adduser", "select_shortlist"),
+    "watched": ("actions", "watched"),
+    "unwatched": ("actions", "unwatched"),
+    "favorite": ("actions", "favorite"),
+    "unfavorite": ("actions", "unfavorite"),
+    "delete": ("actions", "delete_item"),
+    "selectlibraries": ("librarypicker", "select_libraries"),
+    "updatelibs": ("actions", "update_libraries"),
+    "repairlibs": ("actions", "repair_libraries"),
+    "refreshboxsets": ("actions", "refresh_boxsets"),
+}
+
+
+def _resolve(mode: str) -> Optional[Callable[[Request], None]]:
+    """The handler for ``mode``, imported on demand; None when unregistered."""
+    route = ROUTES.get(mode)
+    if route is None:
+        return None
+    module = import_module("kofin.plugin." + route[0])
+    handler: Callable[[Request], None] = getattr(module, route[1])
+    return handler
+
+
+def _root(request: Request) -> None:
+    """Unknown-mode fallback: the root listing."""
+    from kofin.plugin import browse
+
+    browse.root(request)
+
+
 def dispatch(argv: List[str]) -> None:
     base_url = argv[0] if argv else ""
     handle = -1
@@ -44,60 +99,9 @@ def dispatch(argv: List[str]) -> None:
     # lands here as mode="syncplay/" and would silently fall back to the root
     # listing instead of running the route.
     mode = params.get("mode", "").rstrip("/")
-    handler = _handlers().get(mode)
+    handler = _resolve(mode)
     LOG.debug("dispatch mode=%s params=%s handle=%s", mode or "<root>", params, handle)
     if handler is None:
         LOG.warning("unknown mode %r; showing root", mode)
         handler = _root
     handler(request)
-
-
-def _root(request: Request) -> None:
-    from kofin.plugin import browse
-
-    browse.root(request)
-
-
-def _handlers() -> Dict[str, Callable[[Request], None]]:
-    # Imports deferred so a plugin invocation only pays for what it routes to.
-    from kofin.plugin import (
-        account,
-        actions,
-        adduser,
-        browse,
-        clean,
-        librarypicker,
-        lyrics,
-        play,
-        streams,
-        syncplay,
-    )
-
-    return {
-        "": _root,
-        "streams": streams.menu,
-        "browse": browse.browse,
-        "continuewatching": browse.continue_watching,
-        "nextepisodes": browse.next_episodes,
-        "extras": browse.extras,
-        "lyrics": lyrics.lyrics,
-        "play": play.play,
-        "syncplay": syncplay.menu,
-        "login": account.login,
-        "logout": account.logout,
-        "cleandatabases": clean.clean_databases,
-        "testconnection": account.test_connection,
-        "restart": account.restart,
-        "settings": actions.open_settings,
-        "adduser": adduser.who_is_watching,
-        "whoshortlist": adduser.select_shortlist,
-        "watched": actions.watched,
-        "unwatched": actions.unwatched,
-        "favorite": actions.favorite,
-        "unfavorite": actions.unfavorite,
-        "delete": actions.delete_item,
-        "selectlibraries": librarypicker.select_libraries,
-        "updatelibs": actions.update_libraries,
-        "repairlibs": actions.repair_libraries,
-        "refreshboxsets": actions.refresh_boxsets,
-    }

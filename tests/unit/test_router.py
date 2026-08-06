@@ -1,5 +1,9 @@
 """Router dispatch: how a plugin:// invocation picks its handler."""
 
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from kofin.plugin import router
@@ -7,7 +11,7 @@ from kofin.plugin import router
 
 @pytest.fixture
 def routed(monkeypatch):
-    """Replace the handler table with recorders for every registered mode."""
+    """Replace the route resolver with recorders for every registered mode."""
     seen = []
 
     def recorder(mode):
@@ -16,8 +20,8 @@ def routed(monkeypatch):
 
         return handler
 
-    table = {mode: recorder(mode) for mode in router._handlers()}
-    monkeypatch.setattr(router, "_handlers", lambda: table)
+    table = {mode: recorder(mode) for mode in router.ROUTES}
+    monkeypatch.setattr(router, "_resolve", table.get)
     monkeypatch.setattr(router, "_root", recorder("<root>"))
     return seen
 
@@ -69,3 +73,29 @@ def test_dispatch_keeps_the_unslashed_mode_in_params(routed):
 
     _, request = routed[0]
     assert request.params["mode"] == "syncplay/"
+
+
+def test_every_route_resolves_to_a_callable():
+    """ROUTES holds dotted names resolved at dispatch (so a click imports only
+    its own handler); a typo in either part would otherwise surface only when
+    that mode is first hit on a real box."""
+    for mode in router.ROUTES:
+        assert callable(router._resolve(mode)), mode
+
+
+def test_importing_the_router_imports_no_handler_modules():
+    """The lazy table is the point: on builds that never reuse the language
+    invoker, whatever the router pulls in is paid again on every click
+    (docs/perf-hardening-plan.md W1.2). Checked in a subprocess so this
+    test's own imports cannot mask a regression."""
+    lib = str(Path(__file__).resolve().parents[2] / "lib")
+    code = (
+        "import sys; sys.path.insert(0, %r); "
+        "import kofin.plugin.router; "
+        "handlers = [m for m in sys.modules if m.startswith('kofin.plugin.') "
+        "and m != 'kofin.plugin.router']; "
+        "assert not handlers, handlers; "
+        "assert 'requests' not in sys.modules, 'requests imported at dispatch load'"
+        % lib
+    )
+    subprocess.check_call([sys.executable, "-c", code])
