@@ -167,19 +167,49 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
         ON jellyfin(jellyfin_parent_id)""")
 
 
+class SyncStateCorrupt(Exception):
+    """sync.json exists but cannot be parsed.
+
+    Raised rather than defaulted: an empty whitelist born from a bad read
+    makes ``fields.find_library`` answer {} and the writers skip their items
+    with the watermark moving past them — silent loss, the "film added on the
+    22nd still missing on the 25th" shape. Raising instead lands each item in
+    the workers' unapplied/recovery path, which is loud and heals.
+    """
+
+
 def get_sync() -> Dict[str, Any]:
-    """The sync state record (pending libraries, restore points, whitelist)."""
+    """The sync state record (pending libraries, restore points, whitelist).
+
+    A missing or empty file answers defaults — a fresh install, or the
+    truncate-then-crash a pre-atomic ``save_sync`` could leave behind.
+    Content that exists but does not parse as a JSON object raises
+    :class:`SyncStateCorrupt` (see its docstring for why defaulting is the
+    dangerous answer).
+    """
     if not xbmcvfs.exists(ADDON_DATA):
         xbmcvfs.mkdirs(ADDON_DATA)
 
-    sync: Dict[str, Any] = {}
+    path = os.path.join(addon_data_path(), "sync.json")
     try:
-        with open(os.path.join(addon_data_path(), "sync.json"), "rb") as infile:
-            loaded = json.load(infile)
-        if isinstance(loaded, dict):
-            sync = loaded
-    except Exception:
-        sync = {}
+        with open(path, "rb") as infile:
+            raw = infile.read()
+    except FileNotFoundError:
+        raw = b""
+    except OSError as error:
+        raise SyncStateCorrupt("sync.json unreadable: %s" % error)
+
+    sync: Dict[str, Any] = {}
+    if raw.strip():
+        try:
+            loaded = json.loads(raw)
+        except ValueError as error:
+            raise SyncStateCorrupt("sync.json corrupt: %s" % error)
+        if not isinstance(loaded, dict):
+            raise SyncStateCorrupt(
+                "sync.json corrupt: expected an object, found %s" % type(loaded)
+            )
+        sync = loaded
 
     sync["Libraries"] = sync.get("Libraries", [])
     sync["RestorePoints"] = sync.get("RestorePoints", {})
@@ -190,7 +220,15 @@ def get_sync() -> Dict[str, Any]:
 
 
 def save_sync(sync: Dict[str, Any]) -> None:
+    """Write the record atomically: temp file, fsync, ``os.replace``.
 
+    Writer threads call :func:`get_sync` per item while the library thread
+    saves; the fork's in-place truncate-and-write let a reader land inside
+    the window, parse half a file, and carry on with an empty whitelist.
+    With the rename a reader sees the old record or the new one, never a
+    mixture. The fsync keeps a power loss from replacing the record with an
+    empty file on filesystems that defer allocation.
+    """
     if not xbmcvfs.exists(ADDON_DATA):
         xbmcvfs.mkdirs(ADDON_DATA)
 
@@ -198,9 +236,14 @@ def save_sync(sync: Dict[str, Any]) -> None:
         "%Y-%m-%dT%H:%M:%SZ"
     )
 
-    with open(os.path.join(addon_data_path(), "sync.json"), "wb") as outfile:
-        data = json.dumps(sync, sort_keys=True, indent=4, ensure_ascii=False)
+    path = os.path.join(addon_data_path(), "sync.json")
+    temp_path = path + ".tmp"
+    data = json.dumps(sync, sort_keys=True, indent=4, ensure_ascii=False)
+    with open(temp_path, "wb") as outfile:
         outfile.write(data.encode("utf-8"))
+        outfile.flush()
+        os.fsync(outfile.fileno())
+    os.replace(temp_path, path)
 
 
 def get_item(kodi_id: int, media: str) -> Any:

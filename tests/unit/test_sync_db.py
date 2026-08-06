@@ -152,3 +152,51 @@ def test_sync_json_round_trip(monkeypatch, tmp_path):
     assert loaded["Whitelist"] == ["lib1"]
     assert loaded["RestorePoints"]["lib1/movies"]["params"]["StartIndex"] == 50
     assert "Date" in loaded
+
+
+def test_save_sync_never_leaves_a_half_written_record(monkeypatch, tmp_path):
+    """The write is temp+replace: a failure at any point leaves the previous
+    record whole, never a truncated one (audit finding #23 — a reader inside
+    the old in-place write window carried on with an empty whitelist)."""
+    monkeypatch.setattr("xbmcvfs.exists", lambda path: True)
+    monkeypatch.setattr("xbmcvfs.translatePath", lambda path: str(tmp_path))
+
+    sync_db.save_sync({"Whitelist": ["v1"]})
+    original = (tmp_path / "sync.json").read_bytes()
+
+    def crash(source, destination):
+        raise OSError("simulated crash at the rename")
+
+    monkeypatch.setattr(sync_db.os, "replace", crash)
+    with pytest.raises(OSError):
+        sync_db.save_sync({"Whitelist": ["v2"]})
+
+    assert (tmp_path / "sync.json").read_bytes() == original
+    assert sync_db.get_sync()["Whitelist"] == ["v1"]
+
+
+def test_get_sync_missing_or_empty_file_answers_defaults(monkeypatch, tmp_path):
+    """Absent is a fresh install; empty is the truncate-then-crash a
+    pre-atomic save could leave. Neither is worth refusing to sync over."""
+    monkeypatch.setattr("xbmcvfs.exists", lambda path: True)
+    monkeypatch.setattr("xbmcvfs.translatePath", lambda path: str(tmp_path))
+
+    assert sync_db.get_sync()["Whitelist"] == []
+    (tmp_path / "sync.json").write_bytes(b"  \n")
+    assert sync_db.get_sync()["Whitelist"] == []
+
+
+def test_get_sync_screams_on_corrupt_content(monkeypatch, tmp_path):
+    """Content that exists but does not parse must raise, not default: an
+    empty whitelist born from a bad read makes find_library answer {} and the
+    writers skip items silently while the watermark advances."""
+    monkeypatch.setattr("xbmcvfs.exists", lambda path: True)
+    monkeypatch.setattr("xbmcvfs.translatePath", lambda path: str(tmp_path))
+
+    (tmp_path / "sync.json").write_bytes(b'{"Whitelist": ["v1"], "Restor')
+    with pytest.raises(sync_db.SyncStateCorrupt):
+        sync_db.get_sync()
+
+    (tmp_path / "sync.json").write_bytes(b'["not", "an", "object"]')
+    with pytest.raises(sync_db.SyncStateCorrupt):
+        sync_db.get_sync()
