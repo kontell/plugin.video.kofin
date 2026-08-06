@@ -581,7 +581,29 @@ class Views(object):
     def node_index(self, folder, view, mixed=False):
 
         file = os.path.join(folder, "index.xml")
-        index = self.sync["SortedViews"].index(view["Id"])
+
+        try:
+            index = self.sync["SortedViews"].index(view["Id"])
+        except ValueError:
+            # A whitelisted view the ordering answer did not carry:
+            # get_libraries degrades to a views-only listing when
+            # /Library/MediaFolders 403s or times out, and a view can leave
+            # /UserViews while still whitelisted. Raising here aborted the
+            # whole generation *before* the viewsHash stamp, so every
+            # startup and library command re-ran and re-crashed it, forever
+            # (healing-loops-plan F5). Order the node after everything the
+            # server did name instead — offset by sorted-whitelist position
+            # so several strays stay stable and distinct — and let the next
+            # full answer correct it: this attribute is rewritten every
+            # pass.
+            whitelist = sorted(x.replace("Mixed:", "") for x in self.sync["Whitelist"])
+            offset = whitelist.index(view["Id"]) if view["Id"] in whitelist else 0
+            index = len(self.sync["SortedViews"]) + offset
+            LOG.debug(
+                "view %s missing from SortedViews; ordering it at %s",
+                view["Id"],
+                index,
+            )
 
         try:
             if os.path.isfile(file):

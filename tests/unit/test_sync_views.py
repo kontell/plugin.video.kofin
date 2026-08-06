@@ -398,3 +398,78 @@ def test_remove_library_finds_a_playlist_in_either_home(views_env):
     Views().remove_library("lib1")
 
     assert not (playlists_root(views_env) / "kofinmovieslib1.xsp").exists()
+
+
+# --- node ordering resilience (healing-loops-plan F5) ------------------------
+
+
+def test_get_nodes_survives_a_view_missing_from_sorted_views(views_env):
+    """A whitelisted view absent from SortedViews (the /Library/MediaFolders
+    403 degradation, or a view that left /UserViews while whitelisted) used
+    to ValueError out of node_index before the viewsHash stamp -- a full
+    tree rewrite and a traceback on every startup and library command,
+    forever. It now orders the stray after everything the server named and
+    the hash stamps."""
+    from kofin.core import settings
+
+    seed(
+        [("lib1", "Movies", "movies"), ("lib2", "Shows", "tvshows")],
+        ["lib1", "lib2"],
+    )
+    sync = sync_db.get_sync()
+    sync["SortedViews"] = ["lib1"]  # lib2 fell out of the ordering answer
+    sync_db.save_sync(sync)
+
+    Views(FakeApi()).get_nodes()
+
+    index_files = sorted(
+        str(p.relative_to(kofin_root(views_env)))
+        for p in kofin_root(views_env).rglob("index.xml")
+    )
+    assert any("lib2" in p for p in index_files)
+    assert settings.get_str("viewsHash") != ""
+
+    # The stray sits after everything the server named.
+    import xml.etree.ElementTree as etree
+
+    lib2_index = next(
+        p for p in kofin_root(views_env).rglob("index.xml") if "lib2" in str(p.parent)
+    )
+    order = int(etree.parse(str(lib2_index)).getroot().get("order"))
+    assert order >= 1  # len(SortedViews) == 1
+
+
+def test_stray_views_get_stable_distinct_orders(views_env):
+    """Two strays must not share an order value or flap between runs: the
+    offset comes from the sorted whitelist, which is stable however
+    sync.json's set-ordered Whitelist serializes."""
+    seed(
+        [
+            ("lib1", "Movies", "movies"),
+            ("lib2", "Shows", "tvshows"),
+            ("lib3", "Tunes", "music"),
+        ],
+        ["lib1", "lib2", "lib3"],
+    )
+    sync = sync_db.get_sync()
+    sync["SortedViews"] = ["lib1"]
+    sync_db.save_sync(sync)
+
+    views = Views(FakeApi())
+
+    import xml.etree.ElementTree as etree
+
+    def order_of(view_id, media):
+        folder = str(kofin_root(views_env) / ("kofin%s%s" % (media, view_id)))
+        os.makedirs(folder, exist_ok=True)
+        views.node_index(folder, {"Id": view_id, "Name": "x", "Media": media})
+        return int(
+            etree.parse(os.path.join(folder, "index.xml")).getroot().get("order")
+        )
+
+    first = (order_of("lib2", "tvshows"), order_of("lib3", "music"))
+    second = (order_of("lib2", "tvshows"), order_of("lib3", "music"))
+
+    assert first == second
+    assert first[0] != first[1]
+    assert min(first) >= 1
