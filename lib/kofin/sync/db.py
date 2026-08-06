@@ -99,37 +99,53 @@ class Database(object):
         """
         self.path = resolve_path(self.db_file)
         self.conn = sqlite3.connect(self.path, timeout=self.timeout)
-        self.cursor = self.conn.cursor()
+        try:
+            self.cursor = self.conn.cursor()
 
-        if self.db_file in KINDS:
-            self.conn.execute(
-                "PRAGMA journal_mode=WAL"
-            )  # to avoid writing conflict with kodi
+            if self.db_file in KINDS:
+                self.conn.execute(
+                    "PRAGMA journal_mode=WAL"
+                )  # to avoid writing conflict with kodi
 
-        LOG.debug("--->[ database: %s ] %s", self.db_file, id(self.conn))
+            LOG.debug("--->[ database: %s ] %s", self.db_file, id(self.conn))
 
-        if self.db_file == "kofin" and self.path not in _tables_ensured:
-            kofin_tables(self.cursor)
-            self.conn.commit()
-            _tables_ensured.add(self.path)
+            if self.db_file == "kofin" and self.path not in _tables_ensured:
+                kofin_tables(self.cursor)
+                self.conn.commit()
+                _tables_ensured.add(self.path)
+        except BaseException:
+            # __exit__ never runs when __enter__ raises, so the handle would
+            # leak with the WAL lock held for the rest of the process.
+            self.conn.close()
+            raise
 
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Close the connection and cursor."""
-        changes = self.conn.total_changes
+        """Close the connection and cursor.
 
-        if exc_type is not None:  # errors raised
-            LOG.error("type: %s value: %s", exc_type, exc_val)
+        The exception path rolls back to the last commit rather than
+        committing: the fork committed unconditionally, which persisted the
+        half of a multi-table write that had executed before a mid-item
+        failure (audit finding #15). The writer passes commit per page /
+        per COMMIT_INTERVAL and their restore points name the page being
+        processed, so a rollback re-runs at most one page of idempotent
+        writes on resume.
+        """
+        try:
+            changes = self.conn.total_changes
 
-        if self.commit_close and changes:
+            if exc_type is not None:  # errors raised
+                LOG.error("type: %s value: %s", exc_type, exc_val)
+                self.conn.rollback()
+            elif self.commit_close and changes:
 
-            LOG.debug("[%s] %s rows updated.", self.db_file, changes)
-            self.conn.commit()
-
-        LOG.debug("---<[ database: %s ] %s", self.db_file, id(self.conn))
-        self.cursor.close()
-        self.conn.close()
+                LOG.debug("[%s] %s rows updated.", self.db_file, changes)
+                self.conn.commit()
+        finally:
+            LOG.debug("---<[ database: %s ] %s", self.db_file, id(self.conn))
+            self.cursor.close()
+            self.conn.close()
 
 
 def kofin_tables(cursor: "sqlite3.Cursor") -> None:

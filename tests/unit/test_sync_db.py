@@ -186,6 +186,82 @@ def test_get_sync_missing_or_empty_file_answers_defaults(monkeypatch, tmp_path):
     assert sync_db.get_sync()["Whitelist"] == []
 
 
+def test_exit_rolls_back_the_exception_path(tmp_path):
+    """A mid-write failure must not persist half a multi-table write: the
+    fork's unconditional commit stranded partial items (audit finding #15)."""
+    path = str(tmp_path / "t.db")
+    with sync_db.Database(path) as db:
+        db.cursor.execute("CREATE TABLE t(x)")
+        db.cursor.execute("INSERT INTO t VALUES (1)")
+
+    with pytest.raises(RuntimeError):
+        with sync_db.Database(path) as db:
+            db.cursor.execute("INSERT INTO t VALUES (2)")
+            raise RuntimeError("mid-item failure")
+
+    with sync_db.Database(path) as db:
+        count = db.cursor.execute("SELECT COUNT(*) FROM t").fetchone()[0]
+    assert count == 1
+
+
+def test_exit_rollback_reaches_only_the_last_commit(tmp_path):
+    """The writer passes commit per page; a failure loses at most the page in
+    flight, and the restore point re-runs exactly that page on resume."""
+    path = str(tmp_path / "t.db")
+    with sync_db.Database(path) as db:
+        db.cursor.execute("CREATE TABLE t(x)")
+
+    with pytest.raises(RuntimeError):
+        with sync_db.Database(path) as db:
+            db.cursor.execute("INSERT INTO t VALUES (1)")
+            db.conn.commit()  # the per-page commit
+            db.cursor.execute("INSERT INTO t VALUES (2)")
+            raise RuntimeError("failure after the page commit")
+
+    with sync_db.Database(path) as db:
+        rows = db.cursor.execute("SELECT x FROM t").fetchall()
+    assert rows == [(1,)]
+
+
+def test_enter_closes_the_connection_when_setup_fails(tmp_path, monkeypatch):
+    """__exit__ never runs when __enter__ raises, so a failed setup must close
+    its own handle or the WAL lock leaks for the rest of the process."""
+
+    class TrackingConnection:
+        def __init__(self, conn):
+            self._conn = conn
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+            self._conn.close()
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    holder = {}
+    real_connect = sync_db.sqlite3.connect
+
+    def tracking_connect(*args, **kwargs):
+        holder["conn"] = TrackingConnection(real_connect(*args, **kwargs))
+        return holder["conn"]
+
+    def refuse(cursor):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(sync_db.sqlite3, "connect", tracking_connect)
+    monkeypatch.setattr(sync_db, "kofin_tables", refuse)
+    sync_db.set_path_override("kofin", str(tmp_path / "k.db"))
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            with sync_db.Database("kofin"):
+                pass
+    finally:
+        sync_db.reset_overrides()
+
+    assert holder["conn"].closed
+
+
 def test_get_sync_screams_on_corrupt_content(monkeypatch, tmp_path):
     """Content that exists but does not parse must raise, not default: an
     empty whitelist born from a bad read makes find_library answer {} and the
