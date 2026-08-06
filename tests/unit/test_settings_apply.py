@@ -124,7 +124,9 @@ def picker_env(monkeypatch):
     monkeypatch.setattr(
         "kofin.plugin.librarypicker.Api",
         type(
-            "A", (), {"from_credentials": staticmethod(lambda http, creds, **k: FakeApi())}
+            "A",
+            (),
+            {"from_credentials": staticmethod(lambda http, creds, **k: FakeApi())},
         ),
     )
 
