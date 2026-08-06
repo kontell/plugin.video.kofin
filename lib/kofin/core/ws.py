@@ -60,6 +60,12 @@ class WSClient(threading.Thread):
     def run(self) -> None:
         monitor = xbmc.Monitor()
         LOG.info("websocket url: %s", self._url)
+        # Socket-level timeout for the connect phase: without one, a
+        # black-holed host blocks create_connection for the OS TCP timeout
+        # (~2 min), through which stop()'s bounded join fails and the thread
+        # leaks past a service restart. Module-global to websocket-client,
+        # which is fine — kofin owns the only websocket in this process.
+        websocket.setdefaulttimeout(10)
         self._app = websocket.WebSocketApp(
             self._url,
             header={"Authorization": self._header},
@@ -69,7 +75,15 @@ class WSClient(threading.Thread):
             on_close=self._handle_close,
         )
         while not self._stop:
-            self._app.run_forever(ping_interval=10, reconnect=RECONNECT_SECONDS)
+            # ping_timeout is what makes a half-open socket (NAT drop,
+            # sleeping AP) detectable at all: websocket-client only raises on
+            # a missed pong when one is set, and without it _handle_close
+            # never fires, the reconnect catch-up never runs, and the only
+            # cover is the unconditional wake-time FastSync (CLAUDE.md). Must
+            # stay below ping_interval or the library refuses to run.
+            self._app.run_forever(
+                ping_interval=10, ping_timeout=5, reconnect=RECONNECT_SECONDS
+            )
             if self._stop or monitor.waitForAbort(5):
                 break
         LOG.debug("websocket thread exit")

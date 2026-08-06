@@ -98,3 +98,46 @@ def test_disconnect_callback_is_optional():
     ws._connected = True
 
     ws._handle_close(None, 1006, "gone")  # must not raise
+
+
+def test_run_forever_carries_a_pong_deadline_and_connect_timeout(monkeypatch):
+    """Without ping_timeout websocket-client never raises on a missed pong,
+    so a half-open socket (NAT drop, sleeping AP) is undetectable — no close
+    callback, no reconnect catch-up (audit finding #4). The default socket
+    timeout is what keeps a black-holed host from pinning the thread in
+    create_connection past stop()'s bounded join."""
+    from kofin.core import ws as ws_module
+
+    captured = {}
+    timeouts = []
+
+    class FakeApp:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run_forever(self, **kwargs):
+            captured.update(kwargs)
+
+        def close(self):
+            pass
+
+    class StopMonitor:
+        def waitForAbort(self, seconds):
+            return True
+
+    monkeypatch.setattr(ws_module.websocket, "WebSocketApp", FakeApp)
+    monkeypatch.setattr(ws_module.websocket, "setdefaulttimeout", timeouts.append)
+    monkeypatch.setattr(ws_module.xbmc, "Monitor", StopMonitor)
+
+    client = WSClient(
+        "http://s:8096",
+        "auth",
+        on_event=lambda message_type, data: None,
+        on_connected=lambda: None,
+    )
+    client.run()
+
+    assert captured["ping_interval"] == 10
+    assert captured["ping_timeout"] == 5
+    assert captured["ping_timeout"] < captured["ping_interval"]
+    assert timeouts == [10]
