@@ -667,6 +667,38 @@ class Movies(KodiDb):
 
         return fetched
 
+    def restamp_boxset_states(self, guarded_ids=None):
+        """Re-stamp every set's boxset_state from post-walk reality.
+
+        The per-set stamp in boxset() measures mid-walk, and movie.idSet is
+        single-valued: a later set's pass steals a member the sets share, so
+        the earlier set's stored count is one high the moment the walk ends
+        -- the startup probe then schedules a heal every service start that
+        can never converge (V7, docs/healing-loops-plan.md). Measured once
+        after the walk stops moving rows, with the same queries the probe
+        reads, stored equals reality for every set including both sides of a
+        steal.
+
+        Guarded sets are excluded on purpose: their stale or missing state is
+        the designed retry-every-walk, and restamping would grade a
+        suspicious server answer as healthy.
+        """
+        guarded = guarded_ids or set()
+        counts = self.get_boxset_movie_counts()
+        restamped = 0
+
+        for jellyfin_id, kodi_id in self.jellyfin_db.get_item_ids_by_media("set"):
+
+            if jellyfin_id in guarded:
+                continue
+
+            self.jellyfin_db.add_boxset_state(jellyfin_id, counts.get(kodi_id, 0))
+            restamped += 1
+
+        LOG.debug("restamped %s boxset state(s)", restamped)
+
+        return restamped
+
     def boxsets_reset(self):
         """Special function to remove all existing boxsets."""
         boxsets = self.jellyfin_db.get_items_by_media("set")

@@ -24,6 +24,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
+from kofin.sync.fields import reference_checksum
 
 LOG = Logger(__name__)
 
@@ -60,8 +61,6 @@ _RANK_DEFAULT = 1
 # Types the artwork-only write path can apply (video art tables). Music and
 # boxset image updates take the full path.
 ARTWORK_ONLY_TYPES = ("Movie", "Series", "Season", "Episode", "MusicVideo")
-
-_PLUGIN_CHECKSUM_SUFFIX = "|plugin"
 
 
 @dataclass
@@ -310,9 +309,9 @@ def retention_overrun(last_sync: str, retention_cutoff: Optional[int]) -> bool:
 
 
 def stored_checksum_matches(etag: Optional[str], checksum: Optional[str]) -> bool:
-    """The check_unchanged predicate (fields.sync_checksum), evaluated before
-    download: the stored reference checksum is ``"<etag>|plugin"``."""
-    return bool(etag) and checksum == "%s%s" % (etag, _PLUGIN_CHECKSUM_SUFFIX)
+    """The check_unchanged predicate, evaluated before download — one
+    spelling with the writers, via fields.reference_checksum."""
+    return bool(etag) and checksum == reference_checksum(etag)
 
 
 def _is_image_only(record: ChangeRecord) -> bool:

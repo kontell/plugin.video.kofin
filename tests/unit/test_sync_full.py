@@ -184,3 +184,69 @@ def test_resumed_queue_is_deduplicated(fullsync, monkeypatch):
 
     assert fullsync.sync["Libraries"] == ["a", "Boxsets:x", "b"]
     assert started == [True]
+
+
+# --- failure ceilings (healing-loops-plan F3) --------------------------------
+
+
+def _toast_recorder(monkeypatch):
+    toasts = []
+    monkeypatch.setattr(
+        "kofin.sync.full_sync.notification",
+        lambda *args, **kwargs: toasts.append(args),
+    )
+    return toasts
+
+
+def test_failing_library_toasts_once_per_service_lifetime(fullsync, monkeypatch):
+    from types import SimpleNamespace
+
+    toasts = _toast_recorder(monkeypatch)
+    fullsync.server = FakeServer({"flaky1": 500})
+    fullsync.library = SimpleNamespace(sync_failure_toasted=set())
+
+    for _ in range(3):
+        failures = []
+        fullsync.process_libraries(["flaky1"], failures)
+        assert len(failures) == 1
+
+    assert len(toasts) == 1
+
+
+def test_failing_library_without_a_manager_still_toasts(fullsync, monkeypatch):
+    """library=None constructions (tests, tools) keep the old per-attempt
+    behavior rather than crashing on the dedup set."""
+    toasts = _toast_recorder(monkeypatch)
+    fullsync.server = FakeServer({"flaky1": 500})
+
+    for _ in range(2):
+        fullsync.process_libraries(["flaky1"], [])
+
+    assert len(toasts) == 2
+
+
+def test_library_exception_keeps_the_entry(fullsync, monkeypatch):
+    """A non-exit LibraryException is a pass-level failure (the prune-map
+    truncation guard, for one). The fork swallowed it and dropped the entry
+    as synced; it must stay queued for the resume backoff instead."""
+    from kofin.sync.shims import LibraryException
+
+    _toast_recorder(monkeypatch)
+    fullsync.server = FakeServer({"lib1": 200})
+    fullsync.sync["Libraries"] = ["lib1"]
+    fullsync.update_library = True
+    monkeypatch.setattr(
+        FullSync,
+        "prune",
+        lambda self, library, library_id, dialog=None: (_ for _ in ()).throw(
+            LibraryException("prune map paged without a TotalRecordCount")
+        ),
+    )
+
+    failures = []
+    fullsync.process_libraries(["lib1"], failures)
+
+    assert len(failures) == 1
+    assert isinstance(failures[0], LibraryException)
+    assert fullsync.sync["Libraries"] == ["lib1"]
+    assert fullsync.sync["Whitelist"] == []

@@ -79,7 +79,6 @@ class TVShows(KodiDb):
             obj["ShowId"] = e_item[0]
             obj["PathId"] = e_item[2]
             obj["LibraryId"] = e_item[6]
-            obj["LibraryName"] = self.jellyfin_db.get_view_name(obj["LibraryId"])
         except TypeError:
             update = False
             LOG.debug("ShowId %s not found", obj["Id"])
@@ -95,6 +94,36 @@ class TVShows(KodiDb):
             obj["LibraryId"] = library["Id"]
             obj["LibraryName"] = library["Name"]
         else:
+            # Attribution follows the evidence in hand (healing-loops-plan
+            # F2). A walk's listing is authoritative -- this id came back
+            # under self.library's ParentId -- so a stored media_folder that
+            # disagrees (a pool placeholder, or a legacy row pooled under
+            # whichever library saw the show first) is corrected here, the
+            # only write path an existing reference ever takes. Incremental
+            # updates (self.library is None) resolve through Ancestors only
+            # when the stored folder is empty: a placeholder adopted by its
+            # own library's first realtime touch.
+            library = self.library
+
+            if library is None and not obj["LibraryId"]:
+                library = find_library(self.server, item, self.library_cache)
+
+                if not library:
+                    # A placeholder for a series outside every synced
+                    # library stays dormant on purpose: no media_folder
+                    # query can reach it, so no prune or probe can loop on
+                    # it -- and there is no library to path the row under.
+                    return
+
+            if library and obj["LibraryId"] != library["Id"]:
+                obj["LibraryId"] = library["Id"]
+                self.jellyfin_db.update_media_folder(
+                    *values(obj, QUEM.update_media_folder_obj)
+                )
+                LOG.info("re-homed %s to library %s", obj["Id"], obj["LibraryId"])
+
+            obj["LibraryName"] = self.jellyfin_db.get_view_name(obj["LibraryId"])
+
             if self.get(*values(obj, QU.get_tvshow_obj)) is None:
 
                 update = False
@@ -830,6 +859,16 @@ class TVShows(KodiDb):
                 )
 
             self.remove_tvshow(obj["KodiId"], obj["Id"])
+
+            # Pool placeholders alias this Kodi row (healing-loops-plan F2):
+            # they die with it, exactly as the season cascade below already
+            # does via delete_item_by_parent_tvshow_obj. A sibling series
+            # still live on the server is re-added fresh by its own library's
+            # next walk, prune or feed record -- a missing id, not a dangling
+            # reference the prune would read as synced.
+            self.jellyfin_db.remove_item_alias_by_kodi_id(
+                *values(obj, QUEM.delete_alias_tvshow_obj)
+            )
 
         elif obj["Media"] == "season":
 

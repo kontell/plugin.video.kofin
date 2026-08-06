@@ -21,6 +21,7 @@ from kofin.core.http import HttpError
 from kofin.core.log import Logger
 from kofin.sync import changefeed
 from kofin.sync import downloader as server
+from kofin.sync.fields import find_library, reference_checksum
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
 from kofin.sync.writers.movies import (
     BOXSET_GUARDED,
@@ -446,17 +447,26 @@ class FullSync(object):
                 media[library["CollectionType"]](library)
             return True
         except LibraryException as error:
-            # TODO: Fixme; We're catching all LibraryException here,
-            # but silently ignoring any that isn't the exit condition.
-            # Investigate what would be appropriate behavior here.
             if isinstance(error, LibraryExitException):
                 save_sync(self.sync)
                 raise
-            LOG.warning("Ignoring exception %s", error)
-            return True
+
+            # A non-exit LibraryException is a pass-level failure: per-item
+            # conditions (orphans, items deleted mid-page) are absorbed one
+            # level down in apply_or_skip, so what reaches here is the likes
+            # of the prune-map truncation guard (downloader.get_id_etag_map).
+            # The fork swallowed these and reported success — the entry left
+            # sync.json with the library half-written and nothing owing a
+            # retry (healing-loops-plan F3). Fail like any other error: the
+            # entry stays queued and the resume backoff owns the retry.
+            self._notify_sync_failure(library_id)
+            LOG.error("library %s failed: %s", library_id, error)
+            save_sync(self.sync)
+
+            raise
 
         except Exception as error:
-            notification(localized(30406), error=True)
+            self._notify_sync_failure(library_id)
 
             LOG.error("full sync exited unexpectedly")
             LOG.exception(error)
@@ -464,6 +474,22 @@ class FullSync(object):
             save_sync(self.sync)
 
             raise
+
+    def _notify_sync_failure(self, library_id):
+        """One failure toast per library per service lifetime.
+
+        A failing library retries on the resume backoff (60s doubling to 30
+        minutes, reset each boot); toasting every attempt turns one dead
+        library into a nag loop (healing-loops-plan F3). The log still
+        carries every attempt.
+        """
+        toasted = getattr(self.library, "sync_failure_toasted", None)
+
+        if toasted is None or library_id not in toasted:
+            if toasted is not None:
+                toasted.add(library_id)
+
+            notification(localized(30406), error=True)
 
     @contextmanager
     def video_database_locks(self):
@@ -823,7 +849,7 @@ class FullSync(object):
 
                 # No Etag from the server (unexpected with Fields=Etag) →
                 # re-fetch: the safe direction is a redundant download.
-                if not etag or local_map[item_id] != "%s|plugin" % etag:
+                if not etag or local_map[item_id] != reference_checksum(etag):
                     changed.append(item_id)
 
             for item_id in local_map:
@@ -868,10 +894,12 @@ class FullSync(object):
         )
 
         if spared:
-            # Not routine. Either the library listing and the reference set
-            # disagree about an item's id, or a filter is hiding something the
-            # writers referenced -- both are kofin bugs that this guard only
-            # stops short of acting on.
+            # Not routine: the library listing and the reference set disagree
+            # about an item -- the signature of a misattributed media_folder,
+            # a series pooled under whichever library saw it first
+            # (healing-loops-plan F2). Warn, then re-home instead of only
+            # sparing: left alone the same ids spare and warn on every prune
+            # and hold probe_divergence permanently diverged.
             LOG.warning(
                 "prune/%s spared %s stale candidate(s) the server still "
                 "resolves: %s",
@@ -879,10 +907,41 @@ class FullSync(object):
                 len(spared),
                 ", ".join(sorted(spared)[:10]),
             )
+            self._rehome_spared(spared)
 
         self.library.removed(stale)
         self.library.added(missing_ids)
         self.library.updated(changed)
+
+    def _rehome_spared(self, spared):
+        """Move spared references to the library the server says owns them.
+
+        One Ancestors round trip per spared id -- rare by construction --
+        re-homes it to its whitelisted ancestor view, or to NULL (the pool
+        placeholder state) when no synced library owns it. Either way the
+        next prune's local map matches the server's listing and the loop
+        closes. Seasons and episodes are exempt: they carry no media_folder
+        by design and their fate follows their series. A resolution failure
+        skips the id; the next prune retries.
+        """
+        with Database("kofin") as jellyfindb:
+            db = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
+
+            for item_id in sorted(spared):
+                if db.get_media_by_id(item_id) in ("Season", "Episode"):
+                    continue
+
+                try:
+                    home = find_library(self.server, {"Id": item_id})
+                except Exception as error:
+                    LOG.warning("could not re-home %s: %s", item_id, error)
+                    continue
+
+                folder = home["Id"] if home else None
+                db.update_media_folder(folder, item_id)
+                LOG.warning(
+                    "re-homed spared %s to %s", item_id, folder or "placeholder"
+                )
 
     def _local_reference_map(self, library_id, media_class):
         """Instance view of the module-level
@@ -897,12 +956,15 @@ class FullSync(object):
         server for ChildCount — the unlink guard's server signal, measured
         harmless at set counts and deliberately not added to the shared
         info() field list — tallies per-set outcomes into one summary line,
-        and sweeps references the server listing no longer contains.
+        sweeps references the server listing no longer contains, and ends by
+        re-stamping every non-guarded set's state from measured reality
+        (shared members drift the mid-walk stamps; healing-loops-plan F1).
         """
         restore_key = "%s/boxsets" % library["Id"]
         restore_point = self.get_restore_point(restore_key)
         resumed = restore_point is not None
         walked = set()
+        guarded_ids = set()
         stats = {
             BOXSET_UNCHANGED: 0,
             BOXSET_WRITTEN: 0,
@@ -943,11 +1005,21 @@ class FullSync(object):
                     if outcome in stats:
                         stats[outcome] += 1
 
+                    if outcome == BOXSET_GUARDED:
+                        guarded_ids.add(boxset["Id"])
+
         self.clear_restore_point(restore_key)
 
         # A resumed walk never listed its earlier pages, so only a fresh,
         # complete walk may treat absence from the listing as deletion.
         swept = 0 if resumed else self.sweep_stale_boxsets(walked)
+
+        # Walk-end restamp (docs/healing-loops-plan.md F1): after the sweep,
+        # so measured state covers exactly the references that survived. It
+        # runs on resumed walks too -- it is measurement, not deletion, so
+        # the fresh-start gate above does not apply.
+        with self.video_database_locks() as (videodb, jellyfindb):
+            Movies(self.server, jellyfindb, videodb).restamp_boxset_states(guarded_ids)
 
         LOG.info(
             "boxsets: %s checked (%s unchanged, %s written, %s healed, "

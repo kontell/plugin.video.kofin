@@ -378,3 +378,58 @@ def test_plan_skipped_records_prefetch_nothing():
     assert plan.added == []
     assert plan.updated == []
     assert plan.skipped == 1
+
+
+# --- checksum spelling (healing-loops-plan F4) -------------------------------
+
+
+def test_reference_checksum_is_the_single_spelling():
+    """Writer stamp, feed skip and prune diff must agree through one
+    function; the three used to agree only because direct_path is hardcoded
+    False in every writer."""
+    from kofin.sync import fields
+
+    stored = fields.sync_checksum({"Etag": "abc123"}, False)
+
+    assert stored == fields.reference_checksum("abc123")
+    assert changefeed.stored_checksum_matches("abc123", stored)
+    assert not changefeed.stored_checksum_matches("abc124", stored)
+    assert not changefeed.stored_checksum_matches("abc123", None)
+    assert not changefeed.stored_checksum_matches(None, stored)
+
+
+def test_direct_mode_splits_from_plugin_mode_in_one_place():
+    from kofin.sync import fields
+
+    assert fields.reference_checksum("abc", direct_path=True) == "abc|direct"
+    assert fields.reference_checksum(None) is None
+
+
+def test_pipeline_field_lists_carry_etag():
+    """An Etag-less DTO stamps a NULL checksum that rewrites on every walk
+    (kofindb warns when it happens); every field list the pipeline downloads
+    with must therefore ask for the Etag."""
+    from kofin.sync import downloader
+
+    for csv in (
+        downloader.info(),
+        downloader.basic_info(),
+        downloader.music_info(),
+        downloader.music_page_info(),
+    ):
+        assert "Etag" in csv.split(",")
+
+
+def test_mapping_default_checksum_is_null():
+    """The fork defaulted to json.dumps(UserData) — unmatchable by every
+    comparator and moving on every playback, the perfect non-closing loop."""
+    from kofin.sync.obj import Objects
+    from tests.unit.sync_dtos import MOVIE, dto
+
+    payload = dto(MOVIE)
+    payload.pop("Etag")
+
+    objects = Objects()
+    objects.mapping()
+
+    assert objects.map(payload, "Movie")["Checksum"] is None

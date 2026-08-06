@@ -82,6 +82,11 @@ WRITE_QUEUE_MAX = 250
 # Floor between automatic recovery prunes. A prune that itself fails to apply
 # something would otherwise schedule the next one immediately, forever.
 AUTO_PRUNE_MIN_SECONDS = 3600
+# Ceiling for the same clock (healing-loops-plan F3): consecutive failing
+# recoveries double the interval — 1h, 2h, 4h … capped here — so a
+# permanently-unwritable item costs one UpdateLibrary a day at worst while
+# never going silent. A recovery that applies everything resets the ladder.
+AUTO_PRUNE_MAX_SECONDS = 86400
 # How often managed music playlists are re-read from the server. Nothing
 # pushes playlist edits: Jellyfin sends no websocket message when a playlist
 # is created or a track is added to one (verified live against 10.11 — neither
@@ -217,8 +222,17 @@ class Library(threading.Thread):
         # and an undercount only delays a recovery prune by one cycle.
         self.unapplied_count = 0
         self.unapplied_sample = set()
-        # Earliest time another automatic recovery prune may be scheduled.
+        # Earliest time another automatic recovery prune may be scheduled,
+        # the current rung on its escalation ladder, and whether a recovery
+        # is owed but waiting out its floor (see schedule_recovery_prune /
+        # flush_recovery_prune).
         self.auto_prune_at = None
+        self.auto_prune_interval = AUTO_PRUNE_MIN_SECONDS
+        self.recovery_pending = False
+        # Libraries whose sync failure already raised a toast this service
+        # lifetime; retries keep logging but stop toasting
+        # (FullSync._notify_sync_failure).
+        self.sync_failure_toasted = set()
         # Next music playlist poll (see poll_music_playlists). None = poll on
         # the first tick, so a playlist edited while Kodi was off is picked up
         # at startup rather than at the next full sync.
@@ -557,6 +571,7 @@ class Library(threading.Thread):
         # and so does a drain refresh whose settle has run out.
         self.flush_pending_reload()
         self.flush_refresh_settle()
+        self.flush_recovery_prune()
 
         if self.pending_refresh:
             state.set_sync_active(True)
@@ -1635,8 +1650,14 @@ class Library(threading.Thread):
         consulting the watermark, so it finds anything missing however it went
         missing — it is what recovered the film above when run by hand.
 
-        Same shape as the retention-overrun heal above: warn, tell the user,
-        enqueue an update pass.
+        Bounded, never silent (healing-loops-plan F3): consecutive failing
+        recoveries climb an interval ladder (AUTO_PRUNE_MIN_SECONDS doubling
+        to AUTO_PRUNE_MAX_SECONDS) instead of retrying hourly forever, and a
+        failure landing inside the floor books the retry for
+        flush_recovery_prune rather than dropping it — which is what this
+        used to do: the failed recovery's own drain always settles inside
+        the floor, so a poison item was retried exactly once and then never
+        again until unrelated feed activity happened to touch it.
         """
         count = self.unapplied_count
         sample = sorted(self.unapplied_sample)
@@ -1644,26 +1665,58 @@ class Library(threading.Thread):
         self.unapplied_sample = set()
 
         if not count:
+            # A drain that applied everything. With no retry owed, the
+            # backlog is genuinely gone (a clean recovery lands here): reset
+            # the ladder. Unrelated clean drains mid-backoff keep it.
+            if not self.recovery_pending:
+                self.auto_prune_interval = AUTO_PRUNE_MIN_SECONDS
             return
 
         now = datetime.now()
 
         if self.auto_prune_at is not None and now < self.auto_prune_at:
+            self.recovery_pending = True
             LOG.warning(
-                "%s item(s) did not apply (%s); a recovery update is already "
-                "scheduled, not queueing another",
+                "%s item(s) did not apply (%s); next recovery in at most %ss",
                 count,
                 ", ".join(sample),
+                self.auto_prune_interval,
             )
             return
 
-        self.auto_prune_at = now + timedelta(seconds=AUTO_PRUNE_MIN_SECONDS)
         LOG.warning(
             "%s item(s) did not apply (%s); scheduling a library update to recover",
             count,
             ", ".join(sample),
         )
+        self._arm_recovery(now)
+
+    def _arm_recovery(self, now):
+        """Enqueue the recovery, stamp its floor, climb the ladder."""
+        self.recovery_pending = False
+        self.auto_prune_at = now + timedelta(seconds=self.auto_prune_interval)
+        self.auto_prune_interval = min(
+            self.auto_prune_interval * 2, AUTO_PRUNE_MAX_SECONDS
+        )
         self.enqueue_command("UpdateLibrary")
+
+    def flush_recovery_prune(self):
+        """Fire a booked recovery once its floor has passed.
+
+        Drains are the only caller of schedule_recovery_prune, and a failed
+        recovery's own drain settles inside the floor — without this tick
+        hook the retry chain stalls after one attempt.
+        """
+        if not self.recovery_pending:
+            return
+
+        now = datetime.now()
+
+        if self.auto_prune_at is not None and now < self.auto_prune_at:
+            return
+
+        LOG.warning("recovery floor passed; scheduling the owed library update")
+        self._arm_recovery(now)
 
     def sync_allowed_now(self):
         """Whether sync work may run at this moment.
@@ -1774,10 +1827,16 @@ class Library(threading.Thread):
         heals exactly the drifted sets and Etag-matched healthy sets stay
         skipped.
 
-        Convergence: a healed set stamps fresh state; a guarded set kept its
-        links, so stored still equals current; members outside the synced
-        libraries count into neither side. A probe->walk->probe loop cannot
-        form.
+        Convergence: the walk ends by re-stamping every non-guarded set's
+        state from measured reality (restamp_boxset_states), including both
+        sides of a shared-member steal -- movie.idSet is single-valued, so
+        the last set walked owns a shared member and the earlier owner's
+        count moves *after* its own mid-walk stamp (V7,
+        docs/healing-loops-plan.md). A guarded set keeps its stale or
+        missing state deliberately: that is the designed retry, and this
+        probe re-scheduling its walk is the retry's clock, not a loop bug.
+        Members outside the synced libraries count into neither side. One
+        walk per disturbance; a probe->walk->probe loop cannot form.
         """
         if not self.sync_allowed_now():
             return

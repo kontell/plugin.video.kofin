@@ -116,7 +116,13 @@ class Objects(object):
             mapped_item["ProviderName"] = self.objects.get(
                 "%sProviderName" % mapping_name
             )
-            mapped_item["Checksum"] = json.dumps(item["UserData"])
+            # The fork defaulted this to json.dumps(item["UserData"]) — a
+            # checksum no comparator matches and every playback moves, so an
+            # Etag-less item took the full write cascade on every walk
+            # forever (healing-loops-plan F4). check_unchanged overwrites
+            # this with the real Etag spelling; None is the honest default
+            # for the paths that never get one.
+            mapped_item["Checksum"] = None
 
         return mapped_item
 
