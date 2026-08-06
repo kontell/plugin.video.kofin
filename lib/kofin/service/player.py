@@ -16,9 +16,10 @@ kofin's own play path; no ``service.upnext`` anywhere.
 """
 
 import json
+import queue
 import re
 import threading
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 from uuid import uuid4
 
 import xbmc
@@ -417,6 +418,50 @@ def backfill_library_claim(data: JsonDict, api: Api) -> bool:
     return True
 
 
+class _Reporter(threading.Thread):
+    """One FIFO worker for every server-bound playback report.
+
+    Kodi delivers player callbacks on its announcement thread, which every
+    addon shares: a network call there stalls player and monitor callbacks
+    for all of them, for the transport's whole budget, whenever the server is
+    away (audit finding #2). So callbacks capture their payload at event time
+    — position and volume are read when the event happens, not when the
+    network gets to it — and enqueue here, and this thread posts strictly in
+    order: the server reads playing/progress/stopped as one session's story,
+    and the single pipe is what keeps a stop from overtaking its start.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(name="kofin-reporter", daemon=True)
+        self._jobs: "queue.Queue[Optional[Callable[[], None]]]" = queue.Queue()
+
+    def submit(self, job: Callable[[], None]) -> None:
+        self._jobs.put(job)
+
+    def flush(self, timeout: float = 5.0) -> bool:
+        """True once everything queued before this call has run (tests)."""
+        done = threading.Event()
+        self._jobs.put(lambda: done.set())
+        return done.wait(timeout)
+
+    def stop(self, timeout: float = 5.0) -> None:
+        self._jobs.put(None)
+        if self.is_alive():
+            self.join(timeout=timeout)
+            if self.is_alive():  # pragma: no cover - watchdog logging only
+                LOG.warning("reporter did not drain within its deadline")
+
+    def run(self) -> None:
+        while True:
+            job = self._jobs.get()
+            if job is None:
+                break
+            try:
+                job()
+            except Exception as error:
+                LOG.warning("playback report failed: %s", error)
+
+
 class Player(xbmc.Player):
     def __init__(self, api: Api) -> None:
         super().__init__()
@@ -455,6 +500,8 @@ class Player(xbmc.Player):
         self._overlay_autoplay = False
         self._skip_target: Optional[float] = None
         self._chapter_thumbs: Optional[chapters.ChapterThumbs] = None
+        self._reporter = _Reporter()
+        self._reporter.start()
 
     # A property so joining or leaving a group also withdraws or restores the
     # stream menu, without the SyncPlay manager having to know the menu exists:
@@ -676,22 +723,28 @@ class Player(xbmc.Player):
         if item is None:
             return
         LOG.info("<-- stop %s", item["Id"])
-        try:
-            self.api.session_stopped(
-                {
-                    "ItemId": item["Id"],
-                    "MediaSourceId": item["MediaSourceId"],
-                    "PlaySessionId": item["PlaySessionId"],
-                    "PositionTicks": int(item["CurrentPosition"] * 10_000_000),
-                }
-            )
-        except Exception as error:
-            LOG.warning("stop report failed: %s", error)
-        if item.get("PlayMethod") == "Transcode":
+        stop_data = {
+            "ItemId": item["Id"],
+            "MediaSourceId": item["MediaSourceId"],
+            "PlaySessionId": item["PlaySessionId"],
+            "PositionTicks": int(item["CurrentPosition"] * 10_000_000),
+        }
+        close_encoding = item.get("PlayMethod") == "Transcode"
+        device_id = item.get("DeviceId", "")
+        play_session_id = item["PlaySessionId"]
+
+        def post_stop() -> None:
             try:
-                self.api.close_transcode(item["DeviceId"], item["PlaySessionId"])
+                self.api.session_stopped(stop_data)
             except Exception as error:
-                LOG.debug("close transcode failed: %s", error)
+                LOG.warning("stop report failed: %s", error)
+            if close_encoding:
+                try:
+                    self.api.close_transcode(device_id, play_session_id)
+                except Exception as error:
+                    LOG.debug("close transcode failed: %s", error)
+
+        self._reporter.submit(post_stop)
         state.clear_playing_id()
         state.clear_playing_streams()
 
@@ -706,6 +759,22 @@ class Player(xbmc.Player):
         self._segment_reset()
         self._stop_ticker()
         self._stop_chapter_thumbs()
+        self._reporter.stop()
+
+    def submit_backfill(self, data: JsonDict) -> None:
+        """Player.OnPlay's library-claim back-fill, off the notification
+        thread: library_claim makes a server GET and opens kofin.db, and every
+        song start with the server away blocked Kodi's notification dispatch
+        for the transport's whole budget (audit finding #3). Rides the
+        reporter so the claim lands before any report that follows it."""
+
+        def run() -> None:
+            try:
+                backfill_library_claim(data, self.api)
+            except Exception:
+                LOG.exception("library claim back-fill failed")
+
+        self._reporter.submit(run)
 
     # -- delete after watching -------------------------------------------------
 
@@ -1390,10 +1459,9 @@ class Player(xbmc.Player):
         }
         if event:
             data["EventName"] = event
-        try:
-            poster(data)
-        except Exception as error:
-            LOG.warning("playback report failed: %s", error)
+        # Payload is complete; the post itself must not run on this thread —
+        # for callbacks it is Kodi's announcement thread (see _Reporter).
+        self._reporter.submit(lambda: poster(data))
 
     def _start_ticker(self) -> None:
         self._stop_ticker()

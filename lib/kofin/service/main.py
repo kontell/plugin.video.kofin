@@ -20,7 +20,7 @@ from kofin.core.settings import Credentials, addon_version
 from kofin.core.ws import WSClient
 from kofin.service import backdrop, chapters
 from kofin.service.kodiuserdata import KodiUserData
-from kofin.service.player import Player, backfill_library_claim
+from kofin.service.player import Player
 from kofin.service.remote import RemoteHandler
 from kofin.service.settings_apply import SettingsApplier
 
@@ -558,10 +558,10 @@ class Service(xbmc.Monitor):
         library reports nothing without this. Never allowed to break playback:
         a failed back-fill just means the play stays unreported, as before.
         """
-        try:
-            backfill_library_claim(data, self.api)
-        except Exception:
-            LOG.exception("library claim back-fill failed")
+        # Queued to the player's reporter: the claim's server GET must not
+        # run on Kodi's notification thread (audit finding #3); failures are
+        # contained inside the job.
+        self.player.submit_backfill(data)
 
     def onSettingsChanged(self) -> None:
         self.settings_apply.apply()

@@ -93,7 +93,7 @@ Change: `run_forever(ping_interval=10, ping_timeout=5, …)`; move the post-conn
 
 Measured: sidecar subtitles fetch sequentially before `setResolvedUrl` (0.4 s each, ≤ 8 files → up to ~3 s), and item + PlaybackInfo + segments are serial round trips.
 
-Change: a small executor in `plugin/play.py` — kick the segments fetch and the item GET concurrently with PlaybackInfo (PlaybackInfo needs only the id; `stream_url` joins on the item afterward), and `subtitles.localize` fetches sidecars concurrently (order-stable results, per-file timeout and URL fallback unchanged). Requests' session is pool-backed and thread-safe for this use.
+Change (as landed, correcting this entry's original claim): the item GET stays ahead of PlaybackInfo — `StartTimeTicks` needs the resume position, which in the server-resume case only the item DTO knows, so "PlaybackInfo needs only the id" was wrong. What overlaps: the segments prefetch runs on its own thread from the moment the item is known (beside PlaybackInfo and the subtitle fetches), and `subtitles.localize` fetches sidecars concurrently (order-stable results, per-file timeout and URL fallback unchanged; the MAX_FILES cap now bounds attempts rather than successes). Requests' session is pool-backed and thread-safe for this use.
 
 Target: plugin resolve phase ≤ 0.7 s on LAN after W1.2 (from 1.94 s). Tests: unit for order stability and fallback; live timeline re-run, including a 2+-sidecar item.
 
@@ -153,13 +153,16 @@ Reproduce the no-reuse behavior on a stock build (Bravia/Piers via ADB, or Libre
 
 ## Acceptance summary
 
-| Metric (this box) | Baseline | After W1 | After W2 |
+| Metric (this box) | Baseline | After W1 (measured) | After W2 (measured) |
 | --- | --- | --- | --- |
-| Static node menu | 1.5–1.8 s | ≤ 0.6 s | — |
-| Movies-all (1,766) | 14.6–16.3 s | ≤ 10 s | ≤ 3.5 s |
-| Offline root render | ~54 s | < 10 s | — |
-| Direct-play resolve (plugin phase) | 1.94 s | ~1.0 s | ≤ 0.7 s |
-| Click-to-frame (direct play, LAN) | 2.76 s | — | ≤ 1.6 s |
+| Static node menu | 1.5–1.8 s | ~0.68 s avg | — |
+| Movies-all (1,766) | 14.6–16.3 s | 3.3–3.4 s | **1.6–1.7 s** |
+| Movies-all, Bravia (Kodi 22, Android) | 22.5–22.7 s | 9.8–10.3 s | (re-measure on deploy) |
+| Offline root render | ~54 s | < 10 s (computed) | — |
+| Direct-play resolve (plugin phase) | 1.94 s | ~1.0 s | **0.68 s** |
+| Click-to-frame (direct play, LAN) | 2.76 s | 2.28–2.67 s | **~1.2 s** |
 | Info-dialog cast (8 actors, first open) | ~0.9 s | — | ~0.01 s after W3.1 seed |
+
+W1.6 outcome, recorded: measured and not adopted — Kodi 22 writes bytecode caches natively (the flag is a no-op there) and the Debian box showed no warm-condition change; details on PR #78.
 
 Every PR: tox green (black, mypy, pytest), L2 suite untouched-byte-identical where sync/ is involved, probe numbers in the description, live gates as named per item.
