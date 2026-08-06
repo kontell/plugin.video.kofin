@@ -897,12 +897,15 @@ class FullSync(object):
         server for ChildCount — the unlink guard's server signal, measured
         harmless at set counts and deliberately not added to the shared
         info() field list — tallies per-set outcomes into one summary line,
-        and sweeps references the server listing no longer contains.
+        sweeps references the server listing no longer contains, and ends by
+        re-stamping every non-guarded set's state from measured reality
+        (shared members drift the mid-walk stamps; healing-loops-plan F1).
         """
         restore_key = "%s/boxsets" % library["Id"]
         restore_point = self.get_restore_point(restore_key)
         resumed = restore_point is not None
         walked = set()
+        guarded_ids = set()
         stats = {
             BOXSET_UNCHANGED: 0,
             BOXSET_WRITTEN: 0,
@@ -943,11 +946,21 @@ class FullSync(object):
                     if outcome in stats:
                         stats[outcome] += 1
 
+                    if outcome == BOXSET_GUARDED:
+                        guarded_ids.add(boxset["Id"])
+
         self.clear_restore_point(restore_key)
 
         # A resumed walk never listed its earlier pages, so only a fresh,
         # complete walk may treat absence from the listing as deletion.
         swept = 0 if resumed else self.sweep_stale_boxsets(walked)
+
+        # Walk-end restamp (docs/healing-loops-plan.md F1): after the sweep,
+        # so measured state covers exactly the references that survived. It
+        # runs on resumed walks too -- it is measurement, not deletion, so
+        # the fresh-start gate above does not apply.
+        with self.video_database_locks() as (videodb, jellyfindb):
+            Movies(self.server, jellyfindb, videodb).restamp_boxset_states(guarded_ids)
 
         LOG.info(
             "boxsets: %s checked (%s unchanged, %s written, %s healed, "

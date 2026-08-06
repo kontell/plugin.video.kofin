@@ -1217,6 +1217,123 @@ def test_boxset_sweep_refuses_an_empty_listing(api):
     assert video_query("SELECT COUNT(*) FROM sets") == [(1,)]
 
 
+def boxset2(**overrides):
+    """A second collection payload beside sync_dtos.BOXSET."""
+    payload = dict(BOXSET)
+    payload.update({"Id": "set2", "Name": "Second Collection", "Etag": "etag-set2-v1"})
+    payload.update(overrides)
+    return payload
+
+
+def walk_boxsets(api, sets):
+    """The real boxsets walk: paging, outcome tally, sweep, restamp."""
+    api.boxset_children[LIBRARY["Id"]] = [dict(payload) for payload in sets]
+    fullsync = make_fullsync(api)
+    try:
+        fullsync.boxsets(dict(LIBRARY))
+    finally:
+        type(fullsync)._shared_state.clear()
+
+
+def drifted_boxsets():
+    """The startup drift probe's predicate (library.probe_boxset_drift),
+    computed straight from the databases."""
+    states = dict(kofin_query("SELECT jellyfin_id, linked_count FROM boxset_state"))
+    counts = dict(
+        video_query(
+            "SELECT idSet, COUNT(*) FROM movie WHERE idSet IS NOT NULL GROUP BY idSet"
+        )
+    )
+    set_rows = {row[0] for row in video_query("SELECT idSet FROM sets")}
+
+    return [
+        jellyfin_id
+        for jellyfin_id, kodi_id in kofin_query(
+            "SELECT jellyfin_id, kodi_id FROM jellyfin WHERE media_type = 'set'"
+        )
+        if kodi_id not in set_rows
+        or states.get(jellyfin_id) is None
+        or states[jellyfin_id] != counts.get(kodi_id, 0)
+    ]
+
+
+def test_boxset_shared_member_walk_converges(api):
+    """V7 (docs/healing-loops-plan.md): movie1 belongs to both sets, and
+    movie.idSet is single-valued, so the walk's last set owns it. The
+    walk-end restamp measures after the stealing stops: stored equals
+    reality for both sets, the drift probe stays silent, and a second walk
+    is a byte-identical no-op instead of a heal-every-boot loop."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    write_movie(api, dto(MOVIE_2))
+    api.boxset_children = {
+        "set1": [dto(MOVIE), dto(MOVIE_2)],
+        "set2": [dto(MOVIE)],
+    }
+
+    walk_boxsets(api, [dto(BOXSET), boxset2()])
+
+    set2_id = kofin_query("SELECT kodi_id FROM jellyfin WHERE jellyfin_id = 'set2'")[0][
+        0
+    ]
+    assert video_query("SELECT idSet FROM movie WHERE idMovie = 1") == [(set2_id,)]
+    assert drifted_boxsets() == []
+
+    first = dump(str(sync_db._path_overrides["video"]))
+    first_map = dump(str(sync_db._path_overrides["kofin"]))
+    walk_boxsets(api, [dto(BOXSET), boxset2()])
+    assert dump(str(sync_db._path_overrides["video"])) == first
+    assert dump(str(sync_db._path_overrides["kofin"])) == first_map
+
+
+def test_boxset_incremental_steal_walk_reconverges(api):
+    """An Etag-driven pass on one overlapped set steals the shared member
+    mid-cycle and drifts the other set's stamp. The next walk heals the
+    victim and the restamp closes both stamps: one walk per disturbance,
+    then quiet, instead of a permanent probe->walk cycle."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    write_movie(api, dto(MOVIE_2))
+    api.boxset_children = {
+        "set1": [dto(MOVIE), dto(MOVIE_2)],
+        "set2": [dto(MOVIE)],
+    }
+    walk_boxsets(api, [dto(BOXSET), boxset2()])
+    assert drifted_boxsets() == []
+
+    touched = dto(BOXSET)
+    touched["Etag"] = "etag-set1-v2"
+    assert write_boxset(api, dict(touched)) == BOXSET_WRITTEN
+    assert drifted_boxsets() == ["set2"]
+
+    walk_boxsets(api, [dict(touched), boxset2()])
+    assert drifted_boxsets() == []
+
+    first = dump(str(sync_db._path_overrides["video"]))
+    first_map = dump(str(sync_db._path_overrides["kofin"]))
+    walk_boxsets(api, [dict(touched), boxset2()])
+    assert dump(str(sync_db._path_overrides["video"])) == first
+    assert dump(str(sync_db._path_overrides["kofin"])) == first_map
+
+
+def test_boxset_guarded_set_keeps_missing_state(api, boxset_log):
+    """A set guarded on its first post-upgrade pass keeps stored=None: the
+    probe keeps flagging it, which is the designed retry-every-start for a
+    server answering suspiciously. The walk-end restamp must not grade that
+    answer healthy."""
+    linked_boxset(api)
+    kofin_exec("DELETE FROM boxset_state")
+
+    guarded = dto(BOXSET)
+    guarded["ChildCount"] = 2
+    api.boxset_children["set1"] = []
+    walk_boxsets(api, [guarded])
+
+    assert kofin_query("SELECT COUNT(*) FROM boxset_state") == [(0,)]
+    assert video_query("SELECT COUNT(*) FROM movie WHERE idSet = 1") == [(2,)]
+    assert drifted_boxsets() == ["set1"]
+
+
 # --- tv shows ------------------------------------------------------------------
 
 

@@ -1774,10 +1774,16 @@ class Library(threading.Thread):
         heals exactly the drifted sets and Etag-matched healthy sets stay
         skipped.
 
-        Convergence: a healed set stamps fresh state; a guarded set kept its
-        links, so stored still equals current; members outside the synced
-        libraries count into neither side. A probe->walk->probe loop cannot
-        form.
+        Convergence: the walk ends by re-stamping every non-guarded set's
+        state from measured reality (restamp_boxset_states), including both
+        sides of a shared-member steal -- movie.idSet is single-valued, so
+        the last set walked owns a shared member and the earlier owner's
+        count moves *after* its own mid-walk stamp (V7,
+        docs/healing-loops-plan.md). A guarded set keeps its stale or
+        missing state deliberately: that is the designed retry, and this
+        probe re-scheduling its walk is the retry's clock, not a loop bug.
+        Members outside the synced libraries count into neither side. One
+        walk per disturbance; a probe->walk->probe loop cannot form.
         """
         if not self.sync_allowed_now():
             return

@@ -59,6 +59,7 @@ The suspected real-world trigger for mass drift: storage offline during a server
 | V4 | Kodi `sets` row vanishes (Kodi's clean-library drops memberless sets; DB damage) | Etag matches ⇒ skip before the existence check; even on Etag change, `update_boxset` UPDATEs a missing row silently and links point at a dead id | set gone / links dangling | P2 health check + R3 repair |
 | V5 | Set deleted server-side with no feed record (tier 2, retention gap) | walk only upserts; prune/probe exclude boxsets | ghost set forever | P3 sweep |
 | V6 | Emptied set repopulated later without Etag movement (permission flap restores) | empty state was stamped as clean | stuck empty | P2 zero-members-never-stamp rule |
+| V7 | Member shared by two sets (a movie in several server collections) — found 2026-08-06 | `movie.idSet` is single-valued, so each walk's later pass steals the member *after* the earlier set stamped its count ⇒ stored ≠ current the moment the walk ends | permanent probe→walk cycle, warning every start | walk-end restamp (docs/healing-loops-plan.md F1) |
 
 ---
 
@@ -97,6 +98,8 @@ Sweep: the walk already pages every server set; collect the walked ids and, when
 Pure-local, zero server traffic, runs on the same startup tick as the divergence probe (and under its same `sync_allowed_now`/pending-work gates): join kofin.db set rows against `boxset_state` and a single `GROUP BY idSet` count over MyVideos. Any set with a missing `sets` row, missing state, or `stored != current` ⇒ one warning naming up to a handful of sets, then `add_library("Boxsets:")` — the existing targeted entry that runs just the boxsets walk, where P2 heals exactly the drifted sets and Etag-matching healthy sets stay skipped. Convergence: healed sets stamp fresh state; guarded sets kept their links so `stored == current`; unsyncable members count into neither side — no probe→walk→probe loop is possible by construction.
 
 This is what turns "requires a manual boxsets update" into "self-heals on the next service start": V1 drift is caught by the count mismatch even though every Etag matches.
+
+(2026-08-06: the convergence argument above missed members shared between sets — V7. `movie.idSet` is single-valued, so the walk itself re-creates the count mismatch it heals, and the probe re-fires every start. The walk-end restamp — docs/healing-loops-plan.md F1 — is what actually closes it; guarded sets stay excluded so their designed retry survives.)
 
 ### P5 — diagnosability polish
 
