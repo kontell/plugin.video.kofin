@@ -447,17 +447,26 @@ class FullSync(object):
                 media[library["CollectionType"]](library)
             return True
         except LibraryException as error:
-            # TODO: Fixme; We're catching all LibraryException here,
-            # but silently ignoring any that isn't the exit condition.
-            # Investigate what would be appropriate behavior here.
             if isinstance(error, LibraryExitException):
                 save_sync(self.sync)
                 raise
-            LOG.warning("Ignoring exception %s", error)
-            return True
+
+            # A non-exit LibraryException is a pass-level failure: per-item
+            # conditions (orphans, items deleted mid-page) are absorbed one
+            # level down in apply_or_skip, so what reaches here is the likes
+            # of the prune-map truncation guard (downloader.get_id_etag_map).
+            # The fork swallowed these and reported success — the entry left
+            # sync.json with the library half-written and nothing owing a
+            # retry (healing-loops-plan F3). Fail like any other error: the
+            # entry stays queued and the resume backoff owns the retry.
+            self._notify_sync_failure(library_id)
+            LOG.error("library %s failed: %s", library_id, error)
+            save_sync(self.sync)
+
+            raise
 
         except Exception as error:
-            notification(localized(30406), error=True)
+            self._notify_sync_failure(library_id)
 
             LOG.error("full sync exited unexpectedly")
             LOG.exception(error)
@@ -465,6 +474,22 @@ class FullSync(object):
             save_sync(self.sync)
 
             raise
+
+    def _notify_sync_failure(self, library_id):
+        """One failure toast per library per service lifetime.
+
+        A failing library retries on the resume backoff (60s doubling to 30
+        minutes, reset each boot); toasting every attempt turns one dead
+        library into a nag loop (healing-loops-plan F3). The log still
+        carries every attempt.
+        """
+        toasted = getattr(self.library, "sync_failure_toasted", None)
+
+        if toasted is None or library_id not in toasted:
+            if toasted is not None:
+                toasted.add(library_id)
+
+            notification(localized(30406), error=True)
 
     @contextmanager
     def video_database_locks(self):

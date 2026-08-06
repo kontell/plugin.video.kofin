@@ -1961,3 +1961,79 @@ def test_a_broken_message_costs_the_toast_and_not_the_thread(monkeypatch):
 
     assert sent == []
     assert lib.new_content == []
+
+
+# --- recovery prune ladder (healing-loops-plan F3) ---------------------------
+
+
+def test_first_failure_schedules_recovery_and_climbs(monkeypatch):
+    manager, _ = make_library()
+    manager.flag_unapplied("item1", "writer raised")
+
+    manager.schedule_recovery_prune()
+
+    assert drain(manager.commands) == [("UpdateLibrary", {})]
+    assert manager.recovery_pending is False
+    assert manager.auto_prune_interval == 2 * library_mod.AUTO_PRUNE_MIN_SECONDS
+    assert manager.auto_prune_at is not None
+
+
+def test_failure_inside_the_floor_books_the_retry(monkeypatch):
+    """The failed recovery's own drain settles inside the floor. The fork
+    dropped the signal here ("already scheduled" — nothing was), stalling
+    the chain after one attempt; now the retry is booked for the tick."""
+    manager, _ = make_library()
+    manager.flag_unapplied("item1", "writer raised")
+    manager.schedule_recovery_prune()
+    drain(manager.commands)
+
+    manager.flag_unapplied("item1", "writer raised")
+    manager.schedule_recovery_prune()
+
+    assert drain(manager.commands) == []
+    assert manager.recovery_pending is True
+    # Booked, not escalated: the ladder climbs when an attempt fires.
+    assert manager.auto_prune_interval == 2 * library_mod.AUTO_PRUNE_MIN_SECONDS
+
+
+def test_flush_fires_the_booked_retry_when_the_floor_passes():
+    manager, _ = make_library()
+    manager.flag_unapplied("item1", "writer raised")
+    manager.schedule_recovery_prune()
+    drain(manager.commands)
+    manager.flag_unapplied("item1", "writer raised")
+    manager.schedule_recovery_prune()
+
+    manager.flush_recovery_prune()
+    assert drain(manager.commands) == []  # floor not passed yet
+
+    manager.auto_prune_at = datetime.now() - timedelta(seconds=1)
+    manager.flush_recovery_prune()
+
+    assert drain(manager.commands) == [("UpdateLibrary", {})]
+    assert manager.recovery_pending is False
+    assert manager.auto_prune_interval == 4 * library_mod.AUTO_PRUNE_MIN_SECONDS
+
+
+def test_ladder_caps_at_the_ceiling():
+    manager, _ = make_library()
+    manager.auto_prune_interval = library_mod.AUTO_PRUNE_MAX_SECONDS
+
+    manager.flag_unapplied("item1", "writer raised")
+    manager.schedule_recovery_prune()
+
+    assert drain(manager.commands) == [("UpdateLibrary", {})]
+    assert manager.auto_prune_interval == library_mod.AUTO_PRUNE_MAX_SECONDS
+
+
+def test_clean_drain_resets_the_ladder_only_when_no_retry_is_owed():
+    manager, _ = make_library()
+    manager.auto_prune_interval = 4 * library_mod.AUTO_PRUNE_MIN_SECONDS
+
+    manager.recovery_pending = True
+    manager.schedule_recovery_prune()
+    assert manager.auto_prune_interval == 4 * library_mod.AUTO_PRUNE_MIN_SECONDS
+
+    manager.recovery_pending = False
+    manager.schedule_recovery_prune()
+    assert manager.auto_prune_interval == library_mod.AUTO_PRUNE_MIN_SECONDS
