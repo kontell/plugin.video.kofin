@@ -21,6 +21,7 @@ from kofin.core.http import HttpError
 from kofin.core.log import Logger
 from kofin.sync import changefeed
 from kofin.sync import downloader as server
+from kofin.sync.fields import find_library
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
 from kofin.sync.writers.movies import (
     BOXSET_GUARDED,
@@ -868,10 +869,12 @@ class FullSync(object):
         )
 
         if spared:
-            # Not routine. Either the library listing and the reference set
-            # disagree about an item's id, or a filter is hiding something the
-            # writers referenced -- both are kofin bugs that this guard only
-            # stops short of acting on.
+            # Not routine: the library listing and the reference set disagree
+            # about an item -- the signature of a misattributed media_folder,
+            # a series pooled under whichever library saw it first
+            # (healing-loops-plan F2). Warn, then re-home instead of only
+            # sparing: left alone the same ids spare and warn on every prune
+            # and hold probe_divergence permanently diverged.
             LOG.warning(
                 "prune/%s spared %s stale candidate(s) the server still "
                 "resolves: %s",
@@ -879,10 +882,41 @@ class FullSync(object):
                 len(spared),
                 ", ".join(sorted(spared)[:10]),
             )
+            self._rehome_spared(spared)
 
         self.library.removed(stale)
         self.library.added(missing_ids)
         self.library.updated(changed)
+
+    def _rehome_spared(self, spared):
+        """Move spared references to the library the server says owns them.
+
+        One Ancestors round trip per spared id -- rare by construction --
+        re-homes it to its whitelisted ancestor view, or to NULL (the pool
+        placeholder state) when no synced library owns it. Either way the
+        next prune's local map matches the server's listing and the loop
+        closes. Seasons and episodes are exempt: they carry no media_folder
+        by design and their fate follows their series. A resolution failure
+        skips the id; the next prune retries.
+        """
+        with Database("kofin") as jellyfindb:
+            db = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
+
+            for item_id in sorted(spared):
+                if db.get_media_by_id(item_id) in ("Season", "Episode"):
+                    continue
+
+                try:
+                    home = find_library(self.server, {"Id": item_id})
+                except Exception as error:
+                    LOG.warning("could not re-home %s: %s", item_id, error)
+                    continue
+
+                folder = home["Id"] if home else None
+                db.update_media_folder(folder, item_id)
+                LOG.warning(
+                    "re-homed spared %s to %s", item_id, folder or "placeholder"
+                )
 
     def _local_reference_map(self, library_id, media_class):
         """Instance view of the module-level

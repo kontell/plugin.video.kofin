@@ -163,7 +163,12 @@ add_reference_pool_obj = [
     "tvshow",
     None,
     "{Checksum}",
-    "{LibraryId}",
+    # A pool row is a placeholder for a series another library owns, not an
+    # attribution: stamped with the pooling library's id it was counted by
+    # that library's prune and divergence probe forever (healing-loops-plan
+    # F2). NULL keeps it out of every media_folder query; the series' own
+    # library re-homes it on first contact (writers/tvshows.py update leg).
+    None,
     None,
 ]
 add_reference_episode_obj = [
@@ -245,6 +250,12 @@ SET         checksum = ?
 WHERE       jellyfin_id = ?
 """
 update_reference_obj = ["{Checksum}", "{Id}"]
+update_media_folder = """
+UPDATE      jellyfin
+SET         media_folder = ?
+WHERE       jellyfin_id = ?
+"""
+update_media_folder_obj = ["{LibraryId}", "{Id}"]
 update_parent = """
 UPDATE      jellyfin
 SET         parent_id = ?
@@ -283,6 +294,7 @@ AND             media_type = ?
 AND             jellyfin_id != ?
 """
 delete_alias_season_obj = ["{SeasonId}", "season", "{Id}"]
+delete_alias_tvshow_obj = ["{KodiId}", "tvshow", "{Id}"]
 delete_item_by_wild = """
 DELETE FROM     jellyfin
 WHERE           jellyfin_id LIKE ?

@@ -59,6 +59,7 @@ class FakeApi:
         self.boxset_children = {}
         self.seasons_by_series = {}
         self.special_features_by_id = {}
+        self.ancestors_by_id = {}
 
     def special_features(self, item_id):
         features = self.special_features_by_id.get(item_id, [])
@@ -74,6 +75,8 @@ class FakeApi:
         if path.startswith("/Shows/") and path.endswith("/Seasons"):
             series_id = path.split("/")[2]
             return {"Items": self.seasons_by_series.get(series_id, [])}
+        if path.startswith("/Shows/") and path.endswith("/Episodes"):
+            return {"TotalRecordCount": 0, "Items": []}
         if path.endswith("/LocalTrailers"):
             return []
         if path == "/Items":
@@ -92,7 +95,7 @@ class FakeApi:
         return self.get("/Items", merged)
 
     def ancestors(self, item_id):
-        return []
+        return self.ancestors_by_id.get(item_id, [])
 
 
 class FakeMonitor:
@@ -2011,6 +2014,181 @@ def test_show_path_migration_spares_non_show_paths(api):
         "metadata.local",
     )
     assert content["plugin://plugin.video.kofin/"] == (None, None)
+
+
+# --- series pooling attribution (healing-loops-plan F2) -----------------------
+
+
+TV_LIBRARY_B = {"Id": "lib-shows-b", "Name": "Shows B"}
+
+
+def series2(**overrides):
+    """The same show contributed by a second library (series pooling)."""
+    payload = dict(SERIES)
+    payload.update({"Id": "series2", "Etag": "etag-series2-v1"})
+    payload.update(overrides)
+    return payload
+
+
+def pool_season():
+    """A season the server lists under series1 but attributes to series2 —
+    the signal that triggers the pool arm."""
+    payload = dto(SEASON_1)
+    payload.update({"Id": "season2", "SeriesId": "series2"})
+    return payload
+
+
+def write_show(api, payload, library):
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        TVShows(api, kdb, vdb, library=library).tvshow(payload)
+
+
+def show_folder(jellyfin_id):
+    return kofin_query(
+        "SELECT media_folder FROM jellyfin WHERE jellyfin_id = ?", (jellyfin_id,)
+    )
+
+
+def register_pool_views():
+    register_views(
+        {"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"},
+        {"Id": "lib-shows-b", "Name": "Shows B", "Media": "tvshows"},
+    )
+
+
+def test_series_pool_a_then_b_rehomes_on_contact(api):
+    """The pooling library writes a NULL placeholder, not an attribution;
+    the series' own library adopts it on first contact. Stamped with the
+    pooling library's id (the fork's shape) the row was counted by that
+    library's prune and divergence probe forever — a heal that never
+    converged."""
+    register_pool_views()
+    api.seasons_by_series = {"series1": [dto(SEASON_1), pool_season()]}
+
+    write_show(api, dto(SERIES), TV_LIBRARY)
+    assert show_folder("series2") == [(None,)]
+    show_row = kofin_query("SELECT kodi_id FROM jellyfin WHERE jellyfin_id = 'series1'")
+    assert (
+        kofin_query("SELECT kodi_id FROM jellyfin WHERE jellyfin_id = 'series2'")
+        == show_row
+    )
+
+    write_show(api, dto(series2()), TV_LIBRARY_B)
+    assert show_folder("series2") == [("lib-shows-b",)]
+    assert show_folder("series1") == [("lib-shows",)]
+
+
+def test_series_pool_b_then_a_keeps_attribution(api):
+    """Synced in the other order the pooled series is already tracked, the
+    pool arm never fires, and both attributions are right from the start."""
+    register_pool_views()
+    api.seasons_by_series = {
+        "series1": [dto(SEASON_1), pool_season()],
+        "series2": [],
+    }
+
+    write_show(api, dto(series2()), TV_LIBRARY_B)
+    write_show(api, dto(SERIES), TV_LIBRARY)
+
+    assert show_folder("series2") == [("lib-shows-b",)]
+    assert show_folder("series1") == [("lib-shows",)]
+
+
+def test_series_pool_placeholder_adopted_incrementally(api):
+    """A placeholder touched by a realtime update (no library context)
+    resolves its home through one Ancestors call and re-homes."""
+    register_pool_views()
+    api.seasons_by_series = {"series1": [dto(SEASON_1), pool_season()]}
+    write_show(api, dto(SERIES), TV_LIBRARY)
+    assert show_folder("series2") == [(None,)]
+
+    sync = sync_db.get_sync()
+    sync["Whitelist"] = ["lib-shows", "lib-shows-b"]
+    sync_db.save_sync(sync)
+    api.ancestors_by_id = {"series2": [{"Id": "lib-shows-b", "Name": "Shows B"}]}
+
+    write_show(api, dto(series2()), None)
+    assert show_folder("series2") == [("lib-shows-b",)]
+
+
+def test_series_pool_placeholder_outside_whitelist_stays_dormant(api):
+    """No synced library owns the pooled series: the placeholder stays NULL
+    and the realtime update writes nothing — there is no library to path the
+    row under, and a NULL row is unreachable by every prune and probe."""
+    register_pool_views()
+    api.seasons_by_series = {"series1": [dto(SEASON_1), pool_season()]}
+    write_show(api, dto(SERIES), TV_LIBRARY)
+
+    sync = sync_db.get_sync()
+    sync["Whitelist"] = ["lib-shows"]
+    sync_db.save_sync(sync)
+    api.ancestors_by_id = {}
+
+    before = dump(str(sync_db._path_overrides["video"]))
+    write_show(api, dto(series2()), None)
+    assert show_folder("series2") == [(None,)]
+    assert dump(str(sync_db._path_overrides["video"])) == before
+
+
+def test_series_pool_placeholder_dies_with_the_show(api):
+    """Pool placeholders alias the show's Kodi row and die with it; a
+    sibling still live on the server comes back as a missing id on its own
+    library's next pass, never as a dangling reference."""
+    register_pool_views()
+    api.seasons_by_series = {"series1": [dto(SEASON_1), pool_season()]}
+    write_show(api, dto(SERIES), TV_LIBRARY)
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin WHERE media_type = 'tvshow'") == [
+        (2,)
+    ]
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        TVShows(api, kdb, vdb, library=TV_LIBRARY).remove("series1")
+
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin WHERE media_type = 'tvshow'") == [
+        (0,)
+    ]
+    assert video_query("SELECT COUNT(*) FROM tvshow") == [(0,)]
+
+
+def test_prune_rehome_spared_references(api):
+    """A legacy misattributed row heals on the next UpdateLibrary instead of
+    sparing and warning forever: re-homed to its whitelisted ancestor view,
+    or to the NULL placeholder state when no synced library owns it. Season
+    rows are exempt — they carry no media_folder by design."""
+    register_pool_views()
+    api.seasons_by_series = {"series1": [dto(SEASON_1), pool_season()]}
+    write_show(api, dto(SERIES), TV_LIBRARY)
+    kofin_exec(
+        "UPDATE jellyfin SET media_folder = 'lib-shows' "
+        "WHERE jellyfin_id = 'series2'"
+    )
+
+    sync = sync_db.get_sync()
+    sync["Whitelist"] = ["lib-shows", "lib-shows-b"]
+    sync_db.save_sync(sync)
+    api.ancestors_by_id = {"series2": [{"Id": "lib-shows-b", "Name": "Shows B"}]}
+
+    fullsync = make_fullsync(api)
+    try:
+        fullsync._rehome_spared({"series2"})
+        assert show_folder("series2") == [("lib-shows-b",)]
+
+        api.ancestors_by_id = {}
+        fullsync._rehome_spared({"series2"})
+        assert show_folder("series2") == [(None,)]
+
+        season_folder = kofin_query(
+            "SELECT media_folder FROM jellyfin WHERE jellyfin_id = 'season1'"
+        )
+        fullsync._rehome_spared({"season1"})
+        assert (
+            kofin_query(
+                "SELECT media_folder FROM jellyfin WHERE jellyfin_id = 'season1'"
+            )
+            == season_folder
+        )
+    finally:
+        type(fullsync)._shared_state.clear()
 
 
 # --- music videos ----------------------------------------------------------------
