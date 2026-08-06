@@ -5,6 +5,7 @@ The resolved play's state is queued on kofin.play.json for the service-side
 player to claim and report.
 """
 
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 import xbmc
@@ -297,8 +298,25 @@ def play(request: Request) -> None:
 
     http = Http(settings.get_bool("sslVerify"))
     api = Api.from_credentials(http, creds, interactive=True)
+    # The media-segments prefetch shares nothing with PlaybackInfo or the
+    # subtitle fetches, so it runs beside them instead of after them and its
+    # round trip leaves the resolve's critical path (perf plan W2.6). The
+    # item fetch stays ahead of PlaybackInfo on the main thread: StartTimeTicks
+    # needs the resume position, which in the server-resume case only the item
+    # DTO knows. prefetch_segments catches its own failures (None), so the
+    # join can only yield segments or the service-side fallback. Daemon and
+    # bounded (interactive Api budget), so an abandoned fail path leaks
+    # nothing but a finishing request.
+    segments_box: List[Optional[List[JsonDict]]] = []
+    segments_thread: Optional[threading.Thread] = None
     try:
         item = api.item(item_id)
+        segments_thread = threading.Thread(
+            target=lambda: segments_box.append(prefetch_segments(api, item)),
+            name="kofin-segments-prefetch",
+            daemon=True,
+        )
+        segments_thread.start()
         from_start = request.params.get("fromstart") == "1"
         dbid = request.params.get("dbid", "")
         start_ticks = 0
@@ -416,7 +434,11 @@ def play(request: Request) -> None:
         attached=[item.stream_index for item in attached],
         request_params=request.params,
     )
-    segments = prefetch_segments(api, item)
+    # Bounded: the interactive Api budget caps the fetch, so a hung join here
+    # can only mean the bound itself failed — fall back rather than wait.
+    if segments_thread is not None:
+        segments_thread.join(timeout=15.0)
+    segments = segments_box[0] if segments_box else None
     if segments is not None:
         play_item["Segments"] = segments
     state.push_play_item(play_item)

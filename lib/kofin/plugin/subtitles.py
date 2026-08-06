@@ -35,7 +35,8 @@ anything Kodi does not parse ends up rendered.
 """
 
 import os
-from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Optional
 
 import xbmc
 import xbmcvfs
@@ -175,19 +176,35 @@ def localize(
     (``streams.subtitle_ordinal``). A fetch that fails contributes its URL, so
     the track is still there and still in position — worse-labelled, never
     missing.
+
+    The fetches run concurrently (perf plan W2.6): sequentially, each sidecar
+    cost its whole round trip — ~0.4 s each on LAN — and MAX_FILES of them
+    held the first frame for ~3 s. The cap accordingly bounds fetch *attempts*
+    rather than successes: "stop after the eighth success" would mean
+    submitting a ninth fetch only after one fails, which re-serializes exactly
+    the pathological item the cap exists for.
     """
     if not attached:
         return []
     path = directory or _cache_dir()
     sweep(path)
 
+    to_fetch = [attachment for attachment in attached if attachment.sidecar]
+    to_fetch = to_fetch[:MAX_FILES]
+    local_paths: Dict[int, str] = {}
+    if to_fetch:
+        with ThreadPoolExecutor(max_workers=min(4, len(to_fetch))) as pool:
+            futures = {
+                pool.submit(_fetch, http, attachment, path): attachment
+                for attachment in to_fetch
+            }
+            for future in as_completed(futures):
+                local_paths[futures[future].stream_index] = future.result()
+
     urls: List[str] = []
     fetched = 0
     for attachment in attached:
-        if not attachment.sidecar or fetched >= MAX_FILES:
-            urls.append(attachment.url)
-            continue
-        local = _fetch(http, attachment, path)
+        local = local_paths.get(attachment.stream_index, "")
         if local:
             fetched += 1
             urls.append(local)
@@ -201,8 +218,9 @@ def localize(
 def _fetch(http: Http, attachment: streams.Attachment, directory: str) -> str:
     """One subtitle to a named local file, or '' if anything at all went wrong."""
     try:
-        if not os.path.isdir(directory):
-            os.makedirs(directory)
+        # exist_ok: concurrent fetches race this check, and a lost race must
+        # not read as a failed subtitle.
+        os.makedirs(directory, exist_ok=True)
         response = http.request(
             "GET", delivery_url(attachment.url), timeout=TIMEOUT, retries=0
         )

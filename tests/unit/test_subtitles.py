@@ -208,6 +208,37 @@ def test_nothing_attached_costs_nothing(tmp_path):
     assert http.requests == []
 
 
+def test_sidecars_share_the_wait_instead_of_queuing(tmp_path, monkeypatch):
+    """Sequential fetches held the first frame for the sum of their round
+    trips; they must run concurrently, order-of-results still the order in
+    (perf plan W2.6)."""
+    import threading
+    import time
+
+    monkeypatch.setattr(
+        subtitles.xbmc, "convertLanguage", lambda code, fmt: "English", raising=False
+    )
+
+    class SlowHttp(FakeHttp):
+        def request(self, method, url, timeout=None, retries=0, **kwargs):
+            time.sleep(0.05)
+            self.requests.append(threading.get_ident())
+            return type("Response", (), {"content": self.body})()
+
+    http = SlowHttp()
+    attached = [
+        attachment(stream_index=index, language="l%02d" % index) for index in range(4)
+    ]
+    started = time.monotonic()
+    paths = subtitles.localize(http, attached, directory=str(tmp_path))
+
+    assert len(paths) == 4
+    assert all(path.startswith(str(tmp_path)) for path in paths)
+    # Four fetches on more than one thread, in far less than 4 x 50 ms.
+    assert len(set(http.requests)) > 1
+    assert time.monotonic() - started < 0.15
+
+
 @pytest.mark.parametrize(
     "url,extension",
     [
