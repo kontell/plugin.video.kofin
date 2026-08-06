@@ -46,7 +46,24 @@ def test_clear_all():
     state.set_online(True)
     state.set_playing_id("42")
     state.push_play_item({"Path": "p"})
+    state.set_watching_names(["Bob"])
     state.clear_all()
     assert state.is_online() is False
     assert state.get_playing_id() == ""
     assert state.claim_play_item("p") is None
+    assert state.watching_names() == []
+
+
+def test_watching_names_round_trip():
+    assert state.watching_names() == []
+    state.set_watching_names(["Bob", "Dan"])
+    assert state.watching_names() == ["Bob", "Dan"]
+    state.set_watching_names([])
+    assert state.watching_names() == []
+
+
+def test_watching_names_garbage_reads_as_nobody():
+    FakeWindow.store[state.PROP_WHO_NAMES] = "not-json"
+    assert state.watching_names() == []
+    FakeWindow.store[state.PROP_WHO_NAMES] = '{"a": 1}'
+    assert state.watching_names() == []

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import xbmcgui
 import xbmcplugin
 
-from kofin.core import settings
+from kofin.core import settings, state
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
@@ -332,26 +332,20 @@ def _api() -> Optional[Api]:
     )
 
 
-def _who_is_watching_label(api: Api) -> str:
+def _who_is_watching_label() -> str:
     """Root label reflecting who is on the session: the base 'Who's watching?'
-    plus any additional users. One extra /Sessions round trip per root render —
-    negligible next to the views() call already made, and skipped silently on
-    error so the entry always renders."""
-    base = settings.localized(30041)
-    try:
-        sessions = api.device_sessions(Credentials.load().device_id)
-    except JellyfinError as error:
-        LOG.debug("who's-watching label: sessions unavailable: %s", error)
-        return base
-    if not sessions:
-        return base
-    names = [
-        user.get("UserName", "")
-        for user in (sessions[0].get("AdditionalUsers") or [])
-        if user.get("UserName")
-    ]
+    plus any additional users.
+
+    Read from the window property the service publishes (state.PROP_WHO_NAMES)
+    rather than from /Sessions: the service owns every change to the set (the
+    picker worker, the connect-time restore) and publishes as it goes, while
+    the round trip here priced every root render — and, against an unreachable
+    server, hung the root for the call's whole retry ladder. An empty or stale
+    property degrades to the base label, which is also what the round trip's
+    error path answered."""
+    names = state.watching_names()
     if not names:
-        return base
+        return settings.localized(30041)
     return settings.localized(30046) % ", ".join(names)
 
 
@@ -405,7 +399,7 @@ def root(request: Request) -> None:
     import xbmc
 
     if api is not None:
-        adduser_li = xbmcgui.ListItem(_who_is_watching_label(api))
+        adduser_li = xbmcgui.ListItem(_who_is_watching_label())
         watching_art = _addon_media("person-search.png") or "DefaultUser.png"
         adduser_li.setArt(structural_art(watching_art))
         entries.append((listitems.plugin_url({"mode": "adduser"}), adduser_li, False))

@@ -3,10 +3,11 @@ the toggle dialog offers, what the picker records, and session restore."""
 
 import pytest
 
+from kofin.core import state
 from kofin.core.http import JellyfinError
 from kofin.plugin import adduser
 from kofin.plugin.router import Request
-from tests.unit.fakes import FakeAddon
+from tests.unit.fakes import FakeAddon, FakeWindow
 
 USERS = [
     {"Id": "primary", "Name": "Alice"},
@@ -204,6 +205,19 @@ def test_toggle_persists_chosen_ids(toggle):
     assert api.added == [("sess1", "u2"), ("sess1", "u4")]
 
 
+def test_toggle_publishes_the_new_names_before_the_refresh(toggle, monkeypatch):
+    """A confirmed change republishes server truth so the root redraw reads
+    the new set from the property, not a stale one."""
+    FakeWindow.store = {}
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    dialog, api = toggle
+    dialog.result = [0, 2]  # -> u2, u4
+
+    adduser.show_picker(api, _logged_in())
+
+    assert state.watching_names() == ["u2", "u4"]
+
+
 def test_toggle_cleared_persists_nobody(toggle):
     dialog, api = toggle
     api.additional = ["u3"]
@@ -309,7 +323,9 @@ def test_restore_adds_missing_users_only(monkeypatch):
     assert api.added == [("sess1", "u3")]
 
 
-def test_restore_empty_setting_is_a_noop(monkeypatch):
+def test_restore_empty_setting_adds_nobody(monkeypatch):
+    """No saved set means no adds; the session is still read once so the
+    root-label property reflects whatever is already on it."""
     FakeAddon.store = {}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     api = SessionApi()
@@ -317,6 +333,39 @@ def test_restore_empty_setting_is_a_noop(monkeypatch):
     adduser.restore_additional_users(api, "d")
 
     assert api.added == []
+
+
+def test_restore_publishes_the_names_for_the_root_label(monkeypatch):
+    """The connect-time restore feeds state.PROP_WHO_NAMES; the root listing
+    renders its label from that property alone, with no /Sessions round trip
+    per render (perf plan W1.4)."""
+    FakeAddon.store = {"whoIsWatching": "u2"}
+    FakeWindow.store = {}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    api = SessionApi()
+    api.user_id = "primary"
+
+    adduser.restore_additional_users(api, "d")
+
+    assert api.added == [("sess1", "u2")]
+    assert state.watching_names() == ["u2"]
+
+
+def test_restore_publishes_session_truth_even_with_nothing_saved(monkeypatch):
+    """A set attached elsewhere (another client, the dashboard) must still
+    reach the label — which is why the session is read before the saved-set
+    check rather than after."""
+    FakeAddon.store = {}
+    FakeWindow.store = {}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    api = SessionApi(additional=["u9"])
+
+    adduser.restore_additional_users(api, "d")
+
+    assert api.added == []
+    assert state.watching_names() == ["u9"]
 
 
 def test_restore_skips_primary_user(monkeypatch):
