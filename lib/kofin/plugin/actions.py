@@ -18,7 +18,7 @@ LOG = Logger(__name__)
 
 def _api() -> Api:
     return Api.from_credentials(
-        Http(settings.get_bool("sslVerify")), Credentials.load()
+        Http(settings.get_bool("sslVerify")), Credentials.load(), interactive=True
     )
 
 

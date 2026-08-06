@@ -42,6 +42,15 @@ PROP_CONTEXT_BITRATES = "kofin.context.bitrates"
 PROP_PLAYING_STREAMS = "kofin.playing.streams"
 PROP_PLAYING_MENU = "kofin.playing.menu"
 
+# The additional users on this device's session, as the root listing's
+# "Who's watching?" entry names them. Earns its place because the owner and
+# the reader are different processes: the *service* is where the set changes
+# (the picker worker, the connect-time restore) and it knows the names the
+# moment it changes them, while the *plugin* renders the label on every root
+# listing — which previously cost a /Sessions round trip per render, and made
+# an offline root hang for that call's whole retry ladder.
+PROP_WHO_NAMES = "kofin.who.names"
+
 # The lyrics overlay's channel to the skin. These earn their place for the
 # same reason as PROP_CONTEXT_BITRATES: a skin can only read window
 # properties, and lyrics cannot reach it any other way -- Kodi's music
@@ -203,6 +212,34 @@ def clear_playing_streams() -> None:
     window.clearProperty(PROP_PLAYING_MENU)
 
 
+def set_watching_names(names: List[str]) -> None:
+    """Publish the additional-user names on this device's session.
+
+    An empty list clears the property, which reads back as "nobody extra" —
+    the base label. The service calls this wherever the set changes or is
+    re-learned: the picker, the connect-time restore.
+    """
+    window = _window()
+    if names:
+        window.setProperty(PROP_WHO_NAMES, json.dumps(names))
+    else:
+        window.clearProperty(PROP_WHO_NAMES)
+
+
+def watching_names() -> List[str]:
+    """The published additional-user names, or [] when there are none."""
+    raw = _window().getProperty(PROP_WHO_NAMES)
+    if not raw:
+        return []
+    try:
+        names = json.loads(raw)
+    except ValueError:
+        return []
+    if not isinstance(names, list):
+        return []
+    return [str(name) for name in names if name]
+
+
 def publish_lyrics(lines: List[Any], item_id: str) -> None:
     """Publish the song's lyrics for whatever is going to render them.
 
@@ -271,6 +308,7 @@ def clear_all() -> None:
         PROP_CONTEXT_BITRATES,
         PROP_PLAYING_STREAMS,
         PROP_PLAYING_MENU,
+        PROP_WHO_NAMES,
     ):
         window.clearProperty(prop)
     clear_lyrics()

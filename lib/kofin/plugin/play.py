@@ -296,7 +296,7 @@ def play(request: Request) -> None:
         bitrate_mbps = 0.0
 
     http = Http(settings.get_bool("sslVerify"))
-    api = Api.from_credentials(http, creds)
+    api = Api.from_credentials(http, creds, interactive=True)
     try:
         item = api.item(item_id)
         from_start = request.params.get("fromstart") == "1"

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import xbmcgui
 import xbmcplugin
 
-from kofin.core import settings
+from kofin.core import settings, state
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
@@ -327,29 +327,25 @@ def _api() -> Optional[Api]:
     creds = Credentials.load()
     if not creds.is_logged_in:
         return None
-    return Api.from_credentials(Http(settings.get_bool("sslVerify")), creds)
+    return Api.from_credentials(
+        Http(settings.get_bool("sslVerify")), creds, interactive=True
+    )
 
 
-def _who_is_watching_label(api: Api) -> str:
+def _who_is_watching_label() -> str:
     """Root label reflecting who is on the session: the base 'Who's watching?'
-    plus any additional users. One extra /Sessions round trip per root render —
-    negligible next to the views() call already made, and skipped silently on
-    error so the entry always renders."""
-    base = settings.localized(30041)
-    try:
-        sessions = api.device_sessions(Credentials.load().device_id)
-    except JellyfinError as error:
-        LOG.debug("who's-watching label: sessions unavailable: %s", error)
-        return base
-    if not sessions:
-        return base
-    names = [
-        user.get("UserName", "")
-        for user in (sessions[0].get("AdditionalUsers") or [])
-        if user.get("UserName")
-    ]
+    plus any additional users.
+
+    Read from the window property the service publishes (state.PROP_WHO_NAMES)
+    rather than from /Sessions: the service owns every change to the set (the
+    picker worker, the connect-time restore) and publishes as it goes, while
+    the round trip here priced every root render — and, against an unreachable
+    server, hung the root for the call's whole retry ladder. An empty or stale
+    property degrades to the base label, which is also what the round trip's
+    error path answered."""
+    names = state.watching_names()
     if not names:
-        return base
+        return settings.localized(30041)
     return settings.localized(30046) % ", ".join(names)
 
 
@@ -403,7 +399,7 @@ def root(request: Request) -> None:
     import xbmc
 
     if api is not None:
-        adduser_li = xbmcgui.ListItem(_who_is_watching_label(api))
+        adduser_li = xbmcgui.ListItem(_who_is_watching_label())
         watching_art = _addon_media("person-search.png") or "DefaultUser.png"
         adduser_li.setArt(structural_art(watching_art))
         entries.append((listitems.plugin_url({"mode": "adduser"}), adduser_li, False))
@@ -584,10 +580,11 @@ def _extras_node(request: Request, api: Api, view_id: str) -> None:
         }
     )
     entries = []
+    resume_offset = settings.resume_offset()
     for item in result.get("Items", []):
         # No apply_backdrop: these are series rows, and a media row keeps
         # whatever backdrop the server gave it or none (MEDIA_TYPES).
-        li = listitems.build(item, api.server)
+        li = listitems.build(item, api.server, resume_offset=resume_offset)
         path = listitems.plugin_url({"mode": "extras", "id": item.get("Id", "")})
         entries.append((path, li, True))
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
@@ -695,8 +692,12 @@ def _add_items(
     request: Request, api: Api, items: List[JsonDict], view_id: str, media: str
 ) -> None:
     entries = []
+    # One settings read for the whole listing: resume_of per row would build a
+    # fresh Addon per item (settings.adjusted_resume), which at library scale
+    # was most of the build time.
+    resume_offset = settings.resume_offset()
     for item in items:
-        li = listitems.build(item, api.server)
+        li = listitems.build(item, api.server, resume_offset=resume_offset)
         if not is_media_row(item):
             apply_backdrop(li)
         item_type = item.get("Type", "")

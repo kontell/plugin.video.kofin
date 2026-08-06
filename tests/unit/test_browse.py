@@ -480,6 +480,45 @@ def test_genre_rows_carry_stock_art_on_both_keys(recording_art, directory):
     assert li.getArt("thumb") == "DefaultGenre.png"
 
 
+def test_whos_watching_label_reads_the_published_names(monkeypatch):
+    """The root renders the label from the property the service maintains
+    (connect-time restore, picker confirm) — no /Sessions round trip per
+    root render, which also hung the offline root for the call's whole
+    retry ladder (perf plan W1.4)."""
+    from kofin.core import state
+
+    monkeypatch.setattr(
+        browse.settings, "localized", lambda sid: "with %s" if sid == 30046 else "base"
+    )
+    assert browse._who_is_watching_label() == "base"
+    state.set_watching_names(["Bob", "Dan"])
+    assert browse._who_is_watching_label() == "with Bob, Dan"
+
+
+def test_add_items_reads_the_resume_offset_once_per_listing(monkeypatch, directory):
+    """One settings read for the whole page, however many rows it has — the
+    per-row read built a fresh Addon each time and dominated large listings
+    (perf plan W1.1)."""
+    reads = []
+    monkeypatch.setattr(
+        browse.settings, "resume_offset", lambda: reads.append(1) or 0.0
+    )
+    items = [
+        {
+            "Id": "m%d" % index,
+            "Type": "Movie",
+            "Name": "Movie %d" % index,
+            "RunTimeTicks": 600 * 10_000_000,
+            "UserData": {"PlaybackPositionTicks": 300 * 10_000_000},
+        }
+        for index in range(5)
+    ]
+    browse._add_items(Request("plugin://x", 1, {}), ExtrasApi(), items, "v1", "movies")
+
+    assert len(directory["entries"]) == 5
+    assert len(reads) == 1
+
+
 # --- addon backdrop fallback -------------------------------------------------
 
 

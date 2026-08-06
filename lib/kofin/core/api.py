@@ -1,9 +1,9 @@
 """The Jellyfin API surface kofin uses (phase 1: browse, playback, sessions)."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from kofin.core import auth, settings
-from kofin.core.http import Http, HttpError
+from kofin.core.http import DEFAULT_TIMEOUT, Http, HttpError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 
@@ -31,14 +31,29 @@ class Api:
         version: str,
         token: str = "",
         user_id: str = "",
+        interactive: bool = False,
     ) -> None:
         self._http = http
         self.server = server
         self.user_id = user_id
         self._header = auth.build_auth_header(device_name, device_id, version, token)
+        # Interactive callers — browse listings, the play route, context and
+        # settings buttons — have a person watching a spinner, and the
+        # transport's default 3-retry, 6 s-connect ladder reads as a hang: an
+        # unreachable server took ~54 s to render the root listing. One retry
+        # and a 3.05 s connect budget instead; the read timeout stays at the
+        # default, because a big listing is legitimately slow. None means the
+        # transport's own defaults (service and sync callers, who prefer
+        # persistence over promptness).
+        self._retries: Optional[int] = 1 if interactive else None
+        self._timeout: Optional[Tuple[float, float]] = (
+            (3.05, DEFAULT_TIMEOUT[1]) if interactive else None
+        )
 
     @classmethod
-    def from_credentials(cls, http: Http, creds: Credentials) -> "Api":
+    def from_credentials(
+        cls, http: Http, creds: Credentials, interactive: bool = False
+    ) -> "Api":
         return cls(
             http,
             creds.server_address,
@@ -47,13 +62,19 @@ class Api:
             settings.addon_version(),
             creds.token,
             creds.user_id,
+            interactive=interactive,
         )
 
     # -- plumbing ----------------------------------------------------------
 
     def get(self, path: str, params: Optional[JsonDict] = None) -> JsonDict:
         response = self._http.request(
-            "GET", self._url(path), headers=self._headers(), params=params
+            "GET",
+            self._url(path),
+            headers=self._headers(),
+            params=params,
+            timeout=self._timeout,
+            retries=self._retries,
         )
         body: JsonDict = response.json() if response.content else {}
         return body
@@ -64,12 +85,15 @@ class Api:
         body: Optional[JsonDict] = None,
         params: Optional[JsonDict] = None,
     ) -> JsonDict:
+        # Interactive shortens the connect budget only; retries stay the
+        # transport's per-method default (POST: none — replay double-applies).
         response = self._http.request(
             "POST",
             self._url(path),
             headers=self._headers(),
             params=params,
             json_body=body,
+            timeout=self._timeout,
         )
         if not response.content:
             return {}
@@ -78,7 +102,11 @@ class Api:
 
     def delete(self, path: str, params: Optional[JsonDict] = None) -> None:
         self._http.request(
-            "DELETE", self._url(path), headers=self._headers(), params=params
+            "DELETE",
+            self._url(path),
+            headers=self._headers(),
+            params=params,
+            timeout=self._timeout,
         )
 
     def _url(self, path: str) -> str:
@@ -152,6 +180,8 @@ class Api:
             self._url("/Sessions"),
             headers=self._headers(),
             params={"deviceId": device_id},
+            timeout=self._timeout,
+            retries=self._retries,
         )
         sessions: List[JsonDict] = response.json() if response.content else []
         return sessions
@@ -164,14 +194,22 @@ class Api:
 
     def users(self) -> List[JsonDict]:
         response = self._http.request(
-            "GET", self._url("/Users"), headers=self._headers()
+            "GET",
+            self._url("/Users"),
+            headers=self._headers(),
+            timeout=self._timeout,
+            retries=self._retries,
         )
         listing: List[JsonDict] = response.json() if response.content else []
         return listing
 
     def public_users(self) -> List[JsonDict]:
         response = self._http.request(
-            "GET", self._url("/Users/Public"), headers=self._headers()
+            "GET",
+            self._url("/Users/Public"),
+            headers=self._headers(),
+            timeout=self._timeout,
+            retries=self._retries,
         )
         listing: List[JsonDict] = response.json() if response.content else []
         return listing
@@ -250,6 +288,8 @@ class Api:
             self._url("/Items/%s/Ancestors" % item_id),
             headers=self._headers(),
             params={"userId": self.user_id},
+            timeout=self._timeout,
+            retries=self._retries,
         )
         listing: List[JsonDict] = response.json() if response.content else []
         return listing
@@ -356,6 +396,8 @@ class Api:
             self._url("/Items/%s/SpecialFeatures" % item_id),
             headers=self._headers(),
             params=self._as_user(),
+            timeout=self._timeout,
+            retries=self._retries,
         )
         listing: List[JsonDict] = response.json() if response.content else []
         return listing
@@ -375,7 +417,11 @@ class Api:
 
     def syncplay_list(self) -> List[JsonDict]:
         response = self._http.request(
-            "GET", self._url("/SyncPlay/List"), headers=self._headers()
+            "GET",
+            self._url("/SyncPlay/List"),
+            headers=self._headers(),
+            timeout=self._timeout,
+            retries=self._retries,
         )
         listing: List[JsonDict] = response.json() if response.content else []
         return listing

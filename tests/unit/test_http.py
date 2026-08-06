@@ -1,3 +1,7 @@
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 import requests
 
@@ -102,3 +106,50 @@ def test_500_raises_http_error_with_status(monkeypatch):
     with pytest.raises(http.HttpError) as exc:
         transport.request("GET", "http://s/x")
     assert exc.value.status == 503
+
+
+def test_post_is_never_retried_by_default(monkeypatch):
+    """A replayed POST double-applies whenever the response was lost after the
+    server acted: a second SyncPlay group, a queue item added twice, a second
+    AutoOpenLiveStream transcode session nothing closes. Fail fast instead."""
+    transport, session = make_http(monkeypatch, [requests.Timeout("boom")])
+    with pytest.raises(http.ServerUnreachable):
+        transport.request("POST", "http://s/Sessions/Playing")
+    assert len(session.calls) == 1
+
+
+def test_delete_gets_one_replay_by_default(monkeypatch):
+    """A DELETE states an absolute fact, so one replay is safe and keeps
+    unfavorite/mark-unplayed resilient to a dropped keep-alive socket."""
+    transport, session = make_http(
+        monkeypatch, [requests.ConnectionError("boom"), FakeResponse(204)]
+    )
+    transport.request("DELETE", "http://s/UserFavoriteItems/x")
+    assert len(session.calls) == 2
+
+
+def test_an_explicit_retries_still_wins_for_post(monkeypatch):
+    """Callers that know their POST is an absolute-state write can opt back
+    in; the per-method default only fills the blank."""
+    transport, session = make_http(
+        monkeypatch,
+        [requests.ConnectionError("boom"), FakeResponse(200, {"ok": 1})],
+    )
+    response = transport.request("POST", "http://s/x", retries=2)
+    assert response.json() == {"ok": 1}
+    assert len(session.calls) == 2
+
+
+def test_importing_the_transport_does_not_import_requests():
+    """requests costs ~1 s inside Kodi's Python (no bytecode cache), and
+    routes that never talk to the server still import this module through the
+    Api plumbing — the import must stay deferred to first use (perf plan
+    W1.2). Checked in a subprocess so the suite's own imports cannot mask a
+    regression."""
+    lib = str(Path(__file__).resolve().parents[2] / "lib")
+    code = (
+        "import sys; sys.path.insert(0, %r); "
+        "import kofin.core.http; "
+        "assert 'requests' not in sys.modules, 'requests imported at module load'" % lib
+    )
+    subprocess.check_call([sys.executable, "-c", code])

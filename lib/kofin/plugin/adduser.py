@@ -89,17 +89,28 @@ def persist_who_is_watching(user_ids: Sequence[Optional[str]]) -> None:
     settings.set_str(WHO_IS_WATCHING, ",".join(cleaned))
 
 
+def session_watching_names(session: JsonDict) -> List[str]:
+    """The additional-user display names a session dict reports."""
+    return [
+        str(user.get("UserName"))
+        for user in (session.get("AdditionalUsers") or [])
+        if user.get("UserName")
+    ]
+
+
 def restore_additional_users(api: Api, device_id: str) -> None:
     """Re-attach saved additional users to the current device session.
 
     Best-effort and additive only: removals happen through the picker, not
     here. A missing session or a failed add is logged and skipped so a
     websocket connect path is never taken down by this.
-    """
-    desired = settings.get_list(WHO_IS_WATCHING)
-    if not desired:
-        return
 
+    Also the connect-time publisher of ``state.PROP_WHO_NAMES``: the session
+    is fetched before the desired-set check (not after) because the root
+    listing's label now renders from that property alone, and a session that
+    already carries co-watchers — say, attached by another client — must show
+    them even when this device saved none.
+    """
     try:
         sessions = api.device_sessions(device_id)
     except JellyfinError as error:
@@ -119,6 +130,7 @@ def restore_additional_users(api: Api, device_id: str) -> None:
         for user in (session.get("AdditionalUsers") or [])
         if user.get("UserId")
     }
+    desired = settings.get_list(WHO_IS_WATCHING)
     # Never try to re-add the primary user; Jellyfin no-ops it, but a stale
     # setting from a previous primary should not spam the log either.
     primary = api.user_id or ""
@@ -128,6 +140,7 @@ def restore_additional_users(api: Api, device_id: str) -> None:
         if user_id != primary
     ]
     if not missing:
+        state.set_watching_names(session_watching_names(session))
         return
 
     for user_id in missing:
@@ -136,6 +149,20 @@ def restore_additional_users(api: Api, device_id: str) -> None:
             LOG.info("who's-watching restored user %s", user_id)
         except JellyfinError as error:
             LOG.warning("who's-watching restore failed for %s: %s", user_id, error)
+    _publish_from_server(api, device_id)
+
+
+def _publish_from_server(api: Api, device_id: str) -> None:
+    """Re-read the session and publish its co-watcher names — server truth
+    after a mutation, since a partial failure leaves any reconstruction
+    guessing. Best effort: a failed read keeps the previous property."""
+    try:
+        sessions = api.device_sessions(device_id)
+    except JellyfinError as error:
+        LOG.debug("who's-watching publish skipped: %s", error)
+        return
+    if sessions:
+        state.set_watching_names(session_watching_names(sessions[0]))
 
 
 def who_is_watching(request: Request) -> None:
@@ -169,6 +196,11 @@ def show_picker(api: Api, creds: Credentials) -> None:
         toast.show(settings.localized(30045), time_ms=4000)
         return
     session = sessions[0]
+    # Free re-sync of the root label while the data is in hand: the property
+    # is normally maintained by the picker's own confirm path and the connect
+    # restore, but a set changed elsewhere (another client, the dashboard)
+    # would otherwise stay stale until the next reconnect.
+    state.set_watching_names(session_watching_names(session))
     current_ids = {u.get("UserId") for u in (session.get("AdditionalUsers") or [])}
 
     try:
@@ -217,6 +249,12 @@ def show_picker(api: Api, creds: Credentials) -> None:
     except JellyfinError as error:
         LOG.warning("session user change failed: %s", error)
 
+    if changed:
+        # Publish before the refresh below, so the redrawn root reads the new
+        # names; server truth rather than the picked set, because a partial
+        # failure above leaves any local reconstruction guessing.
+        _publish_from_server(api, creds.device_id)
+
     if changed and xbmc.getCondVisibility("Window.IsMedia"):
         # Redraw the addon root so the "Who's watching?" entry re-reads the
         # session and shows the updated additional-user names. Guarded because
@@ -236,7 +274,9 @@ def select_shortlist(request: Request) -> None:
     creds = Credentials.load()
     if not creds.is_logged_in:
         return
-    api = Api.from_credentials(Http(settings.get_bool("sslVerify")), creds)
+    api = Api.from_credentials(
+        Http(settings.get_bool("sslVerify")), creds, interactive=True
+    )
 
     try:
         users = api.users()

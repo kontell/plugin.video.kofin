@@ -124,7 +124,9 @@ def picker_env(monkeypatch):
     monkeypatch.setattr(
         "kofin.plugin.librarypicker.Api",
         type(
-            "A", (), {"from_credentials": staticmethod(lambda http, creds: FakeApi())}
+            "A",
+            (),
+            {"from_credentials": staticmethod(lambda http, creds, **k: FakeApi())},
         ),
     )
 
@@ -172,7 +174,7 @@ def test_picker_says_unreachable_when_the_server_is(monkeypatch):
         type(
             "A",
             (),
-            {"from_credentials": staticmethod(lambda http, creds: Unreachable())},
+            {"from_credentials": staticmethod(lambda http, creds, **k: Unreachable())},
         ),
     )
     shown = []

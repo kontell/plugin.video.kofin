@@ -24,7 +24,7 @@ STOP_POLL_SECONDS = 0.05
 
 def _api() -> Api:
     return Api.from_credentials(
-        Http(settings.get_bool("sslVerify")), Credentials.load()
+        Http(settings.get_bool("sslVerify")), Credentials.load(), interactive=True
     )
 
 

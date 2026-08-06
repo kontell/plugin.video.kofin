@@ -1,21 +1,40 @@
 """HTTP transport: one persistent session per process, retries, error taxonomy.
 
 Pure python (no Kodi imports) so the whole network stack is unit-testable.
+
+``requests`` is imported inside the methods that use it, not at module load:
+importing this module must stay free. The requests tree costs ~1 s inside
+Kodi's Python (no bytecode cache, and on builds that never reuse the language
+invoker it is paid per invocation), and routes that never talk to the server —
+a node menu, a settings button — import this module through the Api plumbing
+all the same (docs/perf-hardening-plan.md W1.2).
 """
 
 import random
 import time
-from typing import Any, Dict, Optional, Tuple
-
-import requests
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 from kofin.core.log import Logger
+
+if TYPE_CHECKING:  # runtime import is deferred; see module docstring
+    import requests
 
 LOG = Logger(__name__)
 
 DEFAULT_TIMEOUT = (6.0, 30.0)
 RETRIES = 3
 BACKOFF_BASE_SECONDS = 0.5
+
+# Default retry budget per method, applied when the caller passes none. GETs
+# replay safely. A DELETE states an absolute fact (unfavorite, mark unplayed,
+# close this transcode) and gets one replay. POST gets none: the transport
+# cannot tell "never arrived" from "response lost after the server acted", and
+# a replayed POST double-applies — a second SyncPlay group, a queue item added
+# twice, a group advanced two items, a duplicate playback-history row, a
+# second AutoOpenLiveStream transcode session nothing ever closes. A caller
+# whose POST is an absolute-state write may opt back in with an explicit
+# ``retries``.
+METHOD_RETRIES = {"GET": RETRIES, "HEAD": RETRIES, "DELETE": 1}
 
 
 class JellyfinError(Exception):
@@ -41,9 +60,11 @@ class Http:
 
     def __init__(self, verify_ssl: bool = True) -> None:
         self._verify_ssl = verify_ssl
-        self._session: Optional[requests.Session] = None
+        self._session: Optional["requests.Session"] = None
 
-    def session(self) -> requests.Session:
+    def session(self) -> "requests.Session":
+        import requests
+
         if self._session is None:
             session = requests.Session()
             session.verify = self._verify_ssl
@@ -67,8 +88,12 @@ class Http:
         params: Optional[Dict[str, Any]] = None,
         json_body: Optional[Dict[str, Any]] = None,
         timeout: Optional[Tuple[float, float]] = None,
-        retries: int = RETRIES,
-    ) -> requests.Response:
+        retries: Optional[int] = None,
+    ) -> "requests.Response":
+        import requests
+
+        if retries is None:
+            retries = METHOD_RETRIES.get(method.upper(), 0)
         last_error: Optional[Exception] = None
         for attempt in range(retries + 1):
             if attempt:

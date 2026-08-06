@@ -221,7 +221,9 @@ def test_router_parses_resume_argument(monkeypatch):
     def fake_play(request):
         seen["resume"] = request.resume
 
-    monkeypatch.setattr("kofin.plugin.router._handlers", lambda: {"play": fake_play})
+    monkeypatch.setattr(
+        "kofin.plugin.router._resolve", lambda mode: {"play": fake_play}.get(mode)
+    )
     dispatch(["plugin://x/", "7", "?mode=play&id=1", "resume:true"])
     assert seen["resume"] is True
     dispatch(["plugin://x/", "7", "?mode=play&id=1", "resume:false"])
@@ -422,7 +424,7 @@ def resume_env(monkeypatch):
 
     class ApiFactory:
         @staticmethod
-        def from_credentials(http, creds):
+        def from_credentials(http, creds, interactive=False):
             return api
 
     built = {}
