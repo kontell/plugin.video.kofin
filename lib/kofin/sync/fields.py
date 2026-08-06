@@ -413,6 +413,21 @@ def ratings(obj):
     return rows
 
 
+def reference_checksum(etag, direct_path=False):
+    """The one spelling of a stored reference checksum (healing-loops-plan
+    F4). Every comparator — the writers' etag_match, the change feed's
+    skip-before-download, the prune's diff — must call this rather than
+    inline the format: the three used to agree only because direct_path is
+    hardcoded False in every writer, and a resurrected direct mode would
+    have made the feed and the prune classify every item as changed forever
+    while the writer agreed with itself.
+    """
+    if not etag:
+        return None
+
+    return "%s|%s" % (etag, "direct" if direct_path else "plugin")
+
+
 def sync_checksum(item, direct_path):
     """Reference checksum stored with a fully synced item.
 
@@ -422,10 +437,7 @@ def sync_checksum(item, direct_path):
     """
     etag = item.get("Etag") if isinstance(item, dict) else None
 
-    if not etag:
-        return None
-
-    return "%s|%s" % (etag, "direct" if direct_path else "plugin")
+    return reference_checksum(etag, direct_path)
 
 
 def etag_match(item, e_item, direct_path):
@@ -447,7 +459,12 @@ def check_unchanged(writer, obj, item, e_item, update, apply_userdata=True):
     userdata change; when it did not, the userdata write is skipped. Items
     without the tag (full sync) apply userdata as before.
     """
-    obj["Checksum"] = sync_checksum(item, writer.direct_path) or obj["Checksum"]
+    # Unconditional: the mapping default was json.dumps(item["UserData"]) — a
+    # value no comparator can ever match, moving on every playback, so an
+    # Etag-less item rewrote itself on every walk and dragged the widget
+    # reference digest with it (healing-loops-plan F4). NULL has defined
+    # semantics instead: re-verify every walk, visibly (kofindb warns).
+    obj["Checksum"] = sync_checksum(item, writer.direct_path)
 
     if not (update and etag_match(item, e_item, writer.direct_path)):
         return False

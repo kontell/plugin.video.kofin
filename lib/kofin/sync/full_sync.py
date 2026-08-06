@@ -21,7 +21,7 @@ from kofin.core.http import HttpError
 from kofin.core.log import Logger
 from kofin.sync import changefeed
 from kofin.sync import downloader as server
-from kofin.sync.fields import find_library
+from kofin.sync.fields import find_library, reference_checksum
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
 from kofin.sync.writers.movies import (
     BOXSET_GUARDED,
@@ -849,7 +849,7 @@ class FullSync(object):
 
                 # No Etag from the server (unexpected with Fields=Etag) →
                 # re-fetch: the safe direction is a redundant download.
-                if not etag or local_map[item_id] != "%s|plugin" % etag:
+                if not etag or local_map[item_id] != reference_checksum(etag):
                     changed.append(item_id)
 
             for item_id in local_map:

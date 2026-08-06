@@ -37,9 +37,31 @@ class JellyfinDatabase:
         return self.cursor.fetchone()
 
     def add_reference(self, *args):
+        # A NULL checksum means "re-verify every walk" — correct for
+        # memberless boxsets (the V6 rule) and a field-list bug for anything
+        # else: the caller downloaded this item without its Etag
+        # (healing-loops-plan F4). Loud, so the offending Fields list is one
+        # grep away instead of surfacing as per-walk rewrite churn.
+        if args[7] is None and args[4] != "BoxSet":
+            LOG.warning(
+                "reference %s (%s) stamped without an Etag; it will rewrite "
+                "on every walk until one arrives",
+                args[0],
+                args[4],
+            )
+
         self.cursor.execute(QU.add_reference, args)
 
     def update_reference(self, *args):
+        if args[0] is None:
+            # Same rule as add_reference; no boxset exemption because
+            # boxsets stamp through add_reference only.
+            LOG.warning(
+                "reference %s checksum cleared; it will rewrite on every "
+                "walk until an Etag arrives",
+                args[1],
+            )
+
         self.cursor.execute(QU.update_reference, args)
 
     def update_parent_id(self, *args):
