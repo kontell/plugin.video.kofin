@@ -15,6 +15,12 @@ from kofin.plugin.listitems import PLAYABLE_TYPES, plugin_url
 
 LOG = Logger(__name__)
 
+# How long to wait for the outgoing playback to actually stop. Measured, the
+# handover completes in well under 300 ms; the ceiling only stops a wedged
+# player from stranding the context item.
+STOP_TIMEOUT_SECONDS = 3.0
+STOP_POLL_SECONDS = 0.05
+
 
 def _api() -> Api:
     return Api.from_credentials(
@@ -202,7 +208,42 @@ def play_with_transcode() -> None:
     # PlayMedia, not RunPlugin: playback Kodi starts is resolved through
     # setResolvedUrl, the path every other kofin playback takes, and the one
     # whose resume point Kodi acts on.
+    _stop_current_playback()
     xbmc.executebuiltin("PlayMedia(%s)" % plugin_url(params))
+
+
+def _stop_current_playback() -> None:
+    """Stop whatever is playing, and wait for it to be gone.
+
+    ``PlayMedia`` on a bare ``plugin://`` path handed to Kodi while something
+    else is still playing loses a race: the outgoing player's stop is queued to
+    the application thread, and that thread does not get to it until *after* it
+    has opened the new video player -- measured at 103-105 ms past
+    ``VideoPlayer::OpenFile``, on every run. Processing it then closes the
+    player that just opened, and because the demuxer open is still in flight
+    the play dies as "OpenDemuxStream - Error creating demuxer" rather than as
+    a stop, so it reads as a broken stream.
+
+    Library playback does not go through ``PlayMedia`` -- Kodi opens the
+    ``videodb://`` item and sequences the handover itself -- which is why this
+    context item was the only route that failed, and only while music was
+    playing. Stopping first costs nothing: the outgoing playback was about to
+    be replaced anyway, and doing it here rather than inside Kodi's open lets
+    the service report the stop against the item it actually belongs to.
+    """
+    player = xbmc.Player()
+    if not player.isPlaying():
+        return
+    player.stop()
+    monitor = xbmc.Monitor()
+    waited = 0.0
+    while waited < STOP_TIMEOUT_SECONDS:
+        if monitor.waitForAbort(STOP_POLL_SECONDS):
+            return
+        waited += STOP_POLL_SECONDS
+        if not player.isPlaying():
+            return
+    LOG.warning("playback did not stop in %.1fs; starting anyway", waited)
 
 
 def browse_extras() -> None:
