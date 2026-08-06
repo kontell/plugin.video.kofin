@@ -27,9 +27,18 @@ BACKDROP_IMAGE = "fanart.png"
 
 BROWSE_FIELDS = (
     "Overview,Genres,Studios,Taglines,PremiereDate,ProductionYear,"
-    "OfficialRating,CommunityRating,RunTimeTicks,DateCreated,MediaStreams,"
+    "OfficialRating,CommunityRating,RunTimeTicks,DateCreated,"
     "ProviderIds,SortName"
 )
+
+# MediaStreams is the field that prices a listing: measured on a 1,766-movie
+# library, the whole-library query is 12.7 MB and 1.4 s of server time with it
+# against 3.5 MB and 0.47 s without (docs/perf-hardening-plan.md W2.1). So
+# bounded listings keep it — 25 rows of codec/HDR flags and stream details are
+# worth 25 rows of payload — and whole-library nodes drop it. Music drops it
+# unconditionally: _fill_music never reads stream details. The rows that lose
+# it render without codec/resolution flags, which is the stated trade.
+BROWSE_FIELDS_STREAMS = BROWSE_FIELDS + ",MediaStreams"
 
 # Node menus per collection type: (folder key, label string id).
 NODES: Dict[str, List[Tuple[str, int]]] = {
@@ -320,6 +329,10 @@ def node_query(media: str, node: str, view_id: str) -> Optional[JsonDict]:
         base["IncludeItemTypes"] = types
     else:
         return None
+    # Boundedness decides the field list: a Limit is what makes the payload
+    # per-row cost worth paying (see BROWSE_FIELDS_STREAMS).
+    if media != "music" and "Limit" in base:
+        base["Fields"] = BROWSE_FIELDS_STREAMS
     return base
 
 
@@ -440,7 +453,7 @@ def next_episodes(request: Request) -> None:
 
     view_id = request.params.get("id", "")
     try:
-        items = api.next_up(view_id, BROWSE_FIELDS).get("Items", [])
+        items = api.next_up(view_id, BROWSE_FIELDS_STREAMS).get("Items", [])
     except JellyfinError as error:
         LOG.warning("next episodes failed (%s): %s", view_id, error)
         xbmcplugin.endOfDirectory(request.handle, succeeded=False)
@@ -473,7 +486,7 @@ def continue_watching(request: Request) -> None:
         return
 
     try:
-        items = api.resume(BROWSE_FIELDS).get("Items", [])
+        items = api.resume(BROWSE_FIELDS_STREAMS).get("Items", [])
     except JellyfinError as error:
         LOG.warning("continue watching failed: %s", error)
         xbmcplugin.endOfDirectory(request.handle, succeeded=False)
@@ -654,7 +667,7 @@ def _list_items(
     if item_type == "season":
         series = request.params.get("series", "")
         return (
-            api.episodes(series, folder, BROWSE_FIELDS).get("Items", []),
+            api.episodes(series, folder, BROWSE_FIELDS_STREAMS).get("Items", []),
             "episodes",
         )
     if item_type == "musicartist":
