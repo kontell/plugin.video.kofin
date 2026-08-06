@@ -46,14 +46,14 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 
 Install via the [Kontell Repository](https://github.com/kontell/repository.kontell).
 
-## Migration from Jellyfin-Kodi
+### Migration from Jellyfin-Kodi
 
 1.  Disable or uninstall jellyfin-kodi, its background service must not be running.
 2.  Install Kofin, open Settings -> Account and run `Clean databases` (the button is only visible while signed out). It removes all jellyfin-kodi and Kofin library data, nodes and playlists, and optionally the music library, cached server artwork and custom library nodes.
 
 Cleaning is per Kodi profile, run it in each profile that synced.
 
-## Configuration
+### Configuration
 
 - After install the addon appears under Add-ons -> Video add-ons -> Kofin.
 - Enter settings and open the Account tab, enter your server address and sign in.
