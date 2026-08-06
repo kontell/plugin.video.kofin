@@ -75,16 +75,20 @@ def path_for(item: JsonDict) -> str:
     return plugin_url({"mode": "browse", "folder": item_id, "type": item_type.lower()})
 
 
-def resume_of(item: JsonDict) -> Tuple[float, float]:
+def resume_of(item: JsonDict, offset: Optional[float] = None) -> Tuple[float, float]:
     """(resume seconds, total seconds) from UserData/RunTimeTicks.
 
     The position carries the Advanced-tab resume offset, so the time Kodi's
     resume prompt names is the time playback will actually start at.
+
+    ``offset`` is a precomputed ``settings.resume_offset()`` — listings pass
+    it so a thousand rows cost one settings read, not a thousand (each read
+    constructs a fresh Addon; see ``settings.adjusted_resume``).
     """
     userdata = item.get("UserData") or {}
     position = float(userdata.get("PlaybackPositionTicks") or 0) / 10_000_000
     total = float(item.get("RunTimeTicks") or 0) / 10_000_000
-    return settings.adjusted_resume(position), total
+    return settings.adjusted_resume(position, offset), total
 
 
 def playcount_of(item: JsonDict) -> int:
@@ -180,7 +184,10 @@ def art_for(item: JsonDict, server: str) -> Dict[str, str]:
 
 
 def build(
-    item: JsonDict, server: str, resume_seconds: Optional[float] = None
+    item: JsonDict,
+    server: str,
+    resume_seconds: Optional[float] = None,
+    resume_offset: Optional[float] = None,
 ) -> xbmcgui.ListItem:
     """A fully populated ListItem for a Jellyfin DTO.
 
@@ -189,6 +196,9 @@ def build(
     position this playback was resolved to start at: a resume point stamped on
     a *resolved* item makes Kodi resume whatever the user chose at the prompt,
     so it has to say exactly what this playback means (see ``plugin.play``).
+
+    ``resume_offset`` is a precomputed ``settings.resume_offset()`` for
+    listings that build many rows (see :func:`resume_of`).
     """
     li = xbmcgui.ListItem(item.get("Name", ""), offscreen=True)
     li.setArt(art_for(item, server))
@@ -197,7 +207,7 @@ def build(
     if item.get("Type") in MUSIC_TYPES:
         _fill_music(li, item)
     elif item.get("Type") not in ("Photo", "PhotoAlbum", "Genre"):
-        _fill_video(li, item, resume_seconds)
+        _fill_video(li, item, resume_seconds, resume_offset)
 
     if not is_folder(item) and item.get("Type") != "Photo":
         li.setProperty("IsPlayable", "true")
@@ -210,7 +220,10 @@ _CONTAINER_TYPES = frozenset({"CollectionFolder", "UserView"})
 
 
 def _fill_video(
-    li: xbmcgui.ListItem, item: JsonDict, resume_seconds: Optional[float] = None
+    li: xbmcgui.ListItem,
+    item: JsonDict,
+    resume_seconds: Optional[float] = None,
+    resume_offset: Optional[float] = None,
 ) -> None:
     tag = li.getVideoInfoTag()
     item_type = item.get("Type", "")
@@ -273,7 +286,7 @@ def _fill_video(
             tag.setTvShowTitle(item["SeriesName"])
 
     tag.setPlaycount(playcount_of(item))
-    position, total = resume_of(item)
+    position, total = resume_of(item, resume_offset)
     if resume_seconds is not None:
         position = resume_seconds
     # There is no way to unset a resume point once stamped -- Kodi reads one as

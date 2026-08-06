@@ -584,10 +584,11 @@ def _extras_node(request: Request, api: Api, view_id: str) -> None:
         }
     )
     entries = []
+    resume_offset = settings.resume_offset()
     for item in result.get("Items", []):
         # No apply_backdrop: these are series rows, and a media row keeps
         # whatever backdrop the server gave it or none (MEDIA_TYPES).
-        li = listitems.build(item, api.server)
+        li = listitems.build(item, api.server, resume_offset=resume_offset)
         path = listitems.plugin_url({"mode": "extras", "id": item.get("Id", "")})
         entries.append((path, li, True))
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
@@ -695,8 +696,12 @@ def _add_items(
     request: Request, api: Api, items: List[JsonDict], view_id: str, media: str
 ) -> None:
     entries = []
+    # One settings read for the whole listing: resume_of per row would build a
+    # fresh Addon per item (settings.adjusted_resume), which at library scale
+    # was most of the build time.
+    resume_offset = settings.resume_offset()
     for item in items:
-        li = listitems.build(item, api.server)
+        li = listitems.build(item, api.server, resume_offset=resume_offset)
         if not is_media_row(item):
             apply_backdrop(li)
         item_type = item.get("Type", "")

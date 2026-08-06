@@ -78,6 +78,40 @@ def test_resume_of_carries_the_resume_offset(fake_addon):
     assert listitems.resume_of(item) == (290.0, 600.0)
 
 
+def test_resume_of_with_a_precomputed_offset_never_reads_settings(monkeypatch):
+    """Listings pass resume_offset once for the whole page: every read builds
+    a fresh Addon (settings._addon), and at one per row that construction was
+    most of a large listing's build time (perf plan W1.1)."""
+
+    def forbidden() -> float:
+        raise AssertionError("resume_offset must not be read when one is passed")
+
+    monkeypatch.setattr(listitems.settings, "resume_offset", forbidden)
+    item = {
+        "RunTimeTicks": 600 * 10_000_000,
+        "UserData": {"PlaybackPositionTicks": 300 * 10_000_000},
+    }
+    assert listitems.resume_of(item, offset=10.0) == (290.0, 600.0)
+
+
+def test_build_threads_the_precomputed_offset_through(monkeypatch):
+    """build(resume_offset=...) must reach resume_of without a settings read,
+    or the hoist in browse._add_items silently stops paying."""
+
+    def forbidden() -> float:
+        raise AssertionError("build with resume_offset read the setting anyway")
+
+    monkeypatch.setattr(listitems.settings, "resume_offset", forbidden)
+    item = {
+        "Id": "m1",
+        "Type": "Movie",
+        "Name": "M",
+        "RunTimeTicks": 600 * 10_000_000,
+        "UserData": {"PlaybackPositionTicks": 300 * 10_000_000},
+    }
+    listitems.build(item, "http://s:8096", resume_offset=0.0)
+
+
 def test_art_primary_and_backdrop():
     art = listitems.art_for(
         {

@@ -480,6 +480,30 @@ def test_genre_rows_carry_stock_art_on_both_keys(recording_art, directory):
     assert li.getArt("thumb") == "DefaultGenre.png"
 
 
+def test_add_items_reads_the_resume_offset_once_per_listing(monkeypatch, directory):
+    """One settings read for the whole page, however many rows it has — the
+    per-row read built a fresh Addon each time and dominated large listings
+    (perf plan W1.1)."""
+    reads = []
+    monkeypatch.setattr(
+        browse.settings, "resume_offset", lambda: reads.append(1) or 0.0
+    )
+    items = [
+        {
+            "Id": "m%d" % index,
+            "Type": "Movie",
+            "Name": "Movie %d" % index,
+            "RunTimeTicks": 600 * 10_000_000,
+            "UserData": {"PlaybackPositionTicks": 300 * 10_000_000},
+        }
+        for index in range(5)
+    ]
+    browse._add_items(Request("plugin://x", 1, {}), ExtrasApi(), items, "v1", "movies")
+
+    assert len(directory["entries"]) == 5
+    assert len(reads) == 1
+
+
 # --- addon backdrop fallback -------------------------------------------------
 
 
