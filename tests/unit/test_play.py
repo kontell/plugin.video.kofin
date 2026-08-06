@@ -424,7 +424,7 @@ def resume_env(monkeypatch):
 
     class ApiFactory:
         @staticmethod
-        def from_credentials(http, creds):
+        def from_credentials(http, creds, interactive=False):
             return api
 
     built = {}

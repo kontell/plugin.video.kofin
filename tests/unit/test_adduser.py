@@ -90,7 +90,7 @@ def picker(monkeypatch):
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr(adduser.xbmcgui, "Dialog", lambda: dialog)
     monkeypatch.setattr(
-        adduser.Api, "from_credentials", staticmethod(lambda *a: UsersApi())
+        adduser.Api, "from_credentials", staticmethod(lambda *a, **k: UsersApi())
     )
     monkeypatch.setattr(
         adduser.Credentials, "load", classmethod(lambda cls: _logged_in())
@@ -182,7 +182,9 @@ def toggle(monkeypatch):
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr(adduser.xbmcgui, "Dialog", lambda: dialog)
     monkeypatch.setattr(adduser.xbmc, "executebuiltin", lambda *_a: None)
-    monkeypatch.setattr(adduser.Api, "from_credentials", staticmethod(lambda *a: api))
+    monkeypatch.setattr(
+        adduser.Api, "from_credentials", staticmethod(lambda *a, **k: api)
+    )
     monkeypatch.setattr(
         adduser.Credentials, "load", classmethod(lambda cls: _logged_in())
     )

@@ -327,7 +327,9 @@ def _api() -> Optional[Api]:
     creds = Credentials.load()
     if not creds.is_logged_in:
         return None
-    return Api.from_credentials(Http(settings.get_bool("sslVerify")), creds)
+    return Api.from_credentials(
+        Http(settings.get_bool("sslVerify")), creds, interactive=True
+    )
 
 
 def _who_is_watching_label(api: Api) -> str:

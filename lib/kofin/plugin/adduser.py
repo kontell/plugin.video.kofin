@@ -236,7 +236,9 @@ def select_shortlist(request: Request) -> None:
     creds = Credentials.load()
     if not creds.is_logged_in:
         return
-    api = Api.from_credentials(Http(settings.get_bool("sslVerify")), creds)
+    api = Api.from_credentials(
+        Http(settings.get_bool("sslVerify")), creds, interactive=True
+    )
 
     try:
         users = api.users()

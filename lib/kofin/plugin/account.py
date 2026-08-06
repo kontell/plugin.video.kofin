@@ -176,7 +176,7 @@ def test_connection(request: Request) -> None:
         return
 
     transport = Http(settings.get_bool("sslVerify"))
-    api = Api.from_credentials(transport, creds)
+    api = Api.from_credentials(transport, creds, interactive=True)
     try:
         info = api.public_info()
         api.views()

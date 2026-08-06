@@ -17,6 +17,7 @@ class RecordingHttp(Http):
                 "headers": headers,
                 "params": params,
                 "json": json_body,
+                "kwargs": kwargs,
             }
         )
 
@@ -351,3 +352,64 @@ def test_branding_configuration_is_a_plain_get(api):
     client.branding_configuration()
     assert transport.calls[0]["url"] == "http://s:8096/Branding/Configuration"
     assert transport.calls[0]["method"] == "GET"
+
+
+# --- interactive fail-fast profile (perf plan W1.3) --------------------------
+
+
+def interactive_api():
+    transport = RecordingHttp()
+    client = Api(
+        transport,
+        "http://s:8096",
+        "Kodi",
+        "dev1",
+        "0.1.0",
+        token="tok",
+        user_id="uid",
+        interactive=True,
+    )
+    return client, transport
+
+
+def test_interactive_gets_carry_one_retry_and_a_short_connect_budget():
+    """A person is watching the spinner: the transport's 3x6s ladder read as
+    a hang (~54s to render the root listing offline). Interactive GETs get one
+    retry and a 3.05s connect budget; the read timeout stays the default."""
+    client, transport = interactive_api()
+    client.views()
+    kwargs = transport.calls[0]["kwargs"]
+    assert kwargs["retries"] == 1
+    assert kwargs["timeout"] == (3.05, 30.0)
+
+
+def test_interactive_list_gets_carry_the_same_budget():
+    """The list-returning GETs bypass get(); the profile must reach them too
+    or the who's-watching flows keep the 27s hang."""
+    client, transport = interactive_api()
+    client.device_sessions("dev1")
+    client.users()
+    for call in transport.calls:
+        assert call["kwargs"]["retries"] == 1
+        assert call["kwargs"]["timeout"] == (3.05, 30.0)
+
+
+def test_interactive_posts_shorten_connect_but_never_gain_retries():
+    """POST replay double-applies (per-method transport default); interactive
+    only tightens the connect budget."""
+    client, transport = interactive_api()
+    client.session_playing({"ItemId": "x"})
+    kwargs = transport.calls[0]["kwargs"]
+    assert kwargs["timeout"] == (3.05, 30.0)
+    assert "retries" not in kwargs
+
+
+def test_service_profile_leaves_the_transport_defaults_alone():
+    """Non-interactive callers (service, sync) prefer persistence over
+    promptness: no retry or timeout override reaches the transport."""
+    transport = RecordingHttp()
+    client = Api(transport, "http://s:8096", "Kodi", "dev1", "0.1.0")
+    client.views()
+    kwargs = transport.calls[0]["kwargs"]
+    assert kwargs["retries"] is None
+    assert kwargs["timeout"] is None
