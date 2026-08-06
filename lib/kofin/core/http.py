@@ -25,6 +25,17 @@ DEFAULT_TIMEOUT = (6.0, 30.0)
 RETRIES = 3
 BACKOFF_BASE_SECONDS = 0.5
 
+# Default retry budget per method, applied when the caller passes none. GETs
+# replay safely. A DELETE states an absolute fact (unfavorite, mark unplayed,
+# close this transcode) and gets one replay. POST gets none: the transport
+# cannot tell "never arrived" from "response lost after the server acted", and
+# a replayed POST double-applies — a second SyncPlay group, a queue item added
+# twice, a group advanced two items, a duplicate playback-history row, a
+# second AutoOpenLiveStream transcode session nothing ever closes. A caller
+# whose POST is an absolute-state write may opt back in with an explicit
+# ``retries``.
+METHOD_RETRIES = {"GET": RETRIES, "HEAD": RETRIES, "DELETE": 1}
+
 
 class JellyfinError(Exception):
     """Base for all transport/API failures."""
@@ -77,10 +88,12 @@ class Http:
         params: Optional[Dict[str, Any]] = None,
         json_body: Optional[Dict[str, Any]] = None,
         timeout: Optional[Tuple[float, float]] = None,
-        retries: int = RETRIES,
+        retries: Optional[int] = None,
     ) -> "requests.Response":
         import requests
 
+        if retries is None:
+            retries = METHOD_RETRIES.get(method.upper(), 0)
         last_error: Optional[Exception] = None
         for attempt in range(retries + 1):
             if attempt:
