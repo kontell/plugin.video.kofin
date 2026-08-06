@@ -1,3 +1,11 @@
+v0.11.1
+- The subtitle your Jellyfin profile asks for is the one that plays. Where your media has a subtitle file beside it every built-in track was numbered one place along, so a profile asking for Norwegian played Korean
+- "Play with transcoding" now starts while something else is already playing. With music on, the film resolved and then died with a stream error
+- Shows that live in more than one library are filed under the right one. The wrong library was stamped once and never corrected, costing a library update on every boot that fixed nothing
+- A film in two collections no longer leaves one of them permanently reading as out of date, which had a collections pass running on every start that could never settle
+- Library nodes still generate when the server answers incompletely. A library missing from the server's sorted list used to abort the whole tree and rebuild it from scratch on every start, forever
+- A library that fails to sync notifies once rather than on every retry, and the retries back off instead of running hourly for good
+
 v0.11.0
 - "Clean databases" in Settings / Account removes every trace of Kofin and jellyfin-kodi from Kodi's databases, nodes and playlists - for migrating in or uninstalling cleanly
 - Critic ratings are imported from the server, and can replace the community rating as the one Kodi shows
