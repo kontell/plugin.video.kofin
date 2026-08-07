@@ -65,6 +65,16 @@ class Api:
             interactive=interactive,
         )
 
+    def close(self) -> None:
+        """Release the transport's connection pool.
+
+        Sync builds one Api per worker thread (each with its own session), and
+        nothing closed them: the sockets survived until CPython's cyclic GC
+        happened to run, which on a busy catch-up is a lot of idle connections
+        against the server (audit finding #9).
+        """
+        self._http.close()
+
     # -- plumbing ----------------------------------------------------------
 
     def get(self, path: str, params: Optional[JsonDict] = None) -> JsonDict:

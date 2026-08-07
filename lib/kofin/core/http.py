@@ -68,6 +68,16 @@ class Http:
         if self._session is None:
             session = requests.Session()
             session.verify = self._verify_ssl
+            if not self._verify_ssl:
+                # The user turned verification off deliberately (a private CA,
+                # a self-signed box); urllib3 would otherwise write a warning
+                # into Kodi's log for every single request made.
+                try:
+                    import urllib3
+
+                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                except Exception:  # pragma: no cover - defensive
+                    pass
             self._session = session
             LOG.debug("http session opened (verify_ssl=%s)", self._verify_ssl)
         return self._session

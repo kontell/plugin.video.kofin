@@ -2103,3 +2103,74 @@ def test_the_spawn_path_pauses_after_an_unreachable_worker(monkeypatch):
     assert len(real_manager.download_threads) == 1
     for thread in real_manager.download_threads:
         thread.is_done = True
+
+
+# --- smalls: recovery hooks, session release, bounded announcements ----------
+
+
+def test_userdata_and_removal_failures_schedule_recovery():
+    """Both workers only logged, so a failed watched flag or a failed removal
+    was lost for good — the recovery prune diffs ids and Etags, which say
+    nothing about userdata (audit finding #19)."""
+    from kofin.sync.library import RemovedWorker, UserDataWorker
+    from kofin.sync.shims import LibraryException
+
+    flagged = []
+    worker = UserDataWorker.__new__(UserDataWorker)
+    worker.unapplied = lambda item_id, reason: flagged.append((item_id, reason))
+    worker._report_unapplied({"Id": "m1", "Type": "Movie"}, LibraryException("boom"))
+    assert flagged[0][0] == "m1" and "userdata" in flagged[0][1]
+
+    removal = RemovedWorker.__new__(RemovedWorker)
+    removal.unapplied = lambda item_id, reason: flagged.append((item_id, reason))
+    removal._report_unapplied({"Id": "m2", "Type": "Movie"}, LibraryException("boom"))
+    assert flagged[1][0] == "m2" and "removal" in flagged[1][1]
+
+
+def test_a_worker_without_a_hook_is_still_safe():
+    """The hook is optional (tests and direct construction pass none)."""
+    from kofin.sync.library import UserDataWorker
+
+    worker = UserDataWorker.__new__(UserDataWorker)
+    worker.unapplied = None
+    worker._report_unapplied({"Id": "m1", "Type": "Movie"}, Exception("boom"))
+
+
+def test_finished_workers_release_their_http_session():
+    """Each worker gets its own Api, hence its own connection pool, and none
+    were ever closed — a catch-up spawning dozens left that many idle pools
+    until the GC noticed (audit finding #9)."""
+    from kofin.sync.library import _release_worker
+
+    closed = []
+
+    class FakeApi:
+        def close(self):
+            closed.append(1)
+
+    class FakeWorker:
+        def __init__(self):
+            self.server = FakeApi()
+
+    worker = FakeWorker()
+    _release_worker(worker)
+    _release_worker(worker)  # idempotent: the reaper sees it until it prunes
+
+    assert closed == [1]
+
+
+def test_the_new_content_backlog_is_bounded(monkeypatch):
+    """Held-not-dropped is the rule, but a long playback plus a large
+    catch-up held every addition of the session in memory (finding #27)."""
+    manager, _api = make_library()
+    manager.new_content = [{"Name": "old %d" % index} for index in range(700)]
+    manager.player.playing = True  # holding: the news keeps until playback ends
+    # Kodistubs answers every condition True; live TV would defeat the hold.
+    monkeypatch.setattr("xbmc.getCondVisibility", lambda condition: False)
+    FakeAddon.store["notifyNewContent"] = "true"
+
+    manager.notify_new_content()
+
+    assert len(manager.new_content) == library_mod.NEW_CONTENT_LIMIT
+    # The newest survive: the summary names recent additions.
+    assert manager.new_content[-1]["Name"] == "old 699"

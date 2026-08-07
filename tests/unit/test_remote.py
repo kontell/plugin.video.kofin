@@ -145,3 +145,53 @@ def test_syncplay_messages_without_manager_are_claimed_and_dropped(fakes):
     handler = RemoteHandler()
     assert handler.handle("SyncPlayCommand", {"Command": "Pause"}) is True
     assert handler.handle("SyncPlayGroupUpdate", {"Type": "GroupJoined"}) is True
+
+
+# --- server-supplied numbers (audit finding #22) ------------------------------
+
+
+def test_junk_numbers_from_the_server_do_not_raise():
+    """These arrive over the websocket from the server; a non-numeric value
+    used to raise straight out of the handler. The message is the server's,
+    the crash was ours."""
+    from kofin.service.remote import _as_int
+
+    assert _as_int("12") == 12
+    assert _as_int(None) == 0
+    assert _as_int("") == 0
+    assert _as_int("not-a-number") == 0
+    assert _as_int({"nested": "object"}) == 0
+    assert _as_int(None, 5000) == 5000
+
+
+def test_a_junk_start_index_plays_from_the_beginning(monkeypatch):
+    """_play slices the queue with it, so a bad value must not cost the whole
+    command — nor slice from the end with a negative."""
+    from kofin.service.remote import RemoteHandler
+
+    played = []
+
+    class FakePlaylist:
+        def clear(self):
+            pass
+
+        def add(self, url, index=None):
+            played.append(url)
+
+        def getposition(self):
+            return 0
+
+    monkeypatch.setattr("xbmc.PlayList", lambda kind: FakePlaylist())
+    monkeypatch.setattr(
+        "xbmc.Player", lambda: type("P", (), {"play": lambda s, p: None})()
+    )
+
+    handler = RemoteHandler()
+    handler._play(
+        {"ItemIds": ["a", "b"], "StartIndex": "junk", "PlayCommand": "PlayNow"}
+    )
+    assert len(played) == 2
+
+    played.clear()
+    handler._play({"ItemIds": ["a", "b"], "StartIndex": -5, "PlayCommand": "PlayNow"})
+    assert len(played) == 2
