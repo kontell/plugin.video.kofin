@@ -7,6 +7,7 @@ is the service's business.
 import json
 import sys
 import threading
+import time
 from typing import Any, Callable, Dict, Optional
 
 import xbmc
@@ -22,6 +23,12 @@ LOG = Logger(__name__)
 
 KEEPALIVE_SECONDS = 30
 RECONNECT_SECONDS = 10
+# The half-open verdict: a healthy socket never goes this long without an
+# inbound frame, because the server echoes every KeepAlive _KeepAlive sends
+# (and pushes ForceKeepAlive on its own). Two missed echoes plus grace.
+STALE_SECONDS = 75
+# How often the keepalive thread wakes to check liveness between sends.
+LIVENESS_TICK = 15
 IGNORED_MESSAGES = frozenset({"RefreshProgress", "KeepAlive", "ForceKeepAlive"})
 
 EventCallback = Callable[[str, Dict[str, Any]], None]
@@ -50,10 +57,13 @@ class WSClient(threading.Thread):
         self._on_connected = on_connected
         self._on_disconnected = on_disconnected
         self._stop = False
-        # Whether the socket is currently up. run_forever(reconnect=) retries
-        # on its own and calls back repeatedly while a server is down, so the
-        # flag is what turns that stream into one edge per actual transition.
+        # Whether the socket is currently up: run_forever returns on every
+        # failure and the run loop retries, so the flag is what turns that
+        # stream into one edge per actual transition.
         self._connected = False
+        # Monotonic time of the last inbound frame — the liveness signal
+        # half_open() polices (see its docstring).
+        self._last_inbound = 0.0
         self._app: Optional[websocket.WebSocketApp] = None
         self._keepalive: Optional[_KeepAlive] = None
 
@@ -75,16 +85,18 @@ class WSClient(threading.Thread):
             on_close=self._handle_close,
         )
         while not self._stop:
-            # ping_timeout is what makes a half-open socket (NAT drop,
-            # sleeping AP) detectable at all: websocket-client only raises on
-            # a missed pong when one is set, and without it _handle_close
-            # never fires, the reconnect catch-up never runs, and the only
-            # cover is the unconditional wake-time FastSync (CLAUDE.md). Must
-            # stay below ping_interval or the library refuses to run.
-            self._app.run_forever(
-                ping_interval=10, ping_timeout=5, reconnect=RECONNECT_SECONDS
-            )
-            if self._stop or monitor.waitForAbort(5):
+            # No ping_timeout and no reconnect=, both deliberately, both
+            # measured. ping_timeout tears healthy connections down ~120 s in:
+            # the server's own 2-minute keepalive ping corrupts
+            # websocket-client's pong bookkeeping, and every connection died
+            # on an exact 130 s cycle on both test boxes. reconnect= swallows
+            # the edges — its internal retry invokes neither on_error nor
+            # on_close, so the disconnect callback was dead code. This loop
+            # owns reconnection instead, which makes the close edge honest,
+            # and half-open detection is app-level: half_open() recycles the
+            # socket when the server's KeepAlive echoes stop arriving.
+            self._app.run_forever(ping_interval=10)
+            if self._stop or monitor.waitForAbort(RECONNECT_SECONDS):
                 break
         LOG.debug("websocket thread exit")
 
@@ -106,9 +118,10 @@ class WSClient(threading.Thread):
     def _handle_open(self, app: "websocket.WebSocketApp") -> None:
         LOG.info("websocket connected")
         self._connected = True
+        self._last_inbound = time.monotonic()
         if self._keepalive is not None:
             self._keepalive.stop()
-        self._keepalive = _KeepAlive(app)
+        self._keepalive = _KeepAlive(app, self)
         self._keepalive.start()
         try:
             self._on_connected()
@@ -144,7 +157,33 @@ class WSClient(threading.Thread):
         except Exception:
             LOG.exception("on_disconnected callback failed")
 
+    def half_open(self) -> bool:
+        """True — after closing the socket — when the connection has gone
+        silent for STALE_SECONDS.
+
+        The liveness contract: the server echoes every application-level
+        KeepAlive sent at it, so a healthy socket receives a frame at least
+        every KEEPALIVE_SECONDS. A half-open socket (NAT drop, sleeping AP)
+        receives nothing while sends keep succeeding into the void — the
+        one failure shape nothing else detects. Closing makes run_forever
+        return; the run loop reconnects, and on_open fires the catch-up.
+        """
+        if not self._connected:
+            return False
+        if time.monotonic() - self._last_inbound <= STALE_SECONDS:
+            return False
+        LOG.info("websocket half-open: no traffic for %ss; recycling", STALE_SECONDS)
+        try:
+            if self._app is not None:
+                self._app.close()
+        except Exception as error:  # pragma: no cover - defensive
+            LOG.debug("half-open close failed: %s", error)
+        return True
+
     def _handle_message(self, app: "websocket.WebSocketApp", raw: str) -> None:
+        # Every inbound frame is liveness, including the KeepAlive echoes the
+        # event filter below discards and frames that fail to parse.
+        self._last_inbound = time.monotonic()
         try:
             message = json.loads(raw)
         except ValueError:
@@ -166,9 +205,17 @@ class WSClient(threading.Thread):
 
 
 class _KeepAlive(threading.Thread):
-    def __init__(self, app: "websocket.WebSocketApp") -> None:
+    """Sends the Jellyfin application-level KeepAlive and polices its echo.
+
+    One thread for both halves because they are one contract: every KeepAlive
+    sent is echoed by the server, so the sender is exactly the thread that
+    knows silence is abnormal (WSClient.half_open).
+    """
+
+    def __init__(self, app: "websocket.WebSocketApp", client: "WSClient") -> None:
         super().__init__(name="kofin-ws-keepalive")
         self._app = app
+        self._client = client
         self._halt = threading.Event()
 
     def stop(self) -> None:
@@ -176,7 +223,14 @@ class _KeepAlive(threading.Thread):
         self.join(timeout=5)
 
     def run(self) -> None:
-        while not self._halt.wait(KEEPALIVE_SECONDS):
+        since_send = 0
+        while not self._halt.wait(LIVENESS_TICK):
+            if self._client.half_open():
+                return
+            since_send += LIVENESS_TICK
+            if since_send < KEEPALIVE_SECONDS:
+                continue
+            since_send = 0
             try:
                 self._app.send(
                     json.dumps({"MessageType": "KeepAlive", "Data": KEEPALIVE_SECONDS})

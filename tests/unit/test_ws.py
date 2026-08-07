@@ -100,12 +100,13 @@ def test_disconnect_callback_is_optional():
     ws._handle_close(None, 1006, "gone")  # must not raise
 
 
-def test_run_forever_carries_a_pong_deadline_and_connect_timeout(monkeypatch):
-    """Without ping_timeout websocket-client never raises on a missed pong,
-    so a half-open socket (NAT drop, sleeping AP) is undetectable — no close
-    callback, no reconnect catch-up (audit finding #4). The default socket
-    timeout is what keeps a black-holed host from pinning the thread in
-    create_connection past stop()'s bounded join."""
+def test_run_forever_keeps_pings_but_never_a_pong_deadline(monkeypatch):
+    """Two settings are poison here, both measured live (perf plan W2.5 rev):
+    ping_timeout tears healthy connections down ~120 s in — the server's own
+    2-minute keepalive ping corrupts websocket-client's pong bookkeeping, and
+    both test boxes flapped on an exact 130 s cycle — and reconnect= swallows
+    the close/error callbacks, so drops were invisible. The run loop owns
+    reconnection; half-open detection is app-level (half_open)."""
     from kofin.core import ws as ws_module
 
     captured = {}
@@ -137,7 +138,66 @@ def test_run_forever_carries_a_pong_deadline_and_connect_timeout(monkeypatch):
     )
     client.run()
 
-    assert captured["ping_interval"] == 10
-    assert captured["ping_timeout"] == 5
-    assert captured["ping_timeout"] < captured["ping_interval"]
+    assert captured == {"ping_interval": 10}
     assert timeouts == [10]
+
+
+def _liveness_client(events=None):
+    return WSClient(
+        "http://s:8096",
+        "auth",
+        on_event=(
+            (lambda t, d: events.append((t, d)))
+            if events is not None
+            else (lambda t, d: None)
+        ),
+        on_connected=lambda: None,
+    )
+
+
+def test_half_open_recycles_only_a_silent_live_connection():
+    """Silence past STALE_SECONDS on a connected socket closes it — the run
+    loop then reconnects and on_open fires the catch-up. A fresh connection
+    and a disconnected client are both left alone (the keepalive thread of a
+    dead connection must not thrash the next one)."""
+    import time as time_module
+
+    from kofin.core import ws as ws_module
+
+    closes = []
+
+    class ClosableApp:
+        def close(self):
+            closes.append(1)
+
+    client = _liveness_client()
+    client._app = ClosableApp()
+
+    client._connected = True
+    client._last_inbound = time_module.monotonic()
+    assert client.half_open() is False
+
+    client._last_inbound = time_module.monotonic() - (ws_module.STALE_SECONDS + 5)
+    assert client.half_open() is True
+    assert closes == [1]
+
+    client._connected = False
+    assert client.half_open() is False
+    assert closes == [1]
+
+
+def test_every_inbound_frame_feeds_liveness_even_when_ignored():
+    """The KeepAlive echoes the event filter discards are exactly the frames
+    the liveness check lives on; an unparseable frame still proves the pipe."""
+    events = []
+    client = _liveness_client(events)
+    client._last_inbound = 0.0
+
+    client._handle_message(None, '{"MessageType": "KeepAlive"}')
+    assert client._last_inbound > 0.0
+    assert events == []  # still ignored as an event
+
+    client._last_inbound = 0.0
+    client._handle_message(None, "not-json")
+    assert client._last_inbound > 0.0
+    assert events == []
