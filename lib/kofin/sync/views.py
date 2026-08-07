@@ -42,7 +42,18 @@ PLAYLIST_FOLDER = FOLDER_NAME
 # Shape/label revision of the generated tree, folded into views_hash() so a
 # change here regenerates on upgrade even when the view set is untouched.
 # 3: the playlists moved into PLAYLIST_FOLDER.
-NODE_LAYOUT = 3
+NODE_LAYOUT = 4
+
+# Kind ordering for the generated library nodes, following Kodi's own
+# top-level video ordering (movies 10, tvshows 20, musicvideos 30). Libraries
+# of one kind sit together; see Views.node_order.
+MEDIA_RANK = {
+    "movies": 0,
+    "tvshows": 1,
+    "musicvideos": 2,
+    "homevideos": 3,
+    "episodes": 4,
+}
 
 # Order of the "Kofin" parent among Kodi's own top-level video nodes (movies
 # 10, tvshows 20, musicvideos 30). Written once, on creation only — the user's
@@ -362,6 +373,8 @@ class Views(object):
         self.node_parent(node_path)
         self.playlist_parent(playlist_path)
 
+        entries = []
+
         with Database("kofin") as kofin_db:
             db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
 
@@ -379,22 +392,30 @@ class Views(object):
                     }
 
                     if view["Media"] == "mixed":
+                        # A mixed library is two entries and sorts as two, so
+                        # its halves join their own kind rather than travelling
+                        # together in the middle of everything else.
                         for media in ("movies", "tvshows"):
-
-                            temp_view = dict(view)
-                            temp_view["Media"] = media
-                            self.add_playlist(playlist_path, temp_view, True)
-                            self.add_nodes(node_path, temp_view, True)
-
-                        index += 1  # Compensate for the duplicate.
+                            entries.append((dict(view, Media=media), True))
                     else:
-                        if view["Media"] in ("movies", "tvshows", "musicvideos"):
-                            self.add_playlist(playlist_path, view)
+                        entries.append((view, False))
 
-                        if view["Media"] not in ("music",):
-                            self.add_nodes(node_path, view)
+        entries.sort(key=lambda entry: self.node_order(entry[0]))
 
-                    index += 1
+        # Counted on the nodes actually written, not on the entries walked: a
+        # music library is whitelisted and sorted like the rest but has no
+        # video node, and numbering it anyway leaves holes that the favourites
+        # then start after.
+        index = 0
+
+        for view, mixed in entries:
+
+            if view["Media"] in ("movies", "tvshows", "musicvideos"):
+                self.add_playlist(playlist_path, view, mixed)
+
+            if view["Media"] not in ("music",):
+                self.add_nodes(node_path, view, mixed, index)
+                index += 1
 
         for single in [
             {
@@ -488,14 +509,14 @@ class Views(object):
         tree = etree.ElementTree(xml)
         tree.write(file)
 
-    def add_nodes(self, path, view, mixed=False):
+    def add_nodes(self, path, view, mixed=False, index=0):
         """Create or update the video node file."""
         folder = os.path.join(path, node_folder(view))
 
         if not xbmcvfs.exists(folder):
             xbmcvfs.mkdir(folder)
 
-        self.node_index(folder, view, mixed)
+        self.node_index(folder, view, mixed, index)
 
         if view["Media"] == "tvshows":
             self.node_tvshow(folder, view)
@@ -509,6 +530,12 @@ class Views(object):
         try:
             if os.path.isfile(file):
                 xml = etree.parse(file).getroot()
+                # Rewritten every pass, like the library nodes' own index: an
+                # install that predates the grouped ordering keeps its stale
+                # number otherwise, and the stale numbers are the bug — they
+                # were counted in a different space from the libraries', so
+                # they collided with them and sorted among them.
+                xml.set("order", str(index))
             else:
                 xml = self.node_root(
                     (
@@ -578,12 +605,29 @@ class Views(object):
 
         return element
 
-    def node_index(self, folder, view, mixed=False):
+    def node_order(self, view):
+        """Sort key for one library node: its kind first, the server's order
+        within that kind second.
 
-        file = os.path.join(folder, "index.xml")
+        Kind first because the alternative — the server's order alone — reads
+        as shuffled the moment a user has two libraries of one type: the
+        Jellyfin view list interleaves them freely, and Kodi renders whatever
+        order it is handed. Grouping is also what makes the favourites block
+        below land after the libraries instead of among them; the two used to
+        be numbered in different spaces (libraries by their position in the
+        *whole* server view list, favourites by a count of the *whitelisted*
+        ones), which is how "Favorite shows" ended up between two libraries
+        and sharing an order with a third.
+
+        MEDIA_RANK follows Kodi's own top-level ordering (movies before
+        tvshows before musicvideos); anything the server names that is not in
+        it sorts after, by name, so the answer stays stable.
+        """
+        media = view["Media"]
+        rank = MEDIA_RANK.get(media, len(MEDIA_RANK))
 
         try:
-            index = self.sync["SortedViews"].index(view["Id"])
+            within = self.sync["SortedViews"].index(view["Id"])
         except ValueError:
             # A whitelisted view the ordering answer did not carry:
             # get_libraries degrades to a views-only listing when
@@ -598,12 +642,18 @@ class Views(object):
             # pass.
             whitelist = sorted(x.replace("Mixed:", "") for x in self.sync["Whitelist"])
             offset = whitelist.index(view["Id"]) if view["Id"] in whitelist else 0
-            index = len(self.sync["SortedViews"]) + offset
+            within = len(self.sync["SortedViews"]) + offset
             LOG.debug(
                 "view %s missing from SortedViews; ordering it at %s",
                 view["Id"],
-                index,
+                within,
             )
+
+        return (rank, media, within, view["Name"])
+
+    def node_index(self, folder, view, mixed=False, index=0):
+
+        file = os.path.join(folder, "index.xml")
 
         try:
             if os.path.isfile(file):

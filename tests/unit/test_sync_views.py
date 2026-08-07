@@ -457,19 +457,121 @@ def test_stray_views_get_stable_distinct_orders(views_env):
 
     views = Views(FakeApi())
 
-    import xml.etree.ElementTree as etree
+    def within(view_id, media):
+        # (rank, media, within, name) -- the stray offset is the third
+        return views.node_order({"Id": view_id, "Name": "x", "Media": media})[2]
 
-    def order_of(view_id, media):
-        folder = str(kofin_root(views_env) / ("kofin%s%s" % (media, view_id)))
-        os.makedirs(folder, exist_ok=True)
-        views.node_index(folder, {"Id": view_id, "Name": "x", "Media": media})
-        return int(
-            etree.parse(os.path.join(folder, "index.xml")).getroot().get("order")
-        )
-
-    first = (order_of("lib2", "tvshows"), order_of("lib3", "music"))
-    second = (order_of("lib2", "tvshows"), order_of("lib3", "music"))
+    first = (within("lib2", "tvshows"), within("lib3", "music"))
+    second = (within("lib2", "tvshows"), within("lib3", "music"))
 
     assert first == second
     assert first[0] != first[1]
     assert min(first) >= 1
+
+
+def _orders(views_env):
+    """Every generated node's order, by label, as Kodi will sort them."""
+    import xml.etree.ElementTree as etree
+
+    found = {}
+    root = kofin_root(views_env)
+    for path in root.rglob("index.xml"):
+        if path.parent == root:
+            continue  # the Kofin folder node itself
+        xml = etree.parse(str(path)).getroot()
+        found[xml.find("label").text] = int(xml.get("order"))
+    for path in root.glob("kofin_*.xml"):
+        # Keyed by file name: the favourites' labels are localized strings,
+        # which the Kodi fakes render as "string-<id>".
+        xml = etree.parse(str(path)).getroot()
+        found[path.stem.replace("kofin_", "")] = int(xml.get("order"))
+    return found
+
+
+def test_libraries_of_one_kind_sit_together(views_env):
+    """Reported: two show libraries with a favourites node between them. The
+    server's view order interleaves kinds freely and Kodi renders what it is
+    handed, so the grouping has to be ours."""
+    seed(
+        [
+            ("lib1", "Movies", "movies"),
+            ("lib2", "Shows", "tvshows"),
+            ("lib3", "Films", "movies"),
+            ("lib4", "Documentaries", "tvshows"),
+        ],
+        ["lib1", "lib2", "lib3", "lib4"],
+    )
+    Views(FakeApi()).get_nodes()
+
+    orders = _orders(views_env)
+    by_order = [name for name, _ in sorted(orders.items(), key=lambda kv: kv[1])]
+    movies = [by_order.index("Movies"), by_order.index("Films")]
+    tvshows = [by_order.index("Shows"), by_order.index("Documentaries")]
+
+    assert max(movies) + 1 == min(tvshows), by_order  # no gap, nothing between
+    assert max(tvshows) < by_order.index("Favoritemovies"), by_order
+
+
+def test_the_favourites_block_never_lands_among_the_libraries(views_env):
+    """The two used to be numbered in different spaces — libraries by their
+    position in the *whole* server view list, favourites by a count of the
+    *whitelisted* ones — so a favourite could share an order with a library
+    and sort among them."""
+    seed(
+        [
+            ("lib1", "Movies", "movies"),
+            ("skipped", "Not synced", "movies"),
+            ("also", "Nor this", "tvshows"),
+            ("lib2", "Shows", "tvshows"),
+        ],
+        ["lib1", "lib2"],
+    )
+    Views(FakeApi()).get_nodes()
+
+    orders = _orders(views_env)
+    libraries = [orders["Movies"], orders["Shows"]]
+    favourites = [v for k, v in orders.items() if k.startswith("Favorite")]
+
+    assert max(libraries) < min(favourites), orders
+    assert len(set(orders.values())) == len(orders), orders  # no collisions
+
+
+def test_a_mixed_library_splits_to_join_its_own_kinds(views_env):
+    """A mixed library is two entries and sorts as two; its halves used to
+    travel together in the middle of everything else."""
+    seed(
+        [("lib1", "Movies", "movies"), ("lib2", "Recordings", "mixed")],
+        ["lib1", "lib2"],
+    )
+    Views(FakeApi()).get_nodes()
+
+    orders = _orders(views_env)
+    by_order = [name for name, _ in sorted(orders.items(), key=lambda kv: kv[1])]
+
+    assert by_order.index("Movies") < by_order.index("Recordings (movies)")
+    assert by_order.index("Recordings (movies)") < by_order.index(
+        "Recordings (tvshows)"
+    )
+    assert by_order.index("Recordings (tvshows)") < by_order.index("Favoritemovies")
+
+
+def test_recently_added_albums_asks_for_an_icon_kodi_actually_has():
+    """DefaultRecentlyAddedAlbums.png reads like the video names beside it and
+    renders as nothing. Kodi's own node for this
+    (system/library/music/recentlyaddedalbums.xml) names this one."""
+    from kofin.plugin.browse import node_icon as browse_icon
+
+    assert browse_icon("music", "recentalbums") == "DefaultMusicRecentlyAdded.png"
+
+
+def test_a_music_library_does_not_leave_a_hole_in_the_numbering(views_env):
+    """It is whitelisted and sorted like the rest but writes no video node,
+    so numbering it anyway pushed the favourites out past a gap."""
+    seed(
+        [("lib1", "Movies", "movies"), ("lib2", "Tunes", "music")],
+        ["lib1", "lib2"],
+    )
+    Views(FakeApi()).get_nodes()
+
+    orders = sorted(_orders(views_env).values())
+    assert orders == list(range(len(orders))), orders
