@@ -8,7 +8,7 @@ import xbmcgui
 
 from kofin.core import ipc, settings, toast
 from kofin.core.api import Api
-from kofin.core.http import Http, JellyfinError
+from kofin.core.http import JellyfinError, plugin_transport
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin.router import Request
@@ -18,7 +18,9 @@ LOG = Logger(__name__)
 
 def _api() -> Api:
     return Api.from_credentials(
-        Http(settings.get_bool("sslVerify")), Credentials.load(), interactive=True
+        plugin_transport(settings.get_bool("sslVerify")),
+        Credentials.load(),
+        interactive=True,
     )
 
 
@@ -124,6 +126,16 @@ def update_libraries(request: Request) -> None:
 
 def refresh_boxsets(request: Request) -> None:
     ipc.notify(ipc.REFRESH_BOXSETS, {})
+
+
+def precache_art(request: Request) -> None:
+    """Settings button: ask the service to seed the cast-image cache now.
+
+    Fires and exits like every other service-owned action — the work is a
+    long run of downloads and database writes, which the plugin process has
+    no business holding open.
+    """
+    ipc.notify(ipc.PRECACHE_ART, {})
 
 
 def repair_libraries(request: Request) -> None:

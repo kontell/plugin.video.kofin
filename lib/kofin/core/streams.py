@@ -90,8 +90,46 @@ def of_type(streams: List[JsonDict], kind: str) -> List[JsonDict]:
     return [stream for stream in streams if stream.get("Type") == kind]
 
 
+def preferred_embedded(
+    media_streams: List[JsonDict], selected: Optional[int], language: str
+) -> Optional[int]:
+    """Which embedded text track to attach on a transcode.
+
+    The server's own choice when it made one. When it made none — common, and
+    what a film with twenty tracks and no default looks like — the viewer
+    still expects the subtitle they always get, so: a forced track first
+    (that is what forced means), then the first track in their configured
+    subtitle language. Failing both, none: attaching an arbitrary one would
+    be guessing, and the menu is right there.
+
+    Text only, and not by omission — an image subtitle cannot be attached at
+    all. Kodi will not render a standalone PGS/DVDSUB, and the server hands
+    one over as a raw dump (measured at 37 MB and 67 s for a single track);
+    those reach the screen only by being burned in.
+    """
+    text_tracks = [
+        stream
+        for stream in of_type(media_streams, "Subtitle")
+        if not is_image_subtitle(stream) and not stream.get("IsExternal")
+    ]
+    if selected is not None and any(
+        stream.get("Index") == selected for stream in text_tracks
+    ):
+        return selected
+    for stream in text_tracks:
+        if stream.get("IsForced"):
+            index: Optional[int] = stream.get("Index")
+            return index
+    if language:
+        for stream in text_tracks:
+            if str(stream.get("Language") or "").lower() == language.lower():
+                matched: Optional[int] = stream.get("Index")
+                return matched
+    return None
+
+
 def attached_subtitles(
-    server: str, source: JsonDict, play_method: str
+    server: str, source: JsonDict, play_method: str, language: str = ""
 ) -> List[Attachment]:
     """Every subtitle to hand ``setSubtitles``, in the order it will see them.
 
@@ -99,11 +137,26 @@ def attached_subtitles(
 
     * **Sidecar** subtitles (``IsExternal``) are files beside the media, in no
       container. They are attached whatever the play method — this is the set
-      kofin has always attached.
-    * **Embedded** text subtitles are attached only for a transcode, because
-      only then are they missing from the stream Kodi opened. Attaching them
-      on direct play would list every track twice: once read out of the
-      container, once fetched over HTTP.
+      kofin has always attached. They cost the server nothing to serve: the
+      file already exists.
+    * **Embedded** text subtitles are missing from a transcoded stream, so one
+      is attached for it — *the one this playback was resolved with*, and no
+      others. Attaching them on direct play would list every track twice: once
+      read out of the container, once fetched over HTTP.
+
+    Only one, because each embedded track is extracted on demand by the
+    server, and Kodi opens every attached subtitle when it builds the demuxer
+    rather than when one is picked. A track the server cannot produce costs
+    Kodi a 20-second timeout before it moves to the next, so a film with
+    several of them stalls for a minute or more before the picture settles —
+    measured on a real library, where one track ground for 48 s and then
+    answered 400. The rest stay reachable through the stream menu, which
+    restarts into them (``needs_restart``), the same way an image subtitle
+    has always worked on a transcode.
+
+    Which one is :func:`preferred_embedded`'s answer; ``language`` is the
+    viewer's configured subtitle language, passed in rather than read here so
+    this module stays free of Kodi imports and testable without a player.
 
     Embedded *image* subtitles (PGS/DVDSUB) are never attached. The server
     serves them as a raw ``.sup`` — measured at 37 MB and 67 s of extraction
@@ -117,6 +170,16 @@ def attached_subtitles(
     """
     attached: List[Attachment] = []
     direct = is_direct(play_method)
+    # The one embedded track worth extracting up front, if any.
+    wanted = (
+        None
+        if direct
+        else preferred_embedded(
+            source.get("MediaStreams") or [],
+            source.get("DefaultSubtitleStreamIndex"),
+            language,
+        )
+    )
     for stream in source.get("MediaStreams") or []:
         if stream.get("Type") != "Subtitle":
             continue
@@ -129,6 +192,8 @@ def attached_subtitles(
         sidecar = bool(stream.get("IsExternal"))
         if not sidecar and (direct or not stream.get("IsTextSubtitleStream")):
             continue
+        if not sidecar and index != wanted:
+            continue  # see the docstring: one extraction, not a queue of them
         attached.append(
             Attachment(
                 stream_index=int(index),
@@ -239,19 +304,14 @@ def selectable_subtitles(
 ) -> List[JsonDict]:
     """The subtitle streams the menu can actually put on screen.
 
-    On direct play that is all of them. On a transcode it is the attached text
-    ones plus the image ones, which are offered because burning them in is a
-    real answer even though it costs a restart — but an embedded text subtitle
-    that somehow failed to attach is dropped, since picking it would do
-    nothing.
+    All of them, on either play method — what differs is the cost, which
+    :func:`needs_restart` answers and the menu labels. On a transcode only one
+    embedded track is attached (see :func:`attached_subtitles`); the others are
+    reached by resolving a new stream, exactly as an image subtitle is. They
+    are listed rather than hidden because "restart to use this" is an answer
+    and silence is not.
     """
-    if is_direct(play_method):
-        return of_type(streams, "Subtitle")
-    return [
-        stream
-        for stream in of_type(streams, "Subtitle")
-        if stream.get("Index") in attached or is_image_subtitle(stream)
-    ]
+    return of_type(streams, "Subtitle")
 
 
 def is_image_subtitle(stream: JsonDict) -> bool:
@@ -268,13 +328,28 @@ def is_image_subtitle(stream: JsonDict) -> bool:
     return codec in ("pgssub", "pgs", "dvdsub", "dvbsub", "vobsub", "sub")
 
 
-def needs_restart(stream: JsonDict, play_method: str) -> bool:
+def needs_restart(
+    stream: JsonDict, play_method: str, attached: Optional[List[int]] = None
+) -> bool:
     """Whether selecting this subtitle means resolving a new stream.
 
-    Only one case does: an image subtitle on a transcode, which exists in the
-    output solely by being burned into the video.
+    Never on a direct play: the container holds every track. On a transcode,
+    two cases do — an image subtitle, which can only reach the output by being
+    burned into the video, and a text subtitle that is not among the attached
+    ones, since a transcoded stream carries no subtitles of its own and only
+    the resolved one was attached.
+
+    ``attached`` is optional so a caller that only cares about the burn-in
+    case can leave it out; omitting it treats every text subtitle as already
+    on hand.
     """
-    return not is_direct(play_method) and is_image_subtitle(stream)
+    if is_direct(play_method):
+        return False
+    if is_image_subtitle(stream):
+        return True
+    if attached is None:
+        return False
+    return stream.get("Index") not in attached
 
 
 def menu_offer(streams: List[JsonDict], attached: List[int], play_method: str) -> str:

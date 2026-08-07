@@ -1557,3 +1557,29 @@ msgstr ""
 msgctxt "#30667"
 msgid "Show your server's critic rating (Rotten Tomatoes, where the OMDb plugin has one) instead of the community rating. Percentages are rescaled for Kodi, so 78% becomes 7.8, and a film with no critic rating keeps its community one. Changing this applies to films already in the library straight away; films synced before this option existed only gain a critic rating once they are re-synced, so run Repair libraries to fetch them all at once."
 msgstr ""
+
+# 30668-30673 — actor art pre-cache
+msgctxt "#30668"
+msgid "Pre-cache cast images when idle"
+msgstr ""
+
+msgctxt "#30669"
+msgid "Download the cast thumbnails your libraries reference while Kodi is idle, so an item's info dialog draws them instantly instead of fetching each one the first time you open it. Uses disk in Kodi's thumbnail cache — roughly 60 KB per person, which on a large library can reach a gigabyte. Never runs during playback."
+msgstr ""
+
+msgctxt "#30670"
+msgid "Pre-cache cast images now"
+msgstr ""
+
+msgctxt "#30671"
+msgid "Fetch every cast thumbnail that is not cached yet, without waiting for idle time."
+msgstr ""
+
+msgctxt "#30672"
+msgid "Caching cast images"
+msgstr ""
+
+msgctxt "#30673"
+msgid "Cached %d cast image(s)"
+msgstr ""
+

@@ -18,7 +18,7 @@ from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials, addon_version
 from kofin.core.ws import WSClient
-from kofin.service import backdrop, chapters
+from kofin.service import artcache, backdrop, chapters
 from kofin.service.kodiuserdata import KodiUserData
 from kofin.service.player import Player
 from kofin.service.remote import RemoteHandler
@@ -40,6 +40,19 @@ LIBRARY_COMMANDS = frozenset(
 # startup settings-load transients. A user cannot open the settings dialog and
 # edit within this window; a real change always lands well after it.
 SETTINGS_READY_DELAY = 5.0
+
+# How long the teardown waits for the library thread before giving up on it.
+# Long enough to cover a page fetch and a writer batch — the reason the fork's
+# 15 s was too short — and bounded, which the first version of this was not:
+# waiting on `abortRequested` alone never ends on an addon disable (that flag
+# is Kodi shutting down, not the addon being bounced), so the service script
+# never returned. Kodi gives a stopping script five seconds, then logs
+# "script didn't stop"; measured after that, *every* later Python invocation
+# in Kodi hung — plugin listings and plays included — until Kodi restarted.
+# A thread that outlives this deadline keeps PROP_SYNC_STOP raised instead
+# (see state.clear_all), so it stays paused rather than resuming into the
+# replacement Library.
+LIBRARY_JOIN_SECONDS = 30.0
 
 # Server lifecycle websocket messages -> the string announcing them. These are
 # the server telling us it is about to go away; the websocket drop that
@@ -110,8 +123,15 @@ class Service(xbmc.Monitor):
         # how a reconnect that lands mid-run asks for one more pass.
         self._post_connect: Optional[threading.Thread] = None
         self._post_connect_pending = threading.Event()
+        # Idle-time cast-image seeder, and the settings button's one-shot.
+        self.artcache = artcache.ActorArtCache()
+        self._precache_art: Optional[threading.Thread] = None
         self._online = False
         self._backoff = Backoff()
+        # This generation's IPC secret (see ipc.GUARDED): minted here so the
+        # plugin process picks it up from the moment the service exists, and
+        # invalidated by the next restart.
+        self._ipc_nonce = ipc.rotate_nonce()
         self.settings_apply = SettingsApplier(self)
 
     # -- lifecycle -----------------------------------------------------------
@@ -167,6 +187,10 @@ class Service(xbmc.Monitor):
         self._start_websocket()
         self._start_library()
         self._start_backdrop()
+        # Cheap to start unconditionally: the worker sleeps until the setting
+        # is on *and* the box is idle, so a user who never enables it pays a
+        # parked thread and nothing else.
+        self.artcache.start()
 
     def _start_library(self) -> None:
         """Start the sync manager once online, when there is anything to sync
@@ -525,6 +549,14 @@ class Service(xbmc.Monitor):
         if sender != ipc.SENDER:
             return
         name = ipc.method_name(method)
+        payload = ipc.decode(data)
+        if not ipc.verify(name, payload, self._ipc_nonce):
+            # Kodi passes the sender string through from whoever called
+            # NotifyAll, so this is what a forged destructive command looks
+            # like: our name, no secret. Logged rather than silent — if it is
+            # ever a real kofin message, this line is the only trace.
+            LOG.warning("dropped unauthenticated %s", name)
+            return
         if name == ipc.RESTART:
             LOG.info("restart requested")
             self._restart_requested = True
@@ -535,12 +567,45 @@ class Service(xbmc.Monitor):
             self._open_syncplay_menu()
         elif name == ipc.WHO_IS_WATCHING:
             self._open_who_is_watching()
+        elif name == ipc.PRECACHE_ART:
+            self._precache_art_now()
         elif name in LIBRARY_COMMANDS:
             self._start_library()
             if self.library is None:
                 LOG.warning("library command %s ignored: manager not running", name)
                 return
-            self.library.enqueue_command(name, ipc.decode(data))
+            self.library.enqueue_command(name, payload)
+
+    def _precache_art_now(self) -> None:
+        """Settings button: seed every outstanding cast image.
+
+        On its own thread — this runs until the work is done, which on a first
+        run is thousands of downloads — and single-flight, so a second press
+        joins the run already going rather than doubling the fetches.
+        """
+        if self._precache_art is not None and self._precache_art.is_alive():
+            LOG.debug("cast-image pre-cache already running")
+            toast.show(settings.localized(30672), time_ms=4000)
+            return
+        self._precache_art = threading.Thread(
+            target=self._run_precache_art, name="kofin-artcache-now"
+        )
+        self._precache_art.daemon = True
+        self._precache_art.start()
+
+    def _run_precache_art(self) -> None:
+        toast.show(settings.localized(30672), time_ms=4000)
+        try:
+            # The service's own instance, not a second one: it holds the lock
+            # the idle trickle takes, so the button never races it.
+            seeded = self.artcache.seed_all()
+        except Exception:
+            LOG.exception("cast-image pre-cache failed")
+            return
+        try:
+            toast.show(settings.localized(30673) % seeded, time_ms=5000)
+        except TypeError:  # pragma: no cover - uncached string, see _connection_toast
+            pass
 
     def _syncplay_forward(self, name: str, *args: Any) -> None:
         manager = self.syncplay
@@ -571,19 +636,87 @@ class Service(xbmc.Monitor):
     def _shutdown(self) -> None:
         state.set_should_stop(True)
         self._stop_syncplay()
+        library_stuck = False
         if self.library is not None:
             self.library.stop_client()
-            self.library.join(timeout=15)
-            if self.library.is_alive():  # pragma: no cover - watchdog only
-                LOG.warning("library thread did not stop within deadline")
+            library_stuck = not self._join_library()
             self.library = None
         self.player.stop_threads()
+        self.artcache.stop()
         self.kodi_userdata.stop()
         if self.ws is not None:
             self.ws.stop()
             self.ws = None
+        self._join_workers()
         self.http.close()
-        state.clear_all()
+        # Last, and only once nothing of ours is still running: clear_all drops
+        # PROP_SYNC_STOP, which is the flag every sync worker's @stop guard
+        # reads. Clearing it while a thread survives un-pauses that thread
+        # against a service that has already been rebuilt — two Library object
+        # graphs, each with its own database locks, writing the same files. A
+        # thread that outlived the join keeps the flag raised for exactly that
+        # reason.
+        state.clear_all(keep_stop=library_stuck)
+
+    def _join_library(self) -> bool:
+        """Wait for the library thread to die; True when it did.
+
+        Two failures to avoid, and they pull in opposite directions. Giving up
+        after 15 seconds and carrying on let the thread outlive the teardown
+        while the next line cleared the stop flag it was waiting on (audit
+        finding #10). Waiting on `abortRequested` alone never ends on an addon
+        bounce, and a service script that does not return wedges every later
+        Python invocation in Kodi (see LIBRARY_JOIN_SECONDS).
+
+        So: a deadline generous enough for a page fetch, and a truthful answer
+        when it passes — the caller keeps the flag raised rather than pretending
+        the thread is gone.
+        """
+        library = self.library
+        if library is None:
+            return True
+        waited = 0.0
+        while library.is_alive() and waited < LIBRARY_JOIN_SECONDS:
+            library.join(timeout=5)
+            if not library.is_alive():
+                return True
+            waited += 5
+            if self.abortRequested():
+                LOG.warning("abort during teardown; library thread still alive")
+                return False
+            LOG.warning("library thread still stopping after %.0fs", waited)
+        if library.is_alive():
+            LOG.error(
+                "library thread outlived %.0fs; leaving the sync stop flag raised",
+                LIBRARY_JOIN_SECONDS,
+            )
+            return False
+        return True
+
+    def _join_workers(self) -> None:
+        """Join the named one-shot workers this service started.
+
+        Unjoined, they outlive the rebuild and race their replacements against
+        the same resources — the chapter sweep holds an open cursor on the
+        texture database, and the backdrop worker rewrites a file in the addon
+        directory (audit finding #13).
+        """
+        workers = (
+            ("chapter sweep", self._chapter_sweep),
+            ("backdrop", self._backdrop),
+            ("post-connect", self._post_connect),
+            ("cast-image pre-cache", self._precache_art),
+            ("syncplay menu", self._syncplay_menu),
+            ("who's watching", self._who_is_watching),
+        )
+        for name, worker in workers:
+            if worker is None or not worker.is_alive():
+                continue
+            worker.join(timeout=10)
+            if worker.is_alive():  # pragma: no cover - watchdog logging only
+                # The dialogs are the expected case: both block on user input
+                # and Kodi closes them when the addon goes.
+                LOG.warning("%s worker did not stop within its deadline", name)
 
 
 def _guid(value: Any) -> str:

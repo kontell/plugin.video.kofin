@@ -135,23 +135,53 @@ One PR of independently-testable fixes: guard `int()` parses in `service/remote.
 
 Traced: `push_play_item`/`claim_play_item` are cross-process read-modify-write on one window property — a race loses or resurrects entries (`core/state.py:92`). Fix direction: replace the shared list with single-writer keys or an `fcntl`-locked file in addon_data; pick in a short design note in the PR (window properties offer no CAS). Rare in practice, so it rides Wave 3.
 
-## Wave 4 — structural options (design doc first, decide after re-measuring)
+## Wave 4 — revised after re-measuring (2026-08-07)
 
-### W4.1 Browse listing cache (JellyCon pattern) — `docs/browse-cache-plan.md`
+The wave was written when a click cost 1.5–16 s and the structural options looked necessary. Waves 1–3 changed the arithmetic, so the wave was re-derived from fresh measurements on both boxes rather than executed as drafted. What the measurements showed:
 
-Serve cached parsed listings instantly, revalidate in the background, `Container.Refresh` on change. Kofin can do better than JellyCon: the service already watches the changefeed, so invalidation can be event-driven instead of TTL-guessed. The doc must settle: cacheable set (structural menus, all/genres/sets/artists/albums) vs deliberately-live listings (continue watching, next up, in-progress, recent — never cached); storage (pickled DTO list keyed on user|server|url in addon_data); playstate staleness on cached whole-library listings; eviction. This changes the "dynamic listings are always live" stance, so it ships only with that doc agreed.
+| Listing | Local (Omega, load ~3.5) | Bravia (Kodi 22, settled) | What it isolates |
+| --- | --- | --- | --- |
+| Node menu, 8 rows, **no network** | 0.82–0.96 s | 0.42–0.61 s | interpreter + kofin imports |
+| Root, 11–12 rows, one call | 1.9–2.2 s | 1.15–1.46 s | + `requests` import + a request |
+| Recent, 25 rows | 1.8–2.5 s | 1.12–1.43 s | same shape |
+| Movies-all, 1,766 rows | 2.5–2.9 s | 2.7–2.8 s | + 3.5 MB fetch + 1,766 builds |
 
-### W4.2 Warm-service handle forwarding (Emby NG pattern) — prototype-gated
+The gap between a network-free click and any networked one is ~1 s on both boxes, and it is one import. Measured inside Kodi's own Python: `import requests` 1.112 s (Omega) / 0.929 s (Kodi 22), against `http.client`, `ssl`, `json` and `urllib` at 0.000 s — they are already loaded before the addon runs. Kodi 22's native bytecode caching does not help, because the cost is executing the package's module bodies rather than compiling them; both boxes carry `.pyc` for requests and both still pay it.
 
-The plugin stub forwards its handle over a local socket to the always-running service, which builds the listing with warm caches and keep-alive sessions — eliminating the per-click interpreter constant entirely (Emby NG proves cross-process handle use works). Large change with portability and lifecycle questions (service down → stub falls back to today's in-process path). Decision rule: prototype only if Waves 1–2 leave click latency above ~1 s on the target boxes; measure a stub round trip first (~expect < 150 ms).
+A caution for anyone re-running these: a box measured within a few minutes of a Kodi restart reads 2–3x slower while the service completes its startup sync (the Bravia measured 6.4–7.6 s cold against 2.7 s settled for the same listing). Let it go quiet first — the last kofin log line stops moving — and note the load average.
 
-### W4.3 Skip the item GET on library plays
+### W4.0 A standard-library transport for the plugin process — **done, replaced W4.2/W4.3**
 
-Persist the DTO fields play needs into kofin.db at sync time (or read them from Kodi's own row via dbid) so library-initiated direct play resolves with PlaybackInfo alone (~90 ms LAN, more WAN). Touches path identity and several flows (SyncPlay startticks, context transcode, extras without dbid keep the GET) — design note first, after W2.6 lands.
+`core/stdhttp.py`: the exact surface `Api` uses (`request`/`close`, the same error taxonomy, the same per-method retry budget) over `http.client`, with one connection kept alive across an invocation's calls so the saved import is not handed back as TLS handshakes. The plugin process uses it through `http.plugin_transport`; the service and the sync stack keep `requests`, where a long-lived process pays the import once and the proven code path is worth more than a second's saving that nobody waits for.
 
-### W4.4 Upstream invoker-reuse follow-up
+Measured, same conditions before and after:
 
-Reproduce the no-reuse behavior on a stock build (Bravia/Piers via ADB, or LibreELEC) with the minimal probe from the audit; if it reproduces there, file the xbmc issue with the probe as the repro. Kofin's own mitigation (W1.2/W1.6) does not depend on the outcome.
+| | Before | After |
+| --- | --- | --- |
+| Root, Bravia | 1.15–1.46 s | **0.79–0.90 s** |
+| Recent (25), Bravia | 1.12–1.43 s | **0.79–0.84 s** |
+| Movies-all, Bravia | 2.7–2.8 s | **2.37–2.48 s** |
+| Recent (25), local | 1.8–2.5 s | **0.75–1.20 s** |
+| Movies-all, local | 2.5–2.9 s | **1.55–1.64 s** |
+| Click-to-first-frame, local | ~2.7 s | **1.81–1.95 s** |
+
+The check that it did what it claims: on the Bravia a *networked* listing (0.79 s) now sits within ~0.2 s of the *network-free* node menu (0.55–0.76 s), so the import is gone from the click path and what remains is the request itself.
+
+### W4.1 Browse listing cache — deferred, and rescoped if it ever returns
+
+The case has thinned. A bounded listing is now ~0.8 s on both boxes, of which a cache could save perhaps 0.2 s; only the whole-library listing has real headroom (2.4 s on the TV, ~1.8 s of it fetch and build). Against that: a staleness policy, event-driven invalidation, disk, and a reversal of the "dynamic listings are always live" stance that the rest of the addon is built on. Not worth it for one listing kind. If it is ever revisited, scope it to unbounded listings only and keep continue-watching, next-up, in-progress and recent permanently live.
+
+### W4.2 Warm-service handle forwarding — dropped
+
+Its justification was eliminating the per-click interpreter constant. That constant is now 0.42–0.61 s on the TV and 0.82–0.96 s on a *loaded* laptop, and the wave's own decision rule was "prototype only if Waves 1–2 leave click latency above ~1 s on the target boxes". They do not. Cross-process handle forwarding, a socket server, a fallback path for a service that is down, and the lifecycle questions underneath are a poor trade for a sub-second saving in a codebase whose value is that it can be read.
+
+### W4.3 Skip the item GET on library plays — dropped
+
+~90 ms of a click-to-frame that is now 1.8–1.9 s locally, against changes to path identity, SyncPlay start ticks, the context transcode and the extras path. W4.0 took ten times as much off the same route for less risk.
+
+### W4.4 Upstream invoker-reuse follow-up — file it, expect nothing
+
+Confirmed in Kodi's source that plugin invocations do pass the flag: `CScriptRunner::ExecuteScript` reads `reuselanguageinvoker` from the addon's ExtraInfo and hands it to `CScriptInvocationManager::ExecuteAsync`, and `CLanguageInvokerThread::Reuseable` gates on `!m_bStop && m_reusable && GetState() == InvokerStateScriptDone && m_script == script`. Yet neither test box ever reuses — no "Reusing LanguageInvokerThread" line has appeared on either — so the cause is downstream in invoker state or lifecycle and needs a debug build to pin. Cheap to report with the minimal probe from the audit; not on kofin's critical path, and W4.0 makes the addon much less dependent on the answer. If reuse ever did work, every import cost in this document would vanish at once.
 
 ## Acceptance summary
 
@@ -162,8 +192,10 @@ Reproduce the no-reuse behavior on a stock build (Bravia/Piers via ADB, or Libre
 | Movies-all, Bravia (Kodi 22, Android) | 22.5–22.7 s | 9.8–10.3 s | (re-measure on deploy) |
 | Offline root render | ~54 s | < 10 s (computed) | — |
 | Direct-play resolve (plugin phase) | 1.94 s | ~1.0 s | **0.68 s** |
-| Click-to-frame (direct play, LAN) | 2.76 s | 2.28–2.67 s | **~1.2 s** |
-| Info-dialog cast (8 actors, first open) | ~0.9 s | — | ~0.01 s after W3.1 seed |
+| Click-to-frame (direct play, LAN) | 2.76 s | 2.28–2.67 s | **~1.2 s** (1.81–1.95 s on a loaded box after W4.0) |
+| Info-dialog cast (8 actors, first open) | ~0.9 s | — | **0.03 s seeded / 0.99 s unseeded control (W3.1, measured)** |
+
+Wave 3 outcome, recorded: all six items landed and were live-gated (#92-#97). Two defects surfaced only under live running and are now regression-tested — the seeder's work list did not advance past its first page (186 images, then a claim of completion), and its two entry points duplicated every fetch. The IPC guard's secret lives in a 0600 file rather than a window property because JSON-RPC can read window properties, which is the channel being closed; forged RemoveLibrary/Restart were refused live on both boxes while genuine signed commands were accepted. The play queue became a directory of claimable files (unlink-as-claim) rather than an fcntl lock, because `addon.xml` declares platform `all`.
 
 W1.6 outcome, recorded: measured and not adopted — Kodi 22 writes bytecode caches natively (the flag is a no-op there) and the Debian box showed no warm-condition change; details on PR #78.
 

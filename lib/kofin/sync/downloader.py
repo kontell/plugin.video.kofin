@@ -606,6 +606,10 @@ def _get_items(api, query):
 class GetItemWorker(threading.Thread):
 
     is_done = False
+    # Set when this worker stopped because the server was unreachable, so the
+    # library can pause the spawn path instead of starting a replacement into
+    # the same wall (see Library.DOWNLOAD_BACKOFF_SECONDS).
+    unreachable = False
 
     def __init__(
         self,
@@ -746,8 +750,18 @@ class GetItemWorker(threading.Thread):
                 break
 
             except ServerUnreachable as error:
+                # The chunk was never fetched, so it goes back: the fork
+                # dropped it on the floor here (no re-queue, no task_done) and
+                # the ids were simply never written, while the spawn path
+                # immediately started a replacement worker against the still
+                # full queue — a permanent retry storm that ate the backlog a
+                # chunk at a time (audit finding #7). Re-queued and left for
+                # the backoff the spawn path now respects.
                 LOG.error("--[ server unreachable: %s ]", error)
                 self._flag_error()
+                self.queue.put(item_ids)
+                self.queue.task_done()
+                self.unreachable = True
                 self.is_done = True
 
                 break

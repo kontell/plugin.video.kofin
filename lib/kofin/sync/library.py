@@ -13,6 +13,7 @@ The queue/worker/priority logic is the fork's, byte for byte where possible.
 """
 
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import queue
@@ -49,6 +50,17 @@ LOG = Logger(__name__)
 # the limitIndex paging setting: paging trades progress granularity for
 # round-trips, while this only trades URL length and response size.
 DOWNLOAD_CHUNK = 50
+
+# How long the spawn path stays quiet after a download worker gave up on an
+# unreachable server. Long enough that a server restart or a flapping link
+# does not cost a fresh 27-second retry ladder every couple of seconds, short
+# enough that a recovered server is picked up without waiting for the next
+# full sync cycle.
+DOWNLOAD_BACKOFF_SECONDS = 60
+
+# How many pending additions the new-content announcement keeps while it waits
+# for a quiet moment (playback, or more additions still landing).
+NEW_CONTENT_LIMIT = 500
 TARGET_DB_VERSION = 1
 # No "AlbumArtist" here or in the queue set below, unlike the fork: it is not
 # a Jellyfin BaseItemKind at all. /Artists and /Artists/AlbumArtists both
@@ -168,6 +180,10 @@ class Library(threading.Thread):
         # (plan §2 retention overrun).
         self.retention_repair_pending = False
         self.startup_done = False
+        # The one-sync-at-a-time claim (see claim_full_sync): instance state,
+        # so a service restart's fresh Library starts unclaimed.
+        self._full_sync_lock = threading.Lock()
+        self._full_sync_running = False
         self.commands = queue.Queue()
         self.added_queue = queue.Queue()
         self.updated_queue = queue.Queue()
@@ -211,6 +227,13 @@ class Library(threading.Thread):
         self.database_lock = threading.Lock()
         self.music_database_lock = threading.Lock()
         self.download_errors = threading.Event()
+        # Monotonic time before which no new download worker is started. A
+        # worker that dies on ServerUnreachable re-queues its chunk, and the
+        # spawn path would otherwise start a replacement against the same
+        # queue at once — three threads taking turns to wait out the
+        # transport's whole budget, forever, while the server is away
+        # (audit finding #7).
+        self.download_backoff_until = 0.0
         self.retry_at = None
         self.retry_delay = 60
         # Next time to re-check sync.json for a full sync that never finished
@@ -521,6 +544,23 @@ class Library(threading.Thread):
         """
         self.process_commands()
 
+        for category in ("updated", "userdata", "removed"):
+            for thread in self.writer_threads[category]:
+                if thread.is_done:
+                    _release_worker(thread)
+
+        finished = [thread for thread in self.download_threads if thread.is_done]
+        for thread in finished:
+            _release_worker(thread)
+        if any(getattr(thread, "unreachable", False) for thread in finished):
+            # A worker just gave up on an unreachable server and put its chunk
+            # back. Hold the spawn path off for a while rather than feeding it
+            # straight back in (audit finding #7).
+            self.download_backoff_until = time.time() + DOWNLOAD_BACKOFF_SECONDS
+            LOG.warning(
+                "--[ downloads paused %ss: server unreachable ]",
+                DOWNLOAD_BACKOFF_SECONDS,
+            )
         self.download_threads = [
             thread for thread in self.download_threads if not thread.is_done
         ]
@@ -765,6 +805,24 @@ class Library(threading.Thread):
     def stop_client(self):
         self.stop_thread = True
 
+    def claim_full_sync(self):
+        """Take the one-sync-at-a-time claim; False when one is already up.
+
+        Lives here rather than on FullSync (where the fork kept it, in a
+        class-level Borg dict) because the claim must die with the manager
+        that owns it: a service restart builds a fresh Library, and a claim
+        that outlived the old one refused every sync the new one tried.
+        """
+        with self._full_sync_lock:
+            if self._full_sync_running:
+                return False
+            self._full_sync_running = True
+            return True
+
+    def release_full_sync(self):
+        with self._full_sync_lock:
+            self._full_sync_running = False
+
     def enable_pending_refresh(self):
         """When there's an active thread. Let the main thread know."""
         self.pending_refresh = True
@@ -887,6 +945,13 @@ class Library(threading.Thread):
                 # with minimal fields, into the updated outputs (the tag on
                 # each item routes it to the artwork-only write).
                 sources.append(("artwork", self.artwork_queue, self.updated_output))
+
+        if time.time() < self.download_backoff_until:
+            # Still inside the pause a ServerUnreachable bought. The queues
+            # keep their work; the connect probe in service/main.py is what
+            # notices the server coming back, and the next tick starts fresh
+            # workers on the same chunks.
+            return
 
         for source, work_queue, output in sources:
             if work_queue.qsize() and len(self.download_threads) < self.dthreads:
@@ -1353,7 +1418,9 @@ class Library(threading.Thread):
             if self.writer_busy(category, db_file):
                 continue
 
-            new_thread = worker_class(queue, lock, db_file, self.api_factory())
+            new_thread = worker_class(
+                queue, lock, db_file, self.api_factory(), unapplied=self.flag_unapplied
+            )
             new_thread.db_file = db_file
             new_thread.start()
             LOG.info("-->[ q:%s/%s/%s ]", category, queues, id(new_thread))
@@ -1387,6 +1454,20 @@ class Library(threading.Thread):
                 self.new_content.append(self.notify_output.get_nowait())
             except queue.Empty:
                 break
+
+        if len(self.new_content) > NEW_CONTENT_LIMIT:
+            # Held, not dropped, is the rule below — but a long playback plus
+            # a large catch-up holds every addition of the session in memory
+            # and then summarises the lot in one go (audit finding #27). The
+            # oldest go: the summary names recent additions, and the count it
+            # leads with is worth more than the names it can no longer fit.
+            overflow = len(self.new_content) - NEW_CONTENT_LIMIT
+            LOG.debug(
+                "new-content backlog over %s; dropped %s oldest",
+                NEW_CONTENT_LIMIT,
+                overflow,
+            )
+            self.new_content = self.new_content[-NEW_CONTENT_LIMIT:]
 
         if not self.new_content:
             return
@@ -2176,6 +2257,25 @@ class Library(threading.Thread):
         LOG.info("---[ removed:%s ]", count)
 
 
+def _release_worker(thread):
+    """Close a finished worker's HTTP session (audit finding #9).
+
+    Each worker was handed its own Api, hence its own connection pool, and
+    none of them were ever closed — a catch-up that spawns dozens leaves that
+    many idle pools until the garbage collector notices. Idempotent: the
+    reaper sees a finished thread on every tick until it is pruned.
+    """
+    server = getattr(thread, "server", None)
+    close = getattr(server, "close", None)
+    if close is None or getattr(thread, "_released", False):
+        return
+    thread._released = True
+    try:
+        close()
+    except Exception as error:  # pragma: no cover - defensive
+        LOG.debug("worker session close failed: %s", error)
+
+
 class UpdateWorker(threading.Thread):
 
     is_done = False
@@ -2323,14 +2423,25 @@ class UserDataWorker(threading.Thread):
 
     is_done = False
 
-    def __init__(self, queue, lock, database, server):
+    def __init__(self, queue, lock, database, server, unapplied=None):
 
         self.queue = queue
         self.lock = lock
         self.database = Database(database)
         self.server = server
+        # Callable(item_id, reason) for items this worker could not write.
+        # UpdateWorker has always had one; these two only logged, so a failed
+        # watched flag or resume point was lost for good — the recovery prune
+        # diffs ids and Etags, which say nothing about userdata (finding #19).
+        self.unapplied = unapplied
 
         threading.Thread.__init__(self)
+
+    def _report_unapplied(self, item, error):
+        if self.unapplied is not None:
+            self.unapplied(
+                item.get("Id"), "userdata %s: %s" % (item.get("Type"), error)
+            )
 
     def run(self):
 
@@ -2369,14 +2480,16 @@ class UserDataWorker(threading.Thread):
                     elif item["Type"] == "Audio":
                         music.userdata(item)
                 except LibraryException as error:
-                    # TODO: Fixme; We're catching all LibraryException here,
-                    # but silently ignoring any that isn't the exit condition.
-                    # Investigate what would be appropriate behavior here.
+                    # Still swallowed so one bad item cannot stop the drain,
+                    # but no longer forgotten: the item's userdata never
+                    # landed and the watermark is about to move past it.
                     if isinstance(error, LibraryExitException):
                         break
                     LOG.warning("Ignoring exception %s", error)
+                    self._report_unapplied(item, error)
                 except Exception as error:
                     LOG.exception(error)
+                    self._report_unapplied(item, error)
 
                 self.queue.task_done()
                 processed += 1
@@ -2482,13 +2595,20 @@ class RemovedWorker(threading.Thread):
 
     is_done = False
 
-    def __init__(self, queue, lock, database, server):
+    def __init__(self, queue, lock, database, server, unapplied=None):
 
         self.queue = queue
         self.lock = lock
         self.database = Database(database)
         self.server = server
+        # See UserDataWorker: a removal that raised left an orphaned Kodi row
+        # with nothing owing a retry (finding #19).
+        self.unapplied = unapplied
         threading.Thread.__init__(self)
+
+    def _report_unapplied(self, item, error):
+        if self.unapplied is not None:
+            self.unapplied(item.get("Id"), "removal %s: %s" % (item.get("Type"), error))
 
     def run(self):
 
@@ -2533,14 +2653,13 @@ class RemovedWorker(threading.Thread):
                     else:
                         obj(item["Id"])
                 except LibraryException as error:
-                    # TODO: Fixme; We're catching all LibraryException here,
-                    # but silently ignoring any that isn't the exit condition.
-                    # Investigate what would be appropriate behavior here.
                     if isinstance(error, LibraryExitException):
                         break
                     LOG.warning("Ignoring exception %s", error)
+                    self._report_unapplied(item, error)
                 except Exception as error:
                     LOG.exception(error)
+                    self._report_unapplied(item, error)
                 finally:
                     self.queue.task_done()
 

@@ -762,8 +762,11 @@ def test_get_item_worker_flags_errors_and_stops_on_unreachable():
 
     assert error_event.is_set()
     assert worker.is_done
-    # The second chunk was left unconsumed: watermark must not advance.
-    assert work.qsize() == 1
+    # Both chunks are still queued: the second was never taken, and the first
+    # goes back rather than being dropped (it was never fetched), so a
+    # recovered server re-covers the whole window. The watermark must not
+    # advance either way.
+    assert work.qsize() == 2
 
 
 # --- ws-event wiring ---------------------------------------------------------
@@ -838,6 +841,9 @@ def test_library_commands_enqueue(monkeypatch):
 
     service = Service.__new__(Service)
     service.library = FakeLibrary()
+    # SyncLibrary is not a guarded command, but the dispatcher reads the
+    # service's secret for every message (ipc.GUARDED).
+    service._ipc_nonce = "test-nonce"
     monkeypatch.setattr(Service, "_start_library", lambda self: None)
 
     payload = '"[{\\"Id\\": \\"lib1\\"}]"'
@@ -2037,3 +2043,134 @@ def test_clean_drain_resets_the_ladder_only_when_no_retry_is_owed():
     manager.recovery_pending = False
     manager.schedule_recovery_prune()
     assert manager.auto_prune_interval == library_mod.AUTO_PRUNE_MIN_SECONDS
+
+
+# --- offline downloads: re-queue and back off (audit finding #7) -------------
+
+
+def test_an_unreachable_worker_puts_its_chunk_back():
+    """The fork dropped the chunk on the floor here — no re-queue, no
+    task_done — so those ids were never written while the watermark moved on.
+    The flag is what lets the library pause instead of respawning into the
+    same wall."""
+    import threading
+
+    api = FakeApi()
+    api.items_result = ServerUnreachable("dead")
+    work = queue.Queue()
+    work.put(["id1", "id2"])
+    errors = threading.Event()
+
+    worker = GetItemWorker(api, work, {}, errors)
+    worker.run()
+
+    assert worker.is_done is True
+    assert worker.unreachable is True
+    assert errors.is_set() is True
+    assert work.get_nowait() == ["id1", "id2"]  # the same chunk, still to do
+
+
+def test_the_spawn_path_pauses_after_an_unreachable_worker(monkeypatch):
+    """Without the pause the reaper's replacement worker walks into the same
+    wall immediately — three threads taking turns to wait out the transport's
+    whole budget, forever."""
+    manager, _api = make_library()
+    manager.added_queue.put(["id1"])
+
+    class DeadWorker:
+        is_done = True
+        unreachable = True
+        source = "added"
+
+    manager.download_threads = [DeadWorker()]
+    monkeypatch.setattr(manager, "worker_downloads", lambda: None)
+    manager.process_commands = lambda: None
+
+    manager.service()
+    assert manager.download_backoff_until > time.time()
+
+    # The gate itself: with the pause armed, the real spawn path does nothing.
+    manager.download_threads = []
+    real_manager, _real_api = make_library()
+    real_manager.added_queue.put(["id1"])
+    real_manager.download_backoff_until = time.time() + 60
+    real_manager.worker_downloads()
+    assert real_manager.download_threads == []
+
+    # And once it expires, work resumes.
+    real_manager.download_backoff_until = 0.0
+    real_manager.worker_downloads()
+    assert len(real_manager.download_threads) == 1
+    for thread in real_manager.download_threads:
+        thread.is_done = True
+
+
+# --- smalls: recovery hooks, session release, bounded announcements ----------
+
+
+def test_userdata_and_removal_failures_schedule_recovery():
+    """Both workers only logged, so a failed watched flag or a failed removal
+    was lost for good — the recovery prune diffs ids and Etags, which say
+    nothing about userdata (audit finding #19)."""
+    from kofin.sync.library import RemovedWorker, UserDataWorker
+    from kofin.sync.shims import LibraryException
+
+    flagged = []
+    worker = UserDataWorker.__new__(UserDataWorker)
+    worker.unapplied = lambda item_id, reason: flagged.append((item_id, reason))
+    worker._report_unapplied({"Id": "m1", "Type": "Movie"}, LibraryException("boom"))
+    assert flagged[0][0] == "m1" and "userdata" in flagged[0][1]
+
+    removal = RemovedWorker.__new__(RemovedWorker)
+    removal.unapplied = lambda item_id, reason: flagged.append((item_id, reason))
+    removal._report_unapplied({"Id": "m2", "Type": "Movie"}, LibraryException("boom"))
+    assert flagged[1][0] == "m2" and "removal" in flagged[1][1]
+
+
+def test_a_worker_without_a_hook_is_still_safe():
+    """The hook is optional (tests and direct construction pass none)."""
+    from kofin.sync.library import UserDataWorker
+
+    worker = UserDataWorker.__new__(UserDataWorker)
+    worker.unapplied = None
+    worker._report_unapplied({"Id": "m1", "Type": "Movie"}, Exception("boom"))
+
+
+def test_finished_workers_release_their_http_session():
+    """Each worker gets its own Api, hence its own connection pool, and none
+    were ever closed — a catch-up spawning dozens left that many idle pools
+    until the GC noticed (audit finding #9)."""
+    from kofin.sync.library import _release_worker
+
+    closed = []
+
+    class FakeApi:
+        def close(self):
+            closed.append(1)
+
+    class FakeWorker:
+        def __init__(self):
+            self.server = FakeApi()
+
+    worker = FakeWorker()
+    _release_worker(worker)
+    _release_worker(worker)  # idempotent: the reaper sees it until it prunes
+
+    assert closed == [1]
+
+
+def test_the_new_content_backlog_is_bounded(monkeypatch):
+    """Held-not-dropped is the rule, but a long playback plus a large
+    catch-up held every addition of the session in memory (finding #27)."""
+    manager, _api = make_library()
+    manager.new_content = [{"Name": "old %d" % index} for index in range(700)]
+    manager.player.playing = True  # holding: the news keeps until playback ends
+    # Kodistubs answers every condition True; live TV would defeat the hold.
+    monkeypatch.setattr("xbmc.getCondVisibility", lambda condition: False)
+    FakeAddon.store["notifyNewContent"] = "true"
+
+    manager.notify_new_content()
+
+    assert len(manager.new_content) == library_mod.NEW_CONTENT_LIMIT
+    # The newest survive: the summary names recent additions.
+    assert manager.new_content[-1]["Name"] == "old 699"

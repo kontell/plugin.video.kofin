@@ -115,33 +115,49 @@ def test_dots_and_separators_are_scrubbed_out_of_the_name(monkeypatch):
 # -- localize ------------------------------------------------------------------
 
 
-def test_a_sidecar_is_fetched_and_the_rest_keep_their_url(tmp_path, monkeypatch):
+def test_everything_attached_is_fetched_to_a_named_file(tmp_path, monkeypatch):
+    """Both kinds are fetched now. The list is short — sidecars plus at most
+    the one embedded track a transcode resolved — and a local file is what
+    gives Kodi a language to read off the name."""
     monkeypatch.setattr(
         subtitles.xbmc, "convertLanguage", lambda code, fmt: "English", raising=False
     )
     http = FakeHttp()
     attached = [
         attachment(stream_index=3, sidecar=False),
-        attachment(stream_index=6, sidecar=True),
+        attachment(stream_index=6, sidecar=True, language="ger"),
     ]
 
-    paths = subtitles.localize(http, attached, directory=str(tmp_path))
+    localized = subtitles.localize(http, attached, directory=str(tmp_path))
 
-    assert paths[0] == attached[0].url  # embedded: fifty of these is a startup cost
-    assert paths[1] == str(tmp_path / "English.eng.srt")
-    assert (tmp_path / "English.eng.srt").read_bytes() == http.body
-    # Fetched over the converted URL, once, with no retries.
-    assert len(http.requests) == 1
-    assert http.requests[0][1].endswith("Stream.srt?ApiKey=k")
-    assert http.requests[0][3] == 0
+    assert [item.stream_index for item, _path in localized] == [3, 6]
+    assert all(path.startswith(str(tmp_path)) for _item, path in localized)
+    # Fetched over the converted URL, with no retries.
+    assert len(http.requests) == 2
+    assert all(request[1].endswith("Stream.srt?ApiKey=k") for request in http.requests)
+    assert all(request[3] == 0 for request in http.requests)
 
 
-def test_a_failed_fetch_falls_back_to_the_url(tmp_path):
-    """Worse-labelled, never missing: the track has to stay in position or the
-    Jellyfin index no longer maps to a Kodi ordinal."""
-    attached = [attachment(stream_index=6)]
-    paths = subtitles.localize(FakeHttp(fail=True), attached, directory=str(tmp_path))
-    assert paths == [attached[0].url]
+def test_a_failed_sidecar_falls_back_to_its_url(tmp_path):
+    """Worse-labelled, never missing. Safe for a sidecar: the server already
+    has the file, so Kodi opening the URL itself costs nothing."""
+    attached = [attachment(stream_index=6, sidecar=True)]
+    localized = subtitles.localize(
+        FakeHttp(fail=True), attached, directory=str(tmp_path)
+    )
+    assert localized == [(attached[0], attached[0].url)]
+
+
+def test_a_failed_embedded_track_is_dropped(tmp_path):
+    """The opposite call, and the point of the change: an embedded track is
+    extracted on demand, and its URL is exactly what made Kodi stall for 20
+    seconds while building the demuxer. Dropped here, it stays reachable
+    through the stream menu, which restarts into it."""
+    attached = [attachment(stream_index=3, sidecar=False)]
+    localized = subtitles.localize(
+        FakeHttp(fail=True), attached, directory=str(tmp_path)
+    )
+    assert localized == []
 
 
 def test_the_order_in_is_the_order_out(tmp_path, monkeypatch):
@@ -155,11 +171,9 @@ def test_the_order_in_is_the_order_out(tmp_path, monkeypatch):
         attachment(stream_index=6, sidecar=True, language="ger"),
         attachment(stream_index=7, sidecar=False),
     ]
-    paths = subtitles.localize(FakeHttp(), attached, directory=str(tmp_path))
-    assert len(paths) == 3
-    assert paths[0] == attached[0].url
-    assert paths[1].endswith("English.ger.srt")
-    assert paths[2] == attached[2].url
+    localized = subtitles.localize(FakeHttp(), attached, directory=str(tmp_path))
+    assert [item.stream_index for item, _path in localized] == [3, 6, 7]
+    assert localized[1][1].endswith("English.ger.srt")
 
 
 def test_only_so_many_are_worth_the_first_frame(tmp_path, monkeypatch):
@@ -169,14 +183,14 @@ def test_only_so_many_are_worth_the_first_frame(tmp_path, monkeypatch):
     http = FakeHttp()
     attached = [attachment(stream_index=n, language="l%02d" % n) for n in range(12)]
 
-    paths = subtitles.localize(http, attached, directory=str(tmp_path))
+    localized = subtitles.localize(http, attached, directory=str(tmp_path))
 
     assert len(http.requests) == subtitles.MAX_FILES
-    assert sum(1 for path in paths if path.startswith(str(tmp_path))) == (
+    assert sum(1 for _item, path in localized if path.startswith(str(tmp_path))) == (
         subtitles.MAX_FILES
     )
-    # The rest are still attached, just by URL.
-    assert paths[-1] == attached[-1].url
+    # The rest are sidecars, so they keep their URL rather than dropping.
+    assert localized[-1][1] == attached[-1].url
 
 
 def test_each_play_sweeps_the_one_before_it(tmp_path, monkeypatch):
@@ -208,6 +222,29 @@ def test_nothing_attached_costs_nothing(tmp_path):
     assert http.requests == []
 
 
+def test_a_dropped_track_leaves_the_others_in_position(tmp_path, monkeypatch):
+    """The ordinal mapping reads the surviving list in order, so a drop must
+    close the gap rather than leave a hole."""
+    monkeypatch.setattr(
+        subtitles.xbmc, "convertLanguage", lambda code, fmt: "English", raising=False
+    )
+
+    class OneBadHttp(FakeHttp):
+        def request(self, method, url, timeout=None, retries=0, **kwargs):
+            self.requests.append((method, url, timeout, retries))
+            if "/3/" in url:
+                raise OSError("the server could not produce this track")
+            return type("Response", (), {"content": self.body})()
+
+    attached = [
+        attachment(stream_index=3, sidecar=False, url="http://s/x/3/0/Stream.subrip"),
+        attachment(stream_index=6, sidecar=True, language="ger"),
+    ]
+    localized = subtitles.localize(OneBadHttp(), attached, directory=str(tmp_path))
+
+    assert [item.stream_index for item, _path in localized] == [6]
+
+
 def test_sidecars_share_the_wait_instead_of_queuing(tmp_path, monkeypatch):
     """Sequential fetches held the first frame for the sum of their round
     trips; they must run concurrently, order-of-results still the order in
@@ -230,10 +267,10 @@ def test_sidecars_share_the_wait_instead_of_queuing(tmp_path, monkeypatch):
         attachment(stream_index=index, language="l%02d" % index) for index in range(4)
     ]
     started = time.monotonic()
-    paths = subtitles.localize(http, attached, directory=str(tmp_path))
+    localized = subtitles.localize(http, attached, directory=str(tmp_path))
 
-    assert len(paths) == 4
-    assert all(path.startswith(str(tmp_path)) for path in paths)
+    assert len(localized) == 4
+    assert all(path.startswith(str(tmp_path)) for _item, path in localized)
     # Four fetches on more than one thread, in far less than 4 x 50 ms.
     assert len(set(http.requests)) > 1
     assert time.monotonic() - started < 0.15

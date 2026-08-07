@@ -1169,8 +1169,15 @@ def make_fullsync(api):
 
     from kofin.sync.full_sync import FullSync
 
-    FullSync._shared_state.clear()
-    sync = FullSync(library=SimpleNamespace(database_lock=threading.Lock()), server=api)
+    # The claim methods stand in for the real Library's one-sync-at-a-time
+    # guard, which moved off FullSync's class-level Borg dict so it dies with
+    # the manager that owns it (audit finding #11).
+    library = SimpleNamespace(
+        database_lock=threading.Lock(),
+        claim_full_sync=lambda: True,
+        release_full_sync=lambda: None,
+    )
+    sync = FullSync(library=library, server=api)
     sync.sync = {"Libraries": [], "Whitelist": [], "RestorePoints": {}}
     return sync
 
@@ -1193,7 +1200,7 @@ def test_boxset_sweep_removes_stale(api):
     try:
         assert fullsync.sweep_stale_boxsets({"set1"}) == 1
     finally:
-        type(fullsync)._shared_state.clear()
+        fullsync.release()
 
     assert kofin_query("SELECT jellyfin_id FROM jellyfin WHERE media_type = 'set'") == [
         ("set1",)
@@ -1212,7 +1219,7 @@ def test_boxset_sweep_refuses_an_empty_listing(api):
     try:
         assert fullsync.sweep_stale_boxsets(set()) == 0
     finally:
-        type(fullsync)._shared_state.clear()
+        fullsync.release()
 
     assert kofin_query("SELECT COUNT(*) FROM jellyfin WHERE media_type = 'set'") == [
         (1,)
@@ -1235,7 +1242,7 @@ def walk_boxsets(api, sets):
     try:
         fullsync.boxsets(dict(LIBRARY))
     finally:
-        type(fullsync)._shared_state.clear()
+        fullsync.release()
 
 
 def drifted_boxsets():
@@ -2188,7 +2195,7 @@ def test_prune_rehome_spared_references(api):
             == season_folder
         )
     finally:
-        type(fullsync)._shared_state.clear()
+        fullsync.release()
 
 
 # --- music videos ----------------------------------------------------------------

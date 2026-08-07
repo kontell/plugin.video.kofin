@@ -204,3 +204,36 @@ def resume_seconds(kodi_id: int, media: str) -> Optional[float]:
     except Exception as error:
         LOG.debug("resume read failed for %s/%s: %s", media, kodi_id, error)
         return None
+
+
+def preferred_subtitle_language() -> str:
+    """Kodi's configured subtitle language as an ISO 639-2 code, or ''.
+
+    The setting holds a display name ("English"), or one of Kodi's own words:
+    ``original`` and ``default`` defer to the media or the UI language, and
+    ``none``/``forced_only`` mean the viewer does not want a subtitle chosen
+    for them — all of which answer '' here, since none of them names a track
+    to prefer.
+    """
+    try:
+        response: Dict[str, Any] = json.loads(
+            xbmc.executeJSONRPC(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "Settings.GetSettingValue",
+                        "params": {"setting": "locale.subtitlelanguage"},
+                    }
+                )
+            )
+        )
+        value = str(response["result"]["value"])
+    except Exception as error:
+        LOG.debug("subtitle language unavailable: %s", error)
+        return ""
+    if value.lower() in ("", "none", "forced_only", "original"):
+        return ""
+    if value.lower() == "default":
+        return str(xbmc.getLanguage(xbmc.ISO_639_2) or "")
+    return str(xbmc.convertLanguage(value, xbmc.ISO_639_2) or "")

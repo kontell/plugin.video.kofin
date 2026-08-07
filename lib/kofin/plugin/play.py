@@ -14,7 +14,7 @@ import xbmcplugin
 
 from kofin.core import deviceprofile, kodirpc, settings, state, streams, toast
 from kofin.core.api import Api
-from kofin.core.http import Http, JellyfinError
+from kofin.core.http import JellyfinError, plugin_transport
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin import listitems, subtitles
@@ -296,7 +296,7 @@ def play(request: Request) -> None:
     except ValueError:
         bitrate_mbps = 0.0
 
-    http = Http(settings.get_bool("sslVerify"))
+    http = plugin_transport(settings.get_bool("sslVerify"))
     api = Api.from_credentials(http, creds, interactive=True)
     # The media-segments prefetch shares nothing with PlaybackInfo or the
     # subtitle fetches, so it runs beside them instead of after them and its
@@ -419,9 +419,14 @@ def play(request: Request) -> None:
     # one (plugin/subtitles.py). That is the one place this route pays for
     # anything, which is why it is capped, short-timeout and falls back to the
     # URL.
-    attached = streams.attached_subtitles(api.server, source, method)
-    if attached:
-        li.setSubtitles(subtitles.localize(http, attached))
+    # Only the tracks that actually landed are attached, and only those count
+    # for the ordinal mapping the stream menu reads (subtitles.localize).
+    attached = streams.attached_subtitles(
+        api.server, source, method, kodirpc.preferred_subtitle_language()
+    )
+    localized = subtitles.localize(http, attached) if attached else []
+    if localized:
+        li.setSubtitles([path for _attachment, path in localized])
 
     play_item = play_state(
         item,
@@ -431,7 +436,7 @@ def play(request: Request) -> None:
         play_session_id,
         creds.device_id,
         start_ticks / 10_000_000,
-        attached=[item.stream_index for item in attached],
+        attached=[attachment.stream_index for attachment, _path in localized],
         request_params=request.params,
     )
     # Bounded: the interactive Api budget caps the fetch, so a hung join here

@@ -1,6 +1,6 @@
 import pytest
 
-from kofin.core import ipc
+from kofin.core import ipc, state
 from kofin.service.main import Backoff, Service
 from tests.unit.fakes import FakeAddon, FakeWindow
 
@@ -30,17 +30,70 @@ def test_backoff_due_and_reset():
     assert backoff.failed(now=0) == 5
 
 
-def test_restart_and_auth_notifications_set_flag():
+def _signed(service, payload=None):
+    """A guarded message as kofin's own plugin process sends it."""
+    import json
+
+    body = dict(payload or {})
+    body[ipc.NONCE_KEY] = service._ipc_nonce
+    return json.dumps([body])
+
+
+def test_restart_and_auth_notifications_set_flag(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
     service = Service()
     assert service._restart_requested is False
-    service.onNotification("someone.else", "Other.Restart", "[]")
+    service.onNotification("someone.else", "Other.Restart", _signed(service))
     assert service._restart_requested is False
-    service.onNotification(ipc.SENDER, "Other.Restart", "[]")
+    service.onNotification(ipc.SENDER, "Other.Restart", _signed(service))
     assert service._restart_requested is True
 
     fresh = Service()
-    fresh.onNotification(ipc.SENDER, "Other.AuthChanged", "[]")
+    fresh.onNotification(ipc.SENDER, "Other.AuthChanged", _signed(fresh))
     assert fresh._restart_requested is True
+
+
+def test_a_forged_restart_is_dropped(monkeypatch, tmp_path):
+    """Kodi passes the sender string through from whoever called NotifyAll —
+    the builtin and the JSON-RPC method both — so kofin's own name proves
+    nothing. Without the secret the destructive commands do not run
+    (audit finding #20)."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+
+    service.onNotification(ipc.SENDER, "Other.Restart", "[]")
+    service.onNotification(ipc.SENDER, "Other.AuthChanged", '[{"_nonce": "guess"}]')
+
+    assert service._restart_requested is False
+
+
+def test_a_forged_library_removal_never_reaches_the_manager(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    commands = []
+
+    class RecordingLibrary:
+        startup_done = True
+
+        def enqueue_command(self, command, data=None):
+            commands.append(command)
+
+    service = Service()
+    service.library = RecordingLibrary()
+    monkeypatch.setattr(Service, "_start_library", lambda self: None)
+
+    service.onNotification(ipc.SENDER, "Other.RemoveLibrary", '[{"Id": "lib1"}]')
+    assert commands == []
+
+    service.onNotification(
+        ipc.SENDER, "Other.RemoveLibrary", _signed(service, {"Id": "lib1"})
+    )
+    assert commands == ["RemoveLibrary"]
 
 
 def test_ssl_change_triggers_restart():
@@ -716,3 +769,70 @@ def test_post_connect_reruns_once_for_a_connect_landing_mid_pass(monkeypatch):
     service._run_post_connect()
 
     assert calls == ["caps", "restore", "catchup"] * 2
+
+
+# --- teardown must end, and must not lie about it ----------------------------
+
+
+class StuckLibrary:
+    """A library thread that will not stop, which is the case that wedged
+    Kodi: a service script that never returns leaves every later Python
+    invocation hanging."""
+
+    def __init__(self):
+        self.stopped = False
+
+    def stop_client(self):
+        self.stopped = True
+
+    def is_alive(self):
+        return True
+
+    def join(self, timeout=None):
+        return None
+
+
+def test_the_teardown_gives_up_on_a_stuck_library(monkeypatch):
+    """Waiting on abortRequested alone never ends on an addon bounce — that
+    flag means Kodi is shutting down. The wait has to have a deadline."""
+    import kofin.service.main as main_module
+
+    monkeypatch.setattr(main_module, "LIBRARY_JOIN_SECONDS", 10.0)
+    service = Service()
+    service.library = StuckLibrary()
+    monkeypatch.setattr(service, "abortRequested", lambda: False)
+
+    assert service._join_library() is False  # reported, not pretended
+
+
+def test_a_stuck_library_keeps_the_sync_stop_flag_raised(monkeypatch):
+    """The flag is what every worker's @stop guard reads. Clearing it while
+    the thread lives un-pauses it against an already-rebuilt service (audit
+    finding #10); the deadline must not reintroduce that."""
+    import kofin.service.main as main_module
+
+    monkeypatch.setattr(main_module, "LIBRARY_JOIN_SECONDS", 0.0)
+    service = Service()
+    service.library = StuckLibrary()
+    monkeypatch.setattr(service, "abortRequested", lambda: False)
+    monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
+    monkeypatch.setattr(service, "_join_workers", lambda: None)
+
+    service._shutdown()
+
+    assert state.should_stop() is True
+
+
+def test_a_clean_teardown_clears_everything(monkeypatch):
+    class FinishedLibrary(StuckLibrary):
+        def is_alive(self):
+            return False
+
+    service = Service()
+    service.library = FinishedLibrary()
+    monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
+    monkeypatch.setattr(service, "_join_workers", lambda: None)
+
+    service._shutdown()
+
+    assert state.should_stop() is False

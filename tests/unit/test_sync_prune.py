@@ -49,9 +49,7 @@ def sync_env(monkeypatch, tmp_path):
 
     sync_db.reset_overrides()
     sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
-    FullSync._shared_state.clear()
     yield
-    FullSync._shared_state.clear()
     sync_db.reset_overrides()
 
 
@@ -60,6 +58,14 @@ class RecordingLibrary:
 
     def __init__(self):
         self.calls = {"removed": [], "added": [], "updated": []}
+
+    # The one-sync-at-a-time claim lives on the Library now (audit finding
+    # #11): FullSync asks its manager rather than a class-level dict.
+    def claim_full_sync(self):
+        return True
+
+    def release_full_sync(self):
+        pass
 
     def removed(self, data):
         self.calls["removed"].extend(data)

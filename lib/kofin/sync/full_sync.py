@@ -152,27 +152,32 @@ class FullSync(object):
         sync.libraries()
     """
 
-    # Borg - multiple instances, shared state
-    _shared_state: dict = {}
+    # The fork made this a Borg (one dict shared by every instance) to enforce
+    # "only one sync at a time". kofin cannot: the service rebuilds its object
+    # graph in-process on restart, and class-level state outlives that — an
+    # orphaned sync left running=True and the *new* Library's startup then
+    # refused to sync at all until Kodi itself restarted, while the dict also
+    # pinned the old Library's queues, threads and Api forever. The guard now
+    # belongs to the Library the sync runs for, so it dies with it.
     sync = None
-    running = False
     update_library = False
 
     def __init__(self, library, server):
         """You can call all big syncing methods here.
         Initial, update, repair, remove.
         """
-        self.__dict__ = self._shared_state
+        self.library = library
+        self.server = server
+        self._claimed = False
 
-        if self.running:
+        if library is not None and not library.claim_full_sync():
             # Deviation from the fork: a refusal, not a failure — the sync
             # already under way is fine and is what the user wanted.
             notification(localized(30410), warning=True)
 
             raise Exception("Sync is already running.")
 
-        self.library = library
-        self.server = server
+        self._claimed = library is not None
 
     def __enter__(self):
         """Do everything we need before the sync"""
@@ -182,10 +187,16 @@ class FullSync(object):
         # never pauses sync (verified live, docs/widget-refresh-plan.md F9),
         # and an interrupted sync resumes from sync.json, so there is nothing
         # here worth overwriting a user setting to protect.
-        self.running = True
         state.set_sync_active(True)
 
         return self
+
+    def release(self):
+        """Give the library's sync claim back. Idempotent: __exit__ calls it,
+        and so does the constructor's failure path by never having claimed."""
+        if self._claimed and self.library is not None:
+            self.library.release_full_sync()
+            self._claimed = False
 
     def libraries(self, libraries=None, update=False):
         """Map the syncing process and start the sync. Ensure only one sync is running."""
@@ -1177,7 +1188,7 @@ class FullSync(object):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Exiting sync"""
-        self.running = False
+        self.release()
         state.set_sync_active(False)
 
         LOG.info("--<[ fullsync ]")

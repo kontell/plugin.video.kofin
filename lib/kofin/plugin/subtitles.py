@@ -13,12 +13,19 @@ constraint) and ``English.eng.srt`` a 404. So the file has to be local, and
 this module is the only thing in kofin that fetches media content on the play
 path — hence the care about cost.
 
-**Sidecars only.** They are files the server found beside the media, and there
-are rarely more than a handful. The other attached set — embedded text tracks
-delivered as files on a transcode — can be fifty on one film, and paying for
-fifty fetches before ``setResolvedUrl`` is exactly the startup delay the design
-forbids (docs/transcode-stream-selection-plan.md §2.4 measured attaching URLs
-at 0 s). Those keep their URL, and kofin's own stream dialog is what names them.
+**Everything attached**, which is now a short list: sidecars, plus at most the
+one embedded track a transcode was resolved with (``streams.attached_subtitles``
+stopped attaching the rest). The old rule — sidecars fetched, embedded ones left
+as URLs — assumed Kodi fetched an attached URL only when the viewer picked it.
+It does not: it opens every attached subtitle while building the demuxer, and an
+embedded track is extracted on demand by the server, so a slow or failing one
+cost a 20-second timeout before the picture appeared.
+
+That is also why an embedded track that cannot be fetched here is *dropped*
+rather than falling back to its URL: the URL is precisely what stalls. A
+sidecar still falls back, because the server serves a file it already has and
+Kodi opening it costs nothing. The dropped track is not lost — the stream menu
+restarts into it, which resolves a stream that has it.
 
 What Kodi does with a name was measured, not guessed (all on Omega 21.3, real
 tracks added to a running playback):
@@ -36,7 +43,7 @@ anything Kodi does not parse ends up rendered.
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import xbmc
 import xbmcvfs
@@ -168,51 +175,57 @@ def localize(
     http: Http,
     attached: List[streams.Attachment],
     directory: Optional[str] = None,
-) -> List[str]:
-    """The paths to hand ``setSubtitles``, sidecars fetched to local files.
+) -> List[Tuple[streams.Attachment, str]]:
+    """(attachment, path) for everything to hand ``setSubtitles``.
 
-    The order is the order in, and that is load-bearing: it is what makes a
-    Jellyfin index translatable to a Kodi subtitle number at all
-    (``streams.subtitle_ordinal``). A fetch that fails contributes its URL, so
-    the track is still there and still in position — worse-labelled, never
-    missing.
+    Pairs rather than paths because a track can now drop out — see the module
+    docstring — and the caller has to know which ones survived: the Jellyfin
+    index of each surviving track, in this order, is what makes an index
+    translatable to a Kodi subtitle number at all
+    (``streams.subtitle_ordinal``).
 
-    The fetches run concurrently (perf plan W2.6): sequentially, each sidecar
-    cost its whole round trip — ~0.4 s each on LAN — and MAX_FILES of them
-    held the first frame for ~3 s. The cap accordingly bounds fetch *attempts*
+    Order is the order in. A sidecar whose fetch failed keeps its URL and its
+    place — worse-labelled, never missing. An embedded track whose fetch
+    failed is left out, because its URL is the thing that stalls Kodi.
+
+    The fetches run concurrently (perf plan W2.6): sequentially, each cost its
+    whole round trip — ~0.4 s each on LAN. The cap bounds fetch *attempts*
     rather than successes: "stop after the eighth success" would mean
-    submitting a ninth fetch only after one fails, which re-serializes exactly
-    the pathological item the cap exists for.
+    submitting a ninth only after one fails, which re-serializes exactly the
+    pathological item the cap exists for.
     """
     if not attached:
         return []
     path = directory or _cache_dir()
     sweep(path)
 
-    to_fetch = [attachment for attachment in attached if attachment.sidecar]
-    to_fetch = to_fetch[:MAX_FILES]
+    to_fetch = attached[:MAX_FILES]
     local_paths: Dict[int, str] = {}
-    if to_fetch:
-        with ThreadPoolExecutor(max_workers=min(4, len(to_fetch))) as pool:
-            futures = {
-                pool.submit(_fetch, http, attachment, path): attachment
-                for attachment in to_fetch
-            }
-            for future in as_completed(futures):
-                local_paths[futures[future].stream_index] = future.result()
+    with ThreadPoolExecutor(max_workers=min(4, len(to_fetch))) as pool:
+        futures = {
+            pool.submit(_fetch, http, attachment, path): attachment
+            for attachment in to_fetch
+        }
+        for future in as_completed(futures):
+            local_paths[futures[future].stream_index] = future.result()
 
-    urls: List[str] = []
+    localized: List[Tuple[streams.Attachment, str]] = []
     fetched = 0
     for attachment in attached:
         local = local_paths.get(attachment.stream_index, "")
         if local:
             fetched += 1
-            urls.append(local)
+            localized.append((attachment, local))
+        elif attachment.sidecar:
+            localized.append((attachment, attachment.url))
         else:
-            urls.append(attachment.url)
+            LOG.info(
+                "subtitle %s dropped: the server did not produce it",
+                attachment.stream_index,
+            )
     if fetched:
-        LOG.info("fetched %d sidecar subtitle(s) for their labels", fetched)
-    return urls
+        LOG.info("fetched %d subtitle(s) for their labels", fetched)
+    return localized
 
 
 def _fetch(http: Http, attachment: streams.Attachment, directory: str) -> str:

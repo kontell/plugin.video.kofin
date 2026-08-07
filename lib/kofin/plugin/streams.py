@@ -196,11 +196,13 @@ def _choose_subtitle(
     for stream in subtitles:
         active = stream.get("Index") == playing.subtitle
         label = streams.label_for(stream, active)
-        if streams.needs_restart(stream, method) and not active:
-            # Burn-in is not a like-for-like alternative to the others in this
-            # list — it re-encodes the video and restarts playback — so the row
-            # says so rather than surprising the viewer with a five-second gap.
-            # The one already burned in has nothing left to warn about.
+        if streams.needs_restart(stream, method, attached) and not active:
+            # Two kinds of row cost a restart on a transcode: an image
+            # subtitle, which can only be burned in, and a text one that was
+            # not attached (only the resolved track is — see
+            # streams.attached_subtitles). Either way the row says so rather
+            # than surprising the viewer with a five-second gap. The one
+            # already on screen has nothing left to warn about.
             label = "%s (%s)" % (label, settings.localized(30617))
         rows.append((stream, label))
 
@@ -228,7 +230,7 @@ def _choose_subtitle(
         return
     if chosen.get("Index") == playing.subtitle:
         return  # already on screen; never pay a restart to arrive where we are
-    if streams.needs_restart(chosen, method):
+    if streams.needs_restart(chosen, method, attached):
         _restart(payload, playing._replace(subtitle=chosen.get("Index"), burned=True))
         return
     ordinal = streams.subtitle_ordinal(

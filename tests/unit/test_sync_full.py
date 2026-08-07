@@ -25,11 +25,9 @@ class FakeServer:
 def fullsync(monkeypatch):
     monkeypatch.setattr("kofin.sync.full_sync.save_sync", lambda sync: None)
     monkeypatch.setattr("kofin.sync.full_sync.notification", lambda *a, **kw: None)
-    FullSync._shared_state.clear()
     sync = FullSync(library=None, server=None)
     sync.sync = {"Libraries": [], "Whitelist": [], "RestorePoints": {}}
     yield sync
-    FullSync._shared_state.clear()
 
 
 def test_deleted_library_dropped_not_whitelisted(fullsync):
@@ -250,3 +248,65 @@ def test_library_exception_keeps_the_entry(fullsync, monkeypatch):
     assert isinstance(failures[0], LibraryException)
     assert fullsync.sync["Libraries"] == ["lib1"]
     assert fullsync.sync["Whitelist"] == []
+
+
+# --- the one-sync-at-a-time claim (audit finding #11) -------------------------
+
+
+class ClaimLibrary:
+    """The claim half of Library, standing in for the real manager."""
+
+    def __init__(self):
+        import threading
+
+        self._full_sync_lock = threading.Lock()
+        self._full_sync_running = False
+        self.released = 0
+
+    def claim_full_sync(self):
+        with self._full_sync_lock:
+            if self._full_sync_running:
+                return False
+            self._full_sync_running = True
+            return True
+
+    def release_full_sync(self):
+        with self._full_sync_lock:
+            self._full_sync_running = False
+            self.released += 1
+
+
+def test_a_second_sync_on_the_same_library_is_refused(monkeypatch):
+    monkeypatch.setattr("kofin.sync.full_sync.notification", lambda *a, **kw: None)
+    library = ClaimLibrary()
+
+    first = FullSync(library, server=None)
+    with pytest.raises(Exception, match="already running"):
+        FullSync(library, server=None)
+
+    first.release()
+    FullSync(library, server=None).release()  # the claim came back
+
+
+def test_the_claim_dies_with_its_library(monkeypatch):
+    """The fork kept this in a class-level Borg dict, which outlived the
+    service's object graph: an orphaned sync left it True and the *new*
+    Library refused to sync at all until Kodi restarted (audit finding #11)."""
+    monkeypatch.setattr("kofin.sync.full_sync.notification", lambda *a, **kw: None)
+    orphaned = ClaimLibrary()
+    FullSync(orphaned, server=None)  # never released: the old manager is gone
+
+    rebuilt = ClaimLibrary()
+    FullSync(rebuilt, server=None)  # must not raise
+
+
+def test_exit_releases_the_claim(monkeypatch):
+    monkeypatch.setattr("kofin.sync.full_sync.notification", lambda *a, **kw: None)
+    monkeypatch.setattr("kofin.sync.full_sync.state.set_sync_active", lambda on: None)
+    library = ClaimLibrary()
+
+    with FullSync(library, server=None):
+        pass
+
+    assert library.released == 1
+    assert library._full_sync_running is False

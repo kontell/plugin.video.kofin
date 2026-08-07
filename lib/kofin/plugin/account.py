@@ -7,7 +7,13 @@ import xbmc
 import xbmcgui
 
 from kofin.core import auth, ipc, settings, toast
-from kofin.core.http import Http, JellyfinError, ServerUnreachable, Unauthorized
+from kofin.core.http import (
+    Http,
+    JellyfinError,
+    ServerUnreachable,
+    Unauthorized,
+    plugin_transport,
+)
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin.router import Request
@@ -43,7 +49,7 @@ def login(request: Request) -> None:
             return
     address = auth.normalize_address(address_raw)
 
-    transport = Http(settings.get_bool("sslVerify"))
+    transport = plugin_transport(settings.get_bool("sslVerify"))
     try:
         info = auth.public_info(transport, address)
     except JellyfinError as error:
@@ -154,7 +160,7 @@ def logout(request: Request) -> None:
     if not xbmcgui.Dialog().yesno("Kofin", _text(30019) % creds.server_name):
         return
 
-    transport = Http(settings.get_bool("sslVerify"))
+    transport = plugin_transport(settings.get_bool("sslVerify"))
     header = auth.build_auth_header(
         _device_name(), creds.device_id, settings.addon_version(), creds.token
     )
@@ -175,7 +181,7 @@ def test_connection(request: Request) -> None:
         _notification(_text(30026))
         return
 
-    transport = Http(settings.get_bool("sslVerify"))
+    transport = plugin_transport(settings.get_bool("sslVerify"))
     api = Api.from_credentials(transport, creds, interactive=True)
     try:
         info = api.public_info()

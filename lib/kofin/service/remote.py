@@ -42,6 +42,19 @@ INPUT_ACTIONS = {
 }
 
 
+def _as_int(value: Any, default: int = 0) -> int:
+    """A server-supplied number, or ``default`` for anything that is not one.
+
+    Every one of these arrives over the websocket from the server, and a
+    non-numeric value used to raise straight out of the handler (audit
+    finding #22). The message is the server's, the crash was ours.
+    """
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 class RemoteHandler:
     def __init__(self) -> None:
         # The SyncPlay manager (attached by the service while one is built);
@@ -74,7 +87,7 @@ class RemoteHandler:
         item_ids = data.get("ItemIds") or []
         if isinstance(item_ids, str):
             item_ids = item_ids.split(",")
-        start_index = int(data.get("StartIndex") or 0)
+        start_index = max(_as_int(data.get("StartIndex")), 0)
         ordered: List[str] = list(item_ids[start_index:])
         if not ordered:
             return
@@ -89,7 +102,7 @@ class RemoteHandler:
             for url in urls:
                 playlist.add(url)
             xbmc.Player().play(playlist)
-            position_ticks = int(data.get("StartPositionTicks") or 0)
+            position_ticks = _as_int(data.get("StartPositionTicks"))
             if position_ticks:
                 self._seek_when_playing(position_ticks / 10_000_000)
         elif command == "PlayNext":
@@ -127,7 +140,7 @@ class RemoteHandler:
         elif command == "PreviousTrack":
             player.playprevious()
         elif command == "Seek":
-            ticks = int(data.get("SeekPositionTicks") or 0)
+            ticks = _as_int(data.get("SeekPositionTicks"))
             try:
                 player.seekTime(ticks / 10_000_000)
             except RuntimeError:
@@ -153,7 +166,7 @@ class RemoteHandler:
         elif name == "SetVolume":
             self._rpc(
                 "Application.SetVolume",
-                {"volume": int(arguments.get("Volume") or 0)},
+                {"volume": _as_int(arguments.get("Volume"))},
             )
         elif name == "VolumeUp":
             self._rpc("Application.SetVolume", {"volume": "increment"})
@@ -168,7 +181,7 @@ class RemoteHandler:
             toast.show(
                 arguments.get("Text") or "",
                 heading=arguments.get("Header") or "Jellyfin",
-                time_ms=int(arguments.get("TimeoutMs") or 5000),
+                time_ms=_as_int(arguments.get("TimeoutMs"), 5000),
             )
         elif name == "SendString":
             self._rpc(
