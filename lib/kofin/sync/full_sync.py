@@ -494,8 +494,13 @@ class FullSync(object):
     @contextmanager
     def video_database_locks(self):
         with self.library.database_lock:
-            with Database() as videodb:
-                with Database("kofin") as jellyfindb:
+            # kofin.db outermost, so the Kodi database commits first at block
+            # exit: a failed Kodi commit must not leave the mapping claiming
+            # rows MyVideos never got (audit finding #17) — those short-circuit
+            # every later Etag-gated walk. The periodic in-pass commits already
+            # go Kodi-first.
+            with Database("kofin") as jellyfindb:
+                with Database() as videodb:
                     yield videodb, jellyfindb
 
     @progress()
@@ -509,7 +514,7 @@ class FullSync(object):
         """
         restore_key = "%s/movies" % library["Id"]
 
-        with Database() as videodb, Database("kofin") as jellyfindb:
+        with Database("kofin") as jellyfindb, Database() as videodb:
             for items in server.get_items(
                 self.server,
                 library["Id"],
@@ -595,7 +600,7 @@ class FullSync(object):
         """
         heading = "%s: %s" % ("Kofin", library["Name"])
 
-        with Database() as videodb, Database("kofin") as jellyfindb:
+        with Database("kofin") as jellyfindb, Database() as videodb:
 
             def tvshows_pass(item_type, key_suffix, apply, describe):
                 restore_key = "%s/tvshows-%s" % (library["Id"], key_suffix)
@@ -677,7 +682,7 @@ class FullSync(object):
         """Process musicvideos from a single library."""
         restore_key = "%s/musicvideos" % library["Id"]
 
-        with Database() as videodb, Database("kofin") as jellyfindb:
+        with Database("kofin") as jellyfindb, Database() as videodb:
             for items in server.get_items(
                 self.server,
                 library["Id"],
@@ -716,8 +721,10 @@ class FullSync(object):
     def music(self, library, dialog):
         """Process artists, album, songs from a single library."""
         with self.library.music_database_lock:
-            with Database("music") as musicdb:
-                with Database("kofin") as jellyfindb:
+            # kofin.db outermost for the same commit-order reason as
+            # video_database_locks.
+            with Database("kofin") as jellyfindb:
+                with Database("music") as musicdb:
                     obj = Music(self.server, jellyfindb, musicdb, library)
 
                     library_id = library["Id"]

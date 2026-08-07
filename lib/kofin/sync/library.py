@@ -2230,7 +2230,7 @@ class UpdateWorker(threading.Thread):
         return True
 
     def run(self):
-        with self.lock, self.database as kodidb, Database("kofin") as jellyfindb:
+        with self.lock, Database("kofin") as jellyfindb, self.database as kodidb:
             default_args = (self.server, jellyfindb, kodidb)
             artwork_writers = {}
             if kodidb.db_file == "video":
@@ -2334,7 +2334,7 @@ class UserDataWorker(threading.Thread):
 
     def run(self):
 
-        with self.lock, self.database as kodidb, Database("kofin") as jellyfindb:
+        with self.lock, Database("kofin") as jellyfindb, self.database as kodidb:
             default_args = (self.server, jellyfindb, kodidb)
             if kodidb.db_file == "video":
                 movies = Movies(*default_args)
@@ -2492,7 +2492,7 @@ class RemovedWorker(threading.Thread):
 
     def run(self):
 
-        with self.lock, self.database as kodidb, Database("kofin") as jellyfindb:
+        with self.lock, Database("kofin") as jellyfindb, self.database as kodidb:
             default_args = (self.server, jellyfindb, kodidb)
             # Only one family is built per worker (video or music), but the
             # dispatch is handed all four, so the unbuilt ones must exist.

@@ -298,6 +298,17 @@ class _NoWaitMonitor:
     def waitForAbort(self, seconds=0):
         return False
 
+    def abortRequested(self):
+        return False
+
+
+def _join_post_connect(service):
+    """The connect callback spawns its work (W2.5); tests that assert on the
+    outcome wait for the pass to finish first."""
+    assert service._post_connect is not None
+    service._post_connect.join(timeout=10)
+    assert not service._post_connect.is_alive()
+
 
 def test_uncached_string_does_not_break_the_connect_callback(monkeypatch):
     """Kodi caches addon strings for the process lifetime, so an id added in
@@ -322,6 +333,7 @@ def test_uncached_string_does_not_break_the_connect_callback(monkeypatch):
     monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
 
     service._on_ws_connected()
+    _join_post_connect(service)
 
     assert registered == [True]
     assert RecordingDialog.raised == [("Kofin", "")]
@@ -499,6 +511,7 @@ def _connected(service, monkeypatch):
     monkeypatch.setattr(service, "_connection_toast", lambda *a: None)
     monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
     service._on_ws_connected()
+    _join_post_connect(service)
 
 
 def test_reconnect_catches_up_on_missed_changes(monkeypatch):
@@ -558,6 +571,7 @@ def test_ws_connect_restores_who_is_watching(monkeypatch):
     monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
 
     service._on_ws_connected()
+    _join_post_connect(service)
 
     assert order == ["capabilities", "catchup"]
     assert api.added == ["u2", "u4"]
@@ -595,6 +609,7 @@ def test_ws_connect_survives_a_broken_restore(monkeypatch):
     monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
 
     service._on_ws_connected()
+    _join_post_connect(service)
 
     assert caught_up == [True]
 
@@ -643,3 +658,61 @@ def test_library_update_ignored_while_logged_out():
     )
 
     assert submitted == []
+
+
+# --- websocket post-connect worker (perf plan W2.5, audit finding #5) --------
+
+
+def test_on_ws_connected_returns_while_the_slow_work_runs(monkeypatch):
+    """on_open is invoked from the websocket's own receive loop: for as long
+    as it runs, nothing is read off the socket. The callback must spawn the
+    post-connect work and return."""
+    import threading
+
+    service = Service()
+    monkeypatch.setattr(service, "_connection_toast", lambda *a, **k: None)
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_pass():
+        started.set()
+        release.wait(5)
+
+    monkeypatch.setattr(service, "_run_post_connect", slow_pass)
+
+    service._on_ws_connected()  # must not block on the pass
+
+    assert started.wait(5)
+    assert service._post_connect is not None and service._post_connect.is_alive()
+    release.set()
+    service._post_connect.join(5)
+    assert not service._post_connect.is_alive()
+
+
+def test_post_connect_reruns_once_for_a_connect_landing_mid_pass(monkeypatch):
+    """A reconnect during the pass sets the pending flag; the worker runs one
+    more full pass so the new session still gets capabilities and restore —
+    neither skipped nor a second thread."""
+    service = Service()
+    service.syncplay = None
+    calls = []
+    state = {"reconnected": False}
+
+    monkeypatch.setattr(service, "_register_capabilities", lambda: calls.append("caps"))
+    monkeypatch.setattr(
+        service, "_restore_additional_users", lambda: calls.append("restore")
+    )
+
+    def catch_up():
+        calls.append("catchup")
+        if not state["reconnected"]:
+            state["reconnected"] = True
+            service._post_connect_pending.set()
+
+    monkeypatch.setattr(service, "_catch_up_after_reconnect", catch_up)
+    monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
+
+    service._post_connect_pending.set()
+    service._run_post_connect()
+
+    assert calls == ["caps", "restore", "catchup"] * 2

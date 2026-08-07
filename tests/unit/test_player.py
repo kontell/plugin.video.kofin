@@ -60,6 +60,12 @@ def make_player(monkeypatch, url="http://s/stream"):
     return player, api
 
 
+def drain(player):
+    """Reports post on the reporter's own thread (W2.2); tests that assert on
+    api.calls wait for the pipe to run dry first."""
+    assert player._reporter.flush(5)
+
+
 def queue_item(url="http://s/stream", method="DirectStream"):
     state.push_play_item(
         {
@@ -83,6 +89,7 @@ def test_claim_and_report_lifecycle(monkeypatch):
     queue_item()
 
     player.onPlayBackStarted()
+    drain(player)
     assert api.calls[0][0] == "playing"
     start = api.calls[0][1]
     assert start["ItemId"] == "m1"
@@ -91,25 +98,60 @@ def test_claim_and_report_lifecycle(monkeypatch):
     assert state.get_playing_id() == "m1"
 
     player.onPlayBackSeek(65_000, 0)
+    drain(player)
     seek = api.calls[-1][1]
     assert seek["PositionTicks"] == 650_000_000
 
     player.report_progress()
+    drain(player)
     tick = api.calls[-1][1]
     assert tick["PositionTicks"] == 420_000_000
 
     player.onPlayBackStopped()
+    drain(player)
     kinds = [kind for kind, _data in api.calls]
     assert kinds[-1] == "stopped"
     assert api.calls[-1][1]["PositionTicks"] == 420_000_000
     assert state.get_playing_id() == ""
 
 
+def test_callbacks_return_while_the_post_is_still_in_flight(monkeypatch):
+    """The reporter's whole point (audit finding #2): Kodi delivers player
+    callbacks on the announcement thread every addon shares, so the callback
+    must hand the network off and return — a server that answers slowly may
+    hold the *report*, never the thread."""
+    import threading
+
+    player, api = make_player(monkeypatch)
+    queue_item()
+    posting = threading.Event()
+    release = threading.Event()
+
+    def slow_playing(data):
+        posting.set()
+        assert release.wait(5)
+        api.calls.append(("playing", data))
+
+    monkeypatch.setattr(api, "session_playing", slow_playing)
+
+    player.onPlayBackStarted()  # must return while slow_playing blocks
+
+    assert posting.wait(5)
+    assert ("playing", None) not in api.calls and not any(
+        kind == "playing" for kind, _data in api.calls
+    )
+    release.set()
+    drain(player)
+    assert any(kind == "playing" for kind, _data in api.calls)
+
+
 def test_foreign_playback_is_ignored(monkeypatch):
     player, api = make_player(monkeypatch)
     player.onPlayBackStarted()
+    drain(player)
     assert api.calls == []
     player.onPlayBackStopped()
+    drain(player)
     assert api.calls == []
 
 
@@ -118,6 +160,7 @@ def test_transcode_stop_closes_encoding(monkeypatch):
     queue_item(method="Transcode")
     player.onPlayBackStarted()
     player.onPlayBackEnded()
+    drain(player)
     assert ("close_transcode", "dev1") in api.calls
 
 
@@ -126,8 +169,10 @@ def test_pause_resume_report_state(monkeypatch):
     queue_item()
     player.onPlayBackStarted()
     player.onPlayBackPaused()
+    drain(player)
     assert api.calls[-1][1]["IsPaused"] is True
     player.onPlayBackResumed()
+    drain(player)
     assert api.calls[-1][1]["IsPaused"] is False
 
 
@@ -193,6 +238,7 @@ def test_syncplay_detached_is_a_noop(monkeypatch):
     player.onPlayBackStarted()  # syncplay is None: nothing to forward
     player.onAVStarted()
     player.onPlayBackStopped()
+    drain(player)
     kinds = [kind for kind, _data in api.calls]
     assert kinds[0] == "playing" and kinds[-1] == "stopped"
 
@@ -211,6 +257,7 @@ def test_broken_syncplay_hook_never_breaks_reporting(monkeypatch):
     queue_item()
     player.onPlayBackStarted()
     player.onPlayBackStopped()
+    drain(player)
     kinds = [kind for kind, _data in api.calls]
     assert "playing" in kinds and "stopped" in kinds
 

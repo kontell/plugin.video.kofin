@@ -49,6 +49,61 @@ def test_node_query_music_albums():
     assert query["SortBy"] == "AlbumArtist,SortName"
 
 
+def test_node_query_fields_follow_boundedness():
+    """MediaStreams rides only bounded listings: on a whole-library node it
+    multiplied the payload 3.6x and the server time 3x (perf plan W2.1), and
+    music never reads stream details at all (_fill_music)."""
+    unbounded = ["all", "unwatched", "favorites", "sets", "genre-g1"]
+    for node in unbounded:
+        assert "MediaStreams" not in node_query("movies", node, "v1")["Fields"], node
+    for node in ("recent", "inprogress", "random"):
+        assert "MediaStreams" in node_query("movies", node, "v1")["Fields"], node
+    for node in ("recentepisodes", "inprogressepisodes", "random"):
+        assert "MediaStreams" in node_query("tvshows", node, "v1")["Fields"], node
+    # Bounded but music: still no stream details.
+    assert "MediaStreams" not in node_query("music", "recentalbums", "v1")["Fields"]
+
+
+def test_season_episodes_keep_stream_details():
+    """One season is exactly the bounded listing where per-row codec flags
+    matter; the drill-down must ask for them."""
+    captured = {}
+
+    class EpisodesApi:
+        server = "http://s:8096"
+
+        def episodes(self, series_id, season_id, fields):
+            captured["fields"] = fields
+            return {"Items": []}
+
+    browse._list_items(
+        EpisodesApi(),
+        "season",
+        "season1",
+        "v1",
+        Request("plugin://x", 1, {"series": "show1"}),
+    )
+    assert "MediaStreams" in captured["fields"]
+
+
+def test_generic_children_stay_slim():
+    """A folder/boxset/playlist drill-down is unbounded (a playlist can hold a
+    thousand rows), so it takes the slim field list."""
+    captured = {}
+
+    class ChildrenApi:
+        server = "http://s:8096"
+
+        def items(self, params):
+            captured["params"] = params
+            return {"Items": []}
+
+    browse._list_items(
+        ChildrenApi(), "boxset", "set1", "v1", Request("plugin://x", 1, {})
+    )
+    assert "MediaStreams" not in captured["params"]["Fields"]
+
+
 def test_content_helpers():
     assert _node_content("tvshows", "nextup") == "episodes"
     assert _node_content("movies", "sets") == "movies"
@@ -308,7 +363,9 @@ def test_continue_watching_lists_the_server_order(monkeypatch, directory):
     assert ["id=m1" in paths[0], "id=e1" in paths[1]] == [True, True]
     assert all("mode=play" in path for path in paths)
     assert [folder for _path, _li, folder in directory["entries"]] == [False, False]
-    assert api.resume_calls == [(browse.BROWSE_FIELDS, 25)]
+    # A 25-row listing keeps stream details (BROWSE_FIELDS_STREAMS): bounded
+    # payload, and resume rows are where codec/HDR flags are most looked at.
+    assert api.resume_calls == [(browse.BROWSE_FIELDS_STREAMS, 25)]
 
 
 def test_continue_watching_failure_fails_directory(monkeypatch, directory):

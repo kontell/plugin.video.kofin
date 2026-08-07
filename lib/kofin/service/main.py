@@ -20,7 +20,7 @@ from kofin.core.settings import Credentials, addon_version
 from kofin.core.ws import WSClient
 from kofin.service import backdrop, chapters
 from kofin.service.kodiuserdata import KodiUserData
-from kofin.service.player import Player, backfill_library_claim
+from kofin.service.player import Player
 from kofin.service.remote import RemoteHandler
 from kofin.service.settings_apply import SettingsApplier
 
@@ -106,6 +106,10 @@ class Service(xbmc.Monitor):
         self._who_is_watching: Optional[threading.Thread] = None
         self._chapter_sweep: Optional[threading.Thread] = None
         self._backdrop: Optional[threading.Thread] = None
+        # Post-connect worker (see _on_ws_connected): the pending event is
+        # how a reconnect that lands mid-run asks for one more pass.
+        self._post_connect: Optional[threading.Thread] = None
+        self._post_connect_pending = threading.Event()
         self._online = False
         self._backoff = Backoff()
         self.settings_apply = SettingsApplier(self)
@@ -383,21 +387,44 @@ class Service(xbmc.Monitor):
         self._connection_toast(30416, level=toast.WARNING)
 
     def _on_ws_connected(self) -> None:
-        self._connection_toast(30415, self.credentials.server_name or "")
+        """Runs on the websocket's own receive loop — toast, spawn, return.
 
-        # The server registers the socket's session asynchronously; give it a
-        # beat before attaching capabilities to that session.
-        xbmc.Monitor().waitForAbort(2)
-        self._register_capabilities()
-        # Capabilities attach this device's session; re-apply the Who's
-        # watching? set the plugin saved, which does not survive a new
-        # session (Kodi restart or a reconnect that minted a fresh one).
-        self._restore_additional_users()
-        self._catch_up_after_reconnect()
-        if self.syncplay is not None:
-            # Reconnect contract (plan §2): after any WS drop assume kicked;
-            # the manager probes /SyncPlay/List and rejoins on its own thread.
-            self.syncplay.on_notification("WebSocketConnected", {})
+        The post-connect work blocks for seconds (a deliberate settle wait,
+        capabilities registration, the who's-watching restore, the catch-up
+        enqueue), and for as long as on_open runs nothing is read off the
+        socket — inbound Play/SyncPlay commands and pongs stall at exactly
+        the moment the server pushes state at a fresh session (audit finding
+        #5). So the work moves to a worker; the pending flag makes a connect
+        that lands mid-run schedule one more pass rather than pile up threads
+        or be skipped — each pass re-reads current state, so the last one
+        always serves the live session.
+        """
+        self._connection_toast(30415, self.credentials.server_name or "")
+        self._post_connect_pending.set()
+        if self._post_connect is None or not self._post_connect.is_alive():
+            self._post_connect = threading.Thread(
+                target=self._run_post_connect, name="kofin-postconnect", daemon=True
+            )
+            self._post_connect.start()
+
+    def _run_post_connect(self) -> None:
+        monitor = xbmc.Monitor()
+        while self._post_connect_pending.is_set() and not monitor.abortRequested():
+            self._post_connect_pending.clear()
+            # The server registers the socket's session asynchronously; give
+            # it a beat before attaching capabilities to that session.
+            monitor.waitForAbort(2)
+            self._register_capabilities()
+            # Capabilities attach this device's session; re-apply the Who's
+            # watching? set the plugin saved, which does not survive a new
+            # session (Kodi restart or a reconnect that minted a fresh one).
+            self._restore_additional_users()
+            self._catch_up_after_reconnect()
+            if self.syncplay is not None:
+                # Reconnect contract (plan §2): after any WS drop assume
+                # kicked; the manager probes /SyncPlay/List and rejoins on
+                # its own thread.
+                self.syncplay.on_notification("WebSocketConnected", {})
 
     def _restore_additional_users(self) -> None:
         """Re-attach saved co-watchers. Contained: must never break connect."""
@@ -531,10 +558,10 @@ class Service(xbmc.Monitor):
         library reports nothing without this. Never allowed to break playback:
         a failed back-fill just means the play stays unreported, as before.
         """
-        try:
-            backfill_library_claim(data, self.api)
-        except Exception:
-            LOG.exception("library claim back-fill failed")
+        # Queued to the player's reporter: the claim's server GET must not
+        # run on Kodi's notification thread (audit finding #3); failures are
+        # contained inside the job.
+        self.player.submit_backfill(data)
 
     def onSettingsChanged(self) -> None:
         self.settings_apply.apply()
