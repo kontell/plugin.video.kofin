@@ -128,6 +128,10 @@ class Service(xbmc.Monitor):
         self._precache_art: Optional[threading.Thread] = None
         self._online = False
         self._backoff = Backoff()
+        # This generation's IPC secret (see ipc.GUARDED): minted here so the
+        # plugin process picks it up from the moment the service exists, and
+        # invalidated by the next restart.
+        self._ipc_nonce = ipc.rotate_nonce()
         self.settings_apply = SettingsApplier(self)
 
     # -- lifecycle -----------------------------------------------------------
@@ -545,6 +549,14 @@ class Service(xbmc.Monitor):
         if sender != ipc.SENDER:
             return
         name = ipc.method_name(method)
+        payload = ipc.decode(data)
+        if not ipc.verify(name, payload, self._ipc_nonce):
+            # Kodi passes the sender string through from whoever called
+            # NotifyAll, so this is what a forged destructive command looks
+            # like: our name, no secret. Logged rather than silent — if it is
+            # ever a real kofin message, this line is the only trace.
+            LOG.warning("dropped unauthenticated %s", name)
+            return
         if name == ipc.RESTART:
             LOG.info("restart requested")
             self._restart_requested = True
@@ -562,7 +574,7 @@ class Service(xbmc.Monitor):
             if self.library is None:
                 LOG.warning("library command %s ignored: manager not running", name)
                 return
-            self.library.enqueue_command(name, ipc.decode(data))
+            self.library.enqueue_command(name, payload)
 
     def _precache_art_now(self) -> None:
         """Settings button: seed every outstanding cast image.

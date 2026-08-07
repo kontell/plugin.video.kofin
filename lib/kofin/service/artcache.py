@@ -30,13 +30,13 @@ cached server art (``sync/clean.purge_server_art``).
 import os
 import struct
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import xbmc
 import xbmcvfs
 
 from kofin.core import settings
-from kofin.core.http import Http, JellyfinError
+from kofin.core.http import Http, HttpError
 from kofin.core.log import Logger
 from kofin.sync import schema
 from kofin.sync.db import Database
@@ -169,6 +169,13 @@ class ActorArtCache:
         # whichever starts second waits and then reads a list the first has
         # already shortened.
         self._working = threading.Lock()
+        # URLs the server will not serve. A library carries art rows whose
+        # image the server has since lost (404) or cannot render (500) —
+        # measured on the test library — and nothing ever caches them, so the
+        # work list hands back the same dead URLs on every pass and a batch
+        # spends itself on them. Skipped for this service generation only: a
+        # restart re-tries, which is the right cadence for a server-side fix.
+        self._unservable: Set[str] = set()
 
     # -- lifecycle -------------------------------------------------------------
 
@@ -238,7 +245,11 @@ class ActorArtCache:
             return self._seed_batch(limit)
 
     def _seed_batch(self, limit: int) -> int:
-        urls = pending_urls(limit)
+        urls = [
+            url
+            for url in pending_urls(limit + len(self._unservable))
+            if url not in self._unservable
+        ][:limit]
         if not urls:
             return 0
 
@@ -291,10 +302,19 @@ class ActorArtCache:
 
         Anonymous, like every other art fetch: these URLs carry their own
         image tag and Jellyfin serves them without a token.
+
+        A 4xx/5xx is the server saying it will not serve this image at all
+        (a stale tag, a lost file); those go on the skip list so the next
+        batch spends itself on images that can actually land. A transport
+        failure is not remembered — that is the network, and it will pass.
         """
         try:
             response = self._http.request("GET", url, timeout=TIMEOUT, retries=0)
-        except (JellyfinError, Exception) as error:
+        except HttpError as error:
+            LOG.debug("actor art unavailable (%s): %s", url[:80], error)
+            self._unservable.add(url)
+            return b""
+        except Exception as error:
             LOG.debug("actor art fetch failed (%s): %s", url[:80], error)
             return b""
         content: bytes = response.content or b""

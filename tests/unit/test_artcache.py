@@ -304,3 +304,51 @@ def test_the_trickle_and_the_button_never_fetch_in_parallel(monkeypatch):
         thread.join(5)
 
     assert overlap == [False, False, False, False]
+
+
+def test_an_image_the_server_refuses_is_not_retried_all_evening(seeder, monkeypatch):
+    """A library carries art rows whose image the server has since lost —
+    404/500, measured live. Nothing ever caches them, so without a skip list
+    the work list hands back the same dead URLs on every pass and a batch
+    spends itself on them."""
+    from kofin.core.http import HttpError
+
+    cache, _http, _tmp = seeder
+    attempts = []
+
+    class GoneHttp:
+        def request(self, method, url, timeout=None, retries=0, **kwargs):
+            attempts.append(url)
+            raise HttpError(404, "GET %s -> 404" % url)
+
+        def close(self):
+            pass
+
+    cache._http = GoneHttp()
+    monkeypatch.setattr(artcache, "pending_urls", lambda limit: ["http://s/gone"])
+
+    assert cache.seed_batch() == 0
+    assert cache.seed_batch() == 0
+    assert attempts == ["http://s/gone"]  # asked once, not twice
+
+
+def test_a_transport_failure_is_retried_next_batch(seeder, monkeypatch):
+    """The network coming back is the normal case; only the server's own
+    refusal is remembered."""
+    cache, _http, _tmp = seeder
+    attempts = []
+
+    class FlakyHttp:
+        def request(self, method, url, timeout=None, retries=0, **kwargs):
+            attempts.append(url)
+            raise OSError("connection reset")
+
+        def close(self):
+            pass
+
+    cache._http = FlakyHttp()
+    monkeypatch.setattr(artcache, "pending_urls", lambda limit: ["http://s/flaky"])
+
+    cache.seed_batch()
+    cache.seed_batch()
+    assert attempts == ["http://s/flaky", "http://s/flaky"]

@@ -838,6 +838,9 @@ def test_library_commands_enqueue(monkeypatch):
 
     service = Service.__new__(Service)
     service.library = FakeLibrary()
+    # SyncLibrary is not a guarded command, but the dispatcher reads the
+    # service's secret for every message (ipc.GUARDED).
+    service._ipc_nonce = "test-nonce"
     monkeypatch.setattr(Service, "_start_library", lambda self: None)
 
     payload = '"[{\\"Id\\": \\"lib1\\"}]"'

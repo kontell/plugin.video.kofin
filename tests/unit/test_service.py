@@ -30,17 +30,70 @@ def test_backoff_due_and_reset():
     assert backoff.failed(now=0) == 5
 
 
-def test_restart_and_auth_notifications_set_flag():
+def _signed(service, payload=None):
+    """A guarded message as kofin's own plugin process sends it."""
+    import json
+
+    body = dict(payload or {})
+    body[ipc.NONCE_KEY] = service._ipc_nonce
+    return json.dumps([body])
+
+
+def test_restart_and_auth_notifications_set_flag(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
     service = Service()
     assert service._restart_requested is False
-    service.onNotification("someone.else", "Other.Restart", "[]")
+    service.onNotification("someone.else", "Other.Restart", _signed(service))
     assert service._restart_requested is False
-    service.onNotification(ipc.SENDER, "Other.Restart", "[]")
+    service.onNotification(ipc.SENDER, "Other.Restart", _signed(service))
     assert service._restart_requested is True
 
     fresh = Service()
-    fresh.onNotification(ipc.SENDER, "Other.AuthChanged", "[]")
+    fresh.onNotification(ipc.SENDER, "Other.AuthChanged", _signed(fresh))
     assert fresh._restart_requested is True
+
+
+def test_a_forged_restart_is_dropped(monkeypatch, tmp_path):
+    """Kodi passes the sender string through from whoever called NotifyAll —
+    the builtin and the JSON-RPC method both — so kofin's own name proves
+    nothing. Without the secret the destructive commands do not run
+    (audit finding #20)."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+
+    service.onNotification(ipc.SENDER, "Other.Restart", "[]")
+    service.onNotification(ipc.SENDER, "Other.AuthChanged", '[{"_nonce": "guess"}]')
+
+    assert service._restart_requested is False
+
+
+def test_a_forged_library_removal_never_reaches_the_manager(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    commands = []
+
+    class RecordingLibrary:
+        startup_done = True
+
+        def enqueue_command(self, command, data=None):
+            commands.append(command)
+
+    service = Service()
+    service.library = RecordingLibrary()
+    monkeypatch.setattr(Service, "_start_library", lambda self: None)
+
+    service.onNotification(ipc.SENDER, "Other.RemoveLibrary", '[{"Id": "lib1"}]')
+    assert commands == []
+
+    service.onNotification(
+        ipc.SENDER, "Other.RemoveLibrary", _signed(service, {"Id": "lib1"})
+    )
+    assert commands == ["RemoveLibrary"]
 
 
 def test_ssl_change_triggers_restart():
