@@ -297,19 +297,28 @@ def has_lyrics() -> bool:
     return _window().getProperty(PROP_LYRIC_HAS) == "true"
 
 
-def clear_all() -> None:
+def clear_all(keep_stop: bool = False) -> None:
+    """Drop the live state. ``keep_stop`` leaves PROP_SYNC_STOP raised.
+
+    The teardown passes it when a sync thread outlived the wait: that flag is
+    what every worker's @stop guard reads, so clearing it would un-pause a
+    thread the service has already replaced. Better a stuck thread that stays
+    stopped than one that resumes into a second Library.
+    """
     window = _window()
-    for prop in (
+    props = [
         PROP_ONLINE,
         PROP_PLAY_QUEUE,
         PROP_PLAYING_ID,
-        PROP_SYNC_STOP,
         PROP_SYNC_ACTIVE,
         PROP_CONTEXT_BITRATES,
         PROP_PLAYING_STREAMS,
         PROP_PLAYING_MENU,
         PROP_WHO_NAMES,
-    ):
+    ]
+    if not keep_stop:
+        props.append(PROP_SYNC_STOP)
+    for prop in props:
         window.clearProperty(prop)
     clear_lyrics()
 

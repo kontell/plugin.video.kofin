@@ -41,6 +41,19 @@ LIBRARY_COMMANDS = frozenset(
 # edit within this window; a real change always lands well after it.
 SETTINGS_READY_DELAY = 5.0
 
+# How long the teardown waits for the library thread before giving up on it.
+# Long enough to cover a page fetch and a writer batch — the reason the fork's
+# 15 s was too short — and bounded, which the first version of this was not:
+# waiting on `abortRequested` alone never ends on an addon disable (that flag
+# is Kodi shutting down, not the addon being bounced), so the service script
+# never returned. Kodi gives a stopping script five seconds, then logs
+# "script didn't stop"; measured after that, *every* later Python invocation
+# in Kodi hung — plugin listings and plays included — until Kodi restarted.
+# A thread that outlives this deadline keeps PROP_SYNC_STOP raised instead
+# (see state.clear_all), so it stays paused rather than resuming into the
+# replacement Library.
+LIBRARY_JOIN_SECONDS = 30.0
+
 # Server lifecycle websocket messages -> the string announcing them. These are
 # the server telling us it is about to go away; the websocket drop that
 # follows is then explained rather than mysterious.
@@ -611,9 +624,10 @@ class Service(xbmc.Monitor):
     def _shutdown(self) -> None:
         state.set_should_stop(True)
         self._stop_syncplay()
+        library_stuck = False
         if self.library is not None:
             self.library.stop_client()
-            self._join_library()
+            library_stuck = not self._join_library()
             self.library = None
         self.player.stop_threads()
         self.artcache.stop()
@@ -627,31 +641,45 @@ class Service(xbmc.Monitor):
         # PROP_SYNC_STOP, which is the flag every sync worker's @stop guard
         # reads. Clearing it while a thread survives un-pauses that thread
         # against a service that has already been rebuilt — two Library object
-        # graphs, each with its own database locks, writing the same files.
-        state.clear_all()
+        # graphs, each with its own database locks, writing the same files. A
+        # thread that outlived the join keeps the flag raised for exactly that
+        # reason.
+        state.clear_all(keep_stop=library_stuck)
 
-    def _join_library(self) -> None:
-        """Wait for the library thread to actually die.
+    def _join_library(self) -> bool:
+        """Wait for the library thread to die; True when it did.
 
-        Bounded only by Kodi's own abort: a 15-second give-up let the thread
-        outlive the teardown, and the next line used to clear the stop flag it
-        was waiting on (audit finding #10). A page fetch alone can exceed that
-        deadline, so the wait reports progress instead of abandoning.
+        Two failures to avoid, and they pull in opposite directions. Giving up
+        after 15 seconds and carrying on let the thread outlive the teardown
+        while the next line cleared the stop flag it was waiting on (audit
+        finding #10). Waiting on `abortRequested` alone never ends on an addon
+        bounce, and a service script that does not return wedges every later
+        Python invocation in Kodi (see LIBRARY_JOIN_SECONDS).
+
+        So: a deadline generous enough for a page fetch, and a truthful answer
+        when it passes — the caller keeps the flag raised rather than pretending
+        the thread is gone.
         """
         library = self.library
         if library is None:
-            return
+            return True
         waited = 0.0
-        while library.is_alive():
+        while library.is_alive() and waited < LIBRARY_JOIN_SECONDS:
             library.join(timeout=5)
             if not library.is_alive():
-                break
+                return True
             waited += 5
             if self.abortRequested():
-                # Kodi is going down anyway; it will not wait for us either.
                 LOG.warning("abort during teardown; library thread still alive")
-                return
+                return False
             LOG.warning("library thread still stopping after %.0fs", waited)
+        if library.is_alive():
+            LOG.error(
+                "library thread outlived %.0fs; leaving the sync stop flag raised",
+                LIBRARY_JOIN_SECONDS,
+            )
+            return False
+        return True
 
     def _join_workers(self) -> None:
         """Join the named one-shot workers this service started.

@@ -1,6 +1,6 @@
 import pytest
 
-from kofin.core import ipc
+from kofin.core import ipc, state
 from kofin.service.main import Backoff, Service
 from tests.unit.fakes import FakeAddon, FakeWindow
 
@@ -716,3 +716,70 @@ def test_post_connect_reruns_once_for_a_connect_landing_mid_pass(monkeypatch):
     service._run_post_connect()
 
     assert calls == ["caps", "restore", "catchup"] * 2
+
+
+# --- teardown must end, and must not lie about it ----------------------------
+
+
+class StuckLibrary:
+    """A library thread that will not stop, which is the case that wedged
+    Kodi: a service script that never returns leaves every later Python
+    invocation hanging."""
+
+    def __init__(self):
+        self.stopped = False
+
+    def stop_client(self):
+        self.stopped = True
+
+    def is_alive(self):
+        return True
+
+    def join(self, timeout=None):
+        return None
+
+
+def test_the_teardown_gives_up_on_a_stuck_library(monkeypatch):
+    """Waiting on abortRequested alone never ends on an addon bounce — that
+    flag means Kodi is shutting down. The wait has to have a deadline."""
+    import kofin.service.main as main_module
+
+    monkeypatch.setattr(main_module, "LIBRARY_JOIN_SECONDS", 10.0)
+    service = Service()
+    service.library = StuckLibrary()
+    monkeypatch.setattr(service, "abortRequested", lambda: False)
+
+    assert service._join_library() is False  # reported, not pretended
+
+
+def test_a_stuck_library_keeps_the_sync_stop_flag_raised(monkeypatch):
+    """The flag is what every worker's @stop guard reads. Clearing it while
+    the thread lives un-pauses it against an already-rebuilt service (audit
+    finding #10); the deadline must not reintroduce that."""
+    import kofin.service.main as main_module
+
+    monkeypatch.setattr(main_module, "LIBRARY_JOIN_SECONDS", 0.0)
+    service = Service()
+    service.library = StuckLibrary()
+    monkeypatch.setattr(service, "abortRequested", lambda: False)
+    monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
+    monkeypatch.setattr(service, "_join_workers", lambda: None)
+
+    service._shutdown()
+
+    assert state.should_stop() is True
+
+
+def test_a_clean_teardown_clears_everything(monkeypatch):
+    class FinishedLibrary(StuckLibrary):
+        def is_alive(self):
+            return False
+
+    service = Service()
+    service.library = FinishedLibrary()
+    monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
+    monkeypatch.setattr(service, "_join_workers", lambda: None)
+
+    service._shutdown()
+
+    assert state.should_stop() is False
