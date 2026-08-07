@@ -96,3 +96,25 @@ def test_adjusted_resume_leaves_a_position_shorter_than_the_offset():
     assert settings.adjusted_resume(45.0) == 45.0
     assert settings.adjusted_resume(60.0) == 60.0
     assert settings.adjusted_resume(60.5) == 0.5
+
+
+def test_the_artwork_query_carries_only_parameters_the_server_honours():
+    """Measured against 10.11: EnableImageEnhancers is not in the OpenAPI
+    spec at all (an Emby-era feature Jellyfin dropped), so the setting that
+    sent it could never have done anything. MaxHeight and Quality are both
+    declared and both work."""
+    import xml.etree.ElementTree as etree
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[2] / "lib/kofin/sync/fields.py"
+    ).read_text()
+    assert "EnableImageEnhancers" not in source
+    assert "MaxHeight" in source and "Quality" in source
+
+    root = etree.parse(
+        str(Path(__file__).resolve().parents[2] / "resources/settings.xml")
+    ).getroot()
+    ids = {s.get("id") for s in root.iter("setting")}
+    assert "enableCoverArt" not in ids
+    assert {"compressArt", "maxArtResolution"} <= ids
