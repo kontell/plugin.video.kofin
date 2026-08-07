@@ -12,8 +12,14 @@ from kofin.core import streams
 SERVER = "http://s:8096"
 
 
-def source(*media_streams):
-    return {"MediaStreams": list(media_streams)}
+def source(*media_streams, selected=None):
+    """A MediaSource. ``selected`` is PlaybackInfo's
+    DefaultSubtitleStreamIndex — the track this playback was resolved to
+    show, and on a transcode the only embedded one that gets attached."""
+    layout = {"MediaStreams": list(media_streams)}
+    if selected is not None:
+        layout["DefaultSubtitleStreamIndex"] = selected
+    return layout
 
 
 def audio(index, **extra):
@@ -57,6 +63,7 @@ LAYOUT = source(
     text_sub(4),
     image_sub(5),
     text_sub(6, IsExternal=True),  # sidecar file beside the media
+    selected=3,  # what the server resolved this playback to show
 )
 SUMMARY = streams.summarize(LAYOUT)
 
@@ -86,17 +93,87 @@ def test_summarize_drops_video_and_keeps_only_menu_fields():
 # -- attached_subtitles ------------------------------------------------------
 
 
-def test_transcode_attaches_embedded_text_and_the_sidecar_not_the_image():
-    # A transcode carries no subtitles at all, so the embedded text ones have
-    # to arrive as files; the image one cannot (a raw .sup Kodi will not draw).
+def test_transcode_attaches_the_resolved_track_and_the_sidecar_only():
+    """A transcode carries no subtitles, so the resolved one has to arrive as
+    a file — but only that one.
+
+    Kodi opens every attached subtitle while building the demuxer, not when
+    one is picked, and each embedded track is extracted on demand by the
+    server. Attaching all of them made a film with several stall for
+    20 seconds per track the server could not produce (measured live: one
+    ground for 48 s and then answered 400). Track 4 stays reachable through
+    the menu, which restarts into it; the image one was never attachable.
+    """
     assert [
         (item.stream_index, item.url)
         for item in streams.attached_subtitles(SERVER, LAYOUT, "Transcode")
     ] == [
         (3, SERVER + "/subs/3.srt"),
-        (4, SERVER + "/subs/4.srt"),
         (6, SERVER + "/subs/6.srt"),
     ]
+
+
+def test_the_fallback_prefers_a_forced_track():
+    """The server often selects nothing, and a film with twenty tracks and no
+    default is exactly the case that used to attach all twenty. Forced first,
+    because that is what forced means."""
+    layout = source(text_sub(3), text_sub(4, IsForced=True), text_sub(5))
+    assert streams.preferred_embedded(layout["MediaStreams"], None, "eng") == 4
+
+
+def test_the_fallback_then_takes_the_viewers_language():
+    layout = source(
+        text_sub(3, Language="fre"), text_sub(4, Language="eng"), text_sub(5)
+    )
+    assert streams.preferred_embedded(layout["MediaStreams"], None, "eng") == 4
+    # Case is the server's business, not the viewer's.
+    assert streams.preferred_embedded(layout["MediaStreams"], None, "ENG") == 4
+
+
+def test_the_fallback_guesses_nothing_when_neither_applies():
+    """Attaching an arbitrary track would be a guess, and the menu is there."""
+    layout = source(text_sub(3, Language="fre"), text_sub(4, Language="ger"))
+    assert streams.preferred_embedded(layout["MediaStreams"], None, "eng") is None
+    assert streams.preferred_embedded(layout["MediaStreams"], None, "") is None
+
+
+def test_the_servers_own_choice_beats_the_fallback():
+    layout = source(text_sub(3, Language="eng"), text_sub(4, IsForced=True))
+    assert streams.preferred_embedded(layout["MediaStreams"], 3, "eng") == 3
+
+
+def test_the_fallback_never_picks_an_image_or_a_sidecar():
+    """An image track cannot be attached at all — Kodi will not render a
+    standalone PGS and the server hands over a raw dump. A sidecar is already
+    attached by its own rule."""
+    layout = source(
+        image_sub(3, IsForced=True),
+        text_sub(4, IsExternal=True, Language="eng"),
+        text_sub(5, Language="ger"),
+    )
+    assert streams.preferred_embedded(layout["MediaStreams"], None, "eng") is None
+
+
+def test_the_fallback_reaches_attachment(monkeypatch):
+    """End to end: no server choice, a forced track, one attachment."""
+    layout = source(text_sub(3), text_sub(4, IsForced=True), image_sub(5))
+    attached = streams.attached_subtitles(SERVER, layout, "Transcode", "eng")
+    assert [item.stream_index for item in attached] == [4]
+
+
+def test_transcode_attaches_no_embedded_track_when_nothing_fits():
+    """Nothing chosen, nothing forced, nothing in the viewer's language: no
+    extraction at all. The sidecar still rides, and the menu still offers
+    every track."""
+    layout = source(
+        text_sub(3, Language="fre"),
+        text_sub(4, Language="ger"),
+        text_sub(6, IsExternal=True),
+    )
+    assert [
+        item.stream_index
+        for item in streams.attached_subtitles(SERVER, layout, "Transcode", "eng")
+    ] == [6]
 
 
 def test_direct_play_attaches_only_the_sidecar():
@@ -223,15 +300,22 @@ def test_selectable_on_direct_play_is_everything():
     assert len(streams.selectable_subtitles(SUMMARY, [6], "DirectStream")) == 4
 
 
-def test_selectable_on_a_transcode_is_attached_plus_burnable():
-    selectable = streams.selectable_subtitles(SUMMARY, [3, 4, 6], "Transcode")
+def test_selectable_on_a_transcode_is_every_track():
+    """Only one embedded track is attached now, so the others are reached by
+    restarting into them — an answer, and one the menu labels. Hiding them
+    would leave the viewer with no way to that subtitle at all."""
+    selectable = streams.selectable_subtitles(SUMMARY, [3, 6], "Transcode")
     assert [stream["Index"] for stream in selectable] == [3, 4, 5, 6]
 
 
-def test_selectable_drops_a_transcode_text_track_that_did_not_attach():
-    # Nothing would happen if it were picked, so it is not offered.
-    selectable = streams.selectable_subtitles(SUMMARY, [3], "Transcode")
-    assert [stream["Index"] for stream in selectable] == [3, 5]
+def test_a_transcode_text_track_that_is_not_attached_costs_a_restart():
+    # 3 is attached and switches in place; 4 is not and needs a new stream;
+    # 5 is an image track, which can only be burned in.
+    assert not streams.needs_restart(text_sub(3), "Transcode", [3, 6])
+    assert streams.needs_restart(text_sub(4), "Transcode", [3, 6])
+    assert streams.needs_restart(image_sub(5), "Transcode", [3, 6])
+    # Direct play holds every track in the container: never a restart.
+    assert not streams.needs_restart(text_sub(4), "DirectStream", [6])
 
 
 @pytest.mark.parametrize(
@@ -252,12 +336,22 @@ def test_selectable_drops_a_transcode_text_track_that_did_not_attach():
             streams.OFFER_AUDIO,
         ),
         (streams.summarize(source(audio(1))), [], "Transcode", streams.OFFER_NONE),
-        # Text subtitles that never attached leave nothing to show.
+        # A text subtitle that is not attached is still offered: picking it
+        # restarts into a stream that has it, which is a real answer. Before
+        # only one embedded track was attached, an unattached one could do
+        # nothing and was hidden.
         (
             streams.summarize(source(audio(1), text_sub(3))),
             [],
             "Transcode",
-            streams.OFFER_NONE,
+            streams.OFFER_SUBTITLE,
+        ),
+        # Nothing to offer means no subtitle streams at all.
+        (
+            streams.summarize(source(audio(1), audio(2), text_sub(3))),
+            [],
+            "DirectStream",
+            streams.OFFER_BOTH,
         ),
     ],
 )
@@ -346,6 +440,8 @@ def test_an_attachment_carries_what_it_takes_to_name_it():
 
 def test_an_embedded_attachment_is_not_a_sidecar():
     embedded, sidecar = streams.attached_subtitles(
-        SERVER, source(text_sub(3), text_sub(6, IsExternal=True)), "Transcode"
+        SERVER,
+        source(text_sub(3), text_sub(6, IsExternal=True), selected=3),
+        "Transcode",
     )
     assert embedded.sidecar is False and sidecar.sidecar is True
