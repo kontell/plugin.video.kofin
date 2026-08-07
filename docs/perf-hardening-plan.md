@@ -163,7 +163,9 @@ Reproduce the no-reuse behavior on a stock build (Bravia/Piers via ADB, or Libre
 | Offline root render | ~54 s | < 10 s (computed) | — |
 | Direct-play resolve (plugin phase) | 1.94 s | ~1.0 s | **0.68 s** |
 | Click-to-frame (direct play, LAN) | 2.76 s | 2.28–2.67 s | **~1.2 s** |
-| Info-dialog cast (8 actors, first open) | ~0.9 s | — | ~0.01 s after W3.1 seed |
+| Info-dialog cast (8 actors, first open) | ~0.9 s | — | **0.03 s seeded / 0.99 s unseeded control (W3.1, measured)** |
+
+Wave 3 outcome, recorded: all six items landed and were live-gated (#92-#97). Two defects surfaced only under live running and are now regression-tested — the seeder's work list did not advance past its first page (186 images, then a claim of completion), and its two entry points duplicated every fetch. The IPC guard's secret lives in a 0600 file rather than a window property because JSON-RPC can read window properties, which is the channel being closed; forged RemoveLibrary/Restart were refused live on both boxes while genuine signed commands were accepted. The play queue became a directory of claimable files (unlink-as-claim) rather than an fcntl lock, because `addon.xml` declares platform `all`.
 
 W1.6 outcome, recorded: measured and not adopted — Kodi 22 writes bytecode caches natively (the flag is a no-op there) and the Debian box showed no warm-condition change; details on PR #78.
 
