@@ -793,6 +793,12 @@ class Player(xbmc.Player):
             return False
         if not watched_to_end(item):
             return False
+        if not item.get("CanDelete"):
+            # The server's own answer for this account. Without it an account
+            # with no EnableContentDeletion was asked "delete this?" after
+            # every single episode, and told "Server request failed" every
+            # time it said yes.
+            return False
         # Off the Kodi callback thread: this dialog waits on a person, and
         # blocking that thread stalls the player callbacks behind it (Play
         # Next's handoff to the following episode arrives on it). Daemon, so a

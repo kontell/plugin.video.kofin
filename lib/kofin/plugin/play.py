@@ -193,6 +193,11 @@ def play_state(
         # Carried so the service can name the item in a dialog after playback
         # ends, without a round trip for something it already had.
         "Name": item.get("Name", ""),
+        # Same reason, and it has to travel: the dialog in question is the
+        # delete offer, and the queue entry is all the service gets. The
+        # server answers this per account on the fetch above, with no Fields
+        # request needed (verified on 10.11).
+        "CanDelete": bool(item.get("CanDelete")),
         "SeriesId": item.get("SeriesId", ""),
         "Path": url,
         "PlayMethod": play_method,

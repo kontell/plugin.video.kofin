@@ -518,13 +518,16 @@ def test_backfill_survives_an_unreachable_server(monkeypatch):
 TICK = 10_000_000  # RunTimeTicks per second
 
 
-def finished_item(item_type="Movie", position=95.0, runtime=100.0):
+def finished_item(item_type="Movie", position=95.0, runtime=100.0, can_delete=True):
     return {
         "Id": "m1",
         "Type": item_type,
         "Name": "Some Film",
         "Runtime": int(runtime * TICK),
         "CurrentPosition": position,
+        # The server's per-account answer, carried through the play queue by
+        # plugin/play.play_state.
+        "CanDelete": can_delete,
     }
 
 
@@ -848,3 +851,16 @@ def test_the_published_payload_carries_both_indices(monkeypatch):
     published = state.playing_streams()
     assert published["AudioStreamIndex"] == 1
     assert published["SubtitleStreamIndex"] == 4
+
+
+def test_an_account_that_cannot_delete_is_never_asked(monkeypatch):
+    """Without this the prompt came up after every single episode for an
+    account with no EnableContentDeletion, and every yes answered
+    "Server request failed"."""
+    player, _api = make_player(monkeypatch)
+    enable_delete()
+
+    offered, prompted = offer_and_wait(player, finished_item(can_delete=False))
+
+    assert offered is False
+    assert prompted == []
