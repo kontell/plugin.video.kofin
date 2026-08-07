@@ -184,6 +184,66 @@ def test_the_connection_is_reused_across_calls():
     assert len(FakeConnection.instances[0].requests) == 3
 
 
+def test_threads_never_share_a_connection(monkeypatch):
+    """The bug this class shipped with, seen live as "[Errno 9] Bad file
+    descriptor" out of a PlaybackInfo POST: requests hands each thread its own
+    pooled connection, so callers share one transport freely — and the play
+    route does, running the segments prefetch beside the resolve and four
+    sidecar subtitle fetches beside both. Two threads writing onto one
+    http.client socket interleave, and each reads the other's reply."""
+    import threading
+
+    seen_by_thread = {}
+    barrier = threading.Barrier(4, timeout=5)
+
+    class SlowConnection(FakeConnection):
+        def request(self, method, target, body=None, headers=None):
+            # Every thread inside request() at once: a shared connection would
+            # be handing the same object to all four.
+            barrier.wait()
+            super().request(method, target, body, headers)
+
+    monkeypatch.setattr(stdhttp.http.client, "HTTPSConnection", SlowConnection)
+    transport = stdhttp.StdlibHttp()
+
+    def call(index):
+        transport.request("GET", "https://s/x%d" % index)
+        seen_by_thread[threading.get_ident()] = id(
+            getattr(transport._local, "conn", None)
+        )
+
+    threads = [threading.Thread(target=call, args=(index,)) for index in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+
+    assert len(seen_by_thread) == 4
+    # Four threads, four distinct connections.
+    assert len(set(seen_by_thread.values())) == 4
+
+
+def test_close_releases_every_thread_s_connection():
+    """close() is end-of-life: a connection opened by a worker that has since
+    finished must not outlive the transport."""
+    import threading
+
+    transport = stdhttp.StdlibHttp()
+
+    def call():
+        transport.request("GET", "https://s/x")
+
+    worker = threading.Thread(target=call)
+    worker.start()
+    worker.join(5)
+    transport.request("GET", "https://s/y")  # this thread's own connection
+
+    assert len(transport._all) == 2
+    transport.close()
+    assert transport._all == []
+    assert all(connection.closed for connection in FakeConnection.instances)
+
+
 def test_a_dead_pooled_socket_is_retried_once_for_any_method(monkeypatch):
     """A connection can be closed by the server while it sits idle. That
     failure happens before the request reaches anyone, so replaying it is safe
@@ -274,7 +334,7 @@ def test_a_close_flagged_response_drops_the_connection():
     finally:
         module.http.client.HTTPSConnection = FakeConnection
 
-    assert transport._conn is None
+    assert getattr(transport._local, "conn", None) is None
 
 
 def test_verification_follows_the_setting():

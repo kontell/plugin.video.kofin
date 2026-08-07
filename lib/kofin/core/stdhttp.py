@@ -27,8 +27,9 @@ import http.client
 import json
 import random
 import ssl
+import threading
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote, urlencode, urlsplit
 
 from kofin.core.http import (
@@ -74,26 +75,61 @@ class StdlibHttp(Http):
     methods that touch the network are overridden and the inherited
     ``session()`` is never reached (it is the requests path).
 
-    One connection, reused across an invocation's calls: the play route makes
-    three or four, and paying a TLS handshake for each would give back a good
-    part of what the cheap import saves.
+    One connection per thread, reused across that thread's calls: the play
+    route makes three or four, and paying a TLS handshake for each would give
+    back a good part of what the cheap import saves.
+
+    Per *thread*, not per instance, and that is not a detail. ``requests``
+    hands each thread its own pooled connection, so callers were free to share
+    one transport across threads — and the play route does exactly that: the
+    media-segments prefetch runs beside the resolve, and the sidecar subtitle
+    fetches run four at a time, all on the transport the route was handed.
+    A single ``http.client`` connection cannot serve that: two threads writing
+    requests onto one socket interleave, and the reply the other one reads is
+    not its own. Seen live as ``[Errno 9] Bad file descriptor`` out of a
+    PlaybackInfo POST.
     """
 
     def __init__(self, verify_ssl: bool = True) -> None:
         super().__init__(verify_ssl)
-        self._conn: Optional[http.client.HTTPConnection] = None
-        self._origin: Optional[Tuple[str, str, int]] = None
+        self._local = threading.local()
+        # Every connection this transport has opened, so close() can release
+        # the ones belonging to threads that have since finished.
+        self._all: List[http.client.HTTPConnection] = []
+        self._all_lock = threading.Lock()
 
     # -- lifecycle -------------------------------------------------------------
 
     def close(self) -> None:
-        if self._conn is not None:
+        """Release every connection this transport opened, on any thread.
+
+        End-of-life only. A failure mid-exchange drops just the calling
+        thread's connection (:meth:`_drop`) — closing another thread's socket
+        from under it is the very race this class exists to avoid.
+        """
+        with self._all_lock:
+            connections, self._all = list(self._all), []
+        for connection in connections:
             try:
-                self._conn.close()
+                connection.close()
             except Exception as error:  # pragma: no cover - defensive
                 LOG.debug("connection close failed: %s", error)
-            self._conn = None
-            self._origin = None
+        self._local = threading.local()
+
+    def _drop(self) -> None:
+        """Close and forget the calling thread's connection."""
+        connection = getattr(self._local, "conn", None)
+        if connection is None:
+            return
+        try:
+            connection.close()
+        except Exception as error:  # pragma: no cover - defensive
+            LOG.debug("connection close failed: %s", error)
+        with self._all_lock:
+            if connection in self._all:
+                self._all.remove(connection)
+        self._local.conn = None
+        self._local.origin = None
 
     def _context(self) -> ssl.SSLContext:
         context = ssl.create_default_context()
@@ -113,25 +149,30 @@ class StdlibHttp(Http):
         a reused connection can be dead before the request is written, and then
         the server never saw it.
         """
-        if self._conn is not None and self._origin == origin:
-            return self._conn, False
+        existing = getattr(self._local, "conn", None)
+        if existing is not None and getattr(self._local, "origin", None) == origin:
+            return existing, False
 
-        self.close()
+        self._drop()
         scheme, host, port = origin
+        connection: http.client.HTTPConnection
         if scheme == "https":
-            self._conn = http.client.HTTPSConnection(
+            connection = http.client.HTTPSConnection(
                 host, port, timeout=connect_timeout, context=self._context()
             )
         else:
-            self._conn = http.client.HTTPConnection(host, port, timeout=connect_timeout)
+            connection = http.client.HTTPConnection(host, port, timeout=connect_timeout)
         # Connect explicitly so the connect budget is the connect budget, and
         # the (longer) read budget applies only once a socket exists — the
         # split requests gives as a (connect, read) tuple.
-        self._conn.connect()
-        if self._conn.sock is not None:
-            self._conn.sock.settimeout(read_timeout)
-        self._origin = origin
-        return self._conn, True
+        connection.connect()
+        if connection.sock is not None:
+            connection.sock.settimeout(read_timeout)
+        self._local.conn = connection
+        self._local.origin = origin
+        with self._all_lock:
+            self._all.append(connection)
+        return connection, True
 
     # -- the request -----------------------------------------------------------
 
@@ -218,7 +259,7 @@ class StdlibHttp(Http):
             connection.request(method, target, body=body, headers=headers)
             raw = connection.getresponse()
         except _TRANSPORT_ERRORS:
-            self.close()
+            self._drop()
             if fresh:
                 raise
             LOG.debug("pooled connection was dead; reconnecting for %s", url)
@@ -229,12 +270,12 @@ class StdlibHttp(Http):
         try:
             payload = raw.read()
         except _TRANSPORT_ERRORS:
-            self.close()
+            self._drop()
             raise
         if raw.will_close:
             # The server is done with this socket; do not offer it to the next
             # call as though it were alive.
-            self.close()
+            self._drop()
         return Response(raw.status, payload, url)
 
 
