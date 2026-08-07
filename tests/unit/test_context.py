@@ -23,7 +23,7 @@ def test_manage_options_favorite_label_follows_state(monkeypatch):
 
 
 def test_manage_options_delete_gated_by_setting(monkeypatch):
-    item = {"Id": "i1", "Name": "The Movie", "UserData": {}}
+    item = {"Id": "i1", "Name": "The Movie", "UserData": {}, "CanDelete": True}
 
     off = [params["mode"] for _, params in _options(monkeypatch, item, False)]
     assert off == ["favorite", "settings"]
@@ -54,7 +54,13 @@ def test_manage_options_watched_label_follows_state(monkeypatch):
 
 
 def test_manage_options_watched_leads_the_menu(monkeypatch):
-    item = {"Id": "i1", "Name": "The Movie", "Type": "Episode", "UserData": {}}
+    item = {
+        "Id": "i1",
+        "Name": "The Movie",
+        "Type": "Episode",
+        "UserData": {},
+        "CanDelete": True,
+    }
 
     modes = [params["mode"] for _, params in _options(monkeypatch, item, True)]
     assert modes == ["watched", "favorite", "delete", "settings"]
@@ -270,3 +276,19 @@ def test_extras_is_offered_only_when_the_item_has_some(monkeypatch):
     assert "extras" in [m["mode"] for _, m in options]
     params = next(m for _, m in options if m["mode"] == "extras")
     assert params["id"] == "s1"
+
+
+def test_delete_is_not_offered_to_an_account_the_server_would_refuse(monkeypatch):
+    """The opt-in says whether the *user* wants deletion offered; CanDelete
+    says whether the *server* would allow it. Without the second, an account
+    with no EnableContentDeletion got the entry, a "Delete <name>?" prompt,
+    and then "Server request failed" — a 403 for something never permitted.
+    Verified on 10.11: /Items/{id}?userId= carries the field with no Fields
+    request, False for a normal account and True for an admin."""
+    denied = {"Id": "i1", "Name": "The Movie", "UserData": {}, "CanDelete": False}
+    modes = [params["mode"] for _, params in _options(monkeypatch, denied, True)]
+    assert "delete" not in modes
+
+    allowed = dict(denied, CanDelete=True)
+    modes = [params["mode"] for _, params in _options(monkeypatch, allowed, True)]
+    assert "delete" in modes

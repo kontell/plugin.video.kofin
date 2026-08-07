@@ -302,7 +302,16 @@ def _manage_options(item: dict, dynamic: bool) -> List[Tuple[str, dict]]:
     if item.get("SpecialFeatureCount"):
         options.append((settings.localized(30501), {"mode": "extras", "id": item_id}))
 
-    if settings.get_bool("enableDelete"):
+    # Two gates, and they answer different questions: the setting is whether
+    # the *user* wants deletion offered at all, CanDelete is whether the
+    # *server* would allow it. Without the second, a viewer whose account has
+    # no EnableContentDeletion got the entry, a "Delete <name>?" confirmation,
+    # and then "Server request failed" — the server answering 403 to something
+    # it was never going to permit. The field rides in on the item manage()
+    # already fetched (verified on 10.11: /Items/{id}?userId= carries it with
+    # no Fields request, False for a normal account and True for an admin), so
+    # asking costs nothing.
+    if settings.get_bool("enableDelete") and item.get("CanDelete"):
         options.append(
             (
                 xbmc.getLocalizedString(117),  # Delete
