@@ -254,8 +254,19 @@ def test_the_trickle_never_runs_during_playback(monkeypatch):
     assert cache._idle() is True
 
 
+def _not_playing(monkeypatch):
+    """Kodistubs answers isPlaying() True, so a test that means "nothing is
+    playing" has to say so."""
+    monkeypatch.setattr(
+        artcache.xbmc,
+        "Player",
+        lambda: type("P", (), {"isPlaying": lambda self: False})(),
+    )
+
+
 def test_seed_all_runs_to_exhaustion(monkeypatch):
     """The button means "do it all"; the trickle means "a batch at a time"."""
+    _not_playing(monkeypatch)
     batches = [3, 3, 1, 0]
     seen = []
     cache = artcache.ActorArtCache(thumbs_dir="/tmp")
@@ -271,6 +282,7 @@ def test_seed_all_runs_to_exhaustion(monkeypatch):
 
 def test_seed_all_stops_when_halted(monkeypatch):
     """A service shutdown mid-button-run must end promptly."""
+    _not_playing(monkeypatch)
     cache = artcache.ActorArtCache(thumbs_dir="/tmp")
 
     def fake_batch(limit=artcache.BATCH):
@@ -352,3 +364,41 @@ def test_a_transport_failure_is_retried_next_batch(seeder, monkeypatch):
     cache.seed_batch()
     cache.seed_batch()
     assert attempts == ["http://s/flaky", "http://s/flaky"]
+
+
+def test_seed_all_yields_when_playback_starts(monkeypatch):
+    """The button must not go on competing with a stream for the same server.
+    It stops rather than parking the thread for the length of a film — the
+    run is resumable, since a seeded image is skipped next time."""
+    cache = artcache.ActorArtCache(thumbs_dir="/tmp")
+    playing = {"now": False}
+    batches = []
+
+    monkeypatch.setattr(
+        artcache.xbmc,
+        "Player",
+        lambda: type("P", (), {"isPlaying": lambda self: playing["now"]})(),
+    )
+
+    def fake_batch(limit=artcache.BATCH):
+        batches.append(1)
+        if len(batches) == 2:
+            playing["now"] = True  # a film starts mid-run
+        return 5
+
+    monkeypatch.setattr(cache, "seed_batch", fake_batch)
+
+    assert cache.seed_all() == 10  # the two batches that ran, then it yielded
+    assert len(batches) == 2
+
+
+def test_the_button_does_not_wait_for_an_idle_box(monkeypatch):
+    """_idle gates the trickle on idle time; the button must not use it —
+    someone who just pressed it has by definition not left the box alone."""
+    cache = artcache.ActorArtCache(thumbs_dir="/tmp")
+    _not_playing(monkeypatch)
+    monkeypatch.setattr(artcache.xbmc, "getGlobalIdleTime", lambda: 0)
+    monkeypatch.setattr(cache, "seed_batch", lambda limit=artcache.BATCH: 0)
+
+    assert cache._idle() is False  # the trickle would wait
+    assert cache.seed_all() == 0  # the button ran anyway (nothing outstanding)

@@ -222,13 +222,24 @@ class ActorArtCache:
             if seeded:
                 LOG.debug("seeded %d actor thumb(s)", seeded)
 
+    def _playing(self) -> bool:
+        """Whether something is playing.
+
+        Both entry points check it: the seeder pulls images from the same
+        server the stream is coming off, and neither the trickle nor the
+        button is worth a stutter.
+        """
+        return bool(xbmc.Player().isPlaying())
+
     def _idle(self) -> bool:
         """Whether now is a fair time to spend disk and bandwidth.
 
-        Never during playback — the seeder must not compete with a stream for
-        the same server — and only once the box has been left alone.
+        Never during playback, and only once the box has been left alone.
+        The button does *not* use this: someone who just pressed it has by
+        definition not left the box alone, and gating on idle time would mean
+        it never ran.
         """
-        if xbmc.Player().isPlaying():
+        if self._playing():
             return False
         return xbmc.getGlobalIdleTime() >= IDLE_SECONDS
 
@@ -287,9 +298,25 @@ class ActorArtCache:
         and reports the total. Shares the instance lock with the trickle, so
         the two never fetch the same image twice, and honours the same halt
         flag, so a service shutdown ends it promptly.
+
+        Playback ends the run (see the check below). It is tested between
+        batches rather than between images: a batch is 25 short fetches,
+        about a second at the rate this runs, so the overlap is not worth
+        checking the player 25 times to avoid.
         """
         total = 0
         while not self._halt.is_set():
+            if self._playing():
+                # "Now" means now, not instead of the film. Stopping rather
+                # than parking the thread for two hours: the run is resumable
+                # by construction (a seeded image is skipped next time), so
+                # pressing the button again — or leaving the idle trickle on —
+                # picks up exactly where this left off.
+                LOG.info(
+                    "actor art pre-cache yielding to playback after %d image(s)",
+                    total,
+                )
+                break
             seeded = self.seed_batch()
             if not seeded:
                 break
