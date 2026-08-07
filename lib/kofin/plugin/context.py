@@ -248,19 +248,6 @@ def _stop_current_playback() -> None:
     LOG.warning("playback did not stop in %.1fs; starting anyway", waited)
 
 
-def browse_extras() -> None:
-    """Open the extras listing for the focused library show/season."""
-    item_id = _focused_item_id()
-    if not item_id:
-        LOG.warning("extras context invoked without a kofin item")
-        return
-    LOG.info("context extras for %s", item_id)
-    xbmc.executebuiltin(
-        "ActivateWindow(Videos,%s,return)"
-        % plugin_url({"mode": "extras", "id": item_id})
-    )
-
-
 # Same reach the listing-level toggle had: anything playable, plus the
 # containers Jellyfin tracks played state for.
 WATCHED_TYPES = PLAYABLE_TYPES | {"Series", "Season", "BoxSet"}
@@ -304,6 +291,17 @@ def _manage_options(item: dict, dynamic: bool) -> List[Tuple[str, dict]]:
     fav_mode = "unfavorite" if is_favorite else "favorite"
     options.append((fav_label, {"mode": fav_mode, "id": item_id}))
 
+    # Extras belongs here rather than in its own context item, and that is not
+    # a tidiness argument: a context item's <visible> can only ask Kodi things,
+    # and Kodi has no answer for this. Its own ListItem.HasVideoExtras is
+    # movie-only by construction — hasVideoExtras is computed in movie_view
+    # with media_type = 'movie' hardcoded, and tvshow_view has no such column —
+    # so it reads false for every show whatever the server says, and a library
+    # row carries no addon-settable property to stand in. This menu is built by
+    # us, from an item we already fetched, so it can simply ask.
+    if item.get("SpecialFeatureCount"):
+        options.append((settings.localized(30501), {"mode": "extras", "id": item_id}))
+
     if settings.get_bool("enableDelete"):
         options.append(
             (
@@ -339,4 +337,9 @@ def manage() -> None:
 
     _, params = options[index]
     LOG.info("manage: %s for %s", params.get("mode"), item_id)
+    if params.get("mode") == "extras":
+        # The one entry here that goes somewhere rather than doing something.
+        # RunPlugin would execute the listing and throw it away.
+        xbmc.executebuiltin("ActivateWindow(Videos,%s,return)" % plugin_url(params))
+        return
     xbmc.executebuiltin("RunPlugin(%s)" % plugin_url(params))
