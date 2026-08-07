@@ -168,6 +168,10 @@ class Library(threading.Thread):
         # (plan §2 retention overrun).
         self.retention_repair_pending = False
         self.startup_done = False
+        # The one-sync-at-a-time claim (see claim_full_sync): instance state,
+        # so a service restart's fresh Library starts unclaimed.
+        self._full_sync_lock = threading.Lock()
+        self._full_sync_running = False
         self.commands = queue.Queue()
         self.added_queue = queue.Queue()
         self.updated_queue = queue.Queue()
@@ -764,6 +768,24 @@ class Library(threading.Thread):
 
     def stop_client(self):
         self.stop_thread = True
+
+    def claim_full_sync(self):
+        """Take the one-sync-at-a-time claim; False when one is already up.
+
+        Lives here rather than on FullSync (where the fork kept it, in a
+        class-level Borg dict) because the claim must die with the manager
+        that owns it: a service restart builds a fresh Library, and a claim
+        that outlived the old one refused every sync the new one tried.
+        """
+        with self._full_sync_lock:
+            if self._full_sync_running:
+                return False
+            self._full_sync_running = True
+            return True
+
+    def release_full_sync(self):
+        with self._full_sync_lock:
+            self._full_sync_running = False
 
     def enable_pending_refresh(self):
         """When there's an active thread. Let the main thread know."""

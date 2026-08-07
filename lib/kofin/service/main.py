@@ -613,9 +613,7 @@ class Service(xbmc.Monitor):
         self._stop_syncplay()
         if self.library is not None:
             self.library.stop_client()
-            self.library.join(timeout=15)
-            if self.library.is_alive():  # pragma: no cover - watchdog only
-                LOG.warning("library thread did not stop within deadline")
+            self._join_library()
             self.library = None
         self.player.stop_threads()
         self.artcache.stop()
@@ -623,8 +621,62 @@ class Service(xbmc.Monitor):
         if self.ws is not None:
             self.ws.stop()
             self.ws = None
+        self._join_workers()
         self.http.close()
+        # Last, and only once nothing of ours is still running: clear_all drops
+        # PROP_SYNC_STOP, which is the flag every sync worker's @stop guard
+        # reads. Clearing it while a thread survives un-pauses that thread
+        # against a service that has already been rebuilt — two Library object
+        # graphs, each with its own database locks, writing the same files.
         state.clear_all()
+
+    def _join_library(self) -> None:
+        """Wait for the library thread to actually die.
+
+        Bounded only by Kodi's own abort: a 15-second give-up let the thread
+        outlive the teardown, and the next line used to clear the stop flag it
+        was waiting on (audit finding #10). A page fetch alone can exceed that
+        deadline, so the wait reports progress instead of abandoning.
+        """
+        library = self.library
+        if library is None:
+            return
+        waited = 0.0
+        while library.is_alive():
+            library.join(timeout=5)
+            if not library.is_alive():
+                break
+            waited += 5
+            if self.abortRequested():
+                # Kodi is going down anyway; it will not wait for us either.
+                LOG.warning("abort during teardown; library thread still alive")
+                return
+            LOG.warning("library thread still stopping after %.0fs", waited)
+
+    def _join_workers(self) -> None:
+        """Join the named one-shot workers this service started.
+
+        Unjoined, they outlive the rebuild and race their replacements against
+        the same resources — the chapter sweep holds an open cursor on the
+        texture database, and the backdrop worker rewrites a file in the addon
+        directory (audit finding #13).
+        """
+        workers = (
+            ("chapter sweep", self._chapter_sweep),
+            ("backdrop", self._backdrop),
+            ("post-connect", self._post_connect),
+            ("cast-image pre-cache", self._precache_art),
+            ("syncplay menu", self._syncplay_menu),
+            ("who's watching", self._who_is_watching),
+        )
+        for name, worker in workers:
+            if worker is None or not worker.is_alive():
+                continue
+            worker.join(timeout=10)
+            if worker.is_alive():  # pragma: no cover - watchdog logging only
+                # The dialogs are the expected case: both block on user input
+                # and Kodi closes them when the addon goes.
+                LOG.warning("%s worker did not stop within its deadline", name)
 
 
 def _guid(value: Any) -> str:
