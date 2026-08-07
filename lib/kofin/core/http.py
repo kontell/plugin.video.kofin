@@ -55,6 +55,23 @@ class HttpError(JellyfinError):
         self.status = status
 
 
+def plugin_transport(verify_ssl: bool = True) -> "Http":
+    """The transport for the *plugin* process.
+
+    Standard library rather than ``requests``, because a plugin invocation is
+    short-lived and never reuses its interpreter: importing requests costs
+    ~1 s inside Kodi's Python on both test boxes and is paid on every click
+    that talks to the server. The service keeps the requests path
+    (kofin/core/stdhttp.py explains the split).
+
+    Imported here rather than at module load so this module stays free of
+    both trees until something actually asks for one.
+    """
+    from kofin.core.stdhttp import StdlibHttp
+
+    return StdlibHttp(verify_ssl)
+
+
 class Http:
     """A lazily created, kept-alive requests session."""
 

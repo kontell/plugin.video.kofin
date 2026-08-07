@@ -8,7 +8,7 @@ import xbmcplugin
 
 from kofin.core import settings, state
 from kofin.core.api import Api
-from kofin.core.http import Http, JellyfinError
+from kofin.core.http import JellyfinError, plugin_transport
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin import listitems
@@ -341,7 +341,7 @@ def _api() -> Optional[Api]:
     if not creds.is_logged_in:
         return None
     return Api.from_credentials(
-        Http(settings.get_bool("sslVerify")), creds, interactive=True
+        plugin_transport(settings.get_bool("sslVerify")), creds, interactive=True
     )
 
 

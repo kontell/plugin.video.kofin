@@ -8,7 +8,7 @@ import xbmcgui
 
 from kofin.core import ipc, settings, toast
 from kofin.core.api import Api
-from kofin.core.http import Http, JellyfinError
+from kofin.core.http import JellyfinError, plugin_transport
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin.router import Request
@@ -18,7 +18,9 @@ LOG = Logger(__name__)
 
 def _api() -> Api:
     return Api.from_credentials(
-        Http(settings.get_bool("sslVerify")), Credentials.load(), interactive=True
+        plugin_transport(settings.get_bool("sslVerify")),
+        Credentials.load(),
+        interactive=True,
     )
 
 

@@ -435,7 +435,7 @@ def resume_env(monkeypatch):
 
     monkeypatch.setattr(play, "Credentials", Creds)
     monkeypatch.setattr(play, "Api", ApiFactory)
-    monkeypatch.setattr(play, "Http", lambda verify: None)
+    monkeypatch.setattr(play, "plugin_transport", lambda verify: None)
     monkeypatch.setattr(play.listitems, "build", fake_build)
     monkeypatch.setattr(
         "xbmcplugin.setResolvedUrl", lambda h, ok, li: resolved.append(li)
