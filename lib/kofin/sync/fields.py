@@ -4,7 +4,7 @@ the checksum/skip logic from ``objects/utils.py``).
 
 Adaptations (plan §3): native-mode path replacement dropped (plugin paths
 only); artwork-quality settings read kofin's Sync tab ids (``compressArt``,
-``enableCoverArt``, ``maxArtResolution`` where 0 means original size);
+``maxArtResolution`` where 0 means original size);
 ``find_library`` resolves through the kofin Api and sync.json whitelist.
 """
 
@@ -251,9 +251,6 @@ class API(object):
 
         if settings.get_bool("compressArt"):
             query = "&Quality=90"
-
-        if not settings.get_bool("enableCoverArt"):
-            query += "&EnableImageEnhancers=false"
 
         maxheight = settings.get_int("maxArtResolution")
         if maxheight:

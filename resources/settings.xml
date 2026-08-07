@@ -292,14 +292,20 @@
         </setting>
       </group>
       <group id="2">
-        <setting id="enableCoverArt" type="boolean" label="30316" help="30317">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
+        <!-- Only offered alongside a resolution cap. Measured against 10.11:
+             Quality=90 returns the original bytes for every artwork tested,
+             because the server keeps the source when the requested quality is
+             no lower than it already is. The saving is real once the image is
+             being re-encoded to fit the cap anyway (141 KB -> 55 KB on a
+             1400x2100 poster at 480p), and nil without one. -->
         <setting id="compressArt" type="boolean" label="30318" help="30319">
           <level>0</level>
           <default>false</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="!is" setting="maxArtResolution">0</condition>
+            </dependency>
+          </dependencies>
           <control type="toggle"/>
         </setting>
         <setting id="maxArtResolution" type="integer" label="30320" help="30321">

@@ -801,20 +801,14 @@ msgctxt "#30314"
 msgid "Artwork"
 msgstr ""
 
-msgctxt "#30316"
-msgid "Enable server image enhancers"
-msgstr ""
 
-msgctxt "#30317"
-msgid "Let the server apply cover art enhancers to synced artwork."
-msgstr ""
 
 msgctxt "#30318"
 msgid "Compress artwork"
 msgstr ""
 
 msgctxt "#30319"
-msgid "Request JPEG quality 90 for synced artwork."
+msgid "Re-encode capped artwork at JPEG quality 90. No effect without a resolution cap."
 msgstr ""
 
 msgctxt "#30320"
