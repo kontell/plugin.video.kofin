@@ -575,3 +575,116 @@ def test_a_music_library_does_not_leave_a_hole_in_the_numbering(views_env):
 
     orders = sorted(_orders(views_env).values())
     assert orders == list(range(len(orders))), orders
+
+
+# --- a degraded library listing must not read as "these libraries are gone" --
+
+
+# Real ids, read off a live 10.11 server: /Library/MediaFolders and /UserViews
+# report *different ids for the same Playlists library*, and MediaFolders
+# carries one (Music-Alt) the admin's own UserViews does not.
+ADMIN_MEDIA_FOLDERS = [
+    {
+        "Id": "f137a2dd21bbc1b99aa5c0f6bf02a805",
+        "Name": "Movies",
+        "Type": "CollectionFolder",
+        "CollectionType": "movies",
+    },
+    {
+        "Id": "455b9a6cc37d4d2e961d7d5236820ee4",
+        "Name": "Music-Alt",
+        "Type": "CollectionFolder",
+        "CollectionType": "music",
+    },
+    {
+        "Id": "1071671e7bffa0532e930debee501d2e",
+        "Name": "Playlists",
+        "Type": "CollectionFolder",
+        "CollectionType": "playlists",
+    },
+]
+USER_VIEWS_ONLY = [
+    {
+        "Id": "f137a2dd21bbc1b99aa5c0f6bf02a805",
+        "Name": "Movies",
+        "Type": "CollectionFolder",
+        "CollectionType": "movies",
+    },
+    {
+        "Id": "ee9833e373bf7856254ffbdefa5d641e",
+        "Name": "Playlists",
+        "Type": "UserView",
+        "CollectionType": "playlists",
+    },
+]
+
+
+class TwoEndpointApi(FakeApi):
+    """A server whose /Library/MediaFolders can be made to fail, as it does
+    for a non-admin (403) or on any timeout."""
+
+    def __init__(self, folders, user_views, folders_fail=False):
+        self.folders = folders
+        self.user_views = user_views
+        self.folders_fail = folders_fail
+
+    def media_folders(self):
+        if self.folders_fail:
+            raise Exception("GET /Library/MediaFolders -> 403")
+        return {"Items": self.folders}
+
+    def views(self):
+        return {"Items": self.user_views}
+
+
+def test_a_degraded_listing_does_not_fire_library_removals(views_env, monkeypatch):
+    """A 403 or a timeout on /Library/MediaFolders drops get_libraries to
+    /UserViews alone. That answer legitimately lacks libraries the healthy one
+    had, and gives a *different id* for the same Playlists library — so every
+    view sourced from the richer endpoint reads as deleted. The removal it
+    fires is not a listing tweak: remove_library deletes every synced row for
+    that library out of Kodi's database.
+    """
+    from kofin.core import ipc
+
+    seed(
+        [
+            ("f137a2dd21bbc1b99aa5c0f6bf02a805", "Movies", "movies"),
+            ("455b9a6cc37d4d2e961d7d5236820ee4", "Music-Alt", "music"),
+            ("1071671e7bffa0532e930debee501d2e", "Playlists", "playlists"),
+        ],
+        ["f137a2dd21bbc1b99aa5c0f6bf02a805"],
+    )
+
+    sent = []
+    monkeypatch.setattr(ipc, "notify", lambda method, data=None: sent.append(method))
+
+    api = TwoEndpointApi(ADMIN_MEDIA_FOLDERS, USER_VIEWS_ONLY, folders_fail=True)
+    Views(api).get_views()
+
+    assert ipc.REMOVE_LIBRARY not in sent, (
+        "a transient 403 asked for a library removal: %s" % sent
+    )
+
+
+def test_a_library_the_server_really_dropped_is_still_removed(views_env, monkeypatch):
+    """The guard above must not cost the real case: when the listing is
+    healthy and a library is genuinely gone, the removal still fires."""
+    from kofin.core import ipc
+
+    seed(
+        [
+            ("f137a2dd21bbc1b99aa5c0f6bf02a805", "Movies", "movies"),
+            ("455b9a6cc37d4d2e961d7d5236820ee4", "Music-Alt", "music"),
+        ],
+        ["f137a2dd21bbc1b99aa5c0f6bf02a805"],
+    )
+
+    sent = []
+    monkeypatch.setattr(ipc, "notify", lambda method, data=None: sent.append(method))
+
+    # Healthy: MediaFolders answers, and it no longer carries Music-Alt.
+    api = TwoEndpointApi([ADMIN_MEDIA_FOLDERS[0]], [], folders_fail=False)
+    Views(api).get_views()
+
+    assert ipc.REMOVE_LIBRARY in sent
