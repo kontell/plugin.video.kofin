@@ -71,6 +71,8 @@ Traced: `onPlayBackStarted`/`onPlayBackStopped` and the `Player.OnPlay` backfill
 
 Change: a single FIFO reporter worker owned by the service player (the `kodiuserdata.py` pattern): callbacks capture player state synchronously (position at stop must be read at event time), enqueue, return; the worker owns claim → playing → progress → stopped ordering. Live gate: with the server blackholed (iptables DROP), start/stop playback and verify Kodi stays responsive and another addon's player callback fires promptly.
 
+W2.5 revision, recorded after live verification: `ping_timeout` is poison against this server — its own 2-minute keepalive ping corrupts websocket-client's pong bookkeeping and every healthy connection died on an exact 130 s cycle on both boxes — and `reconnect=` invokes neither `on_error` nor `on_close`, so drops were silent. The landed design: `run_forever(ping_interval=10)` only, the run loop owns reconnection, and half-open detection is app-level (the server echoes every KeepAlive; 75 s of inbound silence recycles the socket — measured detection 54 s under a symmetric blackhole, 0 reconnects in 300 s healthy). Firewall-based gates must scope to tcp/443 and carry a deadman timer: an unscoped drop to the server also kills the NFS mount this repo lives on.
+
 ### W2.3 `sync.json` atomic writes and loud torn reads
 
 Traced: `save_sync` is open+write (no rename) while writer threads call `get_sync` per item; a torn read yields an empty whitelist and writers silently skip items while the watermark advances (`sync/db.py:170`, `sync/fields.py:539`).
