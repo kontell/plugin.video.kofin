@@ -762,8 +762,11 @@ def test_get_item_worker_flags_errors_and_stops_on_unreachable():
 
     assert error_event.is_set()
     assert worker.is_done
-    # The second chunk was left unconsumed: watermark must not advance.
-    assert work.qsize() == 1
+    # Both chunks are still queued: the second was never taken, and the first
+    # goes back rather than being dropped (it was never fetched), so a
+    # recovered server re-covers the whole window. The watermark must not
+    # advance either way.
+    assert work.qsize() == 2
 
 
 # --- ws-event wiring ---------------------------------------------------------
@@ -2040,3 +2043,63 @@ def test_clean_drain_resets_the_ladder_only_when_no_retry_is_owed():
     manager.recovery_pending = False
     manager.schedule_recovery_prune()
     assert manager.auto_prune_interval == library_mod.AUTO_PRUNE_MIN_SECONDS
+
+
+# --- offline downloads: re-queue and back off (audit finding #7) -------------
+
+
+def test_an_unreachable_worker_puts_its_chunk_back():
+    """The fork dropped the chunk on the floor here — no re-queue, no
+    task_done — so those ids were never written while the watermark moved on.
+    The flag is what lets the library pause instead of respawning into the
+    same wall."""
+    import threading
+
+    api = FakeApi()
+    api.items_result = ServerUnreachable("dead")
+    work = queue.Queue()
+    work.put(["id1", "id2"])
+    errors = threading.Event()
+
+    worker = GetItemWorker(api, work, {}, errors)
+    worker.run()
+
+    assert worker.is_done is True
+    assert worker.unreachable is True
+    assert errors.is_set() is True
+    assert work.get_nowait() == ["id1", "id2"]  # the same chunk, still to do
+
+
+def test_the_spawn_path_pauses_after_an_unreachable_worker(monkeypatch):
+    """Without the pause the reaper's replacement worker walks into the same
+    wall immediately — three threads taking turns to wait out the transport's
+    whole budget, forever."""
+    manager, _api = make_library()
+    manager.added_queue.put(["id1"])
+
+    class DeadWorker:
+        is_done = True
+        unreachable = True
+        source = "added"
+
+    manager.download_threads = [DeadWorker()]
+    monkeypatch.setattr(manager, "worker_downloads", lambda: None)
+    manager.process_commands = lambda: None
+
+    manager.service()
+    assert manager.download_backoff_until > time.time()
+
+    # The gate itself: with the pause armed, the real spawn path does nothing.
+    manager.download_threads = []
+    real_manager, _real_api = make_library()
+    real_manager.added_queue.put(["id1"])
+    real_manager.download_backoff_until = time.time() + 60
+    real_manager.worker_downloads()
+    assert real_manager.download_threads == []
+
+    # And once it expires, work resumes.
+    real_manager.download_backoff_until = 0.0
+    real_manager.worker_downloads()
+    assert len(real_manager.download_threads) == 1
+    for thread in real_manager.download_threads:
+        thread.is_done = True

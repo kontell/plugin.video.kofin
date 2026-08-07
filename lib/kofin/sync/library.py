@@ -13,6 +13,7 @@ The queue/worker/priority logic is the fork's, byte for byte where possible.
 """
 
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import queue
@@ -49,6 +50,13 @@ LOG = Logger(__name__)
 # the limitIndex paging setting: paging trades progress granularity for
 # round-trips, while this only trades URL length and response size.
 DOWNLOAD_CHUNK = 50
+
+# How long the spawn path stays quiet after a download worker gave up on an
+# unreachable server. Long enough that a server restart or a flapping link
+# does not cost a fresh 27-second retry ladder every couple of seconds, short
+# enough that a recovered server is picked up without waiting for the next
+# full sync cycle.
+DOWNLOAD_BACKOFF_SECONDS = 60
 TARGET_DB_VERSION = 1
 # No "AlbumArtist" here or in the queue set below, unlike the fork: it is not
 # a Jellyfin BaseItemKind at all. /Artists and /Artists/AlbumArtists both
@@ -215,6 +223,13 @@ class Library(threading.Thread):
         self.database_lock = threading.Lock()
         self.music_database_lock = threading.Lock()
         self.download_errors = threading.Event()
+        # Monotonic time before which no new download worker is started. A
+        # worker that dies on ServerUnreachable re-queues its chunk, and the
+        # spawn path would otherwise start a replacement against the same
+        # queue at once — three threads taking turns to wait out the
+        # transport's whole budget, forever, while the server is away
+        # (audit finding #7).
+        self.download_backoff_until = 0.0
         self.retry_at = None
         self.retry_delay = 60
         # Next time to re-check sync.json for a full sync that never finished
@@ -525,6 +540,16 @@ class Library(threading.Thread):
         """
         self.process_commands()
 
+        finished = [thread for thread in self.download_threads if thread.is_done]
+        if any(getattr(thread, "unreachable", False) for thread in finished):
+            # A worker just gave up on an unreachable server and put its chunk
+            # back. Hold the spawn path off for a while rather than feeding it
+            # straight back in (audit finding #7).
+            self.download_backoff_until = time.time() + DOWNLOAD_BACKOFF_SECONDS
+            LOG.warning(
+                "--[ downloads paused %ss: server unreachable ]",
+                DOWNLOAD_BACKOFF_SECONDS,
+            )
         self.download_threads = [
             thread for thread in self.download_threads if not thread.is_done
         ]
@@ -909,6 +934,13 @@ class Library(threading.Thread):
                 # with minimal fields, into the updated outputs (the tag on
                 # each item routes it to the artwork-only write).
                 sources.append(("artwork", self.artwork_queue, self.updated_output))
+
+        if time.time() < self.download_backoff_until:
+            # Still inside the pause a ServerUnreachable bought. The queues
+            # keep their work; the connect probe in service/main.py is what
+            # notices the server coming back, and the next tick starts fresh
+            # workers on the same chunks.
+            return
 
         for source, work_queue, output in sources:
             if work_queue.qsize() and len(self.download_threads) < self.dthreads:
