@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 
 import xbmc
 
-from kofin.core import auth, ipc, log, settings, state, toast
+from kofin.core import auth, diag, ipc, log, settings, state, toast
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
@@ -52,6 +52,20 @@ SETTINGS_READY_DELAY = 5.0
 # A thread that outlives this deadline keeps PROP_SYNC_STOP raised instead
 # (see state.clear_all), so it stays paused rather than resuming into the
 # replacement Library.
+#
+# What the deadline is actually for, measured on Omega rather than assumed: on
+# an addon *bounce* it is never reached. Kodi's "let's kill it" at five seconds
+# is not a kill — it raises abortRequested, the loop below sees it on its first
+# tick and gives up there. This number therefore governs only a soft restart
+# (kofin's own restart IPC), where Kodi is not stopping the script and nothing
+# else bounds the wait.
+#
+# Which means the teardown returning promptly buys less than it looks like it
+# does: Kodi will not finalise a script while a thread that script started is
+# still alive, so it goes on to log "waiting on thread <id>" and blocks there
+# regardless of how tidily the service exited. The only thing that shortens
+# that is the stuck thread itself returning sooner, which is why the retry
+# ladder had to learn about the stop flag (core/http.Http, ``abort``).
 LIBRARY_JOIN_SECONDS = 30.0
 
 # Server lifecycle websocket messages -> the string announcing them. These are
@@ -106,8 +120,16 @@ class Service(xbmc.Monitor):
     def __init__(self) -> None:
         super().__init__()
         self._restart_requested = False
+        # This generation is tearing down. Instance state, not PROP_SYNC_STOP,
+        # and the difference is measurable: the next generation lowers that
+        # property on the way up (see run_forever), which handed a thread
+        # orphaned by *this* teardown a transport whose abort had gone quiet
+        # again — it went straight back to riding the full retry ladder. An
+        # Event owned by the generation that raised it cannot be un-raised by
+        # its successor.
+        self._stopping = threading.Event()
         self.credentials = Credentials.load()
-        self.http = Http(settings.get_bool("sslVerify"))
+        self.http = Http(settings.get_bool("sslVerify"), abort=self._stopping.is_set)
         self.api = Api.from_credentials(self.http, self.credentials)
         self.ws: Optional[WSClient] = None
         self.player = Player(self.api)
@@ -221,9 +243,15 @@ class Service(xbmc.Monitor):
             self.library = None
 
     def _new_api(self) -> Api:
-        """A fresh Api with its own HTTP session (one per sync worker)."""
+        """A fresh Api with its own HTTP session (one per sync worker).
+
+        ``abort`` matters most here: these are the sessions the download pool
+        and the writers use, and a page fetch still riding its retry ladder is
+        what keeps the library thread alive past the teardown.
+        """
         return Api.from_credentials(
-            Http(settings.get_bool("sslVerify")), Credentials.load()
+            Http(settings.get_bool("sslVerify"), abort=self._stopping.is_set),
+            Credentials.load(),
         )
 
     # -- syncplay (phase 4) ----------------------------------------------------
@@ -634,6 +662,11 @@ class Service(xbmc.Monitor):
     # -- teardown ---------------------------------------------------------------
 
     def _shutdown(self) -> None:
+        # Both, and they are not redundant: the property is what the sync
+        # workers' @stop guards read across the process, the Event is what
+        # this generation's HTTP transports check between retries and is the
+        # only one of the two that survives the next generation starting.
+        self._stopping.set()
         state.set_should_stop(True)
         self._stop_syncplay()
         library_stuck = False
@@ -671,24 +704,42 @@ class Service(xbmc.Monitor):
         So: a deadline generous enough for a page fetch, and a truthful answer
         when it passes — the caller keeps the flag raised rather than pretending
         the thread is gone.
+
+        A wait that goes long also dumps every thread's stack (core/diag.py).
+        The deadline makes a stuck thread survivable without saying what stuck
+        it, and the event is too rare to catch by asking for it again: the
+        first slow tick and the last one are both written down, so the log says
+        what the thread was doing and whether it moved between the two.
         """
         library = self.library
         if library is None:
             return True
         waited = 0.0
+        dumped = False
+        first: Dict[int, str] = {}
         while library.is_alive() and waited < LIBRARY_JOIN_SECONDS:
             library.join(timeout=5)
             if not library.is_alive():
                 return True
             waited += 5
+            if not dumped:
+                dumped = True
+                first = diag.thread_dump("library thread still stopping after 5s")
+            else:
+                LOG.warning(
+                    "library thread still stopping after %.0fs: %s",
+                    waited,
+                    diag.positions().get(library.ident, "gone"),
+                )
             if self.abortRequested():
                 LOG.warning("abort during teardown; library thread still alive")
                 return False
-            LOG.warning("library thread still stopping after %.0fs", waited)
         if library.is_alive():
+            last = diag.thread_dump("library thread outlived the deadline")
             LOG.error(
-                "library thread outlived %.0fs; leaving the sync stop flag raised",
+                "library thread outlived %.0fs (%s); leaving the sync stop flag raised",
                 LIBRARY_JOIN_SECONDS,
+                diag.describe_movement(library.ident, first, last),
             )
             return False
         return True
@@ -761,6 +812,21 @@ def _decode_kodi_data(data: str) -> Dict[str, Any]:
 
 def run_forever() -> None:
     while True:
+        # A generation never inherits the previous one's stop flag. A teardown
+        # that could not join its library thread leaves PROP_SYNC_STOP raised
+        # on purpose (see _shutdown), and nothing else ever lowers it — so
+        # without this line one stuck teardown disabled syncing until Kodi was
+        # restarted, and said so in a single warning: every later library
+        # thread started, ran until its first @stop guard, and exited with
+        # "Should stop flag raised". Measured on Omega, and silent enough that
+        # it looked like sync had simply stopped working.
+        #
+        # The orphan it was protecting is not left unguarded: what actually
+        # ends that thread is ``Library.stop_thread``, an instance flag the
+        # replacement cannot touch, which bounds it to the tick it is already
+        # in. The raised property only ever covered the gap before a
+        # replacement existed, and this is the moment that gap closes.
+        state.set_should_stop(False)
         service = Service()
         if not service.run():
             break
