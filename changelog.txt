@@ -1,3 +1,13 @@
+v0.12.0
+- Browsing large libraries is around nine times faster, and the cast list in the info dialog opens instantly
+- Playback starts sooner, and a transcode with subtitles no longer stalls for over a minute first
+- Library nodes are grouped by type, favourites after them, and the music "Recently added" icon is back
+- Delete is offered only to accounts the server actually lets delete
+- Extras moved into Jellyfin actions, and appear only for shows that have some
+- Resume offset moved to Settings / Playback
+- The image setting that never did anything is gone
+- A slow or unreachable server no longer removes libraries, stalls shutdown, or leaves sync stuck
+
 v0.11.1
 - The subtitle your Jellyfin profile asks for is the one that plays. Where your media has a subtitle file beside it every built-in track was numbered one place along, so a profile asking for Norwegian played Korean
 - "Play with transcoding" now starts while something else is already playing. With music on, the film resolved and then died with a stream error
