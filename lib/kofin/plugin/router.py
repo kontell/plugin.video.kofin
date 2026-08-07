@@ -59,6 +59,7 @@ ROUTES: Dict[str, Tuple[str, str]] = {
     "updatelibs": ("actions", "update_libraries"),
     "repairlibs": ("actions", "repair_libraries"),
     "refreshboxsets": ("actions", "refresh_boxsets"),
+    "precacheart": ("actions", "precache_art"),
 }
 
 

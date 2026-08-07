@@ -18,7 +18,7 @@ from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials, addon_version
 from kofin.core.ws import WSClient
-from kofin.service import backdrop, chapters
+from kofin.service import artcache, backdrop, chapters
 from kofin.service.kodiuserdata import KodiUserData
 from kofin.service.player import Player
 from kofin.service.remote import RemoteHandler
@@ -110,6 +110,9 @@ class Service(xbmc.Monitor):
         # how a reconnect that lands mid-run asks for one more pass.
         self._post_connect: Optional[threading.Thread] = None
         self._post_connect_pending = threading.Event()
+        # Idle-time cast-image seeder, and the settings button's one-shot.
+        self.artcache = artcache.ActorArtCache()
+        self._precache_art: Optional[threading.Thread] = None
         self._online = False
         self._backoff = Backoff()
         self.settings_apply = SettingsApplier(self)
@@ -167,6 +170,10 @@ class Service(xbmc.Monitor):
         self._start_websocket()
         self._start_library()
         self._start_backdrop()
+        # Cheap to start unconditionally: the worker sleeps until the setting
+        # is on *and* the box is idle, so a user who never enables it pays a
+        # parked thread and nothing else.
+        self.artcache.start()
 
     def _start_library(self) -> None:
         """Start the sync manager once online, when there is anything to sync
@@ -535,12 +542,45 @@ class Service(xbmc.Monitor):
             self._open_syncplay_menu()
         elif name == ipc.WHO_IS_WATCHING:
             self._open_who_is_watching()
+        elif name == ipc.PRECACHE_ART:
+            self._precache_art_now()
         elif name in LIBRARY_COMMANDS:
             self._start_library()
             if self.library is None:
                 LOG.warning("library command %s ignored: manager not running", name)
                 return
             self.library.enqueue_command(name, ipc.decode(data))
+
+    def _precache_art_now(self) -> None:
+        """Settings button: seed every outstanding cast image.
+
+        On its own thread — this runs until the work is done, which on a first
+        run is thousands of downloads — and single-flight, so a second press
+        joins the run already going rather than doubling the fetches.
+        """
+        if self._precache_art is not None and self._precache_art.is_alive():
+            LOG.debug("cast-image pre-cache already running")
+            toast.show(settings.localized(30672), time_ms=4000)
+            return
+        self._precache_art = threading.Thread(
+            target=self._run_precache_art, name="kofin-artcache-now"
+        )
+        self._precache_art.daemon = True
+        self._precache_art.start()
+
+    def _run_precache_art(self) -> None:
+        toast.show(settings.localized(30672), time_ms=4000)
+        try:
+            # The service's own instance, not a second one: it holds the lock
+            # the idle trickle takes, so the button never races it.
+            seeded = self.artcache.seed_all()
+        except Exception:
+            LOG.exception("cast-image pre-cache failed")
+            return
+        try:
+            toast.show(settings.localized(30673) % seeded, time_ms=5000)
+        except TypeError:  # pragma: no cover - uncached string, see _connection_toast
+            pass
 
     def _syncplay_forward(self, name: str, *args: Any) -> None:
         manager = self.syncplay
@@ -578,6 +618,7 @@ class Service(xbmc.Monitor):
                 LOG.warning("library thread did not stop within deadline")
             self.library = None
         self.player.stop_threads()
+        self.artcache.stop()
         self.kodi_userdata.stop()
         if self.ws is not None:
             self.ws.stop()

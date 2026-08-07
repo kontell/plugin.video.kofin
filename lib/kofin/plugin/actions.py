@@ -126,6 +126,16 @@ def refresh_boxsets(request: Request) -> None:
     ipc.notify(ipc.REFRESH_BOXSETS, {})
 
 
+def precache_art(request: Request) -> None:
+    """Settings button: ask the service to seed the cast-image cache now.
+
+    Fires and exits like every other service-owned action — the work is a
+    long run of downloads and database writes, which the plugin process has
+    no business holding open.
+    """
+    ipc.notify(ipc.PRECACHE_ART, {})
+
+
 def repair_libraries(request: Request) -> None:
     """Per-library picker (or all) -> remove + re-add.
 

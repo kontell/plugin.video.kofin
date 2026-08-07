@@ -23,6 +23,8 @@ REMOVE_LIBRARY = "RemoveLibrary"
 REPAIR_LIBRARY = "RepairLibrary"
 UPDATE_LIBRARY = "UpdateLibrary"
 REFRESH_BOXSETS = "RefreshBoxsets"
+# Settings button: seed the cast-image texture cache now (service/artcache.py).
+PRECACHE_ART = "PrecacheArt"
 
 # SyncPlay (phase 4): the root entry's plugin invocation asks the service —
 # the single owner of all SyncPlay state — to open the group menu on its
@@ -44,6 +46,7 @@ _REGISTRY = frozenset(
         REPAIR_LIBRARY,
         UPDATE_LIBRARY,
         REFRESH_BOXSETS,
+        PRECACHE_ART,
         SYNCPLAY_MENU,
         WHO_IS_WATCHING,
     }

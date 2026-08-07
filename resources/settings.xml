@@ -516,6 +516,20 @@
           <default>true</default>
           <control type="toggle"/>
         </setting>
+        <setting id="precacheActorArt" type="boolean" label="30668" help="30669">
+          <level>0</level>
+          <default>false</default>
+          <control type="toggle"/>
+        </setting>
+        <setting id="precacheActorArtNow" type="string" label="30670" help="30671">
+          <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=precacheart)</data>
+            <close>true</close>
+          </control>
+        </setting>
       </group>
     </category>
 

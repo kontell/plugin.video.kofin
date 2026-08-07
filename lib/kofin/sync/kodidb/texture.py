@@ -66,13 +66,18 @@ def chapter_art_key(dynpath: str, chapter: int, wrapped: bool) -> str:
     return "chapter://%s/%d" % (dynpath, chapter)
 
 
-def cached_rel_path(key: str) -> str:
+def cached_rel_path(key: str, extension: str = ".jpg") -> str:
     """Where the image file lives relative to ``Thumbnails/``:
     ``CTextureCache::GetCacheFile`` (CRC of the lowercased key) plus the
-    ``.jpg`` the cache job appends — Jellyfin chapter images are always
-    JPEG."""
+    extension the cache job appends.
+
+    ``.jpg`` by default — Jellyfin chapter images are always JPEG. The
+    actor-art seeder passes the extension the downloaded bytes actually are
+    (``service/artcache.extension_for``), because Kodi stores a PNG source as
+    ``.png`` and the extension is part of the cachedurl written to the row.
+    """
     hexcrc = "%08x" % crc32_mpeg2(key.lower().encode("utf-8"))
-    return "%s/%s.jpg" % (hexcrc[0], hexcrc)
+    return "%s/%s%s" % (hexcrc[0], hexcrc, extension)
 
 
 class TextureCache(object):
