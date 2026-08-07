@@ -253,3 +253,20 @@ def test_manage_drops_the_watched_toggle_on_a_library_item(monkeypatch):
     item = {"Id": "jf1", "Type": "Episode", "UserData": {}}
     listitem = _ListItem(_Tag(dbid=200, media="episode"))
     assert _manage(monkeypatch, listitem, item) == ["K14076", "L30504"]
+
+
+def test_extras_is_offered_only_when_the_item_has_some(monkeypatch):
+    """The reason this moved out of its own context item: a <visible>
+    condition can only ask Kodi, and Kodi's ListItem.HasVideoExtras is
+    movie-only by construction (hasVideoExtras is computed in movie_view with
+    media_type = 'movie' hardcoded; tvshow_view has no such column), so it is
+    false for every show whatever the server says. This menu is ours, built
+    from an item already fetched, so it can just ask."""
+    without = {"Id": "s1", "Type": "Series", "UserData": {}}
+    assert "extras" not in [m["mode"] for _, m in _options(monkeypatch, without, False)]
+
+    with_extras = dict(without, SpecialFeatureCount=2)
+    options = _options(monkeypatch, with_extras, False)
+    assert "extras" in [m["mode"] for _, m in options]
+    params = next(m for _, m in options if m["mode"] == "extras")
+    assert params["id"] == "s1"

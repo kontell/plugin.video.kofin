@@ -591,15 +591,14 @@ def _extras_node(request: Request, api: Api, view_id: str) -> None:
             "ParentId": view_id,
             "IncludeItemTypes": "Series",
             "Recursive": True,
-            "HasSpecialFeature": True,
-            "Fields": BROWSE_FIELDS,
+            "Fields": BROWSE_FIELDS + ",SpecialFeatureCount",
             "SortBy": "SortName",
             "SortOrder": "Ascending",
         }
     )
     entries = []
     resume_offset = settings.resume_offset()
-    for item in result.get("Items", []):
+    for item in specials_only(result.get("Items", [])):
         # No apply_backdrop: these are series rows, and a media row keeps
         # whatever backdrop the server gave it or none (MEDIA_TYPES).
         li = listitems.build(item, api.server, resume_offset=resume_offset)
@@ -610,6 +609,19 @@ def _extras_node(request: Request, api: Api, view_id: str) -> None:
     xbmcplugin.endOfDirectory(request.handle)
 
 
+def specials_only(items: List[JsonDict]) -> List[JsonDict]:
+    """The items that actually carry special features.
+
+    Filtered here rather than by the server. ``HasSpecialFeature=true`` does
+    not work for series on 10.11: a show with two extras in its folder, which
+    /Items/{id}/SpecialFeatures happily returns and whose SpecialFeatureCount
+    reads 2, is matched by that filter zero times — before and after a full
+    library rescan. Asking for the count and filtering here agrees with the
+    listing the entry opens, which is the property that matters.
+    """
+    return [item for item in items if item.get("SpecialFeatureCount")]
+
+
 def _view_has_specials(api: Api, view_id: str) -> bool:
     """Whether any series in the view has special features (gates the node)."""
     try:
@@ -618,13 +630,16 @@ def _view_has_specials(api: Api, view_id: str) -> bool:
                 "ParentId": view_id,
                 "IncludeItemTypes": "Series",
                 "Recursive": True,
-                "HasSpecialFeature": True,
-                "Limit": 1,
+                # Just the counts: no artwork, no userdata. Measured against a
+                # 78-series view at 36 KB and 38 ms.
+                "Fields": "SpecialFeatureCount",
+                "EnableImages": False,
+                "EnableUserData": False,
             }
         )
     except JellyfinError:
         return False
-    return bool(result.get("Items"))
+    return bool(specials_only(result.get("Items", [])))
 
 
 def _append_extras_entry(request: Request, api: Api, item_id: str) -> None:

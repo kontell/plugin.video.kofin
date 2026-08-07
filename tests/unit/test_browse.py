@@ -165,7 +165,17 @@ FEATURE = {
     "ImageTags": {},
 }
 
-SERIES_DTO = {"Id": "series1", "Name": "The Show", "Type": "Series", "ImageTags": {}}
+# Carries the count because kofin now asks for it and filters on it itself:
+# the server's HasSpecialFeature filter does not work for series (see
+# browse.specials_only), so a DTO that arrived without it is not evidence of
+# anything.
+SERIES_DTO = {
+    "Id": "series1",
+    "Name": "The Show",
+    "Type": "Series",
+    "ImageTags": {},
+    "SpecialFeatureCount": 2,
+}
 
 
 @pytest.fixture(autouse=True)
@@ -261,7 +271,8 @@ def test_extras_node_lists_series_with_specials(directory):
     assert len(paths) == 1
     assert "mode=extras" in paths[0] and "id=series1" in paths[0]
     assert directory["entries"][0][2] is True  # opens the extras listing
-    assert api.items_params[0]["HasSpecialFeature"] is True
+    assert "SpecialFeatureCount" in api.items_params[0]["Fields"]
+    assert "HasSpecialFeature" not in api.items_params[0]  # does not work for TV
     assert api.items_params[0]["IncludeItemTypes"] == "Series"
 
 
@@ -674,3 +685,28 @@ def test_structural_rows_in_a_listing_still_take_the_backdrop(recording_art, dir
     )
     li = directory["entries"][0][1]
     assert li.getArt("fanart") == browse._addon_media(browse.BACKDROP_IMAGE)
+
+
+def test_series_without_specials_are_filtered_here_not_by_the_server():
+    """HasSpecialFeature=true matches no series at all on 10.11, even one whose
+    folder holds two extras that /SpecialFeatures returns and whose
+    SpecialFeatureCount reads 2 — verified before and after a full library
+    rescan. Trusting it meant the Extras node could never appear for TV."""
+    items = [
+        {"Id": "a", "SpecialFeatureCount": 2},
+        {"Id": "b", "SpecialFeatureCount": 0},
+        {"Id": "c"},  # field absent entirely
+    ]
+    assert [item["Id"] for item in browse.specials_only(items)] == ["a"]
+
+
+def test_the_specials_probe_asks_for_counts_not_artwork(directory):
+    """It runs on every TV node menu, so it fetches the counts and nothing
+    else: 36 KB and 38 ms against a 78-series view."""
+    api = ExtrasApi(view_series=[SERIES_DTO])
+    browse._view_has_specials(api, "v1")
+    params = api.items_params[0]
+    assert params["Fields"] == "SpecialFeatureCount"
+    assert params["EnableImages"] is False
+    assert params["EnableUserData"] is False
+    assert "HasSpecialFeature" not in params
