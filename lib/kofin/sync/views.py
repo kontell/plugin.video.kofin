@@ -19,6 +19,7 @@ import xbmc
 import xbmcvfs
 
 from kofin.core import ipc, settings
+from kofin.core.http import Unauthorized
 from kofin.core.log import Logger
 from kofin.sync.db import Database, get_sync, save_sync
 from kofin.sync import kofindb as jellyfin_db
@@ -255,6 +256,15 @@ class Views(object):
         settings.set_str("viewsHash", "")
 
     def get_libraries(self):
+        """The libraries to sync, and whether the answer is the whole truth.
+
+        The second value is what stops a bad minute from deleting a library.
+        A listing missing /Library/MediaFolders is not merely shorter: the two
+        endpoints report *different ids for the same library* (Playlists is
+        one id under MediaFolders and another under UserViews, verified
+        against 10.11), so every view that came from the richer endpoint reads
+        as deleted. See get_views.
+        """
 
         # /Library/MediaFolders is admin-only (403 for a normal user). It is
         # worth asking for because it carries OriginalCollectionType and the
@@ -263,11 +273,25 @@ class Views(object):
         # view table down with it, and an empty view table silently breaks
         # node generation and fast_sync's media-type filter.
         libraries = []
+        complete = True
         try:
             libraries = self.server.media_folders()["Items"]
+        except Unauthorized:
+            # A 403 is not a failure, it is the answer: this user is not an
+            # administrator, so that endpoint is not theirs to see and never
+            # will be. Their /UserViews listing is the whole truth for them,
+            # and a library missing from it really is gone — which is why this
+            # case must go on removing, or a non-admin install (most of them)
+            # would keep every library the server ever dropped.
+            LOG.info("media folders are admin-only here; using the user's own views")
         except Exception as error:
-            LOG.info(
-                "media folders unavailable (%s); using the user's own views", error
+            # Anything else — a timeout, a 500, a reset — is the endpoint that
+            # usually answers failing to. Nothing below may treat what is
+            # missing as deleted.
+            complete = False
+            LOG.warning(
+                "media folders unavailable (%s); listing is incomplete this pass",
+                error,
             )
 
         try:
@@ -280,18 +304,22 @@ class Views(object):
             LOG.exception(error)
             raise IndexError("Unable to retrieve libraries: %s" % error)
 
-        return libraries
+        return libraries, complete
 
     def get_views(self):
         """Get the media folders. Add or remove them. Do not proceed if issue getting libraries."""
         try:
-            libraries = self.get_libraries()
+            libraries, complete = self.get_libraries()
         except IndexError as error:
             LOG.exception(error)
 
             return
 
-        self.sync["SortedViews"] = [x["Id"] for x in libraries]
+        # An incomplete listing may add, never reorder or remove. Stamping
+        # SortedViews from it would also reshuffle the generated node tree,
+        # which now takes its ordering from here.
+        if complete:
+            self.sync["SortedViews"] = [x["Id"] for x in libraries]
 
         for library in libraries:
 
@@ -304,17 +332,21 @@ class Views(object):
 
             self.add_library(library)
 
-        with Database("kofin") as kofin_db:
+        if complete:
+            with Database("kofin") as kofin_db:
 
-            views = jellyfin_db.JellyfinDatabase(kofin_db.cursor).get_views()
-            removed = []
+                views = jellyfin_db.JellyfinDatabase(kofin_db.cursor).get_views()
+                removed = []
 
-            for view in views:
-                if view.view_id not in self.sync["SortedViews"]:
-                    removed.append(view.view_id)
+                for view in views:
+                    if view.view_id not in self.sync["SortedViews"]:
+                        removed.append(view.view_id)
 
-            if removed:
-                ipc.notify(ipc.REMOVE_LIBRARY, {"Id": ",".join(removed)})
+                if removed:
+                    # Not a listing tweak: remove_library deletes every synced
+                    # row for these out of Kodi's database. It only ever runs
+                    # off an answer we know to be whole.
+                    ipc.notify(ipc.REMOVE_LIBRARY, {"Id": ",".join(removed)})
 
         save_sync(self.sync)
 
@@ -1020,7 +1052,9 @@ class Views(object):
         windex = 0
 
         try:
-            self.media_folders = self.get_libraries()
+            # Window props are cosmetic and rebuilt every start, so a listing
+            # that came back short only costs this pass its labels.
+            self.media_folders, _ = self.get_libraries()
         except IndexError as error:
             LOG.exception(error)
 
