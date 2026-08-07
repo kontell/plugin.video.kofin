@@ -779,6 +779,8 @@ class StuckLibrary:
     Kodi: a service script that never returns leaves every later Python
     invocation hanging."""
 
+    ident = None  # a real Thread carries one; the dump follows it
+
     def __init__(self):
         self.stopped = False
 
@@ -823,6 +825,52 @@ def test_a_stuck_library_keeps_the_sync_stop_flag_raised(monkeypatch):
     assert state.should_stop() is True
 
 
+def test_a_stuck_library_is_dumped_not_merely_reported(monkeypatch):
+    """The deadline makes a stuck thread survivable without saying what stuck
+    it, and the event is too rare to reproduce on demand. Both ends of the
+    wait are written down so the log answers it after the fact."""
+    import kofin.service.main as main_module
+
+    dumps = []
+    monkeypatch.setattr(main_module, "LIBRARY_JOIN_SECONDS", 10.0)
+    monkeypatch.setattr(
+        main_module.diag, "thread_dump", lambda reason: dumps.append(reason) or {}
+    )
+    service = Service()
+    service.library = StuckLibrary()
+    monkeypatch.setattr(service, "abortRequested", lambda: False)
+
+    assert service._join_library() is False
+    assert len(dumps) == 2  # the first slow tick, and the deadline
+    assert "5s" in dumps[0] and "deadline" in dumps[1]
+
+
+def test_a_library_that_stops_in_time_is_never_dumped(monkeypatch):
+    """sys._current_frames over every thread is not free, and a teardown that
+    works is not an anomaly worth logging."""
+    import kofin.service.main as main_module
+
+    dumps = []
+    monkeypatch.setattr(
+        main_module.diag, "thread_dump", lambda reason: dumps.append(reason) or {}
+    )
+
+    class SlowButFinishing(StuckLibrary):
+        alive = True
+
+        def join(self, timeout=None):
+            self.alive = False
+
+        def is_alive(self):
+            return self.alive
+
+    service = Service()
+    service.library = SlowButFinishing()
+
+    assert service._join_library() is True
+    assert dumps == []
+
+
 def test_a_clean_teardown_clears_everything(monkeypatch):
     class FinishedLibrary(StuckLibrary):
         def is_alive(self):
@@ -836,3 +884,46 @@ def test_a_clean_teardown_clears_everything(monkeypatch):
     service._shutdown()
 
     assert state.should_stop() is False
+
+
+def test_a_new_generation_never_inherits_the_stop_flag(monkeypatch):
+    """A teardown that could not join its library thread leaves PROP_SYNC_STOP
+    raised on purpose, and nothing else ever lowers it. Measured on Omega:
+    one stuck teardown then disabled syncing until Kodi restarted — every
+    later library thread exited at its first @stop guard, on one warning."""
+    import kofin.service.main as main_module
+
+    state.set_should_stop(True)
+    seen = []
+
+    class OneShot(main_module.Service):
+        def __init__(self):
+            seen.append(state.should_stop())
+
+        def run(self):
+            return False
+
+    monkeypatch.setattr(main_module, "Service", OneShot)
+    main_module.run_forever()
+
+    assert seen == [False]  # the flag was down before the generation was built
+
+
+def test_the_transports_abort_survives_the_next_generation(monkeypatch):
+    """Measured: with the abort reading PROP_SYNC_STOP, the replacement
+    service lowered the flag on its way up and the thread orphaned by the
+    previous teardown went straight back to riding the full retry ladder —
+    125s of a thread that had been told to stop. The signal has to belong to
+    the generation that raised it."""
+    service = Service()
+    abort = service.http._abort
+    assert abort is not None and abort() is False
+
+    service._stopping.set()
+    assert abort() is True
+
+    state.set_should_stop(False)  # what the next generation does on the way up
+    assert abort() is True
+
+    # the per-worker sessions the download pool and writers use, likewise
+    assert service._new_api()._http._abort() is True

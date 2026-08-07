@@ -153,3 +153,44 @@ def test_importing_the_transport_does_not_import_requests():
         "assert 'requests' not in sys.modules, 'requests imported at module load'" % lib
     )
     subprocess.check_call([sys.executable, "-c", code])
+
+
+# --- the retry ladder has to know when the service is stopping ---------------
+
+
+def test_a_stopping_service_abandons_the_ladder_instead_of_replaying(monkeypatch):
+    """Measured on Omega: a black-holed GET rides 4 attempts x (6s connect +
+    30s read) plus backoff — about 147s — and Kodi will not finalise a script
+    while a thread it started is alive, so it blocks on "waiting on thread"
+    for all of it. Nothing in the ladder consulted the stop flag."""
+    stopping = {"yes": False}
+    transport = http.Http(abort=lambda: stopping["yes"])
+    session = FakeSession([requests.ConnectionError("boom")] * 4)
+    monkeypatch.setattr(transport, "session", lambda: session)
+
+    stopping["yes"] = True
+    with pytest.raises(http.ServerUnreachable) as raised:
+        transport.request("GET", "http://s/x")
+
+    assert len(session.calls) == 1  # the one in flight, and no replay
+    assert "stopping" in str(raised.value)
+
+
+def test_the_request_already_in_flight_is_still_allowed_to_answer(monkeypatch):
+    """The abort bounds the replays; it must not cancel a call that is about
+    to succeed, or a teardown would drop the last write of every session."""
+    transport = http.Http(abort=lambda: True)
+    session = FakeSession([FakeResponse(200, {"ok": 1})])
+    monkeypatch.setattr(transport, "session", lambda: session)
+
+    assert transport.request("GET", "http://s/x").json() == {"ok": 1}
+
+
+def test_without_an_abort_the_ladder_is_unchanged(monkeypatch):
+    """The plugin process has no teardown to serve and passes none."""
+    transport, session = make_http(
+        monkeypatch,
+        [requests.ConnectionError("boom")] * 3 + [FakeResponse(200, {"ok": 1})],
+    )
+    assert transport.request("GET", "http://s/x").json() == {"ok": 1}
+    assert len(session.calls) == 4

@@ -12,7 +12,7 @@ all the same (docs/perf-hardening-plan.md W1.2).
 
 import random
 import time
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 
 from kofin.core.log import Logger
 
@@ -75,8 +75,14 @@ def plugin_transport(verify_ssl: bool = True) -> "Http":
 class Http:
     """A lazily created, kept-alive requests session."""
 
-    def __init__(self, verify_ssl: bool = True) -> None:
+    def __init__(
+        self, verify_ssl: bool = True, abort: Optional[Callable[[], bool]] = None
+    ) -> None:
         self._verify_ssl = verify_ssl
+        # Asked between retries: True means give up rather than replay. Passed
+        # in rather than read here so this module keeps its no-Kodi-imports
+        # property; the service wires its stop flag in (service/main.py).
+        self._abort = abort
         self._session: Optional["requests.Session"] = None
 
     def session(self) -> "requests.Session":
@@ -124,6 +130,19 @@ class Http:
         last_error: Optional[Exception] = None
         for attempt in range(retries + 1):
             if attempt:
+                if self._abort is not None and self._abort():
+                    # Measured, not assumed: a black-holed GET rides the full
+                    # ladder — 4 attempts x (6s connect + 30s read) plus
+                    # backoff, about 147s, none of which consults the stop
+                    # flag. Kodi will not finalise a script while a thread it
+                    # started is alive, so it sits on "waiting on thread <id>"
+                    # for exactly that long and every later Python invocation
+                    # queues behind it. Giving up here bounds the damage at
+                    # the one read already in flight.
+                    raise ServerUnreachable(
+                        "%s %s: abandoned while stopping (%s)"
+                        % (method, url, last_error)
+                    )
                 delay = BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
                 time.sleep(delay + random.uniform(0, delay / 2))
             try:
