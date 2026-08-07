@@ -11,7 +11,7 @@
     <import addon="script.kofin.lyrics" version="0.1.0"/>
   </requires>
   <extension point="xbmc.python.pluginsource" library="default.py">
-    <provides>video audio image</provides>
+    <provides>video audio</provides>
     <reuselanguageinvoker>true</reuselanguageinvoker>
   </extension>
   <extension point="xbmc.service" library="service.py" start="login"/>
@@ -83,8 +83,8 @@
     <platform>all</platform>
     <license>GPL-3.0-only</license>
     <source>https://github.com/kontell/plugin.video.kofin</source>
-    <summary lang="en_GB">Jellyfin client with native Kodi integration</summary>
-    <description lang="en_GB">Play media from a Jellyfin server.</description>
+    <summary lang="en_GB">Jellyfin client for seamless Kodi integration</summary>
+    <description lang="en_GB">Play movies, shows &amp; music from a Jellyfin server.</description>
     <!-- fanart.png is the *live* backdrop: service/backdrop.py rewrites it in
          place when the server-splashscreen setting is on, and restores it from
          a copy it captures into addon_data. The asset path has to stay fixed

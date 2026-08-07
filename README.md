@@ -2,7 +2,7 @@
 
 # Kofin for Jellyfin
 
-Kodi video & music addon for Jellyfin. Browse Jellyfin libraries through the add-on or sync selected libraries directly into Kodi's own databases, so Jellyfin content appears as a native Kodi library.
+Kodi video & music addon for Jellyfin. Browse Jellyfin libraries through the add-on or sync selected libraries directly into Kodi's own databases, so Jellyfin content appears as a Kodi library.
 
 A rewrite of [jellyfin-kodi](https://github.com/jellyfin/jellyfin-kodi) on the principle "rewrite the shell, transplant the organs": new entry points, settings and lifecycle wrapped around the proven Kodi database writers.
 
@@ -18,12 +18,12 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 - Consolidated, simplified settings for all add-on configuration.
 - SyncPlay - watch in sync with other Jellyfin clients
 - Integrated media segment skipping and play next episode prompt
-- Access movie special features/ extras natively
-- Multi-version movies as native Kodi video versions (Jellyfin MediaSources)
+- Access movie special features/ extras
+- Multi-version movies as Kodi video versions
 - Flexible playback methods - direct play, remux or transcode. Choose supported HDR formats & max resolution
     - For transcoded playback, audio streams and image-based subtitles can be accessed *after playback starts* by returning to the playing item and bringing up the context menu.
 - Play with transcoding context item: pick a bitrate
-- Jellyfin chapter images in Kodi's native chapter list (needs chapter image extraction enabled per library on the server; direct-played items)
+- Jellyfin chapter images in Kodi's chapter list
 - Transcode music
 - Jellyfin song lyrics, timed or plain (via companion add-on)
 - Sync Jellyfin music playlists into Kodi (one way only)
@@ -31,7 +31,7 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 
 ### Legacy
 
-- Sync Jellyfin movies, TV shows, music and music videos into Kodi's native library
+- Sync Jellyfin movies, TV shows, music and music videos into Kodi's library
 - Real Kodi database rows - skins, widgets and "recently added" work with no plugin awareness
 - Incremental and full sync
 - Real-time updates over websocket, with a fast change-feed path when the server companion plugin is installed
@@ -49,14 +49,15 @@ Install via the [Kontell Repository](https://github.com/kontell/repository.konte
 ### Migration from Jellyfin-Kodi
 
 1.  Disable or uninstall jellyfin-kodi, its background service must not be running.
-2.  Install Kofin, open Settings -> Account and run `Clean databases` (the button is only visible while signed out). It removes all jellyfin-kodi and Kofin library data, nodes and playlists, and optionally the music library, cached server artwork and custom library nodes.
-
-Cleaning is per Kodi profile, run it in each profile that synced.
+2.  Install Kofin and enter Add-ons -> Video add-ons -> Kofin -> Settings -> Account
+3.  Run `Clean databases` (the button is only visible while logged out).
+    - It removes all jellyfin-kodi and Kofin library data, nodes and playlists, and optionally the music library, cached server artwork and custom library nodes.
+    - Cleaning is per Kodi profile, run it in each profile that synced.
 
 ### Configuration
 
 - After install the addon appears under Add-ons -> Video add-ons -> Kofin.
-- Enter settings and open the Account tab, enter your server address and sign in.
+- Enter settings and open the Account tab, enter your server address and log in.
 - Libraries can now be browsed in a similar manner to typical Kodi add-ons.
 - To sync libraries into the local Kodi database:
     - From settings go to the Library tab, choose which server libraries to mirror. The background service syncs them into Kodi's library - the first sync can take a while, later ones are incremental.
@@ -64,7 +65,7 @@ Cleaning is per Kodi profile, run it in each profile that synced.
 ### Server address
 
 - The server address may be a bare host or IP (e.g. `192.168.1.10`), a `host:port`, or a full URL. `http` and port `8096` are assumed when the scheme and port are omitted. Use `https://` when connecting over the internet.
-- On login the addon stores a Jellyfin access token (not your password) in Kodi's addon settings. Like all Kodi addon settings it is kept in plaintext under `userdata/addon_data/plugin.video.kofin/` - be aware of this when sharing Kodi backups or your addon_data folder. Signing out revokes the token on the server.
+- On login the addon stores a Jellyfin access token (not your password) in Kodi's addon settings. Like all Kodi addon settings it is kept in plaintext under `userdata/addon_data/plugin.video.kofin/` - be aware of this when sharing Kodi backups or your addon_data folder. Logging out revokes the token on the server.
 
 ## Companion server plugin
 
@@ -81,4 +82,4 @@ Kofin is pure Python and runs anywhere Kodi 21 /22 does. Because library sync wr
 
 ## Uninstalling Kofin
 
-Sign out (Settings -> Account), run `Clean databases`, then uninstall the add-on and accept Kodi's offer to delete the add-on data.
+Log out (Settings -> Account), run `Clean databases`, then uninstall the add-on and accept Kodi's offer to delete the add-on data.
