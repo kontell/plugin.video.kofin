@@ -8,12 +8,15 @@ property and nothing else.
 """
 
 import json
+import os
+import time
+import uuid
 from typing import Any, Dict, List, Optional
 
 import xbmcgui
+import xbmcvfs
 
 PROP_ONLINE = "kofin.online"
-PROP_PLAY_QUEUE = "kofin.play.json"
 PROP_PLAYING_ID = "kofin.playing.id"
 PROP_SYNC_STOP = "kofin.sync.stop"
 PROP_SYNC_ACTIVE = "kofin.sync.active"
@@ -98,24 +101,104 @@ def is_online() -> bool:
     return _window().getProperty(PROP_ONLINE) == "true"
 
 
+# The play queue is a directory of one file per resolved play, not a window
+# property holding a list. Both processes write it — the plugin's play route
+# pushes, the service's player claims — and a window property can only be
+# read-modify-written, which across processes is a race with no lock available
+# (audit finding #12): a claim landing inside the plugin's read/write window
+# resurrects the entry it just took, and a push landing inside the service's
+# loses the new one, whose playback is then never claimed or reported, while
+# claim's oldest-entry fallback attributes the *wrong* item to it.
+#
+# One file per entry removes the shared structure: nobody rewrites anybody
+# else's data, and ``os.remove`` is the claim — the filesystem guarantees
+# exactly one caller succeeds, which is the mutual exclusion the property
+# could not give. Names are time-ordered so "oldest" is a sort, not a
+# timestamp field to trust.
+PLAY_QUEUE_DIR = "special://profile/addon_data/plugin.video.kofin/playqueue"
+
+# How long an unclaimed entry survives. A play that resolved but never reached
+# the player (a failed stream, a Kodi that never started it) would otherwise
+# sit there forever and be adopted by an unrelated later playback through the
+# oldest-entry fallback.
+PLAY_QUEUE_TTL_SECONDS = 600
+
+
+def _queue_dir() -> str:
+    return xbmcvfs.translatePath(PLAY_QUEUE_DIR)
+
+
+def _queue_files() -> List[str]:
+    """Queued entry paths, oldest first (names carry a nanosecond stamp)."""
+    directory = _queue_dir()
+    try:
+        return sorted(
+            os.path.join(directory, name)
+            for name in os.listdir(directory)
+            if name.endswith(".json")
+        )
+    except OSError:
+        return []
+
+
+def _read_entry(path: str) -> Optional[Dict[str, Any]]:
+    try:
+        with open(path) as handle:
+            item = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    return item if isinstance(item, dict) else None
+
+
 def push_play_item(item: Dict[str, Any]) -> None:
     """Queue a resolved play's state for the service-side player to claim."""
-    window = _window()
-    queue = _read_queue(window)
-    queue.append(item)
-    window.setProperty(PROP_PLAY_QUEUE, json.dumps(queue))
+    directory = _queue_dir()
+    try:
+        os.makedirs(directory, exist_ok=True)
+        _expire_play_items()
+        # The stamp orders the queue; the suffix keeps two plays resolved in
+        # the same nanosecond apart. Written to a temp name and renamed so a
+        # reader never sees a half-written entry.
+        name = "%019d-%s.json" % (time.time_ns(), uuid.uuid4().hex[:8])
+        target = os.path.join(directory, name)
+        temporary = target + ".tmp"
+        with open(temporary, "w") as handle:
+            json.dump(item, handle)
+        os.replace(temporary, target)
+    except OSError:
+        # A queue that cannot be written costs this playback its reporting,
+        # which is what the old property did on failure too. Never the play.
+        pass
 
 
 def claim_play_item(path: str) -> Optional[Dict[str, Any]]:
-    """Pop the queued entry for ``path``, or the oldest entry as fallback."""
-    window = _window()
-    queue = _read_queue(window)
-    if not queue:
+    """Take the queued entry for ``path``, or the oldest entry as fallback.
+
+    The removal is the claim: whoever unlinks the file owns that entry, and
+    a loser simply moves on to the next candidate.
+    """
+    files = _queue_files()
+    if not files:
         return None
-    claimed = next((item for item in queue if item.get("Path") == path), queue[0])
-    queue.remove(claimed)
-    window.setProperty(PROP_PLAY_QUEUE, json.dumps(queue))
-    return claimed
+
+    matching = []
+    fallback = None
+    for entry_path in files:
+        item = _read_entry(entry_path)
+        if item is None:
+            continue
+        if item.get("Path") == path:
+            matching.append((entry_path, item))
+        elif fallback is None:
+            fallback = (entry_path, item)
+
+    for entry_path, item in matching + ([fallback] if fallback else []):
+        try:
+            os.remove(entry_path)
+        except OSError:
+            continue  # someone else claimed it first
+        return item
+    return None
 
 
 def play_item_queued(path: str) -> bool:
@@ -124,11 +207,30 @@ def play_item_queued(path: str) -> bool:
     Read-only counterpart to :func:`claim_play_item`, for deciding not to
     queue a second entry for a playback the play route already handled.
     """
-    return any(item.get("Path") == path for item in _read_queue(_window()))
+    return any(
+        (_read_entry(entry) or {}).get("Path") == path for entry in _queue_files()
+    )
+
+
+def _expire_play_items() -> None:
+    """Drop entries older than the TTL (see PLAY_QUEUE_TTL_SECONDS)."""
+    cutoff = time.time_ns() - PLAY_QUEUE_TTL_SECONDS * 1_000_000_000
+    for entry in _queue_files():
+        stamp = os.path.basename(entry).split("-", 1)[0]
+        if not stamp.isdigit() or int(stamp) >= cutoff:
+            continue
+        try:
+            os.remove(entry)
+        except OSError:
+            pass
 
 
 def clear_play_queue() -> None:
-    _window().clearProperty(PROP_PLAY_QUEUE)
+    for entry in _queue_files():
+        try:
+            os.remove(entry)
+        except OSError:
+            pass
 
 
 def set_playing_id(item_id: str) -> None:
@@ -308,7 +410,6 @@ def clear_all(keep_stop: bool = False) -> None:
     window = _window()
     props = [
         PROP_ONLINE,
-        PROP_PLAY_QUEUE,
         PROP_PLAYING_ID,
         PROP_SYNC_ACTIVE,
         PROP_CONTEXT_BITRATES,
@@ -321,14 +422,4 @@ def clear_all(keep_stop: bool = False) -> None:
     for prop in props:
         window.clearProperty(prop)
     clear_lyrics()
-
-
-def _read_queue(window: xbmcgui.Window) -> List[Dict[str, Any]]:
-    raw = window.getProperty(PROP_PLAY_QUEUE)
-    if not raw:
-        return []
-    try:
-        queue = json.loads(raw)
-    except ValueError:
-        return []
-    return queue if isinstance(queue, list) else []
+    clear_play_queue()
