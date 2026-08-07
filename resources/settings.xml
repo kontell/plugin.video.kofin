@@ -494,6 +494,16 @@
         </setting>
       </group>
       <group id="4">
+        <setting id="resumeJumpBack" type="integer" label="30475" help="30476">
+          <level>0</level>
+          <default>-10</default>
+          <constraints>
+            <minimum>-60</minimum>
+            <step>5</step>
+            <maximum>0</maximum>
+          </constraints>
+          <control type="slider" format="integer"/>
+        </setting>
         <setting id="honourJellyfinDefaultTracks" type="boolean" label="30618" help="30619">
           <level>0</level>
           <default>true</default>
@@ -918,16 +928,6 @@
             </dependency>
           </dependencies>
           <control type="toggle"/>
-        </setting>
-        <setting id="resumeJumpBack" type="integer" label="30475" help="30476">
-          <level>0</level>
-          <default>-10</default>
-          <constraints>
-            <minimum>-60</minimum>
-            <step>5</step>
-            <maximum>0</maximum>
-          </constraints>
-          <control type="slider" format="integer"/>
         </setting>
       </group>
     </category>

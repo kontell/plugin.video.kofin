@@ -106,7 +106,12 @@ NODE_ICONS: Dict[str, Any] = {
         "musicvideos": "DefaultRecentlyAddedMusicVideos.png",
     },
     "recentepisodes": "DefaultRecentlyAddedEpisodes.png",
-    "recentalbums": "DefaultRecentlyAddedAlbums.png",
+    # Not DefaultRecentlyAddedAlbums.png, which reads like the video names
+    # above and renders as nothing: no skin has it. Kodi's own node for this
+    # (system/library/music/recentlyaddedalbums.xml) says
+    # DefaultMusicRecentlyAdded.png, and the music icons follow that shape
+    # throughout — DefaultMusicRecentlyPlayed, DefaultMusicRoles, and so on.
+    "recentalbums": "DefaultMusicRecentlyAdded.png",
     "inprogress": "DefaultInProgressShows.png",
     "inprogressepisodes": "DefaultInProgressShows.png",
     "nextup": "DefaultInProgressShows.png",
