@@ -286,9 +286,11 @@ def test_cancel_mid_transfer_removes_everything(tmp_path, repoints):
     manager._process(api, queue_row())
 
     assert store.get("m1") is None
-    assert not (tmp_path / "dl" / "Movies").exists() or not list(
-        (tmp_path / "dl").rglob("*.part")
-    )
+    assert list((tmp_path / "dl").rglob("*.part")) == []
+    # The directories the transfer created go with it: a cancel used to
+    # leave an empty season folder behind on disk (found live, G6a).
+    assert not (tmp_path / "dl" / "Movies").exists()
+    assert (tmp_path / "dl").exists()  # never the root
     assert repoints["repoint"] == []
     assert refreshes == []
 
@@ -471,3 +473,31 @@ def test_a_different_show_with_the_same_name_still_separates(tmp_path, repoints)
     manager._process(api, queue_row("x1"))
 
     assert store.get("x1").rel_path == "TV/The Show [show2]/Season 19/one.avi"
+
+
+def test_a_shutdown_mid_transfer_leaves_the_row_recoverable(tmp_path, repoints):
+    """A stop is not a failure: the row must stay active so the next start's
+    recover_interrupted re-queues it and the .part resumes with a Range.
+    Found live (G6b) — quitting Kodi mid-download settled the row as failed
+    and nothing ever picked it up again."""
+    from kofin.core.http import ServerUnreachable
+
+    manager, _ = make_manager(repoints)
+    stream = FakeStream(
+        200,
+        [b"abcd", ServerUnreachable("stream abandoned while stopping")],
+        {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+    )
+    stream.on_chunk = lambda index: manager._stop.set()
+    api = FakeManagerApi(MOVIE_DTO, [stream])
+
+    manager._process(api, queue_row())
+
+    row = store.get("m1")
+    assert row.state == store.ACTIVE
+    assert row.bytes_done == 4  # the watermark survives for the resume
+    assert (tmp_path / "dl" / row.rel_path).with_suffix(".mkv.part").exists()
+
+    manager._stop.clear()
+    assert store.recover_interrupted() == 1
+    assert store.get("m1").state == store.QUEUED

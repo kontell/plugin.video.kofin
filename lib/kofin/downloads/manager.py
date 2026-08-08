@@ -347,16 +347,23 @@ class DownloadManager:
     ) -> None:
         written = start
         chunk_count = 0
-        with open(part, "ab" if start else "wb") as handle:
-            for chunk in stream.chunks():
-                if self._cancelled(item_id):
-                    raise _Cancelled()
-                handle.write(chunk)
-                written += len(chunk)
-                chunk_count += 1
-                if chunk_count % PROGRESS_EVERY_CHUNKS == 0:
-                    store.record_progress(item_id, written)
-        store.record_progress(item_id, written)
+        try:
+            with open(part, "ab" if start else "wb") as handle:
+                for chunk in stream.chunks():
+                    if self._cancelled(item_id):
+                        raise _Cancelled()
+                    handle.write(chunk)
+                    written += len(chunk)
+                    chunk_count += 1
+                    if chunk_count % PROGRESS_EVERY_CHUNKS == 0:
+                        store.record_progress(item_id, written)
+        finally:
+            # Also on the way out through an abort or a dead socket: the
+            # resume reads the .part's real size, but a watermark left at
+            # whatever the last 8 MiB tick happened to catch (or at 0)
+            # misreports an interrupted download to everything that renders
+            # one.
+            store.record_progress(item_id, written)
 
     def _download_subtitles(
         self, api: Any, item: JsonDict, source: JsonDict, directory: str, rel_path: str
@@ -399,6 +406,16 @@ class DownloadManager:
 
     def _retry_or_fail(self, row: "store.Download", error: str) -> None:
         item_id = row.jellyfin_id
+        if self._should_stop():
+            # Not a failure: the service is going away mid-transfer, and the
+            # abort that ended the chunk loop is our own. The row stays
+            # ``active`` so ``recover_interrupted`` re-queues it at the next
+            # start, resuming from the .part with a Range — settling it as
+            # failed instead both mislabels a shutdown and loses the
+            # automatic resume (found live, G6b: a Kodi quit left the row
+            # failed and nothing picked it up again).
+            LOG.info("download interrupted by shutdown: %s", item_id)
+            return
         attempts = self._attempts.get(item_id, 0) + 1
         self._attempts[item_id] = attempts
         store.fail(item_id, error)
@@ -429,8 +446,19 @@ class DownloadManager:
             time.sleep(0.2)
 
     def _delete_part(self, row: "store.Download") -> None:
-        if row.rel_path:
-            _remove_quietly(os.path.join(downloads_root(), row.rel_path) + ".part")
+        """Drop a partial transfer and the directories it created.
+
+        The prune matters here as much as in ``_delete_media``: a cancel
+        before the first byte lands still made the season folder on its way
+        in, and without this an empty ``Season 03/`` survived every cancel
+        (found live, G6a).
+        """
+        if not row.rel_path:
+            return
+        root = downloads_root()
+        absolute = os.path.join(root, row.rel_path)
+        _remove_quietly(absolute + ".part")
+        _prune_empty_dirs(os.path.dirname(absolute), root)
 
     def _delete_media(self, row: "store.Download") -> None:
         """The media file, its .part and its sidecars, then any empty dirs."""
