@@ -105,17 +105,46 @@ class WSClient(threading.Thread):
         if self._keepalive is not None:
             self._keepalive.stop()
             self._keepalive = None
-        if self._app is not None:
+        app = self._app
+        # The raw-socket handle is taken before close(): WebSocketApp.close()
+        # drops its reference on the way through, and the escalation below
+        # needs something left to sever.
+        sock = getattr(app, "sock", None)
+        if app is not None:
             try:
-                self._app.close()
+                app.close()
             except Exception as error:  # pragma: no cover - defensive
                 LOG.debug("websocket close failed: %s", error)
-        if self.is_alive():
-            self.join(timeout=5)
-            if self.is_alive():  # pragma: no cover - watchdog logging only
-                LOG.warning("websocket thread did not stop within deadline")
+        if not self.is_alive():
+            return
+        self.join(timeout=5)
+        if not self.is_alive():
+            return
+        # The graceful close did not unblock the receive loop. That is what a
+        # close handshake that raised looks like: the descriptor stays open,
+        # recv() keeps delivering, and the thread outlives every deadline —
+        # which blocks Kodi's script finalisation outright ("waiting on
+        # thread"), because Kodi will not finalise a script while a thread it
+        # started is alive. Observed on a quit: the socket kept receiving for
+        # over a minute after the service exited, and Kodi needed SIGKILL
+        # (2026-08-07). WebSocket.shutdown() closes the raw socket with no
+        # handshake, which fails the pending recv immediately.
+        try:
+            if sock is not None:
+                sock.shutdown()
+        except Exception as error:  # pragma: no cover - defensive
+            LOG.debug("websocket shutdown failed: %s", error)
+        self.join(timeout=5)
+        if self.is_alive():  # pragma: no cover - watchdog logging only
+            LOG.warning("websocket thread did not stop within deadline")
 
     def _handle_open(self, app: "websocket.WebSocketApp") -> None:
+        if self._stop:
+            # A connect completing while stop() tears the client down must
+            # not restart the machinery: the keepalive it would spawn has no
+            # stop() left to run it down, and the connected callback would
+            # fire into a service that is mid-teardown.
+            return
         LOG.info("websocket connected")
         self._connected = True
         self._last_inbound = time.monotonic()
@@ -181,6 +210,14 @@ class WSClient(threading.Thread):
         return True
 
     def _handle_message(self, app: "websocket.WebSocketApp", raw: str) -> None:
+        if self._stop:
+            # A stopped client hands its owner nothing: the service is
+            # mid-teardown and the objects the callback reaches — the
+            # Library, the kofin database — may already be gone. Observed
+            # before this gate: a LibraryChanged dispatched a minute after
+            # the service exited, applied against a torn-down Library while
+            # Kodi sat in "waiting on thread" (2026-08-07 quit wedge).
+            return
         # Every inbound frame is liveness, including the KeepAlive echoes the
         # event filter below discards and frames that fail to parse.
         self._last_inbound = time.monotonic()

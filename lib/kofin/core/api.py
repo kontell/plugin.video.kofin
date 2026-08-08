@@ -20,6 +20,19 @@ LYRICS_TIMEOUT = (2.0, 3.0)
 # nothing waits on it, so a slow server costs nothing but a late backdrop.
 SPLASHSCREEN_TIMEOUT = (6.0, 60.0)
 
+# The service's reachability probe (Service._connect): one attempt on the
+# interactive connect budget and a bounded read. The backoff loop calling it
+# *is* the retry policy, so the transport must not stack its own ladder on
+# top — with the default budget a single offline probe held the service loop
+# for ~29 s (4 x 6 s connects plus backoff), long enough to blow Kodi's
+# five-second stop grace whenever a stop request landed mid-probe (measured
+# 2026-08-08: a profile switch killed the script and the interrupted login
+# left the profile with no kofin service and a dead webserver). The read
+# stays generous for a slow-but-alive server: the endpoint is a tiny JSON
+# document, and a server that cannot produce it in ten seconds is one the
+# backoff should treat as down anyway.
+PROBE_TIMEOUT = (3.05, 10.0)
+
 
 class Api:
     def __init__(
@@ -149,6 +162,18 @@ class Api:
 
     def public_info(self) -> JsonDict:
         return self.get("/System/Info/Public")
+
+    def probe_info(self) -> JsonDict:
+        """/System/Info/Public on the probe budget — see PROBE_TIMEOUT."""
+        response = self._http.request(
+            "GET",
+            self._url("/System/Info/Public"),
+            headers=self._headers(),
+            timeout=PROBE_TIMEOUT,
+            retries=0,
+        )
+        body: JsonDict = response.json() if response.content else {}
+        return body
 
     def branding_configuration(self) -> JsonDict:
         return self.get("/Branding/Configuration")

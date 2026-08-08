@@ -129,7 +129,7 @@ class Service(xbmc.Monitor):
         # its successor.
         self._stopping = threading.Event()
         self.credentials = Credentials.load()
-        self.http = Http(settings.get_bool("sslVerify"), abort=self._stopping.is_set)
+        self.http = Http(settings.get_bool("sslVerify"), abort=self._abort_transport)
         self.api = Api.from_credentials(self.http, self.credentials)
         self.ws: Optional[WSClient] = None
         self.player = Player(self.api)
@@ -155,6 +155,24 @@ class Service(xbmc.Monitor):
         # invalidated by the next restart.
         self._ipc_nonce = ipc.rotate_nonce()
         self.settings_apply = SettingsApplier(self)
+
+    def _abort_transport(self) -> bool:
+        """Whether a transport retry ladder should give up rather than replay.
+
+        Two signals, deliberately both. ``self._stopping`` is this generation
+        tearing itself down — an Event owned by the generation, which its
+        replacement cannot lower (see __init__). ``abortRequested()`` is Kodi
+        stopping this *script* — an addon bounce, a profile switch, Kodi
+        exiting — and it is the signal the Event cannot cover: Kodi raises it
+        and waits, ``_shutdown`` has not run yet (the run loop is the thing
+        that notices the flag), so a thread already inside a ladder read the
+        Event as "carry on" and rode out the full budget. Measured on a
+        profile switch with the server unreachable: the service blew Kodi's
+        five-second stop grace ("script didn't stop in 5 seconds"), the
+        interrupted profile login never restarted the webserver, and the
+        profile came up with no kofin service at all (2026-08-08).
+        """
+        return self._stopping.is_set() or self.abortRequested()
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -194,8 +212,12 @@ class Service(xbmc.Monitor):
             self._connect()
 
     def _connect(self) -> None:
+        # The probe budget, not the transport default: this runs on the
+        # service loop, whose 1 s tick is also what notices stop requests,
+        # and the backoff schedule is already the retry policy (see
+        # api.PROBE_TIMEOUT for the measured cost of forgetting that).
         try:
-            info = self.api.public_info()
+            info = self.api.probe_info()
         except JellyfinError as error:
             delay = self._backoff.failed(time.time())
             LOG.warning("server not reachable (%s); retry in %.0fs", error, delay)
@@ -250,7 +272,7 @@ class Service(xbmc.Monitor):
         what keeps the library thread alive past the teardown.
         """
         return Api.from_credentials(
-            Http(settings.get_bool("sslVerify"), abort=self._stopping.is_set),
+            Http(settings.get_bool("sslVerify"), abort=self._abort_transport),
             Credentials.load(),
         )
 
@@ -669,6 +691,16 @@ class Service(xbmc.Monitor):
         self._stopping.set()
         state.set_should_stop(True)
         self._stop_syncplay()
+        # The websocket goes down before the library, not after: every event
+        # it dispatches lands in the Library's queues — or, for UserDataChanged,
+        # opens the kofin database — on the websocket thread, so a message
+        # arriving mid-join raced the very teardown the join was waiting on
+        # (observed: a LibraryChanged applied against a torn-down Library a
+        # minute after the service exited, 2026-08-07). SyncPlay is stopped
+        # above because it is the only other websocket consumer.
+        if self.ws is not None:
+            self.ws.stop()
+            self.ws = None
         library_stuck = False
         if self.library is not None:
             self.library.stop_client()
@@ -677,9 +709,6 @@ class Service(xbmc.Monitor):
         self.player.stop_threads()
         self.artcache.stop()
         self.kodi_userdata.stop()
-        if self.ws is not None:
-            self.ws.stop()
-            self.ws = None
         self._join_workers()
         self.http.close()
         # Last, and only once nothing of ours is still running: clear_all drops
