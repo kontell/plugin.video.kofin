@@ -194,6 +194,10 @@ def reassert_on(video_cursor: Any, kofin_cursor: Any, jellyfin_id: str) -> None:
     if row is None or row.state != store.DONE:
         return
     repoint_on(video_cursor, kofin_cursor, row, downloads_root())
+    # The badge rides along: a repair rebuilds the item under a new Kodi id
+    # and the art rows went with the old one, so re-publishing here is what
+    # keeps the badge true across the most destructive resync there is.
+    stamp_badge_on(video_cursor, kofin_cursor, row)
 
 
 def _kodi_id_on(kofin_cursor: Any, jellyfin_id: str, media_type: str) -> Optional[int]:
@@ -219,6 +223,45 @@ def _tag_target(
         kodi_id = _kodi_id_on(kofin_cursor, download.series_id, "tvshow")
         return (kodi_id, "tvshow") if kodi_id is not None else None
     return None
+
+
+BADGE_URL = "special://home/addons/plugin.video.kofin/resources/media/downloaded.png"
+
+
+def _badge_target(
+    kofin_cursor: Any, download: store.Download
+) -> Optional[Tuple[int, str]]:
+    """(kodi id, media type) the badge belongs on.
+
+    Unlike the tag, this is the *item itself* for both kinds: an episode
+    row carries its own art in a native list, so the badge lands where the
+    viewer is looking rather than on the show.
+    """
+    kodi_id = _kodi_id_on(kofin_cursor, download.jellyfin_id, download.media_type)
+    if kodi_id is None or download.media_type not in REPOINTABLE:
+        return None
+    return kodi_id, download.media_type
+
+
+def stamp_badge_on(
+    video_cursor: Any, kofin_cursor: Any, download: store.Download
+) -> None:
+    """Publish the downloaded badge for this item (idempotent)."""
+    target = _badge_target(kofin_cursor, download)
+    if target is not None:
+        KodiDownloads(video_cursor).set_badge(target[0], target[1], BADGE_URL)
+
+
+def stamp_badge(download: store.Download) -> None:
+    with Database("kofin") as kofin_db, Database("video") as video:
+        stamp_badge_on(video.cursor, kofin_db.cursor, download)
+
+
+def clear_badge(download: store.Download) -> None:
+    with Database("kofin") as kofin_db, Database("video") as video:
+        target = _badge_target(kofin_db.cursor, download)
+        if target is not None:
+            KodiDownloads(video.cursor).clear_badge(target[0], target[1])
 
 
 def stamp_tag(download: store.Download) -> None:

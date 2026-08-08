@@ -232,6 +232,7 @@ class DownloadManager:
         # the row being removed must not count itself as that sibling.
         store.remove(item_id)
         repoint.unstamp_tag(row)
+        repoint.clear_badge(row)
         self._refresh_quietly()
         LOG.info("download removed: %s", item_id)
 
@@ -327,6 +328,7 @@ class DownloadManager:
         if finished is not None:
             repoint.repoint(finished, root)
             repoint.stamp_tag(finished)
+            repoint.stamp_badge(finished)
         self._refresh_quietly()
         self._toast(30712, item.get("Name", item_id))
         LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
@@ -532,6 +534,7 @@ class DownloadManager:
                     continue
                 if repoint.repoint(row, root):
                     repoint.stamp_tag(row)  # idempotent; a repair wiped links
+                    repoint.stamp_badge(row)
                     touched = True
             if touched:
                 self._refresh_quietly()

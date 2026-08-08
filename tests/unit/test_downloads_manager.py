@@ -54,6 +54,18 @@ def repoints(monkeypatch):
         "stamp_tag",
         lambda row: calls["stamp"].append(row.jellyfin_id),
     )
+    calls["badge"] = []
+    calls["unbadge"] = []
+    monkeypatch.setattr(
+        manager_module.repoint,
+        "stamp_badge",
+        lambda row: calls["badge"].append(row.jellyfin_id),
+    )
+    monkeypatch.setattr(
+        manager_module.repoint,
+        "clear_badge",
+        lambda row: calls["unbadge"].append(row.jellyfin_id),
+    )
     monkeypatch.setattr(
         manager_module.repoint,
         "unstamp_tag",
@@ -167,6 +179,7 @@ def test_happy_path_downloads_verifies_repoints_and_refreshes(tmp_path, repoints
     assert not os.path.exists(str(final) + ".part")
     assert repoints["repoint"] == [("m1", str(tmp_path / "dl"))]
     assert repoints["stamp"] == ["m1"]
+    assert repoints["badge"] == ["m1"]  # the native-library signal
     assert refreshes == [1]
 
 
@@ -397,6 +410,7 @@ def test_remove_restores_deletes_and_prunes(tmp_path, repoints):
 
     assert repoints["restore"] == [("m1", str(tmp_path / "dl"))]
     assert repoints["unstamp"] == ["m1"]
+    assert repoints["unbadge"] == ["m1"]
     assert store.get("m1") is None
     assert not final.exists()
     assert not final.parent.exists()  # sidecar went with it, dir pruned

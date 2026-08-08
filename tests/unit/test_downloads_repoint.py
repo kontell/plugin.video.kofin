@@ -332,11 +332,13 @@ def test_a_changed_resync_reasserts_itself_and_remove_leaves_zero_trace(
     assert name == "movie.mkv"  # the writer re-asserted the repoint itself
     assert store.get("movie1").restore_filename.startswith("plugin://")
     assert _tag_links("movie") == 1  # injected through the wholesale replace
+    assert len(_badge_rows()) == 1  # re-published by the same hook
 
     row = store.get("movie1")  # the remove flow, as the manager runs it
     assert repoint.restore(row, ROOT) is True
     store.remove("movie1")
     repoint.unstamp_tag(row)
+    repoint.clear_badge(row)
     assert dump() == expected
 
 
@@ -396,3 +398,96 @@ def test_repoint_skips_unmapped_items():
     )
     assert repoint.repoint(orphan, ROOT) is False
     assert repoint.restore(orphan, ROOT) is False
+
+
+# --- the downloaded badge (plan W2.7) ----------------------------------------
+
+
+def _badge_rows(media_type="movie"):
+    from kofin.sync.kodidb.downloads import BADGE_ART
+
+    return video_query(
+        "SELECT media_id, url FROM art WHERE type = ? AND media_type = ?",
+        (BADGE_ART, media_type),
+    )
+
+
+def test_the_badge_is_published_as_art_and_survives_a_resync(api, sync_env, tmp_path):
+    """Art is the only per-item signal an addon can put into a *native*
+    library list: Kodi loads every art row for an item and exposes it as
+    ListItem.Art(<type>), while the overlay it draws itself is a closed
+    enum. Unlike tags, an ordinary writer pass leaves unknown art types
+    alone — only the removal path clears art — so the badge needs no
+    injection into the tag list, and the L2 job here is to prove exactly
+    that, plus zero trace after removal."""
+    expected = parallel_writer_state(tmp_path, sync_env, [dto(MOVIE)])
+
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    download = done_download("movie1", "movie", "Movies/The Movie (2019)/movie.mkv")
+    repoint.repoint(download, ROOT)
+    repoint.stamp_badge(download)
+
+    (row,) = _badge_rows()
+    kodi_id, _file_id, _path_id = mapping_row("movie1")
+    assert row[0] == kodi_id
+    assert row[1].endswith("downloaded.png")
+
+    write_movie(api)  # an ordinary resync must not disturb it
+    assert len(_badge_rows()) == 1
+
+    repoint.restore(store.get("movie1"), ROOT)
+    store.remove("movie1")
+    repoint.clear_badge(download)
+    assert _badge_rows() == []
+    assert dump() == expected  # zero trace, art rows included
+
+
+def test_stamping_twice_leaves_one_row(api):
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    download = done_download("movie1", "movie", "Movies/The Movie (2019)/movie.mkv")
+
+    repoint.stamp_badge(download)
+    repoint.stamp_badge(download)
+
+    assert len(_badge_rows()) == 1
+
+
+def test_an_episode_carries_its_own_badge_not_the_shows(api):
+    """The tag goes on the show because episodes have no tag surface in
+    Kodi's nodes; art has no such limit, so the badge lands on the row the
+    viewer is actually looking at."""
+    write_series_tree(api)
+    download = done_download(
+        "episode1", "episode", "TV/The Show/Season 01/S01E01.mkv", "series1"
+    )
+    repoint.stamp_badge(download)
+
+    episode_badges = _badge_rows("episode")
+    kodi_id, _file_id, _path_id = mapping_row("episode1")
+    assert [row[0] for row in episode_badges] == [kodi_id]
+    assert _badge_rows("tvshow") == []
+
+
+def test_a_changed_resync_republishes_the_badge_after_a_repair(api, sync_env, tmp_path):
+    """A repair rebuilds the item under a new Kodi id and its art goes with
+    the old one, so the writers' re-assert re-publishes the badge — the same
+    hook that re-points the file."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    download = done_download("movie1", "movie", "Movies/The Movie (2019)/movie.mkv")
+    repoint.repoint(download, ROOT)
+    repoint.stamp_badge(download)
+
+    from kofin.sync.kodidb.downloads import BADGE_ART
+
+    with sync_db.Database("video") as opened:  # as a repair's teardown does
+        opened.cursor.execute("DELETE FROM art WHERE type = ?", (BADGE_ART,))
+    assert _badge_rows() == []
+
+    changed = dto(MOVIE)
+    changed["Etag"] = "etag-movie1-v2"
+    write_movie(api, changed)  # the re-assert runs inside this pass
+
+    assert len(_badge_rows()) == 1

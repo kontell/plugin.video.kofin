@@ -73,6 +73,22 @@ DELETE FROM path
 WHERE       idPath = ?
 """
 
+# The art type the downloaded badge is published under. Namespaced because
+# the art table is Kodi's and shared with every scraper and skin helper.
+BADGE_ART = "kofin.downloaded"
+
+ADD_BADGE = """
+INSERT INTO     art(media_id, media_type, type, url)
+VALUES          (?, ?, ?, ?)
+"""
+
+DELETE_BADGE = """
+DELETE FROM     art
+WHERE           media_id = ?
+AND             media_type = ?
+AND             type = ?
+"""
+
 
 def with_sep(directory: str) -> str:
     """Kodi path rows always carry a trailing separator; POSIX-only, like
@@ -130,6 +146,29 @@ class Downloads(Kodi):
         season_id = int(self.add_path(with_sep(season_dir)))
         self.update_path_parent_id(season_id, show_id)
         return season_id
+
+    def set_badge(self, media_id: int, media_type: str, url: str) -> None:
+        """Publish the downloaded badge as an ``art`` row.
+
+        Art is how a signal reaches a *native* library list: Kodi loads
+        every row for an item (``GetArtForItem`` selects type and url with
+        no whitelist) and hands the map to skins as
+        ``ListItem.Art(<type>)``, so this shows up in Movies and TV shows,
+        not only in kofin's own nodes. The overlay Kodi draws itself is a
+        closed seven-value enum set from playcount, so it was never
+        available for this.
+
+        The badge deliberately says only "downloaded" — pairing it with
+        watched state is the skin's to do, exactly as it already pairs
+        ``ListItem.HasVideoVersions`` with everything else. Making the *url*
+        depend on playcount would mean rewriting this row on every playback
+        and every userdata echo, and a missed rewrite is a badge that lies.
+        """
+        self.cursor.execute(DELETE_BADGE, (media_id, media_type, BADGE_ART))
+        self.cursor.execute(ADD_BADGE, (media_id, media_type, BADGE_ART, url))
+
+    def clear_badge(self, media_id: int, media_type: str) -> None:
+        self.cursor.execute(DELETE_BADGE, (media_id, media_type, BADGE_ART))
 
     def remove_tag_when_orphaned(
         self, tag: str, media_id: int, media_type: str
