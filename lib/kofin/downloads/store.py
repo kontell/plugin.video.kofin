@@ -136,6 +136,18 @@ def is_done_on(cursor: Any, jellyfin_id: str) -> bool:
     return cursor.fetchone() is not None
 
 
+def series_done_ids(series_id: str) -> List[str]:
+    """Jellyfin ids of the completed downloads under a show."""
+    if not series_id:
+        return []
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "SELECT jellyfin_id FROM download WHERE series_id = ? AND state = ?",
+            (series_id, DONE),
+        )
+        return [row[0] for row in opened.cursor.fetchall()]
+
+
 def series_done_on(cursor: Any, series_id: str) -> bool:
     if not series_id:
         return False

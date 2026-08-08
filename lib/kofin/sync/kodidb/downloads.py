@@ -82,6 +82,20 @@ INSERT INTO     art(media_id, media_type, type, url)
 VALUES          (?, ?, ?, ?)
 """
 
+EPISODE_PARENTS = """
+SELECT      idSeason, idShow
+FROM        episode
+WHERE       idEpisode = ?
+"""
+
+BADGED_SEASONS = """
+SELECT      s.idSeason
+FROM        seasons s
+JOIN        art a ON a.media_id = s.idSeason AND a.media_type = 'season'
+WHERE       s.idShow = ?
+AND         a.type = ?
+"""
+
 DELETE_BADGE = """
 DELETE FROM     art
 WHERE           media_id = ?
@@ -166,6 +180,19 @@ class Downloads(Kodi):
         """
         self.cursor.execute(DELETE_BADGE, (media_id, media_type, BADGE_ART))
         self.cursor.execute(ADD_BADGE, (media_id, media_type, BADGE_ART, url))
+
+    def episode_parents(self, episode_id: int) -> Optional[Tuple[int, int]]:
+        """(idSeason, idShow) for an episode, or None when it is gone."""
+        self.cursor.execute(EPISODE_PARENTS, (episode_id,))
+        row = self.cursor.fetchone()
+        if row is None or row[0] is None or row[1] is None:
+            return None
+        return int(row[0]), int(row[1])
+
+    def badged_seasons_of(self, show_id: int) -> List[int]:
+        """Season ids under this show that currently carry a badge."""
+        self.cursor.execute(BADGED_SEASONS, (show_id, BADGE_ART))
+        return [int(row[0]) for row in self.cursor.fetchall()]
 
     def clear_badge(self, media_id: int, media_type: str) -> None:
         self.cursor.execute(DELETE_BADGE, (media_id, media_type, BADGE_ART))

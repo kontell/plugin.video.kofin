@@ -454,19 +454,57 @@ def test_stamping_twice_leaves_one_row(api):
     assert len(_badge_rows()) == 1
 
 
-def test_an_episode_carries_its_own_badge_not_the_shows(api):
-    """The tag goes on the show because episodes have no tag surface in
-    Kodi's nodes; art has no such limit, so the badge lands on the row the
-    viewer is actually looking at."""
+def test_an_episode_badges_its_season_and_show_too(api):
+    """Browsing a show the ordinary way — show, seasons, episodes — should
+    say at every level which parts are held offline, so one downloaded
+    episode marks its season and its show as well as itself."""
     write_series_tree(api)
     download = done_download(
         "episode1", "episode", "TV/The Show/Season 01/S01E01.mkv", "series1"
     )
     repoint.stamp_badge(download)
 
-    episode_badges = _badge_rows("episode")
-    kodi_id, _file_id, _path_id = mapping_row("episode1")
-    assert [row[0] for row in episode_badges] == [kodi_id]
+    episode_id, _file_id, _path_id = mapping_row("episode1")
+    assert [row[0] for row in _badge_rows("episode")] == [episode_id]
+    assert len(_badge_rows("season")) == 1
+    assert len(_badge_rows("tvshow")) == 1
+
+
+def test_removing_the_last_download_settles_the_ancestors(api):
+    """The ancestors are recomputed from what survives, not decremented: a
+    season keeps its badge while any episode in it remains."""
+    second = dto(EPISODE)
+    second.update(
+        Id="episode2",
+        Name="Second",
+        IndexNumber=2,
+        Path="/media/shows/The Show/Season 1/S01E02.mkv",
+        Etag="etag-episode2-v1",
+        ProviderIds={"Tvdb": "9998"},
+    )
+    write_series_tree(api, extra_episodes=[second])
+    first = done_download(
+        "episode1", "episode", "TV/The Show/Season 01/S01E01.mkv", "series1"
+    )
+    other = done_download(
+        "episode2", "episode", "TV/The Show/Season 01/S01E02.mkv", "series1"
+    )
+    repoint.stamp_badge(first)
+    repoint.stamp_badge(other)
+    assert len(_badge_rows("episode")) == 2
+
+    store.remove("episode1")  # the manager clears after the row is gone
+    repoint.clear_badge(first)
+
+    assert len(_badge_rows("episode")) == 1  # the sibling keeps its own
+    assert len(_badge_rows("season")) == 1  # and holds the season
+    assert len(_badge_rows("tvshow")) == 1
+
+    store.remove("episode2")
+    repoint.clear_badge(other)
+
+    assert _badge_rows("episode") == []
+    assert _badge_rows("season") == []
     assert _badge_rows("tvshow") == []
 
 

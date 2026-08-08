@@ -246,10 +246,27 @@ def _badge_target(
 def stamp_badge_on(
     video_cursor: Any, kofin_cursor: Any, download: store.Download
 ) -> None:
-    """Publish the downloaded badge for this item (idempotent)."""
+    """Publish the downloaded badge for this item (idempotent).
+
+    An episode badges its season and its show as well, so browsing a show
+    the ordinary way — show, then seasons, then episodes — shows at every
+    level which parts are held offline. Only ever additive here: this runs
+    inside the writers' pass too, where the question is "what does this
+    item imply", never "what is no longer true" (see clear_badge).
+    """
     target = _badge_target(kofin_cursor, download)
-    if target is not None:
-        KodiDownloads(video_cursor).set_badge(target[0], target[1], BADGE_URL)
+    if target is None:
+        return
+    kodi = KodiDownloads(video_cursor)
+    kodi.set_badge(target[0], target[1], BADGE_URL)
+    if target[1] != "episode":
+        return
+    parents = kodi.episode_parents(target[0])
+    if parents is None:
+        return
+    season_id, show_id = parents
+    kodi.set_badge(season_id, "season", BADGE_URL)
+    kodi.set_badge(show_id, "tvshow", BADGE_URL)
 
 
 def stamp_badge(download: store.Download) -> None:
@@ -258,10 +275,38 @@ def stamp_badge(download: store.Download) -> None:
 
 
 def clear_badge(download: store.Download) -> None:
+    """Drop this item's badge and re-settle its ancestors'.
+
+    The ancestors are *recomputed* from what is still downloaded rather
+    than decremented: a season keeps its badge while any episode in it
+    remains, the show while any season does, and recomputing is the only
+    version of that which cannot drift. Call after the store row is gone —
+    the manager does — or the item counts itself as its own survivor.
+    """
     with Database("kofin") as kofin_db, Database("video") as video:
+        kodi = KodiDownloads(video.cursor)
         target = _badge_target(kofin_db.cursor, download)
         if target is not None:
-            KodiDownloads(video.cursor).clear_badge(target[0], target[1])
+            kodi.clear_badge(target[0], target[1])
+        if download.media_type != "episode" or not download.series_id:
+            return
+
+        show_id = _kodi_id_on(kofin_db.cursor, download.series_id, "tvshow")
+        if show_id is None:
+            return
+        surviving_seasons = set()
+        for jellyfin_id in store.series_done_ids(download.series_id):
+            episode_id = _kodi_id_on(kofin_db.cursor, jellyfin_id, "episode")
+            if episode_id is None:
+                continue
+            parents = kodi.episode_parents(episode_id)
+            if parents is not None:
+                surviving_seasons.add(parents[0])
+        for season_id in kodi.badged_seasons_of(show_id):
+            if season_id not in surviving_seasons:
+                kodi.clear_badge(season_id, "season")
+        if not surviving_seasons:
+            kodi.clear_badge(show_id, "tvshow")
 
 
 def stamp_tag(download: store.Download) -> None:
