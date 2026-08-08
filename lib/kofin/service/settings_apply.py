@@ -65,6 +65,8 @@ class SettingsApplier:
             "musicTranscode": self._music_transcode_changed,
             "useServerBackdrop": self._server_backdrop_changed,
             "preferCriticRating": self._prefer_critic_rating_changed,
+            "downloadsEnabled": self._downloads_enabled_changed,
+            "downloadsPath": self._downloads_path_changed,
         }
         self.snapshot: Dict[str, str] = self._read_all()
 
@@ -244,6 +246,40 @@ class SettingsApplier:
             LOG.warning("preferCriticRating changed but library manager unavailable")
             return
         library.enqueue_command("RepointRatings")
+
+    def _downloads_enabled_changed(self, old: str, new: str) -> None:
+        """The downloads master toggle builds/tears down the manager live,
+        the same shape as SyncPlay's (plan W1.1)."""
+        service = self.service
+        if new == "true":
+            if getattr(service, "_online", False):
+                service._start_downloads()  # type: ignore[attr-defined]
+        else:
+            service._stop_downloads()  # type: ignore[attr-defined]
+
+    def _downloads_path_changed(self, old: str, new: str) -> None:
+        """Write-probe the new root now, not at the first download (W1.1).
+
+        The probe is the whole apply: existing downloads deliberately stay
+        where they are (migration is a stated phase-1 non-goal), and the
+        manager reads the setting per download, so nothing needs a restart.
+        """
+        import os
+
+        from kofin.downloads.manager import downloads_root
+
+        root = downloads_root()
+        probe = os.path.join(root, ".kofin-write-probe")
+        try:
+            os.makedirs(root, exist_ok=True)
+            with open(probe, "w") as handle:
+                handle.write("probe")
+            os.remove(probe)
+        except OSError as error:
+            LOG.warning("downloads path %r is not writable: %s", root, error)
+            xbmcgui.Dialog().notification(
+                "Kofin", settings.localized(30717), xbmcgui.NOTIFICATION_WARNING, 5000
+            )
 
     def _library_selection_changed(self, old: str, new: str) -> None:
         """The apply-on-save path for the library multiselect."""

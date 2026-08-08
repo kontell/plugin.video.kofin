@@ -43,12 +43,19 @@ class FakeService:
         self.library = FakeLibraryManager()
         self.reregistered = 0
         self.backdrop_refreshes = []
+        self.downloads_events = []
 
     def _start_library(self):
         pass
 
     def _start_backdrop(self, force=False):
         self.backdrop_refreshes.append(force)
+
+    def _start_downloads(self):
+        self.downloads_events.append("start")
+
+    def _stop_downloads(self):
+        self.downloads_events.append("stop")
 
     def _on_ws_connected(self):
         self.reregistered += 1
@@ -545,3 +552,36 @@ def test_failed_settings_load_does_not_treat_bool_default_as_disable():
     FakeAddon.store["syncMusicPlaylists"] = "false"
     applier.apply()
     assert service.library.commands == [("CleanupMusicPlaylists", None)]
+
+
+def test_downloads_enabled_toggle_builds_and_tears_down_live():
+    service = FakeService()
+    FakeAddon.store["downloadsEnabled"] = "false"
+    applier = ready_applier(service)
+
+    FakeAddon.store["downloadsEnabled"] = "true"
+    applier.apply()
+    assert service.downloads_events == ["start"]
+
+    FakeAddon.store["downloadsEnabled"] = "false"
+    applier.apply()
+    assert service.downloads_events == ["start", "stop"]
+
+
+def test_downloads_path_change_write_probes_the_new_root(tmp_path, monkeypatch):
+    """The probe runs at apply time, not at the first download, and leaves
+    nothing behind on success."""
+    import os
+
+    monkeypatch.setattr("xbmcvfs.translatePath", lambda p: str(p))
+    service = FakeService()
+    root = tmp_path / "newdl"
+    FakeAddon.store["downloadsPath"] = ""
+    applier = ready_applier(service)
+
+    FakeAddon.store["downloadsPath"] = str(root)
+    applier.apply()
+
+    assert root.is_dir()  # probed into existence
+    assert os.listdir(str(root)) == []  # and the probe file cleaned up
+    assert not any(call[0] == "notification" for call in FakeDialog.calls)

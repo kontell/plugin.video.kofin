@@ -3,7 +3,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 from kofin.core import auth, settings
-from kofin.core.http import DEFAULT_TIMEOUT, Http, HttpError
+from kofin.core.http import DEFAULT_TIMEOUT, Http, HttpError, StreamedResponse
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 
@@ -676,3 +676,30 @@ class Api:
         """Raw bytes of a server resource (chapter thumbnail downloads)."""
         response = self._http.request("GET", url, headers=self._headers())
         return response.content or b""
+
+    # -- offline downloads (docs/offline-downloads-plan.md) --------------------
+
+    def download_stream(self, item_id: str, start: int = 0) -> "StreamedResponse":
+        """/Items/{id}/Download as a resumable byte stream (plan W1.5).
+
+        The original file, Range-capable, gated server-side on the user's
+        EnableContentDownloading policy (feasibility V1) — a 403 here means
+        the admin turned that off, and surfaces as Unauthorized.
+        """
+        return self._http.stream(
+            self._url("/Items/%s/Download" % item_id),
+            headers=self._headers(),
+            start=start,
+        )
+
+    def subtitle_stream_url(
+        self, item_id: str, media_source_id: str, index: int, extension: str
+    ) -> str:
+        """The external-subtitle file for one stream of a media source."""
+        return "%s/Videos/%s/%s/Subtitles/%d/Stream.%s" % (
+            self.server,
+            item_id,
+            media_source_id,
+            index,
+            extension,
+        )

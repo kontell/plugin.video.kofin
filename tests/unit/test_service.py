@@ -971,3 +971,87 @@ def test_connect_probes_on_the_probe_budget():
 
     assert calls == [1]
     assert service._online is False
+
+
+class FakeDownloadManager:
+    def __init__(self):
+        self.started = 0
+        self.stopped = 0
+        self.submitted = []
+        self.cancelled = []
+        self.removed = []
+
+    def start(self):
+        self.started += 1
+
+    def stop(self):
+        self.stopped += 1
+
+    def submit(self, ids, origin="user"):
+        self.submitted.append(list(ids))
+
+    def cancel(self, item_id):
+        self.cancelled.append(item_id)
+
+    def remove(self, item_id):
+        self.removed.append(item_id)
+
+
+def test_download_manager_builds_only_when_enabled(monkeypatch):
+    built = []
+
+    class Recorder(FakeDownloadManager):
+        def __init__(self, api_factory, refresh, stopping):
+            super().__init__()
+            built.append(self)
+
+    monkeypatch.setattr("kofin.downloads.manager.DownloadManager", Recorder)
+
+    service = Service()
+    service._start_downloads()
+    assert built == [] and service.downloads is None  # disabled: nothing built
+
+    FakeAddon.store["downloadsEnabled"] = "true"
+    service._start_downloads()
+    assert len(built) == 1 and built[0].started == 1
+
+
+def test_download_ipc_routes_to_the_manager_and_forgeries_do_not(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    FakeAddon.store["downloadsEnabled"] = "true"
+    service = Service()
+    manager = FakeDownloadManager()
+    service.downloads = manager
+
+    service.onNotification(
+        ipc.SENDER, "Other.DownloadAdd", _signed(service, {"Ids": ["a", "b"]})
+    )
+    service.onNotification(
+        ipc.SENDER, "Other.DownloadCancel", _signed(service, {"Id": "c"})
+    )
+    service.onNotification(
+        ipc.SENDER, "Other.DownloadRemove", _signed(service, {"Id": "d"})
+    )
+    assert manager.submitted == [["a", "b"]]
+    assert manager.cancelled == ["c"] and manager.removed == ["d"]
+
+    import json
+
+    forged = json.dumps([{"Ids": ["evil"]}])  # kofin's name, no secret
+    service.onNotification(ipc.SENDER, "Other.DownloadAdd", forged)
+    assert manager.submitted == [["a", "b"]]
+
+
+def test_shutdown_stops_the_download_manager(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    manager = FakeDownloadManager()
+    service.downloads = manager
+
+    service._shutdown()
+
+    assert manager.stopped == 1 and service.downloads is None

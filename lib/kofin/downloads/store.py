@@ -180,6 +180,33 @@ def finish(
         )
 
 
+def record_target(jellyfin_id: str, rel_path: str, container: str) -> None:
+    """Freeze the target path the moment it is first known, so a retry or a
+    restart resumes the same ``.part`` instead of re-deciding the name."""
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "UPDATE download SET rel_path = ?, container = ? WHERE jellyfin_id = ?",
+            (rel_path, container, jellyfin_id),
+        )
+
+
+def record_details(
+    jellyfin_id: str,
+    media_type: str,
+    series_id: str,
+    size_expected: int,
+    userdata_json: str,
+) -> None:
+    """Fill what only the item DTO knows, at download time: the queue path
+    carries bare ids across the IPC bus, and the worker holds the DTO."""
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "UPDATE download SET media_type = ?, series_id = ?, "
+            "size_expected = ?, userdata_json = ? WHERE jellyfin_id = ?",
+            (media_type, series_id, int(size_expected), userdata_json, jellyfin_id),
+        )
+
+
 def set_restore_filename(jellyfin_id: str, filename: str) -> None:
     with Database("kofin") as opened:
         opened.cursor.execute(
