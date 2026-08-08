@@ -11,6 +11,11 @@ def kodi_fakes(monkeypatch):
     FakeWindow.store = {}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    # Kodistubs' Monitor answers abortRequested() with True — a stub default,
+    # not a simulation. These tests run against "Kodi is running", so the
+    # default here is False; tests exercising the stop path raise it
+    # per-instance.
+    monkeypatch.setattr("xbmc.Monitor.abortRequested", lambda self: False)
 
 
 def test_backoff_doubles_to_ceiling():
@@ -927,3 +932,42 @@ def test_the_transports_abort_survives_the_next_generation(monkeypatch):
 
     # the per-worker sessions the download pool and writers use, likewise
     assert service._new_api()._http._abort() is True
+
+
+def test_the_transports_abort_hears_kodis_script_stop():
+    """abortRequested() is the stop signal _stopping cannot cover: Kodi
+    raises it and waits — an addon bounce, a profile switch, Kodi exiting —
+    while _shutdown has not run yet, so the Event is still down. A ladder
+    consulting only the Event rode out the full budget, blew Kodi's
+    five-second stop grace on a profile switch, and left the profile with no
+    kofin service and a dead webserver (measured 2026-08-08)."""
+    service = Service()
+    assert service.http._abort() is False
+
+    service.abortRequested = lambda: True  # type: ignore[method-assign]
+
+    assert service._stopping.is_set() is False
+    assert service.http._abort() is True
+    assert service._new_api()._http._abort() is True
+
+
+def test_connect_probes_on_the_probe_budget():
+    """_connect runs on the service loop — the thread whose 1 s tick is also
+    what notices stop requests — so its reachability check must be the
+    single-attempt probe, never a default-budget call that holds the loop
+    for the transport's full ladder (~29 s per offline probe, measured)."""
+    from kofin.core.http import JellyfinError
+
+    service = Service()
+    calls = []
+
+    class ProbeOnlyApi:
+        def probe_info(self):
+            calls.append(1)
+            raise JellyfinError("down")
+
+    service.api = ProbeOnlyApi()  # type: ignore[assignment]
+    service._connect()
+
+    assert calls == [1]
+    assert service._online is False

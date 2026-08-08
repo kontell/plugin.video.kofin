@@ -53,6 +53,22 @@ def test_urls_and_auth_header(api):
     assert 'Token="tok"' in call["headers"]["Authorization"]
 
 
+def test_probe_info_is_one_attempt_on_the_probe_budget(api):
+    """The service's connect probe: the backoff loop calling it is the retry
+    policy, so the transport contributes no ladder of its own. The default
+    budget held the service loop ~29 s per offline probe — long enough to
+    blow Kodi's five-second stop grace on a profile switch (2026-08-08)."""
+    from kofin.core.api import PROBE_TIMEOUT
+
+    client, transport = api
+    client.probe_info()
+
+    call = transport.calls[0]
+    assert call["url"] == "http://s:8096/System/Info/Public"
+    assert call["kwargs"]["retries"] == 0
+    assert call["kwargs"]["timeout"] == PROBE_TIMEOUT
+
+
 def test_played_and_favorite_verbs(api):
     client, transport = api
     client.mark_played("i1")
