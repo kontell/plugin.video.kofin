@@ -140,6 +140,130 @@ def test_an_explicit_retries_still_wins_for_post(monkeypatch):
     assert len(session.calls) == 2
 
 
+# --- the streaming GET (downloads plan W1.2) ---------------------------------
+
+
+class FakeStreamResponse:
+    def __init__(self, status=200, chunks=(), headers=None):
+        self.status_code = status
+        self._chunks = list(chunks)
+        self.headers = dict(headers or {})
+        self.closed = False
+        self.iter_sizes = []
+
+    def iter_content(self, chunk_size):
+        self.iter_sizes.append(chunk_size)
+        for chunk in self._chunks:
+            if isinstance(chunk, Exception):
+                raise chunk
+            yield chunk
+
+    def close(self):
+        self.closed = True
+
+
+def test_stream_yields_the_body_in_order(monkeypatch):
+    response = FakeStreamResponse(
+        200, [b"aa", b"bb", b"cc"], {"Content-Length": "6", "Content-Type": "video/mp4"}
+    )
+    transport, session = make_http(monkeypatch, [response])
+
+    handle = transport.stream("http://s/Items/x/Download")
+
+    assert list(handle.chunks()) == [b"aa", b"bb", b"cc"]
+    assert response.iter_sizes == [http.STREAM_CHUNK_BYTES]
+    assert handle.status == 200
+    assert handle.header("content-length") == "6"  # case-insensitive
+    assert handle.header("Missing") == ""
+    method, url, kwargs = session.calls[0]
+    assert kwargs["stream"] is True
+    assert "Range" not in kwargs["headers"]
+
+
+def test_stream_resumes_with_a_range_header(monkeypatch):
+    transport, session = make_http(monkeypatch, [FakeStreamResponse(206, [b"tail"])])
+
+    handle = transport.stream("http://s/Items/x/Download", start=1024)
+
+    assert list(handle.chunks()) == [b"tail"]
+    _, _, kwargs = session.calls[0]
+    assert kwargs["headers"]["Range"] == "bytes=1024-"
+
+
+def test_stream_416_means_already_complete(monkeypatch):
+    """A resume offset at or past the end answers 416: for a download resume
+    that is 'nothing left to fetch', not an error (feasibility V1 —
+    jellyfin-android reads it the same way)."""
+    response = FakeStreamResponse(416)
+    transport, _ = make_http(monkeypatch, [response])
+
+    handle = transport.stream("http://s/Items/x/Download", start=999)
+
+    assert handle.already_complete is True
+    assert list(handle.chunks()) == []
+    assert response.closed is True
+
+
+def test_stream_hears_a_stop_between_chunks(monkeypatch):
+    """The read timeout bounds a dead socket; the per-chunk abort check
+    bounds a live one — a stopping service must not sit out a multi-GB body
+    (the thread-stop doctrine, applied to downloads)."""
+    stopping = {"yes": False}
+    transport = http.Http(abort=lambda: stopping["yes"])
+    session = FakeSession([FakeStreamResponse(200, [b"one", b"two", b"three"])])
+    monkeypatch.setattr(transport, "session", lambda: session)
+
+    handle = transport.stream("http://s/big")
+    drained = []
+    with pytest.raises(http.ServerUnreachable):
+        for chunk in handle.chunks():
+            drained.append(chunk)
+            stopping["yes"] = True
+
+    assert drained == [b"one"]  # the chunk in flight, and nothing after
+
+
+def test_stream_never_retries_and_maps_connect_failures(monkeypatch):
+    """The manager owns retry and resume policy; a replayed multi-GB body is
+    never the transport's call to make."""
+    transport, session = make_http(monkeypatch, [requests.ConnectionError("boom")])
+    with pytest.raises(http.ServerUnreachable):
+        transport.stream("http://s/x")
+    assert len(session.calls) == 1
+
+
+def test_stream_maps_status_errors_and_closes(monkeypatch):
+    forbidden = FakeStreamResponse(403)
+    transport, _ = make_http(monkeypatch, [forbidden])
+    with pytest.raises(http.Unauthorized):
+        transport.stream("http://s/x")
+    assert forbidden.closed is True
+
+    broken = FakeStreamResponse(503)
+    transport, _ = make_http(monkeypatch, [broken])
+    with pytest.raises(http.HttpError) as raised:
+        transport.stream("http://s/x")
+    assert raised.value.status == 503
+    assert broken.closed is True
+
+
+def test_stream_maps_a_mid_body_death_to_unreachable(monkeypatch):
+    """iter_content dresses a dying connection in several exception types
+    (ChunkedEncodingError and friends); the caller sees one taxonomy."""
+    response = FakeStreamResponse(
+        200, [b"start", requests.exceptions.ChunkedEncodingError("died")]
+    )
+    transport, _ = make_http(monkeypatch, [response])
+
+    handle = transport.stream("http://s/x")
+    drained = []
+    with pytest.raises(http.ServerUnreachable):
+        for chunk in handle.chunks():
+            drained.append(chunk)
+
+    assert drained == [b"start"]
+
+
 def test_importing_the_transport_does_not_import_requests():
     """requests costs ~1 s inside Kodi's Python (no bytecode cache), and
     routes that never talk to the server still import this module through the
