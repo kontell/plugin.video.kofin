@@ -186,7 +186,12 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
         state TEXT, origin TEXT, rel_path TEXT, container TEXT,
         size_expected INTEGER, size_actual INTEGER, quality TEXT,
         bytes_done INTEGER, userdata_json TEXT,
-        queued_at INTEGER, done_at INTEGER, error TEXT)""")
+        queued_at INTEGER, done_at INTEGER, error TEXT,
+        restore_filename TEXT)""")
+    # CREATE IF NOT EXISTS never revisits an existing table, and the download
+    # table can materialize on a dev box between stacked PRs; additive columns
+    # keep that cheap. A new column goes in the CREATE above *and* here.
+    _ensure_columns(cursor, "download", {"restore_filename": "TEXT"})
 
     cursor.execute("""CREATE INDEX IF NOT EXISTS idx_jellyfin_kodi
         ON jellyfin(kodi_id, media_type)""")
@@ -200,6 +205,19 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
         ON download(series_id, state)""")
     cursor.execute("""CREATE INDEX IF NOT EXISTS idx_download_state
         ON download(state, queued_at)""")
+
+
+def _ensure_columns(
+    cursor: "sqlite3.Cursor", table: str, columns: Dict[str, str]
+) -> None:
+    """ALTER TABLE ADD COLUMN for any listed column the table lacks."""
+    cursor.execute("PRAGMA table_info(%s)" % table)
+    present = {row[1] for row in cursor.fetchall()}
+    for name, declaration in columns.items():
+        if name not in present:
+            cursor.execute(
+                "ALTER TABLE %s ADD COLUMN %s %s" % (table, name, declaration)
+            )
 
 
 class SyncStateCorrupt(Exception):
