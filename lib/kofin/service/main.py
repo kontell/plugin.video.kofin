@@ -264,6 +264,12 @@ class Service(xbmc.Monitor):
         except JellyfinError as error:
             delay = self._backoff.failed(time.time())
             LOG.warning("server not reachable (%s); retry in %.0fs", error, delay)
+            # A failed probe is knowledge, whether or not we were ever online:
+            # on a cold boot away from the server nothing else ever states the
+            # outage, and the flag would sit absent forever — which reads as
+            # "nobody has said yet" and leaves every refusal waiting for the
+            # transport instead of answering (found live, phase-2 gates).
+            state.set_online(False)
             return
 
         LOG.info("connected to %s (%s)", info.get("ServerName"), info.get("Version"))

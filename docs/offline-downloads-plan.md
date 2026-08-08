@@ -82,6 +82,12 @@ G1 movie and season downloads from the context menu: pass, after a fix. The seas
 
 Left as designed, noted for phase 2: the Downloaded-shows node lists the whole show (Kodi tags shows, not episodes), so drilling in shows every episode with only some local. And the plan's own note stands — the first attempt to time an offline miss was invalid, so V8's ~8 s remains the baseline the phase-2 fast-fail has to beat.
 
+## Phase 2 live-gate results (local Omega, 2026-08-08)
+
+G9 fast fail: a non-downloaded item offline is refused in **0.1 s** against V8's ~8 s baseline, with a named toast; no transport is built. G10 offline actions: the Jellyfin actions menu offers exactly Remove download and Settings. G8 replay, end to end: an episode watched to the end offline parked `played=1`, the server read `Played: False` before the reconnect and `Played: True` after it, the row cleared, and Kodi's own state survived the catch-up that followed. The conflict rule was then tested against the real server with a genuine conflict — a stale local position of 2 minutes replayed against an account that had reached 8 minutes elsewhere — and kept the further position (4800000000 ticks), which is the case every shipped Jellyfin client gets wrong. The Downloaded-episodes node ships and lists exactly the downloaded episodes across shows.
+
+One fix came out of these gates, and it was the common case rather than an edge: the flag only stated an outage via `_go_offline`, which is reachable only from a *previously online* service, so a device booted away from its server left the flag absent and every refusal went back to waiting for the transport. A failed probe now states the outage whether or not we were ever online.
+
 ## Sequencing notes
 
 W1.2/W1.3/W1.4 are independent and first; W1.7 is the riskiest item and gets its L2 suite before the manager exists (repoint a hand-inserted row); W1.5 assembles the rest. The feasibility doc and this plan should land together at the head of `feat/downloads-p1`. The `Kofin Downloads` tag name, node labels, and settings ids above are final unless the user objects — changing any of them after phase 1 ships means a migration, so objections are cheapest now.

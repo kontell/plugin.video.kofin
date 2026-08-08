@@ -1195,3 +1195,30 @@ def test_a_failed_replay_keeps_the_row_for_next_time(monkeypatch, tmp_path):
         assert row.attempts == 1
     finally:
         sync_db.reset_overrides()
+
+
+def test_a_cold_boot_away_from_the_server_states_the_outage(monkeypatch, tmp_path):
+    """The common case is a device booted away from home: nothing was ever
+    online, so _go_offline never runs and the flag would stay absent —
+    which every user-facing refusal reads as "not known yet" and answers by
+    waiting for the transport (found live)."""
+    from kofin.core.http import ServerUnreachable
+
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    service.api = type(
+        "Dead",
+        (),
+        {
+            "probe_info": lambda self: (_ for _ in ()).throw(
+                ServerUnreachable("no route")
+            )
+        },
+    )()
+
+    service._connect()
+
+    assert state.is_offline() is True
+    assert state.is_online() is False
