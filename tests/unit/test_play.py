@@ -770,3 +770,97 @@ def test_burn_subtitles_withdraws_the_image_formats(resume_env, monkeypatch):
     # for a PGS track instead of handing back a 37 MB .sup (plan §2.2).
     assert "pgssub" not in formats and "dvdsub" not in formats
     assert "srt" in formats
+
+
+# --- offline behaviour (plan W2.2) -------------------------------------------
+
+
+@pytest.fixture
+def offline_env(tmp_path, monkeypatch):
+    from tests.unit.fakes import FakeAddon, FakeWindow
+
+    FakeAddon.store = {
+        "isLoggedIn": "true",
+        "accessToken": "t",
+        "serverAddress": "http://s",
+        "userId": "u",
+        "downloadsPath": str(tmp_path / "dl"),
+    }
+    FakeWindow.store = {"kofin.online": "false"}  # a stated outage
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    monkeypatch.setattr("xbmcvfs.exists", lambda p: True)
+    monkeypatch.setattr("xbmcvfs.translatePath", lambda p: str(p))
+    from kofin.sync import db as sync_db
+
+    sync_db.reset_overrides()
+    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    yield tmp_path
+    sync_db.reset_overrides()
+
+
+def test_offline_refuses_an_item_that_is_not_downloaded(offline_env, monkeypatch):
+    """Offline this used to spend the transport's whole budget — ~8 s of
+    spinner — before a generic failure (feasibility V8)."""
+    from kofin.plugin import play as play_module
+    from kofin.plugin.router import Request
+
+    resolved = []
+    toasts = []
+    monkeypatch.setattr(
+        play_module.xbmcplugin,
+        "setResolvedUrl",
+        lambda handle, ok, li: resolved.append(ok),
+    )
+    monkeypatch.setattr(play_module.toast, "show", lambda *a, **k: toasts.append(a[0]))
+    built = []
+    monkeypatch.setattr(play_module, "plugin_transport", lambda verify: built.append(1))
+
+    play_module.play(Request("plugin://x", 1, {"id": "nope"}))
+
+    assert resolved == [False]
+    assert toasts and built == []  # no transport was ever built
+
+
+def test_offline_plays_an_item_that_is_downloaded(offline_env, monkeypatch):
+    """A library row points at its file already; this is the kofin-listing
+    path (Continue watching, a widget), where refusing to play a file on
+    disk would be absurd."""
+    from kofin.downloads import store
+    from kofin.plugin import play as play_module
+    from kofin.plugin.router import Request
+
+    media = offline_env / "dl" / "Movies" / "M (2019)"
+    media.mkdir(parents=True)
+    (media / "m.mkv").write_bytes(b"x")
+    store.queue(store.Download(jellyfin_id="m1", media_type="movie", queued_at=1))
+    store.claim()
+    store.finish("m1", "Movies/M (2019)/m.mkv", "mkv", 1)
+
+    # Kodistubs' ListItem.getPath() is hardcoded to "", so the path is
+    # captured where it is handed over instead of read back.
+    built = {}
+
+    class RecordingListItem:
+        def __init__(self, path="", **kwargs):
+            built["path"] = path
+
+        def setContentLookup(self, value):
+            pass
+
+        def getVideoInfoTag(self):
+            return type("Tag", (), {"setDbId": lambda self, dbid: None})()
+
+    resolved = []
+    monkeypatch.setattr(play_module.xbmcgui, "ListItem", RecordingListItem)
+    monkeypatch.setattr(
+        play_module.xbmcplugin,
+        "setResolvedUrl",
+        lambda handle, ok, li: resolved.append(ok),
+    )
+    monkeypatch.setattr(play_module, "plugin_transport", lambda verify: 1 / 0)
+
+    play_module.play(Request("plugin://x", 1, {"id": "m1"}))
+
+    assert resolved == [True]
+    assert built["path"].endswith("Movies/M (2019)/m.mkv")

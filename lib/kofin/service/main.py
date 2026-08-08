@@ -154,6 +154,10 @@ class Service(xbmc.Monitor):
         self.artcache = artcache.ActorArtCache()
         self._precache_art: Optional[threading.Thread] = None
         self._online = False
+        # Raised by the websocket's disconnect callback, consumed by the next
+        # tick: a dropped socket asks for a *probe* rather than declaring the
+        # server gone (see _verify_connection).
+        self._verify_online = False
         self._backoff = Backoff()
         # This generation's IPC secret (see ipc.GUARDED): minted here so the
         # plugin process picks it up from the moment the service exists, and
@@ -209,12 +213,46 @@ class Service(xbmc.Monitor):
         return self._restart_requested and not self.abortRequested()
 
     def _tick(self) -> None:
+        if self._verify_online:
+            self._verify_connection()
         if (
             self.credentials.is_logged_in
             and not self._online
             and self._backoff.due(time.time())
         ):
             self._connect()
+
+    def _verify_connection(self) -> None:
+        """Answer a dropped socket with a probe, not a verdict (plan W2.1).
+
+        The online flag gates real behaviour once it is honest — most
+        sharply ``sync.shims.stop``, which raises ``LibraryExitException``
+        out of an in-flight writer — so lowering it on a bare disconnect
+        would abandon a running sync every time a socket blinked. A
+        websocket drop is therefore only a *question*; the probe answers it,
+        on the same one-attempt budget the connect loop uses (~3 s on the
+        service thread, and only when a drop was reported).
+        """
+        self._verify_online = False
+        if not self._online:
+            return
+        try:
+            self.api.probe_info()
+        except JellyfinError as error:
+            LOG.info("socket dropped and the server does not answer (%s)", error)
+            self._go_offline()
+            return
+        LOG.debug("socket dropped but the server answers; staying online")
+
+    def _go_offline(self) -> None:
+        """Declare the server gone: the flag drops and the connect loop
+        takes over. The websocket is left alone deliberately — it owns its
+        own reconnection, and stopping it here would either block this
+        thread on its join or leave two clients once ``_connect`` rebuilt
+        one."""
+        self._online = False
+        state.set_online(False)
+        self._backoff.succeeded()  # probe now, not after the old backoff
 
     def _connect(self) -> None:
         # The probe budget, not the transport default: this runs on the
@@ -233,7 +271,11 @@ class Service(xbmc.Monitor):
         self._online = True
         state.set_online(True)
         self._start_syncplay()  # before the websocket: messages route into it
-        self._start_websocket()
+        # Only when there is none: a reconnect after a confirmed outage finds
+        # the previous client still running its own retry loop, and building a
+        # second one would double every event the server pushes.
+        if self.ws is None:
+            self._start_websocket()
         self._start_library()
         self._start_downloads()
         self._start_backdrop()
@@ -505,6 +547,8 @@ class Service(xbmc.Monitor):
 
     def _on_ws_disconnected(self) -> None:
         self._connection_toast(30416, level=toast.WARNING)
+        # A question for the next tick, not a verdict (see _verify_connection).
+        self._verify_online = True
 
     def _on_ws_connected(self) -> None:
         """Runs on the websocket's own receive loop — toast, spawn, return.
@@ -520,6 +564,12 @@ class Service(xbmc.Monitor):
         always serves the live session.
         """
         self._connection_toast(30415, self.credentials.server_name or "")
+        # A live socket is the best evidence there is, and the websocket
+        # reconnects itself — so this is a raising edge in its own right,
+        # not only ``_connect``'s.
+        self._online = True
+        self._verify_online = False
+        state.set_online(True)
         self._post_connect_pending.set()
         if self._post_connect is None or not self._post_connect.is_alive():
             self._post_connect = threading.Thread(
@@ -539,6 +589,12 @@ class Service(xbmc.Monitor):
             # watching? set the plugin saved, which does not survive a new
             # session (Kodi restart or a reconnect that minted a fresh one).
             self._restore_additional_users()
+            # Before the catch-up, deliberately: the replay writes what this
+            # device did offline, and the FastSync that follows pulls the
+            # server's answer back down. The other order would apply the
+            # server's stale view first and then overwrite it, so every
+            # replayed item would flicker through the wrong state (plan W2.4).
+            self._replay_pending_userdata()
             self._catch_up_after_reconnect()
             if self.syncplay is not None:
                 # Reconnect contract (plan §2): after any WS drop assume
@@ -554,6 +610,49 @@ class Service(xbmc.Monitor):
             adduser.restore_additional_users(self.api, self.credentials.device_id)
         except Exception as error:  # pragma: no cover - defensive
             LOG.warning("who's-watching restore failed: %s", error)
+
+    def _replay_pending_userdata(self) -> None:
+        """Send what a playback produced while the server was unreachable.
+
+        Contained and bounded: one row at a time, each failure counted so a
+        row the server will never accept eventually leaves (pending.py), and
+        the whole pass wrapped so a broken replay never costs the connect
+        its catch-up.
+        """
+        try:
+            from kofin.downloads import pending
+        except Exception:  # pragma: no cover - defensive
+            return
+        try:
+            rows = pending.rows()
+        except Exception:
+            LOG.exception("could not read the parked userdata")
+            return
+        if not rows:
+            return
+        LOG.info("replaying %d parked userdata change(s)", len(rows))
+        for row in rows:
+            if self._stopping.is_set() or self.abortRequested():
+                return
+            try:
+                current = (self.api.item(row.jellyfin_id) or {}).get("UserData") or {}
+                payload = pending.resolve(row, current)
+                if payload:
+                    self.api.update_user_data(row.jellyfin_id, payload)
+                    LOG.info("replayed userdata for %s: %s", row.jellyfin_id, payload)
+                pending.remove(row.jellyfin_id)
+            except JellyfinError as error:
+                attempts = pending.record_attempt(row.jellyfin_id)
+                LOG.warning(
+                    "userdata replay failed for %s (attempt %d): %s",
+                    row.jellyfin_id,
+                    attempts,
+                    error,
+                )
+                return  # the server is unwell; the rest keeps for next time
+            except Exception:
+                LOG.exception("userdata replay failed for %s", row.jellyfin_id)
+                pending.record_attempt(row.jellyfin_id)
 
     def _catch_up_after_reconnect(self) -> None:
         """Replay what the library missed while the socket was down.

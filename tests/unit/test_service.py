@@ -1055,3 +1055,143 @@ def test_shutdown_stops_the_download_manager(monkeypatch, tmp_path):
     service._shutdown()
 
     assert manager.stopped == 1 and service.downloads is None
+
+
+# --- honest online flag and offline replay (plan W2.1 / W2.4) ---------------
+
+
+def test_a_dropped_socket_asks_a_question_not_a_verdict(monkeypatch, tmp_path):
+    """The flag gates real behaviour once honest — sync.shims.stop raises
+    out of an in-flight writer — so a blinking socket must not abandon a
+    running sync. The probe decides."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    service._online = True
+    state.set_online(True)
+
+    class AliveApi:
+        def probe_info(self):
+            return {"ServerName": "still here"}
+
+    service.api = AliveApi()
+    service._on_ws_disconnected()
+    assert service._verify_online is True
+
+    service._tick()
+    assert service._online is True and state.is_online() is True
+
+
+def test_a_confirmed_outage_lowers_the_flag(monkeypatch, tmp_path):
+    from kofin.core.http import ServerUnreachable
+
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    service._online = True
+    state.set_online(True)
+
+    class DeadApi:
+        def probe_info(self):
+            raise ServerUnreachable("gone")
+
+    service.api = DeadApi()
+    service._on_ws_disconnected()
+    service._verify_connection()
+
+    assert service._online is False and state.is_online() is False
+
+
+def test_a_live_socket_raises_the_flag(monkeypatch, tmp_path):
+    """The websocket reconnects itself, so its open is a raising edge in its
+    own right — otherwise the flag would wait for the connect loop."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    state.set_online(False)
+    monkeypatch.setattr(service, "_connection_toast", lambda *a, **k: None)
+    # The callback also spawns the post-connect worker, which would go on to
+    # talk to a server that is not there for the rest of the session.
+    monkeypatch.setattr(service, "_run_post_connect", lambda: None)
+
+    service._on_ws_connected()
+
+    assert service._online is True and state.is_online() is True
+
+
+def test_reconnecting_does_not_build_a_second_websocket(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    built = []
+    monkeypatch.setattr(service, "_start_websocket", lambda: built.append(1))
+    monkeypatch.setattr(service, "_start_syncplay", lambda: None)
+    monkeypatch.setattr(service, "_start_library", lambda: None)
+    monkeypatch.setattr(service, "_start_downloads", lambda: None)
+    monkeypatch.setattr(service, "_start_backdrop", lambda force=False: None)
+    monkeypatch.setattr(service.artcache, "start", lambda: None)
+    service.api = type("A", (), {"probe_info": lambda self: {}})()
+
+    service._connect()
+    service._go_offline()
+    service.ws = object()  # the previous client is still retrying
+    service._connect()
+
+    assert built == [1]
+
+
+def test_replay_sends_the_resolved_payload_before_the_catch_up(monkeypatch, tmp_path):
+    monkeypatch.setattr("xbmcvfs.translatePath", lambda path: str(tmp_path))
+    from kofin.downloads import pending
+    from kofin.sync import db as sync_db
+
+    sync_db.reset_overrides()
+    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    try:
+        pending.enqueue("i1", "episode", played=True, snapshot={"LastPlayedDate": "T1"})
+        service = Service()
+        sent = []
+
+        class ReplayApi:
+            def item(self, item_id):
+                return {"UserData": {"LastPlayedDate": "T1"}}
+
+            def update_user_data(self, item_id, payload):
+                sent.append((item_id, payload))
+
+        service.api = ReplayApi()
+        service._replay_pending_userdata()
+
+        assert sent == [("i1", {"Played": True, "PlaybackPositionTicks": 0})]
+        assert pending.rows() == []  # settled, not replayed forever
+    finally:
+        sync_db.reset_overrides()
+
+
+def test_a_failed_replay_keeps_the_row_for_next_time(monkeypatch, tmp_path):
+    monkeypatch.setattr("xbmcvfs.translatePath", lambda path: str(tmp_path))
+    from kofin.core.http import ServerUnreachable
+    from kofin.downloads import pending
+    from kofin.sync import db as sync_db
+
+    sync_db.reset_overrides()
+    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    try:
+        pending.enqueue("i1", played=True)
+        service = Service()
+
+        class DeadApi:
+            def item(self, item_id):
+                raise ServerUnreachable("gone")
+
+        service.api = DeadApi()
+        service._replay_pending_userdata()
+
+        (row,) = pending.rows()
+        assert row.attempts == 1
+    finally:
+        sync_db.reset_overrides()

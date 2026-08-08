@@ -564,6 +564,21 @@ class Api:
             self._as_user(),
         )
 
+    def update_user_data(self, item_id: str, payload: JsonDict) -> None:
+        """Partial UpdateUserItemDataDto write (offline replay, plan W2.4).
+
+        Position and played travel in one call deliberately: sent
+        separately, an item finished offline arrives as "played" and then as
+        a stale position, which is precisely how a watched episode comes
+        back in Continue Watching (Findroid #406). Fields left out are kept
+        by the server, as ``set_resume_position`` documents.
+        """
+        self.post(
+            "/UserItems/%s/UserData" % item_id,
+            dict(payload),
+            self._as_user(),
+        )
+
     def set_favorite(self, item_id: str, favorite: bool) -> None:
         path = "/UserFavoriteItems/%s" % item_id
         if favorite:
