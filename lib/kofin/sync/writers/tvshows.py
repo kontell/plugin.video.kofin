@@ -24,6 +24,9 @@ from kofin.sync.shims import (
 from kofin.sync.obj import Objects
 from kofin.sync.kodidb import TVShows as KodiDb
 from kofin.sync.kodidb import queries as QU
+from kofin.downloads import TAG as DOWNLOADS_TAG
+from kofin.downloads import repoint as downloads_repoint
+from kofin.downloads import store as downloads_store
 
 ##################################################################################################
 
@@ -166,6 +169,14 @@ class TVShows(KodiDb):
 
         if obj["Favorite"]:
             tags.append("Favorite tvshows")
+
+        # A show with any downloaded episode carries the downloads tag the
+        # way favorites carry theirs -- add_tags replaces the set wholesale,
+        # so the manager's stamp dies on the next rewrite without this
+        # (docs/offline-downloads-plan.md W1.8; the show's own jellyfin id
+        # is the series id the download rows carry).
+        if downloads_store.series_done_on(self.jellyfin_db.cursor, obj["Id"]):
+            tags.append(DOWNLOADS_TAG)
 
         obj["Tags"] = tags
 
@@ -559,6 +570,10 @@ class TVShows(KodiDb):
         self.artwork.update(
             obj["Artwork"]["Primary"], obj["EpisodeId"], "episode", "thumb"
         )
+        # Same contract as the movie writer: a downloaded episode's rewrite
+        # is re-pointed at its local file before the page commits, fresh URL
+        # recaptured (plan W1.8).
+        downloads_repoint.reassert_on(self.cursor, self.jellyfin_db.cursor, obj["Id"])
         self.item_ids.append(obj["Id"])
 
         if obj["Resume"]:

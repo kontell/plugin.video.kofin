@@ -116,9 +116,34 @@ def queue(download: Download) -> bool:
 
 def get(jellyfin_id: str) -> Optional[Download]:
     with Database("kofin") as opened:
-        opened.cursor.execute(_SELECT + " WHERE jellyfin_id = ?", (jellyfin_id,))
-        row = opened.cursor.fetchone()
+        return get_on(opened.cursor, jellyfin_id)
+
+
+def get_on(cursor: Any, jellyfin_id: str) -> Optional[Download]:
+    """`get` on a caller-held cursor — for the sync writers, which hold the
+    kofin.db connection inside a transaction where a second connection would
+    sit on the WAL write lock (plan W1.8)."""
+    cursor.execute(_SELECT + " WHERE jellyfin_id = ?", (jellyfin_id,))
+    row = cursor.fetchone()
     return _row_to_download(row) if row is not None else None
+
+
+def is_done_on(cursor: Any, jellyfin_id: str) -> bool:
+    cursor.execute(
+        "SELECT 1 AS present FROM download WHERE jellyfin_id = ? AND state = ? LIMIT 1",
+        (jellyfin_id, DONE),
+    )
+    return cursor.fetchone() is not None
+
+
+def series_done_on(cursor: Any, series_id: str) -> bool:
+    if not series_id:
+        return False
+    cursor.execute(
+        "SELECT 1 AS present FROM download WHERE series_id = ? AND state = ? LIMIT 1",
+        (series_id, DONE),
+    )
+    return cursor.fetchone() is not None
 
 
 def claim() -> Optional[Download]:
@@ -209,10 +234,14 @@ def record_details(
 
 def set_restore_filename(jellyfin_id: str, filename: str) -> None:
     with Database("kofin") as opened:
-        opened.cursor.execute(
-            "UPDATE download SET restore_filename = ? WHERE jellyfin_id = ?",
-            (filename, jellyfin_id),
-        )
+        set_restore_filename_on(opened.cursor, jellyfin_id, filename)
+
+
+def set_restore_filename_on(cursor: Any, jellyfin_id: str, filename: str) -> None:
+    cursor.execute(
+        "UPDATE download SET restore_filename = ? WHERE jellyfin_id = ?",
+        (filename, jellyfin_id),
+    )
 
 
 def fail(jellyfin_id: str, error: str) -> None:
@@ -263,7 +292,7 @@ def series_has_done(series_id: str) -> bool:
         return False
     with Database("kofin") as opened:
         opened.cursor.execute(
-            "SELECT 1 FROM download WHERE series_id = ? AND state = ? LIMIT 1",
+            "SELECT 1 AS present FROM download WHERE series_id = ? AND state = ? LIMIT 1",
             (series_id, DONE),
         )
         found = opened.cursor.fetchone()

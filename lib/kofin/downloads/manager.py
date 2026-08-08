@@ -23,18 +23,14 @@ import time
 from queue import Empty, Queue
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-import xbmcvfs
-
 from kofin.core import settings, toast
 from kofin.core.http import JellyfinError, StreamedResponse, Unauthorized
 from kofin.core.log import Logger
-from kofin.downloads import files, repoint, store
+from kofin.downloads import downloads_root, files, repoint, store
 
 LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
-
-ADDON_DATA = "special://profile/addon_data/plugin.video.kofin/"
 
 MEDIA_TYPE_BY_DTO = {"Movie": "movie", "Episode": "episode"}
 
@@ -60,14 +56,6 @@ SUBTITLE_EXTENSIONS = {"subrip": "srt", "webvtt": "vtt"}
 
 class _Cancelled(Exception):
     """The item was cancelled mid-transfer (never an error)."""
-
-
-def downloads_root() -> str:
-    """The absolute downloads root: the setting, or the profile default."""
-    configured = settings.get_str("downloadsPath")
-    if configured:
-        return xbmcvfs.translatePath(configured).rstrip("/")
-    return os.path.join(xbmcvfs.translatePath(ADDON_DATA), "downloads")
 
 
 def worker_count() -> int:
@@ -224,7 +212,11 @@ class DownloadManager:
         root = downloads_root()
         repoint.restore(row, root)
         self._delete_media(row)
+        # The store row goes before the tag check: an episode's unstamp asks
+        # whether any sibling download still holds the show in the node, and
+        # the row being removed must not count itself as that sibling.
         store.remove(item_id)
+        repoint.unstamp_tag(row)
         self._refresh_quietly()
         LOG.info("download removed: %s", item_id)
 
@@ -314,6 +306,7 @@ class DownloadManager:
         finished = store.get(item_id)
         if finished is not None:
             repoint.repoint(finished, root)
+            repoint.stamp_tag(finished)
         self._refresh_quietly()
         self._toast(30712, item.get("Name", item_id))
         LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
@@ -473,6 +466,7 @@ class DownloadManager:
                     touched = True
                     continue
                 if repoint.repoint(row, root):
+                    repoint.stamp_tag(row)  # idempotent; a repair wiped links
                     touched = True
             if touched:
                 self._refresh_quietly()

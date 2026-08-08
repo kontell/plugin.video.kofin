@@ -131,6 +131,20 @@ class Downloads(Kodi):
         self.update_path_parent_id(season_id, show_id)
         return season_id
 
+    def remove_tag_when_orphaned(
+        self, tag: str, media_id: int, media_type: str
+    ) -> None:
+        """``remove_tag`` plus tag-row cleanup: Kodi's base helper unlinks and
+        leaves the tag row for CleanDatabase to sweep someday, which fails the
+        L2 zero-trace invariant — a fully removed download must leave the
+        database byte-identical, orphan tag rows included."""
+        self.remove_tag(tag, media_id, media_type)
+        self.cursor.execute(
+            "DELETE FROM tag WHERE name = ? COLLATE NOCASE "
+            "AND NOT EXISTS (SELECT 1 FROM tag_link WHERE tag_link.tag_id = tag.tag_id)",
+            (tag,),
+        )
+
     def prune_paths(self, directories: List[str]) -> int:
         """Delete each directory's row when nothing references it; returns
         how many went. Callers pass bottom-up order (season before show

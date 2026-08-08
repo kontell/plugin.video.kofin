@@ -19,6 +19,9 @@ from kofin.sync.shims import stop, jellyfin_item, values, Local
 from kofin.sync.obj import Objects
 from kofin.sync.kodidb import Movies as KodiDb
 from kofin.sync.kodidb import queries as QU
+from kofin.downloads import TAG as DOWNLOADS_TAG
+from kofin.downloads import repoint as downloads_repoint
+from kofin.downloads import store as downloads_store
 
 ##################################################################################################
 
@@ -159,6 +162,14 @@ class Movies(KodiDb):
         if obj["Favorite"]:
             tags.append("Favorite movies")
 
+        # Downloaded items carry the downloads tag through every rewrite the
+        # same way favorites do: add_tags below replaces the set wholesale,
+        # so an out-of-band stamp dies on the next pass without this
+        # (docs/offline-downloads-plan.md W1.8; the Downloads node filters
+        # on the tag).
+        if downloads_store.is_done_on(self.jellyfin_db.cursor, obj["Id"]):
+            tags.append(DOWNLOADS_TAG)
+
         obj["Tags"] = tags
 
         primary, _alternates = self.split_media_sources(item)
@@ -183,6 +194,11 @@ class Movies(KodiDb):
         self.artwork.add(obj["Artwork"], obj["MovieId"], "movie")
         self.versions(obj, item)
         self.extras(obj, item)
+        # A changed item's rewrite put the file row back in writer shape;
+        # a downloaded one is re-pointed at its local file before the page
+        # commits, with the fresh URL recaptured for restore (plan W1.8 —
+        # the L2 suite pins both halves).
+        downloads_repoint.reassert_on(self.cursor, self.jellyfin_db.cursor, obj["Id"])
         self.item_ids.append(obj["Id"])
 
         return not update

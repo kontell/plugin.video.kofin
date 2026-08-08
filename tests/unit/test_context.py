@@ -292,3 +292,68 @@ def test_delete_is_not_offered_to_an_account_the_server_would_refuse(monkeypatch
     allowed = dict(denied, CanDelete=True)
     modes = [params["mode"] for _, params in _options(monkeypatch, allowed, True)]
     assert "delete" in modes
+
+
+# --- download entries (plan W1.10) -------------------------------------------
+
+
+def _download_entry_options(monkeypatch, item, downloads=True, row=None):
+    flags = {"downloadsEnabled": downloads}
+    monkeypatch.setattr(context.settings, "get_bool", lambda key: flags.get(key, False))
+    monkeypatch.setattr(context.settings, "localized", lambda i: "L%d" % i)
+    monkeypatch.setattr(context.xbmc, "getLocalizedString", lambda i: "K%d" % i)
+    from kofin.downloads import store as downloads_store
+
+    monkeypatch.setattr(downloads_store, "get", lambda item_id: row)
+    options = context._manage_options(item, dynamic=False)
+    return [entry for entry in options if entry[1].get("mode", "").endswith("download")]
+
+
+def _row(state):
+    from kofin.downloads import store as downloads_store
+
+    return downloads_store.Download(jellyfin_id="i1", state=state)
+
+
+def test_download_offered_only_when_the_server_allows(monkeypatch):
+    from kofin.downloads import store as downloads_store
+
+    movie = {"Id": "i1", "Type": "Movie", "Name": "M", "CanDownload": True}
+    offered = _download_entry_options(monkeypatch, movie)
+    assert offered == [("L30708", {"mode": "download", "id": "i1"})]
+
+    refused = _download_entry_options(
+        monkeypatch, {"Id": "i1", "Type": "Movie", "CanDownload": False}
+    )
+    assert refused == []  # the server would 403; never offer it
+
+    disabled = _download_entry_options(monkeypatch, movie, downloads=False)
+    assert disabled == []
+
+
+def test_download_entry_follows_the_store_state(monkeypatch):
+    from kofin.downloads import store as downloads_store
+
+    movie = {"Id": "i1", "Type": "Movie", "Name": "M", "CanDownload": True}
+
+    queued = _download_entry_options(
+        monkeypatch, movie, row=_row(downloads_store.QUEUED)
+    )
+    assert queued == [("L30709", {"mode": "canceldownload", "id": "i1"})]
+
+    done = _download_entry_options(monkeypatch, movie, row=_row(downloads_store.DONE))
+    assert done == [("L30710", {"mode": "removedownload", "id": "i1", "name": "M"})]
+
+    failed = _download_entry_options(
+        monkeypatch, movie, row=_row(downloads_store.FAILED)
+    )
+    assert failed == [("L30708", {"mode": "download", "id": "i1"})]  # retry
+
+
+def test_containers_offer_download_without_the_per_item_gate(monkeypatch):
+    """Folders always answer CanDownload false server-side; the route's own
+    filter drops refused children instead."""
+    series = {"Id": "s1", "Type": "Series", "CanDownload": False}
+    assert _download_entry_options(monkeypatch, series) == [
+        ("L30708", {"mode": "download", "id": "s1"})
+    ]

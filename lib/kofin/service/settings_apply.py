@@ -266,7 +266,7 @@ class SettingsApplier:
         """
         import os
 
-        from kofin.downloads.manager import downloads_root
+        from kofin.downloads import downloads_root
 
         root = downloads_root()
         probe = os.path.join(root, ".kofin-write-probe")

@@ -43,7 +43,7 @@ PLAYLIST_FOLDER = FOLDER_NAME
 # Shape/label revision of the generated tree, folded into views_hash() so a
 # change here regenerates on upgrade even when the view set is untouched.
 # 3: the playlists moved into PLAYLIST_FOLDER.
-NODE_LAYOUT = 4
+NODE_LAYOUT = 5
 
 # Kind ordering for the generated library nodes, following Kodi's own
 # top-level video ordering (movies 10, tvshows 20, musicvideos 30). Libraries
@@ -364,6 +364,9 @@ class Views(object):
         # Without this a change to the generated tree would never reach an
         # install whose view set happens to be unchanged.
         parts.append("layout:%s" % NODE_LAYOUT)
+        # The Downloads singles exist only while the feature is on, so the
+        # toggle must regenerate the tree (docs/offline-downloads-plan.md W1.9).
+        parts.append("downloads:%s" % settings.get_bool("downloadsEnabled"))
         return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()
 
     def get_nodes(self):
@@ -449,23 +452,7 @@ class Views(object):
                 self.add_nodes(node_path, view, mixed, index)
                 index += 1
 
-        for single in [
-            {
-                "Name": localized(30358),
-                "Tag": "Favorite movies",
-                "Media": "movies",
-            },
-            {
-                "Name": localized(30359),
-                "Tag": "Favorite tvshows",
-                "Media": "tvshows",
-            },
-            {
-                "Name": localized(30360),
-                "Tag": "Favorite episodes",
-                "Media": "episodes",
-            },
-        ]:
+        for single in self.single_nodes():
 
             self.add_single_node(node_path, index, "favorites", single)
             index += 1
@@ -555,9 +542,56 @@ class Views(object):
         else:
             self.node(folder, view)
 
+    def single_nodes(self):
+        """The tag-filtered singles beside the library nodes: the favorites
+        trio always, the Downloads pair while the feature is on. One list
+        for both the node files and the window properties, so the two
+        surfaces cannot disagree."""
+        singles = [
+            {
+                "Name": localized(30358),
+                "Tag": "Favorite movies",
+                "Media": "movies",
+            },
+            {
+                "Name": localized(30359),
+                "Tag": "Favorite tvshows",
+                "Media": "tvshows",
+            },
+            {
+                "Name": localized(30360),
+                "Tag": "Favorite episodes",
+                "Media": "episodes",
+            },
+        ]
+        if settings.get_bool("downloadsEnabled"):
+            from kofin.downloads import TAG as DOWNLOADS_TAG
+
+            singles.append(
+                {
+                    "Name": localized(30718),
+                    "Tag": DOWNLOADS_TAG,
+                    "Media": "movies",
+                    "File": "DownloadedMovies",
+                }
+            )
+            singles.append(
+                {
+                    "Name": localized(30719),
+                    "Tag": DOWNLOADS_TAG,
+                    "Media": "tvshows",
+                    "File": "DownloadedShows",
+                }
+            )
+        return singles
+
     def add_single_node(self, path, index, item_type, view):
 
-        file = os.path.join(path, "kofin_%s.xml" % view["Tag"].replace(" ", ""))
+        # ``File`` names the node file when the tag cannot: the two Downloads
+        # singles share one tag and would otherwise collide on this name.
+        file = os.path.join(
+            path, "kofin_%s.xml" % view.get("File", view["Tag"].replace(" ", ""))
+        )
 
         try:
             if os.path.isfile(file):
@@ -1111,23 +1145,7 @@ class Views(object):
 
             index += 1
 
-        for single in [
-            {
-                "Name": localized(30358),
-                "Tag": "Favorite movies",
-                "Media": "movies",
-            },
-            {
-                "Name": localized(30359),
-                "Tag": "Favorite tvshows",
-                "Media": "tvshows",
-            },
-            {
-                "Name": localized(30360),
-                "Tag": "Favorite episodes",
-                "Media": "episodes",
-            },
-        ]:
+        for single in self.single_nodes():
 
             self.window_single_node(index, "favorites", single)
             index += 1
@@ -1437,7 +1455,7 @@ class Views(object):
         whitelist rather than trusting every removal path to have cleaned up.
         """
         wanted = {library.replace("Mixed:", "") for library in self.sync["Whitelist"]}
-        dirs, _ = xbmcvfs.listdir(node_path)
+        dirs, files = xbmcvfs.listdir(node_path)
 
         for directory in dirs:
 
@@ -1447,6 +1465,22 @@ class Views(object):
             if not any(directory.endswith(view_id) for view_id in wanted):
                 LOG.info("--[ nodes ] pruning stale folder %s", directory)
                 self.delete_node_folder(os.path.join(node_path, directory))
+
+        # The single nodes are files, not folders, and their set is no longer
+        # fixed: the Downloads pair exists only while that feature is on, so
+        # a toggle-off leaves its files behind unless they are reconciled too
+        # (docs/offline-downloads-plan.md W1.9). Gated on the ``kofin_``
+        # prefix like every other deletion path here — hand-made node files
+        # live in this tree and are never ours to remove.
+        keep = {
+            "kofin_%s.xml" % single.get("File", single["Tag"].replace(" ", ""))
+            for single in self.single_nodes()
+        }
+        for name in files:
+            if not name.startswith("kofin_") or name in keep:
+                continue
+            LOG.info("--[ nodes ] pruning stale single node %s", name)
+            self.delete_node(os.path.join(node_path, name))
 
     def migrate_flat_nodes(self):
         """Clear out the pre-:data:`NODE_ROOT` layout.

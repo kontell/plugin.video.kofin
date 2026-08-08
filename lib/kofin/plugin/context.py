@@ -252,6 +252,48 @@ def _stop_current_playback() -> None:
 # containers Jellyfin tracks played state for.
 WATCHED_TYPES = PLAYABLE_TYPES | {"Series", "Season", "BoxSet"}
 
+# Phase 1 downloads movies and episodes; the containers expand to episodes at
+# the route (docs/offline-downloads-plan.md W1.10).
+DOWNLOADABLE_TYPES = frozenset({"Movie", "Episode", "Season", "Series"})
+
+
+def _download_options(item: dict) -> List[Tuple[str, dict]]:
+    """Download / Cancel download / Remove download, from local state.
+
+    Leaves gate on the server's ``CanDownload`` exactly as delete gates on
+    ``CanDelete`` — never offer what the server will 403 (the field is false
+    when the admin turned EnableContentDownloading off). Containers cannot
+    carry the field (folders always answer false), so they offer Download
+    whenever the feature is on and the route's own filter drops children the
+    server refuses or the store already holds.
+    """
+    item_type = item.get("Type")
+    if item_type not in DOWNLOADABLE_TYPES:
+        return []
+    item_id = item.get("Id", "")
+    if item_type in ("Season", "Series"):
+        return [(settings.localized(30708), {"mode": "download", "id": item_id})]
+
+    from kofin.downloads import store
+
+    row = store.get(item_id)
+    if row is None or row.state == store.FAILED:
+        if not item.get("CanDownload"):
+            return []
+        return [(settings.localized(30708), {"mode": "download", "id": item_id})]
+    if row.state == store.DONE:
+        return [
+            (
+                settings.localized(30710),
+                {
+                    "mode": "removedownload",
+                    "id": item_id,
+                    "name": item.get("Name", ""),
+                },
+            )
+        ]
+    return [(settings.localized(30709), {"mode": "canceldownload", "id": item_id})]
+
 
 def _manage_options(item: dict, dynamic: bool) -> List[Tuple[str, dict]]:
     """The (label, RunPlugin params) pairs for the Jellyfin actions menu.
@@ -301,6 +343,9 @@ def _manage_options(item: dict, dynamic: bool) -> List[Tuple[str, dict]]:
     # us, from an item we already fetched, so it can simply ask.
     if item.get("SpecialFeatureCount"):
         options.append((settings.localized(30501), {"mode": "extras", "id": item_id}))
+
+    if settings.get_bool("downloadsEnabled"):
+        options.extend(_download_options(item))
 
     # Two gates, and they answer different questions: the setting is whether
     # the *user* wants deletion offered at all, CanDelete is whether the

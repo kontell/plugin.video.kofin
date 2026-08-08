@@ -38,7 +38,7 @@ def env(tmp_path, monkeypatch):
 
 @pytest.fixture
 def repoints(monkeypatch):
-    calls = {"repoint": [], "restore": []}
+    calls = {"repoint": [], "restore": [], "stamp": [], "unstamp": []}
     monkeypatch.setattr(
         manager_module.repoint,
         "repoint",
@@ -48,6 +48,16 @@ def repoints(monkeypatch):
         manager_module.repoint,
         "restore",
         lambda row, root: calls["restore"].append((row.jellyfin_id, root)) or True,
+    )
+    monkeypatch.setattr(
+        manager_module.repoint,
+        "stamp_tag",
+        lambda row: calls["stamp"].append(row.jellyfin_id),
+    )
+    monkeypatch.setattr(
+        manager_module.repoint,
+        "unstamp_tag",
+        lambda row: calls["unstamp"].append(row.jellyfin_id),
     )
     return calls
 
@@ -156,6 +166,7 @@ def test_happy_path_downloads_verifies_repoints_and_refreshes(tmp_path, repoints
     assert final.read_bytes() == b"abcdefgh"
     assert not os.path.exists(str(final) + ".part")
     assert repoints["repoint"] == [("m1", str(tmp_path / "dl"))]
+    assert repoints["stamp"] == ["m1"]
     assert refreshes == [1]
 
 
@@ -383,6 +394,7 @@ def test_remove_restores_deletes_and_prunes(tmp_path, repoints):
     manager._apply_remove("m1")
 
     assert repoints["restore"] == [("m1", str(tmp_path / "dl"))]
+    assert repoints["unstamp"] == ["m1"]
     assert store.get("m1") is None
     assert not final.exists()
     assert not final.parent.exists()  # sidecar went with it, dir pruned

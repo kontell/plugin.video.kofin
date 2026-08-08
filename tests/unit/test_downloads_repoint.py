@@ -59,6 +59,10 @@ def sync_env(request, monkeypatch, tmp_path):
             str(tmp_path / ("MyVideos%d.db" % request.param)), request.param
         ),
     )
+    # The writers' re-assert resolves the root itself (settings-driven); pin
+    # it to the same literal every manual repoint/restore in here uses, or
+    # the two sides repoint under different roots.
+    monkeypatch.setattr("kofin.downloads.repoint.downloads_root", lambda: ROOT)
     yield request.param
     sync_db.reset_overrides()
     Kodi.reset_people_cache()
@@ -294,14 +298,15 @@ def parallel_writer_state(tmp_path, version, payloads):
         Kodi.reset_people_cache()
 
 
-def test_a_writer_pass_reverts_and_the_reassert_recaptures(api, sync_env, tmp_path):
-    """A *changed* item's resync rebuilds the row in writer shape
-    (update_file); the W1.8 contract is a post-write re-assert, which must
-    recapture the fresh writer row so restore never puts back a stale URL.
-    An unchanged resync never gets that far — the writers' checksum
-    short-circuit skips the item wholesale, repoint intact (also pinned
-    here). The final comparison is against a parallel sandbox that saw the
-    same two writes and no repoint at all: zero trace, debris included."""
+def test_a_changed_resync_reasserts_itself_and_remove_leaves_zero_trace(
+    api, sync_env, tmp_path
+):
+    """W1.8 as built: the writer's own post-pass hook re-points a downloaded
+    item before the page commits — no manual re-assert — recapturing the
+    fresh URL, and the injected tag survives add_tags' wholesale replace.
+    An unchanged resync never gets that far (checksum skip, repoint intact).
+    The full remove flow (restore + row + tag) then lands byte-identical
+    with a parallel never-downloaded sandbox: zero trace, tag rows included."""
     changed = dto(MOVIE)
     changed["Etag"] = "etag-movie1-v2"
     expected = parallel_writer_state(tmp_path, sync_env, [dto(MOVIE), dto(changed)])
@@ -312,6 +317,7 @@ def test_a_writer_pass_reverts_and_the_reassert_recaptures(api, sync_env, tmp_pa
 
     download = done_download("movie1", "movie", "Movies/The Movie (2019)/movie.mkv")
     assert repoint.repoint(download, ROOT) is True
+    repoint.stamp_tag(download)
 
     write_movie(api)  # unchanged payload: checksum short-circuit, no revert
     (untouched,) = video_query(
@@ -319,21 +325,59 @@ def test_a_writer_pass_reverts_and_the_reassert_recaptures(api, sync_env, tmp_pa
     )[0]
     assert untouched == "movie.mkv"
 
-    write_movie(api, dto(changed))  # a real update pass: back to writer shape
-    (reverted,) = video_query(
-        "SELECT strFilename FROM files WHERE idFile = ?", (file_id,)
-    )[0]
-    assert reverted.startswith("plugin://")
+    write_movie(api, dto(changed))  # a real update pass
+    (name,) = video_query("SELECT strFilename FROM files WHERE idFile = ?", (file_id,))[
+        0
+    ]
+    assert name == "movie.mkv"  # the writer re-asserted the repoint itself
+    assert store.get("movie1").restore_filename.startswith("plugin://")
+    assert _tag_links("movie") == 1  # injected through the wholesale replace
 
-    assert repoint.repoint(store.get("movie1"), ROOT) is True  # the re-assert
-    (local_again,) = video_query(
-        "SELECT strFilename FROM files WHERE idFile = ?", (file_id,)
-    )[0]
-    assert local_again == "movie.mkv"
-    assert store.get("movie1").restore_filename == reverted
-
-    assert repoint.restore(store.get("movie1"), ROOT) is True
+    row = store.get("movie1")  # the remove flow, as the manager runs it
+    assert repoint.restore(row, ROOT) is True
+    store.remove("movie1")
+    repoint.unstamp_tag(row)
     assert dump() == expected
+
+
+def _tag_links(media_type):
+    from kofin.downloads import TAG
+
+    return video_query(
+        "SELECT COUNT(*) FROM tag_link JOIN tag ON tag.tag_id = tag_link.tag_id "
+        "WHERE tag.name = ? AND tag_link.media_type = ?",
+        (TAG, media_type),
+    )[0][0]
+
+
+def test_the_show_carries_the_tag_while_any_episode_is_downloaded(api):
+    """Episodes have no tag surface in Kodi's nodes, so a downloaded episode
+    tags its show; the show writer keeps it through rewrites via series_id,
+    and the last sibling's removal drops link and tag row both."""
+    write_series_tree(api)
+    download = done_download(
+        "episode1", "episode", "TV/The Show/Season 01/S01E01.mkv", "series1"
+    )
+    assert repoint.repoint(download, ROOT) is True
+    repoint.stamp_tag(download)
+    assert _tag_links("tvshow") == 1
+
+    changed = dto(SERIES)
+    changed["Etag"] = "etag-series1-v2"
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        TVShows(api, kdb, vdb, library=TV_LIBRARY).tvshow(changed)
+    assert _tag_links("tvshow") == 1  # survived the wholesale replace
+
+    row = store.get("episode1")
+    assert repoint.restore(row, ROOT) is True
+    store.remove("episode1")
+    repoint.unstamp_tag(row)
+    assert _tag_links("tvshow") == 0
+    from kofin.downloads import TAG
+
+    assert (
+        video_query("SELECT COUNT(*) FROM tag WHERE name = ?", (TAG,))[0][0] == 0
+    )  # the orphaned tag row went with the last link
 
 
 def test_restore_refuses_without_a_captured_filename(api):
