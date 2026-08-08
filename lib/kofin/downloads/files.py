@@ -9,7 +9,7 @@ POSIX-style paths relative to the downloads root.
 import os
 import posixpath
 import re
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from kofin.core.log import Logger
 
@@ -71,44 +71,54 @@ def filename_from_disposition(value: str, fallback: str) -> str:
     return fallback
 
 
-def item_dir(item: JsonDict) -> str:
-    """The directory (relative, POSIX-style) an item's files live under.
+def item_dirs(item: JsonDict) -> Tuple[str, Optional[str]]:
+    """(owning directory, leaf subdirectory) for an item, relative, POSIX.
 
-    Movies: ``Movies/<Title (Year)>``. Episodes: ``TV/<Show>/Season NN``
-    (season 0 is ``Specials``, Kodi's own convention; an episode without a
-    season number sits directly under the show). Anything else raises —
-    phase 1 downloads movies and episodes, and a silent default here would
-    put a future type's files somewhere nobody decided.
+    Movies: ``("Movies/<Title (Year)>", None)`` — the directory belongs to
+    the film alone. Episodes: ``("TV/<Show>", "Season NN")`` — the *show*
+    directory is the owner and the season is a leaf inside it (season 0 is
+    ``Specials``, Kodi's own convention; an episode with no season number
+    sits directly under the show). The split is what keeps collision
+    handling honest: a name clash is a clash between owners, and every
+    episode of a show belongs under one show directory whatever its season
+    (see :func:`unique_dir`). Anything else raises — phase 1 downloads
+    movies and episodes, and a silent default would put a future type's
+    files somewhere nobody decided.
     """
     item_type = item.get("Type", "")
     if item_type == "Movie":
         title = sanitize(str(item.get("Name") or ""))
         year = item.get("ProductionYear")
-        folder = "%s (%s)" % (title, year) if year else title
-        return posixpath.join(MOVIES_DIR, folder)
+        return (
+            posixpath.join(MOVIES_DIR, "%s (%s)" % (title, year) if year else title),
+            None,
+        )
     if item_type == "Episode":
-        show = sanitize(str(item.get("SeriesName") or ""))
+        show = posixpath.join(TV_DIR, sanitize(str(item.get("SeriesName") or "")))
         season = item.get("ParentIndexNumber")
         if season is None:
-            return posixpath.join(TV_DIR, show)
+            return show, None
         if int(season) == 0:
-            return posixpath.join(TV_DIR, show, "Specials")
-        return posixpath.join(TV_DIR, show, "Season %02d" % int(season))
+            return show, "Specials"
+        return show, "Season %02d" % int(season)
     raise ValueError("no download layout for item type %r" % item_type)
 
 
-def unique_dir(base: str, jellyfin_id: str, taken: Callable[[str], bool]) -> str:
-    """``base``, or ``base [<id-prefix>]`` when another item already owns it.
+def unique_dir(base: str, owner_id: str, taken: Callable[[str], bool]) -> str:
+    """``base``, or ``base [<id-prefix>]`` when another *owner* holds it.
 
-    Two titles can sanitize identically ("Crash (2004)" twice, a show and
-    its remake); the suffix is deterministic and applied only on actual
-    collision, so the common case stays clean. ``taken`` answers whether a
-    directory is already claimed by a *different* item — the store and the
-    filesystem both feed it, and the caller owns that closure.
+    Two titles can sanitize identically (a show and its remake, "Crash
+    (2004)" twice); the suffix is deterministic and applied only on a real
+    clash, so the common case stays clean. ``owner_id`` is the film's own id
+    or — for an episode — its *series* id, and ``taken`` answers whether the
+    directory already belongs to a different owner. Owners, not items: every
+    episode of a show shares that show's directory, and a per-item test
+    would suffix each sibling into a directory of its own (found live —
+    four episodes of one season landed in three directories).
     """
     if not taken(base):
         return base
-    return "%s [%s]" % (base, jellyfin_id[:8])
+    return "%s [%s]" % (base, owner_id[:8])
 
 
 def free_space_ok(root: str, expected_bytes: int) -> bool:

@@ -55,30 +55,32 @@ def test_filename_from_disposition_cannot_escape_the_tree():
     assert files.filename_from_disposition(windows, "fb.mkv") == "boot.ini"
 
 
-def test_movie_dir_with_and_without_year():
-    assert (
-        files.item_dir({"Type": "Movie", "Name": "Heat", "ProductionYear": 1995})
-        == "Movies/Heat (1995)"
-    )
-    assert files.item_dir({"Type": "Movie", "Name": "Heat"}) == "Movies/Heat"
+def test_movie_dirs_with_and_without_year():
+    assert files.item_dirs(
+        {"Type": "Movie", "Name": "Heat", "ProductionYear": 1995}
+    ) == ("Movies/Heat (1995)", None)
+    assert files.item_dirs({"Type": "Movie", "Name": "Heat"}) == ("Movies/Heat", None)
 
 
-def test_episode_dir_season_specials_and_none():
+def test_episode_dirs_split_show_from_season():
+    """The show directory is the owner, the season a leaf inside it — the
+    split is what lets siblings share a season folder while a name clash
+    between two *shows* still separates them (see unique_dir)."""
     episode = {"Type": "Episode", "SeriesName": "UFC PPV Events"}
-    assert (
-        files.item_dir({**episode, "ParentIndexNumber": 1})
-        == "TV/UFC PPV Events/Season 01"
+    assert files.item_dirs({**episode, "ParentIndexNumber": 1}) == (
+        "TV/UFC PPV Events",
+        "Season 01",
     )
-    assert (
-        files.item_dir({**episode, "ParentIndexNumber": 0})
-        == "TV/UFC PPV Events/Specials"
+    assert files.item_dirs({**episode, "ParentIndexNumber": 0}) == (
+        "TV/UFC PPV Events",
+        "Specials",
     )
-    assert files.item_dir(episode) == "TV/UFC PPV Events"
+    assert files.item_dirs(episode) == ("TV/UFC PPV Events", None)
 
 
 def test_unknown_type_raises_instead_of_inventing_a_home():
     with pytest.raises(ValueError):
-        files.item_dir({"Type": "Audio", "Name": "Song"})
+        files.item_dirs({"Type": "Audio", "Name": "Song"})
 
 
 def test_unique_dir_suffixes_only_on_collision():

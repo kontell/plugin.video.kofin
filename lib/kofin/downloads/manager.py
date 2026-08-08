@@ -265,6 +265,7 @@ class DownloadManager:
             self._toast(30715, item.get("Name", item_id))
             return
 
+        owner_id = str(item.get("SeriesId") or "") or item_id
         rel_path = row.rel_path
         start = 0
         if rel_path:
@@ -278,7 +279,11 @@ class DownloadManager:
                 # Content-Disposition on this very response (V1), so one open
                 # serves both the headers and the body.
                 rel_path = self._decide_target(
-                    item, item_id, container, stream.header("Content-Disposition")
+                    item,
+                    item_id,
+                    owner_id,
+                    container,
+                    stream.header("Content-Disposition"),
                 )
             absolute = os.path.join(root, rel_path)
             part = absolute + ".part"
@@ -312,11 +317,22 @@ class DownloadManager:
         LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
 
     def _decide_target(
-        self, item: JsonDict, item_id: str, container: str, disposition: str
+        self,
+        item: JsonDict,
+        item_id: str,
+        owner_id: str,
+        container: str,
+        disposition: str,
     ) -> str:
-        """Freeze the target path on first contact (files.py owns the rules)."""
-        directory = files.item_dir(item)
-        directory = files.unique_dir(directory, item_id, _dir_taken_by_other(item_id))
+        """Freeze the target path on first contact (files.py owns the rules).
+
+        The uniqueness test is on the *owning* directory — a film's own, a
+        show's — never the season leaf, so siblings share one season folder
+        (files.unique_dir).
+        """
+        owning, leaf = files.item_dirs(item)
+        owning = files.unique_dir(owning, owner_id, _dir_taken_by_other(owner_id))
+        directory = owning if leaf is None else "%s/%s" % (owning, leaf)
         fallback = "%s.%s" % (
             files.sanitize(str(item.get("Name") or item_id)),
             container or "bin",
@@ -518,11 +534,17 @@ def _userdata_json(userdata: Any) -> str:
         return ""
 
 
-def _dir_taken_by_other(item_id: str) -> Callable[[str], bool]:
+def _dir_taken_by_other(owner_id: str) -> Callable[[str], bool]:
+    """Is this directory already claimed by a *different* owner? A row's
+    owner is its series (episodes) or itself (films), matching how
+    files.item_dirs assigns directories."""
+
     def taken(directory: str) -> bool:
         prefix = directory + "/"
         for row in store.rows():
-            if row.jellyfin_id != item_id and row.rel_path.startswith(prefix):
+            if not row.rel_path.startswith(prefix):
+                continue
+            if (row.series_id or row.jellyfin_id) != owner_id:
                 return True
         return False
 

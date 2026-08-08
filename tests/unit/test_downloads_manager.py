@@ -400,3 +400,74 @@ def test_remove_restores_deletes_and_prunes(tmp_path, repoints):
     assert not final.parent.exists()  # sidecar went with it, dir pruned
     assert (tmp_path / "dl").exists()  # never the root itself
     assert refreshes == [1]
+
+
+EPISODE_DTO = {
+    "Id": "e1",
+    "Type": "Episode",
+    "Name": "Ep One",
+    "SeriesId": "show1",
+    "SeriesName": "The Show",
+    "ParentIndexNumber": 19,
+    "UserData": {},
+    "MediaSources": [{"Id": "s", "Container": "avi", "Size": 4, "MediaStreams": []}],
+}
+
+
+def _episode_api(item_id, filename):
+    dto = dict(EPISODE_DTO, Id=item_id)
+    return FakeManagerApi(
+        dto,
+        [
+            FakeStream(
+                200,
+                [b"abcd"],
+                {
+                    "Content-Length": "4",
+                    "Content-Disposition": 'attachment; filename="%s"' % filename,
+                },
+            )
+        ],
+    )
+
+
+def test_siblings_share_one_season_directory(tmp_path, repoints):
+    """Found live: the collision suffix keyed on the *item*, so every episode
+    of a season saw its siblings' rows as a clash and each landed in a
+    directory of its own — four episodes across three folders. Ownership is
+    the series, not the episode."""
+    manager, _ = make_manager(repoints)
+
+    manager._process(_episode_api("e1", "one.avi"), queue_row("e1"))
+    manager._process(_episode_api("e2", "two.avi"), queue_row("e2"))
+
+    assert store.get("e1").rel_path == "TV/The Show/Season 19/one.avi"
+    assert store.get("e2").rel_path == "TV/The Show/Season 19/two.avi"
+    season = tmp_path / "dl" / "TV/The Show/Season 19"
+    assert sorted(p.name for p in season.iterdir()) == ["one.avi", "two.avi"]
+
+
+def test_a_different_show_with_the_same_name_still_separates(tmp_path, repoints):
+    """The suffix is still there for the case it was written for: two shows
+    whose names sanitize identically get one directory each, keyed on the
+    series id."""
+    manager, _ = make_manager(repoints)
+    manager._process(_episode_api("e1", "one.avi"), queue_row("e1"))
+
+    other = dict(EPISODE_DTO, Id="x1", SeriesId="show2")
+    api = FakeManagerApi(
+        other,
+        [
+            FakeStream(
+                200,
+                [b"abcd"],
+                {
+                    "Content-Length": "4",
+                    "Content-Disposition": 'attachment; filename="one.avi"',
+                },
+            )
+        ],
+    )
+    manager._process(api, queue_row("x1"))
+
+    assert store.get("x1").rel_path == "TV/The Show [show2]/Season 19/one.avi"
