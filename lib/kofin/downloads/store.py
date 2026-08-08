@@ -50,6 +50,12 @@ class Download:
     queued_at: int = 0
     done_at: int = 0
     error: str = ""
+    # The files.strFilename the writers had built when the repoint captured
+    # the row — restore puts it back verbatim (byte-identical, and correct
+    # even for transcodes, whose local name shares nothing with the
+    # server's). Re-captured whenever a writer pass rebuilds the row, so a
+    # server-side rename never restores a stale URL.
+    restore_filename: str = ""
 
     @property
     def userdata(self) -> Dict[str, Any]:
@@ -171,6 +177,14 @@ def finish(
                 done_at or int(time.time()),
                 jellyfin_id,
             ),
+        )
+
+
+def set_restore_filename(jellyfin_id: str, filename: str) -> None:
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "UPDATE download SET restore_filename = ? WHERE jellyfin_id = ?",
+            (filename, jellyfin_id),
         )
 
 
