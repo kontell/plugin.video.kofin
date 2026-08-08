@@ -43,6 +43,9 @@ def test_kofin_db_has_fork_indexes(kofin_path):
         "idx_jellyfin_parent",
         "idx_jellyfin_media_folder",
         "idx_jellyfin_parent_id",
+        # kofin additions beyond the fork schema (downloads plan W1.3).
+        "idx_download_series",
+        "idx_download_state",
     }
 
 

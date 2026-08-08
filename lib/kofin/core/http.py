@@ -12,7 +12,7 @@ all the same (docs/perf-hardening-plan.md W1.2).
 
 import random
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, Optional, Tuple
 
 from kofin.core.log import Logger
 
@@ -24,6 +24,11 @@ LOG = Logger(__name__)
 DEFAULT_TIMEOUT = (6.0, 30.0)
 RETRIES = 3
 BACKOFF_BASE_SECONDS = 0.5
+
+# One read per chunk of a streamed body. Large enough that the per-chunk
+# abort check costs nothing against a media download, small enough that a
+# stop request is heard within a fraction of a second on any real link.
+STREAM_CHUNK_BYTES = 262_144
 
 # Default retry budget per method, applied when the caller passes none. GETs
 # replay safely. A DELETE states an absolute fact (unfavorite, mark unplayed,
@@ -70,6 +75,66 @@ def plugin_transport(verify_ssl: bool = True) -> "Http":
     from kofin.core.stdhttp import StdlibHttp
 
     return StdlibHttp(verify_ssl)
+
+
+class StreamedResponse:
+    """A streaming GET in flight: headers now, the body drained via chunks().
+
+    Thin on purpose — retries, resume bookkeeping and file writes are the
+    download manager's policy, not the transport's. What lives here is what
+    every streaming caller needs identically: the abort check between chunks
+    (the read timeout bounds a dead socket; this bounds a *live* one, which a
+    multi-GB body otherwise keeps reading long past a stop request), the
+    mid-body error taxonomy, and close() so an abandoned stream releases its
+    pooled connection.
+    """
+
+    def __init__(
+        self,
+        response: "requests.Response",
+        abort: Optional[Callable[[], bool]],
+        already_complete: bool = False,
+    ) -> None:
+        self._response = response
+        self._abort = abort
+        # The server answered 416 to a resume offset: the range starts at or
+        # past the end, i.e. everything was already fetched (feasibility V1;
+        # jellyfin-android reads the same answer the same way).
+        self.already_complete = already_complete
+
+    @property
+    def status(self) -> int:
+        return int(self._response.status_code)
+
+    def header(self, name: str) -> str:
+        """A response header, '' when absent. Case-insensitive by hand so a
+        test fake with a plain dict behaves like requests' own mapping."""
+        for key, value in self._response.headers.items():
+            if key.lower() == name.lower():
+                return str(value)
+        return ""
+
+    def chunks(self) -> Iterator[bytes]:
+        import requests
+
+        if self.already_complete:
+            return
+        try:
+            for chunk in self._response.iter_content(STREAM_CHUNK_BYTES):
+                if self._abort is not None and self._abort():
+                    raise ServerUnreachable("stream abandoned while stopping")
+                if chunk:
+                    yield chunk
+        except requests.RequestException as error:
+            # A body that dies mid-read is a connection fact, whatever
+            # requests dresses it as (ChunkedEncodingError and friends).
+            raise ServerUnreachable("stream interrupted: %s" % error)
+
+    def close(self) -> None:
+        try:
+            self._response.close()
+        except Exception as error:  # pragma: no cover - defensive
+            LOG.debug("stream close failed: %s", error)
 
 
 class Http:
@@ -188,3 +253,48 @@ class Http:
             return response
 
         raise ServerUnreachable("%s %s: %s" % (method, url, last_error))
+
+    def stream(
+        self,
+        url: str,
+        headers: Optional[Dict[str, str]] = None,
+        start: int = 0,
+        timeout: Optional[Tuple[float, float]] = None,
+    ) -> StreamedResponse:
+        """One streaming GET — deliberately no retry ladder.
+
+        The download manager owns retry and resume policy: a replayed
+        multi-GB body is never the transport's call to make, and the
+        manager's resume watermark decides where the next attempt starts.
+        ``start`` resumes with a Range header (server support verified,
+        feasibility V1); a 416 answer comes back as ``already_complete``
+        rather than an error, because for a resume it means exactly that.
+        """
+        import requests
+
+        sent = dict(headers or {})
+        if start:
+            sent["Range"] = "bytes=%d-" % start
+        try:
+            response = self.session().request(
+                "GET",
+                url,
+                headers=sent,
+                stream=True,
+                timeout=timeout or DEFAULT_TIMEOUT,
+            )
+        except (requests.ConnectionError, requests.Timeout) as error:
+            raise ServerUnreachable("GET %s: %s" % (url, error))
+        LOG.debug("http GET %s -> %d (stream)", url, response.status_code)
+        if response.status_code == 416:
+            response.close()
+            return StreamedResponse(response, self._abort, already_complete=True)
+        if response.status_code in (401, 403):
+            response.close()
+            raise Unauthorized("GET %s -> %d" % (url, response.status_code))
+        if response.status_code >= 400:
+            response.close()
+            raise HttpError(
+                response.status_code, "GET %s -> %d" % (url, response.status_code)
+            )
+        return StreamedResponse(response, self._abort)
