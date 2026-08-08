@@ -36,6 +36,10 @@ LIBRARY_COMMANDS = frozenset(
     }
 )
 
+DOWNLOAD_COMMANDS = frozenset(
+    {ipc.DOWNLOAD_ADD, ipc.DOWNLOAD_CANCEL, ipc.DOWNLOAD_REMOVE}
+)
+
 # Seconds the service ignores settings changes after start, covering Kodi's
 # startup settings-load transients. A user cannot open the settings dialog and
 # edit within this window; a real change always lands well after it.
@@ -136,6 +140,7 @@ class Service(xbmc.Monitor):
         self.remote = RemoteHandler()
         self.kodi_userdata = KodiUserData(self.api)
         self.library: Optional[Any] = None  # kofin.sync.library.Library
+        self.downloads: Optional[Any] = None  # kofin.downloads.manager.DownloadManager
         self.syncplay: Optional[Any] = None  # kofin.syncplay.SyncPlayManager
         self._syncplay_menu: Optional[threading.Thread] = None
         self._who_is_watching: Optional[threading.Thread] = None
@@ -230,6 +235,7 @@ class Service(xbmc.Monitor):
         self._start_syncplay()  # before the websocket: messages route into it
         self._start_websocket()
         self._start_library()
+        self._start_downloads()
         self._start_backdrop()
         # Cheap to start unconditionally: the worker sleeps until the setting
         # is on *and* the box is idle, so a user who never enables it pays a
@@ -263,6 +269,46 @@ class Service(xbmc.Monitor):
         except Exception:
             LOG.exception("library sync manager failed to start")
             self.library = None
+
+    def _start_downloads(self) -> None:
+        """Build the download manager when enabled. Contained like the library
+        manager: playback and sync must survive a broken downloads stack
+        (degrade, don't die)."""
+        if self.downloads is not None:
+            return
+        if not settings.get_bool("downloadsEnabled"):
+            LOG.debug("downloadsEnabled off; no download manager built")
+            return
+        try:
+            from kofin.downloads.manager import DownloadManager
+
+            self.downloads = DownloadManager(
+                self._new_api, self._refresh_video, self._stopping
+            )
+            self.downloads.start()
+            LOG.info("download manager started")
+        except Exception:
+            LOG.exception("download manager failed to start")
+            self.downloads = None
+
+    def _stop_downloads(self) -> None:
+        manager = self.downloads
+        if manager is None:
+            return
+        self.downloads = None
+        try:
+            manager.stop()
+        except Exception:
+            LOG.exception("download manager failed to stop")
+
+    def _refresh_video(self) -> None:
+        """The downloads manager's way onto screens: through the library
+        manager's own refresh (never a bare builtin — the widget-refresh
+        doctrine). No library manager means nothing native is rendering the
+        rows anyway."""
+        library = self.library
+        if library is not None:
+            library.refresh_libraries(["video"])
 
     def _new_api(self) -> Api:
         """A fresh Api with its own HTTP session (one per sync worker).
@@ -619,6 +665,20 @@ class Service(xbmc.Monitor):
             self._open_who_is_watching()
         elif name == ipc.PRECACHE_ART:
             self._precache_art_now()
+        elif name in DOWNLOAD_COMMANDS:
+            # Notification thread: the manager's surface only enqueues onto
+            # its ops queue — no database, no socket (audit finding #3).
+            self._start_downloads()
+            if self.downloads is None:
+                LOG.warning("download command %s ignored: manager not running", name)
+                return
+            if name == ipc.DOWNLOAD_ADD:
+                ids = payload.get("Ids") or []
+                self.downloads.submit([str(one) for one in ids if one])
+            elif name == ipc.DOWNLOAD_CANCEL:
+                self.downloads.cancel(str(payload.get("Id") or ""))
+            elif name == ipc.DOWNLOAD_REMOVE:
+                self.downloads.remove(str(payload.get("Id") or ""))
         elif name in LIBRARY_COMMANDS:
             self._start_library()
             if self.library is None:
@@ -701,6 +761,10 @@ class Service(xbmc.Monitor):
         if self.ws is not None:
             self.ws.stop()
             self.ws = None
+        # Downloads before the library join: the workers write MyVideos (the
+        # repoint) and would contend with the join's own drain; their chunk
+        # loops hear the stop within one read timeout.
+        self._stop_downloads()
         library_stuck = False
         if self.library is not None:
             self.library.stop_client()

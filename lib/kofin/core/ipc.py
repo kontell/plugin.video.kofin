@@ -44,6 +44,14 @@ SYNCPLAY_MENU = "SyncPlayMenu"
 # exiting lets the fetch fail out cleanly while the service puts the picker up.
 WHO_IS_WATCHING = "WhoIsWatching"
 
+# Offline downloads (docs/offline-downloads-plan.md W1.5): the context menu
+# runs in the plugin process, the download manager in the service. ADD carries
+# {"Ids": [...]} (the sender expands seasons/series), CANCEL and REMOVE carry
+# {"Id": ...}.
+DOWNLOAD_ADD = "DownloadAdd"
+DOWNLOAD_CANCEL = "DownloadCancel"
+DOWNLOAD_REMOVE = "DownloadRemove"
+
 _REGISTRY = frozenset(
     {
         RESTART,
@@ -56,6 +64,9 @@ _REGISTRY = frozenset(
         PRECACHE_ART,
         SYNCPLAY_MENU,
         WHO_IS_WATCHING,
+        DOWNLOAD_ADD,
+        DOWNLOAD_CANCEL,
+        DOWNLOAD_REMOVE,
     }
 )
 
@@ -64,8 +75,19 @@ _REGISTRY = frozenset(
 # is a denial of service). Kodi's NotifyAll passes the sender string through
 # verbatim from its caller — the builtin and the JSON-RPC method both — so
 # "sender == kofin" proves nothing on its own, and these carry a shared secret
-# as well (see nonce()).
-GUARDED = frozenset({RESTART, AUTH_CHANGED, REMOVE_LIBRARY, REPAIR_LIBRARY})
+# as well (see nonce()). The download trio is here wholesale: REMOVE deletes
+# files, ADD pulls gigabytes on someone else's say-so, CANCEL wastes work.
+GUARDED = frozenset(
+    {
+        RESTART,
+        AUTH_CHANGED,
+        REMOVE_LIBRARY,
+        REPAIR_LIBRARY,
+        DOWNLOAD_ADD,
+        DOWNLOAD_CANCEL,
+        DOWNLOAD_REMOVE,
+    }
+)
 
 # Where that secret lives. Deliberately a file in the addon's own data
 # directory rather than a window property: a window property is readable over

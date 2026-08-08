@@ -172,6 +172,26 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
     # upgrade migration.
     cursor.execute("""CREATE TABLE IF NOT EXISTS boxset_state(
         jellyfin_id TEXT PRIMARY KEY, linked_count INTEGER NOT NULL)""")
+    # Offline downloads (docs/offline-downloads-plan.md, storage decisions).
+    # Rows leave only on remove; ``state`` walks queued|active|done|failed.
+    # ``series_id`` is denormalized so the tvshow tag injection is one
+    # indexed lookup; ``rel_path`` is relative to the downloads root, which
+    # is a setting and may move; ``quality`` records the request that
+    # produced the file (nothing acts on it yet — it exists so a later
+    # needs-redownload feature is a diff, not a guess); ``userdata_json``
+    # snapshots the server's UserData at queue time for the phase-2
+    # replay-conflict rule.
+    cursor.execute("""CREATE TABLE IF NOT EXISTS download(
+        jellyfin_id TEXT PRIMARY KEY, media_type TEXT, series_id TEXT,
+        state TEXT, origin TEXT, rel_path TEXT, container TEXT,
+        size_expected INTEGER, size_actual INTEGER, quality TEXT,
+        bytes_done INTEGER, userdata_json TEXT,
+        queued_at INTEGER, done_at INTEGER, error TEXT,
+        restore_filename TEXT)""")
+    # CREATE IF NOT EXISTS never revisits an existing table, and the download
+    # table can materialize on a dev box between stacked PRs; additive columns
+    # keep that cheap. A new column goes in the CREATE above *and* here.
+    _ensure_columns(cursor, "download", {"restore_filename": "TEXT"})
 
     cursor.execute("""CREATE INDEX IF NOT EXISTS idx_jellyfin_kodi
         ON jellyfin(kodi_id, media_type)""")
@@ -181,6 +201,23 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
         ON jellyfin(media_folder)""")
     cursor.execute("""CREATE INDEX IF NOT EXISTS idx_jellyfin_parent_id
         ON jellyfin(jellyfin_parent_id)""")
+    cursor.execute("""CREATE INDEX IF NOT EXISTS idx_download_series
+        ON download(series_id, state)""")
+    cursor.execute("""CREATE INDEX IF NOT EXISTS idx_download_state
+        ON download(state, queued_at)""")
+
+
+def _ensure_columns(
+    cursor: "sqlite3.Cursor", table: str, columns: Dict[str, str]
+) -> None:
+    """ALTER TABLE ADD COLUMN for any listed column the table lacks."""
+    cursor.execute("PRAGMA table_info(%s)" % table)
+    present = {row[1] for row in cursor.fetchall()}
+    for name, declaration in columns.items():
+        if name not in present:
+            cursor.execute(
+                "ALTER TABLE %s ADD COLUMN %s %s" % (table, name, declaration)
+            )
 
 
 class SyncStateCorrupt(Exception):

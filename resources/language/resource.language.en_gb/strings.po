@@ -1577,3 +1577,83 @@ msgctxt "#30673"
 msgid "Cached %d cast image(s)"
 msgstr ""
 
+
+msgctxt "#30700"
+msgid "Downloads"
+msgstr ""
+
+msgctxt "#30701"
+msgid "Download items for offline playback"
+msgstr ""
+
+msgctxt "#30702"
+msgid "Enable downloads"
+msgstr ""
+
+msgctxt "#30703"
+msgid "Adds Download to the Jellyfin actions menu and runs the download manager"
+msgstr ""
+
+msgctxt "#30704"
+msgid "Download location"
+msgstr ""
+
+msgctxt "#30705"
+msgid "Where downloaded files are kept. Leave empty for the addon profile folder"
+msgstr ""
+
+msgctxt "#30706"
+msgid "Parallel downloads"
+msgstr ""
+
+msgctxt "#30707"
+msgid "How many items download at the same time"
+msgstr ""
+
+msgctxt "#30708"
+msgid "Download"
+msgstr ""
+
+msgctxt "#30709"
+msgid "Cancel download"
+msgstr ""
+
+msgctxt "#30710"
+msgid "Remove download"
+msgstr ""
+
+msgctxt "#30711"
+msgid "%s download(s) queued"
+msgstr ""
+
+msgctxt "#30712"
+msgid "Download complete: %s"
+msgstr ""
+
+msgctxt "#30713"
+msgid "Download failed: %s"
+msgstr ""
+
+msgctxt "#30714"
+msgid "Remove the download of %s?"
+msgstr ""
+
+msgctxt "#30715"
+msgid "Not enough free space for %s"
+msgstr ""
+
+msgctxt "#30716"
+msgid "Download %s item(s) (%s)?"
+msgstr ""
+
+msgctxt "#30717"
+msgid "The downloads folder is not writable"
+msgstr ""
+
+msgctxt "#30718"
+msgid "Downloaded movies"
+msgstr ""
+
+msgctxt "#30719"
+msgid "Downloaded shows"
+msgstr ""

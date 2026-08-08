@@ -688,3 +688,44 @@ def test_a_library_the_server_really_dropped_is_still_removed(views_env, monkeyp
     Views(api).get_views()
 
     assert ipc.REMOVE_LIBRARY in sent
+
+
+# --- downloads nodes (offline-downloads plan W1.9) ---------------------------
+
+
+def test_downloads_nodes_appear_only_while_the_feature_is_on(views_env):
+    from kofin.downloads import TAG
+
+    seed([("lib1", "Movies", "movies")], ["lib1"])
+
+    Views(FakeApi()).get_nodes()
+    assert not (kofin_root(views_env) / "kofin_DownloadedMovies.xml").exists()
+
+    FakeAddon.store["downloadsEnabled"] = "true"
+    Views(FakeApi()).get_nodes()
+
+    movies_node = kofin_root(views_env) / "kofin_DownloadedMovies.xml"
+    shows_node = kofin_root(views_env) / "kofin_DownloadedShows.xml"
+    assert movies_node.is_file() and shows_node.is_file()
+    movies_xml = movies_node.read_text()
+    assert "<value>%s</value>" % TAG in movies_xml  # the tag rule
+    assert "<content>movies</content>" in movies_xml
+    assert "<content>tvshows</content>" in shows_node.read_text()
+    # The label is written out as text: a bare 30xxx resolves against Kodi's
+    # own strings, where the addon range is empty (CGUIControlFactory).
+    assert "<label>3071" not in movies_xml
+
+
+def test_toggling_downloads_regenerates_the_tree(views_env):
+    """The hash folds the toggle in, so turning the feature off takes the
+    nodes away rather than leaving them behind on an unchanged view set."""
+    seed([("lib1", "Movies", "movies")], ["lib1"])
+    FakeAddon.store["downloadsEnabled"] = "true"
+    Views(FakeApi()).get_nodes()
+    assert (kofin_root(views_env) / "kofin_DownloadedMovies.xml").is_file()
+
+    FakeAddon.store["downloadsEnabled"] = "false"
+    Views(FakeApi()).get_nodes()
+
+    assert not (kofin_root(views_env) / "kofin_DownloadedMovies.xml").exists()
+    assert not (kofin_root(views_env) / "kofin_DownloadedShows.xml").exists()

@@ -857,6 +857,49 @@
       </group>
     </category>
 
+    <!-- Downloads (docs/offline-downloads-plan.md W1.1). Plain bool/path/int
+         settings only, so the visible-dependencies below are safe — the
+         Omega unregister bug bites list[string] settings, and none live
+         here. -->
+    <category id="downloads" label="30700" help="30701">
+      <group id="1">
+        <setting id="downloadsEnabled" type="boolean" label="30702" help="30703">
+          <level>0</level>
+          <default>false</default>
+          <control type="toggle"/>
+        </setting>
+        <setting id="downloadsPath" type="path" label="30704" help="30705">
+          <level>0</level>
+          <default></default>
+          <constraints>
+            <allowempty>true</allowempty>
+            <writable>true</writable>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="button" format="path"/>
+        </setting>
+        <setting id="downloadsMaxParallel" type="integer" label="30706" help="30707">
+          <level>0</level>
+          <default>2</default>
+          <constraints>
+            <minimum>1</minimum>
+            <step>1</step>
+            <maximum>4</maximum>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="slider" format="integer"/>
+        </setting>
+      </group>
+    </category>
+
     <!-- Advanced -->
     <category id="advanced" label="30071" help="30072">
       <group id="1">

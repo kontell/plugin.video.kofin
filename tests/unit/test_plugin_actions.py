@@ -34,7 +34,13 @@ def wired(monkeypatch):
     # Every string carries a placeholder: several of these ids take a
     # substitution, and a fake without one turns "the dialog was raised at
     # all" into a formatting error — which would pass for the wrong reason.
-    monkeypatch.setattr(actions.settings, "localized", lambda i: "L%d %%s" % i)
+    # Placeholder counts follow the real strings.po: 30716 ("Download %s
+    # item(s) (%s)?") takes two, the rest take one.
+    monkeypatch.setattr(
+        actions.settings,
+        "localized",
+        lambda i: "L%d %%s %%s" % i if i == 30716 else "L%d %%s" % i,
+    )
     monkeypatch.setattr(actions.settings, "get_list", lambda key: ["lib1", "lib2"])
     monkeypatch.setattr(actions, "_selection_names", lambda ids: list(ids))
     monkeypatch.setattr(
@@ -184,3 +190,124 @@ def test_a_failed_delete_reads_as_an_error_and_stays_quiet(delete_wired, monkeyp
     actions.delete_item(_delete_request())
 
     assert raised == [(xbmcgui.NOTIFICATION_ERROR, {})]
+
+
+# --- download routes (plan W1.10) --------------------------------------------
+
+
+class FakeDownloadApi:
+    def __init__(self, item, episodes=(), pages=None):
+        self._item = item
+        self._episodes = list(episodes)
+        self._pages = pages or {}
+
+    def item(self, item_id):
+        return self._item
+
+    def episodes(self, series_id, season_id, fields):
+        return {"Items": self._episodes}
+
+    def items(self, params):
+        start = params.get("StartIndex", 0)
+        rows = self._episodes[start : start + params.get("Limit", 200)]
+        return {"Items": rows, "TotalRecordCount": len(self._episodes)}
+
+
+@pytest.fixture
+def download_wired(monkeypatch):
+    from kofin.plugin.router import Request
+
+    notified = []
+    dialog = FakeDialog()
+    monkeypatch.setattr(
+        actions.ipc, "notify", lambda m, d=None: notified.append((m, d))
+    )
+    monkeypatch.setattr(actions.xbmcgui, "Dialog", lambda: dialog)
+    # The real strings' placeholder counts matter: 30716 formats two values.
+    monkeypatch.setattr(
+        actions.settings,
+        "localized",
+        lambda i: {30716: "L30716 %s %s"}.get(i, "L%d %%s" % i),
+    )
+    monkeypatch.setattr(actions.toast, "show", lambda *a, **k: None)
+
+    from kofin.downloads import store as downloads_store
+
+    monkeypatch.setattr(downloads_store, "rows", lambda state=None: [])
+
+    def wire(api):
+        monkeypatch.setattr(actions, "_api", lambda: api)
+        return notified, dialog, Request
+
+    return wire
+
+
+def test_download_movie_notifies_without_a_confirm(download_wired):
+    movie = {"Id": "m1", "Type": "Movie", "CanDownload": True, "MediaSources": []}
+    notified, dialog, Request = download_wired(FakeDownloadApi(movie))
+
+    actions.download(Request("plugin://x", -1, {"id": "m1"}))
+
+    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["m1"]})]
+    assert dialog.yesnos == []
+
+
+def test_download_season_confirms_then_notifies_the_children(download_wired):
+    season = {"Id": "sea1", "Type": "Season", "SeriesId": "ser1"}
+    episodes = [
+        {"Id": "e1", "CanDownload": True, "MediaSources": [{"Size": 100}]},
+        {"Id": "e2", "CanDownload": False, "MediaSources": [{"Size": 100}]},
+        {"Id": "e3", "CanDownload": True, "MediaSources": [{"Size": 100}]},
+    ]
+    notified, dialog, Request = download_wired(FakeDownloadApi(season, episodes))
+
+    actions.download(Request("plugin://x", -1, {"id": "sea1"}))
+
+    assert len(dialog.yesnos) == 1
+    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["e1", "e3"]})]  # e2 refused
+
+
+def test_download_confirm_declined_notifies_nothing(download_wired):
+    season = {"Id": "sea1", "Type": "Season", "SeriesId": "ser1"}
+    episodes = [{"Id": "e1", "CanDownload": True, "MediaSources": []}]
+    notified, dialog, Request = download_wired(FakeDownloadApi(season, episodes))
+    dialog.yesno_result = False
+
+    actions.download(Request("plugin://x", -1, {"id": "sea1"}))
+
+    assert notified == []
+
+
+def test_download_skips_rows_the_store_already_holds(download_wired, monkeypatch):
+    from kofin.downloads import store as downloads_store
+
+    series = {"Id": "ser1", "Type": "Series"}
+    episodes = [
+        {"Id": "e1", "CanDownload": True, "MediaSources": []},
+        {"Id": "e2", "CanDownload": True, "MediaSources": []},
+    ]
+    notified, dialog, Request = download_wired(FakeDownloadApi(series, episodes))
+    monkeypatch.setattr(
+        downloads_store,
+        "rows",
+        lambda state=None: [downloads_store.Download(jellyfin_id="e1")],
+    )
+
+    actions.download(Request("plugin://x", -1, {"id": "ser1"}))
+
+    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["e2"]})]
+
+
+def test_cancel_and_remove_routes(download_wired):
+    notified, dialog, Request = download_wired(FakeDownloadApi({}))
+
+    actions.cancel_download(Request("plugin://x", -1, {"id": "c1"}))
+    assert notified == [(ipc.DOWNLOAD_CANCEL, {"Id": "c1"})]
+
+    actions.remove_download(Request("plugin://x", -1, {"id": "r1", "name": "N"}))
+    assert notified[-1] == (ipc.DOWNLOAD_REMOVE, {"Id": "r1"})
+    assert len(dialog.yesnos) == 1
+
+    dialog.yesno_result = False
+    actions.remove_download(Request("plugin://x", -1, {"id": "r2", "name": "N"}))
+    assert len(notified) == 2  # declined: nothing new
