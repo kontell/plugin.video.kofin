@@ -186,6 +186,106 @@ def test_half_open_recycles_only_a_silent_live_connection():
     assert closes == [1]
 
 
+def test_a_stopped_client_dispatches_nothing():
+    """Events arriving after stop() must be dropped, not handed over: the
+    owner is mid-teardown, and the objects the callback reaches — the
+    Library, the kofin database — may already be gone. Observed before the
+    gate existed: a LibraryChanged dispatched a minute after the service
+    exited was applied against a torn-down Library (2026-08-07 quit wedge)."""
+    events = []
+    client = _liveness_client(events)
+
+    client._stop = True
+    client._handle_message(
+        None, '{"MessageType": "LibraryChanged", "Data": {"ItemsAdded": ["x"]}}'
+    )
+
+    assert events == []
+
+
+def test_a_connect_landing_after_stop_spawns_nothing():
+    """A connect that completes while stop() runs must not restart the
+    machinery — the keepalive it would spawn has no stop() left to run it
+    down, and the thread it starts blocks Kodi's script finalisation."""
+    connected = []
+    client = WSClient(
+        "http://s:8096",
+        "auth",
+        on_event=lambda t, d: None,
+        on_connected=lambda: connected.append(1),
+    )
+
+    client._stop = True
+    client._handle_open(None)
+
+    assert connected == []
+    assert client._keepalive is None
+    assert client._connected is False
+
+
+class _EscalationHarness:
+    """A stop() harness whose thread only dies once the descriptor is severed
+    (or immediately, when ``dies_on_close``): is_alive/join are replaced so
+    no real thread is needed."""
+
+    def __init__(self, dies_on_close: bool):
+        self.trace = []
+        harness = self
+
+        class Sock:
+            def shutdown(self):
+                harness.trace.append("shutdown")
+
+        class App:
+            sock = Sock()
+
+            def close(self):
+                harness.trace.append("close")
+                if not dies_on_close:
+                    raise RuntimeError("close handshake died")
+
+        self.client = _liveness_client()
+        self.client._app = App()
+        self._alive = True
+
+        def is_alive():
+            return self._alive
+
+        def join(timeout=None):
+            if dies_on_close and "close" in self.trace:
+                self._alive = False
+            if "shutdown" in self.trace:
+                self._alive = False
+
+        self.client.is_alive = is_alive  # type: ignore[method-assign]
+        self.client.join = join  # type: ignore[method-assign]
+
+
+def test_stop_severs_the_socket_when_the_graceful_close_fails():
+    """A close handshake that raises leaves the descriptor open, and a thread
+    still in recv() then outlives every deadline and blocks Kodi's script
+    finalisation ("waiting on thread") — the observed quit wedge needed
+    SIGKILL. stop() must escalate to a raw-socket shutdown()."""
+    harness = _EscalationHarness(dies_on_close=False)
+
+    harness.client.stop()
+
+    assert harness.trace == ["close", "shutdown"]
+    assert not harness.client.is_alive()
+
+
+def test_stop_prefers_the_graceful_close():
+    """When the graceful close unblocks the thread, no escalation happens —
+    the close handshake is the polite exit and the server sees a clean
+    disconnect."""
+    harness = _EscalationHarness(dies_on_close=True)
+
+    harness.client.stop()
+
+    assert harness.trace == ["close"]
+    assert not harness.client.is_alive()
+
+
 def test_every_inbound_frame_feeds_liveness_even_when_ignored():
     """The KeepAlive echoes the event filter discards are exactly the frames
     the liveness check lives on; an unparseable frame still proves the pipe."""

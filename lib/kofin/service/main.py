@@ -691,6 +691,16 @@ class Service(xbmc.Monitor):
         self._stopping.set()
         state.set_should_stop(True)
         self._stop_syncplay()
+        # The websocket goes down before the library, not after: every event
+        # it dispatches lands in the Library's queues — or, for UserDataChanged,
+        # opens the kofin database — on the websocket thread, so a message
+        # arriving mid-join raced the very teardown the join was waiting on
+        # (observed: a LibraryChanged applied against a torn-down Library a
+        # minute after the service exited, 2026-08-07). SyncPlay is stopped
+        # above because it is the only other websocket consumer.
+        if self.ws is not None:
+            self.ws.stop()
+            self.ws = None
         library_stuck = False
         if self.library is not None:
             self.library.stop_client()
@@ -699,9 +709,6 @@ class Service(xbmc.Monitor):
         self.player.stop_threads()
         self.artcache.stop()
         self.kodi_userdata.stop()
-        if self.ws is not None:
-            self.ws.stop()
-            self.ws = None
         self._join_workers()
         self.http.close()
         # Last, and only once nothing of ours is still running: clear_all drops
