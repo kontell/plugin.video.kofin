@@ -271,6 +271,12 @@ class SettingsApplier:
         Local work only (``get_nodes`` reads kofin.db and settings; ``Views``
         takes no server for this path), and contained: a node write must
         never take a settings apply down with it.
+
+        "Local work only" was aspirational until ``window_nodes`` learned to
+        check: it asked the server for the media-folder listing regardless,
+        so every toggle of this setting logged two tracebacks on the way
+        through. The listing feeds the library-tile artwork prop, which a
+        serverless pass clears anyway.
         """
         try:
             from kofin.sync.views import Views
