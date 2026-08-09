@@ -1020,3 +1020,134 @@ def test_finish_offers_local_remove_only_without_the_delete_prompt(monkeypatch):
     monkeypatch.setattr(player, "offer_delete", lambda item: False)
     player._finish()
     assert offered == [1]
+
+
+# -- the offline segment cache and offline claims (plan W4.7) -----------------
+
+
+def _seed_local_rows(tmp_path):
+    import sqlite3
+
+    from kofin.downloads import store as downloads_store
+    from kofin.sync import db as sync_db
+
+    sync_db.reset_overrides()
+    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    video_path = tmp_path / "MyVideos.db"
+    connection = sqlite3.connect(str(video_path))
+    connection.execute("CREATE TABLE episode (idEpisode INTEGER PRIMARY KEY, c00 TEXT)")
+    connection.execute(
+        "CREATE TABLE streamdetails (idFile INTEGER, iStreamType INTEGER, iVideoDuration INTEGER)"
+    )
+    connection.execute("INSERT INTO episode VALUES (11, 'Blood Test')")
+    connection.execute("INSERT INTO streamdetails VALUES (7, 0, 1260)")
+    connection.commit()
+    connection.close()
+    sync_db.set_path_override("video", str(video_path))
+
+    with sync_db.Database("kofin") as opened:
+        opened.cursor.execute(
+            "INSERT INTO jellyfin (jellyfin_id, kodi_id, kodi_fileid, kodi_pathid, media_type) "
+            "VALUES ('j1', 11, 7, 1, 'episode')"
+        )
+    downloads_store.queue(
+        downloads_store.Download(
+            jellyfin_id="j1", media_type="episode", series_id="s1", queued_at=100
+        )
+    )
+    downloads_store.claim()
+    downloads_store.finish("j1", "TV/S/Season 01/e.mkv", "mkv", 1)
+    return sync_db
+
+
+def test_offline_claim_builds_from_local_rows(monkeypatch, tmp_path):
+    from kofin.service import player as player_module
+
+    sync_db = _seed_local_rows(tmp_path)
+    try:
+        claim = player_module._offline_claim("j1", "episode", "/dl/e.mkv")
+    finally:
+        pass
+    assert claim is not None
+    assert claim["Type"] == "Episode" and claim["Name"] == "Blood Test"
+    assert claim["SeriesId"] == "s1"
+    assert claim["Runtime"] == 1260 * 10_000_000  # watched_to_end works offline
+    assert claim["Path"] == "/dl/e.mkv"
+
+    # Anything not downloaded stays unclaimed: foreign playback is foreign.
+    assert player_module._offline_claim("stranger", "episode", "/x.mkv") is None
+    sync_db.reset_overrides()
+
+
+def test_backfill_attaches_the_cached_segments_offline(monkeypatch, tmp_path):
+    import json as json_module
+
+    from kofin.downloads import store as downloads_store
+    from kofin.service import player as player_module
+
+    sync_db = _seed_local_rows(tmp_path)
+    downloads_store.set_segments(
+        "j1",
+        json_module.dumps(
+            {"Items": [{"Type": "Intro", "StartTicks": 0, "EndTicks": 30 * 10**7}]}
+        ),
+    )
+
+    class PlayingStub:
+        def getPlayingFile(self):
+            return "/dl/e.mkv"
+
+    monkeypatch.setattr(player_module.xbmc, "Player", PlayingStub)
+    monkeypatch.setattr(player_module, "mapped_jellyfin_id", lambda k, m: "j1")
+    monkeypatch.setattr(player_module, "library_claim", lambda *a: None)  # offline
+
+    api = RecordingApi()
+    assert (
+        player_module.backfill_library_claim(
+            {"item": {"id": 11, "type": "episode"}}, api
+        )
+        is True
+    )
+    claimed = state.claim_play_item("/dl/e.mkv")
+    assert claimed is not None
+    assert claimed["Segments"] == [{"Type": "Introduction", "Start": 0.0, "End": 30.0}]
+    sync_db.reset_overrides()
+
+
+def test_prepare_segment_state_offline_asks_nothing(monkeypatch):
+    player, api = make_player(monkeypatch)
+    FakeWindow.store["kofin.online"] = "false"
+    FakeAddon.store["playNextEnabled"] = "true"
+    player._item = {
+        "Id": "e1",
+        "Type": "Episode",
+        "SeriesId": "s1",
+        "MediaSourceId": "src",
+        "PlaySessionId": "ps",
+    }
+    player._segments_loaded = False
+
+    import threading as threading_module
+
+    player.prepare_segment_state(threading_module.Event())
+
+    assert player._segments == [] and player._segments_loaded is True
+    assert player._next_episode is None
+    assert api.calls == []  # neither segments nor adjacency was fetched
+
+
+def test_progress_reports_stay_home_offline(monkeypatch):
+    player, api = make_player(monkeypatch)
+    FakeWindow.store["kofin.online"] = "false"
+    player._item = {
+        "Id": "e1",
+        "Type": "Episode",
+        "Runtime": 1000 * 10_000_000,
+        "CurrentPosition": 10.0,
+        "MediaSourceId": "src",
+        "PlaySessionId": "ps",
+    }
+    player.report_progress()
+    drain(player)
+    assert api.calls == []  # the position still updated for the segment tick
+    assert player._item["CurrentPosition"] == 42.0  # getTime stub

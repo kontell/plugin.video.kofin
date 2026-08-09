@@ -62,6 +62,11 @@ class Download:
     queued_at: int = 0
     done_at: int = 0
     error: str = ""
+    # The raw /MediaSegments body taken at download completion (W4.7):
+    # parsed at claim time, where the parser lives. Empty means never
+    # fetched (the online claim path falls back to its own fetch); a stored
+    # '{"Items": []}' is known-empty, so nobody asks again.
+    segments_json: str = ""
     # The files.strFilename the writers had built when the repoint captured
     # the row — restore puts it back verbatim (byte-identical, and correct
     # even for transcodes, whose local name shares nothing with the
@@ -278,6 +283,14 @@ def record_details(
                 quality,
                 jellyfin_id,
             ),
+        )
+
+
+def set_segments(jellyfin_id: str, raw_json: str) -> None:
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "UPDATE download SET segments_json = ? WHERE jellyfin_id = ?",
+            (raw_json, jellyfin_id),
         )
 
 

@@ -112,6 +112,7 @@ class FakeManagerApi:
         self.closed_transcodes = []
         self.subtitle_payloads = {}
         self.downloaded_urls = []
+        self.segments = {"Items": []}
 
     def item(self, item_id):
         if isinstance(self._item, Exception):
@@ -133,6 +134,11 @@ class FakeManagerApi:
 
     def close_transcode(self, device_id, play_session_id):
         self.closed_transcodes.append((device_id, play_session_id))
+
+    def media_segments(self, item_id):
+        if isinstance(self.segments, Exception):
+            raise self.segments
+        return self.segments
 
     def subtitle_stream_url(self, item_id, source_id, index, extension):
         return "http://s/subs/%s/%s/%s.%s" % (item_id, source_id, index, extension)
@@ -1044,3 +1050,105 @@ def test_remove_sweeps_exported_metadata_with_the_directory(tmp_path, repoints):
     manager._apply_remove("m1")
 
     assert not directory.exists()  # the escape hatch left with its media
+
+
+# -- the offline segment cache (plan W4.7) ------------------------------------
+
+
+def test_completion_captures_the_raw_segments(tmp_path, repoints):
+    manager, _ = make_manager(repoints)
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+    api.segments = {"Items": [{"Type": "Intro", "StartTicks": 0, "EndTicks": 10}]}
+
+    manager._process(api, queue_row())
+
+    row = store.get("m1")
+    assert row.state == store.DONE
+    assert '"Intro"' in row.segments_json  # the raw body, parsed at claim time
+
+
+def test_a_failed_segment_fetch_never_fails_the_download(tmp_path, repoints):
+    manager, _ = make_manager(repoints)
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+    api.segments = JellyfinError("no segments endpoint")
+
+    manager._process(api, queue_row())
+
+    row = store.get("m1")
+    assert row.state == store.DONE
+    assert row.segments_json == ""  # unknown, not known-empty
+
+
+def test_songs_skip_the_segment_capture(tmp_path, repoints, monkeypatch):
+    monkeypatch.setattr(
+        "kofin.sync.playlists.refresh_downloaded_music", lambda root=None: True
+    )
+    manager, _ = make_manager(repoints)
+    api = FakeManagerApi(
+        SONG_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {
+                    "Content-Length": "8",
+                    "Content-Disposition": 'attachment; filename="01 - Opening Track.flac"',
+                },
+            )
+        ],
+    )
+    api.segments = RuntimeError("must never be asked")
+
+    manager._process(api, queue_row("a1"))
+    assert store.get("a1").state == store.DONE
+
+
+def test_start_backfills_missing_segment_caches(tmp_path, repoints, monkeypatch):
+    seed_done("cached", store.ORIGIN_USER, queued_at=100)
+    store.set_segments("cached", '{"Items": []}')  # known-empty: kept
+    seed_done("wanting", store.ORIGIN_USER, queued_at=101)
+
+    asked = []
+
+    class SegmentsApi:
+        def media_segments(self, item_id):
+            asked.append(item_id)
+            return {"Items": [{"Type": "Intro", "StartTicks": 0, "EndTicks": 10}]}
+
+        def close(self):
+            pass
+
+    manager = DownloadManager(
+        api_factory=SegmentsApi,
+        refresh=lambda: None,
+        stopping=threading.Event(),
+    )
+    manager._backfill_segment_caches()
+
+    assert asked == ["wanting"]  # never the known-empty row
+    assert '"Intro"' in store.get("wanting").segments_json
+
+    from tests.unit.fakes import FakeWindow
+
+    FakeWindow.store["kofin.online"] = "false"
+    asked.clear()
+    manager._backfill_segment_caches()
+    assert asked == []  # offline: nobody to ask

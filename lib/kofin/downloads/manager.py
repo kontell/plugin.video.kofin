@@ -366,6 +366,8 @@ class DownloadManager:
             repoint.repoint(finished, root)
             repoint.stamp_tag(finished)
             repoint.stamp_badge(finished)
+        if media_type in ("movie", "episode"):
+            self._capture_segments(api, item_id)
         if settings.get_bool("downloadsExportMetadata"):
             export.export_item(api, item, absolute)  # best-effort by contract
         if media_type == "song":
@@ -373,6 +375,24 @@ class DownloadManager:
         self._refresh_quietly()
         self._toast(30712, item.get("Name", item_id))
         LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
+
+    def _capture_segments(self, api: Any, item_id: str) -> None:
+        """The offline segment cache (W4.7): the raw /MediaSegments body,
+        taken at completion and parsed at claim time, where the parser
+        lives. A failed fetch leaves the column empty — unknown, which the
+        online claim path covers with its own fallback fetch — while a
+        successful empty answer is stored as known-empty so nobody asks
+        again. Best-effort: segments must never fail a download."""
+        import json
+
+        try:
+            payload = api.media_segments(item_id)
+            store.set_segments(item_id, json.dumps(payload))
+        except Exception as error:
+            # Broad on purpose: this runs after the download already
+            # finished, and any escape here would mislabel a completed
+            # download as an internal error.
+            LOG.debug("segment capture skipped for %s: %s", item_id, error)
 
     def _ensure_music_view(self) -> None:
         """The Downloaded-music smart playlist exists from the first song on
@@ -749,11 +769,36 @@ class DownloadManager:
         first sweep runs right after the reconcile — it covers items watched
         while the service was down."""
         self._reconcile_once()
+        self._backfill_segment_caches()
         self._retention_sweep()
         while not self._stop.wait(timeout=RETENTION_SWEEP_SECONDS):
             if self._should_stop():
                 return
             self._retention_sweep()
+
+    def _backfill_segment_caches(self) -> None:
+        """Downloads without a segment cache get one at the next start
+        (W4.7): pre-cache downloads, and any whose capture failed. Online
+        only, never-fetched rows only — a known-empty answer is kept — so
+        the pass is one bounded fetch per healed row, then permanently
+        quiet."""
+        if state.is_offline():
+            return
+        wanting = [
+            row
+            for row in store.rows(store.DONE)
+            if row.media_type in ("movie", "episode") and not row.segments_json
+        ]
+        if not wanting:
+            return
+        api = self._api_factory()
+        try:
+            for row in wanting:
+                if self._should_stop():
+                    return
+                self._capture_segments(api, row.jellyfin_id)
+        finally:
+            api.close()
 
     def _reconcile_once(self) -> None:
         """Walk the done rows once at start: a missing file restores the
