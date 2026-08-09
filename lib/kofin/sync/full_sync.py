@@ -13,6 +13,7 @@ at service start (kodisetup), not here.
 
 from contextlib import contextmanager
 import datetime
+import time
 
 import xbmc
 
@@ -41,6 +42,12 @@ from kofin.sync.shims import (
 )
 
 LOG = Logger(__name__)
+
+# How long a restore point stays usable. An interrupted pass is retried on the
+# resume backoff (60s doubling to 30 minutes), so anything that has gone
+# unclaimed for hours is not a pass waiting to continue — it is a leftover, and
+# the result set it indexes has had time to move underneath it.
+RESTORE_POINT_TTL = 6 * 3600
 
 # Server-side item types the update-mode prune diffs per library class
 # (phase 5). Boxsets keep their own refresh path; MusicArtist is deliberately
@@ -169,6 +176,8 @@ class FullSync(object):
         self.library = library
         self.server = server
         self._claimed = False
+        # Set by begin_walk, stamped onto every point that walk saves.
+        self._restore_fingerprint = None
 
         if library is not None and not library.claim_full_sync():
             # Deviation from the fork: a refusal, not a failure — the sync
@@ -380,14 +389,121 @@ class FullSync(object):
 
         return view.media_type if view else None
 
-    def get_restore_point(self, key):
-        return self.sync["RestorePoints"].get(key, {}).get("params")
+    def begin_walk(self, key, parent_id, item_type=None, basic=False, params=None):
+        """Fingerprint the walk about to run; return where to resume it.
+
+        One call rather than two so the fingerprint a point is *checked*
+        against and the one it is *stamped* with can never drift apart: both
+        come from the arguments the caller is about to hand ``get_items``.
+        """
+        self._restore_fingerprint = server.restore_fingerprint(
+            self.server, parent_id, item_type, basic, params
+        )
+
+        return self.get_restore_point(key, self._restore_fingerprint)
+
+    def get_restore_point(self, key, fingerprint=None):
+        """The position to resume this walk at, when it still means something.
+
+        A restore point is an index into a result set, and it survives in
+        sync.json until the walk that owns it completes. Nothing else expired
+        it, so one could outlive the pass it belonged to indefinitely: a
+        movies point reading ``StartIndex: 1250`` was found on a live box
+        having crossed an addon upgrade (its stored url was the pre-10.9
+        ``/Users/{id}/Items`` route), left behind because update mode
+        reconciles through ``prune`` and never runs the walk that would have
+        cleared it.
+
+        Resuming into a stale number is silent and one-directional. The walk
+        sorts DateCreated descending, so N items added since the point was
+        written push everything down by N: the resumed pass re-does N items
+        it had already done (idempotent, harmless) and **never visits the N
+        newest** — the items a user is most likely to be waiting for. So an
+        unusable point is dropped rather than trusted; a walk from zero is
+        idempotent and Etag-short-circuits, which makes discarding cheap and
+        resuming wrongly the only expensive option.
+
+        Two ways to be unusable, both checked here:
+
+        * the query changed, so the number indexes a different set
+          (``downloader.restore_fingerprint``) — an upgrade that adds a field
+          is the routine case, and this box hit exactly that;
+        * it is too old to be a resume at all. An interrupted pass retries on
+          the resume backoff, which tops out at 30 minutes, so a point that
+          has not been picked up within ``RESTORE_POINT_TTL`` is not a pass
+          waiting to continue, it is a corpse.
+        """
+        entry = self.sync["RestorePoints"].get(key)
+
+        if not entry:
+            return None
+
+        stored = entry.get("Fingerprint")
+
+        if fingerprint is not None and stored != fingerprint:
+            LOG.info(
+                "--[ restore point/%s ] discarded: the query changed since it "
+                "was written",
+                key,
+            )
+            self.clear_restore_point(key)
+
+            return None
+
+        if self._restore_point_expired(entry):
+            LOG.info(
+                "--[ restore point/%s ] discarded: older than %s seconds",
+                key,
+                RESTORE_POINT_TTL,
+            )
+            self.clear_restore_point(key)
+
+            return None
+
+        return entry.get("params")
+
+    def _restore_point_expired(self, entry):
+        """Whether a stored point is too old to be a resume.
+
+        An unstamped point is expired by definition: it predates this check,
+        so it is exactly the kind that has been sitting there across upgrades.
+        """
+        saved_at = entry.get("SavedAt")
+
+        if not saved_at:
+            return True
+
+        try:
+            age = time.time() - float(saved_at)
+        except (TypeError, ValueError):
+            return True
+
+        return age > RESTORE_POINT_TTL
 
     def set_restore_point(self, key, restore_point):
-        self.sync["RestorePoints"][key] = restore_point
+        stamped = dict(restore_point)
+        stamped["SavedAt"] = time.time()
+        stamped["Fingerprint"] = self._restore_fingerprint
+        self.sync["RestorePoints"][key] = stamped
 
     def clear_restore_point(self, key):
         self.sync["RestorePoints"].pop(key, None)
+
+    def clear_library_restore_points(self, library_id):
+        """Drop every restore point belonging to a library.
+
+        Update mode reconciles through ``prune`` and never runs the walk that
+        owns the point, so without this a library proven fully in sync keeps a
+        position claiming it is part-way through one — which is how the live
+        one survived. Keyed by prefix because a library owns several (the
+        tvshows walk keeps one slot per pass).
+        """
+        prefix = "%s/" % library_id
+        stale = [key for key in self.sync["RestorePoints"] if key.startswith(prefix)]
+
+        for key in stale:
+            LOG.info("--[ restore point/%s ] cleared: library reconciled", key)
+            self.clear_restore_point(key)
 
     def process_library(self, library_id):
         """Add a library by its id. Create a node and a playlist whenever appropriate.
@@ -448,6 +564,12 @@ class FullSync(object):
                 # "update that works"): plan the diff, enqueue the work
                 # through the incremental pipeline — no full walk.
                 self.prune(library, library_id)
+                # The prune reconciled the library, so any position left over
+                # from an interrupted walk is answered — and because update
+                # mode never runs the walk that owns it, this is the only
+                # thing that ever sweeps it.
+                self.clear_library_restore_points(library["Id"])
+
                 return True
 
             if library_id.startswith("Mixed:"):
@@ -524,6 +646,7 @@ class FullSync(object):
         per-page open/close churn is gone.
         """
         restore_key = "%s/movies" % library["Id"]
+        restore_point = self.begin_walk(restore_key, library["Id"], "Movie")
 
         with Database("kofin") as jellyfindb, Database() as videodb:
             for items in server.get_items(
@@ -531,7 +654,7 @@ class FullSync(object):
                 library["Id"],
                 "Movie",
                 False,
-                self.get_restore_point(restore_key),
+                restore_point,
             ):
 
                 with self.library.database_lock:
@@ -615,6 +738,7 @@ class FullSync(object):
 
             def tvshows_pass(item_type, key_suffix, apply, describe):
                 restore_key = "%s/tvshows-%s" % (library["Id"], key_suffix)
+                restore_point = self.begin_walk(restore_key, library["Id"], item_type)
                 skipped = []
 
                 for items in server.get_items(
@@ -622,7 +746,7 @@ class FullSync(object):
                     library["Id"],
                     item_type,
                     False,
-                    self.get_restore_point(restore_key),
+                    restore_point,
                 ):
 
                     with self.library.database_lock:
@@ -692,6 +816,7 @@ class FullSync(object):
     def musicvideos(self, library, dialog):
         """Process musicvideos from a single library."""
         restore_key = "%s/musicvideos" % library["Id"]
+        restore_point = self.begin_walk(restore_key, library["Id"], "MusicVideo")
 
         with Database("kofin") as jellyfindb, Database() as videodb:
             for items in server.get_items(
@@ -699,7 +824,7 @@ class FullSync(object):
                 library["Id"],
                 "MusicVideo",
                 False,
-                self.get_restore_point(restore_key),
+                restore_point,
             ):
 
                 with self.library.database_lock:
@@ -979,7 +1104,10 @@ class FullSync(object):
         (shared members drift the mid-walk stamps; healing-loops-plan F1).
         """
         restore_key = "%s/boxsets" % library["Id"]
-        restore_point = self.get_restore_point(restore_key)
+        boxset_params = {"Fields": "%s,ChildCount" % server.info()}
+        restore_point = self.begin_walk(
+            restore_key, library["Id"], "BoxSet", False, boxset_params
+        )
         resumed = restore_point is not None
         walked = set()
         guarded_ids = set()
@@ -995,7 +1123,7 @@ class FullSync(object):
             library["Id"],
             "BoxSet",
             False,
-            restore_point or {"Fields": "%s,ChildCount" % server.info()},
+            restore_point or boxset_params,
         ):
 
             with self.video_database_locks() as (videodb, jellyfindb):
