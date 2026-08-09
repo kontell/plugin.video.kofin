@@ -17,6 +17,7 @@ kofin's own play path; no ``service.upnext`` anywhere.
 
 import json
 import queue
+import os
 import re
 import threading
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
@@ -44,9 +45,10 @@ JsonDict = Dict[str, Any]
 PROGRESS_INTERVAL_SECONDS = 10.0
 CLAIM_TIMEOUT_SECONDS = 10.0
 # Grace for a claim that arrives from the Player.OnPlay notification instead
-# of the play route (see backfill_library_claim). Only library-originated
-# audio needs it, and only until the notification lands.
-AUDIO_BACKFILL_GRACE_SECONDS = 3.0
+# of the play route (see backfill_library_claim): library-originated audio,
+# and downloaded video playing as the local file its row points at (W1.7).
+# Only until the notification lands.
+BACKFILL_GRACE_SECONDS = 3.0
 
 # ~3 s of ticks: how long a lagging getTime() may keep reporting the pre-seek
 # position after our own skip seek before we give up waiting for it.
@@ -223,11 +225,15 @@ def next_episode_label(episode: JsonDict) -> str:
     return name
 
 
-# Kodi media types whose rows may be written with a direct stream URL rather
-# than a plugin:// path, so playback from the library never reaches the play
-# route. Songs are written either way depending on ``musicTranscode``, which is
-# why the back-fill checks the play queue before claiming (see below).
-BACKFILL_MEDIA_TYPES = ("song",)
+# Kodi media types whose rows may point somewhere playback never reaches the
+# play route from. Songs are written with a direct stream URL depending on
+# ``musicTranscode``; movies and episodes joined with the downloads repoint
+# (W1.7) — a downloaded item's row is a *local file*, so playing it from the
+# library claims nothing, which left downloaded plays invisible as sessions
+# (no dashboard, no progress reporting, no auto-next surface — found by the
+# G13 gate). Both kinds check the play queue before claiming (see below), so
+# a plugin:// play that claims the normal way is never double-claimed.
+BACKFILL_MEDIA_TYPES = ("song", "movie", "episode")
 
 
 # A song played from a saved playlist is a bare ``musicdb://songs/<id><ext>``
@@ -237,6 +243,20 @@ BACKFILL_MEDIA_TYPES = ("song",)
 # ``{"title": "04. Golden Earring - Radar Love", "type": "song"}``. The id is
 # still in the path, which is the only thing that identifies the row.
 _MUSICDB_SONG = re.compile(r"^musicdb://songs/(\d+)")
+
+
+def _downloaded_path(path: str) -> bool:
+    """A local file under the downloads root — a repointed row's target,
+    the one kind of video playback the back-fill claims for."""
+    if not path or "://" in path:
+        return False
+    try:
+        from kofin.downloads import downloads_root
+
+        root = os.path.abspath(downloads_root())
+    except Exception:  # pragma: no cover - settings unavailable
+        return False
+    return os.path.abspath(path).startswith(root + os.sep)
 
 
 def musicdb_song_id(path: str) -> Optional[int]:
@@ -363,9 +383,9 @@ def backfill_library_claim(data: JsonDict, api: Api) -> bool:
     """Queue a claim for library playback that bypassed the play route.
 
     Driven by the ``Player.OnPlay`` notification; True when a claim was
-    pushed. Only the media types in ``BACKFILL_MEDIA_TYPES`` qualify — video
-    always goes through ``plugin://`` and is claimed the normal way, so
-    back-filling it would risk double-claiming a legitimate play.
+    pushed. Only the media types in ``BACKFILL_MEDIA_TYPES`` qualify, and
+    the queue/playing-id guard below is what keeps a ``plugin://`` play —
+    which claims the normal way — from being double-claimed.
 
     The announcement is not required to carry the database id: playback
     started from a saved playlist never has one, and the id has to come out of
@@ -1503,15 +1523,16 @@ class Player(xbmc.Player):
                 claimed = state.claim_play_item(current_file)
                 if claimed is not None:
                     return claimed
-                # Songs written into Kodi's library as direct
-                # ``<server>/Audio/<id>/`` stream URLs never pass through the
-                # play route, so their claim is back-filled from the
-                # Player.OnPlay notification instead, which can land after
-                # this callback. Wait a beat for it rather than calling it
-                # foreign playback.
+                # Two kinds of playback never pass through the play route
+                # and get their claim back-filled from the Player.OnPlay
+                # notification instead, which can land after this callback:
+                # songs written as direct ``<server>/Audio/<id>/`` stream
+                # URLs, and downloaded video whose row is a local file
+                # (W1.7). Wait a beat for the back-fill rather than calling
+                # either foreign playback.
                 if (
-                    self.isPlayingAudio()
-                    and waited < AUDIO_BACKFILL_GRACE_SECONDS
+                    (self.isPlayingAudio() or _downloaded_path(current_file))
+                    and waited < BACKFILL_GRACE_SECONDS
                     and not monitor.waitForAbort(0.25)
                 ):
                     waited += 0.25
