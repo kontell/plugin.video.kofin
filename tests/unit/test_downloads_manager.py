@@ -1244,3 +1244,65 @@ def test_a_bulk_removal_refreshes_once_not_per_row(tmp_path, repoints):
     # One refresh, fired by the last row — the only one that found the ops
     # queue drained — and against the music database, not video.
     assert refreshes == [["music"]]
+
+
+def test_an_album_announces_once_not_once_per_track(tmp_path, repoints, monkeypatch):
+    """Twelve tracks landing in a burst were twelve notifications naming
+    songs nobody chose individually. The album is what was asked for, so
+    the worker that finishes the last of it is the one that says so."""
+    manager, _ = make_manager(repoints)
+    shown = []
+    monkeypatch.setattr(
+        manager_module.toast, "show", lambda *a, **k: shown.append(a[0])
+    )
+    monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d %%s" % i)
+
+    for index in range(3):
+        store.queue(store.Download(jellyfin_id="t%d" % index, media_type="song"))
+        store.record_details("t%d" % index, "song", "album1", 0, "")
+
+    track = {"Id": "t0", "Name": "Come Together", "Album": "Abbey Road"}
+    manager._announce_complete("song", "album1", track)
+    assert shown == []  # two still queued
+
+    store.claim(("song",))
+    store.finish("t0", "a/0.opus", "opus", 1)
+    store.claim(("song",))
+    store.finish("t1", "a/1.opus", "opus", 1)
+    manager._announce_complete("song", "album1", track)
+    assert shown == []  # one still queued
+
+    store.claim(("song",))
+    store.finish("t2", "a/2.opus", "opus", 1)
+    manager._announce_complete("song", "album1", track)
+    assert shown == ["L30712 Abbey Road"]  # the album, not the track
+
+    # A second worker arriving at the same conclusion says nothing.
+    manager._announce_complete("song", "album1", track)
+    assert shown == ["L30712 Abbey Road"]
+
+    # ... until something new is queued, which re-arms it.
+    manager._apply_add("t9", store.ORIGIN_USER, "song")
+    store.record_details("t9", "song", "album1", 0, "")
+    store.claim(("song",))
+    store.finish("t9", "a/9.opus", "opus", 1)
+    manager._announce_complete("song", "album1", track)
+    assert shown == ["L30712 Abbey Road", "L30712 Abbey Road"]
+
+
+def test_video_keeps_its_per_item_completion_toast(tmp_path, repoints, monkeypatch):
+    """A film or an episode is itself the thing somebody chose, and they
+    finish minutes apart — nothing to coalesce."""
+    manager, _ = make_manager(repoints)
+    shown = []
+    monkeypatch.setattr(
+        manager_module.toast, "show", lambda *a, **k: shown.append(a[0])
+    )
+    monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d %%s" % i)
+
+    manager._announce_complete("episode", "show1", {"Id": "e1", "Name": "Blood Test"})
+    manager._announce_complete("movie", "", {"Id": "m1", "Name": "The Movie"})
+    # A stray track with no album is its own unit too.
+    manager._announce_complete("song", "", {"Id": "s1", "Name": "Ringtone"})
+
+    assert shown == ["L30712 Blood Test", "L30712 The Movie", "L30712 Ringtone"]

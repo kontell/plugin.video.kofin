@@ -132,6 +132,10 @@ class DownloadManager:
         # The Downloaded-music view is written once per generation, not once
         # per track (see _ensure_music_view).
         self._music_view_written = False
+        # Albums whose completion has already been announced, so a burst of
+        # tracks is one notification (see _announce_complete).
+        self._announced: Set[str] = set()
+        self._announce_lock = threading.Lock()
         # One *video* transcode pull at a time (plan W3.1): the encoder runs
         # flat-out with throttling force-disabled (V2), so two parallel pulls
         # would saturate the server unbidden. Originals keep the full pool.
@@ -310,6 +314,11 @@ class DownloadManager:
             )
         ):
             self._attempts.pop(item_id, None)
+            # New work re-arms every album announcement: downloading an
+            # album, removing it and downloading it again should say so
+            # both times (_announce_complete).
+            with self._announce_lock:
+                self._announced.clear()
             LOG.info("download queued: %s", item_id)
 
     def _apply_cancel(self, item_id: str) -> None:
@@ -462,7 +471,7 @@ class DownloadManager:
         # twelve times over. The flusher does it once the pool goes quiet,
         # for the databases that actually moved.
         self._mark_dirty(media_type)
-        self._toast(30712, item.get("Name", item_id))
+        self._announce_complete(media_type, group_id, item)
         LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
 
     def _capture_segments(self, api: Any, item_id: str) -> None:
@@ -1031,6 +1040,33 @@ class DownloadManager:
             self._refresh(databases or ["video"])
         except Exception:  # pragma: no cover - refresh is best-effort
             LOG.exception("downloads refresh failed")
+
+    def _announce_complete(
+        self, media_type: str, group_id: str, item: JsonDict
+    ) -> None:
+        """One "Download complete" per album, not one per track.
+
+        A track is seconds of work and an album lands as a burst, so the
+        per-item toast stacked a dozen notifications naming songs nobody
+        had asked for individually — the album is the thing they asked for.
+        Video keeps its per-item toast: a film or an episode *is* the unit
+        somebody chose, and they finish minutes apart.
+
+        The album is announced by whichever worker finishes the last of it,
+        claimed under the lock so two tracks landing together cannot both
+        be last. ``_apply_add`` re-arms every album when anything new is
+        queued, so downloading the same one again announces again.
+        """
+        if media_type != "song" or not group_id:
+            self._toast(30712, item.get("Name") or item.get("Id", ""))
+            return
+        with self._announce_lock:
+            if group_id in self._announced:
+                return
+            if store.container_counts(group_id)["pending"]:
+                return  # more of this album is still coming
+            self._announced.add(group_id)
+        self._toast(30712, item.get("Album") or item.get("Name") or group_id)
 
     def _toast(self, string_id: int, name: Any) -> None:
         if not notify_allowed(string_id):
