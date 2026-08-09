@@ -17,6 +17,8 @@ kofin's own play path; no ``service.upnext`` anywhere.
 
 import json
 import queue
+import json
+import os
 import re
 import threading
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
@@ -26,8 +28,9 @@ import xbmc
 import xbmcgui
 
 from kofin.core import lyrics as lyrics_render
-from kofin.core import settings, state, streams, toast
+from kofin.core import ipc, settings, state, streams, toast
 from kofin.core.api import Api
+from kofin.downloads import auto as downloads_auto
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.service import chapters
@@ -43,9 +46,10 @@ JsonDict = Dict[str, Any]
 PROGRESS_INTERVAL_SECONDS = 10.0
 CLAIM_TIMEOUT_SECONDS = 10.0
 # Grace for a claim that arrives from the Player.OnPlay notification instead
-# of the play route (see backfill_library_claim). Only library-originated
-# audio needs it, and only until the notification lands.
-AUDIO_BACKFILL_GRACE_SECONDS = 3.0
+# of the play route (see backfill_library_claim): library-originated audio,
+# and downloaded video playing as the local file its row points at (W1.7).
+# Only until the notification lands.
+BACKFILL_GRACE_SECONDS = 3.0
 
 # ~3 s of ticks: how long a lagging getTime() may keep reporting the pre-seek
 # position after our own skip seek before we give up waiting for it.
@@ -222,11 +226,15 @@ def next_episode_label(episode: JsonDict) -> str:
     return name
 
 
-# Kodi media types whose rows may be written with a direct stream URL rather
-# than a plugin:// path, so playback from the library never reaches the play
-# route. Songs are written either way depending on ``musicTranscode``, which is
-# why the back-fill checks the play queue before claiming (see below).
-BACKFILL_MEDIA_TYPES = ("song",)
+# Kodi media types whose rows may point somewhere playback never reaches the
+# play route from. Songs are written with a direct stream URL depending on
+# ``musicTranscode``; movies and episodes joined with the downloads repoint
+# (W1.7) — a downloaded item's row is a *local file*, so playing it from the
+# library claims nothing, which left downloaded plays invisible as sessions
+# (no dashboard, no progress reporting, no auto-next surface — found by the
+# G13 gate). Both kinds check the play queue before claiming (see below), so
+# a plugin:// play that claims the normal way is never double-claimed.
+BACKFILL_MEDIA_TYPES = ("song", "movie", "episode")
 
 
 # A song played from a saved playlist is a bare ``musicdb://songs/<id><ext>``
@@ -236,6 +244,20 @@ BACKFILL_MEDIA_TYPES = ("song",)
 # ``{"title": "04. Golden Earring - Radar Love", "type": "song"}``. The id is
 # still in the path, which is the only thing that identifies the row.
 _MUSICDB_SONG = re.compile(r"^musicdb://songs/(\d+)")
+
+
+def _downloaded_path(path: str) -> bool:
+    """A local file under the downloads root — a repointed row's target,
+    the one kind of video playback the back-fill claims for."""
+    if not path or "://" in path:
+        return False
+    try:
+        from kofin.downloads import downloads_root
+
+        root = os.path.abspath(downloads_root())
+    except Exception:  # pragma: no cover - settings unavailable
+        return False
+    return os.path.abspath(path).startswith(root + os.sep)
 
 
 def musicdb_song_id(path: str) -> Optional[int]:
@@ -358,13 +380,96 @@ def library_claim(jellyfin_id: str, path: str, api: Api) -> Optional[JsonDict]:
     }
 
 
+def _offline_claim(jellyfin_id: str, media: str, path: str) -> Optional[JsonDict]:
+    """A claim built from local state alone (W4.7): the server is away, but
+    a *downloaded* item's playback still deserves what the claim carries —
+    the segment engine reading the download-time cache, position tracking,
+    the watched-to-end offers. Reporting is separately gated offline, so
+    the claim costs no doomed posts. None for anything not downloaded:
+    genuinely foreign playback must stay unclaimed."""
+    from kofin.downloads import store as downloads_store
+
+    row = downloads_store.get(jellyfin_id)
+    if row is None or row.state != downloads_store.DONE:
+        return None
+    kind = {"movie": "Movie", "episode": "Episode", "song": "Audio"}.get(media, "")
+    name, runtime_ticks = _local_item_facts(jellyfin_id, media)
+    return {
+        "Id": jellyfin_id,
+        "Type": kind,
+        "Name": name,
+        "SeriesId": row.series_id,
+        "Path": path,
+        "PlayMethod": "DirectPlay",
+        "PlaySessionId": uuid4().hex,
+        "MediaSourceId": jellyfin_id,
+        "DeviceId": settings.get_str("deviceId"),
+        "Runtime": runtime_ticks,
+        "AudioStreamIndex": None,
+        "SubtitleStreamIndex": None,
+        "CurrentPosition": 0.0,
+    }
+
+
+def _local_item_facts(jellyfin_id: str, media: str) -> "Tuple[str, int]":
+    """(name, runtime ticks) from Kodi's own rows via the mapping — the
+    dialogs name the item and ``watched_to_end`` needs a runtime, and both
+    must work with the server unreachable."""
+    from kofin.downloads import repoint as downloads_repoint
+    from kofin.sync.db import Database
+
+    table = {"movie": "movie", "episode": "episode"}.get(media)
+    if table is None:
+        return "", 0
+    id_column = "idMovie" if table == "movie" else "idEpisode"
+    try:
+        with Database("kofin") as kofin_db, Database("video") as video:
+            mapping = downloads_repoint.mapping_for_on(kofin_db.cursor, jellyfin_id)
+            if mapping is None:
+                return "", 0
+            video.cursor.execute(
+                "SELECT c00 FROM %s WHERE %s = ?" % (table, id_column),
+                (mapping.kodi_id,),
+            )
+            row = video.cursor.fetchone()
+            name = str(row[0]) if row is not None and row[0] else ""
+            video.cursor.execute(
+                "SELECT iVideoDuration FROM streamdetails "
+                "WHERE idFile = ? AND iStreamType = 0",
+                (mapping.kodi_fileid,),
+            )
+            duration = video.cursor.fetchone()
+            seconds = int(duration[0]) if duration is not None and duration[0] else 0
+        return name, seconds * 10_000_000
+    except Exception:  # pragma: no cover - a torn database must not stop play
+        LOG.exception("local item facts unavailable for %s", jellyfin_id)
+        return "", 0
+
+
+def _attach_cached_segments(claim: JsonDict) -> None:
+    """The download-time segment cache onto a claim (W4.7): the engine is
+    armed before the first frame with no server fetch — offline's only
+    source, and online it saves the checker's fallback round trip."""
+    if claim.get("Type") not in ("Movie", "Episode"):
+        return
+    from kofin.downloads import store as downloads_store
+
+    row = downloads_store.get(str(claim.get("Id") or ""))
+    if row is None or row.state != downloads_store.DONE or not row.segments_json:
+        return
+    try:
+        claim["Segments"] = parse_segments(json.loads(row.segments_json))
+    except (ValueError, TypeError):
+        LOG.debug("cached segments unreadable for %s", claim.get("Id"))
+
+
 def backfill_library_claim(data: JsonDict, api: Api) -> bool:
     """Queue a claim for library playback that bypassed the play route.
 
     Driven by the ``Player.OnPlay`` notification; True when a claim was
-    pushed. Only the media types in ``BACKFILL_MEDIA_TYPES`` qualify — video
-    always goes through ``plugin://`` and is claimed the normal way, so
-    back-filling it would risk double-claiming a legitimate play.
+    pushed. Only the media types in ``BACKFILL_MEDIA_TYPES`` qualify, and
+    the queue/playing-id guard below is what keeps a ``plugin://`` play —
+    which claims the normal way — from being double-claimed.
 
     The announcement is not required to carry the database id: playback
     started from a saved playlist never has one, and the id has to come out of
@@ -409,11 +514,22 @@ def backfill_library_claim(data: JsonDict, api: Api) -> bool:
     if state.play_item_queued(path) or state.get_playing_id() == jellyfin_id:
         return False
 
-    claim = library_claim(jellyfin_id, path, api)
+    if state.is_offline():
+        # Straight to the local claim: the server fetch below would ride
+        # the transport ladder for ~30 s against a stated outage, landing
+        # the claim long after the player's own claim window closed — the
+        # engine never armed, measured live (W4.7).
+        claim = _offline_claim(jellyfin_id, media, path)
+    else:
+        claim = library_claim(jellyfin_id, path, api)
+        if claim is None:
+            # The fetch failed some other way: a *downloaded* item still
+            # claims from local state (W4.7).
+            claim = _offline_claim(jellyfin_id, media, path)
     if claim is None:
         return False
-
     LOG.info("--> library claim %s (%s)", claim["Id"], media)
+    _attach_cached_segments(claim)
     state.push_play_item(claim)
     return True
 
@@ -491,6 +607,9 @@ class Player(xbmc.Player):
         self._fresh_start = False
         self._fresh_start_ticks = 0
         self._next_episode: Optional[JsonDict] = None
+        # W4.1's one-shot: the item id whose 80% crossing already fired,
+        # latched before the lookup so a failed resolve never retries.
+        self._auto_next_latch = ""
         self._runtime = 0.0
         self._near_end_at: Optional[float] = None
         self._near_end_prompted = False
@@ -696,6 +815,27 @@ class Player(xbmc.Player):
         except RuntimeError:  # nothing playing (race with stop)
             return
         self._report(self.api.session_progress, event="timeupdate")
+        self._maybe_auto_next()
+
+    def _maybe_auto_next(self) -> None:
+        """W4.1: the 80% crossing of a downloaded episode queues the next
+        keep-ahead. Runs on the ticker thread — the lookup is one bounded
+        listing, and the ticker's next beat is ten seconds out anyway."""
+        item = self._item
+        if item is None or item.get("Type") != "Episode":
+            return
+        item_id = str(item.get("Id") or "")
+        if not item_id or self._auto_next_latch == item_id:
+            return
+        runtime = float(item.get("Runtime") or 0) / 10_000_000
+        position = float(item.get("CurrentPosition") or 0)
+        if runtime <= 0 or position < runtime * downloads_auto.NEXT_TRIGGER_RATIO:
+            return
+        self._auto_next_latch = item_id
+        try:
+            downloads_auto.trigger_next(self.api, item)
+        except Exception:  # pragma: no cover - never break the ticker
+            LOG.exception("auto-next trigger failed for %s", item_id)
 
     def _finish(self) -> None:
         """A playback the viewer ended: report the stop, then make any
@@ -709,7 +849,11 @@ class Player(xbmc.Player):
         item = self.current_item()
         self.finalize()
         if item is not None:
-            self.offer_delete(item)
+            if not self.offer_delete(item):
+                # Never two stacked dialogs about one just-finished item:
+                # the local-remove offer stands down when the server-delete
+                # prompt ran (W4.5).
+                self.offer_remove_download(item)
 
     def finalize(self) -> None:
         """Report the stop and release all playback state."""
@@ -717,6 +861,7 @@ class Player(xbmc.Player):
         self._stop_ticker()
         self._stop_chapter_thumbs()
         self._reset_lyrics()
+        self._auto_next_latch = ""
         with self._lock:
             item = self._item
             self._item = None
@@ -825,6 +970,50 @@ class Player(xbmc.Player):
             daemon=True,
         ).start()
         return True
+
+    def offer_remove_download(self, item: JsonDict) -> bool:
+        """W4.5: the local sibling of ``offer_delete`` — a *user-origin*
+        download watched to the end is offered for removal (Ask) or removed
+        outright (Always). Auto-origin items belong to the retention sweep,
+        which would otherwise race this prompt for the same file."""
+        mode = settings.get_str("downloadsDeleteAfterPlay")
+        if mode not in ("ask", "always"):
+            return False
+        if not settings.get_bool("downloadsEnabled"):
+            return False
+        item_id = str(item.get("Id") or "")
+        if not item_id or not watched_to_end(item):
+            return False
+        from kofin.downloads import store as downloads_store
+
+        row = downloads_store.get(item_id)
+        if (
+            row is None
+            or row.state != downloads_store.DONE
+            or downloads_store.is_auto_origin(row.origin)
+        ):
+            return False
+        if mode == "always":
+            LOG.info("removing watched download %s (always mode)", item_id)
+            ipc.notify(ipc.DOWNLOAD_REMOVE, {"Id": item_id})
+            return True
+        # The same thread shape as the delete prompt: a dialog waits on a
+        # person, and Kodi's callback thread must never wait with it.
+        threading.Thread(
+            target=self._remove_download_prompt,
+            args=(item_id, str(item.get("Name") or "")),
+            name="kofin-remove-download-prompt",
+            daemon=True,
+        ).start()
+        return True
+
+    def _remove_download_prompt(self, item_id: str, name: str) -> None:
+        if not xbmcgui.Dialog().yesno(
+            settings.localized(30710),  # Remove download
+            settings.localized(30714) % name,
+        ):
+            return
+        ipc.notify(ipc.DOWNLOAD_REMOVE, {"Id": item_id})
 
     def _delete_prompt(self, item: JsonDict) -> None:
         name = item.get("Name") or ""
@@ -979,6 +1168,13 @@ class Player(xbmc.Player):
         if item is None:
             return
         if not self._segments_loaded:
+            if state.is_offline():
+                # No one to ask, and the transport ladder would park this
+                # thread for nothing. A downloaded play carries its cache in
+                # the claim, so arriving here offline means there is none.
+                self._segments = []
+                self._segments_loaded = True
+                return
             segments: List[JsonDict] = []
             for attempt in (1, 2):  # short bounded retry (plan §7)
                 if halt.is_set():
@@ -1006,6 +1202,7 @@ class Player(xbmc.Player):
             item.get("Type") == "Episode"
             and item.get("SeriesId")
             and settings.get_bool("playNextEnabled")
+            and not state.is_offline()  # adjacency is a server lookup
         ):
             nxt = self._resolve_next_episode(item)
             if halt.is_set() or self._item is not item:
@@ -1429,15 +1626,16 @@ class Player(xbmc.Player):
                 claimed = state.claim_play_item(current_file)
                 if claimed is not None:
                     return claimed
-                # Songs written into Kodi's library as direct
-                # ``<server>/Audio/<id>/`` stream URLs never pass through the
-                # play route, so their claim is back-filled from the
-                # Player.OnPlay notification instead, which can land after
-                # this callback. Wait a beat for it rather than calling it
-                # foreign playback.
+                # Two kinds of playback never pass through the play route
+                # and get their claim back-filled from the Player.OnPlay
+                # notification instead, which can land after this callback:
+                # songs written as direct ``<server>/Audio/<id>/`` stream
+                # URLs, and downloaded video whose row is a local file
+                # (W1.7). Wait a beat for the back-fill rather than calling
+                # either foreign playback.
                 if (
-                    self.isPlayingAudio()
-                    and waited < AUDIO_BACKFILL_GRACE_SECONDS
+                    (self.isPlayingAudio() or _downloaded_path(current_file))
+                    and waited < BACKFILL_GRACE_SECONDS
                     and not monitor.waitForAbort(0.25)
                 ):
                     waited += 0.25
@@ -1462,6 +1660,12 @@ class Player(xbmc.Player):
     def _report(self, poster: Any, event: Optional[str]) -> None:
         item = self._item
         if item is None:
+            return
+        if state.is_offline():
+            # Offline claims exist for the local machinery (W4.7); a session
+            # post every ten seconds would ride the ladder to nowhere for a
+            # session the server cannot see. The stop report is not gated —
+            # its failure path parks the position for the replay (W2.4).
             return
         volume, muted = _volume_state()
         data: JsonDict = {

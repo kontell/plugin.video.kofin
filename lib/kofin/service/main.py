@@ -779,7 +779,17 @@ class Service(xbmc.Monitor):
                 return
             if name == ipc.DOWNLOAD_ADD:
                 ids = payload.get("Ids") or []
-                self.downloads.submit([str(one) for one in ids if one])
+                # The optional Origin marks automatic downloads for W4.2's
+                # retention sweep; anything unrecognized is a user download —
+                # the label that is never auto-deleted.
+                from kofin.downloads import store as downloads_store
+
+                origin = str(payload.get("Origin") or downloads_store.ORIGIN_USER)
+                if origin != downloads_store.ORIGIN_USER and not (
+                    downloads_store.is_auto_origin(origin)
+                ):
+                    origin = downloads_store.ORIGIN_USER
+                self.downloads.submit([str(one) for one in ids if one], origin=origin)
             elif name == ipc.DOWNLOAD_CANCEL:
                 self.downloads.cancel(str(payload.get("Id") or ""))
             elif name == ipc.DOWNLOAD_REMOVE:

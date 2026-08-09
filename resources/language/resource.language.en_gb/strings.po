@@ -1729,3 +1729,119 @@ msgstr ""
 msgctxt "#30737"
 msgid "Kofin downloads"
 msgstr ""
+
+msgctxt "#30738"
+msgid "Download the next episodes automatically"
+msgstr ""
+
+msgctxt "#30739"
+msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 80% mark."
+msgstr ""
+
+msgctxt "#30740"
+msgid "Episodes to keep ahead"
+msgstr ""
+
+msgctxt "#30741"
+msgid "How many unwatched episodes ahead of the one playing are kept downloaded."
+msgstr ""
+
+msgctxt "#30742"
+msgid "Download newly added movies"
+msgstr ""
+
+msgctxt "#30743"
+msgid "Movies newly added to a synced library are downloaded automatically. A bulk import of more than a few movies at once is skipped, with a notification."
+msgstr ""
+
+msgctxt "#30744"
+msgid "Remove watched automatic downloads"
+msgstr ""
+
+msgctxt "#30745"
+msgid "Automatically downloaded items are removed once you have watched them. Downloads you queued yourself are never removed automatically."
+msgstr ""
+
+msgctxt "#30746"
+msgid "After watching a download"
+msgstr ""
+
+msgctxt "#30747"
+msgid "What happens to a download you queued yourself when you finish watching it."
+msgstr ""
+
+msgctxt "#30748"
+msgid "Keep it"
+msgstr ""
+
+msgctxt "#30749"
+msgid "Ask to remove it"
+msgstr ""
+
+msgctxt "#30750"
+msgid "Remove it without asking"
+msgstr ""
+
+msgctxt "#30751"
+msgid "%s new movies were not downloaded automatically"
+msgstr ""
+
+msgctxt "#30752"
+msgid "Export NFO files and artwork"
+msgstr ""
+
+msgctxt "#30753"
+msgid "Write NFO metadata and artwork beside downloaded files, so other apps can scan the download folder as a library."
+msgstr ""
+
+msgctxt "#30754"
+msgid "Download all new episodes"
+msgstr ""
+
+msgctxt "#30755"
+msgid "Every episode newly added to a synced library is downloaded automatically. A bulk import of many episodes at once is skipped, with a notification."
+msgstr ""
+
+msgctxt "#30756"
+msgid "Download new albums"
+msgstr ""
+
+msgctxt "#30757"
+msgid "Albums newly added to a synced library are downloaded automatically. A bulk import of many albums at once is skipped, with a notification."
+msgstr ""
+
+msgctxt "#30758"
+msgid "Shows downloading new episodes"
+msgstr ""
+
+msgctxt "#30759"
+msgid "Review the shows set to download their new episodes automatically, and untick any to stop."
+msgstr ""
+
+msgctxt "#30760"
+msgid "Download new episodes"
+msgstr ""
+
+msgctxt "#30761"
+msgid "Stop downloading new episodes"
+msgstr ""
+
+msgctxt "#30762"
+msgid "New episodes of %s will download automatically"
+msgstr ""
+
+msgctxt "#30763"
+msgid "New episodes of %s will no longer download automatically"
+msgstr ""
+
+msgctxt "#30764"
+msgid "%s new episodes were not downloaded automatically"
+msgstr ""
+
+msgctxt "#30765"
+msgid "%s new albums were not downloaded automatically"
+msgstr ""
+
+msgctxt "#30766"
+msgid "No shows are set to download new episodes"
+msgstr ""

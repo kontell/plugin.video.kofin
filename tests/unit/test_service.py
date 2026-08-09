@@ -978,6 +978,7 @@ class FakeDownloadManager:
         self.started = 0
         self.stopped = 0
         self.submitted = []
+        self.origins = []
         self.cancelled = []
         self.removed = []
 
@@ -989,6 +990,7 @@ class FakeDownloadManager:
 
     def submit(self, ids, origin="user"):
         self.submitted.append(list(ids))
+        self.origins.append(origin)
 
     def cancel(self, item_id):
         self.cancelled.append(item_id)
@@ -1035,13 +1037,26 @@ def test_download_ipc_routes_to_the_manager_and_forgeries_do_not(monkeypatch, tm
         ipc.SENDER, "Other.DownloadRemove", _signed(service, {"Id": "d"})
     )
     assert manager.submitted == [["a", "b"]]
+    assert manager.origins == ["user"]  # absent Origin is a user download
     assert manager.cancelled == ["c"] and manager.removed == ["d"]
+
+    service.onNotification(
+        ipc.SENDER,
+        "Other.DownloadAdd",
+        _signed(service, {"Ids": ["e"], "Origin": "auto:s1"}),
+    )
+    service.onNotification(
+        ipc.SENDER,
+        "Other.DownloadAdd",
+        _signed(service, {"Ids": ["f"], "Origin": "junk"}),
+    )
+    assert manager.origins[-2:] == ["auto:s1", "user"]  # junk coerces to user
 
     import json
 
     forged = json.dumps([{"Ids": ["evil"]}])  # kofin's name, no secret
     service.onNotification(ipc.SENDER, "Other.DownloadAdd", forged)
-    assert manager.submitted == [["a", "b"]]
+    assert manager.submitted == [["a", "b"], ["e"], ["f"]]
 
 
 def test_shutdown_stops_the_download_manager(monkeypatch, tmp_path):

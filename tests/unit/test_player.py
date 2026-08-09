@@ -864,3 +864,290 @@ def test_an_account_that_cannot_delete_is_never_asked(monkeypatch):
 
     assert offered is False
     assert prompted == []
+
+
+# -- auto-next (plan W4.1) and the remove-after-watching offer (W4.5) ---------
+
+
+def test_auto_next_fires_once_at_eighty_percent(monkeypatch):
+    player, _api = make_player(monkeypatch)
+    from kofin.service import player as player_module
+
+    fired = []
+    monkeypatch.setattr(
+        player_module.downloads_auto, "trigger_next", lambda api, item: fired.append(1)
+    )
+    player._item = {
+        "Id": "e1",
+        "Type": "Episode",
+        "SeriesId": "s1",
+        "Runtime": 1000 * 10_000_000,
+        "CurrentPosition": 750.0,
+        "MediaSourceId": "src",
+        "PlaySessionId": "ps",
+    }
+    player._maybe_auto_next()
+    assert fired == []  # 75%: not yet
+
+    player._item["CurrentPosition"] = 810.0
+    player._maybe_auto_next()
+    player._maybe_auto_next()
+    assert fired == [1]  # once, latched
+
+    player.finalize()
+    assert player._auto_next_latch == ""  # a new playback may fire again
+
+
+def test_auto_next_ignores_non_episodes(monkeypatch):
+    player, _api = make_player(monkeypatch)
+    from kofin.service import player as player_module
+
+    fired = []
+    monkeypatch.setattr(
+        player_module.downloads_auto, "trigger_next", lambda api, item: fired.append(1)
+    )
+    player._item = {
+        "Id": "m1",
+        "Type": "Movie",
+        "Runtime": 1000 * 10_000_000,
+        "CurrentPosition": 990.0,
+    }
+    player._maybe_auto_next()
+    assert fired == []
+
+
+class ImmediateThread:
+    """Runs the offer's dialog thread inline so the test sees its effects."""
+
+    def __init__(self, target=None, args=(), **kwargs):
+        self._target = target
+        self._args = args
+
+    def start(self):
+        self._target(*self._args)
+
+
+def _watched_download_item():
+    return {
+        "Id": "d1",
+        "Type": "Episode",
+        "Name": "The One",
+        "Runtime": 100 * 10_000_000,
+        "CurrentPosition": 97.0,
+        "MediaSourceId": "src",
+        "PlaySessionId": "ps",
+    }
+
+
+def test_remove_offer_modes(monkeypatch):
+    from kofin.downloads import store as downloads_store
+    from kofin.service import player as player_module
+
+    player, _api = make_player(monkeypatch)
+    notified = []
+    monkeypatch.setattr(
+        player_module.ipc, "notify", lambda m, d=None: notified.append((m, d))
+    )
+    row = downloads_store.Download(
+        jellyfin_id="d1", state=downloads_store.DONE, origin="user"
+    )
+    monkeypatch.setattr("kofin.downloads.store.get", lambda item_id: row)
+    monkeypatch.setattr(player_module.settings, "localized", lambda i: "L%d %%s" % i)
+    FakeAddon.store["downloadsEnabled"] = "true"
+    item = _watched_download_item()
+
+    assert player.offer_remove_download(item) is False  # mode off by default
+
+    FakeAddon.store["downloadsDeleteAfterPlay"] = "always"
+    assert player.offer_remove_download(item) is True
+    assert notified == [(player_module.ipc.DOWNLOAD_REMOVE, {"Id": "d1"})]
+
+    notified.clear()
+    FakeAddon.store["downloadsDeleteAfterPlay"] = "ask"
+    monkeypatch.setattr(player_module.threading, "Thread", ImmediateThread)
+
+    class YesDialog:
+        def yesno(self, heading, message, **kwargs):
+            return True
+
+    monkeypatch.setattr(player_module.xbmcgui, "Dialog", YesDialog)
+    assert player.offer_remove_download(item) is True
+    assert notified == [(player_module.ipc.DOWNLOAD_REMOVE, {"Id": "d1"})]
+
+    class NoDialog:
+        def yesno(self, heading, message, **kwargs):
+            return False
+
+    notified.clear()
+    monkeypatch.setattr(player_module.xbmcgui, "Dialog", NoDialog)
+    assert player.offer_remove_download(item) is True  # raised, declined
+    assert notified == []
+
+
+def test_remove_offer_leaves_auto_origin_to_the_sweep(monkeypatch):
+    from kofin.downloads import store as downloads_store
+    from kofin.service import player as player_module
+
+    player, _api = make_player(monkeypatch)
+    notified = []
+    monkeypatch.setattr(
+        player_module.ipc, "notify", lambda m, d=None: notified.append((m, d))
+    )
+    FakeAddon.store["downloadsEnabled"] = "true"
+    FakeAddon.store["downloadsDeleteAfterPlay"] = "always"
+    row = downloads_store.Download(
+        jellyfin_id="d1", state=downloads_store.DONE, origin="auto:s1"
+    )
+    monkeypatch.setattr("kofin.downloads.store.get", lambda item_id: row)
+
+    assert player.offer_remove_download(_watched_download_item()) is False
+    assert notified == []
+
+    monkeypatch.setattr("kofin.downloads.store.get", lambda item_id: None)
+    assert player.offer_remove_download(_watched_download_item()) is False
+
+
+def test_finish_offers_local_remove_only_without_the_delete_prompt(monkeypatch):
+    player, _api = make_player(monkeypatch)
+    offered = []
+    monkeypatch.setattr(player, "offer_delete", lambda item: True)
+    monkeypatch.setattr(player, "offer_remove_download", lambda item: offered.append(1))
+    player._item = _watched_download_item()
+    player._finish()
+    assert offered == []  # the server prompt ran; never two dialogs
+
+    player._item = _watched_download_item()
+    monkeypatch.setattr(player, "offer_delete", lambda item: False)
+    player._finish()
+    assert offered == [1]
+
+
+# -- the offline segment cache and offline claims (plan W4.7) -----------------
+
+
+def _seed_local_rows(tmp_path):
+    import sqlite3
+
+    from kofin.downloads import store as downloads_store
+    from kofin.sync import db as sync_db
+
+    sync_db.reset_overrides()
+    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    video_path = tmp_path / "MyVideos.db"
+    connection = sqlite3.connect(str(video_path))
+    connection.execute("CREATE TABLE episode (idEpisode INTEGER PRIMARY KEY, c00 TEXT)")
+    connection.execute(
+        "CREATE TABLE streamdetails (idFile INTEGER, iStreamType INTEGER, iVideoDuration INTEGER)"
+    )
+    connection.execute("INSERT INTO episode VALUES (11, 'Blood Test')")
+    connection.execute("INSERT INTO streamdetails VALUES (7, 0, 1260)")
+    connection.commit()
+    connection.close()
+    sync_db.set_path_override("video", str(video_path))
+
+    with sync_db.Database("kofin") as opened:
+        opened.cursor.execute(
+            "INSERT INTO jellyfin (jellyfin_id, kodi_id, kodi_fileid, kodi_pathid, media_type) "
+            "VALUES ('j1', 11, 7, 1, 'episode')"
+        )
+    downloads_store.queue(
+        downloads_store.Download(
+            jellyfin_id="j1", media_type="episode", series_id="s1", queued_at=100
+        )
+    )
+    downloads_store.claim()
+    downloads_store.finish("j1", "TV/S/Season 01/e.mkv", "mkv", 1)
+    return sync_db
+
+
+def test_offline_claim_builds_from_local_rows(monkeypatch, tmp_path):
+    from kofin.service import player as player_module
+
+    sync_db = _seed_local_rows(tmp_path)
+    try:
+        claim = player_module._offline_claim("j1", "episode", "/dl/e.mkv")
+    finally:
+        pass
+    assert claim is not None
+    assert claim["Type"] == "Episode" and claim["Name"] == "Blood Test"
+    assert claim["SeriesId"] == "s1"
+    assert claim["Runtime"] == 1260 * 10_000_000  # watched_to_end works offline
+    assert claim["Path"] == "/dl/e.mkv"
+
+    # Anything not downloaded stays unclaimed: foreign playback is foreign.
+    assert player_module._offline_claim("stranger", "episode", "/x.mkv") is None
+    sync_db.reset_overrides()
+
+
+def test_backfill_attaches_the_cached_segments_offline(monkeypatch, tmp_path):
+    import json as json_module
+
+    from kofin.downloads import store as downloads_store
+    from kofin.service import player as player_module
+
+    sync_db = _seed_local_rows(tmp_path)
+    downloads_store.set_segments(
+        "j1",
+        json_module.dumps(
+            {"Items": [{"Type": "Intro", "StartTicks": 0, "EndTicks": 30 * 10**7}]}
+        ),
+    )
+
+    class PlayingStub:
+        def getPlayingFile(self):
+            return "/dl/e.mkv"
+
+    monkeypatch.setattr(player_module.xbmc, "Player", PlayingStub)
+    monkeypatch.setattr(player_module, "mapped_jellyfin_id", lambda k, m: "j1")
+    monkeypatch.setattr(player_module, "library_claim", lambda *a: None)  # offline
+
+    api = RecordingApi()
+    assert (
+        player_module.backfill_library_claim(
+            {"item": {"id": 11, "type": "episode"}}, api
+        )
+        is True
+    )
+    claimed = state.claim_play_item("/dl/e.mkv")
+    assert claimed is not None
+    assert claimed["Segments"] == [{"Type": "Introduction", "Start": 0.0, "End": 30.0}]
+    sync_db.reset_overrides()
+
+
+def test_prepare_segment_state_offline_asks_nothing(monkeypatch):
+    player, api = make_player(monkeypatch)
+    FakeWindow.store["kofin.online"] = "false"
+    FakeAddon.store["playNextEnabled"] = "true"
+    player._item = {
+        "Id": "e1",
+        "Type": "Episode",
+        "SeriesId": "s1",
+        "MediaSourceId": "src",
+        "PlaySessionId": "ps",
+    }
+    player._segments_loaded = False
+
+    import threading as threading_module
+
+    player.prepare_segment_state(threading_module.Event())
+
+    assert player._segments == [] and player._segments_loaded is True
+    assert player._next_episode is None
+    assert api.calls == []  # neither segments nor adjacency was fetched
+
+
+def test_progress_reports_stay_home_offline(monkeypatch):
+    player, api = make_player(monkeypatch)
+    FakeWindow.store["kofin.online"] = "false"
+    player._item = {
+        "Id": "e1",
+        "Type": "Episode",
+        "Runtime": 1000 * 10_000_000,
+        "CurrentPosition": 10.0,
+        "MediaSourceId": "src",
+        "PlaySessionId": "ps",
+    }
+    player.report_progress()
+    drain(player)
+    assert api.calls == []  # the position still updated for the segment tick
+    assert player._item["CurrentPosition"] == 42.0  # getTime stub

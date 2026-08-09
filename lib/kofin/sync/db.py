@@ -187,11 +187,15 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
         size_expected INTEGER, size_actual INTEGER, quality TEXT,
         bytes_done INTEGER, userdata_json TEXT,
         queued_at INTEGER, done_at INTEGER, error TEXT,
-        restore_filename TEXT)""")
+        restore_filename TEXT, segments_json TEXT)""")
     # CREATE IF NOT EXISTS never revisits an existing table, and the download
     # table can materialize on a dev box between stacked PRs; additive columns
     # keep that cheap. A new column goes in the CREATE above *and* here.
-    _ensure_columns(cursor, "download", {"restore_filename": "TEXT"})
+    _ensure_columns(
+        cursor,
+        "download",
+        {"restore_filename": "TEXT", "segments_json": "TEXT"},
+    )
 
     cursor.execute("""CREATE INDEX IF NOT EXISTS idx_jellyfin_kodi
         ON jellyfin(kodi_id, media_type)""")
@@ -222,10 +226,20 @@ def _ensure_columns(
     cursor.execute("PRAGMA table_info(%s)" % table)
     present = {row[1] for row in cursor.fetchall()}
     for name, declaration in columns.items():
-        if name not in present:
+        if name in present:
+            continue
+        try:
             cursor.execute(
                 "ALTER TABLE %s ADD COLUMN %s %s" % (table, name, declaration)
             )
+        except sqlite3.OperationalError as error:
+            # Two connections race this at service start (the main thread
+            # and a download worker both open kofin.db): each reads the
+            # PRAGMA before the other's ALTER commits, and the loser's
+            # "duplicate column name" is the winner's success — seen live
+            # the moment a second column joined this list.
+            if "duplicate column" not in str(error).lower():
+                raise
 
 
 class SyncStateCorrupt(Exception):

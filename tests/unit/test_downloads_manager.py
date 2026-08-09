@@ -112,6 +112,7 @@ class FakeManagerApi:
         self.closed_transcodes = []
         self.subtitle_payloads = {}
         self.downloaded_urls = []
+        self.segments = {"Items": []}
 
     def item(self, item_id):
         if isinstance(self._item, Exception):
@@ -133,6 +134,11 @@ class FakeManagerApi:
 
     def close_transcode(self, device_id, play_session_id):
         self.closed_transcodes.append((device_id, play_session_id))
+
+    def media_segments(self, item_id):
+        if isinstance(self.segments, Exception):
+            raise self.segments
+        return self.segments
 
     def subtitle_stream_url(self, item_id, source_id, index, extension):
         return "http://s/subs/%s/%s/%s.%s" % (item_id, source_id, index, extension)
@@ -405,7 +411,7 @@ def test_reconcile_restores_missing_files_and_reasserts_present_ones(
     queue_row("ghost")
     store.finish("ghost", "Movies/Ghost (2019)/ghost.mkv", "mkv", 1)
 
-    manager._run_reconcile()
+    manager._reconcile_once()
 
     assert ("kept", str(tmp_path / "dl")) in repoints["repoint"]
     assert ("ghost", str(tmp_path / "dl")) in repoints["restore"]
@@ -950,3 +956,199 @@ def test_a_transcode_begins_with_the_url_estimate(tmp_path, repoints, monkeypatc
 
     begins = [call for call in recorder.calls if call[0] == "begin"]
     assert begins == [("begin", "m1", "The Movie", 800_000 * 100 // 8)]
+
+
+# -- retention (plan W4.2) and exported-metadata pruning (W4.3) ---------------
+
+
+def seed_done(item_id, origin, queued_at=100):
+    store.queue(
+        store.Download(
+            jellyfin_id=item_id, media_type="movie", origin=origin, queued_at=queued_at
+        )
+    )
+    store.claim()
+    store.record_details(item_id, "movie", "", 0, "")
+    store.finish(item_id, "Movies/%s/%s.mkv" % (item_id, item_id), "mkv", 1)
+
+
+def test_retention_removes_only_watched_auto_items(repoints, monkeypatch):
+    FakeAddon.store["downloadsAutoCleanup"] = "true"
+    manager, _ = make_manager(repoints)
+    seed_done("auto-watched", "auto:s1", queued_at=100)
+    seed_done("auto-fresh", "auto:s1", queued_at=101)
+    seed_done("user-watched", store.ORIGIN_USER, queued_at=102)
+
+    watched = {"auto-watched", "user-watched"}
+    monkeypatch.setattr(
+        manager_module,
+        "_watched_locally",
+        lambda row: row.jellyfin_id in watched,
+    )
+    removed = []
+    monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
+
+    manager._retention_sweep()
+    assert removed == ["auto-watched"]  # never the user's, never the unwatched
+
+    FakeAddon.store["downloadsAutoCleanup"] = "false"
+    removed.clear()
+    manager._retention_sweep()
+    assert removed == []  # the gate
+
+
+def test_retention_never_deletes_the_playing_file(repoints, monkeypatch):
+    FakeAddon.store["downloadsAutoCleanup"] = "true"
+    manager, _ = make_manager(repoints)
+    seed_done("auto-playing", "auto:s1")
+    monkeypatch.setattr(manager_module, "_watched_locally", lambda row: True)
+    monkeypatch.setattr(manager, "_playing_now", lambda row: True)
+    removed = []
+    monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
+
+    manager._retention_sweep()
+    assert removed == []
+
+
+def test_watched_locally_reads_kodis_own_playcount(tmp_path):
+    import sqlite3
+
+    video_path = tmp_path / "MyVideos.db"
+    connection = sqlite3.connect(str(video_path))
+    connection.execute(
+        "CREATE TABLE files (idFile INTEGER PRIMARY KEY, playCount INTEGER)"
+    )
+    connection.execute("INSERT INTO files VALUES (7, 2), (8, NULL)")
+    connection.commit()
+    connection.close()
+    sync_db.set_path_override("video", str(video_path))
+
+    with sync_db.Database("kofin") as opened:
+        opened.cursor.execute(
+            "INSERT INTO jellyfin (jellyfin_id, kodi_id, kodi_fileid, kodi_pathid, media_type) "
+            "VALUES ('w1', 1, 7, 1, 'movie'), ('w2', 2, 8, 1, 'movie')"
+        )
+
+    watched = store.Download(jellyfin_id="w1", media_type="movie")
+    fresh = store.Download(jellyfin_id="w2", media_type="movie")
+    unmapped = store.Download(jellyfin_id="w3", media_type="movie")
+    assert manager_module._watched_locally(watched) is True
+    assert manager_module._watched_locally(fresh) is False
+    assert manager_module._watched_locally(unmapped) is False
+
+
+def test_remove_sweeps_exported_metadata_with_the_directory(tmp_path, repoints):
+    manager, _ = make_manager(repoints)
+    seed_done("m1", store.ORIGIN_USER)
+    directory = tmp_path / "dl" / "Movies" / "m1"
+    directory.mkdir(parents=True)
+    (directory / "m1.mkv").write_bytes(b"x")
+    (directory / "m1.nfo").write_text("<movie/>", encoding="utf-8")
+    (directory / "poster.jpg").write_bytes(b"img")
+    (directory / "fanart.jpg").write_bytes(b"img")
+
+    manager._apply_remove("m1")
+
+    assert not directory.exists()  # the escape hatch left with its media
+
+
+# -- the offline segment cache (plan W4.7) ------------------------------------
+
+
+def test_completion_captures_the_raw_segments(tmp_path, repoints):
+    manager, _ = make_manager(repoints)
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+    api.segments = {"Items": [{"Type": "Intro", "StartTicks": 0, "EndTicks": 10}]}
+
+    manager._process(api, queue_row())
+
+    row = store.get("m1")
+    assert row.state == store.DONE
+    assert '"Intro"' in row.segments_json  # the raw body, parsed at claim time
+
+
+def test_a_failed_segment_fetch_never_fails_the_download(tmp_path, repoints):
+    manager, _ = make_manager(repoints)
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+    api.segments = JellyfinError("no segments endpoint")
+
+    manager._process(api, queue_row())
+
+    row = store.get("m1")
+    assert row.state == store.DONE
+    assert row.segments_json == ""  # unknown, not known-empty
+
+
+def test_songs_skip_the_segment_capture(tmp_path, repoints, monkeypatch):
+    monkeypatch.setattr(
+        "kofin.sync.playlists.refresh_downloaded_music", lambda root=None: True
+    )
+    manager, _ = make_manager(repoints)
+    api = FakeManagerApi(
+        SONG_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {
+                    "Content-Length": "8",
+                    "Content-Disposition": 'attachment; filename="01 - Opening Track.flac"',
+                },
+            )
+        ],
+    )
+    api.segments = RuntimeError("must never be asked")
+
+    manager._process(api, queue_row("a1"))
+    assert store.get("a1").state == store.DONE
+
+
+def test_start_backfills_missing_segment_caches(tmp_path, repoints, monkeypatch):
+    seed_done("cached", store.ORIGIN_USER, queued_at=100)
+    store.set_segments("cached", '{"Items": []}')  # known-empty: kept
+    seed_done("wanting", store.ORIGIN_USER, queued_at=101)
+
+    asked = []
+
+    class SegmentsApi:
+        def media_segments(self, item_id):
+            asked.append(item_id)
+            return {"Items": [{"Type": "Intro", "StartTicks": 0, "EndTicks": 10}]}
+
+        def close(self):
+            pass
+
+    manager = DownloadManager(
+        api_factory=SegmentsApi,
+        refresh=lambda: None,
+        stopping=threading.Event(),
+    )
+    manager._backfill_segment_caches()
+
+    assert asked == ["wanting"]  # never the known-empty row
+    assert '"Intro"' in store.get("wanting").segments_json
+
+    from tests.unit.fakes import FakeWindow
+
+    FakeWindow.store["kofin.online"] = "false"
+    asked.clear()
+    manager._backfill_segment_caches()
+    assert asked == []  # offline: nobody to ask

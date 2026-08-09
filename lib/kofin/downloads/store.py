@@ -29,6 +29,14 @@ DONE = "done"
 FAILED = "failed"
 
 ORIGIN_USER = "user"
+# Automatic downloads carry "auto:<context>" — the retention sweep matches
+# the prefix, never the user origin (plan W4.1/W4.2/W4.4).
+ORIGIN_AUTO_PREFIX = "auto"
+
+
+def is_auto_origin(origin: str) -> bool:
+    return str(origin or "").startswith(ORIGIN_AUTO_PREFIX)
+
 
 QUALITY_ORIGINAL = "original"
 # Decided at transfer time (downloads/quality.py), recorded so retry and
@@ -54,6 +62,11 @@ class Download:
     queued_at: int = 0
     done_at: int = 0
     error: str = ""
+    # The raw /MediaSegments body taken at download completion (W4.7):
+    # parsed at claim time, where the parser lives. Empty means never
+    # fetched (the online claim path falls back to its own fetch); a stored
+    # '{"Items": []}' is known-empty, so nobody asks again.
+    segments_json: str = ""
     # The files.strFilename the writers had built when the repoint captured
     # the row — restore puts it back verbatim (byte-identical, and correct
     # even for transcodes, whose local name shares nothing with the
@@ -270,6 +283,14 @@ def record_details(
                 quality,
                 jellyfin_id,
             ),
+        )
+
+
+def set_segments(jellyfin_id: str, raw_json: str) -> None:
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "UPDATE download SET segments_json = ? WHERE jellyfin_id = ?",
+            (raw_json, jellyfin_id),
         )
 
 
