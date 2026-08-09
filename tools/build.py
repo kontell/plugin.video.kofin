@@ -52,8 +52,12 @@ EXCLUDE_TOP = {
     ".vscode",
     ".idea",
 }
-# Suffixes never shipped (byte-compiled Python).
-EXCLUDE_SUFFIX = (".pyc", ".pyo")
+# Suffixes never shipped: byte-compiled Python, and the stray SQLite files a
+# test run can leave in the repo root. The databases are gitignored for
+# exactly that reason, but this build copies the *working tree* — a shipped
+# kofin.db is 70-odd KB of somebody's test data riding into every install
+# (found in the 0.13.0 zip).
+EXCLUDE_SUFFIX = (".pyc", ".pyo", ".db", ".db-wal", ".db-shm")
 
 
 def addon_meta():
