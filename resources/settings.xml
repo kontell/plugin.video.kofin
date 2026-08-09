@@ -898,6 +898,156 @@
           <control type="slider" format="integer"/>
         </setting>
       </group>
+      <!-- Conditional download transcoding (plan W3.1): every control below is
+           a toggle or a spinner, so the visible-dependencies are safe (the
+           Omega unregister bug bites list[string] settings only). The device
+           codec/HDR compatibility lists are deliberately *not* duplicated
+           here — the downloads profile reads the transcode tab's
+           directPlayVideoCodecs/directPlayAudioCodecs/allowedHdrTypes, since
+           the device is the same device; only the caps are downloads-own. -->
+      <group id="2">
+        <setting id="downloadsTranscode" type="boolean" label="30722" help="30723">
+          <level>0</level>
+          <default>false</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <setting id="downloadsMaxBitrate" type="integer" label="30724" help="30725">
+          <level>0</level>
+          <default>0</default>
+          <constraints>
+            <options>
+              <option label="30176">0</option>
+              <option label="30185">3</option>
+              <option label="30186">4</option>
+              <option label="30187">6</option>
+              <option label="30188">8</option>
+              <option label="30189">10</option>
+              <option label="30190">15</option>
+              <option label="30191">20</option>
+              <option label="30192">25</option>
+              <option label="30193">40</option>
+              <option label="30194">60</option>
+              <option label="30195">120</option>
+            </options>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="downloadsEnabled">true</condition>
+                <condition operator="is" setting="downloadsTranscode">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="spinner" format="string"/>
+        </setting>
+        <setting id="downloadsMaxResolution" type="integer" label="30726" help="30727">
+          <level>0</level>
+          <default>0</default>
+          <constraints>
+            <options>
+              <option label="30176">0</option>
+              <option label="30604">854</option>
+              <option label="30177">1280</option>
+              <option label="30178">1920</option>
+              <option label="30605">2560</option>
+              <option label="30179">3840</option>
+            </options>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="downloadsEnabled">true</condition>
+                <condition operator="is" setting="downloadsTranscode">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="spinner" format="string"/>
+        </setting>
+      </group>
+      <!-- Music downloads (plan W3.2), same conditional shape: lossless
+           tracks and anything over the cap convert; compliant tracks download
+           as the original file. -->
+      <group id="3">
+        <setting id="downloadsMusicTranscode" type="boolean" label="30728" help="30729">
+          <level>0</level>
+          <default>false</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <setting id="downloadsMusicMaxBitrate" type="integer" label="30730" help="30731">
+          <level>0</level>
+          <default>0</default>
+          <constraints>
+            <options>
+              <option label="30176">0</option>
+              <option label="30197">128</option>
+              <option label="30198">192</option>
+              <option label="30199">256</option>
+              <option label="30200">320</option>
+            </options>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="downloadsEnabled">true</condition>
+                <condition operator="is" setting="downloadsMusicTranscode">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="spinner" format="string"/>
+        </setting>
+        <setting id="downloadsMusicCodec" type="string" label="30732" help="30733">
+          <level>0</level>
+          <default>opus</default>
+          <constraints>
+            <options>
+              <option label="30158">aac</option>
+              <option label="30160">mp3</option>
+              <option label="30163">opus</option>
+            </options>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="downloadsEnabled">true</condition>
+                <condition operator="is" setting="downloadsMusicTranscode">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="spinner" format="string"/>
+        </setting>
+        <setting id="downloadsMusicBitrate" type="integer" label="30734" help="30735">
+          <level>0</level>
+          <default>128</default>
+          <constraints>
+            <options>
+              <option label="30196">96</option>
+              <option label="30197">128</option>
+              <option label="30198">192</option>
+              <option label="30199">256</option>
+              <option label="30200">320</option>
+            </options>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="downloadsEnabled">true</condition>
+                <condition operator="is" setting="downloadsMusicTranscode">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="spinner" format="string"/>
+        </setting>
+      </group>
     </category>
 
     <!-- Advanced -->

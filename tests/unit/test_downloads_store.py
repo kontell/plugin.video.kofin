@@ -140,3 +140,29 @@ def test_recover_interrupted_requeues_crashed_actives():
     assert row.state == store.QUEUED
     assert row.bytes_done == 777
     assert store.recover_interrupted() == 0
+
+
+def test_release_returns_an_active_row_to_queued():
+    """The outage interruption (plan W3.1 amendments): the owning worker
+    puts the row back itself, because recover_interrupted runs only at
+    manager start and an active row would sit stuck until then."""
+    store.queue(_movie("m1"))
+    store.claim()
+    store.record_progress("m1", 42)
+
+    store.release("m1")
+    row = store.get("m1")
+    assert row.state == store.QUEUED
+    assert row.bytes_done == 42  # the watermark survives for a Range resume
+    assert row.queued_at == 100  # still at the head of the queue
+
+    store.release("m1")  # only active rows move; a second call is a no-op
+    assert store.get("m1").state == store.QUEUED
+
+
+def test_record_details_stamps_the_decided_quality():
+    store.queue(_movie("m1"))
+    store.record_details("m1", "movie", "", 0, "", store.QUALITY_TRANSCODE)
+    assert store.get("m1").quality == store.QUALITY_TRANSCODE
+    store.record_details("m1", "movie", "", 8, "")
+    assert store.get("m1").quality == store.QUALITY_ORIGINAL

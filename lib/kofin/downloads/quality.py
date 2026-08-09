@@ -1,0 +1,103 @@
+"""The conditional download-quality decision (plan W3.1/W3.2).
+
+With the transcode toggles off this module answers "original" without a
+server round trip. With one on, the decision is the *server's*, through
+PlaybackInfo with the download device profile
+(:func:`kofin.core.deviceprofile.build_download`): an item within every
+limit — bitrate cap, resolution cap, the device's codec lists, the allowed
+HDR types — answers ``SupportsDirectPlay`` and downloads as the original,
+exactly phase 1's path; anything else hands back a ``TranscodingUrl`` whose
+job stream-copies the compliant tracks and re-encodes only the offending
+ones. A failed decision raises rather than falling back to the original:
+silently downloading a 40 GB file the caps ruled out is worse than a retry.
+"""
+
+from typing import Any, Dict, NamedTuple
+
+from kofin.core import deviceprofile, settings
+from kofin.core.http import JellyfinError
+from kofin.core.log import Logger
+
+LOG = Logger(__name__)
+
+JsonDict = Dict[str, Any]
+
+ORIGINAL = "original"
+TRANSCODE = "transcode"
+
+VIDEO_TYPES = ("Movie", "Episode")
+
+
+class Decision(NamedTuple):
+    kind: str
+    url: str = ""  # transcode only: the absolute progressive stream URL
+    container: str = ""  # transcode only: the on-disk container/extension
+    play_session_id: str = ""  # transcode only: names the job for closing
+
+
+def wanted(item_type: str) -> bool:
+    """Whether the decision runs at all for this item type."""
+    if item_type in VIDEO_TYPES:
+        return settings.get_bool("downloadsTranscode")
+    if item_type == "Audio":
+        return settings.get_bool("downloadsMusicTranscode")
+    return False
+
+
+def progressive(transcoding_url: str) -> str:
+    """The progressive shape of a TranscodingUrl.
+
+    An http-protocol profile is answered with a progressive URL already; the
+    rewrite is the fallback for a server that hands back the HLS playlist
+    shape anyway (Streamyfin's rewrite). The ``.mp4`` in the replacement is
+    load-bearing: ``/Videos/{id}/stream`` reads its output container off the
+    extension, and the HLS URL's own params carry no ``container=``.
+    """
+    for playlist in ("master.m3u8", "main.m3u8"):
+        if playlist in transcoding_url:
+            return transcoding_url.replace(playlist, "stream.mp4", 1)
+    return transcoding_url
+
+
+def decide(api: Any, item: JsonDict) -> Decision:
+    """original | transcode(url) for one item; raises on an unusable answer."""
+    item_id = str(item.get("Id") or "")
+    item_type = str(item.get("Type") or "")
+    if not wanted(item_type):
+        return Decision(ORIGINAL)
+
+    profile = deviceprofile.build_download(deviceprofile.ProfileConfig.for_downloads())
+    info = api.playback_info(item_id, profile)
+    sources = info.get("MediaSources") or []
+    if not sources:
+        raise JellyfinError("no media sources in the decision for %s" % item_id)
+    source = sources[0]
+
+    if source.get("SupportsDirectPlay") or source.get("SupportsDirectStream"):
+        # Within every limit. DirectStream — all streams copied, container
+        # remuxed — counts as original too: the profile states no container
+        # constraint, and a local play through Kodi's demuxer never needs
+        # one, so a remux would re-package bytes that are fine as they are.
+        return Decision(ORIGINAL)
+
+    transcoding_url = str(source.get("TranscodingUrl") or "")
+    if not transcoding_url:
+        raise JellyfinError(
+            "no compliant stream and no transcode offered for %s" % item_id
+        )
+    url = progressive(transcoding_url)
+    if url.startswith("/"):
+        url = api.server + url
+    container = str(source.get("TranscodingContainer") or "").split(",")[0]
+    if not container:
+        container = (
+            (settings.get_str("downloadsMusicCodec") or "opus")
+            if item_type == "Audio"
+            else "mp4"
+        )
+    LOG.info(
+        "download decision for %s: transcode (%s)",
+        item_id,
+        source.get("TranscodeReasons") or "reasons unstated",
+    )
+    return Decision(TRANSCODE, url, container, str(info.get("PlaySessionId") or ""))

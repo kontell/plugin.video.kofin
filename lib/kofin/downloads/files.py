@@ -71,6 +71,25 @@ def filename_from_disposition(value: str, fallback: str) -> str:
     return fallback
 
 
+def default_filename(item: JsonDict, container: str) -> str:
+    """The filename when no Content-Disposition names one — every transcode,
+    whose response carries no original name. Episodes lead with SxxEyy and
+    songs with their track number, so a directory reads in order the way the
+    server's own filenames do."""
+    name = sanitize(str(item.get("Name") or item.get("Id") or "download"))
+    item_type = item.get("Type", "")
+    if item_type == "Episode":
+        season = item.get("ParentIndexNumber")
+        episode = item.get("IndexNumber")
+        if season is not None and episode is not None:
+            name = "S%02dE%02d %s" % (int(season), int(episode), name)
+    elif item_type == "Audio":
+        track = item.get("IndexNumber")
+        if track is not None:
+            name = "%02d %s" % (int(track), name)
+    return "%s.%s" % (name, container or "bin")
+
+
 def item_dirs(item: JsonDict) -> Tuple[str, Optional[str]]:
     """(owning directory, leaf subdirectory) for an item, relative, POSIX.
 

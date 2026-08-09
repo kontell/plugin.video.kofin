@@ -1665,3 +1665,63 @@ msgstr ""
 msgctxt "#30721"
 msgid "Downloaded episodes"
 msgstr ""
+
+msgctxt "#30722"
+msgid "Transcode incompatible videos"
+msgstr ""
+
+msgctxt "#30723"
+msgid "Download a smaller version only when the original exceeds a limit below or uses a codec or HDR type the device cannot play. Everything within the limits downloads as the original file, and compliant streams are copied rather than re-encoded."
+msgstr ""
+
+msgctxt "#30724"
+msgid "Maximum download bitrate"
+msgstr ""
+
+msgctxt "#30725"
+msgid "Videos over this total bitrate are transcoded down to it. Unlimited transcodes only for codec, HDR or resolution reasons."
+msgstr ""
+
+msgctxt "#30726"
+msgid "Maximum download resolution"
+msgstr ""
+
+msgctxt "#30727"
+msgid "Videos wider than this are scaled down. Unlimited never scales."
+msgstr ""
+
+msgctxt "#30728"
+msgid "Convert incompatible music"
+msgstr ""
+
+msgctxt "#30729"
+msgid "Convert a track only when it is lossless or over the bitrate limit below. Compliant tracks download as the original file with their tags intact."
+msgstr ""
+
+msgctxt "#30730"
+msgid "Convert music over"
+msgstr ""
+
+msgctxt "#30731"
+msgid "Tracks over this bitrate, and all lossless tracks, are converted. Unlimited converts only lossless tracks."
+msgstr ""
+
+msgctxt "#30732"
+msgid "Convert music to"
+msgstr ""
+
+msgctxt "#30733"
+msgid "The codec converted tracks are encoded with. Opus gives the best quality per megabyte."
+msgstr ""
+
+msgctxt "#30734"
+msgid "Converted music bitrate"
+msgstr ""
+
+msgctxt "#30735"
+msgid "The bitrate converted tracks are encoded at. 128 kbps Opus is transparent for most listening."
+msgstr ""
+
+msgctxt "#30736"
+msgid "Downloaded music"
+msgstr ""

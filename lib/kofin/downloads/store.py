@@ -31,6 +31,10 @@ FAILED = "failed"
 ORIGIN_USER = "user"
 
 QUALITY_ORIGINAL = "original"
+# Decided at transfer time (downloads/quality.py), recorded so retry and
+# recovery know the .part is not byte-stable: a transcode restarts clean
+# where an original resumes with a Range.
+QUALITY_TRANSCODE = "transcode"
 
 
 @dataclass
@@ -233,14 +237,24 @@ def record_details(
     series_id: str,
     size_expected: int,
     userdata_json: str,
+    quality: str = QUALITY_ORIGINAL,
 ) -> None:
     """Fill what only the item DTO knows, at download time: the queue path
-    carries bare ids across the IPC bus, and the worker holds the DTO."""
+    carries bare ids across the IPC bus, and the worker holds the DTO (and
+    the quality decision, made against the same fetch)."""
     with Database("kofin") as opened:
         opened.cursor.execute(
             "UPDATE download SET media_type = ?, series_id = ?, "
-            "size_expected = ?, userdata_json = ? WHERE jellyfin_id = ?",
-            (media_type, series_id, int(size_expected), userdata_json, jellyfin_id),
+            "size_expected = ?, userdata_json = ?, quality = ? "
+            "WHERE jellyfin_id = ?",
+            (
+                media_type,
+                series_id,
+                int(size_expected),
+                userdata_json,
+                quality,
+                jellyfin_id,
+            ),
         )
 
 
@@ -254,6 +268,20 @@ def set_restore_filename_on(cursor: Any, jellyfin_id: str, filename: str) -> Non
         "UPDATE download SET restore_filename = ? WHERE jellyfin_id = ?",
         (filename, jellyfin_id),
     )
+
+
+def release(jellyfin_id: str) -> None:
+    """Put an active row back to queued without spending an attempt — the
+    outage interruption: the worker that owns the row calls this, so it
+    cannot race another claim, and ``recover_interrupted`` cannot help
+    until a restart (it runs only at manager start, so a row left active
+    mid-session would sit stuck until then). ``queued_at`` stays, keeping
+    the row at the head of the queue for the reconnect."""
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "UPDATE download SET state = ? WHERE jellyfin_id = ? AND state = ?",
+            (QUEUED, jellyfin_id, ACTIVE),
+        )
 
 
 def fail(jellyfin_id: str, error: str) -> None:

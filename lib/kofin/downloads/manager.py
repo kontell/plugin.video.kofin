@@ -26,7 +26,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from kofin.core import settings, state, toast
 from kofin.core.http import JellyfinError, StreamedResponse, Unauthorized
 from kofin.core.log import Logger
-from kofin.downloads import downloads_root, files, repoint, store
+from kofin.downloads import downloads_root, files, probe, quality, repoint, store
 
 LOG = Logger(__name__)
 
@@ -88,6 +88,11 @@ class DownloadManager:
         self._attempts: Dict[str, int] = {}
         self._workers: List[threading.Thread] = []
         self._reconciler: Optional[threading.Thread] = None
+        # One transcode pull at a time across the whole pool (plan W3.1):
+        # the encoder runs flat-out with throttling force-disabled (V2), so
+        # two parallel pulls would saturate the server unbidden. Originals
+        # keep the full pool.
+        self._transcode_slot = threading.Semaphore(1)
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -265,14 +270,33 @@ class DownloadManager:
             store.fail(item_id, "unsupported type %r" % item.get("Type"))
             return
         source = (item.get("MediaSources") or [{}])[0]
-        container = str(source.get("Container") or "").split(",")[0]
-        size_expected = int(source.get("Size") or 0)
+
+        decision = quality.decide(api, item)  # JellyfinError -> retry ladder
+        original = decision.kind == quality.ORIGINAL
+        if row.rel_path and row.quality != decision.kind:
+            # The target was frozen for the other kind (the settings moved
+            # between attempts): the extension and the resume semantics are
+            # both wrong for it, so unfreeze and let this attempt re-decide.
+            self._delete_part(row)
+            store.record_target(item_id, "", "")
+            row.rel_path = ""
+
+        container = (
+            str(source.get("Container") or "").split(",")[0]
+            if original
+            else decision.container
+        )
+        # A transcode's finished size is unknowable up front; 0 keeps the
+        # size verification and the free-space precheck honest (the reserve
+        # still applies).
+        size_expected = int(source.get("Size") or 0) if original else 0
         store.record_details(
             item_id,
             media_type,
             str(item.get("SeriesId") or ""),
             size_expected,
             _userdata_json(item.get("UserData")),
+            decision.kind,
         )
 
         root = downloads_root()
@@ -282,6 +306,49 @@ class DownloadManager:
             return
 
         owner_id = str(item.get("SeriesId") or "") or item_id
+        if original:
+            rel_path, actual = self._pull_original(
+                api, row, item, owner_id, container, size_expected, root
+            )
+        else:
+            rel_path, actual = self._pull_transcode(
+                api, row, item, source, owner_id, decision, root
+            )
+
+        absolute = os.path.join(root, rel_path)
+        part = absolute + ".part"
+        self._download_subtitles(
+            api,
+            item,
+            source,
+            os.path.dirname(absolute),
+            rel_path,
+            include_embedded=not original,
+        )
+        os.replace(part, absolute)
+        store.finish(item_id, rel_path, container, actual)
+        self._attempts.pop(item_id, None)
+        finished = store.get(item_id)
+        if finished is not None:
+            repoint.repoint(finished, root)
+            repoint.stamp_tag(finished)
+            repoint.stamp_badge(finished)
+        self._refresh_quietly()
+        self._toast(30712, item.get("Name", item_id))
+        LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
+
+    def _pull_original(
+        self,
+        api: Any,
+        row: "store.Download",
+        item: JsonDict,
+        owner_id: str,
+        container: str,
+        size_expected: int,
+        root: str,
+    ) -> Tuple[str, int]:
+        """The phase-1 path: the original bytes, Range-resumable."""
+        item_id = row.jellyfin_id
         rel_path = row.rel_path
         start = 0
         if rel_path:
@@ -319,19 +386,102 @@ class DownloadManager:
             raise JellyfinError(
                 "size mismatch: %d of %d bytes" % (actual, expected_total)
             )
+        return rel_path, actual
 
-        self._download_subtitles(api, item, source, os.path.dirname(absolute), rel_path)
-        os.replace(part, absolute)
-        store.finish(item_id, rel_path, container, actual)
-        self._attempts.pop(item_id, None)
-        finished = store.get(item_id)
-        if finished is not None:
-            repoint.repoint(finished, root)
-            repoint.stamp_tag(finished)
-            repoint.stamp_badge(finished)
-        self._refresh_quietly()
-        self._toast(30712, item.get("Name", item_id))
-        LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
+    def _pull_transcode(
+        self,
+        api: Any,
+        row: "store.Download",
+        item: JsonDict,
+        source: JsonDict,
+        owner_id: str,
+        decision: "quality.Decision",
+        root: str,
+    ) -> Tuple[str, int]:
+        """The W3.1 path: a progressive fMP4 (or music) transcode.
+
+        Never resumed — a re-encode is not byte-stable, so every attempt
+        starts from a clean ``.part`` — and verified by the duration probe,
+        because a dead encoder ends the response cleanly and leaves no
+        Content-Length to miss.
+        """
+        item_id = row.jellyfin_id
+        if not self._acquire_transcode_slot(item_id):
+            raise JellyfinError("interrupted waiting for the transcode slot")
+        try:
+            rel_path = row.rel_path
+            stream = api.transcode_stream(decision.url)
+            try:
+                if not rel_path:
+                    rel_path = self._decide_target(
+                        item,
+                        item_id,
+                        owner_id,
+                        decision.container,
+                        stream.header("Content-Disposition"),
+                    )
+                absolute = os.path.join(root, rel_path)
+                part = absolute + ".part"
+                os.makedirs(os.path.dirname(absolute), exist_ok=True)
+                _remove_quietly(part)
+                self._write_body(stream, part, 0, item_id)
+            finally:
+                stream.close()
+
+            actual = os.path.getsize(part) if os.path.exists(part) else 0
+            self._verify_transcode(item, source, part, decision.container, actual)
+            return rel_path, actual
+        finally:
+            self._close_transcode(api, decision.play_session_id)
+            self._transcode_slot.release()
+
+    def _acquire_transcode_slot(self, item_id: str) -> bool:
+        """Wait for the single transcode slot; False when stop or an outage
+        ends the wait (the caller raises into the interruption paths). A
+        worker parks here while another transcodes — accepted: the rest of
+        the pool keeps draining originals, and the wait honors stop, outage
+        and this item's own cancel within half a second."""
+        while not self._should_stop() and not state.is_offline():
+            if self._cancelled(item_id):
+                raise _Cancelled()
+            if self._transcode_slot.acquire(timeout=0.5):
+                return True
+        return False
+
+    def _verify_transcode(
+        self,
+        item: JsonDict,
+        source: JsonDict,
+        part: str,
+        container: str,
+        actual: int,
+    ) -> None:
+        if actual <= 0:
+            raise JellyfinError("transcode produced no bytes")
+        runtime_ticks = int(source.get("RunTimeTicks") or item.get("RunTimeTicks") or 0)
+        expected_seconds = runtime_ticks / 10_000_000
+        if expected_seconds <= 0:
+            return  # nothing to hold it to
+        probed = probe.duration_seconds(part, container)
+        if probed is None:
+            return  # container this probe cannot read; clean EOF stands alone
+        if probed < expected_seconds * 0.9 - 5:
+            raise JellyfinError(
+                "transcode truncated: %.0fs of %.0fs on disk"
+                % (probed, expected_seconds)
+            )
+
+    def _close_transcode(self, api: Any, play_session_id: str) -> None:
+        """End the server-side job by name. Also fired on success — closing a
+        finished job is a no-op there, and saying it is free; on failure and
+        cancel it is what stops an encoder working for nobody (the closed
+        connection kills it too, eventually — V2 — but not promptly)."""
+        if not play_session_id:
+            return
+        try:
+            api.close_transcode(api.device_id, play_session_id)
+        except JellyfinError as error:
+            LOG.debug("closing the transcode job failed: %s", error)
 
     def _decide_target(
         self,
@@ -350,10 +500,7 @@ class DownloadManager:
         owning, leaf = files.item_dirs(item)
         owning = files.unique_dir(owning, owner_id, _dir_taken_by_other(owner_id))
         directory = owning if leaf is None else "%s/%s" % (owning, leaf)
-        fallback = "%s.%s" % (
-            files.sanitize(str(item.get("Name") or item_id)),
-            container or "bin",
-        )
+        fallback = files.default_filename(item, container)
         filename = files.filename_from_disposition(disposition, fallback)
         rel_path = "%s/%s" % (directory, filename)
         store.record_target(item_id, rel_path, container)
@@ -383,23 +530,40 @@ class DownloadManager:
             store.record_progress(item_id, written)
 
     def _download_subtitles(
-        self, api: Any, item: JsonDict, source: JsonDict, directory: str, rel_path: str
+        self,
+        api: Any,
+        item: JsonDict,
+        source: JsonDict,
+        directory: str,
+        rel_path: str,
+        include_embedded: bool = False,
     ) -> None:
-        """External subtitle sidecars beside the media file (plan W1.6).
+        """Subtitle sidecars beside the media file (plan W1.6, W3.1).
 
         An original download does not contain the external subtitles the
         streaming play route attaches, so a repointed item would silently
-        lose them. Kodi auto-loads sidecars by name. Failures are logged and
-        non-fatal — a missing subtitle must never fail the download.
+        lose them. A *transcoded* download loses the embedded text tracks
+        too — the fMP4 output carries no subtitles — so those are extracted
+        as sidecars as well (``include_embedded``); the endpoint serves both
+        kinds, converting embedded text to the asked-for srt. Embedded image
+        tracks (PGS/DVDSUB) stay lost: Kodi cannot render a standalone one,
+        and burning-in is a quality decision nobody made. Kodi auto-loads
+        sidecars by name. Failures are logged and non-fatal — a missing
+        subtitle must never fail the download.
         """
         base = os.path.basename(rel_path).rsplit(".", 1)[0]
+        taken: set = set()
         for stream_info in source.get("MediaStreams") or []:
-            if stream_info.get("Type") != "Subtitle" or not stream_info.get(
-                "IsExternal"
-            ):
+            if stream_info.get("Type") != "Subtitle":
                 continue
-            codec = str(stream_info.get("Codec") or "").lower()
-            extension = SUBTITLE_EXTENSIONS.get(codec, codec)
+            external = bool(stream_info.get("IsExternal"))
+            if external:
+                codec = str(stream_info.get("Codec") or "").lower()
+                extension = SUBTITLE_EXTENSIONS.get(codec, codec)
+            elif include_embedded and stream_info.get("IsTextSubtitleStream"):
+                extension = "srt"
+            else:
+                continue
             if not extension:
                 continue
             language = str(stream_info.get("Language") or "und")
@@ -409,9 +573,16 @@ class DownloadManager:
                 int(stream_info.get("Index") or 0),
                 extension,
             )
-            target = os.path.join(
-                directory, "%s.%s.%s" % (base, files.sanitize(language), extension)
-            )
+            # Two tracks of one language must not overwrite each other; the
+            # second takes a numbered name (Kodi lists both).
+            stem = "%s.%s" % (base, files.sanitize(language))
+            candidate = "%s.%s" % (stem, extension)
+            ordinal = 2
+            while candidate in taken:
+                candidate = "%s.%d.%s" % (stem, ordinal, extension)
+                ordinal += 1
+            taken.add(candidate)
+            target = os.path.join(directory, candidate)
             try:
                 payload = api.download(url)
                 with open(target, "wb") as handle:
@@ -424,10 +595,14 @@ class DownloadManager:
     def _retry_or_fail(self, row: "store.Download", error: str) -> None:
         item_id = row.jellyfin_id
         if state.is_offline():
-            # The server went away mid-transfer. Same reasoning as a
-            # shutdown: leave the row recoverable rather than spending its
-            # attempts against an unreachable server.
+            # The server went away mid-transfer: back to queued without
+            # spending an attempt, so the offline hold in the worker loop
+            # picks it up again on reconnect. Left active it would sit stuck
+            # until the next service start — recover_interrupted runs only
+            # there (a gap phase 3 closed; shutdown below is different
+            # because the manager *is* about to restart).
             LOG.info("download interrupted by an outage: %s", item_id)
+            store.release(item_id)
             return
         if self._should_stop():
             # Not a failure: the service is going away mid-transfer, and the

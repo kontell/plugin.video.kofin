@@ -49,6 +49,11 @@ class Api:
         self._http = http
         self.server = server
         self.user_id = user_id
+        # Exposed for callers that must name this session to the server —
+        # closing its transcodes (/Videos/ActiveEncodings) takes the deviceId
+        # the auth header carries, and the downloads manager has no other
+        # source for it.
+        self.device_id = device_id
         self._header = auth.build_auth_header(device_name, device_id, version, token)
         # Interactive callers — browse listings, the play route, context and
         # settings buttons — have a person watching a spinner, and the
@@ -710,7 +715,10 @@ class Api:
     def subtitle_stream_url(
         self, item_id: str, media_source_id: str, index: int, extension: str
     ) -> str:
-        """The external-subtitle file for one stream of a media source."""
+        """The subtitle file for one stream of a media source. The endpoint
+        serves external sidecars and extracts embedded *text* tracks alike
+        (converting to the requested extension), which is what lets a
+        transcoded download keep the subtitles its mp4 output drops."""
         return "%s/Videos/%s/%s/Subtitles/%d/Stream.%s" % (
             self.server,
             item_id,
@@ -718,3 +726,13 @@ class Api:
             index,
             extension,
         )
+
+    def transcode_stream(self, url: str) -> "StreamedResponse":
+        """A progressive transcode as a byte stream (plan W3.1).
+
+        The URL is the PlaybackInfo answer's TranscodingUrl — deviceId,
+        PlaySessionId and the api key already ride it. Never a Range
+        request: a re-encode is not byte-stable across attempts, so there
+        is nothing coherent to resume into.
+        """
+        return self._http.stream(url, headers=self._headers())
