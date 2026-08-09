@@ -1090,6 +1090,46 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
+        <setting id="downloadsAutoEpisodes" type="boolean" label="30754" help="30755">
+          <level>0</level>
+          <default>false</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <!-- Hidden state: the shows subscribed to new-episode downloads
+             (comma-separated Jellyfin series ids). Written by the Series
+             context toggle and the manage button below. -->
+        <setting id="downloadsEpisodeShows" type="string">
+          <level>4</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="edit" format="string"/>
+        </setting>
+        <setting id="downloadsManageShows" type="action" label="30758" help="30759">
+          <level>0</level>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadshows)</data>
+          </control>
+        </setting>
+        <setting id="downloadsAutoAlbums" type="boolean" label="30756" help="30757">
+          <level>0</level>
+          <default>false</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
         <setting id="downloadsAutoCleanup" type="boolean" label="30744" help="30745">
           <level>0</level>
           <default>true</default>

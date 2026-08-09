@@ -365,3 +365,52 @@ def test_download_playlist_keeps_only_the_leaves(download_wired):
     actions.download(Request("plugin://x", -1, {"id": "pl1"}))
 
     assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["t1", "m1"]})]
+
+
+def test_download_show_toggles_and_toasts(download_wired, monkeypatch):
+    toggled = []
+    monkeypatch.setattr(
+        "kofin.downloads.auto.toggle_show", lambda sid: toggled.append(sid) or True
+    )
+    toasts = []
+    monkeypatch.setattr(actions.toast, "show", lambda *a, **k: toasts.append(a[0]))
+    _notified, _dialog, Request = download_wired(FakeDownloadApi({}))
+
+    actions.download_show(Request("plugin://x", -1, {"id": "s1", "name": "Show"}))
+
+    assert toggled == ["s1"]
+    assert toasts == ["L30762 Show"]
+
+
+def test_manage_download_shows_keeps_the_ticked(download_wired, monkeypatch):
+    monkeypatch.setattr(
+        "kofin.downloads.auto.subscribed_shows", lambda: ["s1", "s2", "s3"]
+    )
+    saved = []
+    monkeypatch.setattr(
+        "kofin.downloads.auto.save_subscribed_shows",
+        lambda ids: saved.append(list(ids)),
+    )
+    monkeypatch.setattr(actions, "_show_names", lambda ids: list(ids))
+    notified, dialog, Request = download_wired(FakeDownloadApi({}))
+    dialog.multiselect_result = [0, 2]  # s2 unticked
+
+    actions.manage_download_shows(Request("plugin://x", -1, {}))
+
+    assert saved == [["s1", "s3"]]
+    assert dialog.multiselects[0][1] == ["s1", "s2", "s3"]
+
+
+def test_manage_download_shows_cancel_changes_nothing(download_wired, monkeypatch):
+    monkeypatch.setattr("kofin.downloads.auto.subscribed_shows", lambda: ["s1"])
+    saved = []
+    monkeypatch.setattr(
+        "kofin.downloads.auto.save_subscribed_shows",
+        lambda ids: saved.append(list(ids)),
+    )
+    monkeypatch.setattr(actions, "_show_names", lambda ids: list(ids))
+    _notified, dialog, Request = download_wired(FakeDownloadApi({}))
+    dialog.multiselect_result = None  # cancelled
+
+    actions.manage_download_shows(Request("plugin://x", -1, {}))
+    assert saved == []

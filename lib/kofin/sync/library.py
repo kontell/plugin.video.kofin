@@ -1457,13 +1457,14 @@ class Library(threading.Thread):
             except queue.Empty:
                 break
         if drained:
-            # W4.4: newly added movies can queue their own downloads. Fed at
-            # drain time, before the toast policy's holds and drops below —
-            # those pace announcements, and pacing must not lose a download.
+            # W4.4/W4.6: newly added movies, episodes and albums can queue
+            # their own downloads. Fed at drain time, before the toast
+            # policy's holds and drops below — those pace announcements, and
+            # pacing must not lose a download.
             try:
-                downloads_auto.queue_new_movies(drained)
+                downloads_auto.queue_new_content(self.api, drained)
             except Exception:
-                LOG.exception("auto-movies hook failed")
+                LOG.exception("auto-download hook failed")
             self.new_content.extend(drained)
 
         if len(self.new_content) > NEW_CONTENT_LIMIT:

@@ -372,3 +372,21 @@ def test_music_types_join_the_download_gates(monkeypatch):
         assert _download_entry_options(monkeypatch, container) == [
             ("L30708", {"mode": "download", "id": "c1"})
         ], container_type
+
+
+def test_series_offers_the_subscription_toggle(monkeypatch):
+    monkeypatch.setattr("kofin.downloads.auto.subscribed_shows", lambda: ["subbed"])
+    monkeypatch.setattr(context.settings, "localized", lambda i: "L%d" % i)
+
+    fresh = {"Id": "s1", "Type": "Series", "Name": "Show", "CanDownload": False}
+    options = context._download_options(fresh)
+    assert options[1] == (
+        "L30760",
+        {"mode": "downloadshow", "id": "s1", "name": "Show"},
+    )
+
+    subscribed = dict(fresh, Id="subbed")
+    assert context._download_options(subscribed)[1][0] == "L30761"  # stop label
+
+    album = {"Id": "al1", "Type": "MusicAlbum", "CanDownload": False}
+    assert len(context._download_options(album)) == 1  # shows only

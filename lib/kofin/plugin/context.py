@@ -294,7 +294,24 @@ def _download_options(item: dict) -> List[Tuple[str, dict]]:
         return []
     item_id = item.get("Id", "")
     if item_type in DOWNLOAD_CONTAINER_TYPES:
-        return [(settings.localized(30708), {"mode": "download", "id": item_id})]
+        entries = [(settings.localized(30708), {"mode": "download", "id": item_id})]
+        if item_type == "Series":
+            # The new-episode subscription toggle (W4.6), labeled by the
+            # show's current state.
+            from kofin.downloads import auto as downloads_auto
+
+            subscribed = item_id in downloads_auto.subscribed_shows()
+            entries.append(
+                (
+                    settings.localized(30761 if subscribed else 30760),
+                    {
+                        "mode": "downloadshow",
+                        "id": item_id,
+                        "name": item.get("Name", ""),
+                    },
+                )
+            )
+        return entries
 
     from kofin.downloads import store
 

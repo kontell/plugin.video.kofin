@@ -1793,3 +1793,55 @@ msgstr ""
 msgctxt "#30753"
 msgid "Write NFO metadata and artwork beside downloaded files, so other apps can scan the download folder as a library."
 msgstr ""
+
+msgctxt "#30754"
+msgid "Download all new episodes"
+msgstr ""
+
+msgctxt "#30755"
+msgid "Every episode newly added to a synced library is downloaded automatically. A bulk import of many episodes at once is skipped, with a notification."
+msgstr ""
+
+msgctxt "#30756"
+msgid "Download new albums"
+msgstr ""
+
+msgctxt "#30757"
+msgid "Albums newly added to a synced library are downloaded automatically. A bulk import of many albums at once is skipped, with a notification."
+msgstr ""
+
+msgctxt "#30758"
+msgid "Shows downloading new episodes"
+msgstr ""
+
+msgctxt "#30759"
+msgid "Review the shows set to download their new episodes automatically, and untick any to stop."
+msgstr ""
+
+msgctxt "#30760"
+msgid "Download new episodes"
+msgstr ""
+
+msgctxt "#30761"
+msgid "Stop downloading new episodes"
+msgstr ""
+
+msgctxt "#30762"
+msgid "New episodes of %s will download automatically"
+msgstr ""
+
+msgctxt "#30763"
+msgid "New episodes of %s will no longer download automatically"
+msgstr ""
+
+msgctxt "#30764"
+msgid "%s new episodes were not downloaded automatically"
+msgstr ""
+
+msgctxt "#30765"
+msgid "%s new albums were not downloaded automatically"
+msgstr ""
+
+msgctxt "#30766"
+msgid "No shows are set to download new episodes"
+msgstr ""

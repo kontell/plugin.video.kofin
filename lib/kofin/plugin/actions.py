@@ -305,6 +305,68 @@ def download(request: Request) -> None:
     toast.show(settings.localized(30711) % len(wanted), time_ms=3000)
 
 
+def download_show(request: Request) -> None:
+    """Toggle a show's new-episode subscription (W4.6)."""
+    item_id = request.params.get("id", "")
+    if not item_id:
+        return
+    from kofin.downloads import auto as downloads_auto
+
+    subscribed = downloads_auto.toggle_show(item_id)
+    name = request.params.get("name", "") or item_id
+    toast.show(settings.localized(30762 if subscribed else 30763) % name, time_ms=4000)
+
+
+def manage_download_shows(request: Request) -> None:
+    """Settings button: review the subscribed shows; untick to stop (W4.6).
+
+    Cancel changes nothing; OK keeps exactly what stayed ticked. Names come
+    from Kodi's own rows via the mapping, so the picker works offline; a
+    show the library no longer holds falls back to its raw id, which is
+    still removable — the whole point of the button.
+    """
+    from kofin.downloads import auto as downloads_auto
+
+    shows = downloads_auto.subscribed_shows()
+    if not shows:
+        toast.show(settings.localized(30766), time_ms=3000)
+        return
+    choices: List[Union[str, xbmcgui.ListItem]] = list(_show_names(shows))
+    picked = xbmcgui.Dialog().multiselect(
+        settings.localized(30758), choices, preselect=list(range(len(shows)))
+    )
+    if picked is None:
+        return
+    downloads_auto.save_subscribed_shows(shows[index] for index in picked)
+
+
+def _show_names(series_ids: List[str]) -> List[str]:
+    from kofin.sync.db import Database
+
+    names: List[str] = []
+    try:
+        with Database("kofin") as kofin_db, Database("video") as video:
+            for series_id in series_ids:
+                kofin_db.cursor.execute(
+                    "SELECT kodi_id FROM jellyfin "
+                    "WHERE jellyfin_id = ? AND media_type = 'tvshow'",
+                    (series_id,),
+                )
+                mapped = kofin_db.cursor.fetchone()
+                name = None
+                if mapped is not None and mapped[0] is not None:
+                    video.cursor.execute(
+                        "SELECT c00 FROM tvshow WHERE idShow = ?", (mapped[0],)
+                    )
+                    row = video.cursor.fetchone()
+                    name = row[0] if row is not None else None
+                names.append(str(name or series_id))
+    except Exception:
+        LOG.exception("show names unavailable")
+        return list(series_ids)
+    return names
+
+
 def cancel_download(request: Request) -> None:
     item_id = request.params.get("id", "")
     if item_id:
