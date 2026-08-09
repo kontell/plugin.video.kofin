@@ -1405,7 +1405,7 @@ msgid "Chapter images from the server"
 msgstr ""
 
 msgctxt "#30621"
-msgid "Show Jellyfin's chapter images in Kodi's chapter list during playback. Needs chapter image extraction enabled on the server (a per-library setting) and an item that direct plays — transcoded streams carry no chapters."
+msgid "Show Jellyfin's chapter images in Kodi's chapter list. Nothing is downloaded in advance: the images for an item are fetched when you start playing it and dropped again afterwards. Needs chapter image extraction enabled on the server (a per-library setting) and an item that direct plays — transcoded streams carry no chapters."
 msgstr ""
 
 # 30622-30636 — new-content notifications

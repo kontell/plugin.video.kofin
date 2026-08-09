@@ -252,11 +252,11 @@
       <group id="1">
         <setting id="syncProgressThreshold" type="integer" label="30302" help="30303">
           <level>0</level>
-          <default>500</default>
+          <default>100</default>
           <constraints>
             <minimum>0</minimum>
-            <step>100</step>
-            <maximum>5000</maximum>
+            <step>20</step>
+            <maximum>1000</maximum>
           </constraints>
           <control type="slider" format="integer"/>
         </setting>
@@ -320,6 +320,29 @@
             </options>
           </constraints>
           <control type="spinner" format="string"/>
+        </setting>
+        <!-- Artwork that arrives outside the sync walk but is still artwork
+             the library shows: both were filed under Playback because that
+             is *when* they are fetched, which put them nowhere anybody
+             looking for an artwork setting would look. -->
+        <setting id="chapterImages" type="boolean" label="30620" help="30621">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
+        <setting id="precacheActorArt" type="boolean" label="30668" help="30669">
+          <level>0</level>
+          <default>false</default>
+          <control type="toggle"/>
+        </setting>
+        <setting id="precacheActorArtNow" type="string" label="30670" help="30671">
+          <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=precacheart)</data>
+            <close>true</close>
+          </control>
         </setting>
       </group>
     </category>
@@ -526,25 +549,6 @@
             </options>
           </constraints>
           <control type="spinner" format="string"/>
-        </setting>
-        <setting id="chapterImages" type="boolean" label="30620" help="30621">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="precacheActorArt" type="boolean" label="30668" help="30669">
-          <level>0</level>
-          <default>false</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="precacheActorArtNow" type="string" label="30670" help="30671">
-          <level>0</level>
-          <default></default>
-          <constraints><allowempty>true</allowempty></constraints>
-          <control type="button" format="action">
-            <data>RunPlugin(plugin://plugin.video.kofin/?mode=precacheart)</data>
-            <close>true</close>
-          </control>
         </setting>
       </group>
     </category>
