@@ -16,7 +16,7 @@ to queued (:func:`recover_interrupted`).
 import json
 import time
 from dataclasses import dataclass, fields as dataclass_fields
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Sequence, Set
 
 from kofin.core.log import Logger
 from kofin.sync.db import Database
@@ -180,6 +180,68 @@ def series_done_ids(series_id: str) -> List[str]:
         return [row[0] for row in opened.cursor.fetchall()]
 
 
+def container_states(container_id: str) -> Dict[str, str]:
+    """``{jellyfin_id: state}`` for every download under a container.
+
+    Two lookups, because the table records only one parent. ``series_id`` is
+    written as ``SeriesId or AlbumId`` (manager._transfer), which answers a
+    Series and a MusicAlbum outright; a Season is nobody's ``series_id``, so
+    its children are found through the kofin.db mapping's ``parent_id``,
+    which is exactly what that column and its index are for. One connection,
+    and no server — the context menu that asks this has to answer offline
+    too.
+    """
+    if not container_id:
+        return {}
+    states: Dict[str, str] = {}
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "SELECT jellyfin_id, state FROM download WHERE series_id = ?",
+            (container_id,),
+        )
+        states.update(opened.cursor.fetchall())
+        opened.cursor.execute(
+            "SELECT d.jellyfin_id, d.state FROM download d "
+            "JOIN jellyfin j ON j.jellyfin_id = d.jellyfin_id "
+            "WHERE j.parent_id = ?",
+            (container_id,),
+        )
+        states.update(opened.cursor.fetchall())
+    return states
+
+
+def container_counts(container_id: str) -> Dict[str, int]:
+    """How many downloads under a container are finished, and how many are
+    still coming. What a container's context menu offers is decided from
+    these two numbers — a failed row counts as neither, because the menu's
+    answer to it is Download, same as for an item nobody ever asked for."""
+    states = container_states(container_id)
+    return {
+        "done": sum(1 for state in states.values() if state == DONE),
+        "pending": sum(1 for state in states.values() if state in (QUEUED, ACTIVE)),
+    }
+
+
+def container_done_ids(container_id: str) -> List[str]:
+    """The finished downloads under a container — what "Remove download" on
+    a show or an album actually removes."""
+    return sorted(
+        item_id
+        for item_id, state in container_states(container_id).items()
+        if state == DONE
+    )
+
+
+def container_pending_ids(container_id: str) -> List[str]:
+    """The unfinished downloads under a container — what "Cancel download"
+    on a show or an album actually cancels."""
+    return sorted(
+        item_id
+        for item_id, state in container_states(container_id).items()
+        if state in (QUEUED, ACTIVE)
+    )
+
+
 def series_done_on(cursor: Any, series_id: str) -> bool:
     if not series_id:
         return False
@@ -190,18 +252,40 @@ def series_done_on(cursor: Any, series_id: str) -> bool:
     return cursor.fetchone() is not None
 
 
-def claim() -> Optional[Download]:
+def claim(media_types: Optional[Sequence[str]] = None) -> Optional[Download]:
     """Move the oldest queued row to active and return it; None when idle.
 
     Race-safe across worker threads without RETURNING (the deployed SQLite
     floor is not ours to raise): each candidate is taken with a guarded
     UPDATE, and a loser's zero rowcount just moves it to the next candidate.
+
+    ``media_types`` scopes a worker pool to its own kind. An empty
+    ``media_type`` — a row queued before the kind travelled with the id, or
+    one whose sender did not know it — matches only a caller that names ""
+    among its kinds, which is the video pool: unknown work must be claimed
+    by somebody, and the video pool is the one whose pacing assumes an item
+    might be large.
     """
+    kinds = list(media_types) if media_types is not None else None
+    if kinds is not None and not kinds:
+        return None
+    where = " WHERE state = ?"
+    params: List[Any] = [QUEUED]
+    if kinds is not None:
+        clause = "media_type IN (%s)" % ", ".join("?" for _ in kinds)
+        params.extend(kinds)
+        if "" in kinds:
+            # NULL is unknown too, and `IN` would never match it. The
+            # dataclass writes '' so no path here produces one — but a row
+            # no pool can claim is silently stuck forever, which is not a
+            # bet worth taking against a column that is merely TEXT.
+            clause = "(%s OR media_type IS NULL)" % clause
+        where += " AND " + clause
     while True:
         with Database("kofin") as opened:
             opened.cursor.execute(
-                _SELECT + " WHERE state = ? ORDER BY queued_at, jellyfin_id LIMIT 1",
-                (QUEUED,),
+                _SELECT + where + " ORDER BY queued_at, jellyfin_id LIMIT 1",
+                tuple(params),
             )
             row = opened.cursor.fetchone()
             if row is None:

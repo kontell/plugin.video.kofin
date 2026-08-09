@@ -10,7 +10,7 @@ from tests.unit.fakes import FakeAddon, FakeWindow
 
 @pytest.fixture(autouse=True)
 def env(tmp_path, monkeypatch):
-    FakeAddon.store = {"downloadsEnabled": "true"}
+    FakeAddon.store = {"downloadsEnabled": "true", "downloadsNotify": "true"}
     FakeWindow.store = {"kofin.online": "true"}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)

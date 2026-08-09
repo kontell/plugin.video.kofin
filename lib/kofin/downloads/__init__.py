@@ -27,3 +27,31 @@ def downloads_root() -> str:
     if configured:
         return xbmcvfs.translatePath(configured).rstrip("/")
     return os.path.join(xbmcvfs.translatePath(ADDON_DATA), "downloads")
+
+
+# What ``downloadsNotify`` never silences: something went wrong and the
+# toast is the only place it says so. The syncplay notification setting
+# draws the same line (syncplay/manager.py) — an opt-out that swallowed
+# failures would turn "my download did nothing" into an unanswerable
+# question. 30766 is here for the same reason in reverse: it is the only
+# answer the manage-shows button gives when the list is empty.
+LOUD_STRINGS = frozenset(
+    {
+        30018,  # server request failed
+        30713,  # download failed
+        30715,  # not enough free space
+        30717,  # downloads folder not writable
+        30720,  # not available offline
+        30766,  # no shows are set to download new episodes
+    }
+)
+
+
+def notify_allowed(string_id: int) -> bool:
+    """Whether this toast may be shown, given the notification opt-out."""
+    if string_id in LOUD_STRINGS:
+        return True
+
+    from kofin.core import settings
+
+    return settings.get_bool("downloadsNotify")

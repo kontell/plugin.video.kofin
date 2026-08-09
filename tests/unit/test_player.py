@@ -956,14 +956,15 @@ def test_remove_offer_modes(monkeypatch):
     FakeAddon.store["downloadsEnabled"] = "true"
     item = _watched_download_item()
 
-    assert player.offer_remove_download(item) is False  # mode off by default
+    assert player.offer_remove_download(item) is False  # off by default
 
-    FakeAddon.store["downloadsDeleteAfterPlay"] = "always"
+    FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
+    FakeAddon.store["downloadsDeleteAutomatically"] = "true"
     assert player.offer_remove_download(item) is True
     assert notified == [(player_module.ipc.DOWNLOAD_REMOVE, {"Id": "d1"})]
 
     notified.clear()
-    FakeAddon.store["downloadsDeleteAfterPlay"] = "ask"
+    FakeAddon.store["downloadsDeleteAutomatically"] = "false"
     monkeypatch.setattr(player_module.threading, "Thread", ImmediateThread)
 
     class YesDialog:
@@ -984,7 +985,14 @@ def test_remove_offer_modes(monkeypatch):
     assert notified == []
 
 
-def test_remove_offer_leaves_auto_origin_to_the_sweep(monkeypatch):
+def test_remove_offer_covers_automatic_downloads_too(monkeypatch):
+    """One answer per watched download, whoever queued it.
+
+    This path used to refuse anything auto-origin and leave it to the
+    retention sweep, while the sweep refused anything the user had queued —
+    so the same watched episode was handled two different ways depending on
+    how it had arrived, under two settings that did not mention each other.
+    """
     from kofin.downloads import store as downloads_store
     from kofin.service import player as player_module
 
@@ -994,17 +1002,21 @@ def test_remove_offer_leaves_auto_origin_to_the_sweep(monkeypatch):
         player_module.ipc, "notify", lambda m, d=None: notified.append((m, d))
     )
     FakeAddon.store["downloadsEnabled"] = "true"
-    FakeAddon.store["downloadsDeleteAfterPlay"] = "always"
+    FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
+    FakeAddon.store["downloadsDeleteAutomatically"] = "true"
     row = downloads_store.Download(
         jellyfin_id="d1", state=downloads_store.DONE, origin="auto:s1"
     )
     monkeypatch.setattr("kofin.downloads.store.get", lambda item_id: row)
 
-    assert player.offer_remove_download(_watched_download_item()) is False
-    assert notified == []
+    assert player.offer_remove_download(_watched_download_item()) is True
+    assert notified == [(player_module.ipc.DOWNLOAD_REMOVE, {"Id": "d1"})]
 
+    # Nothing downloaded, nothing to offer.
+    notified.clear()
     monkeypatch.setattr("kofin.downloads.store.get", lambda item_id: None)
     assert player.offer_remove_download(_watched_download_item()) is False
+    assert notified == []
 
 
 def test_finish_offers_local_remove_only_without_the_delete_prompt(monkeypatch):

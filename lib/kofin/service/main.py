@@ -8,7 +8,7 @@ lives on the objects rebuilt each pass.
 import json
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import xbmc
 
@@ -331,7 +331,7 @@ class Service(xbmc.Monitor):
             from kofin.downloads.manager import DownloadManager
 
             self.downloads = DownloadManager(
-                self._new_api, self._refresh_video, self._stopping
+                self._new_api, self._refresh_downloads, self._stopping
             )
             self.downloads.start()
             LOG.info("download manager started")
@@ -349,14 +349,19 @@ class Service(xbmc.Monitor):
         except Exception:
             LOG.exception("download manager failed to stop")
 
-    def _refresh_video(self) -> None:
+    def _refresh_downloads(self, databases: List[str]) -> None:
         """The downloads manager's way onto screens: through the library
         manager's own refresh (never a bare builtin — the widget-refresh
         doctrine). No library manager means nothing native is rendering the
-        rows anyway."""
+        rows anyway.
+
+        The manager names the databases because it knows which it moved: a
+        finished track has nothing to say to the video library, and asking
+        anyway costs that library's whole widget fingerprint pass.
+        """
         library = self.library
-        if library is not None:
-            library.refresh_libraries(["video"])
+        if library is not None and databases:
+            library.refresh_libraries(databases)
 
     def _new_api(self) -> Api:
         """A fresh Api with its own HTTP session (one per sync worker).
@@ -778,7 +783,6 @@ class Service(xbmc.Monitor):
                 LOG.warning("download command %s ignored: manager not running", name)
                 return
             if name == ipc.DOWNLOAD_ADD:
-                ids = payload.get("Ids") or []
                 # The optional Origin marks automatic downloads for W4.2's
                 # retention sweep; anything unrecognized is a user download —
                 # the label that is never auto-deleted.
@@ -789,7 +793,25 @@ class Service(xbmc.Monitor):
                     downloads_store.is_auto_origin(origin)
                 ):
                     origin = downloads_store.ORIGIN_USER
-                self.downloads.submit([str(one) for one in ids if one], origin=origin)
+                # Types is optional and positional against Ids: the sender
+                # holds each item's DTO type, and passing it here is what
+                # lets the queue split by media kind without an item fetch
+                # per row. Paired before the empty ids are dropped, so a
+                # blank in the middle cannot shift the rest by one; a short
+                # or absent list just leaves kinds unknown, which the video
+                # pool claims.
+                raw_ids = [str(one) for one in (payload.get("Ids") or [])]
+                raw_types = [str(one) for one in (payload.get("Types") or [])]
+                pairs = [
+                    (item_id, raw_types[index] if index < len(raw_types) else "")
+                    for index, item_id in enumerate(raw_ids)
+                    if item_id
+                ]
+                self.downloads.submit(
+                    [item_id for item_id, _ in pairs],
+                    origin=origin,
+                    media_types=[dto_type for _, dto_type in pairs],
+                )
             elif name == ipc.DOWNLOAD_CANCEL:
                 self.downloads.cancel(str(payload.get("Id") or ""))
             elif name == ipc.DOWNLOAD_REMOVE:

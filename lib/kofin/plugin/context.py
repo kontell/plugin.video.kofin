@@ -279,22 +279,56 @@ DOWNLOAD_CONTAINER_TYPES = frozenset(
 )
 
 
+def _container_download_options(item_id: str, name: str) -> List[Tuple[str, dict]]:
+    """What a Season/Series/album/artist/playlist offers, from local state.
+
+    Containers used to offer Download and nothing else, on the reasoning
+    that the route's own filter would drop children already held — which
+    left a fully downloaded show with no way to remove it from the menu that
+    had put it there, and no sign that it was downloaded at all.
+
+    Download stays unless everything under the container is already
+    finished: a partly downloaded show is still worth completing, and
+    knowing whether the *server* has more children than the store does would
+    cost the very round trip this menu is built to avoid. So: Remove
+    whenever something is downloaded, Cancel whenever something is in
+    flight, Download unless the container is done and idle.
+    """
+    from kofin.downloads import store
+
+    counts = store.container_counts(item_id)
+    entries: List[Tuple[str, dict]] = []
+    if counts["pending"] or not counts["done"]:
+        entries.append((settings.localized(30708), {"mode": "download", "id": item_id}))
+    if counts["done"]:
+        entries.append(
+            (
+                settings.localized(30710),
+                {"mode": "removedownload", "id": item_id, "name": name},
+            )
+        )
+    if counts["pending"]:
+        entries.append(
+            (settings.localized(30709), {"mode": "canceldownload", "id": item_id})
+        )
+    return entries
+
+
 def _download_options(item: dict) -> List[Tuple[str, dict]]:
     """Download / Cancel download / Remove download, from local state.
 
     Leaves gate on the server's ``CanDownload`` exactly as delete gates on
     ``CanDelete`` — never offer what the server will 403 (the field is false
     when the admin turned EnableContentDownloading off). Containers cannot
-    carry the field (folders always answer false), so they offer Download
-    whenever the feature is on and the route's own filter drops children the
-    server refuses or the store already holds.
+    carry the field (folders always answer false), so they never gate on it;
+    the route's own filter drops children the server refuses.
     """
     item_type = item.get("Type")
     if item_type not in DOWNLOADABLE_TYPES:
         return []
     item_id = item.get("Id", "")
     if item_type in DOWNLOAD_CONTAINER_TYPES:
-        entries = [(settings.localized(30708), {"mode": "download", "id": item_id})]
+        entries = _container_download_options(item_id, item.get("Name", ""))
         if item_type == "Series":
             # The new-episode subscription toggle (W4.6), labeled by the
             # show's current state.
@@ -431,6 +465,16 @@ def _offline_menu(item_id: str) -> None:
         elif row is not None:
             options.append(
                 (settings.localized(30709), {"mode": "canceldownload", "id": item_id})
+            )
+        else:
+            # No row of its own: it may still be a container holding some.
+            # The store answers that without the server, which is the whole
+            # reason this menu exists — a downloaded season had no offline
+            # entry at all before, because only leaves were consulted.
+            options.extend(
+                entry
+                for entry in _container_download_options(item_id, "")
+                if entry[1]["mode"] != "download"  # queueing needs the server
             )
     options.append((settings.localized(30504), {"mode": "settings"}))
 

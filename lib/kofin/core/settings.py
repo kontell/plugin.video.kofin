@@ -43,6 +43,20 @@ def get_int(setting_id: str) -> int:
     return _addon().getSettingInt(setting_id)
 
 
+def get_float(setting_id: str) -> float:
+    """A numeric setting that may be fractional.
+
+    Read as a string, because Kodi's ``integer`` type cannot express the
+    sub-1 Mbit/s bitrate options and its ``number`` type is a slider. An
+    unparseable or empty value reads as 0, which every caller already
+    treats as "unlimited".
+    """
+    try:
+        return float(_addon().getSetting(setting_id) or 0)
+    except ValueError:
+        return 0.0
+
+
 def get_list(setting_id: str) -> List[str]:
     raw = _addon().getSetting(setting_id)
     return [part for part in (piece.strip() for piece in raw.split(",")) if part]

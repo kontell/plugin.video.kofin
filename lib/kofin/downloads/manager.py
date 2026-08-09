@@ -21,7 +21,7 @@ import os
 import threading
 import time
 from queue import Empty, Queue
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import xbmc
 
@@ -33,6 +33,7 @@ from kofin.downloads import (
     downloads_root,
     export,
     files,
+    notify_allowed,
     probe,
     progress,
     quality,
@@ -45,6 +46,13 @@ LOG = Logger(__name__)
 JsonDict = Dict[str, Any]
 
 MEDIA_TYPE_BY_DTO = {"Movie": "movie", "Episode": "episode", "Audio": "song"}
+
+# What each worker pool claims. "" is the unknown kind — a row queued by a
+# release that did not carry the type, or by a sender that had no DTO — and
+# it belongs to the video pool, whose pacing already assumes an item might
+# be a two-hour film.
+VIDEO_KINDS = ("movie", "episode", "")
+MUSIC_KINDS = ("song",)
 
 # Per-item attempts before the row settles as failed. The store keeps
 # bytes_done across the requeues, so original attempts resume with a Range.
@@ -71,6 +79,12 @@ RETENTION_SWEEP_SECONDS = 300.0
 # Store progress roughly every 8 MiB rather than every chunk.
 PROGRESS_EVERY_CHUNKS = 32
 
+# The longest a finished download waits to become visible while the pool is
+# still busy. Short enough that a long album shows its first tracks well
+# before the last one lands; long enough that a burst of tracks refreshes
+# once rather than per track.
+REFRESH_MAX_DEFER_SECONDS = 20.0
+
 # ffmpeg-style codec -> sidecar extension, where they differ. Anything not
 # listed uses the codec name itself, which is right for ass/ssa/vtt/sup.
 SUBTITLE_EXTENSIONS = {"subrip": "srt", "webvtt": "vtt"}
@@ -85,11 +99,16 @@ def worker_count() -> int:
     return max(1, min(4, configured or 2))
 
 
+def music_worker_count() -> int:
+    configured = settings.get_int("downloadsMusicParallel")
+    return max(1, min(10, configured or 5))
+
+
 class DownloadManager:
     def __init__(
         self,
         api_factory: Callable[[], Any],
-        refresh: Callable[[], None],
+        refresh: Callable[[List[str]], None],
         stopping: "threading.Event",
     ) -> None:
         self._api_factory = api_factory
@@ -99,17 +118,37 @@ class DownloadManager:
         self._stopping = stopping
         self._stop = threading.Event()
         self._wake = threading.Event()
-        self._ops: "Queue[Tuple[str, str, str]]" = Queue()
+        self._ops: "Queue[Tuple[str, str, str, str]]" = Queue()
         self._cancels: set = set()
         self._cancels_lock = threading.Lock()
         self._attempts: Dict[str, int] = {}
         self._workers: List[threading.Thread] = []
         self._reconciler: Optional[threading.Thread] = None
-        # One transcode pull at a time across the whole pool (plan W3.1):
-        # the encoder runs flat-out with throttling force-disabled (V2), so
-        # two parallel pulls would saturate the server unbidden. Originals
-        # keep the full pool.
+        # Which Kodi databases a finished download has made stale, and since
+        # when. Coalesced rather than refreshed per item — see _mark_dirty.
+        self._dirty: Set[str] = set()
+        self._dirty_since = 0.0
+        self._dirty_lock = threading.Lock()
+        # The Downloaded-music view is written once per generation, not once
+        # per track (see _ensure_music_view).
+        self._music_view_written = False
+        # Albums whose completion has already been announced, so a burst of
+        # tracks is one notification (see _announce_complete).
+        self._announced: Set[str] = set()
+        self._announce_lock = threading.Lock()
+        # One *video* transcode pull at a time (plan W3.1): the encoder runs
+        # flat-out with throttling force-disabled (V2), so two parallel pulls
+        # would saturate the server unbidden. Originals keep the full pool.
+        #
+        # Audio gets its own counter, and it is the whole music pool. An
+        # Opus encode is seconds of one core, nothing like an h264 pass, and
+        # sharing the video slot was what made music downloads crawl: every
+        # track in an album queued behind every other track's encode, which
+        # measured out at roughly a tenth of Finamp's throughput. Sizing it
+        # to the pool means the semaphore never actually blocks a music
+        # worker — it stays a semaphore only so the two paths keep one shape.
         self._transcode_slot = threading.Semaphore(1)
+        self._music_transcode_slot = threading.Semaphore(music_worker_count())
         # The aggregate bar on Kodi's library-update surface (W3.4).
         self._progress = progress.Reporter(self._should_stop)
 
@@ -125,15 +164,25 @@ class DownloadManager:
             daemon=True,
         )
         self._reconciler.start()
+        # Two pools, one queue. The kinds a pool claims are what keep an
+        # album from sitting behind a film — and the video pool takes the
+        # unknown kind, because a row queued before the type travelled with
+        # the id could be anything (store.claim).
         for index in range(worker_count()):
-            worker = threading.Thread(
-                target=self._run_worker,
-                name="kofin-downloads-%d" % index,
-                daemon=True,
-            )
-            worker.start()
-            self._workers.append(worker)
+            self._spawn_worker("kofin-downloads-%d" % index, VIDEO_KINDS)
+        for index in range(music_worker_count()):
+            self._spawn_worker("kofin-downloads-music-%d" % index, MUSIC_KINDS)
         LOG.info("download manager started (%d worker(s))", len(self._workers))
+
+    def _spawn_worker(self, name: str, kinds: Tuple[str, ...]) -> None:
+        worker = threading.Thread(
+            target=self._run_worker,
+            args=(kinds,),
+            name=name,
+            daemon=True,
+        )
+        worker.start()
+        self._workers.append(worker)
 
     def stop(self) -> None:
         self._stop.set()
@@ -154,20 +203,34 @@ class DownloadManager:
 
     # -- the IPC surface (notification thread: enqueue only) -------------------
 
-    def submit(self, item_ids: List[str], origin: str = store.ORIGIN_USER) -> None:
-        for item_id in item_ids:
-            if item_id:
-                self._ops.put(("add", str(item_id), origin))
+    def submit(
+        self,
+        item_ids: List[str],
+        origin: str = store.ORIGIN_USER,
+        media_types: Optional[List[str]] = None,
+    ) -> None:
+        """Queue ids, optionally with each one's Jellyfin DTO type.
+
+        The type is what lets a row be claimed by the right worker pool
+        before anything has been fetched for it. Unknown is fine and stays
+        unknown until ``record_details`` learns it the slow way.
+        """
+        kinds = media_types or []
+        for index, item_id in enumerate(item_ids):
+            if not item_id:
+                continue
+            kind = MEDIA_TYPE_BY_DTO.get(kinds[index] if index < len(kinds) else "", "")
+            self._ops.put(("add", str(item_id), origin, kind))
         self._wake.set()
 
     def cancel(self, item_id: str) -> None:
         with self._cancels_lock:
             self._cancels.add(item_id)
-        self._ops.put(("cancel", item_id, ""))
+        self._ops.put(("cancel", item_id, "", ""))
         self._wake.set()
 
     def remove(self, item_id: str) -> None:
-        self._ops.put(("remove", item_id, ""))
+        self._ops.put(("remove", item_id, "", ""))
         self._wake.set()
 
     def _cancelled(self, item_id: str) -> bool:
@@ -180,7 +243,7 @@ class DownloadManager:
 
     # -- workers ---------------------------------------------------------------
 
-    def _run_worker(self) -> None:
+    def _run_worker(self, kinds: Tuple[str, ...] = VIDEO_KINDS) -> None:
         api = self._api_factory()
         try:
             while not self._should_stop():
@@ -196,8 +259,21 @@ class DownloadManager:
                     if self._wake.wait(timeout=OFFLINE_POLL_SECONDS):
                         self._wake.clear()
                     continue
-                row = store.claim()
+                row = store.claim(kinds)
                 if row is None:
+                    if not self._ops.empty():
+                        # Ops arrived while this worker was claiming. Never
+                        # sleep on a non-empty queue: ``_wake`` is one Event
+                        # shared by the whole pool, so the first worker to
+                        # notice clears it for everybody, and a straggler
+                        # enqueued in that window waited out the full idle
+                        # poll. Invisible while a removal meant one item;
+                        # a container removal is 17 of them, and the tail
+                        # sat there for 30 s (measured on the Bravia).
+                        continue
+                    # Nothing left for this pool: the moment to pay for the
+                    # refreshes the finished items deferred.
+                    self._flush_refresh(force=True)
                     self._progress.idle()
                     if self._wake.wait(timeout=IDLE_POLL_SECONDS):
                         self._wake.clear()
@@ -209,6 +285,7 @@ class DownloadManager:
                     # worker for the rest of the generation.
                     LOG.exception("download processing died for %s", row.jellyfin_id)
                     store.fail(row.jellyfin_id, "internal error")
+                self._flush_refresh()
         except Exception:  # pragma: no cover - the backstop, never expected
             LOG.exception("download worker died")
         finally:
@@ -217,12 +294,12 @@ class DownloadManager:
     def _drain_ops(self) -> None:
         while True:
             try:
-                op, item_id, origin = self._ops.get_nowait()
+                op, item_id, origin, media_type = self._ops.get_nowait()
             except Empty:
                 return
             try:
                 if op == "add":
-                    self._apply_add(item_id, origin)
+                    self._apply_add(item_id, origin, media_type)
                 elif op == "cancel":
                     self._apply_cancel(item_id)
                 elif op == "remove":
@@ -230,9 +307,18 @@ class DownloadManager:
             except Exception:
                 LOG.exception("download op %s failed for %s", op, item_id)
 
-    def _apply_add(self, item_id: str, origin: str) -> None:
-        if store.queue(store.Download(jellyfin_id=item_id, origin=origin)):
+    def _apply_add(self, item_id: str, origin: str, media_type: str = "") -> None:
+        if store.queue(
+            store.Download(
+                jellyfin_id=item_id, origin=origin, media_type=media_type or ""
+            )
+        ):
             self._attempts.pop(item_id, None)
+            # New work re-arms every album announcement: downloading an
+            # album, removing it and downloading it again should say so
+            # both times (_announce_complete).
+            with self._announce_lock:
+                self._announced.clear()
             LOG.info("download queued: %s", item_id)
 
     def _apply_cancel(self, item_id: str) -> None:
@@ -264,7 +350,14 @@ class DownloadManager:
         store.remove(item_id)
         repoint.unstamp_tag(row)
         repoint.clear_badge(row)
-        self._refresh_quietly()
+        # A removal answers something the user just asked for, so it does
+        # not wait out the completion path's defer window — but "immediate"
+        # has to mean once per *request*, not once per row. Removing an
+        # album is one menu press and seventeen rows, and refreshing per row
+        # meant seventeen widget passes for one answer.
+        self._mark_dirty(row.media_type)
+        if self._ops.empty():
+            self._flush_refresh(force=True)
         LOG.info("download removed: %s", item_id)
 
     # -- the transfer ----------------------------------------------------------
@@ -372,8 +465,13 @@ class DownloadManager:
             export.export_item(api, item, absolute)  # best-effort by contract
         if media_type == "song":
             self._ensure_music_view()
-        self._refresh_quietly()
-        self._toast(30712, item.get("Name", item_id))
+        # Deferred, not fired here. A refresh costs a widget fingerprint pass
+        # and an UpdateLibrary scan, which is nothing beside a film and
+        # everything beside a three-minute track — a 12-track album paid it
+        # twelve times over. The flusher does it once the pool goes quiet,
+        # for the databases that actually moved.
+        self._mark_dirty(media_type)
+        self._announce_complete(media_type, group_id, item)
         LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
 
     def _capture_segments(self, api: Any, item_id: str) -> None:
@@ -394,13 +492,24 @@ class DownloadManager:
             # download as an internal error.
             LOG.debug("segment capture skipped for %s: %s", item_id, error)
 
-    def _ensure_music_view(self) -> None:
-        """The Downloaded-music smart playlist exists from the first song on
-        (plan W3.3); idempotent, and never worth failing a download over."""
+    def _ensure_music_view(self, force: bool = False) -> None:
+        """The Downloaded-music smart playlist and node exist from the first
+        song on (plan W3.3); idempotent, and never worth failing a download
+        over.
+
+        Once per manager generation, not once per track: the document does
+        not depend on which songs exist, so rewriting it for every track of
+        an album was twelve identical writes. ``force`` is the reconcile,
+        which runs precisely to heal a file somebody deleted by hand.
+        """
+        if self._music_view_written and not force:
+            return
         try:
-            from kofin.sync import playlists
+            from kofin.sync import playlists, views
 
             playlists.refresh_downloaded_music()
+            views.write_music_nodes()
+            self._music_view_written = True
         except Exception:  # pragma: no cover - the view is best-effort
             LOG.exception("downloaded-music view refresh failed")
 
@@ -476,7 +585,8 @@ class DownloadManager:
         Content-Length to miss.
         """
         item_id = row.jellyfin_id
-        if not self._acquire_transcode_slot(item_id):
+        slot = self._slot_for(MEDIA_TYPE_BY_DTO.get(str(item.get("Type")), ""))
+        if not self._acquire_transcode_slot(item_id, slot):
             raise JellyfinError("interrupted waiting for the transcode slot")
         try:
             runtime_ticks = int(
@@ -511,18 +621,28 @@ class DownloadManager:
             return rel_path, actual
         finally:
             self._close_transcode(api, decision.play_session_id)
-            self._transcode_slot.release()
+            slot.release()
 
-    def _acquire_transcode_slot(self, item_id: str) -> bool:
-        """Wait for the single transcode slot; False when stop or an outage
-        ends the wait (the caller raises into the interruption paths). A
-        worker parks here while another transcodes — accepted: the rest of
-        the pool keeps draining originals, and the wait honors stop, outage
-        and this item's own cancel within half a second."""
+    def _slot_for(self, media_type: str) -> "threading.Semaphore":
+        """Which transcode counter this item queues on — see the two
+        semaphores in ``__init__``. Video is one at a time; music is as wide
+        as its pool."""
+        return (
+            self._music_transcode_slot if media_type == "song" else self._transcode_slot
+        )
+
+    def _acquire_transcode_slot(
+        self, item_id: str, slot: "threading.Semaphore"
+    ) -> bool:
+        """Wait for a transcode slot; False when stop or an outage ends the
+        wait (the caller raises into the interruption paths). A worker parks
+        here while another transcodes — accepted: the rest of the pool keeps
+        draining originals, and the wait honors stop, outage and this item's
+        own cancel within half a second."""
         while not self._should_stop() and not state.is_offline():
             if self._cancelled(item_id):
                 raise _Cancelled()
-            if self._transcode_slot.acquire(timeout=0.5):
+            if slot.acquire(timeout=0.5):
                 return True
         return False
 
@@ -829,27 +949,36 @@ class DownloadManager:
                     repoint.stamp_badge(row)
                     touched = True
             if songs:
-                self._ensure_music_view()  # heals a hand-deleted .xsp too
+                self._ensure_music_view(force=True)  # heals a hand-deleted .xsp too
             if touched:
-                self._refresh_quietly()
+                self._refresh_quietly(["music", "video"] if songs else ["video"])
         except Exception:  # pragma: no cover - never break service start
             LOG.exception("downloads reconcile failed")
 
     def _retention_sweep(self) -> None:
-        """W4.2: remove watched **auto-origin** downloads, through the full
-        remove path — never a bare unlink. Two exclusions are load-bearing:
-        user-origin rows are never touched, and the item currently playing
-        is skipped (Kodi marks played at ~90%, and a sweep firing in a binge
-        episode's last minutes would delete the file under the player).
-        Watched-ness is Kodi's own playcount — local truth, works offline."""
+        """W4.2: remove watched downloads, through the full remove path —
+        never a bare unlink.
+
+        The backstop for what the end-of-playback offer cannot see: an item
+        watched while the service was down, or through something other than
+        kofin's player. It runs only in the *silent* mode — with the confirm
+        mode chosen, removal is a question, and this sweep has no one to ask
+        (the thing it noticed may have finished an hour ago).
+
+        Two exclusions are load-bearing: songs are never swept (a played
+        track is not a finished one), and the item currently playing is
+        skipped — Kodi marks played at ~90%, and a sweep firing in a binge
+        episode's last minutes would delete the file under the player.
+        Watched-ness is Kodi's own playcount — local truth, works offline.
+        """
         try:
-            if not settings.get_bool("downloadsAutoCleanup"):
+            if not settings.get_bool("downloadsDeleteAfterWatching"):
+                return
+            if not settings.get_bool("downloadsDeleteAutomatically"):
                 return
             for row in store.rows(store.DONE):
                 if self._should_stop():
                     return
-                if not store.is_auto_origin(row.origin):
-                    continue
                 if row.media_type not in ("movie", "episode"):
                     continue
                 if not _watched_locally(row):
@@ -877,13 +1006,71 @@ class DownloadManager:
 
     # -- plumbing --------------------------------------------------------------
 
-    def _refresh_quietly(self) -> None:
+    # -- making writes visible --------------------------------------------------
+
+    def _mark_dirty(self, media_type: str) -> None:
+        """Note that a database needs a refresh, without doing it yet.
+
+        Songs move Kodi's music database, everything else the video one, and
+        asking for the wrong database is not free: the refresh runs a widget
+        fingerprint pass over whatever it is handed. Before this split every
+        finished track fired ``UpdateLibrary(video)``.
+        """
+        with self._dirty_lock:
+            self._dirty.add("music" if media_type == "song" else "video")
+            if not self._dirty_since:
+                self._dirty_since = time.monotonic()
+
+    def _flush_refresh(self, force: bool = False) -> None:
+        """Refresh the dirty databases — on ``force`` (the pool went quiet),
+        or once the oldest mark has waited out the defer window."""
+        with self._dirty_lock:
+            if not self._dirty:
+                return
+            waited = time.monotonic() - self._dirty_since
+            if not force and waited < REFRESH_MAX_DEFER_SECONDS:
+                return
+            databases = sorted(self._dirty)
+            self._dirty.clear()
+            self._dirty_since = 0.0
+        self._refresh_quietly(databases)
+
+    def _refresh_quietly(self, databases: Optional[List[str]] = None) -> None:
         try:
-            self._refresh()
+            self._refresh(databases or ["video"])
         except Exception:  # pragma: no cover - refresh is best-effort
             LOG.exception("downloads refresh failed")
 
+    def _announce_complete(
+        self, media_type: str, group_id: str, item: JsonDict
+    ) -> None:
+        """One "Download complete" per album, not one per track.
+
+        A track is seconds of work and an album lands as a burst, so the
+        per-item toast stacked a dozen notifications naming songs nobody
+        had asked for individually — the album is the thing they asked for.
+        Video keeps its per-item toast: a film or an episode *is* the unit
+        somebody chose, and they finish minutes apart.
+
+        The album is announced by whichever worker finishes the last of it,
+        claimed under the lock so two tracks landing together cannot both
+        be last. ``_apply_add`` re-arms every album when anything new is
+        queued, so downloading the same one again announces again.
+        """
+        if media_type != "song" or not group_id:
+            self._toast(30712, item.get("Name") or item.get("Id", ""))
+            return
+        with self._announce_lock:
+            if group_id in self._announced:
+                return
+            if store.container_counts(group_id)["pending"]:
+                return  # more of this album is still coming
+            self._announced.add(group_id)
+        self._toast(30712, item.get("Album") or item.get("Name") or group_id)
+
     def _toast(self, string_id: int, name: Any) -> None:
+        if not notify_allowed(string_id):
+            return
         try:
             toast.show(settings.localized(string_id) % name, time_ms=4000)
         except Exception:  # pragma: no cover - uncached string etc.

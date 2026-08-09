@@ -200,3 +200,90 @@ def test_pending_count_spans_queued_and_active():
     assert store.pending_count() == 2  # one active, one queued
     store.finish("m1", "a/b.mkv", "mkv", 1)
     assert store.pending_count() == 1
+
+
+# -- the two worker pools, and container questions ----------------------------
+
+
+def test_claim_is_scoped_to_a_pools_own_kinds():
+    """Music downloads got their own pool because they cost nothing like a
+    film; the kind filter is what keeps an album from queueing behind one.
+    The unknown kind — rows queued before the type travelled with the id —
+    belongs to the video pool, so no work can be stranded."""
+    store.queue(store.Download(jellyfin_id="song1", media_type="song", queued_at=100))
+    store.queue(store.Download(jellyfin_id="film1", media_type="movie", queued_at=101))
+    store.queue(store.Download(jellyfin_id="old1", media_type="", queued_at=102))
+
+    music = store.claim(("song",))
+    assert music.jellyfin_id == "song1"
+    assert store.claim(("song",)) is None  # nothing else is music
+
+    video = [store.claim(("movie", "episode", "")) for _ in range(2)]
+    assert [row.jellyfin_id for row in video] == ["film1", "old1"]
+    assert store.claim(("movie", "episode", "")) is None  # drained
+
+
+def test_claim_with_no_kinds_at_all_claims_nothing():
+    store.queue(store.Download(jellyfin_id="m1", media_type="movie"))
+    assert store.claim(()) is None
+    assert store.claim() is not None  # ... unlike the unscoped call
+
+
+def test_queue_records_the_media_type_it_was_given():
+    store.queue(store.Download(jellyfin_id="s1", media_type="song"))
+    assert store.get("s1").media_type == "song"
+
+
+def _seed_container_child(item_id, state, series_id="", parent_id=""):
+    store.queue(store.Download(jellyfin_id=item_id, series_id=series_id))
+    if parent_id:
+        with sync_db.Database("kofin") as opened:
+            opened.cursor.execute(
+                "INSERT INTO jellyfin (jellyfin_id, parent_id, media_type) "
+                "VALUES (?, ?, 'episode')",
+                (item_id, parent_id),
+            )
+    if state != store.QUEUED:
+        store.claim()
+    if state == store.DONE:
+        store.finish(item_id, "a/%s.mkv" % item_id, "mkv", 1)
+    elif state == store.FAILED:
+        store.fail(item_id, "nope")
+
+
+def test_container_counts_see_children_by_series_and_by_parent():
+    """Two lookups because the table records one parent: series_id answers a
+    Series or an album outright, and a Season — which is nobody's series_id
+    — is found through the kofin.db mapping's parent_id."""
+    _seed_container_child("e1", store.DONE, series_id="show1")
+    _seed_container_child("e2", store.QUEUED, series_id="show1")
+    _seed_container_child("e3", store.FAILED, series_id="show1")
+    _seed_container_child("s1", store.DONE, parent_id="season1")
+    _seed_container_child("s2", store.ACTIVE, parent_id="season1")
+
+    show = store.container_counts("show1")
+    assert show == {"done": 1, "pending": 1}  # the failure counts as neither
+    assert store.container_done_ids("show1") == ["e1"]
+    assert store.container_pending_ids("show1") == ["e2"]
+
+    season = store.container_counts("season1")
+    assert season == {"done": 1, "pending": 1}
+    assert store.container_done_ids("season1") == ["s1"]
+    assert store.container_pending_ids("season1") == ["s2"]
+
+    assert store.container_counts("") == {"done": 0, "pending": 0}
+    assert store.container_counts("nothing") == {"done": 0, "pending": 0}
+
+
+def test_the_video_pool_also_claims_a_null_kind():
+    """A row no pool can claim is stuck forever and says nothing about it,
+    so the unknown-kind bucket covers NULL as well as ''."""
+    store.queue(store.Download(jellyfin_id="odd1"))
+    with sync_db.Database("kofin") as opened:
+        opened.cursor.execute(
+            "UPDATE download SET media_type = NULL WHERE jellyfin_id = 'odd1'"
+        )
+
+    assert store.claim(("song",)) is None
+    claimed = store.claim(("movie", "episode", ""))
+    assert claimed is not None and claimed.jellyfin_id == "odd1"

@@ -22,6 +22,7 @@ import threading
 def env(tmp_path, monkeypatch):
     FakeAddon.store = {
         "downloadsEnabled": "true",
+        "downloadsNotify": "true",
         "downloadsPath": str(tmp_path / "dl"),
         "downloadsMaxParallel": "2",
     }
@@ -29,7 +30,13 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
     monkeypatch.setattr("xbmcvfs.exists", lambda p: True)
-    monkeypatch.setattr("xbmcvfs.translatePath", lambda p: str(p))
+    # special:// lands inside tmp_path, not in the repo: the manager writes
+    # the Downloaded-music playlist and node through translatePath, and a
+    # pass-through left a literal "special:" directory behind.
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath",
+        lambda p: str(p).replace("special://", str(tmp_path / "kodi") + "/"),
+    )
     sync_db.reset_overrides()
     sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
     yield
@@ -168,7 +175,7 @@ def make_manager(repoints):
     refreshes = []
     manager = DownloadManager(
         api_factory=lambda: None,
-        refresh=lambda: refreshes.append(1),
+        refresh=lambda databases: refreshes.append(list(databases)),
         stopping=threading.Event(),
     )
     return manager, refreshes
@@ -205,7 +212,11 @@ def test_happy_path_downloads_verifies_repoints_and_refreshes(tmp_path, repoints
     assert repoints["repoint"] == [("m1", str(tmp_path / "dl"))]
     assert repoints["stamp"] == ["m1"]
     assert repoints["badge"] == ["m1"]  # the native-library signal
-    assert refreshes == [1]
+    # Deferred, not fired: a completion marks its database dirty and the
+    # worker loop pays for the refresh once the pool goes quiet.
+    assert refreshes == []
+    manager._flush_refresh(force=True)
+    assert refreshes == [["video"]]
 
 
 def test_resume_appends_from_the_part_watermark(tmp_path, repoints):
@@ -417,7 +428,7 @@ def test_reconcile_restores_missing_files_and_reasserts_present_ones(
     assert ("ghost", str(tmp_path / "dl")) in repoints["restore"]
     assert store.get("ghost").state == store.FAILED
     assert store.get("kept").state == store.DONE
-    assert refreshes == [1]
+    assert refreshes == [["video"]]
 
 
 def test_remove_restores_deletes_and_prunes(tmp_path, repoints):
@@ -440,7 +451,9 @@ def test_remove_restores_deletes_and_prunes(tmp_path, repoints):
     assert not final.exists()
     assert not final.parent.exists()  # sidecar went with it, dir pruned
     assert (tmp_path / "dl").exists()  # never the root itself
-    assert refreshes == [1]
+    # Immediate, unlike a completion: the row has to leave the list the user
+    # is looking at.
+    assert refreshes == [["video"]]
 
 
 EPISODE_DTO = {
@@ -639,6 +652,7 @@ def test_over_limit_transcodes_names_and_finishes(tmp_path, repoints, monkeypatc
     # The job was closed by name, and the slot came back.
     assert api.closed_transcodes == [("dev1", "ps1")]
     assert manager._transcode_slot.acquire(blocking=False)
+    manager._flush_refresh(force=True)
     assert repoints["repoint"] and refreshes
 
 
@@ -972,8 +986,15 @@ def seed_done(item_id, origin, queued_at=100):
     store.finish(item_id, "Movies/%s/%s.mkv" % (item_id, item_id), "mkv", 1)
 
 
-def test_retention_removes_only_watched_auto_items(repoints, monkeypatch):
-    FakeAddon.store["downloadsAutoCleanup"] = "true"
+def test_retention_sweeps_every_watched_download_in_the_silent_mode(
+    repoints, monkeypatch
+):
+    """The sweep is the backstop for what the end-of-playback offer misses,
+    and it no longer cares who queued the item — the origin split meant a
+    download the user asked for was never collected here at all, however
+    long ago they had watched it."""
+    FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
+    FakeAddon.store["downloadsDeleteAutomatically"] = "true"
     manager, _ = make_manager(repoints)
     seed_done("auto-watched", "auto:s1", queued_at=100)
     seed_done("auto-fresh", "auto:s1", queued_at=101)
@@ -989,16 +1010,33 @@ def test_retention_removes_only_watched_auto_items(repoints, monkeypatch):
     monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
 
     manager._retention_sweep()
-    assert removed == ["auto-watched"]  # never the user's, never the unwatched
+    assert removed == ["auto-watched", "user-watched"]  # never the unwatched
 
-    FakeAddon.store["downloadsAutoCleanup"] = "false"
-    removed.clear()
+
+def test_retention_stands_down_when_removal_is_a_question(repoints, monkeypatch):
+    """With the confirm mode chosen the sweep must do nothing: it has nobody
+    to ask — what it notices may have finished hours ago — so the prompt
+    belongs to the end-of-playback path alone."""
+    FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
+    FakeAddon.store["downloadsDeleteAutomatically"] = "false"
+    manager, _ = make_manager(repoints)
+    seed_done("auto-watched", "auto:s1")
+    monkeypatch.setattr(manager_module, "_watched_locally", lambda row: True)
+    removed = []
+    monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
+
     manager._retention_sweep()
-    assert removed == []  # the gate
+    assert removed == []
+
+    FakeAddon.store["downloadsDeleteAfterWatching"] = "false"
+    FakeAddon.store["downloadsDeleteAutomatically"] = "true"
+    manager._retention_sweep()
+    assert removed == []  # the master gate
 
 
 def test_retention_never_deletes_the_playing_file(repoints, monkeypatch):
-    FakeAddon.store["downloadsAutoCleanup"] = "true"
+    FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
+    FakeAddon.store["downloadsDeleteAutomatically"] = "true"
     manager, _ = make_manager(repoints)
     seed_done("auto-playing", "auto:s1")
     monkeypatch.setattr(manager_module, "_watched_locally", lambda row: True)
@@ -1152,3 +1190,119 @@ def test_start_backfills_missing_segment_caches(tmp_path, repoints, monkeypatch)
     asked.clear()
     manager._backfill_segment_caches()
     assert asked == []  # offline: nobody to ask
+
+
+# -- the notification opt-out -------------------------------------------------
+
+
+def test_notifications_opt_out_silences_progress_but_never_failures(
+    tmp_path, repoints, monkeypatch
+):
+    """A per-item "Download complete" toast is the noisy one, and an album
+    fires a dozen. Failures stay: an opt-out that swallowed them would turn
+    "my download did nothing" into an unanswerable question — the same line
+    syncPlayNotifications draws."""
+    manager, _ = make_manager(repoints)
+    shown = []
+    monkeypatch.setattr(manager_module.toast, "show", lambda *a, **k: shown.append(a))
+    monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d %%s" % i)
+
+    FakeAddon.store["downloadsNotify"] = "false"
+    manager._toast(30712, "The Movie")  # complete
+    assert shown == []
+
+    manager._toast(30713, "The Movie")  # failed
+    manager._toast(30715, "The Movie")  # out of space
+    assert [call[0] for call in shown] == ["L30713 The Movie", "L30715 The Movie"]
+
+    shown.clear()
+    FakeAddon.store["downloadsNotify"] = "true"
+    manager._toast(30712, "The Movie")
+    assert [call[0] for call in shown] == ["L30712 The Movie"]
+
+
+def test_a_bulk_removal_refreshes_once_not_per_row(tmp_path, repoints):
+    """Removing an album is one menu press and seventeen rows. Each row
+    refreshing on its own meant seventeen widget passes for one answer —
+    invisible while a removal could only ever be a single item, which is
+    what the container remove route changed."""
+    manager, refreshes = make_manager(repoints)
+    for index in range(3):
+        item_id = "s%d" % index
+        rel = "Music/A/B/%s.opus" % item_id
+        target = tmp_path / "dl" / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"x")
+        queue_row(item_id, media_type="song")
+        store.record_details(item_id, "song", "album1", 0, "")
+        store.finish(item_id, rel, "opus", 1)
+        manager._ops.put(("remove", item_id, "", ""))
+
+    manager._drain_ops()
+
+    assert store.rows() == []
+    # One refresh, fired by the last row — the only one that found the ops
+    # queue drained — and against the music database, not video.
+    assert refreshes == [["music"]]
+
+
+def test_an_album_announces_once_not_once_per_track(tmp_path, repoints, monkeypatch):
+    """Twelve tracks landing in a burst were twelve notifications naming
+    songs nobody chose individually. The album is what was asked for, so
+    the worker that finishes the last of it is the one that says so."""
+    manager, _ = make_manager(repoints)
+    shown = []
+    monkeypatch.setattr(
+        manager_module.toast, "show", lambda *a, **k: shown.append(a[0])
+    )
+    monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d %%s" % i)
+
+    for index in range(3):
+        store.queue(store.Download(jellyfin_id="t%d" % index, media_type="song"))
+        store.record_details("t%d" % index, "song", "album1", 0, "")
+
+    track = {"Id": "t0", "Name": "Come Together", "Album": "Abbey Road"}
+    manager._announce_complete("song", "album1", track)
+    assert shown == []  # two still queued
+
+    store.claim(("song",))
+    store.finish("t0", "a/0.opus", "opus", 1)
+    store.claim(("song",))
+    store.finish("t1", "a/1.opus", "opus", 1)
+    manager._announce_complete("song", "album1", track)
+    assert shown == []  # one still queued
+
+    store.claim(("song",))
+    store.finish("t2", "a/2.opus", "opus", 1)
+    manager._announce_complete("song", "album1", track)
+    assert shown == ["L30712 Abbey Road"]  # the album, not the track
+
+    # A second worker arriving at the same conclusion says nothing.
+    manager._announce_complete("song", "album1", track)
+    assert shown == ["L30712 Abbey Road"]
+
+    # ... until something new is queued, which re-arms it.
+    manager._apply_add("t9", store.ORIGIN_USER, "song")
+    store.record_details("t9", "song", "album1", 0, "")
+    store.claim(("song",))
+    store.finish("t9", "a/9.opus", "opus", 1)
+    manager._announce_complete("song", "album1", track)
+    assert shown == ["L30712 Abbey Road", "L30712 Abbey Road"]
+
+
+def test_video_keeps_its_per_item_completion_toast(tmp_path, repoints, monkeypatch):
+    """A film or an episode is itself the thing somebody chose, and they
+    finish minutes apart — nothing to coalesce."""
+    manager, _ = make_manager(repoints)
+    shown = []
+    monkeypatch.setattr(
+        manager_module.toast, "show", lambda *a, **k: shown.append(a[0])
+    )
+    monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d %%s" % i)
+
+    manager._announce_complete("episode", "show1", {"Id": "e1", "Name": "Blood Test"})
+    manager._announce_complete("movie", "", {"Id": "m1", "Name": "The Movie"})
+    # A stray track with no album is its own unit too.
+    manager._announce_complete("song", "", {"Id": "s1", "Name": "Ringtone"})
+
+    assert shown == ["L30712 Blood Test", "L30712 The Movie", "L30712 Ringtone"]

@@ -1405,7 +1405,7 @@ msgid "Chapter images from the server"
 msgstr ""
 
 msgctxt "#30621"
-msgid "Show Jellyfin's chapter images in Kodi's chapter list during playback. Needs chapter image extraction enabled on the server (a per-library setting) and an item that direct plays — transcoded streams carry no chapters."
+msgid "Show Jellyfin's chapter images in Kodi's chapter list. Nothing is downloaded in advance: the images for an item are fetched when you start playing it and dropped again afterwards. Needs chapter image extraction enabled on the server (a per-library setting) and an item that direct plays — transcoded streams carry no chapters."
 msgstr ""
 
 # 30622-30636 — new-content notifications
@@ -1591,7 +1591,7 @@ msgid "Enable downloads"
 msgstr ""
 
 msgctxt "#30703"
-msgid "Adds Download to the Jellyfin actions menu and runs the download manager"
+msgid "Adds Download to the Jellyfin actions menu and runs the download manager. Only for libraries you sync with Kofin."
 msgstr ""
 
 msgctxt "#30704"
@@ -1603,11 +1603,11 @@ msgid "Where downloaded files are kept. Leave empty for the addon profile folder
 msgstr ""
 
 msgctxt "#30706"
-msgid "Parallel downloads"
+msgid "Parallel video downloads"
 msgstr ""
 
 msgctxt "#30707"
-msgid "How many items download at the same time"
+msgid "How many movies and episodes download at the same time"
 msgstr ""
 
 msgctxt "#30708"
@@ -1667,7 +1667,7 @@ msgid "Downloaded episodes"
 msgstr ""
 
 msgctxt "#30722"
-msgid "Transcode incompatible videos"
+msgid "Transcode videos"
 msgstr ""
 
 msgctxt "#30723"
@@ -1691,35 +1691,35 @@ msgid "Videos wider than this are scaled down. Unlimited never scales."
 msgstr ""
 
 msgctxt "#30728"
-msgid "Convert incompatible music"
+msgid "Transcode music"
 msgstr ""
 
 msgctxt "#30729"
-msgid "Convert a track only when it is lossless or over the bitrate limit below. Compliant tracks download as the original file with their tags intact."
+msgid "Transcode a track only when it is lossless or over the bitrate limit below. Compliant tracks download as the original file with their tags intact."
 msgstr ""
 
 msgctxt "#30730"
-msgid "Convert music over"
+msgid "Transcode music over"
 msgstr ""
 
 msgctxt "#30731"
-msgid "Tracks over this bitrate, and all lossless tracks, are converted. Unlimited converts only lossless tracks."
+msgid "Tracks over this bitrate, and all lossless tracks, are transcoded. Unlimited transcodes only lossless tracks."
 msgstr ""
 
 msgctxt "#30732"
-msgid "Convert music to"
+msgid "Transcode music to"
 msgstr ""
 
 msgctxt "#30733"
-msgid "The codec converted tracks are encoded with. Opus gives the best quality per megabyte."
+msgid "The codec transcoded tracks are encoded with. Opus gives the best quality per megabyte."
 msgstr ""
 
 msgctxt "#30734"
-msgid "Converted music bitrate"
+msgid "Transcoded music bitrate"
 msgstr ""
 
 msgctxt "#30735"
-msgid "The bitrate converted tracks are encoded at. 128 kbps Opus is transparent for most listening."
+msgid "The bitrate transcoded tracks are encoded at. 128 kbps Opus is transparent for most listening."
 msgstr ""
 
 msgctxt "#30736"
@@ -1754,6 +1754,10 @@ msgctxt "#30743"
 msgid "Movies newly added to a synced library are downloaded automatically. A bulk import of more than a few movies at once is skipped, with a notification."
 msgstr ""
 
+# 30744-30745, 30748-30750 — retired with downloadsAutoCleanup and the
+# three-way downloadsDeleteAfterPlay spinner. Kept, never reused: an id that
+# changes meaning silently mistranslates every language that already shipped
+# it.
 msgctxt "#30744"
 msgid "Remove watched automatic downloads"
 msgstr ""
@@ -1763,11 +1767,11 @@ msgid "Automatically downloaded items are removed once you have watched them. Do
 msgstr ""
 
 msgctxt "#30746"
-msgid "After watching a download"
+msgid "Delete download after watching"
 msgstr ""
 
 msgctxt "#30747"
-msgid "What happens to a download you queued yourself when you finish watching it."
+msgid "When you finish watching a downloaded item, its local copy is removed. The item stays on the server and in your library."
 msgstr ""
 
 msgctxt "#30748"
@@ -1844,4 +1848,36 @@ msgstr ""
 
 msgctxt "#30766"
 msgid "No shows are set to download new episodes"
+msgstr ""
+
+msgctxt "#30767"
+msgid "Show download notifications"
+msgstr ""
+
+msgctxt "#30768"
+msgid "Announce queued and completed downloads. Failures and warnings are always shown."
+msgstr ""
+
+msgctxt "#30769"
+msgid "Delete download automatically"
+msgstr ""
+
+msgctxt "#30770"
+msgid "Remove the local copy without asking. With this off, Kofin asks first each time."
+msgstr ""
+
+msgctxt "#30771"
+msgid "Download %s item(s), about %s? %s free"
+msgstr ""
+
+msgctxt "#30772"
+msgid "Parallel music downloads"
+msgstr ""
+
+msgctxt "#30773"
+msgid "How many tracks download at the same time. Tracks are small and mostly overhead, so this can sit well above the video figure."
+msgstr ""
+
+msgctxt "#30774"
+msgid "Remove %s download(s) of %s?"
 msgstr ""

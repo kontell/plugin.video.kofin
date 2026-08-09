@@ -2,6 +2,7 @@
 regeneration guard (plan §5 step 4)."""
 
 import os
+import pathlib
 
 import pytest
 
@@ -768,3 +769,88 @@ def test_toggling_downloads_regenerates_the_tree(views_env):
 
     assert not (kofin_root(views_env) / "kofin_DownloadedMovies.xml").exists()
     assert not (kofin_root(views_env) / "kofin_DownloadedShows.xml").exists()
+
+
+def test_downloaded_nodes_carry_the_addon_icon_even_on_an_existing_file(views_env):
+    """The Downloads singles inherited DefaultFavourites.png from the
+    favourites code they share — a favourite star on the downloads shelf.
+
+    The rewrite matters as much as the icon: ``add_single_node`` only ever
+    wrote ``<icon>`` on the *create* branch, so an install that already had
+    these files would have kept the star through any number of NODE_LAYOUT
+    bumps.
+    """
+    from kofin.sync.views import NODE_DOWNLOADS_ICON
+
+    seed([("lib1", "Movies", "movies")], ["lib1"])
+    FakeAddon.store["downloadsEnabled"] = "true"
+    Views(FakeApi()).get_nodes()
+
+    node = kofin_root(views_env) / "kofin_DownloadedMovies.xml"
+    assert "<icon>%s</icon>" % NODE_DOWNLOADS_ICON in node.read_text()
+    # The favourites keep Kodi's own stock icon: a skin has something of its
+    # own to substitute there.
+    favourite = kofin_root(views_env) / "kofin_Favoritemovies.xml"
+    assert "DefaultFavourites.png" in favourite.read_text()
+
+    # Now the upgrade path: an existing file carrying the old icon.
+    node.write_text(
+        node.read_text().replace(NODE_DOWNLOADS_ICON, "DefaultFavourites.png")
+    )
+    FakeAddon.store["viewsHash"] = ""
+    Views(FakeApi()).get_nodes()
+    assert "<icon>%s</icon>" % NODE_DOWNLOADS_ICON in node.read_text()
+
+
+def test_music_nodes_appear_and_leave_with_the_feature(views_env):
+    """Kodi keeps music nodes in a tree of their own, so nothing in the
+    video generation reaches them: the downloads feature had a
+    Downloaded-music smart playlist and no node, which filed it under
+    Playlists instead of beside the rest of Kofin."""
+    from kofin.sync.views import (
+        MUSIC_DOWNLOADED_FILE,
+        NODE_DOWNLOADS_ICON,
+        NODE_ROOT_ICON,
+        music_node_root_path,
+        write_music_nodes,
+    )
+
+    root = pathlib.Path(music_node_root_path())
+    assert write_music_nodes() is False  # feature off: nothing written
+    assert not root.exists()
+
+    FakeAddon.store["downloadsEnabled"] = "true"
+    assert write_music_nodes() is True
+
+    index = (root / "index.xml").read_text()
+    assert "<icon>%s</icon>" % NODE_ROOT_ICON in index
+
+    node = (root / MUSIC_DOWNLOADED_FILE).read_text()
+    assert "<content>songs</content>" in node
+    assert "<icon>%s</icon>" % NODE_DOWNLOADS_ICON in node
+    assert 'field="path" operator="startswith"' in node
+    from kofin.downloads import downloads_root
+
+    assert "<value>%s/Music/</value>" % downloads_root().rstrip("/") in node
+
+    FakeAddon.store["downloadsEnabled"] = "false"
+    assert write_music_nodes() is False
+    assert not (root / MUSIC_DOWNLOADED_FILE).exists()
+    assert not root.exists()  # emptied, so the folder goes too
+
+
+def test_music_node_removal_leaves_a_hand_made_node_alone(views_env):
+    """Same rule as the video pruner: this folder is ours by name only, and
+    anything else in it is the user's."""
+    from kofin.sync.views import music_node_root_path, write_music_nodes
+
+    FakeAddon.store["downloadsEnabled"] = "true"
+    write_music_nodes()
+    root = pathlib.Path(music_node_root_path())
+    (root / "mine.xml").write_text("<node/>")
+
+    FakeAddon.store["downloadsEnabled"] = "false"
+    write_music_nodes()
+
+    assert (root / "mine.xml").is_file()
+    assert root.is_dir()  # not emptied, so not removed

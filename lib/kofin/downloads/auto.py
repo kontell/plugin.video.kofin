@@ -12,7 +12,7 @@ from typing import Any, Dict, Iterable, List
 
 from kofin.core import ipc, settings, state, toast
 from kofin.core.log import Logger
-from kofin.downloads import store
+from kofin.downloads import notify_allowed, store
 
 LOG = Logger(__name__)
 
@@ -299,6 +299,8 @@ def _paged_items(api: Any, params: Dict[str, Any]) -> List[JsonDict]:
 
 
 def _bulk_toast(string_id: int, count: int) -> None:
+    if not notify_allowed(string_id):
+        return
     try:
         toast.show(settings.localized(string_id) % count, time_ms=5000)
     except Exception:  # pragma: no cover - uncached string etc.

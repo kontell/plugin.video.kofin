@@ -979,6 +979,7 @@ class FakeDownloadManager:
         self.stopped = 0
         self.submitted = []
         self.origins = []
+        self.media_types = []
         self.cancelled = []
         self.removed = []
 
@@ -988,9 +989,10 @@ class FakeDownloadManager:
     def stop(self):
         self.stopped += 1
 
-    def submit(self, ids, origin="user"):
+    def submit(self, ids, origin="user", media_types=None):
         self.submitted.append(list(ids))
         self.origins.append(origin)
+        self.media_types.append(list(media_types or []))
 
     def cancel(self, item_id):
         self.cancelled.append(item_id)
@@ -1057,6 +1059,38 @@ def test_download_ipc_routes_to_the_manager_and_forgeries_do_not(monkeypatch, tm
     forged = json.dumps([{"Ids": ["evil"]}])  # kofin's name, no secret
     service.onNotification(ipc.SENDER, "Other.DownloadAdd", forged)
     assert manager.submitted == [["a", "b"], ["e"], ["f"]]
+
+
+def test_download_add_pairs_types_with_ids_and_survives_gaps(monkeypatch, tmp_path):
+    """The Types list rides along positionally; a blank id must not shift it."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    FakeAddon.store["downloadsEnabled"] = "true"
+    service = Service()
+    manager = FakeDownloadManager()
+    service.downloads = manager
+
+    service.onNotification(
+        ipc.SENDER,
+        "Other.DownloadAdd",
+        _signed(
+            service,
+            {"Ids": ["a", "", "c"], "Types": ["Movie", "Episode", "Audio"]},
+        ),
+    )
+    assert manager.submitted == [["a", "c"]]
+    # "c" keeps Audio, not Episode: the pairing happens before the blank is
+    # dropped, so the survivors carry their own types.
+    assert manager.media_types == [["Movie", "Audio"]]
+
+    # A short list leaves the rest unknown rather than mislabelling them.
+    service.onNotification(
+        ipc.SENDER,
+        "Other.DownloadAdd",
+        _signed(service, {"Ids": ["d", "e"], "Types": ["Movie"]}),
+    )
+    assert manager.media_types[-1] == ["Movie", ""]
 
 
 def test_shutdown_stops_the_download_manager(monkeypatch, tmp_path):
