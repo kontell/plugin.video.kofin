@@ -1,3 +1,12 @@
+v0.13.0
+- Download for offline playback: movies, episodes and music from the Jellyfin actions menu, kept in your normal libraries with downloaded badges and dedicated views, with progress on Kodi's own library-update bar
+- Downloads play instantly with the server away — watched state and resume are kept and replayed on reconnect, and intro/credits skipping works offline too
+- Optional transcoded downloads convert only what breaks a limit (bitrate, resolution, codec, HDR) and copy every compliant stream; lossless music converts to Opus with tags intact
+- Automatic downloads: keep the next episodes ahead while bingeing, fetch new movies, episodes and albums as they land, subscribe individual shows, and clean up watched automatic downloads
+- Finish watching a download and kofin can offer to remove it, or just do it, your choice
+- Optional NFO and artwork export makes the download folder scannable by other apps
+- Downloaded playbacks report to the server like any other, and show on the dashboard
+
 v0.12.0
 - Browsing large libraries is around nine times faster, and the cast list in the info dialog opens instantly
 - Playback starts sooner, and a transcode with subtitles no longer stalls for over a minute first
