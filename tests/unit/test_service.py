@@ -1187,10 +1187,37 @@ def test_reconnecting_does_not_build_a_second_websocket(monkeypatch, tmp_path):
 
     service._connect()
     service._go_offline()
-    service.ws = object()  # the previous client is still retrying
+    service.ws = _FakeWs(alive=True)  # the previous client is still retrying
     service._connect()
 
     assert built == [1]
+
+
+def test_reconnecting_rebuilds_a_websocket_whose_thread_died(monkeypatch, tmp_path):
+    """The companion case, and the one that broke: a client whose thread has
+    ended still fills the slot, so the reconnect read it as "one is already
+    running" and came back with no websocket at all."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    built = []
+    monkeypatch.setattr(service, "_start_websocket", lambda: built.append(1))
+    monkeypatch.setattr(service, "_start_syncplay", lambda: None)
+    monkeypatch.setattr(service, "_start_library", lambda: None)
+    monkeypatch.setattr(service, "_start_downloads", lambda: None)
+    monkeypatch.setattr(service, "_start_backdrop", lambda force=False: None)
+    monkeypatch.setattr(service.artcache, "start", lambda: None)
+    service.api = type("A", (), {"probe_info": lambda self: {}})()
+
+    service._connect()
+    service._go_offline()
+    dead = _FakeWs(alive=False)
+    service.ws = dead
+    service._connect()
+
+    assert built == [1, 1]
+    assert dead.stopped == 1
 
 
 def test_replay_sends_the_resolved_payload_before_the_catch_up(monkeypatch, tmp_path):
@@ -1271,3 +1298,131 @@ def test_a_cold_boot_away_from_the_server_states_the_outage(monkeypatch, tmp_pat
 
     assert state.is_offline() is True
     assert state.is_online() is False
+
+
+# --- rebuilding threads that died on their own -------------------------------
+
+
+class _FakeLibrary:
+    def __init__(self, alive=False, workers=False):
+        self._alive = alive
+        self._workers = workers
+        self.stopped = 0
+
+    def is_alive(self):
+        return self._alive
+
+    def stop_client(self):
+        self.stopped += 1
+
+    def workers_alive(self):
+        return self._workers
+
+
+class _FakeWs:
+    def __init__(self, alive=False):
+        self._alive = alive
+        self.stopped = 0
+
+    def is_alive(self):
+        return self._alive
+
+    def stop(self):
+        self.stopped += 1
+
+
+def test_a_live_library_is_left_alone():
+    service = Service()
+    live = _FakeLibrary(alive=True)
+    service.library = live
+
+    service._reap_library()
+
+    assert service.library is live
+    assert live.stopped == 0
+
+
+def test_a_dead_library_slot_is_cleared_for_a_rebuild():
+    """The slot outlives the thread. Guarding the restart on the slot rather
+    than the thread is what left a reconnect with no sync manager at all —
+    the manager exits itself on any LibraryException, most routinely the
+    offline one."""
+    service = Service()
+    service.library = _FakeLibrary(alive=False)
+
+    service._reap_library()
+
+    assert service.library is None
+
+
+def test_a_dead_library_with_workers_in_flight_is_not_rebuilt_yet():
+    """A Library owns its own database_lock, so a second graph built over one
+    that still has writers running puts two independent locks in front of the
+    same SQLite files. The slot stays until the workers are done."""
+    service = Service()
+    corpse = _FakeLibrary(alive=False, workers=True)
+    service.library = corpse
+
+    service._reap_library()
+
+    assert service.library is corpse
+    assert corpse.stopped == 1  # told to stop, just not replaced yet
+
+
+def test_a_dead_websocket_is_stopped_before_the_slot_is_cleared():
+    """The thread can die with the socket still open — an upstream raise out
+    of run_forever does exactly that — and the client object is the only
+    remaining handle on the descriptor."""
+    service = Service()
+    client = _FakeWs(alive=False)
+    service.ws = client
+
+    service._reap_websocket()
+
+    assert service.ws is None
+    assert client.stopped == 1
+
+
+def test_a_live_websocket_is_left_alone():
+    service = Service()
+    live = _FakeWs(alive=True)
+    service.ws = live
+
+    service._reap_websocket()
+
+    assert service.ws is live
+    assert live.stopped == 0
+
+
+def test_threads_that_die_while_online_are_rebuilt(monkeypatch):
+    """Nothing else looks: _connect is the only other rebuild path and it runs
+    only on the offline→online edge, so a thread that dies while the server
+    stays reachable stays dead until Kodi restarts."""
+    service = Service()
+    service._online = True
+    service.ws = _FakeWs(alive=False)
+    service.library = _FakeLibrary(alive=False)
+
+    built = []
+    monkeypatch.setattr(service, "_start_websocket", lambda: built.append("ws"))
+    monkeypatch.setattr(service, "_start_library", lambda: built.append("library"))
+
+    service._recover_threads()
+
+    assert built == ["ws", "library"]
+    assert service.ws is None  # reaped; the fake _start_websocket fills no slot
+
+
+def test_recovery_does_nothing_while_both_threads_live(monkeypatch):
+    service = Service()
+    service._online = True
+    service.ws = _FakeWs(alive=True)
+    service.library = _FakeLibrary(alive=True)
+
+    built = []
+    monkeypatch.setattr(service, "_start_websocket", lambda: built.append("ws"))
+    monkeypatch.setattr(service, "_start_library", lambda: built.append("library"))
+
+    service._recover_threads()
+
+    assert built == []

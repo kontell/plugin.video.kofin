@@ -76,15 +76,21 @@ class WSClient(threading.Thread):
         # leaks past a service restart. Module-global to websocket-client,
         # which is fine — kofin owns the only websocket in this process.
         websocket.setdefaulttimeout(10)
-        self._app = websocket.WebSocketApp(
-            self._url,
-            header={"Authorization": self._header},
-            on_open=self._handle_open,
-            on_message=self._handle_message,
-            on_error=self._handle_error,
-            on_close=self._handle_close,
-        )
         while not self._stop:
+            # A fresh app per attempt, because WebSocketApp.teardown() is
+            # one-shot per instance: ``has_done_teardown`` is set in
+            # __init__ and never reset by run_forever (websocket-client
+            # 1.6.4, _app.py:236). So the first drop tears down and clears
+            # ``sock``, but a later *failed connect* — setSock() assigns
+            # ``sock`` before connect() raises — reaches an already-done
+            # teardown that returns immediately and leaves the dead socket
+            # in place. The next run_forever then raises "socket is already
+            # opened" out of this thread and the client is gone for the life
+            # of the process (observed 2026-08-09: one connect failure after
+            # a healthy session killed the websocket permanently).
+            self._app = self._build_app()
+            if self._stop:
+                break
             # No ping_timeout and no reconnect=, both deliberately, both
             # measured. ping_timeout tears healthy connections down ~120 s in:
             # the server's own 2-minute keepalive ping corrupts
@@ -95,10 +101,26 @@ class WSClient(threading.Thread):
             # owns reconnection instead, which makes the close edge honest,
             # and half-open detection is app-level: half_open() recycles the
             # socket when the server's KeepAlive echoes stop arriving.
-            self._app.run_forever(ping_interval=10)
+            try:
+                self._app.run_forever(ping_interval=10)
+            except Exception:
+                # One attempt's worth of failure, never the thread's life.
+                # Reconnection is this loop's job and it cannot do it from
+                # inside a traceback.
+                LOG.exception("websocket attempt failed")
             if self._stop or monitor.waitForAbort(RECONNECT_SECONDS):
                 break
         LOG.debug("websocket thread exit")
+
+    def _build_app(self) -> "websocket.WebSocketApp":
+        return websocket.WebSocketApp(
+            self._url,
+            header={"Authorization": self._header},
+            on_open=self._handle_open,
+            on_message=self._handle_message,
+            on_error=self._handle_error,
+            on_close=self._handle_close,
+        )
 
     def stop(self) -> None:
         self._stop = True

@@ -221,6 +221,30 @@ class Service(xbmc.Monitor):
             and self._backoff.due(time.time())
         ):
             self._connect()
+        elif self._online:
+            # A thread can also die while the server stays perfectly
+            # reachable, and then nothing else ever looks: ``_connect`` is the
+            # only other rebuild path and it runs only on the offline→online
+            # edge. Costs two ``is_alive()`` calls a second and does nothing
+            # at all until one of them answers False.
+            self._recover_threads()
+
+    def _recover_threads(self) -> None:
+        """Rebuild the websocket and the sync manager if either has died.
+
+        Silent death is the failure this answers. Both own a thread that ends
+        on its own — the library on any ``LibraryException``, the websocket on
+        an upstream raise — while the object stays in its slot, and every
+        restart path guards on the slot rather than the thread.
+        """
+        if self.ws is not None and not self.ws.is_alive():
+            self._reap_websocket()
+
+            if self.ws is None:
+                self._start_websocket()
+
+        if self.library is not None and not self.library.is_alive():
+            self._start_library()
 
     def _verify_connection(self) -> None:
         """Answer a dropped socket with a probe, not a verdict (plan W2.1).
@@ -279,7 +303,12 @@ class Service(xbmc.Monitor):
         self._start_syncplay()  # before the websocket: messages route into it
         # Only when there is none: a reconnect after a confirmed outage finds
         # the previous client still running its own retry loop, and building a
-        # second one would double every event the server pushes.
+        # second one would double every event the server pushes. Liveness, not
+        # presence: the slot outlives the thread, so a client whose thread has
+        # ended reads as "one is already running" and the reconnect silently
+        # brings back no websocket at all (observed 2026-08-09, after the
+        # thread died on an upstream raise — see core/ws.WSClient.run).
+        self._reap_websocket()
         if self.ws is None:
             self._start_websocket()
         self._start_library()
@@ -290,10 +319,55 @@ class Service(xbmc.Monitor):
         # parked thread and nothing else.
         self.artcache.start()
 
+    def _reap_websocket(self) -> None:
+        """Empty the websocket slot when the thread behind it has ended.
+
+        ``stop()`` on the way out rather than dropping the reference: the
+        thread can die with the socket still open (an upstream raise out of
+        ``run_forever`` does exactly that), and the descriptor is this
+        object's only remaining handle on it.
+        """
+        client = self.ws
+
+        if client is None or client.is_alive():
+            return
+
+        LOG.warning("websocket thread is gone; rebuilding the client")
+        try:
+            client.stop()
+        except Exception:  # pragma: no cover - defensive
+            LOG.exception("stopping the dead websocket client failed")
+        self.ws = None
+
+    def _reap_library(self) -> None:
+        """Empty the library slot when the manager thread has ended.
+
+        Held back while any worker it spawned is still running: a Library owns
+        its own ``database_lock``, so rebuilding over a graph still in flight
+        puts two independent locks in front of the same databases. The slot
+        stays occupied and the next caller tries again — the manager thread is
+        already gone, so nothing is lost by waiting for its workers.
+        """
+        library = self.library
+
+        if library is None or library.is_alive():
+            return
+
+        library.stop_client()
+
+        if library.workers_alive():
+            LOG.debug("library thread gone but its workers are still running")
+            return
+
+        LOG.warning("library sync manager thread is gone; rebuilding")
+        self.library = None
+
     def _start_library(self) -> None:
         """Start the sync manager once online, when there is anything to sync
         or resume. Import and failures are contained: playback and remote
         control must survive a broken sync stack (degrade, don't die)."""
+        self._reap_library()
+
         if self.library is not None:
             return
 

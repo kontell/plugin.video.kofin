@@ -876,6 +876,23 @@ class Library(threading.Thread):
 
         return total + self.worker_queue_size()
 
+    def workers_alive(self):
+        """True while any thread this manager spawned is still running.
+
+        The rebuild path is what asks. ``database_lock`` is per-instance, so a
+        second Library built while the first still has writers in flight puts
+        two independent locks in front of the same SQLite files — the same
+        two-object-graph hazard ``_shutdown`` keeps ``PROP_SYNC_STOP`` raised
+        for. The manager thread dying is therefore not on its own proof that
+        the graph is finished.
+        """
+        threads = list(self.download_threads)
+
+        for category in self.writer_threads:
+            threads.extend(self.writer_threads[category])
+
+        return any(thread.is_alive() for thread in threads)
+
     def worker_queue_size(self):
         """Get how many items are queued up for worker threads."""
         total = 0

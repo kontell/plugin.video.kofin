@@ -301,3 +301,54 @@ def test_every_inbound_frame_feeds_liveness_even_when_ignored():
     client._handle_message(None, "not-json")
     assert client._last_inbound > 0.0
     assert events == []
+
+
+def test_each_attempt_builds_a_fresh_app(monkeypatch):
+    """``WebSocketApp.teardown()`` is one-shot per instance (websocket-client
+    1.6.4: ``has_done_teardown`` is set in __init__ and never reset by
+    run_forever). So a reused app that saw a *failed connect* — setSock()
+    assigns ``sock`` before connect() raises — keeps the dead socket, and the
+    next run_forever raises "socket is already opened" straight out of this
+    thread. Live consequence: one connect failure after a healthy session
+    killed the websocket for the life of the Kodi process.
+    """
+    from kofin.core import ws as ws_mod
+
+    built = []
+
+    class FakeApp:
+        def __init__(self, *args, **kwargs):
+            built.append(self)
+            self.sock = None
+
+        def run_forever(self, **kwargs):
+            raise ws_mod.websocket.WebSocketException("socket is already opened")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(ws_mod.websocket, "WebSocketApp", FakeApp)
+    monkeypatch.setattr("xbmc.Monitor.waitForAbort", lambda self, seconds=0: False)
+
+    client = WSClient(
+        "http://server:8096",
+        "auth",
+        on_event=lambda message_type, data: None,
+        on_connected=lambda: None,
+    )
+    real_build = client._build_app
+
+    def build_then_stop():
+        app = real_build()
+        if len(built) >= 2:
+            client._stop = True  # two attempts is enough to prove the point
+        return app
+
+    client._build_app = build_then_stop
+
+    client.run()
+
+    # The raise cost one attempt, not the thread, and the second attempt got
+    # its own app rather than the poisoned one.
+    assert len(built) == 2
+    assert built[0] is not built[1]
