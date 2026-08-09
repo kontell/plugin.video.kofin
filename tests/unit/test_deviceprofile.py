@@ -295,9 +295,22 @@ def test_download_audio_direct_play_is_lossy_only():
     assert "mp3" in codecs and "opus" in codecs and "aac" in codecs
 
 
-def test_download_av1_preferred_leads_the_copy_list():
-    profile = deviceprofile.build_download(ProfileConfig(preferred_video="av1"))
-    assert profile["TranscodingProfiles"][0]["VideoCodec"].startswith("av1,")
+def test_download_copy_list_ranks_the_encoder_fallback_by_efficiency():
+    """Preferred first, then hevc, then h264, then the rest: the server
+    encodes to the first entry its ffmpeg can, so a stripped build without
+    the preferred encoder falls back to quality-per-byte order — not the
+    direct-play list's display order, which puts h264 first."""
+    av1 = deviceprofile.build_download(ProfileConfig(preferred_video="av1"))
+    assert av1["TranscodingProfiles"][0]["VideoCodec"] == "av1,hevc,h264,mpeg2video,vp9"
+    hevc = deviceprofile.build_download(ProfileConfig(preferred_video="hevc"))
+    assert (
+        hevc["TranscodingProfiles"][0]["VideoCodec"] == "hevc,h264,av1,mpeg2video,vp9"
+    )
+    # A fallback the device cannot decode never appears at all.
+    no_hevc = deviceprofile.build_download(
+        ProfileConfig(preferred_video="av1", video_codecs=["av1", "h264"])
+    )
+    assert no_hevc["TranscodingProfiles"][0]["VideoCodec"] == "av1,h264"
 
 
 def test_download_music_leg_and_cap_follow_config():

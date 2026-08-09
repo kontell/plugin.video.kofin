@@ -296,11 +296,13 @@ def build_download(config: ProfileConfig) -> JsonDict:
       leg: ``Protocol: "http"`` (a file, not a playlist), ``Container:
       "mp4"`` (the server muxes progressive mp4 as fMP4 — feasibility V3,
       seekable on disk even unfinalized, AV1-capable). Its codec list is
-      every mp4-muxable direct-play codec with the preferred one leading, so
-      the server's own stream-copy logic keeps a compliant video track
-      through an audio-only fix and re-encodes only what violates a limit —
-      the exact behavior ``deny_video_stream_copy`` exists to suppress for
-      the context item is the point here.
+      every mp4-muxable direct-play codec — preferred first, then hevc,
+      then h264, then the rest — so the server's own stream-copy logic
+      keeps a compliant video track through an audio-only fix and
+      re-encodes only what violates a limit (the exact behavior
+      ``deny_video_stream_copy`` exists to suppress for the context item is
+      the point here), and an encoder fallback costs quality-per-byte
+      rather than following the direct-play list's display order.
     * The audio DirectPlayProfile is the lossy list, not the open one:
       ``SupportsDirectPlay`` is the whole decision for a music download, and
       an open profile would answer "keep the FLAC" — the opposite of what
@@ -350,9 +352,23 @@ def _download_transcoding_profiles(
     lead = (
         config.preferred_video if config.preferred_video in MP4_COPY_CODECS else "h264"
     )
+    # The encode target is the first entry the server's ffmpeg can encode
+    # (StreamingHelpers picks FirstOrDefault(CanEncodeToVideoCodec)); the
+    # rest of the list is order-blind stream-copy membership. So the tail
+    # ranks by efficiency — hevc before h264 — rather than keeping the
+    # direct-play list's display order: on a stripped ffmpeg without the
+    # preferred encoder (stock jellyfin-ffmpeg carries all three), the
+    # fallback should cost quality-per-byte, not compatibility. Only codecs
+    # the device direct-plays may appear at all: every entry is a codec the
+    # finished file may carry.
     copy_codecs = [lead]
     copy_codecs.extend(
-        codec for codec in video_codecs if codec != lead and codec in MP4_COPY_CODECS
+        codec for codec in ("hevc", "h264") if codec != lead and codec in video_codecs
+    )
+    copy_codecs.extend(
+        codec
+        for codec in video_codecs
+        if codec not in copy_codecs and codec in MP4_COPY_CODECS
     )
     video: JsonDict = {
         "Type": "Video",
