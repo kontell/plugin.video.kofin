@@ -32,6 +32,7 @@ FREE_SPACE_RESERVE = 2 * 1024**3
 
 MOVIES_DIR = "Movies"
 TV_DIR = "TV"
+MUSIC_DIR = "Music"
 
 
 def sanitize(name: str) -> str:
@@ -120,6 +121,23 @@ def item_dirs(item: JsonDict) -> Tuple[str, Optional[str]]:
         if int(season) == 0:
             return show, "Specials"
         return show, "Season %02d" % int(season)
+    if item_type == "Audio":
+        # ``Music/<AlbumArtist>/<Album>``, the album directory owning its
+        # tracks the way a show's owns its episodes (owner = album id). The
+        # artist level is plain nesting — nothing owns or uniquifies it, like
+        # the ``TV/`` type directory.
+        artists = item.get("AlbumArtists") or []
+        artist = str(
+            item.get("AlbumArtist")
+            or (artists[0].get("Name") if artists else "")
+            or (item.get("Artists") or [""])[0]
+            or "Unknown artist"
+        )
+        album = str(item.get("Album") or "Unknown album")
+        return (
+            posixpath.join(MUSIC_DIR, sanitize(artist), sanitize(album)),
+            None,
+        )
     raise ValueError("no download layout for item type %r" % item_type)
 
 

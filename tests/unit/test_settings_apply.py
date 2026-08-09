@@ -585,3 +585,31 @@ def test_downloads_path_change_write_probes_the_new_root(tmp_path, monkeypatch):
     assert root.is_dir()  # probed into existence
     assert os.listdir(str(root)) == []  # and the probe file cleaned up
     assert not any(call[0] == "notification" for call in FakeDialog.calls)
+
+
+def test_downloads_path_change_reaims_the_music_view(tmp_path, monkeypatch):
+    """The Downloaded-music xsp's one rule points under the old root; a path
+    change rewrites it — but only when the view exists (plan W3.3)."""
+    monkeypatch.setattr("xbmcvfs.translatePath", lambda p: str(p))
+    from kofin.sync import playlists
+
+    managed = tmp_path / "Kofin"
+    monkeypatch.setattr(playlists, "managed_dir", lambda root=None: str(managed))
+    refreshed = []
+    monkeypatch.setattr(
+        playlists, "refresh_downloaded_music", lambda root=None: refreshed.append(1)
+    )
+
+    service = FakeService()
+    FakeAddon.store["downloadsPath"] = ""
+    applier = ready_applier(service)
+
+    FakeAddon.store["downloadsPath"] = str(tmp_path / "dl")
+    applier.apply()
+    assert refreshed == []  # no view on disk, nothing to re-aim
+
+    managed.mkdir()
+    (managed / playlists.DOWNLOADED_MUSIC_XSP).write_text("<x/>", encoding="utf-8")
+    FakeAddon.store["downloadsPath"] = str(tmp_path / "dl2")
+    applier.apply()
+    assert refreshed == [1]

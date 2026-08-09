@@ -8,6 +8,7 @@ import datetime
 
 from kofin.core import settings
 from kofin.core.log import Logger
+from kofin.downloads import repoint as downloads_repoint
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import queries_map as QUEM
 from kofin.sync import fields as api
@@ -358,6 +359,14 @@ class Music(KodiDb):
 
         if obj["SongAlbumId"] is None:
             self.artwork.add(obj["Artwork"], obj["AlbumId"], "album")
+
+        # Downloaded songs get their local location re-asserted inside this
+        # same transaction (plan W1.8/W3.2): the write above rebuilt the row
+        # in writer shape, and committing that would point a downloaded song
+        # back at the server until the next reconcile.
+        downloads_repoint.reassert_music_on(
+            self.cursor, self.jellyfin_db.cursor, obj["Id"]
+        )
 
         return not update
 

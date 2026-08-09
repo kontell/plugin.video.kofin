@@ -32,7 +32,7 @@ LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
 
-MEDIA_TYPE_BY_DTO = {"Movie": "movie", "Episode": "episode"}
+MEDIA_TYPE_BY_DTO = {"Movie": "movie", "Episode": "episode", "Audio": "song"}
 
 # Per-item attempts before the row settles as failed. The store keeps
 # bytes_done across the requeues, so original attempts resume with a Range.
@@ -290,10 +290,13 @@ class DownloadManager:
         # size verification and the free-space precheck honest (the reserve
         # still applies).
         size_expected = int(source.get("Size") or 0) if original else 0
+        # The grouping id (the series_id column): what the item's directory
+        # belongs to — a show for episodes, an album for songs.
+        group_id = str(item.get("SeriesId") or item.get("AlbumId") or "")
         store.record_details(
             item_id,
             media_type,
-            str(item.get("SeriesId") or ""),
+            group_id,
             size_expected,
             _userdata_json(item.get("UserData")),
             decision.kind,
@@ -305,7 +308,7 @@ class DownloadManager:
             self._toast(30715, item.get("Name", item_id))
             return
 
-        owner_id = str(item.get("SeriesId") or "") or item_id
+        owner_id = group_id or item_id
         if original:
             rel_path, actual = self._pull_original(
                 api, row, item, owner_id, container, size_expected, root
@@ -333,9 +336,21 @@ class DownloadManager:
             repoint.repoint(finished, root)
             repoint.stamp_tag(finished)
             repoint.stamp_badge(finished)
+        if media_type == "song":
+            self._ensure_music_view()
         self._refresh_quietly()
         self._toast(30712, item.get("Name", item_id))
         LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
+
+    def _ensure_music_view(self) -> None:
+        """The Downloaded-music smart playlist exists from the first song on
+        (plan W3.3); idempotent, and never worth failing a download over."""
+        try:
+            from kofin.sync import playlists
+
+            playlists.refresh_downloaded_music()
+        except Exception:  # pragma: no cover - the view is best-effort
+            LOG.exception("downloaded-music view refresh failed")
 
     def _pull_original(
         self,
@@ -694,9 +709,11 @@ class DownloadManager:
         try:
             root = downloads_root()
             touched = False
+            songs = False
             for row in store.rows(store.DONE):
                 if self._should_stop():
                     return
+                songs = songs or row.media_type == "song"
                 absolute = os.path.join(root, row.rel_path)
                 if not row.rel_path or not os.path.exists(absolute):
                     LOG.warning(
@@ -711,6 +728,8 @@ class DownloadManager:
                     repoint.stamp_tag(row)  # idempotent; a repair wiped links
                     repoint.stamp_badge(row)
                     touched = True
+            if songs:
+                self._ensure_music_view()  # heals a hand-deleted .xsp too
             if touched:
                 self._refresh_quietly()
         except Exception:  # pragma: no cover - never break service start

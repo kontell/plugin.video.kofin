@@ -806,3 +806,51 @@ def test_a_transcode_sidecars_embedded_text_subtitles(tmp_path, repoints, monkey
     # The image track stays lost: nothing fetched a pgs.
     assert not any("pgs" in url for url in api.downloaded_urls)
     assert any("/3.srt" in url for url in api.downloaded_urls)
+
+
+# -- music (plan W3.2) --------------------------------------------------------
+
+SONG_DTO = {
+    "Id": "a1",
+    "Type": "Audio",
+    "Name": "Opening Track",
+    "AlbumId": "album1",
+    "AlbumArtist": "The Band",
+    "Album": "Greatest Hits",
+    "IndexNumber": 1,
+    "UserData": {"Played": False},
+    "MediaSources": [{"Id": "s1", "Container": "flac", "Size": 8, "MediaStreams": []}],
+}
+
+
+def test_a_song_downloads_into_the_album_directory(tmp_path, repoints, monkeypatch):
+    views = []
+    monkeypatch.setattr(
+        "kofin.sync.playlists.refresh_downloaded_music",
+        lambda root=None: views.append(1) or True,
+    )
+    manager, _ = make_manager(repoints)
+    api = FakeManagerApi(
+        SONG_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {
+                    "Content-Length": "8",
+                    "Content-Disposition": 'attachment; filename="01 - Opening Track.flac"',
+                },
+            )
+        ],
+    )
+
+    manager._process(api, queue_row("a1"))
+
+    row = store.get("a1")
+    assert row.state == store.DONE
+    assert row.media_type == "song"
+    assert row.series_id == "album1"  # the grouping id: the album
+    assert row.rel_path == "Music/The Band/Greatest Hits/01 - Opening Track.flac"
+    assert (tmp_path / "dl" / row.rel_path).read_bytes() == b"abcdefgh"
+    assert repoints["repoint"] == [("a1", str(tmp_path / "dl"))]
+    assert views == [1]  # the Downloaded-music view exists from song one

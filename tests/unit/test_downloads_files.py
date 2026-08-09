@@ -80,7 +80,7 @@ def test_episode_dirs_split_show_from_season():
 
 def test_unknown_type_raises_instead_of_inventing_a_home():
     with pytest.raises(ValueError):
-        files.item_dirs({"Type": "Audio", "Name": "Song"})
+        files.item_dirs({"Type": "Photo", "Name": "Holiday"})
 
 
 def test_unique_dir_suffixes_only_on_collision():
@@ -112,3 +112,44 @@ def test_free_space_probe_failure_allows_rather_than_refuses(monkeypatch):
 
     monkeypatch.setattr(os, "statvfs", broken)
     assert files.free_space_ok("/dl", 10**12) is True
+
+
+# -- the music layout and the fallback names (plan W3.2) -----------------------
+
+
+def test_audio_dirs_are_artist_album_owned_by_the_album():
+    song = {
+        "Type": "Audio",
+        "AlbumArtist": "The Band",
+        "Album": "Greatest Hits",
+        "Name": "Opening Track",
+    }
+    assert files.item_dirs(song) == ("Music/The Band/Greatest Hits", None)
+
+
+def test_audio_dirs_fall_back_through_the_artist_fields():
+    from_items = {
+        "Type": "Audio",
+        "AlbumArtists": [{"Name": "Solo Artist", "Id": "a1"}],
+        "Album": "Album",
+    }
+    assert files.item_dirs(from_items)[0] == "Music/Solo Artist/Album"
+    from_artists = {"Type": "Audio", "Artists": ["Credited"], "Album": "Album"}
+    assert files.item_dirs(from_artists)[0] == "Music/Credited/Album"
+    bare = {"Type": "Audio"}
+    assert files.item_dirs(bare) == ("Music/Unknown artist/Unknown album", None)
+
+
+def test_default_filename_orders_directories():
+    episode = {
+        "Type": "Episode",
+        "Name": "The One",
+        "ParentIndexNumber": 2,
+        "IndexNumber": 9,
+    }
+    assert files.default_filename(episode, "mp4") == "S02E09 The One.mp4"
+    song = {"Type": "Audio", "Name": "Opening Track", "IndexNumber": 1}
+    assert files.default_filename(song, "opus") == "01 Opening Track.opus"
+    movie = {"Type": "Movie", "Name": "The Movie"}
+    assert files.default_filename(movie, "mp4") == "The Movie.mp4"
+    assert files.default_filename({"Type": "Movie", "Id": "x"}, "") == "x.bin"

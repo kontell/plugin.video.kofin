@@ -57,9 +57,17 @@ def _focused_item_id() -> str:
     # through the kofin.db mapping instead.
     listitem = _focused_listitem()
     tag = listitem.getVideoInfoTag() if listitem is not None else None
-    if tag is None:
-        return ""
-    return lookup_item_id(tag.getDbId(), tag.getMediaType())
+    if tag is not None and tag.getDbId() > 0 and tag.getMediaType():
+        return lookup_item_id(tag.getDbId(), tag.getMediaType())
+    # A music-library row carries a music tag instead, which has a database
+    # id but no media type — the infolabels of the focused item say which
+    # table it came from (the same DBTYPE the addon.xml visibility tests).
+    dbtype = xbmc.getInfoLabel("ListItem.DBTYPE")
+    if dbtype in ("song", "album", "artist"):
+        dbid = xbmc.getInfoLabel("ListItem.DBID")
+        if dbid.isdigit():
+            return lookup_item_id(int(dbid), dbtype)
+    return ""
 
 
 def lookup_item_id(dbid: int, media_type: str) -> str:
@@ -252,9 +260,23 @@ def _stop_current_playback() -> None:
 # containers Jellyfin tracks played state for.
 WATCHED_TYPES = PLAYABLE_TYPES | {"Series", "Season", "BoxSet"}
 
-# Phase 1 downloads movies and episodes; the containers expand to episodes at
-# the route (docs/offline-downloads-plan.md W1.10).
-DOWNLOADABLE_TYPES = frozenset({"Movie", "Episode", "Season", "Series"})
+# Movies/episodes since phase 1; music since phase 3 (W3.2). Containers
+# expand to their downloadable leaves at the route (W1.10).
+DOWNLOADABLE_TYPES = frozenset(
+    {
+        "Movie",
+        "Episode",
+        "Season",
+        "Series",
+        "Audio",
+        "MusicAlbum",
+        "MusicArtist",
+        "Playlist",
+    }
+)
+DOWNLOAD_CONTAINER_TYPES = frozenset(
+    {"Season", "Series", "MusicAlbum", "MusicArtist", "Playlist"}
+)
 
 
 def _download_options(item: dict) -> List[Tuple[str, dict]]:
@@ -271,7 +293,7 @@ def _download_options(item: dict) -> List[Tuple[str, dict]]:
     if item_type not in DOWNLOADABLE_TYPES:
         return []
     item_id = item.get("Id", "")
-    if item_type in ("Season", "Series"):
+    if item_type in DOWNLOAD_CONTAINER_TYPES:
         return [(settings.localized(30708), {"mode": "download", "id": item_id})]
 
     from kofin.downloads import store

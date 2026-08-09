@@ -200,6 +200,7 @@ class FakeDownloadApi:
         self._item = item
         self._episodes = list(episodes)
         self._pages = pages or {}
+        self.item_params = []
 
     def item(self, item_id):
         return self._item
@@ -208,6 +209,7 @@ class FakeDownloadApi:
         return {"Items": self._episodes}
 
     def items(self, params):
+        self.item_params.append(dict(params))
         start = params.get("StartIndex", 0)
         rows = self._episodes[start : start + params.get("Limit", 200)]
         return {"Items": rows, "TotalRecordCount": len(self._episodes)}
@@ -311,3 +313,55 @@ def test_cancel_and_remove_routes(download_wired):
     dialog.yesno_result = False
     actions.remove_download(Request("plugin://x", -1, {"id": "r2", "name": "N"}))
     assert len(notified) == 2  # declined: nothing new
+
+
+def test_download_album_confirms_and_expands(download_wired):
+    album = {"Id": "al1", "Type": "MusicAlbum"}
+    tracks = [
+        {
+            "Id": "t1",
+            "Type": "Audio",
+            "CanDownload": True,
+            "MediaSources": [{"Size": 5}],
+        },
+        {
+            "Id": "t2",
+            "Type": "Audio",
+            "CanDownload": True,
+            "MediaSources": [{"Size": 5}],
+        },
+    ]
+    api = FakeDownloadApi(album, episodes=tracks)
+    notified, dialog, Request = download_wired(api)
+    actions.download(Request("plugin://x", -1, {"id": "al1"}))
+
+    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["t1", "t2"]})]
+    assert len(dialog.yesnos) == 1  # music containers confirm like seasons
+    assert api.item_params and api.item_params[0].get("ParentId") == "al1"
+    assert api.item_params[0].get("IncludeItemTypes") == "Audio"
+
+
+def test_download_artist_expands_by_artistids(download_wired):
+    artist = {"Id": "ar1", "Type": "MusicArtist"}
+    tracks = [{"Id": "t1", "Type": "Audio", "CanDownload": True, "MediaSources": []}]
+    api = FakeDownloadApi(artist, episodes=tracks)
+    notified, dialog, Request = download_wired(api)
+    actions.download(Request("plugin://x", -1, {"id": "ar1"}))
+
+    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["t1"]})]
+    params = api.item_params[0]
+    assert params.get("ArtistIds") == "ar1" and "ParentId" not in params
+
+
+def test_download_playlist_keeps_only_the_leaves(download_wired):
+    playlist = {"Id": "pl1", "Type": "Playlist"}
+    entries = [
+        {"Id": "t1", "Type": "Audio", "CanDownload": True, "MediaSources": []},
+        {"Id": "m1", "Type": "Movie", "CanDownload": True, "MediaSources": []},
+        {"Id": "x1", "Type": "TvChannel", "CanDownload": True, "MediaSources": []},
+    ]
+    api = FakeDownloadApi(playlist, episodes=entries)
+    notified, dialog, Request = download_wired(api)
+    actions.download(Request("plugin://x", -1, {"id": "pl1"}))
+
+    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["t1", "m1"]})]

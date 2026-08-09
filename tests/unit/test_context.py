@@ -357,3 +357,18 @@ def test_containers_offer_download_without_the_per_item_gate(monkeypatch):
     assert _download_entry_options(monkeypatch, series) == [
         ("L30708", {"mode": "download", "id": "s1"})
     ]
+
+
+def test_music_types_join_the_download_gates(monkeypatch):
+    song = {"Id": "i1", "Type": "Audio", "Name": "T", "CanDownload": True}
+    assert _download_entry_options(monkeypatch, song) == [
+        ("L30708", {"mode": "download", "id": "i1"})
+    ]
+    refused = dict(song, CanDownload=False)
+    assert _download_entry_options(monkeypatch, refused) == []
+
+    for container_type in ("MusicAlbum", "MusicArtist", "Playlist"):
+        container = {"Id": "c1", "Type": container_type, "CanDownload": False}
+        assert _download_entry_options(monkeypatch, container) == [
+            ("L30708", {"mode": "download", "id": "c1"})
+        ], container_type

@@ -231,3 +231,64 @@ class Downloads(Kodi):
             self.cursor.execute(DELETE_PATH, (path_id,))
             removed += 1
         return removed
+
+
+GET_SONG_LOCATION = """
+SELECT      idPath, strFileName
+FROM        song
+WHERE       idSong = ?
+"""
+
+SET_SONG_LOCATION = """
+UPDATE      song
+SET         idPath = ?, strFileName = ?
+WHERE       idSong = ?
+"""
+
+PATH_HAS_SONGS = """
+SELECT      1
+FROM        song
+WHERE       idPath = ?
+LIMIT       1
+"""
+
+
+class MusicDownloads(Kodi):
+    """The MyMusic half of the repoint (plan W3.2).
+
+    Far smaller than the video one on purpose: MyMusic's ``path`` table is
+    bare (idPath, strPath — no scraper stamps, no parent links), Kodi
+    rebuilds a song's playable path as ``AddFileToFolder(path.strPath,
+    song.strFileName)`` with no full-URL arm, and only the album directory
+    ever needs a row — nothing references the artist level. The base
+    ``add_path``/``get_path`` SQL is two-column and serves both databases.
+    """
+
+    def __init__(self, cursor: "sqlite3.Cursor") -> None:
+        self.cursor = cursor
+        Kodi.__init__(self)
+
+    def song_location(self, song_id: int) -> Optional[Tuple[int, str]]:
+        self.cursor.execute(GET_SONG_LOCATION, (song_id,))
+        row = self.cursor.fetchone()
+        if row is None:
+            return None
+        return int(row[0]), str(row[1] or "")
+
+    def set_song_location(self, song_id: int, path_id: int, filename: str) -> None:
+        self.cursor.execute(SET_SONG_LOCATION, (path_id, filename, song_id))
+
+    def ensure_song_path(self, directory: str) -> int:
+        """Get-or-create the album directory's row; the file's target."""
+        return int(self.add_path(with_sep(directory)))
+
+    def prune_song_path(self, directory: str) -> bool:
+        """Drop the directory row when no song references it any more."""
+        path_id = self.get_path(with_sep(directory))
+        if path_id is None:
+            return False
+        self.cursor.execute(PATH_HAS_SONGS, (path_id,))
+        if self.cursor.fetchone() is not None:
+            return False
+        self.cursor.execute(DELETE_PATH, (path_id,))
+        return True
