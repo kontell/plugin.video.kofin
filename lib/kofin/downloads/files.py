@@ -9,6 +9,8 @@ POSIX-style paths relative to the downloads root.
 import os
 import posixpath
 import re
+import sys
+import unicodedata
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from kofin.core.log import Logger
@@ -41,11 +43,32 @@ def sanitize(name: str) -> str:
     Unsafe characters are dropped rather than replaced — "Mission:
     Impossible" reads better as "Mission Impossible" than with a stand-in
     glyph — whitespace runs collapse, and FAT's trailing-dot/space rule is
-    applied. Unicode passes through untouched. An empty survivor answers
-    "untitled" so a caller never builds a path with a vanished component.
+    applied. Unicode passes through untouched *when the interpreter can put
+    it on disk*: Kodi's embedded Python can run with an ASCII filesystem
+    encoding (no locale exported — measured live, G12: the ``’`` in an album
+    name killed the download with UnicodeEncodeError inside ``os.remove``),
+    and there every non-ASCII path explodes in the ``os`` module, so the
+    name degrades to its closest ASCII — accents fold (NFKD), the rest
+    drops. An empty survivor answers "untitled" so a caller never builds a
+    path with a vanished component.
     """
     cleaned = _WHITESPACE.sub(" ", _UNSAFE.sub("", name)).strip().rstrip(". ")
+    if cleaned and not _fits_filesystem(cleaned):
+        folded = (
+            unicodedata.normalize("NFKD", cleaned)
+            .encode("ascii", "ignore")
+            .decode("ascii")
+        )
+        cleaned = _WHITESPACE.sub(" ", folded).strip().rstrip(". ")
     return cleaned or "untitled"
+
+
+def _fits_filesystem(name: str) -> bool:
+    try:
+        name.encode(sys.getfilesystemencoding() or "utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def filename_from_disposition(value: str, fallback: str) -> str:

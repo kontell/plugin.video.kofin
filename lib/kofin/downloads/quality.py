@@ -44,6 +44,47 @@ def wanted(item_type: str) -> bool:
     return False
 
 
+def _stream_rate(source: JsonDict, kind: str) -> int:
+    """The source's own bitrate for its first stream of ``kind``, 0 unknown."""
+    for stream in source.get("MediaStreams") or []:
+        if stream.get("Type") == kind:
+            return int(stream.get("BitRate") or 0)
+    return 0
+
+
+def cap_bitrates_to_source(url: str, source: JsonDict) -> str:
+    """Splice the URL's target bitrates down to the source's own rates.
+
+    The server sizes a transcode from the profile's budget, not from the
+    source: a codec-forced transcode of a 0.9 Mbit/s file under a 3 Mbit/s
+    cap came back 2.9 Mbit/s HEVC — 3.5x the bytes for nothing (measured,
+    G11). A re-encode cannot add quality the source does not have, so the
+    target never exceeds the source stream's own rate. Lowering to *equal*
+    is safe for a stream the server planned to copy: the copy gates on
+    ``requested >= source``, which equality satisfies. Params are spliced
+    textually, as ``play.rewrite_bitrates`` does — the URL carries opaque
+    values no parse/re-encode round trip has business touching — and a URL
+    that names no bitrate is left alone (nothing to cap).
+    """
+    base, _, query = url.partition("?")
+    if not query:
+        return url
+    caps = {
+        "VideoBitrate=": _stream_rate(source, "Video"),
+        "AudioBitrate=": _stream_rate(source, "Audio"),
+    }
+    rewritten = []
+    for param in query.split("&"):
+        for prefix, source_rate in caps.items():
+            if source_rate and param.startswith(prefix):
+                value = param[len(prefix) :]
+                if value.isdigit() and int(value) > source_rate:
+                    param = "%s%d" % (prefix, source_rate)
+                break
+        rewritten.append(param)
+    return "%s?%s" % (base, "&".join(rewritten))
+
+
 def progressive(transcoding_url: str) -> str:
     """The progressive shape of a TranscodingUrl.
 
@@ -85,7 +126,7 @@ def decide(api: Any, item: JsonDict) -> Decision:
         raise JellyfinError(
             "no compliant stream and no transcode offered for %s" % item_id
         )
-    url = progressive(transcoding_url)
+    url = cap_bitrates_to_source(progressive(transcoding_url), source)
     if url.startswith("/"):
         url = api.server + url
     container = str(source.get("TranscodingContainer") or "").split(",")[0]

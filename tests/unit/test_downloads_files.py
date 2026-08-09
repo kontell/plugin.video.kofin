@@ -153,3 +153,21 @@ def test_default_filename_orders_directories():
     movie = {"Type": "Movie", "Name": "The Movie"}
     assert files.default_filename(movie, "mp4") == "The Movie.mp4"
     assert files.default_filename({"Type": "Movie", "Id": "x"}, "") == "x.bin"
+
+
+def test_sanitize_degrades_to_ascii_only_when_the_filesystem_cannot(monkeypatch):
+    """Kodi's embedded Python can run with an ASCII filesystem encoding
+    (measured live, G12: '’' in an album name killed the download in
+    os.remove). Accents fold, unmappable glyphs drop — but only there; a
+    healthy UTF-8 box keeps the real name."""
+    fancy = "Black Betty (Rough ’n’ Ready remix)"
+    accented = "Café Tacvba"
+
+    monkeypatch.setattr(files.sys, "getfilesystemencoding", lambda: "utf-8")
+    assert files.sanitize(fancy) == fancy
+    assert files.sanitize(accented) == accented
+
+    monkeypatch.setattr(files.sys, "getfilesystemencoding", lambda: "ascii")
+    assert files.sanitize(fancy) == "Black Betty (Rough n Ready remix)"
+    assert files.sanitize(accented) == "Cafe Tacvba"
+    assert files.sanitize("’’’") == "untitled"

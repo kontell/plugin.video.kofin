@@ -109,10 +109,25 @@ def queue(download: Download) -> bool:
             )
             return True
         if existing[0] == FAILED:
+            # A failed transcode's frozen target is worthless — nothing
+            # resumes into a re-encode — and can itself be the failure (a
+            # name the attempt could not put on disk), so it re-freezes
+            # fresh. Originals keep theirs: that is the Range resume. The
+            # CASE reads the pre-update row, as SQLite guarantees.
             opened.cursor.execute(
                 "UPDATE download SET state = ?, queued_at = ?, error = '', "
+                "rel_path = CASE WHEN quality = ? THEN '' ELSE rel_path END, "
+                "bytes_done = CASE WHEN quality = ? THEN 0 ELSE bytes_done END, "
                 "quality = ?, origin = ? WHERE jellyfin_id = ?",
-                (QUEUED, now, download.quality, download.origin, download.jellyfin_id),
+                (
+                    QUEUED,
+                    now,
+                    QUALITY_TRANSCODE,
+                    QUALITY_TRANSCODE,
+                    download.quality,
+                    download.origin,
+                    download.jellyfin_id,
+                ),
             )
             return True
     return False

@@ -149,3 +149,49 @@ def test_unusable_answers_raise_instead_of_downloading_the_original():
         )
     with pytest.raises(JellyfinError):
         quality.decide(FakeApi(error=JellyfinError("boom")), MOVIE)
+
+
+def test_targets_never_exceed_the_source_rates():
+    """Measured live (G11): a codec-forced transcode of a 0.9 Mbit/s file
+    under a 3 Mbit/s cap came back 2.9 Mbit/s — 3.5x the bytes for
+    nothing. The URL's targets are spliced down to the source's own rates;
+    equality keeps a planned stream copy legal (the copy gates on >=)."""
+    source = {
+        "MediaStreams": [
+            {"Type": "Video", "BitRate": 760_000},
+            {"Type": "Audio", "BitRate": 96_000},
+        ]
+    }
+    url = "/v/stream.mp4?deviceId=d&VideoBitrate=2712000&AudioBitrate=288000&x=1"
+    capped = quality.cap_bitrates_to_source(url, source)
+    assert "VideoBitrate=760000" in capped
+    assert "AudioBitrate=96000" in capped
+    assert capped.endswith("&x=1") and "deviceId=d" in capped
+
+    # Already below the source: left exactly alone (a bitrate-forced
+    # transcode is *meant* to be smaller).
+    low = "/v/stream.mp4?VideoBitrate=500000&AudioBitrate=64000"
+    assert quality.cap_bitrates_to_source(low, source) == low
+
+    # No bitrate params, unknown source rates: nothing to do.
+    bare = "/v/stream.mp4?deviceId=d"
+    assert quality.cap_bitrates_to_source(bare, source) == bare
+    assert quality.cap_bitrates_to_source(url, {"MediaStreams": []}) == url
+
+
+def test_decide_caps_the_transcode_url():
+    FakeAddon.store = {"downloadsTranscode": "true"}
+    api = FakeApi(
+        {
+            "PlaySessionId": "ps1",
+            "MediaSources": [
+                {
+                    "SupportsDirectPlay": False,
+                    "TranscodingUrl": "/v/stream.mp4?VideoBitrate=2712000",
+                    "TranscodingContainer": "mp4",
+                    "MediaStreams": [{"Type": "Video", "BitRate": 760_000}],
+                }
+            ],
+        }
+    )
+    assert "VideoBitrate=760000" in quality.decide(api, MOVIE).url

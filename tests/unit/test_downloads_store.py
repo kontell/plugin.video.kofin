@@ -166,3 +166,27 @@ def test_record_details_stamps_the_decided_quality():
     assert store.get("m1").quality == store.QUALITY_TRANSCODE
     store.record_details("m1", "movie", "", 8, "")
     assert store.get("m1").quality == store.QUALITY_ORIGINAL
+
+
+def test_requeue_clears_a_failed_transcodes_target_but_not_an_originals():
+    store.queue(_movie("m1"))
+    store.claim()
+    store.record_details("m1", "movie", "", 0, "", store.QUALITY_TRANSCODE)
+    store.record_target("m1", "Movies/X/X.mp4", "mp4")
+    store.record_progress("m1", 42)
+    store.fail("m1", "name the attempt could not put on disk")
+
+    assert store.queue(_movie("m1")) is True
+    row = store.get("m1")
+    assert row.rel_path == "" and row.bytes_done == 0  # re-freezes fresh
+
+    store.claim()
+    store.record_details("m1", "movie", "", 8, "", store.QUALITY_ORIGINAL)
+    store.record_target("m1", "Movies/X/X.mkv", "mkv")
+    store.record_progress("m1", 42)
+    store.fail("m1", "connection lost")
+
+    assert store.queue(_movie("m1")) is True
+    row = store.get("m1")
+    assert row.rel_path == "Movies/X/X.mkv"  # the Range resume
+    assert row.bytes_done == 42
