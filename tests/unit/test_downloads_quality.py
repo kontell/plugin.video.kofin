@@ -195,3 +195,11 @@ def test_decide_caps_the_transcode_url():
         }
     )
     assert "VideoBitrate=760000" in quality.decide(api, MOVIE).url
+
+
+def test_estimated_bytes_from_the_url_targets():
+    url = "/v/stream.mp4?VideoBitrate=760000&AudioBitrate=96000&x=1"
+    ticks = 100 * 10_000_000  # 100 s
+    assert quality.estimated_bytes(url, ticks) == (760_000 + 96_000) * 100 // 8
+    assert quality.estimated_bytes("/v/stream.mp4?x=1", ticks) == 0  # no targets
+    assert quality.estimated_bytes(url, 0) == 0  # no runtime

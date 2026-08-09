@@ -26,7 +26,15 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from kofin.core import settings, state, toast
 from kofin.core.http import JellyfinError, StreamedResponse, Unauthorized
 from kofin.core.log import Logger
-from kofin.downloads import downloads_root, files, probe, quality, repoint, store
+from kofin.downloads import (
+    downloads_root,
+    files,
+    probe,
+    progress,
+    quality,
+    repoint,
+    store,
+)
 
 LOG = Logger(__name__)
 
@@ -93,6 +101,8 @@ class DownloadManager:
         # two parallel pulls would saturate the server unbidden. Originals
         # keep the full pool.
         self._transcode_slot = threading.Semaphore(1)
+        # The aggregate bar on Kodi's library-update surface (W3.4).
+        self._progress = progress.Reporter(self._should_stop)
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -123,6 +133,9 @@ class DownloadManager:
             worker.join(timeout=JOIN_SECONDS)
             if worker.is_alive():  # pragma: no cover - watchdog logging only
                 LOG.warning("%s did not stop within its deadline", worker.name)
+        # After the joins, so no worker races the close; unconditional, so
+        # no bar ghosts in the corner past the manager that drew it.
+        self._progress.close()
         LOG.info("download manager stopped")
 
     def _should_stop(self) -> bool:
@@ -168,11 +181,13 @@ class DownloadManager:
                     # to a list of failures instead of a list of downloads
                     # (the gap phase 1's gates exposed). Ops still drain
                     # above, so a cancel or a remove works offline.
+                    self._progress.idle()
                     if self._wake.wait(timeout=OFFLINE_POLL_SECONDS):
                         self._wake.clear()
                     continue
                 row = store.claim()
                 if row is None:
+                    self._progress.idle()
                     if self._wake.wait(timeout=IDLE_POLL_SECONDS):
                         self._wake.clear()
                     continue
@@ -262,6 +277,10 @@ class DownloadManager:
             self._retry_or_fail(row, str(error))
         except OSError as error:
             self._retry_or_fail(row, self._explain_write_error(error))
+        finally:
+            # Every exit leaves the active set — done, failed, cancelled or
+            # requeued — and only a completed item advances the bar.
+            self._progress.finish(item_id, store.is_done(item_id))
 
     def _transfer(self, api: Any, row: "store.Download", item: JsonDict) -> None:
         item_id = row.jellyfin_id
@@ -387,6 +406,9 @@ class DownloadManager:
             part = absolute + ".part"
             os.makedirs(os.path.dirname(absolute), exist_ok=True)
             expected_total = _expected_total(stream, start, size_expected)
+            self._progress.begin(
+                item_id, str(item.get("Name") or item_id), expected_total
+            )
             if not stream.already_complete:
                 if stream.status == 200 and start:
                     # The server ignored the range; write fresh.
@@ -424,6 +446,14 @@ class DownloadManager:
         if not self._acquire_transcode_slot(item_id):
             raise JellyfinError("interrupted waiting for the transcode slot")
         try:
+            runtime_ticks = int(
+                source.get("RunTimeTicks") or item.get("RunTimeTicks") or 0
+            )
+            self._progress.begin(
+                item_id,
+                str(item.get("Name") or item_id),
+                quality.estimated_bytes(decision.url, runtime_ticks),
+            )
             rel_path = row.rel_path
             stream = api.transcode_stream(decision.url)
             try:
@@ -536,6 +566,7 @@ class DownloadManager:
                     chunk_count += 1
                     if chunk_count % PROGRESS_EVERY_CHUNKS == 0:
                         store.record_progress(item_id, written)
+                        self._progress.tick(item_id, written)
         finally:
             # Also on the way out through an abort or a dead socket: the
             # resume reads the .part's real size, but a watermark left at

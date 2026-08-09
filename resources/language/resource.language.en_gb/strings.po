@@ -1725,3 +1725,7 @@ msgstr ""
 msgctxt "#30736"
 msgid "Downloaded music"
 msgstr ""
+
+msgctxt "#30737"
+msgid "Kofin downloads"
+msgstr ""

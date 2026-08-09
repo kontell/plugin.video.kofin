@@ -190,3 +190,13 @@ def test_requeue_clears_a_failed_transcodes_target_but_not_an_originals():
     row = store.get("m1")
     assert row.rel_path == "Movies/X/X.mkv"  # the Range resume
     assert row.bytes_done == 42
+
+
+def test_pending_count_spans_queued_and_active():
+    assert store.pending_count() == 0
+    store.queue(_movie("m1"))
+    store.queue(_movie("m2", queued_at=101))
+    store.claim()
+    assert store.pending_count() == 2  # one active, one queued
+    store.finish("m1", "a/b.mkv", "mkv", 1)
+    assert store.pending_count() == 1

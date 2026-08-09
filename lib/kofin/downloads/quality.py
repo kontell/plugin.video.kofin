@@ -85,6 +85,30 @@ def cap_bitrates_to_source(url: str, source: JsonDict) -> str:
     return "%s?%s" % (base, "&".join(rewritten))
 
 
+def estimated_bytes(url: str, runtime_ticks: int) -> int:
+    """A transcode's likely finished size, off the URL's own targets.
+
+    The only total a progress bar can get — no Content-Length exists — and
+    a good one since :func:`cap_bitrates_to_source`: the targets are real
+    stream rates, and fMP4 adds ~0% container overhead (V3). 0 when the
+    URL names no bitrate or the runtime is unknown, which the bar reads as
+    "count this item only when it finishes".
+    """
+    seconds = runtime_ticks / 10_000_000
+    if seconds <= 0:
+        return 0
+    total_bps = 0
+    for param in url.partition("?")[2].split("&"):
+        for prefix in ("VideoBitrate=", "AudioBitrate="):
+            if param.startswith(prefix):
+                value = param[len(prefix) :]
+                if value.isdigit():
+                    total_bps += int(value)
+    if total_bps <= 0:
+        return 0
+    return int(seconds * total_bps / 8)
+
+
 def progressive(transcoding_url: str) -> str:
     """The progressive shape of a TranscodingUrl.
 

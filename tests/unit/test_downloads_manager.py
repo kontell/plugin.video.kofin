@@ -854,3 +854,99 @@ def test_a_song_downloads_into_the_album_directory(tmp_path, repoints, monkeypat
     assert (tmp_path / "dl" / row.rel_path).read_bytes() == b"abcdefgh"
     assert repoints["repoint"] == [("a1", str(tmp_path / "dl"))]
     assert views == [1]  # the Downloaded-music view exists from song one
+
+
+# -- the progress bar (plan W3.4) ---------------------------------------------
+
+
+class RecordingProgress:
+    def __init__(self):
+        self.calls = []
+
+    def begin(self, item_id, name, total):
+        self.calls.append(("begin", item_id, name, total))
+
+    def tick(self, item_id, done):
+        self.calls.append(("tick", item_id, done))
+
+    def finish(self, item_id, completed):
+        self.calls.append(("finish", item_id, completed))
+
+    def idle(self):
+        self.calls.append(("idle",))
+
+    def close(self):
+        self.calls.append(("close",))
+
+
+def test_the_progress_bar_follows_a_transfer(tmp_path, repoints):
+    manager, _ = make_manager(repoints)
+    recorder = RecordingProgress()
+    manager._progress = recorder
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+
+    manager._process(api, queue_row())
+
+    assert ("begin", "m1", "The Movie", 8) in recorder.calls
+    assert ("finish", "m1", True) in recorder.calls
+
+    manager.stop()
+    assert ("close",) in recorder.calls
+
+
+def test_a_retry_reports_finish_without_completion(tmp_path, repoints, monkeypatch):
+    monkeypatch.setattr(manager_module, "BACKOFF_SECONDS", 0.0)
+    manager, _ = make_manager(repoints)
+    recorder = RecordingProgress()
+    manager._progress = recorder
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcd"],  # short of the stated 8: a size mismatch
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+
+    manager._process(api, queue_row())
+
+    assert ("finish", "m1", False) in recorder.calls  # requeued, not counted
+
+
+def test_a_transcode_begins_with_the_url_estimate(tmp_path, repoints, monkeypatch):
+    transcode_env(monkeypatch)
+    manager, _ = make_manager(repoints)
+    recorder = RecordingProgress()
+    manager._progress = recorder
+    answer = {
+        "PlaySessionId": "ps1",
+        "MediaSources": [
+            {
+                "SupportsDirectPlay": False,
+                "TranscodingUrl": "/Videos/m1/stream.mp4?VideoBitrate=800000",
+                "TranscodingContainer": "mp4",
+            }
+        ],
+    }
+    api = FakeManagerApi(
+        TRANSCODE_MOVIE,
+        [],
+        playback=answer,
+        transcode_streams=[FakeStream(200, [b"abcd"])],
+    )
+
+    manager._process(api, queue_row())
+
+    begins = [call for call in recorder.calls if call[0] == "begin"]
+    assert begins == [("begin", "m1", "The Movie", 800_000 * 100 // 8)]

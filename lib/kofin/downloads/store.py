@@ -332,6 +332,16 @@ def is_done(jellyfin_id: str) -> bool:
     return row is not None and row.state == DONE
 
 
+def pending_count() -> int:
+    """Queued + active rows — what the progress bar calls the remainder."""
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "SELECT COUNT(*) FROM download WHERE state IN (?, ?)",
+            (QUEUED, ACTIVE),
+        )
+        return int(opened.cursor.fetchone()[0])
+
+
 def done_ids() -> Set[str]:
     with Database("kofin") as opened:
         opened.cursor.execute(
