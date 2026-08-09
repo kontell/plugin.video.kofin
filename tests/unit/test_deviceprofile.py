@@ -250,3 +250,107 @@ def test_music_cap_only_applies_when_music_transcode_is_on(monkeypatch):
 
     FakeAddon.store["musicTranscode"] = "true"
     assert ProfileConfig.from_settings().music_max_bitrate_kbps == 320
+
+
+# -- the download profile (plan W3.1/W3.2) -----------------------------------
+
+
+def test_download_profile_shape():
+    profile = deviceprofile.build_download(
+        ProfileConfig(max_bitrate_mbps=8, max_width=1920)
+    )
+    assert profile["MaxStreamingBitrate"] == 8_000_000
+
+    transcoding = profile["TranscodingProfiles"]
+    assert len(transcoding) == 2  # one fMP4 video leg, one music leg
+    video = transcoding[0]
+    assert video["Container"] == "mp4" and video["Protocol"] == "http"
+    # Preferred first, then every mp4-muxable direct-play codec; vc1 is
+    # direct-playable but never a copy target.
+    assert video["VideoCodec"] == "h264,hevc,av1,mpeg2video,vp9"
+
+    widths = [
+        cp
+        for cp in profile["CodecProfiles"]
+        if cp["Conditions"][0].get("Property") == "Width"
+    ]
+    assert widths and widths[0]["Conditions"][0]["Value"] == "1920"
+
+
+def test_download_direct_play_keeps_containers_open():
+    profile = deviceprofile.build_download(ProfileConfig())
+    video = profile["DirectPlayProfiles"][0]
+    assert video["Type"] == "Video"
+    assert "Container" not in video  # a container must never force a transcode
+    assert "vc1" in video["VideoCodec"]
+
+
+def test_download_audio_direct_play_is_lossy_only():
+    """SupportsDirectPlay is the whole music decision, so the audio entry
+    must exclude lossless — an open profile would answer "keep the FLAC"."""
+    profile = deviceprofile.build_download(ProfileConfig())
+    audio = profile["DirectPlayProfiles"][-1]
+    codecs = audio["AudioCodec"].split(",")
+    assert "flac" not in codecs and "alac" not in codecs
+    assert "mp3" in codecs and "opus" in codecs and "aac" in codecs
+
+
+def test_download_copy_list_ranks_the_encoder_fallback_by_efficiency():
+    """Preferred first, then hevc, then h264, then the rest: the server
+    encodes to the first entry its ffmpeg can, so a stripped build without
+    the preferred encoder falls back to quality-per-byte order — not the
+    direct-play list's display order, which puts h264 first."""
+    av1 = deviceprofile.build_download(ProfileConfig(preferred_video="av1"))
+    assert av1["TranscodingProfiles"][0]["VideoCodec"] == "av1,hevc,h264,mpeg2video,vp9"
+    hevc = deviceprofile.build_download(ProfileConfig(preferred_video="hevc"))
+    assert (
+        hevc["TranscodingProfiles"][0]["VideoCodec"] == "hevc,h264,av1,mpeg2video,vp9"
+    )
+    # A fallback the device cannot decode never appears at all.
+    no_hevc = deviceprofile.build_download(
+        ProfileConfig(preferred_video="av1", video_codecs=["av1", "h264"])
+    )
+    assert no_hevc["TranscodingProfiles"][0]["VideoCodec"] == "av1,h264"
+
+
+def test_download_music_leg_and_cap_follow_config():
+    profile = deviceprofile.build_download(
+        ProfileConfig(
+            music_codec="opus", music_bitrate_kbps=128, music_max_bitrate_kbps=192
+        )
+    )
+    music = profile["TranscodingProfiles"][-1]
+    assert music["Container"] == "opus" and music["Protocol"] == "http"
+    caps = [
+        cp
+        for cp in profile["CodecProfiles"]
+        if cp["Type"] == "Audio" and cp["Conditions"][0]["Property"] == "AudioBitrate"
+    ]
+    assert caps and caps[0]["Conditions"][0]["Value"] == "192000"
+
+
+def test_for_downloads_reads_the_downloads_settings(monkeypatch):
+    FakeAddon.store = {
+        "directPlayVideoCodecs": "h264,hevc",
+        "directPlayAudioCodecs": "aac,ac3",
+        "allowedHdrTypes": "HDR10",
+        "preferredVideoCodec": "hevc",
+        "preferredAudioCodec": "aac",
+        "maxAudioChannels": "6",
+        "maxStreamingBitrate": "120",  # the *streaming* cap must not leak in
+        "maxResolution": "3840",
+        "downloadsMaxBitrate": "8",
+        "downloadsMaxResolution": "1280",
+        "downloadsMusicCodec": "opus",
+        "downloadsMusicBitrate": "128",
+        "downloadsMusicMaxBitrate": "192",
+        "audioBitrate": "384",
+    }
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    config = ProfileConfig.for_downloads()
+    assert config.max_bitrate_mbps == 8
+    assert config.max_width == 1280
+    assert config.music_max_bitrate_kbps == 192
+    assert config.video_codecs == ["h264", "hevc"]
+    assert not config.force_direct_play
+    assert not config.force_transcode

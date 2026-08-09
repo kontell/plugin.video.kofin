@@ -29,6 +29,7 @@ from kofin.core.log import Logger
 from kofin.downloads import TAG, downloads_root, store
 from kofin.sync.db import Database
 from kofin.sync.kodidb.downloads import Downloads as KodiDownloads
+from kofin.sync.kodidb.downloads import MusicDownloads
 
 LOG = Logger(__name__)
 
@@ -60,6 +61,20 @@ def mapping_for_on(kofin_cursor: Any, jellyfin_id: str) -> Optional[Mapping]:
     return Mapping(int(row[0]), int(row[1]), int(row[2]), str(row[3] or ""))
 
 
+def _song_mapping_on(kofin_cursor: Any, jellyfin_id: str) -> Optional[Mapping]:
+    """A song's mapping: kodi id + path id, no file id to demand — MyMusic
+    has no files table; the song row is its own file."""
+    kofin_cursor.execute(
+        "SELECT kodi_id, kodi_pathid FROM jellyfin "
+        "WHERE jellyfin_id = ? AND media_type = 'song'",
+        (jellyfin_id,),
+    )
+    row = kofin_cursor.fetchone()
+    if row is None or row[0] is None or row[1] is None:
+        return None
+    return Mapping(int(row[0]), 0, int(row[1]), "song")
+
+
 def _directory_chain(root: str, rel_path: str) -> Tuple[List[str], str]:
     """(absolute directory chain top-down, filename) for a stored rel_path."""
     parts = [part for part in rel_path.split("/") if part]
@@ -76,15 +91,23 @@ def _directory_chain(root: str, rel_path: str) -> Tuple[List[str], str]:
 def _valid_chain(media_type: str, chain: List[str]) -> bool:
     if media_type == "movie":
         return len(chain) == 2  # Movies/<Title (Year)>
+    if media_type == "song":
+        return len(chain) == 3  # Music/<AlbumArtist>/<Album>
     return len(chain) in (2, 3)  # TV/<Show>[/Season NN]
 
 
 def repoint(download: store.Download, root: str) -> bool:
+    if download.media_type == "song":
+        with Database("kofin") as kofin_db, Database("music") as music:
+            return repoint_song_on(music.cursor, kofin_db.cursor, download, root)
     with Database("kofin") as kofin_db, Database("video") as video:
         return repoint_on(video.cursor, kofin_db.cursor, download, root)
 
 
 def restore(download: store.Download, root: str) -> bool:
+    if download.media_type == "song":
+        with Database("kofin") as kofin_db, Database("music") as music:
+            return restore_song_on(music.cursor, kofin_db.cursor, download, root)
     with Database("kofin") as kofin_db, Database("video") as video:
         return restore_on(video.cursor, kofin_db.cursor, download, root)
 
@@ -184,6 +207,79 @@ def restore_on(
     return True
 
 
+def repoint_song_on(
+    music_cursor: Any, kofin_cursor: Any, download: store.Download, root: str
+) -> bool:
+    """The music repoint (plan W3.2): ``song.idPath`` to the album
+    directory's row, ``strFileName`` to the bare basename — whose extension
+    is the downloaded container's, satisfying the musicdb extension rule by
+    construction. Same capture discipline as the video side."""
+    mapping = _song_mapping_on(kofin_cursor, download.jellyfin_id)
+    if mapping is None:
+        LOG.warning(
+            "music repoint skipped for %s: no usable mapping", download.jellyfin_id
+        )
+        return False
+    chain, filename = _directory_chain(root, download.rel_path)
+    if not filename or not _valid_chain("song", chain):
+        LOG.warning(
+            "music repoint skipped for %s: unusable rel_path %r",
+            download.jellyfin_id,
+            download.rel_path,
+        )
+        return False
+
+    kodi = MusicDownloads(music_cursor)
+    location = kodi.song_location(mapping.kodi_id)
+    if location is None:
+        LOG.warning(
+            "music repoint skipped for %s: song row %s is gone",
+            download.jellyfin_id,
+            mapping.kodi_id,
+        )
+        return False
+    _current_path_id, current_name = location
+    if current_name and current_name != filename:
+        store.set_restore_filename_on(kofin_cursor, download.jellyfin_id, current_name)
+    target = kodi.ensure_song_path(chain[-1])
+    kodi.set_song_location(mapping.kodi_id, target, filename)
+    LOG.info(
+        "repointed %s (song %s) at %s",
+        download.jellyfin_id,
+        mapping.kodi_id,
+        download.rel_path,
+    )
+    return True
+
+
+def restore_song_on(
+    music_cursor: Any, kofin_cursor: Any, download: store.Download, root: str
+) -> bool:
+    mapping = _song_mapping_on(kofin_cursor, download.jellyfin_id)
+    if mapping is None:
+        LOG.warning(
+            "music restore skipped for %s: no usable mapping", download.jellyfin_id
+        )
+        return False
+    if not download.restore_filename:
+        LOG.error("restore refused for %s: no captured filename", download.jellyfin_id)
+        return False
+    chain, _filename = _directory_chain(root, download.rel_path)
+
+    kodi = MusicDownloads(music_cursor)
+    kodi.set_song_location(
+        mapping.kodi_id, mapping.kodi_pathid, download.restore_filename
+    )
+    if chain:
+        kodi.prune_song_path(chain[-1])
+    LOG.info(
+        "restored %s (song %s) to its server path",
+        download.jellyfin_id,
+        mapping.kodi_id,
+    )
+    return True
+
+
 def reassert_on(video_cursor: Any, kofin_cursor: Any, jellyfin_id: str) -> None:
     """The writers' post-pass hook (plan W1.8): a changed item's rewrite put
     the row back in writer shape moments ago inside this same transaction —
@@ -198,6 +294,16 @@ def reassert_on(video_cursor: Any, kofin_cursor: Any, jellyfin_id: str) -> None:
     # and the art rows went with the old one, so re-publishing here is what
     # keeps the badge true across the most destructive resync there is.
     stamp_badge_on(video_cursor, kofin_cursor, row)
+
+
+def reassert_music_on(music_cursor: Any, kofin_cursor: Any, jellyfin_id: str) -> None:
+    """The music writer's post-pass hook, W1.8's shape on the song table.
+    No badge leg: the badge is a video-library signal (music lists render
+    albums, and the downloaded-music view is the playlist, W3.3)."""
+    row = store.get_on(kofin_cursor, jellyfin_id)
+    if row is None or row.state != store.DONE or row.media_type != "song":
+        return
+    repoint_song_on(music_cursor, kofin_cursor, row, downloads_root())
 
 
 def _kodi_id_on(kofin_cursor: Any, jellyfin_id: str, media_type: str) -> Optional[int]:

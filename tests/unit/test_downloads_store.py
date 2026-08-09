@@ -140,3 +140,63 @@ def test_recover_interrupted_requeues_crashed_actives():
     assert row.state == store.QUEUED
     assert row.bytes_done == 777
     assert store.recover_interrupted() == 0
+
+
+def test_release_returns_an_active_row_to_queued():
+    """The outage interruption (plan W3.1 amendments): the owning worker
+    puts the row back itself, because recover_interrupted runs only at
+    manager start and an active row would sit stuck until then."""
+    store.queue(_movie("m1"))
+    store.claim()
+    store.record_progress("m1", 42)
+
+    store.release("m1")
+    row = store.get("m1")
+    assert row.state == store.QUEUED
+    assert row.bytes_done == 42  # the watermark survives for a Range resume
+    assert row.queued_at == 100  # still at the head of the queue
+
+    store.release("m1")  # only active rows move; a second call is a no-op
+    assert store.get("m1").state == store.QUEUED
+
+
+def test_record_details_stamps_the_decided_quality():
+    store.queue(_movie("m1"))
+    store.record_details("m1", "movie", "", 0, "", store.QUALITY_TRANSCODE)
+    assert store.get("m1").quality == store.QUALITY_TRANSCODE
+    store.record_details("m1", "movie", "", 8, "")
+    assert store.get("m1").quality == store.QUALITY_ORIGINAL
+
+
+def test_requeue_clears_a_failed_transcodes_target_but_not_an_originals():
+    store.queue(_movie("m1"))
+    store.claim()
+    store.record_details("m1", "movie", "", 0, "", store.QUALITY_TRANSCODE)
+    store.record_target("m1", "Movies/X/X.mp4", "mp4")
+    store.record_progress("m1", 42)
+    store.fail("m1", "name the attempt could not put on disk")
+
+    assert store.queue(_movie("m1")) is True
+    row = store.get("m1")
+    assert row.rel_path == "" and row.bytes_done == 0  # re-freezes fresh
+
+    store.claim()
+    store.record_details("m1", "movie", "", 8, "", store.QUALITY_ORIGINAL)
+    store.record_target("m1", "Movies/X/X.mkv", "mkv")
+    store.record_progress("m1", 42)
+    store.fail("m1", "connection lost")
+
+    assert store.queue(_movie("m1")) is True
+    row = store.get("m1")
+    assert row.rel_path == "Movies/X/X.mkv"  # the Range resume
+    assert row.bytes_done == 42
+
+
+def test_pending_count_spans_queued_and_active():
+    assert store.pending_count() == 0
+    store.queue(_movie("m1"))
+    store.queue(_movie("m2", queued_at=101))
+    store.claim()
+    assert store.pending_count() == 2  # one active, one queued
+    store.finish("m1", "a/b.mkv", "mkv", 1)
+    assert store.pending_count() == 1

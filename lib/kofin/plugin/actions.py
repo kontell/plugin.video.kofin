@@ -194,40 +194,64 @@ def _human_size(size_bytes: int) -> str:
     return "%d MB" % max(1, size_bytes // 1024**2)
 
 
+# What actually downloads: everything else expands to these.
+DOWNLOAD_LEAF_TYPES = ("Movie", "Episode", "Audio")
+
+
+def _paged_items(api: Api, params: dict) -> List[dict]:
+    children: List[dict] = []
+    start = 0
+    while True:
+        page = api.items(
+            dict(
+                params,
+                Fields="MediaSources",
+                StartIndex=start,
+                Limit=200,
+                EnableTotalRecordCount=True,
+            )
+        )
+        rows = page.get("Items") or []
+        children.extend(rows)
+        start += len(rows)
+        if not rows or start >= int(page.get("TotalRecordCount") or 0):
+            break
+    return children
+
+
 def _expand_downloadable(api: Api, item: dict) -> List[dict]:
     """The downloadable leaves under an item: itself, or a container's
-    episodes. Client-side expansion, because the server has no folder
+    episodes/tracks. Client-side expansion, because the server has no folder
     download — CanDownload is false for every folder type by construction
     (feasibility V1)."""
     item_type = item.get("Type")
-    if item_type in ("Movie", "Episode"):
+    item_id = item.get("Id", "")
+    if item_type in DOWNLOAD_LEAF_TYPES:
         return [item]
     if item_type == "Season":
-        listing = api.episodes(
-            item.get("SeriesId", ""), item.get("Id", ""), "MediaSources"
-        )
+        listing = api.episodes(item.get("SeriesId", ""), item_id, "MediaSources")
         return list(listing.get("Items") or [])
     if item_type == "Series":
-        children: List[dict] = []
-        start = 0
-        while True:
-            page = api.items(
-                {
-                    "ParentId": item.get("Id", ""),
-                    "IncludeItemTypes": "Episode",
-                    "Recursive": True,
-                    "Fields": "MediaSources",
-                    "StartIndex": start,
-                    "Limit": 200,
-                    "EnableTotalRecordCount": True,
-                }
-            )
-            rows = page.get("Items") or []
-            children.extend(rows)
-            start += len(rows)
-            if not rows or start >= int(page.get("TotalRecordCount") or 0):
-                break
-        return children
+        return _paged_items(
+            api,
+            {"ParentId": item_id, "IncludeItemTypes": "Episode", "Recursive": True},
+        )
+    if item_type == "MusicAlbum":
+        return _paged_items(
+            api,
+            {"ParentId": item_id, "IncludeItemTypes": "Audio", "Recursive": True},
+        )
+    if item_type == "MusicArtist":
+        # ArtistIds, not ParentId: an artist is a link target, not a folder,
+        # and albums an artist merely appears on still count.
+        return _paged_items(
+            api,
+            {"ArtistIds": item_id, "IncludeItemTypes": "Audio", "Recursive": True},
+        )
+    if item_type == "Playlist":
+        # Playlists mix types; keep the leaves this feature downloads.
+        children = _paged_items(api, {"ParentId": item_id})
+        return [child for child in children if child.get("Type") in DOWNLOAD_LEAF_TYPES]
     return []
 
 
@@ -266,7 +290,9 @@ def download(request: Request) -> None:
         toast.show(settings.localized(30711) % 0, time_ms=3000)
         return
 
-    if item.get("Type") in ("Season", "Series"):
+    from kofin.plugin.context import DOWNLOAD_CONTAINER_TYPES
+
+    if item.get("Type") in DOWNLOAD_CONTAINER_TYPES:
         total = sum(_source_size(child) for child in wanted)
         confirmed = xbmcgui.Dialog().yesno(
             settings.localized(30708),

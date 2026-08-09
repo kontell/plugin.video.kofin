@@ -9,6 +9,8 @@ POSIX-style paths relative to the downloads root.
 import os
 import posixpath
 import re
+import sys
+import unicodedata
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from kofin.core.log import Logger
@@ -32,6 +34,7 @@ FREE_SPACE_RESERVE = 2 * 1024**3
 
 MOVIES_DIR = "Movies"
 TV_DIR = "TV"
+MUSIC_DIR = "Music"
 
 
 def sanitize(name: str) -> str:
@@ -40,11 +43,32 @@ def sanitize(name: str) -> str:
     Unsafe characters are dropped rather than replaced — "Mission:
     Impossible" reads better as "Mission Impossible" than with a stand-in
     glyph — whitespace runs collapse, and FAT's trailing-dot/space rule is
-    applied. Unicode passes through untouched. An empty survivor answers
-    "untitled" so a caller never builds a path with a vanished component.
+    applied. Unicode passes through untouched *when the interpreter can put
+    it on disk*: Kodi's embedded Python can run with an ASCII filesystem
+    encoding (no locale exported — measured live, G12: the ``’`` in an album
+    name killed the download with UnicodeEncodeError inside ``os.remove``),
+    and there every non-ASCII path explodes in the ``os`` module, so the
+    name degrades to its closest ASCII — accents fold (NFKD), the rest
+    drops. An empty survivor answers "untitled" so a caller never builds a
+    path with a vanished component.
     """
     cleaned = _WHITESPACE.sub(" ", _UNSAFE.sub("", name)).strip().rstrip(". ")
+    if cleaned and not _fits_filesystem(cleaned):
+        folded = (
+            unicodedata.normalize("NFKD", cleaned)
+            .encode("ascii", "ignore")
+            .decode("ascii")
+        )
+        cleaned = _WHITESPACE.sub(" ", folded).strip().rstrip(". ")
     return cleaned or "untitled"
+
+
+def _fits_filesystem(name: str) -> bool:
+    try:
+        name.encode(sys.getfilesystemencoding() or "utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def filename_from_disposition(value: str, fallback: str) -> str:
@@ -69,6 +93,25 @@ def filename_from_disposition(value: str, fallback: str) -> str:
             if name != "untitled":
                 return name
     return fallback
+
+
+def default_filename(item: JsonDict, container: str) -> str:
+    """The filename when no Content-Disposition names one — every transcode,
+    whose response carries no original name. Episodes lead with SxxEyy and
+    songs with their track number, so a directory reads in order the way the
+    server's own filenames do."""
+    name = sanitize(str(item.get("Name") or item.get("Id") or "download"))
+    item_type = item.get("Type", "")
+    if item_type == "Episode":
+        season = item.get("ParentIndexNumber")
+        episode = item.get("IndexNumber")
+        if season is not None and episode is not None:
+            name = "S%02dE%02d %s" % (int(season), int(episode), name)
+    elif item_type == "Audio":
+        track = item.get("IndexNumber")
+        if track is not None:
+            name = "%02d %s" % (int(track), name)
+    return "%s.%s" % (name, container or "bin")
 
 
 def item_dirs(item: JsonDict) -> Tuple[str, Optional[str]]:
@@ -101,6 +144,23 @@ def item_dirs(item: JsonDict) -> Tuple[str, Optional[str]]:
         if int(season) == 0:
             return show, "Specials"
         return show, "Season %02d" % int(season)
+    if item_type == "Audio":
+        # ``Music/<AlbumArtist>/<Album>``, the album directory owning its
+        # tracks the way a show's owns its episodes (owner = album id). The
+        # artist level is plain nesting — nothing owns or uniquifies it, like
+        # the ``TV/`` type directory.
+        artists = item.get("AlbumArtists") or []
+        artist = str(
+            item.get("AlbumArtist")
+            or (artists[0].get("Name") if artists else "")
+            or (item.get("Artists") or [""])[0]
+            or "Unknown artist"
+        )
+        album = str(item.get("Album") or "Unknown album")
+        return (
+            posixpath.join(MUSIC_DIR, sanitize(artist), sanitize(album)),
+            None,
+        )
     raise ValueError("no download layout for item type %r" % item_type)
 
 

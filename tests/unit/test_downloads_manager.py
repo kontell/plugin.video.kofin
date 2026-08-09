@@ -99,10 +99,17 @@ class FakeStream:
 
 
 class FakeManagerApi:
-    def __init__(self, item, streams):
+    server = "http://s"
+    device_id = "dev1"
+
+    def __init__(self, item, streams, playback=None, transcode_streams=()):
         self._item = item
         self._streams = list(streams)
+        self._playback = playback
+        self._transcode_streams = list(transcode_streams)
         self.stream_calls = []
+        self.transcode_urls = []
+        self.closed_transcodes = []
         self.subtitle_payloads = {}
         self.downloaded_urls = []
 
@@ -114,6 +121,18 @@ class FakeManagerApi:
     def download_stream(self, item_id, start=0):
         self.stream_calls.append(start)
         return self._streams.pop(0)
+
+    def playback_info(self, item_id, profile, **kwargs):
+        if isinstance(self._playback, Exception):
+            raise self._playback
+        return self._playback or {}
+
+    def transcode_stream(self, url):
+        self.transcode_urls.append(url)
+        return self._transcode_streams.pop(0)
+
+    def close_transcode(self, device_id, play_session_id):
+        self.closed_transcodes.append((device_id, play_session_id))
 
     def subtitle_stream_url(self, item_id, source_id, index, extension):
         return "http://s/subs/%s/%s/%s.%s" % (item_id, source_id, index, extension)
@@ -517,10 +536,12 @@ def test_a_shutdown_mid_transfer_leaves_the_row_recoverable(tmp_path, repoints):
     assert store.get("m1").state == store.QUEUED
 
 
-def test_an_outage_leaves_the_row_recoverable(tmp_path, repoints):
+def test_an_outage_releases_the_row_back_to_queued(tmp_path, repoints):
     """Claiming while offline would spend each item's three attempts and
     settle it failed, so a season queued offline came back as a list of
-    failures instead of a list of downloads."""
+    failures instead of a list of downloads. Released to *queued*, not left
+    active: recover_interrupted runs only at manager start, so an active row
+    would sit stuck until the next service restart (the phase-3 fix)."""
     from tests.unit.fakes import FakeWindow
 
     manager, _ = make_manager(repoints)
@@ -531,7 +552,7 @@ def test_an_outage_leaves_the_row_recoverable(tmp_path, repoints):
     row = store.claim()
     manager._retry_or_fail(row, "connection lost")
 
-    assert store.get("m1").state == store.ACTIVE  # recoverable, not failed
+    assert store.get("m1").state == store.QUEUED  # claimable on reconnect
 
 
 def test_an_outage_mid_transfer_is_not_a_failure(tmp_path, repoints):
@@ -550,5 +571,382 @@ def test_an_outage_mid_transfer_is_not_a_failure(tmp_path, repoints):
     manager._process(api, queue_row())
 
     row = store.get("m1")
-    assert row.state == store.ACTIVE
+    assert row.state == store.QUEUED  # the offline hold re-claims it on reconnect
     assert row.bytes_done == 4
+
+
+# -- the transcode path (plan W3.1) -------------------------------------------
+
+TRANSCODE_MOVIE = dict(
+    MOVIE_DTO,
+    RunTimeTicks=1_000_000_000,  # 100 s
+    MediaSources=[
+        {
+            "Id": "src1",
+            "Container": "mkv",
+            "Size": 8,
+            "RunTimeTicks": 1_000_000_000,
+            "MediaStreams": [],
+        }
+    ],
+)
+
+TRANSCODE_ANSWER = {
+    "PlaySessionId": "ps1",
+    "MediaSources": [
+        {
+            "SupportsDirectPlay": False,
+            "TranscodingUrl": "/Videos/m1/stream.mp4?api_key=k",
+            "TranscodingContainer": "mp4",
+        }
+    ],
+}
+
+
+def transcode_env(monkeypatch, probed=100.0):
+    FakeAddon.store["downloadsTranscode"] = "true"
+    monkeypatch.setattr(
+        manager_module.probe, "duration_seconds", lambda path, container: probed
+    )
+
+
+def test_over_limit_transcodes_names_and_finishes(tmp_path, repoints, monkeypatch):
+    transcode_env(monkeypatch)
+    manager, refreshes = make_manager(repoints)
+    api = FakeManagerApi(
+        TRANSCODE_MOVIE,
+        [],
+        playback=TRANSCODE_ANSWER,
+        transcode_streams=[FakeStream(200, [b"abcd", b"efgh"])],
+    )
+
+    manager._process(api, queue_row())
+
+    row = store.get("m1")
+    assert row.state == store.DONE
+    assert row.quality == store.QUALITY_TRANSCODE
+    assert row.container == "mp4"
+    # No Content-Disposition on a transcode: the fallback names it.
+    assert row.rel_path == "Movies/The Movie (2019)/The Movie.mp4"
+    assert (tmp_path / "dl" / row.rel_path).read_bytes() == b"abcdefgh"
+    assert api.transcode_urls == ["http://s/Videos/m1/stream.mp4?api_key=k"]
+    # The job was closed by name, and the slot came back.
+    assert api.closed_transcodes == [("dev1", "ps1")]
+    assert manager._transcode_slot.acquire(blocking=False)
+    assert repoints["repoint"] and refreshes
+
+
+def test_within_limits_downloads_the_original_with_transcoding_on(
+    tmp_path, repoints, monkeypatch
+):
+    transcode_env(monkeypatch)
+    manager, _ = make_manager(repoints)
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+        playback={"MediaSources": [{"SupportsDirectPlay": True}]},
+    )
+
+    manager._process(api, queue_row())
+
+    row = store.get("m1")
+    assert row.state == store.DONE
+    assert row.quality == store.QUALITY_ORIGINAL
+    assert row.container == "mkv"
+    assert api.transcode_urls == []
+
+
+def test_a_truncated_transcode_requeues(tmp_path, repoints, monkeypatch):
+    """The dead-encoder case: clean EOF, short duration — the probe is the
+    only thing that can call it."""
+    transcode_env(monkeypatch, probed=42.0)  # of 100 s
+    manager, _ = make_manager(repoints)
+    api = FakeManagerApi(
+        TRANSCODE_MOVIE,
+        [],
+        playback=TRANSCODE_ANSWER,
+        transcode_streams=[FakeStream(200, [b"abcd"])],
+    )
+    monkeypatch.setattr(manager_module, "BACKOFF_SECONDS", 0.0)
+
+    manager._process(api, queue_row())
+
+    assert store.get("m1").state == store.QUEUED  # attempt 1 of 3, re-queued
+    assert api.closed_transcodes == [("dev1", "ps1")]
+
+
+def test_a_transcode_retry_starts_from_a_clean_part(tmp_path, repoints, monkeypatch):
+    transcode_env(monkeypatch)
+    manager, _ = make_manager(repoints)
+    row = queue_row()
+    rel_path = "Movies/The Movie (2019)/The Movie.mp4"
+    store.record_target("m1", rel_path, "mp4")
+    store.record_details("m1", "movie", "", 0, "", store.QUALITY_TRANSCODE)
+    part = tmp_path / "dl" / (rel_path + ".part")
+    part.parent.mkdir(parents=True)
+    part.write_bytes(b"stale bytes from the dead attempt")
+    row = store.get("m1")
+    row.state = store.ACTIVE
+
+    api = FakeManagerApi(
+        TRANSCODE_MOVIE,
+        [],
+        playback=TRANSCODE_ANSWER,
+        transcode_streams=[FakeStream(200, [b"fresh"])],
+    )
+    manager._process(api, row)
+
+    assert (tmp_path / "dl" / rel_path).read_bytes() == b"fresh"
+
+
+def test_a_kind_flip_between_attempts_unfreezes_the_target(
+    tmp_path, repoints, monkeypatch
+):
+    """Settings moved between attempts (transcode -> original): the frozen
+    .mp4 name and the resume semantics are both wrong, so the target resets
+    and the original names itself from its own response."""
+    manager, _ = make_manager(repoints)
+    queue_row()
+    stale = "Movies/The Movie (2019)/The Movie.mp4"
+    store.record_target("m1", stale, "mp4")
+    store.record_details("m1", "movie", "", 8, "", store.QUALITY_TRANSCODE)
+    part = tmp_path / "dl" / (stale + ".part")
+    part.parent.mkdir(parents=True)
+    part.write_bytes(b"half a transcode")
+    row = store.get("m1")
+    row.state = store.ACTIVE
+
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+    manager._process(api, row)
+
+    finished = store.get("m1")
+    assert finished.state == store.DONE
+    assert finished.rel_path == "Movies/The Movie (2019)/The Movie (2019).mkv"
+    assert not part.exists()
+    assert api.stream_calls == [0]  # never a Range against the stale part
+
+
+def test_cancel_while_parked_on_the_transcode_slot(tmp_path, repoints, monkeypatch):
+    transcode_env(monkeypatch)
+    manager, _ = make_manager(repoints)
+    manager._transcode_slot.acquire()  # another worker is transcoding
+    row = queue_row()
+    with manager._cancels_lock:
+        manager._cancels.add("m1")
+    api = FakeManagerApi(TRANSCODE_MOVIE, [], playback=TRANSCODE_ANSWER)
+
+    manager._process(api, row)
+
+    assert store.get("m1") is None  # cancelled cleanly, nothing written
+
+
+def test_a_transcode_sidecars_embedded_text_subtitles(tmp_path, repoints, monkeypatch):
+    transcode_env(monkeypatch)
+    manager, _ = make_manager(repoints)
+    item = dict(
+        TRANSCODE_MOVIE,
+        MediaSources=[
+            {
+                "Id": "src1",
+                "Container": "mkv",
+                "Size": 8,
+                "RunTimeTicks": 1_000_000_000,
+                "MediaStreams": [
+                    {
+                        "Type": "Subtitle",
+                        "Index": 2,
+                        "IsExternal": True,
+                        "Codec": "subrip",
+                        "Language": "eng",
+                    },
+                    {
+                        "Type": "Subtitle",
+                        "Index": 3,
+                        "IsTextSubtitleStream": True,
+                        "Codec": "ass",
+                        "Language": "eng",
+                    },
+                    {
+                        "Type": "Subtitle",
+                        "Index": 4,
+                        "Codec": "pgssub",
+                        "Language": "eng",
+                    },
+                ],
+            }
+        ],
+    )
+    api = FakeManagerApi(
+        item,
+        [],
+        playback=TRANSCODE_ANSWER,
+        transcode_streams=[FakeStream(200, [b"abcdefgh"])],
+    )
+
+    manager._process(api, queue_row())
+
+    directory = tmp_path / "dl" / "Movies/The Movie (2019)"
+    assert (directory / "The Movie.eng.srt").exists()  # the external sidecar
+    assert (directory / "The Movie.eng.2.srt").exists()  # the embedded track
+    # The image track stays lost: nothing fetched a pgs.
+    assert not any("pgs" in url for url in api.downloaded_urls)
+    assert any("/3.srt" in url for url in api.downloaded_urls)
+
+
+# -- music (plan W3.2) --------------------------------------------------------
+
+SONG_DTO = {
+    "Id": "a1",
+    "Type": "Audio",
+    "Name": "Opening Track",
+    "AlbumId": "album1",
+    "AlbumArtist": "The Band",
+    "Album": "Greatest Hits",
+    "IndexNumber": 1,
+    "UserData": {"Played": False},
+    "MediaSources": [{"Id": "s1", "Container": "flac", "Size": 8, "MediaStreams": []}],
+}
+
+
+def test_a_song_downloads_into_the_album_directory(tmp_path, repoints, monkeypatch):
+    views = []
+    monkeypatch.setattr(
+        "kofin.sync.playlists.refresh_downloaded_music",
+        lambda root=None: views.append(1) or True,
+    )
+    manager, _ = make_manager(repoints)
+    api = FakeManagerApi(
+        SONG_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {
+                    "Content-Length": "8",
+                    "Content-Disposition": 'attachment; filename="01 - Opening Track.flac"',
+                },
+            )
+        ],
+    )
+
+    manager._process(api, queue_row("a1"))
+
+    row = store.get("a1")
+    assert row.state == store.DONE
+    assert row.media_type == "song"
+    assert row.series_id == "album1"  # the grouping id: the album
+    assert row.rel_path == "Music/The Band/Greatest Hits/01 - Opening Track.flac"
+    assert (tmp_path / "dl" / row.rel_path).read_bytes() == b"abcdefgh"
+    assert repoints["repoint"] == [("a1", str(tmp_path / "dl"))]
+    assert views == [1]  # the Downloaded-music view exists from song one
+
+
+# -- the progress bar (plan W3.4) ---------------------------------------------
+
+
+class RecordingProgress:
+    def __init__(self):
+        self.calls = []
+
+    def begin(self, item_id, name, total):
+        self.calls.append(("begin", item_id, name, total))
+
+    def tick(self, item_id, done):
+        self.calls.append(("tick", item_id, done))
+
+    def finish(self, item_id, completed):
+        self.calls.append(("finish", item_id, completed))
+
+    def idle(self):
+        self.calls.append(("idle",))
+
+    def close(self):
+        self.calls.append(("close",))
+
+
+def test_the_progress_bar_follows_a_transfer(tmp_path, repoints):
+    manager, _ = make_manager(repoints)
+    recorder = RecordingProgress()
+    manager._progress = recorder
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcdefgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+
+    manager._process(api, queue_row())
+
+    assert ("begin", "m1", "The Movie", 8) in recorder.calls
+    assert ("finish", "m1", True) in recorder.calls
+
+    manager.stop()
+    assert ("close",) in recorder.calls
+
+
+def test_a_retry_reports_finish_without_completion(tmp_path, repoints, monkeypatch):
+    monkeypatch.setattr(manager_module, "BACKOFF_SECONDS", 0.0)
+    manager, _ = make_manager(repoints)
+    recorder = RecordingProgress()
+    manager._progress = recorder
+    api = FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcd"],  # short of the stated 8: a size mismatch
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+
+    manager._process(api, queue_row())
+
+    assert ("finish", "m1", False) in recorder.calls  # requeued, not counted
+
+
+def test_a_transcode_begins_with_the_url_estimate(tmp_path, repoints, monkeypatch):
+    transcode_env(monkeypatch)
+    manager, _ = make_manager(repoints)
+    recorder = RecordingProgress()
+    manager._progress = recorder
+    answer = {
+        "PlaySessionId": "ps1",
+        "MediaSources": [
+            {
+                "SupportsDirectPlay": False,
+                "TranscodingUrl": "/Videos/m1/stream.mp4?VideoBitrate=800000",
+                "TranscodingContainer": "mp4",
+            }
+        ],
+    }
+    api = FakeManagerApi(
+        TRANSCODE_MOVIE,
+        [],
+        playback=answer,
+        transcode_streams=[FakeStream(200, [b"abcd"])],
+    )
+
+    manager._process(api, queue_row())
+
+    begins = [call for call in recorder.calls if call[0] == "begin"]
+    assert begins == [("begin", "m1", "The Movie", 800_000 * 100 // 8)]

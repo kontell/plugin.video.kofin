@@ -84,6 +84,15 @@ PAGE_SIZE = 100
 FOLDER_ICON = "folder.jpg"
 FOLDER_ICON_SOURCE = "kofin-node.png"
 
+# The Downloaded-music view (plan W3.3): a smart playlist whose one rule is
+# "path starts with the downloads music root" — repointed songs' paths live
+# there, so this is a real library view with no schema tricks. It sits in the
+# managed folder for the addon icon, but it is kofin *state*, not a mirror of
+# a server playlist: the pruner and the cleanup below both leave it (and the
+# folder icon with it), or it would survive exactly one poll — the documented
+# pruner behavior this exemption exists for.
+DOWNLOADED_MUSIC_XSP = "Downloaded music.xsp"
+
 # What tells a plugin row from a direct one (writers/music.py writes one or the
 # other into path.strPath, per the musicTranscode setting at sync time).
 PLUGIN_PREFIX = "plugin://"
@@ -163,6 +172,51 @@ def write_folder_icon(directory: str) -> bool:
         LOG.exception("failed to write the playlist folder icon to %s", directory)
         return False
     return True
+
+
+def downloaded_music_xsp(music_root: str) -> str:
+    """The .xsp document for the Downloaded-music view (plan W3.3)."""
+    from xml.sax.saxutils import escape
+
+    try:
+        name = settings.localized(30736) or "Downloaded music"
+    except Exception:  # pragma: no cover - string cache misses etc.
+        name = "Downloaded music"
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<smartplaylist type="songs">\n'
+        "    <name>%s</name>\n"
+        "    <match>all</match>\n"
+        '    <rule field="path" operator="startswith">\n'
+        "        <value>%s</value>\n"
+        "    </rule>\n"
+        '    <order direction="ascending">artist</order>\n'
+        "</smartplaylist>\n"
+    ) % (escape(name), escape(music_root))
+
+
+def refresh_downloaded_music(root: Optional[str] = None) -> bool:
+    """Write or update the Downloaded-music smart playlist; True if written.
+
+    Idempotent through ``_write_text``'s already-says-this skip, so the
+    manager can call it on every finished song and the ``downloadsPath``
+    apply-hook on every change — the rule's path value is the only content
+    that moves.
+    """
+    from kofin.downloads import downloads_root
+    from kofin.downloads.files import MUSIC_DIR
+
+    directory = managed_dir(root)
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except OSError:
+        LOG.exception("cannot create the managed playlist folder %s", directory)
+        return False
+    write_folder_icon(directory)
+    music_root = "%s/%s/" % (downloads_root().rstrip("/"), MUSIC_DIR)
+    return _write_text(
+        os.path.join(directory, DOWNLOADED_MUSIC_XSP), downloaded_music_xsp(music_root)
+    )
 
 
 def safe_filename(name: str) -> str:
@@ -324,12 +378,24 @@ def _list_files(directory: str) -> List[str]:
 
 
 def cleanup_managed_playlists(root: Optional[str] = None) -> int:
-    """Remove the managed ``Kofin/`` folder (or empty it). Returns files removed."""
+    """Remove the managed ``Kofin/`` folder (or empty it). Returns files removed.
+
+    The Downloaded-music view survives the sweep (with the folder icon, which
+    exists for whatever remains): this cleanup is "stop mirroring the server's
+    playlists", and the downloads view mirrors nothing — turning playlist sync
+    off must not take the offline library's music view with it.
+    """
     directory = managed_dir(root)
     if not os.path.isdir(directory):
         return 0
+    names = _list_files(directory)
+    keep = {name for name in names if name == DOWNLOADED_MUSIC_XSP}
+    if keep:
+        keep.add(FOLDER_ICON)
     removed = 0
-    for name in _list_files(directory):
+    for name in names:
+        if name in keep:
+            continue
         try:
             os.remove(os.path.join(directory, name))
             removed += 1
@@ -419,8 +485,9 @@ def refresh_music_playlists(
             except OSError:
                 pass
             continue
-        if existing == FOLDER_ICON:
-            # Ours, and not a playlist: the prune is against the server's set.
+        if existing in (FOLDER_ICON, DOWNLOADED_MUSIC_XSP):
+            # Ours, and not server playlists: the prune is against the
+            # server's set.
             continue
         if existing not in want:
             try:

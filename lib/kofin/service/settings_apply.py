@@ -280,6 +280,16 @@ class SettingsApplier:
             xbmcgui.Dialog().notification(
                 "Kofin", settings.localized(30717), xbmcgui.NOTIFICATION_WARNING, 5000
             )
+            return
+
+        # The Downloaded-music view's one rule is a path under the old root;
+        # re-aim it when the view exists (plan W3.3).
+        from kofin.sync import playlists
+
+        if os.path.isfile(
+            os.path.join(playlists.managed_dir(), playlists.DOWNLOADED_MUSIC_XSP)
+        ):
+            playlists.refresh_downloaded_music()
 
     def _library_selection_changed(self, old: str, new: str) -> None:
         """The apply-on-save path for the library multiselect."""

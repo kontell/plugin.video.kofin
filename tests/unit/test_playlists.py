@@ -381,3 +381,65 @@ def test_cleanup_takes_the_icon_with_the_folder(tmp_path):
 
     assert playlists.cleanup_managed_playlists(root=str(root)) == 2
     assert not root.exists()
+
+
+# -- the Downloaded-music view (plan W3.3) -------------------------------------
+
+
+@pytest.fixture
+def downloads_at(monkeypatch):
+    monkeypatch.setattr("kofin.downloads.downloads_root", lambda: "/dl")
+    monkeypatch.setattr(playlists.settings, "localized", lambda i: "Downloaded music")
+
+
+def test_refresh_downloaded_music_writes_the_rule_once(tmp_path, downloads_at):
+    root = str(tmp_path / "Kofin")
+    assert playlists.refresh_downloaded_music(root=root) is True
+    text = (tmp_path / "Kofin" / playlists.DOWNLOADED_MUSIC_XSP).read_text(
+        encoding="utf-8"
+    )
+    assert 'type="songs"' in text
+    assert '<rule field="path" operator="startswith">' in text
+    assert "<value>/dl/Music/</value>" in text
+    assert "<name>Downloaded music</name>" in text
+    # The icon rides along, and a second refresh says nothing new.
+    assert (tmp_path / "Kofin" / playlists.FOLDER_ICON).exists()
+    assert playlists.refresh_downloaded_music(root=root) is False
+
+
+def test_the_prune_leaves_the_downloads_view(tmp_path, downloads_at):
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    playlists.refresh_downloaded_music(root=str(root))
+    (root / "stale.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
+
+    api = FakeApi(playlist_list=[], items_by_id={})
+    stats = playlists.refresh_music_playlists(
+        api, FakeMapping({}), FakeMusic({}), root=str(root)
+    )
+
+    assert stats["pruned"] == 1  # the stale mirror went; the view stayed
+    names = sorted(p.name for p in root.iterdir())
+    assert names == [playlists.DOWNLOADED_MUSIC_XSP, playlists.FOLDER_ICON]
+
+
+def test_cleanup_keeps_the_downloads_view(tmp_path, downloads_at):
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    playlists.refresh_downloaded_music(root=str(root))
+    (root / "Mirror.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
+
+    removed = playlists.cleanup_managed_playlists(root=str(root))
+
+    assert removed == 1
+    names = sorted(p.name for p in root.iterdir())
+    assert names == [playlists.DOWNLOADED_MUSIC_XSP, playlists.FOLDER_ICON]
+
+
+def test_cleanup_without_the_view_still_takes_everything(tmp_path):
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    (root / "A.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
+    (root / playlists.FOLDER_ICON).write_bytes(b"png")
+    assert playlists.cleanup_managed_playlists(root=str(root)) == 2
+    assert not root.exists()

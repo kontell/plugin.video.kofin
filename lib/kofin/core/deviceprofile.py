@@ -57,6 +57,22 @@ DEFAULT_VIDEO_CODECS = [
 ]
 DEFAULT_AUDIO_CODECS = ["aac", "mp2", "mp3", "ac3", "eac3", "opus", "flac", "dts"]
 
+# The video codecs ffmpeg muxes into mp4, for the download transcoding
+# profile's stream-copy list (build_download). vc1 is deliberately absent:
+# its mp4 mapping is poorly supported, and a within-limits vc1 source never
+# reaches this list anyway — the DirectPlayProfile downloads it as the
+# original; only a source *already* violating some other limit would ask for
+# a vc1 copy, and that one re-encodes instead.
+MP4_COPY_CODECS = ("h264", "hevc", "av1", "vp9", "mpeg2video")
+
+# What counts as an acceptable *music file* for the download decision: lossy
+# codecs only, so FLAC/ALAC/WAV answer SupportsDirectPlay=false and convert
+# whatever the bitrate cap says — "lossless always converts" is the music
+# toggle's core promise (plan W3.2). Distinct from DEFAULT_AUDIO_CODECS,
+# which describes what the *device decodes* (flac included) for video-embedded
+# audio and streaming.
+LOSSY_AUDIO_CODECS = ("aac", "mp3", "opus", "vorbis", "wma", "mp2", "ac3", "eac3")
+
 
 def audio_bitrate_bps(audio_cap_kbps: int, budget_bps: int) -> int:
     """The audio allowance for a transcode confined to ``budget_bps``.
@@ -147,6 +163,34 @@ class ProfileConfig:
             ),
         )
 
+    @classmethod
+    def for_downloads(cls) -> "ProfileConfig":
+        """The snapshot the *download* decision is built from (plan W3.1/W3.2).
+
+        Device compatibility — codec lists, HDR types, preferred targets —
+        comes from the transcode tab, because the device is the same device;
+        the caps are downloads-own, because streaming limits describe
+        streaming (a box that streams 4K over the LAN may still want 720p
+        downloads). Force flags stay False by construction: whether the
+        decision runs at all is ``downloadsTranscode``/
+        ``downloadsMusicTranscode``, gated by the caller, and a forced answer
+        would defeat the only-when-necessary contract.
+        """
+        return cls(
+            video_codecs=settings.get_list("directPlayVideoCodecs"),
+            audio_codecs=settings.get_list("directPlayAudioCodecs"),
+            hdr_types=settings.get_list("allowedHdrTypes"),
+            preferred_video=settings.get_str("preferredVideoCodec") or "h264",
+            preferred_audio=settings.get_str("preferredAudioCodec") or "aac",
+            max_channels=settings.get_int("maxAudioChannels") or 6,
+            max_bitrate_mbps=settings.get_int("downloadsMaxBitrate"),
+            max_width=settings.get_int("downloadsMaxResolution"),
+            audio_bitrate_kbps=settings.get_int("audioBitrate") or 384,
+            music_codec=settings.get_str("downloadsMusicCodec") or "opus",
+            music_bitrate_kbps=settings.get_int("downloadsMusicBitrate") or 128,
+            music_max_bitrate_kbps=settings.get_int("downloadsMusicMaxBitrate"),
+        )
+
 
 def build(
     config: ProfileConfig,
@@ -181,15 +225,7 @@ def build(
     h264_10bit = "h264_10bit" in tokens
     hevc = "hevc" in tokens
     hevc_rext = "hevc_rext" in tokens
-
-    video_codecs: List[str] = []
-    if h264 or h264_10bit:
-        video_codecs.append("h264")
-    if hevc or hevc_rext:
-        video_codecs.append("hevc")
-    for token in config.video_codecs:  # keep the configured order for the rest
-        if token not in ("h264", "h264_10bit", "hevc", "hevc_rext"):
-            video_codecs.append(token)
+    video_codecs = _direct_video_codecs(config)
 
     profile: JsonDict = {
         "Name": "Kodi",
@@ -232,6 +268,158 @@ def _preferred_first(codecs: List[str], preferred: str) -> List[str]:
     ordered = [preferred]
     ordered.extend(codec for codec in codecs if codec != preferred)
     return ordered
+
+
+def _direct_video_codecs(config: ProfileConfig) -> List[str]:
+    """The direct-play codec names, with the capability tokens (h264_10bit,
+    hevc_rext) folded into their base codecs and the configured order kept."""
+    tokens = set(config.video_codecs)
+    codecs: List[str] = []
+    if "h264" in tokens or "h264_10bit" in tokens:
+        codecs.append("h264")
+    if "hevc" in tokens or "hevc_rext" in tokens:
+        codecs.append("hevc")
+    for token in config.video_codecs:
+        if token not in ("h264", "h264_10bit", "hevc", "hevc_rext"):
+            codecs.append(token)
+    return codecs
+
+
+def build_download(config: ProfileConfig) -> JsonDict:
+    """The DeviceProfile for the conditional download decision (plan W3.1).
+
+    Same device statement as :func:`build` — direct-play lists, codec and
+    HDR conditions, the width cap — with the caps read from the downloads
+    settings (``ProfileConfig.for_downloads``) and two deliberate deviations:
+
+    * The video transcoding profile is a single progressive fragmented-MP4
+      leg: ``Protocol: "http"`` (a file, not a playlist), ``Container:
+      "mp4"`` (the server muxes progressive mp4 as fMP4 — feasibility V3,
+      seekable on disk even unfinalized, AV1-capable). Its codec list is
+      every mp4-muxable direct-play codec — preferred first, then hevc,
+      then h264, then the rest — so the server's own stream-copy logic
+      keeps a compliant video track through an audio-only fix and
+      re-encodes only what violates a limit (the exact behavior
+      ``deny_video_stream_copy`` exists to suppress for the context item is
+      the point here), and an encoder fallback costs quality-per-byte
+      rather than following the direct-play list's display order.
+    * The audio DirectPlayProfile is the lossy list, not the open one:
+      ``SupportsDirectPlay`` is the whole decision for a music download, and
+      an open profile would answer "keep the FLAC" — the opposite of what
+      the music toggle promises. The bitrate cap rides the Audio codec
+      profile as in :func:`build` (``music_max_bitrate_kbps``).
+    """
+    if config.max_bitrate_mbps <= 0:
+        max_bitrate = UNLIMITED_BITRATE
+    else:
+        max_bitrate = int(config.max_bitrate_mbps * 1_000_000)
+
+    audio_codecs = _preferred_first(config.audio_codecs, config.preferred_audio)
+    tokens = set(config.video_codecs)
+    video_codecs = _direct_video_codecs(config)
+
+    return {
+        "Name": "Kodi",
+        "MaxStreamingBitrate": max_bitrate,
+        "MaxStaticBitrate": max_bitrate,
+        "MusicStreamingTranscodingBitrate": config.music_bitrate_kbps * 1000,
+        "TimelineOffsetSeconds": 5,
+        "TranscodingProfiles": _download_transcoding_profiles(
+            config, audio_codecs, video_codecs, max_bitrate
+        ),
+        "DirectPlayProfiles": _download_direct_play_profiles(
+            config, audio_codecs, video_codecs
+        ),
+        "CodecProfiles": _codec_profiles(
+            config,
+            False,
+            "h264" in tokens,
+            "h264_10bit" in tokens,
+            "hevc" in tokens,
+            "hevc_rext" in tokens,
+            tokens,
+        ),
+        "SubtitleProfiles": _subtitle_profiles(False),
+    }
+
+
+def _download_transcoding_profiles(
+    config: ProfileConfig,
+    audio_codecs: List[str],
+    video_codecs: List[str],
+    max_bitrate: int,
+) -> List[JsonDict]:
+    lead = (
+        config.preferred_video if config.preferred_video in MP4_COPY_CODECS else "h264"
+    )
+    # The encode target is the first entry the server's ffmpeg can encode
+    # (StreamingHelpers picks FirstOrDefault(CanEncodeToVideoCodec)); the
+    # rest of the list is order-blind stream-copy membership. So the tail
+    # ranks by efficiency — hevc before h264 — rather than keeping the
+    # direct-play list's display order: on a stripped ffmpeg without the
+    # preferred encoder (stock jellyfin-ffmpeg carries all three), the
+    # fallback should cost quality-per-byte, not compatibility. Only codecs
+    # the device direct-plays may appear at all: every entry is a codec the
+    # finished file may carry.
+    copy_codecs = [lead]
+    copy_codecs.extend(
+        codec for codec in ("hevc", "h264") if codec != lead and codec in video_codecs
+    )
+    copy_codecs.extend(
+        codec
+        for codec in video_codecs
+        if codec not in copy_codecs and codec in MP4_COPY_CODECS
+    )
+    video: JsonDict = {
+        "Type": "Video",
+        "Container": "mp4",
+        "VideoCodec": ",".join(copy_codecs),
+        "AudioCodec": ",".join(audio_codecs),
+        "Context": "Streaming",
+        "Protocol": "http",
+        "MaxAudioChannels": str(config.max_channels),
+    }
+    audio_bps = audio_bitrate_bps(config.audio_bitrate_kbps, max_bitrate)
+    if audio_bps > 0:
+        video["Conditions"] = [
+            {
+                "Condition": "LessThanEqual",
+                "Property": "AudioBitrate",
+                "Value": str(audio_bps),
+                "IsRequired": False,
+            }
+        ]
+    music: JsonDict = {
+        "Type": "Audio",
+        "Container": config.music_codec,
+        "AudioCodec": config.music_codec,
+        "Context": "Streaming",
+        "Protocol": "http",
+        "MaxAudioChannels": "2",
+    }
+    return [video, music]
+
+
+def _download_direct_play_profiles(
+    config: ProfileConfig, audio_codecs: List[str], video_codecs: List[str]
+) -> List[JsonDict]:
+    profiles: List[JsonDict] = []
+    if video_codecs:
+        direct_video = list(video_codecs)
+        if config.preferred_video not in direct_video:
+            direct_video.append(config.preferred_video)
+        # No Container constraint on purpose: the download plays from disk
+        # through Kodi's own demuxer, which reads anything ffmpeg does, so a
+        # container must never be what forces a transcode.
+        profiles.append(
+            {
+                "Type": "Video",
+                "VideoCodec": ",".join(direct_video),
+                "AudioCodec": ",".join(audio_codecs),
+            }
+        )
+    profiles.append({"Type": "Audio", "AudioCodec": ",".join(LOSSY_AUDIO_CODECS)})
+    return profiles
 
 
 def _transcoding_profiles(
