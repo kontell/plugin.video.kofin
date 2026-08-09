@@ -1048,6 +1048,86 @@
           <control type="spinner" format="string"/>
         </setting>
       </group>
+      <!-- Automatic downloads and lifecycle (plan W4.1/W4.2/W4.4/W4.5) plus
+           the metadata export (W4.3). Toggles, a slider and spinners only —
+           dependency-safe on Omega. -->
+      <group id="4">
+        <setting id="downloadsAutoNext" type="boolean" label="30738" help="30739">
+          <level>0</level>
+          <default>false</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <setting id="downloadsAutoNextKeep" type="integer" label="30740" help="30741">
+          <level>0</level>
+          <default>2</default>
+          <constraints>
+            <minimum>1</minimum>
+            <step>1</step>
+            <maximum>5</maximum>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="downloadsEnabled">true</condition>
+                <condition operator="is" setting="downloadsAutoNext">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="slider" format="integer"/>
+        </setting>
+        <setting id="downloadsAutoMovies" type="boolean" label="30742" help="30743">
+          <level>0</level>
+          <default>false</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <setting id="downloadsAutoCleanup" type="boolean" label="30744" help="30745">
+          <level>0</level>
+          <default>true</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <setting id="downloadsDeleteAfterPlay" type="string" label="30746" help="30747">
+          <level>0</level>
+          <default>off</default>
+          <constraints>
+            <options>
+              <option label="30748">off</option>
+              <option label="30749">ask</option>
+              <option label="30750">always</option>
+            </options>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="spinner" format="string"/>
+        </setting>
+        <setting id="downloadsExportMetadata" type="boolean" label="30752" help="30753">
+          <level>0</level>
+          <default>false</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+      </group>
     </category>
 
     <!-- Advanced -->

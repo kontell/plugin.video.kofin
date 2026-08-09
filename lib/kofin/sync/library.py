@@ -23,6 +23,7 @@ import xbmcgui
 
 from kofin.core import settings, state
 from kofin.core.log import Logger
+from kofin.downloads import auto as downloads_auto
 from kofin.sync import changefeed
 from kofin.sync import newcontent
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
@@ -1449,11 +1450,21 @@ class Library(threading.Thread):
         while an exception reaching ``service`` ends the library thread until
         Kodi restarts.
         """
+        drained = []
         while True:
             try:
-                self.new_content.append(self.notify_output.get_nowait())
+                drained.append(self.notify_output.get_nowait())
             except queue.Empty:
                 break
+        if drained:
+            # W4.4: newly added movies can queue their own downloads. Fed at
+            # drain time, before the toast policy's holds and drops below —
+            # those pace announcements, and pacing must not lose a download.
+            try:
+                downloads_auto.queue_new_movies(drained)
+            except Exception:
+                LOG.exception("auto-movies hook failed")
+            self.new_content.extend(drained)
 
         if len(self.new_content) > NEW_CONTENT_LIMIT:
             # Held, not dropped, is the rule below — but a long playback plus

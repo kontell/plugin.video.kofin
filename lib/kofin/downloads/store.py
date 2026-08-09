@@ -29,6 +29,14 @@ DONE = "done"
 FAILED = "failed"
 
 ORIGIN_USER = "user"
+# Automatic downloads carry "auto:<context>" — the retention sweep matches
+# the prefix, never the user origin (plan W4.1/W4.2/W4.4).
+ORIGIN_AUTO_PREFIX = "auto"
+
+
+def is_auto_origin(origin: str) -> bool:
+    return str(origin or "").startswith(ORIGIN_AUTO_PREFIX)
+
 
 QUALITY_ORIGINAL = "original"
 # Decided at transfer time (downloads/quality.py), recorded so retry and

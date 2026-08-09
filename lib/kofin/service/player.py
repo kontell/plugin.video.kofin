@@ -26,8 +26,9 @@ import xbmc
 import xbmcgui
 
 from kofin.core import lyrics as lyrics_render
-from kofin.core import settings, state, streams, toast
+from kofin.core import ipc, settings, state, streams, toast
 from kofin.core.api import Api
+from kofin.downloads import auto as downloads_auto
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.service import chapters
@@ -491,6 +492,9 @@ class Player(xbmc.Player):
         self._fresh_start = False
         self._fresh_start_ticks = 0
         self._next_episode: Optional[JsonDict] = None
+        # W4.1's one-shot: the item id whose 80% crossing already fired,
+        # latched before the lookup so a failed resolve never retries.
+        self._auto_next_latch = ""
         self._runtime = 0.0
         self._near_end_at: Optional[float] = None
         self._near_end_prompted = False
@@ -696,6 +700,27 @@ class Player(xbmc.Player):
         except RuntimeError:  # nothing playing (race with stop)
             return
         self._report(self.api.session_progress, event="timeupdate")
+        self._maybe_auto_next()
+
+    def _maybe_auto_next(self) -> None:
+        """W4.1: the 80% crossing of a downloaded episode queues the next
+        keep-ahead. Runs on the ticker thread — the lookup is one bounded
+        listing, and the ticker's next beat is ten seconds out anyway."""
+        item = self._item
+        if item is None or item.get("Type") != "Episode":
+            return
+        item_id = str(item.get("Id") or "")
+        if not item_id or self._auto_next_latch == item_id:
+            return
+        runtime = float(item.get("Runtime") or 0) / 10_000_000
+        position = float(item.get("CurrentPosition") or 0)
+        if runtime <= 0 or position < runtime * downloads_auto.NEXT_TRIGGER_RATIO:
+            return
+        self._auto_next_latch = item_id
+        try:
+            downloads_auto.trigger_next(self.api, item)
+        except Exception:  # pragma: no cover - never break the ticker
+            LOG.exception("auto-next trigger failed for %s", item_id)
 
     def _finish(self) -> None:
         """A playback the viewer ended: report the stop, then make any
@@ -709,7 +734,11 @@ class Player(xbmc.Player):
         item = self.current_item()
         self.finalize()
         if item is not None:
-            self.offer_delete(item)
+            if not self.offer_delete(item):
+                # Never two stacked dialogs about one just-finished item:
+                # the local-remove offer stands down when the server-delete
+                # prompt ran (W4.5).
+                self.offer_remove_download(item)
 
     def finalize(self) -> None:
         """Report the stop and release all playback state."""
@@ -717,6 +746,7 @@ class Player(xbmc.Player):
         self._stop_ticker()
         self._stop_chapter_thumbs()
         self._reset_lyrics()
+        self._auto_next_latch = ""
         with self._lock:
             item = self._item
             self._item = None
@@ -825,6 +855,50 @@ class Player(xbmc.Player):
             daemon=True,
         ).start()
         return True
+
+    def offer_remove_download(self, item: JsonDict) -> bool:
+        """W4.5: the local sibling of ``offer_delete`` — a *user-origin*
+        download watched to the end is offered for removal (Ask) or removed
+        outright (Always). Auto-origin items belong to the retention sweep,
+        which would otherwise race this prompt for the same file."""
+        mode = settings.get_str("downloadsDeleteAfterPlay")
+        if mode not in ("ask", "always"):
+            return False
+        if not settings.get_bool("downloadsEnabled"):
+            return False
+        item_id = str(item.get("Id") or "")
+        if not item_id or not watched_to_end(item):
+            return False
+        from kofin.downloads import store as downloads_store
+
+        row = downloads_store.get(item_id)
+        if (
+            row is None
+            or row.state != downloads_store.DONE
+            or downloads_store.is_auto_origin(row.origin)
+        ):
+            return False
+        if mode == "always":
+            LOG.info("removing watched download %s (always mode)", item_id)
+            ipc.notify(ipc.DOWNLOAD_REMOVE, {"Id": item_id})
+            return True
+        # The same thread shape as the delete prompt: a dialog waits on a
+        # person, and Kodi's callback thread must never wait with it.
+        threading.Thread(
+            target=self._remove_download_prompt,
+            args=(item_id, str(item.get("Name") or "")),
+            name="kofin-remove-download-prompt",
+            daemon=True,
+        ).start()
+        return True
+
+    def _remove_download_prompt(self, item_id: str, name: str) -> None:
+        if not xbmcgui.Dialog().yesno(
+            settings.localized(30710),  # Remove download
+            settings.localized(30714) % name,
+        ):
+            return
+        ipc.notify(ipc.DOWNLOAD_REMOVE, {"Id": item_id})
 
     def _delete_prompt(self, item: JsonDict) -> None:
         name = item.get("Name") or ""

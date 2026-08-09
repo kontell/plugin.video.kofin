@@ -864,3 +864,159 @@ def test_an_account_that_cannot_delete_is_never_asked(monkeypatch):
 
     assert offered is False
     assert prompted == []
+
+
+# -- auto-next (plan W4.1) and the remove-after-watching offer (W4.5) ---------
+
+
+def test_auto_next_fires_once_at_eighty_percent(monkeypatch):
+    player, _api = make_player(monkeypatch)
+    from kofin.service import player as player_module
+
+    fired = []
+    monkeypatch.setattr(
+        player_module.downloads_auto, "trigger_next", lambda api, item: fired.append(1)
+    )
+    player._item = {
+        "Id": "e1",
+        "Type": "Episode",
+        "SeriesId": "s1",
+        "Runtime": 1000 * 10_000_000,
+        "CurrentPosition": 750.0,
+        "MediaSourceId": "src",
+        "PlaySessionId": "ps",
+    }
+    player._maybe_auto_next()
+    assert fired == []  # 75%: not yet
+
+    player._item["CurrentPosition"] = 810.0
+    player._maybe_auto_next()
+    player._maybe_auto_next()
+    assert fired == [1]  # once, latched
+
+    player.finalize()
+    assert player._auto_next_latch == ""  # a new playback may fire again
+
+
+def test_auto_next_ignores_non_episodes(monkeypatch):
+    player, _api = make_player(monkeypatch)
+    from kofin.service import player as player_module
+
+    fired = []
+    monkeypatch.setattr(
+        player_module.downloads_auto, "trigger_next", lambda api, item: fired.append(1)
+    )
+    player._item = {
+        "Id": "m1",
+        "Type": "Movie",
+        "Runtime": 1000 * 10_000_000,
+        "CurrentPosition": 990.0,
+    }
+    player._maybe_auto_next()
+    assert fired == []
+
+
+class ImmediateThread:
+    """Runs the offer's dialog thread inline so the test sees its effects."""
+
+    def __init__(self, target=None, args=(), **kwargs):
+        self._target = target
+        self._args = args
+
+    def start(self):
+        self._target(*self._args)
+
+
+def _watched_download_item():
+    return {
+        "Id": "d1",
+        "Type": "Episode",
+        "Name": "The One",
+        "Runtime": 100 * 10_000_000,
+        "CurrentPosition": 97.0,
+        "MediaSourceId": "src",
+        "PlaySessionId": "ps",
+    }
+
+
+def test_remove_offer_modes(monkeypatch):
+    from kofin.downloads import store as downloads_store
+    from kofin.service import player as player_module
+
+    player, _api = make_player(monkeypatch)
+    notified = []
+    monkeypatch.setattr(
+        player_module.ipc, "notify", lambda m, d=None: notified.append((m, d))
+    )
+    row = downloads_store.Download(
+        jellyfin_id="d1", state=downloads_store.DONE, origin="user"
+    )
+    monkeypatch.setattr("kofin.downloads.store.get", lambda item_id: row)
+    monkeypatch.setattr(player_module.settings, "localized", lambda i: "L%d %%s" % i)
+    FakeAddon.store["downloadsEnabled"] = "true"
+    item = _watched_download_item()
+
+    assert player.offer_remove_download(item) is False  # mode off by default
+
+    FakeAddon.store["downloadsDeleteAfterPlay"] = "always"
+    assert player.offer_remove_download(item) is True
+    assert notified == [(player_module.ipc.DOWNLOAD_REMOVE, {"Id": "d1"})]
+
+    notified.clear()
+    FakeAddon.store["downloadsDeleteAfterPlay"] = "ask"
+    monkeypatch.setattr(player_module.threading, "Thread", ImmediateThread)
+
+    class YesDialog:
+        def yesno(self, heading, message, **kwargs):
+            return True
+
+    monkeypatch.setattr(player_module.xbmcgui, "Dialog", YesDialog)
+    assert player.offer_remove_download(item) is True
+    assert notified == [(player_module.ipc.DOWNLOAD_REMOVE, {"Id": "d1"})]
+
+    class NoDialog:
+        def yesno(self, heading, message, **kwargs):
+            return False
+
+    notified.clear()
+    monkeypatch.setattr(player_module.xbmcgui, "Dialog", NoDialog)
+    assert player.offer_remove_download(item) is True  # raised, declined
+    assert notified == []
+
+
+def test_remove_offer_leaves_auto_origin_to_the_sweep(monkeypatch):
+    from kofin.downloads import store as downloads_store
+    from kofin.service import player as player_module
+
+    player, _api = make_player(monkeypatch)
+    notified = []
+    monkeypatch.setattr(
+        player_module.ipc, "notify", lambda m, d=None: notified.append((m, d))
+    )
+    FakeAddon.store["downloadsEnabled"] = "true"
+    FakeAddon.store["downloadsDeleteAfterPlay"] = "always"
+    row = downloads_store.Download(
+        jellyfin_id="d1", state=downloads_store.DONE, origin="auto:s1"
+    )
+    monkeypatch.setattr("kofin.downloads.store.get", lambda item_id: row)
+
+    assert player.offer_remove_download(_watched_download_item()) is False
+    assert notified == []
+
+    monkeypatch.setattr("kofin.downloads.store.get", lambda item_id: None)
+    assert player.offer_remove_download(_watched_download_item()) is False
+
+
+def test_finish_offers_local_remove_only_without_the_delete_prompt(monkeypatch):
+    player, _api = make_player(monkeypatch)
+    offered = []
+    monkeypatch.setattr(player, "offer_delete", lambda item: True)
+    monkeypatch.setattr(player, "offer_remove_download", lambda item: offered.append(1))
+    player._item = _watched_download_item()
+    player._finish()
+    assert offered == []  # the server prompt ran; never two dialogs
+
+    player._item = _watched_download_item()
+    monkeypatch.setattr(player, "offer_delete", lambda item: False)
+    player._finish()
+    assert offered == [1]

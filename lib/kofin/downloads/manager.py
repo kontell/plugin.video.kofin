@@ -23,11 +23,15 @@ import time
 from queue import Empty, Queue
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import xbmc
+
 from kofin.core import settings, state, toast
 from kofin.core.http import JellyfinError, StreamedResponse, Unauthorized
 from kofin.core.log import Logger
+from kofin.sync.db import Database
 from kofin.downloads import (
     downloads_root,
+    export,
     files,
     probe,
     progress,
@@ -58,6 +62,11 @@ OFFLINE_POLL_SECONDS = 10.0
 # One join per worker at stop: a chunk-loop abort plus one full read timeout,
 # with a little grace (core.http.DEFAULT_TIMEOUT read budget is 30 s).
 JOIN_SECONDS = 35.0
+
+# How often the maintenance thread sweeps watched auto-origin downloads
+# (plan W4.2). Kodi marks played at ~90%, so "promptly after the credits"
+# needs no better than minutes.
+RETENTION_SWEEP_SECONDS = 300.0
 
 # Store progress roughly every 8 MiB rather than every chunk.
 PROGRESS_EVERY_CHUNKS = 32
@@ -111,7 +120,9 @@ class DownloadManager:
         if recovered:
             self._wake.set()
         self._reconciler = threading.Thread(
-            target=self._run_reconcile, name="kofin-downloads-reconcile", daemon=True
+            target=self._run_maintenance,
+            name="kofin-downloads-maintenance",
+            daemon=True,
         )
         self._reconciler.start()
         for index in range(worker_count()):
@@ -355,6 +366,8 @@ class DownloadManager:
             repoint.repoint(finished, root)
             repoint.stamp_tag(finished)
             repoint.stamp_badge(finished)
+        if settings.get_bool("downloadsExportMetadata"):
+            export.export_item(api, item, absolute)  # best-effort by contract
         if media_type == "song":
             self._ensure_music_view()
         self._refresh_quietly()
@@ -729,9 +742,20 @@ class DownloadManager:
             return "disk full"
         return "write failed: %s" % error
 
-    # -- reconcile -------------------------------------------------------------
+    # -- maintenance: reconcile once, then the retention sweep ------------------
 
-    def _run_reconcile(self) -> None:
+    def _run_maintenance(self) -> None:
+        """Reconcile at start, then sweep on a slow beat (plan W4.2). The
+        first sweep runs right after the reconcile — it covers items watched
+        while the service was down."""
+        self._reconcile_once()
+        self._retention_sweep()
+        while not self._stop.wait(timeout=RETENTION_SWEEP_SECONDS):
+            if self._should_stop():
+                return
+            self._retention_sweep()
+
+    def _reconcile_once(self) -> None:
         """Walk the done rows once at start: a missing file restores the
         library row and flags the download failed (self-healing toward
         streaming, never a broken local play), and a present file re-asserts
@@ -765,6 +789,46 @@ class DownloadManager:
                 self._refresh_quietly()
         except Exception:  # pragma: no cover - never break service start
             LOG.exception("downloads reconcile failed")
+
+    def _retention_sweep(self) -> None:
+        """W4.2: remove watched **auto-origin** downloads, through the full
+        remove path — never a bare unlink. Two exclusions are load-bearing:
+        user-origin rows are never touched, and the item currently playing
+        is skipped (Kodi marks played at ~90%, and a sweep firing in a binge
+        episode's last minutes would delete the file under the player).
+        Watched-ness is Kodi's own playcount — local truth, works offline."""
+        try:
+            if not settings.get_bool("downloadsAutoCleanup"):
+                return
+            for row in store.rows(store.DONE):
+                if self._should_stop():
+                    return
+                if not store.is_auto_origin(row.origin):
+                    continue
+                if row.media_type not in ("movie", "episode"):
+                    continue
+                if not _watched_locally(row):
+                    continue
+                if self._playing_now(row):
+                    continue
+                LOG.info(
+                    "retention: removing watched %s (%s)",
+                    row.jellyfin_id,
+                    row.origin,
+                )
+                self._apply_remove(row.jellyfin_id)
+        except Exception:  # pragma: no cover - never kill the maintenance loop
+            LOG.exception("retention sweep failed")
+
+    def _playing_now(self, row: "store.Download") -> bool:
+        try:
+            playing = xbmc.Player().getPlayingFile()
+        except RuntimeError:
+            return False
+        if not playing or not row.rel_path:
+            return False
+        absolute = os.path.join(downloads_root(), row.rel_path)
+        return os.path.abspath(playing) == os.path.abspath(absolute)
 
     # -- plumbing --------------------------------------------------------------
 
@@ -828,6 +892,21 @@ def _dir_taken_by_other(owner_id: str) -> Callable[[str], bool]:
     return taken
 
 
+def _watched_locally(row: "store.Download") -> bool:
+    """Kodi's own playcount for the item's file row — the local truth, which
+    is what lets the sweep run offline."""
+    with Database("kofin") as kofin_db, Database("video") as video:
+        mapping = repoint.mapping_for_on(kofin_db.cursor, row.jellyfin_id)
+        if mapping is None:
+            return False
+        video.cursor.execute(
+            "SELECT playCount FROM files WHERE idFile = ?",
+            (mapping.kodi_fileid,),
+        )
+        found = video.cursor.fetchone()
+    return bool(found is not None and found[0])
+
+
 def _remove_quietly(path: str) -> None:
     try:
         os.remove(path)
@@ -835,11 +914,34 @@ def _remove_quietly(path: str) -> None:
         pass
 
 
+# What the metadata export leaves at directory level (W4.3). A directory
+# holding only these counts as empty for pruning: the media left, and its
+# escape-hatch sidecars must not keep the tree alive. The per-item
+# ``<basename>.nfo`` needs no entry — the sibling sweep in ``_delete_media``
+# already takes everything sharing the media file's stem.
+EXPORTED_COMPANIONS = frozenset(
+    {"poster.jpg", "fanart.jpg", "tvshow.nfo", "folder.jpg"}
+)
+
+
+def _sweep_exported(directory: str) -> None:
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return
+    if not names or not set(names) <= EXPORTED_COMPANIONS:
+        return
+    for name in names:
+        _remove_quietly(os.path.join(directory, name))
+
+
 def _prune_empty_dirs(directory: str, root: str) -> None:
-    """Remove now-empty directories up to (never including) the root."""
+    """Remove now-empty directories up to (never including) the root; a
+    directory down to its exported metadata counts as empty."""
     current = os.path.abspath(directory)
     stop = os.path.abspath(root)
     while current.startswith(stop) and current != stop:
+        _sweep_exported(current)
         try:
             os.rmdir(current)
         except OSError:
