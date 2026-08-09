@@ -91,14 +91,29 @@ def _window() -> xbmcgui.Window:
 
 
 def set_online(online: bool) -> None:
-    if online:
-        _window().setProperty(PROP_ONLINE, "true")
-    else:
-        _window().clearProperty(PROP_ONLINE)
+    """Publish the connection state. Three-valued on purpose: "true",
+    "false", and *absent* — the last meaning "nobody has said yet", which is
+    every moment between Kodi starting and the service's first probe.
+
+    Writing "false" rather than clearing is what lets a caller tell a known
+    outage from an unanswered question: refusing a playback during the
+    startup window because the flag had not been raised yet would be a
+    false negative on the most ordinary action there is (plan W2.2).
+    """
+    _window().setProperty(PROP_ONLINE, "true" if online else "false")
 
 
 def is_online() -> bool:
+    """Whether the server is known reachable. Absent reads as not-online,
+    which is what the sync-side guards want: they only run after a connect,
+    so for them absence means the service went away."""
     return _window().getProperty(PROP_ONLINE) == "true"
+
+
+def is_offline() -> bool:
+    """Whether the server is known *un*reachable — a stated outage, not an
+    unanswered question. This is the one to gate user-facing refusals on."""
+    return _window().getProperty(PROP_ONLINE) == "false"
 
 
 # The play queue is a directory of one file per resolved play, not a window

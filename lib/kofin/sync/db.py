@@ -201,6 +201,14 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
         ON jellyfin(media_folder)""")
     cursor.execute("""CREATE INDEX IF NOT EXISTS idx_jellyfin_parent_id
         ON jellyfin(jellyfin_parent_id)""")
+    # Userdata a playback produced while the server was unreachable, replayed
+    # on the next connect (docs/offline-downloads-plan.md W2.4). One row per
+    # item — a later event coalesces onto it — and NULL means "unchanged".
+    cursor.execute("""CREATE TABLE IF NOT EXISTS pending_userdata(
+        jellyfin_id TEXT PRIMARY KEY, media_type TEXT, played INTEGER,
+        position_ticks INTEGER, event_at INTEGER, attempts INTEGER,
+        server_snapshot TEXT)""")
+
     cursor.execute("""CREATE INDEX IF NOT EXISTS idx_download_series
         ON download(series_id, state)""")
     cursor.execute("""CREATE INDEX IF NOT EXISTS idx_download_state

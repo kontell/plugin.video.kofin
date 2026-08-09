@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import xbmc
 import xbmcgui
 
-from kofin.core import kodirpc, settings, toast
+from kofin.core import kodirpc, settings, state, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError, plugin_transport
 from kofin.core.log import Logger
@@ -368,11 +368,52 @@ def _manage_options(item: dict, dynamic: bool) -> List[Tuple[str, dict]]:
     return options
 
 
+def _offline_menu(item_id: str) -> None:
+    """The Jellyfin actions menu built from local state alone.
+
+    Only what does not need the server: removing a download, and the
+    settings shortcut. The server-side actions are deliberately absent
+    rather than queued — a menu action that silently waits for a
+    reconnection is worse than one that is simply not offered, and phase 2
+    queues *playback* events only.
+    """
+    options: List[Tuple[str, dict]] = []
+    if settings.get_bool("downloadsEnabled"):
+        from kofin.downloads import store
+
+        row = store.get(item_id)
+        if row is not None and row.state == store.DONE:
+            options.append(
+                (
+                    settings.localized(30710),
+                    {"mode": "removedownload", "id": item_id, "name": ""},
+                )
+            )
+        elif row is not None:
+            options.append(
+                (settings.localized(30709), {"mode": "canceldownload", "id": item_id})
+            )
+    options.append((settings.localized(30504), {"mode": "settings"}))
+
+    index = xbmcgui.Dialog().contextmenu([label for label, _ in options])
+    if index < 0:
+        return
+    _, params = options[index]
+    xbmc.executebuiltin("RunPlugin(%s)" % plugin_url(params))
+
+
 def manage() -> None:
     """Open the "Jellyfin actions" menu for the focused kofin item."""
     item_id = _focused_item_id()
     if not item_id:
         LOG.warning("jellyfin actions invoked without a kofin item")
+        return
+
+    if state.is_offline():
+        # Offline the fetch below is a doomed wait, and the actions it
+        # unlocks are all server writes. What still works locally is the
+        # download the user already has (plan W2.3).
+        _offline_menu(item_id)
         return
 
     try:

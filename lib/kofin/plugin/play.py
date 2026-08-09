@@ -288,11 +288,58 @@ def _stream_index(raw: Optional[str]) -> Optional[int]:
         return None
 
 
+def offline_answer(request: Request, item_id: str) -> bool:
+    """Handle the play entirely locally when the server is unreachable.
+
+    A downloaded item reached through a *library* row never arrives here —
+    its row points at the file (V4) — but one reached from a kofin listing
+    (Continue watching, a widget) does, and refusing to play a file sitting
+    on disk would be absurd. Anything not downloaded is answered at once
+    instead of after the transport's budget: measured offline, the resolve
+    spent ~8 s before a generic failure (feasibility V8).
+
+    True means the request is finished.
+    """
+    if not state.is_offline():
+        return False
+
+    from kofin.downloads import downloads_root, store
+
+    row = store.get(item_id)
+    if row is not None and row.state == store.DONE and row.rel_path:
+        import os
+
+        path = os.path.join(downloads_root(), row.rel_path)
+        if os.path.exists(path):
+            LOG.info("offline: resolving %s to its download", item_id)
+            listitem = xbmcgui.ListItem(path=path)
+            listitem.setContentLookup(False)
+            dbid = request.params.get("dbid", "")
+            if dbid.isdigit():
+                listitem.getVideoInfoTag().setDbId(int(dbid))
+            if request.handle >= 0:
+                xbmcplugin.setResolvedUrl(request.handle, True, listitem)
+            else:
+                xbmc.Player().play(path, listitem)
+            return True
+
+    LOG.info("offline: %s is not downloaded", item_id)
+    if request.handle >= 0:
+        xbmcplugin.setResolvedUrl(request.handle, False, xbmcgui.ListItem())
+    toast.show(settings.localized(30720), toast.ERROR, time_ms=4000)
+    return True
+
+
 def play(request: Request) -> None:
     item_id = request.params.get("id", "")
     creds = Credentials.load()
     if not creds.is_logged_in or not item_id:
         _fail(request)
+        return
+
+    # Before any transport is built: offline, everything below is a wait
+    # with a known answer.
+    if offline_answer(request, item_id):
         return
 
     transcode = request.params.get("transcode") == "1"

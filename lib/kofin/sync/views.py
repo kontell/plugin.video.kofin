@@ -43,7 +43,7 @@ PLAYLIST_FOLDER = FOLDER_NAME
 # Shape/label revision of the generated tree, folded into views_hash() so a
 # change here regenerates on upgrade even when the view set is untouched.
 # 3: the playlists moved into PLAYLIST_FOLDER.
-NODE_LAYOUT = 5
+NODE_LAYOUT = 6
 
 # Kind ordering for the generated library nodes, following Kodi's own
 # top-level video ordering (movies 10, tvshows 20, musicvideos 30). Libraries
@@ -217,6 +217,15 @@ def node_folder(view):
     return "kofin%s%s" % (view["Media"], view["Id"])
 
 
+def downloads_root_path():
+    """The downloads root as the episodes node's rule needs it: absolute,
+    with a trailing separator so ``startswith`` cannot match a sibling
+    directory that merely shares the prefix."""
+    from kofin.downloads import downloads_root
+
+    return downloads_root().rstrip("/") + "/"
+
+
 def playlists_path():
     """Kodi's own video playlist directory — the user's, not ours."""
     return xbmcvfs.translatePath("special://profile/playlists/video")
@@ -367,6 +376,9 @@ class Views(object):
         # The Downloads singles exist only while the feature is on, so the
         # toggle must regenerate the tree (docs/offline-downloads-plan.md W1.9).
         parts.append("downloads:%s" % settings.get_bool("downloadsEnabled"))
+        # The episodes node embeds the downloads root in its rule, so moving
+        # the location has to regenerate the tree (plan W2.6).
+        parts.append("downloadspath:%s" % settings.get_str("downloadsPath"))
         return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()
 
     def get_nodes(self):
@@ -454,7 +466,9 @@ class Views(object):
 
         for single in self.single_nodes():
 
-            self.add_single_node(node_path, index, "favorites", single)
+            self.add_single_node(
+                node_path, index, single.get("Type", "favorites"), single
+            )
             index += 1
 
         # A library can leave the whitelist by a route that never called
@@ -573,6 +587,7 @@ class Views(object):
                     "Tag": DOWNLOADS_TAG,
                     "Media": "movies",
                     "File": "DownloadedMovies",
+                    "Type": "downloads",
                 }
             )
             singles.append(
@@ -581,6 +596,23 @@ class Views(object):
                     "Tag": DOWNLOADS_TAG,
                     "Media": "tvshows",
                     "File": "DownloadedShows",
+                    "Type": "downloads",
+                }
+            )
+            # Episodes cannot be filtered by tag: Kodi compiles a tag rule on
+            # an episodes node against ``episode_view.idShow``
+            # (SmartPlayList.cpp), so it answers with every episode of every
+            # tagged show — verified live, 25+ rows for two downloads. Their
+            # *path* is the honest signal, since a downloaded episode's row
+            # points into the downloads root (plan W2.6).
+            singles.append(
+                {
+                    "Name": localized(30721),
+                    "Tag": DOWNLOADS_TAG,
+                    "Path": downloads_root_path(),
+                    "Media": "episodes",
+                    "File": "DownloadedEpisodes",
+                    "Type": "downloads",
                 }
             )
         return singles
@@ -647,6 +679,18 @@ class Views(object):
             else:
                 rule = etree.SubElement(xml, "rule", {"field": "tag", "operator": "is"})
                 etree.SubElement(rule, "value").text = view["Tag"]
+
+        elif view.get("Path"):
+            # An episodes node filters on the file's location, because a tag
+            # rule here resolves against the *show* (see single_nodes).
+            for rule in xml.findall(".//value"):
+                if rule.text == view["Path"]:
+                    break
+            else:
+                rule = etree.SubElement(
+                    xml, "rule", {"field": "path", "operator": "startswith"}
+                )
+                etree.SubElement(rule, "value").text = view["Path"]
 
         if item_type == "favorites" and view["Media"] == "episodes":
             path = self.window_browse(view, "FavEpisodes")
@@ -1147,7 +1191,7 @@ class Views(object):
 
         for single in self.single_nodes():
 
-            self.window_single_node(index, "favorites", single)
+            self.window_single_node(index, single.get("Type", "favorites"), single)
             index += 1
 
         window_prop("Kofin.nodes.total", str(index))
@@ -1201,7 +1245,7 @@ class Views(object):
         """Single destination node."""
         path = "library://video/%s/kofin_%s.xml" % (
             NODE_ROOT,
-            view["Tag"].replace(" ", ""),
+            view.get("File", view["Tag"].replace(" ", "")),
         )
         window_path = "ActivateWindow(Videos,%s,return)" % path
 

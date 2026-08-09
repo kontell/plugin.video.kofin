@@ -23,7 +23,7 @@ import time
 from queue import Empty, Queue
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from kofin.core import settings, toast
+from kofin.core import settings, state, toast
 from kofin.core.http import JellyfinError, StreamedResponse, Unauthorized
 from kofin.core.log import Logger
 from kofin.downloads import downloads_root, files, repoint, store
@@ -41,6 +41,11 @@ BACKOFF_SECONDS = 5.0
 
 # How long an idle worker sleeps between queue polls when nothing wakes it.
 IDLE_POLL_SECONDS = 30.0
+
+# Same, while the server is unreachable: shorter, because nothing wakes a
+# worker when the connection comes back — the service raises the online flag
+# and this is what notices.
+OFFLINE_POLL_SECONDS = 10.0
 
 # One join per worker at stop: a chunk-loop abort plus one full read timeout,
 # with a little grace (core.http.DEFAULT_TIMEOUT read budget is 30 s).
@@ -151,6 +156,16 @@ class DownloadManager:
         try:
             while not self._should_stop():
                 self._drain_ops()
+                if state.is_offline():
+                    # Hold the queue rather than burn it: every claim while
+                    # the server is gone would fail its three attempts and
+                    # settle, so a user who queued a season offline came back
+                    # to a list of failures instead of a list of downloads
+                    # (the gap phase 1's gates exposed). Ops still drain
+                    # above, so a cancel or a remove works offline.
+                    if self._wake.wait(timeout=OFFLINE_POLL_SECONDS):
+                        self._wake.clear()
+                    continue
                 row = store.claim()
                 if row is None:
                     if self._wake.wait(timeout=IDLE_POLL_SECONDS):
@@ -217,6 +232,7 @@ class DownloadManager:
         # the row being removed must not count itself as that sibling.
         store.remove(item_id)
         repoint.unstamp_tag(row)
+        repoint.clear_badge(row)
         self._refresh_quietly()
         LOG.info("download removed: %s", item_id)
 
@@ -312,6 +328,7 @@ class DownloadManager:
         if finished is not None:
             repoint.repoint(finished, root)
             repoint.stamp_tag(finished)
+            repoint.stamp_badge(finished)
         self._refresh_quietly()
         self._toast(30712, item.get("Name", item_id))
         LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
@@ -406,6 +423,12 @@ class DownloadManager:
 
     def _retry_or_fail(self, row: "store.Download", error: str) -> None:
         item_id = row.jellyfin_id
+        if state.is_offline():
+            # The server went away mid-transfer. Same reasoning as a
+            # shutdown: leave the row recoverable rather than spending its
+            # attempts against an unreachable server.
+            LOG.info("download interrupted by an outage: %s", item_id)
+            return
         if self._should_stop():
             # Not a failure: the service is going away mid-transfer, and the
             # abort that ended the chunk loop is our own. The row stays
@@ -511,6 +534,7 @@ class DownloadManager:
                     continue
                 if repoint.repoint(row, root):
                     repoint.stamp_tag(row)  # idempotent; a repair wiped links
+                    repoint.stamp_badge(row)
                     touched = True
             if touched:
                 self._refresh_quietly()

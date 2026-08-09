@@ -6,3 +6,7 @@ __pycache__/
 .pytest_cache/
 tests/live/results/
 *.zip
+# Stray databases a test run can leave in the repo root.
+kofin.db
+*.db-wal
+*.db-shm

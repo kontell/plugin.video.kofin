@@ -716,6 +716,45 @@ def test_downloads_nodes_appear_only_while_the_feature_is_on(views_env):
     assert "<label>3071" not in movies_xml
 
 
+def test_downloaded_episodes_node_filters_on_path_not_tag(views_env):
+    """Kodi compiles a tag rule on an episodes node against the *show*
+    (SmartPlayList.cpp), so it answers with every episode of every tagged
+    show — 25+ rows for two downloads, measured live. The file's location is
+    the honest signal, and the repoint already put it under the root."""
+    seed([("lib1", "Movies", "movies")], ["lib1"])
+    FakeAddon.store["downloadsEnabled"] = "true"
+
+    Views(FakeApi()).get_nodes()
+
+    node = kofin_root(views_env) / "kofin_DownloadedEpisodes.xml"
+    assert node.is_file()
+    xml = node.read_text()
+    assert "<content>episodes</content>" in xml
+    assert 'field="path" operator="startswith"' in xml
+    assert 'field="tag"' not in xml
+    assert xml.rstrip().endswith("</node>")
+    # The trailing separator keeps startswith off a sibling that merely
+    # shares the prefix ("downloads-old/").
+    from kofin.downloads import downloads_root
+
+    assert "<value>%s/</value>" % downloads_root().rstrip("/") in xml
+
+
+def test_moving_the_downloads_root_regenerates_the_tree(views_env):
+    """The rule embeds the root, so the path is part of the tree's identity."""
+    seed([("lib1", "Movies", "movies")], ["lib1"])
+    FakeAddon.store["downloadsEnabled"] = "true"
+    FakeAddon.store["downloadsPath"] = "/old/downloads/"
+    Views(FakeApi()).get_nodes()
+    first = (kofin_root(views_env) / "kofin_DownloadedEpisodes.xml").read_text()
+
+    FakeAddon.store["downloadsPath"] = "/new/downloads/"
+    Views(FakeApi()).get_nodes()
+    second = (kofin_root(views_env) / "kofin_DownloadedEpisodes.xml").read_text()
+
+    assert "/old/downloads/" in first and "/new/downloads/" in second
+
+
 def test_toggling_downloads_regenerates_the_tree(views_env):
     """The hash folds the toggle in, so turning the feature off takes the
     nodes away rather than leaving them behind on an unchanged view set."""

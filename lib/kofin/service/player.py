@@ -738,6 +738,21 @@ class Player(xbmc.Player):
                 self.api.session_stopped(stop_data)
             except Exception as error:
                 LOG.warning("stop report failed: %s", error)
+                # The position is the user's viewing progress and this was
+                # its only route to the server; park it for the next connect
+                # rather than lose it (plan W2.4). Contained: a parking
+                # failure must not skip the transcode close below.
+                try:
+                    from kofin.downloads import pending
+
+                    pending.enqueue(
+                        str(item["Id"]),
+                        str(item.get("Type") or ""),
+                        position_ticks=int(stop_data["PositionTicks"]),
+                        snapshot=item.get("ServerUserData") or {},
+                    )
+                except Exception:  # pragma: no cover - defensive
+                    LOG.exception("could not park the stop position")
             if close_encoding:
                 try:
                     self.api.close_transcode(device_id, play_session_id)

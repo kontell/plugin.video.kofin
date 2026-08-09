@@ -23,8 +23,9 @@ import queue
 import threading
 from typing import Any, Dict, Optional, Tuple
 
-from kofin.core import kodirpc
+from kofin.core import kodirpc, state
 from kofin.core.api import Api
+from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
@@ -110,8 +111,31 @@ class KodiUserData:
                 return
             try:
                 self._apply(*job)
+            except JellyfinError as error:
+                # The event is Kodi's, and it is already applied locally —
+                # losing it because the server is unreachable is how watching
+                # a download offline used to vanish (plan W2.4). Park it.
+                LOG.info("userdata push failed (%s); parking it for replay", error)
+                self._park(*job)
             except Exception:
                 LOG.exception("kodi userdata push failed")
+
+    def _park(self, kind: str, kodi_id: int, media: str, playcount: int) -> None:
+        """Queue a failed push for the next connect. Never raises: a parking
+        failure must not lose the log line explaining the original one."""
+        try:
+            from kofin.downloads import pending
+            from kofin.service.player import mapped_jellyfin_id
+
+            jellyfin_id = mapped_jellyfin_id(kodi_id, media)
+            if not jellyfin_id:
+                return
+            if kind == UPDATE_PLAYCOUNT:
+                pending.enqueue(jellyfin_id, media, played=playcount > 0)
+            else:
+                pending.enqueue(jellyfin_id, media, position_ticks=0)
+        except Exception:  # pragma: no cover - defensive
+            LOG.exception("could not park userdata for replay")
 
     def _apply(self, kind: str, kodi_id: int, media: str, playcount: int) -> None:
         from kofin.service.player import mapped_jellyfin_id
@@ -119,6 +143,12 @@ class KodiUserData:
         jellyfin_id = mapped_jellyfin_id(kodi_id, media)
         if not jellyfin_id:
             return  # a library row kofin did not sync
+
+        if state.is_offline():
+            # Skip the doomed attempt: the transport would spend its budget
+            # before failing, and the outcome is the same parked row.
+            self._park(kind, kodi_id, media, playcount)
+            return
 
         if kind == UPDATE_PLAYCOUNT:
             played = playcount > 0

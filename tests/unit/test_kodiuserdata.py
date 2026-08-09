@@ -36,6 +36,26 @@ class RecordingApi:
         self.calls.append(("resume", item_id, position_ticks))
 
 
+@pytest.fixture(autouse=True)
+def online(monkeypatch, tmp_path):
+    """These tests describe a connected service; the offline path parks
+    instead of pushing and has its own tests below."""
+    from tests.unit.fakes import FakeAddon, FakeWindow
+
+    FakeAddon.store = {}
+    FakeWindow.store = {"kofin.online": "true"}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    monkeypatch.setattr("xbmcvfs.exists", lambda p: True)
+    monkeypatch.setattr("xbmcvfs.translatePath", lambda p: str(tmp_path))
+    from kofin.sync import db as sync_db
+
+    sync_db.reset_overrides()
+    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    yield
+    sync_db.reset_overrides()
+
+
 @pytest.fixture
 def mapped(monkeypatch):
     """Map Kodi row 5910 to a Jellyfin id; everything else is not kofin's."""
@@ -156,3 +176,52 @@ def test_resume_query_covers_every_watched_media_type():
     from kofin.core import kodirpc
 
     assert set(kodirpc.RESUME_QUERY) == set(kodiuserdata.WATCHED_MEDIA)
+
+
+# --- parking when the server is unreachable (plan W2.4) ----------------------
+
+
+def test_offline_parks_instead_of_pushing(mapped, kodi_resume):
+    """Watching a download offline used to lose its watched flag outright:
+    the push failed and the event was gone (feasibility V6)."""
+    from kofin.core import state
+    from kofin.downloads import pending
+    from tests.unit.fakes import FakeWindow
+
+    FakeWindow.store = {"kofin.online": "false"}  # a stated outage
+    assert state.is_offline() is True
+
+    api = RecordingApi()
+    assert drain(api, [MARK_WATCHED]) == []  # no doomed attempt
+
+    (row,) = pending.rows()
+    assert row.jellyfin_id == "jf-ep-1"
+    assert row.played == 1
+
+
+def test_a_failed_push_is_parked_not_dropped(mapped, kodi_resume):
+    from kofin.core.http import ServerUnreachable
+    from kofin.downloads import pending
+
+    class DeadApi(RecordingApi):
+        def mark_played(self, item_id):
+            raise ServerUnreachable("gone")
+
+    drain(DeadApi(), [MARK_WATCHED])
+
+    (row,) = pending.rows()
+    assert row.jellyfin_id == "jf-ep-1" and row.played == 1
+
+
+def test_a_second_event_coalesces_onto_the_row(mapped, kodi_resume):
+    """One row per item: replaying "played" and then a stale "position 0"
+    is how a finished episode comes back in Continue Watching."""
+    from kofin.downloads import pending
+    from tests.unit.fakes import FakeWindow
+
+    FakeWindow.store = {"kofin.online": "false"}
+    drain(RecordingApi(), [MARK_UNWATCHED, MARK_WATCHED])
+
+    rows = pending.rows()
+    assert len(rows) == 1
+    assert rows[0].played == 1  # the newer event won

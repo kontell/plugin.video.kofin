@@ -54,6 +54,18 @@ def repoints(monkeypatch):
         "stamp_tag",
         lambda row: calls["stamp"].append(row.jellyfin_id),
     )
+    calls["badge"] = []
+    calls["unbadge"] = []
+    monkeypatch.setattr(
+        manager_module.repoint,
+        "stamp_badge",
+        lambda row: calls["badge"].append(row.jellyfin_id),
+    )
+    monkeypatch.setattr(
+        manager_module.repoint,
+        "clear_badge",
+        lambda row: calls["unbadge"].append(row.jellyfin_id),
+    )
     monkeypatch.setattr(
         manager_module.repoint,
         "unstamp_tag",
@@ -167,6 +179,7 @@ def test_happy_path_downloads_verifies_repoints_and_refreshes(tmp_path, repoints
     assert not os.path.exists(str(final) + ".part")
     assert repoints["repoint"] == [("m1", str(tmp_path / "dl"))]
     assert repoints["stamp"] == ["m1"]
+    assert repoints["badge"] == ["m1"]  # the native-library signal
     assert refreshes == [1]
 
 
@@ -397,6 +410,7 @@ def test_remove_restores_deletes_and_prunes(tmp_path, repoints):
 
     assert repoints["restore"] == [("m1", str(tmp_path / "dl"))]
     assert repoints["unstamp"] == ["m1"]
+    assert repoints["unbadge"] == ["m1"]
     assert store.get("m1") is None
     assert not final.exists()
     assert not final.parent.exists()  # sidecar went with it, dir pruned
@@ -501,3 +515,40 @@ def test_a_shutdown_mid_transfer_leaves_the_row_recoverable(tmp_path, repoints):
     manager._stop.clear()
     assert store.recover_interrupted() == 1
     assert store.get("m1").state == store.QUEUED
+
+
+def test_an_outage_leaves_the_row_recoverable(tmp_path, repoints):
+    """Claiming while offline would spend each item's three attempts and
+    settle it failed, so a season queued offline came back as a list of
+    failures instead of a list of downloads."""
+    from tests.unit.fakes import FakeWindow
+
+    manager, _ = make_manager(repoints)
+    queue_row("m1")
+    store.recover_interrupted()  # back to queued, as a real hold would leave it
+
+    FakeWindow.store = {"kofin.online": "false"}
+    row = store.claim()
+    manager._retry_or_fail(row, "connection lost")
+
+    assert store.get("m1").state == store.ACTIVE  # recoverable, not failed
+
+
+def test_an_outage_mid_transfer_is_not_a_failure(tmp_path, repoints):
+    from kofin.core.http import ServerUnreachable
+    from tests.unit.fakes import FakeWindow
+
+    manager, _ = make_manager(repoints)
+    stream = FakeStream(
+        200,
+        [b"abcd", ServerUnreachable("connection reset")],
+        {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+    )
+    stream.on_chunk = lambda index: FakeWindow.store.update({"kofin.online": "false"})
+    api = FakeManagerApi(MOVIE_DTO, [stream])
+
+    manager._process(api, queue_row())
+
+    row = store.get("m1")
+    assert row.state == store.ACTIVE
+    assert row.bytes_done == 4

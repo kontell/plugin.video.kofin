@@ -1657,3 +1657,11 @@ msgstr ""
 msgctxt "#30719"
 msgid "Downloaded shows"
 msgstr ""
+
+msgctxt "#30720"
+msgid "Not available offline"
+msgstr ""
+
+msgctxt "#30721"
+msgid "Downloaded episodes"
+msgstr ""
