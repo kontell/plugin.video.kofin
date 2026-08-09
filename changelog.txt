@@ -1,3 +1,10 @@
+v0.13.1
+- Music downloads are several times faster, and an album now finishes with one notification instead of one per track
+- The whole Downloads settings page appears as soon as you enable downloads, and reads better
+- A downloaded show or album offers Remove download, and the confirmation shows your free space
+- "After watching a download" is now a single toggle covering every download - note it starts off, so switch it back on if you relied on watched automatic downloads being cleaned up
+- Downloaded views appear straight away, with their own icon, and music gets a Kofin node too
+
 v0.13.0
 - Download for offline playback: movies, episodes and music from the Jellyfin actions menu, kept in your normal libraries with downloaded badges and dedicated views, with progress on Kodi's own library-update bar
 - Downloads play instantly with the server away — watched state and resume are kept and replayed on reconnect, and intro/credits skipping works offline too
