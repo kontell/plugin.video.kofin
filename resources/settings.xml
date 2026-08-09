@@ -860,7 +860,16 @@
     <!-- Downloads (docs/offline-downloads-plan.md W1.1). Plain bool/path/int
          settings only, so the visible-dependencies below are safe — the
          Omega unregister bug bites list[string] settings, and none live
-         here. -->
+         here.
+
+         ONE group on purpose. Every setting bar the master toggle is gated
+         `visible` on downloadsEnabled, so a group that did not also contain
+         downloadsEnabled had no visible member at all while the feature was
+         off — and Kodi does not recompute a *group's* visibility when a
+         member's changes, so those groups stayed hidden until the dialog was
+         rebuilt. Enabling downloads showed the path and the sliders (this
+         group) and nothing else until you backed out and came in again.
+         Splitting this category up again re-creates that. -->
     <category id="downloads" label="30700" help="30701">
       <group id="1">
         <setting id="downloadsEnabled" type="boolean" label="30702" help="30703">
@@ -882,6 +891,20 @@
           </dependencies>
           <control type="button" format="path"/>
         </setting>
+        <setting id="downloadsNotify" type="boolean" label="30767" help="30768">
+          <level>0</level>
+          <default>true</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <!-- Two pools, because the two media kinds cost nothing alike: a
+             video is minutes of transfer, a track is seconds of it behind a
+             fixed per-item overhead, so the number that keeps a video
+             download civil throttles music to a crawl. -->
         <setting id="downloadsMaxParallel" type="integer" label="30706" help="30707">
           <level>0</level>
           <default>2</default>
@@ -897,15 +920,27 @@
           </dependencies>
           <control type="slider" format="integer"/>
         </setting>
-      </group>
-      <!-- Conditional download transcoding (plan W3.1): every control below is
-           a toggle or a spinner, so the visible-dependencies are safe (the
-           Omega unregister bug bites list[string] settings only). The device
-           codec/HDR compatibility lists are deliberately *not* duplicated
-           here — the downloads profile reads the transcode tab's
-           directPlayVideoCodecs/directPlayAudioCodecs/allowedHdrTypes, since
-           the device is the same device; only the caps are downloads-own. -->
-      <group id="2">
+        <setting id="downloadsMusicParallel" type="integer" label="30772" help="30773">
+          <level>0</level>
+          <default>5</default>
+          <constraints>
+            <minimum>1</minimum>
+            <step>1</step>
+            <maximum>10</maximum>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="slider" format="integer"/>
+        </setting>
+        <!-- Conditional download transcoding (plan W3.1). The device
+             codec/HDR compatibility lists are deliberately *not* duplicated
+             here — the downloads profile reads the transcode tab's
+             directPlayVideoCodecs/directPlayAudioCodecs/allowedHdrTypes,
+             since the device is the same device; only the caps are
+             downloads-own. -->
         <setting id="downloadsTranscode" type="boolean" label="30722" help="30723">
           <level>0</level>
           <default>false</default>
@@ -916,12 +951,20 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
-        <setting id="downloadsMaxBitrate" type="integer" label="30724" help="30725">
+        <!-- `string`, not `integer`: the sub-1 Mbit/s options cannot be
+             expressed as integers. Read with settings.get_float; the value
+             set matches contextBitrates above, which has always been
+             fractional. -->
+        <setting id="downloadsMaxBitrate" type="string" label="30724" help="30725">
           <level>0</level>
           <default>0</default>
           <constraints>
             <options>
               <option label="30176">0</option>
+              <option label="30204">0.5</option>
+              <option label="30205">0.75</option>
+              <option label="30183">1</option>
+              <option label="30184">2</option>
               <option label="30185">3</option>
               <option label="30186">4</option>
               <option label="30187">6</option>
@@ -968,11 +1011,9 @@
           </dependencies>
           <control type="spinner" format="string"/>
         </setting>
-      </group>
-      <!-- Music downloads (plan W3.2), same conditional shape: lossless
-           tracks and anything over the cap convert; compliant tracks download
-           as the original file. -->
-      <group id="3">
+        <!-- Music downloads (plan W3.2), same conditional shape: lossless
+             tracks and anything over the cap transcode; compliant tracks
+             download as the original file. -->
         <setting id="downloadsMusicTranscode" type="boolean" label="30728" help="30729">
           <level>0</level>
           <default>false</default>
@@ -1047,11 +1088,8 @@
           </dependencies>
           <control type="spinner" format="string"/>
         </setting>
-      </group>
-      <!-- Automatic downloads and lifecycle (plan W4.1/W4.2/W4.4/W4.5) plus
-           the metadata export (W4.3). Toggles, a slider and spinners only —
-           dependency-safe on Omega. -->
-      <group id="4">
+        <!-- Automatic downloads and lifecycle (plan W4.1/W4.2/W4.4/W4.5) plus
+             the metadata export (W4.3). -->
         <setting id="downloadsAutoNext" type="boolean" label="30738" help="30739">
           <level>0</level>
           <default>false</default>
@@ -1130,9 +1168,18 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
-        <setting id="downloadsAutoCleanup" type="boolean" label="30744" help="30745">
+        <!-- One lifecycle answer for every download, whoever queued it: the
+             pair below replaced downloadsDeleteAfterPlay (a three-way
+             spinner over user-queued items) and downloadsAutoCleanup (a
+             silent sweep over automatic ones), which between them meant the
+             same watched episode was treated differently depending on how it
+             arrived. New ids rather than a retype: an upgraded profile still
+             holds "off"/"ask"/"always" under the old id, which no boolean
+             read could make sense of. Both default off — the old sweep
+             defaulted on, so an upgrade stops deleting until asked. -->
+        <setting id="downloadsDeleteAfterWatching" type="boolean" label="30746" help="30747">
           <level>0</level>
-          <default>true</default>
+          <default>false</default>
           <dependencies>
             <dependency type="visible">
               <condition operator="is" setting="downloadsEnabled">true</condition>
@@ -1140,22 +1187,18 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
-        <setting id="downloadsDeleteAfterPlay" type="string" label="30746" help="30747">
+        <setting id="downloadsDeleteAutomatically" type="boolean" label="30769" help="30770">
           <level>0</level>
-          <default>off</default>
-          <constraints>
-            <options>
-              <option label="30748">off</option>
-              <option label="30749">ask</option>
-              <option label="30750">always</option>
-            </options>
-          </constraints>
+          <default>false</default>
           <dependencies>
             <dependency type="visible">
-              <condition operator="is" setting="downloadsEnabled">true</condition>
+              <and>
+                <condition operator="is" setting="downloadsEnabled">true</condition>
+                <condition operator="is" setting="downloadsDeleteAfterWatching">true</condition>
+              </and>
             </dependency>
           </dependencies>
-          <control type="spinner" format="string"/>
+          <control type="toggle"/>
         </setting>
         <setting id="downloadsExportMetadata" type="boolean" label="30752" help="30753">
           <level>0</level>

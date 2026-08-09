@@ -43,7 +43,8 @@ PLAYLIST_FOLDER = FOLDER_NAME
 # Shape/label revision of the generated tree, folded into views_hash() so a
 # change here regenerates on upgrade even when the view set is untouched.
 # 3: the playlists moved into PLAYLIST_FOLDER.
-NODE_LAYOUT = 6
+# 7: the Downloaded singles carry the addon's downloaded icon.
+NODE_LAYOUT = 7
 
 # Kind ordering for the generated library nodes, following Kodi's own
 # top-level video ordering (movies 10, tvshows 20, musicvideos 30). Libraries
@@ -61,12 +62,29 @@ MEDIA_RANK = {
 # own ordering is never overwritten (plan §3).
 NODE_ROOT_ORDER = 15
 
+# The same idea on the music side, where Kodi's own ordering runs genres 10,
+# artists 20, albums 30, singles 40, songs 50: Kofin follows the five ways of
+# browsing the library rather than splitting them up.
+MUSIC_NODE_ROOT_ORDER = 55
+
+# The one generated music node, named here because both the writer and the
+# remover need to agree on it.
+MUSIC_DOWNLOADED_FILE = "kofin_DownloadedMusic.xml"
+
 # The one structural entry that is allowed addon art: this node *is* the addon,
 # so a skin has nothing of its own to substitute. Kodi resolves special:// for
 # textures (URIUtils::IsHD translates it), so the path stays valid wherever the
 # addon is installed — unlike an absolute one baked into the XML.
 NODE_ROOT_ICON = (
     "special://home/addons/plugin.video.kofin/resources/media/kofin-node.png"
+)
+
+# The other allowed exception, for the same reason: a Downloaded node has no
+# Kodi-native counterpart for a skin to substitute artwork for, and
+# DefaultFavourites.png — what it inherited from the favourites singles it
+# shares code with — said "favourite", which is a different idea entirely.
+NODE_DOWNLOADS_ICON = (
+    "special://home/addons/plugin.video.kofin/resources/media/downloaded.png"
 )
 
 # (node key, label). Ints are Kodi-core string ids that node XML resolves
@@ -205,6 +223,16 @@ def _node_label(value, fallback=""):
     return value or fallback
 
 
+def set_node_icon(xml, icon):
+    """Set (or add) a node's ``<icon>``, keeping it before the other
+    children the way Kodi's own node files write it."""
+    element = xml.find("icon")
+    if element is None:
+        element = etree.Element("icon")
+        xml.insert(0, element)
+    element.text = icon
+
+
 def node_root_path():
     """Directory holding every generated node."""
     return os.path.join(
@@ -212,9 +240,113 @@ def node_root_path():
     )
 
 
+def music_node_root_path():
+    """Directory holding the generated *music* nodes.
+
+    Kodi keeps a second, entirely separate node tree for music
+    (``CLibraryDirectory`` over ``library://music/``), and nothing in the
+    video tree shows up there — which is why the downloads feature had a
+    Downloaded-music smart playlist but no node beside the video ones.
+    """
+    return os.path.join(
+        xbmcvfs.translatePath("special://profile/library/music"), NODE_ROOT
+    )
+
+
 def node_folder(view):
     """Per-library folder name inside :data:`NODE_ROOT`."""
     return "kofin%s%s" % (view["Media"], view["Id"])
+
+
+def music_root_path():
+    """The downloads music directory as a music node's rule needs it —
+    the same value the Downloaded-music .xsp filters on, so the node and the
+    playlist can never disagree about what "downloaded" means."""
+    from kofin.downloads import downloads_root
+    from kofin.downloads.files import MUSIC_DIR
+
+    return "%s/%s/" % (downloads_root().rstrip("/"), MUSIC_DIR)
+
+
+def write_music_nodes():
+    """The ``Kofin`` folder in Kodi's *music* library, holding the
+    Downloaded-music node.
+
+    Kodi keeps music nodes in a tree of their own, so none of the video
+    generation above reaches here: before this the feature's music side was
+    a smart playlist and nothing else, which put "Downloaded music" under
+    Playlists rather than beside the rest of Kofin.
+
+    Written whenever the manager touches music and on every node pass;
+    removed — by name prefix, like every other deletion path in this module
+    — when the feature goes off. Returns whether the tree now exists.
+    """
+    root = music_node_root_path()
+
+    if not settings.get_bool("downloadsEnabled"):
+        _delete_music_nodes(root)
+        return False
+
+    try:
+        if not os.path.isdir(root):
+            os.makedirs(root)
+        _write_music_parent(root)
+        _write_downloaded_music_node(root)
+    except Exception:
+        LOG.exception("music node generation failed")
+        return False
+    return True
+
+
+def _write_music_parent(root):
+    """The music-side ``Kofin`` folder node. Creation only, exactly like the
+    video parent: the order and the label are the user's afterwards."""
+    file = os.path.join(root, "index.xml")
+
+    if os.path.isfile(file):
+        return
+
+    xml = etree.Element("node", {"order": str(MUSIC_NODE_ROOT_ORDER)})
+    etree.SubElement(xml, "icon").text = NODE_ROOT_ICON
+    etree.SubElement(xml, "label").text = settings.addon_name()
+    etree.ElementTree(xml).write(file)
+
+
+def _write_downloaded_music_node(root):
+    """The Downloaded-music filter node: songs whose path sits under the
+    downloads music directory. The same rule the .xsp uses, because a
+    repointed song's path *is* the honest signal (plan W3.2)."""
+    file = os.path.join(root, MUSIC_DOWNLOADED_FILE)
+
+    xml = etree.Element("node", {"order": "0", "type": "filter"})
+    set_node_icon(xml, NODE_DOWNLOADS_ICON)
+    etree.SubElement(xml, "label").text = _node_label(30736, "Downloaded music")
+    etree.SubElement(xml, "content").text = "songs"
+    etree.SubElement(xml, "match").text = "all"
+    rule = etree.SubElement(xml, "rule", {"field": "path", "operator": "startswith"})
+    etree.SubElement(rule, "value").text = music_root_path()
+    etree.ElementTree(xml).write(file)
+
+
+def _delete_music_nodes(root):
+    """Take the music tree back out when the feature goes off.
+
+    Prefix-gated like the video pruner: a user's own node dropped into this
+    folder is theirs, and the folder itself only goes when nothing is left
+    in it.
+    """
+    if not os.path.isdir(root):
+        return
+    try:
+        _, files = xbmcvfs.listdir(root)
+        for name in files:
+            if name == MUSIC_DOWNLOADED_FILE or name == "index.xml":
+                xbmcvfs.delete(os.path.join(root, name))
+        remaining_dirs, remaining_files = xbmcvfs.listdir(root)
+        if not remaining_dirs and not remaining_files:
+            xbmcvfs.rmdir(root)
+    except Exception:
+        LOG.exception("music node removal failed")
 
 
 def downloads_root_path():
@@ -393,6 +525,11 @@ class Views(object):
             LOG.info("--[ nodes ] unchanged (hash match), skipping generation")
             self.window_nodes()
             return
+
+        # Before the whitelist check below: the music tree is keyed on the
+        # downloads feature, not on which video libraries are synced, and it
+        # has its own removal path for the off case.
+        write_music_nodes()
 
         playlist_path = playlist_root_path()
         index = 0
@@ -588,6 +725,7 @@ class Views(object):
                     "Media": "movies",
                     "File": "DownloadedMovies",
                     "Type": "downloads",
+                    "Icon": NODE_DOWNLOADS_ICON,
                 }
             )
             singles.append(
@@ -597,6 +735,7 @@ class Views(object):
                     "Media": "tvshows",
                     "File": "DownloadedShows",
                     "Type": "downloads",
+                    "Icon": NODE_DOWNLOADS_ICON,
                 }
             )
             # Episodes cannot be filtered by tag: Kodi compiles a tag rule on
@@ -613,6 +752,7 @@ class Views(object):
                     "Media": "episodes",
                     "File": "DownloadedEpisodes",
                     "Type": "downloads",
+                    "Icon": NODE_DOWNLOADS_ICON,
                 }
             )
         return singles
@@ -624,6 +764,8 @@ class Views(object):
         file = os.path.join(
             path, "kofin_%s.xml" % view.get("File", view["Tag"].replace(" ", ""))
         )
+
+        icon = view.get("Icon") or node_icon(view["Media"], "favorites")
 
         try:
             if os.path.isfile(file):
@@ -642,7 +784,7 @@ class Views(object):
                         else "filter"
                     ),
                     index,
-                    node_icon(view["Media"], "favorites"),
+                    icon,
                 )
                 etree.SubElement(xml, "label")
                 etree.SubElement(xml, "match")
@@ -656,11 +798,17 @@ class Views(object):
                     else "filter"
                 ),
                 index,
-                node_icon(view["Media"], "favorites"),
+                icon,
             )
             etree.SubElement(xml, "label")
             etree.SubElement(xml, "match")
             etree.SubElement(xml, "content")
+
+        # Every pass, for the same reason as ``order`` above: the icon only
+        # ever reached the create branch, so an install that already had
+        # these files kept whatever icon the release that made them chose,
+        # and a NODE_LAYOUT bump changed nothing visible.
+        set_node_icon(xml, icon)
 
         label = xml.find("label")
         label.text = view["Name"]

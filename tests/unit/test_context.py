@@ -297,7 +297,7 @@ def test_delete_is_not_offered_to_an_account_the_server_would_refuse(monkeypatch
 # --- download entries (plan W1.10) -------------------------------------------
 
 
-def _download_entry_options(monkeypatch, item, downloads=True, row=None):
+def _download_entry_options(monkeypatch, item, downloads=True, row=None, counts=None):
     flags = {"downloadsEnabled": downloads}
     monkeypatch.setattr(context.settings, "get_bool", lambda key: flags.get(key, False))
     monkeypatch.setattr(context.settings, "localized", lambda i: "L%d" % i)
@@ -305,6 +305,11 @@ def _download_entry_options(monkeypatch, item, downloads=True, row=None):
     from kofin.downloads import store as downloads_store
 
     monkeypatch.setattr(downloads_store, "get", lambda item_id: row)
+    monkeypatch.setattr(
+        downloads_store,
+        "container_counts",
+        lambda container_id: counts or {"done": 0, "pending": 0},
+    )
     options = context._manage_options(item, dynamic=False)
     return [entry for entry in options if entry[1].get("mode", "").endswith("download")]
 
@@ -356,6 +361,29 @@ def test_containers_offer_download_without_the_per_item_gate(monkeypatch):
     series = {"Id": "s1", "Type": "Series", "CanDownload": False}
     assert _download_entry_options(monkeypatch, series) == [
         ("L30708", {"mode": "download", "id": "s1"})
+    ]
+
+
+def test_a_downloaded_container_offers_remove_not_just_download(monkeypatch):
+    """A fully downloaded show offered "Download" and nothing else — the one
+    entry that had nothing left to do — with no way to remove what it had
+    and no sign it held anything. The counts come from kofin.db, so this
+    answers offline too."""
+    series = {"Id": "s1", "Type": "Series", "Name": "Show", "CanDownload": False}
+
+    done = _download_entry_options(
+        monkeypatch, series, counts={"done": 3, "pending": 0}
+    )
+    assert done == [("L30710", {"mode": "removedownload", "id": "s1", "name": "Show"})]
+
+    # Partly downloaded: both, because the rest is still worth fetching.
+    partial = _download_entry_options(
+        monkeypatch, series, counts={"done": 2, "pending": 1}
+    )
+    assert [params["mode"] for _, params in partial] == [
+        "download",
+        "removedownload",
+        "canceldownload",
     ]
 
 

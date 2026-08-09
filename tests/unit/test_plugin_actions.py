@@ -225,11 +225,16 @@ def download_wired(monkeypatch):
         actions.ipc, "notify", lambda m, d=None: notified.append((m, d))
     )
     monkeypatch.setattr(actions.xbmcgui, "Dialog", lambda: dialog)
-    # The real strings' placeholder counts matter: 30716 formats two values.
+    # The real strings' placeholder counts matter: 30771 (the container
+    # confirmation) formats three — count, size, free space.
     monkeypatch.setattr(
         actions.settings,
         "localized",
-        lambda i: {30716: "L30716 %s %s"}.get(i, "L%d %%s" % i),
+        lambda i: {
+            30716: "L30716 %s %s",
+            30771: "L30771 %s %s %s",
+            30774: "L30774 %s %s",
+        }.get(i, "L%d %%s" % i),
     )
     monkeypatch.setattr(actions.toast, "show", lambda *a, **k: None)
 
@@ -250,7 +255,7 @@ def test_download_movie_notifies_without_a_confirm(download_wired):
 
     actions.download(Request("plugin://x", -1, {"id": "m1"}))
 
-    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["m1"]})]
+    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["m1"], "Types": ["Movie"]})]
     assert dialog.yesnos == []
 
 
@@ -266,7 +271,9 @@ def test_download_season_confirms_then_notifies_the_children(download_wired):
     actions.download(Request("plugin://x", -1, {"id": "sea1"}))
 
     assert len(dialog.yesnos) == 1
-    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["e1", "e3"]})]  # e2 refused
+    assert notified == [
+        (ipc.DOWNLOAD_ADD, {"Ids": ["e1", "e3"], "Types": ["", ""]})
+    ]  # e2 refused
 
 
 def test_download_confirm_declined_notifies_nothing(download_wired):
@@ -297,11 +304,19 @@ def test_download_skips_rows_the_store_already_holds(download_wired, monkeypatch
 
     actions.download(Request("plugin://x", -1, {"id": "ser1"}))
 
-    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["e2"]})]
+    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["e2"], "Types": [""]})]
 
 
-def test_cancel_and_remove_routes(download_wired):
+def test_cancel_and_remove_routes(download_wired, monkeypatch):
+    from kofin.downloads import store as downloads_store
+
     notified, dialog, Request = download_wired(FakeDownloadApi({}))
+    # Leaves: the store holds a row of their own.
+    monkeypatch.setattr(
+        downloads_store,
+        "get",
+        lambda item_id: downloads_store.Download(jellyfin_id=item_id),
+    )
 
     actions.cancel_download(Request("plugin://x", -1, {"id": "c1"}))
     assert notified == [(ipc.DOWNLOAD_CANCEL, {"Id": "c1"})]
@@ -313,6 +328,42 @@ def test_cancel_and_remove_routes(download_wired):
     dialog.yesno_result = False
     actions.remove_download(Request("plugin://x", -1, {"id": "r2", "name": "N"}))
     assert len(notified) == 2  # declined: nothing new
+
+
+def test_container_remove_and_cancel_expand_from_local_state(
+    download_wired, monkeypatch
+):
+    """A show or an album has no row of its own — the ids under it are the
+    work. Expanded from kofin.db rather than the server, so both routes keep
+    working offline, and confirmed once for the lot."""
+    from kofin.downloads import store as downloads_store
+
+    notified, dialog, Request = download_wired(FakeDownloadApi({}))
+    monkeypatch.setattr(downloads_store, "get", lambda item_id: None)
+    monkeypatch.setattr(
+        downloads_store, "container_done_ids", lambda cid: ["e1", "e2", "e3"]
+    )
+    monkeypatch.setattr(downloads_store, "container_pending_ids", lambda cid: ["e4"])
+
+    actions.remove_download(Request("plugin://x", -1, {"id": "ser1", "name": "Show"}))
+
+    assert len(dialog.yesnos) == 1  # one question, not three
+    assert notified == [
+        (ipc.DOWNLOAD_REMOVE, {"Id": "e1"}),
+        (ipc.DOWNLOAD_REMOVE, {"Id": "e2"}),
+        (ipc.DOWNLOAD_REMOVE, {"Id": "e3"}),
+    ]
+
+    notified.clear()
+    actions.cancel_download(Request("plugin://x", -1, {"id": "ser1"}))
+    assert notified == [(ipc.DOWNLOAD_CANCEL, {"Id": "e4"})]
+
+    # Nothing downloaded under it: no dialog, no notification.
+    notified.clear()
+    dialog.yesnos.clear()
+    monkeypatch.setattr(downloads_store, "container_done_ids", lambda cid: [])
+    actions.remove_download(Request("plugin://x", -1, {"id": "ser1", "name": "Show"}))
+    assert dialog.yesnos == [] and notified == []
 
 
 def test_download_album_confirms_and_expands(download_wired):
@@ -335,7 +386,9 @@ def test_download_album_confirms_and_expands(download_wired):
     notified, dialog, Request = download_wired(api)
     actions.download(Request("plugin://x", -1, {"id": "al1"}))
 
-    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["t1", "t2"]})]
+    assert notified == [
+        (ipc.DOWNLOAD_ADD, {"Ids": ["t1", "t2"], "Types": ["Audio", "Audio"]})
+    ]
     assert len(dialog.yesnos) == 1  # music containers confirm like seasons
     assert api.item_params and api.item_params[0].get("ParentId") == "al1"
     assert api.item_params[0].get("IncludeItemTypes") == "Audio"
@@ -348,7 +401,7 @@ def test_download_artist_expands_by_artistids(download_wired):
     notified, dialog, Request = download_wired(api)
     actions.download(Request("plugin://x", -1, {"id": "ar1"}))
 
-    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["t1"]})]
+    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["t1"], "Types": ["Audio"]})]
     params = api.item_params[0]
     assert params.get("ArtistIds") == "ar1" and "ParentId" not in params
 
@@ -364,7 +417,9 @@ def test_download_playlist_keeps_only_the_leaves(download_wired):
     notified, dialog, Request = download_wired(api)
     actions.download(Request("plugin://x", -1, {"id": "pl1"}))
 
-    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["t1", "m1"]})]
+    assert notified == [
+        (ipc.DOWNLOAD_ADD, {"Ids": ["t1", "m1"], "Types": ["Audio", "Movie"]})
+    ]
 
 
 def test_download_show_toggles_and_toasts(download_wired, monkeypatch):
@@ -414,3 +469,59 @@ def test_manage_download_shows_cancel_changes_nothing(download_wired, monkeypatc
 
     actions.manage_download_shows(Request("plugin://x", -1, {}))
     assert saved == []
+
+
+def test_a_transcoded_album_is_sized_by_its_target_not_its_flacs(
+    download_wired, monkeypatch
+):
+    """The confirmation quoted MediaSources[0].Size — the lossless original
+    — for tracks the music transcode was about to re-encode, offering a
+    12-track album at its FLAC weight when it would land at a fraction of
+    it."""
+    album = {"Id": "al1", "Type": "MusicAlbum"}
+    # A 5-minute track: 300 s at 128 kbps is ~4.8 MB, against a 50 MB FLAC.
+    tracks = [
+        {
+            "Id": "t1",
+            "Type": "Audio",
+            "CanDownload": True,
+            "RunTimeTicks": 300 * 10_000_000,
+            "MediaSources": [{"Size": 50 * 1024**2}],
+        }
+    ]
+    notified, dialog, Request = download_wired(FakeDownloadApi(album, episodes=tracks))
+    flags = {"downloadsMusicTranscode": False}
+    monkeypatch.setattr(actions.settings, "get_bool", lambda key: flags.get(key, False))
+    monkeypatch.setattr(actions.settings, "get_int", lambda key: 128)
+
+    actions.download(Request("plugin://x", -1, {"id": "al1"}))
+    assert "50 MB" in dialog.yesnos[-1][1]  # transcoding off: the original
+
+    flags["downloadsMusicTranscode"] = True
+    actions.download(Request("plugin://x", -1, {"id": "al1"}))
+    assert "4 MB" in dialog.yesnos[-1][1]
+
+    # A track already under the cap downloads untouched, so the smaller of
+    # the two is the honest number.
+    tracks[0]["MediaSources"][0]["Size"] = 1024**2
+    actions.download(Request("plugin://x", -1, {"id": "al1"}))
+    assert "1 MB" in dialog.yesnos[-1][1]
+
+
+def test_the_confirmation_states_the_free_space(download_wired, monkeypatch):
+    """ "Download 40 items (12.0 GB)?" is not answerable without knowing what
+    is left on the device."""
+    from kofin.downloads import files
+
+    album = {"Id": "al1", "Type": "MusicAlbum"}
+    tracks = [{"Id": "t1", "Type": "Audio", "CanDownload": True, "MediaSources": []}]
+    notified, dialog, Request = download_wired(FakeDownloadApi(album, episodes=tracks))
+    monkeypatch.setattr(files, "free_bytes", lambda root: 7 * 1024**3)
+
+    actions.download(Request("plugin://x", -1, {"id": "al1"}))
+    assert dialog.yesnos[-1][1].endswith("7.0 GB")
+
+    # An unanswerable probe says so rather than claiming a full disk.
+    monkeypatch.setattr(files, "free_bytes", lambda root: -1)
+    actions.download(Request("plugin://x", -1, {"id": "al1"}))
+    assert dialog.yesnos[-1][1].endswith("?")

@@ -1,7 +1,7 @@
 """Small RunPlugin actions: watched/favorite toggles, settings, library
 maintenance buttons (Library tab -> IPC -> service library manager)."""
 
-from typing import List, Union
+from typing import Any, List, Union
 
 import xbmc
 import xbmcgui
@@ -260,6 +260,52 @@ def _source_size(item: dict) -> int:
     return int(sources[0].get("Size") or 0)
 
 
+def _estimated_size(item: dict) -> int:
+    """What this child will actually weigh on disk.
+
+    The source size is the honest answer for anything downloading as its
+    original file. A track the music transcode re-encodes is not its FLAC,
+    though: it is the target bitrate times its runtime, and quoting the
+    source there offered a 12-track lossless album at 400 MB when it landed
+    at 60. Which tracks transcode is the server's call at download time
+    (``quality.decide``), so take the smaller of the two — a track already
+    inside the cap downloads untouched, and the confirmation says "about".
+    """
+    original = _source_size(item)
+    if item.get("Type") != "Audio":
+        return original
+    if not settings.get_bool("downloadsMusicTranscode"):
+        return original
+    seconds = int(item.get("RunTimeTicks") or 0) / 10_000_000
+    kbps = settings.get_int("downloadsMusicBitrate") or 128
+    if seconds <= 0:
+        return original
+    transcoded = int(seconds * kbps * 1000 / 8)
+    return min(original, transcoded) if original else transcoded
+
+
+def _download_toast(string_id: int, *values: Any) -> None:
+    """A downloads toast that honours the notification opt-out.
+
+    Only the informational ones pass through here; failures go straight to
+    ``toast.show`` so the opt-out cannot swallow them (kofin.downloads
+    .LOUD_STRINGS states which is which).
+    """
+    from kofin.downloads import notify_allowed
+
+    if not notify_allowed(string_id):
+        return
+    message = settings.localized(string_id)
+    toast.show(message % values if values else message, time_ms=3000)
+
+
+def _free_space_note() -> str:
+    from kofin.downloads import downloads_root, files
+
+    free = files.free_bytes(downloads_root())
+    return _human_size(free) if free >= 0 else "?"
+
+
 def download(request: Request) -> None:
     """Queue downloads for an item or a container's episodes, then hand the
     ids to the service over the guarded IPC — the manager owns everything
@@ -287,22 +333,32 @@ def download(request: Request) -> None:
         and child.get("CanDownload") is not False
     ]
     if not wanted:
-        toast.show(settings.localized(30711) % 0, time_ms=3000)
+        _download_toast(30711, 0)
         return
 
     from kofin.plugin.context import DOWNLOAD_CONTAINER_TYPES
 
     if item.get("Type") in DOWNLOAD_CONTAINER_TYPES:
-        total = sum(_source_size(child) for child in wanted)
+        total = sum(_estimated_size(child) for child in wanted)
         confirmed = xbmcgui.Dialog().yesno(
             settings.localized(30708),
-            settings.localized(30716) % (len(wanted), _human_size(total)),
+            settings.localized(30771)
+            % (len(wanted), _human_size(total), _free_space_note()),
         )
         if not confirmed:
             return
 
-    ipc.notify(ipc.DOWNLOAD_ADD, {"Ids": [child["Id"] for child in wanted]})
-    toast.show(settings.localized(30711) % len(wanted), time_ms=3000)
+    # The types travel with the ids: the manager sizes its two worker pools
+    # by media kind, and the kind is not knowable from an id alone without
+    # the very server round trip the queue is trying to get ahead of.
+    ipc.notify(
+        ipc.DOWNLOAD_ADD,
+        {
+            "Ids": [child["Id"] for child in wanted],
+            "Types": [str(child.get("Type") or "") for child in wanted],
+        },
+    )
+    _download_toast(30711, len(wanted))
 
 
 def download_show(request: Request) -> None:
@@ -314,7 +370,7 @@ def download_show(request: Request) -> None:
 
     subscribed = downloads_auto.toggle_show(item_id)
     name = request.params.get("name", "") or item_id
-    toast.show(settings.localized(30762 if subscribed else 30763) % name, time_ms=4000)
+    _download_toast(30762 if subscribed else 30763, name)
 
 
 def manage_download_shows(request: Request) -> None:
@@ -368,20 +424,44 @@ def _show_names(series_ids: List[str]) -> List[str]:
 
 
 def cancel_download(request: Request) -> None:
-    item_id = request.params.get("id", "")
-    if item_id:
-        ipc.notify(ipc.DOWNLOAD_CANCEL, {"Id": item_id})
+    """Cancel one download, or every unfinished one under a container.
 
-
-def remove_download(request: Request) -> None:
-    """Confirm, then let the service restore the rows and delete the files."""
+    The expansion is local (kofin.db), not a server walk: cancelling has to
+    work offline, and the store already knows which rows belong to the show
+    or album in front of the user.
+    """
     item_id = request.params.get("id", "")
     if not item_id:
         return
-    name = request.params.get("name", "") or item_id
-    confirmed = xbmcgui.Dialog().yesno(
-        settings.localized(30710), settings.localized(30714) % name
-    )
-    if not confirmed:
+    from kofin.downloads import store
+
+    targets = [item_id] if store.get(item_id) else store.container_pending_ids(item_id)
+    for target in targets:
+        ipc.notify(ipc.DOWNLOAD_CANCEL, {"Id": target})
+
+
+def remove_download(request: Request) -> None:
+    """Confirm, then let the service restore the rows and delete the files.
+
+    A container removes everything finished under it — one confirmation for
+    the lot, naming the count, because a show is not a thing anyone wants to
+    answer twelve dialogs about.
+    """
+    item_id = request.params.get("id", "")
+    if not item_id:
         return
-    ipc.notify(ipc.DOWNLOAD_REMOVE, {"Id": item_id})
+    from kofin.downloads import store
+
+    name = request.params.get("name", "") or item_id
+    if store.get(item_id) is not None:
+        targets = [item_id]
+        message = settings.localized(30714) % name
+    else:
+        targets = store.container_done_ids(item_id)
+        if not targets:
+            return
+        message = settings.localized(30774) % (len(targets), name)
+    if not xbmcgui.Dialog().yesno(settings.localized(30710), message):
+        return
+    for target in targets:
+        ipc.notify(ipc.DOWNLOAD_REMOVE, {"Id": target})

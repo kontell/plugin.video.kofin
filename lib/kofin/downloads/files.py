@@ -181,6 +181,21 @@ def unique_dir(base: str, owner_id: str, taken: Callable[[str], bool]) -> str:
     return "%s [%s]" % (base, owner_id[:8])
 
 
+def free_bytes(root: str) -> int:
+    """Bytes available to an unprivileged writer under ``root``, -1 unknown.
+
+    -1 rather than 0 for "could not tell": 0 is a real answer that means a
+    full disk, and the two must not read alike to a caller putting the
+    number in front of a person.
+    """
+    try:
+        stats = os.statvfs(root)
+    except OSError as error:
+        LOG.debug("free-space probe failed for %s: %s", root, error)
+        return -1
+    return stats.f_bavail * stats.f_frsize
+
+
 def free_space_ok(root: str, expected_bytes: int) -> bool:
     """Whether the volume under ``root`` fits the download plus the reserve.
 
@@ -188,10 +203,7 @@ def free_space_ok(root: str, expected_bytes: int) -> bool:
     download rather than refusing it: the write itself will fail loudly if
     space truly runs out, while a false refusal is undiagnosable.
     """
-    try:
-        stats = os.statvfs(root)
-    except OSError as error:
-        LOG.debug("free-space probe failed for %s: %s", root, error)
+    free = free_bytes(root)
+    if free < 0:
         return True
-    free = stats.f_bavail * stats.f_frsize
     return free >= int(expected_bytes) + FREE_SPACE_RESERVE

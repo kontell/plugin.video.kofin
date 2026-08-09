@@ -118,3 +118,90 @@ def test_the_artwork_query_carries_only_parameters_the_server_honours():
     ids = {s.get("id") for s in root.iter("setting")}
     assert "enableCoverArt" not in ids
     assert {"compressArt", "maxArtResolution"} <= ids
+
+
+def _repo_root():
+    from pathlib import Path
+
+    return Path(__file__).resolve().parents[2]
+
+
+def _declared_strings():
+    import re
+
+    text = (
+        _repo_root() / "resources/language/resource.language.en_gb/strings.po"
+    ).read_text()
+    return {int(found) for found in re.findall(r'^msgctxt "#(\d+)"', text, re.M)}
+
+
+def test_every_settings_label_resolves_to_a_string():
+    """A settings id renders blank rather than failing when its string is
+    missing, and Kodi caches the string table for the process lifetime — so
+    a typo here is invisible until someone restarts Kodi and squints at an
+    empty row. This pass reworded and renumbered a whole category.
+
+    Only the 30000+ addon range is checked: Kodi-core ids (below 30000)
+    resolve against Kodi's own table, which is not ours to enumerate.
+    """
+    import xml.etree.ElementTree as etree
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    declared = _declared_strings()
+
+    missing = []
+    for element in root.iter():
+        if element.tag not in ("category", "group", "setting", "option"):
+            continue
+        for attribute in ("label", "help"):
+            value = element.get(attribute) or ""
+            if value.isdigit() and int(value) >= 30000 and int(value) not in declared:
+                missing.append(
+                    "%s %s=%s" % (element.get("id") or element.tag, attribute, value)
+                )
+    assert missing == []
+
+
+def test_the_retired_download_settings_are_gone_from_the_schema():
+    """downloadsAutoCleanup and the three-way downloadsDeleteAfterPlay were
+    replaced by one toggle plus its sub-toggle; a leftover control would go
+    on being read by nothing."""
+    import xml.etree.ElementTree as etree
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    ids = {element.get("id") for element in root.iter("setting")}
+    assert "downloadsAutoCleanup" not in ids
+    assert "downloadsDeleteAfterPlay" not in ids
+    assert {"downloadsDeleteAfterWatching", "downloadsDeleteAutomatically"} <= ids
+
+
+def test_the_downloads_category_stays_a_single_group():
+    """Every control there bar the master toggle is gated visible on
+    downloadsEnabled, and Kodi does not recompute a *group's* visibility
+    when a member's changes — so a group without downloadsEnabled in it
+    stayed hidden until the dialog was rebuilt, which is what made half the
+    page appear only after backing out and coming in again."""
+    import xml.etree.ElementTree as etree
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    category = next(
+        element for element in root.iter("category") if element.get("id") == "downloads"
+    )
+    assert len(list(category.iter("group"))) == 1
+
+
+def test_get_float_reads_the_fractional_bitrate_options():
+    """downloadsMaxBitrate had to leave Kodi's integer type to offer 0.5 and
+    0.75 Mbit/s; an unreadable or empty value means unlimited, which is what
+    every caller already does with 0."""
+    FakeAddon.store["downloadsMaxBitrate"] = "0.75"
+    assert settings.get_float("downloadsMaxBitrate") == 0.75
+
+    FakeAddon.store["downloadsMaxBitrate"] = "3"  # the pre-upgrade integer
+    assert settings.get_float("downloadsMaxBitrate") == 3.0
+
+    FakeAddon.store["downloadsMaxBitrate"] = ""
+    assert settings.get_float("downloadsMaxBitrate") == 0.0
+
+    FakeAddon.store["downloadsMaxBitrate"] = "unlimited"
+    assert settings.get_float("downloadsMaxBitrate") == 0.0

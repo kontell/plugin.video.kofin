@@ -256,6 +256,28 @@ class SettingsApplier:
                 service._start_downloads()  # type: ignore[attr-defined]
         else:
             service._stop_downloads()  # type: ignore[attr-defined]
+        self._regenerate_nodes()
+
+    def _regenerate_nodes(self) -> None:
+        """Rewrite the generated library nodes now.
+
+        The Downloaded nodes exist only while the feature is on, but nothing
+        used to regenerate the tree when the toggle moved: node generation
+        hangs off the library thread's startup and off library add/remove, so
+        enabling downloads left the nodes to appear at the next service start
+        — behind a server probe and two library calls, which is why they
+        turned up about a minute later.
+
+        Local work only (``get_nodes`` reads kofin.db and settings; ``Views``
+        takes no server for this path), and contained: a node write must
+        never take a settings apply down with it.
+        """
+        try:
+            from kofin.sync.views import Views
+
+            Views().get_nodes()
+        except Exception:
+            LOG.exception("node regeneration after a settings change failed")
 
     def _downloads_path_changed(self, old: str, new: str) -> None:
         """Write-probe the new root now, not at the first download (W1.1).
@@ -290,6 +312,11 @@ class SettingsApplier:
             os.path.join(playlists.managed_dir(), playlists.DOWNLOADED_MUSIC_XSP)
         ):
             playlists.refresh_downloaded_music()
+
+        # The generated nodes filter on the root too — the Downloaded
+        # episodes node by path, the music node by path — so they are as
+        # stale as the .xsp was.
+        self._regenerate_nodes()
 
     def _library_selection_changed(self, old: str, new: str) -> None:
         """The apply-on-save path for the library multiselect."""

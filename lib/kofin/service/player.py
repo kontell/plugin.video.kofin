@@ -972,12 +972,20 @@ class Player(xbmc.Player):
         return True
 
     def offer_remove_download(self, item: JsonDict) -> bool:
-        """W4.5: the local sibling of ``offer_delete`` — a *user-origin*
-        download watched to the end is offered for removal (Ask) or removed
-        outright (Always). Auto-origin items belong to the retention sweep,
-        which would otherwise race this prompt for the same file."""
-        mode = settings.get_str("downloadsDeleteAfterPlay")
-        if mode not in ("ask", "always"):
+        """W4.5: the local sibling of ``offer_delete`` — a download watched
+        to the end has its local copy removed, silently or after a prompt.
+
+        One answer for every download, whoever queued it. It used to depend
+        on origin: this path refused anything automatic and the retention
+        sweep refused anything the user had asked for, so the same watched
+        episode was treated two different ways depending on how it had
+        arrived. The sweep still exists for what this path cannot see —
+        something watched while the service was down, or outside kofin's
+        player — and it only ever acts in the silent mode, because a dialog
+        about an episode finished an hour ago is not a question anyone can
+        answer.
+        """
+        if not settings.get_bool("downloadsDeleteAfterWatching"):
             return False
         if not settings.get_bool("downloadsEnabled"):
             return False
@@ -987,14 +995,10 @@ class Player(xbmc.Player):
         from kofin.downloads import store as downloads_store
 
         row = downloads_store.get(item_id)
-        if (
-            row is None
-            or row.state != downloads_store.DONE
-            or downloads_store.is_auto_origin(row.origin)
-        ):
+        if row is None or row.state != downloads_store.DONE:
             return False
-        if mode == "always":
-            LOG.info("removing watched download %s (always mode)", item_id)
+        if settings.get_bool("downloadsDeleteAutomatically"):
+            LOG.info("removing watched download %s (automatic)", item_id)
             ipc.notify(ipc.DOWNLOAD_REMOVE, {"Id": item_id})
             return True
         # The same thread shape as the delete prompt: a dialog waits on a
