@@ -1453,28 +1453,30 @@ def test_a_worker_claims_nothing_while_playback_holds_it(
     )
     # The wait is what the gate does instead of claiming; ending the worker
     # there keeps this to a single pass of the loop body.
-    monkeypatch.setattr(manager._wake, "wait", lambda timeout=None: manager._stop.set())
+    wake = manager._new_wake()
+    monkeypatch.setattr(wake, "wait", lambda timeout=None: manager._stop.set())
 
     player.playing = True
-    manager._run_worker()
+    manager._run_worker(wake=wake)
     assert claimed == []
     assert store.get("m1").state == store.QUEUED
 
     # And the same worker claims the moment playback ends.
     manager._stop.clear()
     player.playing = False
-    manager._run_worker()
+    manager._run_worker(wake=wake)
     assert claimed == [manager_module.VIDEO_KINDS]
 
 
-def test_wake_lets_the_pool_recheck_immediately(tmp_path, repoints):
-    """Player.OnStop nudges the pool rather than waiting out the poll."""
+def test_wake_lets_every_worker_recheck_immediately(tmp_path, repoints):
+    """Player.OnStop nudges the pool rather than waiting out the poll — and
+    it has to reach *every* worker, not whichever one happens to look."""
     manager, _refreshes = make_manager(repoints)
-    manager._wake.clear()
+    wakes = [manager._new_wake() for _ in range(3)]
 
     manager.wake()
 
-    assert manager._wake.is_set()
+    assert all(event.is_set() for event in wakes)
 
 
 # -- a download deleted by another app -----------------------------------------
@@ -1593,3 +1595,105 @@ def test_an_offline_played_push_is_parked_for_replay(tmp_path, repoints, monkeyp
     manager._push_played(store.get("m1"))
 
     assert [(row.jellyfin_id, row.played) for row in pending.rows()] == [("m1", True)]
+
+
+def test_a_music_worker_cannot_swallow_a_video_workers_wake(tmp_path, repoints):
+    """The claim-latency bug, pinned.
+
+    One Event shared by the pool meant the first worker to notice cleared it
+    for everybody. When that was a music worker and the row was an episode,
+    it drained the op, found nothing it could claim, and went back to sleep —
+    leaving the video workers, which *could* have taken the row, in a 30 s
+    wait with the Event already clear. Measured on the Omega box as 31-32 s
+    before a user-initiated download started.
+    """
+    manager, _refreshes = make_manager(repoints)
+    music_wake = manager._new_wake()
+    video_wake = manager._new_wake()
+
+    manager.submit(["e1"], media_types=["Episode"])
+
+    # A music worker gets there first: it drains the op and clears its own.
+    manager._drain_ops()
+    music_wake.clear()
+
+    # The video worker's wake is untouched, so it does not sleep through the
+    # row it is the only pool able to claim.
+    assert video_wake.is_set()
+    assert store.claim(manager_module.MUSIC_KINDS) is None
+    assert store.claim(manager_module.VIDEO_KINDS).jellyfin_id == "e1"
+
+
+def test_every_op_kind_reaches_every_worker(tmp_path, repoints):
+    """submit/cancel/remove/remove_all all have to fan out — a cancel that
+    only reached one worker is the same bug wearing a different hat."""
+    manager, _refreshes = make_manager(repoints)
+    wakes = [manager._new_wake() for _ in range(3)]
+
+    for call in (
+        lambda: manager.submit(["x1"]),
+        lambda: manager.cancel("x1"),
+        lambda: manager.remove("x1"),
+        manager.remove_all,
+    ):
+        for event in wakes:
+            event.clear()
+        call()
+        assert all(event.is_set() for event in wakes)
+
+
+def test_stop_releases_every_worker(tmp_path, repoints):
+    manager, _refreshes = make_manager(repoints)
+    wakes = [manager._new_wake() for _ in range(3)]
+
+    manager.stop()
+
+    assert all(event.is_set() for event in wakes)
+
+
+def test_draining_an_add_renotifies_the_other_workers(tmp_path, repoints):
+    """The actual claim-latency bug, pinned.
+
+    ``submit`` wakes the pool when it *enqueues*, but the row does not exist
+    until a worker gets to ``_drain_ops`` and store.queue returns. The worker
+    able to claim it has usually spent its wake by then — it drained nothing
+    (another pool got the op first), claimed nothing (no row yet), found the
+    queue empty and slept. Measured live: queued 1.6 s after the request,
+    claimed 31 s after that.
+    """
+    manager, _refreshes = make_manager(repoints)
+    drainer = manager._new_wake()
+    other = manager._new_wake()
+    manager.submit(["e1"], media_types=["Episode"])
+    other.clear()  # the other worker already spent its wake and is asleep
+
+    manager._drain_ops(own=drainer)
+
+    assert other.is_set(), "the worker that can claim was never re-notified"
+
+
+def test_the_draining_worker_is_not_renotified(tmp_path, repoints):
+    """It is about to try to claim anyway; setting its own event would just
+    buy an extra spin round the loop."""
+    manager, _refreshes = make_manager(repoints)
+    drainer = manager._new_wake()
+    manager.submit(["e1"], media_types=["Episode"])
+    drainer.clear()
+
+    manager._drain_ops(own=drainer)
+
+    assert not drainer.is_set()
+
+
+def test_a_drain_that_queues_nothing_notifies_nobody(tmp_path, repoints):
+    """A duplicate add, or a drain that only cancels, must not wake a pool
+    that has nothing new to do."""
+    manager, _refreshes = make_manager(repoints)
+    queue_row("e1")  # already live, so the add below is a no-op
+    other = manager._new_wake()
+    manager.submit(["e1"], media_types=["Episode"])
+    other.clear()
+
+    manager._drain_ops(own=manager._new_wake())
+
+    assert not other.is_set()

@@ -124,7 +124,24 @@ class DownloadManager:
         # the successor lowers that on its way up; see service/main.py).
         self._stopping = stopping
         self._stop = threading.Event()
-        self._wake = threading.Event()
+        # One wake Event per worker, not one shared by the pool.
+        #
+        # Shared, it was a claim-latency bug rather than a race in the usual
+        # sense: `submit` sets the Event once, every worker wakes, and the
+        # first to notice clears it for everybody. When that first worker is
+        # from the *music* pool and the row is an episode, it drains the op,
+        # finds nothing it can claim, sees an empty ops queue and goes back to
+        # sleep — while the video workers, which could have taken the row, are
+        # already back in a 30 s wait with the Event clear. Measured on the
+        # Omega box: three consecutive user-initiated downloads sat queued for
+        # 31, 32 and 32 seconds with the machine otherwise idle.
+        #
+        # Per-worker Events fix it outright. Nobody can consume anybody else's,
+        # and a set that lands while a worker is between claim and wait is
+        # remembered rather than lost — which a Condition's notify_all, the
+        # other obvious shape, would drop.
+        self._wakes: List[threading.Event] = []
+        self._wakes_lock = threading.Lock()
         self._ops: "Queue[Tuple[str, str, str, str]]" = Queue()
         self._cancels: set = set()
         self._cancels_lock = threading.Lock()
@@ -161,10 +178,23 @@ class DownloadManager:
 
     # -- lifecycle -----------------------------------------------------------
 
+    def _new_wake(self) -> "threading.Event":
+        """A worker's own wake Event, registered so _wake_all reaches it."""
+        event = threading.Event()
+        with self._wakes_lock:
+            self._wakes.append(event)
+        return event
+
+    def _wake_all(self, skip: Optional["threading.Event"] = None) -> None:
+        with self._wakes_lock:
+            for event in self._wakes:
+                if event is not skip:
+                    event.set()
+
     def start(self) -> None:
-        recovered = store.recover_interrupted()
-        if recovered:
-            self._wake.set()
+        # No wake needed for what recover_interrupted requeued: every worker
+        # runs the loop body — drain, then claim — before it ever waits.
+        store.recover_interrupted()
         self._reconciler = threading.Thread(
             target=self._run_maintenance,
             name="kofin-downloads-maintenance",
@@ -184,7 +214,7 @@ class DownloadManager:
     def _spawn_worker(self, name: str, kinds: Tuple[str, ...]) -> None:
         worker = threading.Thread(
             target=self._run_worker,
-            args=(kinds,),
+            args=(kinds, self._new_wake()),
             name=name,
             daemon=True,
         )
@@ -193,7 +223,7 @@ class DownloadManager:
 
     def stop(self) -> None:
         self._stop.set()
-        self._wake.set()
+        self._wake_all()
         for worker in [self._reconciler] + self._workers:
             if worker is None or not worker.is_alive():
                 continue
@@ -228,17 +258,17 @@ class DownloadManager:
                 continue
             kind = MEDIA_TYPE_BY_DTO.get(kinds[index] if index < len(kinds) else "", "")
             self._ops.put(("add", str(item_id), origin, kind))
-        self._wake.set()
+        self._wake_all()
 
     def cancel(self, item_id: str) -> None:
         with self._cancels_lock:
             self._cancels.add(item_id)
         self._ops.put(("cancel", item_id, "", ""))
-        self._wake.set()
+        self._wake_all()
 
     def remove(self, item_id: str) -> None:
         self._ops.put(("remove", item_id, "", ""))
-        self._wake.set()
+        self._wake_all()
 
     def remove_all(self) -> None:
         """The settings button: every download, finished or not.
@@ -249,7 +279,7 @@ class DownloadManager:
         notification bus for a single button press.
         """
         self._ops.put(("removeall", "", "", ""))
-        self._wake.set()
+        self._wake_all()
 
     def _cancelled(self, item_id: str) -> bool:
         with self._cancels_lock:
@@ -261,11 +291,18 @@ class DownloadManager:
 
     # -- workers ---------------------------------------------------------------
 
-    def _run_worker(self, kinds: Tuple[str, ...] = VIDEO_KINDS) -> None:
+    def _run_worker(
+        self,
+        kinds: Tuple[str, ...] = VIDEO_KINDS,
+        wake: Optional["threading.Event"] = None,
+    ) -> None:
+        # Own Event, never the pool's (see _wakes). Defaulted so a test can
+        # drive one pass of this loop without standing a worker up.
+        wake = self._new_wake() if wake is None else wake
         api = self._api_factory()
         try:
             while not self._should_stop():
-                self._drain_ops()
+                self._drain_ops(own=wake)
                 if state.is_offline():
                     # Hold the queue rather than burn it: every claim while
                     # the server is gone would fail its three attempts and
@@ -274,8 +311,8 @@ class DownloadManager:
                     # (the gap phase 1's gates exposed). Ops still drain
                     # above, so a cancel or a remove works offline.
                     self._progress.idle()
-                    if self._wake.wait(timeout=OFFLINE_POLL_SECONDS):
-                        self._wake.clear()
+                    if wake.wait(timeout=OFFLINE_POLL_SECONDS):
+                        wake.clear()
                     continue
                 if self._paused_for_playback():
                     # The gate is on *claiming*, never inside _transfer: a
@@ -285,27 +322,25 @@ class DownloadManager:
                     # of a film. Ops drain above, so cancelling and removing
                     # still work while playback holds the pool.
                     self._progress.idle()
-                    if self._wake.wait(timeout=PLAYBACK_POLL_SECONDS):
-                        self._wake.clear()
+                    if wake.wait(timeout=PLAYBACK_POLL_SECONDS):
+                        wake.clear()
                     continue
                 row = store.claim(kinds)
                 if row is None:
                     if not self._ops.empty():
-                        # Ops arrived while this worker was claiming. Never
-                        # sleep on a non-empty queue: ``_wake`` is one Event
-                        # shared by the whole pool, so the first worker to
-                        # notice clears it for everybody, and a straggler
-                        # enqueued in that window waited out the full idle
-                        # poll. Invisible while a removal meant one item;
-                        # a container removal is 17 of them, and the tail
-                        # sat there for 30 s (measured on the Bravia).
+                        # Ops arrived while this worker was claiming: never
+                        # sleep on a non-empty queue. This predates the
+                        # per-worker Events and is no longer the only thing
+                        # standing between a queued row and a 30 s wait, but
+                        # it still saves a needless round trip through the
+                        # wait when work is visibly pending.
                         continue
                     # Nothing left for this pool: the moment to pay for the
                     # refreshes the finished items deferred.
                     self._flush_refresh(force=True)
                     self._progress.idle()
-                    if self._wake.wait(timeout=IDLE_POLL_SECONDS):
-                        self._wake.clear()
+                    if wake.wait(timeout=IDLE_POLL_SECONDS):
+                        wake.clear()
                     continue
                 try:
                     self._process(api, row)
@@ -320,15 +355,35 @@ class DownloadManager:
         finally:
             api.close()
 
-    def _drain_ops(self) -> None:
+    def _drain_ops(self, own: Optional["threading.Event"] = None) -> None:
+        """Apply everything waiting on the ops queue.
+
+        Re-notifies the other workers when an add actually created a row, and
+        that is the whole point of the method's second half. ``submit`` wakes
+        the pool when it *enqueues* an op, but the row does not exist until
+        some worker gets here and ``store.queue`` returns — and the worker
+        that can claim it has usually spent its wake by then:
+
+            submit sets every wake  ->  video worker wakes, drains nothing
+            (a music worker got the op first), claims nothing (no row yet),
+            finds the queue empty, and sleeps for the full idle poll
+            ->  the music worker finishes store.queue, cannot claim an
+                episode, and sleeps too  ->  nobody is left to notice
+
+        Measured on the Omega box: the row was queued 1.6 s after the request
+        and claimed 31 s after that, five trials running. The re-notify here
+        closes the window; ``own`` is skipped because the draining worker is
+        about to try to claim anyway.
+        """
+        queued = False
         while True:
             try:
                 op, item_id, origin, media_type = self._ops.get_nowait()
             except Empty:
-                return
+                break
             try:
                 if op == "add":
-                    self._apply_add(item_id, origin, media_type)
+                    queued = self._apply_add(item_id, origin, media_type) or queued
                 elif op == "cancel":
                     self._apply_cancel(item_id)
                 elif op == "remove":
@@ -337,8 +392,11 @@ class DownloadManager:
                     self._apply_remove_all()
             except Exception:
                 LOG.exception("download op %s failed for %s", op, item_id)
+        if queued:
+            self._wake_all(skip=own)
 
-    def _apply_add(self, item_id: str, origin: str, media_type: str = "") -> None:
+    def _apply_add(self, item_id: str, origin: str, media_type: str = "") -> bool:
+        """Queue a row; True when one was actually created (see _drain_ops)."""
         if store.queue(
             store.Download(
                 jellyfin_id=item_id, origin=origin, media_type=media_type or ""
@@ -351,6 +409,8 @@ class DownloadManager:
             with self._announce_lock:
                 self._announced.clear()
             LOG.info("download queued: %s", item_id)
+            return True
+        return False
 
     def _apply_cancel(self, item_id: str) -> None:
         row = store.get(item_id)
@@ -1198,7 +1258,7 @@ class DownloadManager:
     def wake(self) -> None:
         """Let the pool re-check its gates now rather than at the next poll —
         the service calls this when playback stops."""
-        self._wake.set()
+        self._wake_all()
 
     def _playing_now(self, row: "store.Download") -> bool:
         try:
