@@ -18,6 +18,24 @@ BLANKARTIST_ID = 1
 BLANKARTIST_NAME = "[Missing Tag]"
 BLANKARTIST_MBID = "Artist Tag Missing"
 
+# The `source` row kofin writes per synced Jellyfin music library is keyed on
+# this, not on its name: the name is the user-visible thing a node's rule
+# matches and the server can change it, while the key has to stay the same
+# row. It is also the ownership gate every deletion path here is guarded on —
+# the user's own scanned music sources live in this table. Kodi reads
+# strMultipath in exactly two places (CheckSources and GetSourceFromPath),
+# both equality lookups, so a synthetic value never becomes a path anything
+# tries to open.
+KOFIN_SOURCE_PREFIX = "plugin://plugin.video.kofin/"
+
+# How many song ids go into one album_source backfill statement.
+SOURCE_LINK_CHUNK = 500
+
+
+def source_key(library_id):
+    return "%s%s/" % (KOFIN_SOURCE_PREFIX, library_id)
+
+
 ##################################################################################################
 
 
@@ -443,6 +461,121 @@ class Music(Kodi):
         self.cursor.execute(QU.prune_orphan_paths)
 
         return self.cursor.rowcount
+
+    # -- the per-library source rows -------------------------------------------
+
+    def create_entry_source(self):
+        self.cursor.execute(QU.create_source)
+
+        return self.cursor.fetchone()[0] + 1
+
+    def get_source(self, library_id):
+        self.cursor.execute(QU.get_source, (source_key(library_id),))
+
+        return self.cursor.fetchone()
+
+    def ensure_source(self, library_id, name):
+        """The library's MyMusic source row, created or renamed to match.
+
+        Found by ``strMultipath`` rather than by name, because the name is the
+        only thing a node's rule matches on and the server may change it at
+        any time: keyed on the name, a rename writes a *second* source and
+        leaves every album linked to the old one, so the renamed node matches
+        nothing at all. Keyed on the library id the row and its links survive
+        the rename untouched.
+        """
+        found = self.get_source(library_id)
+
+        if found is None:
+            source_id = self.create_entry_source()
+            self.cursor.execute(
+                QU.add_source, (source_id, name, source_key(library_id))
+            )
+
+            return source_id
+
+        source_id, current = found
+
+        if current != name:
+            self.cursor.execute(QU.update_source_name, (name, source_id))
+
+        return source_id
+
+    def link_album_source(self, album_id, source_id):
+        """Link the album to its library's source, and unlink it from any
+        other kofin-owned one.
+
+        The second half is what makes a library move stick: an album that
+        moved between libraries on the server comes back on the *same*
+        idAlbum (the MBID match in get_album), so without it the album sits
+        in both libraries' nodes for good. Scoped to kofin's own sources, so
+        an album the user also has scanned locally keeps its real link. The
+        insert goes first — a failure between the two leaves the album in two
+        places, which is visible and self-heals, rather than in none.
+        """
+        self.cursor.execute(QU.add_album_source, (source_id, album_id))
+        self.cursor.execute(QU.delete_album_other_sources, (album_id, source_id))
+
+    def link_song_albums_source(self, song_ids, source_id):
+        """Link the albums *behind* a set of songs — the singles path.
+
+        A single's album is created by the writer on the fly and has no
+        kofin.db reference of its own, so walking the album mappings misses
+        it and every single would drop out of a source-scoped node. Chunked,
+        because this runs over a whole library's songs.
+        """
+        song_ids = [song_id for song_id in song_ids if song_id is not None]
+
+        for start in range(0, len(song_ids), SOURCE_LINK_CHUNK):
+            chunk = song_ids[start : start + SOURCE_LINK_CHUNK]
+            self.cursor.execute(
+                QU.add_album_source_by_songs % ",".join("?" * len(chunk)),
+                [source_id] + list(chunk),
+            )
+
+    def kofin_sources(self):
+        """(id, name, multipath) for every source kofin owns — the prefix is
+        the ownership gate, because the user's own scanned sources share this
+        table and are never ours to touch."""
+        self.cursor.execute(QU.get_kofin_sources)
+
+        return self.cursor.fetchall()
+
+    def delete_source_for(self, library_id):
+        """Drop a library's source row; True when there was one.
+
+        The row is the whole cleanup: tgrDeleteSource takes its album_source
+        links with it, and tgrDeleteAlbum has already taken the links of every
+        album deleted alongside.
+        """
+        found = self.get_source(library_id)
+
+        if found is None:
+            return False
+
+        self.cursor.execute(QU.delete_source, (found[0],))
+
+        return True
+
+    def prune_sources(self, keep_library_ids):
+        """Remove kofin sources for libraries that are no longer synced.
+
+        The database-side twin of views.prune_nodes: a library can leave the
+        whitelist by a route that never ran remove_library (a server-side
+        deletion, a settings diff, an install that predates this), and the
+        whitelist is the whole truth about what should exist.
+        """
+        keep = {source_key(library_id) for library_id in keep_library_ids}
+        removed = 0
+
+        for source_id, _name, multipath in self.kofin_sources():
+            if multipath in keep:
+                continue
+
+            self.cursor.execute(QU.delete_source, (source_id,))
+            removed += 1
+
+        return removed
 
     def get_version(self):
         self.cursor.execute(QU.get_version)

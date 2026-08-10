@@ -820,6 +820,13 @@ class Service(xbmc.Monitor):
                 decoded = _decode_kodi_data(data)
                 self._syncplay_forward("on_kodi_play", decoded)
                 self._backfill_library_claim(decoded)
+            elif method == "AudioLibrary.OnScanFinished" and self.library is not None:
+                # Kodi's scanner runs DELETE FROM source whenever the table
+                # disagrees with sources.xml — which, with an empty one, it
+                # does the moment kofin writes a row. Every per-library music
+                # node filters on those rows, so without this a user-run music
+                # scan leaves them all matching nothing until the next sync.
+                self.library.enqueue_command("ReassertMusicSources")
             elif method == "VideoLibrary.OnUpdate" and self.credentials.is_logged_in:
                 # Kodi's own "Mark as watched" / "Reset resume position" only
                 # touch MyVideos; without this they never reach the server and

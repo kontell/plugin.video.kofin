@@ -10,6 +10,7 @@ from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.downloads import repoint as downloads_repoint
 from kofin.sync import kofindb as jellyfin_db
+from kofin.sync import musicsources
 from kofin.sync import queries_map as QUEM
 from kofin.sync import fields as api
 from kofin.sync.fields import check_unchanged, find_library
@@ -49,6 +50,8 @@ class Music(KodiDb):
         self.library = library
         # Memo for find_library, per writer instance (see fields.find_library).
         self.library_cache = {}
+        # Memo for the music view list behind source naming (music_views).
+        self._music_views = None
 
         KodiDb.__init__(self, musicdb.cursor)
 
@@ -206,11 +209,47 @@ class Music(KodiDb):
 
         self.artist_link(obj)
         self.artist_discography(obj)
+        self.link_library_source(obj)
         self.update_album(*values(obj, QU.update_album_obj))
         self.update_album_duration(*values(obj, QU.update_album_duration_obj))
         self.add_genres(*values(obj, QU.add_genres_obj))
         self.artwork.add(obj["Artwork"], obj["AlbumId"], "album")
         self.item_ids.append(obj["Id"])
+
+    def link_library_source(self, obj):
+        """Link the item's album to its library's MyMusic ``source`` row.
+
+        The music side of the video writers' tag injection. MyMusic has no
+        tag table, so a per-library node filters on the source name instead,
+        and ``album_source`` is the one link that survives a downloaded song
+        being repointed at the filesystem (sync/musicsources.py says why).
+
+        Called from both ``album`` and ``song``: a single's album is created
+        on the fly by ``song_add`` and never passes through ``album``, so the
+        album leg alone would drop every single out of its library's nodes.
+        """
+        library_id = obj.get("LibraryId")
+
+        if not library_id or not obj.get("AlbumId"):
+            return
+
+        source_id = self.ensure_source(
+            library_id, musicsources.source_name(library_id, self.music_views())
+        )
+        self.link_album_source(obj["AlbumId"], source_id)
+
+    def music_views(self):
+        """The synced music libraries, read once per writer.
+
+        Only the disambiguation of a shared library name needs them, but that
+        answer has to be the same one views.py reaches or the node's rule
+        matches nothing — so both sides read the same table through the same
+        helper.
+        """
+        if self._music_views is None:
+            self._music_views = self.jellyfin_db.get_views_by_media("music")
+
+        return self._music_views
 
     def album_add(self, obj):
         """Add object to kodi."""
@@ -347,6 +386,7 @@ class Music(KodiDb):
             self.song_add(obj)
 
         self.link_song_album(*values(obj, QU.update_song_album_obj))
+        self.link_library_source(obj)
         self.add_role(*values(obj, QU.update_role_obj))  # defaultt role
         self.song_artist_link(obj)
         self.song_artist_discography(obj)

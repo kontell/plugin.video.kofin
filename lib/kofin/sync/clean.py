@@ -42,6 +42,7 @@ LOG = Logger(__name__)
 
 LIBRARY_ROOT = "special://profile/library/"
 VIDEO_NODES = "special://profile/library/video/"
+MUSIC_NODES = "special://profile/library/music/"
 PLAYLISTS_ROOT = "special://profile/playlists/"
 THUMBNAILS = "special://thumbnails/"
 
@@ -195,6 +196,18 @@ def sweep_nodes(video_root: Optional[str] = None) -> List[str]:
     user who uninstalled it without ever running that reset.
     """
     root = video_root or xbmcvfs.translatePath(VIDEO_NODES)
+    return _sweep_prefixed(root)
+
+
+def sweep_music_nodes(music_root: Optional[str] = None) -> List[str]:
+    """The same sweep at the *music* node root.
+
+    Kodi keeps a second node tree there and the video sweep never reaches it,
+    so the ``kofin`` folder under it walked straight through a "Clean
+    databases" — one stale file when the music side was a single Downloaded
+    node, a whole per-library tree now.
+    """
+    root = music_root or xbmcvfs.translatePath(MUSIC_NODES)
     return _sweep_prefixed(root)
 
 

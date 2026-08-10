@@ -24,6 +24,7 @@ from kofin.core.log import Logger
 from kofin.sync.db import Database, get_sync, save_sync
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import fields as api
+from kofin.sync import musicsources
 from kofin.sync.playlists import FOLDER_ICON, FOLDER_NAME, write_folder_icon
 from kofin.sync.shims import localized, window_prop
 
@@ -44,7 +45,9 @@ PLAYLIST_FOLDER = FOLDER_NAME
 # change here regenerates on upgrade even when the view set is untouched.
 # 3: the playlists moved into PLAYLIST_FOLDER.
 # 7: the Downloaded singles carry the addon's downloaded icon.
-NODE_LAYOUT = 7
+# 8: the music tree gained a folder per library, and Downloaded music became
+#    a folder of its own rather than one flat node.
+NODE_LAYOUT = 8
 
 # Kind ordering for the generated library nodes, following Kodi's own
 # top-level video ordering (movies 10, tvshows 20, musicvideos 30). Libraries
@@ -67,9 +70,37 @@ NODE_ROOT_ORDER = 15
 # browsing the library rather than splitting them up.
 MUSIC_NODE_ROOT_ORDER = 55
 
-# The one generated music node, named here because both the writer and the
-# remover need to agree on it.
+# The Downloaded-music folder inside the music tree. Named with the NODE_ROOT
+# prefix so the pruner claims it like everything else kofin writes.
+MUSIC_DOWNLOADED_FOLDER = "kofin_Downloaded"
+
+# The flat Downloaded-music node this replaced. Kept only so the pruner can
+# name it: an install that generated it has no other route to being rid of it.
 MUSIC_DOWNLOADED_FILE = "kofin_DownloadedMusic.xml"
+
+# (file stem, label, content, group) for the sub-nodes inside a music folder.
+# Every label is a *Kodi-core* string id — the same ones Kodi's own music
+# nodes use (system/library/music/{artists,albums,songs,genres}.xml) — so
+# _node_label leaves them numeric and they follow the UI language. Genres is
+# content=artists grouped by genre, exactly as Kodi writes it.
+MUSIC_NODES = (
+    ("artists", 133, "artists", None),
+    ("albums", 132, "albums", None),
+    ("songs", 134, "songs", None),
+    ("genres", 135, "artists", "genres"),
+)
+
+# The Downloaded set gets no genres leg: it is three ways into one small pile
+# of files, and a genre level over a handful of albums is noise.
+MUSIC_DOWNLOAD_NODES = MUSIC_NODES[:3]
+
+# Stock Kodi icons for those sub-nodes, so skins substitute their own.
+MUSIC_NODE_ICONS = {
+    "artists": "DefaultMusicArtists.png",
+    "albums": "DefaultMusicAlbums.png",
+    "songs": "DefaultMusicSongs.png",
+    "genres": "DefaultMusicGenres.png",
+}
 
 # The one structural entry that is allowed addon art: this node *is* the addon,
 # so a skin has nothing of its own to substitute. Kodi resolves special:// for
@@ -268,30 +299,97 @@ def music_root_path():
     return "%s/%s/" % (downloads_root().rstrip("/"), MUSIC_DIR)
 
 
-def write_music_nodes():
-    """The ``Kofin`` folder in Kodi's *music* library, holding the
-    Downloaded-music node.
+def music_node_folder(view):
+    """Per-library folder name inside the music tree — the music twin of
+    :func:`node_folder`, which cannot be reused because its name folds in a
+    ``Media`` that is always ``music`` here."""
+    return "kofinmusic%s" % view["Id"]
 
-    Kodi keeps music nodes in a tree of their own, so none of the video
-    generation above reaches here: before this the feature's music side was
-    a smart playlist and nothing else, which put "Downloaded music" under
-    Playlists rather than beside the rest of Kofin.
 
-    Written whenever the manager touches music and on every node pass;
-    removed — by name prefix, like every other deletion path in this module
-    — when the feature goes off. Returns whether the tree now exists.
+def music_library_views():
+    """The synced music libraries, in the order their folders should sit.
+
+    Ordered by SortedViews like the video entries are, and tolerant of a
+    library that is missing from it — this runs on every node pass, and a
+    stray view must leave the tree slightly mis-sorted rather than unwritten.
+    """
+    sync = get_sync()
+    whitelist = [
+        library.replace("Mixed:", "") for library in sync.get("Whitelist") or []
+    ]
+    order = sync.get("SortedViews") or []
+    views = []
+
+    with Database("kofin") as kofin_db:
+        db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
+
+        for library_id in whitelist:
+            view = db.get_view(library_id)
+
+            if view is not None and view.media_type == "music":
+                views.append({"Id": library_id, "Name": view.view_name})
+
+    def position(view):
+        try:
+            return (0, order.index(view["Id"]), "")
+        except ValueError:
+            return (1, 0, view["Name"])
+
+    views.sort(key=position)
+
+    for view in views:
+        view["Source"] = musicsources.source_name(view["Id"], views)
+
+    return views
+
+
+def write_music_nodes(libraries=None):
+    """The ``Kofin`` folder in Kodi's *music* library.
+
+    Kodi keeps music nodes in a tree of their own (``CLibraryDirectory`` over
+    ``library://music/``), so none of the video generation above reaches
+    here. The tree holds a folder per synced music library — Artists, Albums,
+    Songs and Genres, the same ways in Kodi's own music library offers — plus
+    a Downloaded folder while the downloads feature is on.
+
+    A library's sub-nodes filter on its MyMusic ``source`` row rather than a
+    tag (MyMusic has none) or a path (a downloaded song's path is repointed
+    at the filesystem, so it would fall out of its own library). See
+    sync/musicsources.py.
+
+    ``libraries`` is read from kofin.db when not supplied, so the downloads
+    manager can keep calling this with no arguments. Returns whether the tree
+    now exists.
     """
     root = music_node_root_path()
+    downloads = settings.get_bool("downloadsEnabled")
 
-    if not settings.get_bool("downloadsEnabled"):
+    try:
+        libraries = music_library_views() if libraries is None else libraries
+    except Exception:
+        LOG.exception("music library views unavailable")
+        return False
+
+    if not libraries and not downloads:
         _delete_music_nodes(root)
         return False
 
     try:
         if not os.path.isdir(root):
             os.makedirs(root)
+
         _write_music_parent(root)
-        _write_downloaded_music_node(root)
+        keep = set()
+
+        for index, view in enumerate(libraries):
+            _write_music_library_folder(root, view, index)
+            keep.add(music_node_folder(view))
+
+        if downloads:
+            _write_downloaded_music_folder(root, len(libraries))
+            keep.add(MUSIC_DOWNLOADED_FOLDER)
+
+        _prune_music_nodes(root, keep)
     except Exception:
         LOG.exception("music node generation failed")
         return False
@@ -312,35 +410,134 @@ def _write_music_parent(root):
     etree.ElementTree(xml).write(file)
 
 
-def _write_downloaded_music_node(root):
-    """The Downloaded-music filter node: songs whose path sits under the
-    downloads music directory. The same rule the .xsp uses, because a
-    repointed song's path *is* the honest signal (plan W3.2)."""
-    file = os.path.join(root, MUSIC_DOWNLOADED_FILE)
+def _write_music_library_folder(root, view, index):
+    """One synced music library's folder and its four ways in."""
+    folder = os.path.join(root, music_node_folder(view))
 
-    xml = etree.Element("node", {"order": "0", "type": "filter"})
-    set_node_icon(xml, NODE_DOWNLOADS_ICON)
-    etree.SubElement(xml, "label").text = _node_label(30736, "Downloaded music")
-    etree.SubElement(xml, "content").text = "songs"
-    etree.SubElement(xml, "match").text = "all"
-    rule = etree.SubElement(xml, "rule", {"field": "path", "operator": "startswith"})
-    etree.SubElement(rule, "value").text = music_root_path()
+    if not os.path.isdir(folder):
+        os.makedirs(folder)
+
+    _write_music_folder_index(folder, index, view["Name"], MUSIC_NODE_ICONS["albums"])
+
+    for order, (stem, label, content, group) in enumerate(MUSIC_NODES):
+        rule = etree.Element("rule", {"field": "source", "operator": "is"})
+        etree.SubElement(rule, "value").text = view["Source"]
+        _write_music_filter_node(folder, order, stem, label, content, group, rule)
+
+
+def _write_downloaded_music_folder(root, index):
+    """The Downloaded-music folder: the same three ways in, filtered on the
+    downloads directory instead of a source.
+
+    Path rather than source because a download is not a library — it is a
+    slice of one, and the repointed path is the honest signal for it (the
+    same rule the Downloaded-music .xsp carries, so node and playlist cannot
+    disagree about what "downloaded" means).
+    """
+    folder = os.path.join(root, MUSIC_DOWNLOADED_FOLDER)
+
+    if not os.path.isdir(folder):
+        os.makedirs(folder)
+
+    _write_music_folder_index(
+        folder,
+        index,
+        _node_label(30736, "Downloaded music"),
+        NODE_DOWNLOADS_ICON,
+    )
+
+    for order, (stem, label, content, group) in enumerate(MUSIC_DOWNLOAD_NODES):
+        rule = etree.Element("rule", {"field": "path", "operator": "startswith"})
+        etree.SubElement(rule, "value").text = music_root_path()
+        _write_music_filter_node(folder, order, stem, label, content, group, rule)
+
+
+def _write_music_folder_index(folder, order, label, icon):
+    """A music folder's own ``index.xml``.
+
+    Rewritten every pass, unlike the tree's parent: a library's name and its
+    position are the server's to state, not the user's to keep.
+    """
+    file = os.path.join(folder, "index.xml")
+    xml = etree.Element("node", {"order": str(order)})
+    set_node_icon(xml, icon)
+    etree.SubElement(xml, "label").text = label
     etree.ElementTree(xml).write(file)
 
 
-def _delete_music_nodes(root):
-    """Take the music tree back out when the feature goes off.
+def _write_music_filter_node(folder, order, stem, label, content, group, rule):
+    """One filter node inside a music folder.
 
-    Prefix-gated like the video pruner: a user's own node dropped into this
-    folder is theirs, and the folder itself only goes when nothing is left
-    in it.
+    Built from scratch every pass rather than parsed and amended the way the
+    video nodes are (``add_node``). The rule's value is the library's source
+    name, and the server can rename a library at any time: with ``match=all``
+    a leftover rule for the old name means the node matches *nothing*, which
+    is silent. Nothing in these files is the user's to keep, so rewriting
+    whole is both correct and simpler.
+    """
+    file = os.path.join(folder, "%s.xml" % stem)
+    xml = etree.Element("node", {"order": str(order), "type": "filter"})
+    set_node_icon(xml, MUSIC_NODE_ICONS[stem])
+    etree.SubElement(xml, "label").text = _node_label(label, stem)
+    etree.SubElement(xml, "content").text = content
+
+    if group:
+        etree.SubElement(xml, "group").text = group
+
+    etree.SubElement(xml, "match").text = "all"
+    xml.append(rule)
+    etree.ElementTree(xml).write(file)
+
+
+def _prune_music_nodes(root, keep):
+    """Reconcile the music tree against what was just written.
+
+    Prefix-gated on ``kofin`` like every other deletion path here, so a node
+    the user dropped into the folder is never ours. ``index.xml`` does not
+    carry the prefix and survives — it is creation-only and theirs to
+    reorder. The loose ``kofin_DownloadedMusic.xml`` from before the
+    Downloaded folder existed is swept here too; that sweep is the migration.
+    """
+    dirs, files = xbmcvfs.listdir(root)
+
+    for name in dirs:
+        if name.startswith(NODE_ROOT) and name not in keep:
+            _delete_music_folder(os.path.join(root, name))
+
+    for name in files:
+        if name.startswith(NODE_ROOT):
+            xbmcvfs.delete(os.path.join(root, name))
+
+
+def _delete_music_folder(folder):
+    """Remove one generated music folder, contents first."""
+    try:
+        _, files = xbmcvfs.listdir(folder)
+
+        for name in files:
+            xbmcvfs.delete(os.path.join(folder, name))
+
+        xbmcvfs.rmdir(folder)
+    except Exception:
+        LOG.exception("music node folder removal failed for %s", folder)
+
+
+def _delete_music_nodes(root):
+    """Take the whole music tree back out when nothing wants it.
+
+    Prefix-gated like the pruner, plus the parent ``index.xml`` — this is the
+    teardown, not a reconcile. The folder itself only goes when nothing is
+    left in it, so a hand-made node keeps it alive.
     """
     if not os.path.isdir(root):
         return
     try:
-        _, files = xbmcvfs.listdir(root)
+        dirs, files = xbmcvfs.listdir(root)
+        for name in dirs:
+            if name.startswith(NODE_ROOT):
+                _delete_music_folder(os.path.join(root, name))
         for name in files:
-            if name == MUSIC_DOWNLOADED_FILE or name == "index.xml":
+            if name.startswith(NODE_ROOT) or name == "index.xml":
                 xbmcvfs.delete(os.path.join(root, name))
         remaining_dirs, remaining_files = xbmcvfs.listdir(root)
         if not remaining_dirs and not remaining_files:
@@ -534,9 +731,10 @@ class Views(object):
             self.window_nodes()
             return
 
-        # Before the whitelist check below: the music tree is keyed on the
-        # downloads feature, not on which video libraries are synced, and it
-        # has its own removal path for the off case.
+        # Before the whitelist check below: the music tree is its own thing —
+        # keyed on the synced *music* libraries and the downloads feature, not
+        # on the video whitelist the tree beneath is built from — and it has
+        # its own removal path for the nothing-wanted case.
         write_music_nodes()
 
         playlist_path = playlist_root_path()

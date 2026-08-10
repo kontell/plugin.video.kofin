@@ -290,3 +290,137 @@ def test_pruning_spares_a_kofin_path_a_source_still_claims(musicdb):
 
     assert db.prune_orphan_paths() == 0
     assert list(paths(cur)) == [claimed]
+
+
+# -- the per-library source rows -----------------------------------------------
+
+
+def sources(cur):
+    return cur.execute(
+        "SELECT idSource, strName, strMultipath FROM source ORDER BY idSource"
+    ).fetchall()
+
+
+def album_sources(cur):
+    return sorted(cur.execute("SELECT idSource, idAlbum FROM album_source").fetchall())
+
+
+def make_album(cur, title):
+    """A bare album row -- enough for a link, without the writer stack."""
+    cur.execute("SELECT coalesce(max(idAlbum), 0) + 1 FROM album")
+    album_id = cur.fetchone()[0]
+    cur.execute("INSERT INTO album(idAlbum, strAlbum) VALUES (?, ?)", (album_id, title))
+    return album_id
+
+
+def test_a_library_source_is_created_once_and_renamed_in_place(musicdb):
+    """Keyed on the library id, not its name: keyed on the name a server-side
+    rename writes a second source and leaves every album linked to the old
+    one, so the renamed node matches nothing at all."""
+    cur, _conn = musicdb
+    db = Music(cur)
+
+    source_id = db.ensure_source("lib-music", "Tunes")
+    album_id = make_album(cur, "Greatest Hits")
+    db.link_album_source(album_id, source_id)
+
+    assert db.ensure_source("lib-music", "Anthems") == source_id
+    assert sources(cur) == [
+        (source_id, "Anthems", "plugin://plugin.video.kofin/lib-music/")
+    ]
+    assert album_sources(cur) == [(source_id, album_id)]
+
+
+def test_linking_an_album_to_its_source_is_idempotent(musicdb):
+    cur, _conn = musicdb
+    db = Music(cur)
+    source_id = db.ensure_source("lib-music", "Tunes")
+    album_id = make_album(cur, "Greatest Hits")
+
+    db.link_album_source(album_id, source_id)
+    db.link_album_source(album_id, source_id)
+
+    assert album_sources(cur) == [(source_id, album_id)]
+
+
+def test_an_album_that_moved_library_loses_its_old_link(musicdb):
+    """The album comes back on the same idAlbum (get_album matches on MBID),
+    so without the unlink it sits in both libraries' nodes for good."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    first = db.ensure_source("lib-one", "Tunes")
+    second = db.ensure_source("lib-two", "More")
+    album_id = make_album(cur, "Greatest Hits")
+
+    db.link_album_source(album_id, first)
+    db.link_album_source(album_id, second)
+
+    assert album_sources(cur) == [(second, album_id)]
+
+
+def test_a_moved_album_keeps_a_link_the_user_owns(musicdb):
+    """Scoped to kofin's own sources: an album the user also has scanned
+    locally is not ours to unlink from their source."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    cur.execute(
+        "INSERT INTO source(idSource, strName, strMultipath) VALUES (?, ?, ?)",
+        (90, "My CDs", "smb://nas/music/"),
+    )
+    album_id = make_album(cur, "Greatest Hits")
+    cur.execute(
+        "INSERT INTO album_source(idSource, idAlbum) VALUES (?, ?)", (90, album_id)
+    )
+
+    source_id = db.ensure_source("lib-music", "Tunes")
+    db.link_album_source(album_id, source_id)
+
+    assert album_sources(cur) == sorted([(90, album_id), (source_id, album_id)])
+
+
+def test_deleting_a_source_takes_its_album_links_with_it(musicdb):
+    """tgrDeleteSource is Kodi's, so this is really asking whether the trigger
+    fires under plain sqlite3 the way it does under Kodi -- the removal path
+    leans on it rather than deleting the links itself."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    source_id = db.ensure_source("lib-music", "Tunes")
+    db.link_album_source(make_album(cur, "Greatest Hits"), source_id)
+
+    assert db.delete_source_for("lib-music") is True
+    assert sources(cur) == []
+    assert album_sources(cur) == []
+    assert db.delete_source_for("lib-music") is False
+
+
+def test_pruning_sources_spares_the_users_own(musicdb):
+    cur, _conn = musicdb
+    db = Music(cur)
+    cur.execute(
+        "INSERT INTO source(idSource, strName, strMultipath) VALUES (?, ?, ?)",
+        (90, "My CDs", "smb://nas/music/"),
+    )
+    kept = db.ensure_source("lib-one", "Tunes")
+    db.ensure_source("lib-two", "More")
+
+    assert db.prune_sources(["lib-one"]) == 1
+    assert sorted(row[0] for row in sources(cur)) == sorted([90, kept])
+
+
+def test_song_albums_reach_a_source_without_an_album_mapping(musicdb):
+    """The singles path: a single's album is created on the fly by the writer
+    and has no kofin.db reference, so walking the album mappings alone drops
+    every single out of its library's nodes."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    source_id = db.ensure_source("lib-music", "Tunes")
+    album_id = make_album(cur, "Singles")
+    path_id = db.add_path("http://server:8096/Audio/song-1/")
+    cur.execute(
+        "INSERT INTO song(idSong, idAlbum, idPath, strTitle) VALUES (?, ?, ?, ?)",
+        (7, album_id, path_id, "Opening Track"),
+    )
+
+    db.link_song_albums_source([7], source_id)
+
+    assert album_sources(cur) == [(source_id, album_id)]

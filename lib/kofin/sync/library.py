@@ -25,6 +25,7 @@ from kofin.core import settings, state
 from kofin.core.log import Logger
 from kofin.downloads import auto as downloads_auto
 from kofin.sync import changefeed
+from kofin.sync import musicsources
 from kofin.sync import newcontent
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
 from kofin.sync.kodidb import Movies as KodiDb
@@ -417,6 +418,29 @@ class Library(threading.Thread):
         self.defer_playlist_poll()
         self.sync_music_playlists()
 
+    def reassert_music_sources(self):
+        """Rewrite the per-library music ``source`` rows after a Kodi scan.
+
+        Kodi's own scanner empties the source table on any run whose
+        sources.xml disagrees with it, taking every ``album_source`` link
+        with it (tgrDeleteSource) and leaving the per-library music nodes
+        filtering on a name nothing carries. This is the in-session heal;
+        ``check_version`` covers a scan that happened while Kodi was off.
+        """
+        try:
+            with self.music_database_lock:
+                with Database("kofin") as kofindb, Database("music") as musicdb:
+                    views = jellyfin_db.JellyfinDatabase(
+                        kofindb.cursor
+                    ).get_views_by_media("music")
+
+                    if not views:
+                        return
+
+                    musicsources.reassert(kofindb.cursor, musicdb.cursor, views)
+        except Exception:
+            LOG.exception("ReassertMusicSources failed")
+
     def cleanup_music_playlists(self):
         """Remove the managed ``playlists/music/Kofin/`` folder."""
         try:
@@ -559,12 +583,25 @@ class Library(threading.Thread):
         # opening MyMusic otherwise would put the schema gate in front of
         # users who never asked kofin to touch their music.
         if "music" in self.required_kinds():
-            with Database("music") as musicdb:
+            with Database("kofin") as kofindb, Database("music") as musicdb:
                 music_db = MusicKodiDb(musicdb.cursor)
                 music_db.ensure_blank_artist()
                 pruned = music_db.prune_orphan_paths()
                 if pruned:
                     LOG.info("pruned %s orphaned music path rows", pruned)
+                # Kodi's own music scanner empties the source table whenever
+                # it disagrees with sources.xml, which with an empty one it
+                # always does — so the per-library music nodes come back from
+                # any scan matching nothing until this runs. Startup covers a
+                # scan that happened while Kodi was off; the
+                # AudioLibrary.OnScanFinished command covers one in session.
+                musicsources.reassert(
+                    kofindb.cursor,
+                    musicdb.cursor,
+                    jellyfin_db.JellyfinDatabase(kofindb.cursor).get_views_by_media(
+                        "music"
+                    ),
+                )
 
     @stop
     def service(self):
@@ -808,6 +845,8 @@ class Library(threading.Thread):
                     self.cleanup_music_playlists()
                 elif command == "RepointRatings":
                     self.repoint_ratings()
+                elif command == "ReassertMusicSources":
+                    self.reassert_music_sources()
                 else:
                     LOG.warning("unknown library command %s", command)
             except Exception as error:

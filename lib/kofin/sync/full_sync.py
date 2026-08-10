@@ -22,7 +22,9 @@ from kofin.core.http import HttpError
 from kofin.core.log import Logger
 from kofin.sync import changefeed
 from kofin.sync import downloader as server
+from kofin.sync import musicsources
 from kofin.sync.fields import find_library, reference_checksum
+from kofin.sync.kodidb import Music as MusicKodiDb
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
 from kofin.sync.writers.movies import (
     BOXSET_GUARDED,
@@ -948,6 +950,19 @@ class FullSync(object):
                             obj.song(item)
                             count += 1
 
+                    # The writers link each album to its library's source as
+                    # they go, but only when they actually rewrite something
+                    # — check_unchanged returns before the hook. This closes
+                    # the walk over what an unchanged pass skipped, and heals
+                    # a source table Kodi's own scanner emptied (it runs
+                    # DELETE FROM source whenever it disagrees with
+                    # sources.xml, which with an empty one it always does).
+                    musicsources.reassert(
+                        jellyfindb.cursor,
+                        musicdb.cursor,
+                        obj.music_views(),
+                    )
+
     @progress()
     def prune(self, library, library_id, dialog):
         """Update-mode pass (phase 5, research §3 "update that works"):
@@ -1242,7 +1257,12 @@ class FullSync(object):
             items = db.get_item_by_media_folder(library_id.replace("Mixed:", ""))
             media = "music" if library.media_type == "music" else "video"
 
-            if items:
+            # A music library's `source` row is not one of its items, so it
+            # outlives an item-less removal: the gate has to open for the
+            # media type, not just for the count. Every album's own
+            # album_source link goes with the album (tgrDeleteAlbum), and
+            # what tgrDeleteSource does not cover is exactly this row.
+            if items or library.media_type == "music":
                 with (
                     self.library.music_database_lock
                     if media == "music"
@@ -1303,6 +1323,11 @@ class FullSync(object):
                                     heading="%s: %s" % ("Kofin", library.view_name),
                                 )
                                 count += 1
+
+                        if library.media_type == "music":
+                            MusicKodiDb(kodidb.cursor).delete_source_for(
+                                library_id.replace("Mixed:", "")
+                            )
 
         self.sync = get_sync()
 

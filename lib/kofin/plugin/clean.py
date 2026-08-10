@@ -97,6 +97,7 @@ def _run(wipe_music: bool, all_nodes: bool, purge_art: bool) -> None:
             clean.remove_all_nodes()
         else:
             clean.sweep_nodes()
+            clean.sweep_music_nodes()
         clean.sweep_playlists()
         if purge_art:
             progress.update(85, _text(30664))
