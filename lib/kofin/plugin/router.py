@@ -50,6 +50,7 @@ ROUTES: Dict[str, Tuple[str, str]] = {
     "settings": ("actions", "open_settings"),
     "adduser": ("adduser", "who_is_watching"),
     "whoshortlist": ("adduser", "select_shortlist"),
+    "userprefs": ("userprefs", "jellyfin_settings"),
     "watched": ("actions", "watched"),
     "unwatched": ("actions", "unwatched"),
     "download": ("actions", "download"),

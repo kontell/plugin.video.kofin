@@ -85,6 +85,20 @@
           </dependencies>
           <control type="edit" format="string"/>
         </setting>
+        <!-- No <close>, unlike the buttons around it: the menu is meant to
+             read as a sub-dialog of this one, so Back returns here. The
+             Downloads tab's "Manage shows" button is the same shape. -->
+        <setting id="jellyfinUserSettings" type="action" label="30777" help="30778">
+          <level>0</level>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="isLoggedIn">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=userprefs)</data>
+          </control>
+        </setting>
         <setting id="testConnection" type="string" label="30060" help="30061">
           <level>0</level>
           <default></default>
