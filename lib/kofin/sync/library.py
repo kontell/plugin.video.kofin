@@ -760,12 +760,20 @@ class Library(threading.Thread):
                 elif command == "RepairLibrary":
                     if data.get("Id"):
                         libraries = data["Id"].split(",")
+                        kinds = set()
 
                         for lib in libraries:
+                            # Before the removal deletes the view row.
+                            kind = self._removal_kind(lib)
+
                             if not self.remove_library(lib):
                                 break
+
+                            if kind:
+                                kinds.add(kind)
                         else:
-                            self.add_library(data["Id"])
+                            if self.add_library(data["Id"]):
+                                self._reload_skin_after_repair(kinds)
                 elif command == "UpdateLibrary":
                     ids = data.get("Id")
                     if ids:
@@ -1301,6 +1309,34 @@ class Library(threading.Thread):
     def _fire_skin_reload(self):
         LOG.info("first content synced; reloading skin for home widgets")
         xbmc.executebuiltin("ReloadSkin()")
+
+    def _reload_skin_after_repair(self, kinds):
+        """Rebuild the skin once a repair has re-added its libraries.
+
+        A repair empties whole Kodi tables and refills them over minutes,
+        and any home widget that re-fetches inside that hollow gets zero
+        items — a DirectoryProvider whose last fetch was empty is deaf to
+        every later library announcement, so the end-of-sync refresh cannot
+        reach it and the widgets sit empty until the skin is rebuilt
+        (observed live: a 27-minute music repair left the Music row blank
+        with the data underneath fully healed). The first-content probes
+        cannot cover this: they key on Library.HasContent, whose cached
+        bool only re-samples after a scan cycle, and a repair's scan
+        cycles all run while the tables hold rows. So the repair command
+        owns an unconditional reload, routed through the first-content
+        machinery for its HasContent poll and its during-playback hold.
+        """
+        flags = []
+
+        if "video" in kinds:
+            flags.extend(VIDEO_CONTENT_FLAGS)
+
+        if "music" in kinds:
+            flags.extend(MUSIC_CONTENT_FLAGS)
+
+        self._reload_skin_for_content(
+            tuple(flags) or VIDEO_CONTENT_FLAGS + MUSIC_CONTENT_FLAGS
+        )
 
     def _music_content_hidden(self):
         """The music twin of ``_video_content_hidden``: MyMusic holds rows
