@@ -482,22 +482,51 @@ class Library(threading.Thread):
 
         self.startup_done = True
 
-        while not self.stop_thread:
+        try:
+            while not self.stop_thread:
 
-            try:
-                self.service()
-            except LibraryException as error:
-                LOG.warning(error)
-                break
-            except Exception as error:
-                LOG.exception(error)
+                try:
+                    self.service()
+                except LibraryException as error:
+                    LOG.warning(error)
+                    break
+                except Exception as error:
+                    LOG.exception(error)
 
-                break
+                    break
 
-            if self.monitor.waitForAbort(2):
-                break
+                if self.monitor.waitForAbort(2):
+                    break
+        finally:
+            # The bar belongs to this thread and only the drain block closes
+            # it, so every exit that is not a drain used to leave it on screen
+            # for the life of the Kodi process — spinner turning, percentage
+            # frozen, no thread behind it. Observed at 30% for 19 minutes after
+            # an addon update killed the 0.9.0 library thread mid-cycle, which
+            # reads as a hung sync rather than a dead one. Kodi's script kill
+            # raises abortRequested rather than killing the thread, so this
+            # runs on that path too.
+            self.close_progress()
 
         LOG.info("---<[ library ]")
+
+    def close_progress(self):
+        """Take the background progress bar down, if one is up.
+
+        Defensive because the callers include an unwind: by the time a
+        stopping thread reaches here the GUI may already be going away, and
+        failing to close a dialog must never be what stops the thread from
+        exiting.
+        """
+        dialog, self.progress_updates = self.progress_updates, None
+
+        if dialog is None:
+            return
+
+        try:
+            dialog.close()
+        except Exception as error:  # pragma: no cover - defensive
+            LOG.debug("progress dialog close failed: %s", error)
 
     def test_databases(self):
         """Open the gated databases to prove the files exist and pass the
@@ -682,10 +711,7 @@ class Library(threading.Thread):
             self.class_counts = {}
             state.set_sync_active(False)
 
-            if self.progress_updates:
-
-                self.progress_updates.close()
-                self.progress_updates = None
+            self.close_progress()
 
             # Refresh whatever this cycle actually wrote — deferred behind the
             # settle so back-to-back mini-cycles cost one refresh. (Previously

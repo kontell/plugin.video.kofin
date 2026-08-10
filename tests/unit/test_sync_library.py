@@ -2174,3 +2174,73 @@ def test_the_new_content_backlog_is_bounded(monkeypatch):
     assert len(manager.new_content) == library_mod.NEW_CONTENT_LIMIT
     # The newest survive: the summary names recent additions.
     assert manager.new_content[-1]["Name"] == "old 699"
+
+
+# --- the background progress bar --------------------------------------------
+
+
+class _FakeProgress:
+    def __init__(self):
+        self.closed = 0
+
+    def create(self, heading, message=None):
+        pass
+
+    def update(self, percent, heading=None, message=None):
+        pass
+
+    def close(self):
+        self.closed += 1
+
+
+def test_progress_bar_closes_when_the_library_thread_ends():
+    """The bar is created by the manager thread and used to be closed only by
+    the drain block, so every other exit left it on screen for the life of the
+    Kodi process: spinner turning, percentage frozen, nothing behind it. Seen
+    live at 30% for 19 minutes after an addon update killed the manager
+    mid-cycle, which reads as a hung sync rather than a dead one."""
+    manager, _api = make_library()
+    bar = _FakeProgress()
+    manager.progress_updates = bar
+    manager.startup = lambda: True
+
+    def offline(*args, **kwargs):
+        raise library_mod.LibraryExitException("Server not online, exiting...")
+
+    manager.service = offline
+
+    manager.run()
+
+    assert bar.closed == 1
+    assert manager.progress_updates is None
+
+
+def test_progress_bar_closes_when_the_thread_raises_unexpectedly():
+    """The unhandled-exception exit orphaned the bar the same way."""
+    manager, _api = make_library()
+    bar = _FakeProgress()
+    manager.progress_updates = bar
+    manager.startup = lambda: True
+
+    def boom(*args, **kwargs):
+        raise ValueError("writer blew up")
+
+    manager.service = boom
+
+    manager.run()
+
+    assert bar.closed == 1
+    assert manager.progress_updates is None
+
+
+def test_closing_the_progress_bar_twice_is_harmless():
+    """The drain block and the thread exit both route through the helper, and
+    a failing close must never be what keeps a stopping thread alive."""
+    manager, _api = make_library()
+    bar = _FakeProgress()
+    manager.progress_updates = bar
+
+    manager.close_progress()
+    manager.close_progress()
+
+    assert bar.closed == 1
