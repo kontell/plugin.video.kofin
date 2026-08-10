@@ -10,6 +10,7 @@ constants from the fork's ``jellyfin/api.py`` live here now; the dead
 fork either).
 """
 
+import json
 import threading
 import concurrent.futures
 from datetime import date
@@ -186,8 +187,13 @@ def align_sort_order(params):
         params["SortOrder"] = ",".join((orders + [orders[-1]] * fields)[:fields])
 
 
-def get_items(api, parent_id, item_type=None, basic=False, params=None):
+def build_query(api, parent_id, item_type=None, basic=False, params=None):
+    """The /Items query a walk is about to page through.
 
+    Split out of ``get_items`` so a restore point can be checked against the
+    result set it claims to be an index into (``restore_fingerprint``); the
+    construction below is unchanged.
+    """
     query = {
         "url": "/Items",
         "params": {
@@ -225,6 +231,36 @@ def get_items(api, parent_id, item_type=None, basic=False, params=None):
         query["params"].update(params)
 
     align_sort_order(query["params"])
+
+    return query
+
+
+# Keys that say *where* in a result set a page starts rather than *which*
+# result set it is. Everything else in the query defines the set itself, so a
+# change to any of it invalidates a stored position.
+POSITION_KEYS = frozenset({"StartIndex"})
+
+
+def restore_fingerprint(api, parent_id, item_type=None, basic=False, params=None):
+    """Identity of the result set a StartIndex would be an index into.
+
+    A restore point is a position, and a position only means something in the
+    set it was measured in. Fields, sort, page size and item type all define
+    that set — so a walk whose query has changed in any of them (an addon
+    upgrade with a new field list is the routine case) must not resume into
+    the old number. Positions themselves are excluded, or a fingerprint would
+    never match the page after the one that stored it.
+    """
+    query = build_query(api, parent_id, item_type, basic, params)
+    identity = {
+        key: value for key, value in query["params"].items() if key not in POSITION_KEYS
+    }
+
+    return json.dumps(identity, sort_keys=True, default=str)
+
+
+def get_items(api, parent_id, item_type=None, basic=False, params=None):
+    query = build_query(api, parent_id, item_type, basic, params)
 
     for items in _get_items(api, query):
         yield items

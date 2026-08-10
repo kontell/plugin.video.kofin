@@ -23,7 +23,7 @@ from kofin.sync import db as sync_db
 from kofin.sync import downloader
 from kofin.sync import kofindb
 from kofin.sync import shims
-from kofin.sync.full_sync import FullSync
+from kofin.sync.full_sync import RESTORE_POINT_TTL, FullSync
 from tests.unit.fakes import FakeAddon, FakeWindow
 
 
@@ -886,3 +886,93 @@ def test_abandoned_pager_does_not_deadlock_on_shutdown(monkeypatch):
         closer.join(timeout=30)
 
     assert not timed_out, "generator close deadlocked in executor shutdown"
+
+
+# --- restore point validity ---------------------------------------------------
+
+
+class _FakeServer:
+    user_id = "user1"
+
+
+def _walking_sync():
+    sync = make_fullsync()
+    sync.server = _FakeServer()
+    return sync
+
+
+def test_a_restore_point_resumes_an_identical_walk():
+    """The feature still works: same query, still fresh, resume where it left
+    off."""
+    sync = _walking_sync()
+    sync.begin_walk("lib1/movies", "lib1", "Movie")
+    sync.set_restore_point("lib1/movies", {"params": {"StartIndex": 1250}})
+
+    resumed = sync.begin_walk("lib1/movies", "lib1", "Movie")
+
+    assert resumed == {"StartIndex": 1250}
+
+
+def test_a_restore_point_is_dropped_when_the_field_list_changed(monkeypatch):
+    """The live case: an addon upgrade changes info(), so the stored number
+    indexes a result set that no longer exists. Found on a Pixel 7 Pro holding
+    StartIndex 1250 for movies, written by a build old enough to still use the
+    pre-10.9 /Users/{id}/Items route."""
+    sync = _walking_sync()
+    sync.begin_walk("lib1/movies", "lib1", "Movie")
+    sync.set_restore_point("lib1/movies", {"params": {"StartIndex": 1250}})
+
+    monkeypatch.setattr(downloader, "info", lambda: "Etag,SortName,SomethingNew")
+
+    assert sync.begin_walk("lib1/movies", "lib1", "Movie") is None
+    assert "lib1/movies" not in sync.sync["RestorePoints"]
+
+
+def test_a_restore_point_is_dropped_when_the_walk_changed_shape():
+    """Same library, different pass — a Series position is not a Movie one."""
+    sync = _walking_sync()
+    sync.begin_walk("lib1/movies", "lib1", "Movie")
+    sync.set_restore_point("lib1/movies", {"params": {"StartIndex": 1250}})
+
+    assert sync.begin_walk("lib1/movies", "lib1", "Series") is None
+
+
+def test_an_expired_restore_point_is_dropped():
+    """An interrupted pass retries on the resume backoff, which tops out at 30
+    minutes. Hours later it is not a pass waiting to continue."""
+    sync = _walking_sync()
+    sync.begin_walk("lib1/movies", "lib1", "Movie")
+    sync.set_restore_point("lib1/movies", {"params": {"StartIndex": 1250}})
+    stored = sync.sync["RestorePoints"]["lib1/movies"]
+    stored["SavedAt"] = time.time() - (RESTORE_POINT_TTL + 60)
+
+    assert sync.begin_walk("lib1/movies", "lib1", "Movie") is None
+    assert "lib1/movies" not in sync.sync["RestorePoints"]
+
+
+def test_an_unstamped_restore_point_is_dropped():
+    """Exactly the shape found live: written before this check existed, which
+    is precisely the population that has been sitting there across upgrades."""
+    sync = _walking_sync()
+    sync.sync["RestorePoints"]["lib1/movies"] = {
+        "url": "/Users/215f5fc3f7ff4a5581e8518b28203a4f/Items",
+        "params": {"StartIndex": 1250},
+    }
+
+    assert sync.begin_walk("lib1/movies", "lib1", "Movie") is None
+
+
+def test_reconciling_a_library_clears_its_restore_points():
+    """Update mode never runs the walk that owns the point, so the prune is
+    the only thing that can sweep one — without this the live point survived a
+    pass that had just proven the library fully in sync."""
+    sync = _walking_sync()
+    sync.sync["RestorePoints"] = {
+        "lib1/movies": {"params": {"StartIndex": 1250}},
+        "lib1/tvshows-series": {"params": {"StartIndex": 10}},
+        "lib2/movies": {"params": {"StartIndex": 5}},
+    }
+
+    sync.clear_library_restore_points("lib1")
+
+    assert list(sync.sync["RestorePoints"]) == ["lib2/movies"]
