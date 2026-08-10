@@ -2008,8 +2008,14 @@ msgstr ""
 
 # 30810 — the aggregate refusal, before anything is queued. Distinct from
 # #30715, which the manager raises per item once a transfer is under way.
+#
+# Kept short deliberately. A Kodi notification fits about 33 characters and
+# *scrolls* the rest, so a longer line is read a window at a time — measured
+# live, "Not enough free space: 5.7 GB needed, 4.2 GB free" was caught
+# mid-scroll as "enough free space: 5.7 GB needed,", which says the opposite
+# of what it means. The warning glyph and the Kofin heading carry the rest.
 msgctxt "#30810"
-msgid "Not enough free space: %s needed, %s free"
+msgid "Needs %s, only %s free"
 msgstr ""
 
 # 30804-30807 — the settings button that clears every download at once. The
