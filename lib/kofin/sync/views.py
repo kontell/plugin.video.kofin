@@ -407,6 +407,14 @@ class Views(object):
         as deleted. See get_views.
         """
 
+        if self.server is None:
+            # Stated rather than tripped over: ``server`` is optional on this
+            # class for the local-only paths (remove_library and kin), so
+            # reaching here without one is a caller error. Unguarded it
+            # surfaced as an AttributeError on NoneType, twice logged with a
+            # traceback, naming neither the cause nor the caller.
+            raise IndexError("Views has no server to list libraries from")
+
         # /Library/MediaFolders is admin-only (403 for a normal user). It is
         # worth asking for because it carries OriginalCollectionType and the
         # physical folders behind grouped views, but it must not be required:
@@ -1277,12 +1285,19 @@ class Views(object):
         index = 0
         windex = 0
 
-        try:
-            # Window props are cosmetic and rebuilt every start, so a listing
-            # that came back short only costs this pass its labels.
-            self.media_folders, _ = self.get_libraries()
-        except IndexError as error:
-            LOG.exception(error)
+        # Only when there is a server to ask. The listing feeds one thing —
+        # window_artwork's library tile — and that already clears the prop
+        # outright when self.server is None, so a serverless pass has nothing
+        # to gain here and used to pay two logged tracebacks for it (the
+        # settings-apply node rebuild goes through Views() with no server).
+        if self.server is not None:
+            try:
+                # Window props are cosmetic and rebuilt every start, so a
+                # listing that came back short only costs this pass its
+                # labels.
+                self.media_folders, _ = self.get_libraries()
+            except IndexError as error:
+                LOG.exception(error)
 
         for library in libraries:
             view = {

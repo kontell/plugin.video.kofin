@@ -854,3 +854,29 @@ def test_music_node_removal_leaves_a_hand_made_node_alone(views_env):
 
     assert (root / "mine.xml").is_file()
     assert root.is_dir()  # not emptied, so not removed
+
+
+def test_serverless_node_generation_asks_no_server(views_env, monkeypatch):
+    """The settings-apply rebuild (a downloads toggle) constructs Views with
+    no server. window_nodes drives its loop from kofin.db's own view table and
+    window_artwork clears the tile prop outright when there is no server, so
+    the media-folder listing has nothing to contribute on that path — it just
+    used to blow up on NoneType and log two tracebacks per toggle."""
+    seed(
+        [("lib1", "Movies", "movies")],
+        ["lib1"],
+    )
+
+    def explode(self):
+        raise AssertionError("get_libraries must not be called without a server")
+
+    monkeypatch.setattr(Views, "get_libraries", explode)
+
+    Views().get_nodes()
+
+
+def test_listing_libraries_without_a_server_names_the_caller_error(views_env):
+    """The local-only paths are allowed no server; asking this one for the
+    server's listing is a caller error and should say so."""
+    with pytest.raises(IndexError, match="no server"):
+        Views().get_libraries()
