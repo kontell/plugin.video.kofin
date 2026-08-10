@@ -1891,3 +1891,90 @@ msgstr ""
 msgctxt "#30776"
 msgid "Downloading subtitle..."
 msgstr ""
+
+# 30777-30797 — Jellyfin account settings: the server-side user preferences
+# that resolve every playback's default audio and subtitle track, edited from
+# the Account tab (plugin/userprefs.py)
+msgctxt "#30777"
+msgid "Jellyfin account settings"
+msgstr ""
+
+msgctxt "#30778"
+msgid "Audio and subtitle preferences stored on the server against your Jellyfin account. They apply to every client you sign in from, not just this one."
+msgstr ""
+
+msgctxt "#30779"
+msgid "Jellyfin settings for %s"
+msgstr ""
+
+msgctxt "#30780"
+msgid "Preferred audio language"
+msgstr ""
+
+msgctxt "#30781"
+msgid "Play default audio track"
+msgstr ""
+
+msgctxt "#30782"
+msgid "Preferred subtitle language"
+msgstr ""
+
+msgctxt "#30783"
+msgid "Subtitle mode"
+msgstr ""
+
+msgctxt "#30784"
+msgid "Remember audio selections"
+msgstr ""
+
+msgctxt "#30785"
+msgid "Remember subtitle selections"
+msgstr ""
+
+msgctxt "#30786"
+msgid "Enabled"
+msgstr ""
+
+msgctxt "#30787"
+msgid "Disabled"
+msgstr ""
+
+msgctxt "#30788"
+msgid "Any"
+msgstr ""
+
+msgctxt "#30789"
+msgid "Default"
+msgstr ""
+
+msgctxt "#30790"
+msgid "Always"
+msgstr ""
+
+msgctxt "#30791"
+msgid "Only forced"
+msgstr ""
+
+msgctxt "#30792"
+msgid "None"
+msgstr ""
+
+msgctxt "#30793"
+msgid "Smart"
+msgstr ""
+
+msgctxt "#30794"
+msgid "Not applied here: \"Use Jellyfin's default tracks\" is off"
+msgstr ""
+
+msgctxt "#30795"
+msgid "Could not load your Jellyfin settings"
+msgstr ""
+
+msgctxt "#30796"
+msgid "Could not save to the server"
+msgstr ""
+
+msgctxt "#30797"
+msgid "Your Jellyfin account is not allowed to change these settings"
+msgstr ""

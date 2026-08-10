@@ -254,6 +254,42 @@ class Api:
         listing: List[JsonDict] = response.json() if response.content else []
         return listing
 
+    def me(self) -> JsonDict:
+        """The logged-in user's own UserDto: Configuration and Policy.
+
+        ``/Users/Me`` and ``/Users/Configuration`` below are *not* the
+        ``/Users/{userId}/…`` family ``_as_user`` exists to avoid — both are
+        top-level routes in 10.11's OpenAPI spec, and this one carries no path
+        id at all (the token names the user). Verified against 10.11.11.
+        """
+        return self.get("/Users/Me")
+
+    def update_user_configuration(self, configuration: JsonDict) -> None:
+        """Replace the user's whole UserConfiguration.
+
+        The server takes no partial update here: whatever this posts *is* the
+        configuration afterwards. Callers must send a full document read from
+        :meth:`me`, or fields they never meant to touch (the home screen's
+        ``OrderedViews``, ``GroupedFolders``) are cleared.
+        """
+        self.post("/Users/Configuration", dict(configuration), self._as_user())
+
+    def cultures(self) -> List[JsonDict]:
+        """The server's language list, for the audio/subtitle preferences.
+
+        ``ThreeLetterISOLanguageName`` is the value a preference stores — it is
+        what the web client writes, so a code set here round-trips with it.
+        """
+        response = self._http.request(
+            "GET",
+            self._url("/Localization/Cultures"),
+            headers=self._headers(),
+            timeout=self._timeout,
+            retries=self._retries,
+        )
+        listing: List[JsonDict] = response.json() if response.content else []
+        return listing
+
     def session_add_user(self, session_id: str, user_id: str) -> None:
         self.post("/Sessions/%s/User/%s" % (session_id, user_id))
 

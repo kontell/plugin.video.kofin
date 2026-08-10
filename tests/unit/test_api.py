@@ -405,6 +405,7 @@ def test_interactive_list_gets_carry_the_same_budget():
     client, transport = interactive_api()
     client.device_sessions("dev1")
     client.users()
+    client.cultures()
     for call in transport.calls:
         assert call["kwargs"]["retries"] == 1
         assert call["kwargs"]["timeout"] == (3.05, 30.0)
@@ -429,3 +430,41 @@ def test_service_profile_leaves_the_transport_defaults_alone():
     kwargs = transport.calls[0]["kwargs"]
     assert kwargs["retries"] is None
     assert kwargs["timeout"] is None
+
+
+def test_user_configuration_uses_the_top_level_routes(api):
+    """``/Users/Me`` and ``/Users/Configuration`` are the exception to the
+    rule the test above enforces.
+
+    Both are top-level routes in 10.11's OpenAPI spec, not the
+    ``/Users/{userId}/…`` sub-route family that was moved in 10.9 and is only
+    still answered out of politeness. ``/Users/Me`` takes no user at all (the
+    token names them); the write takes ``userId`` as a query parameter like
+    every other user-scoped call. Verified against a live 10.11.11 server.
+    """
+    client, transport = api
+    client.me()
+    client.update_user_configuration({"SubtitleMode": "Smart", "OrderedViews": ["v1"]})
+
+    assert [
+        (c["method"], c["url"], c["params"], c["json"]) for c in transport.calls
+    ] == [
+        ("GET", "http://s:8096/Users/Me", None, None),
+        (
+            "POST",
+            "http://s:8096/Users/Configuration",
+            {"userId": "uid"},
+            {"SubtitleMode": "Smart", "OrderedViews": ["v1"]},
+        ),
+    ]
+
+
+def test_cultures_reads_the_localization_list(api):
+    client, transport = api
+    client.cultures()
+
+    call = transport.calls[0]
+    assert (call["method"], call["url"]) == (
+        "GET",
+        "http://s:8096/Localization/Cultures",
+    )
