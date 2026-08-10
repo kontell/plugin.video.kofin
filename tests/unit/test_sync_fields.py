@@ -15,13 +15,21 @@ from kofin.sync import fields
 class CountingApi:
     """Records every /Ancestors walk so the tests can count round trips."""
 
-    def __init__(self, chain_by_id):
+    def __init__(self, chain_by_id, children_by_artist=None):
         self.chain_by_id = chain_by_id
+        # /Items?ArtistIds= answers for the folder-less artist fallback.
+        self.children_by_artist = children_by_artist or {}
         self.calls = []
+        self.item_queries = []
 
     def ancestors(self, item_id):
         self.calls.append(item_id)
         return self.chain_by_id.get(item_id, [])
+
+    def items(self, params):
+        self.item_queries.append(params)
+        children = self.children_by_artist.get(params.get("ArtistIds"), [])
+        return {"Items": children[: params.get("Limit", len(children))]}
 
 
 LIBRARY = {"Id": "lib2", "Name": "Music"}
@@ -132,6 +140,68 @@ def test_mixed_libraries_match_on_their_bare_id(whitelist):
     found = fields.find_library(api, {"Id": "m1", "ParentId": "p1"}, {})
 
     assert found == {"Id": "lib9", "Name": "Mixed"}
+
+
+# --- folder-less artists ------------------------------------------------------
+
+
+def test_folderless_artist_resolves_through_its_content(whitelist):
+    """Artists are server-global entities: a metadata-only artist answers
+    /Ancestors with [], which used to make every realtime "artist added"
+    unsyncable — the Bravia incident, where a server-recreated artist stayed
+    missing forever. Its songs do have ancestors; the library comes from one
+    of them."""
+    api = CountingApi(
+        {"so1": [{"Id": "al1"}, ARTIST, LIBRARY]},
+        children_by_artist={"artist1": [{"Id": "so1"}]},
+    )
+
+    found = fields.find_library(api, {"Id": "artist1", "Type": "MusicArtist"}, {})
+
+    assert found == LIBRARY
+    assert api.calls == ["artist1", "so1"]
+    assert api.item_queries[0]["ArtistIds"] == "artist1"
+    assert api.item_queries[0]["Limit"] == 1
+
+
+def test_artist_without_whitelisted_content_reports_no_library(whitelist):
+    api = CountingApi(
+        {"so1": [{"Id": "other-lib"}]},
+        children_by_artist={"artist1": [{"Id": "so1"}]},
+    )
+
+    assert fields.find_library(api, {"Id": "artist1", "Type": "MusicArtist"}, {}) == {}
+
+
+def test_artist_with_no_content_reports_no_library(whitelist):
+    api = CountingApi({})
+
+    assert fields.find_library(api, {"Id": "artist1", "Type": "MusicArtist"}, {}) == {}
+    assert api.item_queries  # the fallback was tried...
+    assert api.calls == ["artist1"]  # ...but there was nothing to walk
+
+
+def test_non_artists_never_take_the_content_fallback(whitelist):
+    """/Items?ArtistIds is an artist question; anything else keeps the old
+    answer for an unresolvable item."""
+    api = CountingApi({})
+
+    assert fields.find_library(api, {"Id": "al1", "ParentId": "p1"}, {}) == {}
+    assert api.item_queries == []
+
+
+def test_folderless_artist_resolution_is_not_memoized(whitelist):
+    """The memo keys on the parent folder, and an artist's content — not its
+    folder siblings — decides this answer."""
+    api = CountingApi(
+        {"so1": [LIBRARY]},
+        children_by_artist={"artist1": [{"Id": "so1"}]},
+    )
+    cache = {}
+
+    fields.find_library(api, {"Id": "artist1", "Type": "MusicArtist"}, cache)
+
+    assert cache == {}
 
 
 # --- resume adjustment --------------------------------------------------------

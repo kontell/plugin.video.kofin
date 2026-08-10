@@ -554,5 +554,47 @@ def find_library(server, item, cache=None):
 
             return ancestor
 
+    if item.get("Type") == "MusicArtist":
+        # Artists are server-global entities, not children of a library:
+        # a folder-less artist (metadata-only, every artist whose tag came
+        # from files inside album folders) answers /Ancestors with [], and
+        # even a folder-backed one only names the folder it happens to live
+        # in. So a realtime "artist added" could never resolve a library
+        # here and the artist was silently dropped — which is how an artist
+        # deleted and re-created by the server (it still had a track on a
+        # compilation) stayed missing until a repair. The artist's albums
+        # and songs do have ancestors; resolve through one of them. Not
+        # memoized: the cache key is the parent folder, and an artist's
+        # content decides this answer, not its folder siblings.
+        library = _artist_library(server, item["Id"], whitelist)
+        if library:
+            LOG.info(
+                "Artist %s resolved to library %s through its content",
+                item["Id"],
+                library["Id"],
+            )
+            return library
+
     LOG.error("No ancestor found, not syncing item with ID: %s", item["Id"])
+    return {}
+
+
+def _artist_library(server, artist_id, whitelist):
+    """The whitelisted ancestor view of one of the artist's albums or songs,
+    or {} for an artist with no content in any whitelisted library."""
+    listing = server.items(
+        {
+            "ArtistIds": artist_id,
+            "Recursive": True,
+            "IncludeItemTypes": "MusicAlbum,Audio",
+            "Limit": 1,
+            "EnableTotalRecordCount": False,
+        }
+    )
+
+    for child in listing.get("Items") or []:
+        for ancestor in server.ancestors(child["Id"]):
+            if ancestor["Id"] in whitelist:
+                return ancestor
+
     return {}

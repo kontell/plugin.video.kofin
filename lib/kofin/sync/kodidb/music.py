@@ -261,6 +261,56 @@ class Music(Kodi):
     def link_song_artist(self, *args):
         self.cursor.execute(QU.update_song_artist, args)
 
+    def unlink_blank_artist(self, song_id):
+        """Drop a song's [Missing Tag] credit once it has a real one: the
+        blank row is the writer's last-resort visibility guarantee, and a
+        song that regained its artists must not keep showing under the
+        placeholder too."""
+        self.cursor.execute(QU.delete_blank_song_artist, (song_id, BLANKARTIST_ID))
+
+    def get_songs_by_artist(self, artist_id):
+        """Kodi ids of every song credited to the artist (role 1), wherever
+        its album lives — compilation appearances included."""
+        self.cursor.execute(QU.get_songs_by_artist, (artist_id,))
+
+        return [row[0] for row in self.cursor.fetchall()]
+
+    def album_has_album_artist(self, album_id, artist_id):
+        self.cursor.execute(QU.get_album_artist_link, (album_id, artist_id))
+
+        return self.cursor.fetchone() is not None
+
+    def recredit_songs(self, song_ids):
+        """Give songs that just lost their only role-1 artist link the
+        [Missing Tag] credit, so they stay visible.
+
+        Kodi reaches songs through song_artist (its song listings inner-join
+        songartistview), so a song with no row there is not artist-less, it
+        is invisible. The blank artist rather than something plausible like
+        the album artist because the substitute must also *leave*: the
+        writer's rewrite drops a blank credit the moment a real one lands
+        (unlink_blank_artist), while any other borrowed credit would linger
+        forever. Returns the kodi ids actually re-credited.
+        """
+        healed = []
+
+        for song_id in song_ids:
+            self.cursor.execute(QU.get_song_exists, (song_id,))
+            if self.cursor.fetchone() is None:
+                continue
+
+            self.cursor.execute(QU.get_song_role1_artist, (song_id,))
+            if self.cursor.fetchone() is not None:
+                continue
+
+            self.cursor.execute(
+                QU.update_song_artist,
+                (BLANKARTIST_ID, song_id, 1, 0, BLANKARTIST_NAME),
+            )
+            healed.append(song_id)
+
+        return healed
+
     def link_song_album(self, *args):
         if self.version_id < 72:
             self.cursor.execute(QU.update_song_album, args)
