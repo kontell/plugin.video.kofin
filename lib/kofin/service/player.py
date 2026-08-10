@@ -33,7 +33,7 @@ from kofin.core.api import Api
 from kofin.downloads import auto as downloads_auto
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
-from kofin.service import chapters
+from kofin.service import chapters, latesubs
 from kofin.service.segments import SegmentChecker, parse_segments
 
 if TYPE_CHECKING:
@@ -619,6 +619,7 @@ class Player(xbmc.Player):
         self._overlay_autoplay = False
         self._skip_target: Optional[float] = None
         self._chapter_thumbs: Optional[chapters.ChapterThumbs] = None
+        self._late_subs: Optional[latesubs.LateSubtitles] = None
         self._reporter = _Reporter()
         self._reporter.start()
 
@@ -770,6 +771,7 @@ class Player(xbmc.Player):
         self._start_ticker()
         self._start_segment_engine(claimed)
         self._start_chapter_thumbs(claimed)
+        self._start_late_subtitles(claimed)
 
     def onAVStarted(self) -> None:
         """First frame rendered: the SyncPlay Ready trigger, and the earliest
@@ -860,6 +862,7 @@ class Player(xbmc.Player):
         self._segment_reset()
         self._stop_ticker()
         self._stop_chapter_thumbs()
+        self._stop_late_subtitles()
         self._reset_lyrics()
         self._auto_next_latch = ""
         with self._lock:
@@ -919,6 +922,7 @@ class Player(xbmc.Player):
         self._segment_reset()
         self._stop_ticker()
         self._stop_chapter_thumbs()
+        self._stop_late_subtitles()
         self._reporter.stop()
 
     def submit_backfill(self, data: JsonDict) -> None:
@@ -1068,6 +1072,15 @@ class Player(xbmc.Player):
             state.publish_playing_streams(payload, offer)
         except Exception:
             LOG.exception("publishing playing streams failed")
+
+    def republish_streams(self, item: JsonDict) -> None:
+        """Re-publish a claimed item's streams after they changed under it.
+
+        The late-subtitle chase extends the attached list mid-playback, and
+        the context menu reads its copy off a window property — so without
+        this the menu goes on mapping indices against the list the playback
+        started with."""
+        self._publish_streams(item)
 
     def apply_default_tracks(self) -> None:
         """Start on the tracks the Jellyfin *user profile* nominates.
@@ -1715,6 +1728,47 @@ class Player(xbmc.Player):
         if self._chapter_thumbs is not None:
             self._chapter_thumbs.stop()
             self._chapter_thumbs = None
+
+    def _start_late_subtitles(self, item: JsonDict) -> None:
+        """Chase any subtitle the server had not finished extracting.
+
+        Nothing to do on the normal path: a track the play route fetched is
+        already attached, and this only exists for the cold-extraction case
+        (service/latesubs.py)."""
+        self._stop_late_subtitles()  # belt: no chase leaks across claims
+        deferred = latesubs.deferred_of(item)
+        if not deferred:
+            return
+        self._late_subs = latesubs.LateSubtitles(self.api.http, self, item, deferred)
+        self._late_subs.start()
+
+    def _stop_late_subtitles(self) -> None:
+        if self._late_subs is not None:
+            self._late_subs.stop()
+            self._late_subs = None
+
+    def fetch_subtitle(self, index: int) -> None:
+        """AttachSubtitle IPC: the stream menu picked a track the transcode
+        did not attach.
+
+        Runs on Kodi's notification thread, so it must only start the chase —
+        the fetch itself is an ffmpeg extraction on the server and takes tens
+        of seconds (service/latesubs.py). Supersedes any chase in flight: a
+        viewer who picks a second subtitle has changed their mind about the
+        first, and only one of them can be on screen anyway."""
+        item = self.current_item()
+        if item is None:
+            LOG.warning("subtitle %s requested with nothing playing", index)
+            return
+        attachment = latesubs.fetchable_of(item).get(index)
+        if attachment is None:
+            LOG.warning("subtitle %s is not one this playback can be handed", index)
+            return
+        self._stop_late_subtitles()
+        self._late_subs = latesubs.LateSubtitles(
+            self.api.http, self, item, [attachment], requested=True
+        )
+        self._late_subs.start()
 
 
 class _Ticker(threading.Thread):

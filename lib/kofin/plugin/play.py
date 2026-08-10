@@ -185,6 +185,8 @@ def play_state(
     device_id: str,
     start_seconds: float,
     attached: Optional[List[int]] = None,
+    deferred: Optional[List[streams.Attachment]] = None,
+    fetchable: Optional[List[streams.Attachment]] = None,
     request_params: Optional[Dict[str, str]] = None,
 ) -> JsonDict:
     return {
@@ -218,6 +220,16 @@ def play_state(
             # The setSubtitles order, which is what makes a Jellyfin index
             # translatable to a Kodi subtitle number at all.
             "Attached": list(attached or []),
+            # Every embedded text track the server can hand over as a file,
+            # whether or not this play asked for one. Whole attachments rather
+            # than indices, because the service fetches them by URL and names
+            # the files exactly as the play path would have
+            # (plugin/subtitles.py) — this is what lets a subtitle picked from
+            # the menu arrive without resolving a new stream.
+            "Fetchable": [item._asdict() for item in fetchable or []],
+            # Of those, the one this play resolved with and did not get inside
+            # its budget: chased automatically as soon as the service claims.
+            "Deferred": [item.stream_index for item in deferred or []],
             # A restart has to reproduce *this* play method, and a context
             # transcode's bitrate lives nowhere else — the settings would
             # resolve it back to direct play.
@@ -476,9 +488,11 @@ def play(request: Request) -> None:
     attached = streams.attached_subtitles(
         api.server, source, method, kodirpc.preferred_subtitle_language()
     )
-    localized = subtitles.localize(http, attached) if attached else []
-    if localized:
-        li.setSubtitles([path for _attachment, path in localized])
+    localized = (
+        subtitles.localize(http, attached) if attached else subtitles.Localized([], [])
+    )
+    if localized.files:
+        li.setSubtitles([path for _attachment, path in localized.files])
 
     play_item = play_state(
         item,
@@ -488,7 +502,9 @@ def play(request: Request) -> None:
         play_session_id,
         creds.device_id,
         start_ticks / 10_000_000,
-        attached=[attachment.stream_index for attachment, _path in localized],
+        attached=[attachment.stream_index for attachment, _path in localized.files],
+        deferred=localized.deferred,
+        fetchable=streams.fetchable_subtitles(api.server, source),
         request_params=request.params,
     )
     # Bounded: the interactive Api budget caps the fetch, so a hung join here

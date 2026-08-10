@@ -186,6 +186,29 @@ def test_direct_play_attaches_only_the_sidecar():
         ] == [(6, SERVER + "/subs/6.srt", True)]
 
 
+def test_every_embedded_text_track_is_fetchable():
+    """A superset of what gets attached: the play route extracts one track
+    before the first frame, but any of them can be handed over later, which is
+    what lets the stream menu fetch instead of resolving a new stream."""
+    assert [
+        (item.stream_index, item.url)
+        for item in streams.fetchable_subtitles(SERVER, LAYOUT)
+    ] == [(3, SERVER + "/subs/3.srt"), (4, SERVER + "/subs/4.srt")]
+
+
+def test_nothing_fetchable_is_a_sidecar_an_image_or_undeliverable():
+    """A sidecar is never missing — it rides every play. An image track is no
+    use as a file: Kodi cannot render a standalone PGS, and a transcode can
+    only put one on screen by burning it in."""
+    layout = source(
+        text_sub(3, IsExternal=True),  # sidecar, always attached already
+        image_sub(4),
+        text_sub(5, DeliveryMethod="Encode"),
+        text_sub(6, DeliveryUrl=None),
+    )
+    assert streams.fetchable_subtitles(SERVER, layout) == []
+
+
 def test_attach_skips_streams_the_server_will_not_deliver():
     layout = source(
         text_sub(3, DeliveryMethod="Encode"),
@@ -286,11 +309,11 @@ def test_is_image_subtitle_prefers_the_flag_and_falls_back_to_the_codec():
     assert not streams.is_image_subtitle({"Codec": "subrip"})
 
 
-def test_only_an_image_subtitle_on_a_transcode_needs_a_restart():
-    assert streams.needs_restart(image_sub(5), "Transcode")
-    assert not streams.needs_restart(text_sub(3), "Transcode")
+def test_only_an_image_subtitle_on_a_transcode_needs_a_new_stream():
+    assert streams.burns_in(image_sub(5), "Transcode")
+    assert not streams.burns_in(text_sub(3), "Transcode")
     # On direct play it is in the container; Kodi just draws it.
-    assert not streams.needs_restart(image_sub(5), "DirectStream")
+    assert not streams.burns_in(image_sub(5), "DirectStream")
 
 
 # -- selectable / offer ------------------------------------------------------
@@ -308,14 +331,28 @@ def test_selectable_on_a_transcode_is_every_track():
     assert [stream["Index"] for stream in selectable] == [3, 4, 5, 6]
 
 
-def test_a_transcode_text_track_that_is_not_attached_costs_a_restart():
-    # 3 is attached and switches in place; 4 is not and needs a new stream;
-    # 5 is an image track, which can only be burned in.
-    assert not streams.needs_restart(text_sub(3), "Transcode", [3, 6])
-    assert streams.needs_restart(text_sub(4), "Transcode", [3, 6])
-    assert streams.needs_restart(image_sub(5), "Transcode", [3, 6])
-    # Direct play holds every track in the container: never a restart.
-    assert not streams.needs_restart(text_sub(4), "DirectStream", [6])
+def test_a_transcode_text_track_that_is_not_attached_is_fetched():
+    # 3 is attached and switches in place; 4 is not, so it is downloaded onto
+    # the running playback; 5 is an image track, which can only be burned in.
+    assert not streams.needs_fetch(text_sub(3), "Transcode", [3, 6])
+    assert streams.needs_fetch(text_sub(4), "Transcode", [3, 6])
+    assert not streams.needs_fetch(image_sub(5), "Transcode", [3, 6])
+    # Direct play holds every track in the container: nothing to fetch.
+    assert not streams.needs_fetch(text_sub(4), "DirectStream", [6])
+
+
+def test_the_two_costs_are_told_apart():
+    """Conflating them mislabelled a plain SRT "burned in", made its restart
+    ask the server for a burn-in, and charged a five-second gap for something
+    that needs no new stream at all."""
+    # An image track: pixels in the video, so only a new stream can carry it.
+    assert streams.burns_in(image_sub(5), "Transcode")
+    assert not streams.needs_fetch(image_sub(5), "Transcode", [3])
+    # A text track: a file, fetched onto the playback already running.
+    assert not streams.burns_in(text_sub(4), "Transcode")
+    assert streams.needs_fetch(text_sub(4), "Transcode", [3])
+    # Nothing is ever burned in on a direct play.
+    assert not streams.burns_in(image_sub(5), "DirectStream")
 
 
 @pytest.mark.parametrize(

@@ -5,13 +5,16 @@ to by pressing Back or Tab — fullscreen video itself has no context menu, but
 leaving it does not stop playback, and the item stays focused with
 ``ListItem.IsPlaying`` true (docs/transcode-stream-selection-plan.md §2.7).
 
-Two kinds of change, and the difference is the whole reason this module
+Three kinds of change, and the differences are the whole reason this module
 exists. A subtitle Kodi already holds — anything embedded on a direct play,
-anything attached as a file — switches in place, instantly. Audio on a
-transcode cannot: Jellyfin bakes one audio track into the HLS output and
-offers no alternates, so changing it means resolving a new stream and
-restarting at the current position, which costs about five seconds. The same
-goes for an image subtitle on a transcode, which can only be burned in.
+anything attached as a file — switches in place, instantly. A text subtitle a
+transcode did not attach is fetched from the server and added to the running
+playback, which costs a wait but no gap: this module states the index and the
+service does the waiting (:func:`_fetch_subtitle`). Only two things still
+resolve a new stream, because only they cannot be answered any other way —
+audio on a transcode, since Jellyfin bakes one track into the HLS output and
+offers no alternates, and an image subtitle on a transcode, which can only
+reach the screen burned into the video.
 
 No API call happens here. Everything the menus show was resolved by the play
 route's own PlaybackInfo and published when the service claimed the playback,
@@ -24,7 +27,7 @@ from urllib.parse import parse_qsl, urlparse
 import xbmc
 import xbmcgui
 
-from kofin.core import kodirpc, settings, state, streams, toast
+from kofin.core import ipc, kodirpc, settings, state, streams, toast
 from kofin.core.log import Logger
 from kofin.plugin.listitems import plugin_url
 from kofin.plugin.router import Request
@@ -196,14 +199,20 @@ def _choose_subtitle(
     for stream in subtitles:
         active = stream.get("Index") == playing.subtitle
         label = streams.label_for(stream, active)
-        if streams.needs_restart(stream, method, attached) and not active:
-            # Two kinds of row cost a restart on a transcode: an image
-            # subtitle, which can only be burned in, and a text one that was
-            # not attached (only the resolved track is — see
-            # streams.attached_subtitles). Either way the row says so rather
-            # than surprising the viewer with a five-second gap. The one
-            # already on screen has nothing left to warn about.
-            label = "%s (%s)" % (label, settings.localized(30617))
+        if not active:
+            # Two kinds of row cost something on a transcode, and they are not
+            # the same thing. An image subtitle can only reach the screen as
+            # pixels in the video, so it costs a new stream. A text one that
+            # was not attached (only the resolved track is — see
+            # streams.attached_subtitles) costs a download and nothing else:
+            # the service fetches it onto the running playback. Saying "burned
+            # in" for both told a viewer picking a plain SRT that their picture
+            # was about to be stamped with it. The row already on screen has
+            # nothing left to warn about either way.
+            if streams.burns_in(stream, method):
+                label = "%s (%s)" % (label, settings.localized(30617))
+            elif streams.needs_fetch(stream, method, attached):
+                label = "%s (%s)" % (label, settings.localized(30775))
         rows.append((stream, label))
 
     labels: List[Union[str, xbmcgui.ListItem]] = [label for _, label in rows]
@@ -229,9 +238,18 @@ def _choose_subtitle(
         LOG.info("subtitles off")
         return
     if chosen.get("Index") == playing.subtitle:
-        return  # already on screen; never pay a restart to arrive where we are
-    if streams.needs_restart(chosen, method, attached):
+        return  # already on screen; never pay anything to arrive where we are
+    if streams.burns_in(chosen, method):
+        # The only row left that costs a new stream. ``burned=True`` is what
+        # puts ``burnsubs=1`` on the restart, and only an image subtitle wants
+        # that: a text track restarted with it asked the server to withdraw
+        # the image subtitle formats for a stream that carries no image
+        # subtitle — harmless by luck, wrong by intent, and it is what made
+        # the menu call a plain SRT burned in.
         _restart(payload, playing._replace(subtitle=chosen.get("Index"), burned=True))
+        return
+    if streams.needs_fetch(chosen, method, attached):
+        _fetch_subtitle(chosen)
         return
     ordinal = streams.subtitle_ordinal(
         media_streams, chosen.get("Index"), attached, method
@@ -265,6 +283,28 @@ def _current_subtitle_index(
         ):
             return stream.get("Index")
     return None
+
+
+def _fetch_subtitle(chosen: JsonDict) -> None:
+    """Ask the service for a text track the transcode did not attach.
+
+    Not done here, and not by preference: fetching it means waiting on an
+    ffmpeg extraction the server runs on demand — measured at 28-146 s
+    depending on the source file — and this process is a plugin invocation
+    that has to return. The service owns the running playback and can wait
+    (``service/latesubs.py``), so this states the index and exits.
+
+    This used to restart playback into a stream resolved with the track
+    instead, which cost a five-second gap *and* re-ran the same doomed fetch
+    on the play route, so the viewer's first pick reliably came back with no
+    subtitle at all.
+    """
+    index = chosen.get("Index")
+    if index is None:
+        return
+    LOG.info("subtitle %s requested; asking the service to fetch it", index)
+    toast.show(settings.localized(30776), time_ms=4000)
+    ipc.notify(ipc.ATTACH_SUBTITLE, {"Index": int(index)})
 
 
 # -- restart -----------------------------------------------------------------

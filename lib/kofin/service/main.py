@@ -849,6 +849,13 @@ class Service(xbmc.Monitor):
             self._open_who_is_watching()
         elif name == ipc.PRECACHE_ART:
             self._precache_art_now()
+        elif name == ipc.ATTACH_SUBTITLE:
+            try:
+                index = int(payload["Index"])
+            except (KeyError, TypeError, ValueError):
+                LOG.warning("AttachSubtitle without a usable index: %s", payload)
+            else:
+                self.player.fetch_subtitle(index)
         elif name in DOWNLOAD_COMMANDS:
             # Notification thread: the manager's surface only enqueues onto
             # its ops queue — no database, no socket (audit finding #3).
