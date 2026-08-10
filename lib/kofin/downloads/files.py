@@ -32,8 +32,15 @@ _WHITESPACE = re.compile(r"\s+")
 # to the last byte breaks them first (Emby's reserve, same number).
 FREE_SPACE_RESERVE = 2 * 1024**3
 
+# The share of free space at which a download request is worth asking about.
+# The confirmation used to key on whether the item was a container, which
+# asked the wrong question: a single 40 GB film went in silence while thirty
+# three-minute tracks needed an answer. A quarter of the volume is the point
+# where "will this fit" stops being obvious.
+CONFIRM_FREE_SPACE_RATIO = 0.25
+
 MOVIES_DIR = "Movies"
-TV_DIR = "TV"
+SHOWS_DIR = "Shows"
 MUSIC_DIR = "Music"
 
 
@@ -118,7 +125,7 @@ def item_dirs(item: JsonDict) -> Tuple[str, Optional[str]]:
     """(owning directory, leaf subdirectory) for an item, relative, POSIX.
 
     Movies: ``("Movies/<Title (Year)>", None)`` — the directory belongs to
-    the film alone. Episodes: ``("TV/<Show>", "Season NN")`` — the *show*
+    the film alone. Episodes: ``("Shows/<Show>", "Season NN")`` — the *show*
     directory is the owner and the season is a leaf inside it (season 0 is
     ``Specials``, Kodi's own convention; an episode with no season number
     sits directly under the show). The split is what keeps collision
@@ -137,7 +144,7 @@ def item_dirs(item: JsonDict) -> Tuple[str, Optional[str]]:
             None,
         )
     if item_type == "Episode":
-        show = posixpath.join(TV_DIR, sanitize(str(item.get("SeriesName") or "")))
+        show = posixpath.join(SHOWS_DIR, sanitize(str(item.get("SeriesName") or "")))
         season = item.get("ParentIndexNumber")
         if season is None:
             return show, None
@@ -148,7 +155,7 @@ def item_dirs(item: JsonDict) -> Tuple[str, Optional[str]]:
         # ``Music/<AlbumArtist>/<Album>``, the album directory owning its
         # tracks the way a show's owns its episodes (owner = album id). The
         # artist level is plain nesting — nothing owns or uniquifies it, like
-        # the ``TV/`` type directory.
+        # the ``Shows/`` type directory.
         artists = item.get("AlbumArtists") or []
         artist = str(
             item.get("AlbumArtist")

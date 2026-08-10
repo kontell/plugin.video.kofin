@@ -1619,7 +1619,7 @@ msgid "Cancel download"
 msgstr ""
 
 msgctxt "#30710"
-msgid "Remove download"
+msgid "Delete download"
 msgstr ""
 
 msgctxt "#30711"
@@ -1635,7 +1635,7 @@ msgid "Download failed: %s"
 msgstr ""
 
 msgctxt "#30714"
-msgid "Remove the download of %s?"
+msgid "Delete the download of %s?"
 msgstr ""
 
 msgctxt "#30715"
@@ -1879,7 +1879,7 @@ msgid "How many tracks download at the same time. Tracks are small and mostly ov
 msgstr ""
 
 msgctxt "#30774"
-msgid "Remove %s download(s) of %s?"
+msgid "Delete %s download(s) of %s?"
 msgstr ""
 
 # 30775-30776 — the other half of #30617: a text subtitle a transcode did not
@@ -1977,4 +1977,66 @@ msgstr ""
 
 msgctxt "#30797"
 msgid "Your Jellyfin account is not allowed to change these settings"
+msgstr ""
+
+# 30798-30803 — the bulk-import guard, one threshold per automatic arm. Over
+# the number the whole batch is skipped rather than trimmed: an arbitrary few
+# of hundreds is worse than asking.
+msgctxt "#30798"
+msgid "Skip movie imports larger than"
+msgstr ""
+
+msgctxt "#30799"
+msgid "When a sync adds more new movies than this at once, none of them are downloaded — a bulk import is rarely a request to fill the disk. Raise it if you want big additions pulled automatically."
+msgstr ""
+
+msgctxt "#30800"
+msgid "Skip episode imports larger than"
+msgstr ""
+
+msgctxt "#30801"
+msgid "When a sync adds more new episodes than this at once, none of them are downloaded. Shows you have subscribed to are exempt — a subscription is a standing order."
+msgstr ""
+
+msgctxt "#30802"
+msgid "Skip album imports larger than"
+msgstr ""
+
+msgctxt "#30803"
+msgid "When a sync adds more new albums than this at once, none of them are downloaded. Counted in albums, not tracks."
+msgstr ""
+
+# 30810 — the aggregate refusal, before anything is queued. Distinct from
+# #30715, which the manager raises per item once a transfer is under way.
+msgctxt "#30810"
+msgid "Not enough free space: %s needed, %s free"
+msgstr ""
+
+# 30804-30807 — the settings button that clears every download at once. The
+# confirmation states what is on disk rather than what was promised: a queued
+# row has fetched nothing yet, and a transcode usually lands under its source.
+msgctxt "#30804"
+msgid "Delete all downloads"
+msgstr ""
+
+msgctxt "#30805"
+msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
+msgstr ""
+
+msgctxt "#30806"
+msgid "Delete all %s download(s), freeing about %s?"
+msgstr ""
+
+msgctxt "#30807"
+msgid "There are no downloads to delete"
+msgstr ""
+
+# 30808-30809 — the playback gate. It holds the queue, not a transfer in
+# flight: stopping mid-file would strand a .part for the length of a film.
+msgctxt "#30808"
+msgid "Pause downloads during playback"
+msgstr ""
+
+msgctxt "#30809"
+msgid "Do not start new downloads while something is playing, video or music. A file already downloading finishes; the rest wait until playback stops."
 msgstr ""

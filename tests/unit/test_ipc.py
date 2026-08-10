@@ -105,11 +105,13 @@ def test_decode_never_raises_on_rubbish():
 
 def test_download_commands_are_guarded():
     """REMOVE deletes files, ADD pulls gigabytes on someone else's say-so,
-    CANCEL wastes work — all three carry the shared secret."""
+    CANCEL wastes work, REMOVE_ALL empties the lot — every one of them
+    carries the shared secret."""
     from kofin.core import ipc
 
     assert {
         ipc.DOWNLOAD_ADD,
         ipc.DOWNLOAD_CANCEL,
         ipc.DOWNLOAD_REMOVE,
+        ipc.DOWNLOAD_REMOVE_ALL,
     } <= ipc.GUARDED

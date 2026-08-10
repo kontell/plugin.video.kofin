@@ -26,9 +26,32 @@ NEXT_TRIGGER_RATIO = 0.8
 # auto-pulling an arbitrary few of hundreds would be worse than asking.
 # Subscribed shows are exempt on purpose — a subscription is a standing
 # order, and a whole season landing at once is exactly what it is for.
+#
+# The numbers are the defaults behind the settings below, kept as constants
+# so an unset value (a profile that predates the sliders) behaves exactly as
+# it always did.
 NEW_MOVIES_BATCH_LIMIT = 5
 NEW_EPISODES_BATCH_LIMIT = 10
 NEW_ALBUMS_BATCH_LIMIT = 5
+
+
+def _limit(setting_id: str, default: int) -> int:
+    """A configured bulk threshold, never zero — a zero would read as "skip
+    every import", which is what turning the feature off is for."""
+    return max(1, settings.get_int(setting_id) or default)
+
+
+def new_movies_limit() -> int:
+    return _limit("downloadsBulkMovies", NEW_MOVIES_BATCH_LIMIT)
+
+
+def new_episodes_limit() -> int:
+    return _limit("downloadsBulkEpisodes", NEW_EPISODES_BATCH_LIMIT)
+
+
+def new_albums_limit() -> int:
+    return _limit("downloadsBulkAlbums", NEW_ALBUMS_BATCH_LIMIT)
+
 
 ORIGIN_NEW_MOVIES = "auto:new"
 
@@ -214,11 +237,12 @@ def queue_new_episodes(entries: Iterable[Any]) -> int:
     ]
     if not rest:
         return queued
-    if len(rest) > NEW_EPISODES_BATCH_LIMIT:
+    cap = new_episodes_limit()
+    if len(rest) > cap:
         LOG.info(
             "auto-episodes skipped a bulk import of %d; the cap is %d",
             len(rest),
-            NEW_EPISODES_BATCH_LIMIT,
+            cap,
         )
         _bulk_toast(30764, len(rest))
         return queued
@@ -243,11 +267,12 @@ def queue_new_albums(api: Any, entries: Iterable[Any]) -> int:
     ]
     if not albums:
         return 0
-    if len(albums) > NEW_ALBUMS_BATCH_LIMIT:
+    cap = new_albums_limit()
+    if len(albums) > cap:
         LOG.info(
             "auto-albums skipped a bulk import of %d; the cap is %d",
             len(albums),
-            NEW_ALBUMS_BATCH_LIMIT,
+            cap,
         )
         _bulk_toast(30765, len(albums))
         return 0
@@ -325,11 +350,12 @@ def queue_new_movies(entries: Iterable[Any]) -> int:
     ]
     if not movie_ids:
         return 0
-    if len(movie_ids) > NEW_MOVIES_BATCH_LIMIT:
+    cap = new_movies_limit()
+    if len(movie_ids) > cap:
         LOG.info(
             "auto-movies skipped a bulk import of %d; the cap is %d",
             len(movie_ids),
-            NEW_MOVIES_BATCH_LIMIT,
+            cap,
         )
         _bulk_toast(30751, len(movie_ids))
         return 0

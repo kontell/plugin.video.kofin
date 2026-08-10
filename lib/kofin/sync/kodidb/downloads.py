@@ -146,7 +146,7 @@ class Downloads(Kodi):
     def ensure_episode_paths(
         self, type_dir: str, show_dir: str, season_dir: Optional[str]
     ) -> int:
-        """Get-or-create ``<root>/TV/``, the show directory and the season
+        """Get-or-create ``<root>/Shows/``, the show directory and the season
         directory; returns the file's target row id. The show row carries the
         writers' show-row stamps (``QU.update_path_tvshow_obj``), the season
         row stays bare with a parent link — the string-wise parent walk finds

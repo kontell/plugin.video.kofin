@@ -120,7 +120,7 @@ def test_series_has_done_is_the_tvshow_tag_lookup():
     assert store.series_has_done("show9") is False  # queued is not downloaded
 
     store.claim()
-    store.finish("e1", "TV/S/Season 01/e1.mkv", "mkv", 10)
+    store.finish("e1", "Shows/S/Season 01/e1.mkv", "mkv", 10)
     assert store.series_has_done("show9") is True
     assert store.series_has_done("othershow") is False
     assert store.series_has_done("") is False

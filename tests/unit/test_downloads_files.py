@@ -68,14 +68,14 @@ def test_episode_dirs_split_show_from_season():
     between two *shows* still separates them (see unique_dir)."""
     episode = {"Type": "Episode", "SeriesName": "UFC PPV Events"}
     assert files.item_dirs({**episode, "ParentIndexNumber": 1}) == (
-        "TV/UFC PPV Events",
+        "Shows/UFC PPV Events",
         "Season 01",
     )
     assert files.item_dirs({**episode, "ParentIndexNumber": 0}) == (
-        "TV/UFC PPV Events",
+        "Shows/UFC PPV Events",
         "Specials",
     )
-    assert files.item_dirs(episode) == ("TV/UFC PPV Events", None)
+    assert files.item_dirs(episode) == ("Shows/UFC PPV Events", None)
 
 
 def test_unknown_type_raises_instead_of_inventing_a_home():

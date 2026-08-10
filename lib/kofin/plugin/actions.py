@@ -306,10 +306,55 @@ def _free_space_note() -> str:
     return _human_size(free) if free >= 0 else "?"
 
 
+def _confirm_download(item: dict, wanted: List[dict]) -> bool:
+    """Whether to go ahead with a queue request — asking, or refusing.
+
+    The question a confirmation should answer is "will this fit", not "is
+    this a lot of things": keyed on the container type, a 40 GB film queued
+    in silence while thirty three-minute tracks demanded an answer. So the
+    request is sized against what is actually free —
+
+      * over free space minus the reserve: refused outright, since the
+        manager would only fail it item by item further down;
+      * at or over ``CONFIRM_FREE_SPACE_RATIO`` of what is free: confirmed;
+      * anything smaller: queued in silence, whatever the count.
+
+    A probe that cannot answer (files.free_bytes -1: exotic mount,
+    permissions) falls back to the old container prompt — no ratio is
+    computable, and the alternative is a silent 40 GB.
+    """
+    from kofin.downloads import downloads_root, files
+    from kofin.plugin.context import DOWNLOAD_CONTAINER_TYPES
+
+    total = sum(_estimated_size(child) for child in wanted)
+    free = files.free_bytes(downloads_root())
+
+    if free < 0:
+        if item.get("Type") not in DOWNLOAD_CONTAINER_TYPES:
+            return True
+    elif total + files.FREE_SPACE_RESERVE > free:
+        toast.show(
+            settings.localized(30810) % (_human_size(total), _human_size(free)),
+            toast.WARNING,
+        )
+        return False
+    elif total < free * files.CONFIRM_FREE_SPACE_RATIO:
+        return True
+
+    return bool(
+        xbmcgui.Dialog().yesno(
+            settings.localized(30708),
+            settings.localized(30771)
+            % (len(wanted), _human_size(total), _free_space_note()),
+        )
+    )
+
+
 def download(request: Request) -> None:
     """Queue downloads for an item or a container's episodes, then hand the
     ids to the service over the guarded IPC — the manager owns everything
-    after that. Containers confirm with a count and a size first."""
+    after that. Big requests confirm, and ones that will not fit are
+    refused (:func:`_confirm_download`)."""
     item_id = request.params.get("id", "")
     if not item_id:
         return
@@ -336,17 +381,8 @@ def download(request: Request) -> None:
         _download_toast(30711, 0)
         return
 
-    from kofin.plugin.context import DOWNLOAD_CONTAINER_TYPES
-
-    if item.get("Type") in DOWNLOAD_CONTAINER_TYPES:
-        total = sum(_estimated_size(child) for child in wanted)
-        confirmed = xbmcgui.Dialog().yesno(
-            settings.localized(30708),
-            settings.localized(30771)
-            % (len(wanted), _human_size(total), _free_space_note()),
-        )
-        if not confirmed:
-            return
+    if not _confirm_download(item, wanted):
+        return
 
     # The types travel with the ids: the manager sizes its two worker pools
     # by media kind, and the kind is not knowable from an id alone without
@@ -421,6 +457,35 @@ def _show_names(series_ids: List[str]) -> List[str]:
         LOG.exception("show names unavailable")
         return list(series_ids)
     return names
+
+
+def delete_all_downloads(request: Request) -> None:
+    """The settings button: confirm, then let the service clear the lot.
+
+    Counted and sized from the local store, so it works offline and states
+    what is actually about to be freed. One IPC for the whole request — the
+    service walks the store itself.
+    """
+    from kofin.downloads import store
+
+    rows = store.rows()
+
+    if not rows:
+        toast.show(settings.localized(30807), time_ms=3000)
+        return
+
+    # What is on disk, not what was promised: a queued row has downloaded
+    # nothing yet, and a finished one may have transcoded smaller than its
+    # source.
+    freed = sum(row.bytes_done or 0 for row in rows)
+
+    if not xbmcgui.Dialog().yesno(
+        settings.localized(30804),
+        settings.localized(30806) % (len(rows), _human_size(freed)),
+    ):
+        return
+
+    ipc.notify(ipc.DOWNLOAD_REMOVE_ALL)
 
 
 def cancel_download(request: Request) -> None:

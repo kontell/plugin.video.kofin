@@ -234,6 +234,8 @@ def download_wired(monkeypatch):
             30716: "L30716 %s %s",
             30771: "L30771 %s %s %s",
             30774: "L30774 %s %s",
+            30806: "L30806 %s %s",
+            30810: "L30810 %s %s",
         }.get(i, "L%d %%s" % i),
     )
     monkeypatch.setattr(actions.toast, "show", lambda *a, **k: None)
@@ -514,7 +516,15 @@ def test_the_confirmation_states_the_free_space(download_wired, monkeypatch):
     from kofin.downloads import files
 
     album = {"Id": "al1", "Type": "MusicAlbum"}
-    tracks = [{"Id": "t1", "Type": "Audio", "CanDownload": True, "MediaSources": []}]
+    # 3 GB against 7 GB free: over the quarter that makes it worth asking.
+    tracks = [
+        {
+            "Id": "t1",
+            "Type": "Audio",
+            "CanDownload": True,
+            "MediaSources": [{"Size": 3 * 1024**3}],
+        }
+    ]
     notified, dialog, Request = download_wired(FakeDownloadApi(album, episodes=tracks))
     monkeypatch.setattr(files, "free_bytes", lambda root: 7 * 1024**3)
 
@@ -525,3 +535,136 @@ def test_the_confirmation_states_the_free_space(download_wired, monkeypatch):
     monkeypatch.setattr(files, "free_bytes", lambda root: -1)
     actions.download(Request("plugin://x", -1, {"id": "al1"}))
     assert dialog.yesnos[-1][1].endswith("?")
+
+
+# -- what actually triggers the confirmation ----------------------------------
+
+
+def _sized_request(download_wired, size, item_type="Movie"):
+    """One downloadable leaf of a stated size, wired for actions.download."""
+    item = {
+        "Id": "m1",
+        "Type": item_type,
+        "CanDownload": True,
+        "MediaSources": [{"Size": size}],
+    }
+    return download_wired(FakeDownloadApi(item))
+
+
+def test_a_small_request_queues_without_asking(download_wired, monkeypatch):
+    """Whatever the count. The old rule asked about every container, so
+    thirty three-minute tracks needed an answer."""
+    from kofin.downloads import files
+
+    notified, dialog, Request = _sized_request(download_wired, 1024**3)
+    monkeypatch.setattr(files, "free_bytes", lambda root: 100 * 1024**3)
+
+    actions.download(Request("plugin://x", -1, {"id": "m1"}))
+
+    assert dialog.yesnos == []
+    assert notified and notified[-1][0] == actions.ipc.DOWNLOAD_ADD
+
+
+def test_a_big_single_item_asks(download_wired, monkeypatch):
+    """The case the container rule missed entirely: one 40 GB film went in
+    silence because a Movie is not a container."""
+    from kofin.downloads import files
+
+    notified, dialog, Request = _sized_request(download_wired, 40 * 1024**3)
+    monkeypatch.setattr(files, "free_bytes", lambda root: 100 * 1024**3)
+
+    actions.download(Request("plugin://x", -1, {"id": "m1"}))
+
+    assert dialog.yesnos  # asked, despite being a single leaf
+    assert notified and notified[-1][0] == actions.ipc.DOWNLOAD_ADD
+
+
+def test_a_request_that_will_not_fit_is_refused_outright(download_wired, monkeypatch):
+    """Not a question — the manager would only fail it item by item further
+    down, after some of it had already been written."""
+    from kofin.downloads import files
+
+    notified, dialog, Request = _sized_request(download_wired, 9 * 1024**3)
+    monkeypatch.setattr(files, "free_bytes", lambda root: 10 * 1024**3)
+    shown = []
+    monkeypatch.setattr(actions.toast, "show", lambda *a, **k: shown.append(a))
+
+    actions.download(Request("plugin://x", -1, {"id": "m1"}))
+
+    assert dialog.yesnos == []  # never asked
+    assert notified == []  # and nothing queued
+    assert shown and shown[-1][0].startswith("L30810")
+
+
+def test_the_reserve_is_what_makes_a_tight_fit_a_refusal(download_wired, monkeypatch):
+    """9 GB into 10 GB free fits arithmetically and still refuses: Kodi's own
+    caches and databases usually live on the same volume, and filling it to
+    the last byte breaks those first."""
+    from kofin.downloads import files
+
+    notified, dialog, Request = _sized_request(download_wired, 9 * 1024**3)
+
+    monkeypatch.setattr(files, "free_bytes", lambda root: 10 * 1024**3)
+    actions.download(Request("plugin://x", -1, {"id": "m1"}))
+    assert notified == []
+
+    # The same request with the reserve's worth of room to spare goes ahead.
+    monkeypatch.setattr(files, "free_bytes", lambda root: 12 * 1024**3)
+    actions.download(Request("plugin://x", -1, {"id": "m1"}))
+    assert notified and notified[-1][0] == actions.ipc.DOWNLOAD_ADD
+
+
+# -- delete every download (the settings button) -------------------------------
+
+
+class _StoreRow:
+    def __init__(self, item_id, bytes_done):
+        self.jellyfin_id = item_id
+        self.bytes_done = bytes_done
+
+
+def test_delete_all_downloads_confirms_then_fires_one_message(
+    download_wired, monkeypatch
+):
+    """One IPC for the whole request: the service walks the store itself,
+    and a NotifyAll per row would put a library's worth of messages through
+    Kodi's notification bus for one button press."""
+    from kofin.downloads import store as downloads_store
+
+    notified, dialog, Request = download_wired(FakeDownloadApi({"Id": "x"}))
+    monkeypatch.setattr(
+        downloads_store,
+        "rows",
+        lambda state=None: [_StoreRow("m1", 3 * 1024**3), _StoreRow("m2", 1024**3)],
+    )
+
+    actions.delete_all_downloads(Request("plugin://x", -1, {}))
+
+    # Sized from what is on disk, not what was promised.
+    assert dialog.yesnos[-1][1] == "L30806 2 4.0 GB"
+    assert notified == [(actions.ipc.DOWNLOAD_REMOVE_ALL, None)]
+
+
+def test_delete_all_downloads_respects_a_no(download_wired, monkeypatch):
+    from kofin.downloads import store as downloads_store
+
+    notified, dialog, Request = download_wired(FakeDownloadApi({"Id": "x"}))
+    dialog.yesno_result = False
+    monkeypatch.setattr(
+        downloads_store, "rows", lambda state=None: [_StoreRow("m1", 1024**3)]
+    )
+
+    actions.delete_all_downloads(Request("plugin://x", -1, {}))
+
+    assert notified == []
+
+
+def test_delete_all_downloads_says_so_when_there_are_none(download_wired):
+    """The store is empty, so there is nothing to confirm — and a yes/no
+    offering to delete nothing reads as a bug."""
+    notified, dialog, Request = download_wired(FakeDownloadApi({"Id": "x"}))
+
+    actions.delete_all_downloads(Request("plugin://x", -1, {}))
+
+    assert dialog.yesnos == []
+    assert notified == []

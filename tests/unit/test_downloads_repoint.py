@@ -193,13 +193,16 @@ def test_episode_repoint_mirrors_the_episode_columns_and_restores(api):
     assert int(original_c19) == plugin_path_id
 
     download = done_download(
-        "episode1", "episode", "TV/The Show/Season 01/S01E01.mkv", series_id="series1"
+        "episode1",
+        "episode",
+        "Shows/The Show/Season 01/S01E01.mkv",
+        series_id="series1",
     )
     assert repoint.repoint(download, ROOT) is True
 
-    season = path_row("/dl/TV/The Show/Season 01/")
-    show = path_row("/dl/TV/The Show/")
-    kind = path_row("/dl/TV/")
+    season = path_row("/dl/Shows/The Show/Season 01/")
+    show = path_row("/dl/Shows/The Show/")
+    kind = path_row("/dl/Shows/")
     moved = video_query(
         "SELECT idPath, strFilename FROM files WHERE idFile = ?", (file_id,)
     )[0]
@@ -207,7 +210,7 @@ def test_episode_repoint_mirrors_the_episode_columns_and_restores(api):
         "SELECT c18, c19 FROM episode WHERE idEpisode = ?", (kodi_id,)
     )[0]
     assert moved == (season[0], "S01E01.mkv")
-    assert mirrored[0] == "/dl/TV/The Show/Season 01/S01E01.mkv"
+    assert mirrored[0] == "/dl/Shows/The Show/Season 01/S01E01.mkv"
     assert int(mirrored[1]) == season[0]
     # The writers' show stamps on the show directory; season and type bare.
     assert show[1:5] == ("tvshows", "metadata.local", 1, 1)
@@ -251,23 +254,23 @@ def test_shared_show_rows_survive_until_the_last_restore(api):
     baseline = dump()
 
     first_dl = done_download(
-        "episode1", "episode", "TV/The Show/Season 01/S01E01.mkv", "series1"
+        "episode1", "episode", "Shows/The Show/Season 01/S01E01.mkv", "series1"
     )
     second_dl = done_download(
-        "episode2", "episode", "TV/The Show/Season 01/S01E02.mkv", "series1"
+        "episode2", "episode", "Shows/The Show/Season 01/S01E02.mkv", "series1"
     )
     assert repoint.repoint(first_dl, ROOT) is True
     assert repoint.repoint(second_dl, ROOT) is True
 
     assert repoint.restore(store.get("episode1"), ROOT) is True
     # The sibling still lives there: every shared directory row survives.
-    assert path_row("/dl/TV/The Show/Season 01/") is not None
-    assert path_row("/dl/TV/The Show/") is not None
-    assert path_row("/dl/TV/") is not None
+    assert path_row("/dl/Shows/The Show/Season 01/") is not None
+    assert path_row("/dl/Shows/The Show/") is not None
+    assert path_row("/dl/Shows/") is not None
 
     assert repoint.restore(store.get("episode2"), ROOT) is True
-    assert path_row("/dl/TV/The Show/Season 01/") is None
-    assert path_row("/dl/TV/") is None
+    assert path_row("/dl/Shows/The Show/Season 01/") is None
+    assert path_row("/dl/Shows/") is None
     assert dump() == baseline
 
 
@@ -358,7 +361,7 @@ def test_the_show_carries_the_tag_while_any_episode_is_downloaded(api):
     and the last sibling's removal drops link and tag row both."""
     write_series_tree(api)
     download = done_download(
-        "episode1", "episode", "TV/The Show/Season 01/S01E01.mkv", "series1"
+        "episode1", "episode", "Shows/The Show/Season 01/S01E01.mkv", "series1"
     )
     assert repoint.repoint(download, ROOT) is True
     repoint.stamp_tag(download)
@@ -460,7 +463,7 @@ def test_an_episode_badges_its_season_and_show_too(api):
     episode marks its season and its show as well as itself."""
     write_series_tree(api)
     download = done_download(
-        "episode1", "episode", "TV/The Show/Season 01/S01E01.mkv", "series1"
+        "episode1", "episode", "Shows/The Show/Season 01/S01E01.mkv", "series1"
     )
     repoint.stamp_badge(download)
 
@@ -484,10 +487,10 @@ def test_removing_the_last_download_settles_the_ancestors(api):
     )
     write_series_tree(api, extra_episodes=[second])
     first = done_download(
-        "episode1", "episode", "TV/The Show/Season 01/S01E01.mkv", "series1"
+        "episode1", "episode", "Shows/The Show/Season 01/S01E01.mkv", "series1"
     )
     other = done_download(
-        "episode2", "episode", "TV/The Show/Season 01/S01E02.mkv", "series1"
+        "episode2", "episode", "Shows/The Show/Season 01/S01E02.mkv", "series1"
     )
     repoint.stamp_badge(first)
     repoint.stamp_badge(other)
@@ -529,3 +532,56 @@ def test_a_changed_resync_republishes_the_badge_after_a_repair(api, sync_env, tm
     write_movie(api, changed)  # the re-assert runs inside this pass
 
     assert len(_badge_rows()) == 1
+
+
+# --- a vanished download is marked watched -----------------------------------
+
+
+def test_a_vanished_download_is_marked_watched_in_kodis_own_row(api, sync_env):
+    """Deleting the file by hand is how people finish with something. The
+    write goes straight through SQLite: an announcer-visible library write
+    feeds the userdata echo cycle, which terminates only because direct
+    writes raise no Kodi announcement (service/kodiuserdata.py)."""
+    import threading
+
+    from kofin.downloads.manager import DownloadManager
+
+    write_movie(api)
+    row = done_download("movie1", "movie", "Movies/The Movie (2019)/m.mkv")
+
+    # The DTO arrives already watched; unwatch it so the write below is the
+    # only thing that could have set the flag.
+    with sync_db.Database("video") as vdb:
+        vdb.cursor.execute("UPDATE files SET playCount = NULL, lastPlayed = NULL")
+    assert video_query("SELECT playCount FROM files") == [(None,)]
+
+    manager = DownloadManager(
+        api_factory=lambda: None,
+        refresh=lambda databases: None,
+        stopping=threading.Event(),
+    )
+    manager._mark_local_watched(row)
+
+    played, last = video_query("SELECT playCount, lastPlayed FROM files")[0]
+    assert played == 1
+    assert last  # stamped, so Kodi sorts it where a just-watched item belongs
+
+
+def test_marking_watched_tolerates_an_item_kodi_no_longer_holds(api, sync_env):
+    """The mapping is gone (the library dropped it since), which does not
+    make the *server's* copy wrong — so this half gives up quietly and the
+    push still happens."""
+    import threading
+
+    from kofin.downloads.manager import DownloadManager
+
+    row = store.Download(
+        jellyfin_id="ghost", media_type="movie", rel_path="Movies/G/g.mkv"
+    )
+    manager = DownloadManager(
+        api_factory=lambda: None,
+        refresh=lambda databases: None,
+        stopping=threading.Event(),
+    )
+
+    manager._mark_local_watched(row)  # no raise

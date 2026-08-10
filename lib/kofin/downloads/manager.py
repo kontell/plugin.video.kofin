@@ -20,6 +20,7 @@ at the next start, resuming originals from ``bytes_done`` with a Range.
 import os
 import threading
 import time
+from datetime import datetime
 from queue import Empty, Queue
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -66,6 +67,12 @@ IDLE_POLL_SECONDS = 30.0
 # worker when the connection comes back — the service raises the online flag
 # and this is what notices.
 OFFLINE_POLL_SECONDS = 10.0
+
+# Same again, while playback holds the pool back. Short because it is the
+# floor on how long the queue stays idle after the credits: the service also
+# wakes the pool on Player.OnStop, and this is the cover for the stop it
+# never sees (a foreign player, a crash, a claim that never happened).
+PLAYBACK_POLL_SECONDS = 5.0
 
 # One join per worker at stop: a chunk-loop abort plus one full read timeout,
 # with a little grace (core.http.DEFAULT_TIMEOUT read budget is 30 s).
@@ -233,6 +240,17 @@ class DownloadManager:
         self._ops.put(("remove", item_id, "", ""))
         self._wake.set()
 
+    def remove_all(self) -> None:
+        """The settings button: every download, finished or not.
+
+        One op rather than one per row — the store is read on the worker
+        side, where the walk is already serialized, and a NotifyAll per row
+        would put a whole library's worth of messages through Kodi's
+        notification bus for a single button press.
+        """
+        self._ops.put(("removeall", "", "", ""))
+        self._wake.set()
+
     def _cancelled(self, item_id: str) -> bool:
         with self._cancels_lock:
             return item_id in self._cancels
@@ -257,6 +275,17 @@ class DownloadManager:
                     # above, so a cancel or a remove works offline.
                     self._progress.idle()
                     if self._wake.wait(timeout=OFFLINE_POLL_SECONDS):
+                        self._wake.clear()
+                    continue
+                if self._paused_for_playback():
+                    # The gate is on *claiming*, never inside _transfer: a
+                    # file already coming down runs to completion, which is
+                    # both what the setting promises and the only behaviour
+                    # that cannot strand a half-written .part for the length
+                    # of a film. Ops drain above, so cancelling and removing
+                    # still work while playback holds the pool.
+                    self._progress.idle()
+                    if self._wake.wait(timeout=PLAYBACK_POLL_SECONDS):
                         self._wake.clear()
                     continue
                 row = store.claim(kinds)
@@ -304,6 +333,8 @@ class DownloadManager:
                     self._apply_cancel(item_id)
                 elif op == "remove":
                     self._apply_remove(item_id)
+                elif op == "removeall":
+                    self._apply_remove_all()
             except Exception:
                 LOG.exception("download op %s failed for %s", op, item_id)
 
@@ -334,7 +365,7 @@ class DownloadManager:
             self._clear_cancel(item_id)
             LOG.info("download cancelled: %s", item_id)
 
-    def _apply_remove(self, item_id: str) -> None:
+    def _apply_remove(self, item_id: str, flush: bool = True) -> None:
         row = store.get(item_id)
         if row is None:
             return
@@ -356,9 +387,41 @@ class DownloadManager:
         # album is one menu press and seventeen rows, and refreshing per row
         # meant seventeen widget passes for one answer.
         self._mark_dirty(row.media_type)
-        if self._ops.empty():
+        if flush and self._ops.empty():
             self._flush_refresh(force=True)
         LOG.info("download removed: %s", item_id)
+
+    def _apply_remove_all(self) -> None:
+        """Every download goes: finished ones through the full remove path,
+        unfinished ones cancelled.
+
+        The refresh is suppressed per row and forced once at the end:
+        ``_apply_remove`` normally refreshes as soon as the ops queue runs
+        dry, and here it is dry from the first row on, which would make a
+        whole library's worth of widget passes out of one button press.
+
+        Unfinished rows are marked cancelled before being applied, not put
+        back on the ops queue: a row being transferred right now aborts at
+        its next chunk off that flag, and re-queueing would mean one op per
+        row for work this loop is already doing.
+        """
+        rows = store.rows()
+
+        if not rows:
+            return
+
+        for row in rows:
+            if self._should_stop():
+                break
+            if row.state == store.DONE:
+                self._apply_remove(row.jellyfin_id, flush=False)
+            else:
+                with self._cancels_lock:
+                    self._cancels.add(row.jellyfin_id)
+                self._apply_cancel(row.jellyfin_id)
+
+        LOG.info("removed all %d download(s)", len(rows))
+        self._flush_refresh(force=True)
 
     # -- the transfer ----------------------------------------------------------
 
@@ -894,6 +957,10 @@ class DownloadManager:
         while not self._stop.wait(timeout=RETENTION_SWEEP_SECONDS):
             if self._should_stop():
                 return
+            # Before the retention sweep: a file somebody deleted by hand is
+            # not a download any more, and the sweep should not spend a
+            # watched-check on it.
+            self._sweep_vanished()
             self._retention_sweep()
 
     def _backfill_segment_caches(self) -> None:
@@ -921,11 +988,10 @@ class DownloadManager:
             api.close()
 
     def _reconcile_once(self) -> None:
-        """Walk the done rows once at start: a missing file restores the
-        library row and flags the download failed (self-healing toward
-        streaming, never a broken local play), and a present file re-asserts
-        the repoint — which is what heals a library repair, whose rebuilt
-        rows are all in writer shape."""
+        """Walk the done rows once at start: a missing file is cleaned up
+        after (:meth:`_handle_vanished`), and a present file re-asserts the
+        repoint — which is what heals a library repair, whose rebuilt rows
+        are all in writer shape."""
         try:
             root = downloads_root()
             touched = False
@@ -936,12 +1002,7 @@ class DownloadManager:
                 songs = songs or row.media_type == "song"
                 absolute = os.path.join(root, row.rel_path)
                 if not row.rel_path or not os.path.exists(absolute):
-                    LOG.warning(
-                        "downloaded file missing for %s; restoring the library row",
-                        row.jellyfin_id,
-                    )
-                    repoint.restore(row, root)
-                    store.fail(row.jellyfin_id, "file missing")
+                    self._handle_vanished(row, root)
                     touched = True
                     continue
                 if repoint.repoint(row, root):
@@ -954,6 +1015,131 @@ class DownloadManager:
                 self._refresh_quietly(["music", "video"] if songs else ["video"])
         except Exception:  # pragma: no cover - never break service start
             LOG.exception("downloads reconcile failed")
+
+    def _handle_vanished(self, row: "store.Download", root: str) -> None:
+        """A downloaded file deleted behind Kodi's back — a file manager, a
+        card pulled and cleaned up on a computer, another app.
+
+        This used to restore the library row and leave a ``failed`` store row
+        behind it, which meant the leftovers stayed: the sidecars, the empty
+        season directory, the Downloads tag and the badge. The item went on
+        advertising itself as downloaded in the Downloaded nodes with nothing
+        behind it.
+
+        So it goes through the removal path proper, and the item is marked
+        watched. Deleting a file by hand is how people finish with something,
+        and the alternative reading — that they wanted it re-downloaded — is
+        the one the automatic arms would act on.
+        """
+        LOG.warning(
+            "downloaded file missing for %s; cleaning up and marking it watched",
+            row.jellyfin_id,
+        )
+        repoint.restore(row, root)
+        self._delete_media(row)
+        # Before the tag check, exactly as in _apply_remove: an episode's
+        # unstamp asks whether a sibling still holds the show in the node.
+        store.remove(row.jellyfin_id)
+        repoint.unstamp_tag(row)
+        repoint.clear_badge(row)
+        self._mark_watched(row)
+        self._mark_dirty(row.media_type)
+
+    def _mark_watched(self, row: "store.Download") -> None:
+        """Mark a vanished download watched, here and on the server.
+
+        The two halves are independent and neither gates the other: a local
+        row kofin cannot find (an item removed from the library since) does
+        not make the server's copy wrong, and a server that cannot be
+        reached does not make Kodi's wrong.
+
+        Songs are left alone, the same exclusion the retention sweep makes:
+        a played track is not a finished one, and "watched" is not a thing a
+        song is.
+        """
+        if row.media_type not in ("movie", "episode"):
+            return
+        self._mark_local_watched(row)
+        self._push_played(row)
+
+    def _mark_local_watched(self, row: "store.Download") -> None:
+        """Kodi's own playcount, written straight through SQLite.
+
+        Never JSON-RPC: an announcer-visible library write feeds the
+        userdata echo cycle (report → server echoes UserDataChanged → kofin
+        writes it back), which terminates only because direct writes raise
+        no Kodi announcement — see service/kodiuserdata.py.
+        """
+        try:
+            with Database("kofin") as kofin_db, Database("video") as video:
+                mapping = repoint.mapping_for_on(kofin_db.cursor, row.jellyfin_id)
+                if mapping is None:
+                    return
+                video.cursor.execute(
+                    "UPDATE files SET playCount = 1, lastPlayed = ? WHERE idFile = ?",
+                    (
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        mapping.kodi_fileid,
+                    ),
+                )
+        except Exception:
+            LOG.exception("could not mark %s watched locally", row.jellyfin_id)
+
+    def _push_played(self, row: "store.Download") -> None:
+        """Tell the server, or park it for the next connect.
+
+        Parked rather than dropped when offline: deleting a file is exactly
+        the thing someone does on a plane, and the replay path already exists
+        for watching one there (downloads/pending.py).
+        """
+        from kofin.downloads import pending
+
+        if state.is_offline():
+            pending.enqueue(row.jellyfin_id, row.media_type, played=True)
+            return
+        api = self._api_factory()
+        try:
+            api.mark_played(row.jellyfin_id)
+        except Exception as error:
+            LOG.info(
+                "played push failed for %s (%s); parking it for replay",
+                row.jellyfin_id,
+                error,
+            )
+            pending.enqueue(row.jellyfin_id, row.media_type, played=True)
+        finally:
+            api.close()
+
+    def _sweep_vanished(self) -> None:
+        """The presence check on the maintenance beat, not just at start.
+
+        ``_reconcile_once`` runs once per service generation, so a file
+        deleted mid-session went unnoticed until the next restart — the item
+        stayed in the Downloaded nodes, and playing it failed in Kodi rather
+        than falling back to the server. An ``os.path.exists`` per done row
+        every few minutes costs nothing.
+        """
+        try:
+            root = downloads_root()
+            touched = False
+            songs = False
+            for row in store.rows(store.DONE):
+                if self._should_stop():
+                    return
+                if row.rel_path and os.path.exists(os.path.join(root, row.rel_path)):
+                    continue
+                if self._playing_now(row):
+                    # Not gone, just unreadable for a moment (a network share
+                    # blinking); tearing the row down under the player would
+                    # turn a stutter into a lost download.
+                    continue
+                songs = songs or row.media_type == "song"
+                self._handle_vanished(row, root)
+                touched = True
+            if touched:
+                self._refresh_quietly(["music", "video"] if songs else ["video"])
+        except Exception:  # pragma: no cover - never kill the maintenance loop
+            LOG.exception("vanished-download sweep failed")
 
     def _retention_sweep(self) -> None:
         """W4.2: remove watched downloads, through the full remove path —
@@ -993,6 +1179,26 @@ class DownloadManager:
                 self._apply_remove(row.jellyfin_id)
         except Exception:  # pragma: no cover - never kill the maintenance loop
             LOG.exception("retention sweep failed")
+
+    def _paused_for_playback(self) -> bool:
+        """Whether the pool should stop claiming while something plays.
+
+        ``isPlaying`` rather than ``state.get_playing_id``: the property only
+        covers playbacks kofin claimed, and a download competing for
+        bandwidth does not care who started the video. Audio counts too — a
+        transcode pull saturates the same link either way.
+        """
+        if not settings.get_bool("downloadsPauseDuringPlayback"):
+            return False
+        try:
+            return bool(xbmc.Player().isPlaying())
+        except RuntimeError:  # pragma: no cover - no player, so nothing plays
+            return False
+
+    def wake(self) -> None:
+        """Let the pool re-check its gates now rather than at the next poll —
+        the service calls this when playback stops."""
+        self._wake.set()
 
     def _playing_now(self, row: "store.Download") -> bool:
         try:

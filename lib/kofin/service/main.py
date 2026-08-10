@@ -37,7 +37,12 @@ LIBRARY_COMMANDS = frozenset(
 )
 
 DOWNLOAD_COMMANDS = frozenset(
-    {ipc.DOWNLOAD_ADD, ipc.DOWNLOAD_CANCEL, ipc.DOWNLOAD_REMOVE}
+    {
+        ipc.DOWNLOAD_ADD,
+        ipc.DOWNLOAD_CANCEL,
+        ipc.DOWNLOAD_REMOVE,
+        ipc.DOWNLOAD_REMOVE_ALL,
+    }
 )
 
 # Seconds the service ignores settings changes after start, covering Kodi's
@@ -827,6 +832,12 @@ class Service(xbmc.Monitor):
                 # node filters on those rows, so without this a user-run music
                 # scan leaves them all matching nothing until the next sync.
                 self.library.enqueue_command("ReassertMusicSources")
+            elif method == "Player.OnStop" and self.downloads is not None:
+                # Let a pool held back by downloadsPauseDuringPlayback pick up
+                # again now rather than at its next poll. Only a nudge — the
+                # worker re-reads the gate itself, and its poll is the cover
+                # for every stop that never reaches here.
+                self.downloads.wake()
             elif method == "VideoLibrary.OnUpdate" and self.credentials.is_logged_in:
                 # Kodi's own "Mark as watched" / "Reset resume position" only
                 # touch MyVideos; without this they never reach the server and
@@ -904,6 +915,8 @@ class Service(xbmc.Monitor):
                 self.downloads.cancel(str(payload.get("Id") or ""))
             elif name == ipc.DOWNLOAD_REMOVE:
                 self.downloads.remove(str(payload.get("Id") or ""))
+            elif name == ipc.DOWNLOAD_REMOVE_ALL:
+                self.downloads.remove_all()
         elif name in LIBRARY_COMMANDS:
             self._start_library()
             if self.library is None:
