@@ -28,6 +28,7 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 - Transcode music
 - Jellyfin song lyrics, timed or plain (via companion add-on)
 - Sync Jellyfin music playlists into Kodi (one way only)
+- Edit Jellyfin user audio and subtitle preferences
 - Who's watching? - toggle additional users onto the session for multi-user watch state (persistent after restart)
 
 ### Legacy
