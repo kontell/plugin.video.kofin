@@ -1964,7 +1964,7 @@ msgid "Smart"
 msgstr ""
 
 msgctxt "#30794"
-msgid "Not applied here: \"Honour Jellyfin default tracks\" is off"
+msgid "Not applied here: \"Use Jellyfin's default tracks\" is off"
 msgstr ""
 
 msgctxt "#30795"

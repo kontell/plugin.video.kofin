@@ -10,6 +10,10 @@ from kofin.plugin import userprefs
 from kofin.plugin.router import Request
 from tests.unit.fakes import FakeAddon
 
+# resources/settings.xml's label for honourJellyfinDefaultTracks, which the
+# caveat row has to quote verbatim.
+STR_DEFAULT_TRACKS_LABEL = 30618
+
 CULTURES = [
     {
         "Name": "English",
@@ -168,6 +172,26 @@ def test_every_field_label_and_option_has_a_string():
     )
 
     assert wanted <= known, sorted(wanted - known)
+
+
+def test_the_caveat_names_the_setting_the_way_the_playback_tab_labels_it():
+    """The caveat row tells the user which switch to go and find, so it has to
+    quote that switch's own label. It shipped saying "Honour Jellyfin default
+    tracks" while the Playback tab calls it "Use Jellyfin's default tracks" --
+    caught on a real box, and nothing else would have: both strings resolve,
+    both render, and only a person hunting the settings tree finds out."""
+    with open(
+        "resources/language/resource.language.en_gb/strings.po", encoding="utf-8"
+    ) as handle:
+        strings = dict(
+            re.findall(r'msgctxt "#(\d+)"\nmsgid "((?:[^"\\]|\\.)*)"', handle.read())
+        )
+
+    setting_label = strings[str(STR_DEFAULT_TRACKS_LABEL)].replace('\\"', '"')
+    caveat = strings[str(userprefs.STR_NOT_HONOURED)].replace('\\"', '"')
+
+    assert setting_label == "Use Jellyfin's default tracks"
+    assert '"%s"' % setting_label in caveat, caveat
 
 
 def test_fields_cover_the_agreed_configuration_keys():
