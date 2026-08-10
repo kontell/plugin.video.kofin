@@ -469,6 +469,85 @@ def test_remove_library_refreshes_the_removed_kind(builtins, monkeypatch):
     assert builtins == ["UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE]
 
 
+def test_repair_reloads_the_skin(builtins, monkeypatch):
+    """A repair empties whole Kodi tables and refills them over minutes; a
+    home widget that re-fetches inside that hollow gets zero items and a
+    DirectoryProvider whose last fetch was empty is deaf to every later
+    library announcement — so the repair command owns an unconditional
+    skin reload once its re-add lands. Observed live: a 27-minute music
+    repair healed the data and left the Music widget row blank."""
+    seed_views(("lib2", "Tunes", "music"))
+
+    manager, _api = make_library()
+    monkeypatch.setattr(manager, "update_status_strings", lambda: None)
+    monkeypatch.setattr(manager, "remove_library", lambda lib: True)
+    monkeypatch.setattr(manager, "add_library", lambda ids: True)
+
+    manager.enqueue_command("RepairLibrary", {"Id": "lib2"})
+    manager.process_commands()
+
+    assert builtins == ["ReloadSkin()"]
+
+
+def test_repair_reload_covers_every_library_kind(builtins, monkeypatch):
+    """Not just music: any repaired kind leaves its widgets in the same
+    deaf state, and an unknown view still reloads rather than skipping."""
+    seed_views(("lib1", "Movies", "movies"))
+
+    manager, _api = make_library()
+    monkeypatch.setattr(manager, "update_status_strings", lambda: None)
+    monkeypatch.setattr(manager, "remove_library", lambda lib: True)
+    monkeypatch.setattr(manager, "add_library", lambda ids: True)
+
+    manager.enqueue_command("RepairLibrary", {"Id": "lib1"})
+    manager.enqueue_command("RepairLibrary", {"Id": "lib-unknown"})
+    manager.process_commands()
+
+    assert builtins == ["ReloadSkin()", "ReloadSkin()"]
+
+
+def test_failed_repair_does_not_reload(builtins, monkeypatch):
+    """No reload for a repair that did not complete: a failed removal never
+    reaches the re-add, and a failed re-add left nothing to reveal."""
+    seed_views(("lib2", "Tunes", "music"))
+
+    manager, _api = make_library()
+    monkeypatch.setattr(manager, "update_status_strings", lambda: None)
+
+    monkeypatch.setattr(manager, "remove_library", lambda lib: False)
+    manager.enqueue_command("RepairLibrary", {"Id": "lib2"})
+    manager.process_commands()
+
+    monkeypatch.setattr(manager, "remove_library", lambda lib: True)
+    monkeypatch.setattr(manager, "add_library", lambda ids: False)
+    manager.enqueue_command("RepairLibrary", {"Id": "lib2"})
+    manager.process_commands()
+
+    assert builtins == []
+
+
+def test_repair_reload_held_during_playback(builtins, monkeypatch):
+    """The repair reload rides the first-content machinery, so its
+    playback hold applies: no skin rebuild under a viewer."""
+    seed_views(("lib2", "Tunes", "music"))
+
+    manager, _api = make_library()
+    monkeypatch.setattr(manager, "update_status_strings", lambda: None)
+    monkeypatch.setattr(manager, "remove_library", lambda lib: True)
+    monkeypatch.setattr(manager, "add_library", lambda ids: True)
+    manager.player.playing = True
+
+    manager.enqueue_command("RepairLibrary", {"Id": "lib2"})
+    manager.process_commands()
+
+    assert builtins == []
+    assert manager.pending_skin_reload is True
+
+    manager.player.playing = False
+    manager.flush_pending_reload()
+    assert builtins == ["ReloadSkin()"]
+
+
 def test_first_content_reload_polls_for_hascontent(monkeypatch, tmp_path):
     """The reload waits for the scan cycle to flip Library.HasContent instead
     of guessing 2 s: a reload against still-false bools builds Home without
