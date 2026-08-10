@@ -17,6 +17,7 @@ from kofin.sync.shims import stop, jellyfin_item, values, Local
 
 from kofin.sync.obj import Objects
 from kofin.sync.kodidb import Music as KodiDb
+from kofin.sync.kodidb.music import BLANKARTIST_ID, BLANKARTIST_NAME
 from kofin.sync.kodidb import queries_music as QU
 
 ##################################################################################################
@@ -523,9 +524,19 @@ class Music(KodiDb):
         to control characters while TPE2 stayed clean, so AlbumArtists
         resolved and ArtistItems did not. Kodi's own scanner credits an
         untagged song to the album artist the same way.
+
+        Second deviation, same rationale taken to its end: at least one row
+        is guaranteed. A song both lists come back empty for (a file with no
+        artist tags at all) wrote no row and vanished from every song
+        listing — Kodi's GetSongsFullByWhere inner-joins songartistview — so
+        the last resort is Kodi's own [Missing Tag] blank artist, exactly
+        what its scanner files an untagged song under. The blank credit is
+        dropped again the moment a rewrite lands a real one.
         """
         # Still the {Name, Id} dicts here: song_artist_discography flattens
         # AlbumArtists to names, but it runs after this.
+        linked = 0
+
         for index, artist in enumerate(obj["ArtistItems"] or obj["AlbumArtists"] or []):
 
             temp_obj = dict(obj)
@@ -553,6 +564,12 @@ class Music(KodiDb):
 
             self.link_song_artist(*values(temp_obj, QU.update_song_artist_obj))
             self.item_ids.append(temp_obj["Id"])
+            linked += 1
+
+        if linked:
+            self.unlink_blank_artist(obj["SongId"])
+        else:
+            self.link_song_artist(BLANKARTIST_ID, obj["SongId"], 1, 0, BLANKARTIST_NAME)
 
     def single(self, obj):
 
@@ -647,12 +664,32 @@ class Music(KodiDb):
         elif obj["Media"] == "artist":
             obj["ParentId"] = obj["KodiId"]
 
+            # Kodi's own tgrDeleteArtist trigger strips every song_artist
+            # row naming the artist when its row goes — including songs on
+            # albums this removal never touches (a track on a compilation).
+            # Their Etags never move, so no later sync rewrites the link and
+            # the songs drop out of every listing for good. Snapshot the
+            # credits now; re-credit the survivors after the delete.
+            credited = self.get_songs_by_artist(obj["KodiId"])
+
             for album in self.jellyfin_db.get_item_by_parent_id(
                 *values(obj, QUEM.get_item_by_parent_album_obj)
             ):
 
                 temp_obj = dict(obj)
                 temp_obj["ParentId"] = album[1]
+
+                if not self.album_has_album_artist(album[1], obj["KodiId"]):
+                    # kofin.db parents an album to whichever of its track
+                    # artists artist_discography wrote last, so "albums
+                    # parented here" over-collects: a compilation lands on
+                    # one arbitrary contributor, and removing that artist
+                    # used to take the whole album with it. Kodi's
+                    # album_artist table is the ownership test; a kept album
+                    # is re-parented so the reference sweep below cannot
+                    # reach it.
+                    self.jellyfin_db.update_parent_id(None, album[0])
+                    continue
 
                 for song in self.jellyfin_db.get_item_by_parent_id(
                     *values(temp_obj, QUEM.get_item_by_parent_song_obj)
@@ -672,6 +709,16 @@ class Music(KodiDb):
                 )
 
             self.remove_artist(obj["KodiId"], obj["Id"])
+
+            # The trigger has fired; give every still-present song the
+            # artist's removal orphaned a substitute [Missing Tag] credit so
+            # it stays visible, and clear its reference checksum so the next
+            # walk rewrites the true credits — re-creating the artist if the
+            # server still has it, and dropping the substitute.
+            for song_id in self.recredit_songs(credited):
+                song_jellyfin_id = self.jellyfin_db.get_item_by_kodi_id(song_id, "song")
+                if song_jellyfin_id:
+                    self.jellyfin_db.update_reference(None, song_jellyfin_id)
 
         self.jellyfin_db.remove_item(*values(obj, QUEM.delete_item_obj))
 

@@ -324,6 +324,36 @@ VALUES                      (?, ?)
 update_genre_song_obj = ["{SongId}", "{Genres}", "song"]
 
 
+delete_blank_song_artist = """
+DELETE FROM     song_artist
+WHERE           idSong = ?
+AND             idArtist = ?
+AND             idRole = 1
+"""
+get_songs_by_artist = """
+SELECT          idSong
+FROM            song_artist
+WHERE           idArtist = ?
+AND             idRole = 1
+"""
+get_album_artist_link = """
+SELECT          1
+FROM            album_artist
+WHERE           idAlbum = ?
+AND             idArtist = ?
+"""
+get_song_role1_artist = """
+SELECT          1
+FROM            song_artist
+WHERE           idSong = ?
+AND             idRole = 1
+LIMIT           1
+"""
+get_song_exists = """
+SELECT          1
+FROM            song
+WHERE           idSong = ?
+"""
 delete_genres_album = """
 DELETE FROM     album_genre
 WHERE           idAlbum = ?

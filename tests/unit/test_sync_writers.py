@@ -2338,6 +2338,181 @@ def test_music_album_artist_fallback_is_idempotent(api, frozen_music_clock):
     assert music_dump(str(sync_db._path_overrides["music"])) == first
 
 
+def test_music_song_with_no_artist_at_all_gets_the_blank_credit(
+    api, frozen_music_clock
+):
+    # Both lists empty (a file with no artist tags at all): the fork wrote no
+    # song_artist row, and Kodi's song listings inner-join songartistview, so
+    # the song was not artist-less — it was invisible. The guarantee files it
+    # under Kodi's own [Missing Tag] blank artist, like Kodi's scanner would.
+    write_music_tree(api, song=dict(SONG, ArtistItems=[], AlbumArtists=[]))
+
+    song_id = music_query("SELECT idSong FROM song")[0][0]
+    assert music_query(
+        "SELECT idArtist, idSong, iOrder, strArtist FROM song_artist"
+    ) == [(1, song_id, 0, "[Missing Tag]")]
+    # The join Kodi's song listings run: the song is reachable.
+    assert music_query(
+        "SELECT s.strTitle FROM song s JOIN song_artist sa ON sa.idSong = s.idSong"
+    ) == [("Opening Track",)]
+
+
+def test_music_blank_credit_is_idempotent(api, frozen_music_clock):
+    song = dict(SONG, ArtistItems=[], AlbumArtists=[])
+    write_music_tree(api, song=song)
+    first = music_dump(str(sync_db._path_overrides["music"]))
+
+    write_music_tree(api, song=song)
+    assert music_dump(str(sync_db._path_overrides["music"])) == first
+
+
+def test_music_blank_credit_yields_to_a_real_one(api, frozen_music_clock):
+    write_music_tree(api, song=dict(SONG, ArtistItems=[], AlbumArtists=[]))
+
+    # The tags arrive later (new Etag, real ArtistItems): the placeholder
+    # credit must go, or the song keeps showing under [Missing Tag] too.
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY).song(
+            dict(dto(SONG), Etag="etag-song1-v2")
+        )
+
+    artist_id = music_query("SELECT idArtist FROM artist WHERE strArtist='The Band'")[
+        0
+    ][0]
+    song_id = music_query("SELECT idSong FROM song")[0][0]
+    assert music_query("SELECT idArtist, idSong FROM song_artist") == [
+        (artist_id, song_id)
+    ]
+
+
+def test_music_artist_removal_spares_compilation_appearances(api, frozen_music_clock):
+    # The Bravia incident: an artist with one album of their own plus one
+    # track on a compilation. Removing the artist fires Kodi's
+    # tgrDeleteArtist trigger, which strips the compilation track's only
+    # song_artist row — and the track's Etag never moves, so nothing ever
+    # wrote it back. The compilation is also parented to one arbitrary
+    # contributor in kofin.db (artist_discography's last write wins), so an
+    # unlucky removal used to take the whole album with it.
+    va_artist = dict(
+        dto(ARTIST),
+        Id="artist-va",
+        Name="Various Artists",
+        Etag="etag-va-v1",
+        ProviderIds={"MusicBrainzArtist": "mbid-artist-va"},
+    )
+    va_album = dict(
+        dto(ALBUM),
+        Id="album-va",
+        Name="Now That Is Music",
+        Etag="etag-album-va-v1",
+        ProviderIds={"MusicBrainzAlbum": "mbid-album-va"},
+        AlbumArtists=[{"Name": "Various Artists", "Id": "artist-va"}],
+        # The Band contributed a track, so it lands last in ArtistItems and
+        # kofin.db parents the compilation to it — the hazard under test.
+        ArtistItems=[
+            {"Name": "Various Artists", "Id": "artist-va"},
+            {"Name": "The Band", "Id": "artist1"},
+        ],
+    )
+    va_song = dict(
+        dto(SONG),
+        Id="song-va",
+        Name="Compilation Track",
+        Etag="etag-song-va-v1",
+        Album="Now That Is Music",
+        AlbumId="album-va",
+        ParentId="album-va",
+        ProviderIds={"MusicBrainzTrackId": "mbid-track-va"},
+        ArtistItems=[{"Name": "The Band", "Id": "artist1"}],
+        AlbumArtists=[{"Name": "Various Artists", "Id": "artist-va"}],
+    )
+    api.items_by_id["artist-va"] = va_artist
+    write_music_tree(api)
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music.artist(dto(va_artist))
+        music.album(dto(va_album))
+        music.song(dto(va_song))
+
+    # The compilation really is parented to the removed artist in kofin.db.
+    band_kodi_id = kofin_query(
+        "SELECT kodi_id FROM jellyfin WHERE jellyfin_id='artist1'"
+    )[0][0]
+    assert kofin_query(
+        "SELECT parent_id FROM jellyfin WHERE jellyfin_id='album-va'"
+    ) == [(band_kodi_id,)]
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY).remove("artist1")
+
+    # The artist and its own album/song are gone...
+    assert music_query("SELECT COUNT(*) FROM artist WHERE strArtist='The Band'") == [
+        (0,)
+    ]
+    assert music_query("SELECT COUNT(*) FROM album WHERE strAlbum='Greatest Hits'") == [
+        (0,)
+    ]
+    assert kofin_query(
+        "SELECT COUNT(*) FROM jellyfin WHERE jellyfin_id IN ('artist1','album1','song1')"
+    ) == [(0,)]
+
+    # ...the compilation and its track are not.
+    assert music_query(
+        "SELECT COUNT(*) FROM album WHERE strAlbum='Now That Is Music'"
+    ) == [(1,)]
+    assert music_query(
+        "SELECT strTitle FROM song WHERE strTitle='Compilation Track'"
+    ) == [("Compilation Track",)]
+    assert kofin_query(
+        "SELECT parent_id FROM jellyfin WHERE jellyfin_id='album-va'"
+    ) == [(None,)]
+
+    # The track lost its only credit to the trigger and was given the
+    # substitute [Missing Tag] credit, so it stays reachable through Kodi's
+    # join...
+    song_id = music_query("SELECT idSong FROM song WHERE strTitle='Compilation Track'")[
+        0
+    ][0]
+    assert music_query("SELECT idArtist, idSong FROM song_artist WHERE idRole = 1") == [
+        (1, song_id)
+    ]
+
+    # ...and its checksum is cleared so the next walk restores true credits.
+    assert kofin_query("SELECT checksum FROM jellyfin WHERE jellyfin_id='song-va'") == [
+        (None,)
+    ]
+
+    # Removal hygiene held for what was actually removed.
+    assert music_query(
+        "SELECT COUNT(*) FROM song_artist WHERE idSong NOT IN (SELECT idSong FROM song)"
+    ) == [(0,)]
+    assert music_query(
+        "SELECT COUNT(*) FROM album_artist WHERE idAlbum NOT IN (SELECT idAlbum FROM album)"
+    ) == [(0,)]
+
+    # The heal: the server re-creates the artist (the track still credits
+    # it), and the cleared checksum makes the next update walk rewrite the
+    # song — which re-creates the artist reference and restores the true
+    # credit, replacing the substitute.
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY).song(dto(va_song))
+
+    band_id = music_query("SELECT idArtist FROM artist WHERE strArtist='The Band'")[0][
+        0
+    ]
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin WHERE jellyfin_id='artist1'") == [
+        (1,)
+    ]
+    assert music_query(
+        "SELECT idArtist FROM song_artist WHERE idSong = ? AND idRole = 1",
+        (song_id,),
+    ) == [(band_id,)]
+    assert kofin_query("SELECT checksum FROM jellyfin WHERE jellyfin_id='song-va'") == [
+        ("etag-song-va-v1|plugin",)
+    ]
+
+
 def test_music_transcode_writes_plugin_paths(api, frozen_music_clock):
     # With musicTranscode on the song row addresses the play route instead of
     # the server, so the device profile gets a say in how music is delivered.
