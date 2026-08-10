@@ -21,11 +21,26 @@ It does not: it opens every attached subtitle while building the demuxer, and an
 embedded track is extracted on demand by the server, so a slow or failing one
 cost a 20-second timeout before the picture appeared.
 
-That is also why an embedded track that cannot be fetched here is *dropped*
-rather than falling back to its URL: the URL is precisely what stalls. A
-sidecar still falls back, because the server serves a file it already has and
-Kodi opening it costs nothing. The dropped track is not lost — the stream menu
-restarts into it, which resolves a stream that has it.
+That is also why an embedded track that cannot be fetched here is never given
+its URL to Kodi: the URL is precisely what stalls. A sidecar still falls back,
+because the server serves a file it already has and Kodi opening it costs
+nothing. An embedded one is *deferred* instead — handed back to the caller so
+the service can chase it while the picture runs (``service/latesubs.py``).
+
+The two are on different clocks, which is why they have different budgets.
+A sidecar is a file on disk and answers at once. An embedded track is an
+ffmpeg extraction the server runs on demand, and measured against 10.11.11 on
+a real library that is not a few seconds: **28 s** for a 2.4 GB MKV, **30 s**
+for a 2.6 GB one, **146 s** for a 22.7 GB one — after which the result is
+cached and the same request answers in ~25 ms. So the wait here buys the warm
+case only, and every second it spends on a cold one is a second of black
+screen bought for nothing: the old single 8 s budget missed *every* first play
+of an unextracted track and charged the viewer 8 s to do it. Hence a short
+embedded budget, and the deferral for the rest.
+
+Abandoning the request does not abandon the work — measured, the extraction
+runs to completion server-side and the next request is served from the cache
+— which is what makes chasing it worthwhile rather than a second cold start.
 
 What Kodi does with a name was measured, not guessed (all on Omega 21.3, real
 tracks added to a running playback):
@@ -43,7 +58,7 @@ anything Kodi does not parse ends up rendered.
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 import xbmc
 import xbmcvfs
@@ -62,9 +77,15 @@ CACHE_DIR = "special://temp/kofin/subtitles"
 # is the normal case, and each one is a round trip the first frame waits on.
 MAX_FILES = 8
 
-# Short, and no retries: a subtitle that does not arrive promptly is not worth
+# Short, and no retries: a sidecar that does not arrive promptly is not worth
 # delaying the picture for. The URL is still attached in its place.
 TIMEOUT = (3.05, 8.0)
+
+# Shorter still, for an embedded track. See the module docstring: the server
+# either has this one extracted already (~25 ms) or is about to spend half a
+# minute making it, and no budget between those two outcomes buys anything.
+# What does not land here is deferred, not lost.
+EMBEDDED_TIMEOUT = (3.05, 4.0)
 
 # Extensions Kodi recognises as subtitles. A URL already ending in one of these
 # is left alone; anything else is asked for as .srt, which the server converts
@@ -171,31 +192,44 @@ def sweep(directory: Optional[str] = None) -> int:
     return removed
 
 
+class Localized(NamedTuple):
+    """What the play route got, and what it is still owed.
+
+    ``files`` is the (attachment, path) pairs to hand ``setSubtitles``, in the
+    order Kodi will list them — the Jellyfin index of each, in this order, is
+    what makes an index translatable to a Kodi subtitle number at all
+    (``streams.subtitle_ordinal``).
+
+    ``deferred`` is the embedded tracks the server had not finished extracting.
+    They are not failures and not losses: the service fetches them on its own
+    clock and adds them to the running playback (``service/latesubs.py``).
+    """
+
+    files: List[Tuple[streams.Attachment, str]]
+    deferred: List[streams.Attachment]
+
+
 def localize(
     http: Http,
     attached: List[streams.Attachment],
     directory: Optional[str] = None,
-) -> List[Tuple[streams.Attachment, str]]:
-    """(attachment, path) for everything to hand ``setSubtitles``.
-
-    Pairs rather than paths because a track can now drop out — see the module
-    docstring — and the caller has to know which ones survived: the Jellyfin
-    index of each surviving track, in this order, is what makes an index
-    translatable to a Kodi subtitle number at all
-    (``streams.subtitle_ordinal``).
+) -> Localized:
+    """Fetch everything attachable now, and name what has to wait.
 
     Order is the order in. A sidecar whose fetch failed keeps its URL and its
-    place — worse-labelled, never missing. An embedded track whose fetch
-    failed is left out, because its URL is the thing that stalls Kodi.
+    place — worse-labelled, never missing. An embedded track whose fetch did
+    not land is deferred rather than attached, because its URL is the thing
+    that stalls Kodi.
 
     The fetches run concurrently (perf plan W2.6): sequentially, each cost its
     whole round trip — ~0.4 s each on LAN. The cap bounds fetch *attempts*
     rather than successes: "stop after the eighth success" would mean
     submitting a ninth only after one fails, which re-serializes exactly the
-    pathological item the cap exists for.
+    pathological item the cap exists for. Anything past the cap that is
+    embedded is deferred too, for the same reason it would have been if slow.
     """
     if not attached:
-        return []
+        return Localized([], [])
     path = directory or _cache_dir()
     sweep(path)
 
@@ -209,33 +243,57 @@ def localize(
         for future in as_completed(futures):
             local_paths[futures[future].stream_index] = future.result()
 
-    localized: List[Tuple[streams.Attachment, str]] = []
+    files: List[Tuple[streams.Attachment, str]] = []
+    deferred: List[streams.Attachment] = []
     fetched = 0
     for attachment in attached:
         local = local_paths.get(attachment.stream_index, "")
         if local:
             fetched += 1
-            localized.append((attachment, local))
+            files.append((attachment, local))
         elif attachment.sidecar:
-            localized.append((attachment, attachment.url))
+            files.append((attachment, attachment.url))
         else:
             LOG.info(
-                "subtitle %s dropped: the server did not produce it",
+                "subtitle %s deferred: the server is still extracting it",
                 attachment.stream_index,
             )
+            deferred.append(attachment)
     if fetched:
         LOG.info("fetched %d subtitle(s) for their labels", fetched)
-    return localized
+    return Localized(files, deferred)
 
 
-def _fetch(http: Http, attachment: streams.Attachment, directory: str) -> str:
+def fetch_to(
+    http: Http,
+    attachment: streams.Attachment,
+    directory: Optional[str] = None,
+    timeout: Optional[Tuple[float, float]] = None,
+) -> str:
+    """One subtitle to a named local file, or '' — the service's way in.
+
+    Same naming and same cache directory as the play path, so a track that
+    arrives late is labelled exactly as it would have been on time.
+    """
+    return _fetch(http, attachment, directory or _cache_dir(), timeout)
+
+
+def _fetch(
+    http: Http,
+    attachment: streams.Attachment,
+    directory: str,
+    timeout: Optional[Tuple[float, float]] = None,
+) -> str:
     """One subtitle to a named local file, or '' if anything at all went wrong."""
     try:
         # exist_ok: concurrent fetches race this check, and a lost race must
         # not read as a failed subtitle.
         os.makedirs(directory, exist_ok=True)
         response = http.request(
-            "GET", delivery_url(attachment.url), timeout=TIMEOUT, retries=0
+            "GET",
+            delivery_url(attachment.url),
+            timeout=timeout or (TIMEOUT if attachment.sidecar else EMBEDDED_TIMEOUT),
+            retries=0,
         )
         target = os.path.join(directory, filename_for(attachment))
         with open(target, "wb") as handle:

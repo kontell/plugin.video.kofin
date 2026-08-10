@@ -1881,3 +1881,13 @@ msgstr ""
 msgctxt "#30774"
 msgid "Remove %s download(s) of %s?"
 msgstr ""
+
+# 30775-30776 — the other half of #30617: a text subtitle a transcode did not
+# attach is fetched onto the running playback, not burned in and not restarted
+msgctxt "#30775"
+msgid "downloaded from the server"
+msgstr ""
+
+msgctxt "#30776"
+msgid "Downloading subtitle..."
+msgstr ""

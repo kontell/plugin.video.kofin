@@ -1,7 +1,9 @@
 """The in-playback stream menu: what it offers, and what a pick actually does.
 
-A text subtitle switches in place; audio and a burned-in image subtitle cost a
-restart, because a Jellyfin transcode carries one audio track and no subtitles
+A subtitle Kodi already holds switches in place. A text one a transcode did
+not attach is fetched onto the running playback by the service. Only audio and
+an image subtitle still resolve a new stream, because a Jellyfin transcode
+carries one audio track and no subtitles at all
 (docs/transcode-stream-selection-plan.md §2.1).
 """
 
@@ -39,6 +41,7 @@ class Recorder:
         self.audio_stream = []
         self.shown = []
         self.toasts = []
+        self.notified = []
         self.answers = []
         self.context_answers = []
 
@@ -90,6 +93,14 @@ def env(monkeypatch):
         menu.xbmc, "executebuiltin", lambda cmd: rec.builtins.append(cmd)
     )
     monkeypatch.setattr(menu.toast, "show", lambda *a, **k: rec.toasts.append(a))
+    # Patched on the menu's own reference: ipc.notify goes out over
+    # executebuiltin from the ipc module, which the builtin recorder above
+    # does not see.
+    monkeypatch.setattr(
+        menu.ipc,
+        "notify",
+        lambda method, data=None: rec.notified.append((method, data)),
+    )
     monkeypatch.setattr(menu.settings, "localized", lambda i: "S%d" % i)
     monkeypatch.setattr(menu.kodirpc, "current_subtitle", lambda: None)
     monkeypatch.setattr(menu.kodirpc, "current_audio", lambda: None)
@@ -195,6 +206,32 @@ def test_the_burn_in_row_says_so(env):
     assert options[0] == "K231 K461"
     assert options[1] == "English - SUBRIP"
     assert options[2] == "English SDH - PGSSUB (S30617)"
+
+
+def test_an_unattached_text_subtitle_is_fetched_rather_than_restarted_into(env):
+    """Das Boot, one internal English SRT, transcoded: the extraction had not
+    finished inside the play route's budget, so nothing was attached. Picking
+    it used to restart playback into a stream resolved with the track — which
+    cost a five-second gap *and* re-ran the same doomed fetch on the play
+    route, so the first pick reliably came back with no subtitle at all. It is
+    a file: the service fetches it onto the playback already running."""
+    publish(method="Transcode", attached=[], media_streams=[AUDIO_1, SUB_3])
+    env.answers = [1]  # None, then the text sub
+    menu.context_menu()
+    assert env.builtins == [], "nothing should restart for a text subtitle"
+    assert env.notified == [(menu.ipc.ATTACH_SUBTITLE, {"Index": 3})]
+
+
+def test_an_unattached_text_subtitle_is_not_called_burned_in(env):
+    """The reported symptom: a plain SRT offered as "burned in, restarts
+    playback" (#30617), then downloaded and attached rather than burned. It
+    says what it actually costs — a download — and nothing else."""
+    publish(method="Transcode", attached=[], media_streams=[AUDIO_1, SUB_3, SUB_4])
+    env.answers = [-1]
+    menu.context_menu()
+    _, options = env.selected[0]
+    assert options[1] == "English - SUBRIP (S30775)"  # restarts playback
+    assert options[2] == "English SDH - PGSSUB (S30617)"  # burned in, restarts
 
 
 def test_subtitles_off(env):

@@ -207,6 +207,46 @@ def attached_subtitles(
     return attached
 
 
+def fetchable_subtitles(server: str, source: JsonDict) -> List[Attachment]:
+    """Every embedded text track the server can hand over as a file.
+
+    A superset of what :func:`attached_subtitles` attaches — that one picks the
+    single track worth extracting before the first frame, this one describes
+    all of them, so a track chosen later can be fetched without resolving a
+    new stream. It is what makes the stream menu's text rows free: the service
+    fetches the chosen index and adds it to the running playback rather than
+    restarting into it (``service/latesubs.py``).
+
+    Sidecars are absent because they are never missing: they cost the server
+    nothing and are attached on every play. Image subtitles are absent because
+    a file is no use for one — Kodi cannot render a standalone PGS/DVDSUB, and
+    a transcode can only put it on screen by burning it in.
+    """
+    fetchable: List[Attachment] = []
+    for stream in source.get("MediaStreams") or []:
+        if stream.get("Type") != "Subtitle":
+            continue
+        if stream.get("DeliveryMethod") != "External":
+            continue
+        if stream.get("IsExternal") or not stream.get("IsTextSubtitleStream"):
+            continue
+        url = stream.get("DeliveryUrl")
+        index = stream.get("Index")
+        if not url or index is None:
+            continue
+        fetchable.append(
+            Attachment(
+                stream_index=int(index),
+                url=server + url,
+                sidecar=False,
+                language=str(stream.get("Language") or ""),
+                title=str(stream.get("Title") or ""),
+                forced=bool(stream.get("IsForced")),
+            )
+        )
+    return fetchable
+
+
 def audio_ordinal(streams: List[JsonDict], index: Optional[int]) -> Optional[int]:
     """Kodi's audio-stream number for a Jellyfin index, or None.
 
@@ -305,11 +345,10 @@ def selectable_subtitles(
     """The subtitle streams the menu can actually put on screen.
 
     All of them, on either play method — what differs is the cost, which
-    :func:`needs_restart` answers and the menu labels. On a transcode only one
-    embedded track is attached (see :func:`attached_subtitles`); the others are
-    reached by resolving a new stream, exactly as an image subtitle is. They
-    are listed rather than hidden because "restart to use this" is an answer
-    and silence is not.
+    :func:`needs_fetch` and :func:`burns_in` answer and the menu labels. On a
+    transcode only one embedded track is attached (see
+    :func:`attached_subtitles`); another text track is fetched onto the
+    running playback, and an image one can only be burned into a new stream.
     """
     return of_type(streams, "Subtitle")
 
@@ -328,26 +367,40 @@ def is_image_subtitle(stream: JsonDict) -> bool:
     return codec in ("pgssub", "pgs", "dvdsub", "dvbsub", "vobsub", "sub")
 
 
-def needs_restart(
+def burns_in(stream: JsonDict, play_method: str) -> bool:
+    """Whether selecting this subtitle can only be answered by burning it in.
+
+    An image subtitle on a transcode, and nothing else. The distinction is not
+    cosmetic: a *text* subtitle that is not among the attached ones costs a
+    restart too (:func:`needs_restart`), but that restart fetches it as a file
+    — so treating the two alike labelled a plain SRT "burned in" and, worse,
+    made the restart ask the server for a burn-in it never wanted
+    (``deviceprofile.build(burn_subtitles=True)``, reached through the play
+    route's ``burnsubs`` param).
+    """
+    return not is_direct(play_method) and is_image_subtitle(stream)
+
+
+def needs_fetch(
     stream: JsonDict, play_method: str, attached: Optional[List[int]] = None
 ) -> bool:
-    """Whether selecting this subtitle means resolving a new stream.
+    """Whether this subtitle has to be fetched from the server before it shows.
 
-    Never on a direct play: the container holds every track. On a transcode,
-    two cases do — an image subtitle, which can only reach the output by being
-    burned into the video, and a text subtitle that is not among the attached
-    ones, since a transcoded stream carries no subtitles of its own and only
-    the resolved one was attached.
+    A text track on a transcode that is not among the attached ones. The
+    transcoded stream carries no subtitles of its own and the play route
+    extracts only the one it resolved with (:func:`attached_subtitles`), so
+    the rest arrive as files on demand — which the service does against the
+    running playback, with no new stream and no gap.
+
+    Never on a direct play: the container holds every track. Never for an
+    image subtitle either: a file is no use for one, and
+    :func:`burns_in` is that case.
 
     ``attached`` is optional so a caller that only cares about the burn-in
     case can leave it out; omitting it treats every text subtitle as already
     on hand.
     """
-    if is_direct(play_method):
-        return False
-    if is_image_subtitle(stream):
-        return True
-    if attached is None:
+    if is_direct(play_method) or is_image_subtitle(stream) or attached is None:
         return False
     return stream.get("Index") not in attached
 

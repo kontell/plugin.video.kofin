@@ -266,3 +266,25 @@ Items 1–4 are a shippable first cut: default tracks honoured everywhere, text 
 * **Restart and watch state.** A restart mid-item posts a stop. If the server marks progress oddly, T8 catches it; `finalize()` already sends an explicit `PositionTicks`.
 * **Transcode session leak.** Every restart must `close_transcode` the old `PlaySessionId`. `finalize()` does this for `PlayMethod == "Transcode"`; verify it fires on the restart path.
 * **Jellyfin behaviour drift.** §2.5's HLS renditions and §2.6's `MediaSourceId` requirement are server-version-dependent. Both are recorded here with the version they were measured against (10.11.11).
+
+## 7. Amendment, 2026-08-10: subtitles a transcode did not attach
+
+§3.4's decision table above is superseded for one of its four rows. The rest stands.
+
+The plan assumed every text subtitle is attached at play time (§3.1), so "text subtitle → `setSubtitleStream`, instant" covered all of them. That assumption did not survive contact: Kodi opens every attached subtitle while *building the demuxer*, not when one is picked, and each embedded track is an on-demand ffmpeg extraction — a film with several the server could not produce stalled the picture for 20 s per track. Attaching was therefore narrowed to the single track the playback resolved with, and the others were left to the restart path alongside image subtitles.
+
+That was wrong in a way the narrowing hid, and it was reported against Das Boot: one internal English SRT, transcoded, nothing attached, and the menu's only row offered as "burned in, restarts playback". Two faults behind it.
+
+**The restart never worked the first time.** Cold extraction of an embedded subtitle was measured on the same server as §2 at **28 s** (2.4 GB MKV), **30 s** (2.6 GB) and **146 s** (22.7 GB); warm it is ~25 ms. The play route allowed 8 s. So the first play attached nothing, the restart re-ran the same 8 s fetch on the new stream and also attached nothing, and only a later attempt succeeded — by then one of the abandoned extractions had finished and been cached. Abandoning the request does not abandon the work, which is what makes waiting worth anything.
+
+**A text track is not a burn-in.** Both restart cases shared one label (#30617) and one code path, so a plain SRT was announced as about to be stamped into the picture, and its restart really did send `burnsubs=1`.
+
+The fix keeps §2's measurements and inverts §3.4's answer for this row:
+
+* The play route no longer waits on an extraction. A sidecar keeps its 8 s (the server already has the file); an embedded track gets 4 s, because it is either warm in milliseconds or an extraction no budget catches. What does not land is **deferred**, not dropped.
+* The service chases a deferred track against the *running* playback and hands it over with `Player.setSubtitles(path)` — verified on Omega 21.3: it appends to Kodi's subtitle list, is selected, and renders in sync with no gap (`service/latesubs.py`). Note it is the Player method, not the ListItem one; there is no `addSubtitle` on `xbmc.Player`, whatever `Player.AddSubtitle` over JSON-RPC suggests.
+* Picking any text subtitle from the menu therefore costs a download, not a stream. The plugin process states the index over `ipc.ATTACH_SUBTITLE` and exits; the service owns the wait and the playback. **Only audio and image subtitles still restart.**
+
+§2.5's verdict on `SubtitleProfiles` is reaffirmed with a new measurement. `{"Format": "vtt", "Method": "Hls"}` makes 10.11.11 answer `DeliveryMethod: Hls` and emit a real `#EXT-X-MEDIA:TYPE=SUBTITLES` rendition, so the server side works — but Kodi lists the track and then never starts the picture: black screen, `time` stuck at 0:00 with `speed: 1`, for over two minutes. Ruled out. Every JSON-RPC probe reports success, so only a screenshot plus a position poll catches it.
+
+The §6 risk "Many text subtitles" is closed by the same change from the other side: only one track is ever attached, so Kodi's own menu is never a wall of `Stream (External)`, and the rest are named properly in kofin's dialog.

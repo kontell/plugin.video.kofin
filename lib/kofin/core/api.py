@@ -692,6 +692,14 @@ class Api:
             max_width,
         )
 
+    @property
+    def http(self) -> Http:
+        """The transport, for the one caller that fetches by URL and writes
+        the bytes itself: the late-subtitle chase reuses the play route's own
+        naming and file handling (``plugin/subtitles``), so it needs the
+        transport rather than a method here."""
+        return self._http
+
     def download(self, url: str) -> bytes:
         """Raw bytes of a server resource (chapter thumbnail downloads)."""
         response = self._http.request("GET", url, headers=self._headers())

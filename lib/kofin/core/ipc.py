@@ -52,6 +52,13 @@ DOWNLOAD_ADD = "DownloadAdd"
 DOWNLOAD_CANCEL = "DownloadCancel"
 DOWNLOAD_REMOVE = "DownloadRemove"
 
+# The stream menu picking a subtitle a transcode did not attach. Carries
+# {"Index": <jellyfin stream index>}. It runs in the service for the same
+# reason the dialogs above do — the fetch is an ffmpeg extraction on the
+# server, tens of seconds of it, and the plugin process cannot wait on that
+# or reach the running playback afterwards (service/latesubs.py).
+ATTACH_SUBTITLE = "AttachSubtitle"
+
 _REGISTRY = frozenset(
     {
         RESTART,
@@ -67,6 +74,7 @@ _REGISTRY = frozenset(
         DOWNLOAD_ADD,
         DOWNLOAD_CANCEL,
         DOWNLOAD_REMOVE,
+        ATTACH_SUBTITLE,
     }
 )
 
