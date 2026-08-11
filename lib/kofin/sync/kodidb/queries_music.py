@@ -208,11 +208,25 @@ INSERT OR REPLACE INTO      album_artist(idArtist, idAlbum, strArtist)
 VALUES                      (?, ?, ?)
 """
 update_link_obj = ["{ArtistId}", "{AlbumId}", "{Name}"]
+# Plain INSERT, not INSERT OR REPLACE: discography carries no unique index
+# (Kodi's schema gives it only idxDiscography_1 on idArtist), so OR REPLACE
+# has no conflict target and never replaced anything. Kodi's own writer is a
+# plain INSERT too, kept to one row per album by clearing first -- see
+# MusicKodiDb.add_discography for how that shape is reproduced here.
 update_discography = """
-INSERT OR REPLACE INTO      discography(idArtist, strAlbum, strYear)
+INSERT INTO                 discography(idArtist, strAlbum, strYear)
 VALUES                      (?, ?, ?)
 """
 update_discography_obj = ["{ArtistId}", "{Title}", "{Year}"]
+delete_discography = """
+DELETE FROM                 discography
+WHERE                       idArtist = ? AND strAlbum = ?
+"""
+get_discography = """
+SELECT                      1
+FROM                        discography
+WHERE                       idArtist = ? AND strAlbum = ?
+"""
 update_album = """
 UPDATE      album
 SET         strAlbum = ?, strArtists = ?, iYear = ?, strGenres = ?, strReview = ?, strImage = ?,

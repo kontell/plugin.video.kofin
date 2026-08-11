@@ -139,7 +139,38 @@ class Music(Kodi):
         self.cursor.execute(QU.update_link, args)
 
     def add_discography(self, *args):
+        """Write the artist's row for this album, replacing any it had.
+
+        ``discography`` has no unique index, so the INSERT OR REPLACE this
+        used to be never replaced: every rewrite appended, and because the
+        album leg writes the album's year while the song leg writes 0, the
+        rows were not even identical. A 12-track album left 13 rows after a
+        single pass and grew by that much again on every Etag change --
+        measured 251 rows for AC/DC's 22 albums on a real library.
+
+        Kodi keeps one row per album by clearing first
+        (``CMusicDatabase::UpdateArtist`` calls ``DeleteArtistDiscography``
+        then ``AddArtistDiscography`` per album). kofin writes one album at a
+        time rather than an artist's whole discography, so the clear is
+        scoped to the pair the row is about.
+        """
+        self.cursor.execute(QU.delete_discography, args[:2])
         self.cursor.execute(QU.update_discography, args)
+
+    def add_discography_if_absent(self, *args):
+        """Add a discography row only where the artist has none for the album.
+
+        The song leg calls this. It exists for the single -- a song whose
+        album Jellyfin never modelled, so ``song_add`` creates the album and
+        the album writer never runs -- but it fires once per track, and it
+        knows no album year (it writes 0). Letting it replace would mean the
+        last track of every album overwriting the album writer's real year
+        with a 0.
+        """
+        self.cursor.execute(QU.get_discography, args[:2])
+
+        if self.cursor.fetchone() is None:
+            self.cursor.execute(QU.update_discography, args)
 
     def validate_artist(self, *args):
 

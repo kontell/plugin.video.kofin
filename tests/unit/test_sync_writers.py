@@ -2556,6 +2556,114 @@ def test_music_write_is_idempotent(api, frozen_music_clock):
     assert dump(str(sync_db._path_overrides["kofin"])) == first_map
 
 
+def test_music_rewrite_with_a_bumped_etag_is_byte_identical(api, frozen_music_clock):
+    """The plain idempotency test above never reaches the writers -- an
+    unchanged Etag short-circuits in check_unchanged. This is the pass that
+    actually re-runs them, and it used to be impossible to assert: discography
+    has no unique index, so its INSERT OR REPLACE appended instead of
+    replacing and every rewrite grew the table."""
+    write_music_tree(api)
+    first = music_dump(str(sync_db._path_overrides["music"]))
+
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music.album(dto(dict(ALBUM, Etag="etag-album1-v2")))
+        music.song(dto(dict(SONG, Etag="etag-song1-v2")))
+
+    assert music_dump(str(sync_db._path_overrides["music"])) == first
+
+
+def test_music_discography_keeps_one_row_per_album(api, frozen_music_clock):
+    """discography carries no unique index (Kodi gives it only
+    idxDiscography_1 on idArtist), so nothing in the schema stops a rewrite
+    appending. The growth was per *track*, not per pass: the song leg fires
+    once per song, so a 12-track album left 13 rows after a single walk and
+    another 13 on every Etag change -- 251 rows for AC/DC's 22 albums on a
+    real library. The album's own year must be the one that survives; the
+    song leg writes 0 and must not stamp it over the top."""
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+
+    for walk in (1, 2, 3):
+        with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+            music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+            music.artist(dto(dict(ARTIST, Etag="etag-artist1-v%d" % walk)))
+            music.album(dto(dict(ALBUM, Etag="etag-album1-v%d" % walk)))
+            for track in range(1, 13):
+                music.song(
+                    dto(
+                        dict(
+                            SONG,
+                            Id="song%d" % track,
+                            Name="Track %d" % track,
+                            IndexNumber=track,
+                            Etag="etag-song%d-v%d" % (track, walk),
+                        )
+                    )
+                )
+
+        assert music_query("SELECT idArtist, strAlbum, strYear FROM discography") == [
+            (2, "Greatest Hits", "2017")
+        ], ("grew on walk %d" % walk)
+
+
+def test_music_discography_year_follows_the_album(api, frozen_music_clock):
+    """A year correction on the server re-points the row rather than adding
+    one -- the album leg owns the row and clears before it writes."""
+    write_music_tree(api)
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music.album(dto(dict(ALBUM, Etag="etag-album1-v2", ProductionYear=1971)))
+
+    assert music_query("SELECT strAlbum, strYear FROM discography") == [
+        ("Greatest Hits", "1971")
+    ]
+
+
+def test_music_discography_song_leg_covers_an_unlisted_album_artist(
+    api, frozen_music_clock
+):
+    """The song leg is not redundant with the album leg: the album writer
+    walks ArtistItems and the song writer walks AlbumArtists, which are
+    different lists. An album artist absent from ArtistItems gets its only
+    discography row from the song leg, so that leg has to keep writing --
+    it just must not overwrite a row the album leg already owns."""
+    api.items_by_id["artist2"] = dto(
+        dict(
+            ARTIST,
+            Id="artist2",
+            Name="The Guest",
+            ProviderIds={"MusicBrainzArtist": "mbid-artist-2"},
+        )
+    )
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music.artist(dto(ARTIST))
+        music.album(dto(ALBUM))  # ArtistItems names artist1 only
+        music.song(
+            dto(
+                dict(
+                    SONG,
+                    AlbumArtists=[
+                        {"Name": "The Band", "Id": "artist1"},
+                        {"Name": "The Guest", "Id": "artist2"},
+                    ],
+                )
+            )
+        )
+
+    assert music_query(
+        "SELECT a.strArtist, d.strAlbum, d.strYear FROM discography d "
+        "JOIN artist a ON a.idArtist = d.idArtist ORDER BY a.strArtist"
+    ) == [
+        ("The Band", "Greatest Hits", "2017"),
+        ("The Guest", "Greatest Hits", "0"),
+    ]
+
+
 def test_music_artist_removal_no_orphans(api, frozen_music_clock):
     write_music_tree(api)
 
@@ -2617,11 +2725,9 @@ def test_music_source_link_survives_a_rewrite(api, frozen_music_clock):
     idempotency test never reaches the hook at all, and this is the pass that
     would show a duplicate link or a second source row.
 
-    Scoped to the two source tables rather than the whole dump, because an
-    Etag-bumped rewrite is not byte-identical for reasons that predate this:
-    ``discography`` carries no unique index, so its INSERT OR REPLACE never
-    replaces and both the album and the song writer append a row (with
-    different years) on every rewrite.
+    Scoped to the two source tables because that is what this test is about;
+    the whole-dump assertion for the same rewrite lives in
+    ``test_music_rewrite_with_a_bumped_etag_is_byte_identical``.
     """
     write_music_tree(api)
     before_sources = source_rows()

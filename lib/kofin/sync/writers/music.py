@@ -545,7 +545,14 @@ class Music(KodiDb):
 
                 temp_obj["Title"] = obj["Album"]
                 temp_obj["Year"] = 0
-                self.add_discography(*values(temp_obj, QU.update_discography_obj))
+                # Deliberately the if-absent write, not add_discography: this
+                # runs once per track and carries no album year, so replacing
+                # would stamp a 0 over the year the album writer wrote. The
+                # row it does add covers the single, whose album never passes
+                # through the album writer at all.
+                self.add_discography_if_absent(
+                    *values(temp_obj, QU.update_discography_obj)
+                )
 
         obj["AlbumArtists"] = artists
 
