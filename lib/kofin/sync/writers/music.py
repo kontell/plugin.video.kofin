@@ -512,6 +512,17 @@ class Music(KodiDb):
     def song_artist_discography(self, obj):
         """Update the artist's discography."""
         artists = []
+        # Key the row on the album's own title rather than the song's Album
+        # tag: Jellyfin reports the two separately and they disagree often
+        # enough to matter, and a row under the odd title matches no album
+        # in Kodi's fold, so it renders as a stray "0 - <album>". Same title
+        # as the album leg means add_discography_if_absent can see the row
+        # the album leg already wrote.
+        album_title = obj["Album"]
+
+        if album_title:
+            album_title = self.get_album_title(obj["AlbumId"]) or album_title
+
         for artist in obj["AlbumArtists"] or []:
 
             temp_obj = dict(obj)
@@ -541,11 +552,18 @@ class Music(KodiDb):
             self.link(*values(temp_obj, QU.update_link_obj))
             self.item_ids.append(temp_obj["Id"])
 
-            if obj["Album"]:
+            if album_title:
 
-                temp_obj["Title"] = obj["Album"]
+                temp_obj["Title"] = album_title
                 temp_obj["Year"] = 0
-                self.add_discography(*values(temp_obj, QU.update_discography_obj))
+                # Deliberately the if-absent write, not add_discography: this
+                # runs once per track and carries no album year, so replacing
+                # would stamp a 0 over the year the album writer wrote. The
+                # row it does add covers the single, whose album never passes
+                # through the album writer at all.
+                self.add_discography_if_absent(
+                    *values(temp_obj, QU.update_discography_obj)
+                )
 
         obj["AlbumArtists"] = artists
 
@@ -771,6 +789,11 @@ class Music(KodiDb):
     def remove_album(self, kodi_id, item_id):
 
         self.artwork.delete(kodi_id, "album")
+        # Before delete_album, not after: tgrDeleteAlbum takes album_artist
+        # with the album, and album_artist is how the discography rows are
+        # found. Kodi's own trigger never touches discography (only
+        # tgrDeleteArtist does), so without this the rows outlive the album.
+        self.delete_album_discography(kodi_id)
         self.delete_album(kodi_id)
         LOG.debug("DELETE album [%s] %s", kodi_id, item_id)
 

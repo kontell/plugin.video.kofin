@@ -139,7 +139,76 @@ class Music(Kodi):
         self.cursor.execute(QU.update_link, args)
 
     def add_discography(self, *args):
+        """Write the artist's row for this album, replacing any it had.
+
+        ``discography`` has no unique index, so the INSERT OR REPLACE this
+        used to be never replaced: every rewrite appended, and because the
+        album leg writes the album's year while the song leg writes 0, the
+        rows were not even identical. A 12-track album left 13 rows after a
+        single pass and grew by that much again on every Etag change --
+        measured 251 rows for AC/DC's 22 albums on a real library.
+
+        Kodi keeps one row per album by clearing first
+        (``CMusicDatabase::UpdateArtist`` calls ``DeleteArtistDiscography``
+        then ``AddArtistDiscography`` per album). kofin writes one album at a
+        time rather than an artist's whole discography, so the clear is
+        scoped to the pair the row is about.
+        """
+        self.cursor.execute(QU.delete_discography, args[:2])
         self.cursor.execute(QU.update_discography, args)
+
+    def add_discography_if_absent(self, *args):
+        """Add a discography row only where the artist has none for the album.
+
+        The song leg calls this. It exists for the single -- a song whose
+        album Jellyfin never modelled, so ``song_add`` creates the album and
+        the album writer never runs -- but it fires once per track, and it
+        knows no album year (it writes 0). Letting it replace would mean the
+        last track of every album overwriting the album writer's real year
+        with a 0.
+        """
+        self.cursor.execute(QU.get_discography, args[:2])
+
+        if self.cursor.fetchone() is None:
+            self.cursor.execute(QU.update_discography, args)
+
+    def get_album_title(self, kodi_id):
+        """The album's own title, or None when it has no row.
+
+        discography is keyed by title, and the two legs used to key on
+        different strings: the album leg on the album item's name, the song
+        leg on the song's ``Album`` tag. Jellyfin reports those separately
+        and they do disagree -- a track tagged ``The Terminator`` on an album
+        named ``The Terminator: Original Soundtrack``. Rows written under the
+        odd title match no album in ``GetArtistDiscography``'s fold, so they
+        survive it and render on their own as ``0 - <album>``.
+        """
+        self.cursor.execute(QU.get_album_title, (kodi_id,))
+        row = self.cursor.fetchone()
+
+        return row[0] if row else None
+
+    def delete_album_discography(self, kodi_id):
+        """Drop the discography rows the album being removed accounts for.
+
+        Kodi cascades an album delete into song, album_artist, album_source
+        and art (``tgrDeleteAlbum``) but never into discography -- only
+        ``tgrDeleteArtist`` clears that, and only when the artist row itself
+        goes. So a removed album left its rows behind for good, and they
+        stop being invisible the moment the album is gone: the fold in
+        ``GetArtistDiscography`` matches discography against the album table,
+        so with no album left to match, the album leg's row and the song
+        leg's year-0 row render as two entries, one of them titled
+        ``0 - <album>``.
+
+        Known limit: the scope is the artists Kodi links to the album, which
+        is every artist the song leg wrote a row for (it writes album_artist
+        beside it) and the album leg's album artists. An artist that was an
+        ArtistItem without ever being an album artist -- a guest credit on a
+        compilation -- keeps its row. That row is the album leg's, carries
+        the real year, and reads as the appearance it describes.
+        """
+        self.cursor.execute(QU.delete_album_discography, (kodi_id, kodi_id))
 
     def validate_artist(self, *args):
 
