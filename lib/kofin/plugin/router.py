@@ -27,11 +27,12 @@ class Request:
 
 # The handler registry, as (module under kofin.plugin, attribute) pairs
 # resolved per dispatch. Dotted names rather than imported callables because a
-# plugin invocation must only pay for the module it routes to: on builds where
-# the language invoker is never reused (this repo's primary test box, see
-# docs/perf-hardening-plan.md W1.2), every invocation re-imports from scratch,
-# and importing all ten handler modules pulled in the whole requests tree —
-# ~1 s inside Kodi's Python — for routes that never touch the network.
+# plugin invocation must only pay for the module it routes to: a cold
+# invocation re-imports from scratch, and importing all ten handler modules
+# pulled in the whole requests tree — ~1 s inside Kodi's Python — for routes
+# that never touch the network (docs/perf-hardening-plan.md W1.2). Invoker
+# reuse spares a warm click that work, but only while nothing else on the
+# system runs Python in between, so the lazy table still earns its keep.
 ROUTES: Dict[str, Tuple[str, str]] = {
     "": ("browse", "root"),
     "streams": ("streams", "menu"),
@@ -68,6 +69,27 @@ ROUTES: Dict[str, Tuple[str, str]] = {
     "refreshboxsets": ("actions", "refresh_boxsets"),
     "precacheart": ("actions", "precache_art"),
 }
+
+# The routes that answer a directory fetch themselves: they either build a
+# listing and call endOfDirectory (browse and friends, lyrics) or resolve a
+# playable item with setResolvedUrl (play, on every path including its
+# failures). Every other route runs for its side effect and returns nothing,
+# and dispatch closes the handle on its behalf.
+#
+# That backstop is load-bearing, not tidiness. With reuselanguageinvoker the
+# invoker thread parks between invocations instead of exiting, and Kodi only
+# marks a script done from CLanguageInvokerThread::OnExit — so
+# CScriptRunner::WaitOnScriptResult, which loops on IsRunning(scriptId) with
+# no timeout on its first loop, waits forever for a route that leaves its
+# handle open. Before the flag was honoured the interpreter died after every
+# invocation and the fetch failed out at once, which is exactly what the
+# fire-an-IPC-and-exit routes (syncplay, adduser) were written against and
+# what their docstrings still describe. Measured: mode=streams reached as a
+# directory finished its script in 2 ms and hung the caller indefinitely.
+# test_router.py refuses any ROUTES entry that is in neither set.
+LISTING_MODES = frozenset(
+    {"", "browse", "continuewatching", "nextepisodes", "extras", "lyrics", "play"}
+)
 
 
 def _resolve(mode: str) -> Optional[Callable[[Request], None]]:
@@ -109,7 +131,18 @@ def dispatch(argv: List[str]) -> None:
     mode = params.get("mode", "").rstrip("/")
     handler = _resolve(mode)
     LOG.debug("dispatch mode=%s params=%s handle=%s", mode or "<root>", params, handle)
+    builds_listing = mode in LISTING_MODES
     if handler is None:
         LOG.warning("unknown mode %r; showing root", mode)
         handler = _root
+        # The fallback *is* the root listing, whatever was asked for.
+        builds_listing = True
     handler(request)
+
+    # Close the handle for the routes that build nothing, so a directory fetch
+    # that reached one fails out at once instead of waiting on an invoker
+    # thread that parks rather than exiting (see LISTING_MODES).
+    if handle >= 0 and not builds_listing:
+        import xbmcplugin
+
+        xbmcplugin.endOfDirectory(handle, succeeded=False)
