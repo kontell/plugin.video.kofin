@@ -3,7 +3,7 @@
 The invariants worth guarding are the negative ones. Every service connect
 runs this, so an unchanged splashscreen must not rewrite the asset or drop the
 cached texture, and a server that is down must never leave the install with a
-half-written PNG.
+half-written image.
 """
 
 import json
@@ -15,8 +15,8 @@ from kofin.core.http import ServerUnreachable
 from kofin.service import backdrop
 from tests.unit.fakes import FakeAddon
 
-DEFAULT_BYTES = b"bundled-artwork-png-bytes"
-SPLASH_BYTES = b"server-splashscreen-png-bytes"
+DEFAULT_BYTES = b"bundled-artwork-webp-bytes"
+SPLASH_BYTES = b"server-splashscreen-webp-bytes"
 OTHER_SPLASH = b"a-different-server-splashscreen"
 
 
@@ -49,7 +49,7 @@ def env(monkeypatch, tmp_path):
     media = addon_dir / "resources" / "media"
     media.mkdir(parents=True)
     # Only the live asset ships; the pristine copy is captured into addon_data
-    # on first run (a second shipped PNG would be a second source of truth).
+    # on first run (a second shipped copy would be a second source of truth).
     (media / backdrop.LIVE_NAME).write_bytes(DEFAULT_BYTES)
 
     data_dir = tmp_path / "addon_data"
@@ -112,7 +112,7 @@ def test_unchanged_splashscreen_rewrites_nothing_but_advances_the_floor(env):
     backdrop.apply(FakeApi(), now=later)
 
     assert (env["media"] / backdrop.LIVE_NAME).stat().st_mtime_ns == before
-    assert env["dropped"] == []  # a re-cache of a 2.3MB image for no change
+    assert env["dropped"] == []  # a re-cache of a 700KB image for no change
     assert state(env)["fetched"] == later
 
 
@@ -270,7 +270,7 @@ def test_missing_asset_counts_as_drift(env):
 
 
 def test_bundled_artwork_is_captured_into_addon_data_not_shipped(env):
-    """Only the asset addon.xml names ships. A second identical PNG beside it
+    """Only the asset addon.xml names ships. A second identical copy beside it
     would be a second source of truth for one image."""
     assert not (env["media"] / backdrop.DEFAULT_NAME).exists()
 
@@ -284,6 +284,19 @@ def test_bundled_artwork_is_captured_into_addon_data_not_shipped(env):
 def test_capture_is_taken_before_the_first_swap_even_when_offline(env):
     backdrop.apply(None, now=1000.0)  # no api: nothing to fetch
 
+    assert (env["data"] / backdrop.DEFAULT_NAME).read_bytes() == DEFAULT_BYTES
+
+
+def test_capture_clears_the_png_era_copy(env):
+    """The rename to WebP orphans the old capture. resources/ is rewritten by
+    the update that carries the new format, but addon_data is not, so nothing
+    else would ever remove it."""
+    legacy = env["data"] / backdrop.LEGACY_DEFAULT_NAME
+    legacy.write_bytes(b"the-png-era-bundled-artwork")
+
+    backdrop.apply(FakeApi(), now=1000.0)
+
+    assert not legacy.exists()
     assert (env["data"] / backdrop.DEFAULT_NAME).read_bytes() == DEFAULT_BYTES
 
 

@@ -1,13 +1,18 @@
 """The addon backdrop: the server's splashscreen, or the bundled artwork.
 
-``addon.xml`` names ``resources/media/fanart.png`` as the addon's fanart, and
+``addon.xml`` names ``resources/media/fanart.webp`` as the addon's fanart, and
 Kodi reads that manifest once at install/scan time — there is no runtime API to
 repoint an asset. So the backdrop is changed the only way it can be: by
 rewriting the file the manifest already names.
 
+Everything here is WebP, and the extension is load-bearing: Kodi picks an image
+decoder from it for local files, so WebP bytes under a ``.png`` name fail to
+decode outright on Omega. ``Api.splashscreen`` records why the format is worth
+the rename; ``addon.xml`` records why the manifest accepts it.
+
 Restoring it therefore needs an unmodified copy, and that copy is *captured*
 into addon_data rather than shipped beside the original. Shipping a second
-identical PNG would mean two sources of truth for one image, which drift the
+identical copy would mean two sources of truth for one image, which drift the
 first time somebody updates the artwork and edits only one of them. Nor can
 the shipped asset simply be generated on first run instead: Kodi's addon
 browser fetches ``<assets>`` straight from the repository over HTTP *before
@@ -27,7 +32,7 @@ Three things make that safe to do repeatedly:
   invalidation behind it, which is the part with a visible cost — see below.
 * **A daily floor gates the fetch.** ``_connect`` runs on every service start
   and every reconnect, and a flapping server would otherwise re-download a
-  2.3MB image each time.
+  700KB image each time.
 * **The write is atomic.** Kodi may be reading the file to cache it; a
   partial write would cache a truncated image and the hash would then say
   everything is fine.
@@ -37,8 +42,8 @@ the source url, so a file rewritten underneath it keeps rendering the old
 bytes until its own hash check falls due — which is on no timescale a user
 would connect to having changed the setting.
 
-The image is taken exactly as the server encodes it; :meth:`Api.splashscreen`
-records why no transcode parameters are asked for.
+The image is taken in the one encoding the endpoint can usefully be asked for;
+:meth:`Api.splashscreen` records why that is WebP and why it is not Jpg.
 """
 
 import hashlib
@@ -55,9 +60,14 @@ LOG = Logger(__name__)
 
 # The asset addon.xml names (shipped), and the captured copy of it as bundled
 # (written to addon_data at runtime — see the module docstring).
-LIVE_NAME = "fanart.png"
-DEFAULT_NAME = "fanart-default.png"
+LIVE_NAME = "fanart.webp"
+DEFAULT_NAME = "fanart-default.webp"
 MEDIA_DIR = os.path.join("resources", "media")
+
+# The PNG names these replaced. An addon update rewrites resources/, so the old
+# live asset goes with it, but the captured copy sits in addon_data where no
+# update reaches — left alone it would outlive the format for good.
+LEGACY_DEFAULT_NAME = "fanart-default.png"
 
 # Records what the live file currently holds, so an unchanged splashscreen
 # costs nothing and a restore is not repeated. In addon_data rather than a
@@ -125,13 +135,13 @@ def _install(data: bytes, source: str, now: float) -> bool:
     """Put ``data`` in the live asset and invalidate the cached texture.
 
     Written to a sibling temp file and renamed, because Kodi may be reading
-    the asset to cache it and a half-written PNG would be cached as-is — with
+    the asset to cache it and a half-written image would be cached as-is — with
     the hash then asserting the backdrop is up to date.
     """
     if _live_digest() == _digest(data):
         # Already exactly this. Record the state so the caller's bookkeeping is
         # right, but do not touch the file or drop the texture: re-caching a
-        # 2.3MB image for no visible change is the cost this avoids.
+        # 700KB image for no visible change is the cost this avoids.
         _write_state(source, _digest(data), now)
         return True
 
@@ -149,9 +159,10 @@ def _install(data: bytes, source: str, now: float) -> bool:
             pass
         return False
 
-    # Narrowed by addon id *and* filename: other addons ship a fanart.png too
-    # (plugin.video.jellyfin has one on this very box), and evicting theirs is
-    # not ours to do.
+    # Narrowed by addon id *and* filename: filtering on the bare filename is
+    # not ours to do — other addons ship a fanart of their own (this asset was
+    # a fanart.png, and plugin.video.jellyfin has one on this very box) — while
+    # the addon id alone would take every image kofin ships.
     kodirpc.drop_cached_texture(settings.ADDON_ID, require=LIVE_NAME)
     _write_state(source, _digest(data), now)
     LOG.info("backdrop updated from %s (%s bytes)", source, len(data))
@@ -182,6 +193,11 @@ def _capture_default() -> None:
             handle.write(data)
         os.replace(temp, target)
         LOG.debug("backdrop: captured bundled artwork (%s bytes)", len(data))
+        try:
+            os.remove(os.path.join(settings.addon_data_path(), LEGACY_DEFAULT_NAME))
+        except OSError:
+            # Absent on every install that never ran a PNG-era build.
+            pass
     except OSError as error:
         # Without it the setting cannot be turned back off until the next
         # addon update offers another chance to capture.
@@ -281,7 +297,7 @@ def _apply(api: Optional[Api], now: float, force: bool) -> None:
     if state.get("source") == SOURCE_SERVER and state.get("hash") == _digest(data):
         # Unchanged: record the check so the floor advances, but do not touch
         # the file or drop the cached texture — that would make every connect
-        # re-cache a 2.3MB image for no visible change.
+        # re-cache a 700KB image for no visible change.
         LOG.debug("backdrop unchanged; skipping write")
         _write_state(SOURCE_SERVER, str(state.get("hash")), now)
         return

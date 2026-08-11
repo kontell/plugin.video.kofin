@@ -15,9 +15,10 @@ JsonDict = Dict[str, Any]
 # transport default: see Api.lyrics.
 LYRICS_TIMEOUT = (2.0, 3.0)
 
-# The splashscreen is a ~2.3MB PNG the server may render on demand, so it gets
-# a longer read budget than the default. It runs on its own worker thread and
-# nothing waits on it, so a slow server costs nothing but a late backdrop.
+# The splashscreen is a ~700KB WebP the server may render (and transcode) on
+# demand, so it gets a longer read budget than the default. It runs on its own
+# worker thread and nothing waits on it, so a slow server costs nothing but a
+# late backdrop.
 SPLASHSCREEN_TIMEOUT = (6.0, 60.0)
 
 # The service's reachability probe (Service._connect): one attempt on the
@@ -184,20 +185,41 @@ class Api:
         return self.get("/Branding/Configuration")
 
     def splashscreen(self) -> bytes:
-        """The server's splashscreen image, exactly as the server encodes it.
+        """The server's splashscreen image, as WebP.
 
-        No transcode parameters, deliberately. The endpoint ignores ``quality``
-        outright (40/70/90/100 all return byte-identical output) and the image
-        is already 1920x1080, so ``maxWidth``/``maxHeight`` are no-ops on the
-        only dimension that could matter. That leaves ``format``, and asking
-        for Jpg would only add a lossy generation ahead of the one Kodi's own
-        texture cache applies — the splash is a poster collage full of fine
-        text, which is exactly the content that shows it.
+        ``format`` is the only parameter the endpoint honours: it ignores
+        ``quality`` (40/70/90/100 return byte-identical output) and ignores
+        ``maxWidth``/``maxHeight`` (every one of them still answers 1920x1080).
+
+        WebP rather than the default PNG because the default is a 3.6MB RGBA
+        image, and an alpha channel is what stops Kodi's texture cache from
+        re-encoding it — it caches an RGBA source as a PNG of the same size,
+        so the backdrop costs its full weight twice over and the cache saves
+        nothing. WebP is 698KB and caches down to a 600KB JPEG.
+
+        Not ``Jpg``, though it is the obvious lossy choice: that derivative
+        answers a *different, older* collage than the endpoint's own PNG, and
+        it stayed byte-identical across every cache key that could be varied
+        (format alone, with quality, with maxWidth, with maxHeight), so there
+        is no way to ask it for a current one. WebP tracks the PNG.
+
+        It has to stay the server's *lossy* WebP. A lossless one is ARGB in
+        the bitstream whatever the picture, so Kodi reads an alpha channel and
+        the whole thing lands back on the PNG path — the bundled fallback is
+        lossless and caches as a 65KB PNG, which is the same trap in miniature
+        and harmless only because it is 17KB to begin with.
+
+        One lossy generation is spent here and a second by Kodi's cache pass
+        (measured at q00=8, 4:2:0). End to end that is 29.98 dB against the
+        lossless PNG, with the damage confined to saturated colour edges —
+        better than the Jpg route's 28.08 dB, on a poster collage which is the
+        content most likely to show it.
         """
         response = self._http.request(
             "GET",
             self._url("/Branding/Splashscreen"),
             headers={"Authorization": self._header, "Accept": "image/*"},
+            params={"format": "Webp"},
             timeout=SPLASHSCREEN_TIMEOUT,
         )
         return bytes(response.content)

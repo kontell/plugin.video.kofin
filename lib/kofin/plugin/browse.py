@@ -23,7 +23,7 @@ JsonDict = Dict[str, Any]
 # rewrites it): the plugin process has no business importing service code for
 # a filename. Keep the two in step — this is the same asset addon.xml declares,
 # so whatever the backdrop setting has put there is what listings show.
-BACKDROP_IMAGE = "fanart.png"
+BACKDROP_IMAGE = "fanart.webp"
 
 BROWSE_FIELDS = (
     "Overview,Genres,Studios,Taglines,PremiereDate,ProductionYear,"
