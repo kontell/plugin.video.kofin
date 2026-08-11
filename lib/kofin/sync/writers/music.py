@@ -778,6 +778,11 @@ class Music(KodiDb):
     def remove_album(self, kodi_id, item_id):
 
         self.artwork.delete(kodi_id, "album")
+        # Before delete_album, not after: tgrDeleteAlbum takes album_artist
+        # with the album, and album_artist is how the discography rows are
+        # found. Kodi's own trigger never touches discography (only
+        # tgrDeleteArtist does), so without this the rows outlive the album.
+        self.delete_album_discography(kodi_id)
         self.delete_album(kodi_id)
         LOG.debug("DELETE album [%s] %s", kodi_id, item_id)
 

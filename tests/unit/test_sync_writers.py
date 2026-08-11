@@ -2664,6 +2664,56 @@ def test_music_discography_song_leg_covers_an_unlisted_album_artist(
     ]
 
 
+def test_music_album_removal_takes_its_discography(api, frozen_music_clock):
+    """Kodi cascades an album delete into song/album_artist/album_source/art
+    but never into discography, so the rows used to outlive the album -- and
+    an unmatched pair is exactly where GetArtistDiscography stops folding
+    duplicates away, rendering "0 - <album>" beside the real entry."""
+    write_music_tree(api)
+    assert music_query("SELECT COUNT(*) FROM discography") == [(1,)]
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music.remove("song1")
+        music.remove("album1")
+
+    assert music_query("SELECT COUNT(*) FROM album") == [(0,)]
+    assert music_query("SELECT COUNT(*) FROM discography") == [(0,)]
+    # The artist itself is untouched -- only its rows for that album go.
+    assert music_query("SELECT COUNT(*) FROM artist WHERE strArtist='The Band'") == [
+        (1,)
+    ]
+
+
+def test_music_album_removal_spares_another_artists_same_title(api, frozen_music_clock):
+    """Album titles repeat across artists, so the delete is scoped by
+    album_artist. A title-only delete would take the other artist's row --
+    and Kodi's own scraped rows for albums that were never in the library."""
+    write_music_tree(api)
+
+    artist_id = music_query("SELECT idArtist FROM artist WHERE strArtist='The Band'")[
+        0
+    ][0]
+    with sync_db.Database("music") as mdb:
+        mdb.cursor.execute(
+            "INSERT INTO artist (idArtist, strArtist) VALUES (?, ?)",
+            (artist_id + 50, "Another Band"),
+        )
+        mdb.cursor.execute(
+            "INSERT INTO discography (idArtist, strAlbum, strYear) VALUES (?, ?, ?)",
+            (artist_id + 50, "Greatest Hits", "1999"),
+        )
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music.remove("song1")
+        music.remove("album1")
+
+    assert music_query("SELECT idArtist, strAlbum, strYear FROM discography") == [
+        (artist_id + 50, "Greatest Hits", "1999")
+    ]
+
+
 def test_music_artist_removal_no_orphans(api, frozen_music_clock):
     write_music_tree(api)
 

@@ -172,6 +172,28 @@ class Music(Kodi):
         if self.cursor.fetchone() is None:
             self.cursor.execute(QU.update_discography, args)
 
+    def delete_album_discography(self, kodi_id):
+        """Drop the discography rows the album being removed accounts for.
+
+        Kodi cascades an album delete into song, album_artist, album_source
+        and art (``tgrDeleteAlbum``) but never into discography -- only
+        ``tgrDeleteArtist`` clears that, and only when the artist row itself
+        goes. So a removed album left its rows behind for good, and they
+        stop being invisible the moment the album is gone: the fold in
+        ``GetArtistDiscography`` matches discography against the album table,
+        so with no album left to match, the album leg's row and the song
+        leg's year-0 row render as two entries, one of them titled
+        ``0 - <album>``.
+
+        Known limit: the scope is the artists Kodi links to the album, which
+        is every artist the song leg wrote a row for (it writes album_artist
+        beside it) and the album leg's album artists. An artist that was an
+        ArtistItem without ever being an album artist -- a guest credit on a
+        compilation -- keeps its row. That row is the album leg's, carries
+        the real year, and reads as the appearance it describes.
+        """
+        self.cursor.execute(QU.delete_album_discography, (kodi_id, kodi_id))
+
     def validate_artist(self, *args):
 
         try:
