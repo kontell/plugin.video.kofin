@@ -4,10 +4,12 @@ Pure python (no Kodi imports) so the whole network stack is unit-testable.
 
 ``requests`` is imported inside the methods that use it, not at module load:
 importing this module must stay free. The requests tree costs ~1 s inside
-Kodi's Python (no bytecode cache, and on builds that never reuse the language
-invoker it is paid per invocation), and routes that never talk to the server —
+Kodi's Python (no bytecode cache), and routes that never talk to the server —
 a node menu, a settings button — import this module through the Api plumbing
-all the same (docs/perf-hardening-plan.md W1.2).
+all the same (docs/perf-hardening-plan.md W1.2). Invoker reuse amortises that
+cost when it happens, but it is opportunistic — Kodi keeps one reusable thread
+for the whole system, so anything else running Python between two clicks sends
+the next one back to a cold interpreter.
 """
 
 import random
