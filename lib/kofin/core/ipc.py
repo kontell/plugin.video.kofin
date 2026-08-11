@@ -47,10 +47,12 @@ WHO_IS_WATCHING = "WhoIsWatching"
 # Offline downloads (docs/offline-downloads-plan.md W1.5): the context menu
 # runs in the plugin process, the download manager in the service. ADD carries
 # {"Ids": [...]} (the sender expands seasons/series), CANCEL and REMOVE carry
-# {"Id": ...}.
+# {"Id": ...}. REMOVE_ALL carries nothing: the settings button confirmed
+# against the store's own count, and one message beats a NotifyAll per row.
 DOWNLOAD_ADD = "DownloadAdd"
 DOWNLOAD_CANCEL = "DownloadCancel"
 DOWNLOAD_REMOVE = "DownloadRemove"
+DOWNLOAD_REMOVE_ALL = "DownloadRemoveAll"
 
 # The stream menu picking a subtitle a transcode did not attach. Carries
 # {"Index": <jellyfin stream index>}. It runs in the service for the same
@@ -74,6 +76,7 @@ _REGISTRY = frozenset(
         DOWNLOAD_ADD,
         DOWNLOAD_CANCEL,
         DOWNLOAD_REMOVE,
+        DOWNLOAD_REMOVE_ALL,
         ATTACH_SUBTITLE,
     }
 )
@@ -94,6 +97,7 @@ GUARDED = frozenset(
         DOWNLOAD_ADD,
         DOWNLOAD_CANCEL,
         DOWNLOAD_REMOVE,
+        DOWNLOAD_REMOVE_ALL,
     }
 )
 

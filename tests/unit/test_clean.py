@@ -246,6 +246,30 @@ def test_sweep_nodes_missing_root_is_noop(tmp_path):
     assert clean.sweep_nodes(str(tmp_path / "absent")) == []
 
 
+def test_sweep_music_nodes_matrix(tmp_path):
+    """Kodi keeps a second node tree under library/music and the video sweep
+    never reaches it, so the kofin folder there walked straight through a
+    "Clean databases" — one stale file when the music side was a single node,
+    a whole per-library tree now."""
+    root = tmp_path / "music"
+    _touch(str(root / "kofin" / "index.xml"))
+    _touch(str(root / "kofin" / "kofinmusiclibm" / "songs.xml"))
+    _touch(str(root / "kofin" / "kofin_Downloaded" / "artists.xml"))
+    _touch(str(root / "kofin_DownloadedMusic.xml"))  # the pre-folder layout
+    _touch(str(root / "jellyfin_something.xml"))
+    _touch(str(root / "artists.xml"))
+    _touch(str(root / "handmade.xml"))
+
+    removed = clean.sweep_music_nodes(str(root))
+
+    assert sorted(os.listdir(str(root))) == ["artists.xml", "handmade.xml"]
+    assert len(removed) == 3
+
+
+def test_sweep_music_nodes_missing_root_is_noop(tmp_path):
+    assert clean.sweep_music_nodes(str(tmp_path / "absent")) == []
+
+
 def test_remove_all_nodes(tmp_path):
     base = tmp_path / "library"
     _touch(str(base / "video" / "movies" / "index.xml"))

@@ -1068,7 +1068,7 @@ def _seed_local_rows(tmp_path):
         )
     )
     downloads_store.claim()
-    downloads_store.finish("j1", "TV/S/Season 01/e.mkv", "mkv", 1)
+    downloads_store.finish("j1", "Shows/S/Season 01/e.mkv", "mkv", 1)
     return sync_db
 
 

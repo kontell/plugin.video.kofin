@@ -401,6 +401,68 @@ AND             (strPath LIKE 'plugin://plugin.video.kofin/%'
                  OR strPath LIKE 'http://%/Audio/%'
                  OR strPath LIKE 'https://%/Audio/%')
 """
+# -- the per-library `source` rows ---------------------------------------------
+#
+# MyMusic has no tag table, so the video side's "tag is <library name>" cannot
+# scope a music node, and a path rule cannot either — a downloaded song's path
+# is repointed at the filesystem. Kodi's own source surface can: the smart
+# playlist `source` rule compiles to an EXISTS over album_source joined to
+# source.strName for all three music contents (artists, albums and songs —
+# xbmc/playlists/SmartPlayList.cpp), and album_source is a link table that
+# repointing leaves alone.
+#
+# `source_path` is deliberately never written. Nothing in the rule reads it,
+# and its idPath column is a per-source ordinal (CMusicDatabase::AddSource
+# counts 1, 2, 3...) rather than a path.idPath — while delete_path_if_unused
+# and prune_orphan_paths above both join it *as* a path.idPath. Populating the
+# table would make those two statements start sparing real path rows whose id
+# happens to fall inside the ordinal range. (That mismatch is theirs and
+# predates this; it is harmless only while the table stays empty.)
+
+create_source = """
+SELECT      coalesce(max(idSource), 0)
+FROM        source
+"""
+get_source = """
+SELECT      idSource, strName
+FROM        source
+WHERE       strMultipath = ?
+"""
+get_kofin_sources = """
+SELECT      idSource, strName, strMultipath
+FROM        source
+WHERE       strMultipath LIKE 'plugin://plugin.video.kofin/%'
+"""
+add_source = """
+INSERT INTO     source(idSource, strName, strMultipath)
+VALUES          (?, ?, ?)
+"""
+update_source_name = """
+UPDATE      source
+SET         strName = ?
+WHERE       idSource = ?
+"""
+add_album_source = """
+INSERT OR IGNORE INTO   album_source(idSource, idAlbum)
+VALUES                  (?, ?)
+"""
+delete_album_other_sources = """
+DELETE FROM     album_source
+WHERE           idAlbum = ?
+AND             idSource != ?
+AND             idSource IN (SELECT idSource FROM source
+                             WHERE strMultipath LIKE 'plugin://plugin.video.kofin/%')
+"""
+add_album_source_by_songs = """
+INSERT OR IGNORE INTO   album_source(idSource, idAlbum)
+SELECT                  ?, idAlbum
+FROM                    song
+WHERE                   idSong IN (%s)
+"""
+delete_source = """
+DELETE FROM     source
+WHERE           idSource = ?
+"""
 get_version = """
 SELECT      idVersion
 FROM        version

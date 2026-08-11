@@ -426,7 +426,9 @@ def test_reconcile_restores_missing_files_and_reasserts_present_ones(
 
     assert ("kept", str(tmp_path / "dl")) in repoints["repoint"]
     assert ("ghost", str(tmp_path / "dl")) in repoints["restore"]
-    assert store.get("ghost").state == store.FAILED
+    # Removed, not left failed: a failed row kept the tag, the badge and the
+    # leftovers, so the item went on advertising itself as downloaded.
+    assert store.get("ghost") is None
     assert store.get("kept").state == store.DONE
     assert refreshes == [["video"]]
 
@@ -495,9 +497,9 @@ def test_siblings_share_one_season_directory(tmp_path, repoints):
     manager._process(_episode_api("e1", "one.avi"), queue_row("e1"))
     manager._process(_episode_api("e2", "two.avi"), queue_row("e2"))
 
-    assert store.get("e1").rel_path == "TV/The Show/Season 19/one.avi"
-    assert store.get("e2").rel_path == "TV/The Show/Season 19/two.avi"
-    season = tmp_path / "dl" / "TV/The Show/Season 19"
+    assert store.get("e1").rel_path == "Shows/The Show/Season 19/one.avi"
+    assert store.get("e2").rel_path == "Shows/The Show/Season 19/two.avi"
+    season = tmp_path / "dl" / "Shows/The Show/Season 19"
     assert sorted(p.name for p in season.iterdir()) == ["one.avi", "two.avi"]
 
 
@@ -524,7 +526,7 @@ def test_a_different_show_with_the_same_name_still_separates(tmp_path, repoints)
     )
     manager._process(api, queue_row("x1"))
 
-    assert store.get("x1").rel_path == "TV/The Show [show2]/Season 19/one.avi"
+    assert store.get("x1").rel_path == "Shows/The Show [show2]/Season 19/one.avi"
 
 
 def test_a_shutdown_mid_transfer_leaves_the_row_recoverable(tmp_path, repoints):
@@ -1306,3 +1308,392 @@ def test_video_keeps_its_per_item_completion_toast(tmp_path, repoints, monkeypat
     manager._announce_complete("song", "", {"Id": "s1", "Name": "Ringtone"})
 
     assert shown == ["L30712 Blood Test", "L30712 The Movie", "L30712 Ringtone"]
+
+
+# -- delete every download (the settings button) -------------------------------
+
+
+def _finished(item_id, rel, root):
+    """A done row with a real file behind it."""
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x")
+    queue_row(item_id)
+    store.finish(item_id, rel, rel.rsplit(".", 1)[-1], 1)
+    store.set_restore_filename(item_id, "plugin://old-%s" % item_id)
+    return path
+
+
+def test_remove_all_clears_finished_and_unfinished_alike(tmp_path, repoints):
+    manager, refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    movie = _finished("m1", "Movies/The Movie (2019)/The Movie (2019).mkv", root)
+    episode = _finished("e1", "Shows/The Show/Season 01/S01E01.mkv", root)
+    store.queue(store.Download(jellyfin_id="q1", queued_at=100))  # never started
+
+    manager._apply_remove_all()
+
+    assert store.rows() == []
+    assert not movie.exists()
+    assert not episode.exists()
+    assert not movie.parent.exists()  # directories pruned behind them
+    assert root.exists()  # never the root itself
+    assert sorted(repoints["restore"]) == [
+        ("e1", str(root)),
+        ("m1", str(root)),
+    ]
+    assert sorted(repoints["unstamp"]) == ["e1", "m1"]
+
+
+def test_remove_all_refreshes_once_for_the_whole_request(tmp_path, repoints):
+    """_apply_remove refreshes as soon as the ops queue runs dry, and during
+    this walk it is dry from the first row on — so without the suppression a
+    single button press became one widget pass per download."""
+    manager, refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    for index in range(4):
+        _finished("m%d" % index, "Movies/Film %d/film.mkv" % index, root)
+
+    manager._apply_remove_all()
+
+    assert refreshes == [["video"]]
+
+
+def test_remove_all_on_an_empty_store_does_nothing(tmp_path, repoints):
+    manager, refreshes = make_manager(repoints)
+
+    manager._apply_remove_all()
+
+    assert refreshes == []
+
+
+def test_remove_all_marks_an_active_row_cancelled(tmp_path, repoints):
+    """A transfer running right now aborts at its next chunk off this flag —
+    the walk cannot reach into the worker that owns it."""
+    manager, _refreshes = make_manager(repoints)
+    queue_row("a1")  # claim() left it active
+
+    manager._apply_remove_all()
+
+    assert manager._cancelled("a1")
+
+
+def test_remove_all_is_one_op_not_one_per_row(tmp_path, repoints):
+    """The store is read on the worker side. Queueing per row would put a
+    whole library's worth of messages through Kodi's notification bus."""
+    manager, _refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    for index in range(3):
+        _finished("m%d" % index, "Movies/Film %d/film.mkv" % index, root)
+
+    manager.remove_all()
+
+    assert manager._ops.qsize() == 1
+
+
+# -- holding the queue while something plays -----------------------------------
+
+
+class FakePlayer:
+    playing = False
+
+    def isPlaying(self):
+        return FakePlayer.playing
+
+    def getPlayingFile(self):
+        return ""
+
+
+@pytest.fixture
+def player(monkeypatch):
+    FakePlayer.playing = False
+    monkeypatch.setattr(manager_module.xbmc, "Player", FakePlayer)
+    return FakePlayer
+
+
+def test_the_playback_gate_is_off_unless_asked_for(tmp_path, repoints, player):
+    manager, _refreshes = make_manager(repoints)
+    player.playing = True
+
+    assert manager._paused_for_playback() is False
+
+
+def test_the_playback_gate_holds_the_queue_while_anything_plays(
+    tmp_path, repoints, player
+):
+    """isPlaying, not state.get_playing_id: the property only covers
+    playbacks kofin claimed, and a download competing for bandwidth does not
+    care who started the video."""
+    manager, _refreshes = make_manager(repoints)
+    FakeAddon.store["downloadsPauseDuringPlayback"] = "true"
+
+    assert manager._paused_for_playback() is False
+    player.playing = True
+    assert manager._paused_for_playback() is True
+    player.playing = False
+    assert manager._paused_for_playback() is False
+
+
+def test_a_worker_claims_nothing_while_playback_holds_it(
+    tmp_path, repoints, player, monkeypatch
+):
+    """The gate sits in front of store.claim, so a queued row stays queued
+    rather than being picked up and then stalled half-written."""
+    manager, _refreshes = make_manager(repoints)
+    # The worker only opens and closes its api here; nothing is fetched.
+    monkeypatch.setattr(
+        manager, "_api_factory", lambda: type("Api", (), {"close": lambda self: None})()
+    )
+    FakeAddon.store["downloadsPauseDuringPlayback"] = "true"
+    store.queue(store.Download(jellyfin_id="m1", queued_at=100))
+
+    claimed = []
+    monkeypatch.setattr(
+        manager_module.store, "claim", lambda kinds=None: claimed.append(kinds)
+    )
+    # The wait is what the gate does instead of claiming; ending the worker
+    # there keeps this to a single pass of the loop body.
+    wake = manager._new_wake()
+    monkeypatch.setattr(wake, "wait", lambda timeout=None: manager._stop.set())
+
+    player.playing = True
+    manager._run_worker(wake=wake)
+    assert claimed == []
+    assert store.get("m1").state == store.QUEUED
+
+    # And the same worker claims the moment playback ends.
+    manager._stop.clear()
+    player.playing = False
+    manager._run_worker(wake=wake)
+    assert claimed == [manager_module.VIDEO_KINDS]
+
+
+def test_wake_lets_every_worker_recheck_immediately(tmp_path, repoints):
+    """Player.OnStop nudges the pool rather than waiting out the poll — and
+    it has to reach *every* worker, not whichever one happens to look."""
+    manager, _refreshes = make_manager(repoints)
+    wakes = [manager._new_wake() for _ in range(3)]
+
+    manager.wake()
+
+    assert all(event.is_set() for event in wakes)
+
+
+# -- a download deleted by another app -----------------------------------------
+
+
+@pytest.fixture
+def vanished(monkeypatch):
+    """The two halves of "mark it watched", recorded rather than performed:
+    the local leg needs a real MyVideos (covered in the repoint L2 suite),
+    and the push needs a server."""
+    seen = {"local": [], "pushed": []}
+    monkeypatch.setattr(
+        DownloadManager,
+        "_mark_local_watched",
+        lambda self, row: seen["local"].append(row.jellyfin_id),
+    )
+    monkeypatch.setattr(
+        DownloadManager,
+        "_push_played",
+        lambda self, row: seen["pushed"].append(row.jellyfin_id),
+    )
+    return seen
+
+
+def test_a_vanished_file_is_cleaned_up_not_just_restored(tmp_path, repoints, vanished):
+    """It used to restore the library row and leave a failed store row, so
+    the leftovers stayed — sidecars, the empty directory, the tag and the
+    badge — and the item went on advertising itself as downloaded."""
+    manager, _refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    rel = "Shows/The Show/Season 01/S01E01.mkv"
+    (root / rel).parent.mkdir(parents=True)
+    (root / rel).with_suffix(".eng.srt").write_bytes(b"s")  # the leftovers
+    queue_row("e1", media_type="episode", series_id="show1")
+    store.finish("e1", rel, "mkv", 1)
+
+    manager._handle_vanished(store.get("e1"), str(root))
+
+    assert store.get("e1") is None
+    assert repoints["restore"] == [("e1", str(root))]
+    assert repoints["unstamp"] == ["e1"]
+    assert repoints["unbadge"] == ["e1"]
+    assert not (root / rel).parent.exists()  # sidecar swept, directories pruned
+    assert root.exists()
+    assert vanished["local"] == ["e1"] and vanished["pushed"] == ["e1"]
+
+
+def test_a_vanished_song_is_cleaned_up_but_not_marked_watched(
+    tmp_path, repoints, vanished
+):
+    """The retention sweep's exclusion, for the same reason: a played track
+    is not a finished one, and "watched" is not a thing a song is."""
+    manager, _refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    rel = "Music/The Band/Greatest Hits/01 Opening.opus"
+    (root / rel).parent.mkdir(parents=True)
+    queue_row("s1", media_type="song")
+    store.finish("s1", rel, "opus", 1)
+
+    manager._handle_vanished(store.get("s1"), str(root))
+
+    assert store.get("s1") is None
+    assert vanished["local"] == [] and vanished["pushed"] == []
+
+
+def test_the_sweep_notices_a_file_deleted_after_the_service_started(
+    tmp_path, repoints, vanished
+):
+    """_reconcile_once runs once per generation, so a mid-session deletion
+    used to go unnoticed until the next restart — the item stayed in the
+    Downloaded nodes and playing it failed in Kodi rather than falling back
+    to the server."""
+    manager, refreshes = make_manager(repoints)
+    root = tmp_path / "dl"
+    rel = "Movies/The Movie (2019)/The Movie (2019).mkv"
+    (root / rel).parent.mkdir(parents=True)
+    (root / rel).write_bytes(b"x")
+    queue_row("m1", media_type="movie")
+    store.finish("m1", rel, "mkv", 1)
+
+    manager._sweep_vanished()
+    assert store.get("m1").state == store.DONE  # still there: nothing to do
+
+    (root / rel).unlink()  # somebody else's file manager
+    manager._sweep_vanished()
+
+    assert store.get("m1") is None
+    assert vanished["pushed"] == ["m1"]
+    assert refreshes == [["video"]]
+
+
+def test_the_sweep_leaves_the_file_being_played_alone(
+    tmp_path, repoints, vanished, monkeypatch
+):
+    """A share blinking is not a deletion, and tearing the row down under
+    the player would turn a stutter into a lost download."""
+    manager, _refreshes = make_manager(repoints)
+    queue_row("m1", media_type="movie")
+    store.finish("m1", "Movies/Gone/gone.mkv", "mkv", 1)  # no file on disk
+    monkeypatch.setattr(DownloadManager, "_playing_now", lambda self, row: True)
+
+    manager._sweep_vanished()
+
+    assert store.get("m1").state == store.DONE
+
+
+def test_an_offline_played_push_is_parked_for_replay(tmp_path, repoints, monkeypatch):
+    """Deleting a file is exactly the thing someone does on a plane."""
+    from kofin.downloads import pending
+
+    manager, _refreshes = make_manager(repoints)
+    FakeWindow.store["kofin.online"] = "false"
+    queue_row("m1", media_type="movie")
+    store.finish("m1", "Movies/Gone/gone.mkv", "mkv", 1)
+
+    manager._push_played(store.get("m1"))
+
+    assert [(row.jellyfin_id, row.played) for row in pending.rows()] == [("m1", True)]
+
+
+def test_a_music_worker_cannot_swallow_a_video_workers_wake(tmp_path, repoints):
+    """The claim-latency bug, pinned.
+
+    One Event shared by the pool meant the first worker to notice cleared it
+    for everybody. When that was a music worker and the row was an episode,
+    it drained the op, found nothing it could claim, and went back to sleep —
+    leaving the video workers, which *could* have taken the row, in a 30 s
+    wait with the Event already clear. Measured on the Omega box as 31-32 s
+    before a user-initiated download started.
+    """
+    manager, _refreshes = make_manager(repoints)
+    music_wake = manager._new_wake()
+    video_wake = manager._new_wake()
+
+    manager.submit(["e1"], media_types=["Episode"])
+
+    # A music worker gets there first: it drains the op and clears its own.
+    manager._drain_ops()
+    music_wake.clear()
+
+    # The video worker's wake is untouched, so it does not sleep through the
+    # row it is the only pool able to claim.
+    assert video_wake.is_set()
+    assert store.claim(manager_module.MUSIC_KINDS) is None
+    assert store.claim(manager_module.VIDEO_KINDS).jellyfin_id == "e1"
+
+
+def test_every_op_kind_reaches_every_worker(tmp_path, repoints):
+    """submit/cancel/remove/remove_all all have to fan out — a cancel that
+    only reached one worker is the same bug wearing a different hat."""
+    manager, _refreshes = make_manager(repoints)
+    wakes = [manager._new_wake() for _ in range(3)]
+
+    for call in (
+        lambda: manager.submit(["x1"]),
+        lambda: manager.cancel("x1"),
+        lambda: manager.remove("x1"),
+        manager.remove_all,
+    ):
+        for event in wakes:
+            event.clear()
+        call()
+        assert all(event.is_set() for event in wakes)
+
+
+def test_stop_releases_every_worker(tmp_path, repoints):
+    manager, _refreshes = make_manager(repoints)
+    wakes = [manager._new_wake() for _ in range(3)]
+
+    manager.stop()
+
+    assert all(event.is_set() for event in wakes)
+
+
+def test_draining_an_add_renotifies_the_other_workers(tmp_path, repoints):
+    """The actual claim-latency bug, pinned.
+
+    ``submit`` wakes the pool when it *enqueues*, but the row does not exist
+    until a worker gets to ``_drain_ops`` and store.queue returns. The worker
+    able to claim it has usually spent its wake by then — it drained nothing
+    (another pool got the op first), claimed nothing (no row yet), found the
+    queue empty and slept. Measured live: queued 1.6 s after the request,
+    claimed 31 s after that.
+    """
+    manager, _refreshes = make_manager(repoints)
+    drainer = manager._new_wake()
+    other = manager._new_wake()
+    manager.submit(["e1"], media_types=["Episode"])
+    other.clear()  # the other worker already spent its wake and is asleep
+
+    manager._drain_ops(own=drainer)
+
+    assert other.is_set(), "the worker that can claim was never re-notified"
+
+
+def test_the_draining_worker_is_not_renotified(tmp_path, repoints):
+    """It is about to try to claim anyway; setting its own event would just
+    buy an extra spin round the loop."""
+    manager, _refreshes = make_manager(repoints)
+    drainer = manager._new_wake()
+    manager.submit(["e1"], media_types=["Episode"])
+    drainer.clear()
+
+    manager._drain_ops(own=drainer)
+
+    assert not drainer.is_set()
+
+
+def test_a_drain_that_queues_nothing_notifies_nobody(tmp_path, repoints):
+    """A duplicate add, or a drain that only cancels, must not wake a pool
+    that has nothing new to do."""
+    manager, _refreshes = make_manager(repoints)
+    queue_row("e1")  # already live, so the add below is a no-op
+    other = manager._new_wake()
+    manager.submit(["e1"], media_types=["Episode"])
+    other.clear()
+
+    manager._drain_ops(own=manager._new_wake())
+
+    assert not other.is_set()

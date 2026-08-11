@@ -802,58 +802,217 @@ def test_downloaded_nodes_carry_the_addon_icon_even_on_an_existing_file(views_en
     assert "<icon>%s</icon>" % NODE_DOWNLOADS_ICON in node.read_text()
 
 
-def test_music_nodes_appear_and_leave_with_the_feature(views_env):
+def music_root(views_env):
+    return views_env["profile"] / "library" / "music" / NODE_ROOT
+
+
+def test_downloaded_music_nodes_appear_and_leave_with_the_feature(views_env):
     """Kodi keeps music nodes in a tree of their own, so nothing in the
     video generation reaches them: the downloads feature had a
     Downloaded-music smart playlist and no node, which filed it under
     Playlists instead of beside the rest of Kofin."""
+    from kofin.downloads import downloads_root
     from kofin.sync.views import (
-        MUSIC_DOWNLOADED_FILE,
+        MUSIC_DOWNLOADED_FOLDER,
         NODE_DOWNLOADS_ICON,
         NODE_ROOT_ICON,
-        music_node_root_path,
         write_music_nodes,
     )
 
-    root = pathlib.Path(music_node_root_path())
-    assert write_music_nodes() is False  # feature off: nothing written
+    root = music_root(views_env)
+    assert write_music_nodes() is False  # nothing synced, feature off
     assert not root.exists()
 
     FakeAddon.store["downloadsEnabled"] = "true"
     assert write_music_nodes() is True
 
-    index = (root / "index.xml").read_text()
-    assert "<icon>%s</icon>" % NODE_ROOT_ICON in index
+    assert "<icon>%s</icon>" % NODE_ROOT_ICON in (root / "index.xml").read_text()
 
-    node = (root / MUSIC_DOWNLOADED_FILE).read_text()
-    assert "<content>songs</content>" in node
-    assert "<icon>%s</icon>" % NODE_DOWNLOADS_ICON in node
-    assert 'field="path" operator="startswith"' in node
-    from kofin.downloads import downloads_root
+    folder = root / MUSIC_DOWNLOADED_FOLDER
+    index = (folder / "index.xml").read_text()
+    assert "<icon>%s</icon>" % NODE_DOWNLOADS_ICON in index
+    # An addon string id is written out as *text* (the fake resolves 30736 to
+    # "string-30736"). Left numeric it would render blank: Kodi resolves a
+    # numeric node label against its own table, where the 30000+ range is
+    # empty. The inverse assertion is in the per-library test below.
+    assert "<label>string-30736</label>" in index
 
-    assert "<value>%s/Music/</value>" % downloads_root().rstrip("/") in node
+    # Three ways into the same set of files, not one flat song list.
+    for stem, content in (
+        ("artists", "artists"),
+        ("albums", "albums"),
+        ("songs", "songs"),
+    ):
+        node = (folder / ("%s.xml" % stem)).read_text()
+        assert "<content>%s</content>" % content in node
+        assert 'field="path" operator="startswith"' in node
+        assert "<value>%s/Music/</value>" % downloads_root().rstrip("/") in node
+
+    # No genres leg down here: it is one small pile of files.
+    assert not (folder / "genres.xml").exists()
 
     FakeAddon.store["downloadsEnabled"] = "false"
     assert write_music_nodes() is False
-    assert not (root / MUSIC_DOWNLOADED_FILE).exists()
+    assert not folder.exists()
     assert not root.exists()  # emptied, so the folder goes too
 
 
-def test_music_node_removal_leaves_a_hand_made_node_alone(views_env):
-    """Same rule as the video pruner: this folder is ours by name only, and
-    anything else in it is the user's."""
-    from kofin.sync.views import music_node_root_path, write_music_nodes
+def test_music_library_nodes_mirror_the_library(views_env):
+    """The per-library music folder: the same four ways in Kodi's own music
+    library offers, scoped to the library by its MyMusic source row."""
+    from kofin.sync.views import write_music_nodes
+
+    seed(
+        [("libm", "Tunes", "music"), ("lib1", "Movies", "movies")],
+        ["libm", "lib1"],
+    )
+
+    assert write_music_nodes() is True
+
+    folder = music_root(views_env) / "kofinmusiclibm"
+    index = (folder / "index.xml").read_text()
+    assert "<label>Tunes</label>" in index
+    assert "<icon>DefaultMusicAlbums.png</icon>" in index
+
+    expected = {
+        "artists": ("133", "artists", None),
+        "albums": ("132", "albums", None),
+        "songs": ("134", "songs", None),
+        "genres": ("135", "artists", "genres"),
+    }
+
+    for stem, (label, content, group) in expected.items():
+        node = (folder / ("%s.xml" % stem)).read_text()
+        # Kodi-core ids stay numeric so they follow the UI language; a label
+        # written out as text here would freeze the language, and an addon id
+        # left numeric would render blank (see views._node_label).
+        assert "<label>%s</label>" % label in node
+        assert "<content>%s</content>" % content in node
+        assert 'field="source" operator="is"' in node
+        assert "<value>Tunes</value>" in node
+
+        if group:
+            assert "<group>%s</group>" % group in node
+        else:
+            assert "<group>" not in node
+
+    # The movie library keeps to the video tree.
+    assert not (music_root(views_env) / "kofinmusiclib1").exists()
+
+
+def test_music_library_nodes_survive_without_downloads(views_env):
+    """The music tree is no longer keyed on the downloads feature: a synced
+    music library is reason enough for it to exist."""
+    from kofin.sync.views import MUSIC_DOWNLOADED_FOLDER, write_music_nodes
+
+    seed([("libm", "Tunes", "music")], ["libm"])
+    FakeAddon.store["downloadsEnabled"] = "false"
+
+    assert write_music_nodes() is True
+    assert (music_root(views_env) / "kofinmusiclibm" / "songs.xml").is_file()
+    assert not (music_root(views_env) / MUSIC_DOWNLOADED_FOLDER).exists()
+
+
+def test_music_nodes_prune_a_library_that_left_the_whitelist(views_env):
+    from kofin.sync.views import write_music_nodes
+
+    seed([("libm", "Tunes", "music"), ("libn", "More", "music")], ["libm", "libn"])
+    write_music_nodes()
+    assert (music_root(views_env) / "kofinmusiclibn").is_dir()
+
+    seed([("libm", "Tunes", "music"), ("libn", "More", "music")], ["libm"])
+    write_music_nodes()
+
+    assert (music_root(views_env) / "kofinmusiclibm").is_dir()
+    assert not (music_root(views_env) / "kofinmusiclibn").exists()
+
+
+def test_music_source_names_disambiguate_a_shared_library_name(views_env):
+    """The source name is the whole of what a node's rule matches, so two
+    libraries both called Music would each show the other's contents."""
+    from kofin.sync.views import write_music_nodes
+
+    seed([("libm", "Music", "music"), ("libn", "Music", "music")], ["libm", "libn"])
+    write_music_nodes()
+
+    first = (music_root(views_env) / "kofinmusiclibm" / "songs.xml").read_text()
+    second = (music_root(views_env) / "kofinmusiclibn" / "songs.xml").read_text()
+
+    assert "<value>Music (libm)</value>" in first
+    assert "<value>Music (libn)</value>" in second
+
+
+def test_music_nodes_rewrite_a_stale_source_rule(views_env):
+    """A renamed library must not leave the old rule behind: with match=all
+    a stale source name means the node matches nothing, silently."""
+    from kofin.sync.views import write_music_nodes
+
+    seed([("libm", "Tunes", "music")], ["libm"])
+    write_music_nodes()
+
+    seed([("libm", "Anthems", "music")], ["libm"])
+    write_music_nodes()
+
+    node = (music_root(views_env) / "kofinmusiclibm" / "albums.xml").read_text()
+    assert "<value>Anthems</value>" in node
+    assert "Tunes" not in node
+
+
+def test_music_node_folder_replaces_the_flat_downloaded_file(views_env):
+    """The migration: an install generated before the Downloaded folder has
+    no other route to being rid of the loose node."""
+    from kofin.sync.views import (
+        MUSIC_DOWNLOADED_FILE,
+        MUSIC_DOWNLOADED_FOLDER,
+        write_music_nodes,
+    )
+
+    root = music_root(views_env)
+    root.mkdir(parents=True)
+    (root / MUSIC_DOWNLOADED_FILE).write_text("<node/>")
 
     FakeAddon.store["downloadsEnabled"] = "true"
     write_music_nodes()
-    root = pathlib.Path(music_node_root_path())
+
+    assert not (root / MUSIC_DOWNLOADED_FILE).exists()
+    assert (root / MUSIC_DOWNLOADED_FOLDER / "songs.xml").is_file()
+
+
+def test_music_node_removal_leaves_hand_made_entries_alone(views_env):
+    """Same rule as the video pruner: this folder is ours by name only, and
+    anything else in it is the user's."""
+    from kofin.sync.views import write_music_nodes
+
+    FakeAddon.store["downloadsEnabled"] = "true"
+    write_music_nodes()
+    root = music_root(views_env)
     (root / "mine.xml").write_text("<node/>")
+    (root / "mine").mkdir()
+    (root / "mine" / "node.xml").write_text("<node/>")
 
     FakeAddon.store["downloadsEnabled"] = "false"
     write_music_nodes()
 
     assert (root / "mine.xml").is_file()
+    assert (root / "mine" / "node.xml").is_file()
     assert root.is_dir()  # not emptied, so not removed
+
+
+def test_music_nodes_prune_spares_hand_made_entries(views_env):
+    """The reconcile is prefix-gated too, not just the teardown."""
+    from kofin.sync.views import write_music_nodes
+
+    seed([("libm", "Tunes", "music")], ["libm"])
+    write_music_nodes()
+    root = music_root(views_env)
+    (root / "mine.xml").write_text("<node/>")
+    (root / "mine").mkdir()
+
+    write_music_nodes()
+
+    assert (root / "mine.xml").is_file()
+    assert (root / "mine").is_dir()
+    assert (root / "kofinmusiclibm").is_dir()
 
 
 def test_serverless_node_generation_asks_no_server(views_env, monkeypatch):

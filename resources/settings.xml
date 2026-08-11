@@ -1146,6 +1146,29 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
+        <!-- The bulk-import guard. A sync cycle adding more than this many
+             items queues *none* of them: a server-side bulk import is almost
+             never "I want all of this offline", and auto-pulling an arbitrary
+             few of hundreds would be worse than asking. Subscribed shows are
+             exempt by design (a subscription is a standing order). -->
+        <setting id="downloadsBulkMovies" type="integer" label="30798" help="30799">
+          <level>0</level>
+          <default>5</default>
+          <constraints>
+            <minimum>1</minimum>
+            <step>1</step>
+            <maximum>50</maximum>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="downloadsEnabled">true</condition>
+                <condition operator="is" setting="downloadsAutoMovies">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="slider" format="integer"/>
+        </setting>
         <setting id="downloadsAutoEpisodes" type="boolean" label="30754" help="30755">
           <level>0</level>
           <default>false</default>
@@ -1155,6 +1178,24 @@
             </dependency>
           </dependencies>
           <control type="toggle"/>
+        </setting>
+        <setting id="downloadsBulkEpisodes" type="integer" label="30800" help="30801">
+          <level>0</level>
+          <default>10</default>
+          <constraints>
+            <minimum>1</minimum>
+            <step>1</step>
+            <maximum>100</maximum>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="downloadsEnabled">true</condition>
+                <condition operator="is" setting="downloadsAutoEpisodes">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="slider" format="integer"/>
         </setting>
         <!-- Hidden state: the shows subscribed to new-episode downloads
              (comma-separated Jellyfin series ids). Written by the Series
@@ -1185,6 +1226,26 @@
             </dependency>
           </dependencies>
           <control type="toggle"/>
+        </setting>
+        <!-- Albums cap by album count, not by track: an album is naturally
+             bounded, a bulk import of albums is not. -->
+        <setting id="downloadsBulkAlbums" type="integer" label="30802" help="30803">
+          <level>0</level>
+          <default>5</default>
+          <constraints>
+            <minimum>1</minimum>
+            <step>1</step>
+            <maximum>50</maximum>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="downloadsEnabled">true</condition>
+                <condition operator="is" setting="downloadsAutoAlbums">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="slider" format="integer"/>
         </setting>
         <!-- One lifecycle answer for every download, whoever queued it: the
              pair below replaced downloadsDeleteAfterPlay (a three-way
@@ -1227,6 +1288,33 @@
             </dependency>
           </dependencies>
           <control type="toggle"/>
+        </setting>
+        <!-- Holds the *queue* while anything plays; a transfer already under
+             way finishes. Audio counts as playback too: a download saturates
+             the same link whichever it is competing with. -->
+        <setting id="downloadsPauseDuringPlayback" type="boolean" label="30808" help="30809">
+          <level>0</level>
+          <default>false</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <!-- No <close>, like "Manage shows" above: the confirmation is meant
+             to read as a sub-dialog of this one, so answering it returns
+             here rather than dumping the user back to the library. -->
+        <setting id="downloadsDeleteAll" type="action" label="30804" help="30805">
+          <level>0</level>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=deletealldownloads)</data>
+          </control>
         </setting>
       </group>
     </category>

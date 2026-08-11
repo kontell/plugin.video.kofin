@@ -20,6 +20,7 @@ at the next start, resuming originals from ``bytes_done`` with a Range.
 import os
 import threading
 import time
+from datetime import datetime
 from queue import Empty, Queue
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -66,6 +67,12 @@ IDLE_POLL_SECONDS = 30.0
 # worker when the connection comes back — the service raises the online flag
 # and this is what notices.
 OFFLINE_POLL_SECONDS = 10.0
+
+# Same again, while playback holds the pool back. Short because it is the
+# floor on how long the queue stays idle after the credits: the service also
+# wakes the pool on Player.OnStop, and this is the cover for the stop it
+# never sees (a foreign player, a crash, a claim that never happened).
+PLAYBACK_POLL_SECONDS = 5.0
 
 # One join per worker at stop: a chunk-loop abort plus one full read timeout,
 # with a little grace (core.http.DEFAULT_TIMEOUT read budget is 30 s).
@@ -117,7 +124,24 @@ class DownloadManager:
         # the successor lowers that on its way up; see service/main.py).
         self._stopping = stopping
         self._stop = threading.Event()
-        self._wake = threading.Event()
+        # One wake Event per worker, not one shared by the pool.
+        #
+        # Shared, it was a claim-latency bug rather than a race in the usual
+        # sense: `submit` sets the Event once, every worker wakes, and the
+        # first to notice clears it for everybody. When that first worker is
+        # from the *music* pool and the row is an episode, it drains the op,
+        # finds nothing it can claim, sees an empty ops queue and goes back to
+        # sleep — while the video workers, which could have taken the row, are
+        # already back in a 30 s wait with the Event clear. Measured on the
+        # Omega box: three consecutive user-initiated downloads sat queued for
+        # 31, 32 and 32 seconds with the machine otherwise idle.
+        #
+        # Per-worker Events fix it outright. Nobody can consume anybody else's,
+        # and a set that lands while a worker is between claim and wait is
+        # remembered rather than lost — which a Condition's notify_all, the
+        # other obvious shape, would drop.
+        self._wakes: List[threading.Event] = []
+        self._wakes_lock = threading.Lock()
         self._ops: "Queue[Tuple[str, str, str, str]]" = Queue()
         self._cancels: set = set()
         self._cancels_lock = threading.Lock()
@@ -154,10 +178,23 @@ class DownloadManager:
 
     # -- lifecycle -----------------------------------------------------------
 
+    def _new_wake(self) -> "threading.Event":
+        """A worker's own wake Event, registered so _wake_all reaches it."""
+        event = threading.Event()
+        with self._wakes_lock:
+            self._wakes.append(event)
+        return event
+
+    def _wake_all(self, skip: Optional["threading.Event"] = None) -> None:
+        with self._wakes_lock:
+            for event in self._wakes:
+                if event is not skip:
+                    event.set()
+
     def start(self) -> None:
-        recovered = store.recover_interrupted()
-        if recovered:
-            self._wake.set()
+        # No wake needed for what recover_interrupted requeued: every worker
+        # runs the loop body — drain, then claim — before it ever waits.
+        store.recover_interrupted()
         self._reconciler = threading.Thread(
             target=self._run_maintenance,
             name="kofin-downloads-maintenance",
@@ -177,7 +214,7 @@ class DownloadManager:
     def _spawn_worker(self, name: str, kinds: Tuple[str, ...]) -> None:
         worker = threading.Thread(
             target=self._run_worker,
-            args=(kinds,),
+            args=(kinds, self._new_wake()),
             name=name,
             daemon=True,
         )
@@ -186,7 +223,7 @@ class DownloadManager:
 
     def stop(self) -> None:
         self._stop.set()
-        self._wake.set()
+        self._wake_all()
         for worker in [self._reconciler] + self._workers:
             if worker is None or not worker.is_alive():
                 continue
@@ -221,17 +258,28 @@ class DownloadManager:
                 continue
             kind = MEDIA_TYPE_BY_DTO.get(kinds[index] if index < len(kinds) else "", "")
             self._ops.put(("add", str(item_id), origin, kind))
-        self._wake.set()
+        self._wake_all()
 
     def cancel(self, item_id: str) -> None:
         with self._cancels_lock:
             self._cancels.add(item_id)
         self._ops.put(("cancel", item_id, "", ""))
-        self._wake.set()
+        self._wake_all()
 
     def remove(self, item_id: str) -> None:
         self._ops.put(("remove", item_id, "", ""))
-        self._wake.set()
+        self._wake_all()
+
+    def remove_all(self) -> None:
+        """The settings button: every download, finished or not.
+
+        One op rather than one per row — the store is read on the worker
+        side, where the walk is already serialized, and a NotifyAll per row
+        would put a whole library's worth of messages through Kodi's
+        notification bus for a single button press.
+        """
+        self._ops.put(("removeall", "", "", ""))
+        self._wake_all()
 
     def _cancelled(self, item_id: str) -> bool:
         with self._cancels_lock:
@@ -243,11 +291,18 @@ class DownloadManager:
 
     # -- workers ---------------------------------------------------------------
 
-    def _run_worker(self, kinds: Tuple[str, ...] = VIDEO_KINDS) -> None:
+    def _run_worker(
+        self,
+        kinds: Tuple[str, ...] = VIDEO_KINDS,
+        wake: Optional["threading.Event"] = None,
+    ) -> None:
+        # Own Event, never the pool's (see _wakes). Defaulted so a test can
+        # drive one pass of this loop without standing a worker up.
+        wake = self._new_wake() if wake is None else wake
         api = self._api_factory()
         try:
             while not self._should_stop():
-                self._drain_ops()
+                self._drain_ops(own=wake)
                 if state.is_offline():
                     # Hold the queue rather than burn it: every claim while
                     # the server is gone would fail its three attempts and
@@ -256,27 +311,36 @@ class DownloadManager:
                     # (the gap phase 1's gates exposed). Ops still drain
                     # above, so a cancel or a remove works offline.
                     self._progress.idle()
-                    if self._wake.wait(timeout=OFFLINE_POLL_SECONDS):
-                        self._wake.clear()
+                    if wake.wait(timeout=OFFLINE_POLL_SECONDS):
+                        wake.clear()
+                    continue
+                if self._paused_for_playback():
+                    # The gate is on *claiming*, never inside _transfer: a
+                    # file already coming down runs to completion, which is
+                    # both what the setting promises and the only behaviour
+                    # that cannot strand a half-written .part for the length
+                    # of a film. Ops drain above, so cancelling and removing
+                    # still work while playback holds the pool.
+                    self._progress.idle()
+                    if wake.wait(timeout=PLAYBACK_POLL_SECONDS):
+                        wake.clear()
                     continue
                 row = store.claim(kinds)
                 if row is None:
                     if not self._ops.empty():
-                        # Ops arrived while this worker was claiming. Never
-                        # sleep on a non-empty queue: ``_wake`` is one Event
-                        # shared by the whole pool, so the first worker to
-                        # notice clears it for everybody, and a straggler
-                        # enqueued in that window waited out the full idle
-                        # poll. Invisible while a removal meant one item;
-                        # a container removal is 17 of them, and the tail
-                        # sat there for 30 s (measured on the Bravia).
+                        # Ops arrived while this worker was claiming: never
+                        # sleep on a non-empty queue. This predates the
+                        # per-worker Events and is no longer the only thing
+                        # standing between a queued row and a 30 s wait, but
+                        # it still saves a needless round trip through the
+                        # wait when work is visibly pending.
                         continue
                     # Nothing left for this pool: the moment to pay for the
                     # refreshes the finished items deferred.
                     self._flush_refresh(force=True)
                     self._progress.idle()
-                    if self._wake.wait(timeout=IDLE_POLL_SECONDS):
-                        self._wake.clear()
+                    if wake.wait(timeout=IDLE_POLL_SECONDS):
+                        wake.clear()
                     continue
                 try:
                     self._process(api, row)
@@ -291,23 +355,48 @@ class DownloadManager:
         finally:
             api.close()
 
-    def _drain_ops(self) -> None:
+    def _drain_ops(self, own: Optional["threading.Event"] = None) -> None:
+        """Apply everything waiting on the ops queue.
+
+        Re-notifies the other workers when an add actually created a row, and
+        that is the whole point of the method's second half. ``submit`` wakes
+        the pool when it *enqueues* an op, but the row does not exist until
+        some worker gets here and ``store.queue`` returns — and the worker
+        that can claim it has usually spent its wake by then:
+
+            submit sets every wake  ->  video worker wakes, drains nothing
+            (a music worker got the op first), claims nothing (no row yet),
+            finds the queue empty, and sleeps for the full idle poll
+            ->  the music worker finishes store.queue, cannot claim an
+                episode, and sleeps too  ->  nobody is left to notice
+
+        Measured on the Omega box: the row was queued 1.6 s after the request
+        and claimed 31 s after that, five trials running. The re-notify here
+        closes the window; ``own`` is skipped because the draining worker is
+        about to try to claim anyway.
+        """
+        queued = False
         while True:
             try:
                 op, item_id, origin, media_type = self._ops.get_nowait()
             except Empty:
-                return
+                break
             try:
                 if op == "add":
-                    self._apply_add(item_id, origin, media_type)
+                    queued = self._apply_add(item_id, origin, media_type) or queued
                 elif op == "cancel":
                     self._apply_cancel(item_id)
                 elif op == "remove":
                     self._apply_remove(item_id)
+                elif op == "removeall":
+                    self._apply_remove_all()
             except Exception:
                 LOG.exception("download op %s failed for %s", op, item_id)
+        if queued:
+            self._wake_all(skip=own)
 
-    def _apply_add(self, item_id: str, origin: str, media_type: str = "") -> None:
+    def _apply_add(self, item_id: str, origin: str, media_type: str = "") -> bool:
+        """Queue a row; True when one was actually created (see _drain_ops)."""
         if store.queue(
             store.Download(
                 jellyfin_id=item_id, origin=origin, media_type=media_type or ""
@@ -320,6 +409,8 @@ class DownloadManager:
             with self._announce_lock:
                 self._announced.clear()
             LOG.info("download queued: %s", item_id)
+            return True
+        return False
 
     def _apply_cancel(self, item_id: str) -> None:
         row = store.get(item_id)
@@ -334,7 +425,7 @@ class DownloadManager:
             self._clear_cancel(item_id)
             LOG.info("download cancelled: %s", item_id)
 
-    def _apply_remove(self, item_id: str) -> None:
+    def _apply_remove(self, item_id: str, flush: bool = True) -> None:
         row = store.get(item_id)
         if row is None:
             return
@@ -356,9 +447,41 @@ class DownloadManager:
         # album is one menu press and seventeen rows, and refreshing per row
         # meant seventeen widget passes for one answer.
         self._mark_dirty(row.media_type)
-        if self._ops.empty():
+        if flush and self._ops.empty():
             self._flush_refresh(force=True)
         LOG.info("download removed: %s", item_id)
+
+    def _apply_remove_all(self) -> None:
+        """Every download goes: finished ones through the full remove path,
+        unfinished ones cancelled.
+
+        The refresh is suppressed per row and forced once at the end:
+        ``_apply_remove`` normally refreshes as soon as the ops queue runs
+        dry, and here it is dry from the first row on, which would make a
+        whole library's worth of widget passes out of one button press.
+
+        Unfinished rows are marked cancelled before being applied, not put
+        back on the ops queue: a row being transferred right now aborts at
+        its next chunk off that flag, and re-queueing would mean one op per
+        row for work this loop is already doing.
+        """
+        rows = store.rows()
+
+        if not rows:
+            return
+
+        for row in rows:
+            if self._should_stop():
+                break
+            if row.state == store.DONE:
+                self._apply_remove(row.jellyfin_id, flush=False)
+            else:
+                with self._cancels_lock:
+                    self._cancels.add(row.jellyfin_id)
+                self._apply_cancel(row.jellyfin_id)
+
+        LOG.info("removed all %d download(s)", len(rows))
+        self._flush_refresh(force=True)
 
     # -- the transfer ----------------------------------------------------------
 
@@ -894,6 +1017,10 @@ class DownloadManager:
         while not self._stop.wait(timeout=RETENTION_SWEEP_SECONDS):
             if self._should_stop():
                 return
+            # Before the retention sweep: a file somebody deleted by hand is
+            # not a download any more, and the sweep should not spend a
+            # watched-check on it.
+            self._sweep_vanished()
             self._retention_sweep()
 
     def _backfill_segment_caches(self) -> None:
@@ -921,11 +1048,10 @@ class DownloadManager:
             api.close()
 
     def _reconcile_once(self) -> None:
-        """Walk the done rows once at start: a missing file restores the
-        library row and flags the download failed (self-healing toward
-        streaming, never a broken local play), and a present file re-asserts
-        the repoint — which is what heals a library repair, whose rebuilt
-        rows are all in writer shape."""
+        """Walk the done rows once at start: a missing file is cleaned up
+        after (:meth:`_handle_vanished`), and a present file re-asserts the
+        repoint — which is what heals a library repair, whose rebuilt rows
+        are all in writer shape."""
         try:
             root = downloads_root()
             touched = False
@@ -936,12 +1062,7 @@ class DownloadManager:
                 songs = songs or row.media_type == "song"
                 absolute = os.path.join(root, row.rel_path)
                 if not row.rel_path or not os.path.exists(absolute):
-                    LOG.warning(
-                        "downloaded file missing for %s; restoring the library row",
-                        row.jellyfin_id,
-                    )
-                    repoint.restore(row, root)
-                    store.fail(row.jellyfin_id, "file missing")
+                    self._handle_vanished(row, root)
                     touched = True
                     continue
                 if repoint.repoint(row, root):
@@ -954,6 +1075,131 @@ class DownloadManager:
                 self._refresh_quietly(["music", "video"] if songs else ["video"])
         except Exception:  # pragma: no cover - never break service start
             LOG.exception("downloads reconcile failed")
+
+    def _handle_vanished(self, row: "store.Download", root: str) -> None:
+        """A downloaded file deleted behind Kodi's back — a file manager, a
+        card pulled and cleaned up on a computer, another app.
+
+        This used to restore the library row and leave a ``failed`` store row
+        behind it, which meant the leftovers stayed: the sidecars, the empty
+        season directory, the Downloads tag and the badge. The item went on
+        advertising itself as downloaded in the Downloaded nodes with nothing
+        behind it.
+
+        So it goes through the removal path proper, and the item is marked
+        watched. Deleting a file by hand is how people finish with something,
+        and the alternative reading — that they wanted it re-downloaded — is
+        the one the automatic arms would act on.
+        """
+        LOG.warning(
+            "downloaded file missing for %s; cleaning up and marking it watched",
+            row.jellyfin_id,
+        )
+        repoint.restore(row, root)
+        self._delete_media(row)
+        # Before the tag check, exactly as in _apply_remove: an episode's
+        # unstamp asks whether a sibling still holds the show in the node.
+        store.remove(row.jellyfin_id)
+        repoint.unstamp_tag(row)
+        repoint.clear_badge(row)
+        self._mark_watched(row)
+        self._mark_dirty(row.media_type)
+
+    def _mark_watched(self, row: "store.Download") -> None:
+        """Mark a vanished download watched, here and on the server.
+
+        The two halves are independent and neither gates the other: a local
+        row kofin cannot find (an item removed from the library since) does
+        not make the server's copy wrong, and a server that cannot be
+        reached does not make Kodi's wrong.
+
+        Songs are left alone, the same exclusion the retention sweep makes:
+        a played track is not a finished one, and "watched" is not a thing a
+        song is.
+        """
+        if row.media_type not in ("movie", "episode"):
+            return
+        self._mark_local_watched(row)
+        self._push_played(row)
+
+    def _mark_local_watched(self, row: "store.Download") -> None:
+        """Kodi's own playcount, written straight through SQLite.
+
+        Never JSON-RPC: an announcer-visible library write feeds the
+        userdata echo cycle (report → server echoes UserDataChanged → kofin
+        writes it back), which terminates only because direct writes raise
+        no Kodi announcement — see service/kodiuserdata.py.
+        """
+        try:
+            with Database("kofin") as kofin_db, Database("video") as video:
+                mapping = repoint.mapping_for_on(kofin_db.cursor, row.jellyfin_id)
+                if mapping is None:
+                    return
+                video.cursor.execute(
+                    "UPDATE files SET playCount = 1, lastPlayed = ? WHERE idFile = ?",
+                    (
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        mapping.kodi_fileid,
+                    ),
+                )
+        except Exception:
+            LOG.exception("could not mark %s watched locally", row.jellyfin_id)
+
+    def _push_played(self, row: "store.Download") -> None:
+        """Tell the server, or park it for the next connect.
+
+        Parked rather than dropped when offline: deleting a file is exactly
+        the thing someone does on a plane, and the replay path already exists
+        for watching one there (downloads/pending.py).
+        """
+        from kofin.downloads import pending
+
+        if state.is_offline():
+            pending.enqueue(row.jellyfin_id, row.media_type, played=True)
+            return
+        api = self._api_factory()
+        try:
+            api.mark_played(row.jellyfin_id)
+        except Exception as error:
+            LOG.info(
+                "played push failed for %s (%s); parking it for replay",
+                row.jellyfin_id,
+                error,
+            )
+            pending.enqueue(row.jellyfin_id, row.media_type, played=True)
+        finally:
+            api.close()
+
+    def _sweep_vanished(self) -> None:
+        """The presence check on the maintenance beat, not just at start.
+
+        ``_reconcile_once`` runs once per service generation, so a file
+        deleted mid-session went unnoticed until the next restart — the item
+        stayed in the Downloaded nodes, and playing it failed in Kodi rather
+        than falling back to the server. An ``os.path.exists`` per done row
+        every few minutes costs nothing.
+        """
+        try:
+            root = downloads_root()
+            touched = False
+            songs = False
+            for row in store.rows(store.DONE):
+                if self._should_stop():
+                    return
+                if row.rel_path and os.path.exists(os.path.join(root, row.rel_path)):
+                    continue
+                if self._playing_now(row):
+                    # Not gone, just unreadable for a moment (a network share
+                    # blinking); tearing the row down under the player would
+                    # turn a stutter into a lost download.
+                    continue
+                songs = songs or row.media_type == "song"
+                self._handle_vanished(row, root)
+                touched = True
+            if touched:
+                self._refresh_quietly(["music", "video"] if songs else ["video"])
+        except Exception:  # pragma: no cover - never kill the maintenance loop
+            LOG.exception("vanished-download sweep failed")
 
     def _retention_sweep(self) -> None:
         """W4.2: remove watched downloads, through the full remove path —
@@ -993,6 +1239,26 @@ class DownloadManager:
                 self._apply_remove(row.jellyfin_id)
         except Exception:  # pragma: no cover - never kill the maintenance loop
             LOG.exception("retention sweep failed")
+
+    def _paused_for_playback(self) -> bool:
+        """Whether the pool should stop claiming while something plays.
+
+        ``isPlaying`` rather than ``state.get_playing_id``: the property only
+        covers playbacks kofin claimed, and a download competing for
+        bandwidth does not care who started the video. Audio counts too — a
+        transcode pull saturates the same link either way.
+        """
+        if not settings.get_bool("downloadsPauseDuringPlayback"):
+            return False
+        try:
+            return bool(xbmc.Player().isPlaying())
+        except RuntimeError:  # pragma: no cover - no player, so nothing plays
+            return False
+
+    def wake(self) -> None:
+        """Let the pool re-check its gates now rather than at the next poll —
+        the service calls this when playback stops."""
+        self._wake_all()
 
     def _playing_now(self, row: "store.Download") -> bool:
         try:

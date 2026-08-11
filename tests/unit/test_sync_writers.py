@@ -16,6 +16,7 @@ import pytest
 
 from kofin.sync import db as sync_db
 from kofin.sync import schema
+from kofin.sync.kodidb import Music as MusicKodiDb
 from kofin.sync.kodidb.kodi import Kodi
 from kofin.sync.library import UpdateWorker
 from kofin.sync.newcontent import Entry
@@ -2579,3 +2580,113 @@ def test_music_artist_removal_no_orphans(api, frozen_music_clock):
     # The song's path row goes with it. Kodi's music schema has no cascade, so
     # leaving it behind meant every repair abandoned one row per song.
     assert music_query("SELECT COUNT(*) FROM path") == [(0,)]
+
+
+# --- the per-library music source ---------------------------------------------
+
+
+def source_rows():
+    return music_query("SELECT idSource, strName, strMultipath FROM source")
+
+
+def album_source_rows():
+    return sorted(music_query("SELECT idSource, idAlbum FROM album_source"))
+
+
+def test_music_write_links_the_library_source(api, frozen_music_clock):
+    """MyMusic has no tag table, so a per-library music node filters on the
+    library's own source row instead — and album_source is the one link that
+    a downloaded song's repointing leaves alone."""
+    write_music_tree(api)
+
+    assert source_rows() == [(1, "Tunes", "plugin://plugin.video.kofin/lib-music/")]
+
+    album_id = music_query("SELECT idAlbum FROM album WHERE strAlbum='Greatest Hits'")[
+        0
+    ][0]
+    assert album_source_rows() == [(1, album_id)]
+
+    # Deliberately never written: nothing in the source rule reads it, and its
+    # idPath is a per-source ordinal that delete_path_if_unused and
+    # prune_orphan_paths both read as a path.idPath.
+    assert music_query("SELECT COUNT(*) FROM source_path") == [(0,)]
+
+
+def test_music_source_link_survives_a_rewrite(api, frozen_music_clock):
+    """Etag bumped so check_unchanged does not short-circuit: the plain
+    idempotency test never reaches the hook at all, and this is the pass that
+    would show a duplicate link or a second source row.
+
+    Scoped to the two source tables rather than the whole dump, because an
+    Etag-bumped rewrite is not byte-identical for reasons that predate this:
+    ``discography`` carries no unique index, so its INSERT OR REPLACE never
+    replaces and both the album and the song writer append a row (with
+    different years) on every rewrite.
+    """
+    write_music_tree(api)
+    before_sources = source_rows()
+    before_links = album_source_rows()
+
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music.album(dto(dict(ALBUM, Etag="etag-album1-v2")))
+        music.song(dto(dict(SONG, Etag="etag-song1-v2")))
+
+    assert source_rows() == before_sources
+    assert album_source_rows() == before_links
+
+
+def test_music_single_reaches_its_library_source(api, frozen_music_clock):
+    """A single's album is created by song_add and never passes through the
+    album writer, so the album leg alone would leave every single out of its
+    library's nodes."""
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music.artist(dto(ARTIST))
+        music.song(dto(dict(SONG, AlbumId=None, Album=None)))
+
+    album_id = music_query("SELECT idAlbum FROM song")[0][0]
+    assert album_source_rows() == [(1, album_id)]
+
+
+def test_music_source_removal_takes_its_links(api, frozen_music_clock):
+    """The source row is the whole cleanup — tgrDeleteSource drops the links,
+    and tgrDeleteAlbum has already dropped each album's own."""
+    write_music_tree(api)
+
+    with sync_db.Database("music") as mdb:
+        MusicKodiDb(mdb.cursor).delete_source_for("lib-music")
+
+    assert source_rows() == []
+    assert album_source_rows() == []
+
+
+def test_music_sources_are_reasserted_after_a_kodi_scan(api, frozen_music_clock):
+    """Kodi's own scanner runs DELETE FROM source whenever the table
+    disagrees with sources.xml — which, with an empty one, it does the moment
+    kofin writes a row. Without the reconcile every per-library music node
+    comes back from a user's scan matching nothing."""
+    from kofin.sync import musicsources
+
+    write_music_tree(api)
+    album_id = music_query("SELECT idAlbum FROM album WHERE strAlbum='Greatest Hits'")[
+        0
+    ][0]
+
+    with sync_db.Database("music") as mdb:
+        mdb.cursor.execute("DELETE FROM source")
+
+    assert source_rows() == []
+    assert album_source_rows() == []  # tgrDeleteSource took them too
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        musicsources.reassert(
+            kdb.cursor,
+            mdb.cursor,
+            [{"Id": "lib-music", "Name": "Tunes"}],
+        )
+
+    assert source_rows() == [(1, "Tunes", "plugin://plugin.video.kofin/lib-music/")]
+    assert album_source_rows() == [(1, album_id)]

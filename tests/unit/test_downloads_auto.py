@@ -72,7 +72,7 @@ def test_trigger_next_gates_then_queues_with_the_series_origin(env):
 
     store.queue(store.Download(jellyfin_id="e2", queued_at=100))
     store.claim()
-    store.finish("e2", "TV/S/Season 01/e2.mkv", "mkv", 1)
+    store.finish("e2", "Shows/S/Season 01/e2.mkv", "mkv", 1)
 
     FakeWindow.store["kofin.online"] = "false"
     assert auto.trigger_next(api, item) is False  # offline: nobody to ask
@@ -220,3 +220,76 @@ def test_queue_new_content_runs_every_arm(env, monkeypatch):
     FakeAddon.store["downloadsEnabled"] = "false"
     auto.queue_new_content(FakeAlbumApi({}), entries)
     assert env == []  # the master toggle gates every arm
+
+
+# -- the configurable bulk thresholds ------------------------------------------
+
+
+def test_bulk_thresholds_fall_back_to_their_defaults(env):
+    """An unset slider (a profile that predates them) behaves as it always
+    did — the constants are the defaults, not a second set of numbers."""
+    assert auto.new_movies_limit() == auto.NEW_MOVIES_BATCH_LIMIT
+    assert auto.new_episodes_limit() == auto.NEW_EPISODES_BATCH_LIMIT
+    assert auto.new_albums_limit() == auto.NEW_ALBUMS_BATCH_LIMIT
+
+
+def test_a_zero_threshold_reads_as_its_default(env):
+    """Zero would mean "skip every import", which is what turning the arm off
+    is for — and is what an unwritten integer setting reads back as."""
+    FakeAddon.store["downloadsBulkMovies"] = "0"
+    assert auto.new_movies_limit() == auto.NEW_MOVIES_BATCH_LIMIT
+
+
+def test_a_raised_movie_threshold_lets_a_batch_through(env):
+    FakeAddon.store["downloadsAutoMovies"] = "true"
+    FakeAddon.store["downloadsBulkMovies"] = "20"
+    bulk = [Entry("Movie", "m%d" % index, "M") for index in range(10)]
+
+    assert auto.queue_new_movies(bulk) == 10
+    assert env == [
+        (
+            auto.ipc.DOWNLOAD_ADD,
+            {"Ids": [e.item_id for e in bulk], "Origin": "auto:new"},
+        )
+    ]
+
+
+def test_a_lowered_movie_threshold_skips_a_batch_that_used_to_pass(env, monkeypatch):
+    monkeypatch.setattr(auto.toast, "show", lambda *a, **k: None)
+    monkeypatch.setattr(auto.settings, "localized", lambda i: "L%d %%s" % i)
+    FakeAddon.store["downloadsAutoMovies"] = "true"
+    FakeAddon.store["downloadsBulkMovies"] = "2"
+
+    assert (
+        auto.queue_new_movies([Entry("Movie", "m%d" % i, "M") for i in range(3)]) == 0
+    )
+    assert env == []
+
+
+def test_a_lowered_episode_threshold_skips_the_global_arm(env, monkeypatch):
+    monkeypatch.setattr(auto.toast, "show", lambda *a, **k: None)
+    monkeypatch.setattr(auto.settings, "localized", lambda i: "L%d %%s" % i)
+    FakeAddon.store["downloadsAutoEpisodes"] = "true"
+    FakeAddon.store["downloadsBulkEpisodes"] = "2"
+
+    entries = [episode_entry("e%d" % index, "s1") for index in range(3)]
+    assert auto.queue_new_episodes(entries) == 0
+    assert env == []
+
+
+def test_a_subscribed_show_ignores_the_episode_threshold(env):
+    """A subscription is a standing order: a whole season landing at once is
+    exactly what it is for."""
+    FakeAddon.store["downloadsBulkEpisodes"] = "2"
+    auto.save_subscribed_shows(["s1"])
+
+    entries = [episode_entry("e%d" % index, "s1") for index in range(5)]
+    assert auto.queue_new_episodes(entries) == 5
+
+
+def test_a_raised_album_threshold_lets_a_batch_through(env):
+    FakeAddon.store["downloadsAutoAlbums"] = "true"
+    FakeAddon.store["downloadsBulkAlbums"] = "20"
+    entries = [Entry("MusicAlbum", "al1", "A")]
+
+    assert auto.queue_new_albums(FakeAlbumApi({"al1": [{"Id": "t1"}]}), entries) == 1
