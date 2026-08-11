@@ -1077,6 +1077,212 @@ def test_watched_locally_reads_kodis_own_playcount(tmp_path):
     assert manager_module._watched_locally(unmapped) is False
 
 
+# -- the stale sweep (plan W4.8) ---------------------------------------------
+
+
+DAY = manager_module.SECONDS_PER_DAY
+
+
+def seed_stale(item_id, days_ago, media_type="movie"):
+    """A finished download whose transfer ended ``days_ago`` days ago."""
+    import time as time_module
+
+    done_at = int(time_module.time() - days_ago * DAY)
+    store.queue(
+        store.Download(
+            jellyfin_id=item_id,
+            media_type=media_type,
+            origin=store.ORIGIN_USER,
+            queued_at=done_at,
+        )
+    )
+    store.claim(None)
+    store.record_details(item_id, media_type, "", 0, "")
+    store.finish(
+        item_id, "Movies/%s/%s.mkv" % (item_id, item_id), "mkv", 1, done_at=done_at
+    )
+
+
+def touches(monkeypatch, answers):
+    """Stub the Kodi read: ``{id: (lastPlayed epoch, has resume point)}``,
+    with anything unlisted answering None — the unmapped case."""
+    monkeypatch.setattr(
+        manager_module,
+        "_last_touch",
+        lambda row: answers.get(row.jellyfin_id),
+    )
+
+
+def enable_stale(days=30):
+    FakeAddon.store["downloadsDeleteStale"] = "true"
+    FakeAddon.store["downloadsStaleDays"] = str(days)
+
+
+def test_stale_sweep_removes_what_nobody_has_touched(repoints, monkeypatch):
+    enable_stale(days=30)
+    manager, _ = make_manager(repoints)
+    seed_stale("old", days_ago=40)
+    seed_stale("recent", days_ago=10)
+    touches(monkeypatch, {"old": (0.0, False), "recent": (0.0, False)})
+    removed = []
+    monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
+
+    manager._stale_sweep()
+    assert removed == ["old"]
+
+
+def test_stale_sweep_keeps_anything_with_a_resume_point(repoints, monkeypatch):
+    """The exemption the feature is sold on: a film you are part-way through
+    is in progress, not abandoned, however long it has sat — and it is
+    exactly what a pure age clock would take first."""
+    enable_stale(days=30)
+    manager, _ = make_manager(repoints)
+    seed_stale("halfway", days_ago=400)
+    seed_stale("untouched", days_ago=400)
+    touches(monkeypatch, {"halfway": (0.0, True), "untouched": (0.0, False)})
+    removed = []
+    monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
+
+    manager._stale_sweep()
+    assert removed == ["untouched"]
+
+
+def test_stale_clock_is_the_last_touch_not_the_download_date(repoints, monkeypatch):
+    """Re-watching something resets it: a download from a year ago that was
+    played last night is not stale, and one played eleven months ago is."""
+    import time as time_module
+
+    enable_stale(days=30)
+    manager, _ = make_manager(repoints)
+    seed_stale("rewatched", days_ago=365)
+    seed_stale("watched-once", days_ago=365)
+    now = time_module.time()
+    touches(
+        monkeypatch,
+        {
+            "rewatched": (now - 1 * DAY, False),
+            "watched-once": (now - 330 * DAY, False),
+        },
+    )
+    removed = []
+    monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
+
+    manager._stale_sweep()
+    assert removed == ["watched-once"]
+
+
+def test_stale_sweep_answers_to_its_own_setting_alone(repoints, monkeypatch):
+    """Off by default, and independent of the watched pair in both
+    directions: nesting it under downloadsDeleteAfterWatching would make the
+    case it exists for — downloaded, never watched — unreachable."""
+    manager, _ = make_manager(repoints)
+    seed_stale("old", days_ago=400)
+    touches(monkeypatch, {"old": (0.0, False)})
+    removed = []
+    monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
+
+    manager._stale_sweep()
+    assert removed == []  # nothing set: the default is to keep everything
+
+    FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
+    FakeAddon.store["downloadsDeleteAutomatically"] = "true"
+    manager._stale_sweep()
+    assert removed == []  # the watched pair does not turn this on
+
+    FakeAddon.store["downloadsDeleteAfterWatching"] = "false"
+    FakeAddon.store["downloadsDeleteAutomatically"] = "false"
+    enable_stale(days=30)
+    manager._stale_sweep()
+    assert removed == ["old"]  # nor off
+
+
+def test_stale_sweep_skips_songs_unknown_ages_and_the_playing_file(
+    repoints, monkeypatch
+):
+    enable_stale(days=30)
+    manager, _ = make_manager(repoints)
+    seed_stale("song", days_ago=400, media_type="song")
+    seed_stale("unmapped", days_ago=400)
+    seed_stale("playing", days_ago=400)
+    seed_stale("undated", days_ago=400)
+    store.finish("undated", "Movies/undated/undated.mkv", "mkv", 1, done_at=0)
+    # "unmapped" is absent from the answers, so _last_touch reports None.
+    touches(monkeypatch, {"playing": (0.0, False), "undated": (0.0, False)})
+    monkeypatch.setattr(
+        manager, "_playing_now", lambda row: row.jellyfin_id == "playing"
+    )
+    removed = []
+    monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
+
+    manager._stale_sweep()
+    assert removed == []
+
+
+def test_stale_sweep_collects_watched_downloads_too(repoints, monkeypatch):
+    """With the watched pair off, this is the only thing that ever clears a
+    download somebody finished — and a month later it is stale either way."""
+    enable_stale(days=30)
+    FakeAddon.store["downloadsDeleteAfterWatching"] = "false"
+    manager, _ = make_manager(repoints)
+    seed_stale("finished", days_ago=90)
+    monkeypatch.setattr(manager_module, "_watched_locally", lambda row: True)
+    touches(monkeypatch, {"finished": (0.0, False)})
+    removed = []
+    monkeypatch.setattr(manager, "_apply_remove", lambda i: removed.append(i))
+
+    manager._stale_sweep()
+    assert removed == ["finished"]
+
+
+def test_last_touch_reads_kodis_own_rows(tmp_path):
+    """lastPlayed and the RESUME bookmark off the repointed file row — local
+    truth, which is what lets the sweep run offline."""
+    import sqlite3
+
+    video_path = tmp_path / "MyVideos.db"
+    connection = sqlite3.connect(str(video_path))
+    connection.execute(
+        "CREATE TABLE files (idFile INTEGER PRIMARY KEY, lastPlayed TEXT)"
+    )
+    connection.execute(
+        "CREATE TABLE bookmark (idBookmark INTEGER PRIMARY KEY, idFile INTEGER, type INTEGER)"
+    )
+    connection.execute(
+        "INSERT INTO files VALUES (7, '2026-01-02 03:04:05'), (8, NULL), (9, NULL)"
+    )
+    # A resume bookmark on 8; a type-2 (episode part) one on 9, which is not
+    # a resume point and must not protect it.
+    connection.execute("INSERT INTO bookmark VALUES (1, 8, 1), (2, 9, 2)")
+    connection.commit()
+    connection.close()
+    sync_db.set_path_override("video", str(video_path))
+
+    with sync_db.Database("kofin") as opened:
+        opened.cursor.execute(
+            "INSERT INTO jellyfin (jellyfin_id, kodi_id, kodi_fileid, kodi_pathid, media_type) "
+            "VALUES ('p1', 1, 7, 1, 'movie'), ('p2', 2, 8, 1, 'movie'), "
+            "('p3', 3, 9, 1, 'movie')"
+        )
+
+    played = manager_module._last_touch(store.Download(jellyfin_id="p1"))
+    assert played == (manager_module._as_epoch("2026-01-02 03:04:05"), False)
+    assert played[0] > 0
+    assert manager_module._last_touch(store.Download(jellyfin_id="p2")) == (0.0, True)
+    assert manager_module._last_touch(store.Download(jellyfin_id="p3")) == (0.0, False)
+    assert manager_module._last_touch(store.Download(jellyfin_id="p4")) is None
+
+
+def test_as_epoch_reads_both_spellings_that_reach_the_column():
+    """Kodi's own space-separated stamp and the ISO form the sync writers
+    hand it (shims.date_played) are the same local time."""
+    assert manager_module._as_epoch("2026-01-02 03:04:05") == manager_module._as_epoch(
+        "2026-01-02T03:04:05"
+    )
+    assert manager_module._as_epoch("") == 0.0
+    assert manager_module._as_epoch(None) == 0.0
+    assert manager_module._as_epoch("never") == 0.0
+
+
 def test_remove_sweeps_exported_metadata_with_the_directory(tmp_path, repoints):
     manager, _ = make_manager(repoints)
     seed_done("m1", store.ORIGIN_USER)
