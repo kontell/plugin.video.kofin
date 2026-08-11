@@ -12,7 +12,6 @@
   </requires>
   <extension point="xbmc.python.pluginsource" library="default.py">
     <provides>video audio</provides>
-    <reuselanguageinvoker>true</reuselanguageinvoker>
   </extension>
   <extension point="xbmc.service" library="service.py" start="login"/>
   <extension point="kodi.context.item">
@@ -74,6 +73,21 @@
     </menu>
   </extension>
   <extension point="xbmc.addon.metadata">
+    <!-- This element only works here, inside xbmc.addon.metadata. Kodi parses
+         it in the branch that handles this extension point and nowhere else
+         (AddonInfoBuilder.cpp gates the whole block on "xbmc.addon.metadata",
+         Omega and Piers alike), so declared under xbmc.python.pluginsource —
+         which is where it reads as though it belongs, and where kofin had it
+         through 0.13.1 — it never reaches addon->ExtraInfo(),
+         CScriptRunner::ExecuteScript computes reuseLanguageInvoker=false, and
+         every plugin invocation builds a fresh interpreter. Nothing is logged
+         either way: the addon simply behaves as if the flag were absent, which
+         is how it went unnoticed. The tell in a debug log is a "Thread
+         LanguageInvoker ... terminating" line straight after "script
+         successfully run" (not reusable) rather than the thread parking, and
+         "GetLanguageInvoker - Reusing LanguageInvokerThread <id>" on the next
+         click when it is. -->
+    <reuselanguageinvoker>true</reuselanguageinvoker>
     <platform>all</platform>
     <license>GPL-3.0-only</license>
     <source>https://github.com/kontell/plugin.video.kofin</source>
