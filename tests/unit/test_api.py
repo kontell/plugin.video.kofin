@@ -343,18 +343,19 @@ def image_api(transport):
     return Api(transport, "http://s:8096", "Kodi", "dev1", "0.1.0", token="tok")
 
 
-def test_splashscreen_asks_for_the_servers_own_encoding():
-    """No transcode params: the endpoint ignores `quality` outright and the
-    image is already 1920x1080, so asking for Jpg would only add a lossy
-    generation ahead of the one Kodi's texture cache applies."""
+def test_splashscreen_asks_for_webp():
+    """WebP is the whole point of the request: the endpoint's default PNG is
+    RGBA, and an alpha channel is what stops Kodi's texture cache re-encoding
+    it — 3.6MB on disk and 3.6MB cached, against 698KB and a 600KB JPEG. The
+    other lossy option, Jpg, serves a frozen older collage (see the method)."""
     transport = ImageHttp()
     assert image_api(transport).splashscreen() == b"\x89PNG-bytes"
 
     call = transport.calls[0]
     assert call["url"] == "http://s:8096/Branding/Splashscreen"
-    assert call["params"] is None
+    assert call["params"] == {"format": "Webp"}
     assert call["headers"]["Accept"] == "image/*"
-    # A ~2.3MB image the server may render on demand needs more than the
+    # A ~700KB image the server may render on demand needs more than the
     # transport default read budget.
     assert call["timeout"] == (6.0, 60.0)
 

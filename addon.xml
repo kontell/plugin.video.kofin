@@ -79,15 +79,28 @@
     <source>https://github.com/kontell/plugin.video.kofin</source>
     <summary lang="en_GB">Jellyfin client for seamless Kodi integration</summary>
     <description lang="en_GB">Play movies, shows &amp; music from a Jellyfin server.</description>
-    <!-- fanart.png is the *live* backdrop: service/backdrop.py rewrites it in
+    <!-- fanart.webp is the *live* backdrop: service/backdrop.py rewrites it in
          place when the server-splashscreen setting is on, and restores it from
          a copy it captures into addon_data. The asset path has to stay fixed
          because addon.xml is read once at install/scan time, and the file has
          to be present in the zip because Kodi's addon browser fetches assets
-         from the repository before the addon is installed. -->
+         from the repository before the addon is installed.
+
+         WebP, not PNG, because of what Kodi's texture cache does with each:
+         it re-encodes a cached texture to JPEG only when the source carries no
+         alpha channel, and keeps any RGBA source as a PNG of the same size.
+         The server's splashscreen is a 1920x1080 RGBA PNG (opaque, but the
+         channel is there), so as a PNG it costs 3.6MB on disk and another
+         3.6MB in the cache; as WebP it is 698KB on disk and Kodi caches a
+         600KB JPEG. Measured on Omega and Piers alike. Kodi picks the decoder
+         from the *extension* for local files — Omega refuses WebP bytes in a
+         .png outright (Piers sniffs, but that is below ImageFactory and not
+         something to rely on) — so the name has to say webp. Neither version's
+         addon.xml parser validates the extension: AddonInfoBuilder stores the
+         path verbatim. -->
     <assets>
       <icon>resources/media/icon.png</icon>
-      <fanart>resources/media/fanart.png</fanart>
+      <fanart>resources/media/fanart.webp</fanart>
     </assets>
   </extension>
 </addon>
