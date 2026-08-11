@@ -1,3 +1,13 @@
+v0.14.0
+- Jellyfin's own audio and subtitle preferences are editable from the Account tab, so changing which tracks a playback starts with no longer means a trip to the web interface
+- The Kofin music node now has a folder per library with Artists, Albums, Songs and Genres, and Downloaded music splits the same way
+- Downloads you never got round to watching can be cleared after a number of days you choose — off by default, and separate from the watched cleanup, because "you never started it" is the case a watched check can never catch
+- Menus and playback respond quicker: kofin no longer rebuilds itself from scratch on every click, taking around half a second off each one, so most listings open about twice as fast
+- The addon's backdrop takes about a fifth of the disk space and cache it used to
+- A queued download starts in seconds rather than half a minute, the out-of-space message fits on screen, and eight further downloader fixes besides
+- Artists no longer collect duplicate or stray discography entries, and removing one stops taking songs on other albums with it
+- Subtitles on a transcode arrive without restarting playback, a repaired library refreshes on screen, and the service now recovers on its own when a background thread dies or a library update stalls
+
 v0.13.1
 - Music downloads are several times faster, and an album now finishes with one notification instead of one per track
 - The whole Downloads settings page appears as soon as you enable downloads, and reads better
