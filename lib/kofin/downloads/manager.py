@@ -83,6 +83,12 @@ JOIN_SECONDS = 35.0
 # needs no better than minutes.
 RETENTION_SWEEP_SECONDS = 300.0
 
+# The stale sweep's unit and its fallback (plan W4.8): the setting is in
+# days, and an unset one behaves as the slider's own default so a profile
+# that predates it reads the same as one that has never touched it.
+SECONDS_PER_DAY = 86400.0
+STALE_DAYS_DEFAULT = 30
+
 # Store progress roughly every 8 MiB rather than every chunk.
 PROGRESS_EVERY_CHUNKS = 32
 
@@ -1014,6 +1020,7 @@ class DownloadManager:
         self._reconcile_once()
         self._backfill_segment_caches()
         self._retention_sweep()
+        self._stale_sweep()
         while not self._stop.wait(timeout=RETENTION_SWEEP_SECONDS):
             if self._should_stop():
                 return
@@ -1022,6 +1029,7 @@ class DownloadManager:
             # watched-check on it.
             self._sweep_vanished()
             self._retention_sweep()
+            self._stale_sweep()
 
     def _backfill_segment_caches(self) -> None:
         """Downloads without a segment cache get one at the next start
@@ -1240,6 +1248,73 @@ class DownloadManager:
         except Exception:  # pragma: no cover - never kill the maintenance loop
             LOG.exception("retention sweep failed")
 
+    def _stale_sweep(self) -> None:
+        """W4.8: remove downloads nobody has touched in ``downloadsStaleDays``
+        days, through the full remove path like every other removal here.
+
+        The companion to the watched sweep, and deliberately not nested under
+        it: that pair answers "you finished it", this one answers "you never
+        got to it", which is the case a watched-ness test can never reach.
+        Watched items past the cutoff are collected too — a download watched
+        a month ago is stale by any reading, and this is the only thing that
+        clears them with ``downloadsDeleteAfterWatching`` off.
+
+        Age is the *last touch*: the later of the download finishing and
+        Kodi's own ``files.lastPlayed``, so re-watching something resets its
+        clock. Both facts are local, so the sweep works offline exactly like
+        the watched one.
+
+        The exclusions, in order of how badly each would be missed:
+
+        * an item with a **resume point** is never stale, however long it has
+          sat. A part-watched film is in progress, not abandoned, and it is
+          precisely what a pure age clock reads wrong. The exemption needs no
+          bookkeeping to clear: Kodi drops the resume bookmark when playback
+          reaches the end, so finishing something puts it back in the pool.
+          It inherits from the server too — the writers write playstate from
+          Jellyfin's UserData, so starting an episode on a phone protects the
+          copy downloaded here.
+        * the file currently playing, for the reason the watched sweep skips
+          it.
+        * songs, the same exclusion the rest of the lifecycle makes: staleness
+          per track would delete an album one track at a time.
+        * a row whose age cannot be established — no ``done_at``, never
+          played, or no library mapping to read. An unknown age is not an old
+          age.
+        """
+        try:
+            if not settings.get_bool("downloadsDeleteStale"):
+                return
+            days = max(1, settings.get_int("downloadsStaleDays") or STALE_DAYS_DEFAULT)
+            cutoff = time.time() - days * SECONDS_PER_DAY
+            for row in store.rows(store.DONE):
+                if self._should_stop():
+                    return
+                if row.media_type not in ("movie", "episode"):
+                    continue
+                if not row.done_at or row.done_at > cutoff:
+                    # The cheap half, off the store row alone: a library
+                    # inside its window never opens Kodi's database here.
+                    continue
+                touched = _last_touch(row)
+                if touched is None:
+                    continue
+                last_played, resuming = touched
+                if resuming or last_played > cutoff:
+                    continue
+                if self._playing_now(row):
+                    continue
+                LOG.info(
+                    "stale: removing %s, untouched for %d day(s)",
+                    row.jellyfin_id,
+                    int(
+                        (time.time() - max(row.done_at, last_played)) / SECONDS_PER_DAY
+                    ),
+                )
+                self._apply_remove(row.jellyfin_id)
+        except Exception:  # pragma: no cover - never kill the maintenance loop
+            LOG.exception("stale-download sweep failed")
+
     def _paused_for_playback(self) -> bool:
         """Whether the pool should stop claiming while something plays.
 
@@ -1403,6 +1478,53 @@ def _watched_locally(row: "store.Download") -> bool:
         )
         found = video.cursor.fetchone()
     return bool(found is not None and found[0])
+
+
+def _last_touch(row: "store.Download") -> Optional[Tuple[float, bool]]:
+    """``(lastPlayed as unix seconds, has a resume point)``, or None when the
+    item has no library row to read (the stale sweep's "unknown age").
+
+    Both facts hang off the one file row the download was repointed onto.
+    The resume point is a ``type = 1`` bookmark, Kodi's own RESUME kind — the
+    same row ``widgetstate`` reads for its in-progress percentages — which
+    Kodi deletes at the end of playback, and which the sync writers also
+    write from the server's UserData.
+    """
+    with Database("kofin") as kofin_db, Database("video") as video:
+        mapping = repoint.mapping_for_on(kofin_db.cursor, row.jellyfin_id)
+        if mapping is None:
+            return None
+        video.cursor.execute(
+            "SELECT lastPlayed FROM files WHERE idFile = ?", (mapping.kodi_fileid,)
+        )
+        found = video.cursor.fetchone()
+        if found is None:
+            return None
+        video.cursor.execute(
+            "SELECT 1 AS present FROM bookmark WHERE idFile = ? AND type = 1 LIMIT 1",
+            (mapping.kodi_fileid,),
+        )
+        resuming = video.cursor.fetchone() is not None
+    return _as_epoch(found[0]), resuming
+
+
+def _as_epoch(stamp: Any) -> float:
+    """A Kodi timestamp column as unix seconds; 0.0 for unset or unparseable.
+
+    Two spellings reach the column and both are local time: Kodi's own (and
+    ``_mark_local_watched``'s) ``'%Y-%m-%d %H:%M:%S'``, and the ISO ``T`` form
+    the sync writers hand it (``shims.date_played``). 0.0 rather than an
+    exception for anything else — a column kofin did not write is not a
+    reason to abandon a sweep.
+    """
+    if not stamp:
+        return 0.0
+    try:
+        return datetime.strptime(
+            str(stamp)[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S"
+        ).timestamp()
+    except ValueError:
+        return 0.0
 
 
 def _remove_quietly(path: str) -> None:

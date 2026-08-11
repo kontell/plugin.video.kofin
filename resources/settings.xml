@@ -1279,6 +1279,41 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
+        <!-- The other half of the lifecycle question (plan W4.8): the pair
+             above answers "you finished it", this one answers "you never got
+             to it". Deliberately *not* dependent on downloadsDeleteAfterWatching
+             — nesting it there would make the case it exists for (downloaded,
+             never watched) unreachable. Silent like the automatic mode of the
+             watched sweep: there is nobody to ask about something last
+             touched a month ago, so turning it on is the consent. -->
+        <setting id="downloadsDeleteStale" type="boolean" label="30811" help="30812">
+          <level>0</level>
+          <default>false</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <setting id="downloadsStaleDays" type="integer" label="30813" help="30814">
+          <level>0</level>
+          <default>30</default>
+          <constraints>
+            <minimum>1</minimum>
+            <step>1</step>
+            <maximum>365</maximum>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="downloadsEnabled">true</condition>
+                <condition operator="is" setting="downloadsDeleteStale">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="slider" format="integer"/>
+        </setting>
         <setting id="downloadsExportMetadata" type="boolean" label="30752" help="30753">
           <level>0</level>
           <default>false</default>

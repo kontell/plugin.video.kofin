@@ -2046,3 +2046,23 @@ msgstr ""
 msgctxt "#30809"
 msgid "Do not start new downloads while something is playing, video or music. A file already downloading finishes; the rest wait until playback stops."
 msgstr ""
+
+# 30811-30814 — the stale sweep. Its help text has to carry the resume-point
+# exemption: an unfinished film sitting untouched for months is exactly what
+# a user expects an age-based rule to eat, and the promise that it will not
+# is the reason the setting is safe to leave on.
+msgctxt "#30811"
+msgid "Delete downloads you have not watched"
+msgstr ""
+
+msgctxt "#30812"
+msgid "Remove downloaded files nobody has played for a while. Anything you are part-way through is kept, however long it sits. The items stay in your library and play from the server again."
+msgstr ""
+
+msgctxt "#30813"
+msgid "Delete after (days)"
+msgstr ""
+
+msgctxt "#30814"
+msgid "How long a download may sit unplayed before it is removed. Playing it again starts the count over."
+msgstr ""
