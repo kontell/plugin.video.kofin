@@ -25,7 +25,7 @@ Target: movies-all ≤ 10 s (build phase 5.4 s → < 1 s). Tests: unit for the n
 
 ### W1.2 Lazy route imports and deferred `requests`
 
-Measured: invoker reuse never happens on this build (probe-verified; see memory `kodi-debian-no-invoker-reuse`), so `router._handlers()` importing all ten handler modules — and through browse→api→http the whole `requests` tree (0.9–1.6 s) — is paid on every click, including static node menus that make no network call.
+Measured: invoker reuse never happened on this build at the time — the cause turned out to be kofin's own `addon.xml` and is fixed in W4.4, but reuse stays opportunistic, so the cold-click cost below is still paid whenever anything else on the system has run Python since the last click. `router._handlers()` importing all ten handler modules — and through browse→api→http the whole `requests` tree (0.9–1.6 s) — is paid on every such click, including static node menus that make no network call.
 
 Change: replace `_handlers()` with a declarative `ROUTES: {mode: ("kofin.plugin.browse", "browse")}` table resolved via `importlib` per dispatch; move `import requests` inside `Http` (local import in `session()`/`request()`, `TYPE_CHECKING` guard for annotations) so importing `core/http.py` is free until a request fires.
 
@@ -179,9 +179,29 @@ Its justification was eliminating the per-click interpreter constant. That const
 
 ~90 ms of a click-to-frame that is now 1.8–1.9 s locally, against changes to path identity, SyncPlay start ticks, the context transcode and the extras path. W4.0 took ten times as much off the same route for less risk.
 
-### W4.4 Upstream invoker-reuse follow-up — file it, expect nothing
+### W4.4 Invoker reuse — **done; it was ours, not Kodi's**
 
-Confirmed in Kodi's source that plugin invocations do pass the flag: `CScriptRunner::ExecuteScript` reads `reuselanguageinvoker` from the addon's ExtraInfo and hands it to `CScriptInvocationManager::ExecuteAsync`, and `CLanguageInvokerThread::Reuseable` gates on `!m_bStop && m_reusable && GetState() == InvokerStateScriptDone && m_script == script`. Yet neither test box ever reuses — no "Reusing LanguageInvokerThread" line has appeared on either — so the cause is downstream in invoker state or lifecycle and needs a debug build to pin. Cheap to report with the minimal probe from the audit; not on kofin's critical path, and W4.0 makes the addon much less dependent on the answer. If reuse ever did work, every import cost in this document would vanish at once.
+The earlier reading of this item was wrong in its conclusion, and the way it was wrong is the useful part. The source reading held up — `CScriptRunner::ExecuteScript` does read `reuselanguageinvoker` from the addon's ExtraInfo and hand it to `CScriptInvocationManager::ExecuteAsync`, and `CLanguageInvokerThread::Reuseable` does gate on `!m_bStop && m_reusable && GetState() == InvokerStateScriptDone && m_script == script` — but the chain was never checked at its first link, whether the key is in `ExtraInfo()` at all. It was not. **Kodi parses `<reuselanguageinvoker>` only from inside `<extension point="xbmc.addon.metadata">`**: `AddonInfoBuilder::ParseXML` gates that whole block on `point == "kodi.addon.metadata" || point == "xbmc.addon.metadata"` (Omega `AddonInfoBuilder.cpp:389`, master `:412`) and parses the element ~145 lines further down, beside `language`/`size`/`news`. kofin declared it under `xbmc.python.pluginsource`, where it reads as though it belongs and where nothing looks, so `reuseLanguageInvoker` came out false and every click built a fresh interpreter. Nothing is logged either way.
+
+The two pieces of evidence that had settled the question were both null results. "No `Reusing LanguageInvokerThread` line in any log" — that line is LOGDEBUG and debug logging was off on the box; and every other flag-carrying addon installed there was *disabled*, so nothing could have emitted it. The tell that does work without debug logging is the timing; with it, whether `Thread LanguageInvoker … terminating` follows `script successfully run` (not reusable) or the thread simply parks.
+
+Measured on both boxes, root listing, same probe and conditions:
+
+| | Before | After (warm) |
+| --- | --- | --- |
+| Root listing, Debian/Omega (12 items) | 0.616–0.912 s | **0.166–0.254 s** |
+| Root listing, Bravia/Piers (11 items) | 0.845–1.025 s | **0.403–0.416 s** |
+| Script time, root (Omega) | 436 ms — 33 ms interpreter + 403 ms imports + ~0 ms work | **~180 ms, all work** |
+
+The Omega numbers were re-measured at load 4.36 (0.226–0.249 s) and at load 1.87 (0.166–0.254 s) against a before taken at load 3.70, so the win is not a load artefact. On the Bravia the first click after a restart still cost 0.916 s and the next five settled at ~0.41 s, which is the cold/warm split made visible. The whole startup constant is gone from a warm click; what is left is the request.
+
+Piers needed no separate diagnosis: `AddonInfoBuilder` parses the flag identically on master, and `plugin.video.viwx` — which declares it correctly — already had `Reusing LanguageInvokerThread` lines in the Bravia's own log before anything was changed, so the box had been demonstrating the mechanism all along.
+
+**Reuse is opportunistic, and the plan should not be re-costed as though it were free.** Kodi keeps exactly one `m_lastInvokerThread` for the whole system, and `GetReusablePluginHandle`/`GetLanguageInvoker` `Release()` it the moment any other script runs — another addon, a scraper, one of kofin's own `context_*.py` shims. A route that ends at `InvokerStateFailed` (an exception, `sys.exit`) is discarded too. So W1.2's lazy route table and W4.0's stdlib transport both still earn their keep on the cold clicks, which is why neither was reverted.
+
+**The one thing that had to change with it (W4.5).** A reused invoker thread *parks* instead of exiting, and Kodi marks a script done only from `CLanguageInvokerThread::OnExit` — so `CScriptRunner::WaitOnScriptResult`, whose first loop polls `IsRunning(scriptId)` with no timeout, waits forever on a route that leaves its handle open. Every route that fires an IPC and returns did exactly that, relying on the interpreter dying to make the fetch fail out at once — which is what `plugin/syncplay.py` and `plugin/adduser.py` still describe in their docstrings. Measured live before the fix: `?mode=streams` reached as a directory finished its script in **2 ms** and hung its caller **indefinitely** (20 s+ timeouts, no upper bound). Settings buttons and context items were never exposed — both dispatch through `RunPlugin`/`RunScript`, which do not wait. `router.dispatch` now closes the handle for every mode outside `LISTING_MODES`, and `test_router.py` refuses any `ROUTES` entry that is in neither set, so a future route cannot reintroduce the hang by omission.
+
+One consequence for the dev loop, worth knowing before it wastes an hour: with reuse on, a plugin-side code change does **not** take effect on the next click. The parked interpreter holds the old modules in `sys.modules`, so `dev-install.sh` alone changes nothing until that thread is discarded — an addon disable/enable bounce does it, as does anything else running Python.
 
 ## Acceptance summary
 

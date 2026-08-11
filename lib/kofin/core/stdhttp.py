@@ -5,11 +5,13 @@ Why this exists is one measurement. Inside Kodi's Python, on both test boxes::
     import requests    1.11 s (Omega/Debian)   0.93 s (Kodi 22/Android)
     http.client + ssl  0.00 s                  0.00 s   (already loaded)
 
-The plugin process is short-lived and never reuses its interpreter (see
-docs/perf-hardening-plan.md W1.2), so that second is paid *per click* on every
-route that talks to the server — a browse listing, the play resolve, a context
+The plugin process is short-lived, so that second is paid on every cold click
+that talks to the server — a browse listing, the play resolve, a context
 action. Kodi 22's own bytecode caching does not help: the cost is executing the
-package's module bodies, not compiling them.
+package's module bodies, not compiling them. Invoker reuse (W4.4) removes the
+import from a *warm* click, but it cannot be relied on: Kodi keeps a single
+reusable invoker thread for the whole system, so any other addon's script
+between two clicks discards ours and the next click pays full price again.
 
 So the plugin process asks over the standard library, and the service keeps
 ``requests``: a long-lived process pays the import once, its sync stack is
