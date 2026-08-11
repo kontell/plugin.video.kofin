@@ -172,6 +172,22 @@ class Music(Kodi):
         if self.cursor.fetchone() is None:
             self.cursor.execute(QU.update_discography, args)
 
+    def get_album_title(self, kodi_id):
+        """The album's own title, or None when it has no row.
+
+        discography is keyed by title, and the two legs used to key on
+        different strings: the album leg on the album item's name, the song
+        leg on the song's ``Album`` tag. Jellyfin reports those separately
+        and they do disagree -- a track tagged ``The Terminator`` on an album
+        named ``The Terminator: Original Soundtrack``. Rows written under the
+        odd title match no album in ``GetArtistDiscography``'s fold, so they
+        survive it and render on their own as ``0 - <album>``.
+        """
+        self.cursor.execute(QU.get_album_title, (kodi_id,))
+        row = self.cursor.fetchone()
+
+        return row[0] if row else None
+
     def delete_album_discography(self, kodi_id):
         """Drop the discography rows the album being removed accounts for.
 

@@ -512,6 +512,17 @@ class Music(KodiDb):
     def song_artist_discography(self, obj):
         """Update the artist's discography."""
         artists = []
+        # Key the row on the album's own title rather than the song's Album
+        # tag: Jellyfin reports the two separately and they disagree often
+        # enough to matter, and a row under the odd title matches no album
+        # in Kodi's fold, so it renders as a stray "0 - <album>". Same title
+        # as the album leg means add_discography_if_absent can see the row
+        # the album leg already wrote.
+        album_title = obj["Album"]
+
+        if album_title:
+            album_title = self.get_album_title(obj["AlbumId"]) or album_title
+
         for artist in obj["AlbumArtists"] or []:
 
             temp_obj = dict(obj)
@@ -541,9 +552,9 @@ class Music(KodiDb):
             self.link(*values(temp_obj, QU.update_link_obj))
             self.item_ids.append(temp_obj["Id"])
 
-            if obj["Album"]:
+            if album_title:
 
-                temp_obj["Title"] = obj["Album"]
+                temp_obj["Title"] = album_title
                 temp_obj["Year"] = 0
                 # Deliberately the if-absent write, not add_discography: this
                 # runs once per track and carries no album year, so replacing

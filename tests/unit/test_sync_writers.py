@@ -2664,6 +2664,44 @@ def test_music_discography_song_leg_covers_an_unlisted_album_artist(
     ]
 
 
+def test_music_discography_keys_on_the_albums_own_title(api, frozen_music_clock):
+    """Jellyfin reports a song's Album tag separately from the album item's
+    name and the two disagree in the wild -- a track tagged "The Terminator"
+    on an album named "The Terminator: Original Soundtrack". discography is
+    keyed by title, so keying the song leg on the tag wrote a second row that
+    matched no album in GetArtistDiscography's fold and rendered on its own
+    as "0 - The Terminator" (seen live on a real library)."""
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music.artist(dto(ARTIST))
+        music.album(dto(ALBUM))  # named "Greatest Hits"
+        music.song(dto(dict(SONG, Album="Greatest Hits (Remastered)")))
+
+    assert music_query("SELECT strAlbum, strYear FROM discography") == [
+        ("Greatest Hits", "2017")
+    ]
+
+
+def test_music_discography_falls_back_to_the_song_tag(api, frozen_music_clock):
+    """No album row to read a title from -- the tag is all there is."""
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music.artist(dto(ARTIST))
+        obj = music.objects.map(dto(dict(SONG, Album="Tag Only Title")), "Song")
+        obj["AlbumId"] = 9999  # no album row carries this id
+        obj["LibraryId"] = "lib-music"
+        obj["LibraryName"] = "Tunes"
+        music.song_artist_discography(obj)
+
+    assert music_query("SELECT strAlbum, strYear FROM discography") == [
+        ("Tag Only Title", "0")
+    ]
+
+
 def test_music_album_removal_takes_its_discography(api, frozen_music_clock):
     """Kodi cascades an album delete into song/album_artist/album_source/art
     but never into discography, so the rows used to outlive the album -- and

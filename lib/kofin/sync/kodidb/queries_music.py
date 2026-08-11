@@ -227,6 +227,11 @@ SELECT                      1
 FROM                        discography
 WHERE                       idArtist = ? AND strAlbum = ?
 """
+get_album_title = """
+SELECT                      strAlbum
+FROM                        album
+WHERE                       idAlbum = ?
+"""
 # Scoped by album_artist rather than by title alone: album titles repeat
 # across artists ("Greatest Hits", "Anthology"), and discography legitimately
 # holds albums that are not in the library at all -- a scraped artist's rows
