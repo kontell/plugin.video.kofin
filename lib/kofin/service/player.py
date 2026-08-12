@@ -82,6 +82,20 @@ FRESH_START_MAX_TICKS = 40
 # handoff lands before natural EOF tears the player down.
 AUTOPLAY_MARGIN_SECONDS = 1.0
 
+# A skip prompt hides part-way through its segment (``skipPromptHidePercent``)
+# rather than sitting over the opening moment of the content the viewer just
+# chose to watch — but never before it can be read and pressed. Eight seconds
+# is the Jellyfin ecosystem's own figure, agreed independently by jellyfin-web
+# (skipsegment.ts setTimeout), jellyfin-androidtv (AskToSkipAutoHideDuration)
+# and the intro-skipper plugin (SkipbuttonHideDelay).
+MIN_PROMPT_SECONDS = 8.0
+
+# Segments too short to act on: a prompt that flashes is worse than none, and a
+# sub-second seek is indistinguishable from a stutter. Both figures are
+# jellyfin-web's and jellyfin-androidtv's, which agree exactly.
+MIN_ASK_SECONDS = 3.0
+MIN_AUTO_SKIP_SECONDS = 1.0
+
 # How far into an item counts as having watched it, for the
 # ``deleteAfterWatching`` offer. Jellyfin's own played threshold.
 WATCHED_FRACTION = 0.9
@@ -144,6 +158,31 @@ def safe_seek_end(
     if current is not None and target <= current:
         return None
     return target
+
+
+def format_span(seconds: float) -> str:
+    """``M:SS`` for a segment length, as the skip button renders it."""
+    whole = max(0, int(round(seconds)))
+    return "%d:%02d" % (whole // 60, whole % 60)
+
+
+def prompt_hide_at(
+    start: float,
+    end: float,
+    percent: float,
+    now: float,
+    minimum: float = MIN_PROMPT_SECONDS,
+) -> float:
+    """When a skip prompt hides: a share of its segment, but never so soon the
+    viewer cannot read and press it, and never past the segment end.
+
+    The floor is measured from ``now`` rather than ``start``, so a segment the
+    engine entered late (a fetch that landed after the boundary) still gets its
+    full dwell instead of a prompt that opens already expired.
+    """
+    deadline = start + max(0.0, end - start) * (percent / 100.0)
+    floor = max(start, now) + minimum
+    return min(end, max(deadline, floor))
 
 
 def near_end_prompt_at(runtime: float, lead: float) -> float:
@@ -615,6 +654,7 @@ class Player(xbmc.Player):
         self._near_end_prompted = False
         self._overlay: Optional[Any] = None
         self._overlay_end = 0.0
+        self._overlay_hide_at = 0.0
         self._overlay_window: Optional[Tuple[float, float]] = None
         self._overlay_autoplay = False
         self._skip_target: Optional[float] = None
@@ -1423,7 +1463,7 @@ class Player(xbmc.Player):
         if crossed_into(self._prev_pos, now, self._near_end_at, self._runtime):
             self._near_end_prompted = True
             LOG.info("near-end Play Next prompt at %.1f", now)
-            self._open_overlay(None, ("playnext", "close"))
+            self._open_overlay(None, ("playnext", "close"), now)
 
     def _compute_near_end(self) -> None:
         """Arm the no-credits-segment Play Next prompt once runtime is known."""
@@ -1452,7 +1492,10 @@ class Player(xbmc.Player):
             auto_seek,
             buttons,
         )
-        if auto_seek:
+        span = float(segment["End"]) - float(segment["Start"])
+        if auto_seek and span < MIN_AUTO_SKIP_SECONDS:
+            LOG.debug("segment too short to seek past (%.2fs)", span)
+        elif auto_seek:
             self._auto_skip(segment, now)
         started_inside = (
             float(segment["Start"]),
@@ -1466,8 +1509,14 @@ class Player(xbmc.Player):
             # untouched ("always skip intros" must not lapse because a resume
             # landed in one) and a Play Next offer still stands.
             buttons = tuple(button for button in buttons if button != "skip")
+        elif span < MIN_ASK_SECONDS:
+            # Likewise for a segment nobody could read the prompt for, let
+            # alone press it — the dwell floor would only hold a flash on
+            # screen longer than the thing it offers to skip.
+            LOG.debug("segment too short to offer (%.2fs)", span)
+            buttons = tuple(button for button in buttons if button != "skip")
         if any(button in ("skip", "playnext") for button in buttons):
-            self._open_overlay(segment, buttons)
+            self._open_overlay(segment, buttons, now)
 
     def _auto_skip(self, segment: JsonDict, now: float) -> None:
         target = safe_seek_end(segment["End"], self._runtime_for_seek(), now)
@@ -1516,7 +1565,7 @@ class Player(xbmc.Player):
     # -- segment engine: the overlay -----------------------------------------
 
     def _open_overlay(
-        self, segment: Optional[JsonDict], buttons: Tuple[str, ...]
+        self, segment: Optional[JsonDict], buttons: Tuple[str, ...], now: float
     ) -> None:
         from kofin.plugin import skip as skip_dialog
 
@@ -1525,12 +1574,18 @@ class Player(xbmc.Player):
         show_skip = "skip" in buttons and segment is not None
 
         skip_label = ""
+        skip_duration = ""
         self._skip_target = None
         if show_skip and segment is not None:
             skip_label = settings.localized(
                 SKIP_LABEL_IDS.get(str(segment["Type"]), 30481)
             )
             self._skip_target = float(segment["End"])
+            # What pressing the button actually saves, which is not the segment
+            # span when the engine entered the segment late.
+            skip_duration = format_span(
+                float(segment["End"]) - max(float(segment["Start"]), now)
+            )
 
         next_label = settings.localized(30486) if offers_next else ""
         next_info = ""
@@ -1539,21 +1594,38 @@ class Player(xbmc.Player):
                 self._next_episode
             )
 
-        # A Play Next offer persists to the end of the video; a pure skip
-        # overlay auto-closes past its segment end.
+        # Two deadlines, deliberately separate. ``_overlay_end`` is how long the
+        # offer stands — a Play Next runs to the end of the video, and it is
+        # what autoplay counts down to. ``_overlay_hide_at`` is when the window
+        # closes, which for a segment prompt is part-way through the segment so
+        # it does not sit over the opening moment of the content.
         if offers_next or segment is None:
             self._overlay_end = self._runtime
         else:
             self._overlay_end = float(segment["End"])
+        self._overlay_autoplay = offers_next and settings.get_bool("playNextAutoplay")
+        if segment is None or self._overlay_autoplay:
+            # The near-end prompt has no segment to take a share of; and an
+            # armed autoplay must keep its countdown on screen, because the
+            # countdown *is* the warning — hiding it while still handing over
+            # would take the warning away and act anyway.
+            self._overlay_hide_at = self._overlay_end
+        else:
+            self._overlay_hide_at = prompt_hide_at(
+                float(segment["Start"]),
+                float(segment["End"]),
+                float(settings.get_int("skipPromptHidePercent") or 100),
+                now,
+            )
         window_start = (
             float(segment["Start"]) if segment is not None else self._near_end_at or 0.0
         )
-        self._overlay_window = (window_start, self._overlay_end)
-        self._overlay_autoplay = offers_next and settings.get_bool("playNextAutoplay")
+        self._overlay_window = (window_start, self._overlay_hide_at)
 
         try:
             self._overlay = skip_dialog.open_overlay(
                 skip_label,
+                skip_duration,
                 next_label,
                 next_info,
                 self._overlay_skip if show_skip else None,
@@ -1580,13 +1652,14 @@ class Player(xbmc.Player):
                 self._close_overlay()
                 self._start_next_episode()
                 return
-        if 0 < self._overlay_end <= now:
+        if 0 < self._overlay_hide_at <= now:
             self._close_overlay()
 
     def _close_overlay(self) -> None:
         overlay = self._overlay
         self._overlay = None
         self._overlay_window = None
+        self._overlay_hide_at = 0.0
         if overlay is not None:
             try:
                 overlay.close()

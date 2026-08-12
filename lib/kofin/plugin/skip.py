@@ -35,6 +35,7 @@ Callback = Callable[[], None]
 
 def open_overlay(
     skip_label: str,
+    skip_duration: str,
     next_label: str,
     next_info: str,
     on_skip: Optional[Callback],
@@ -47,6 +48,7 @@ def open_overlay(
         "default",
         "1080i",
         skip_label=skip_label,
+        skip_duration=skip_duration,
         next_label=next_label,
         next_info=next_info,
         on_skip=on_skip,
@@ -61,11 +63,14 @@ class SkipOverlay(xbmcgui.WindowXMLDialog):
         self._on_skip: Optional[Callback] = kwargs.pop("on_skip", None)
         self._on_play_next: Optional[Callback] = kwargs.pop("on_play_next", None)
         skip_label: str = kwargs.pop("skip_label", "")
+        skip_duration: str = kwargs.pop("skip_duration", "")
         next_label: str = kwargs.pop("next_label", "")
         next_info: str = kwargs.pop("next_info", "")
         self.closed = False
         super().__init__(*args)
         self.setProperty("kofin.skip.label", skip_label)
+        # The skin appends this in brackets, so an empty value renders nothing.
+        self.setProperty("kofin.skip.duration", skip_duration)
         self.setProperty("kofin.next.label", next_label)
         self.setProperty("kofin.next.info", next_info)
         self.setProperty("kofin.close.label", settings.localized(30487))
