@@ -39,8 +39,8 @@ class FakeApi:
             raise self.kofin_info_result
         return self.kofin_info_result
 
-    def kofin_sync_queue(self, since, types):
-        self.kofin_queue_requests.append((since, types))
+    def kofin_sync_queue(self, since, types, libraries=""):
+        self.kofin_queue_requests.append((since, types, libraries))
         return self.kofin_queue_result
 
     def server_time(self):
@@ -151,7 +151,7 @@ def test_kofin_feed_request_and_envelope():
     change_set = feed.changes("2026-07-17T10:00:00Z", ["movies", "boxsets"])
 
     assert api.kofin_queue_requests == [
-        (unix("2026-07-17T10:00:00Z"), "movies,boxsets")
+        (unix("2026-07-17T10:00:00Z"), "movies,boxsets", "")
     ]
     assert [r.id for r in change_set.records] == ["m1"]
     assert change_set.userdata == [{"ItemId": "u1"}]
@@ -378,6 +378,135 @@ def test_plan_skipped_records_prefetch_nothing():
     assert plan.added == []
     assert plan.updated == []
     assert plan.skipped == 1
+
+
+# --- library scope ------------------------------------------------------------
+#
+# The feed is scoped by media type, which cannot tell two tvshows libraries
+# apart. Whitelisting one while being able to see the other used to deliver
+# every change from both, and the only way to separate them was an
+# /Items/{id}/Ancestors round trip per item: 12,404 items, ~17 minutes and
+# 5,404 errors on a live box, for a library that was never going to be
+# written. LibraryIds lets the planner refuse them before anything is fetched.
+
+
+def test_parse_record_reads_library_ids():
+    record = parse_record(
+        {"Id": "m1", "Status": "Added", "LibraryIds": ["libA", "libB"]}
+    )
+
+    assert record.library_ids == ["libA", "libB"]
+
+
+def test_parse_record_absent_library_ids_is_unknown_not_empty():
+    assert parse_record({"Id": "m1", "Status": "Added"}).library_ids is None
+    assert (
+        parse_record({"Id": "m1", "Status": "Added", "LibraryIds": []}).library_ids
+        is None
+    )
+
+
+def test_plan_drops_records_from_libraries_we_do_not_sync():
+    records = [
+        rec("mine", status="Added", item_type="Episode", library_ids=["libA"]),
+        rec("theirs", status="Added", item_type="Episode", library_ids=["bench"]),
+    ]
+
+    plan = build_plan(records, [], {}, everyone_known, {"libA"})
+
+    assert plan.added == ["mine"]
+    assert plan.filtered == 1
+
+
+def test_plan_keeps_records_whose_library_is_unknown():
+    """A server that predates the field, a folder-less artist and an orphan
+    are indistinguishable here, and only one of the three is safe to drop."""
+    records = [rec("legacy", status="Added", item_type="Movie")]
+
+    plan = build_plan(records, [], {}, everyone_known, {"libA"})
+
+    assert plan.added == ["legacy"]
+    assert plan.filtered == 0
+
+
+def test_plan_keeps_a_record_matching_any_of_its_libraries():
+    """One path under two libraries belongs to both. /Items/{id}/Ancestors
+    reports only the first, which is how the ancestor walk could refuse an
+    item that *is* in a whitelisted library; the list cannot."""
+    records = [
+        rec("shared", status="Added", item_type="Movie", library_ids=["bench", "libA"])
+    ]
+
+    plan = build_plan(records, [], {}, everyone_known, {"libA"})
+
+    assert plan.added == ["shared"]
+
+
+def test_plan_keeps_boxsets_whatever_library_they_name():
+    """Boxsets live in Jellyfin's Collections library, which no client
+    whitelists. Filtering them by library would delete every collection."""
+    records = [
+        rec(
+            "set1",
+            status="Added",
+            media_type="boxsets",
+            item_type="BoxSet",
+            library_ids=["collections"],
+        )
+    ]
+
+    plan = build_plan(records, [], {}, everyone_known, {"libA"})
+
+    assert plan.added == ["set1"]
+    assert plan.filtered == 0
+
+
+def test_plan_never_filters_removals():
+    """A removal costs two local lookups, not a round trip — and one dropped
+    in error leaves a row orphaned in Kodi that no watermark brings back."""
+    records = [rec("gone1", status="Removed", item_type="Movie", library_ids=["bench"])]
+
+    plan = build_plan(records, [], {}, everyone_known, {"libA"})
+
+    assert plan.removed == ["gone1"]
+    assert plan.filtered == 0
+
+
+def test_plan_without_a_library_filter_keeps_everything():
+    records = [rec("theirs", status="Added", item_type="Movie", library_ids=["bench"])]
+
+    assert build_plan(records, [], {}, everyone_known).added == ["theirs"]
+    assert build_plan(records, [], {}, everyone_known, set()).added == ["theirs"]
+
+
+def test_out_of_scope_records_prefetch_no_parents():
+    """The whole point: a refused record must cost nothing at all, and a
+    prefetched series is a download."""
+    records = [
+        rec(
+            "ep1",
+            status="Added",
+            item_type="Episode",
+            series_id="s9",
+            library_ids=["bench"],
+        )
+    ]
+
+    plan = build_plan(records, [], {}, nobody_known, {"libA"})
+
+    assert plan.added == []
+    assert plan.filtered == 1
+
+
+def test_out_of_scope_userdata_survives():
+    """Same rule as a skipped record: nothing will download and apply it, so
+    the dto path has to."""
+    records = [rec("theirs", status="Added", item_type="Movie", library_ids=["bench"])]
+    userdata = [{"ItemId": "theirs"}]
+
+    plan = build_plan(records, userdata, {}, everyone_known, {"libA"})
+
+    assert plan.userdata == [{"ItemId": "theirs"}]
 
 
 # --- checksum spelling (healing-loops-plan F4) -------------------------------

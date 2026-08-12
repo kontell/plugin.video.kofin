@@ -132,6 +132,38 @@ def test_unwhitelisted_items_report_no_library(whitelist):
     assert fields.find_library(api, {"Id": "x1", "ParentId": "p1"}, {}) == {}
 
 
+def test_unwhitelisted_siblings_share_one_lookup(whitelist):
+    """The miss memoizes on the same terms as the hit. Caching only hits is
+    what made a library the user does not sync cost a round trip per item on
+    every drain: 12,404 of them in ~17 minutes on a live box."""
+    other = {"Id": "other", "Name": "Bench-Shows"}
+    api = CountingApi({"ep%d" % n: [other] for n in range(10)})
+    cache = {}
+
+    for n in range(10):
+        assert (
+            fields.find_library(api, {"Id": "ep%d" % n, "ParentId": "se1"}, cache) == {}
+        )
+
+    assert api.calls == ["ep0"]
+
+
+def test_a_readmitted_library_is_not_served_from_a_memoized_miss(whitelist):
+    """The whitelist guards misses as well as hits: selecting a library the
+    drain has already rejected must take effect immediately."""
+    api = CountingApi({"ep1": [{"Id": "lib7"}], "ep2": [{"Id": "lib7"}]})
+    cache = {}
+
+    assert fields.find_library(api, {"Id": "ep1", "ParentId": "se1"}, cache) == {}
+
+    whitelist["Whitelist"] = ["lib7"]
+
+    assert fields.find_library(api, {"Id": "ep2", "ParentId": "se1"}, cache) == {
+        "Id": "lib7"
+    }
+    assert api.calls == ["ep1", "ep2"]
+
+
 def test_mixed_libraries_match_on_their_bare_id(whitelist):
     """Mixed entries are stored prefixed; the ancestor carries the bare id."""
     whitelist["Whitelist"] = ["Mixed:lib9"]
@@ -179,6 +211,24 @@ def test_artist_with_no_content_reports_no_library(whitelist):
     assert fields.find_library(api, {"Id": "artist1", "Type": "MusicArtist"}, {}) == {}
     assert api.item_queries  # the fallback was tried...
     assert api.calls == ["artist1"]  # ...but there was nothing to walk
+
+
+def test_artist_misses_are_not_memoized(whitelist):
+    """The memo keys on the parent folder, and an artist's library is decided
+    by its content — so one unresolvable artist must not answer for the next
+    artist that happens to sit in the same folder."""
+    api = CountingApi({})
+    cache = {}
+
+    for artist_id in ("artist1", "artist2"):
+        fields.find_library(
+            api,
+            {"Id": artist_id, "ParentId": "music-root", "Type": "MusicArtist"},
+            cache,
+        )
+
+    assert api.calls == ["artist1", "artist2"]
+    assert cache == {}
 
 
 def test_non_artists_never_take_the_content_fallback(whitelist):

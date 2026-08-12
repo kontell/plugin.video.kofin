@@ -532,6 +532,8 @@ def find_library(server, item, cache=None):
     the item's parent, so resolving it once per parent is exact: siblings
     share a parent, hence a library. Songs key on their album and albums on
     their artist, so a 20k-track backlog pays per album rather than per track.
+    Misses memoize on the same terms as hits, so an item in a library the user
+    does not sync costs one round trip per parent rather than one per item.
     """
     from kofin.sync.db import get_sync
 
@@ -554,7 +556,9 @@ def find_library(server, item, cache=None):
 
             return ancestor
 
-    if item.get("Type") == "MusicArtist":
+    artist = item.get("Type") == "MusicArtist"
+
+    if artist:
         # Artists are server-global entities, not children of a library:
         # a folder-less artist (metadata-only, every artist whose tag came
         # from files inside album folders) answers /Ancestors with [], and
@@ -575,7 +579,21 @@ def find_library(server, item, cache=None):
             )
             return library
 
-    LOG.error("No ancestor found, not syncing item with ID: %s", item["Id"])
+    # Memoize the miss too. It answers the same question a hit does -- which
+    # library do this parent's children belong to -- and "none of ours" is as
+    # true for every sibling as "the Shows library" would have been. Caching
+    # only hits meant an item in a library the user does not sync paid a round
+    # trip on every drain, forever: 12,404 of them in ~17 minutes on a live
+    # box, for a library that was never going to be written. Artists are
+    # exempt for the same reason their hits are -- their content decides this,
+    # not their folder siblings.
+    if cacheable and not artist:
+        cache[key] = {}
+
+    # Expected, not faulty: an item outside the whitelist is exactly what this
+    # is for. An empty whitelist -- the pathological case, where *everything*
+    # lands here -- is caught upstream by db.get_sync raising SyncStateCorrupt.
+    LOG.warning("No ancestor found, not syncing item with ID: %s", item["Id"])
     return {}
 
 

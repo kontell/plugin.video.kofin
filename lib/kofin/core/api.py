@@ -443,10 +443,17 @@ class Api:
         cutoff in one round trip (404 means the plugin is absent)."""
         return self.get("/Kofin/SyncQueue/Info")
 
-    def kofin_sync_queue(self, since: int, types: str) -> JsonDict:
+    def kofin_sync_queue(self, since: int, types: str, libraries: str = "") -> JsonDict:
         """Typed change records since the unix-seconds watermark. ``types``
-        is an include list (the legacy exclude-list inversion dies here)."""
-        return self.get("/Kofin/SyncQueue", {"since": since, "types": types})
+        is an include list (the legacy exclude-list inversion dies here);
+        ``libraries`` narrows that to the synced libraries, and is simply
+        ignored by a server that predates the field."""
+        params: JsonDict = {"since": since, "types": types}
+
+        if libraries:
+            params["libraries"] = libraries
+
+        return self.get("/Kofin/SyncQueue", params)
 
     # -- playback -------------------------------------------------------------
 

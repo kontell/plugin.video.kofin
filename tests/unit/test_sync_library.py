@@ -46,8 +46,8 @@ class FakeApi:
             raise self.kofin_info_result
         return self.kofin_info_result
 
-    def kofin_sync_queue(self, since, types):
-        self.kofin_queue_requests.append((since, types))
+    def kofin_sync_queue(self, since, types, libraries=""):
+        self.kofin_queue_requests.append((since, types, libraries))
         if isinstance(self.kofin_queue_result, Exception):
             raise self.kofin_queue_result
         return self.kofin_queue_result
@@ -1002,8 +1002,10 @@ def test_tier1_fast_sync_skips_orders_and_routes():
 
     assert manager.fast_sync() is True
 
-    # Include list sent directly — no exclude inversion on tier 1.
+    # Include list sent directly — no exclude inversion on tier 1 — and the
+    # whitelisted library ids alongside it, so the server can scope too.
     assert api.kofin_queue_requests[-1][1] == "movies,boxsets"
+    assert api.kofin_queue_requests[-1][2] == "lib1"
 
     assert drain(manager.added_queue) == [["m_new"]]
     assert drain(manager.updated_queue) == []  # Etag match: skipped pre-download
@@ -1018,6 +1020,98 @@ def test_tier1_fast_sync_skips_orders_and_routes():
     # Watermark: envelope ServerTime exact — no fudge, no extra round trip.
     manager.save_last_sync()
     assert FakeAddon.store["lastIncrementalSync"] == unix_to_watermark(1789000123)
+
+
+def test_include_types_dedupes_and_covers_only_syncable_classes():
+    """Two libraries of one class are one class. A mixed library has no class
+    at all — it whitelists fine and contributes nothing here, which is why the
+    library ids have to travel separately."""
+    seed_views(
+        ("lib1", "Movies", "movies"),
+        ("lib2", "More Movies", "movies"),
+        ("lib3", "Shows", "tvshows"),
+        ("lib4", "Everything", "mixed"),
+        ("lib5", "Not Synced", "tvshows"),
+    )
+    seed_whitelist("lib1", "lib2", "lib3", "Mixed:lib4")
+    manager, _api = make_tier1_library()
+
+    assert manager._include_types() == ["movies", "tvshows", "boxsets"]
+    assert manager._include_libraries() == {"lib1", "lib2", "lib3", "lib4"}
+
+
+def test_include_libraries_ignores_views_we_have_never_seen():
+    """The whitelist is authoritative for scope even when the view table is
+    behind it — a library id we cannot classify still has to be sent, or the
+    server would scope us out of our own library."""
+    seed_views(("lib1", "Movies", "movies"))
+    seed_whitelist("lib1", "lib-unknown")
+    manager, _api = make_tier1_library()
+
+    assert manager._include_types() == ["movies", "boxsets"]
+    assert manager._include_libraries() == {"lib1", "lib-unknown"}
+
+
+def test_tier1_fast_sync_drops_changes_from_unsynced_libraries():
+    """The incident, in miniature: a visible-but-unwhitelisted library's
+    changes arrive and must cost nothing — no download, no announcement."""
+    seed_views(("lib1", "Shows", "tvshows"), ("bench", "Bench-Shows", "tvshows"))
+    seed_whitelist("lib1")
+    manager, api = make_tier1_library()
+
+    api.kofin_queue_result = {
+        "ServerTime": 1789000123,
+        "RetentionCutoff": 0,
+        "Items": [
+            {
+                "Id": "mine",
+                "Status": "Added",
+                "ItemType": "Series",
+                "MediaType": "tvshows",
+                "LastModified": 10,
+                "LibraryIds": ["lib1"],
+            },
+            {
+                "Id": "theirs",
+                "Status": "Added",
+                "ItemType": "Series",
+                "MediaType": "tvshows",
+                "LastModified": 11,
+                "LibraryIds": ["bench"],
+            },
+        ],
+        "UserData": [],
+    }
+
+    assert manager.fast_sync() is True
+
+    assert drain(manager.added_queue) == [["mine"]]
+    assert manager.class_counts["new"] == 1
+
+
+def test_tier1_fast_sync_keeps_records_without_library_ids():
+    """A server that predates the field must behave exactly as it does today."""
+    seed_views(("lib1", "Shows", "tvshows"))
+    seed_whitelist("lib1")
+    manager, api = make_tier1_library()
+
+    api.kofin_queue_result = {
+        "ServerTime": 1789000123,
+        "RetentionCutoff": 0,
+        "Items": [
+            {
+                "Id": "legacy",
+                "Status": "Added",
+                "ItemType": "Series",
+                "MediaType": "tvshows",
+                "LastModified": 10,
+            }
+        ],
+        "UserData": [],
+    }
+
+    assert manager.fast_sync() is True
+    assert drain(manager.added_queue) == [["legacy"]]
 
 
 def test_tier1_envelope_consumed_once():
