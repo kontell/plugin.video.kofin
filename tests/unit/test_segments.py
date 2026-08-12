@@ -11,17 +11,20 @@ import pytest
 
 from kofin.service import player as player_mod
 from kofin.service.player import (
+    MIN_PROMPT_SECONDS,
     SEEK_RETRIES,
     SEEK_SETTLE_TICKS,
     Player,
     crossed_into,
+    format_span,
     near_end_prompt_at,
     next_episode_label,
     plan_for_crossing,
+    prompt_hide_at,
     safe_seek_end,
     segments_entered_at,
 )
-from kofin.service.segments import parse_segments
+from kofin.service.segments import deconflict, parse_segments
 from tests.unit.fakes import FakeAddon, FakeWindow
 
 SETTINGS_ON = {
@@ -33,6 +36,10 @@ SETTINGS_ON = {
     "skipCommercialMode": "1",
     "playNextEnabled": "true",
     "playNextLeadTime": "30",
+    # 100% keeps a prompt up for its whole segment, which is what the overlay
+    # lifetime cases below are about; the shipped 50% default and its floor get
+    # their own tests rather than perturbing every other assertion.
+    "skipPromptHidePercent": "100",
     "playNextAutoplay": "false",
 }
 
@@ -85,8 +92,11 @@ class SegmentsApi:
 
 
 class FakeOverlay:
-    def __init__(self, skip_label, next_label, next_info, on_skip, on_play_next):
+    def __init__(
+        self, skip_label, skip_duration, next_label, next_info, on_skip, on_play_next
+    ):
         self.skip_label = skip_label
+        self.skip_duration = skip_duration
         self.next_label = next_label
         self.next_info = next_info
         self.on_skip = on_skip
@@ -118,9 +128,11 @@ class Engine:
         monkeypatch.setattr(self.player, "seekTime", self.seeks.append)
         monkeypatch.setattr("xbmc.executebuiltin", self.builtins.append)
 
-        def fake_open_overlay(skip_label, next_label, next_info, on_skip, on_play_next):
+        def fake_open_overlay(
+            skip_label, skip_duration, next_label, next_info, on_skip, on_play_next
+        ):
             overlay = FakeOverlay(
-                skip_label, next_label, next_info, on_skip, on_play_next
+                skip_label, skip_duration, next_label, next_info, on_skip, on_play_next
             )
             self.overlays.append(overlay)
             return overlay
@@ -195,6 +207,81 @@ def test_parse_segments_maps_sorts_and_drops():
     assert segments[0]["End"] == 40.0
     assert parse_segments(None) == []
     assert parse_segments({}) == []
+
+
+def test_parse_segments_deconflicts_a_second_provider():
+    # Intro Skipper and the Chapter Segments plugin both analysed this episode
+    # and the server returned the union: same type, overlapping. First by start
+    # wins its run; the later opinion is dropped rather than merged.
+    response = {
+        "Items": [
+            {"Type": "Intro", "StartTicks": 900_000_000, "EndTicks": 1_800_000_000},
+            {"Type": "Intro", "StartTicks": 950_000_000, "EndTicks": 1_850_000_000},
+        ]
+    }
+    assert parse_segments(response) == [
+        {"Type": "Introduction", "Start": 90.0, "End": 180.0}
+    ]
+
+
+def test_deconflict_keeps_genuinely_separate_breaks():
+    # Three commercial breaks are three segments, not one provider disagreeing
+    # with another.
+    breaks = [seg("Commercial", 100, 220), seg("Commercial", 500, 620)]
+    breaks.append(seg("Commercial", 900, 1020))
+    assert deconflict(sorted(breaks, key=lambda s: s["Start"])) == breaks
+
+
+def test_deconflict_leaves_abutting_segments_of_different_types():
+    # A recap ending exactly where the intro begins is not a conflict, and
+    # cross-type overlap is never collapsed either — only the type is shared.
+    segments = [seg("Recap", 0, 60), seg("Introduction", 60, 150)]
+    assert deconflict(segments) == segments
+    overlapping_types = [seg("Recap", 0, 60), seg("Introduction", 30, 150)]
+    assert deconflict(overlapping_types) == overlapping_types
+
+
+def test_deconflict_chain_keeps_the_ends_that_do_not_overlap():
+    # A spans into B, B into C, but C clears A: keeping first-by-start leaves A
+    # and C, which do not overlap each other.
+    a, b, c = seg("Preview", 0, 60), seg("Preview", 50, 120), seg("Preview", 110, 200)
+    assert deconflict([a, b, c]) == [a, c]
+
+
+def test_deconflict_tolerates_a_second_of_overlap():
+    # Under the tolerance is rounding between two views of the same boundary,
+    # not a second provider's segment.
+    segments = [seg("Commercial", 0, 60), seg("Commercial", 59.5, 120)]
+    assert deconflict(segments) == segments
+
+
+def test_format_span():
+    assert format_span(90) == "1:30"
+    assert format_span(45) == "0:45"
+    assert format_span(0) == "0:00"
+    assert format_span(-5) == "0:00"
+    assert format_span(3600) == "60:00"
+
+
+def test_prompt_hide_at_takes_a_share_of_the_segment():
+    assert prompt_hide_at(100.0, 200.0, 50.0, 100.0) == 150.0
+    # 100% is the old behaviour: up for the whole segment.
+    assert prompt_hide_at(100.0, 200.0, 100.0, 100.0) == 200.0
+
+
+def test_prompt_hide_at_keeps_a_short_prompt_readable():
+    # 50% of a 12s intro is 6s, under the floor, so the floor wins...
+    assert prompt_hide_at(0.0, 12.0, 50.0, 0.0) == MIN_PROMPT_SECONDS
+    # ...but never past the segment end.
+    assert prompt_hide_at(0.0, 5.0, 50.0, 0.0) == 5.0
+
+
+def test_prompt_hide_at_measures_the_floor_from_now():
+    # Entered late (a fetch that landed after the boundary): the prompt still
+    # gets its full dwell rather than opening already expired.
+    assert prompt_hide_at(0.0, 200.0, 50.0, 150.0) == 158.0
+    # Not before the share, though, when the share is further out.
+    assert prompt_hide_at(0.0, 200.0, 50.0, 20.0) == 100.0
 
 
 def test_crossed_into_truth_table():
@@ -506,6 +593,84 @@ def test_ask_overlay_autocloses_past_segment_end(engine):
     assert engine.player._overlay is None
 
 
+def test_skip_button_carries_the_span_it_would_save(engine):
+    FakeAddon.store["skipIntroductionMode"] = "2"
+    engine.arm([seg("Introduction", 10, 100)])
+    engine.tick(10.1)
+    assert engine.overlay.skip_duration == "1:30"
+
+
+def test_skip_button_span_is_what_is_left_when_entered_late(engine):
+    # A segment whose fetch landed after the boundary fires from inside it; the
+    # button must promise what pressing it actually saves, not the full span.
+    FakeAddon.store["skipIntroductionMode"] = "2"
+    engine.arm([seg("Introduction", 10, 100)])
+    engine.tick(70.0)
+    assert engine.overlay.skip_duration == "0:30"
+
+
+def test_skip_prompt_hides_part_way_through_the_segment(engine):
+    FakeAddon.store["skipIntroductionMode"] = "2"
+    FakeAddon.store["skipPromptHidePercent"] = "50"
+    engine.arm([seg("Introduction", 100, 200)])
+    engine.tick(100.1)
+    overlay = engine.overlay
+    assert engine.player._overlay_hide_at == 150.0
+    engine.tick(149.0)
+    assert not overlay.closed
+    engine.tick(150.5)
+    assert overlay.closed
+
+
+def test_a_hidden_prompt_does_not_come_back_inside_its_segment(engine):
+    # The dedup key is the real segment, not the shortened prompt window, so
+    # the rest of the intro plays without the prompt flickering back.
+    FakeAddon.store["skipIntroductionMode"] = "2"
+    FakeAddon.store["skipPromptHidePercent"] = "50"
+    engine.arm([seg("Introduction", 100, 200)])
+    engine.tick(100.1)
+    engine.tick(150.5)
+    engine.tick(160.0)
+    engine.tick(190.0)
+    assert len(engine.overlays) == 1
+
+
+def test_a_seek_back_before_the_start_still_reoffers_after_a_hide(engine):
+    FakeAddon.store["skipIntroductionMode"] = "2"
+    FakeAddon.store["skipPromptHidePercent"] = "50"
+    engine.arm([seg("Introduction", 100, 200)])
+    engine.tick(100.1)
+    engine.tick(150.5)  # hidden, but still inside the segment
+    assert len(engine.overlays) == 1
+    engine.player.note_seek(90.0)
+    engine.tick(90.0)
+    engine.tick(100.5)
+    assert len(engine.overlays) == 2
+
+
+def test_a_short_segment_keeps_its_prompt_readable(engine):
+    # 50% of a 12s intro is under the floor, so the floor governs.
+    FakeAddon.store["skipIntroductionMode"] = "2"
+    FakeAddon.store["skipPromptHidePercent"] = "50"
+    engine.arm([seg("Introduction", 100, 112)])
+    engine.tick(100.0)
+    assert engine.player._overlay_hide_at == 100.0 + MIN_PROMPT_SECONDS
+
+
+def test_a_segment_too_short_to_read_offers_nothing(engine):
+    FakeAddon.store["skipIntroductionMode"] = "2"
+    engine.arm([seg("Introduction", 100, 102)])
+    engine.tick(100.1)
+    assert engine.overlays == []
+
+
+def test_a_segment_too_short_to_seek_is_not_auto_skipped(engine):
+    FakeAddon.store["skipIntroductionMode"] = "1"
+    engine.arm([seg("Introduction", 100, 100.5)])
+    engine.tick(100.1)
+    assert engine.seeks == []
+
+
 def test_recoverable_dedup_reoffers_after_seek_back(engine):
     FakeAddon.store["skipIntroductionMode"] = "2"
     engine.arm([seg("Introduction", 100, 130)])
@@ -571,7 +736,9 @@ def test_credits_ask_with_next_episode_offers_all_three(engine):
     assert overlay.skip_label == "string-30482"
     assert overlay.next_label == "string-30486"
     assert overlay.next_info == "Up next: S02E05. The Next One"
-    # A Play Next offer persists to the end of the video, not the segment end.
+    # A Play Next offer stands to the end of the video, not the segment end —
+    # this is the autoplay deadline, and it must stay put now that a separate
+    # field decides when the window closes.
     assert engine.player._overlay_end == 1500.0
     overlay.on_play_next()
     # Play Next starts the next episode from the beginning, never a resume point.
@@ -579,6 +746,34 @@ def test_credits_ask_with_next_episode_offers_all_three(engine):
         "mode=play" in b and "id=ep2" in b and "fromstart=1" in b
         for b in engine.builtins
     )
+
+
+def test_the_credits_overlay_hides_on_the_deadline_too(engine):
+    # The hide deadline applies to the whole overlay, Play Next included.
+    FakeAddon.store["skipPromptHidePercent"] = "50"
+    engine.arm([seg("Credits", 1400, 1470)], next_episode=NEXT_EPISODE)
+    engine.tick(1400.2)
+    overlay = engine.overlay
+    assert engine.player._overlay_hide_at == 1435.0
+    assert engine.player._overlay_end == 1500.0  # autoplay deadline untouched
+    engine.tick(1434.0)
+    assert not overlay.closed
+    engine.tick(1435.5)
+    assert overlay.closed
+
+
+def test_an_armed_autoplay_overlay_is_exempt_from_the_hide(engine):
+    # The countdown is the warning; hiding it while still handing over would
+    # take the warning away and act anyway.
+    FakeAddon.store["skipPromptHidePercent"] = "50"
+    FakeAddon.store["playNextAutoplay"] = "true"
+    engine.arm([seg("Credits", 1400, 1470)], next_episode=NEXT_EPISODE)
+    engine.tick(1400.2)
+    overlay = engine.overlay
+    assert engine.player._overlay_hide_at == 1500.0
+    engine.tick(1436.0)
+    assert not overlay.closed
+    assert overlay.countdowns[-1] == 64
 
 
 def test_credits_finale_offers_skip_and_close_only(engine):

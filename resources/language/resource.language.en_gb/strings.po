@@ -1092,6 +1092,14 @@ msgctxt "#30476"
 msgid "Seconds to rewind before the stored resume point, so playback picks up a moment earlier."
 msgstr ""
 
+msgctxt "#30477"
+msgid "Hide the skip button after"
+msgstr ""
+
+msgctxt "#30478"
+msgid "How far into a segment the skip button disappears, so it stops covering the picture once you have decided not to press it. 100% keeps it up for the whole segment."
+msgstr ""
+
 msgctxt "#30481"
 msgid "Skip Intro"
 msgstr ""
