@@ -1713,22 +1713,33 @@ class Library(threading.Thread):
     def _include_types(self):
         """Media-type classes of the synced libraries, from the local view
         table (stored by Views().get_views() at startup; asking the server
-        again would cost one round trip per library)."""
+        again would cost one round trip per library).
+
+        Deduped: two whitelisted movie libraries are one media class, and
+        sending "movies,movies" only made the request longer."""
         include = []
-        whitelist = [x.replace("Mixed:", "") for x in self.whitelist()]
+        whitelist = self._include_libraries()
 
         with Database("kofin") as kofin_db:
             views = jellyfin_db.JellyfinDatabase(kofin_db.cursor).get_views()
 
         for view in views:
             if view.view_id in whitelist and view.media_type in changefeed.ALL_TYPES:
-                include.append(view.media_type)
+                if view.media_type not in include:
+                    include.append(view.media_type)
 
         # Include boxsets if movies are synced
         if "movies" in include:
             include.append("boxsets")
 
         return include
+
+    def _include_libraries(self):
+        """The synced library ids, bare. This is the dimension the type
+        classes cannot express: whitelisting one tvshows library while being
+        able to see another used to fetch changes from both, and the client
+        could only tell them apart by asking the server per item."""
+        return {x.replace("Mixed:", "") for x in self.whitelist()}
 
     def _stored_checksums(self, records):
         """Stored reference checksums for the record ids that carry an Etag,
@@ -1774,10 +1785,11 @@ class Library(threading.Thread):
 
         last_sync = settings.get_str("lastIncrementalSync")
         include = self._include_types()
+        libraries = self._include_libraries()
         LOG.info("--[ retrieve changes ] %s", last_sync)
 
         try:
-            change_set = self.changefeed.changes(last_sync, include)
+            change_set = self.changefeed.changes(last_sync, include, libraries)
             self.last_envelope = change_set.envelope
 
             if changefeed.retention_overrun(
@@ -1802,12 +1814,20 @@ class Library(threading.Thread):
                 change_set.userdata,
                 self._stored_checksums(change_set.records),
                 self._known_parent_test(change_set.records),
+                libraries,
             )
 
             if plan.skipped:
                 # The tier-1 no-op class: dropped before download (S2.5's
                 # 3067 fetches → 0). The request-count grep keys off this.
                 LOG.info("---[ skipped unchanged:%s ]", plan.skipped)
+
+            if plan.filtered:
+                # Changes from libraries this box does not sync. Each one used
+                # to cost an /Ancestors round trip and an error line before a
+                # writer refused it; they cost nothing now, but say so — a
+                # silently shorter work list is not the same as a small one.
+                LOG.info("---[ outside synced libraries:%s ]", plan.filtered)
 
             self.userdata_changed_ids = plan.userdata_changed_ids
             self.artwork_only_ids = set(plan.artwork)
@@ -2666,7 +2686,12 @@ class SortWorker(threading.Thread):
                         items = database.get_media_by_parent_id(item_id)
 
                         if not items:
-                            LOG.info(
+                            # Expected, and deliberately so: removals are
+                            # never library-scoped, so a library the user does
+                            # not sync sends its deletions here and none of
+                            # them is known locally. Two indexed lookups and
+                            # nothing to say about it.
+                            LOG.debug(
                                 "Could not find media %s in the kofin database.",
                                 item_id,
                             )

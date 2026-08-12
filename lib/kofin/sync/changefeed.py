@@ -62,6 +62,13 @@ _RANK_DEFAULT = 1
 # boxset image updates take the full path.
 ARTWORK_ONLY_TYPES = ("Movie", "Series", "Season", "Episode", "MusicVideo")
 
+# Media classes that are not library-scoped, and so are never dropped by the
+# library filter. Boxsets live in Jellyfin's own "Collections" library, whose
+# id is never in a user's whitelist -- filtering them by library would delete
+# every collection. They are admitted by type, as _include_types has always
+# done (movies synced => boxsets synced).
+LIBRARY_AGNOSTIC_TYPES = ("boxsets",)
+
 
 @dataclass
 class ChangeRecord:
@@ -76,6 +83,7 @@ class ChangeRecord:
     etag: Optional[str] = None
     series_id: Optional[str] = None
     season_id: Optional[str] = None
+    library_ids: Optional[List[str]] = None  # owning libraries; None = unknown
 
 
 @dataclass
@@ -104,6 +112,7 @@ class SyncPlan:
     artwork: List[str] = field(default_factory=list)
     userdata_changed_ids: Set[str] = field(default_factory=set)
     skipped: int = 0
+    filtered: int = 0
 
 
 def _iso_to_unix(value: Optional[str]) -> Optional[int]:
@@ -163,6 +172,7 @@ def parse_record(raw: JsonDict) -> Optional[ChangeRecord]:
         etag=raw.get("Etag") or None,
         series_id=raw.get("SeriesId") or None,
         season_id=raw.get("SeasonId") or None,
+        library_ids=[str(x) for x in raw.get("LibraryIds") or []] or None,
     )
 
 
@@ -174,9 +184,19 @@ class KofinFeed:
     def __init__(self, api: Any) -> None:
         self.api = api
 
-    def changes(self, last_sync: str, include: Sequence[str]) -> ChangeSet:
+    def changes(
+        self,
+        last_sync: str,
+        include: Sequence[str],
+        libraries: Optional[Sequence[str]] = None,
+    ) -> ChangeSet:
+        # Sent unconditionally: a server that predates the parameter ignores
+        # it, and one that honours it saves us the records outright. No
+        # handshake -- the enhancement keys off field presence, both ways.
         result = self.api.kofin_sync_queue(
-            watermark_to_unix(last_sync), ",".join(include)
+            watermark_to_unix(last_sync),
+            ",".join(include),
+            ",".join(sorted(libraries or ())),
         )
 
         if not result:
@@ -217,7 +237,17 @@ class LegacyFeed:
     def __init__(self, api: Any) -> None:
         self.api = api
 
-    def changes(self, last_sync: str, include: Sequence[str]) -> ChangeSet:
+    def changes(
+        self,
+        last_sync: str,
+        include: Sequence[str],
+        libraries: Optional[Sequence[str]] = None,
+    ) -> ChangeSet:
+        # The legacy protocol has no library dimension at all; the records it
+        # returns carry no library_ids, so the planner keeps them and the
+        # ancestor walk decides, exactly as before.
+        del libraries
+
         envelope = Envelope()
 
         try:
@@ -325,6 +355,24 @@ def _is_image_only(record: ChangeRecord) -> bool:
     return reasons == {"ImageUpdate"}
 
 
+def in_scope(record: ChangeRecord, libraries: Optional[Set[str]]) -> bool:
+    """Whether a record belongs to a library this client syncs.
+
+    ``libraries`` empty or None means no filtering. A record whose
+    ``library_ids`` is absent is **always** kept: a server that predates the
+    field, a boxset, and a folder-less artist are indistinguishable here, and
+    none of the three is safe to drop. Only a record that names its libraries
+    and names none of ours is refused, and then before anything is fetched.
+    """
+    if not libraries or not record.library_ids:
+        return True
+
+    if record.media_type in LIBRARY_AGNOSTIC_TYPES:
+        return True
+
+    return any(library in libraries for library in record.library_ids)
+
+
 def type_rank(item_type: Optional[str]) -> int:
     """Parent-first rank for an item type. Public because the update-mode
     prune sorts by it too: its id/Etag pages arrive in SortName order, which
@@ -373,9 +421,18 @@ def build_plan(
     userdata: Sequence[JsonDict],
     checksums: Dict[str, Optional[str]],
     known_parents: Callable[[str], bool],
+    libraries: Optional[Set[str]] = None,
 ) -> SyncPlan:
     """Turn a change set into ordered work lists.
 
+    * Library scope: records naming only libraries we do not sync are dropped
+      first, before anything is fetched. This is the whole point of the
+      dimension — without it the client pays one ``/Items/{id}/Ancestors``
+      round trip per irrelevant item just to learn it should refuse it, and
+      the work scales with the size of libraries the user is *not* syncing.
+      Removals are exempt: they cost two local lookups rather than a round
+      trip, and one dropped in error leaves a row orphaned in Kodi with no
+      watermark that would ever bring it back.
     * Skip-before-download: records whose Etag matches the stored checksum
       are dropped here — same predicate as the post-download short-circuit,
       evaluated earlier (plan §2). Their userdata, if any, survives via the
@@ -398,6 +455,10 @@ def build_plan(
     for record in records:
         if record.status == "Removed":
             plan.removed.append(record.id)
+            continue
+
+        if not in_scope(record, libraries):
+            plan.filtered += 1
             continue
 
         if stored_checksum_matches(record.etag, checksums.get(record.id)):
