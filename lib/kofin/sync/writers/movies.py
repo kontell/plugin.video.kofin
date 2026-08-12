@@ -69,6 +69,12 @@ class Movies(KodiDb):
         self.library = library
         # Memo for find_library, per writer instance (see fields.find_library).
         self.library_cache = {}
+        # Ids this writer declined to write, so the caller can tell a
+        # refusal from a write. A writer refuses by returning early, and
+        # the return value cannot carry the news: it already means
+        # something else (tvshow returns None on unchanged *so that* full
+        # sync still walks its episodes). See UpdateWorker's notify gate.
+        self.refused = set()
         # Which rating row Kodi treats as the default. Read once per writer
         # rather than per movie (settings.get_bool builds a fresh
         # xbmcaddon.Addon each call); a flip mid-sync is picked up by the next
@@ -106,6 +112,7 @@ class Movies(KodiDb):
             )
             if not library:
                 # This item doesn't belong to a whitelisted library
+                self.refused.add(obj["Id"])
                 return
 
             obj["MovieId"] = self.create_entry()

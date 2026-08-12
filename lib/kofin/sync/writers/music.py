@@ -50,6 +50,12 @@ class Music(KodiDb):
         self.library = library
         # Memo for find_library, per writer instance (see fields.find_library).
         self.library_cache = {}
+        # Ids this writer declined to write, so the caller can tell a
+        # refusal from a write. A writer refuses by returning early, and
+        # the return value cannot carry the news: it already means
+        # something else (tvshow returns None on unchanged *so that* full
+        # sync still walks its episodes). See UpdateWorker's notify gate.
+        self.refused = set()
         # Memo for the music view list behind source naming (music_views).
         self._music_views = None
 
@@ -80,6 +86,7 @@ class Music(KodiDb):
             )
             if not library:
                 # This item doesn't belong to a whitelisted library
+                self.refused.add(obj["Id"])
                 return
 
             obj["ArtistId"] = None
@@ -166,6 +173,7 @@ class Music(KodiDb):
             )
             if not library:
                 # This item doesn't belong to a whitelisted library
+                self.refused.add(obj["Id"])
                 return
 
             obj["AlbumId"] = None
@@ -338,6 +346,7 @@ class Music(KodiDb):
             )
             if not library:
                 # This item doesn't belong to a whitelisted library
+                self.refused.add(obj["Id"])
                 return
 
             obj["SongId"] = self.create_entry_song()
