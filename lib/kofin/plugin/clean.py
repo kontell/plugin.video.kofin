@@ -46,9 +46,19 @@ def clean_databases(request: Request) -> None:
     purge_art = dialog.yesno(
         _text(30650), _text(30659), defaultbutton=xbmcgui.DLG_YESNO_NO_BTN
     )
+    # Only asked when there is something to delete, and defaulted to Yes: the
+    # clean is about to remove the record of which files on disk were ours, so
+    # keeping them is the answer that leaves litter behind. The prompt says so
+    # rather than making the user infer it.
+    download_count = clean.downloads_present()
+    delete_downloads = bool(download_count) and dialog.yesno(
+        _text(30650),
+        _text(30815) % download_count,
+        defaultbutton=xbmcgui.DLG_YESNO_YES_BTN,
+    )
 
     try:
-        _run(wipe_music, all_nodes, purge_art)
+        _run(wipe_music, all_nodes, purge_art, delete_downloads)
     except Exception as error:
         # Deliberately broad: a partial wipe must surface, never restart
         # silently. The wipe is idempotent, so running it again is the fix.
@@ -79,7 +89,9 @@ def _guards_pass() -> bool:
     return True
 
 
-def _run(wipe_music: bool, all_nodes: bool, purge_art: bool) -> None:
+def _run(
+    wipe_music: bool, all_nodes: bool, purge_art: bool, delete_downloads: bool
+) -> None:
     progress = xbmcgui.DialogProgress()
     progress.create(_text(30650), _text(30660))
     try:
@@ -88,6 +100,11 @@ def _run(wipe_music: bool, all_nodes: bool, purge_art: bool) -> None:
         if wipe_music:
             progress.update(30, _text(30661))
             clean.clean_music_database()
+        # Ahead of remove_kofin_state: the download table lives in kofin.db,
+        # and once that goes nothing knows which files on disk were ours.
+        if delete_downloads:
+            progress.update(45, _text(30816))
+            clean.remove_downloads()
         progress.update(55, _text(30662))
         clean.remove_kofin_state()
         clean.remove_jellyfin_state()

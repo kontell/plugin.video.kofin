@@ -154,6 +154,58 @@ def music_debris_present() -> bool:
         return bool(opened.cursor.fetchone()[0])
 
 
+def downloads_present() -> int:
+    """How many downloads the store knows about, 0 if it cannot be read.
+
+    Read before anything is deleted, so the prompt can be skipped entirely
+    when there is nothing to offer.
+    """
+    try:
+        from kofin.downloads import store
+
+        return len(store.rows())
+    except Exception:
+        LOG.exception("download rows unavailable")
+        return 0
+
+
+def remove_downloads() -> int:
+    """Delete every downloaded file, returning how many rows were swept.
+
+    **Must run before :func:`remove_kofin_state`.** The ``download`` table
+    lives in kofin.db, so once that file goes the only record of which files
+    on disk were ours goes with it — which is precisely the orphaning this
+    exists to prevent: before this, a clean deleted the mapping and left the
+    media sitting there, unreferenced and unmanaged, for good.
+
+    Deliberately not a recursive delete of the downloads root. The root is
+    user-configurable, and pointing it at a folder shared with other media is
+    allowed; each row's own files go, then empty directories are pruned back
+    towards (never including) the root. Nothing repoints the Kodi rows first,
+    as the full remove path does — the video database is about to be wiped
+    wholesale, so there is nothing left to point anywhere.
+
+    Errors reading the store are deliberately *not* swallowed. Without the
+    rows there is no way to know which files were ours, so continuing would
+    delete kofin.db and orphan them permanently while reporting success. The
+    caller turns the raise into an error dialog and aborts with kofin.db still
+    on disk; the wipe is idempotent, so running it again is the fix. A single
+    file that will not delete is different, and only costs its own row.
+    """
+    from kofin.downloads import store
+    from kofin.downloads.manager import delete_media_files
+
+    swept = 0
+    for row in store.rows():
+        try:
+            delete_media_files(row)
+            swept += 1
+        except Exception:
+            LOG.exception("could not delete download %s", row.jellyfin_id)
+    LOG.info("removed %d download(s) from disk", swept)
+    return swept
+
+
 def remove_kofin_state() -> List[str]:
     """Delete kofin.db (and WAL litter) plus sync.json.
 

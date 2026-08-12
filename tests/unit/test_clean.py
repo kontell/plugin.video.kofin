@@ -327,6 +327,106 @@ def test_remove_kofin_state(tmp_path, monkeypatch):
     assert len(removed) == 4
 
 
+def _download_row(jellyfin_id, rel_path):
+    from kofin.downloads import store
+
+    return store.Download(jellyfin_id=jellyfin_id, rel_path=rel_path)
+
+
+def test_remove_downloads_takes_the_files_and_prunes(tmp_path, monkeypatch):
+    root = tmp_path / "downloads"
+    season = root / "Show" / "Season 01"
+    os.makedirs(str(season))
+    _touch(str(season / "ep1.mkv"))
+    _touch(str(season / "ep1.nfo"))  # sidecar, shares the stem
+    _touch(str(season / "ep1.en.srt"))
+    monkeypatch.setattr("kofin.downloads.downloads_root", lambda: str(root))
+    monkeypatch.setattr(
+        "kofin.downloads.manager.downloads_root", lambda: str(root), raising=False
+    )
+    monkeypatch.setattr(
+        "kofin.downloads.store.rows",
+        lambda state=None: [_download_row("a", "Show/Season 01/ep1.mkv")],
+    )
+
+    assert clean.remove_downloads() == 1
+    # The tree it created goes with it, back to (not including) the root.
+    assert os.path.isdir(str(root))
+    assert not os.path.exists(str(root / "Show"))
+
+
+def test_remove_downloads_leaves_foreign_files_alone(tmp_path, monkeypatch):
+    # The downloads root is user-configurable and may be shared with other
+    # media, so the sweep is per-row, never a recursive delete of the root.
+    root = tmp_path / "media"
+    os.makedirs(str(root / "Show"))
+    _touch(str(root / "Show" / "ours.mkv"))
+    _touch(str(root / "Show" / "theirs.mkv"))
+    _touch(str(root / "holiday.mp4"))
+    monkeypatch.setattr("kofin.downloads.downloads_root", lambda: str(root))
+    monkeypatch.setattr(
+        "kofin.downloads.manager.downloads_root", lambda: str(root), raising=False
+    )
+    monkeypatch.setattr(
+        "kofin.downloads.store.rows",
+        lambda state=None: [_download_row("a", "Show/ours.mkv")],
+    )
+
+    clean.remove_downloads()
+
+    assert os.path.exists(str(root / "Show" / "theirs.mkv"))
+    assert os.path.exists(str(root / "holiday.mp4"))
+    assert not os.path.exists(str(root / "Show" / "ours.mkv"))
+
+
+def test_downloads_present_counts_and_survives_an_unreadable_store(monkeypatch):
+    monkeypatch.setattr(
+        "kofin.downloads.store.rows",
+        lambda state=None: [_download_row("a", "x.mkv"), _download_row("b", "y.mkv")],
+    )
+    assert clean.downloads_present() == 2
+
+    def boom(state=None):
+        raise RuntimeError("no kofin.db")
+
+    monkeypatch.setattr("kofin.downloads.store.rows", boom)
+    # Never blocks the clean: no store means no prompt, not a crash.
+    assert clean.downloads_present() == 0
+
+
+def test_remove_downloads_refuses_to_guess_at_an_unreadable_store(monkeypatch):
+    # Raising aborts the clean with kofin.db still on disk. Swallowing would
+    # delete the mapping and orphan every file while reporting success.
+    def boom(state=None):
+        raise RuntimeError("no kofin.db")
+
+    monkeypatch.setattr("kofin.downloads.store.rows", boom)
+    with pytest.raises(RuntimeError):
+        clean.remove_downloads()
+
+
+def test_remove_downloads_keeps_going_past_one_bad_file(tmp_path, monkeypatch):
+    root = tmp_path / "downloads"
+    os.makedirs(str(root))
+    monkeypatch.setattr("kofin.downloads.downloads_root", lambda: str(root))
+    monkeypatch.setattr(
+        "kofin.downloads.store.rows",
+        lambda state=None: [_download_row("a", "a.mkv"), _download_row("b", "b.mkv")],
+    )
+
+    calls = []
+
+    def flaky(row):
+        calls.append(row.jellyfin_id)
+        if row.jellyfin_id == "a":
+            raise OSError("read-only filesystem")
+
+    monkeypatch.setattr("kofin.downloads.manager.delete_media_files", flaky)
+
+    assert clean.remove_downloads() == 1
+    assert calls == ["a", "b"]
+
+
 def test_clear_sync_settings(monkeypatch):
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     FakeAddon.store = {name: "stale" for name in clean.SYNC_SETTINGS}
@@ -405,7 +505,7 @@ class FlowProgress:
         pass
 
 
-TEXTS = {30655: "unsupported %s"}
+TEXTS = {30655: "unsupported %s", 30815: "also delete %s downloads?"}
 
 
 @pytest.fixture
@@ -448,6 +548,10 @@ def flow_env(monkeypatch):
     )
     monkeypatch.setattr("kofin.sync.clean.clean_video_database", op("video"))
     monkeypatch.setattr("kofin.sync.clean.clean_music_database", op("music"))
+    monkeypatch.setattr(
+        "kofin.sync.clean.downloads_present", lambda: env.get("downloads", 0)
+    )
+    monkeypatch.setattr("kofin.sync.clean.remove_downloads", op("downloads", 0))
     monkeypatch.setattr("kofin.sync.clean.remove_kofin_state", op("kofin_state", []))
     monkeypatch.setattr(
         "kofin.sync.clean.remove_jellyfin_state", op("jellyfin_state", [])
@@ -518,3 +622,37 @@ def test_flow_music_prompt_default_follows_detection(flow_env):
     FlowDialog.answers = [True, False, False, False]
     plugin_clean.clean_databases(REQ)
     assert FlowDialog.defaults_seen[1] == xbmcgui.DLG_YESNO_YES_BTN
+
+
+def test_flow_no_downloads_asks_nothing_about_them(flow_env):
+    # Four prompts, not five: an empty store has nothing to offer.
+    FlowDialog.answers = [True, False, False, False]
+    plugin_clean.clean_databases(REQ)
+    assert len(FlowDialog.defaults_seen) == 4
+    assert "downloads" not in flow_env["ops"]
+
+
+def test_flow_downloads_deleted_before_the_mapping_dies(flow_env):
+    # The ordering is the whole point: the download table lives in kofin.db,
+    # so once remove_kofin_state runs nothing knows which files were ours.
+    flow_env["downloads"] = 3
+    FlowDialog.answers = [True, False, False, False, True]
+    plugin_clean.clean_databases(REQ)
+    assert flow_env["ops"].index("downloads") < flow_env["ops"].index("kofin_state")
+    assert flow_env["ops"].index("video") < flow_env["ops"].index("downloads")
+
+
+def test_flow_downloads_prompt_defaults_to_yes(flow_env):
+    # Keeping them is the answer that leaves unmanaged litter behind.
+    flow_env["downloads"] = 2
+    FlowDialog.answers = [True, False, False, False, True]
+    plugin_clean.clean_databases(REQ)
+    assert FlowDialog.defaults_seen[4] == xbmcgui.DLG_YESNO_YES_BTN
+
+
+def test_flow_declined_downloads_are_left_on_disk(flow_env):
+    flow_env["downloads"] = 2
+    FlowDialog.answers = [True, False, False, False, False]
+    plugin_clean.clean_databases(REQ)
+    assert "downloads" not in flow_env["ops"]
+    assert "kofin_state" in flow_env["ops"]  # the rest of the clean still runs
