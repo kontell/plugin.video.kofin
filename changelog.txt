@@ -1,3 +1,12 @@
+v0.15.0
+- The skip prompt shows how much it will skip — "Skip Intro (1:38)" — and steps out of the way part-way through the segment instead of sitting over the opening of what you just chose to watch, adjustable and set to halfway
+- Recap, Preview and Commercial no longer skip by default: only Intro and Credits act out of the box, which is what every other Jellyfin client does — turn the others back on in settings if you relied on them
+- Two intro-detection plugins analysing the same library no longer produce two Skip Intro prompts one after the other
+- Catch-up no longer fetches changes from libraries you have not chosen to sync: a box syncing one library on a server that has several stops doing work it always threw away, and stops announcing new items it was never going to add (needs Kofin Sync Queue 10.11.0.1 on the server; without it nothing changes)
+- Items that could not be added are no longer announced as new content, nor queued for download as though they had been
+- Clean databases now offers to delete your downloaded files as well, and defaults to doing so: the clean removes the record of which files were yours, so keeping them left them on disk with nothing able to manage them afterwards
+- "Delete downloads you have not watched" is now "Delete stale downloads", which is what it always did — anything you are part-way through is kept however long it sits
+
 v0.14.0
 - Jellyfin's own audio and subtitle preferences are editable from the Account tab, so changing which tracks a playback starts with no longer means a trip to the web interface
 - The Kofin music node now has a folder per library with Artists, Albums, Songs and Genres, and Downloaded music splits the same way
