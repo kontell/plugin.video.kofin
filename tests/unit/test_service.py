@@ -876,11 +876,78 @@ def test_a_library_that_stops_in_time_is_never_dumped(monkeypatch):
     assert dumps == []
 
 
-def test_a_clean_teardown_clears_everything(monkeypatch):
-    class FinishedLibrary(StuckLibrary):
-        def is_alive(self):
-            return False
+class FinishedLibrary(StuckLibrary):
+    def is_alive(self):
+        return False
 
+
+def _teardown_service(monkeypatch, tmp_path):
+    """A service whose teardown reaches the shared-state writes."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    service.library = FinishedLibrary()
+    monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
+    monkeypatch.setattr(service, "_join_workers", lambda: None)
+    return service
+
+
+def test_a_teardown_clears_the_state_it_still_owns(monkeypatch, tmp_path):
+    """The control for the superseded case below: a teardown that is still the
+    current generation clears the lot, as it always did."""
+    service = _teardown_service(monkeypatch, tmp_path)
+    state.set_online(True)
+
+    service._shutdown()
+
+    assert state.is_online() is False
+    assert state.should_stop() is False
+
+
+def test_a_superseded_teardown_leaves_the_live_generation_its_state(
+    monkeypatch, tmp_path
+):
+    """Kodi starts the replacement service before the old one has exited, and
+    core.state is one set of window properties with no room for a generation.
+
+    Measured on a Piers box across an 0.14.0 -> 0.15.0 update: the successor
+    connected at 18:31:17 and raised PROP_ONLINE, the predecessor's teardown
+    cleared it at 18:31:27, and nothing ever put it back — _connect is the
+    only other publisher and it runs on the offline->online edge alone. Every
+    library thread then died at its first @stop guard (357 rebuilds in 90
+    minutes) and both the SyncPlay menu and the who's-watching picker refused,
+    because both routes gate on state.is_online().
+    """
+    service = _teardown_service(monkeypatch, tmp_path)
+    # What the successor's Service.__init__ does: mint its own nonce, connect,
+    # publish. Everything below is now *its* state, not this service's.
+    successor_nonce = ipc.rotate_nonce()
+    assert successor_nonce != service._ipc_nonce
+    state.set_online(True)
+
+    service._shutdown()
+
+    assert state.is_online() is True  # the successor's flag, left alone
+    assert state.should_stop() is False  # nor is its sync paused
+
+
+def test_a_superseded_teardown_still_stops_its_own_threads(monkeypatch, tmp_path):
+    """Skipping the shared properties must not become skipping the teardown:
+    what actually ends this generation's threads is instance-scoped — the
+    _stopping Event its transports read, and Library.stop_client."""
+    service = _teardown_service(monkeypatch, tmp_path)
+    library = service.library
+    ipc.rotate_nonce()
+
+    service._shutdown()
+
+    assert service._stopping.is_set() is True
+    assert library.stopped is True  # the instance flag that ends the thread
+    assert service.library is None
+
+
+def test_a_clean_teardown_clears_everything(monkeypatch):
     service = Service()
     service.library = FinishedLibrary()
     monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
@@ -1169,6 +1236,49 @@ def test_a_live_socket_raises_the_flag(monkeypatch, tmp_path):
     service._on_ws_connected()
 
     assert service._online is True and state.is_online() is True
+
+
+def test_a_lowered_flag_is_raised_again_under_a_live_connection(monkeypatch, tmp_path):
+    """The other half of the split brain above: _connect publishes the flag on
+    the offline->online edge only, so once something else clears it while this
+    generation stays online, nothing here ever writes it again. The tick
+    re-asserts it instead — which is what heals a box whose clobberer is an
+    *older* build's teardown, unreachable by any fix in that file.
+    """
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    service._online = True
+    state.set_online(True)
+    monkeypatch.setattr(service, "_recover_threads", lambda: None)
+    # Exactly what a superseded generation's state.clear_all() leaves behind:
+    # absent, which reads as offline everywhere.
+    FakeWindow.store.clear()
+    assert state.is_online() is False
+
+    service._tick()
+
+    assert state.is_online() is True
+
+
+def test_an_already_raised_flag_is_not_rewritten(monkeypatch, tmp_path):
+    """The tick runs once a second for the life of the service, so the heal is
+    conditional: an unconditional write would log a repair on every tick and
+    bury the one line that says the flag was actually clobbered."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    service._online = True
+    state.set_online(True)
+    monkeypatch.setattr(service, "_recover_threads", lambda: None)
+    writes = []
+    monkeypatch.setattr(state, "set_online", lambda online: writes.append(online))
+
+    service._tick()
+
+    assert writes == []
 
 
 def test_reconnecting_does_not_build_a_second_websocket(monkeypatch, tmp_path):

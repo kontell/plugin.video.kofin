@@ -1,3 +1,6 @@
+v0.15.1
+- Updating the addon while Kodi is running no longer leaves the server looking unreachable: SyncPlay and "Who's watching?" refused to open with a server-unavailable error, and library sync restarted itself every few seconds without ever finishing, until Kodi was restarted
+
 v0.15.0
 - The skip prompt shows how much it will skip — "Skip Intro (1:38)" — and steps out of the way part-way through the segment instead of sitting over the opening of what you just chose to watch, adjustable and set to halfway
 - Recap, Preview and Commercial no longer skip by default: only Intro and Credits act out of the box, which is what every other Jellyfin client does — turn the others back on in settings if you relied on them

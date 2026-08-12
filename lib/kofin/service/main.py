@@ -227,12 +227,40 @@ class Service(xbmc.Monitor):
         ):
             self._connect()
         elif self._online:
+            self._republish_online()
             # A thread can also die while the server stays perfectly
             # reachable, and then nothing else ever looks: ``_connect`` is the
             # only other rebuild path and it runs only on the offline→online
             # edge. Costs two ``is_alive()`` calls a second and does nothing
             # at all until one of them answers False.
             self._recover_threads()
+
+    def _republish_online(self) -> None:
+        """Re-raise the online flag when something else lowered it.
+
+        ``self._online`` and ``PROP_ONLINE`` are meant to say the same thing,
+        and only this generation writes both — but the property is one set of
+        window properties shared by every generation, and a *superseded*
+        service clears them on its way out (see ``_superseded``). Ten seconds
+        after a live generation connected, an older one's teardown cleared the
+        flag it had just raised, and nothing ever put it back: ``_connect`` is
+        the only other publisher and it runs only on the offline→online edge,
+        which had already passed. The result was a permanent split brain on an
+        entirely healthy connection — every library thread died on its first
+        ``sync.shims.stop`` guard and was rebuilt by ``_recover_threads`` a
+        second later (357 times in 90 minutes), while SyncPlay's menu and the
+        who's-watching picker refused with "server unavailable" because both
+        routes gate on ``state.is_online()`` (observed on a Piers box,
+        2026-08-12, across an 0.14.0 → 0.15.0 update).
+
+        So the flag is re-asserted rather than only written on the edge. This
+        is the half that heals a box whose clobberer is an *older* build's
+        teardown, which no fix in this file can reach retroactively.
+        """
+        if state.is_online():
+            return
+        LOG.warning("the online flag was lowered under a live connection; restoring")
+        state.set_online(True)
 
     def _recover_threads(self) -> None:
         """Rebuild the websocket and the sync manager if either has died.
@@ -981,13 +1009,41 @@ class Service(xbmc.Monitor):
 
     # -- teardown ---------------------------------------------------------------
 
+    def _superseded(self) -> bool:
+        """Whether a newer service generation has taken over the shared state.
+
+        Kodi does not wait for a stopping service script to exit before
+        starting its replacement: an addon update raises ``abortRequested`` on
+        this instance and launches the next one, which connects and publishes
+        its own state while this teardown is still joining threads. Everything
+        in ``core.state`` is one set of window properties with no room for a
+        generation, so a teardown that writes them at that point writes over
+        the *live* service's — measured at ten seconds of overlap on an
+        0.14.0 → 0.15.0 update, which is long enough for the successor to have
+        connected and raised every flag this teardown then cleared.
+
+        The IPC nonce is what tells the two apart: every generation mints one
+        at startup (``ipc.rotate_nonce``), so a value on disk that is no
+        longer ours means a successor exists and the shared state is its. Our
+        own threads stop regardless — the ``_stopping`` Event and
+        ``Library.stop_client`` are instance-scoped, and it is those, not the
+        properties, that actually end them.
+        """
+        current = ipc.nonce()
+        return bool(current) and current != self._ipc_nonce
+
     def _shutdown(self) -> None:
         # Both, and they are not redundant: the property is what the sync
         # workers' @stop guards read across the process, the Event is what
         # this generation's HTTP transports check between retries and is the
         # only one of the two that survives the next generation starting.
+        # Which is also why the property is skipped once a successor is live:
+        # surviving the next generation means landing *on* it, and a stop flag
+        # raised under a running service pauses its sync workers for good
+        # (the failure ``run_forever`` lowers the flag to undo).
         self._stopping.set()
-        state.set_should_stop(True)
+        if not self._superseded():
+            state.set_should_stop(True)
         self._stop_syncplay()
         # The websocket goes down before the library, not after: every event
         # it dispatches lands in the Library's queues — or, for UserDataChanged,
@@ -1020,6 +1076,13 @@ class Service(xbmc.Monitor):
         # graphs, each with its own database locks, writing the same files. A
         # thread that outlived the join keeps the flag raised for exactly that
         # reason.
+        #
+        # Re-asked rather than reused from the top of the teardown: the join
+        # above can take LIBRARY_JOIN_SECONDS, which is ample time for the
+        # successor to have started, and by here the properties would be its.
+        if self._superseded():
+            LOG.warning("a newer service generation is live; leaving it its state")
+            return
         state.clear_all(keep_stop=library_stuck)
 
     def _join_library(self) -> bool:
