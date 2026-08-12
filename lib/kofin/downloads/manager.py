@@ -988,21 +988,7 @@ class DownloadManager:
 
     def _delete_media(self, row: "store.Download") -> None:
         """The media file, its .part and its sidecars, then any empty dirs."""
-        if not row.rel_path:
-            return
-        root = downloads_root()
-        absolute = os.path.join(root, row.rel_path)
-        directory = os.path.dirname(absolute)
-        base = os.path.basename(row.rel_path).rsplit(".", 1)[0]
-        _remove_quietly(absolute + ".part")
-        _remove_quietly(absolute)
-        try:
-            for name in os.listdir(directory):
-                if name.startswith(base + "."):
-                    _remove_quietly(os.path.join(directory, name))
-        except OSError:
-            pass
-        _prune_empty_dirs(directory, root)
+        delete_media_files(row)
 
     def _explain_write_error(self, error: OSError) -> str:
         if getattr(error, "errno", None) == 27:  # EFBIG
@@ -1532,6 +1518,32 @@ def _remove_quietly(path: str) -> None:
         os.remove(path)
     except OSError:
         pass
+
+
+def delete_media_files(row: "store.Download") -> None:
+    """One download's media file, its .part and its sidecars, then empty dirs.
+
+    Module level because the Clean databases pass needs it too, and it must
+    not drag a whole Manager into the plugin process to get it. Scoped to the
+    row's own ``rel_path`` rather than sweeping the downloads root: the root
+    is user-configurable, and someone who pointed it at a folder they share
+    with other media must lose only what kofin put there.
+    """
+    if not row.rel_path:
+        return
+    root = downloads_root()
+    absolute = os.path.join(root, row.rel_path)
+    directory = os.path.dirname(absolute)
+    base = os.path.basename(row.rel_path).rsplit(".", 1)[0]
+    _remove_quietly(absolute + ".part")
+    _remove_quietly(absolute)
+    try:
+        for name in os.listdir(directory):
+            if name.startswith(base + "."):
+                _remove_quietly(os.path.join(directory, name))
+    except OSError:
+        pass
+    _prune_empty_dirs(directory, root)
 
 
 # What the metadata export leaves at directory level (W4.3). A directory

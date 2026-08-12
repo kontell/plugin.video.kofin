@@ -2060,7 +2060,7 @@ msgstr ""
 # a user expects an age-based rule to eat, and the promise that it will not
 # is the reason the setting is safe to leave on.
 msgctxt "#30811"
-msgid "Delete downloads you have not watched"
+msgid "Delete stale downloads"
 msgstr ""
 
 msgctxt "#30812"
@@ -2073,4 +2073,15 @@ msgstr ""
 
 msgctxt "#30814"
 msgid "How long a download may sit unplayed before it is removed. Playing it again starts the count over."
+msgstr ""
+
+# 30815-30816 — the Clean databases downloads prompt. It has to say what
+# happens if you decline: the clean deletes kofin.db, and the download table
+# lives there, so files kept behind are files nothing will ever manage again.
+msgctxt "#30815"
+msgid "Also delete your %s downloaded file(s)? Cleaning removes Kofin's record of them, so any you keep are left on disk for you to manage yourself."
+msgstr ""
+
+msgctxt "#30816"
+msgid "Removing downloaded files…"
 msgstr ""
