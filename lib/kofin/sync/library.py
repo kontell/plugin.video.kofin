@@ -2487,6 +2487,7 @@ class UpdateWorker(threading.Thread):
                 movies = Movies(*default_args)
                 tvshows = TVShows(*default_args)
                 musicvideos = MusicVideos(*default_args)
+                writers = (movies, tvshows, musicvideos)
                 artwork_writers = {
                     "Movie": movies,
                     "Series": tvshows,
@@ -2496,6 +2497,7 @@ class UpdateWorker(threading.Thread):
                 }
             elif kodidb.db_file == "music":
                 music = Music(*default_args)
+                writers = (music,)
             else:
                 # this should not happen
                 LOG.error(
@@ -2535,7 +2537,21 @@ class UpdateWorker(threading.Thread):
                     elif item["Type"] == "Audio":
                         music.song(item)
 
-                    if self.notify:
+                    # A writer that refused this item wrote no Kodi row and no
+                    # kofin.db reference, so there is nothing to announce. It
+                    # refuses by returning early, and the return value cannot
+                    # carry that news -- tvshow() returns None on unchanged
+                    # deliberately, so full sync still walks its episodes --
+                    # hence the explicit set. A refusal that *raises*
+                    # (LibraryOrphanException) skips this block anyway.
+                    #
+                    # Not cosmetic: everything announced here also reaches
+                    # downloads_auto.queue_new_content, so items the writers
+                    # had already declined were pushing real ones out of a
+                    # backlog that overflowed 165 times on a live box.
+                    if self.notify and not any(
+                        item["Id"] in writer.refused for writer in writers
+                    ):
                         # What is announceable, and what it is called, is
                         # newcontent's to decide; a watched item comes back
                         # None here and is never reported.

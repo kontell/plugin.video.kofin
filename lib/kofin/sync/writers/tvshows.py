@@ -60,6 +60,12 @@ class TVShows(KodiDb):
         self.library = library
         # Memo for find_library, per writer instance (see fields.find_library).
         self.library_cache = {}
+        # Ids this writer declined to write, so the caller can tell a
+        # refusal from a write. A writer refuses by returning early, and
+        # the return value cannot carry the news: it already means
+        # something else (tvshow returns None on unchanged *so that* full
+        # sync still walks its episodes). See UpdateWorker's notify gate.
+        self.refused = set()
 
         KodiDb.__init__(self, videodb.cursor)
 
@@ -91,6 +97,7 @@ class TVShows(KodiDb):
             )
             if not library:
                 # This item doesn't belong to a whitelisted library
+                self.refused.add(obj["Id"])
                 return
 
             obj["ShowId"] = self.create_entry()
@@ -116,6 +123,7 @@ class TVShows(KodiDb):
                     # library stays dormant on purpose: no media_folder
                     # query can reach it, so no prune or probe can loop on
                     # it -- and there is no library to path the row under.
+                    self.refused.add(obj["Id"])
                     return
 
             if library and obj["LibraryId"] != library["Id"]:
@@ -463,11 +471,13 @@ class TVShows(KodiDb):
         if obj["Location"] == "Virtual":
             LOG.info("Skipping virtual episode %s: %s", obj["Title"], obj["Id"])
 
+            self.refused.add(obj["Id"])
             return
 
         elif obj["SeriesId"] is None:
             LOG.info("Skipping episode %s with missing SeriesId", obj["Id"])
 
+            self.refused.add(obj["Id"])
             return
 
         try:
@@ -483,6 +493,7 @@ class TVShows(KodiDb):
             )
             if not library:
                 # This item doesn't belong to a whitelisted library
+                self.refused.add(obj["Id"])
                 return
 
             obj["EpisodeId"] = self.create_entry_episode()

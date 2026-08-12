@@ -1582,6 +1582,84 @@ def test_added_writer_reports_only_what_should_be_announced(api):
     assert reported == [Entry("Movie", "movie2", "Second Feature")]
 
 
+def test_an_item_the_writer_refused_is_not_announced(api):
+    """The writers refuse by returning early, and the notify call sat after
+    them unconditionally -- so an item that produced no Kodi row and no
+    kofin.db reference was still announced as new content, and still handed to
+    downloads_auto.queue_new_content. The library filter hides the commonest
+    cause; it does not fix this."""
+    seed_movie_library(api)
+    # Visible to the user, in a library this box does not sync.
+    api.ancestors = lambda item_id: [{"Id": "lib-other", "Name": "Bench-Movies"}]
+
+    work = queue.Queue()
+    work.put(dto(MOVIE_2))
+    notify = queue.Queue()
+
+    UpdateWorker(
+        work, notify, threading.Lock(), "video", api, notify_enabled=True
+    ).run()
+
+    # Refused: nothing written, and therefore nothing to announce.
+    assert video_query("SELECT COUNT(*) FROM movie") == [(0,)]
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin") == [(0,)]
+    assert notify.qsize() == 0
+
+
+def test_a_refusal_does_not_silence_the_items_around_it(api):
+    """Per item, not per drain: the refusal must not take its neighbours'
+    announcements down with it.
+
+    The two need distinct parents to be in distinct libraries at all --
+    find_library keys its memo on the parent precisely because siblings share
+    a library, so a shared folder would (correctly) refuse both."""
+    seed_movie_library(api)
+    whitelisted = {"Id": "lib-movies", "Name": "Movies"}
+    elsewhere = {"Id": "lib-other", "Name": "Bench-Movies"}
+    api.ancestors = lambda item_id: [elsewhere if item_id == "movie1" else whitelisted]
+
+    work = queue.Queue()
+    # Unwatched, so the only reason it could go unannounced is the refusal.
+    work.put(
+        dto(dict(MOVIE, ParentId="folder-bench", UserData={"Played": False}))
+    )  # refused
+    work.put(dto(MOVIE_2))  # written
+    notify = queue.Queue()
+
+    UpdateWorker(
+        work, notify, threading.Lock(), "video", api, notify_enabled=True
+    ).run()
+
+    assert video_query("SELECT c00 FROM movie") == [("Second Feature",)]
+    reported = []
+    while not notify.empty():
+        reported.append(notify.get())
+
+    assert reported == [Entry("Movie", "movie2", "Second Feature")]
+
+
+def test_a_virtual_episode_is_not_announced(api):
+    """A refusal that has nothing to do with library scope, and so survives
+    the change feed's filter: Jellyfin's placeholder for an episode that has
+    no file. It is skipped by the writer and must not be announced."""
+    register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
+    sync = sync_db.get_sync()
+    sync["Whitelist"] = ["lib-shows"]
+    sync_db.save_sync(sync)
+    api.ancestors = lambda item_id: [{"Id": "lib-shows", "Name": "Shows"}]
+
+    work = queue.Queue()
+    work.put(dto(dict(EPISODE, LocationType="Virtual")))
+    notify = queue.Queue()
+
+    UpdateWorker(
+        work, notify, threading.Lock(), "video", api, notify_enabled=True
+    ).run()
+
+    assert video_query("SELECT COUNT(*) FROM episode") == [(0,)]
+    assert notify.qsize() == 0
+
+
 def test_metadata_writers_cannot_announce_anything(api):
     """Only the added writers are built with notify_enabled, which is what
     keeps an updated item from arriving as news."""
