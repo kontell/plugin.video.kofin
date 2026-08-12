@@ -383,6 +383,35 @@ def test_movie_prefer_critic_points_at_the_critic_row(api):
     assert video_query("SELECT COUNT(*) FROM rating") == [(2,)]
 
 
+def test_movie_survives_the_addon_unregister_window(api, monkeypatch):
+    """A writer's settings read must not take the library pass down with it
+    (issue #143).
+
+    ``Movies.__init__`` reads preferCriticRating once per instance, and Kodi
+    unloads the add-on before replacing its files on any update — so
+    ``xbmcaddon.Addon()`` raised RuntimeError straight through the writer,
+    ``full_sync.movies`` and ``process_library``, and only ``add_library``
+    caught it. The library stayed queued and the resume backoff walked it
+    again, so nothing was lost except the pass; the walk simply must not
+    abort. Degrading the read means the film is written with the community
+    rating as its pointer, which the next writer or a settings flip repoints.
+    """
+
+    class UnregisteredAddon:
+        def __init__(self, addon_id: str = ""):
+            raise RuntimeError("Unknown addon id 'plugin.video.kofin'.")
+
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    monkeypatch.setattr("xbmcaddon.Addon", UnregisteredAddon)
+
+    write_movie(api)
+
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    assert video_query("SELECT c00 FROM movie") == [("The Example",)]
+    pointer, community_id = _pointer("default")
+    assert pointer == community_id
+
+
 def test_movie_prefer_critic_falls_back_to_community(api):
     """A film the server has no critic rating for keeps its community one."""
     FakeAddon.store["preferCriticRating"] = "true"

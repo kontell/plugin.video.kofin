@@ -205,3 +205,79 @@ def test_get_float_reads_the_fractional_bitrate_options():
 
     FakeAddon.store["downloadsMaxBitrate"] = "unlimited"
     assert settings.get_float("downloadsMaxBitrate") == 0.0
+
+
+# --- the add-on-unregister window (issue #143) --------------------------------
+
+
+class UnregisteredAddon:
+    """Kodi during the window it leaves an add-on unloaded.
+
+    ``xbmcaddon.Addon()`` raises for as long as that lasts, and a routine
+    repository update opens it as readily as a manual reinstall —
+    CAddonInstallJob unloads unconditionally before replacing any file, while
+    every thread the add-on started keeps running and reading settings.
+    """
+
+    def __init__(self, addon_id: str = "") -> None:
+        raise RuntimeError("Unknown addon id '%s'." % settings.ADDON_ID)
+
+
+def test_reads_degrade_instead_of_raising_into_the_calling_thread(monkeypatch):
+    """The read that took down a full sync was Movies.__init__'s
+    preferCriticRating, on the library thread; the RuntimeError escaped
+    through every frame between."""
+    monkeypatch.setattr("xbmcaddon.Addon", UnregisteredAddon)
+
+    assert settings.get_addon() is None
+    assert settings.available() is False
+    assert settings.get_str("serverAddress") == ""
+    assert settings.get_bool("preferCriticRating") is False
+    assert settings.get_int("resumeJumpBack") == 0
+    assert settings.get_float("downloadsMaxBitrate") == 0.0
+    assert settings.get_list("librarySelection") == []
+    assert settings.localized(30045) == ""
+    assert settings.addon_version() == ""
+    assert settings.addon_path() == ""
+    assert settings.addon_name() == ""
+
+
+def test_writes_are_dropped_rather_than_raising(monkeypatch):
+    monkeypatch.setattr("xbmcaddon.Addon", UnregisteredAddon)
+
+    settings.set_str("lastIncrementalSync", "2026-08-12T21:44:33Z")
+    settings.set_bool("isLoggedIn", True)
+
+    assert FakeAddon.store == {}  # nothing stored, and nothing raised
+
+
+def test_an_unreadable_store_never_mints_a_new_device_id(monkeypatch):
+    """The landmine under degrading get_str to "": load() mints a device id
+    when it reads none, so eight blank reads look exactly like a fresh
+    install. Minting there replaces a good id with one no set_str can store —
+    the server sees a phantom device and the who's-watching restore looks up
+    a session that does not exist."""
+    established = settings.Credentials.load().device_id
+    assert established
+
+    monkeypatch.setattr("xbmcaddon.Addon", UnregisteredAddon)
+    during = settings.Credentials.load()
+
+    assert during.device_id == ""  # no mint against an unreadable store
+    assert during.is_logged_in is False  # "not yet", not "logged out"
+
+    # Re-registered, rather than monkeypatch.undo(): the autouse fixture
+    # shares this monkeypatch, so undo() would take FakeAddon away too and
+    # the assertion below would read Kodistubs' empty stub instead.
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    assert settings.Credentials.load().device_id == established
+
+
+def test_a_fresh_install_still_mints_one(monkeypatch):
+    """The control: an empty device id with a readable store is a real fresh
+    install, and must still get one."""
+    assert FakeAddon.store.get("deviceId") is None
+
+    minted = settings.Credentials.load().device_id
+
+    assert minted and FakeAddon.store["deviceId"] == minted

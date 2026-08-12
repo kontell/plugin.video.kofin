@@ -383,6 +383,39 @@ def test_burst_read_failure_is_caught_by_the_canary(monkeypatch):
     assert service.library.commands == [("SyncLibrary", {"Id": "v-new"})]
 
 
+class UnregisteredAddon:
+    """Kodi's add-on-unregister window: the constructor itself raises
+    (issue #143), where FailingLoadAddon models a document that loaded empty."""
+
+    def __init__(self, addon_id: str = "") -> None:
+        raise RuntimeError("Unknown addon id 'plugin.video.kofin'.")
+
+
+def test_an_unregistered_addon_is_caught_by_the_same_canary(monkeypatch):
+    """core.settings degrades an unreadable store to empty reads rather than
+    raising into the calling thread, which makes every watched setting look
+    cleared at once. The canary is what keeps that from reading as a
+    deselect-all: it is the same empty answer, so the whole cycle is refused."""
+    seed_views(("v-docs", "Documentaries", "tvshows"))
+    seed_whitelist("v-docs")
+    FakeAddon.store["librarySelection"] = "v-docs"
+    service = FakeService()
+    applier = ready_applier(service)
+
+    monkeypatch.setattr("xbmcaddon.Addon", UnregisteredAddon)
+    applier.apply()  # must not raise, and must not act
+
+    assert service.library.commands == []
+    assert not any(c[0] == "yesno" for c in FakeDialog.calls)
+    assert applier.snapshot["librarySelection"] == "v-docs"
+
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    seed_views(("v-docs", "Documentaries", "tvshows"), ("v-new", "New", "movies"))
+    FakeAddon.store["librarySelection"] = "v-docs,v-new"
+    applier.apply()
+    assert service.library.commands == [("SyncLibrary", {"Id": "v-new"})]
+
+
 def test_deliberate_deselect_all_still_removes(monkeypatch):
     """The guard must not swallow intent: an empty selection that survives the
     corroborating re-read is a real deselect-all and proceeds to the prompt."""
