@@ -1,3 +1,7 @@
+v0.15.2
+- Films, shows and episodes are stored under every external id the server has for them rather than one hardcoded per media type, so anything that looks an item up that way — skins, other addons, Kodi's own scraper handoff — has something to go on: an item carrying only a TMDB id used to get an empty slot labelled IMDb and lose the id it did have (already-synced items pick theirs up as the server next touches them, or straight away after a repair)
+- Updating the addon while Kodi is running no longer interrupts a library sync that was in progress
+
 v0.15.1
 - Updating the addon while Kodi is running no longer leaves the server looking unreachable: SyncPlay and "Who's watching?" refused to open with a server-unavailable error, and library sync restarted itself every few seconds without ever finishing, until Kodi was restarted
 
