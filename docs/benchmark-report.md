@@ -18,14 +18,13 @@ The clearest behavioural difference is unattended recovery. Four interruptions w
 |---|---|---|---|
 | Initial sync, 16,404 items | **345 s**, 265 CPU-s | 450 s, 370 CPU-s | **−23 %**, **−28 %** |
 | Initial sync, real library (27k items) | **570 s**, 599 CPU-s | 780 s, 803 CPU-s | **−27 %**, **−25 %** |
-| Full-sync working set over an idle-Kodi baseline (n=1, §8) | +199 MB | **+30 MB** | +563 % |
 | Correctness, 3,600 field comparisons | 0 mismatches | 0 mismatches | — |
 | Recovers unattended from interruption | **4 of 4** | 0 of 4 | — |
 | Blocking modals in the sync path | **0** | 1–2 per cold start | — |
 | Stream resolve under load | **0.51 s** | 3.52 s | **−85 %** |
 | Addon root listing under load | **0.19 s** | 2.60 s | **−93 %** |
 
-kofin relative to jellyfin-kodi; negative is less time or less memory. The three dashes are counts, not quantities, and a percentage of them would be meaningless.
+kofin relative to jellyfin-kodi; negative is less time. The three dashes are counts, not quantities, and a percentage of them would be meaningless.
 
 ## 2. Under test
 
