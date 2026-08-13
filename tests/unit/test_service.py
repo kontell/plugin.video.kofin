@@ -1,8 +1,15 @@
+import threading
+
 import pytest
 
 from kofin.core import ipc, state
 from kofin.service.main import Backoff, Service
 from tests.unit.fakes import FakeAddon, FakeWindow
+
+# How long a stray worker is given to finish before it is called a leak. Only
+# ever paid by a test that leaked one, and bounded so the guard cannot itself
+# become the flake it exists to catch.
+STRAY_WORKER_GRACE = 5
 
 
 @pytest.fixture(autouse=True)
@@ -16,6 +23,34 @@ def kodi_fakes(monkeypatch):
     # default here is False; tests exercising the stop path raise it
     # per-instance.
     monkeypatch.setattr("xbmc.Monitor.abortRequested", lambda self: False)
+    yield
+    _refuse_stray_post_connect()
+
+
+def _refuse_stray_post_connect():
+    """Fail the test that leaves a post-connect worker running.
+
+    ``_on_ws_connected`` spawns the pass on a thread and returns — that is the
+    behaviour under test at ``test_the_connect_callback_does_not_block_on_the_pass``
+    — so a test that neither joins it (``_join_post_connect``) nor stubs
+    ``_run_post_connect`` hands the next test a live thread. Those workers
+    carry a real ``Api`` whose server address is never set in this file, and
+    they raise toasts and read settings into whichever test runs next; three
+    of the four tests that *do* join went red together in one loaded run,
+    which is what sent us looking.
+
+    Named on the thread rather than tracked per service: the leak is only
+    visible process-wide, and the teardown that catches it is the one
+    belonging to the test that caused it.
+    """
+    for thread in threading.enumerate():
+        if thread.name != "kofin-postconnect" or not thread.is_alive():
+            continue
+        thread.join(timeout=STRAY_WORKER_GRACE)
+        assert not thread.is_alive(), (
+            "a post-connect worker outlived its test: join it with "
+            "_join_post_connect(service), or stub _run_post_connect"
+        )
 
 
 def test_backoff_doubles_to_ceiling():
@@ -339,13 +374,15 @@ def test_disconnect_is_announced(toasts):
 
 def test_connect_names_the_server(toasts, monkeypatch):
     """_on_ws_connected also waits on the monitor and registers capabilities;
-    the toast is the part under test here."""
+    the toast is the part under test here, and it is raised on the calling
+    thread — so the worker is stubbed out rather than waited for."""
     FakeAddon.store["notifyConnection"] = "true"
     FakeAddon.store["serverName"] = "minipie"
     service = Service()
 
-    monkeypatch.setattr(service, "_register_capabilities", lambda: None)
-    monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
+    # See test_a_live_socket_raises_the_flag: an unstubbed worker outlives the
+    # test and goes on talking to a server that is not there.
+    monkeypatch.setattr(service, "_run_post_connect", lambda: None)
 
     service._on_ws_connected()
 
@@ -413,6 +450,10 @@ def test_a_broken_dialog_does_not_break_the_connect_callback(monkeypatch):
     monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
 
     service._on_ws_connected()
+    # registered is filled on the worker, so asserting straight after the
+    # callback raced it — the callback's whole point is that it returns before
+    # the pass runs (see test_the_connect_callback_does_not_block_on_the_pass).
+    _join_post_connect(service)
 
     assert registered == [True]
 
@@ -438,8 +479,10 @@ def test_only_connecting_is_good_news(toasts, monkeypatch):
     FakeAddon.store["notifyConnection"] = "true"
     FakeAddon.store["serverName"] = "minipie"
     service = Service()
-    monkeypatch.setattr(service, "_register_capabilities", lambda: None)
-    monkeypatch.setattr("xbmc.Monitor", lambda: _NoWaitMonitor())
+    # Stubbed, not waited for: every icon asserted below is raised on the
+    # calling thread, and a live worker could put one of its own between two
+    # of these reads of icons[-1].
+    monkeypatch.setattr(service, "_run_post_connect", lambda: None)
 
     service._on_ws_connected()
     assert RecordingDialog.icons[-1].endswith("icon.png")
