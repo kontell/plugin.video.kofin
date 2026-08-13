@@ -43,6 +43,7 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 
 - Native mode playback (bypassing Jellyfin server on a local network)
 - Cinema mode
+- Sync theme media
 
 ## Installation
 
