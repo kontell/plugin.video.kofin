@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from xml.sax.saxutils import escape
 
 from kofin.core.log import Logger
+from kofin.sync import fields
 
 LOG = Logger(__name__)
 
@@ -23,8 +24,11 @@ JsonDict = Dict[str, Any]
 
 XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
 
-# The order that decides which provider id is the default one.
-PROVIDER_PRIORITY = ("imdb", "tvdb", "tmdb")
+# The order that decides which provider id is the default one. Imported
+# rather than restated: the sync writers point the library row's uniqueid at
+# the same provider (fields.unique_ids), and an .nfo defaulting a different
+# one than the row it sits beside would be a difference nobody would look for.
+PROVIDER_PRIORITY = fields.PROVIDER_PRIORITY
 
 
 def export_item(api: Any, item: JsonDict, media_path: str) -> None:

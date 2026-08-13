@@ -410,6 +410,51 @@ def ratings(obj):
     return rows
 
 
+# The order that decides which provider Kodi's pointer names, and the order
+# the rows are written in. Shared with the NFO exporter, so a downloaded
+# item's .nfo defaults the same id the library row points at
+# (downloads/export.uniqueid_lines).
+PROVIDER_PRIORITY = ("imdb", "tvdb", "tmdb")
+
+
+def unique_ids(obj):
+    """Ordered ``{provider: value}`` for Kodi's uniqueid table.
+
+    That table is a *set* with a pointer, exactly as ``rating`` is: the media
+    row names the default member -- ``movie.c09``, ``tvshow.c12``,
+    ``episode.c20``, the columns ``movie_view`` and kin LEFT JOIN on -- so
+    every provider the server sends gets a row and the pointer picks one of
+    them (:meth:`kodidb.kodi.Kodi.sync_unique_ids`).
+
+    The fork wrote one row per item, typed from a provider hardcoded per media
+    kind in ``obj_map.json`` (Imdb for movies, Tvdb for TV), whether or not
+    the item had that provider. An item carrying only a TMDB id therefore got
+    a row with an empty value while its real id was discarded -- 15,796 empty
+    rows on a 16,404-item corpus, and nothing able to resolve any of those
+    items by external id (the mechanism behind jellyfin/jellyfin-kodi#920).
+
+    Keys are lowercased because that is what Kodi's own scrapers write and
+    what ``ListItem.UniqueID(imdb)`` looks up, while Jellyfin capitalises
+    them. Empty values are skipped rather than stored, which is the fix. And
+    nothing is filtered by name: an allowlist here is the defect, so a
+    provider kofin has never heard of still gets its row.
+
+    PROVIDER_PRIORITY first, then whatever else the server sent in its own
+    order, which keeps uniqueid_id allocation deterministic for the
+    idempotency dumps.
+    """
+    found = {}
+
+    for key, value in (obj.get("ProviderIds") or {}).items():
+        if value:
+            found[str(key).lower()] = str(value)
+
+    ordered = {name: found.pop(name) for name in PROVIDER_PRIORITY if name in found}
+    ordered.update(found)
+
+    return ordered
+
+
 def reference_checksum(etag, direct_path=False):
     """The one spelling of a stored reference checksum (healing-loops-plan
     F4). Every comparator — the writers' etag_match, the change feed's

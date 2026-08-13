@@ -274,10 +274,17 @@ def test_movie_write_full_fidelity(api):
         video_query("SELECT rating_id FROM rating WHERE rating_type='default'")[0][0]
     )
 
+    # A row per provider the server actually sent, never one per hardcoded
+    # provider name — and no empty-valued row at all (issue #146).
     unique = video_query(
         "SELECT value, type FROM uniqueid WHERE media_type='movie' ORDER BY uniqueid_id"
     )
-    assert ("tt0000001", "imdb") in unique
+    assert unique == [("tt0000001", "imdb"), ("42", "tmdb")]
+    # c09 is the default-uniqueid pointer movie_view joins on, the same shape
+    # c05 has for ratings.
+    assert row["c09"] == str(
+        video_query("SELECT uniqueid_id FROM uniqueid WHERE type='imdb'")[0][0]
+    )
 
     genres = {g[0] for g in video_query("SELECT name FROM genre")}
     assert genres == {"Drama", "Sci-Fi"}
@@ -358,6 +365,123 @@ def test_movie_etag_change_updates_row(api):
     # Community + critic, still one of each: the second write updates the rows
     # it found rather than adding a set.
     assert video_query("SELECT COUNT(*) FROM rating") == [(2,)]
+
+
+# --- uniqueid: a row per provider the item has (issue #146) -------------------
+
+
+def _uniqueids(media_type="movie"):
+    return video_query(
+        "SELECT type, value FROM uniqueid WHERE media_type=? ORDER BY uniqueid_id",
+        (media_type,),
+    )
+
+
+def _uniqueid_pointer(column="c09", table="movie"):
+    """(the media row's pointer, the uniqueid_id it names or None)."""
+    pointer = video_query("SELECT %s FROM %s" % (column, table))[0][0]
+    named = video_query("SELECT type FROM uniqueid WHERE uniqueid_id=?", (pointer,))
+    return pointer, (named[0][0] if named else None)
+
+
+def test_movie_keeps_the_id_it_has_when_the_preferred_provider_is_absent(api):
+    """The defect in one test: the fork wrote an empty row typed 'imdb' for a
+    film carrying only a TMDB id, and discarded the TMDB id. 15,796 such rows
+    on the bench corpus (issue #146, upstream jellyfin-kodi#920)."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+
+    payload = dto(MOVIE)
+    payload["ProviderIds"] = {"Tmdb": "42"}
+    write_movie(api, payload)
+
+    assert _uniqueids() == [("tmdb", "42")]
+    # No empty-valued row, and the pointer names the id the film does have
+    # rather than dangling at a row holding nothing.
+    assert video_query(
+        "SELECT COUNT(*) FROM uniqueid WHERE value IS NULL OR value=''"
+    ) == [(0,)]
+    assert _uniqueid_pointer()[1] == "tmdb"
+
+
+def test_movie_with_no_provider_ids_writes_no_uniqueid_row(api):
+    """The honest answer for an item the server has no external id for: no
+    row, and a NULL pointer. The fork wrote a row holding nothing, which is
+    what made every such item look identifiable and resolve to nothing."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+
+    payload = dto(MOVIE)
+    payload["ProviderIds"] = {}
+    write_movie(api, payload)
+
+    assert _uniqueids() == []
+    assert video_query("SELECT c09 FROM movie") == [(None,)]
+
+
+def test_movie_uniqueid_empty_values_are_skipped_not_stored(api):
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+
+    payload = dto(MOVIE)
+    payload["ProviderIds"] = {"Imdb": "", "Tmdb": "42"}
+    write_movie(api, payload)
+
+    assert _uniqueids() == [("tmdb", "42")]
+
+
+def test_movie_uniqueid_dropped_provider_is_deleted_and_the_pointer_moves(api):
+    """The ratings bug in the neighbouring table: a provider the server stops
+    sending must not leave the media row pointing at a deleted uniqueid_id, or
+    the view's LEFT JOIN renders the film with no external id at all."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    assert [t for t, _ in _uniqueids()] == ["imdb", "tmdb"]
+
+    changed = dto(MOVIE)
+    changed["Etag"] = "etag-movie1-v2"
+    changed["ProviderIds"] = {"Tmdb": "42"}
+    write_movie(api, changed)
+
+    assert _uniqueids() == [("tmdb", "42")]
+    pointer, named = _uniqueid_pointer()
+    assert named == "tmdb"
+    assert video_query("SELECT COUNT(*) FROM uniqueid") == [(1,)]
+
+
+def test_movie_uniqueid_rows_are_updated_not_multiplied(api):
+    """The update path allocated nothing new before and must not now: two
+    passes, two rows."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+
+    changed = dto(MOVIE)
+    changed["Etag"] = "etag-movie1-v2"
+    changed["ProviderIds"] = {"Imdb": "tt0000001", "Tmdb": "99"}
+    write_movie(api, changed)
+
+    assert _uniqueids() == [("imdb", "tt0000001"), ("tmdb", "99")]
+
+
+def test_movie_uniqueid_provider_order_is_priority_then_server_order(api):
+    """Deterministic uniqueid_id allocation is what keeps the idempotency
+    dumps byte-identical, so the order is pinned rather than incidental."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+
+    payload = dto(MOVIE)
+    payload["ProviderIds"] = {"Zap2It": "z1", "Tmdb": "42", "Imdb": "tt1"}
+    write_movie(api, payload)
+
+    assert [t for t, _ in _uniqueids()] == ["imdb", "tmdb", "zap2it"]
+
+
+def test_unknown_providers_are_written_rather_than_filtered(api):
+    """An allowlist here is the defect this fixes, so a provider kofin has
+    never heard of still gets its row."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+
+    payload = dto(MOVIE)
+    payload["ProviderIds"] = {"SomeFutureDb": "abc"}
+    write_movie(api, payload)
+
+    assert _uniqueids() == [("somefuturedb", "abc")]
 
 
 def _pointer(rating_type):
@@ -1383,6 +1507,33 @@ def write_series_tree(api):
         shows = TVShows(api, kdb, vdb, library=TV_LIBRARY)
         shows.tvshow(dto(SERIES))
         shows.episode(dto(EPISODE))
+
+
+def test_series_and_episode_uniqueids_come_from_the_item(api):
+    """The TV leg of issue #146: both hardcoded 'tvdb', both unconditional.
+    tvshow.c12 and episode.c20 are the pointers their views join on."""
+    write_series_tree(api)
+
+    assert _uniqueids("tvshow") == [("tvdb", "5555")]
+    assert _uniqueids("episode") == [("tvdb", "9999")]
+    assert _uniqueid_pointer("c12", "tvshow")[1] == "tvdb"
+    assert _uniqueid_pointer("c20", "episode")[1] == "tvdb"
+
+
+def test_episode_with_only_a_tmdb_id_keeps_it(api):
+    register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
+    episode = dto(EPISODE)
+    episode["ProviderIds"] = {"Tmdb": "777"}
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        shows = TVShows(api, kdb, vdb, library=TV_LIBRARY)
+        shows.tvshow(dto(SERIES))
+        shows.episode(episode)
+
+    assert _uniqueids("episode") == [("tmdb", "777")]
+    assert video_query(
+        "SELECT COUNT(*) FROM uniqueid WHERE value IS NULL OR value=''"
+    ) == [(0,)]
 
 
 def test_series_season_episode_write(api):

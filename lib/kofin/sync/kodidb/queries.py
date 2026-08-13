@@ -132,15 +132,15 @@ FROM        rating
 WHERE       media_type = ?
 AND         media_id = ?
 """
-get_unique_id = """
-SELECT      uniqueid_id
+get_unique_ids = """
+SELECT      type, uniqueid_id
 FROM        uniqueid
 WHERE       media_type = ?
 AND         media_id = ?
 """
-get_unique_id_movie_obj = ["movie", "{MovieId}"]
+# Not a uniqueid lookup any more: the tvshow writer reuses this pair as the
+# argument list for get_rating_id, which takes the same (media_type, media_id).
 get_unique_id_tvshow_obj = ["tvshow", "{ShowId}"]
-get_unique_id_episode_obj = ["episode", "{EpisodeId}"]
 get_country = """
 SELECT      country_id
 FROM        country
@@ -399,27 +399,6 @@ add_unique_id = """
 INSERT INTO     uniqueid(uniqueid_id, media_id, media_type, value, type)
 VALUES          (?, ?, ?, ?, ?)
 """
-add_unique_id_movie_obj = [
-    "{Unique}",
-    "{MovieId}",
-    "movie",
-    "{UniqueId}",
-    "{ProviderName}",
-]
-add_unique_id_tvshow_obj = [
-    "{Unique}",
-    "{ShowId}",
-    "tvshow",
-    "{UniqueId}",
-    "{ProviderName}",
-]
-add_unique_id_episode_obj = [
-    "{Unique}",
-    "{EpisodeId}",
-    "episode",
-    "{UniqueId}",
-    "{ProviderName}",
-]
 add_country = """
 INSERT INTO     country(name)
 VALUES          (?)
@@ -717,27 +696,6 @@ UPDATE      uniqueid
 SET         media_id = ?, media_type = ?, value = ?, type = ?
 WHERE       uniqueid_id = ?
 """
-update_unique_id_movie_obj = [
-    "{MovieId}",
-    "movie",
-    "{UniqueId}",
-    "{ProviderName}",
-    "{Unique}",
-]
-update_unique_id_tvshow_obj = [
-    "{ShowId}",
-    "tvshow",
-    "{UniqueId}",
-    "{ProviderName}",
-    "{Unique}",
-]
-update_unique_id_episode_obj = [
-    "{EpisodeId}",
-    "episode",
-    "{UniqueId}",
-    "{ProviderName}",
-    "{Unique}",
-]
 update_country = """
 INSERT OR REPLACE INTO      country_link(country_id, media_id, media_type)
 VALUES                      (?, ?, ?)
@@ -878,6 +836,10 @@ AND             media_type = ?
 delete_rating = """
 DELETE FROM     rating
 WHERE           rating_id = ?
+"""
+delete_unique_id = """
+DELETE FROM     uniqueid
+WHERE           uniqueid_id = ?
 """
 delete_tag_movie_obj = ["Favorite movies", "{MovieId}", "movie"]
 delete_tag_mvideo_obj = ["Favorite musicvideos", "{MvideoId}", "musicvideo"]

@@ -83,6 +83,57 @@ class Kodi(object):
 
         return self.cursor.fetchone()[0] + 1
 
+    def sync_unique_ids(self, media_id, media_type, provider_ids, preferred):
+        """Write the item's uniqueid rows; return the default one's id.
+
+        Deviation from the fork, and the same one :meth:`Movies.sync_ratings`
+        already makes for the table next door. Kodi's uniqueid table is a set
+        keyed by (media, type) and the media row names which member is the
+        default -- ``movie.c09``, ``tvshow.c12``, ``episode.c20``, what the
+        views LEFT JOIN on and what ``ListItem.UniqueID`` renders -- while the
+        fork wrote a single row typed from a provider hardcoded per media
+        kind, empty value and all. See :func:`fields.unique_ids` for what that
+        cost.
+
+        ``provider_ids`` is ordered ``{provider: value}``; its first entry is
+        the fallback pointer when ``preferred`` is absent, so a film with no
+        IMDb id points at whichever id it does have instead of at nothing.
+        Providers the server no longer sends are deleted and the pointer is
+        rewritten on every pass, so a dropped provider can never leave the
+        media row dangling at a deleted uniqueid_id -- the LEFT JOIN would
+        render the item with no external id at all, which is the ratings bug
+        (docs/critic-ratings-plan.md) in the neighbouring table.
+
+        Returns None for an item the server sends no provider ids for. That is
+        the honest pointer: there is no row to point at, and the fork's answer
+        -- a row holding nothing -- is what this replaces.
+
+        Lives on the shared base because movies, tvshows and episodes all need
+        it; it calls the three uniqueid primitives, which both video subclasses
+        carry. Insertion order is the caller's dict order, which keeps
+        uniqueid_id allocation deterministic for the idempotency dumps.
+        """
+        self.cursor.execute(QU.get_unique_ids, (media_type, media_id))
+        existing = dict(self.cursor.fetchall())
+        default_id = None
+
+        for provider, value in provider_ids.items():
+            unique_id = existing.pop(provider, None)
+
+            if unique_id is None:
+                unique_id = self.create_entry_unique_id()
+                self.add_unique_id(unique_id, media_id, media_type, value, provider)
+            else:
+                self.update_unique_id(media_id, media_type, value, provider, unique_id)
+
+            if default_id is None or provider == preferred:
+                default_id = unique_id
+
+        for unique_id in existing.values():
+            self.cursor.execute(QU.delete_unique_id, (unique_id,))
+
+        return default_id
+
     def add_path(self, *args):
         path_id = self.get_path(*args)
 
