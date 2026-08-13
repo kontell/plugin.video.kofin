@@ -272,8 +272,9 @@ class TVShows(KodiDb):
         obj["RatingId"] = self.create_entry_rating()
         self.add_ratings(*values(obj, QU.add_rating_tvshow_obj))
 
-        obj["Unique"] = self.create_entry_unique_id()
-        self.add_unique_id(*values(obj, QU.add_unique_id_tvshow_obj))
+        obj["Unique"] = self.sync_unique_ids(
+            obj["ShowId"], "tvshow", api.unique_ids(obj), obj["ProviderName"]
+        )
 
         obj["TopPathId"] = self.add_path(obj["TopLevel"])
 
@@ -319,8 +320,9 @@ class TVShows(KodiDb):
         obj["RatingId"] = self.get_rating_id(*values(obj, QU.get_unique_id_tvshow_obj))
         self.update_ratings(*values(obj, QU.update_rating_tvshow_obj))
 
-        obj["Unique"] = self.get_unique_id(*values(obj, QU.get_unique_id_tvshow_obj))
-        self.update_unique_id(*values(obj, QU.update_unique_id_tvshow_obj))
+        obj["Unique"] = self.sync_unique_ids(
+            obj["ShowId"], "tvshow", api.unique_ids(obj), obj["ProviderName"]
+        )
 
         obj["TopPathId"] = self.get_path(obj["TopLevel"])
 
@@ -603,8 +605,9 @@ class TVShows(KodiDb):
         obj["RatingId"] = self.create_entry_rating()
         self.add_ratings(*values(obj, QU.add_rating_episode_obj))
 
-        obj["Unique"] = self.create_entry_unique_id()
-        self.add_unique_id(*values(obj, QU.add_unique_id_episode_obj))
+        obj["Unique"] = self.sync_unique_ids(
+            obj["EpisodeId"], "episode", api.unique_ids(obj), obj["ProviderName"]
+        )
 
         obj["PathId"] = self.add_path(*values(obj, QU.add_path_obj))
         obj["FileId"] = self.add_file(*values(obj, QU.add_file_obj))
@@ -645,8 +648,9 @@ class TVShows(KodiDb):
         obj["RatingId"] = self.get_rating_id(*values(obj, QU.get_rating_episode_obj))
         self.update_ratings(*values(obj, QU.update_rating_episode_obj))
 
-        obj["Unique"] = self.get_unique_id(*values(obj, QU.get_unique_id_episode_obj))
-        self.update_unique_id(*values(obj, QU.update_unique_id_episode_obj))
+        obj["Unique"] = self.sync_unique_ids(
+            obj["EpisodeId"], "episode", api.unique_ids(obj), obj["ProviderName"]
+        )
 
         self.update_episode(*values(obj, QU.update_episode_obj))
 

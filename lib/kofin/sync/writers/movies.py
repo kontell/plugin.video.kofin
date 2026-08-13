@@ -216,8 +216,9 @@ class Movies(KodiDb):
             obj["MovieId"], api.ratings(obj), self.rating_type
         )
 
-        obj["Unique"] = self.create_entry_unique_id()
-        self.add_unique_id(*values(obj, QU.add_unique_id_movie_obj))
+        obj["Unique"] = self.sync_unique_ids(
+            obj["MovieId"], "movie", api.unique_ids(obj), obj["ProviderName"]
+        )
 
         obj["PathId"] = self.add_path(*values(obj, QU.add_path_obj))
         obj["FileId"] = self.add_file(*values(obj, QU.add_file_obj))
@@ -242,8 +243,9 @@ class Movies(KodiDb):
             obj["MovieId"], api.ratings(obj), self.rating_type
         )
 
-        obj["Unique"] = self.get_unique_id(*values(obj, QU.get_unique_id_movie_obj))
-        self.update_unique_id(*values(obj, QU.update_unique_id_movie_obj))
+        obj["Unique"] = self.sync_unique_ids(
+            obj["MovieId"], "movie", api.unique_ids(obj), obj["ProviderName"]
+        )
 
         self.update(*values(obj, QU.update_movie_obj))
         self.set_video_version_type(obj["FileId"], obj.get("VideoVersionTypeId", 40400))

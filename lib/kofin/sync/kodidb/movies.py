@@ -214,15 +214,6 @@ class Movies(Kodi):
 
         return updated
 
-    def get_unique_id(self, *args):
-
-        try:
-            self.cursor.execute(QU.get_unique_id, args)
-
-            return self.cursor.fetchone()[0]
-        except TypeError:
-            return
-
     def add_unique_id(self, *args):
         """Add the provider id, imdb, tvdb."""
         self.cursor.execute(QU.add_unique_id, args)
