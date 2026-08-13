@@ -2417,3 +2417,222 @@ def test_closing_the_progress_bar_twice_is_harmless():
     manager.close_progress()
 
     assert bar.closed == 1
+
+
+# --- a library deleted server-side (issue #145) -------------------------------
+
+
+class _FakeViews:
+    """Stands in for sync.views.Views; records get_views calls."""
+
+    calls = 0
+    error = None
+
+    def __init__(self, server=None):
+        self.server = server
+
+    def get_views(self):
+        type(self).calls += 1
+        if type(self).error is not None:
+            raise type(self).error
+
+
+@pytest.fixture
+def fake_views(monkeypatch):
+    _FakeViews.calls = 0
+    _FakeViews.error = None
+    monkeypatch.setattr(library_mod, "Views", _FakeViews)
+    return _FakeViews
+
+
+def test_poll_libraries_rereads_the_library_list_when_the_clock_is_up(fake_views):
+    """The trigger issue #145 was missing: get_views decides which stored
+    views the server no longer lists, and nothing outside startup reached it."""
+    manager, _api = make_library()
+    manager.library_poll_at = datetime.now() - timedelta(seconds=1)
+
+    manager.poll_libraries()
+
+    assert fake_views.calls == 1
+
+
+def test_poll_libraries_defers_until_the_interval_is_up(fake_views):
+    manager, _api = make_library()
+    manager.library_poll_at = datetime.now() - timedelta(seconds=1)
+
+    manager.poll_libraries()
+    manager.poll_libraries()
+
+    assert fake_views.calls == 1
+    assert manager.library_poll_at > datetime.now()
+
+
+def test_poll_libraries_holds_off_while_a_sync_is_in_flight(fake_views):
+    """The removal it may enqueue would delete rows the drain is writing."""
+    manager, _api = make_library()
+    manager.library_poll_at = datetime.now() - timedelta(seconds=1)
+    manager.pending_refresh = True
+
+    manager.poll_libraries()
+
+    assert fake_views.calls == 0
+
+
+def test_poll_libraries_holds_off_while_offline(fake_views):
+    manager, _api = make_library()
+    manager.library_poll_at = datetime.now() - timedelta(seconds=1)
+    FakeWindow.store["kofin.online"] = "false"
+
+    manager.poll_libraries()
+
+    assert fake_views.calls == 0
+
+
+def test_poll_libraries_survives_a_failing_listing(fake_views):
+    """A listing that raises must not take the library thread down, and must
+    not retry on every two-second tick either."""
+    manager, _api = make_library()
+    manager.library_poll_at = datetime.now() - timedelta(seconds=1)
+    fake_views.error = RuntimeError("listing blew up")
+
+    manager.poll_libraries()
+
+    assert fake_views.calls == 1
+    assert manager.library_poll_at > datetime.now()
+
+
+def _stub_removals(manager, ok=True, trace=None):
+    """Replace the destructive half of the command with a recorder.
+
+    ``update_status_strings`` goes with it: ``process_commands`` runs it after
+    every command and it reads the schema gate, which no L1 fixture stands up.
+    """
+    seen = []
+
+    def remove_library(library_id):
+        seen.append(library_id)
+        if trace is not None:
+            trace.append("removed:%s" % library_id)
+        return ok
+
+    manager.remove_library = remove_library
+    manager.update_status_strings = lambda: None
+    return seen
+
+
+def test_remove_library_drops_the_library_from_the_selection():
+    """librarySelection is the stored intent and the whitelist is what was
+    acted on; _library_selection_changed diffs the two, so an id that outlives
+    its whitelist entry reads as an addition and re-syncs a dead library."""
+    FakeAddon.store["librarySelection"] = "lib1,lib2"
+    manager, _api = make_library()
+    _stub_removals(manager)
+
+    manager.enqueue_command("RemoveLibrary", {"Id": "lib1"})
+    manager.process_commands()
+
+    assert FakeAddon.store["librarySelection"] == "lib2"
+
+
+def test_remove_library_drops_a_mixed_entry_by_its_bare_id():
+    FakeAddon.store["librarySelection"] = "lib1,lib2"
+    manager, _api = make_library()
+    _stub_removals(manager)
+
+    manager.enqueue_command("RemoveLibrary", {"Id": "Mixed:lib1"})
+    manager.process_commands()
+
+    assert FakeAddon.store["librarySelection"] == "lib2"
+
+
+def test_remove_library_may_empty_the_selection():
+    """A legitimate outcome: the server has no library left that this install
+    syncs. _start_library declines to start on an empty selection, and the
+    picker starts it again."""
+    FakeAddon.store["librarySelection"] = "lib1"
+    manager, _api = make_library()
+    _stub_removals(manager)
+
+    manager.enqueue_command("RemoveLibrary", {"Id": "lib1"})
+    manager.process_commands()
+
+    assert FakeAddon.store["librarySelection"] == ""
+
+
+def test_remove_library_leaves_the_selection_alone_when_the_removal_fails():
+    FakeAddon.store["librarySelection"] = "lib1,lib2"
+    manager, _api = make_library()
+    _stub_removals(manager, ok=False)
+
+    manager.enqueue_command("RemoveLibrary", {"Id": "lib1"})
+    manager.process_commands()
+
+    assert FakeAddon.store["librarySelection"] == "lib1,lib2"
+
+
+def test_selection_is_edited_only_after_the_rows_are_removed(monkeypatch):
+    """Ordering is the correctness argument. The write fires
+    onSettingsChanged and the applier diffs at once: before remove_library the
+    whitelist still holds the entry, so the diff reads as a removal and raises
+    the yesno modal asking the user to confirm deleting a library the server
+    already deleted."""
+    FakeAddon.store["librarySelection"] = "lib1,lib2"
+    trace = []
+    manager, _api = make_library()
+    _stub_removals(manager, trace=trace)
+
+    original = library_mod.settings.set_str
+
+    def traced(setting_id, value):
+        if setting_id == "librarySelection":
+            trace.append("selection:%s" % value)
+        original(setting_id, value)
+
+    monkeypatch.setattr(library_mod.settings, "set_str", traced)
+
+    manager.enqueue_command("RemoveLibrary", {"Id": "lib1"})
+    manager.process_commands()
+
+    assert trace == ["removed:lib1", "selection:lib2"]
+
+
+def test_repair_library_keeps_the_selection():
+    """Repair removes and immediately re-adds. A selection edited in between
+    would make the following settings save read the library as a removal and
+    delete it in earnest."""
+    FakeAddon.store["librarySelection"] = "lib1,lib2"
+    manager, _api = make_library()
+    _stub_removals(manager)
+    manager.add_library = lambda *args, **kwargs: True
+    manager._reload_skin_after_repair = lambda kinds: None
+
+    manager.enqueue_command("RepairLibrary", {"Id": "lib1"})
+    manager.process_commands()
+
+    assert FakeAddon.store["librarySelection"] == "lib1,lib2"
+
+
+def test_selection_untouched_when_the_id_was_never_in_it():
+    """The settings-driven removal reaches the same branch: the id left the
+    selection before the command was ever enqueued, so this is a no-op."""
+    FakeAddon.store["librarySelection"] = "lib2"
+    manager, _api = make_library()
+    _stub_removals(manager)
+
+    manager.enqueue_command("RemoveLibrary", {"Id": "lib1"})
+    manager.process_commands()
+
+    assert FakeAddon.store["librarySelection"] == "lib2"
+
+
+def test_the_service_tick_polls_the_library_list():
+    """The wiring, not the method: poll_libraries is the only thing that
+    reaches the server-side-deletion check outside startup, so a tick that
+    stops calling it puts issue #145 straight back."""
+    manager, _api = make_library()
+    called = []
+    manager.poll_libraries = lambda: called.append(True)
+
+    manager.service()
+
+    assert called == [True]

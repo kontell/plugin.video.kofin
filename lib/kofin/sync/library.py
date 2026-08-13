@@ -109,6 +109,16 @@ AUTO_PRUNE_MAX_SECONDS = 86400
 # only way an edit reaches Kodi without a full sync; it costs one request plus
 # one per playlist, and rewrites nothing that has not changed.
 PLAYLIST_POLL_SECONDS = 900
+# How often the server's library list is re-read. A library deleted
+# server-side reaches no other path: the change feed and LibraryChanged both
+# carry item ids, and the server emits neither for the items that went with a
+# deleted virtual folder (measured — 4,000 movies, 930 s, nothing applied), so
+# without this the disappearance was noticed only by the ``get_views`` call in
+# ``startup`` and the library sat there, complete and entirely unplayable,
+# until the next service start. Same clock as the playlist poll and for the
+# same reason; two requests a quarter-hour, and ``get_views`` writes nothing
+# when the listing matches what is already stored.
+LIBRARY_POLL_SECONDS = 900
 # Deliberately nonexistent: scanning it is how music gets a library-change
 # event without a real walk (see Library._refresh_music). Must never be
 # created — if it existed the scan would descend into it.
@@ -262,6 +272,11 @@ class Library(threading.Thread):
         # the first tick, so a playlist edited while Kodi was off is picked up
         # at startup rather than at the next full sync.
         self.playlist_poll_at = None
+        # Next re-read of the server's library list (see poll_libraries).
+        # Unlike the playlist clock this starts deferred, set by ``startup``
+        # once its own get_views has run — polling on the first tick would
+        # only repeat the call startup just made.
+        self.library_poll_at = None
         # Kodi databases ("video"/"music") that new content landed in, and that
         # anything at all was written to. Kodi is not told about writes made
         # straight to its SQLite files, so widgets only refresh when we say so.
@@ -417,6 +432,43 @@ class Library(threading.Thread):
         # every two-second tick.
         self.defer_playlist_poll()
         self.sync_music_playlists()
+
+    def defer_library_poll(self):
+        """Start the library-list poll interval again."""
+        self.library_poll_at = datetime.now() + timedelta(seconds=LIBRARY_POLL_SECONDS)
+
+    def poll_libraries(self):
+        """Re-read the server's library list on the LIBRARY_POLL_SECONDS clock.
+
+        The removal half is the point (see LIBRARY_POLL_SECONDS): ``get_views``
+        already decides which stored views the server no longer lists and
+        fires REMOVE_LIBRARY for them, behind its own ``complete`` guard, and
+        that decision was simply never reached outside ``startup``. Additions
+        come along free — a library created server-side gets its view row here
+        rather than at the next start — but nothing is *synced* by this call;
+        it writes view rows and leaves the whitelist alone.
+
+        Held off while a sync cycle is in flight for the same reason the
+        playlist poll is: the removal it may enqueue would delete rows the
+        drain is still writing.
+        """
+        if self.pending_refresh or not state.is_online():
+            return
+
+        if self.library_poll_at is not None and datetime.now() < self.library_poll_at:
+            return
+
+        # Before the call, not after: one that raises must not retry on every
+        # two-second tick.
+        self.defer_library_poll()
+
+        try:
+            Views(self.api).get_views()
+        except Exception:
+            # Never take the library thread down over a listing that can be
+            # asked for again in fifteen minutes. get_views swallows the
+            # listing failure itself; this covers the view-row writes below it.
+            LOG.exception("library list poll failed")
 
     def reassert_music_sources(self):
         """Rewrite the per-library music ``source`` rows after a Kodi scan.
@@ -669,6 +721,7 @@ class Library(threading.Thread):
             self.worker_remove()
             self.refresh_added()
             self.poll_music_playlists()
+            self.poll_libraries()
 
         # Outside the playback gate on purpose: a summary accumulated with
         # syncDuringPlay on is held while video plays, and this is the tick
@@ -776,6 +829,7 @@ class Library(threading.Thread):
                 elif command == "RemoveLibrary":
                     if data.get("Id"):
                         kinds = set()
+                        dropped = []
 
                         for lib in data["Id"].split(","):
                             # Before the removal deletes the view row.
@@ -784,8 +838,14 @@ class Library(threading.Thread):
                             if not self.remove_library(lib):
                                 break
 
+                            dropped.append(lib)
+
                             if kind:
                                 kinds.add(kind)
+
+                        # After the removals and never before, for the
+                        # ordering reason in _drop_from_selection.
+                        self._drop_from_selection(dropped)
 
                         # Removal is the one write path with no other refresh
                         # owner, and it must aim at the removed library's own
@@ -875,6 +935,59 @@ class Library(threading.Thread):
             return None
 
         return "music" if view.media_type == "music" else "video"
+
+    def _drop_from_selection(self, library_ids):
+        """Take removed libraries out of ``librarySelection``.
+
+        ``FullSync.remove_library`` already drops them from sync.json's
+        whitelist; this is the settings-side mirror, and without it the two
+        disagree for a library deleted server-side. That disagreement is not
+        cosmetic: ``_library_selection_changed`` diffs the stored selection
+        against the whitelist rather than against the previous csv, so an id
+        that outlives its whitelist entry reads as an *addition* — the next
+        time the user touches the picker for any reason, kofin asks the server
+        to sync a library that no longer exists.
+
+        Ordering is the whole correctness argument. The write fires
+        ``onSettingsChanged``, and the applier diffs at once: run after
+        ``remove_library``, both sides have lost the library and the diff is
+        empty; run before it, the whitelist still has the entry and the diff
+        reads as a *removal*, which raises the yesno modal asking the user to
+        confirm deleting a library the server already deleted.
+
+        The settings-driven removal reaches here too and is a no-op — the id
+        left the selection before the command was ever enqueued. The repair
+        path deliberately does not: it removes and immediately re-adds, and a
+        selection edited in between would make the following save read the
+        library as a removal and delete it in earnest.
+
+        Only ever shrinks the list, which is what makes it safe against the
+        unavailable-settings window (``settings.get_addon``): a read that comes
+        back empty there yields nothing to drop rather than a wrong write.
+        """
+        wanted = {library_id.replace("Mixed:", "") for library_id in library_ids}
+
+        if not wanted:
+            return
+
+        current = settings.get_list("librarySelection")
+        remaining = [part for part in current if part not in wanted]
+
+        if len(remaining) == len(current):
+            return
+
+        # Emptying it is a legitimate outcome — the server has no library left
+        # that this install syncs — and costs nothing that is not already true:
+        # _start_library declines to start a sync thread with an empty
+        # selection and no whitelist, and the picker starts it again. The
+        # guarded-clear machinery in settings_apply guards against *reading* an
+        # empty value from a failed settings load, which a deliberate write is
+        # not.
+        LOG.info(
+            "dropping %s from librarySelection (removed server-side or by request)",
+            ",".join(sorted(wanted)),
+        )
+        settings.set_str("librarySelection", ",".join(remaining))
 
     def stop_client(self):
         self.stop_thread = True
@@ -1663,6 +1776,7 @@ class Library(threading.Thread):
 
         Views(self.api).get_views()
         Views(self.api).get_nodes()
+        self.defer_library_poll()
 
         self.detect_companion()
         self.update_status_strings()
