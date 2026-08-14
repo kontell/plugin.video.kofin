@@ -75,6 +75,29 @@ Aim for the same length rather than the same literal wording in the notification
 
 Settings **labels** sit in a narrow left column and should stay short; settings **help** has a panel of its own and can breathe.
 
+## The five ids that take a name, not a count
+
+In the new-content notifications, the singular and plural ids of each pair take
+different kinds of argument (`lib/kofin/sync/newcontent.py`, `_count_line`).
+The plural takes a number; the singular takes the item's title:
+
+```
+#30624  %s movie added to library         %s = "Dune"          -> Dune movie added to library
+#30626  %s show added to library          %s = "Severance"
+#30631  %s music video added to library   %s = the video title
+#30633  %s added to music library         %s = the artist name
+#30635  %s added to music library         %s = the album title
+```
+
+The category noun is deliberate: it is what distinguishes the Dune film from
+the Dune album. Keep that information in the translation. If the target language
+cannot form the English noun compound around a proper name, use whatever
+construction it does use for the same job — a headline colon, an apposition, a
+quoted title — as long as the reader still learns what kind of thing arrived.
+
+`#30625`, `#30627`, `#30630`, `#30632`, `#30634` and `#30636` are the count
+forms and behave normally.
+
 ## Duplicates
 
 Several ids share the same English text on purpose — `#30633` and `#30635` are the artist and album lines of the new-content notification, kept separate so a translator can word them differently.
