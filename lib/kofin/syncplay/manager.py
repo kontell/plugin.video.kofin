@@ -50,6 +50,11 @@ class SyncPlayManager(object):
         self.group = None  # {"GroupId", "GroupName"}
         self.group_state = None
         self.members = []
+        self.protocol_version = 1
+        self.state_version = 0
+        # Dedicated time-sync socket path from the server's Hello (plugin
+        # binding); None = HTTP time sync only.
+        self.timesync_ws_path = None
         self.ignore_wait = False
 
         self.queue = []  # [(ItemId, PlaylistItemId)] mirror of the group queue
@@ -62,7 +67,9 @@ class SyncPlayManager(object):
 
         self.join_local_ms = 0.0
         self.last_group_id = None
+        self.last_snapshot_at = 0.0
         self._last_rejoin = 0.0
+        self._last_snapshot_request = 0.0
         self._last_ping_report = 0.0
         self._join_pending_since = 0.0
         self._pending_local_queue = False
@@ -199,6 +206,24 @@ class SyncPlayManager(object):
         except Exception as error:
             LOG.debug("GetUtcTime failed: %s", error)
             return None
+
+    def can_ws_timesync(self):
+        return self.in_group() and bool(self.timesync_ws_path)
+
+    def timesync_ws_target(self):
+        """(url, authorization) for the dedicated time-sync socket, or None."""
+        if not self.timesync_ws_path:
+            return None
+
+        api_client = self.get_api()
+
+        if api_client is None:
+            return None
+
+        return (
+            api_client.websocket_url(self.timesync_ws_path),
+            api_client.authorization(),
+        )
 
     def on_timesync_update(self):
         """Report our ping after accepted measurements (SYNCPLAY.md §3)."""
@@ -341,7 +366,9 @@ class SyncPlayManager(object):
         self._join_pending_since = time.time()
 
         try:
-            self._api_raw("syncplay_join", group_id)
+            # Request v2 unconditionally: older servers ignore unknown
+            # fields and we detect the version from GroupJoined (§2).
+            self._api_raw("syncplay_join", group_id, 2)
         except JellyfinError as error:
             LOG.warning("SyncPlay join failed: %s", error)
             self._toast(settings.localized(30578), error=True)
@@ -359,7 +386,7 @@ class SyncPlayManager(object):
         self._pending_local_queue = True
 
         try:
-            self._api_raw("syncplay_new", group_name)
+            self._api_raw("syncplay_new", group_name, 2)
         except Exception as error:
             LOG.warning("SyncPlay new group failed: %s", error)
             self._pending_local_queue = False
@@ -392,12 +419,14 @@ class SyncPlayManager(object):
             self._attempt_rejoin(force=True)
 
     def request_resync(self):
-        """Menu 'resync': re-join re-attaches the session and the server
-        pushes the group state again (§4, §9)."""
+        """Menu 'resync': snapshot on v2, re-join on v1 (§4, §9)."""
         if not self.in_group():
             return
 
-        self._attempt_rejoin(force=True)
+        if self.protocol_version >= 2:
+            self._request_snapshot(force=True)
+        else:
+            self._attempt_rejoin(force=True)
 
     def _watch_join_feedback(self):
         """The feedback plane is mandatory: joining without a working
@@ -426,9 +455,10 @@ class SyncPlayManager(object):
     def _handle_group_update(self, data):
         gtype = data.get("Type")
         payload = data.get("Data")
+        version = data.get("StateVersion")
 
         if gtype == "GroupJoined":
-            self._on_group_joined(payload or {})
+            self._on_group_joined(payload or {}, version)
             return
 
         if gtype in ("NotInGroup", "GroupDoesNotExist"):
@@ -452,12 +482,21 @@ class SyncPlayManager(object):
             self._toast(settings.localized(30564))
             return
 
+        previous_version = self.state_version
+
+        if version is not None:
+            self.state_version = max(previous_version, version)
+
         if gtype == "UserJoined":
             self._toast(self._text(30565, payload))
             return
 
         if gtype == "UserLeft":
             self._toast(self._text(30566, payload))
+            return
+
+        if utils.is_stale_version(version, previous_version):
+            LOG.info("Ignoring stale %s (v%s < v%s)", gtype, version, previous_version)
             return
 
         if gtype == "StateUpdate":
@@ -475,6 +514,10 @@ class SyncPlayManager(object):
                 self._toast(settings.localized(30585))
         elif gtype == "PlayQueue":
             self._apply_play_queue(payload or {})
+        elif gtype == "StateSnapshot":
+            self._apply_snapshot(payload or {})
+        elif gtype == "PositionBeacon":
+            self._on_beacon(payload or {}, version, previous_version)
         else:
             LOG.debug("Unhandled group update type: %s", gtype)
 
@@ -485,6 +528,16 @@ class SyncPlayManager(object):
 
         if command.get("GroupId") and command["GroupId"] != self.group["GroupId"]:
             LOG.info("Discarding command for another group")
+            return
+
+        previous_version = self.state_version
+        version = command.get("StateVersion")
+
+        if version is not None:
+            self.state_version = max(previous_version, version)
+
+        if utils.is_stale_version(version, previous_version):
+            LOG.info("Ignoring stale command (v%s < v%s)", version, previous_version)
             return
 
         emitted = utils.parse_iso_ms(command.get("EmittedAt"))
@@ -503,11 +556,17 @@ class SyncPlayManager(object):
                 command.get("PlaylistItemId"),
                 self.current_playlist_item_id,
             )
+
+            if self.protocol_version >= 2:
+                # A command for an item we don't have means we missed a
+                # queue update: reconcile instead of staying split (§6).
+                self._request_snapshot()
+
             return
 
         self.playback.schedule(command)
 
-    def _on_group_joined(self, info):
+    def _on_group_joined(self, info, version):
         if not self.enabled():
             LOG.info("SyncPlay is disabled in settings, ignoring GroupJoined")
             return
@@ -520,9 +579,12 @@ class SyncPlayManager(object):
         }
         self.last_group_id = info.get("GroupId")
         self.group_state = info.get("State")
-        # Members (with per-member state) is a newer server field; older
+        # Members (with per-member state) is a v2/phase-0 field; stock v1
         # servers only send Participants name strings.
         self.members = info.get("Members") or info.get("Participants") or []
+        server_version = info.get("ProtocolVersion") or 1
+        self.protocol_version = 2 if server_version >= 2 else 1
+        self.state_version = version or 0
         self.queue_last_update = None
         self.join_local_ms = utils.local_ms()
         self._join_pending_since = 0.0
@@ -541,7 +603,16 @@ class SyncPlayManager(object):
 
         self.playback.start_loop()
 
-        LOG.info("--->[ syncplay group/%s ]", self.group["GroupId"])
+        LOG.info(
+            "--->[ syncplay group/%s ] protocol v%s",
+            self.group["GroupId"],
+            self.protocol_version,
+        )
+
+        if self.protocol_version >= 2 and self.timesync_ws_path is None:
+            # Learn the time-sync transport (plugin binding); integrated v2
+            # servers have no Hello and stay on HTTP time sync.
+            self._hello()
 
         if not rejoined:
             self._toast(self._text(30563, self.group["GroupName"] or "?"))
@@ -563,6 +634,8 @@ class SyncPlayManager(object):
         self.group = None
         self.group_state = None
         self.members = []
+        self.protocol_version = 1
+        self.state_version = 0
         self.queue = []
         self.queue_last_update = None
         self.current_item_id = None
@@ -589,25 +662,74 @@ class SyncPlayManager(object):
         LOG.info("Attempting SyncPlay rejoin of %s", self.last_group_id)
 
         try:
-            self._api_raw("syncplay_join", self.last_group_id)
+            self._api_raw("syncplay_join", self.last_group_id, 2)
         except Exception as error:
             LOG.warning("SyncPlay rejoin failed: %s", error)
             self._leave_locally()
             self._toast(settings.localized(30571), warning=True)
 
+    def _request_snapshot(self, force=False):
+        """§6: reconcile via a pushed StateSnapshot, rate-limited."""
+        if self.protocol_version < 2:
+            return
+
+        now = time.time()
+
+        if (
+            not force
+            and now - self._last_snapshot_request < utils.SNAPSHOT_REQUEST_INTERVAL
+        ):
+            return
+
+        self._last_snapshot_request = now
+        self._api("syncplay_snapshot")
+
+    def _hello(self):
+        """Capability probe (plugin binding): learns the dedicated time-sync
+        socket path and registers our protocol version for this device.
+        Stock and integrated servers 404 — HTTP time sync stays in place and
+        nothing else changes."""
+        try:
+            info = self._api_raw("syncplay_hello", 2) or {}
+        except Unauthorized:
+            return
+        except JellyfinError as error:
+            LOG.debug("SyncPlay hello unavailable: %s", error)
+            self.timesync_ws_path = None
+            return
+        except Exception as error:
+            LOG.debug("SyncPlay hello failed: %s", error)
+            return
+
+        self.timesync_ws_path = (info.get("TimeSync") or {}).get("WebSocketPath")
+
+        if self.timesync_ws_path:
+            LOG.info("SyncPlay time-sync socket at %s", self.timesync_ws_path)
+
     def _on_ws_connected(self):
-        """Reconnect contract (§9, report R2): after any WS drop assume we
-        were kicked — current servers end the session on a socket close.
-        Probe GET /SyncPlay/List: if the group still exists, re-join to
-        re-attach and receive the group state again; if it is gone,
-        stop pretending to be in it."""
+        """Reconnect contract (§9): a v2 server re-attaches the member and
+        pushes a StateSnapshot on its own; verify and pull one if it never
+        arrives. v1 servers end the session on any socket close (report R2):
+        probe GET /SyncPlay/List and re-join, or stop pretending."""
         if not self.in_group():
             return
 
         if self.timesync is not None:
             self.timesync.force_update()
 
-        self._kicked_probe()
+        if self.protocol_version >= 2:
+            connected_at = time.time()
+
+            def check():
+                if self.in_group() and self.last_snapshot_at < connected_at:
+                    LOG.info("No snapshot pushed after reconnect, requesting one")
+                    self._request_snapshot()
+
+            timer = threading.Timer(5, self._post, args=(check,))
+            timer.daemon = True
+            timer.start()
+        else:
+            self._kicked_probe()
 
     def _kicked_probe(self):
         groups = self.list_groups()
@@ -626,6 +748,68 @@ class SyncPlayManager(object):
         LOG.info("Group %s no longer exists after reconnect", group_id)
         self._leave_locally()
         self._toast(settings.localized(30571), warning=True)
+
+    # ------------------------------------------------------------------
+    # Snapshots and beacons (v2)
+    # ------------------------------------------------------------------
+
+    def _apply_snapshot(self, snapshot):
+        """§5.4: equivalent to GroupJoined + PlayQueue + a synthetic command."""
+        self.last_snapshot_at = time.time()
+
+        if snapshot.get("GroupName"):
+            self.group["GroupName"] = snapshot["GroupName"]
+
+        self.group_state = snapshot.get("State")
+        self.members = snapshot.get("Members") or self.members
+
+        self._apply_play_queue(snapshot.get("PlayQueue") or {})
+
+        if self.phase == "loading":
+            # The queue application is (re)loading the item; the ready
+            # flow will converge on the snapshot position by itself.
+            return
+
+        state = snapshot.get("State")
+
+        if snapshot.get("IsPlaying"):
+            command = "Unpause"
+        elif state == "Idle":
+            command = "Stop"
+        else:
+            command = "Pause"
+
+        self._handle_command(
+            {
+                "Command": command,
+                "When": snapshot.get("When"),
+                "EmittedAt": snapshot.get("When"),
+                "PositionTicks": snapshot.get("PositionTicks") or 0,
+                "PlaylistItemId": self.current_playlist_item_id,
+                "StateVersion": None,
+            }
+        )
+
+    def _on_beacon(self, beacon, version, previous_version):
+        """§11: advisory position data; §6: version gap detection."""
+        if version is not None and previous_version and version > previous_version:
+            LOG.info(
+                "Beacon v%s ahead of last update v%s, requesting snapshot",
+                version,
+                previous_version,
+            )
+            self._request_snapshot()
+
+        if (
+            beacon.get("PlaylistItemId")
+            and beacon["PlaylistItemId"] == self.current_playlist_item_id
+        ):
+            when_ms = utils.parse_iso_ms(beacon.get("When"))
+
+            if when_ms is not None:
+                self.playback.set_reference(
+                    beacon.get("PositionTicks") or 0, when_ms, True
+                )
 
     # ------------------------------------------------------------------
     # Queue mirror (SYNCPLAY.md §5.3, report §9.5.1)
@@ -1148,10 +1332,16 @@ class SyncPlayManager(object):
 
     def on_wake(self):
         """Screensaver deactivate / system wake: never trust a stale clock
-        offset (report §9.5.6), and re-probe the group — after a sleep the
-        socket may be a zombie the server already kicked."""
+        offset (report §9.5.6), and reconcile the group — after a sleep the
+        socket may be a zombie. A v2 snapshot request also re-attaches the
+        membership server-side; v1 keeps the kicked-probe."""
         if self.timesync is not None:
             self.timesync.force_update(reset=True)
 
-        if self.in_group():
+        if not self.in_group():
+            return
+
+        if self.protocol_version >= 2:
+            self._post(self._request_snapshot, True)
+        else:
             self._post(self._kicked_probe)

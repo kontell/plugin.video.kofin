@@ -531,14 +531,55 @@ class Api:
         listing: List[JsonDict] = response.json() if response.content else []
         return listing
 
-    def syncplay_new(self, group_name: str) -> None:
-        self.post("/SyncPlay/New", {"GroupName": group_name})
+    def syncplay_new(
+        self, group_name: str, protocol_version: Optional[int] = None
+    ) -> None:
+        body: JsonDict = {"GroupName": group_name}
 
-    def syncplay_join(self, group_id: str) -> None:
-        self.post("/SyncPlay/Join", {"GroupId": group_id})
+        if protocol_version:
+            body["ProtocolVersion"] = protocol_version
+
+        self.post("/SyncPlay/New", body)
+
+    def syncplay_join(
+        self, group_id: str, protocol_version: Optional[int] = None
+    ) -> None:
+        body: JsonDict = {"GroupId": group_id}
+
+        if protocol_version:
+            body["ProtocolVersion"] = protocol_version
+
+        self.post("/SyncPlay/Join", body)
 
     def syncplay_leave(self) -> None:
         self.post("/SyncPlay/Leave")
+
+    def syncplay_hello(self, protocol_version: int) -> JsonDict:
+        """Capability probe + negotiation in one round trip (SYNCPLAY.md,
+        plugin binding): a 200 carries the server's protocol version and the
+        time-sync transport descriptor; stock and integrated servers 404."""
+        return self.post("/SyncPlay/Hello", {"ProtocolVersion": protocol_version})
+
+    def syncplay_snapshot(self) -> None:
+        """Ask a protocol v2 server to push a StateSnapshot over the websocket."""
+        self.post("/SyncPlay/Snapshot")
+
+    def websocket_url(self, path: str) -> str:
+        """ws(s):// URL for a server websocket path (the dedicated SyncPlay
+        time-sync socket; the main /socket has its own builder in core/ws.py)."""
+        base = self.server
+
+        if base.startswith("https://"):
+            base = base.replace("https://", "wss://", 1)
+        else:
+            base = base.replace("http://", "ws://", 1)
+
+        return base + (path if path.startswith("/") else "/" + path)
+
+    def authorization(self) -> str:
+        """The Authorization header value, for connections made outside this
+        client (the dedicated time-sync websocket)."""
+        return self._header
 
     def syncplay_ready(
         self, when: str, position_ticks: int, is_playing: bool, playlist_item_id: str

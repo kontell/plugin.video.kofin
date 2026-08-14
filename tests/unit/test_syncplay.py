@@ -1,5 +1,8 @@
 """SyncPlay protocol math (ported fork suite) and the timesync window."""
 
+import json
+
+import kofin.syncplay.timesync as timesync_module
 from kofin.syncplay import utils
 from kofin.syncplay.timesync import TimeSync
 
@@ -148,11 +151,18 @@ class TestCorrectionLadder:
 class FakeTimesyncManager:
     """get_utc_time provider + update observer for TimeSync (no thread)."""
 
-    def __init__(self):
+    def __init__(self, ws_target=None):
         self.updates = 0
+        self.ws_target = ws_target
 
     def get_utc_time(self):
         return None
+
+    def can_ws_timesync(self):
+        return self.ws_target is not None
+
+    def timesync_ws_target(self):
+        return self.ws_target
 
     def on_timesync_update(self):
         self.updates += 1
@@ -236,3 +246,110 @@ class TestTimesyncWindow:
         sync = TimeSync(Manager())
         sync._measure()
         assert len(sync.samples) == 0
+
+
+class TestVersionGating:
+    def test_v1_none_is_never_stale(self):
+        assert not utils.is_stale_version(None, 5)
+        assert not utils.is_stale_version(3, None)
+
+    def test_lower_is_stale(self):
+        assert utils.is_stale_version(4, 5)
+
+    def test_equal_and_higher_are_fresh(self):
+        assert not utils.is_stale_version(5, 5)
+        assert not utils.is_stale_version(6, 5)
+
+
+class FakeTimesyncSocket:
+    """Echoes the TimeSync exchange (T1/T2 = t0 + server_ahead_ms)."""
+
+    def __init__(self, server_ahead_ms=100, fail=False):
+        self.server_ahead_ms = server_ahead_ms
+        self.fail = fail
+        self.sent = []
+        self.closed = False
+
+    def send(self, raw):
+        if self.fail:
+            raise OSError("socket gone")
+
+        self.sent.append(json.loads(raw))
+
+    def recv(self):
+        t0 = self.sent[-1]["Data"]
+        stamp = t0 + self.server_ahead_ms
+        return json.dumps(
+            {"MessageType": "TimeSync", "Data": {"T0": t0, "T1": stamp, "T2": stamp}}
+        )
+
+    def close(self):
+        self.closed = True
+
+
+class TestTimesyncWebSocket:
+    """The dedicated-socket exchange (plugin binding): preferred when the
+    server advertises it, HTTP fallback on any failure, one connection
+    reused across measurements and closed on stop."""
+
+    def make(self, monkeypatch, sock):
+        manager = FakeTimesyncManager(
+            ws_target=("ws://server/SyncPlay/TimeSync", "auth")
+        )
+        connects = []
+
+        def create_connection(url, timeout, header):
+            connects.append((url, timeout, header))
+            return sock
+
+        monkeypatch.setattr(
+            timesync_module.websocket, "create_connection", create_connection
+        )
+        return TimeSync(manager), connects
+
+    def test_ws_exchange_produces_a_sample(self, monkeypatch):
+        sync, connects = self.make(monkeypatch, FakeTimesyncSocket(server_ahead_ms=250))
+
+        sync._measure()
+
+        assert len(connects) == 1
+        assert len(sync.samples) == 1
+        assert abs(sync.offset_ms - 250) < 50  # loopback rtt is ~0
+
+    def test_connection_reused_across_measurements(self, monkeypatch):
+        sync, connects = self.make(monkeypatch, FakeTimesyncSocket())
+
+        sync._measure()
+        sync._measure()
+
+        assert len(connects) == 1
+        assert len(sync.samples) == 2
+
+    def test_exchange_failure_falls_back_to_http_and_closes(self, monkeypatch):
+        sock = FakeTimesyncSocket(fail=True)
+        sync, connects = self.make(monkeypatch, sock)
+        http_calls = []
+        sync.manager.get_utc_time = lambda: http_calls.append(1)
+
+        sync._measure()
+
+        assert sock.closed
+        assert http_calls  # fell back to GET /GetUtcTime
+
+    def test_no_transport_uses_http(self, monkeypatch):
+        manager = FakeTimesyncManager()  # no ws target advertised
+        http_calls = []
+        manager.get_utc_time = lambda: http_calls.append(1)
+
+        TimeSync(manager)._measure()
+
+        assert http_calls
+
+    def test_stop_closes_the_socket(self, monkeypatch):
+        sock = FakeTimesyncSocket()
+        sync, _ = self.make(monkeypatch, sock)
+
+        sync._measure()
+        sync.stop()
+
+        assert sock.closed

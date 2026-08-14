@@ -205,6 +205,53 @@ class TestUnpause:
         assert abs(estimate - 10000.0) < 500
 
 
+class TestUnpauseAlignment:
+    """A scheduled Unpause names the exact group position: line up at arm
+    time (video), inside the scheduling lead, so every start has
+    initial-start tightness — barrier restarts and hot joins alike."""
+
+    def seeks(self, player):
+        return [a for a in player.actions if isinstance(a, tuple) and a[0] == "seek"]
+
+    def test_prealigns_at_arm_time(self):
+        controller, manager, player = make_controller(paused=True, position=10.0)
+        controller.schedule(
+            command("Unpause", 1000, ticks=utils.seconds_to_ticks(11.0))
+        )
+
+        assert self.seeks(player) and abs(self.seeks(player)[0][1] - 11.0) < 0.01
+        assert player.paused  # still armed; a paused video seek stays paused
+        controller.cancel_pending()
+
+    def test_no_seek_within_the_band(self):
+        controller, manager, player = make_controller(paused=True, position=10.05)
+        controller.schedule(
+            command("Unpause", 1000, ticks=utils.seconds_to_ticks(10.0))
+        )
+
+        assert self.seeks(player) == []
+        controller.cancel_pending()
+
+    def test_audio_is_never_prealigned(self):
+        controller, manager, player = make_controller(paused=True, position=10.0)
+        player.audio = True
+        controller.schedule(
+            command("Unpause", 1000, ticks=utils.seconds_to_ticks(15.0))
+        )
+
+        assert self.seeks(player) == []
+        controller.cancel_pending()
+
+    def test_fire_time_catch_all_uses_tight_band(self):
+        controller, manager, player = make_controller(paused=True, position=10.0)
+        # 300ms off used to pass through (< the 1500ms drift threshold); a
+        # start must align on the tight band instead.
+        controller.schedule(command("Unpause", -10, ticks=utils.seconds_to_ticks(10.3)))
+
+        assert self.seeks(player) and abs(self.seeks(player)[0][1] - 10.3) < 0.05
+        assert not player.paused
+
+
 class TestPause:
     def test_pause_lands_on_command_position(self):
         controller, manager, player = make_controller(paused=False, position=12.0)

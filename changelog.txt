@@ -1,3 +1,8 @@
+v0.16.0
+- Joining a watch-together group that is already playing no longer pauses it for everyone: the group plays on while the joiner loads, and a private scheduled start drops them in at the exact position the group has reached by then (needs the SyncPlay v2 plugin 10.11.0.2 on the server; joins from the web client and other v1 clients still pause the group as before)
+- A scheduled group start seeks to the exact start position before the clock fires instead of correcting after playback has resumed, which removes the small drift between clients that a pause-and-restart used to leave behind (video; music aligns after the start as before)
+- SyncPlay speaks protocol v2 when the server has the SyncPlay v2 plugin: clock sync runs on its own dedicated connection (about 1ms of measurement noise instead of 20ms), every group update carries a version so a missed or out-of-order message is caught and repaired from a snapshot instead of turning into drift, and waking from sleep or a dropped connection catches up from a snapshot of the group state — without the plugin nothing changes
+
 v0.15.2
 - Films, shows and episodes are stored under every external id the server has for them rather than one hardcoded per media type, so anything that looks an item up that way — skins, other addons, Kodi's own scraper handoff — has something to go on: an item carrying only a TMDB id used to get an empty slot labelled IMDb and lose the id it did have (already-synced items pick theirs up as the server next touches them, or straight away after a repair)
 - Updating the addon while Kodi is running no longer interrupts a library sync that was in progress

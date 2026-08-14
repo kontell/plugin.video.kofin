@@ -1,7 +1,9 @@
 """SyncPlay client for Kodi (phase 4 transplant of the fork's package).
 
 Follows the SyncPlay protocol specification (docs/SYNCPLAY.md in the
-jellyfin repository). Wiring:
+jellyfin repository), speaking v1 to stock servers and v2 where negotiated
+(including the plugin binding: Hello capability probe, dedicated time-sync
+socket). Wiring:
 
 - service/remote.py routes SyncPlayCommand / SyncPlayGroupUpdate websocket
   messages into SyncPlayManager.on_notification; service/main.py forwards

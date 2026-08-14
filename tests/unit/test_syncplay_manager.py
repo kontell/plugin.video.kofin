@@ -1,8 +1,9 @@
 """Protocol behaviour tests for the SyncPlay manager, mirroring the
-client requirements of SYNCPLAY.md (§5.1 command gating, §5.3 queue
-idempotency, §9 membership lifecycle). Ported from the fork with the
-kofin construction signature, dialog/settings fakes, and the kofin.sync.db
-id mapping; plus the kofin-specific kicked-probe and group-flag tests."""
+client requirements of SYNCPLAY.md (§2 negotiation, §5.1 command gating,
+§5.3 queue idempotency, §5.4 snapshots, §6 versioning, §9 membership
+lifecycle). Ported from the fork with the kofin construction signature,
+dialog/settings fakes, and the kofin.sync.db id mapping; plus the
+kofin-specific kicked-probe, group-flag and Hello-transport tests."""
 
 import pytest
 
@@ -95,7 +96,7 @@ def manager():
     m._inbox.put(None)
 
 
-def join(manager):
+def join(manager, protocol_version=2, version=1):
     info = {
         "GroupId": "g1",
         "GroupName": "movie night",
@@ -103,7 +104,12 @@ def join(manager):
         "Participants": ["alice", "bob"],
     }
 
-    manager._handle_group_update({"GroupId": "g1", "Type": "GroupJoined", "Data": info})
+    if protocol_version >= 2:
+        info["ProtocolVersion"] = protocol_version
+
+    manager._handle_group_update(
+        {"GroupId": "g1", "Type": "GroupJoined", "Data": info, "StateVersion": version}
+    )
     # Don't let the real TimeSync thread run in unit tests.
     if manager.timesync is not None:
         manager.timesync.stop()
@@ -111,11 +117,17 @@ def join(manager):
 
 
 def make_queue(
-    items=(("item-1", "pl-1"),), index=0, playing=False, last_update=None, start_ticks=0
+    version=2,
+    items=(("item-1", "pl-1"),),
+    index=0,
+    playing=False,
+    last_update=None,
+    start_ticks=0,
 ):
     return {
         "GroupId": "g1",
         "Type": "PlayQueue",
+        "StateVersion": version,
         "Data": {
             "Reason": "NewPlaylist",
             "LastUpdate": last_update or now_iso(),
@@ -133,8 +145,16 @@ class TestJoin:
         assert manager.in_group()
         assert manager.group["GroupName"] == "movie night"
 
+    def test_v2_detected(self, manager):
+        join(manager, protocol_version=2)
+        assert manager.protocol_version == 2
+
+    def test_v1_absence_of_field(self, manager):
+        join(manager, protocol_version=1)
+        assert manager.protocol_version == 1
+
     def test_participants_fallback(self, manager):
-        join(manager)
+        join(manager, protocol_version=1)
         assert manager.members == ["alice", "bob"]
 
     def test_join_drives_group_flag(self, manager):
@@ -151,6 +171,23 @@ class TestJoin:
 
 
 class TestCommandGating:
+    def test_stale_version_discarded(self, manager):
+        join(manager, version=5)
+        scheduled = []
+        manager.playback.schedule = scheduled.append
+
+        manager._handle_command(
+            {
+                "Command": "Unpause",
+                "When": now_iso(500),
+                "EmittedAt": now_iso(),
+                "PositionTicks": 0,
+                "PlaylistItemId": None,
+                "StateVersion": 4,
+            }
+        )
+        assert scheduled == []
+
     def test_pre_join_command_discarded(self, manager):
         join(manager)
         scheduled = []
@@ -183,6 +220,9 @@ class TestCommandGating:
             }
         )
         assert scheduled == []
+        # §6: a command for an item we don't have means a missed queue
+        # update — a v2 member reconciles via a snapshot.
+        assert manager._api.named("syncplay_snapshot")
 
     def test_stop_bypasses_item_check(self, manager):
         join(manager)
@@ -279,6 +319,157 @@ class TestPlayQueue:
         assert manager.current_playlist_item_id is None
 
 
+class TestPlayQueueVersioning:
+    def test_stale_version_ignored(self, manager):
+        join(manager, version=5)
+        started = []
+        manager._start_item = lambda i, p: started.append((i, p))
+
+        manager._handle_group_update(make_queue(version=3))
+        assert started == []
+
+
+class TestSnapshot:
+    def snapshot(self, version=4, playing=False, state="Paused", when=None):
+        return {
+            "GroupId": "g1",
+            "Type": "StateSnapshot",
+            "StateVersion": version,
+            "Data": {
+                "GroupName": "movie night",
+                "State": state,
+                "PlayQueue": make_queue()["Data"],
+                "PositionTicks": 50000000,
+                "When": when or now_iso(),
+                "IsPlaying": playing,
+                "Members": [{"UserName": "alice"}],
+            },
+        }
+
+    def test_snapshot_applies_queue_and_state(self, manager):
+        join(manager)
+        started = []
+        manager._start_item = lambda i, p: started.append((i, p))
+
+        manager._handle_group_update(self.snapshot())
+
+        # The queue triggered a load; the synthetic command is suppressed
+        # while loading (the ready flow converges instead).
+        assert started == [("item-1", "pl-1")]
+        assert manager.group_state == "Paused"
+        assert manager.last_snapshot_at > 0
+
+    def test_snapshot_synthetic_command_when_not_loading(self, manager):
+        join(manager)
+        manager._start_item = lambda i, p: None
+        scheduled = []
+        manager.playback.schedule = scheduled.append
+
+        manager._handle_group_update(self.snapshot(playing=True, state="Playing"))
+        # Simulate: the item is already loaded and synced.
+        manager.phase = "synced"
+        manager.current_playlist_item_id = "pl-1"
+
+        snap = self.snapshot(version=5, playing=True, state="Playing")
+        snap["Data"]["PlayQueue"]["LastUpdate"] = now_iso(2000)
+        manager._handle_group_update(snap)
+
+        assert scheduled
+        assert scheduled[-1]["Command"] == "Unpause"
+
+    def test_snapshot_idempotent(self, manager):
+        join(manager)
+        started = []
+        manager._start_item = lambda i, p: started.append((i, p))
+
+        snap = self.snapshot()
+        manager._handle_group_update(snap)
+        manager.phase = "synced"
+        manager._handle_group_update(snap)  # replay
+
+        assert started == [("item-1", "pl-1")]
+
+
+class TestBeacon:
+    def beacon(self, version, item="pl-1", position_ticks=10000000, when=None):
+        return {
+            "GroupId": "g1",
+            "Type": "PositionBeacon",
+            "StateVersion": version,
+            "Data": {
+                "PlaylistItemId": item,
+                "PositionTicks": position_ticks,
+                "When": when or now_iso(),
+            },
+        }
+
+    def test_beacon_updates_reference(self, manager):
+        join(manager, version=3)
+        manager.current_playlist_item_id = "pl-1"
+
+        manager._handle_group_update(self.beacon(version=3))
+        estimate = manager.playback.estimate_position_ms()
+        assert estimate is not None
+        assert abs(estimate - 1000.0) < 200
+
+    def test_beacon_version_gap_requests_snapshot(self, manager):
+        join(manager, version=3)
+        manager.current_playlist_item_id = "pl-1"
+
+        manager._handle_group_update(self.beacon(version=9))
+        assert manager._api.named("syncplay_snapshot")
+
+    def test_beacon_for_other_item_ignored(self, manager):
+        join(manager, version=3)
+        manager.current_playlist_item_id = "pl-1"
+
+        manager._handle_group_update(self.beacon(version=3, item="pl-OTHER"))
+        assert manager.playback.estimate_position_ms() is None
+
+    def test_snapshot_request_rate_limited(self, manager):
+        join(manager, version=3)
+        manager.current_playlist_item_id = "pl-1"
+
+        manager._handle_group_update(self.beacon(version=9))
+        manager._handle_group_update(self.beacon(version=10))
+        assert len(manager._api.named("syncplay_snapshot")) == 1
+
+
+class TestHello:
+    """The plugin-binding capability probe (Hello): learns the dedicated
+    time-sync socket; its absence (stock and integrated servers) changes
+    nothing."""
+
+    def test_hello_learns_timesync_transport(self, manager):
+        manager._api_raw.results["syncplay_hello"] = {
+            "ProtocolVersion": 2,
+            "TimeSync": {"WebSocketPath": "/SyncPlay/TimeSync"},
+        }
+        join(manager)
+        assert manager.timesync_ws_path == "/SyncPlay/TimeSync"
+        assert manager.can_ws_timesync()
+
+    def test_hello_not_probed_on_v1(self, manager):
+        join(manager, protocol_version=1)
+        assert manager._api_raw.named("syncplay_hello") == []
+        assert not manager.can_ws_timesync()
+
+    def test_hello_absent_leaves_http_timesync(self, manager):
+        from kofin.core.http import JellyfinError
+
+        recorder = manager._api_raw
+
+        def api_raw(name, *args):
+            if name == "syncplay_hello":
+                raise JellyfinError("404")
+            return recorder(name, *args)
+
+        manager._api_raw = api_raw
+        join(manager)
+        assert manager.timesync_ws_path is None
+        assert not manager.can_ws_timesync()
+
+
 class TestLifecycle:
     def test_group_left_cleans_up(self, manager):
         join(manager)
@@ -286,6 +477,17 @@ class TestLifecycle:
             {"GroupId": "g1", "Type": "GroupLeft", "Data": "g1"}
         )
         assert not manager.in_group()
+        assert manager.state_version == 0
+        assert manager.protocol_version == 1
+
+    def test_join_resets_version_tracking(self, manager):
+        join(manager, version=9)
+        assert manager.state_version == 9
+        manager._handle_group_update(
+            {"GroupId": "g1", "Type": "GroupLeft", "Data": "g1"}
+        )
+        join(manager, version=1)
+        assert manager.state_version == 1
 
     def test_not_in_group_triggers_rejoin(self, manager):
         join(manager)
@@ -316,12 +518,12 @@ class TestLifecycle:
 
 
 class TestKickedProbe:
-    """Reconnect contract (report R2): after a WS drop assume kicked —
+    """Reconnect contract on v1 (report R2): after a WS drop assume kicked —
     probe GET /SyncPlay/List, rejoin if the group survives, detach with a
     toast if it is gone, and hold if the list is unavailable."""
 
     def test_reconnect_probes_and_rejoins(self, manager):
-        join(manager)
+        join(manager, protocol_version=1)
         manager._api_raw.results["syncplay_list"] = [
             {"GroupId": "g1", "GroupName": "movie night"}
         ]
@@ -333,7 +535,7 @@ class TestKickedProbe:
         assert manager.in_group()
 
     def test_reconnect_group_gone_detaches(self, manager):
-        join(manager)
+        join(manager, protocol_version=1)
         toasts = []
         manager._toast = lambda message, **kwargs: toasts.append(message)
         manager._api_raw.results["syncplay_list"] = [{"GroupId": "OTHER"}]
@@ -345,7 +547,7 @@ class TestKickedProbe:
         assert len(toasts) == 1
 
     def test_reconnect_list_unavailable_keeps_group(self, manager):
-        join(manager)
+        join(manager, protocol_version=1)
         manager.list_groups = lambda: None  # server not reachable yet
 
         manager._on_ws_connected()
@@ -358,7 +560,7 @@ class TestKickedProbe:
         assert manager._api_raw.calls == []
 
     def test_wake_probes_group(self, manager):
-        join(manager)
+        join(manager, protocol_version=1)
         manager._api_raw.results["syncplay_list"] = [{"GroupId": "g1"}]
 
         manager.on_wake()
@@ -369,6 +571,57 @@ class TestKickedProbe:
     def test_wake_outside_group_is_noop(self, manager):
         manager.on_wake()
         assert manager._api_raw.calls == []
+
+
+class TestV2Reconnect:
+    """Reconnect contract on v2 (§9): the server re-attaches the member and
+    pushes a StateSnapshot; the client verifies and pulls one when it never
+    arrives, instead of probing and re-joining."""
+
+    class _ImmediateTimer:
+        def __init__(self, interval, func, args=()):
+            self._func = func
+            self._args = args
+            self.daemon = True
+
+        def start(self):
+            self._func(*self._args)
+
+    def test_reconnect_requests_snapshot_when_none_pushed(self, manager, monkeypatch):
+        join(manager)
+        monkeypatch.setattr(manager_module.threading, "Timer", self._ImmediateTimer)
+
+        manager._on_ws_connected()
+
+        # No kicked-probe, no rejoin; a snapshot pull instead.
+        assert manager._api_raw.named("syncplay_list") == []
+        assert manager._api_raw.named("syncplay_join") == []
+        assert manager._api.named("syncplay_snapshot")
+
+    def test_reconnect_trusts_a_pushed_snapshot(self, manager, monkeypatch):
+        join(manager)
+        monkeypatch.setattr(manager_module.threading, "Timer", self._ImmediateTimer)
+        manager.last_snapshot_at = manager_module.time.time() + 1
+
+        manager._on_ws_connected()
+
+        assert manager._api.named("syncplay_snapshot") == []
+
+    def test_wake_requests_snapshot(self, manager):
+        join(manager)
+
+        manager.on_wake()
+
+        assert manager._api.named("syncplay_snapshot")
+        assert manager._api_raw.named("syncplay_list") == []
+
+    def test_resync_menu_uses_snapshot(self, manager):
+        join(manager)
+
+        manager.request_resync()
+
+        assert manager._api.named("syncplay_snapshot")
+        assert manager._api_raw.named("syncplay_join") == []
 
 
 class TestGroupWaitToast:

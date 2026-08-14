@@ -44,6 +44,13 @@ DRIFT_BLACKOUT_AFTER_GIVEUP = 30.0  # tolerate the residual offset this long
 TEMPO_RESTORE_SETTLE_MS = 1000.0  # let the restore settle before measuring
 TEMPO_RESTORE_SKIP_MS = 1500.0  # a jump past this after a restore = a bad player
 AUTO_REJOIN_INTERVAL = 30.0  # min seconds between automatic re-Join attempts
+SNAPSHOT_REQUEST_INTERVAL = 5.0  # min seconds between snapshot requests
+# A scheduled Unpause names the exact group position; starting from anywhere
+# else (the pause-time spread after a barrier, the load position on a hot
+# join) is a persistent audible offset the drift loop deliberately tolerates.
+# Align by seeking at arm time — the seek settles inside the scheduling lead —
+# whenever the start position is off by more than this.
+UNPAUSE_ALIGN_MS = 100.0
 BUFFERING_DEBOUNCE = 2.5  # Player.Caching must persist this long before reporting
 # A local start that must be proposed to the group is paused ("held") the
 # instant it begins, so any waiting happens before playback instead of a few
@@ -197,3 +204,11 @@ def correction_action(
         min(CORRECTION_RATE_CAP, diff_ms / CORRECTION_RATE_GAIN_MS),
     )
     return "tempo", round(rate, 2), True
+
+
+def is_stale_version(version, highest_seen):
+    """StateVersion gating (SYNCPLAY.md §6). None (v1) is never stale."""
+    if version is None or highest_seen is None:
+        return False
+
+    return version < highest_seen
