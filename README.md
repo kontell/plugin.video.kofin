@@ -18,6 +18,7 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 - Download for offline playback - native library browsing with downloaded badges, offline watched/resume sync-back, automatic next-episode/new-content downloads, and optional space-saving transcodes
 - Consolidated, simplified settings for all add-on configuration.
 - SyncPlay - watch in sync with other Jellyfin clients
+-   - For the best experience install the SyncPlay V2 server [plugin](https://github.com/kontell/jellyfin-plugin-syncplayv2)
 - Integrated media segment skipping and play next episode prompt
 - Access movie special features/ extras
 - Multi-version movies as Kodi video versions
