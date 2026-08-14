@@ -18,17 +18,32 @@ from po_lib import parse_entries
 # language. Entries that pair a token with descriptor words ("Dolby Vision with
 # HDR10 fallback") are deliberately NOT here -- the descriptor needs translating.
 PASSTHROUGH = {
-    # video codecs
+    # Video codecs. 30150-30153 carry a parenthesised second name (AVC, HEVC,
+    # Hi10P) that is part of the token, not a gloss.
+    "#30150",  # H.264 (AVC)
+    "#30151",  # H.264 10-bit (Hi10P)
+    "#30152",  # H.265 (HEVC)
+    "#30153",  # HEVC RExt (4:2:2/4:4:4)
     "#30154",  # AV1
+    "#30155",  # MPEG-2
     "#30156",  # VP9
-    # audio codecs
+    "#30157",  # VC-1
+    # Audio codecs. Dolby's own product spellings in 30161/30162.
     "#30158",  # AAC
+    "#30159",  # MP2
     "#30160",  # MP3
+    "#30161",  # AC3 (Dolby Digital)
+    "#30162",  # E-AC3 (Dolby Digital Plus)
     "#30163",  # Opus
     "#30164",  # FLAC
     "#30165",  # DTS
+    # HDR formats. 30170-30175 are deliberately absent: they pair the token
+    # with "with ... fallback", and the descriptor needs translating.
     "#30166",  # HDR10
-    # resolutions
+    "#30167",  # HLG
+    "#30168",  # HDR10+
+    "#30169",  # Dolby Vision
+    # Resolutions
     "#30177",  # 720p
     "#30178",  # 1080p
     "#30179",  # 4K
@@ -37,6 +52,12 @@ PASSTHROUGH = {
     "#30325",  # 2160p
     "#30604",  # 480p
     "#30605",  # 1440p
+    # Bitrate spinner values: a number and an SI unit. Locales differ on the
+    # capitalisation (MBit/s) and the decimal separator (0,5), but these sit in
+    # a spinner beside the numbers they filter, where matching the rest of the
+    # list matters more than matching local typography -- and it spares every
+    # locale 23 translations that carry no meaning.
+    *("#%d" % n for n in range(30183, 30206)),
     # Jellyfin feature name, used as a menu heading and a settings group label
     "#30550",  # SyncPlay
     "#30560",  # SyncPlay

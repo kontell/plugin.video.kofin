@@ -173,7 +173,10 @@ def generate(locale, entries):
             missing.append(e["ctx"])
         elif not str(tr[e["ctx"]]).strip():
             empty.append(e["ctx"])
-    extra = [k for k in tr if k not in known]
+    # A passthrough id in the JSON is dead weight the generator would ignore --
+    # and a sign someone translated a token that must stay verbatim, so say so
+    # rather than silently dropping it.
+    extra = [k for k in tr if k not in known or k in PASSTHROUGH]
     if missing or empty or extra:
         raise SystemExit(
             "%s: missing=%s empty=%s unknown_keys=%s" % (locale, missing, empty, extra)
