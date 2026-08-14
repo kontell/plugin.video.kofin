@@ -24,10 +24,15 @@ ESC_OK = set('"\\nt')
 SPEC = re.compile(r"%[sd]")
 BBCODE = re.compile(r"\[/?[A-Za-z][^\]]*\]")
 
-# The playback-tab caveat quotes the setting label verbatim; translating the two
-# apart leaves the caveat naming a setting that is not on screen.
-CAVEAT = "#30794"
-CAVEAT_LABEL = "#30618"
+# Help strings that quote another string's wording verbatim, so the user can
+# match what the help says against what the settings list shows. Translate the
+# two apart and the help names a control that is not on screen under that name.
+# Nothing but this check ties them together -- tests/unit/test_userprefs.py
+# asserts the #30794 pair for English only.
+QUOTES_VERBATIM = {
+    "#30794": ["#30618"],  # playback caveat -> the default-tracks setting label
+    "#30607": ["#30609", "#30610"],  # lyrics help -> its own two option labels
+}
 
 
 def check_lines(path, errs):
@@ -83,12 +88,17 @@ def check_entries(locale, entries, source, errs):
         got_tags = sorted(BBCODE.findall(got["msgstr"]))
         if want_tags != got_tags:
             errs.append("%s: bbcode %s became %s" % (want["ctx"], want_tags, got_tags))
-    caveat, label = by_ctx.get(CAVEAT), by_ctx.get(CAVEAT_LABEL)
-    if caveat and label and ('"%s"' % label) not in caveat:
-        errs.append(
-            "%s must quote %s verbatim (%r), the setting label it names"
-            % (CAVEAT, CAVEAT_LABEL, label)
-        )
+    for quoting, quoted_ids in QUOTES_VERBATIM.items():
+        help_text = by_ctx.get(quoting)
+        if not help_text:
+            continue
+        for quoted in quoted_ids:
+            label = by_ctx.get(quoted)
+            if label and ('"%s"' % label) not in help_text:
+                errs.append(
+                    "%s must quote %s verbatim (%r), the label it names"
+                    % (quoting, quoted, label)
+                )
 
 
 def main(argv):
