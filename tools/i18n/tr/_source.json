@@ -288,7 +288,7 @@
   "#30509": "Mark as unwatched on Jellyfin",
   "#30550": "SyncPlay",
   "#30551": "Enable SyncPlay",
-  "#30552": "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads.",
+  "#30552": "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads. Works best with Sync Playback to Display turned off in Kodi player settings",
   "#30553": "Drift correction",
   "#30554": "Gently adjusts playback speed to hold position with the group (needs Kodi's 'Sync playback to display'). Off: follow scheduled commands only.",
   "#30555": "Sync tolerance (ms)",

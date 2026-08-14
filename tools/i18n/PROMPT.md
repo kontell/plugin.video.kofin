@@ -37,6 +37,8 @@ The ones that reach you pair a token with real words — "Dolby Vision with HDR1
 
 **Kodi UI paths**: `Music → Playlists → Kofin` in `#30612` names folders Kodi draws in the user's own language; translate the folder words to whatever that locale's Kodi calls them, and keep `Kofin` and the `→`.
 
+**Kodi setting names**: where a string points the user at one of Kodi's own settings — `Sync Playback to Display` in `#30552` — use the wording that locale's Kodi uses for it, not a literal translation of the English. The user has to find the setting by the name on their screen.
+
 ## Rules that break the add-on if you get them wrong
 
 **Format specifiers.** 52 ids contain `%s` or `%d`. Kodi formats these with a plain `%` tuple — there is no positional `%1$s` form anywhere in kofin — so the specifiers must appear the same number of times **and in the same order** as the English.
