@@ -73,7 +73,17 @@ Leave them as a bare `%`. Do not double them to `%%`; these strings are never `%
 
 Kodi's notification toast fits about 33 characters and scrolls the rest.
 The English source was deliberately shortened for this, so a translation that runs long undoes the work.
-Aim for the same length rather than the same literal wording in the notification ids — `#30400`–`#30420`, `#30481`–`#30489`, `#30560`–`#30585`, `#30624`–`#30636`, `#30708`–`#30721`, `#30806`–`#30816`.
+Aim for the same length rather than the same literal wording — but only where the string really is a toast.
+
+The budget applies to the sync and playback toasts (`#30404`, `#30406`, `#30409`, `#30410`, `#30414`, `#30420`), the download toasts (`#30708`, `#30717`, `#30720`, `#30806`, `#30807`, `#30810`), the new-content lines (`#30624`–`#30636`), and the Play Next / segment-skip toasts (`#30481`–`#30489`).
+
+It does **not** apply to these, which sit in a panel or a dialog with room to be clear:
+
+- `#30411`, `#30412`, `#30413`, `#30600` — the Library tab's read-only status labels (`sync/library.py`, `update_status_strings`). An earlier version of this brief wrongly called them toasts, and locales compressed them for no reason.
+- Most of `#30560`–`#30585` — SyncPlay menu entries and dialog bodies. Only `#30574` is a toast.
+- `#30808`, `#30809`, `#30812`, `#30814`, `#30815` — settings labels, help, and confirm-dialog bodies.
+
+If you are unsure whether an id is a toast, check its call site in `lib/kofin/` rather than assuming from the number: a settings label that has been squeezed to 33 characters reads worse than the English for no benefit.
 
 Settings **labels** sit in a narrow left column and should stay short; settings **help** has a panel of its own and can breathe.
 
