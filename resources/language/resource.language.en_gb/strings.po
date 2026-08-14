@@ -338,7 +338,7 @@ msgid "Maximum audio channels"
 msgstr ""
 
 msgctxt "#30119"
-msgid "The most audio channels this device can play. Set it to what your amplifier or TV actually decodes."
+msgid "Maximum number of audio channels allowed when transcoding. Streams with more channels will be downmixed. No effect on direct playback."
 msgstr ""
 
 msgctxt "#30120"
@@ -1374,7 +1374,7 @@ msgid "Sync music playlists"
 msgstr ""
 
 msgctxt "#30612"
-msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin, using each song's library path. Local edits in that folder are overwritten on the next sync."
+msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
 msgstr ""
 
 # 30613-30617 — transcoding stream selection
@@ -1413,7 +1413,7 @@ msgid "Chapter images from the server"
 msgstr ""
 
 msgctxt "#30621"
-msgid "Show Jellyfin's chapter images in Kodi's chapter list. Nothing is downloaded in advance: the images for an item are fetched when you start playing it and dropped again afterwards. Needs chapter image extraction enabled on the server (a per-library setting) and an item that direct plays — transcoded streams carry no chapters."
+msgid "Show Jellyfin's chapter images in Kodi's chapter list. Images are fetched on demand at playback start."
 msgstr ""
 
 # 30622-30636 — new-content notifications
@@ -1422,7 +1422,7 @@ msgid "Notify about new content"
 msgstr ""
 
 msgctxt "#30623"
-msgid "Show a notification when new films, shows, episodes, music videos, artists or albums are added to your library. One notification per kind of content per sync; anything you have already watched is never announced, and a library you have just selected syncs quietly."
+msgid "Show a notification when new films, shows, episodes, music videos, artists or albums are added to your library."
 msgstr ""
 
 msgctxt "#30624"
@@ -1557,7 +1557,7 @@ msgid "Movies: prefer critic rating"
 msgstr ""
 
 msgctxt "#30667"
-msgid "Show your server's critic rating (Rotten Tomatoes, where the OMDb plugin has one) instead of the community rating. Percentages are rescaled for Kodi, so 78% becomes 7.8, and a film with no critic rating keeps its community one. Changing this applies to films already in the library straight away; films synced before this option existed only gain a critic rating once they are re-synced, so run Repair libraries to fetch them all at once."
+msgid "Show your server's critic rating (Rotten Tomatoes) instead of the community rating. Percentages are rescaled so 78% becomes 7.8."
 msgstr ""
 
 # 30668-30673 — actor art pre-cache
@@ -1566,7 +1566,7 @@ msgid "Pre-cache cast images when idle"
 msgstr ""
 
 msgctxt "#30669"
-msgid "Download the cast thumbnails your libraries reference while Kodi is idle, so an item's info dialog draws them instantly instead of fetching each one the first time you open it. Uses disk in Kodi's thumbnail cache — roughly 60 KB per person, which on a large library can reach a gigabyte. Never runs during playback."
+msgid "Cache cast thumbnails while Kodi is idle, so an item's info dialog draws them instantly. Uses disk in Kodi's thumbnail cache — roughly 60 KB per person, which on a large library can reach gigabytes."
 msgstr ""
 
 msgctxt "#30670"
@@ -1679,7 +1679,7 @@ msgid "Transcode videos"
 msgstr ""
 
 msgctxt "#30723"
-msgid "Download a smaller version only when the original exceeds a limit below or uses a codec or HDR type the device cannot play. Everything within the limits downloads as the original file, and compliant streams are copied rather than re-encoded."
+msgid "Transcode when the original exceeds a limit below or when triggered by settings in the Transcoding tab (HDR, codec, etc)"
 msgstr ""
 
 msgctxt "#30724"
