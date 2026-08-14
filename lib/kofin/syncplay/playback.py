@@ -105,6 +105,39 @@ class PlaybackController(object):
             self._timer.daemon = True
             self._timer.start()
 
+        # With the timer armed, use the scheduling lead to line the player up
+        # on the start position, so the fire instant starts from exactly the
+        # group position (initial-start tightness for barrier restarts and
+        # hot joins alike). Blocking here is fine: this runs on the dispatcher
+        # like any REST round trip, and the seek settle is well inside the lead.
+        if command.get("Command") == "Unpause":
+            self._prealign_unpause(command)
+
+    def _prealign_unpause(self, command):
+        """Seek to a scheduled Unpause's position at arm time.
+
+        While paused, the position at the start instant IS the command's
+        PositionTicks — no extrapolation. Audio is excluded: a paused
+        PAPlayer must never be seeked (it aligns after its resume instead).
+        """
+        if self._is_audio() or self.manager.phase not in ("waiting_ready", "synced"):
+            return
+
+        target_ms = utils.ticks_to_ms(command.get("PositionTicks") or 0)
+
+        try:
+            offset_ms = target_ms - self._position_ms()
+        except Exception:
+            return
+
+        if abs(offset_ms) <= utils.UNPAUSE_ALIGN_MS:
+            return
+
+        LOG.info("[ syncplay/align ] %+.0fms to the start position", offset_ms)
+
+        with self.manager.programmatic():
+            self._seek_and_settle(target_ms)
+
     def cancel_pending(self):
         with self._timer_lock:
             if self._timer is not None:
@@ -176,7 +209,9 @@ class PlaybackController(object):
             else:
                 behind_ms = target_ms - self._position_ms()
 
-                if abs(behind_ms) > utils.CORRECTION_SEEK_THRESHOLD_MS:
+                # Catch-all for starts that were not pre-aligned at arm time
+                # (late commands execute immediately): the same tight band.
+                if abs(behind_ms) > utils.UNPAUSE_ALIGN_MS:
                     self._seek_and_settle(target_ms)
 
                 if self._is_paused():
