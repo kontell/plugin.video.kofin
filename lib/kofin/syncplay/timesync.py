@@ -1,9 +1,21 @@
 """NTP-style clock sync against the server, ported from the fork verbatim
 (``LazyLogger`` -> ``Logger``, ``manager.get_utc_time()`` now backed by the
-kofin ``Api``)."""
+kofin ``Api``).
 
+One deliberate deviation from the reference client (jellyfin-kodi
+``feat/syncplay-protocol-v2``): the websocket TimeSync exchange runs on the
+**dedicated socket the server's Hello advertises** (SYNCPLAY.md §3, plugin
+binding) instead of riding the main ``/socket``. A plugin cannot answer
+TimeSync there — and on unfixed servers an unknown message type kills the
+shared socket — so the exchange is a plain synchronous round trip on its own
+connection, which also stamps t3 right at ``recv()`` with no notification bus
+in the path."""
+
+import json
 import threading
 from collections import deque
+
+import websocket
 
 from kofin.core.log import Logger
 from kofin.syncplay import utils
@@ -18,8 +30,10 @@ LOG = Logger(__name__)
 class TimeSync(threading.Thread):
     """NTP-style clock sync against the server (SYNCPLAY.md §3).
 
-    Keeps a sliding window of measurements over GET /GetUtcTime and
-    trusts the one with the smallest round trip.
+    Keeps a sliding window of measurements and trusts the one with the
+    smallest round trip. Prefers the dedicated websocket TimeSync exchange
+    when the server advertises one (it measures a channel with no HTTP
+    overhead and stamps t3 at receipt), falling back to GET /GetUtcTime.
 
     offset_ms is (server clock - local clock); server_now_ms() converts
     the local clock to the server's.
@@ -37,6 +51,7 @@ class TimeSync(threading.Thread):
         self._stop_event = threading.Event()
         self._kick_event = threading.Event()
         self._lock = threading.Lock()
+        self._ws = None  # the dedicated time-sync socket, when advertised
 
     def run(self):
         LOG.info("--->[ syncplay timesync ]")
@@ -61,6 +76,7 @@ class TimeSync(threading.Thread):
     def stop(self):
         self._stop_event.set()
         self._kick_event.set()
+        self._close_ws()
 
     def force_update(self, reset=False):
         """Re-measure greedily, e.g. on group join or wake from sleep."""
@@ -80,6 +96,75 @@ class TimeSync(threading.Thread):
     # --- measurement ---------------------------------------------------
 
     def _measure(self):
+        if self.manager.can_ws_timesync() and self._measure_ws():
+            return
+
+        self._measure_http()
+
+    def _measure_ws(self):
+        """One exchange over the dedicated socket; returns False to fall back."""
+        sock = self._ws_socket()
+
+        if sock is None:
+            return False
+
+        t0 = int(utils.local_ms())
+
+        try:
+            sock.send(json.dumps({"MessageType": "TimeSync", "Data": t0}))
+            raw = sock.recv()
+            t3 = utils.local_ms()
+        except Exception as error:
+            LOG.debug("WebSocket TimeSync exchange failed: %s", error)
+            self._close_ws()
+            return False
+
+        try:
+            data = (json.loads(raw) or {}).get("Data") or {}
+        except ValueError:
+            LOG.debug("Unparseable TimeSync response: %r", raw)
+            return False
+
+        if data.get("T0") != t0:
+            LOG.debug("Unmatched TimeSync response: %s", data)
+            return False
+
+        offset, rtt = utils.ntp_sample(t0, data["T1"], data["T2"], t3)
+        self._add_sample(offset, rtt)
+        return True
+
+    def _ws_socket(self):
+        if self._ws is not None:
+            return self._ws
+
+        target = self.manager.timesync_ws_target()
+
+        if not target:
+            return None
+
+        url, authorization = target
+
+        try:
+            self._ws = websocket.create_connection(
+                url, timeout=3, header={"Authorization": authorization}
+            )
+        except Exception as error:
+            LOG.debug("Time-sync socket connect failed: %s", error)
+            return None
+
+        LOG.info("Time sync on dedicated socket %s", url)
+        return self._ws
+
+    def _close_ws(self):
+        sock, self._ws = self._ws, None
+
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+    def _measure_http(self):
         t0 = utils.local_ms()
         response = self.manager.get_utc_time()
         t3 = utils.local_ms()
