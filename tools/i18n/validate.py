@@ -30,7 +30,11 @@ OK_IDENTICAL = {
     # English words a good many languages borrow unchanged. Being in this set
     # permits an identical msgstr; it does not ask for one. A locale with a
     # native word should still use it -- German says Bonusmaterial for Extras.
+    "#30013",  # Username
+    "#30014",  # Password
     "#30036",  # Genres
+    "#30040",  # Albums
+    "#30050",  # Account
     "#30056",  # Server
     "#30180",  # 2.0 stereo
     "#30181",  # 5.1 surround
