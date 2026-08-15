@@ -1,3 +1,11 @@
+v0.17.0
+- The add-on is translated into 26 languages
+- Stopping a watch-together group no longer freezes Kodi
+- In a watch-together group, a downloaded item plays from disk on every client, not just the one that started it
+- "Who's watching?" gains an All row and can be turned off
+- Removing a download no longer asks for confirmation
+- SyncPlay drift correction is off by default
+
 v0.16.0
 - Joining a watch-together group that is already playing no longer pauses it for everyone: the group plays on while the joiner loads, and a private scheduled start drops them in at the exact position the group has reached by then (needs the SyncPlay v2 plugin 10.11.0.2 on the server; joins from the web client and other v1 clients still pause the group as before)
 - A scheduled group start seeks to the exact start position before the clock fires instead of correcting after playback has resumed, which removes the small drift between clients that a pause-and-restart used to leave behind (video; music aligns after the start as before)
