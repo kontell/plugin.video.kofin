@@ -60,6 +60,7 @@ class SettingsApplier:
             "sslVerify": self._ssl_verify_changed,
             "librarySelection": self._library_selection_changed,
             "syncPlayEnabled": self._syncplay_enabled_changed,
+            "whoIsWatchingShortlist": self._who_shortlist_changed,
             "contextBitrates": self._context_bitrates_changed,
             "syncMusicPlaylists": self._sync_music_playlists_changed,
             "musicTranscode": self._music_transcode_changed,
@@ -85,6 +86,9 @@ class SettingsApplier:
         # Publish rather than wait for a change: the plugin process reads this
         # property on every context-menu draw, including the first.
         state.set_context_bitrates(self.snapshot.get("contextBitrates", ""))
+        # Same reason: skins cannot read the settings that hide these two
+        # root entries, so the service mirrors the offer onto properties.
+        self._publish_root_menus()
         LOG.debug("settings applier ready; baseline re-read")
 
     def apply(self) -> None:
@@ -181,6 +185,27 @@ class SettingsApplier:
                 service._start_syncplay()  # type: ignore[attr-defined]
         else:
             service._stop_syncplay()  # type: ignore[attr-defined]
+        self._publish_root_menus()
+
+    def _who_shortlist_changed(self, old: str, new: str) -> None:
+        """The Advanced-tab shortlist is also how Who's watching? is
+        switched off (the nobody sentinel). Republish so a skin button
+        tracks the root entry without waiting for a service restart."""
+        self._publish_root_menus()
+
+    def _publish_root_menus(self) -> None:
+        """Mirror addon-root Who's watching? / SyncPlay visibility for skins.
+
+        Same gates as ``plugin.browse.root``: logged in, and the feature's
+        own offer function. Written rather than derived in the skin because
+        a ``<visible>`` cannot read an addon setting (core/state.py).
+        """
+        from kofin.core.settings import Credentials
+        from kofin.plugin import adduser, syncplay
+
+        logged_in = Credentials.load().is_logged_in
+        state.set_menu_who(logged_in and adduser.is_enabled())
+        state.set_menu_syncplay(logged_in and syncplay.available())
 
     def _context_bitrates_changed(self, old: str, new: str) -> None:
         """Keep the property addon.xml gates the transcode context item on."""

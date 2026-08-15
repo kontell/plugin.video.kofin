@@ -44,6 +44,7 @@ class FakeService:
         self.reregistered = 0
         self.backdrop_refreshes = []
         self.downloads_events = []
+        self.syncplay_events = []
 
     def _start_library(self):
         pass
@@ -56,6 +57,12 @@ class FakeService:
 
     def _stop_downloads(self):
         self.downloads_events.append("stop")
+
+    def _start_syncplay(self):
+        self.syncplay_events.append("start")
+
+    def _stop_syncplay(self):
+        self.syncplay_events.append("stop")
 
     def _on_ws_connected(self):
         self.reregistered += 1
@@ -646,3 +653,78 @@ def test_downloads_path_change_reaims_the_music_view(tmp_path, monkeypatch):
     FakeAddon.store["downloadsPath"] = str(tmp_path / "dl2")
     applier.apply()
     assert refreshed == [1]
+
+
+# --- root-menu visibility properties (skins cannot read addon settings) ------
+
+
+def _logged_in_menu_env(monkeypatch):
+    """A session that would list both root entries, plus no external player."""
+    from kofin.plugin import adduser
+
+    FakeAddon.store["isLoggedIn"] = "true"
+    FakeAddon.store["syncPlayEnabled"] = "true"
+    FakeAddon.store["whoIsWatchingShortlist"] = adduser.SHORTLIST_ALL
+    monkeypatch.setattr(
+        "kofin.plugin.syncplay.external_player_configured", lambda: False
+    )
+
+
+def test_mark_ready_publishes_root_menu_visibility(monkeypatch):
+    from kofin.core import state
+
+    _logged_in_menu_env(monkeypatch)
+    ready_applier(FakeService())
+
+    assert state.menu_who() is True
+    assert state.menu_syncplay() is True
+
+
+def test_root_menus_stay_hidden_when_logged_out(monkeypatch):
+    from kofin.core import state
+    from kofin.plugin import adduser
+
+    FakeAddon.store["isLoggedIn"] = "false"
+    FakeAddon.store["syncPlayEnabled"] = "true"
+    FakeAddon.store["whoIsWatchingShortlist"] = adduser.SHORTLIST_ALL
+    monkeypatch.setattr(
+        "kofin.plugin.syncplay.external_player_configured", lambda: False
+    )
+    ready_applier(FakeService())
+
+    assert state.menu_who() is False
+    assert state.menu_syncplay() is False
+
+
+def test_syncplay_toggle_republishes_and_rebuilds_the_manager(monkeypatch):
+    from kofin.core import state
+
+    _logged_in_menu_env(monkeypatch)
+    service = FakeService()
+    applier = ready_applier(service)
+    assert state.menu_syncplay() is True
+
+    FakeAddon.store["syncPlayEnabled"] = "false"
+    applier.apply()
+    assert state.menu_syncplay() is False
+    assert service.syncplay_events == ["stop"]
+
+    FakeAddon.store["syncPlayEnabled"] = "true"
+    applier.apply()
+    assert state.menu_syncplay() is True
+    assert service.syncplay_events == ["stop", "start"]
+
+
+def test_empty_whos_watching_shortlist_hides_the_menu(monkeypatch):
+    from kofin.core import state
+    from kofin.plugin import adduser
+
+    _logged_in_menu_env(monkeypatch)
+    applier = ready_applier(FakeService())
+    assert state.menu_who() is True
+
+    FakeAddon.store["whoIsWatchingShortlist"] = adduser.SHORTLIST_NOBODY
+    applier.apply()
+    assert state.menu_who() is False
+    # SyncPlay is independent of the shortlist.
+    assert state.menu_syncplay() is True
