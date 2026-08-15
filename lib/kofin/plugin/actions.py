@@ -506,27 +506,25 @@ def cancel_download(request: Request) -> None:
 
 
 def remove_download(request: Request) -> None:
-    """Confirm, then let the service restore the rows and delete the files.
+    """Let the service restore the rows and delete the files. No confirmation.
 
-    A container removes everything finished under it — one confirmation for
-    the lot, naming the count, because a show is not a thing anyone wants to
-    answer twelve dialogs about.
+    Unlike Delete on the same menu, this destroys nothing the server does not
+    still have: a download is a local copy, and removing it puts the item back
+    to streaming. The feedback is the listing itself — the service unstamps the
+    download badge and refreshes as soon as the rows are gone — so the answer
+    to "did that work" is on screen either way, without a dialog in front of it.
+
+    A container removes everything finished under it, expanded from kofin.db
+    rather than the server so the entry keeps working offline.
     """
     item_id = request.params.get("id", "")
     if not item_id:
         return
     from kofin.downloads import store
 
-    name = request.params.get("name", "") or item_id
     if store.get(item_id) is not None:
         targets = [item_id]
-        message = settings.localized(30714) % name
     else:
         targets = store.container_done_ids(item_id)
-        if not targets:
-            return
-        message = settings.localized(30774) % (len(targets), name)
-    if not xbmcgui.Dialog().yesno(settings.localized(30710), message):
-        return
     for target in targets:
         ipc.notify(ipc.DOWNLOAD_REMOVE, {"Id": target})

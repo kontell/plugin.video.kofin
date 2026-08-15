@@ -347,7 +347,7 @@ def test_download_entry_follows_the_store_state(monkeypatch):
     assert queued == [("L30709", {"mode": "canceldownload", "id": "i1"})]
 
     done = _download_entry_options(monkeypatch, movie, row=_row(downloads_store.DONE))
-    assert done == [("L30710", {"mode": "removedownload", "id": "i1", "name": "M"})]
+    assert done == [("L30710", {"mode": "removedownload", "id": "i1"})]
 
     failed = _download_entry_options(
         monkeypatch, movie, row=_row(downloads_store.FAILED)
@@ -374,7 +374,7 @@ def test_a_downloaded_container_offers_remove_not_just_download(monkeypatch):
     done = _download_entry_options(
         monkeypatch, series, counts={"done": 3, "pending": 0}
     )
-    assert done == [("L30710", {"mode": "removedownload", "id": "s1", "name": "Show"})]
+    assert done == [("L30710", {"mode": "removedownload", "id": "s1"})]
 
     # Partly downloaded: both, because the rest is still worth fetching.
     partial = _download_entry_options(

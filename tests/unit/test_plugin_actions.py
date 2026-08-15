@@ -233,7 +233,6 @@ def download_wired(monkeypatch):
         lambda i: {
             30716: "L30716 %s %s",
             30771: "L30771 %s %s %s",
-            30774: "L30774 %s %s",
             30806: "L30806 %s %s",
             30810: "L30810 %s %s",
         }.get(i, "L%d %%s" % i),
@@ -323,13 +322,9 @@ def test_cancel_and_remove_routes(download_wired, monkeypatch):
     actions.cancel_download(Request("plugin://x", -1, {"id": "c1"}))
     assert notified == [(ipc.DOWNLOAD_CANCEL, {"Id": "c1"})]
 
-    actions.remove_download(Request("plugin://x", -1, {"id": "r1", "name": "N"}))
+    actions.remove_download(Request("plugin://x", -1, {"id": "r1"}))
     assert notified[-1] == (ipc.DOWNLOAD_REMOVE, {"Id": "r1"})
-    assert len(dialog.yesnos) == 1
-
-    dialog.yesno_result = False
-    actions.remove_download(Request("plugin://x", -1, {"id": "r2", "name": "N"}))
-    assert len(notified) == 2  # declined: nothing new
+    assert dialog.yesnos == []  # no confirmation: the download is a local copy
 
 
 def test_container_remove_and_cancel_expand_from_local_state(
@@ -337,7 +332,7 @@ def test_container_remove_and_cancel_expand_from_local_state(
 ):
     """A show or an album has no row of its own — the ids under it are the
     work. Expanded from kofin.db rather than the server, so both routes keep
-    working offline, and confirmed once for the lot."""
+    working offline."""
     from kofin.downloads import store as downloads_store
 
     notified, dialog, Request = download_wired(FakeDownloadApi({}))
@@ -347,9 +342,9 @@ def test_container_remove_and_cancel_expand_from_local_state(
     )
     monkeypatch.setattr(downloads_store, "container_pending_ids", lambda cid: ["e4"])
 
-    actions.remove_download(Request("plugin://x", -1, {"id": "ser1", "name": "Show"}))
+    actions.remove_download(Request("plugin://x", -1, {"id": "ser1"}))
 
-    assert len(dialog.yesnos) == 1  # one question, not three
+    assert dialog.yesnos == []
     assert notified == [
         (ipc.DOWNLOAD_REMOVE, {"Id": "e1"}),
         (ipc.DOWNLOAD_REMOVE, {"Id": "e2"}),
@@ -360,12 +355,11 @@ def test_container_remove_and_cancel_expand_from_local_state(
     actions.cancel_download(Request("plugin://x", -1, {"id": "ser1"}))
     assert notified == [(ipc.DOWNLOAD_CANCEL, {"Id": "e4"})]
 
-    # Nothing downloaded under it: no dialog, no notification.
+    # Nothing downloaded under it: nothing notified.
     notified.clear()
-    dialog.yesnos.clear()
     monkeypatch.setattr(downloads_store, "container_done_ids", lambda cid: [])
-    actions.remove_download(Request("plugin://x", -1, {"id": "ser1", "name": "Show"}))
-    assert dialog.yesnos == [] and notified == []
+    actions.remove_download(Request("plugin://x", -1, {"id": "ser1"}))
+    assert notified == []
 
 
 def test_download_album_confirms_and_expands(download_wired):

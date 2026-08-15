@@ -279,7 +279,7 @@ DOWNLOAD_CONTAINER_TYPES = frozenset(
 )
 
 
-def _container_download_options(item_id: str, name: str) -> List[Tuple[str, dict]]:
+def _container_download_options(item_id: str) -> List[Tuple[str, dict]]:
     """What a Season/Series/album/artist/playlist offers, from local state.
 
     Containers used to offer Download and nothing else, on the reasoning
@@ -304,7 +304,7 @@ def _container_download_options(item_id: str, name: str) -> List[Tuple[str, dict
         entries.append(
             (
                 settings.localized(30710),
-                {"mode": "removedownload", "id": item_id, "name": name},
+                {"mode": "removedownload", "id": item_id},
             )
         )
     if counts["pending"]:
@@ -328,7 +328,7 @@ def _download_options(item: dict) -> List[Tuple[str, dict]]:
         return []
     item_id = item.get("Id", "")
     if item_type in DOWNLOAD_CONTAINER_TYPES:
-        entries = _container_download_options(item_id, item.get("Name", ""))
+        entries = _container_download_options(item_id)
         if item_type == "Series":
             # The new-episode subscription toggle (W4.6), labeled by the
             # show's current state.
@@ -355,16 +355,7 @@ def _download_options(item: dict) -> List[Tuple[str, dict]]:
             return []
         return [(settings.localized(30708), {"mode": "download", "id": item_id})]
     if row.state == store.DONE:
-        return [
-            (
-                settings.localized(30710),
-                {
-                    "mode": "removedownload",
-                    "id": item_id,
-                    "name": item.get("Name", ""),
-                },
-            )
-        ]
+        return [(settings.localized(30710), {"mode": "removedownload", "id": item_id})]
     return [(settings.localized(30709), {"mode": "canceldownload", "id": item_id})]
 
 
@@ -459,7 +450,7 @@ def _offline_menu(item_id: str) -> None:
             options.append(
                 (
                     settings.localized(30710),
-                    {"mode": "removedownload", "id": item_id, "name": ""},
+                    {"mode": "removedownload", "id": item_id},
                 )
             )
         elif row is not None:
@@ -473,7 +464,7 @@ def _offline_menu(item_id: str) -> None:
             # entry at all before, because only leaves were consulted.
             options.extend(
                 entry
-                for entry in _container_download_options(item_id, "")
+                for entry in _container_download_options(item_id)
                 if entry[1]["mode"] != "download"  # queueing needs the server
             )
     options.append((settings.localized(30504), {"mode": "settings"}))
