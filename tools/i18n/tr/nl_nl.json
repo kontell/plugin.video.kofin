@@ -49,7 +49,7 @@
   "#30077": "Verwijderen aanbieden na het kijken",
   "#30078": "Vraag na afloop van een film of aflevering of die van de server verwijderd moet worden. Vraagt altijd, ongeacht hoe 'Verwijderen zonder bevestiging' is ingesteld.",
   "#30079": "Shortlist voor 'Wie kijkt er?'",
-  "#30080": "Kies welke servergebruikers de optie 'Wie kijkt er?' van de add-on aanbiedt. Zonder selectie worden ze allemaal aangeboden.",
+  "#30080": "Kies welke servergebruikers de optie 'Wie kijkt er?' van de add-on aanbiedt. \"Alle\" biedt iedereen aan. Zonder selectie verdwijnt de optie en wordt iedereen die al in de sessie zit verwijderd.",
   "#30030": "Alles",
   "#30031": "Recent toegevoegd",
   "#30032": "Volgende aflevering",
@@ -447,5 +447,6 @@
   "#30813": "Verwijderen na (dagen)",
   "#30814": "Hoe lang een download onafgespeeld mag blijven staan voordat die wordt verwijderd. Hem opnieuw afspelen laat de telling opnieuw beginnen.",
   "#30815": "Ook je %s gedownloade bestand(en) verwijderen? Het opschonen verwijdert Kofins registratie ervan, dus wat je bewaart blijft op schijf staan en beheer je zelf.",
-  "#30816": "Gedownloade bestanden verwijderen…"
+  "#30816": "Gedownloade bestanden verwijderen…",
+  "#30817": "Alle"
 }

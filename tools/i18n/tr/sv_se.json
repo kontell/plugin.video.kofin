@@ -49,7 +49,7 @@
   "#30077": "Erbjud borttagning efter visning",
   "#30078": "När en film eller ett avsnitt är slut, fråga om det ska tas bort från servern. Frågar alltid, oavsett vad ”Ta bort utan bekräftelse” är inställt på.",
   "#30079": "Urval för Vem tittar?",
-  "#30080": "Välj vilka serveranvändare som tilläggets Vem tittar?-post erbjuder. Inget valt erbjuder alla.",
+  "#30080": "Välj vilka serveranvändare som tilläggets Vem tittar?-post erbjuder. \"Alla\" erbjuder alla. Om inget är valt döljs posten och de som redan finns i sessionen tas bort.",
   "#30030": "Alla",
   "#30031": "Nyligen tillagt",
   "#30032": "Näst på tur",
@@ -447,5 +447,6 @@
   "#30813": "Ta bort efter (dagar)",
   "#30814": "Hur länge en hämtning får ligga ospelad innan den tas bort. Att spela upp den igen startar om räkningen.",
   "#30815": "Ta även bort dina %s hämtade fil(er)? Rensningen tar bort Kofins register över dem, så de du behåller lämnas kvar på disken för dig att hantera själv.",
-  "#30816": "Tar bort hämtade filer…"
+  "#30816": "Tar bort hämtade filer…",
+  "#30817": "Alla"
 }

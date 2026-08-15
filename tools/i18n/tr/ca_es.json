@@ -49,7 +49,7 @@
   "#30077": "Ofereix suprimir-lo després de veure'l",
   "#30078": "Quan acaba una pel·lícula o un episodi, pregunta si voleu suprimir-lo del servidor. Ho pregunta sempre, sigui quin sigui el valor de «Suprimeix sense confirmació».",
   "#30079": "Usuaris de «Qui està mirant?»",
-  "#30080": "Trieu quins usuaris del servidor ofereix l'entrada «Qui està mirant?» del complement. Si no en seleccioneu cap, els ofereix tots.",
+  "#30080": "Trieu quins usuaris del servidor ofereix l'entrada «Qui està mirant?» del complement. \"Tots\" ofereix tothom. Si no seleccioneu res, l'entrada s'oculta i qui ja sigui a la sessió se'n treu.",
   "#30030": "Tots",
   "#30031": "Afegits recentment",
   "#30032": "A continuació",
@@ -447,5 +447,6 @@
   "#30813": "Suprimeix al cap de (dies)",
   "#30814": "Quant de temps pot estar una baixada sense reproduir-se abans que s'elimini. Tornar-la a reproduir reinicia el compte.",
   "#30815": "Voleu suprimir també els vostres %s fitxers baixats? La neteja elimina el registre que en té el Kofin, així que els que conserveu queden al disc perquè els gestioneu vosaltres.",
-  "#30816": "S'estan eliminant els fitxers baixats…"
+  "#30816": "S'estan eliminant els fitxers baixats…",
+  "#30817": "Tots"
 }

@@ -1383,10 +1383,13 @@
     <!-- Advanced -->
     <category id="advanced" label="30071" help="30072">
       <group id="1">
-        <!-- Hidden state written by the who's-watching shortlist picker only. -->
+        <!-- Hidden state written by the who's-watching shortlist picker only.
+             "all" (the default) offers every server user, "none" switches the
+             feature off, anything else is a user-id list; empty reads as "all"
+             for the installs that predate the sentinels. -->
         <setting id="whoIsWatchingShortlist" type="string">
           <level>4</level>
-          <default></default>
+          <default>all</default>
           <constraints><allowempty>true</allowempty></constraints>
           <control type="edit" format="string"/>
         </setting>

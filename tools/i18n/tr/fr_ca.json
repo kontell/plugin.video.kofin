@@ -49,7 +49,7 @@
   "#30077": "Proposer la suppression après lecture",
   "#30078": "À la fin d'un film ou d'un épisode, demande s'il faut le supprimer du serveur. La question est toujours posée, quel que soit le réglage de « Supprimer sans confirmation ».",
   "#30079": "Liste restreinte de « Qui regarde? »",
-  "#30080": "Choisissez quels utilisateurs du serveur l'entrée « Qui regarde? » de l'extension propose. Si rien n'est sélectionné, tout le monde est proposé.",
+  "#30080": "Choisissez quels utilisateurs du serveur l'entrée « Qui regarde? » de l'extension propose. \"Tous\" propose tout le monde. Si rien n'est sélectionné, l'entrée est masquée et les personnes déjà sur la session sont retirées.",
   "#30030": "Tout",
   "#30031": "Ajouts récents",
   "#30032": "À suivre",
@@ -447,5 +447,6 @@
   "#30813": "Supprimer après (jours)",
   "#30814": "Combien de temps un téléchargement peut rester sans être lu avant d'être supprimé. Le relire remet le compteur à zéro.",
   "#30815": "Supprimer aussi vos %s fichier(s) téléchargé(s)? Le nettoyage efface la trace que Kofin en garde, donc ceux que vous conservez resteront sur le disque, à vous de les gérer.",
-  "#30816": "Suppression des téléchargements…"
+  "#30816": "Suppression des téléchargements…",
+  "#30817": "Tous"
 }

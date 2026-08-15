@@ -563,6 +563,32 @@ def test_whos_watching_label_reads_the_published_names(monkeypatch):
     assert browse._who_is_watching_label() == "with Bob, Dan"
 
 
+def test_root_lists_whos_watching_unless_the_shortlist_is_empty(monkeypatch, directory):
+    """Nothing on the Advanced-tab shortlist switches the feature off, and the
+    root entry is the half of that the user sees (plugin/adduser.py). Empty is
+    the pre-sentinel spelling of "everyone" and still has to list it."""
+    from kofin.plugin import adduser
+
+    api = ResumeApi(views=[])
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    listed = {}
+    for stored in (adduser.SHORTLIST_ALL, "u2", "", adduser.SHORTLIST_NOBODY):
+        FakeAddon.store["whoIsWatchingShortlist"] = stored
+        directory["entries"].clear()
+        browse.root(Request("plugin://x", 1, {}))
+        listed[stored] = any(
+            "mode=adduser" in path for path, _li, _folder in directory["entries"]
+        )
+
+    assert listed == {
+        adduser.SHORTLIST_ALL: True,
+        "u2": True,
+        "": True,
+        adduser.SHORTLIST_NOBODY: False,
+    }
+
+
 def test_add_items_reads_the_resume_offset_once_per_listing(monkeypatch, directory):
     """One settings read for the whole page, however many rows it has — the
     per-row read built a fresh Addon each time and dominated large listings

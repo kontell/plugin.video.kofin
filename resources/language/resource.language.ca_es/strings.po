@@ -224,8 +224,8 @@ msgid "Who's watching shortlist"
 msgstr "Usuaris de «Qui està mirant?»"
 
 msgctxt "#30080"
-msgid "Choose which server users the addon's Who's watching? entry offers. Nothing selected offers everyone."
-msgstr "Trieu quins usuaris del servidor ofereix l'entrada «Qui està mirant?» del complement. Si no en seleccioneu cap, els ofereix tots."
+msgid "Choose which server users the addon's Who's watching? entry offers. \"All\" offers everyone. With nothing selected the entry is hidden and anyone already on the session is removed."
+msgstr "Trieu quins usuaris del servidor ofereix l'entrada «Qui està mirant?» del complement. \"Tots\" ofereix tothom. Si no seleccioneu res, l'entrada s'oculta i qui ja sigui a la sessió se'n treu."
 
 # 30030-30049 — browse nodes
 
@@ -2103,3 +2103,11 @@ msgstr "Voleu suprimir també els vostres %s fitxers baixats? La neteja elimina 
 msgctxt "#30816"
 msgid "Removing downloaded files…"
 msgstr "S'estan eliminant els fitxers baixats…"
+
+# 30817 — the shortlist's first row. Not #30030's "All": that one labels a
+# browse node ("all movies"), and the languages that decline the word render
+# the two differently — French wants "Tout" there and "Tous" for a list of
+# people. #30080 quotes this label verbatim, which pocheck.py enforces.
+msgctxt "#30817"
+msgid "All"
+msgstr "Tots"

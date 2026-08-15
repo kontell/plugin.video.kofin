@@ -49,7 +49,7 @@
   "#30077": "Offer to delete after watching",
   "#30078": "When a movie or episode finishes, ask whether to delete it from the server. Always asks, whatever 'Delete without confirmation' is set to.",
   "#30079": "Who's watching shortlist",
-  "#30080": "Choose which server users the addon's Who's watching? entry offers. Nothing selected offers everyone.",
+  "#30080": "Choose which server users the addon's Who's watching? entry offers. \"All\" offers everyone. With nothing selected the entry is hidden and anyone already on the session is removed.",
   "#30030": "All",
   "#30031": "Recently added",
   "#30032": "Next up",
@@ -500,5 +500,6 @@
   "#30813": "Delete after (days)",
   "#30814": "How long a download may sit unplayed before it is removed. Playing it again starts the count over.",
   "#30815": "Also delete your %s downloaded file(s)? Cleaning removes Kofin's record of them, so any you keep are left on disk for you to manage yourself.",
-  "#30816": "Removing downloaded files…"
+  "#30816": "Removing downloaded files…",
+  "#30817": "All"
 }

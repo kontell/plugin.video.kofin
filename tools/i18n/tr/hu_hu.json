@@ -49,7 +49,7 @@
   "#30077": "Törlés felajánlása megtekintés után",
   "#30078": "Ha egy film vagy epizód véget ér, rákérdez, hogy törölje-e a kiszolgálóról. Mindig rákérdez, a „Törlés megerősítés nélkül” beállítástól függetlenül.",
   "#30079": "A Ki néz? szűkített listája",
-  "#30080": "Válassza ki, mely kiszolgálófelhasználókat kínálja fel a kiegészítő Ki néz? bejegyzése. Ha semmi sincs kiválasztva, mindenkit felkínál.",
+  "#30080": "Válassza ki, mely kiszolgálófelhasználókat kínálja fel a kiegészítő Ki néz? bejegyzése. Az \"Összes\" mindenkit felkínál. Ha semmi sincs kiválasztva, a bejegyzés eltűnik, és aki már a munkamenetben van, azt eltávolítja.",
   "#30030": "Összes",
   "#30031": "Nemrég hozzáadott",
   "#30032": "Következik",
@@ -447,5 +447,6 @@
   "#30813": "Törlés ennyi nap után",
   "#30814": "Meddig állhat lejátszatlanul egy letöltés, mielőtt törlődik. Az újbóli lejátszás elölről indítja a számlálást.",
   "#30815": "Törli a(z) %s letöltött fájlt is? A takarítás törli a Kofin nyilvántartását róluk, így a megtartottak a lemezen maradnak, és Önnek kell kezelnie őket.",
-  "#30816": "Letöltött fájlok eltávolítása…"
+  "#30816": "Letöltött fájlok eltávolítása…",
+  "#30817": "Összes"
 }

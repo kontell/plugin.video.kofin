@@ -49,7 +49,7 @@
   "#30077": "Proponuj usunięcie po obejrzeniu",
   "#30078": "Po zakończeniu filmu lub odcinka pyta, czy usunąć go z serwera. Pyta zawsze, niezależnie od ustawienia „Usuwaj bez potwierdzenia”.",
   "#30079": "Skrócona lista „Kto ogląda?”",
-  "#30080": "Wybierz, których użytkowników serwera proponuje pozycja „Kto ogląda?”. Brak zaznaczeń oznacza wszystkich.",
+  "#30080": "Wybierz, których użytkowników serwera proponuje pozycja „Kto ogląda?”. \"Wszyscy\" proponuje każdego. Brak zaznaczeń ukrywa pozycję i usuwa każdego, kto już jest w sesji.",
   "#30030": "Wszystko",
   "#30031": "Ostatnio dodane",
   "#30032": "Następne w kolejce",
@@ -447,5 +447,6 @@
   "#30813": "Usuń po (dni)",
   "#30814": "Jak długo pobrany plik może leżeć nieodtwarzany, zanim zostanie usunięty. Ponowne odtworzenie zaczyna odliczanie od nowa.",
   "#30815": "Usunąć także Twoje pobrane pliki (%s)? Czyszczenie usuwa informacje Kofin o nich, więc te zachowane pozostaną na dysku do zarządzania we własnym zakresie.",
-  "#30816": "Usuwanie pobranych plików…"
+  "#30816": "Usuwanie pobranych plików…",
+  "#30817": "Wszyscy"
 }

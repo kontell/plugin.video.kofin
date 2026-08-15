@@ -49,7 +49,7 @@
   "#30077": "Oferecer exclusão depois de assistir",
   "#30078": "Quando um filme ou episódio termina, pergunta se você quer excluí-lo do servidor. Pergunta sempre, seja qual for o valor de “Excluir sem confirmação”.",
   "#30079": "Lista de quem está assistindo",
-  "#30080": "Escolha quais usuários do servidor a entrada Quem está assistindo? do add-on oferece. Sem nada selecionado, oferece todos.",
+  "#30080": "Escolha quais usuários do servidor a entrada Quem está assistindo? do add-on oferece. \"Todos\" oferece todos eles. Sem nada selecionado, a entrada fica oculta e quem já está na sessão é removido.",
   "#30030": "Todos",
   "#30031": "Adicionados recentemente",
   "#30032": "A seguir",
@@ -447,5 +447,6 @@
   "#30813": "Excluir depois de (dias)",
   "#30814": "Quanto tempo um download pode ficar sem ser reproduzido antes de ser removido. Reproduzi-lo de novo reinicia a contagem.",
   "#30815": "Excluir também os seus %s arquivo(s) baixado(s)? A limpeza remove o registro que o Kofin tem deles, então os que você mantiver ficam no disco para você gerenciar por conta própria.",
-  "#30816": "Removendo os arquivos baixados…"
+  "#30816": "Removendo os arquivos baixados…",
+  "#30817": "Todos"
 }

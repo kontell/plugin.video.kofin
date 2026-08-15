@@ -224,8 +224,8 @@ msgid "Who's watching shortlist"
 msgstr "Λίστα για το «Ποιος παρακολουθεί;»"
 
 msgctxt "#30080"
-msgid "Choose which server users the addon's Who's watching? entry offers. Nothing selected offers everyone."
-msgstr "Επιλέξτε ποιους χρήστες του διακομιστή προτείνει η καταχώριση «Ποιος παρακολουθεί;» του πρόσθετου. Αν δεν επιλεγεί κανένας, προτείνονται όλοι."
+msgid "Choose which server users the addon's Who's watching? entry offers. \"All\" offers everyone. With nothing selected the entry is hidden and anyone already on the session is removed."
+msgstr "Επιλέξτε ποιους χρήστες του διακομιστή προτείνει η καταχώριση «Ποιος παρακολουθεί;» του πρόσθετου. Το \"Όλοι\" προτείνει τους πάντες. Αν δεν επιλεγεί κανένας, η καταχώριση κρύβεται και όποιος βρίσκεται ήδη στη συνεδρία αφαιρείται."
 
 # 30030-30049 — browse nodes
 
@@ -2103,3 +2103,11 @@ msgstr "Να διαγραφούν και τα %s ληφθέντα αρχεία �
 msgctxt "#30816"
 msgid "Removing downloaded files…"
 msgstr "Αφαίρεση ληφθέντων αρχείων…"
+
+# 30817 — the shortlist's first row. Not #30030's "All": that one labels a
+# browse node ("all movies"), and the languages that decline the word render
+# the two differently — French wants "Tout" there and "Tous" for a list of
+# people. #30080 quotes this label verbatim, which pocheck.py enforces.
+msgctxt "#30817"
+msgid "All"
+msgstr "Όλοι"

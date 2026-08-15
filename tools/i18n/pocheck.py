@@ -32,6 +32,7 @@ BBCODE = re.compile(r"\[/?[A-Za-z][^\]]*\]")
 QUOTES_VERBATIM = {
     "#30794": ["#30618"],  # playback caveat -> the default-tracks setting label
     "#30607": ["#30609", "#30610"],  # lyrics help -> its own two option labels
+    "#30080": ["#30817"],  # shortlist help -> the "All" row of its own dialog
 }
 
 

@@ -49,7 +49,7 @@
   "#30077": "Nabídnout smazání po zhlédnutí",
   "#30078": "Po skončení filmu nebo epizody se zeptá, zda ji smazat ze serveru. Ptá se vždy, bez ohledu na nastavení „Mazat bez potvrzení“.",
   "#30079": "Užší výběr pro „Kdo se dívá?“",
-  "#30080": "Vyberte, které uživatele serveru nabízí položka doplňku „Kdo se dívá?“. Když není vybrán nikdo, nabízí všechny.",
+  "#30080": "Vyberte, které uživatele serveru nabízí položka doplňku „Kdo se dívá?“. Volba \"Všichni\" nabídne všechny. Když nevyberete nikoho, položka se skryje a kdokoli už je v relaci, bude odebrán.",
   "#30030": "Vše",
   "#30031": "Naposledy přidané",
   "#30032": "Další na řadě",
@@ -447,5 +447,6 @@
   "#30813": "Smazat po (dnech)",
   "#30814": "Jak dlouho může stažený soubor ležet nepřehraný, než bude odstraněn. Opětovné přehrání začne počítat znovu.",
   "#30815": "Smazat také vašich %s stažených souborů? Čištění odstraní záznamy Kofinu o nich, takže ty, které ponecháte, zůstanou na disku ke správě ve vaší režii.",
-  "#30816": "Odstraňování stažených souborů…"
+  "#30816": "Odstraňování stažených souborů…",
+  "#30817": "Všichni"
 }

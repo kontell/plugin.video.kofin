@@ -49,7 +49,7 @@
   "#30077": "Ponúknuť odstránenie po zhliadnutí",
   "#30078": "Keď sa film alebo epizóda skončí, spýta sa, či ju odstrániť zo servera. Pýta sa vždy, nech je „Odstrániť bez potvrdenia“ nastavené akokoľvek.",
   "#30079": "Zoznam pre Kto pozerá?",
-  "#30080": "Vyberte, ktorých používateľov servera bude ponúkať položka doplnku Kto pozerá?. Keď nevyberiete nikoho, ponúknu sa všetci.",
+  "#30080": "Vyberte, ktorých používateľov servera bude ponúkať položka doplnku Kto pozerá?. Voľba \"Všetci\" ponúkne všetkých. Keď nevyberiete nikoho, položka sa skryje a kto už je v relácii, bude odobraný.",
   "#30030": "Všetko",
   "#30031": "Nedávno pridané",
   "#30032": "Nasleduje",
@@ -447,5 +447,6 @@
   "#30813": "Odstrániť po (dňoch)",
   "#30814": "Ako dlho môže stiahnutý súbor ležať neprehraný, kým sa odstráni. Ďalším prehratím sa počítanie začne odznova.",
   "#30815": "Odstrániť aj vašich %s stiahnutých súborov? Čistenie odstráni záznam Kofinu o nich, takže tie, ktoré si ponecháte, zostanú na disku a budete si ich spravovať sami.",
-  "#30816": "Odstraňujú sa stiahnuté súbory…"
+  "#30816": "Odstraňujú sa stiahnuté súbory…",
+  "#30817": "Všetci"
 }

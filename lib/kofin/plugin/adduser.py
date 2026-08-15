@@ -7,7 +7,9 @@ Everyone else is a checkbox; confirming applies the add/remove deltas.
 
 The Advanced tab's shortlist (``whoIsWatchingShortlist``) narrows that list to
 the handful of people who actually watch on this device — a server with fifty
-accounts otherwise makes the dialog useless.
+accounts otherwise makes the dialog useless. Its first row is "All", and
+selecting nothing at all switches the whole feature off: the root entry goes
+away and whoever is on the session is detached (:func:`detach_all`).
 
 The chosen set is also written to the hidden ``whoIsWatching`` setting so the
 service can re-attach those users when a new session comes up after a Kodi
@@ -38,6 +40,49 @@ JsonDict = Dict[str, Any]
 # Hidden setting holding the additional-user ids to re-apply on session start.
 # Empty means nobody extra (unlike the shortlist, where empty means everyone).
 WHO_IS_WATCHING = "whoIsWatching"
+
+# The shortlist, and the three states it has to express: offer everyone, offer
+# exactly these ids, or do not offer the feature at all. Two sentinels rather
+# than one because a bare id list cannot tell "everyone" and "nobody" apart,
+# and they are safe as sentinels because a Jellyfin user id is a 32-character
+# hex GUID.
+#
+# *Empty* has to keep meaning "everyone": that is what shipped before the "All"
+# row existed, so an add-on update must not silently switch the feature off —
+# and neither must an unreadable settings store, which reads every key empty
+# (settings.get_addon).
+SHORTLIST = "whoIsWatchingShortlist"
+SHORTLIST_ALL = "all"  # the dialog's first row, and the shipped default
+SHORTLIST_NOBODY = "none"  # nothing selected — the feature is off
+
+
+def shortlist_setting() -> List[str]:
+    """The shortlist as stored, one settings read for both readers below."""
+    return settings.get_list(SHORTLIST)
+
+
+def is_enabled(tokens: Optional[Sequence[str]] = None) -> bool:
+    """Whether "Who's watching?" is offered at all.
+
+    Off only for the exact value the picker writes when nothing is selected.
+    Anything else — an id list, the ALL sentinel, empty, something hand-edited
+    — reads as on, because the degrade has to be "the entry is there" rather
+    than "the entry is gone and the session was stripped".
+    """
+    if tokens is None:
+        tokens = shortlist_setting()
+    return list(tokens) != [SHORTLIST_NOBODY]
+
+
+def offered_ids(tokens: Sequence[str]) -> List[str]:
+    """The ids the toggle dialog narrows to; empty means everyone.
+
+    Only meaningful once :func:`is_enabled` has said yes — the disabled value
+    reads as "everyone" here, which is why every caller asks that first.
+    """
+    if SHORTLIST_ALL in tokens:
+        return []
+    return [token for token in tokens if token != SHORTLIST_NOBODY]
 
 
 def offerable(
@@ -98,6 +143,43 @@ def session_watching_names(session: JsonDict) -> List[str]:
     ]
 
 
+def detach_all(api: Api, device_id: str) -> None:
+    """Take every co-watcher off this device's session and forget the saved set.
+
+    What "disabled" means past hiding the root entry. Users left attached to a
+    session whose picker is gone would be stranded there — the toggle dialog is
+    the only way off one — so switching the feature off detaches them.
+
+    Called both by the disable itself and by the connect-time restore, which is
+    how a disable made while the server was unreachable still lands: the next
+    session it sees is stripped instead of restored.
+    """
+    persist_who_is_watching([])
+    try:
+        sessions = api.device_sessions(device_id)
+    except JellyfinError as error:
+        LOG.warning("who's-watching detach: session lookup failed: %s", error)
+        return
+    session = sessions[0] if sessions else {}
+    session_id = session.get("Id", "")
+    attached = [
+        str(user.get("UserId"))
+        for user in (session.get("AdditionalUsers") or [])
+        if user.get("UserId")
+    ]
+    if not session_id or not attached:
+        state.set_watching_names([])
+        return
+
+    for user_id in attached:
+        try:
+            api.session_remove_user(session_id, user_id)
+            LOG.info("who's-watching detached user %s", user_id)
+        except JellyfinError as error:
+            LOG.warning("who's-watching detach failed for %s: %s", user_id, error)
+    _publish_from_server(api, device_id)
+
+
 def restore_additional_users(api: Api, device_id: str) -> None:
     """Re-attach saved additional users to the current device session.
 
@@ -111,6 +193,10 @@ def restore_additional_users(api: Api, device_id: str) -> None:
     already carries co-watchers — say, attached by another client — must show
     them even when this device saved none.
     """
+    if not is_enabled():
+        detach_all(api, device_id)
+        return
+
     try:
         sessions = api.device_sessions(device_id)
     except JellyfinError as error:
@@ -176,6 +262,10 @@ def who_is_watching(request: Request) -> None:
     """
     if not Credentials.load().is_logged_in:
         return
+    if not is_enabled():
+        # The root entry is gone when the feature is off, but a favourite or a
+        # keymap kept from before still reaches this route.
+        return
     if not state.is_online():
         toast.show(settings.localized(30045), time_ms=4000)
         return
@@ -187,6 +277,13 @@ def who_is_watching(request: Request) -> None:
 def show_picker(api: Api, creds: Credentials) -> None:
     """Toggle additional users on this device's session. Blocks on a dialog —
     the service runs it on a dedicated worker thread."""
+    tokens = shortlist_setting()
+    if not is_enabled(tokens):
+        # Checked before the round trips: the route gates this too, but the IPC
+        # can outlive a shortlist emptied while the picker request was in flight.
+        LOG.debug("who's-watching picker suppressed: the feature is off")
+        return
+
     try:
         sessions = api.device_sessions(creds.device_id)
     except JellyfinError as error:
@@ -211,9 +308,7 @@ def show_picker(api: Api, creds: Credentials) -> None:
         LOG.warning("user list unavailable: %s", error)
         return
 
-    eligible = offerable(
-        users, api.user_id, settings.get_list("whoIsWatchingShortlist"), current_ids
-    )
+    eligible = offerable(users, api.user_id, offered_ids(tokens), current_ids)
     if not eligible:
         return
     names = [user.get("Name", "") for user in eligible]
@@ -268,8 +363,10 @@ def select_shortlist(request: Request) -> None:
     """Advanced-tab button: pick which users "Who's watching?" offers.
 
     Stores ids, not names: a rename on the server must not silently empty the
-    shortlist. Selecting nobody clears it, which reads as "offer everyone" —
-    the same as never having set one.
+    shortlist. Row 0 is "All", which stores the sentinel rather than a snapshot
+    of today's user list, so an account added on the server later is offered
+    without anyone revisiting this dialog. Selecting nothing switches the
+    feature off (:func:`detach_all`).
     """
     creds = Credentials.load()
     if not creds.is_logged_in:
@@ -288,24 +385,50 @@ def select_shortlist(request: Request) -> None:
         return
 
     # The primary user is on every session by definition, so it is no more
-    # selectable here than it is in the toggle dialog.
+    # selectable here than it is in the toggle dialog. A server with nobody
+    # else still gets the dialog rather than an early return: "All" alone is
+    # how the root entry is switched off, and a one-account server is exactly
+    # where someone wants it gone.
     candidates = [user for user in users if user.get("Id") != api.user_id]
-    if not candidates:
-        return
 
-    shortlist = settings.get_list("whoIsWatchingShortlist")
-    preselect = [
-        index for index, user in enumerate(candidates) if user.get("Id") in shortlist
+    tokens = shortlist_setting()
+    was_enabled = is_enabled(tokens)
+    ids = offered_ids(tokens)
+    preselect = [0] if was_enabled and not ids else []
+    preselect += [
+        index + 1 for index, user in enumerate(candidates) if user.get("Id") in ids
     ]
 
     chosen = xbmcgui.Dialog().multiselect(
         settings.localized(30048),
-        [user.get("Name", "") for user in candidates],
+        [settings.localized(30817)] + [user.get("Name", "") for user in candidates],
         preselect=preselect,
     )
     if chosen is None:
         return  # cancelled; the shortlist is left as-is
 
-    picked = [str(candidates[index].get("Id", "")) for index in chosen]
-    settings.set_str("whoIsWatchingShortlist", ",".join(picked))
-    LOG.info("who's-watching shortlist updated: %s users", len(picked))
+    if not chosen:
+        value = SHORTLIST_NOBODY
+    elif 0 in chosen:
+        value = SHORTLIST_ALL  # "All" wins over any individual rows ticked with it
+    else:
+        value = ",".join(str(candidates[i - 1].get("Id", "")) for i in chosen)
+    settings.set_str(SHORTLIST, value)
+    LOG.info(
+        "who's-watching shortlist updated: %s",
+        {SHORTLIST_ALL: "everyone", SHORTLIST_NOBODY: "off"}.get(
+            value, "%d users" % len(chosen)
+        ),
+    )
+
+    if value == SHORTLIST_NOBODY:
+        detach_all(api, creds.device_id)
+    if was_enabled != (value != SHORTLIST_NOBODY) and xbmc.getCondVisibility(
+        "Window.IsMedia"
+    ):
+        # The root entry comes and goes with the feature, and the settings
+        # dialog has already closed (<close>true</close>), so what is behind it
+        # is usually the listing that has to change. Guarded the same way the
+        # toggle's refresh is: with no media window there is no container for
+        # the builtin to act on.
+        xbmc.executebuiltin("Container.Refresh")
