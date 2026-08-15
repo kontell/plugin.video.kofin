@@ -525,7 +525,7 @@
         </setting>
         <setting id="syncPlayDriftCorrection" type="boolean" label="30553" help="30554">
           <level>0</level>
-          <default>true</default>
+          <default>false</default>
           <dependencies>
             <dependency type="visible">
               <condition operator="is" setting="syncPlayEnabled">true</condition>

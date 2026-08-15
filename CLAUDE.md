@@ -128,3 +128,26 @@ What remains is kofin's own:
 - `discography` has no unique index, so `INSERT OR REPLACE` never replaces
   (`kodi-database-writing` has the general shape; the repair path is kofin's).
 - Docs in `docs/` use one line per paragraph — `tools/unwrap_md.py` fixes wrapped files.
+
+## Translations
+
+English lives in `resources/language/resource.language.en_gb/strings.po`; the other 26 locales are
+**generated**, never hand-edited. Translations are authored into `tools/i18n/tr/<locale>.json` and
+rendered by `tools/i18n/gen.py`. `tools/i18n/README.md` has the recipes and `PROMPT.md` is the
+brief every translation is written against. They are machine translations, tagged
+`pending native review` in each file header — leave that line until a native speaker has actually
+looked.
+
+Adding or rewording a user-visible string means touching 28 files, and the toolchain is what keeps
+that mechanical: add the id to `en_gb`, add the key to all 26 JSONs (or to `PASSTHROUGH` if it is a
+bare technical token), `gen.py --snapshot`, then `gen.py && validate.py && pocheck.py`, and commit
+the lot together. `tr/_source.json` records the English each translation was made from, so a
+**reworded** msgid fails the generator instead of silently keeping a stale translation — the drift
+`pvr.kofin` had to repair by hand. `tests/unit/test_translations.py` runs the validators, so CI
+catches a locale left out of step.
+
+Two help strings quote another string's wording verbatim (`#30794` quotes `#30618`; `#30607` quotes
+`#30609`/`#30610`) and `pocheck.py` enforces both — translate such a pair together or the help names
+a control that is not on screen under that name. `#30624`/`#30626`/`#30631`/`#30633`/`#30635`
+substitute an item *name* where their plural partners take a count; the category noun in "Dune movie
+added to library" is what separates the film from the album.

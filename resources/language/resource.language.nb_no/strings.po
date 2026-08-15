@@ -2,17 +2,18 @@
 # Addon Name: Kofin
 # Addon id: plugin.video.kofin
 # Addon Provider: kontell
+# Note: machine-translated (LLM), pending native review.
 msgid ""
 msgstr ""
 "Project-Id-Version: plugin.video.kofin\n"
 "Report-Msgid-Bugs-To: \n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: \n"
-"Language-Team: English\n"
+"PO-Revision-Date: 2026-08-14 00:00+0000\n"
+"Last-Translator: Claude (machine translation) <noreply@anthropic.com>\n"
+"Language-Team: Norwegian Bokmal\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Language: en_GB\n"
+"Language: nb_NO\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 # Add-on browser metadata. These must stay in step with the en_GB <summary> and
@@ -20,1764 +21,1764 @@ msgstr ""
 
 msgctxt "Addon Summary"
 msgid "Jellyfin client for seamless Kodi integration"
-msgstr ""
+msgstr "Jellyfin-klient for sømløs Kodi-integrasjon"
 
 msgctxt "Addon Description"
 msgid "Play movies, shows & music from a Jellyfin server."
-msgstr ""
+msgstr "Spill av filmer, serier og musikk fra en Jellyfin-server."
 
 # 30000-30049 — general / dialogs
 
 msgctxt "#30010"
 msgid "Play with transcoding"
-msgstr ""
+msgstr "Spill av med transkoding"
 
 msgctxt "#30011"
 msgid "Quick Connect"
-msgstr ""
+msgstr "Quick Connect"
 
 msgctxt "#30012"
 msgid "Username and password"
-msgstr ""
+msgstr "Brukernavn og passord"
 
 msgctxt "#30013"
 msgid "Username"
-msgstr ""
+msgstr "Brukernavn"
 
 msgctxt "#30014"
 msgid "Password"
-msgstr ""
+msgstr "Passord"
 
 msgctxt "#30015"
 msgid "Enter code [B]%s[/B] in the Jellyfin app or web interface."
-msgstr ""
+msgstr "Skriv inn koden [B]%s[/B] i Jellyfin-appen eller nettgrensesnittet."
 
 msgctxt "#30016"
 msgid "Logged in as %s"
-msgstr ""
+msgstr "Logget inn som %s"
 
 msgctxt "#30017"
 msgid "Login failed: wrong username or password"
-msgstr ""
+msgstr "Innlogging mislyktes: feil brukernavn eller passord"
 
 msgctxt "#30018"
 msgid "Server unreachable"
-msgstr ""
+msgstr "Serveren er ikke tilgjengelig"
 
 msgctxt "#30019"
 msgid "Log out from %s?"
-msgstr ""
+msgstr "Logge ut fra %s?"
 
 msgctxt "#30020"
 msgid "Logged out"
-msgstr ""
+msgstr "Logget ut"
 
 msgctxt "#30021"
 msgid "Connection OK — %s (%s)"
-msgstr ""
+msgstr "Tilkobling OK — %s (%s)"
 
 msgctxt "#30022"
 msgid "Session rejected — log in again from the Account tab"
-msgstr ""
+msgstr "Økten ble avvist — logg inn på nytt fra Konto-fanen"
 
 msgctxt "#30023"
 msgid "Restarting the Kofin service"
-msgstr ""
+msgstr "Starter Kofin-tjenesten på nytt"
 
 msgctxt "#30024"
 msgid "Quick Connect timed out"
-msgstr ""
+msgstr "Tidsavbrudd for Quick Connect"
 
 msgctxt "#30025"
 msgid "Already logged in"
-msgstr ""
+msgstr "Allerede logget inn"
 
 msgctxt "#30026"
 msgid "Not logged in"
-msgstr ""
+msgstr "Ikke logget inn"
 
 msgctxt "#30027"
 msgid "Log in to %s"
-msgstr ""
+msgstr "Logg inn på %s"
 
 # 30050-30099 — Account tab (30066-30067 and 30071-30080: Advanced tab)
 
 msgctxt "#30050"
 msgid "Account"
-msgstr ""
+msgstr "Konto"
 
 msgctxt "#30051"
 msgid "Connect to your Jellyfin server and manage the session."
-msgstr ""
+msgstr "Koble til Jellyfin-serveren din og administrer økten."
 
 msgctxt "#30052"
 msgid "Server address"
-msgstr ""
+msgstr "Serveradresse"
 
 msgctxt "#30053"
 msgid "Host name, IP address or full URL of the Jellyfin server. A bare host uses http on port 8096."
-msgstr ""
+msgstr "Vertsnavn, IP-adresse eller full URL til Jellyfin-serveren. Bare et vertsnavn bruker http på port 8096."
 
 msgctxt "#30054"
 msgid "Log in…"
-msgstr ""
+msgstr "Logg inn…"
 
 msgctxt "#30055"
 msgid "Connect to the server above using Quick Connect or a username and password."
-msgstr ""
+msgstr "Koble til serveren ovenfor med Quick Connect eller med brukernavn og passord."
 
 msgctxt "#30056"
 msgid "Server"
-msgstr ""
+msgstr "Server"
 
 msgctxt "#30057"
 msgid "The connected Jellyfin server."
-msgstr ""
+msgstr "Jellyfin-serveren som er tilkoblet."
 
 msgctxt "#30058"
 msgid "Logged-in user"
-msgstr ""
+msgstr "Innlogget bruker"
 
 msgctxt "#30059"
 msgid "The Jellyfin user this device plays and reports as."
-msgstr ""
+msgstr "Jellyfin-brukeren denne enheten spiller av og rapporterer som."
 
 msgctxt "#30060"
 msgid "Test connection"
-msgstr ""
+msgstr "Test tilkobling"
 
 msgctxt "#30061"
 msgid "Check that the server is reachable and the session is still valid."
-msgstr ""
+msgstr "Kontroller at serveren er tilgjengelig og at økten fortsatt er gyldig."
 
 msgctxt "#30062"
 msgid "Log out"
-msgstr ""
+msgstr "Logg ut"
 
 msgctxt "#30063"
 msgid "End the session on the server and forget it on this device. The server address is kept."
-msgstr ""
+msgstr "Avslutt økten på serveren og glem den på denne enheten. Serveradressen beholdes."
 
 msgctxt "#30064"
 msgid "Restart Kofin"
-msgstr ""
+msgstr "Start Kofin på nytt"
 
 msgctxt "#30065"
 msgid "Restart the background service without restarting Kodi."
-msgstr ""
+msgstr "Start bakgrunnstjenesten på nytt uten å starte Kodi på nytt."
 
 msgctxt "#30066"
 msgid "Verify SSL certificate"
-msgstr ""
+msgstr "Verifiser SSL-sertifikat"
 
 msgctxt "#30067"
 msgid "Disable only for servers with self-signed certificates."
-msgstr ""
+msgstr "Slå av bare for servere med selvsignerte sertifikater."
 
 msgctxt "#30068"
 msgid "Device name"
-msgstr ""
+msgstr "Enhetsnavn"
 
 msgctxt "#30069"
 msgid "How this device appears in the Jellyfin dashboard and cast menus."
-msgstr ""
+msgstr "Hvordan denne enheten vises i Jellyfin-panelet og i cast-menyer."
 
 msgctxt "#30070"
 msgid "Connection"
-msgstr ""
+msgstr "Tilkobling"
 
 msgctxt "#30071"
 msgid "Advanced"
-msgstr ""
+msgstr "Avansert"
 
 msgctxt "#30072"
 msgid "SSL verification and other advanced options."
-msgstr ""
+msgstr "SSL-verifisering og andre avanserte valg."
 
 msgctxt "#30073"
 msgid "Enable Delete from server"
-msgstr ""
+msgstr "Aktiver Slett fra server"
 
 msgctxt "#30074"
 msgid "Adds a Delete entry to an item's 'Jellyfin actions' context menu. Deletion is permanent: the file itself is removed on the Jellyfin server, for every user."
-msgstr ""
+msgstr "Legger til en Slett-oppføring i kontekstmenyen «Jellyfin-handlinger» for et element. Sletting er permanent: selve filen fjernes på Jellyfin-serveren, for alle brukere."
 
 msgctxt "#30075"
 msgid "Delete without confirmation"
-msgstr ""
+msgstr "Slett uten bekreftelse"
 
 msgctxt "#30076"
 msgid "Delete the item as soon as the entry is picked, with no 'are you sure?' prompt. The deletion is still permanent and applies on the server."
-msgstr ""
+msgstr "Slett elementet så snart oppføringen velges, uten et «er du sikker?»-spørsmål. Slettingen er fortsatt permanent og gjelder på serveren."
 
 msgctxt "#30077"
 msgid "Offer to delete after watching"
-msgstr ""
+msgstr "Tilby sletting etter visning"
 
 msgctxt "#30078"
 msgid "When a movie or episode finishes, ask whether to delete it from the server. Always asks, whatever 'Delete without confirmation' is set to."
-msgstr ""
+msgstr "Når en film eller episode er ferdig, spør om den skal slettes fra serveren. Spør alltid, uansett hva «Slett uten bekreftelse» er satt til."
 
 msgctxt "#30079"
 msgid "Who's watching shortlist"
-msgstr ""
+msgstr "Kortliste for «Hvem ser på?»"
 
 msgctxt "#30080"
 msgid "Choose which server users the addon's Who's watching? entry offers. Nothing selected offers everyone."
-msgstr ""
+msgstr "Velg hvilke serverbrukere tilleggets «Hvem ser på?»-oppføring tilbyr. Ingen valgt tilbyr alle."
 
 # 30030-30049 — browse nodes
 
 msgctxt "#30030"
 msgid "All"
-msgstr ""
+msgstr "Alle"
 
 msgctxt "#30031"
 msgid "Recently added"
-msgstr ""
+msgstr "Nylig lagt til"
 
 msgctxt "#30032"
 msgid "Next up"
-msgstr ""
+msgstr "Neste på tur"
 
 msgctxt "#30033"
 msgid "In progress"
-msgstr ""
+msgstr "Påbegynt"
 
 msgctxt "#30034"
 msgid "Unwatched"
-msgstr ""
+msgstr "Usett"
 
 msgctxt "#30035"
 msgid "Favourites"
-msgstr ""
+msgstr "Favoritter"
 
 msgctxt "#30036"
 msgid "Genres"
-msgstr ""
+msgstr "Sjangere"
 
 msgctxt "#30037"
 msgid "Random"
-msgstr ""
+msgstr "Tilfeldig"
 
 msgctxt "#30038"
 msgid "Sets"
-msgstr ""
+msgstr "Filmsamlinger"
 
 msgctxt "#30039"
 msgid "Artists"
-msgstr ""
+msgstr "Artister"
 
 msgctxt "#30040"
 msgid "Albums"
-msgstr ""
+msgstr "Album"
 
 msgctxt "#30049"
 msgid "Continue watching"
-msgstr ""
+msgstr "Fortsett å se"
 
 # 30100-30203 — Transcoding tab (30150+ are option labels)
 
 msgctxt "#30100"
 msgid "Transcoding"
-msgstr ""
+msgstr "Transkoding"
 
 msgctxt "#30101"
 msgid "When and how the server converts media for this device."
-msgstr ""
+msgstr "Når og hvordan serveren konverterer medier for denne enheten."
 
 msgctxt "#30102"
 msgid "Force direct play"
-msgstr ""
+msgstr "Tving direkteavspilling"
 
 msgctxt "#30103"
 msgid "Always play the original video file. Overrides every other video transcoding setting; playback fails if the device cannot handle the media. Music is unaffected — see 'Transcode music'."
-msgstr ""
+msgstr "Spill alltid av den originale videofilen. Overstyrer alle andre innstillinger for videotranskoding; avspillingen mislykkes hvis enheten ikke takler mediet. Musikk påvirkes ikke — se «Transkode musikk»."
 
 msgctxt "#30104"
 msgid "Force remux"
-msgstr ""
+msgstr "Tving remuksing"
 
 msgctxt "#30105"
 msgid "Repackage the stream without re-encoding video. Use when the container causes problems but the codecs are fine."
-msgstr ""
+msgstr "Pakk om strømmen uten å kode om videoen. Bruk dette når beholderen skaper problemer, men kodekene er i orden."
 
 msgctxt "#30106"
 msgid "Force transcode"
-msgstr ""
+msgstr "Tving transkoding"
 
 msgctxt "#30107"
 msgid "Always re-encode on the server. Highest server load; use for troubleshooting or very constrained clients."
-msgstr ""
+msgstr "Kod alltid om på serveren. Høyest serverbelastning; bruk det til feilsøking eller svært begrensede klienter."
 
 msgctxt "#30108"
 msgid "Direct play video codecs"
-msgstr ""
+msgstr "Videokodeker for direkteavspilling"
 
 msgctxt "#30109"
 msgid "Video formats this device can decode. Media using formats not selected here is transcoded."
-msgstr ""
+msgstr "Videoformater denne enheten kan dekode. Medier i formater som ikke er valgt her, transkodes."
 
 msgctxt "#30110"
 msgid "Direct play audio codecs"
-msgstr ""
+msgstr "Lydkodeker for direkteavspilling"
 
 msgctxt "#30111"
 msgid "Audio formats this device can decode or pass through. Others are transcoded."
-msgstr ""
+msgstr "Lydformater denne enheten kan dekode eller sende videre uendret. Andre transkodes."
 
 msgctxt "#30112"
 msgid "Allowed HDR types"
-msgstr ""
+msgstr "Tillatte HDR-typer"
 
 msgctxt "#30113"
 msgid "HDR formats the display accepts. Media in formats not selected is tone-mapped or transcoded to SDR/HDR10 by the server."
-msgstr ""
+msgstr "HDR-formater skjermen godtar. Medier i formater som ikke er valgt, tonemappes eller transkodes til SDR/HDR10 av serveren."
 
 msgctxt "#30114"
 msgid "Preferred video codec"
-msgstr ""
+msgstr "Foretrukket videokodek"
 
 msgctxt "#30115"
 msgid "The codec the server targets when it must transcode video."
-msgstr ""
+msgstr "Kodeken serveren sikter mot når den må transkode video."
 
 msgctxt "#30116"
 msgid "Preferred audio codec"
-msgstr ""
+msgstr "Foretrukket lydkodek"
 
 msgctxt "#30117"
 msgid "The codec the server targets when it must transcode audio."
-msgstr ""
+msgstr "Kodeken serveren sikter mot når den må transkode lyd."
 
 msgctxt "#30118"
 msgid "Maximum audio channels"
-msgstr ""
+msgstr "Maksimalt antall lydkanaler"
 
 msgctxt "#30119"
 msgid "Maximum number of audio channels allowed when transcoding. Streams with more channels will be downmixed. No effect on direct playback."
-msgstr ""
+msgstr "Maksimalt antall lydkanaler som tillates ved transkoding. Strømmer med flere kanaler nedmikses. Ingen effekt på direkteavspilling."
 
 msgctxt "#30120"
 msgid "Maximum streaming bitrate"
-msgstr ""
+msgstr "Maksimal strømmebitrate"
 
 msgctxt "#30121"
 msgid "Media above this bitrate is transcoded down to it. Unlimited suits LAN playback."
-msgstr ""
+msgstr "Medier over denne bitraten transkodes ned til den. Ubegrenset passer for avspilling i lokalnettet."
 
 msgctxt "#30122"
 msgid "Maximum resolution"
-msgstr ""
+msgstr "Maksimal oppløsning"
 
 msgctxt "#30123"
 msgid "Wider media is downscaled by the server."
-msgstr ""
+msgstr "Bredere medier nedskaleres av serveren."
 
 msgctxt "#30124"
 msgid "Transcode audio bitrate"
-msgstr ""
+msgstr "Bitrate for transkodet lyd"
 
 msgctxt "#30125"
 msgid "Bitrate for the audio track when video is transcoded."
-msgstr ""
+msgstr "Bitrate for lydsporet når videoen transkodes."
 
 msgctxt "#30126"
 msgid "Context menu bitrates"
-msgstr ""
+msgstr "Bitrater i kontekstmenyen"
 
 msgctxt "#30127"
 msgid "Bitrates offered by 'Play with transcoding'. With exactly one selected the popup is skipped."
-msgstr ""
+msgstr "Bitrater som tilbys av «Spill av med transkoding». Med nøyaktig én valgt hoppes dialogen over."
 
 msgctxt "#30128"
 msgid "Music"
-msgstr ""
+msgstr "Musikk"
 
 msgctxt "#30129"
 msgid "Maximum music bitrate"
-msgstr ""
+msgstr "Maksimal musikkbitrate"
 
 msgctxt "#30130"
 msgid "Music above this bitrate is transcoded using the codec and bitrate below. Unlimited never transcodes."
-msgstr ""
+msgstr "Musikk over denne bitraten transkodes med kodeken og bitraten nedenfor. Ubegrenset transkoder aldri."
 
 msgctxt "#30131"
 msgid "Music transcode codec"
-msgstr ""
+msgstr "Kodek for musikktranskoding"
 
 msgctxt "#30132"
 msgid "Codec for transcoded music streams."
-msgstr ""
+msgstr "Kodek for transkodede musikkstrømmer."
 
 msgctxt "#30133"
 msgid "Music transcode bitrate"
-msgstr ""
+msgstr "Bitrate for musikktranskoding"
 
 msgctxt "#30134"
 msgid "Bitrate for transcoded music streams."
-msgstr ""
+msgstr "Bitrate for transkodede musikkstrømmer."
 
 msgctxt "#30135"
 msgid "Transcode music"
-msgstr ""
+msgstr "Transkode musikk"
 
 msgctxt "#30136"
 msgid "Route music playback through the add-on so the settings below apply. Off, songs stream straight from the server untouched. Changing this needs a library repair of your music libraries to rewrite their paths."
-msgstr ""
+msgstr "Send musikkavspillingen gjennom tillegget, slik at innstillingene nedenfor gjelder. Av strømmes sangene rett fra serveren, uendret. Å endre dette krever en bibliotekreparasjon av musikkbibliotekene dine for å skrive om banene deres."
 
 msgctxt "#30150"
 msgid "H.264 (AVC)"
-msgstr ""
+msgstr "H.264 (AVC)"
 
 msgctxt "#30151"
 msgid "H.264 10-bit (Hi10P)"
-msgstr ""
+msgstr "H.264 10-bit (Hi10P)"
 
 msgctxt "#30152"
 msgid "H.265 (HEVC)"
-msgstr ""
+msgstr "H.265 (HEVC)"
 
 msgctxt "#30153"
 msgid "HEVC RExt (4:2:2/4:4:4)"
-msgstr ""
+msgstr "HEVC RExt (4:2:2/4:4:4)"
 
 msgctxt "#30154"
 msgid "AV1"
-msgstr ""
+msgstr "AV1"
 
 msgctxt "#30155"
 msgid "MPEG-2"
-msgstr ""
+msgstr "MPEG-2"
 
 msgctxt "#30156"
 msgid "VP9"
-msgstr ""
+msgstr "VP9"
 
 msgctxt "#30157"
 msgid "VC-1"
-msgstr ""
+msgstr "VC-1"
 
 msgctxt "#30158"
 msgid "AAC"
-msgstr ""
+msgstr "AAC"
 
 msgctxt "#30159"
 msgid "MP2"
-msgstr ""
+msgstr "MP2"
 
 msgctxt "#30160"
 msgid "MP3"
-msgstr ""
+msgstr "MP3"
 
 msgctxt "#30161"
 msgid "AC3 (Dolby Digital)"
-msgstr ""
+msgstr "AC3 (Dolby Digital)"
 
 msgctxt "#30162"
 msgid "E-AC3 (Dolby Digital Plus)"
-msgstr ""
+msgstr "E-AC3 (Dolby Digital Plus)"
 
 msgctxt "#30163"
 msgid "Opus"
-msgstr ""
+msgstr "Opus"
 
 msgctxt "#30164"
 msgid "FLAC"
-msgstr ""
+msgstr "FLAC"
 
 msgctxt "#30165"
 msgid "DTS"
-msgstr ""
+msgstr "DTS"
 
 msgctxt "#30166"
 msgid "HDR10"
-msgstr ""
+msgstr "HDR10"
 
 msgctxt "#30167"
 msgid "HLG"
-msgstr ""
+msgstr "HLG"
 
 msgctxt "#30168"
 msgid "HDR10+"
-msgstr ""
+msgstr "HDR10+"
 
 msgctxt "#30169"
 msgid "Dolby Vision"
-msgstr ""
+msgstr "Dolby Vision"
 
 msgctxt "#30170"
 msgid "Dolby Vision with HDR10 fallback"
-msgstr ""
+msgstr "Dolby Vision med HDR10-reserve"
 
 msgctxt "#30171"
 msgid "Dolby Vision with HLG fallback"
-msgstr ""
+msgstr "Dolby Vision med HLG-reserve"
 
 msgctxt "#30172"
 msgid "Dolby Vision with SDR fallback"
-msgstr ""
+msgstr "Dolby Vision med SDR-reserve"
 
 msgctxt "#30173"
 msgid "Dolby Vision Profile 7 (EL)"
-msgstr ""
+msgstr "Dolby Vision profil 7 (EL)"
 
 msgctxt "#30174"
 msgid "Dolby Vision with HDR10+ fallback"
-msgstr ""
+msgstr "Dolby Vision med HDR10+-reserve"
 
 msgctxt "#30175"
 msgid "Dolby Vision P7 with HDR10+ fallback"
-msgstr ""
+msgstr "Dolby Vision P7 med HDR10+-reserve"
 
 msgctxt "#30176"
 msgid "Unlimited"
-msgstr ""
+msgstr "Ubegrenset"
 
 msgctxt "#30177"
 msgid "720p"
-msgstr ""
+msgstr "720p"
 
 msgctxt "#30178"
 msgid "1080p"
-msgstr ""
+msgstr "1080p"
 
 msgctxt "#30179"
 msgid "4K"
-msgstr ""
+msgstr "4K"
 
 msgctxt "#30180"
 msgid "2.0 stereo"
-msgstr ""
+msgstr "2.0 stereo"
 
 msgctxt "#30181"
 msgid "5.1 surround"
-msgstr ""
+msgstr "5.1 surround"
 
 msgctxt "#30182"
 msgid "7.1 surround"
-msgstr ""
+msgstr "7.1 surround"
 
 msgctxt "#30183"
 msgid "1 Mbit/s"
-msgstr ""
+msgstr "1 Mbit/s"
 
 msgctxt "#30184"
 msgid "2 Mbit/s"
-msgstr ""
+msgstr "2 Mbit/s"
 
 msgctxt "#30185"
 msgid "3 Mbit/s"
-msgstr ""
+msgstr "3 Mbit/s"
 
 msgctxt "#30186"
 msgid "4 Mbit/s"
-msgstr ""
+msgstr "4 Mbit/s"
 
 msgctxt "#30187"
 msgid "6 Mbit/s"
-msgstr ""
+msgstr "6 Mbit/s"
 
 msgctxt "#30188"
 msgid "8 Mbit/s"
-msgstr ""
+msgstr "8 Mbit/s"
 
 msgctxt "#30189"
 msgid "10 Mbit/s"
-msgstr ""
+msgstr "10 Mbit/s"
 
 msgctxt "#30190"
 msgid "15 Mbit/s"
-msgstr ""
+msgstr "15 Mbit/s"
 
 msgctxt "#30191"
 msgid "20 Mbit/s"
-msgstr ""
+msgstr "20 Mbit/s"
 
 msgctxt "#30192"
 msgid "25 Mbit/s"
-msgstr ""
+msgstr "25 Mbit/s"
 
 msgctxt "#30193"
 msgid "40 Mbit/s"
-msgstr ""
+msgstr "40 Mbit/s"
 
 msgctxt "#30194"
 msgid "60 Mbit/s"
-msgstr ""
+msgstr "60 Mbit/s"
 
 msgctxt "#30195"
 msgid "120 Mbit/s"
-msgstr ""
+msgstr "120 Mbit/s"
 
 msgctxt "#30196"
 msgid "96 kbit/s"
-msgstr ""
+msgstr "96 kbit/s"
 
 msgctxt "#30197"
 msgid "128 kbit/s"
-msgstr ""
+msgstr "128 kbit/s"
 
 msgctxt "#30198"
 msgid "192 kbit/s"
-msgstr ""
+msgstr "192 kbit/s"
 
 msgctxt "#30199"
 msgid "256 kbit/s"
-msgstr ""
+msgstr "256 kbit/s"
 
 msgctxt "#30200"
 msgid "320 kbit/s"
-msgstr ""
+msgstr "320 kbit/s"
 
 msgctxt "#30201"
 msgid "384 kbit/s"
-msgstr ""
+msgstr "384 kbit/s"
 
 msgctxt "#30202"
 msgid "448 kbit/s"
-msgstr ""
+msgstr "448 kbit/s"
 
 msgctxt "#30203"
 msgid "640 kbit/s"
-msgstr ""
+msgstr "640 kbit/s"
 
 msgctxt "#30204"
 msgid "0.5 Mbit/s"
-msgstr ""
+msgstr "0.5 Mbit/s"
 
 msgctxt "#30205"
 msgid "0.75 Mbit/s"
-msgstr ""
+msgstr "0.75 Mbit/s"
 
 msgctxt "#30206"
 msgid "Default (max streaming bitrate)"
-msgstr ""
+msgstr "Standard (maks. strømmebitrate)"
 
 msgctxt "#30041"
 msgid "Who's watching?"
-msgstr ""
+msgstr "Hvem ser på?"
 
 msgctxt "#30042"
 msgid "Add a user"
-msgstr ""
+msgstr "Legg til en bruker"
 
 msgctxt "#30043"
 msgid "Remove a user"
-msgstr ""
+msgstr "Fjern en bruker"
 
 msgctxt "#30044"
 msgid "Select user"
-msgstr ""
+msgstr "Velg bruker"
 
 msgctxt "#30045"
 msgid "No active session on the server yet"
-msgstr ""
+msgstr "Ingen aktiv økt på serveren ennå"
 
 msgctxt "#30046"
 msgid "Who's watching? (%s)"
-msgstr ""
+msgstr "Hvem ser på? (%s)"
 
 msgctxt "#30047"
 msgid "Who's watching with %s?"
-msgstr ""
+msgstr "Hvem ser på sammen med %s?"
 
 msgctxt "#30048"
 msgid "Who can be added to the session"
-msgstr ""
+msgstr "Hvem som kan legges til i økten"
 
 # 30250-30299 — Library tab
 
 msgctxt "#30250"
 msgid "Library"
-msgstr ""
+msgstr "Bibliotek"
 
 msgctxt "#30251"
 msgid "Select and manage the Jellyfin libraries mirrored into Kodi's own database."
-msgstr ""
+msgstr "Velg og administrer Jellyfin-bibliotekene som speiles inn i Kodis egen database."
 
 msgctxt "#30252"
 msgid "Select libraries to sync"
-msgstr ""
+msgstr "Velg bibliotek som skal synkroniseres"
 
 msgctxt "#30253"
 msgid "Choose which server libraries are mirrored into the Kodi library. Changes apply when you confirm the selection."
-msgstr ""
+msgstr "Velg hvilke serverbibliotek som speiles inn i Kodi-biblioteket. Endringene trer i kraft når du bekrefter valget."
 
 msgctxt "#30254"
 msgid "Synced libraries"
-msgstr ""
+msgstr "Synkroniserte bibliotek"
 
 msgctxt "#30255"
 msgid "The libraries currently mirrored into the Kodi database."
-msgstr ""
+msgstr "Bibliotekene som nå speiles inn i Kodi-databasen."
 
 msgctxt "#30256"
 msgid "Update libraries"
-msgstr ""
+msgstr "Oppdater bibliotek"
 
 msgctxt "#30257"
 msgid "Catch up with server changes and prune removed items from the libraries you pick. Runs when you confirm the selection."
-msgstr ""
+msgstr "Hent inn endringer fra serveren og fjern slettede elementer fra bibliotekene du velger. Kjøres når du bekrefter valget."
 
 msgctxt "#30258"
 msgid "Repair libraries"
-msgstr ""
+msgstr "Reparer bibliotek"
 
 msgctxt "#30259"
 msgid "Remove and re-sync the libraries you pick from scratch, restoring watched state from the server. Runs when you confirm the selection."
-msgstr ""
+msgstr "Fjern bibliotekene du velger og synkroniser dem på nytt fra bunnen av, med sett-status hentet tilbake fra serveren. Kjøres når du bekrefter valget."
 
 msgctxt "#30260"
 msgid "Refresh boxsets"
-msgstr ""
+msgstr "Oppdater filmsamlinger"
 
 msgctxt "#30261"
 msgid "Rebuild movie set links from the server's collections. Runs immediately."
-msgstr ""
+msgstr "Bygg opp igjen koblingene til filmsamlinger fra serverens samlinger. Kjøres umiddelbart."
 
 msgctxt "#30262"
 msgid "Sync status"
-msgstr ""
+msgstr "Synkroniseringsstatus"
 
 msgctxt "#30263"
 msgid "Companion plugin tier and schema-gate state."
-msgstr ""
+msgstr "Nivå på følgetillegget og status for skjemasperren."
 
 msgctxt "#30264"
 msgid "Remove synced library?"
-msgstr ""
+msgstr "Fjerne synkronisert bibliotek?"
 
 msgctxt "#30265"
 msgid "Remove %s from the Kodi library? The items are deleted from this device only."
-msgstr ""
+msgstr "Fjerne %s fra Kodi-biblioteket? Elementene slettes bare fra denne enheten."
 
 msgctxt "#30266"
 msgid "Repair which libraries?"
-msgstr ""
+msgstr "Hvilke bibliotek skal repareres?"
 
 msgctxt "#30267"
 msgid "All"
-msgstr ""
+msgstr "Alle"
 
 msgctxt "#30268"
 msgid "Select libraries"
-msgstr ""
+msgstr "Velg bibliotek"
 
 msgctxt "#30269"
 msgid "No libraries available"
-msgstr ""
+msgstr "Ingen bibliotek tilgjengelig"
 
 msgctxt "#30270"
 msgid "Update which libraries?"
-msgstr ""
+msgstr "Hvilke bibliotek skal oppdateres?"
 
 # 30300-30349 — Sync tab
 
 msgctxt "#30300"
 msgid "Sync"
-msgstr ""
+msgstr "Synkronisering"
 
 msgctxt "#30301"
 msgid "How library changes are downloaded and written."
-msgstr ""
+msgstr "Hvordan bibliotekendringer lastes ned og skrives."
 
 msgctxt "#30302"
 msgid "Hide update status below (items)"
-msgstr ""
+msgstr "Skjul oppdateringsstatus under (elementer)"
 
 msgctxt "#30303"
 msgid "Hide Kodi's library-update progress for syncs smaller than this. 0 always shows it."
-msgstr ""
+msgstr "Skjul Kodis fremdriftsvisning for bibliotekoppdateringer ved synkroniseringer mindre enn dette. 0 viser den alltid."
 
 msgctxt "#30306"
 msgid "Sync during video playback"
-msgstr ""
+msgstr "Synkroniser under videoavspilling"
 
 msgctxt "#30307"
 msgid "Keep applying library updates while a video is playing."
-msgstr ""
+msgstr "Fortsett å ta i bruk bibliotekoppdateringer mens en video spilles av."
 
 msgctxt "#30310"
 msgid "Items per request"
-msgstr ""
+msgstr "Elementer per forespørsel"
 
 msgctxt "#30311"
 msgid "Page size for library downloads. Recommended: 50."
-msgstr ""
+msgstr "Sidestørrelse for bibliotek-nedlastinger. Anbefalt: 50."
 
 msgctxt "#30312"
 msgid "Download threads"
-msgstr ""
+msgstr "Nedlastingstråder"
 
 msgctxt "#30313"
 msgid "Parallel download connections during sync. Recommended: 3; raise only for a fast server."
-msgstr ""
+msgstr "Parallelle nedlastingstilkoblinger under synkronisering. Anbefalt: 3; øk bare for en rask server."
 
 msgctxt "#30314"
 msgid "Artwork"
-msgstr ""
+msgstr "Bildemateriale"
 
 
 
 msgctxt "#30318"
 msgid "Compress artwork"
-msgstr ""
+msgstr "Komprimer bildemateriale"
 
 msgctxt "#30319"
 msgid "Re-encode capped artwork at JPEG quality 90. No effect without a resolution cap."
-msgstr ""
+msgstr "Kod om begrenset bildemateriale med JPEG-kvalitet 90. Ingen effekt uten en oppløsningsgrense."
 
 msgctxt "#30320"
 msgid "Maximum artwork resolution"
-msgstr ""
+msgstr "Maksimal bildeoppløsning"
 
 msgctxt "#30321"
 msgid "Cap the height of synced artwork. Original keeps the server size."
-msgstr ""
+msgstr "Begrens høyden på synkronisert bildemateriale. Original beholder serverens størrelse."
 
 msgctxt "#30322"
 msgid "Original"
-msgstr ""
+msgstr "Original"
 
 msgctxt "#30323"
 msgid "720p"
-msgstr ""
+msgstr "720p"
 
 msgctxt "#30324"
 msgid "1080p"
-msgstr ""
+msgstr "1080p"
 
 msgctxt "#30325"
 msgid "2160p"
-msgstr ""
+msgstr "2160p"
 
 # 30326/30327 keep their sync-block ids: the setting moved to the Advanced
 # tab, and renumbering a shipped string only breaks translations.
 
 msgctxt "#30326"
 msgid "Notify on server connection changes"
-msgstr ""
+msgstr "Varsle ved endringer i servertilkoblingen"
 
 msgctxt "#30327"
 msgid "Show a notification when the server connects, disconnects or restarts."
-msgstr ""
+msgstr "Vis et varsel når serveren kobler til, kobler fra eller starter på nytt."
 
 # 30350-30369 — library node labels
 
 msgctxt "#30350"
 msgid "Recently added"
-msgstr ""
+msgstr "Nylig lagt til"
 
 msgctxt "#30351"
 msgid "In progress"
-msgstr ""
+msgstr "Påbegynt"
 
 msgctxt "#30352"
 msgid "Unwatched"
-msgstr ""
+msgstr "Usett"
 
 msgctxt "#30353"
 msgid "Random"
-msgstr ""
+msgstr "Tilfeldig"
 
 msgctxt "#30354"
 msgid "Recommended"
-msgstr ""
+msgstr "Anbefalt"
 
 msgctxt "#30355"
 msgid "Recently added episodes"
-msgstr ""
+msgstr "Nylig lagt til episoder"
 
 msgctxt "#30356"
 msgid "In progress episodes"
-msgstr ""
+msgstr "Påbegynte episoder"
 
 msgctxt "#30357"
 msgid "Next episodes"
-msgstr ""
+msgstr "Neste episoder"
 
 msgctxt "#30358"
 msgid "Favorite movies"
-msgstr ""
+msgstr "Favorittfilmer"
 
 msgctxt "#30359"
 msgid "Favorite shows"
-msgstr ""
+msgstr "Favorittserier"
 
 msgctxt "#30360"
 msgid "Favorite episodes"
-msgstr ""
+msgstr "Favorittepisoder"
 
 msgctxt "#30361"
 msgid "Favorites"
-msgstr ""
+msgstr "Favoritter"
 
 msgctxt "#30362"
 msgid "First letter"
-msgstr ""
+msgstr "Første bokstav"
 
 # 30400-30429 — sync runtime messages
 
 msgctxt "#30400"
 msgid "Gathering:"
-msgstr ""
+msgstr "Samler inn:"
 
 msgctxt "#30401"
 msgid "Updating media"
-msgstr ""
+msgstr "Oppdaterer medier"
 
 msgctxt "#30402"
 msgid "Large update: %s items pending"
-msgstr ""
+msgstr "Stor oppdatering: %s elementer igjen"
 
 msgctxt "#30403"
 msgid "Sync incomplete; retrying shortly"
-msgstr ""
+msgstr "Synkronisering ufullstendig, prøver igjen"
 
 msgctxt "#30404"
 msgid "Resuming interrupted library sync"
-msgstr ""
+msgstr "Gjenopptar avbrutt synkronisering"
 
 msgctxt "#30405"
 msgid "New"
-msgstr ""
+msgstr "Nytt"
 
 msgctxt "#30406"
 msgid "Library sync failed"
-msgstr ""
+msgstr "Biblioteksynkronisering mislyktes"
 
 msgctxt "#30407"
 msgid "Boxsets"
-msgstr ""
+msgstr "Filmsamlinger"
 
 msgctxt "#30408"
 msgid "Removing library"
-msgstr ""
+msgstr "Fjerner bibliotek"
 
 msgctxt "#30409"
 msgid "Full sync completed in"
-msgstr ""
+msgstr "Full synkronisering fullført på"
 
 msgctxt "#30410"
 msgid "A sync is already running"
-msgstr ""
+msgstr "En synkronisering kjører allerede"
 
 msgctxt "#30411"
 msgid "Official KodiSyncQueue companion"
-msgstr ""
+msgstr "Offisielt KodiSyncQueue-følgetillegg"
 
 msgctxt "#30412"
 msgid "No companion plugin — realtime updates only"
-msgstr ""
+msgstr "Uten følgetillegg — bare sanntidsoppdateringer"
 
 msgctxt "#30413"
 msgid "Sync paused: unknown Kodi database v%s"
-msgstr ""
+msgstr "Synkronisering pauset: ukjent Kodi-database v%s"
 
 msgctxt "#30415"
 msgid "Connected to %s"
-msgstr ""
+msgstr "Koblet til %s"
 
 msgctxt "#30416"
 msgid "Lost connection to the server"
-msgstr ""
+msgstr "Mistet forbindelsen til serveren"
 
 msgctxt "#30417"
 msgid "Server is restarting"
-msgstr ""
+msgstr "Serveren starter på nytt"
 
 msgctxt "#30418"
 msgid "Server is shutting down"
-msgstr ""
+msgstr "Serveren slår seg av"
 
 msgctxt "#30420"
 msgid "Library sync is off: %s"
-msgstr ""
+msgstr "Biblioteksynkronisering er av: %s"
 
 msgctxt "#30414"
 msgid "advancedsettings.xml enables cleanonupdate — incompatible with library sync"
-msgstr ""
+msgstr "advancedsettings.xml aktiverer cleanonupdate — uforenlig med biblioteksynkronisering"
 
 # 30450-30499 — Playback tab: media segments + Play Next
 
 msgctxt "#30450"
 msgid "Playback"
-msgstr ""
+msgstr "Avspilling"
 
 msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."
-msgstr ""
+msgstr "Hopping over mediesegmenter og Spill neste-spørsmålet."
 
 msgctxt "#30452"
 msgid "Media segments"
-msgstr ""
+msgstr "Mediesegmenter"
 
 msgctxt "#30453"
 msgid "React to media segments"
-msgstr ""
+msgstr "Reager på mediesegmenter"
 
 msgctxt "#30454"
 msgid "Fetch Jellyfin media segments (intro, credits, recap, preview, commercial) during playback and act on them per type."
-msgstr ""
+msgstr "Hent Jellyfins mediesegmenter (intro, rulletekst, oppsummering, forhåndsvisning, reklame) under avspilling og reager på dem per type."
 
 msgctxt "#30455"
 msgid "Intros"
-msgstr ""
+msgstr "Introer"
 
 msgctxt "#30456"
 msgid "Off ignores intro segments, Auto skips past them, Ask shows a skip button."
-msgstr ""
+msgstr "Av ignorerer introsegmenter, Auto hopper over dem, Spør viser en hopp over-knapp."
 
 msgctxt "#30457"
 msgid "Credits"
-msgstr ""
+msgstr "Rulletekst"
 
 msgctxt "#30458"
 msgid "Off ignores credits, Auto seeks past them, Ask offers Skip Outro — with Play Next when a next episode exists."
-msgstr ""
+msgstr "Av ignorerer rulletekst, Auto spoler forbi den, Spør tilbyr Hopp over rulletekst — med Spill neste når det finnes en neste episode."
 
 msgctxt "#30459"
 msgid "Recaps"
-msgstr ""
+msgstr "Oppsummeringer"
 
 msgctxt "#30460"
 msgid "Off ignores recap segments, Auto skips past them, Ask shows a skip button."
-msgstr ""
+msgstr "Av ignorerer oppsummeringssegmenter, Auto hopper over dem, Spør viser en hopp over-knapp."
 
 msgctxt "#30461"
 msgid "Previews"
-msgstr ""
+msgstr "Forhåndsvisninger"
 
 msgctxt "#30462"
 msgid "Off ignores preview segments, Auto skips past them, Ask shows a skip button."
-msgstr ""
+msgstr "Av ignorerer forhåndsvisningssegmenter, Auto hopper over dem, Spør viser en hopp over-knapp."
 
 msgctxt "#30463"
 msgid "Commercials"
-msgstr ""
+msgstr "Reklame"
 
 msgctxt "#30464"
 msgid "Off ignores commercial segments, Auto skips past them, Ask shows a skip button."
-msgstr ""
+msgstr "Av ignorerer reklamesegmenter, Auto hopper over dem, Spør viser en hopp over-knapp."
 
 msgctxt "#30465"
 msgid "Off"
-msgstr ""
+msgstr "Av"
 
 msgctxt "#30466"
 msgid "Auto"
-msgstr ""
+msgstr "Auto"
 
 msgctxt "#30467"
 msgid "Ask"
-msgstr ""
+msgstr "Spør"
 
 msgctxt "#30468"
 msgid "Play next"
-msgstr ""
+msgstr "Spill neste"
 
 msgctxt "#30469"
 msgid "Offer Play Next"
-msgstr ""
+msgstr "Tilby Spill neste"
 
 msgctxt "#30470"
 msgid "Offer the next episode at the credits, or near the end when no credits segment exists."
-msgstr ""
+msgstr "Tilby neste episode ved rulleteksten, eller nær slutten når det ikke finnes noe rulletekstsegment."
 
 msgctxt "#30471"
 msgid "Play Next lead time"
-msgstr ""
+msgstr "Forvarsel for Spill neste"
 
 msgctxt "#30472"
 msgid "Seconds before the end to show the Play Next prompt for content without a credits segment."
-msgstr ""
+msgstr "Sekunder før slutten som Spill neste-spørsmålet vises for innhold uten rulletekstsegment."
 
 msgctxt "#30473"
 msgid "Autoplay next episode"
-msgstr ""
+msgstr "Spill neste episode automatisk"
 
 msgctxt "#30474"
 msgid "Count down on the Play Next prompt and start the next episode automatically."
-msgstr ""
+msgstr "Tell ned på Spill neste-spørsmålet og start neste episode automatisk."
 
 msgctxt "#30475"
 msgid "Resume offset (seconds)"
-msgstr ""
+msgstr "Tilbakespoling ved fortsettelse (sek.)"
 
 msgctxt "#30476"
 msgid "Seconds to rewind before the stored resume point, so playback picks up a moment earlier."
-msgstr ""
+msgstr "Sekunder å spole tilbake før det lagrede fortsettelsespunktet, slik at avspillingen tar opp igjen litt tidligere."
 
 msgctxt "#30477"
 msgid "Hide the skip button after"
-msgstr ""
+msgstr "Skjul hopp over-knappen etter"
 
 msgctxt "#30478"
 msgid "How far into a segment the skip button disappears, so it stops covering the picture once you have decided not to press it. 100% keeps it up for the whole segment."
-msgstr ""
+msgstr "Hvor langt inn i et segment hopp over-knappen forsvinner, så den slutter å dekke bildet når du har bestemt deg for ikke å trykke på den. 100 % lar den stå hele segmentet."
 
 msgctxt "#30481"
 msgid "Skip Intro"
-msgstr ""
+msgstr "Hopp over intro"
 
 msgctxt "#30482"
 msgid "Skip Outro"
-msgstr ""
+msgstr "Hopp over rulletekst"
 
 msgctxt "#30483"
 msgid "Skip Recap"
-msgstr ""
+msgstr "Hopp over oppsummering"
 
 msgctxt "#30484"
 msgid "Skip Preview"
-msgstr ""
+msgstr "Hopp over forhåndsvisning"
 
 msgctxt "#30485"
 msgid "Skip Ad"
-msgstr ""
+msgstr "Hopp over reklame"
 
 msgctxt "#30486"
 msgid "Play Next"
-msgstr ""
+msgstr "Spill neste"
 
 msgctxt "#30487"
 msgid "Close"
-msgstr ""
+msgstr "Lukk"
 
 msgctxt "#30488"
 msgid "Skipped %s"
-msgstr ""
+msgstr "Hoppet over %s"
 
 msgctxt "#30489"
 msgid "Up next: %s"
-msgstr ""
+msgstr "Neste: %s"
 
 # 30500-30549 — extras
 
 msgctxt "#30500"
 msgid "Extras"
-msgstr ""
+msgstr "Ekstramateriale"
 
 msgctxt "#30501"
 msgid "Browse extras"
-msgstr ""
+msgstr "Bla i ekstramateriale"
 
 msgctxt "#30502"
 msgid "Jellyfin actions"
-msgstr ""
+msgstr "Jellyfin-handlinger"
 
 msgctxt "#30504"
 msgid "Settings"
-msgstr ""
+msgstr "Innstillinger"
 
 msgctxt "#30505"
 msgid "Permanently delete \"%s\" from the server? This cannot be undone."
-msgstr ""
+msgstr "Slette \"%s\" permanent fra serveren? Dette kan ikke angres."
 
 msgctxt "#30506"
 msgid "Finished \"%s\". Permanently delete it from the server? This cannot be undone."
-msgstr ""
+msgstr "Ferdig med \"%s\". Slette den permanent fra serveren? Dette kan ikke angres."
 
 msgctxt "#30507"
 msgid "Server request failed"
-msgstr ""
+msgstr "Serverforespørselen mislyktes"
 
 # 30508/30509 deliberately name the server: Kodi contributes its own
 # "Mark as watched" (16103/16104) to the same context menu.
 
 msgctxt "#30508"
 msgid "Mark as watched on Jellyfin"
-msgstr ""
+msgstr "Merk som sett på Jellyfin"
 
 msgctxt "#30509"
 msgid "Mark as unwatched on Jellyfin"
-msgstr ""
+msgstr "Merk som usett på Jellyfin"
 
 # 30550-30599 — SyncPlay (settings group 30550-30558, menu/toasts 30560+;
 # fork ids 33262-33302 remapped)
 
 msgctxt "#30550"
 msgid "SyncPlay"
-msgstr ""
+msgstr "SyncPlay"
 
 msgctxt "#30551"
 msgid "Enable SyncPlay"
-msgstr ""
+msgstr "Aktiver SyncPlay"
 
 msgctxt "#30552"
 msgid "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads. Works best with Sync Playback to Display turned off in Kodi player settings"
-msgstr ""
+msgstr "Legger til en SyncPlay-oppføring i tilleggets hovedmeny, for å se synkronisert med andre Jellyfin-klienter. Av betyr ingen gruppemeny og ingen SyncPlay-tråder. Fungerer best med «Synkroniser avspilling med skjerm» slått av i Kodis avspillerinnstillinger"
 
 msgctxt "#30553"
 msgid "Drift correction"
-msgstr ""
+msgstr "Avdriftskorrigering"
 
 msgctxt "#30554"
 msgid "Gently adjusts playback speed to hold position with the group (needs Kodi's 'Sync playback to display'). Off: follow scheduled commands only."
-msgstr ""
+msgstr "Justerer avspillingshastigheten forsiktig for å holde posisjonen med gruppen (krever Kodis «Synkroniser avspilling med skjerm»). Av: følg bare planlagte kommandoer."
 
 msgctxt "#30555"
 msgid "Sync tolerance (ms)"
-msgstr ""
+msgstr "Synkroniseringstoleranse (ms)"
 
 msgctxt "#30556"
 msgid "Drift below this is left alone; correction engages only past it. Lower is tighter but corrects more often."
-msgstr ""
+msgstr "Avvik under dette får stå; korrigering settes inn først over grensen. Lavere er strammere, men korrigerer oftere."
 
 msgctxt "#30557"
 msgid "Group notifications"
-msgstr ""
+msgstr "Gruppevarsler"
 
 msgctxt "#30558"
 msgid "Show member join/leave and group-waiting notifications. Errors are always shown."
-msgstr ""
+msgstr "Vis varsler når medlemmer blir med eller forlater gruppen, og når gruppen venter. Feil vises alltid."
 
 msgctxt "#30560"
 msgid "SyncPlay"
-msgstr ""
+msgstr "SyncPlay"
 
 msgctxt "#30561"
 msgid "New group..."
-msgstr ""
+msgstr "Ny gruppe..."
 
 msgctxt "#30562"
 msgid "Leave group"
-msgstr ""
+msgstr "Forlat gruppen"
 
 msgctxt "#30563"
 msgid "Joined group: %s"
-msgstr ""
+msgstr "Ble med i gruppen: %s"
 
 msgctxt "#30564"
 msgid "Left the group"
-msgstr ""
+msgstr "Forlot gruppen"
 
 msgctxt "#30565"
 msgid "%s joined the group"
-msgstr ""
+msgstr "%s ble med i gruppen"
 
 msgctxt "#30566"
 msgid "%s left the group"
-msgstr ""
+msgstr "%s forlot gruppen"
 
 msgctxt "#30567"
 msgid "Group name"
-msgstr ""
+msgstr "Gruppenavn"
 
 msgctxt "#30568"
 msgid "Playback stopped — what should the group do?"
-msgstr ""
+msgstr "Avspillingen stoppet — hva skal gruppen gjøre?"
 
 msgctxt "#30569"
 msgid "Spectator mode: the group will not wait for you"
-msgstr ""
+msgstr "Tilskuermodus: gruppen venter ikke på deg"
 
 msgctxt "#30570"
 msgid "SyncPlay needs a working websocket connection to the server"
-msgstr ""
+msgstr "SyncPlay krever en fungerende websocket-tilkobling til serveren"
 
 msgctxt "#30571"
 msgid "Removed from the group"
-msgstr ""
+msgstr "Fjernet fra gruppen"
 
 msgctxt "#30572"
 msgid "Members"
-msgstr ""
+msgstr "Medlemmer"
 
 msgctxt "#30573"
 msgid "Resync with group"
-msgstr ""
+msgstr "Synkroniser med gruppen igjen"
 
 msgctxt "#30574"
 msgid "SyncPlay is unavailable (server not reachable?)"
-msgstr ""
+msgstr "SyncPlay er utilgjengelig (ingen kontakt med serveren?)"
 
 msgctxt "#30575"
 msgid "External players cannot be synchronized"
-msgstr ""
+msgstr "Eksterne avspillere kan ikke synkroniseres"
 
 msgctxt "#30576"
 msgid "Playback could not be synchronized"
-msgstr ""
+msgstr "Avspillingen kunne ikke synkroniseres"
 
 msgctxt "#30577"
 msgid "buffering"
-msgstr ""
+msgstr "bufrer"
 
 msgctxt "#30578"
 msgid "Could not join the group"
-msgstr ""
+msgstr "Kunne ikke bli med i gruppen"
 
 msgctxt "#30579"
 msgid "You don't have access to some items in the group's queue"
-msgstr ""
+msgstr "Du har ikke tilgang til enkelte elementer i gruppens kø"
 
 msgctxt "#30580"
 msgid "Become a spectator (group won't wait for me)"
-msgstr ""
+msgstr "Bli tilskuer (gruppen venter ikke på meg)"
 
 msgctxt "#30581"
 msgid "Wait for me again (leave spectator mode)"
-msgstr ""
+msgstr "Vent på meg igjen (forlat tilskuermodus)"
 
 msgctxt "#30582"
 msgid "disconnected"
-msgstr ""
+msgstr "frakoblet"
 
 msgctxt "#30583"
 msgid "The group will wait for you again"
-msgstr ""
+msgstr "Gruppen venter på deg igjen"
 
 msgctxt "#30584"
 msgid "Stop playback for everyone"
-msgstr ""
+msgstr "Stopp avspillingen for alle"
 
 msgctxt "#30585"
 msgid "Waiting for the group..."
-msgstr ""
+msgstr "Venter på gruppen..."
 
 # 30600-30619 — phase 5: KofinSyncQueue tier + retention + progress
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
-msgstr ""
+msgstr "KofinSyncQueue-følgetillegg (hurtigvei)"
 
 msgctxt "#30601"
 msgid "Change-queue retention exceeded — updating libraries to recover"
-msgstr ""
+msgstr "Oppbevaringstiden for endringskøen er overskredet — oppdaterer bibliotekene for å ta igjen"
 
 msgctxt "#30602"
 msgid "New: %s | Updates: %s | User data: %s"
-msgstr ""
+msgstr "Nytt: %s | Oppdatert: %s | Brukerdata: %s"
 
 msgctxt "#30603"
 msgid "Comparing with the server"
-msgstr ""
+msgstr "Sammenligner med serveren"
 
 # 30604-30605 — maximum-resolution steps missing from the original port
 msgctxt "#30604"
 msgid "480p"
-msgstr ""
+msgstr "480p"
 
 msgctxt "#30605"
 msgid "1440p"
-msgstr ""
+msgstr "1440p"
 
 # 30606-30610 — Jellyfin song lyrics
 msgctxt "#30606"
 msgid "Jellyfin song lyrics"
-msgstr ""
+msgstr "Sangtekster fra Jellyfin"
 
 msgctxt "#30607"
 msgid "Show a song's lyrics from Jellyfin as it plays, instead of a lyrics addon searching online for them. \"Show with Kofin Lyrics\" hands them to the Kofin Lyrics addon, which draws them itself or lets a skin do it. \"Hand to a lyrics addon\" works with any lyrics addon, such as CU LRC Lyrics."
-msgstr ""
+msgstr "Vis en sangs tekst fra Jellyfin mens den spilles, i stedet for at et sangteksttillegg søker etter den på nettet. \"Vis med Kofin Lyrics\" gir teksten til Kofin Lyrics-tillegget, som tegner den selv eller lar et skall gjøre det. \"Gi til et sangteksttillegg\" fungerer med alle sangteksttillegg, for eksempel CU LRC Lyrics."
 
 msgctxt "#30608"
 msgid "Off"
-msgstr ""
+msgstr "Av"
 
 msgctxt "#30609"
 msgid "Show with Kofin Lyrics"
-msgstr ""
+msgstr "Vis med Kofin Lyrics"
 
 msgctxt "#30610"
 msgid "Hand to a lyrics addon"
-msgstr ""
+msgstr "Gi til et sangteksttillegg"
 
 # 30611-30612 — music playlist sync
 msgctxt "#30611"
 msgid "Sync music playlists"
-msgstr ""
+msgstr "Synkroniser musikkspillelister"
 
 msgctxt "#30612"
 msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
-msgstr ""
+msgstr "Last ned Jellyfins musikkspillelister til Kodi som innebygde spillelister under Musikk → Spillelister → Kofin."
 
 # 30613-30617 — transcoding stream selection
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
-msgstr ""
+msgstr "Lyd- og undertekststrømmer"
 
 msgctxt "#30614"
 msgid "Audio stream"
-msgstr ""
+msgstr "Lydstrøm"
 
 msgctxt "#30615"
 msgid "Subtitles"
-msgstr ""
+msgstr "Undertekster"
 
 msgctxt "#30616"
 msgid "Restarting to change stream..."
-msgstr ""
+msgstr "Starter på nytt for å bytte strøm..."
 
 msgctxt "#30617"
 msgid "burned in, restarts playback"
-msgstr ""
+msgstr "innbrent, starter avspillingen på nytt"
 
 # 30618-30619 — Jellyfin default tracks
 msgctxt "#30618"
 msgid "Use Jellyfin's default tracks"
-msgstr ""
+msgstr "Bruk Jellyfins standardspor"
 
 msgctxt "#30619"
 msgid "Start playback on the audio and subtitle tracks your Jellyfin account asks for, instead of the ones Kodi's own language settings pick. The server resolves both from your Jellyfin profile, so the choice follows you to every client."
-msgstr ""
+msgstr "Start avspillingen på lyd- og undertekstsporene Jellyfin-kontoen din ber om, i stedet for dem Kodis egne språkinnstillinger velger. Serveren finner begge fra Jellyfin-profilen din, så valget følger deg til alle klienter."
 
 # 30620-30621 — chapter images
 msgctxt "#30620"
 msgid "Chapter images from the server"
-msgstr ""
+msgstr "Kapittelbilder fra serveren"
 
 msgctxt "#30621"
 msgid "Show Jellyfin's chapter images in Kodi's chapter list. Images are fetched on demand at playback start."
-msgstr ""
+msgstr "Vis Jellyfins kapittelbilder i Kodis kapittelliste. Bildene hentes ved behov når avspillingen starter."
 
 # 30622-30636 — new-content notifications
 msgctxt "#30622"
 msgid "Notify about new content"
-msgstr ""
+msgstr "Varsle om nytt innhold"
 
 msgctxt "#30623"
 msgid "Show a notification when new films, shows, episodes, music videos, artists or albums are added to your library."
-msgstr ""
+msgstr "Vis et varsel når nye filmer, serier, episoder, musikkvideoer, artister eller album legges til i biblioteket ditt."
 
 msgctxt "#30624"
 msgid "%s movie added to library"
-msgstr ""
+msgstr "Ny film i biblioteket: %s"
 
 msgctxt "#30625"
 msgid "%s movies added to library"
-msgstr ""
+msgstr "%s filmer lagt til i biblioteket"
 
 msgctxt "#30626"
 msgid "%s show added to library"
-msgstr ""
+msgstr "Ny serie i biblioteket: %s"
 
 msgctxt "#30627"
 msgid "%s new shows added to library"
-msgstr ""
+msgstr "%s nye serier lagt til i biblioteket"
 
 msgctxt "#30628"
 msgid "%s episode of %s added to library"
-msgstr ""
+msgstr "%s episode av %s lagt til i biblioteket"
 
 msgctxt "#30629"
 msgid "%s episodes of %s added to library"
-msgstr ""
+msgstr "%s episoder av %s lagt til i biblioteket"
 
 msgctxt "#30630"
 msgid "%s episodes added to library"
-msgstr ""
+msgstr "%s episoder lagt til i biblioteket"
 
 msgctxt "#30631"
 msgid "%s music video added to library"
-msgstr ""
+msgstr "Ny musikkvideo i biblioteket: %s"
 
 msgctxt "#30632"
 msgid "%s music videos added to library"
-msgstr ""
+msgstr "%s musikkvideoer lagt til i biblioteket"
 
 msgctxt "#30633"
 msgid "%s added to music library"
-msgstr ""
+msgstr "Ny artist i musikkbiblioteket: %s"
 
 msgctxt "#30634"
 msgid "%s artists added to library"
-msgstr ""
+msgstr "%s artister lagt til i biblioteket"
 
 msgctxt "#30635"
 msgid "%s added to music library"
-msgstr ""
+msgstr "Nytt album i musikkbiblioteket: %s"
 
 msgctxt "#30636"
 msgid "%s albums added to library"
-msgstr ""
+msgstr "%s album lagt til i biblioteket"
 
 # 30637-30638 — server splashscreen backdrop
 msgctxt "#30637"
 msgid "Use the server's splashscreen as the backdrop"
-msgstr ""
+msgstr "Bruk serverens velkomstbilde som bakgrunn"
 
 msgctxt "#30638"
 msgid "Show the Jellyfin server's splashscreen behind the addon instead of the bundled artwork. Refreshed when the service connects, at most once a day."
-msgstr ""
+msgstr "Vis Jellyfin-serverens velkomstbilde bak tillegget i stedet for det medfølgende bildematerialet. Oppdateres når tjenesten kobler til, høyst én gang om dagen."
 
 # 30650-30665 — Clean databases (the logged-out migration cleaner)
 msgctxt "#30650"
 msgid "Clean databases"
-msgstr ""
+msgstr "Rydd databasene"
 
 msgctxt "#30651"
 msgid "Remove all Kofin and Jellyfin for Kodi library data, nodes and playlists from this Kodi profile. For migrating from Jellyfin for Kodi, or before uninstalling Kofin. The Jellyfin server is not touched."
-msgstr ""
+msgstr "Fjern alle bibliotekdata, noder og spillelister fra Kofin og Jellyfin for Kodi fra denne Kodi-profilen. For migrering fra Jellyfin for Kodi, eller før du avinstallerer Kofin. Jellyfin-serveren berøres ikke."
 
 msgctxt "#30652"
 msgid "Sign out before cleaning the databases."
-msgstr ""
+msgstr "Logg ut før du rydder databasene."
 
 msgctxt "#30653"
 msgid "A sync is still running — try again when it finishes."
-msgstr ""
+msgstr "En synkronisering kjører fortsatt — prøv igjen når den er ferdig."
 
 msgctxt "#30654"
 msgid "Disable or uninstall the Jellyfin for Kodi add-on first: its background service would sync everything straight back."
-msgstr ""
+msgstr "Deaktiver eller avinstaller tillegget Jellyfin for Kodi først: dets bakgrunnstjeneste ville synkronisert alt rett inn igjen."
 
 msgctxt "#30655"
 msgid "Unsupported Kodi database: %s"
-msgstr ""
+msgstr "Kodi-databasen støttes ikke: %s"
 
 msgctxt "#30656"
 msgid "This removes EVERYTHING from Kodi's video library — including items added by other add-ons or local sources — together with watched states and resume points. The Jellyfin server is not touched. Continue?"
-msgstr ""
+msgstr "Dette fjerner ALT fra Kodis videobibliotek — også elementer lagt til av andre tillegg eller lokale kilder — sammen med sett-status og fortsettelsespunkter. Jellyfin-serveren berøres ikke. Fortsette?"
 
 msgctxt "#30657"
 msgid "Also clean the music library? Every song, album and artist in this profile's Kodi music library will be removed."
-msgstr ""
+msgstr "Skal musikkbiblioteket ryddes også? Hver sang, hvert album og hver artist i denne profilens Kodi-musikkbibliotek blir fjernet."
 
 msgctxt "#30658"
 msgid "Also remove ALL library nodes, including hand-made and node-editor files? Kodi's menus revert to their defaults. Choose No to remove only Kofin's and Jellyfin for Kodi's own nodes."
-msgstr ""
+msgstr "Skal ALLE biblioteknoder fjernes også, inkludert egenlagde filer og filer fra nodeeditoren? Kodis menyer går tilbake til standard. Velg Nei for å fjerne bare Kofins og Jellyfin for Kodis egne noder."
 
 msgctxt "#30659"
 msgid "Also remove cached server artwork? Kodi re-downloads any images it still needs."
-msgstr ""
+msgstr "Skal bufret bildemateriale fra serveren fjernes også? Kodi laster ned igjen de bildene den fortsatt trenger."
 
 msgctxt "#30660"
 msgid "Cleaning video library…"
-msgstr ""
+msgstr "Rydder videobiblioteket…"
 
 msgctxt "#30661"
 msgid "Cleaning music library…"
-msgstr ""
+msgstr "Rydder musikkbiblioteket…"
 
 msgctxt "#30662"
 msgid "Removing add-on state…"
-msgstr ""
+msgstr "Fjerner tilleggets tilstand…"
 
 msgctxt "#30663"
 msgid "Removing library nodes and playlists…"
-msgstr ""
+msgstr "Fjerner biblioteknoder og spillelister…"
 
 msgctxt "#30664"
 msgid "Removing cached artwork…"
-msgstr ""
+msgstr "Fjerner bufret bildemateriale…"
 
 msgctxt "#30665"
 msgid "Clean complete. Kodi will now restart."
-msgstr ""
+msgstr "Ryddingen er fullført. Kodi starter nå på nytt."
 
 # 30666-30667 — critic ratings
 msgctxt "#30666"
 msgid "Movies: prefer critic rating"
-msgstr ""
+msgstr "Filmer: foretrekk kritikervurdering"
 
 msgctxt "#30667"
 msgid "Show your server's critic rating (Rotten Tomatoes) instead of the community rating. Percentages are rescaled so 78% becomes 7.8."
-msgstr ""
+msgstr "Vis serverens kritikervurdering (Rotten Tomatoes) i stedet for fellesskapsvurderingen. Prosenter skaleres om, så 78% blir 7,8."
 
 # 30668-30673 — actor art pre-cache
 msgctxt "#30668"
 msgid "Pre-cache cast images when idle"
-msgstr ""
+msgstr "Forhåndsbufre skuespillerbilder ved inaktivitet"
 
 msgctxt "#30669"
 msgid "Cache cast thumbnails while Kodi is idle, so an item's info dialog draws them instantly. Uses disk in Kodi's thumbnail cache — roughly 60 KB per person, which on a large library can reach gigabytes."
-msgstr ""
+msgstr "Bufre miniatyrbilder av skuespillere mens Kodi er inaktiv, slik at infodialogen til et element tegner dem umiddelbart. Bruker diskplass i Kodis miniatyrbuffer — omtrent 60 KB per person, som på et stort bibliotek kan bli flere gigabyte."
 
 msgctxt "#30670"
 msgid "Pre-cache cast images now"
-msgstr ""
+msgstr "Forhåndsbufre skuespillerbilder nå"
 
 msgctxt "#30671"
 msgid "Fetch every cast thumbnail that is not cached yet, without waiting for idle time."
-msgstr ""
+msgstr "Hent alle skuespillerminiatyrer som ikke er bufret ennå, uten å vente på inaktiv tid."
 
 msgctxt "#30672"
 msgid "Caching cast images"
-msgstr ""
+msgstr "Bufrer skuespillerbilder"
 
 msgctxt "#30673"
 msgid "Cached %d cast image(s)"
-msgstr ""
+msgstr "Bufret %d skuespillerbilde(r)"
 
 
 msgctxt "#30700"
 msgid "Downloads"
-msgstr ""
+msgstr "Nedlastinger"
 
 msgctxt "#30701"
 msgid "Download items for offline playback"
-msgstr ""
+msgstr "Last ned elementer for avspilling uten nett"
 
 msgctxt "#30702"
 msgid "Enable downloads"
-msgstr ""
+msgstr "Aktiver nedlastinger"
 
 msgctxt "#30703"
 msgid "Adds Download to the Jellyfin actions menu and runs the download manager. Only for libraries you sync with Kofin."
-msgstr ""
+msgstr "Legger til Last ned i Jellyfin-handlinger-menyen og kjører nedlastingsbehandleren. Bare for bibliotek du synkroniserer med Kofin."
 
 msgctxt "#30704"
 msgid "Download location"
-msgstr ""
+msgstr "Nedlastingsmappe"
 
 msgctxt "#30705"
 msgid "Where downloaded files are kept. Leave empty for the addon profile folder"
-msgstr ""
+msgstr "Hvor nedlastede filer lagres. La stå tom for tilleggets profilmappe"
 
 msgctxt "#30706"
 msgid "Parallel video downloads"
-msgstr ""
+msgstr "Parallelle videonedlastinger"
 
 msgctxt "#30707"
 msgid "How many movies and episodes download at the same time"
-msgstr ""
+msgstr "Hvor mange filmer og episoder som lastes ned samtidig"
 
 msgctxt "#30708"
 msgid "Download"
-msgstr ""
+msgstr "Last ned"
 
 msgctxt "#30709"
 msgid "Cancel download"
-msgstr ""
+msgstr "Avbryt nedlasting"
 
 msgctxt "#30710"
 msgid "Delete download"
-msgstr ""
+msgstr "Slett nedlasting"
 
 msgctxt "#30711"
 msgid "%s download(s) queued"
-msgstr ""
+msgstr "%s nedlasting(er) i kø"
 
 msgctxt "#30712"
 msgid "Download complete: %s"
-msgstr ""
+msgstr "Nedlasting fullført: %s"
 
 msgctxt "#30713"
 msgid "Download failed: %s"
-msgstr ""
+msgstr "Nedlasting mislyktes: %s"
 
 msgctxt "#30714"
 msgid "Delete the download of %s?"
-msgstr ""
+msgstr "Slette nedlastingen av %s?"
 
 msgctxt "#30715"
 msgid "Not enough free space for %s"
-msgstr ""
+msgstr "Ikke nok ledig plass til %s"
 
 msgctxt "#30716"
 msgid "Download %s item(s) (%s)?"
-msgstr ""
+msgstr "Laste ned %s element(er) (%s)?"
 
 msgctxt "#30717"
 msgid "The downloads folder is not writable"
-msgstr ""
+msgstr "Nedlastingsmappen er ikke skrivbar"
 
 msgctxt "#30718"
 msgid "Downloaded movies"
-msgstr ""
+msgstr "Nedlastede filmer"
 
 msgctxt "#30719"
 msgid "Downloaded shows"
-msgstr ""
+msgstr "Nedlastede serier"
 
 msgctxt "#30720"
 msgid "Not available offline"
-msgstr ""
+msgstr "Ikke tilgjengelig uten nett"
 
 msgctxt "#30721"
 msgid "Downloaded episodes"
-msgstr ""
+msgstr "Nedlastede episoder"
 
 msgctxt "#30722"
 msgid "Transcode videos"
-msgstr ""
+msgstr "Transkode videoer"
 
 msgctxt "#30723"
 msgid "Transcode when the original exceeds a limit below or when triggered by settings in the Transcoding tab (HDR, codec, etc)"
-msgstr ""
+msgstr "Transkode når originalen overskrider en grense nedenfor, eller når det utløses av innstillinger i Transkoding-fanen (HDR, kodek osv.)"
 
 msgctxt "#30724"
 msgid "Maximum download bitrate"
-msgstr ""
+msgstr "Maksimal nedlastingsbitrate"
 
 msgctxt "#30725"
 msgid "Videos over this total bitrate are transcoded down to it. Unlimited transcodes only for codec, HDR or resolution reasons."
-msgstr ""
+msgstr "Videoer over denne totale bitraten transkodes ned til den. Ubegrenset transkoder bare av hensyn til kodek, HDR eller oppløsning."
 
 msgctxt "#30726"
 msgid "Maximum download resolution"
-msgstr ""
+msgstr "Maksimal nedlastingsoppløsning"
 
 msgctxt "#30727"
 msgid "Videos wider than this are scaled down. Unlimited never scales."
-msgstr ""
+msgstr "Videoer bredere enn dette skaleres ned. Ubegrenset skalerer aldri."
 
 msgctxt "#30728"
 msgid "Transcode music"
-msgstr ""
+msgstr "Transkode musikk"
 
 msgctxt "#30729"
 msgid "Transcode a track only when it is lossless or over the bitrate limit below. Compliant tracks download as the original file with their tags intact."
-msgstr ""
+msgstr "Transkode et spor bare når det er tapsfritt eller over bitrategrensen nedenfor. Spor som oppfyller kravene, lastes ned som originalfilen med taggene intakt."
 
 msgctxt "#30730"
 msgid "Transcode music over"
-msgstr ""
+msgstr "Transkode musikk over"
 
 msgctxt "#30731"
 msgid "Tracks over this bitrate, and all lossless tracks, are transcoded. Unlimited transcodes only lossless tracks."
-msgstr ""
+msgstr "Spor over denne bitraten, og alle tapsfrie spor, transkodes. Ubegrenset transkoder bare tapsfrie spor."
 
 msgctxt "#30732"
 msgid "Transcode music to"
-msgstr ""
+msgstr "Transkode musikk til"
 
 msgctxt "#30733"
 msgid "The codec transcoded tracks are encoded with. Opus gives the best quality per megabyte."
-msgstr ""
+msgstr "Kodeken transkodede spor kodes med. Opus gir best kvalitet per megabyte."
 
 msgctxt "#30734"
 msgid "Transcoded music bitrate"
-msgstr ""
+msgstr "Bitrate for transkodet musikk"
 
 msgctxt "#30735"
 msgid "The bitrate transcoded tracks are encoded at. 128 kbps Opus is transparent for most listening."
-msgstr ""
+msgstr "Bitraten transkodede spor kodes med. 128 kbps Opus er transparent for de fleste lyttesituasjoner."
 
 msgctxt "#30736"
 msgid "Downloaded music"
-msgstr ""
+msgstr "Nedlastet musikk"
 
 msgctxt "#30737"
 msgid "Kofin downloads"
-msgstr ""
+msgstr "Kofin-nedlastinger"
 
 msgctxt "#30738"
 msgid "Download the next episodes automatically"
-msgstr ""
+msgstr "Last ned neste episoder automatisk"
 
 msgctxt "#30739"
 msgid "While watching a downloaded episode, the next unwatched episodes of the show are queued for download at the 80% mark."
-msgstr ""
+msgstr "Mens du ser en nedlastet episode, settes de neste usette episodene av serien i nedlastingskø ved 80%-merket."
 
 msgctxt "#30740"
 msgid "Episodes to keep ahead"
-msgstr ""
+msgstr "Episoder å ligge i forkant med"
 
 msgctxt "#30741"
 msgid "How many unwatched episodes ahead of the one playing are kept downloaded."
-msgstr ""
+msgstr "Hvor mange usette episoder foran den som spilles, som holdes nedlastet."
 
 msgctxt "#30742"
 msgid "Download newly added movies"
-msgstr ""
+msgstr "Last ned nylig tillagte filmer"
 
 msgctxt "#30743"
 msgid "Movies newly added to a synced library are downloaded automatically. A bulk import of more than a few movies at once is skipped, with a notification."
-msgstr ""
+msgstr "Filmer som nylig er lagt til i et synkronisert bibliotek, lastes ned automatisk. En masseimport av mer enn noen få filmer om gangen hoppes over, med et varsel."
 
 # 30744-30745, 30748-30750 — retired with downloadsAutoCleanup and the
 # three-way downloadsDeleteAfterPlay spinner. Kept, never reused: an id that
@@ -1785,251 +1786,251 @@ msgstr ""
 # it.
 msgctxt "#30744"
 msgid "Remove watched automatic downloads"
-msgstr ""
+msgstr "Fjern sette automatiske nedlastinger"
 
 msgctxt "#30745"
 msgid "Automatically downloaded items are removed once you have watched them. Downloads you queued yourself are never removed automatically."
-msgstr ""
+msgstr "Automatisk nedlastede elementer fjernes når du har sett dem. Nedlastinger du selv har satt i kø, fjernes aldri automatisk."
 
 msgctxt "#30746"
 msgid "Delete download after watching"
-msgstr ""
+msgstr "Slett nedlasting etter visning"
 
 msgctxt "#30747"
 msgid "When you finish watching a downloaded item, its local copy is removed. The item stays on the server and in your library."
-msgstr ""
+msgstr "Når du er ferdig med å se et nedlastet element, fjernes den lokale kopien. Elementet blir værende på serveren og i biblioteket ditt."
 
 msgctxt "#30748"
 msgid "Keep it"
-msgstr ""
+msgstr "Behold den"
 
 msgctxt "#30749"
 msgid "Ask to remove it"
-msgstr ""
+msgstr "Spør om den skal fjernes"
 
 msgctxt "#30750"
 msgid "Remove it without asking"
-msgstr ""
+msgstr "Fjern den uten å spørre"
 
 msgctxt "#30751"
 msgid "%s new movies were not downloaded automatically"
-msgstr ""
+msgstr "%s nye filmer ble ikke lastet ned automatisk"
 
 msgctxt "#30752"
 msgid "Export NFO files and artwork"
-msgstr ""
+msgstr "Eksporter NFO-filer og bildemateriale"
 
 msgctxt "#30753"
 msgid "Write NFO metadata and artwork beside downloaded files, so other apps can scan the download folder as a library."
-msgstr ""
+msgstr "Skriv NFO-metadata og bildemateriale ved siden av nedlastede filer, slik at andre apper kan skanne nedlastingsmappen som et bibliotek."
 
 msgctxt "#30754"
 msgid "Download all new episodes"
-msgstr ""
+msgstr "Last ned alle nye episoder"
 
 msgctxt "#30755"
 msgid "Every episode newly added to a synced library is downloaded automatically. A bulk import of many episodes at once is skipped, with a notification."
-msgstr ""
+msgstr "Hver episode som nylig legges til i et synkronisert bibliotek, lastes ned automatisk. En masseimport av mange episoder om gangen hoppes over, med et varsel."
 
 msgctxt "#30756"
 msgid "Download new albums"
-msgstr ""
+msgstr "Last ned nye album"
 
 msgctxt "#30757"
 msgid "Albums newly added to a synced library are downloaded automatically. A bulk import of many albums at once is skipped, with a notification."
-msgstr ""
+msgstr "Album som nylig legges til i et synkronisert bibliotek, lastes ned automatisk. En masseimport av mange album om gangen hoppes over, med et varsel."
 
 msgctxt "#30758"
 msgid "Shows downloading new episodes"
-msgstr ""
+msgstr "Serier som laster ned nye episoder"
 
 msgctxt "#30759"
 msgid "Review the shows set to download their new episodes automatically, and untick any to stop."
-msgstr ""
+msgstr "Se gjennom seriene som er satt til å laste ned nye episoder automatisk, og fjern haken på dem du vil stoppe."
 
 msgctxt "#30760"
 msgid "Download new episodes"
-msgstr ""
+msgstr "Last ned nye episoder"
 
 msgctxt "#30761"
 msgid "Stop downloading new episodes"
-msgstr ""
+msgstr "Slutt å laste ned nye episoder"
 
 msgctxt "#30762"
 msgid "New episodes of %s will download automatically"
-msgstr ""
+msgstr "Nye episoder av %s lastes ned automatisk"
 
 msgctxt "#30763"
 msgid "New episodes of %s will no longer download automatically"
-msgstr ""
+msgstr "Nye episoder av %s lastes ikke lenger ned automatisk"
 
 msgctxt "#30764"
 msgid "%s new episodes were not downloaded automatically"
-msgstr ""
+msgstr "%s nye episoder ble ikke lastet ned automatisk"
 
 msgctxt "#30765"
 msgid "%s new albums were not downloaded automatically"
-msgstr ""
+msgstr "%s nye album ble ikke lastet ned automatisk"
 
 msgctxt "#30766"
 msgid "No shows are set to download new episodes"
-msgstr ""
+msgstr "Ingen serier er satt til å laste ned nye episoder"
 
 msgctxt "#30767"
 msgid "Show download notifications"
-msgstr ""
+msgstr "Vis nedlastingsvarsler"
 
 msgctxt "#30768"
 msgid "Announce queued and completed downloads. Failures and warnings are always shown."
-msgstr ""
+msgstr "Kunngjør nedlastinger som settes i kø og som fullføres. Feil og advarsler vises alltid."
 
 msgctxt "#30769"
 msgid "Delete download automatically"
-msgstr ""
+msgstr "Slett nedlasting automatisk"
 
 msgctxt "#30770"
 msgid "Remove the local copy without asking. With this off, Kofin asks first each time."
-msgstr ""
+msgstr "Fjern den lokale kopien uten å spørre. Med dette av spør Kofin først hver gang."
 
 msgctxt "#30771"
 msgid "Download %s item(s), about %s? %s free"
-msgstr ""
+msgstr "Laste ned %s element(er), ca. %s? %s ledig"
 
 msgctxt "#30772"
 msgid "Parallel music downloads"
-msgstr ""
+msgstr "Parallelle musikknedlastinger"
 
 msgctxt "#30773"
 msgid "How many tracks download at the same time. Tracks are small and mostly overhead, so this can sit well above the video figure."
-msgstr ""
+msgstr "Hvor mange spor som lastes ned samtidig. Spor er små og består mest av overhead, så dette kan ligge godt over tallet for video."
 
 msgctxt "#30774"
 msgid "Delete %s download(s) of %s?"
-msgstr ""
+msgstr "Slette %s nedlasting(er) av %s?"
 
 # 30775-30776 — the other half of #30617: a text subtitle a transcode did not
 # attach is fetched onto the running playback, not burned in and not restarted
 msgctxt "#30775"
 msgid "downloaded from the server"
-msgstr ""
+msgstr "lastet ned fra serveren"
 
 msgctxt "#30776"
 msgid "Downloading subtitle..."
-msgstr ""
+msgstr "Laster ned undertekst..."
 
 # 30777-30797 — Jellyfin account settings: the server-side user preferences
 # that resolve every playback's default audio and subtitle track, edited from
 # the Account tab (plugin/userprefs.py)
 msgctxt "#30777"
 msgid "Jellyfin account settings"
-msgstr ""
+msgstr "Innstillinger for Jellyfin-kontoen"
 
 msgctxt "#30778"
 msgid "Audio and subtitle preferences stored on the server against your Jellyfin account. They apply to every client you sign in from, not just this one."
-msgstr ""
+msgstr "Innstillinger for lyd og undertekster som lagres på serveren for Jellyfin-kontoen din. De gjelder alle klienter du logger inn fra, ikke bare denne."
 
 msgctxt "#30779"
 msgid "Jellyfin settings for %s"
-msgstr ""
+msgstr "Jellyfin-innstillinger for %s"
 
 msgctxt "#30780"
 msgid "Preferred audio language"
-msgstr ""
+msgstr "Foretrukket lydspråk"
 
 msgctxt "#30781"
 msgid "Play default audio track"
-msgstr ""
+msgstr "Spill av standard lydspor"
 
 msgctxt "#30782"
 msgid "Preferred subtitle language"
-msgstr ""
+msgstr "Foretrukket undertekstspråk"
 
 msgctxt "#30783"
 msgid "Subtitle mode"
-msgstr ""
+msgstr "Undertekstmodus"
 
 msgctxt "#30784"
 msgid "Remember audio selections"
-msgstr ""
+msgstr "Husk lydvalg"
 
 msgctxt "#30785"
 msgid "Remember subtitle selections"
-msgstr ""
+msgstr "Husk undertekstvalg"
 
 msgctxt "#30786"
 msgid "Enabled"
-msgstr ""
+msgstr "Aktivert"
 
 msgctxt "#30787"
 msgid "Disabled"
-msgstr ""
+msgstr "Deaktivert"
 
 msgctxt "#30788"
 msgid "Any"
-msgstr ""
+msgstr "Alle"
 
 msgctxt "#30789"
 msgid "Default"
-msgstr ""
+msgstr "Standard"
 
 msgctxt "#30790"
 msgid "Always"
-msgstr ""
+msgstr "Alltid"
 
 msgctxt "#30791"
 msgid "Only forced"
-msgstr ""
+msgstr "Bare tvungne"
 
 msgctxt "#30792"
 msgid "None"
-msgstr ""
+msgstr "Ingen"
 
 msgctxt "#30793"
 msgid "Smart"
-msgstr ""
+msgstr "Smart"
 
 msgctxt "#30794"
 msgid "Not applied here: \"Use Jellyfin's default tracks\" is off"
-msgstr ""
+msgstr "Gjelder ikke her: \"Bruk Jellyfins standardspor\" er av"
 
 msgctxt "#30795"
 msgid "Could not load your Jellyfin settings"
-msgstr ""
+msgstr "Kunne ikke laste inn Jellyfin-innstillingene dine"
 
 msgctxt "#30796"
 msgid "Could not save to the server"
-msgstr ""
+msgstr "Kunne ikke lagre på serveren"
 
 msgctxt "#30797"
 msgid "Your Jellyfin account is not allowed to change these settings"
-msgstr ""
+msgstr "Jellyfin-kontoen din har ikke lov til å endre disse innstillingene"
 
 # 30798-30803 — the bulk-import guard, one threshold per automatic arm. Over
 # the number the whole batch is skipped rather than trimmed: an arbitrary few
 # of hundreds is worse than asking.
 msgctxt "#30798"
 msgid "Skip movie imports larger than"
-msgstr ""
+msgstr "Hopp over filmimport større enn"
 
 msgctxt "#30799"
 msgid "When a sync adds more new movies than this at once, none of them are downloaded — a bulk import is rarely a request to fill the disk. Raise it if you want big additions pulled automatically."
-msgstr ""
+msgstr "Når en synkronisering legger til flere nye filmer enn dette på én gang, lastes ingen av dem ned — en masseimport er sjelden en oppfordring om å fylle disken. Øk verdien hvis du vil at store tilskudd skal hentes automatisk."
 
 msgctxt "#30800"
 msgid "Skip episode imports larger than"
-msgstr ""
+msgstr "Hopp over episodeimport større enn"
 
 msgctxt "#30801"
 msgid "When a sync adds more new episodes than this at once, none of them are downloaded. Shows you have subscribed to are exempt — a subscription is a standing order."
-msgstr ""
+msgstr "Når en synkronisering legger til flere nye episoder enn dette på én gang, lastes ingen av dem ned. Serier du har abonnert på, er unntatt — et abonnement er en stående ordre."
 
 msgctxt "#30802"
 msgid "Skip album imports larger than"
-msgstr ""
+msgstr "Hopp over albumimport større enn"
 
 msgctxt "#30803"
 msgid "When a sync adds more new albums than this at once, none of them are downloaded. Counted in albums, not tracks."
-msgstr ""
+msgstr "Når en synkronisering legger til flere nye album enn dette på én gang, lastes ingen av dem ned. Telles i album, ikke spor."
 
 # 30810 — the aggregate refusal, before anything is queued. Distinct from
 # #30715, which the manager raises per item once a transfer is under way.
@@ -2041,36 +2042,36 @@ msgstr ""
 # of what it means. The warning glyph and the Kofin heading carry the rest.
 msgctxt "#30810"
 msgid "Needs %s, only %s free"
-msgstr ""
+msgstr "Krever %s, bare %s ledig"
 
 # 30804-30807 — the settings button that clears every download at once. The
 # confirmation states what is on disk rather than what was promised: a queued
 # row has fetched nothing yet, and a transcode usually lands under its source.
 msgctxt "#30804"
 msgid "Delete all downloads"
-msgstr ""
+msgstr "Slett alle nedlastinger"
 
 msgctxt "#30805"
 msgid "Delete every downloaded file from this device. The items stay in your library and play from the server again."
-msgstr ""
+msgstr "Slett hver nedlastede fil fra denne enheten. Elementene blir værende i biblioteket ditt og spilles av fra serveren igjen."
 
 msgctxt "#30806"
 msgid "Delete all %s download(s), freeing about %s?"
-msgstr ""
+msgstr "Slette alle %s nedlasting(er) og frigjøre ca. %s?"
 
 msgctxt "#30807"
 msgid "There are no downloads to delete"
-msgstr ""
+msgstr "Det finnes ingen nedlastinger å slette"
 
 # 30808-30809 — the playback gate. It holds the queue, not a transfer in
 # flight: stopping mid-file would strand a .part for the length of a film.
 msgctxt "#30808"
 msgid "Pause downloads during playback"
-msgstr ""
+msgstr "Pause nedlastinger under avspilling"
 
 msgctxt "#30809"
 msgid "Do not start new downloads while something is playing, video or music. A file already downloading finishes; the rest wait until playback stops."
-msgstr ""
+msgstr "Ikke start nye nedlastinger mens noe spilles av, verken video eller musikk. En fil som allerede lastes ned, blir ferdig; resten venter til avspillingen stopper."
 
 # 30811-30814 — the stale sweep. Its help text has to carry the resume-point
 # exemption: an unfinished film sitting untouched for months is exactly what
@@ -2078,27 +2079,27 @@ msgstr ""
 # is the reason the setting is safe to leave on.
 msgctxt "#30811"
 msgid "Delete stale downloads"
-msgstr ""
+msgstr "Slett gamle nedlastinger"
 
 msgctxt "#30812"
 msgid "Remove downloaded files nobody has played for a while. Anything you are part-way through is kept, however long it sits. The items stay in your library and play from the server again."
-msgstr ""
+msgstr "Fjern nedlastede filer ingen har spilt av på en stund. Alt du er midt inne i, beholdes, uansett hvor lenge det blir liggende. Elementene blir værende i biblioteket ditt og spilles av fra serveren igjen."
 
 msgctxt "#30813"
 msgid "Delete after (days)"
-msgstr ""
+msgstr "Slett etter (dager)"
 
 msgctxt "#30814"
 msgid "How long a download may sit unplayed before it is removed. Playing it again starts the count over."
-msgstr ""
+msgstr "Hvor lenge en nedlasting kan bli liggende uspilt før den fjernes. Å spille den av igjen starter tellingen på nytt."
 
 # 30815-30816 — the Clean databases downloads prompt. It has to say what
 # happens if you decline: the clean deletes kofin.db, and the download table
 # lives there, so files kept behind are files nothing will ever manage again.
 msgctxt "#30815"
 msgid "Also delete your %s downloaded file(s)? Cleaning removes Kofin's record of them, so any you keep are left on disk for you to manage yourself."
-msgstr ""
+msgstr "Skal også de %s nedlastede filene dine slettes? Rydding fjerner Kofins oversikt over dem, så de du beholder, blir liggende på disken for deg å håndtere selv."
 
 msgctxt "#30816"
 msgid "Removing downloaded files…"
-msgstr ""
+msgstr "Fjerner nedlastede filer…"
