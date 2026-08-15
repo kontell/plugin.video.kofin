@@ -1,4 +1,5 @@
 v0.17.0
+- Skins can put SyncPlay and Who's watching? on the home screen: the add-on now publishes whether those root entries are on offer, so the buttons appear and disappear with the same settings that hide them in the add-on
 - The add-on is translated into 26 languages
 - Stopping a watch-together group no longer freezes Kodi
 - In a watch-together group, a downloaded item plays from disk on every client, not just the one that started it
