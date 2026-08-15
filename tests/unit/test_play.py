@@ -772,6 +772,84 @@ def test_burn_subtitles_withdraws_the_image_formats(resume_env, monkeypatch):
     assert "srt" in formats
 
 
+# --- a download beats the network, online too ---------------------------------
+#
+# The library row of a downloaded item points at the file, so playing one from
+# the library never reaches this route. Everything that plays by *id* does —
+# and a SyncPlay group start has no library row to go through by construction,
+# which is how a follower ended up streaming media the initiator was playing
+# off its own disk.
+
+
+@pytest.fixture
+def downloaded_env(resume_env, monkeypatch):
+    monkeypatch.setattr(play, "downloaded_file", lambda item_id: "/dl/ep1.mp4")
+    return resume_env
+
+
+def test_a_downloaded_item_plays_from_disk_online(downloaded_env):
+    run_play({"id": "ep1"}, resume=True)
+    # No PlaybackInfo at all: the resolve never asked the server for a stream.
+    assert downloaded_env["api"].start_ticks == []
+    assert downloaded_env["li"].path == "/dl/ep1.mp4"
+    assert downloaded_env["resolved"] == [downloaded_env["li"]]
+
+
+def test_the_downloaded_play_claims_the_playback(downloaded_env):
+    """The claim is pushed here, not left to the service's back-fill.
+
+    ``backfill_library_claim`` needs a Kodi database id off the
+    ``Player.OnPlay`` announcement and a SyncPlay group start carries none, so
+    without this the follower's playback would run unclaimed — no session, no
+    reporting, no segment engine, no watched-to-end offer.
+    """
+    from kofin.core import state
+
+    run_play({"id": "ep1"}, resume=False)
+    queued = state.claim_play_item("")
+    assert queued["Id"] == "ep1"
+    assert queued["Path"] == "/dl/ep1.mp4"
+    assert queued["PlayMethod"] == "DirectPlay"
+    assert queued["Name"] == "An Episode"
+    assert queued["Runtime"] == 1500 * 10_000_000
+    assert queued["DeviceId"] == "dev1"
+    # No stream menu: the download's tracks are its own, so the server's
+    # MediaStreams would describe a different file.
+    assert "Streams" not in queued
+
+
+def test_the_downloaded_play_starts_where_the_group_is(downloaded_env):
+    """A group start states its position; the resolved item has to carry it,
+    or the follower starts the file at zero."""
+    from kofin.core import state
+
+    run_play({"id": "ep1", "startticks": str(471 * 10_000_000)}, resume=False)
+    assert downloaded_env["built"]["resume_seconds"] == 471.0
+    assert state.claim_play_item("")["CurrentPosition"] == 471.0
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"transcode": "1"},
+        {"bitrate": "3"},
+        {"mediasourceid": "src1"},
+        {"audioindex": "3"},
+        {"subtitleindex": "-1"},
+        {"burnsubs": "1"},
+    ],
+    ids=lambda params: next(iter(params)),
+)
+def test_a_request_naming_a_stream_still_streams(downloaded_env, params):
+    """A download is one file with the tracks it was made with, so a request
+    that names a source, a track or a bitrate goes to the server even with the
+    file on disk — which is also what keeps the stream menu's restart
+    resolving back to the server it was picked from."""
+    run_play(dict(params, id="ep1"), resume=False)
+    assert downloaded_env["api"].start_ticks != []
+    assert downloaded_env["li"].path.startswith("http")
+
+
 # --- offline behaviour (plan W2.2) -------------------------------------------
 
 
@@ -864,3 +942,25 @@ def test_offline_plays_an_item_that_is_downloaded(offline_env, monkeypatch):
 
     assert resolved == [True]
     assert built["path"].endswith("Movies/M (2019)/m.mkv")
+
+
+def test_downloaded_file_answers_only_for_a_finished_download(offline_env):
+    """None for every reason there is nothing to play, including a row whose
+    file has gone from under it — the store is not proof the bytes are there."""
+    from kofin.downloads import store
+    from kofin.plugin import play as play_module
+
+    assert play_module.downloaded_file("m1") is None  # no row at all
+
+    store.queue(store.Download(jellyfin_id="m1", media_type="movie", queued_at=1))
+    assert play_module.downloaded_file("m1") is None  # queued, not finished
+
+    store.claim()
+    media = offline_env / "dl" / "Movies" / "M (2019)"
+    media.mkdir(parents=True)
+    (media / "m.mkv").write_bytes(b"x")
+    store.finish("m1", "Movies/M (2019)/m.mkv", "mkv", 1)
+    assert play_module.downloaded_file("m1").endswith("Movies/M (2019)/m.mkv")
+
+    (media / "m.mkv").unlink()
+    assert play_module.downloaded_file("m1") is None  # the file went away
