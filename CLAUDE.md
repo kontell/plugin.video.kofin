@@ -117,6 +117,16 @@ What remains is kofin's own:
   value from `schema.EXTRA_ITEM_TYPE` — both differ across gated schemas.
 - `downloader._get_items` **must fail loudly**: it submits every page up front, so a swallowed
   error yields zero pages, which reads downstream as an empty library rather than a failure.
+- **A downloaded item plays from disk however it is reached, online included.** The repoint
+  (`downloads/repoint.py`) only covers plays that go through Kodi's own row, so `plugin/play.py`
+  is the only place that can enforce it for anything playing by *id* — a kofin listing, a widget,
+  a SyncPlay group start. The preference was offline-only once, and the plan's "downloaded items
+  never reach the plugin" is what SyncPlay disproved: the initiator adopts the group queue for
+  the playback it is already running (`syncplay/manager.py`), so only the follower reloads, and
+  it streamed media the initiator was playing locally. `resolve_downloaded` pushes the claim
+  itself rather than leaving it to `backfill_library_claim`, which needs a Kodi dbid off
+  `Player.OnPlay` that a group start does not carry. A request naming a source, a track or a
+  bitrate still streams — a download has only the tracks it was made with.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is

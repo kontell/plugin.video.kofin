@@ -5,8 +5,10 @@ The resolved play's state is queued on kofin.play.json for the service-side
 player to claim and report.
 """
 
+import os
 import threading
 from typing import Any, Dict, List, Optional, Tuple
+from uuid import uuid4
 
 import xbmc
 import xbmcgui
@@ -300,46 +302,170 @@ def _stream_index(raw: Optional[str]) -> Optional[int]:
         return None
 
 
+def downloaded_file(item_id: str) -> Optional[str]:
+    """The absolute path of this item's completed download, or None.
+
+    None covers every reason there is nothing to play locally, and they are
+    not distinguished because none of them changes the answer: no row at
+    all, a download still running or failed, a row that never recorded a
+    target, and a row whose file has since gone from under it.
+    """
+    from kofin.downloads import downloads_root, store
+
+    row = store.get(item_id)
+    if row is None or row.state != store.DONE or not row.rel_path:
+        return None
+
+    path = os.path.join(downloads_root(), row.rel_path)
+    return path if os.path.exists(path) else None
+
+
+# Params that name a stream or a quality. A download is one file with the
+# tracks it was made with, so a request that asks for a particular media
+# source, audio or subtitle track, or a transcode at a stated bitrate is
+# asking for something only the server can answer — it streams even when a
+# download exists. This is also what keeps the stream menu's restart
+# (plugin/streams.py) resolving back to the server it was picked from.
+STREAM_REQUEST_PARAMS = (
+    "transcode",
+    "bitrate",
+    "mediasourceid",
+    "audioindex",
+    "subtitleindex",
+    "burnsubs",
+)
+
+
+def stream_requested(request: Request) -> bool:
+    """Whether this request names a stream or quality the server must serve."""
+    return any(request.params.get(name) for name in STREAM_REQUEST_PARAMS)
+
+
 def offline_answer(request: Request, item_id: str) -> bool:
     """Handle the play entirely locally when the server is unreachable.
 
     A downloaded item reached through a *library* row never arrives here —
     its row points at the file (V4) — but one reached from a kofin listing
-    (Continue watching, a widget) does, and refusing to play a file sitting
-    on disk would be absurd. Anything not downloaded is answered at once
-    instead of after the transport's budget: measured offline, the resolve
-    spent ~8 s before a generic failure (feasibility V8).
+    (Continue watching, a widget) or from a SyncPlay group start does, and
+    refusing to play a file sitting on disk would be absurd. Anything not
+    downloaded is answered at once instead of after the transport's budget:
+    measured offline, the resolve spent ~8 s before a generic failure
+    (feasibility V8).
+
+    Online the same preference is applied further down, once the item DTO is
+    in hand to claim the playback with — see :func:`resolve_downloaded`.
 
     True means the request is finished.
     """
     if not state.is_offline():
         return False
 
-    from kofin.downloads import downloads_root, store
-
-    row = store.get(item_id)
-    if row is not None and row.state == store.DONE and row.rel_path:
-        import os
-
-        path = os.path.join(downloads_root(), row.rel_path)
-        if os.path.exists(path):
-            LOG.info("offline: resolving %s to its download", item_id)
-            listitem = xbmcgui.ListItem(path=path)
-            listitem.setContentLookup(False)
-            dbid = request.params.get("dbid", "")
-            if dbid.isdigit():
-                listitem.getVideoInfoTag().setDbId(int(dbid))
-            if request.handle >= 0:
-                xbmcplugin.setResolvedUrl(request.handle, True, listitem)
-            else:
-                xbmc.Player().play(path, listitem)
-            return True
+    path = downloaded_file(item_id)
+    if path:
+        LOG.info("offline: resolving %s to its download", item_id)
+        listitem = xbmcgui.ListItem(path=path)
+        listitem.setContentLookup(False)
+        dbid = request.params.get("dbid", "")
+        if dbid.isdigit():
+            listitem.getVideoInfoTag().setDbId(int(dbid))
+        if request.handle >= 0:
+            xbmcplugin.setResolvedUrl(request.handle, True, listitem)
+        else:
+            xbmc.Player().play(path, listitem)
+        return True
 
     LOG.info("offline: %s is not downloaded", item_id)
     if request.handle >= 0:
         xbmcplugin.setResolvedUrl(request.handle, False, xbmcgui.ListItem())
     toast.show(settings.localized(30720), toast.ERROR, time_ms=4000)
     return True
+
+
+def _joined_segments(
+    thread: Optional[threading.Thread],
+    box: List[Optional[List[JsonDict]]],
+) -> Optional[List[JsonDict]]:
+    """The prefetched media segments, waiting only as long as they are worth.
+
+    Bounded: the interactive Api budget caps the fetch, so a hung join here
+    can only mean the bound itself failed — fall back rather than wait. None
+    means the service falls back to its own bounded-retry fetch.
+    """
+    if thread is not None:
+        thread.join(timeout=15.0)
+    return box[0] if box else None
+
+
+def resolve_downloaded(
+    request: Request,
+    item: JsonDict,
+    path: str,
+    server: str,
+    device_id: str,
+    start_ticks: int,
+    dbid: str,
+    segments: Optional[List[JsonDict]],
+) -> None:
+    """Resolve a play to the item's own download while the server is up.
+
+    A downloaded item's *library* row points at the file, so playing one from
+    the library never reaches this route. Everything that plays by **id**
+    does — a kofin listing, a widget, and above all a SyncPlay group start,
+    which by construction has no library row to go through — and every one of
+    them used to resolve a server stream with the file already on disk. That
+    is what left a SyncPlay follower streaming media the initiator was
+    playing locally: the initiator adopts the queue for the playback it is
+    already running (syncplay/manager.py), so only the follower reloads, and
+    the reload came back here.
+
+    The claim is pushed here rather than left to the service's back-fill.
+    ``backfill_library_claim`` needs a Kodi database id off the
+    ``Player.OnPlay`` announcement, and a group start carries none, so the
+    playback would run unclaimed — no session, no reporting, no segment
+    engine, no watched-to-end offer.
+
+    No stream menu travels with it. The download is one file whose tracks are
+    its own (a transcode has exactly the ones it was made with), so the
+    server's MediaStreams would describe something else; a downloaded play
+    from the library has no stream menu either, and this matches it.
+    """
+    li = listitems.build(item, server, resume_seconds=start_ticks / 10_000_000)
+    if dbid.isdigit() and item.get("Type") in ("Movie", "Episode", "MusicVideo"):
+        li.getVideoInfoTag().setDbId(int(dbid))
+    elif dbid.isdigit() and item.get("Type") in AUDIO_TYPES:
+        li.getMusicInfoTag().setDbId(int(dbid), "song")
+    li.setPath(path)
+    li.setContentLookup(False)
+
+    LOG.info("play %s via Download", item.get("Id", ""))
+    sources = item.get("MediaSources") or [{}]
+    play_item = {
+        "Id": item.get("Id", ""),
+        "Type": item.get("Type", ""),
+        "Name": item.get("Name", ""),
+        "CanDelete": bool(item.get("CanDelete")),
+        "SeriesId": item.get("SeriesId", ""),
+        "Path": path,
+        # The file is on disk and Kodi opens it directly, which is what
+        # DirectPlay means — the same method ``_offline_claim`` reports for
+        # the same file.
+        "PlayMethod": "DirectPlay",
+        "PlaySessionId": uuid4().hex,
+        "MediaSourceId": sources[0].get("Id") or item.get("Id", ""),
+        "DeviceId": device_id,
+        "Runtime": int(item.get("RunTimeTicks") or 0),
+        "AudioStreamIndex": None,
+        "SubtitleStreamIndex": None,
+        "CurrentPosition": start_ticks / 10_000_000,
+    }
+    if segments is not None:
+        play_item["Segments"] = segments
+    state.push_play_item(play_item)
+
+    if request.handle >= 0:
+        xbmcplugin.setResolvedUrl(request.handle, True, li)
+    else:
+        xbmc.Player().play(path, li)
 
 
 def play(request: Request) -> None:
@@ -392,6 +518,24 @@ def play(request: Request) -> None:
             start_ticks = int(request.params.get("startticks") or start_ticks)
         except ValueError:
             pass
+
+        # A download the user already has beats the network, exactly as the
+        # repointed library row does for the same item. Here rather than
+        # beside the offline check because the claim needs the item DTO, and
+        # after the start position because the resolved item carries it.
+        local_path = None if stream_requested(request) else downloaded_file(item_id)
+        if local_path:
+            resolve_downloaded(
+                request,
+                item,
+                local_path,
+                api.server,
+                creds.device_id,
+                start_ticks,
+                dbid,
+                _joined_segments(segments_thread, segments_box),
+            )
+            return
 
         config = deviceprofile.ProfileConfig.from_settings()
         profile = deviceprofile.build(
@@ -507,11 +651,7 @@ def play(request: Request) -> None:
         fetchable=streams.fetchable_subtitles(api.server, source),
         request_params=request.params,
     )
-    # Bounded: the interactive Api budget caps the fetch, so a hung join here
-    # can only mean the bound itself failed — fall back rather than wait.
-    if segments_thread is not None:
-        segments_thread.join(timeout=15.0)
-    segments = segments_box[0] if segments_box else None
+    segments = _joined_segments(segments_thread, segments_box)
     if segments is not None:
         play_item["Segments"] = segments
     state.push_play_item(play_item)

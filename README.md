@@ -15,7 +15,7 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 ### New & Improved
 
 - Hands-off, fast, robust & resumable [sync](docs/benchmark-report.md)
-- Download for offline playback - native library browsing with downloaded badges, offline watched/resume sync-back, automatic next-episode/new-content downloads, and optional space-saving transcodes
+- Downloads
 - Consolidated, simplified settings for all add-on configuration
 - SyncPlay - watch in sync with other Jellyfin clients
   - For the best experience install the SyncPlay V2 server [plugin](https://github.com/kontell/jellyfin-plugin-syncplayv2)
@@ -71,9 +71,11 @@ Install via the [Kontell Repository](https://github.com/kontell/repository.konte
 - The server address may be a bare host or IP (e.g. `192.168.1.10`), a `host:port`, or a full URL. `http` and port `8096` are assumed when the scheme and port are omitted. Use `https://` when connecting over the internet.
 - On login the addon stores a Jellyfin access token (not your password) in Kodi's addon settings. Like all Kodi addon settings it is kept in plaintext under `userdata/addon_data/plugin.video.kofin/` - be aware of this when sharing Kodi backups or your addon_data folder. Logging out revokes the token on the server.
 
-## Companion server plugin
+## Companion server plugins
 
-For improved syncing performance install the [KofinSyncQueue](https://github.com/kontell/repository.kontell/tree/main#jellyfin-server-plugins) server plugin. it gives the add-on a typed change feed so catch-up only touches what actually changed. Without it Kofin still works, using the official KodiSyncQueue plugin or real-time websocket updates.
+For improved syncing performance install the [KofinSyncQueue](https://github.com/kontell/jellyfin-plugin-kofinsyncqueue) server plugin. it gives the add-on a typed change feed so catch-up only touches what actually changed. Without it Kofin still works, using the official KodiSyncQueue plugin or real-time websocket updates.
+
+For reliable syncplay install the [SyncPlay V2](https://github.com/kontell/jellyfin-plugin-syncplayv2) server plugin.
 
 ## Supported platforms
 
