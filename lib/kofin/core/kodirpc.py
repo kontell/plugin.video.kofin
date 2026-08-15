@@ -4,9 +4,10 @@ Both processes need these. The play route has to start where Kodi is about to
 seek, and the service has to confirm a resume bookmark really is gone before
 acting on the announcement that says so.
 
-``drop_cached_texture`` is the one write: rewriting a file in place leaves
-Kodi's texture cache serving the bytes it already cached, so the backdrop swap
-has to invalidate the entry itself.
+Two of these write. ``drop_cached_texture`` because rewriting a file in place
+leaves Kodi's texture cache serving the bytes it already cached, so the backdrop
+swap has to invalidate the entry itself; and ``stop_player`` because
+``xbmc.Player.stop()`` cannot be called from a kofin thread at all (issue #155).
 """
 
 import json
@@ -17,6 +18,8 @@ import xbmc
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
+
+STOP_POLL_SECONDS = 0.05
 
 # Kodi media type -> (JSON-RPC method, id parameter, result key). The three
 # video types kofin syncs; songs carry no resume point.
@@ -174,6 +177,103 @@ def drop_cached_texture(needle: str, require: str = "") -> int:
             LOG.warning("texture removal failed for %r: %s", texture, error)
     LOG.debug("dropped %s cached texture(s) matching %r", removed, needle)
     return removed
+
+
+def stop_player(wait_seconds: float = 0.0) -> bool:
+    """Stop whatever is playing, without holding Python's GIL while Kodi does it.
+
+    **Never call ``xbmc.Player.stop()``.** Kodi's binding for it is
+    ``SendMsg(TMSG_MEDIA_STOP)`` with no ``DelayedCallGuard``, so the calling
+    thread blocks on the app thread *holding the GIL* — unlike ``playnext``,
+    ``playprevious`` and ``play``, which all wrap the same send in the guard.
+    The app thread's stop path ends in ``~CVideoPlayer()``, which spins until
+    its outbound job queue drains, and the two jobs ahead of ``OnPlayBackStopped``
+    both write MyVideos. Kodi's SQLite busy handler sleeps and retries forever,
+    so if any kofin thread is holding the MyVideos write lock it can never be
+    released — that thread needs the GIL this one is sitting on. Kodi is then
+    wedged on a blank screen with only a force-stop to get out (issue #155;
+    measured on Omega 21.3 and Piers 22.0-beta, evidence under
+    ``tests/live/results/issue-155``).
+
+    ``executeJSONRPC`` carries the guard Kodi forgot on ``stop()``, and
+    ``Player.Stop`` is a ``PostMsg`` on Kodi's side, so this returns in
+    microseconds and no other Python thread ever stalls behind it.
+
+    Being asynchronous is the one behaviour change: playback is *requested* to
+    stop, not stopped. Anything Kodi sequences for us needs no wait — the app
+    thread runs its messages in order, so a ``player.play()`` issued afterwards
+    is handled after the stop. ``wait_seconds`` is for callers that must not
+    race the teardown from the Python side. Note it can only ever be a
+    courtesy: ``Player.GetActivePlayers`` was measured going empty while
+    ``~CVideoPlayer()`` was still running, so an empty answer means "Kodi has
+    let go of the player", not "the teardown has finished".
+
+    Returns True when a stop was asked for.
+    """
+    try:
+        listed: Dict[str, Any] = json.loads(
+            xbmc.executeJSONRPC(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "Player.GetActivePlayers",
+                    }
+                )
+            )
+        )
+        active = listed["result"]
+    except Exception as error:
+        LOG.warning("could not read the active players to stop them: %s", error)
+        return False
+
+    if not active:
+        return False
+
+    # Every active player by id, rather than a hardcoded 1: SyncPlay drives
+    # music as well as video, and Player.Stop answers FailedToExecute for a
+    # playerid that is not playing.
+    for player in active:
+        try:
+            xbmc.executeJSONRPC(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "Player.Stop",
+                        "params": {"playerid": int(player["playerid"])},
+                    }
+                )
+            )
+        except Exception as error:
+            LOG.warning("stop failed for player %r: %s", player, error)
+
+    if wait_seconds > 0:
+        monitor = xbmc.Monitor()
+        waited = 0.0
+        while waited < wait_seconds:
+            if monitor.waitForAbort(STOP_POLL_SECONDS):
+                break
+            waited += STOP_POLL_SECONDS
+            try:
+                still: Dict[str, Any] = json.loads(
+                    xbmc.executeJSONRPC(
+                        json.dumps(
+                            {
+                                "jsonrpc": "2.0",
+                                "id": 1,
+                                "method": "Player.GetActivePlayers",
+                            }
+                        )
+                    )
+                )
+                if not still["result"]:
+                    break
+            except Exception as error:
+                LOG.debug("player poll failed while waiting for the stop: %s", error)
+                break
+
+    return True
 
 
 def resume_seconds(kodi_id: int, media: str) -> Optional[float]:

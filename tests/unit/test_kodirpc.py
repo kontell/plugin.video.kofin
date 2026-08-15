@@ -183,3 +183,85 @@ def test_current_subtitle_reads_the_index(monkeypatch):
         _player_responder({"currentsubtitle": {"index": 1}, "subtitleenabled": True}),
     )
     assert kodirpc.current_subtitle() == 1
+
+
+def _stop_recorder(active, after_stop=None):
+    """Records every query; answers GetActivePlayers with ``active``, then with
+    ``after_stop`` once a stop has been issued."""
+    sent = []
+    state = {"stopped": False}
+
+    def answer(query):
+        payload = json.loads(query)
+        sent.append(payload)
+        method = payload["method"]
+        if method == "Player.GetActivePlayers":
+            if state["stopped"] and after_stop is not None:
+                return json.dumps({"result": after_stop})
+            return json.dumps({"result": active})
+        if method == "Player.Stop":
+            state["stopped"] = True
+            return json.dumps({"result": "OK"})
+        raise AssertionError("unexpected method %s" % method)
+
+    return sent, answer
+
+
+def test_stop_player_does_nothing_when_nothing_plays(monkeypatch):
+    sent, answer = _stop_recorder([])
+    monkeypatch.setattr("xbmc.executeJSONRPC", answer)
+
+    assert kodirpc.stop_player() is False
+    assert [q["method"] for q in sent] == ["Player.GetActivePlayers"]
+
+
+def test_stop_player_stops_each_active_player_by_its_own_id(monkeypatch):
+    # playerid 0 is music: SyncPlay drives audio too, and Player.Stop answers
+    # FailedToExecute for a playerid that is not the one playing.
+    sent, answer = _stop_recorder([{"playerid": 0, "type": "audio"}])
+    monkeypatch.setattr("xbmc.executeJSONRPC", answer)
+
+    assert kodirpc.stop_player() is True
+    stops = [q for q in sent if q["method"] == "Player.Stop"]
+    assert [q["params"]["playerid"] for q in stops] == [0]
+
+
+def test_stop_player_never_calls_the_gil_holding_binding(monkeypatch):
+    """The whole point of the helper (issue #155)."""
+
+    def explode(*args, **kwargs):  # pragma: no cover - must not be reached
+        raise AssertionError("xbmc.Player.stop() holds the GIL; use JSON-RPC")
+
+    monkeypatch.setattr("xbmc.Player.stop", explode)
+    _sent, answer = _stop_recorder([{"playerid": 1, "type": "video"}])
+    monkeypatch.setattr("xbmc.executeJSONRPC", answer)
+
+    assert kodirpc.stop_player() is True
+
+
+def test_stop_player_waits_for_the_player_to_go(monkeypatch):
+    sent, answer = _stop_recorder([{"playerid": 1, "type": "video"}], after_stop=[])
+    monkeypatch.setattr("xbmc.executeJSONRPC", answer)
+    monkeypatch.setattr("xbmc.Monitor.waitForAbort", lambda self, timeout=-1: False)
+
+    assert kodirpc.stop_player(wait_seconds=1.0) is True
+    # One read to find the player, the stop, then one poll that finds it gone.
+    assert [q["method"] for q in sent] == [
+        "Player.GetActivePlayers",
+        "Player.Stop",
+        "Player.GetActivePlayers",
+    ]
+
+
+def test_stop_player_stops_waiting_when_kodi_is_shutting_down(monkeypatch):
+    sent, answer = _stop_recorder([{"playerid": 1, "type": "video"}])
+    monkeypatch.setattr("xbmc.executeJSONRPC", answer)
+    monkeypatch.setattr("xbmc.Monitor.waitForAbort", lambda self, timeout=-1: True)
+
+    assert kodirpc.stop_player(wait_seconds=30.0) is True
+    assert [q["method"] for q in sent] == ["Player.GetActivePlayers", "Player.Stop"]
+
+
+def test_stop_player_survives_an_unreadable_player_list(monkeypatch):
+    monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
+    assert kodirpc.stop_player() is False
