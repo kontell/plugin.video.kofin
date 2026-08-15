@@ -150,6 +150,9 @@ What remains is kofin's own:
   settings store reads back, so reading it as off would hide the root entry and strip the session
   on an add-on update. `is_enabled` is the only spelling of that test, and turning the feature off
   detaches the session's co-watchers (`detach_all`) because the picker is the only way off one.
+- `kofin.menu.who` and `kofin.menu.syncplay` are the skin-facing mirrors of those two root
+  entries (same gates as `plugin.browse.root`). Skins cannot read addon settings; the service
+  publishes on `mark_ready` and whenever the two settings change.
 - Docs in `docs/` use one line per paragraph — `tools/unwrap_md.py` fixes wrapped files.
 
 ## Translations

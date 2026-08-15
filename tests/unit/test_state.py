@@ -128,11 +128,15 @@ def test_clear_all():
     state.set_playing_id("42")
     state.push_play_item({"Path": "p"})
     state.set_watching_names(["Bob"])
+    state.set_menu_who(True)
+    state.set_menu_syncplay(True)
     state.clear_all()
     assert state.is_online() is False
     assert state.get_playing_id() == ""
     assert state.claim_play_item("p") is None
     assert state.watching_names() == []
+    assert state.menu_who() is False
+    assert state.menu_syncplay() is False
 
 
 def test_watching_names_round_trip():
@@ -148,3 +152,18 @@ def test_watching_names_garbage_reads_as_nobody():
     assert state.watching_names() == []
     FakeWindow.store[state.PROP_WHO_NAMES] = '{"a": 1}'
     assert state.watching_names() == []
+
+
+def test_menu_visibility_round_trip():
+    assert state.menu_who() is False
+    assert state.menu_syncplay() is False
+    state.set_menu_who(True)
+    state.set_menu_syncplay(True)
+    assert state.menu_who() is True
+    assert state.menu_syncplay() is True
+    state.set_menu_who(False)
+    state.set_menu_syncplay(False)
+    assert state.menu_who() is False
+    assert state.menu_syncplay() is False
+    assert state.PROP_MENU_WHO not in FakeWindow.store
+    assert state.PROP_MENU_SYNCPLAY not in FakeWindow.store

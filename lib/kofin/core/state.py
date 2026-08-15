@@ -54,6 +54,15 @@ PROP_PLAYING_MENU = "kofin.playing.menu"
 # an offline root hang for that call's whole retry ladder.
 PROP_WHO_NAMES = "kofin.who.names"
 
+# Whether the addon-root "Who's watching?" / SyncPlay entries are on offer.
+# Earns its place the same way PROP_CONTEXT_BITRATES does: a skin <visible>
+# can only test a window property, and these two entries come and go with
+# addon settings the skin cannot read (the shortlist's nobody sentinel, and
+# syncPlayEnabled). Contuary's home-widget buttons hide on the same
+# conditions as the root listing.
+PROP_MENU_WHO = "kofin.menu.who"
+PROP_MENU_SYNCPLAY = "kofin.menu.syncplay"
+
 # The lyrics overlay's channel to the skin. These earn their place for the
 # same reason as PROP_CONTEXT_BITRATES: a skin can only read window
 # properties, and lyrics cannot reach it any other way -- Kodi's music
@@ -357,6 +366,30 @@ def watching_names() -> List[str]:
     return [str(name) for name in names if name]
 
 
+def set_menu_who(offered: bool) -> None:
+    """Whether the Who's watching? root entry is on offer."""
+    if offered:
+        _window().setProperty(PROP_MENU_WHO, "true")
+    else:
+        _window().clearProperty(PROP_MENU_WHO)
+
+
+def menu_who() -> bool:
+    return _window().getProperty(PROP_MENU_WHO) == "true"
+
+
+def set_menu_syncplay(offered: bool) -> None:
+    """Whether the SyncPlay root entry is on offer."""
+    if offered:
+        _window().setProperty(PROP_MENU_SYNCPLAY, "true")
+    else:
+        _window().clearProperty(PROP_MENU_SYNCPLAY)
+
+
+def menu_syncplay() -> bool:
+    return _window().getProperty(PROP_MENU_SYNCPLAY) == "true"
+
+
 def publish_lyrics(lines: List[Any], item_id: str) -> None:
     """Publish the song's lyrics for whatever is going to render them.
 
@@ -431,6 +464,8 @@ def clear_all(keep_stop: bool = False) -> None:
         PROP_PLAYING_STREAMS,
         PROP_PLAYING_MENU,
         PROP_WHO_NAMES,
+        PROP_MENU_WHO,
+        PROP_MENU_SYNCPLAY,
     ]
     if not keep_stop:
         props.append(PROP_SYNC_STOP)
