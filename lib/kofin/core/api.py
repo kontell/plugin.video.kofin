@@ -555,9 +555,9 @@ class Api:
         self.post("/SyncPlay/Leave")
 
     def syncplay_hello(self, protocol_version: int) -> JsonDict:
-        """Capability probe + negotiation in one round trip (SYNCPLAY.md,
-        plugin binding): a 200 carries the server's protocol version and the
-        time-sync transport descriptor; stock and integrated servers 404."""
+        """Capability probe + negotiation in one round trip (SYNCPLAY.md §2.1):
+        a 200 carries the server's protocol version and the time-sync transport
+        descriptor; stock and integrated servers 404."""
         return self.post("/SyncPlay/Hello", {"ProtocolVersion": protocol_version})
 
     def syncplay_snapshot(self) -> None:

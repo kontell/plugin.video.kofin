@@ -1,7 +1,8 @@
 """Pure helpers for SyncPlay: time conversions and protocol constants.
 
 Kept free of Kodi imports so the protocol math is unit-testable.
-Protocol reference: docs/SYNCPLAY.md in the jellyfin repository.
+Protocol reference: docs/SYNCPLAY.md in the kontell/syncplay-conformance
+repository (the conformance kit is the spec's home).
 
 Ported from the fork's ``jellyfin_kodi/syncplay/utils.py`` under the phase-4
 transplant discipline — the math and constants are the proven parts and stay

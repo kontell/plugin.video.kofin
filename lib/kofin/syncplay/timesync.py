@@ -4,8 +4,8 @@ kofin ``Api``).
 
 One deliberate deviation from the reference client (jellyfin-kodi
 ``feat/syncplay-protocol-v2``): the websocket TimeSync exchange runs on the
-**dedicated socket the server's Hello advertises** (SYNCPLAY.md §3, plugin
-binding) instead of riding the main ``/socket``. A plugin cannot answer
+**dedicated socket the server's Hello advertises** (SYNCPLAY.md §3.1, the
+plugin binding) instead of riding the main ``/socket``. A plugin cannot answer
 TimeSync there — and on unfixed servers an unknown message type kills the
 shared socket — so the exchange is a plain synchronous round trip on its own
 connection, which also stamps t3 right at ``recv()`` with no notification bus
