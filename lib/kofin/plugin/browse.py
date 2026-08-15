@@ -416,7 +416,11 @@ def root(request: Request) -> None:
 
     import xbmc
 
-    if api is not None:
+    # "Who's watching?" — gone entirely when the Advanced-tab shortlist has
+    # nobody on it, which is how the feature is switched off (adduser.py).
+    from kofin.plugin import adduser
+
+    if api is not None and adduser.is_enabled():
         adduser_li = xbmcgui.ListItem(_who_is_watching_label())
         watching_art = _addon_media("person-search.png") or "DefaultUser.png"
         adduser_li.setArt(structural_art(watching_art))

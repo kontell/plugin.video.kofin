@@ -224,8 +224,8 @@ msgid "Who's watching shortlist"
 msgstr "Urval för Vem tittar?"
 
 msgctxt "#30080"
-msgid "Choose which server users the addon's Who's watching? entry offers. Nothing selected offers everyone."
-msgstr "Välj vilka serveranvändare som tilläggets Vem tittar?-post erbjuder. Inget valt erbjuder alla."
+msgid "Choose which server users the addon's Who's watching? entry offers. \"All\" offers everyone. With nothing selected the entry is hidden and anyone already on the session is removed."
+msgstr "Välj vilka serveranvändare som tilläggets Vem tittar?-post erbjuder. \"Alla\" erbjuder alla. Om inget är valt döljs posten och de som redan finns i sessionen tas bort."
 
 # 30030-30049 — browse nodes
 
@@ -2103,3 +2103,11 @@ msgstr "Ta även bort dina %s hämtade fil(er)? Rensningen tar bort Kofins regis
 msgctxt "#30816"
 msgid "Removing downloaded files…"
 msgstr "Tar bort hämtade filer…"
+
+# 30817 — the shortlist's first row. Not #30030's "All": that one labels a
+# browse node ("all movies"), and the languages that decline the word render
+# the two differently — French wants "Tout" there and "Tous" for a list of
+# people. #30080 quotes this label verbatim, which pocheck.py enforces.
+msgctxt "#30817"
+msgid "All"
+msgstr "Alla"

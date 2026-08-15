@@ -224,8 +224,8 @@ msgid "Who's watching shortlist"
 msgstr "「誰在看？」候選名單"
 
 msgctxt "#30080"
-msgid "Choose which server users the addon's Who's watching? entry offers. Nothing selected offers everyone."
-msgstr "選擇外掛的「誰在看？」要列出哪些伺服器使用者。未選取任何人時會列出所有人。"
+msgid "Choose which server users the addon's Who's watching? entry offers. \"All\" offers everyone. With nothing selected the entry is hidden and anyone already on the session is removed."
+msgstr "選擇外掛的「誰在看？」要列出哪些伺服器使用者。選擇\"全部\"會列出所有人。未選取任何人時會隱藏這個項目，並將已加入工作階段的人移除。"
 
 # 30030-30049 — browse nodes
 
@@ -2103,3 +2103,11 @@ msgstr "也要刪除你的 %s 個已下載檔案嗎？清理會移除 Kofin 對�
 msgctxt "#30816"
 msgid "Removing downloaded files…"
 msgstr "正在移除已下載的檔案…"
+
+# 30817 — the shortlist's first row. Not #30030's "All": that one labels a
+# browse node ("all movies"), and the languages that decline the word render
+# the two differently — French wants "Tout" there and "Tous" for a list of
+# people. #30080 quotes this label verbatim, which pocheck.py enforces.
+msgctxt "#30817"
+msgid "All"
+msgstr "全部"

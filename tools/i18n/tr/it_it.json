@@ -49,7 +49,7 @@
   "#30077": "Proponi l'eliminazione dopo la visione",
   "#30078": "Quando un film o un episodio finisce, chiede se eliminarlo dal server. Chiede sempre, qualunque sia l'impostazione di «Elimina senza conferma».",
   "#30079": "Elenco per «Chi sta guardando»",
-  "#30080": "Scegli quali utenti del server propone la voce «Chi sta guardando?» dell'add-on. Se non selezioni nulla, li propone tutti.",
+  "#30080": "Scegli quali utenti del server propone la voce «Chi sta guardando?» dell'add-on. \"Tutti\" li propone tutti. Se non selezioni nulla, la voce viene nascosta e chi è già nella sessione viene rimosso.",
   "#30030": "Tutti",
   "#30031": "Aggiunti di recente",
   "#30032": "Prossimi",
@@ -447,5 +447,6 @@
   "#30813": "Elimina dopo (giorni)",
   "#30814": "Per quanto tempo un download può restare senza essere riprodotto prima di essere rimosso. Riprodurlo di nuovo fa ripartire il conteggio.",
   "#30815": "Eliminare anche i tuoi %s file scaricati? La pulizia rimuove il registro che Kofin ne tiene, quindi quelli che conservi restano su disco e dovrai gestirli tu.",
-  "#30816": "Rimozione dei file scaricati…"
+  "#30816": "Rimozione dei file scaricati…",
+  "#30817": "Tutti"
 }

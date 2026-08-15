@@ -134,6 +134,12 @@ What remains is kofin's own:
   SyncPlay transplant.
 - `discography` has no unique index, so `INSERT OR REPLACE` never replaces
   (`kodi-database-writing` has the general shape; the repair path is kofin's).
+- The who's-watching shortlist packs three states into one string setting
+  (`plugin/adduser.py`): `all`, an id list, or `none` for "feature off". **Empty is `all`, not
+  off** — it is what every install predating the sentinels holds, and it is what an unreadable
+  settings store reads back, so reading it as off would hide the root entry and strip the session
+  on an add-on update. `is_enabled` is the only spelling of that test, and turning the feature off
+  detaches the session's co-watchers (`detach_all`) because the picker is the only way off one.
 - Docs in `docs/` use one line per paragraph — `tools/unwrap_md.py` fixes wrapped files.
 
 ## Translations
@@ -153,8 +159,10 @@ the lot together. `tr/_source.json` records the English each translation was mad
 `pvr.kofin` had to repair by hand. `tests/unit/test_translations.py` runs the validators, so CI
 catches a locale left out of step.
 
-Two help strings quote another string's wording verbatim (`#30794` quotes `#30618`; `#30607` quotes
-`#30609`/`#30610`) and `pocheck.py` enforces both — translate such a pair together or the help names
-a control that is not on screen under that name. `#30624`/`#30626`/`#30631`/`#30633`/`#30635`
+Three help strings quote another string's wording verbatim (`#30794` quotes `#30618`; `#30607`
+quotes `#30609`/`#30610`; `#30080` quotes `#30817`) and `pocheck.py` enforces all of them —
+translate such a pair together or the help names a control that is not on screen under that name.
+The quoted label goes in ASCII double quotes even where the locale uses its own quotation marks
+elsewhere in the same string, because that is what the check looks for. `#30624`/`#30626`/`#30631`/`#30633`/`#30635`
 substitute an item *name* where their plural partners take a count; the category noun in "Dune movie
 added to library" is what separates the film from the album.

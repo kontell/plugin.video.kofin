@@ -49,7 +49,7 @@
   "#30077": "Propor eliminar depois de ver",
   "#30078": "Quando um filme ou episódio termina, pergunta se o quer eliminar do servidor. Pergunta sempre, seja qual for o valor de «Eliminar sem confirmação».",
   "#30079": "Lista de quem está a ver",
-  "#30080": "Escolha que utilizadores do servidor a entrada Quem está a ver? do add-on oferece. Sem nada selecionado, oferece todos.",
+  "#30080": "Escolha que utilizadores do servidor a entrada Quem está a ver? do add-on oferece. \"Todos\" oferece todos eles. Sem nada selecionado, a entrada fica oculta e quem já está na sessão é removido.",
   "#30030": "Todos",
   "#30031": "Adicionados recentemente",
   "#30032": "A seguir",
@@ -447,5 +447,6 @@
   "#30813": "Eliminar ao fim de (dias)",
   "#30814": "Quanto tempo uma transferência pode ficar sem ser reproduzida antes de ser removida. Reproduzi-la de novo reinicia a contagem.",
   "#30815": "Eliminar também os seus %s ficheiro(s) transferido(s)? A limpeza remove o registo que o Kofin tem deles, pelo que os que mantiver ficam no disco para os gerir por si.",
-  "#30816": "A remover ficheiros transferidos…"
+  "#30816": "A remover ficheiros transferidos…",
+  "#30817": "Todos"
 }

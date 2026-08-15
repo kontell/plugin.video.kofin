@@ -49,7 +49,7 @@
   "#30077": "Propune ștergerea după vizionare",
   "#30078": "Când un film sau un episod se termină, întreabă dacă să fie șters de pe server. Întreabă întotdeauna, indiferent de setarea „Șterge fără confirmare”.",
   "#30079": "Listă scurtă pentru Cine se uită?",
-  "#30080": "Alegeți ce utilizatori ai serverului sunt oferiți de intrarea Cine se uită? a suplimentului. Fără nicio selecție sunt oferiți toți.",
+  "#30080": "Alegeți ce utilizatori ai serverului sunt oferiți de intrarea Cine se uită? a suplimentului. \"Toți\" îi oferă pe toți. Fără nicio selecție, intrarea este ascunsă și oricine se află deja în sesiune este eliminat.",
   "#30030": "Toate",
   "#30031": "Adăugate recent",
   "#30032": "Urmează",
@@ -447,5 +447,6 @@
   "#30813": "Șterge după (zile)",
   "#30814": "Cât timp poate sta o descărcare neredată înainte de a fi eliminată. Redarea ei din nou reia numărătoarea.",
   "#30815": "Ștergeți și cele %s fișiere descărcate ale dvs.? Curățarea elimină evidența lor din Kofin, așa că orice fișier păstrat rămâne pe disc, spre a fi gestionat de dvs.",
-  "#30816": "Se elimină fișierele descărcate…"
+  "#30816": "Se elimină fișierele descărcate…",
+  "#30817": "Toți"
 }

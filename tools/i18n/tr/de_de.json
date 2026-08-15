@@ -49,7 +49,7 @@
   "#30077": "Nach dem Ansehen zum Löschen anbieten",
   "#30078": "Wenn ein Film oder eine Folge zu Ende ist, fragen, ob er vom Server gelöscht werden soll. Fragt immer nach, unabhängig davon, wie „Ohne Nachfrage löschen“ eingestellt ist.",
   "#30079": "Auswahlliste für „Wer schaut?“",
-  "#30080": "Wähle, welche Serverbenutzer der Eintrag „Wer schaut?“ des Add-ons anbietet. Ohne Auswahl werden alle angeboten.",
+  "#30080": "Wähle, welche Serverbenutzer der Eintrag „Wer schaut?“ des Add-ons anbietet. \"Alle\" bietet jeden an. Ohne Auswahl wird der Eintrag ausgeblendet und wer schon in der Sitzung ist, wird entfernt.",
   "#30030": "Alle",
   "#30031": "Kürzlich hinzugefügt",
   "#30032": "Als Nächstes",
@@ -447,5 +447,6 @@
   "#30813": "Löschen nach (Tage)",
   "#30814": "Wie lange ein Download unabgespielt liegen darf, bevor er entfernt wird. Erneutes Abspielen setzt die Zählung zurück.",
   "#30815": "Auch deine %s heruntergeladene(n) Datei(en) löschen? Die Bereinigung entfernt Kofins Eintrag dazu, sodass alles, was du behältst, auf der Platte bleibt und von dir selbst verwaltet werden muss.",
-  "#30816": "Heruntergeladene Dateien werden entfernt…"
+  "#30816": "Heruntergeladene Dateien werden entfernt…",
+  "#30817": "Alle"
 }

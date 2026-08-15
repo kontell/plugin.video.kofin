@@ -224,8 +224,8 @@ msgid "Who's watching shortlist"
 msgstr "Kortliste for «Hvem ser på?»"
 
 msgctxt "#30080"
-msgid "Choose which server users the addon's Who's watching? entry offers. Nothing selected offers everyone."
-msgstr "Velg hvilke serverbrukere tilleggets «Hvem ser på?»-oppføring tilbyr. Ingen valgt tilbyr alle."
+msgid "Choose which server users the addon's Who's watching? entry offers. \"All\" offers everyone. With nothing selected the entry is hidden and anyone already on the session is removed."
+msgstr "Velg hvilke serverbrukere tilleggets «Hvem ser på?»-oppføring tilbyr. \"Alle\" tilbyr alle. Er ingen valgt, skjules oppføringen, og de som allerede er i økten, fjernes."
 
 # 30030-30049 — browse nodes
 
@@ -2103,3 +2103,11 @@ msgstr "Skal også de %s nedlastede filene dine slettes? Rydding fjerner Kofins 
 msgctxt "#30816"
 msgid "Removing downloaded files…"
 msgstr "Fjerner nedlastede filer…"
+
+# 30817 — the shortlist's first row. Not #30030's "All": that one labels a
+# browse node ("all movies"), and the languages that decline the word render
+# the two differently — French wants "Tout" there and "Tous" for a list of
+# people. #30080 quotes this label verbatim, which pocheck.py enforces.
+msgctxt "#30817"
+msgid "All"
+msgstr "Alle"

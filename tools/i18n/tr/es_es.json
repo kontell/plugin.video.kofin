@@ -49,7 +49,7 @@
   "#30077": "Ofrecer eliminarlo tras verlo",
   "#30078": "Cuando termina una película o un episodio, pregunta si quieres eliminarlo del servidor. Pregunta siempre, sea cual sea el valor de «Eliminar sin confirmación».",
   "#30079": "Lista para «¿Quién está viendo?»",
-  "#30080": "Elige qué usuarios del servidor ofrece la entrada ¿Quién está viendo? del complemento. Si no seleccionas ninguno, se ofrecen todos.",
+  "#30080": "Elige qué usuarios del servidor ofrece la entrada ¿Quién está viendo? del complemento. \"Todos\" los ofrece a todos. Si no seleccionas nada, la entrada se oculta y se quita a quien ya esté en la sesión.",
   "#30030": "Todos",
   "#30031": "Añadidos recientemente",
   "#30032": "A continuación",
@@ -447,5 +447,6 @@
   "#30813": "Eliminar después de (días)",
   "#30814": "Cuánto tiempo puede estar una descarga sin reproducirse antes de eliminarse. Volver a reproducirla reinicia la cuenta.",
   "#30815": "¿Eliminar también tus %s archivos descargados? La limpieza borra el registro que Kofin tiene de ellos, así que los que conserves quedarán en el disco para que los gestiones tú.",
-  "#30816": "Eliminando los archivos descargados…"
+  "#30816": "Eliminando los archivos descargados…",
+  "#30817": "Todos"
 }
