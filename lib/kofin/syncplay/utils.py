@@ -77,6 +77,7 @@ UNPAUSE_VERIFY_STEP_MS = 300  # clock sample spacing (xbmc.sleep, int ms)
 SEEK_SETTLE_TIMEOUT = 3.0  # give up waiting for a seek to land after this
 DRIFT_BLACKOUT_AFTER_SEEK = 3.0  # no drift corrections right after a seek
 PROGRAMMATIC_ECHO_GRACE = 1.0  # player events within this window of our own actions
+STOP_WAIT_SECONDS = 3.0  # bound on waiting for a requested stop to take effect
 
 #################################################################################################
 

@@ -138,6 +138,33 @@ def _player_conditions(monkeypatch):
     monkeypatch.setattr(playback_module.xbmc, "getCondVisibility", cond)
 
 
+@pytest.fixture(autouse=True)
+def _stop_over_jsonrpc(monkeypatch):
+    """Stops leave through JSON-RPC, not ``player.stop()`` (issue #155).
+
+    Wired back to the fake player so the controller's stops still show up as a
+    ``"stop"`` action: the seam moved, the observable behaviour did not.
+    """
+    import json as _json
+
+    def rpc(query):
+        payload = _json.loads(query)
+        player = FakePlayer.current
+        if payload["method"] == "Player.GetActivePlayers":
+            if player is None or not player.playing:
+                return _json.dumps({"result": []})
+            return _json.dumps({"result": [{"playerid": 0 if player.audio else 1}]})
+        if payload["method"] == "Player.Stop":
+            if player is not None:
+                player.actions.append("stop")
+                player.playing = False
+            return _json.dumps({"result": "OK"})
+        return _json.dumps({"result": {}})
+
+    monkeypatch.setattr("xbmc.executeJSONRPC", rpc)
+    monkeypatch.setattr("xbmc.Monitor.waitForAbort", lambda self, timeout=-1: False)
+
+
 def make_controller(paused=False, position=0.0):
     player = FakePlayer()
     player.paused = paused

@@ -60,9 +60,20 @@ def fakes(monkeypatch):
     monkeypatch.setattr("xbmc.PlayList", FakePlaylist)
     monkeypatch.setattr("xbmc.Player", FakePlayer)
     rpc = []
-    monkeypatch.setattr(
-        "xbmc.executeJSONRPC", lambda q: rpc.append(json.loads(q)) or "{}"
-    )
+
+    def answer(query):
+        payload = json.loads(query)
+        rpc.append(payload)
+        # A Stop leaves over JSON-RPC now, not through player.stop() (issue
+        # #155), so the seam has to answer the player lookup it makes.
+        if payload["method"] == "Player.GetActivePlayers":
+            return json.dumps({"result": [{"playerid": 1, "type": "video"}]})
+        if payload["method"] == "Player.Stop":
+            FakePlayer.actions.append("stop")
+            return json.dumps({"result": "OK"})
+        return "{}"
+
+    monkeypatch.setattr("xbmc.executeJSONRPC", answer)
     builtins = []
     monkeypatch.setattr("xbmc.executebuiltin", lambda c: builtins.append(c))
     return {"rpc": rpc, "builtins": builtins}

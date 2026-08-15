@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import xbmc
 
-from kofin.core import toast
+from kofin.core import kodirpc, toast
 from kofin.core.log import Logger
 from kofin.plugin.listitems import plugin_url
 
@@ -132,7 +132,7 @@ class RemoteHandler:
         command = data.get("Command", "")
         player = xbmc.Player()
         if command == "Stop":
-            player.stop()
+            kodirpc.stop_player()  # not player.stop() — issue #155
         elif command in ("Pause", "Unpause", "PlayPause"):
             player.pause()  # Kodi's pause() toggles
         elif command == "NextTrack":

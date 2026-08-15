@@ -125,6 +125,13 @@ What remains is kofin's own:
   `kodi-addon-lifecycle` for why two run at once, and treat that module accordingly.
 - A sync thread that will not stop is a thread inside the HTTP retry ladder
   (`docs/library-thread-stop.md`); the two rules that follow are easy to undo.
+- **Never call `xbmc.Player.stop()`** — use `core/kodirpc.py::stop_player`. Kodi's binding sends
+  `TMSG_MEDIA_STOP` without a `DelayedCallGuard`, so it blocks on the app thread *holding the GIL*,
+  and the app thread's stop path waits on MyVideos writes that a GIL-starved kofin thread may be
+  holding. That is a deadlock with no recovery but a force-stop (issue #155, measured on Omega and
+  Piers). `pause()` has the same missing guard but does not tear the player down, so it does not
+  reach the wait — it is a stall risk, not a deadlock, and is deliberately left alone inside the
+  SyncPlay transplant.
 - `discography` has no unique index, so `INSERT OR REPLACE` never replaces
   (`kodi-database-writing` has the general shape; the repair path is kofin's).
 - Docs in `docs/` use one line per paragraph — `tools/unwrap_md.py` fixes wrapped files.

@@ -15,7 +15,7 @@ import threading
 
 import xbmc
 
-from kofin.core import settings
+from kofin.core import kodirpc, settings
 from kofin.core.log import Logger
 from kofin.syncplay import utils
 
@@ -323,7 +323,13 @@ class PlaybackController(object):
 
         if was_following and self._has_media():
             with self.manager.programmatic():
-                self.player.stop()
+                # Never player.stop() from here: this runs on the dispatcher,
+                # and that call holds the GIL until Kodi's teardown finishes
+                # (kodirpc.stop_player, issue #155). Landing asynchronously is
+                # safe — on_group_stopped() has already left the phase behind,
+                # so the late callback finds nothing to forward, and it is
+                # inside PROGRAMMATIC_ECHO_GRACE either way.
+                kodirpc.stop_player()
 
     # ------------------------------------------------------------------
     # Item loading (queue application handoff)
@@ -359,7 +365,13 @@ class PlaybackController(object):
 
         with self.manager.programmatic():
             if self.player.isPlaying():
-                self.player.stop()
+                # Asked for and waited on rather than player.stop()'d: see
+                # kodirpc.stop_player (issue #155). The wait keeps the playlist
+                # rewrite below on the far side of the outgoing playback, which
+                # the synchronous stop used to guarantee; Kodi orders the play
+                # itself, since playPlaylist reaches the app thread behind the
+                # stop message.
+                kodirpc.stop_player(wait_seconds=utils.STOP_WAIT_SECONDS)
 
             playlist.clear()
             playlist.add(url)
@@ -403,7 +415,7 @@ class PlaybackController(object):
     def stop_media(self):
         if self._has_media():
             with self.manager.programmatic():
-                self.player.stop()
+                kodirpc.stop_player()  # not player.stop() — issue #155
 
     # ------------------------------------------------------------------
     # Reports (SYNCPLAY.md §4)

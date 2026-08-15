@@ -244,7 +244,7 @@ def _stop_current_playback() -> None:
     player = xbmc.Player()
     if not player.isPlaying():
         return
-    player.stop()
+    kodirpc.stop_player()  # not player.stop() — issue #155
     monitor = xbmc.Monitor()
     waited = 0.0
     while waited < STOP_TIMEOUT_SECONDS:
