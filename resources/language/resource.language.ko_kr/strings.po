@@ -1904,6 +1904,9 @@ msgctxt "#30773"
 msgid "How many tracks download at the same time. Tracks are small and mostly overhead, so this can sit well above the video figure."
 msgstr "트랙을 동시에 몇 개까지 다운로드할지. 트랙은 작고 대부분 오버헤드라, 비디오 값보다 훨씬 높게 잡아도 됩니다."
 
+# 30774 — retired with the Delete download confirmation. Kept, never reused,
+# for the reason given at #30744. #30714 stays live: the finished-watching
+# offer in service/player.py still asks.
 msgctxt "#30774"
 msgid "Delete %s download(s) of %s?"
 msgstr "다운로드 %s개를 삭제할까요? (%s)"

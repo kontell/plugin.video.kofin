@@ -1904,6 +1904,9 @@ msgctxt "#30773"
 msgid "How many tracks download at the same time. Tracks are small and mostly overhead, so this can sit well above the video figure."
 msgstr "Kuinka monta kappaletta ladataan samanaikaisesti. Kappaleet ovat pieniä ja enimmäkseen yleisrasitetta, joten tämä voi olla selvästi videoiden lukua suurempi."
 
+# 30774 — retired with the Delete download confirmation. Kept, never reused,
+# for the reason given at #30744. #30714 stays live: the finished-watching
+# offer in service/player.py still asks.
 msgctxt "#30774"
 msgid "Delete %s download(s) of %s?"
 msgstr "Poistetaanko %s latausta kohteesta %s?"
