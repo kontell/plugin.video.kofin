@@ -16,9 +16,6 @@ msgstr ""
 "Language: ca_ES\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-# Add-on browser metadata. These must stay in step with the en_GB <summary> and
-# <description> in addon.xml, which remain the fallback for untranslated locales.
-
 msgctxt "Addon Summary"
 msgid "Jellyfin client for seamless Kodi integration"
 msgstr "Client del Jellyfin per a una integració perfecta amb el Kodi"
@@ -26,8 +23,6 @@ msgstr "Client del Jellyfin per a una integració perfecta amb el Kodi"
 msgctxt "Addon Description"
 msgid "Play movies, shows & music from a Jellyfin server."
 msgstr "Reproduïu pel·lícules, sèries i música des d'un servidor Jellyfin."
-
-# 30000-30049 — general / dialogs
 
 msgctxt "#30010"
 msgid "Play with transcoding"
@@ -100,8 +95,6 @@ msgstr "No heu iniciat la sessió"
 msgctxt "#30027"
 msgid "Log in to %s"
 msgstr "Inicia la sessió a %s"
-
-# 30050-30099 — Account tab (30066-30067 and 30071-30080: Advanced tab)
 
 msgctxt "#30050"
 msgid "Account"
@@ -227,8 +220,6 @@ msgctxt "#30080"
 msgid "Choose which server users the addon's Who's watching? entry offers. \"All\" offers everyone. With nothing selected the entry is hidden and anyone already on the session is removed."
 msgstr "Trieu quins usuaris del servidor ofereix l'entrada «Qui està mirant?» del complement. \"Tots\" ofereix tothom. Si no seleccioneu res, l'entrada s'oculta i qui ja sigui a la sessió se'n treu."
 
-# 30030-30049 — browse nodes
-
 msgctxt "#30030"
 msgid "All"
 msgstr "Tots"
@@ -276,8 +267,6 @@ msgstr "Àlbums"
 msgctxt "#30049"
 msgid "Continue watching"
 msgstr "Continua mirant"
-
-# 30100-30203 — Transcoding tab (30150+ are option labels)
 
 msgctxt "#30100"
 msgid "Transcoding"
@@ -687,8 +676,6 @@ msgctxt "#30048"
 msgid "Who can be added to the session"
 msgstr "Qui es pot afegir a la sessió"
 
-# 30250-30299 — Library tab
-
 msgctxt "#30250"
 msgid "Library"
 msgstr "Biblioteca"
@@ -773,8 +760,6 @@ msgctxt "#30270"
 msgid "Update which libraries?"
 msgstr "Quines biblioteques voleu actualitzar?"
 
-# 30300-30349 — Sync tab
-
 msgctxt "#30300"
 msgid "Sync"
 msgstr "Sincronització"
@@ -819,8 +804,6 @@ msgctxt "#30314"
 msgid "Artwork"
 msgstr "Imatges"
 
-
-
 msgctxt "#30318"
 msgid "Compress artwork"
 msgstr "Comprimeix les imatges"
@@ -853,9 +836,6 @@ msgctxt "#30325"
 msgid "2160p"
 msgstr "2160p"
 
-# 30326/30327 keep their sync-block ids: the setting moved to the Advanced
-# tab, and renumbering a shipped string only breaks translations.
-
 msgctxt "#30326"
 msgid "Notify on server connection changes"
 msgstr "Notifica els canvis de connexió amb el servidor"
@@ -863,8 +843,6 @@ msgstr "Notifica els canvis de connexió amb el servidor"
 msgctxt "#30327"
 msgid "Show a notification when the server connects, disconnects or restarts."
 msgstr "Mostra una notificació quan el servidor es connecta, es desconnecta o es reinicia."
-
-# 30350-30369 — library node labels
 
 msgctxt "#30350"
 msgid "Recently added"
@@ -917,8 +895,6 @@ msgstr "Preferits"
 msgctxt "#30362"
 msgid "First letter"
 msgstr "Primera lletra"
-
-# 30400-30429 — sync runtime messages
 
 msgctxt "#30400"
 msgid "Gathering:"
@@ -999,8 +975,6 @@ msgstr "Sincronització desactivada: %s"
 msgctxt "#30414"
 msgid "advancedsettings.xml enables cleanonupdate — incompatible with library sync"
 msgstr "advancedsettings.xml activa cleanonupdate — incompatible amb la sincronització de la biblioteca"
-
-# 30450-30499 — Playback tab: media segments + Play Next
 
 msgctxt "#30450"
 msgid "Playback"
@@ -1154,8 +1128,6 @@ msgctxt "#30489"
 msgid "Up next: %s"
 msgstr "A continuació: %s"
 
-# 30500-30549 — extras
-
 msgctxt "#30500"
 msgid "Extras"
 msgstr "Extres"
@@ -1184,9 +1156,6 @@ msgctxt "#30507"
 msgid "Server request failed"
 msgstr "Ha fallat la petició al servidor"
 
-# 30508/30509 deliberately name the server: Kodi contributes its own
-# "Mark as watched" (16103/16104) to the same context menu.
-
 msgctxt "#30508"
 msgid "Mark as watched on Jellyfin"
 msgstr "Marca com a vist al Jellyfin"
@@ -1194,9 +1163,6 @@ msgstr "Marca com a vist al Jellyfin"
 msgctxt "#30509"
 msgid "Mark as unwatched on Jellyfin"
 msgstr "Marca com a no vist al Jellyfin"
-
-# 30550-30599 — SyncPlay (settings group 30550-30558, menu/toasts 30560+;
-# fork ids 33262-33302 remapped)
 
 msgctxt "#30550"
 msgid "SyncPlay"
@@ -1338,8 +1304,6 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr "S'està esperant el grup..."
 
-# 30600-30619 — phase 5: KofinSyncQueue tier + retention + progress
-
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
 msgstr "Complement KofinSyncQueue (via ràpida)"
@@ -1356,7 +1320,6 @@ msgctxt "#30603"
 msgid "Comparing with the server"
 msgstr "S'està comparant amb el servidor"
 
-# 30604-30605 — maximum-resolution steps missing from the original port
 msgctxt "#30604"
 msgid "480p"
 msgstr "480p"
@@ -1365,7 +1328,6 @@ msgctxt "#30605"
 msgid "1440p"
 msgstr "1440p"
 
-# 30606-30610 — Jellyfin song lyrics
 msgctxt "#30606"
 msgid "Jellyfin song lyrics"
 msgstr "Lletres de cançons del Jellyfin"
@@ -1386,7 +1348,6 @@ msgctxt "#30610"
 msgid "Hand to a lyrics addon"
 msgstr "Passa a un complement de lletres"
 
-# 30611-30612 — music playlist sync
 msgctxt "#30611"
 msgid "Sync music playlists"
 msgstr "Sincronitza les llistes de reproducció de música"
@@ -1395,7 +1356,6 @@ msgctxt "#30612"
 msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
 msgstr "Baixa les llistes de reproducció de música del Jellyfin al Kodi com a llistes natives dins de Música → Llistes de reproducció → Kofin."
 
-# 30613-30617 — transcoding stream selection
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
 msgstr "Fluxos d'àudio i de subtítols"
@@ -1416,7 +1376,6 @@ msgctxt "#30617"
 msgid "burned in, restarts playback"
 msgstr "incrustats, reinicia la reproducció"
 
-# 30618-30619 — Jellyfin default tracks
 msgctxt "#30618"
 msgid "Use Jellyfin's default tracks"
 msgstr "Utilitza les pistes per defecte del Jellyfin"
@@ -1425,7 +1384,6 @@ msgctxt "#30619"
 msgid "Start playback on the audio and subtitle tracks your Jellyfin account asks for, instead of the ones Kodi's own language settings pick. The server resolves both from your Jellyfin profile, so the choice follows you to every client."
 msgstr "Inicia la reproducció amb les pistes d'àudio i de subtítols que demana el vostre compte del Jellyfin, en lloc de les que trien els paràmetres d'idioma del Kodi. El servidor resol totes dues a partir del vostre perfil del Jellyfin, així que la tria us segueix a tots els clients."
 
-# 30620-30621 — chapter images
 msgctxt "#30620"
 msgid "Chapter images from the server"
 msgstr "Imatges dels capítols des del servidor"
@@ -1434,7 +1392,6 @@ msgctxt "#30621"
 msgid "Show Jellyfin's chapter images in Kodi's chapter list. Images are fetched on demand at playback start."
 msgstr "Mostra les imatges dels capítols del Jellyfin a la llista de capítols del Kodi. Les imatges es recuperen sota demanda en començar la reproducció."
 
-# 30622-30636 — new-content notifications
 msgctxt "#30622"
 msgid "Notify about new content"
 msgstr "Notifica el contingut nou"
@@ -1495,7 +1452,6 @@ msgctxt "#30636"
 msgid "%s albums added to library"
 msgstr "S'han afegit %s àlbums"
 
-# 30637-30638 — server splashscreen backdrop
 msgctxt "#30637"
 msgid "Use the server's splashscreen as the backdrop"
 msgstr "Fes servir la pantalla de presentació del servidor com a fons"
@@ -1504,7 +1460,6 @@ msgctxt "#30638"
 msgid "Show the Jellyfin server's splashscreen behind the addon instead of the bundled artwork. Refreshed when the service connects, at most once a day."
 msgstr "Mostra la pantalla de presentació del servidor Jellyfin darrere del complement en lloc de les imatges incloses. S'actualitza quan el servei es connecta, com a màxim un cop al dia."
 
-# 30650-30665 — Clean databases (the logged-out migration cleaner)
 msgctxt "#30650"
 msgid "Clean databases"
 msgstr "Neteja les bases de dades"
@@ -1569,7 +1524,6 @@ msgctxt "#30665"
 msgid "Clean complete. Kodi will now restart."
 msgstr "Neteja completada. Ara es reiniciarà el Kodi."
 
-# 30666-30667 — critic ratings
 msgctxt "#30666"
 msgid "Movies: prefer critic rating"
 msgstr "Pel·lícules: prefereix la valoració de la crítica"
@@ -1578,7 +1532,6 @@ msgctxt "#30667"
 msgid "Show your server's critic rating (Rotten Tomatoes) instead of the community rating. Percentages are rescaled so 78% becomes 7.8."
 msgstr "Mostra la valoració de la crítica del vostre servidor (Rotten Tomatoes) en lloc de la valoració de la comunitat. Els percentatges es reescalen, de manera que 78% esdevé 7,8."
 
-# 30668-30673 — actor art pre-cache
 msgctxt "#30668"
 msgid "Pre-cache cast images when idle"
 msgstr "Precarrega les imatges del repartiment en repòs"
@@ -1602,7 +1555,6 @@ msgstr "S'estan desant les imatges del repartiment"
 msgctxt "#30673"
 msgid "Cached %d cast image(s)"
 msgstr "S'han desat %d imatges del repartiment"
-
 
 msgctxt "#30700"
 msgid "Downloads"
@@ -1780,10 +1732,6 @@ msgctxt "#30743"
 msgid "Movies newly added to a synced library are downloaded automatically. A bulk import of more than a few movies at once is skipped, with a notification."
 msgstr "Les pel·lícules afegides recentment a una biblioteca sincronitzada es baixen automàticament. Una importació massiva de més d'unes quantes pel·lícules alhora s'omet, amb una notificació."
 
-# 30744-30745, 30748-30750 — retired with downloadsAutoCleanup and the
-# three-way downloadsDeleteAfterPlay spinner. Kept, never reused: an id that
-# changes meaning silently mistranslates every language that already shipped
-# it.
 msgctxt "#30744"
 msgid "Remove watched automatic downloads"
 msgstr "Elimina les baixades automàtiques ja vistes"
@@ -1904,15 +1852,10 @@ msgctxt "#30773"
 msgid "How many tracks download at the same time. Tracks are small and mostly overhead, so this can sit well above the video figure."
 msgstr "Quantes pistes es baixen alhora. Les pistes són petites i gairebé tot és sobrecàrrega, així que aquest valor pot ser força superior al del vídeo."
 
-# 30774 — retired with the Delete download confirmation. Kept, never reused,
-# for the reason given at #30744. #30714 stays live: the finished-watching
-# offer in service/player.py still asks.
 msgctxt "#30774"
 msgid "Delete %s download(s) of %s?"
 msgstr "Voleu suprimir %s baixades de %s?"
 
-# 30775-30776 — the other half of #30617: a text subtitle a transcode did not
-# attach is fetched onto the running playback, not burned in and not restarted
 msgctxt "#30775"
 msgid "downloaded from the server"
 msgstr "baixat del servidor"
@@ -1921,9 +1864,6 @@ msgctxt "#30776"
 msgid "Downloading subtitle..."
 msgstr "S'està baixant el subtítol..."
 
-# 30777-30797 — Jellyfin account settings: the server-side user preferences
-# that resolve every playback's default audio and subtitle track, edited from
-# the Account tab (plugin/userprefs.py)
 msgctxt "#30777"
 msgid "Jellyfin account settings"
 msgstr "Configuració del compte del Jellyfin"
@@ -2008,9 +1948,6 @@ msgctxt "#30797"
 msgid "Your Jellyfin account is not allowed to change these settings"
 msgstr "El vostre compte del Jellyfin no té permís per canviar aquesta configuració"
 
-# 30798-30803 — the bulk-import guard, one threshold per automatic arm. Over
-# the number the whole batch is skipped rather than trimmed: an arbitrary few
-# of hundreds is worse than asking.
 msgctxt "#30798"
 msgid "Skip movie imports larger than"
 msgstr "Omet les importacions de pel·lícules de més de"
@@ -2035,21 +1972,10 @@ msgctxt "#30803"
 msgid "When a sync adds more new albums than this at once, none of them are downloaded. Counted in albums, not tracks."
 msgstr "Quan una sincronització afegeix més àlbums nous que aquest valor alhora, no se'n baixa cap. Es compta en àlbums, no en pistes."
 
-# 30810 — the aggregate refusal, before anything is queued. Distinct from
-# #30715, which the manager raises per item once a transfer is under way.
-#
-# Kept short deliberately. A Kodi notification fits about 33 characters and
-# *scrolls* the rest, so a longer line is read a window at a time — measured
-# live, "Not enough free space: 5.7 GB needed, 4.2 GB free" was caught
-# mid-scroll as "enough free space: 5.7 GB needed,", which says the opposite
-# of what it means. The warning glyph and the Kofin heading carry the rest.
 msgctxt "#30810"
 msgid "Needs %s, only %s free"
 msgstr "Calen %s i només hi ha %s lliures"
 
-# 30804-30807 — the settings button that clears every download at once. The
-# confirmation states what is on disk rather than what was promised: a queued
-# row has fetched nothing yet, and a transcode usually lands under its source.
 msgctxt "#30804"
 msgid "Delete all downloads"
 msgstr "Suprimeix totes les baixades"
@@ -2066,8 +1992,6 @@ msgctxt "#30807"
 msgid "There are no downloads to delete"
 msgstr "No hi ha cap baixada per suprimir"
 
-# 30808-30809 — the playback gate. It holds the queue, not a transfer in
-# flight: stopping mid-file would strand a .part for the length of a film.
 msgctxt "#30808"
 msgid "Pause downloads during playback"
 msgstr "Atura les baixades durant la reproducció"
@@ -2076,10 +2000,6 @@ msgctxt "#30809"
 msgid "Do not start new downloads while something is playing, video or music. A file already downloading finishes; the rest wait until playback stops."
 msgstr "No inicia baixades noves mentre s'està reproduint alguna cosa, vídeo o música. Un fitxer que ja s'està baixant s'acaba; la resta esperen fins que s'atura la reproducció."
 
-# 30811-30814 — the stale sweep. Its help text has to carry the resume-point
-# exemption: an unfinished film sitting untouched for months is exactly what
-# a user expects an age-based rule to eat, and the promise that it will not
-# is the reason the setting is safe to leave on.
 msgctxt "#30811"
 msgid "Delete stale downloads"
 msgstr "Suprimeix les baixades obsoletes"
@@ -2096,9 +2016,6 @@ msgctxt "#30814"
 msgid "How long a download may sit unplayed before it is removed. Playing it again starts the count over."
 msgstr "Quant de temps pot estar una baixada sense reproduir-se abans que s'elimini. Tornar-la a reproduir reinicia el compte."
 
-# 30815-30816 — the Clean databases downloads prompt. It has to say what
-# happens if you decline: the clean deletes kofin.db, and the download table
-# lives there, so files kept behind are files nothing will ever manage again.
 msgctxt "#30815"
 msgid "Also delete your %s downloaded file(s)? Cleaning removes Kofin's record of them, so any you keep are left on disk for you to manage yourself."
 msgstr "Voleu suprimir també els vostres %s fitxers baixats? La neteja elimina el registre que en té el Kofin, així que els que conserveu queden al disc perquè els gestioneu vosaltres."
@@ -2107,10 +2024,10 @@ msgctxt "#30816"
 msgid "Removing downloaded files…"
 msgstr "S'estan eliminant els fitxers baixats…"
 
-# 30817 — the shortlist's first row. Not #30030's "All": that one labels a
-# browse node ("all movies"), and the languages that decline the word render
-# the two differently — French wants "Tout" there and "Tous" for a list of
-# people. #30080 quotes this label verbatim, which pocheck.py enforces.
 msgctxt "#30817"
 msgid "All"
 msgstr "Tots"
+
+msgctxt "#30818"
+msgid "A-Z"
+msgstr "A-Z"

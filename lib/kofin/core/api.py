@@ -380,6 +380,29 @@ class Api:
     def artists(self, parent_id: str) -> JsonDict:
         return self.get("/Artists", {"userId": self.user_id, "parentId": parent_id})
 
+    def album_artists(self, parent_id: str) -> JsonDict:
+        """Artists credited with an album, rather than every credited artist.
+
+        The distinction is the point of the node: on a 20,802-song library
+        /Artists answers 626 and this answers 298 — the difference is guests
+        and featured performers, which is noise when you are looking for a
+        record.
+        """
+        return self.get(
+            "/Artists/AlbumArtists", {"userId": self.user_id, "parentId": parent_id}
+        )
+
+    def filters(self, parent_id: str, item_type: str = "") -> JsonDict:
+        """The values a library actually holds: Years, Tags, Genres, ratings.
+
+        One call answers all four, which is what lets the Years and Tags menus
+        offer the library's own values rather than a fixed range.
+        """
+        params: JsonDict = {"userId": self.user_id, "parentId": parent_id}
+        if item_type:
+            params["includeItemTypes"] = item_type
+        return self.get("/Items/Filters", params)
+
     def persons(self, term: str, limit: int = 100) -> JsonDict:
         """People matching a search term.
 

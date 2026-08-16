@@ -501,5 +501,6 @@
   "#30814": "How long a download may sit unplayed before it is removed. Playing it again starts the count over.",
   "#30815": "Also delete your %s downloaded file(s)? Cleaning removes Kofin's record of them, so any you keep are left on disk for you to manage yourself.",
   "#30816": "Removing downloaded files…",
-  "#30817": "All"
+  "#30817": "All",
+  "#30818": "A-Z"
 }

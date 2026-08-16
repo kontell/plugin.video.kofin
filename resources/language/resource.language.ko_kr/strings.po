@@ -16,9 +16,6 @@ msgstr ""
 "Language: ko_KR\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-# Add-on browser metadata. These must stay in step with the en_GB <summary> and
-# <description> in addon.xml, which remain the fallback for untranslated locales.
-
 msgctxt "Addon Summary"
 msgid "Jellyfin client for seamless Kodi integration"
 msgstr "Kodi와 매끄럽게 통합되는 Jellyfin 클라이언트"
@@ -26,8 +23,6 @@ msgstr "Kodi와 매끄럽게 통합되는 Jellyfin 클라이언트"
 msgctxt "Addon Description"
 msgid "Play movies, shows & music from a Jellyfin server."
 msgstr "Jellyfin 서버의 영화, 시리즈, 음악을 재생합니다."
-
-# 30000-30049 — general / dialogs
 
 msgctxt "#30010"
 msgid "Play with transcoding"
@@ -100,8 +95,6 @@ msgstr "로그인되어 있지 않습니다"
 msgctxt "#30027"
 msgid "Log in to %s"
 msgstr "%s에 로그인"
-
-# 30050-30099 — Account tab (30066-30067 and 30071-30080: Advanced tab)
 
 msgctxt "#30050"
 msgid "Account"
@@ -227,8 +220,6 @@ msgctxt "#30080"
 msgid "Choose which server users the addon's Who's watching? entry offers. \"All\" offers everyone. With nothing selected the entry is hidden and anyone already on the session is removed."
 msgstr "애드온의 ‘누가 보고 있나요?’ 항목이 제시할 서버 사용자를 고릅니다. \"전체\"를 고르면 모든 사용자를 제시합니다. 아무것도 선택하지 않으면 항목이 숨겨지고 이미 세션에 있는 사용자도 제거됩니다."
 
-# 30030-30049 — browse nodes
-
 msgctxt "#30030"
 msgid "All"
 msgstr "전체"
@@ -276,8 +267,6 @@ msgstr "앨범"
 msgctxt "#30049"
 msgid "Continue watching"
 msgstr "계속 시청하기"
-
-# 30100-30203 — Transcoding tab (30150+ are option labels)
 
 msgctxt "#30100"
 msgid "Transcoding"
@@ -687,8 +676,6 @@ msgctxt "#30048"
 msgid "Who can be added to the session"
 msgstr "세션에 추가할 수 있는 사용자"
 
-# 30250-30299 — Library tab
-
 msgctxt "#30250"
 msgid "Library"
 msgstr "라이브러리"
@@ -773,8 +760,6 @@ msgctxt "#30270"
 msgid "Update which libraries?"
 msgstr "어떤 라이브러리를 업데이트할까요?"
 
-# 30300-30349 — Sync tab
-
 msgctxt "#30300"
 msgid "Sync"
 msgstr "동기화"
@@ -819,8 +804,6 @@ msgctxt "#30314"
 msgid "Artwork"
 msgstr "아트워크"
 
-
-
 msgctxt "#30318"
 msgid "Compress artwork"
 msgstr "아트워크 압축"
@@ -853,9 +836,6 @@ msgctxt "#30325"
 msgid "2160p"
 msgstr "2160p"
 
-# 30326/30327 keep their sync-block ids: the setting moved to the Advanced
-# tab, and renumbering a shipped string only breaks translations.
-
 msgctxt "#30326"
 msgid "Notify on server connection changes"
 msgstr "서버 연결 변화 알림"
@@ -863,8 +843,6 @@ msgstr "서버 연결 변화 알림"
 msgctxt "#30327"
 msgid "Show a notification when the server connects, disconnects or restarts."
 msgstr "서버가 연결되거나 끊기거나 다시 시작할 때 알림을 표시합니다."
-
-# 30350-30369 — library node labels
 
 msgctxt "#30350"
 msgid "Recently added"
@@ -917,8 +895,6 @@ msgstr "즐겨찾기"
 msgctxt "#30362"
 msgid "First letter"
 msgstr "첫 글자"
-
-# 30400-30429 — sync runtime messages
 
 msgctxt "#30400"
 msgid "Gathering:"
@@ -999,8 +975,6 @@ msgstr "라이브러리 동기화 꺼짐: %s"
 msgctxt "#30414"
 msgid "advancedsettings.xml enables cleanonupdate — incompatible with library sync"
 msgstr "advancedsettings.xml에 cleanonupdate가 켜져 있습니다 — 라이브러리 동기화와 호환되지 않습니다"
-
-# 30450-30499 — Playback tab: media segments + Play Next
 
 msgctxt "#30450"
 msgid "Playback"
@@ -1154,8 +1128,6 @@ msgctxt "#30489"
 msgid "Up next: %s"
 msgstr "다음: %s"
 
-# 30500-30549 — extras
-
 msgctxt "#30500"
 msgid "Extras"
 msgstr "부가 영상"
@@ -1184,9 +1156,6 @@ msgctxt "#30507"
 msgid "Server request failed"
 msgstr "서버 요청 실패"
 
-# 30508/30509 deliberately name the server: Kodi contributes its own
-# "Mark as watched" (16103/16104) to the same context menu.
-
 msgctxt "#30508"
 msgid "Mark as watched on Jellyfin"
 msgstr "Jellyfin에서 시청함으로 표시"
@@ -1194,9 +1163,6 @@ msgstr "Jellyfin에서 시청함으로 표시"
 msgctxt "#30509"
 msgid "Mark as unwatched on Jellyfin"
 msgstr "Jellyfin에서 시청 안 함으로 표시"
-
-# 30550-30599 — SyncPlay (settings group 30550-30558, menu/toasts 30560+;
-# fork ids 33262-33302 remapped)
 
 msgctxt "#30550"
 msgid "SyncPlay"
@@ -1338,8 +1304,6 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr "그룹을 기다리는 중..."
 
-# 30600-30619 — phase 5: KofinSyncQueue tier + retention + progress
-
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
 msgstr "KofinSyncQueue 컴패니언(빠른 경로)"
@@ -1356,7 +1320,6 @@ msgctxt "#30603"
 msgid "Comparing with the server"
 msgstr "서버와 비교하는 중"
 
-# 30604-30605 — maximum-resolution steps missing from the original port
 msgctxt "#30604"
 msgid "480p"
 msgstr "480p"
@@ -1365,7 +1328,6 @@ msgctxt "#30605"
 msgid "1440p"
 msgstr "1440p"
 
-# 30606-30610 — Jellyfin song lyrics
 msgctxt "#30606"
 msgid "Jellyfin song lyrics"
 msgstr "Jellyfin 노래 가사"
@@ -1386,7 +1348,6 @@ msgctxt "#30610"
 msgid "Hand to a lyrics addon"
 msgstr "가사 애드온에 전달"
 
-# 30611-30612 — music playlist sync
 msgctxt "#30611"
 msgid "Sync music playlists"
 msgstr "음악 재생목록 동기화"
@@ -1395,7 +1356,6 @@ msgctxt "#30612"
 msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
 msgstr "Jellyfin 음악 재생목록을 음악 → 재생목록 → Kofin 아래에 Kodi 자체 재생목록으로 내려받습니다."
 
-# 30613-30617 — transcoding stream selection
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
 msgstr "오디오 및 자막 스트림"
@@ -1416,7 +1376,6 @@ msgctxt "#30617"
 msgid "burned in, restarts playback"
 msgstr "화면에 입힘, 재생을 다시 시작"
 
-# 30618-30619 — Jellyfin default tracks
 msgctxt "#30618"
 msgid "Use Jellyfin's default tracks"
 msgstr "Jellyfin의 기본 트랙 사용"
@@ -1425,7 +1384,6 @@ msgctxt "#30619"
 msgid "Start playback on the audio and subtitle tracks your Jellyfin account asks for, instead of the ones Kodi's own language settings pick. The server resolves both from your Jellyfin profile, so the choice follows you to every client."
 msgstr "Kodi의 언어 설정이 고르는 트랙 대신, Jellyfin 계정이 요청하는 오디오와 자막 트랙으로 재생을 시작합니다. 서버가 Jellyfin 프로필을 바탕으로 둘 다 결정하므로, 어느 클라이언트에서나 같은 선택이 따라옵니다."
 
-# 30620-30621 — chapter images
 msgctxt "#30620"
 msgid "Chapter images from the server"
 msgstr "서버의 챕터 이미지"
@@ -1434,7 +1392,6 @@ msgctxt "#30621"
 msgid "Show Jellyfin's chapter images in Kodi's chapter list. Images are fetched on demand at playback start."
 msgstr "Kodi 챕터 목록에 Jellyfin의 챕터 이미지를 표시합니다. 이미지는 재생을 시작할 때 필요한 만큼 가져옵니다."
 
-# 30622-30636 — new-content notifications
 msgctxt "#30622"
 msgid "Notify about new content"
 msgstr "새 콘텐츠 알림"
@@ -1495,7 +1452,6 @@ msgctxt "#30636"
 msgid "%s albums added to library"
 msgstr "앨범 %s개가 라이브러리에 추가됨"
 
-# 30637-30638 — server splashscreen backdrop
 msgctxt "#30637"
 msgid "Use the server's splashscreen as the backdrop"
 msgstr "서버의 스플래시 화면을 배경으로 사용"
@@ -1504,7 +1460,6 @@ msgctxt "#30638"
 msgid "Show the Jellyfin server's splashscreen behind the addon instead of the bundled artwork. Refreshed when the service connects, at most once a day."
 msgstr "기본 제공 아트워크 대신 Jellyfin 서버의 스플래시 화면을 애드온 배경으로 표시합니다. 서비스가 연결될 때, 하루 한 번까지만 갱신됩니다."
 
-# 30650-30665 — Clean databases (the logged-out migration cleaner)
 msgctxt "#30650"
 msgid "Clean databases"
 msgstr "데이터베이스 정리"
@@ -1569,7 +1524,6 @@ msgctxt "#30665"
 msgid "Clean complete. Kodi will now restart."
 msgstr "정리가 끝났습니다. 이제 Kodi를 다시 시작합니다."
 
-# 30666-30667 — critic ratings
 msgctxt "#30666"
 msgid "Movies: prefer critic rating"
 msgstr "영화: 평론가 평점 우선"
@@ -1578,7 +1532,6 @@ msgctxt "#30667"
 msgid "Show your server's critic rating (Rotten Tomatoes) instead of the community rating. Percentages are rescaled so 78% becomes 7.8."
 msgstr "커뮤니티 평점 대신 서버의 평론가 평점(Rotten Tomatoes)을 표시합니다. 백분율은 다시 환산되어 78%는 7.8이 됩니다."
 
-# 30668-30673 — actor art pre-cache
 msgctxt "#30668"
 msgid "Pre-cache cast images when idle"
 msgstr "유휴 시간에 출연진 이미지 미리 캐시"
@@ -1602,7 +1555,6 @@ msgstr "출연진 이미지 캐시 중"
 msgctxt "#30673"
 msgid "Cached %d cast image(s)"
 msgstr "출연진 이미지 %d개를 캐시했습니다"
-
 
 msgctxt "#30700"
 msgid "Downloads"
@@ -1780,10 +1732,6 @@ msgctxt "#30743"
 msgid "Movies newly added to a synced library are downloaded automatically. A bulk import of more than a few movies at once is skipped, with a notification."
 msgstr "동기화하는 라이브러리에 새로 추가된 영화를 자동으로 다운로드합니다. 한 번에 여러 편이 대량으로 들어오면 알림과 함께 건너뜁니다."
 
-# 30744-30745, 30748-30750 — retired with downloadsAutoCleanup and the
-# three-way downloadsDeleteAfterPlay spinner. Kept, never reused: an id that
-# changes meaning silently mistranslates every language that already shipped
-# it.
 msgctxt "#30744"
 msgid "Remove watched automatic downloads"
 msgstr "시청한 자동 다운로드 제거"
@@ -1904,15 +1852,10 @@ msgctxt "#30773"
 msgid "How many tracks download at the same time. Tracks are small and mostly overhead, so this can sit well above the video figure."
 msgstr "트랙을 동시에 몇 개까지 다운로드할지. 트랙은 작고 대부분 오버헤드라, 비디오 값보다 훨씬 높게 잡아도 됩니다."
 
-# 30774 — retired with the Delete download confirmation. Kept, never reused,
-# for the reason given at #30744. #30714 stays live: the finished-watching
-# offer in service/player.py still asks.
 msgctxt "#30774"
 msgid "Delete %s download(s) of %s?"
 msgstr "다운로드 %s개를 삭제할까요? (%s)"
 
-# 30775-30776 — the other half of #30617: a text subtitle a transcode did not
-# attach is fetched onto the running playback, not burned in and not restarted
 msgctxt "#30775"
 msgid "downloaded from the server"
 msgstr "서버에서 다운로드함"
@@ -1921,9 +1864,6 @@ msgctxt "#30776"
 msgid "Downloading subtitle..."
 msgstr "자막을 다운로드하는 중..."
 
-# 30777-30797 — Jellyfin account settings: the server-side user preferences
-# that resolve every playback's default audio and subtitle track, edited from
-# the Account tab (plugin/userprefs.py)
 msgctxt "#30777"
 msgid "Jellyfin account settings"
 msgstr "Jellyfin 계정 설정"
@@ -2008,9 +1948,6 @@ msgctxt "#30797"
 msgid "Your Jellyfin account is not allowed to change these settings"
 msgstr "이 설정을 바꿀 권한이 Jellyfin 계정에 없습니다"
 
-# 30798-30803 — the bulk-import guard, one threshold per automatic arm. Over
-# the number the whole batch is skipped rather than trimmed: an arbitrary few
-# of hundreds is worse than asking.
 msgctxt "#30798"
 msgid "Skip movie imports larger than"
 msgstr "이보다 큰 영화 가져오기는 건너뛰기"
@@ -2035,21 +1972,10 @@ msgctxt "#30803"
 msgid "When a sync adds more new albums than this at once, none of them are downloaded. Counted in albums, not tracks."
 msgstr "한 번의 동기화로 이보다 많은 새 앨범이 추가되면 하나도 다운로드하지 않습니다. 트랙이 아니라 앨범 수로 셉니다."
 
-# 30810 — the aggregate refusal, before anything is queued. Distinct from
-# #30715, which the manager raises per item once a transfer is under way.
-#
-# Kept short deliberately. A Kodi notification fits about 33 characters and
-# *scrolls* the rest, so a longer line is read a window at a time — measured
-# live, "Not enough free space: 5.7 GB needed, 4.2 GB free" was caught
-# mid-scroll as "enough free space: 5.7 GB needed,", which says the opposite
-# of what it means. The warning glyph and the Kofin heading carry the rest.
 msgctxt "#30810"
 msgid "Needs %s, only %s free"
 msgstr "%s 필요, 여유 공간 %s"
 
-# 30804-30807 — the settings button that clears every download at once. The
-# confirmation states what is on disk rather than what was promised: a queued
-# row has fetched nothing yet, and a transcode usually lands under its source.
 msgctxt "#30804"
 msgid "Delete all downloads"
 msgstr "모든 다운로드 삭제"
@@ -2066,8 +1992,6 @@ msgctxt "#30807"
 msgid "There are no downloads to delete"
 msgstr "삭제할 다운로드가 없습니다"
 
-# 30808-30809 — the playback gate. It holds the queue, not a transfer in
-# flight: stopping mid-file would strand a .part for the length of a film.
 msgctxt "#30808"
 msgid "Pause downloads during playback"
 msgstr "재생 중 다운로드 일시 중지"
@@ -2076,10 +2000,6 @@ msgctxt "#30809"
 msgid "Do not start new downloads while something is playing, video or music. A file already downloading finishes; the rest wait until playback stops."
 msgstr "비디오든 음악이든 무언가 재생 중일 때는 새 다운로드를 시작하지 않습니다. 이미 받고 있던 파일은 마저 받고, 나머지는 재생이 끝날 때까지 기다립니다."
 
-# 30811-30814 — the stale sweep. Its help text has to carry the resume-point
-# exemption: an unfinished film sitting untouched for months is exactly what
-# a user expects an age-based rule to eat, and the promise that it will not
-# is the reason the setting is safe to leave on.
 msgctxt "#30811"
 msgid "Delete stale downloads"
 msgstr "오래된 다운로드 삭제"
@@ -2096,9 +2016,6 @@ msgctxt "#30814"
 msgid "How long a download may sit unplayed before it is removed. Playing it again starts the count over."
 msgstr "다운로드를 재생하지 않은 채 얼마나 두면 제거할지. 다시 재생하면 기간을 처음부터 셉니다."
 
-# 30815-30816 — the Clean databases downloads prompt. It has to say what
-# happens if you decline: the clean deletes kofin.db, and the download table
-# lives there, so files kept behind are files nothing will ever manage again.
 msgctxt "#30815"
 msgid "Also delete your %s downloaded file(s)? Cleaning removes Kofin's record of them, so any you keep are left on disk for you to manage yourself."
 msgstr "다운로드한 파일 %s개도 삭제할까요? 정리하면 Kofin이 가진 기록이 사라지므로, 남겨 둔 파일은 디스크에 그대로 남아 직접 관리해야 합니다."
@@ -2107,10 +2024,10 @@ msgctxt "#30816"
 msgid "Removing downloaded files…"
 msgstr "다운로드한 파일 제거 중…"
 
-# 30817 — the shortlist's first row. Not #30030's "All": that one labels a
-# browse node ("all movies"), and the languages that decline the word render
-# the two differently — French wants "Tout" there and "Tous" for a list of
-# people. #30080 quotes this label verbatim, which pocheck.py enforces.
 msgctxt "#30817"
 msgid "All"
 msgstr "전체"
+
+msgctxt "#30818"
+msgid "A-Z"
+msgstr "A-Z"

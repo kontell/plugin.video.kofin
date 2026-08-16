@@ -818,8 +818,6 @@ msgctxt "#30314"
 msgid "Artwork"
 msgstr ""
 
-
-
 msgctxt "#30318"
 msgid "Compress artwork"
 msgstr ""
@@ -1602,7 +1600,6 @@ msgctxt "#30673"
 msgid "Cached %d cast image(s)"
 msgstr ""
 
-
 msgctxt "#30700"
 msgid "Downloads"
 msgstr ""
@@ -2112,4 +2109,8 @@ msgstr ""
 # people. #30080 quotes this label verbatim, which pocheck.py enforces.
 msgctxt "#30817"
 msgid "All"
+msgstr ""
+
+msgctxt "#30818"
+msgid "A-Z"
 msgstr ""
