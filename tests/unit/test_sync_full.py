@@ -109,12 +109,14 @@ class RecordingLibrary:
 
     def __init__(self):
         self.refreshed = []
+        self.forced = []
 
     def stamp_watermark_if_empty(self):
         pass
 
-    def refresh_libraries(self, databases):
+    def refresh_libraries(self, databases, force_reload=False):
         self.refreshed.append(set(databases))
+        self.forced.append(force_reload)
 
 
 def run_start(fullsync, monkeypatch, update):
@@ -403,3 +405,24 @@ def test_a_single_library_is_left_to_the_end_of_sync_refresh(publisher, monkeypa
     publisher.process_libraries(["mov"], [])
 
     assert publisher.library.refreshed == []
+
+
+def test_the_end_of_sync_refresh_forces_the_reload(fullsync, monkeypatch):
+    """The probes cannot be trusted by then: Library.HasContent can flip true
+    mid-sync, so the end-of-sync refresh asks for the rebuild outright. Live on
+    a Pi 3B, a movies reload rebuilt Home while music was empty and the music
+    probe had already self-disarmed by the time music finished."""
+    run_start(fullsync, monkeypatch, update=False)
+
+    assert fullsync.library.forced == [True]
+
+
+def test_a_mid_sync_publish_does_not_force_the_reload(publisher, monkeypatch):
+    """Only the end of the sync knows everything has landed. A publish mid-run
+    stays probe-gated, so it reveals a kind that is genuinely hidden and does
+    not rebuild the skin for one that is already on screen."""
+    media_types(monkeypatch, publisher, {"mov": "movies", "tv": "tvshows"})
+
+    publisher.process_libraries(["mov", "tv"], [])
+
+    assert publisher.library.forced == [False]

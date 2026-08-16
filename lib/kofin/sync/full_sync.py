@@ -329,7 +329,10 @@ class FullSync(object):
             if synced_music:
                 databases.add("music")
 
-            self.library.refresh_libraries(databases)
+            # force_reload: the end of a full sync is the one moment kofin
+            # knows every selected library has landed, and the first-content
+            # probes cannot be trusted to notice — see refresh_libraries.
+            self.library.refresh_libraries(databases, force_reload=True)
 
         # Music playlists are files, not MyMusic rows — refresh after a
         # successful library pass when the setting is on. Soft-fail so a

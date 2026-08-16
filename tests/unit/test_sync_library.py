@@ -2465,3 +2465,47 @@ def test_closing_the_progress_bar_twice_is_harmless():
     manager.close_progress()
 
     assert bar.closed == 1
+
+
+# -- force_reload: the end of a full sync (measured on a Pi 3B) ---------------
+
+
+def test_force_reload_rebuilds_even_when_the_probes_say_no(monkeypatch, tmp_path):
+    """The regression this exists for. Kodi already believes it has music --
+    Library.HasContent is a tri-state cache that re-queries whenever a scan
+    resets it, and the running skin re-evaluates constantly, so it flips true
+    part-way through the music pass. The probe then self-disarms, and on a
+    sync that published movies early the music row was left blank with 20,802
+    songs underneath it. The end of a full sync asks outright instead."""
+    seed_views(("lib2", "Tunes", "music"))
+    seed_whitelist("lib2")
+
+    calls = []
+    monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(
+        "xbmc.getCondVisibility", lambda cond: cond == "Library.HasContent(Music)"
+    )
+    _fake_music_db(tmp_path, rows=True)
+
+    manager, _api = make_library()
+    manager.refresh_libraries({"music"}, force_reload=True)
+
+    assert "ReloadSkin()" in calls
+
+
+def test_a_cycle_revealing_both_databases_reloads_once(monkeypatch, tmp_path):
+    """A reload is a whole-window teardown; two back to back read as a
+    flicker. The flags accumulate so video and music share one rebuild."""
+    seed_views(("lib2", "Tunes", "music"))
+    seed_whitelist("lib2")
+
+    calls = []
+    monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr("xbmc.getCondVisibility", lambda cond: False)
+    _fake_video_db(monkeypatch, tmp_path, rows=True, populated=("movie",))
+    _fake_music_db(tmp_path, rows=True)
+
+    manager, _api = make_library()
+    manager.refresh_libraries({"video", "music"}, force_reload=True)
+
+    assert calls.count("ReloadSkin()") == 1

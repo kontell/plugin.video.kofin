@@ -373,3 +373,35 @@ def test_container_refresh_scoped_to_moved_kind():
         widgetstate.container_wants_refresh("plugin://plugin.video.kofin/", {"music"})
         is True
     )
+
+
+@pytest.mark.parametrize("version", VIDEO_LEGS)
+def test_force_reload_does_not_bypass_the_gate(tmp_path, version, monkeypatch):
+    """The end of a full sync forces the *reload*, not a refresh for nothing.
+
+    A resumed sync that changed nothing must still do nothing: that is the
+    case where an unconditional rebuild would tear down the window of a user
+    who is browsing, to show them exactly what they were already looking at.
+    """
+    from kofin.sync.library import Library
+    from tests.unit.test_sync_library import FakeApi, FakePlayer
+
+    calls = []
+    monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(
+        "xbmc.getCondVisibility", lambda cond: cond.startswith("Library.HasContent")
+    )
+
+    path = make_video_db(tmp_path, version)
+    seed_movie(path, 1, "Alpha", "2026-01-01 10:00:00")
+    seed_reference("jf1", "etag1")
+
+    api = FakeApi()
+    manager = Library(api, FakePlayer(), lambda: api)
+
+    manager.refresh_libraries({"video"}, force_reload=True)
+    assert calls == ["UpdateLibrary(video)", "ReloadSkin()"]
+
+    calls.clear()
+    manager.refresh_libraries({"video"}, force_reload=True)  # nothing moved
+    assert calls == []
