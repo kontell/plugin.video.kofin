@@ -1,3 +1,10 @@
+v0.18.0
+- Search your Jellyfin server from the add-on: films, shows, episodes, albums, songs and people, with a person's results leading to everything they appear in. The search term is part of the path, so a skin's own search box can point straight at it
+- More ways into a library: Years, Tags and A-Z on films and shows, Unwatched on shows, Album artists, Last played and Top 100 songs on music, Genres and A-Z on music videos. A tag list too long to read is grouped by initial
+- Playlists show a playlist icon instead of a blank status square
+- A library node or widget built on a kofin path no longer comes up empty when the path ends in a slash, which is how Kodi writes them
+- Syncing a music library no longer hides Kodi's own Genres, Artists, Albums and Songs categories
+
 v0.17.0
 - Skins can put SyncPlay and Who's watching? on the home screen: the add-on now publishes whether those root entries are on offer, so the buttons appear and disappear with the same settings that hide them in the add-on
 - The add-on is translated into 26 languages
