@@ -4,6 +4,9 @@ v0.18.0
 - Playlists show a playlist icon instead of a blank status square
 - A library node or widget built on a kofin path no longer comes up empty when the path ends in a slash, which is how Kodi writes them
 - Syncing a music library no longer hides Kodi's own Genres, Artists, Albums and Songs categories
+- Kodi 22 beta builds sync again: the video database version they ship changed, and the add-on refused to write anything until it had been checked against a real one
+- Each library appears on the home screen as it finishes rather than when the whole sync does, so films show up while the shows and music are still going. On a Raspberry Pi that is minutes instead of the best part of an hour
+- A first sync no longer leaves a library's home screen row blank when it finished after another one had already been shown
 
 v0.17.0
 - Skins can put SyncPlay and Who's watching? on the home screen: the add-on now publishes whether those root entries are on offer, so the buttons appear and disappear with the same settings that hide them in the add-on
