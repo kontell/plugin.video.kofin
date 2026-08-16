@@ -2027,3 +2027,7 @@ msgstr "Letöltött fájlok eltávolítása…"
 msgctxt "#30817"
 msgid "All"
 msgstr "Összes"
+
+msgctxt "#30818"
+msgid "A-Z"
+msgstr "A-Z"

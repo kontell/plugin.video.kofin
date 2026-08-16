@@ -861,3 +861,136 @@ def test_search_failure_fails_the_fetch(monkeypatch, directory):
     browse.search(Request("plugin://x", 1, {"type": "movies", "query": "dune"}))
 
     assert directory["succeeded"] is False
+
+
+# --- browse depth: alphabet, years, tags, play history ----------------------
+
+
+def _folder_of(path):
+    """The folder key a listing row points at."""
+    import urllib.parse
+
+    return urllib.parse.parse_qs(urllib.parse.urlparse(path).query)["folder"][0]
+
+
+def test_node_query_alphabet():
+    query = node_query("movies", "alpha-D", "v1")
+    assert query["NameStartsWith"] == "D"
+    assert query["IncludeItemTypes"] == "Movie"
+    assert "NameLessThan" not in query
+
+
+def test_node_query_alphabet_hash_bucket():
+    """ "#" has no NameStartsWith character; everything before A is what it
+    means, and NameLessThan is what Jellyfin answers that with."""
+    query = node_query("movies", "alpha-#", "v1")
+    assert query["NameLessThan"] == "A"
+    assert "NameStartsWith" not in query
+
+
+def test_node_query_alphabet_over_music_lists_artists():
+    """The music tree is albums, but an alphabet over music is how you find a
+    performer -- so this leg switches the item type as well."""
+    query = node_query("music", "alpha-B", "v1")
+    assert query["IncludeItemTypes"] == "MusicArtist"
+    assert browse._node_content("music", "alpha-B") == "artists"
+
+
+def test_node_query_year_and_tag():
+    assert node_query("movies", "year-1984", "v1")["Years"] == "1984"
+    assert node_query("movies", "tag-heist", "v1")["Tags"] == "heist"
+
+
+def test_node_query_play_history_is_songs():
+    """Filters=IsPlayed against MusicAlbum returns nothing, so both history
+    nodes list songs (verified live: 7,176 played of 20,802)."""
+    for node, sort in (("lastplayed", "DatePlayed"), ("topsongs", "PlayCount")):
+        query = node_query("music", node, "v1")
+        assert query["IncludeItemTypes"] == "Audio", node
+        assert query["Filters"] == "IsPlayed", node
+        assert query["SortBy"] == sort, node
+        assert query["SortOrder"] == "Descending", node
+        assert query["Limit"] == browse.PLAY_HISTORY_LIMIT, node
+        assert browse._node_content("music", node) == "songs", node
+
+
+def test_node_label_picks_the_right_string_table(monkeypatch):
+    """NODES mixes the addon's ids with Kodi's own. Asking the addon for a core
+    id returns an empty string, which renders as a nameless row."""
+    monkeypatch.setattr(browse.settings, "localized", lambda i: "addon-%d" % i)
+    import xbmc
+
+    monkeypatch.setattr(xbmc, "getLocalizedString", lambda i: "core-%d" % i)
+
+    assert browse.node_label(30030) == "addon-30030"  # All
+    assert browse.node_label(652) == "core-652"  # Years
+    assert browse.node_label(20459) == "core-20459"  # Tags
+    assert browse.node_label(38043) == "core-38043"  # Album artists
+
+
+def test_alphabet_menu_asks_the_server_nothing(monkeypatch, directory):
+    browse._alpha_menu(Request("plugin://x", 1, {}), "movies", "v1")
+
+    # Kodistubs' ListItem forgets its label, so the paths are the evidence.
+    keys = [_folder_of(path) for path, _li, _f in directory["entries"]]
+    assert keys[0] == "alpha-#"
+    assert keys[1:] == ["alpha-%s" % c for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
+    assert all(folder for _p, _li, folder in directory["entries"])
+
+
+class FiltersApi:
+    server = "http://server:8096"
+
+    def __init__(self, years=None, tags=None):
+        self.payload = {"Years": years or [], "Tags": tags or []}
+
+    def filters(self, parent_id, item_type=""):
+        return self.payload
+
+
+def test_years_menu_is_newest_first(monkeypatch, directory):
+    api = FiltersApi(years=[1970, 2020, 1999])
+
+    browse._filter_menu(Request("plugin://x", 1, {}), api, "movies", "v1", "years")
+
+    assert [_folder_of(p) for p, _li, _f in directory["entries"]] == [
+        "year-2020",
+        "year-1999",
+        "year-1970",
+    ]
+
+
+def test_a_short_tag_list_stays_flat(monkeypatch, directory):
+    api = FiltersApi(tags=["heist", "noir"])
+
+    browse._filter_menu(Request("plugin://x", 1, {}), api, "movies", "v1", "tags")
+
+    assert [_folder_of(p) for p, _li, _f in directory["entries"]] == [
+        "tag-heist",
+        "tag-noir",
+    ]
+
+
+def test_a_long_tag_list_becomes_initials(monkeypatch, directory):
+    """Measured on a real library: 7,794 tags, mostly scraped keywords. A flat
+    menu of that is not a menu, and it costs a ListItem per row."""
+    tags = ["heist", "noir"] + ["tag%03d" % n for n in range(browse.TAG_MENU_MAX)]
+    api = FiltersApi(tags=tags)
+
+    browse._filter_menu(Request("plugin://x", 1, {}), api, "movies", "v1", "tags")
+
+    # Only the initials that have tags behind them.
+    assert [_folder_of(p) for p, _li, _f in directory["entries"]] == [
+        "tags-H",
+        "tags-N",
+        "tags-T",
+    ]
+
+
+def test_playlists_get_their_own_glyph_and_empty_content():
+    """A playlist is a place, not a piece of media. With a media content type
+    the skin draws watched-status overlays and ignores setArt(icon), which is
+    what a playlist listing looked like -- thirteen identical squares."""
+    assert _guess_content([{"Type": "Playlist"}, {"Type": "Playlist"}]) == ""
+    # A mixed listing still describes its media.
+    assert _guess_content([{"Type": "Playlist"}, {"Type": "Movie"}]) == "movies"

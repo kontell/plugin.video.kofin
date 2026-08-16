@@ -2027,3 +2027,7 @@ msgstr "Tar bort hämtade filer…"
 msgctxt "#30817"
 msgid "All"
 msgstr "Alla"
+
+msgctxt "#30818"
+msgid "A-Z"
+msgstr "A-Z"

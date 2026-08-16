@@ -2027,3 +2027,7 @@ msgstr "다운로드한 파일 제거 중…"
 msgctxt "#30817"
 msgid "All"
 msgstr "전체"
+
+msgctxt "#30818"
+msgid "A-Z"
+msgstr "A-Z"

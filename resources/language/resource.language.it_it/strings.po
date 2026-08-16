@@ -2027,3 +2027,7 @@ msgstr "Rimozione dei file scaricati…"
 msgctxt "#30817"
 msgid "All"
 msgstr "Tutti"
+
+msgctxt "#30818"
+msgid "A-Z"
+msgstr "A-Z"

@@ -2110,3 +2110,7 @@ msgstr ""
 msgctxt "#30817"
 msgid "All"
 msgstr ""
+
+msgctxt "#30818"
+msgid "A-Z"
+msgstr ""

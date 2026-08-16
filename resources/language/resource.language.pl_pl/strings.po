@@ -2027,3 +2027,7 @@ msgstr "Usuwanie pobranych plików…"
 msgctxt "#30817"
 msgid "All"
 msgstr "Wszyscy"
+
+msgctxt "#30818"
+msgid "A-Z"
+msgstr "A-Z"

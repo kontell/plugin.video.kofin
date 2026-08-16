@@ -2027,3 +2027,7 @@ msgstr "Suppression des téléchargements…"
 msgctxt "#30817"
 msgid "All"
 msgstr "Tous"
+
+msgctxt "#30818"
+msgid "A-Z"
+msgstr "A-Z"

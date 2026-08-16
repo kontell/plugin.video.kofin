@@ -2027,3 +2027,7 @@ msgstr "Odstraňování stažených souborů…"
 msgctxt "#30817"
 msgid "All"
 msgstr "Všichni"
+
+msgctxt "#30818"
+msgid "A-Z"
+msgstr "A-Z"

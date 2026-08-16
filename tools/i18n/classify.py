@@ -61,6 +61,10 @@ PASSTHROUGH = {
     # Jellyfin feature name, used as a menu heading and a settings group label
     "#30550",  # SyncPlay
     "#30560",  # SyncPlay
+    # The alphabet node. Its rows are the Latin letters A-Z in every language,
+    # because that is what Jellyfin's NameStartsWith takes -- so a translated
+    # label would name a range the menu does not offer.
+    "#30818",  # A-Z
 }
 
 

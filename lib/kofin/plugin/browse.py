@@ -41,6 +41,13 @@ BROWSE_FIELDS = (
 BROWSE_FIELDS_STREAMS = BROWSE_FIELDS + ",MediaStreams"
 
 # Node menus per collection type: (folder key, label string id).
+#
+# A label id under 30000 or over 30999 is Kodi's own — :func:`node_label`
+# resolves it through xbmc rather than the addon, so a node whose wording Kodi
+# already ships costs nothing in the 27 generated locales. Years, Tags, Album
+# artists, Last played and Top 100 songs are all lifted from Kodi's own library
+# nodes (system/library/{video,music}), which is also where their icons come
+# from.
 NODES: Dict[str, List[Tuple[str, int]]] = {
     "movies": [
         ("all", 30030),
@@ -50,6 +57,9 @@ NODES: Dict[str, List[Tuple[str, int]]] = {
         ("favorites", 30035),
         ("sets", 30038),
         ("genres", 30036),
+        ("years", 652),
+        ("tags", 20459),
+        ("alpha", 30818),
         ("random", 30037),
     ],
     "tvshows": [
@@ -57,25 +67,50 @@ NODES: Dict[str, List[Tuple[str, int]]] = {
         ("recentepisodes", 30031),
         ("nextup", 30032),
         ("inprogressepisodes", 30033),
+        ("unwatched", 30034),
         ("favorites", 30035),
         ("genres", 30036),
+        ("years", 652),
+        ("tags", 20459),
+        ("alpha", 30818),
         ("random", 30037),
     ],
     "music": [
         ("artists", 30039),
+        ("albumartists", 38043),
         ("albums", 30040),
         ("recentalbums", 30031),
+        ("lastplayed", 568),
+        ("topsongs", 10504),
         ("favoritealbums", 30035),
         ("genres", 30036),
+        ("alpha", 30818),
     ],
     "musicvideos": [
         ("all", 30030),
         ("recent", 30031),
         ("unwatched", 30034),
         ("favorites", 30035),
+        ("genres", 30036),
+        ("alpha", 30818),
         ("random", 30037),
     ],
 }
+
+# The alphabet menu's rows. "#" is everything sorting before A, which Jellyfin
+# answers with NameLessThan rather than a NameStartsWith it has no character
+# for (verified: 26 films on this server, against 99 for D).
+ALPHABET = ("#",) + tuple("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+# Play history is song-level. Filters=IsPlayed against MusicAlbum returns zero,
+# and sorting albums by DatePlayed with no filter puts unplayed ones first, so
+# both history nodes list songs (verified against a 20,802-song library: 7,176
+# played).
+PLAY_HISTORY_LIMIT = 100
+
+# Past this many tags the menu shows initials first. Under it, a flat list is
+# friendlier than a letter you have to guess.
+TAG_MENU_MAX = 200
 
 # What search offers, as {type key: (Kodi core string id, IncludeItemTypes,
 # Kodi content type)}. Core string ids throughout — a feature whose every
@@ -148,7 +183,20 @@ NODE_ICONS: Dict[str, Any] = {
     "sets": "DefaultSets.png",
     "genres": "DefaultGenre.png",
     "artists": "DefaultMusicArtists.png",
+    "albumartists": "DefaultMusicArtists.png",
     "albums": "DefaultMusicAlbums.png",
+    # Kodi's own nodes for the same things: video/movies/years.xml says
+    # DefaultYear, music/years.xml says DefaultMusicYears, and both tags.xml
+    # files say DefaultTags. Verified present in the skin's media folder.
+    "years": {
+        "movies": "DefaultYear.png",
+        "tvshows": "DefaultYear.png",
+        "musicvideos": "DefaultYear.png",
+        "music": "DefaultMusicYears.png",
+    },
+    "tags": "DefaultTags.png",
+    "lastplayed": "DefaultMusicRecentlyPlayed.png",
+    "topsongs": "DefaultMusicTop100Songs.png",
 }
 
 
@@ -186,10 +234,31 @@ def is_media_row(item: JsonDict) -> bool:
 
 
 def node_icon(media: str, node: str = "") -> str:
+    if node == "alpha":
+        # The one structural row with no Kodi counterpart to substitute: no
+        # skin ships an alphabet glyph. Material Symbols "sort_by_alpha"
+        # (Apache-2.0), shipped white-on-transparent like the addon's others.
+        return _addon_media("alphabet.png") or "DefaultMusicArtists.png"
     icon = NODE_ICONS.get(node)
     if isinstance(icon, dict):
         icon = icon.get(media)
     return icon or MEDIA_ICONS.get(media, "DefaultVideo.png")
+
+
+def node_label(label_id: int) -> str:
+    """A node's label, from whichever string table owns the id.
+
+    The addon's own ids are 30000-30999; everything else in NODES is a Kodi
+    core id, lifted from the shipped node that means the same thing. Asking
+    the addon for a core id returns an empty string, which renders as a
+    nameless row.
+    """
+    if 30000 <= label_id <= 30999:
+        return settings.localized(label_id)
+
+    import xbmc
+
+    return xbmc.getLocalizedString(label_id)
 
 
 def structural_art(icon: str) -> Dict[str, str]:
@@ -360,6 +429,34 @@ def node_query(media: str, node: str, view_id: str) -> Optional[JsonDict]:
     elif node.startswith("genre-"):
         base["GenreIds"] = node.split("-", 1)[1]
         base["IncludeItemTypes"] = types
+    elif node.startswith("alpha-"):
+        letter = node.split("-", 1)[1]
+        base["IncludeItemTypes"] = "MusicArtist" if media == "music" else types
+        # "#" is everything before A, which has no NameStartsWith character.
+        if letter == "#":
+            base["NameLessThan"] = "A"
+        else:
+            base["NameStartsWith"] = letter
+    elif node.startswith("year-"):
+        base.update(IncludeItemTypes=types, Years=node.split("-", 1)[1])
+    elif node.startswith("tag-"):
+        base.update(IncludeItemTypes=types, Tags=node.split("-", 1)[1])
+    elif node == "lastplayed":
+        base.update(
+            IncludeItemTypes="Audio",
+            Filters="IsPlayed",
+            SortBy="DatePlayed",
+            SortOrder="Descending",
+            Limit=PLAY_HISTORY_LIMIT,
+        )
+    elif node == "topsongs":
+        base.update(
+            IncludeItemTypes="Audio",
+            Filters="IsPlayed",
+            SortBy="PlayCount",
+            SortOrder="Descending",
+            Limit=PLAY_HISTORY_LIMIT,
+        )
     else:
         return None
     # Boundedness decides the field list: a Limit is what makes the payload
@@ -561,6 +658,15 @@ def browse(request: Request) -> None:
         if not folder and media in NODES:
             _node_menu(request, api, media, view_id)
             return
+        if folder == "alpha":
+            _alpha_menu(request, media, view_id)
+            return
+        if folder in ("years", "tags"):
+            _filter_menu(request, api, media, view_id, folder)
+            return
+        if folder.startswith("tags-"):
+            _tag_menu(request, api, media, view_id, folder.split("-", 1)[1])
+            return
         if folder == "extras" and media == "tvshows":
             _extras_node(request, api, view_id)
             return
@@ -754,13 +860,134 @@ def extras(request: Request) -> None:
     xbmcplugin.endOfDirectory(request.handle)
 
 
+def _alpha_menu(request: Request, media: str, view_id: str) -> None:
+    """The alphabet. Letters are letters, so no server call and no strings."""
+    entries = []
+    for letter in ALPHABET:
+        li = xbmcgui.ListItem(letter)
+        li.setArt(structural_art(node_icon(media, "alpha")))
+        path = listitems.plugin_url(
+            {
+                "mode": "browse",
+                "view": view_id,
+                "type": media,
+                "folder": "alpha-%s" % letter,
+            }
+        )
+        entries.append((path, li, True))
+    xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
+    xbmcplugin.setContent(request.handle, "")
+    xbmcplugin.endOfDirectory(request.handle)
+
+
+def _tag_letters(request: Request, media: str, view_id: str, values: List[Any]) -> None:
+    """The initials a library's tags actually use, for a tag list too long to
+    show flat. Only letters with tags behind them, so no empty rows."""
+    letters = sorted({str(v)[:1].upper() or "#" for v in values})
+    entries = []
+    for letter in letters:
+        li = xbmcgui.ListItem(letter)
+        li.setArt(structural_art(node_icon(media, "tags")))
+        path = listitems.plugin_url(
+            {
+                "mode": "browse",
+                "view": view_id,
+                "type": media,
+                "folder": "tags-%s" % letter,
+            }
+        )
+        entries.append((path, li, True))
+    xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
+    xbmcplugin.setContent(request.handle, "")
+    xbmcplugin.endOfDirectory(request.handle)
+
+
+def _tag_menu(
+    request: Request, api: Api, media: str, view_id: str, letter: str
+) -> None:
+    """One letter's worth of tags."""
+    values = api.filters(view_id, _search_item_type(media)).get("Tags") or []
+    wanted = sorted(v for v in values if str(v)[:1].upper() == letter.upper())
+    entries = []
+    for value in wanted:
+        li = xbmcgui.ListItem(str(value))
+        li.setArt(structural_art(node_icon(media, "tags")))
+        path = listitems.plugin_url(
+            {
+                "mode": "browse",
+                "view": view_id,
+                "type": media,
+                "folder": "tag-%s" % value,
+            }
+        )
+        entries.append((path, li, True))
+    xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
+    xbmcplugin.setContent(request.handle, "")
+    xbmcplugin.endOfDirectory(request.handle)
+
+
+def _filter_menu(
+    request: Request, api: Api, media: str, view_id: str, kind: str
+) -> None:
+    """Years or tags for one library, from the server's own filter list.
+
+    One call answers both — /Items/Filters returns Years, Tags, Genres and
+    OfficialRatings together — so the menu is what the library actually holds
+    rather than a fixed range.
+    """
+    values = (
+        api.filters(view_id, _search_item_type(media)).get(
+            "Years" if kind == "years" else "Tags"
+        )
+        or []
+    )
+    if kind == "years":
+        # Newest first: a year list that opens at 1918 is a list nobody wants
+        # to page to the end of.
+        values = sorted(values, reverse=True)
+    elif len(values) > TAG_MENU_MAX:
+        # A tag list is only as disciplined as the server's metadata agent.
+        # Measured on a real library: 7,794 tags, most of them scraped keywords
+        # ("12th century bc"). A flat menu of that is not a menu, and it costs
+        # a ListItem per row in the plugin process — so past the threshold the
+        # letters come first and the tags sit under them.
+        _tag_letters(request, media, view_id, values)
+        return
+    entries = []
+    for value in values:
+        li = xbmcgui.ListItem(str(value))
+        li.setArt(structural_art(node_icon(media, kind)))
+        path = listitems.plugin_url(
+            {
+                "mode": "browse",
+                "view": view_id,
+                "type": media,
+                "folder": "%s-%s" % ("year" if kind == "years" else "tag", value),
+            }
+        )
+        entries.append((path, li, True))
+    xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
+    xbmcplugin.setContent(request.handle, "")
+    xbmcplugin.endOfDirectory(request.handle)
+
+
+def _search_item_type(media: str) -> str:
+    """The Jellyfin item type one collection type is made of."""
+    return {
+        "movies": "Movie",
+        "tvshows": "Series",
+        "music": "MusicAlbum",
+        "musicvideos": "MusicVideo",
+    }.get(media, "")
+
+
 def _node_menu(request: Request, api: Api, media: str, view_id: str) -> None:
     nodes = list(NODES[media])
     if media == "tvshows" and _view_has_specials(api, view_id):
         nodes.append(("extras", 30500))
     entries = []
     for key, label_id in nodes:
-        li = xbmcgui.ListItem(settings.localized(label_id))
+        li = xbmcgui.ListItem(node_label(label_id))
         li.setArt(structural_art(node_icon(media, key)))
         path = listitems.plugin_url(
             {"mode": "browse", "view": view_id, "type": media, "folder": key}
@@ -862,6 +1089,9 @@ def _list_items(
     if folder == "artists":
         result = api.artists(view_id)
         return result.get("Items", []), "artists"
+    if folder == "albumartists":
+        result = api.album_artists(view_id)
+        return result.get("Items", []), "artists"
 
     query = node_query(media, folder, view_id)
     if query is not None:
@@ -937,6 +1167,29 @@ def _add_items(
             entries.append((path, li, True))
             continue
 
+        if item_type == "Playlist":
+            # A playlist is a place, not a piece of media, so it gets the same
+            # treatment as a library row on the root: the stock glyph on icon
+            # *and* thumb for the list, the server's own art kept on poster for
+            # the focus pane. Without it the row falls through to Kodi's
+            # watched-status square, which is what a playlist listing looked
+            # like — thirteen identical dots (Contuary binds the list glyph to
+            # ListItem.Icon, which prefers thumb; see structural_art).
+            art = listitems.art_for(item, api.server)
+            primary = art.get("thumb") or art.get("poster")
+            icon = (
+                "DefaultMusicPlaylists.png"
+                if item.get("MediaType") == "Audio"
+                else "DefaultVideoPlaylists.png"
+            )
+            art["icon"] = icon
+            art["thumb"] = icon
+            if primary:
+                art["poster"] = primary
+            li.setArt(with_backdrop(art))
+            entries.append((listitems.path_for(item), li, True))
+            continue
+
         if item_type == "Photo":
             tags = item.get("ImageTags") or {}
             path = api.image_url(item.get("Id", ""), "Primary", tags.get("Primary", ""))
@@ -968,8 +1221,14 @@ def _node_content(media: str, node: str) -> str:
         return "episodes"
     if node in ("albums", "recentalbums", "favoritealbums"):
         return "albums"
+    if node in ("lastplayed", "topsongs"):
+        return "songs"
     if node == "sets":
         return "movies"
+    if node.startswith("alpha-") and media == "music":
+        # An alphabet leg over music lists artists, not the albums the rest of
+        # the music tree is made of (node_query switches the item type too).
+        return "artists"
     return CONTENT_TYPES.get(media, "videos")
 
 
@@ -995,4 +1254,11 @@ def _guess_content(items: List[JsonDict]) -> str:
         }.get(item.get("Type", ""))
         if content:
             return content
+    # Playlists are structural rows, and empty content is what lets their
+    # glyph through: with a media content type the skin draws watched-status
+    # overlays instead of setArt(icon) (structural_art says the same for the
+    # node menus). Checked after the loop so a listing that merely *holds* a
+    # playlist beside real media still describes the media.
+    if items and all(item.get("Type") == "Playlist" for item in items):
+        return ""
     return "videos"

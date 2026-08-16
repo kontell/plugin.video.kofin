@@ -2027,3 +2027,7 @@ msgstr "A remover ficheiros transferidos…"
 msgctxt "#30817"
 msgid "All"
 msgstr "Todos"
+
+msgctxt "#30818"
+msgid "A-Z"
+msgstr "A-Z"

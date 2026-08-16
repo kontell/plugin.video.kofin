@@ -2027,3 +2027,7 @@ msgstr "S'estan eliminant els fitxers baixats…"
 msgctxt "#30817"
 msgid "All"
 msgstr "Tots"
+
+msgctxt "#30818"
+msgid "A-Z"
+msgstr "A-Z"

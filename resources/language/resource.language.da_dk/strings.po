@@ -2027,3 +2027,7 @@ msgstr "Fjerner hentede filer…"
 msgctxt "#30817"
 msgid "All"
 msgstr "Alle"
+
+msgctxt "#30818"
+msgid "A-Z"
+msgstr "A-Z"
