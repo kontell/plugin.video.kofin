@@ -16,9 +16,6 @@ msgstr ""
 "Language: zh_CN\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-# Add-on browser metadata. These must stay in step with the en_GB <summary> and
-# <description> in addon.xml, which remain the fallback for untranslated locales.
-
 msgctxt "Addon Summary"
 msgid "Jellyfin client for seamless Kodi integration"
 msgstr "无缝集成 Kodi 的 Jellyfin 客户端"
@@ -26,8 +23,6 @@ msgstr "无缝集成 Kodi 的 Jellyfin 客户端"
 msgctxt "Addon Description"
 msgid "Play movies, shows & music from a Jellyfin server."
 msgstr "播放来自 Jellyfin 服务器的电影、电视剧和音乐。"
-
-# 30000-30049 — general / dialogs
 
 msgctxt "#30010"
 msgid "Play with transcoding"
@@ -100,8 +95,6 @@ msgstr "未登录"
 msgctxt "#30027"
 msgid "Log in to %s"
 msgstr "登录到 %s"
-
-# 30050-30099 — Account tab (30066-30067 and 30071-30080: Advanced tab)
 
 msgctxt "#30050"
 msgid "Account"
@@ -227,8 +220,6 @@ msgctxt "#30080"
 msgid "Choose which server users the addon's Who's watching? entry offers. \"All\" offers everyone. With nothing selected the entry is hidden and anyone already on the session is removed."
 msgstr "选择插件的“谁在看？”条目提供哪些服务器用户。选择\"全部\"则提供所有用户。不选任何人时该条目会隐藏，已加入会话的用户也会被移除。"
 
-# 30030-30049 — browse nodes
-
 msgctxt "#30030"
 msgid "All"
 msgstr "全部"
@@ -276,8 +267,6 @@ msgstr "专辑"
 msgctxt "#30049"
 msgid "Continue watching"
 msgstr "继续观看"
-
-# 30100-30203 — Transcoding tab (30150+ are option labels)
 
 msgctxt "#30100"
 msgid "Transcoding"
@@ -687,8 +676,6 @@ msgctxt "#30048"
 msgid "Who can be added to the session"
 msgstr "可以加入会话的用户"
 
-# 30250-30299 — Library tab
-
 msgctxt "#30250"
 msgid "Library"
 msgstr "媒体库"
@@ -773,8 +760,6 @@ msgctxt "#30270"
 msgid "Update which libraries?"
 msgstr "更新哪些媒体库？"
 
-# 30300-30349 — Sync tab
-
 msgctxt "#30300"
 msgid "Sync"
 msgstr "同步"
@@ -819,8 +804,6 @@ msgctxt "#30314"
 msgid "Artwork"
 msgstr "艺术图"
 
-
-
 msgctxt "#30318"
 msgid "Compress artwork"
 msgstr "压缩艺术图"
@@ -853,9 +836,6 @@ msgctxt "#30325"
 msgid "2160p"
 msgstr "2160p"
 
-# 30326/30327 keep their sync-block ids: the setting moved to the Advanced
-# tab, and renumbering a shipped string only breaks translations.
-
 msgctxt "#30326"
 msgid "Notify on server connection changes"
 msgstr "服务器连接变化时通知"
@@ -863,8 +843,6 @@ msgstr "服务器连接变化时通知"
 msgctxt "#30327"
 msgid "Show a notification when the server connects, disconnects or restarts."
 msgstr "服务器连接、断开或重启时显示通知。"
-
-# 30350-30369 — library node labels
 
 msgctxt "#30350"
 msgid "Recently added"
@@ -917,8 +895,6 @@ msgstr "收藏"
 msgctxt "#30362"
 msgid "First letter"
 msgstr "首字母"
-
-# 30400-30429 — sync runtime messages
 
 msgctxt "#30400"
 msgid "Gathering:"
@@ -999,8 +975,6 @@ msgstr "媒体库同步已关闭：%s"
 msgctxt "#30414"
 msgid "advancedsettings.xml enables cleanonupdate — incompatible with library sync"
 msgstr "advancedsettings.xml 启用了 cleanonupdate — 与媒体库同步不兼容"
-
-# 30450-30499 — Playback tab: media segments + Play Next
 
 msgctxt "#30450"
 msgid "Playback"
@@ -1154,8 +1128,6 @@ msgctxt "#30489"
 msgid "Up next: %s"
 msgstr "接下来：%s"
 
-# 30500-30549 — extras
-
 msgctxt "#30500"
 msgid "Extras"
 msgstr "花絮"
@@ -1184,9 +1156,6 @@ msgctxt "#30507"
 msgid "Server request failed"
 msgstr "服务器请求失败"
 
-# 30508/30509 deliberately name the server: Kodi contributes its own
-# "Mark as watched" (16103/16104) to the same context menu.
-
 msgctxt "#30508"
 msgid "Mark as watched on Jellyfin"
 msgstr "在 Jellyfin 上标记为已观看"
@@ -1194,9 +1163,6 @@ msgstr "在 Jellyfin 上标记为已观看"
 msgctxt "#30509"
 msgid "Mark as unwatched on Jellyfin"
 msgstr "在 Jellyfin 上标记为未观看"
-
-# 30550-30599 — SyncPlay (settings group 30550-30558, menu/toasts 30560+;
-# fork ids 33262-33302 remapped)
 
 msgctxt "#30550"
 msgid "SyncPlay"
@@ -1338,8 +1304,6 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr "正在等待群组…"
 
-# 30600-30619 — phase 5: KofinSyncQueue tier + retention + progress
-
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
 msgstr "KofinSyncQueue 配套插件（快速通道）"
@@ -1356,7 +1320,6 @@ msgctxt "#30603"
 msgid "Comparing with the server"
 msgstr "正在与服务器比对"
 
-# 30604-30605 — maximum-resolution steps missing from the original port
 msgctxt "#30604"
 msgid "480p"
 msgstr "480p"
@@ -1365,7 +1328,6 @@ msgctxt "#30605"
 msgid "1440p"
 msgstr "1440p"
 
-# 30606-30610 — Jellyfin song lyrics
 msgctxt "#30606"
 msgid "Jellyfin song lyrics"
 msgstr "Jellyfin 歌词"
@@ -1386,7 +1348,6 @@ msgctxt "#30610"
 msgid "Hand to a lyrics addon"
 msgstr "交给歌词插件"
 
-# 30611-30612 — music playlist sync
 msgctxt "#30611"
 msgid "Sync music playlists"
 msgstr "同步音乐播放列表"
@@ -1395,7 +1356,6 @@ msgctxt "#30612"
 msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
 msgstr "把 Jellyfin 音乐播放列表下载到 Kodi，作为原生播放列表放在 音乐 → 播放列表 → Kofin 下。"
 
-# 30613-30617 — transcoding stream selection
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
 msgstr "音频和字幕流"
@@ -1416,7 +1376,6 @@ msgctxt "#30617"
 msgid "burned in, restarts playback"
 msgstr "内嵌烧录，会重新开始播放"
 
-# 30618-30619 — Jellyfin default tracks
 msgctxt "#30618"
 msgid "Use Jellyfin's default tracks"
 msgstr "使用 Jellyfin 的默认轨道"
@@ -1425,7 +1384,6 @@ msgctxt "#30619"
 msgid "Start playback on the audio and subtitle tracks your Jellyfin account asks for, instead of the ones Kodi's own language settings pick. The server resolves both from your Jellyfin profile, so the choice follows you to every client."
 msgstr "按你的 Jellyfin 账户所要求的音频和字幕轨道开始播放，而不是由 Kodi 自己的语言设置来挑选。服务器会根据你的 Jellyfin 配置解析两者，因此这个选择会跟随你到每一个客户端。"
 
-# 30620-30621 — chapter images
 msgctxt "#30620"
 msgid "Chapter images from the server"
 msgstr "来自服务器的章节图像"
@@ -1434,7 +1392,6 @@ msgctxt "#30621"
 msgid "Show Jellyfin's chapter images in Kodi's chapter list. Images are fetched on demand at playback start."
 msgstr "在 Kodi 的章节列表中显示 Jellyfin 的章节图像。图像在播放开始时按需获取。"
 
-# 30622-30636 — new-content notifications
 msgctxt "#30622"
 msgid "Notify about new content"
 msgstr "新内容通知"
@@ -1495,7 +1452,6 @@ msgctxt "#30636"
 msgid "%s albums added to library"
 msgstr "已添加 %s 张专辑到媒体库"
 
-# 30637-30638 — server splashscreen backdrop
 msgctxt "#30637"
 msgid "Use the server's splashscreen as the backdrop"
 msgstr "使用服务器的启动画面作为背景"
@@ -1504,7 +1460,6 @@ msgctxt "#30638"
 msgid "Show the Jellyfin server's splashscreen behind the addon instead of the bundled artwork. Refreshed when the service connects, at most once a day."
 msgstr "在插件背后显示 Jellyfin 服务器的启动画面，而不是内置的艺术图。服务连接时刷新，每天最多一次。"
 
-# 30650-30665 — Clean databases (the logged-out migration cleaner)
 msgctxt "#30650"
 msgid "Clean databases"
 msgstr "清理数据库"
@@ -1569,7 +1524,6 @@ msgctxt "#30665"
 msgid "Clean complete. Kodi will now restart."
 msgstr "清理完成。Kodi 现在将重启。"
 
-# 30666-30667 — critic ratings
 msgctxt "#30666"
 msgid "Movies: prefer critic rating"
 msgstr "电影：优先使用影评人评分"
@@ -1578,7 +1532,6 @@ msgctxt "#30667"
 msgid "Show your server's critic rating (Rotten Tomatoes) instead of the community rating. Percentages are rescaled so 78% becomes 7.8."
 msgstr "显示服务器上的影评人评分（Rotten Tomatoes）而不是社区评分。百分比会换算，78% 变为 7.8。"
 
-# 30668-30673 — actor art pre-cache
 msgctxt "#30668"
 msgid "Pre-cache cast images when idle"
 msgstr "空闲时预缓存演员图像"
@@ -1602,7 +1555,6 @@ msgstr "正在缓存演员图像"
 msgctxt "#30673"
 msgid "Cached %d cast image(s)"
 msgstr "已缓存 %d 张演员图像"
-
 
 msgctxt "#30700"
 msgid "Downloads"
@@ -1780,10 +1732,6 @@ msgctxt "#30743"
 msgid "Movies newly added to a synced library are downloaded automatically. A bulk import of more than a few movies at once is skipped, with a notification."
 msgstr "新添加到已同步媒体库的电影会自动下载。一次性批量导入多于几部电影时会跳过，并给出通知。"
 
-# 30744-30745, 30748-30750 — retired with downloadsAutoCleanup and the
-# three-way downloadsDeleteAfterPlay spinner. Kept, never reused: an id that
-# changes meaning silently mistranslates every language that already shipped
-# it.
 msgctxt "#30744"
 msgid "Remove watched automatic downloads"
 msgstr "移除已观看的自动下载"
@@ -1904,15 +1852,10 @@ msgctxt "#30773"
 msgid "How many tracks download at the same time. Tracks are small and mostly overhead, so this can sit well above the video figure."
 msgstr "同时下载多少首曲目。曲目很小，开销主要在连接上，因此这个值可以远高于视频的数值。"
 
-# 30774 — retired with the Delete download confirmation. Kept, never reused,
-# for the reason given at #30744. #30714 stays live: the finished-watching
-# offer in service/player.py still asks.
 msgctxt "#30774"
 msgid "Delete %s download(s) of %s?"
 msgstr "删除 %s 个下载文件（%s）？"
 
-# 30775-30776 — the other half of #30617: a text subtitle a transcode did not
-# attach is fetched onto the running playback, not burned in and not restarted
 msgctxt "#30775"
 msgid "downloaded from the server"
 msgstr "已从服务器下载"
@@ -1921,9 +1864,6 @@ msgctxt "#30776"
 msgid "Downloading subtitle..."
 msgstr "正在下载字幕…"
 
-# 30777-30797 — Jellyfin account settings: the server-side user preferences
-# that resolve every playback's default audio and subtitle track, edited from
-# the Account tab (plugin/userprefs.py)
 msgctxt "#30777"
 msgid "Jellyfin account settings"
 msgstr "Jellyfin 账户设置"
@@ -2008,9 +1948,6 @@ msgctxt "#30797"
 msgid "Your Jellyfin account is not allowed to change these settings"
 msgstr "你的 Jellyfin 账户无权更改这些设置"
 
-# 30798-30803 — the bulk-import guard, one threshold per automatic arm. Over
-# the number the whole batch is skipped rather than trimmed: an arbitrary few
-# of hundreds is worse than asking.
 msgctxt "#30798"
 msgid "Skip movie imports larger than"
 msgstr "跳过多于此数量的电影导入"
@@ -2035,21 +1972,10 @@ msgctxt "#30803"
 msgid "When a sync adds more new albums than this at once, none of them are downloaded. Counted in albums, not tracks."
 msgstr "当一次同步新增的专辑多于此数量时，它们都不会被下载。按专辑计数，而不是按曲目。"
 
-# 30810 — the aggregate refusal, before anything is queued. Distinct from
-# #30715, which the manager raises per item once a transfer is under way.
-#
-# Kept short deliberately. A Kodi notification fits about 33 characters and
-# *scrolls* the rest, so a longer line is read a window at a time — measured
-# live, "Not enough free space: 5.7 GB needed, 4.2 GB free" was caught
-# mid-scroll as "enough free space: 5.7 GB needed,", which says the opposite
-# of what it means. The warning glyph and the Kofin heading carry the rest.
 msgctxt "#30810"
 msgid "Needs %s, only %s free"
 msgstr "需要 %s，仅剩 %s 可用"
 
-# 30804-30807 — the settings button that clears every download at once. The
-# confirmation states what is on disk rather than what was promised: a queued
-# row has fetched nothing yet, and a transcode usually lands under its source.
 msgctxt "#30804"
 msgid "Delete all downloads"
 msgstr "删除所有下载"
@@ -2066,8 +1992,6 @@ msgctxt "#30807"
 msgid "There are no downloads to delete"
 msgstr "没有可删除的下载"
 
-# 30808-30809 — the playback gate. It holds the queue, not a transfer in
-# flight: stopping mid-file would strand a .part for the length of a film.
 msgctxt "#30808"
 msgid "Pause downloads during playback"
 msgstr "播放期间暂停下载"
@@ -2076,10 +2000,6 @@ msgctxt "#30809"
 msgid "Do not start new downloads while something is playing, video or music. A file already downloading finishes; the rest wait until playback stops."
 msgstr "在播放视频或音乐时不开始新的下载。已经在下载的文件会完成，其余的等到播放停止。"
 
-# 30811-30814 — the stale sweep. Its help text has to carry the resume-point
-# exemption: an unfinished film sitting untouched for months is exactly what
-# a user expects an age-based rule to eat, and the promise that it will not
-# is the reason the setting is safe to leave on.
 msgctxt "#30811"
 msgid "Delete stale downloads"
 msgstr "删除闲置的下载"
@@ -2096,9 +2016,6 @@ msgctxt "#30814"
 msgid "How long a download may sit unplayed before it is removed. Playing it again starts the count over."
 msgstr "一个下载文件在被移除前可以闲置多久。再次播放会重新开始计时。"
 
-# 30815-30816 — the Clean databases downloads prompt. It has to say what
-# happens if you decline: the clean deletes kofin.db, and the download table
-# lives there, so files kept behind are files nothing will ever manage again.
 msgctxt "#30815"
 msgid "Also delete your %s downloaded file(s)? Cleaning removes Kofin's record of them, so any you keep are left on disk for you to manage yourself."
 msgstr "同时删除你的 %s 个已下载文件吗？清理会移除 Kofin 对它们的记录，因此保留下来的文件会留在磁盘上，由你自己管理。"
@@ -2107,10 +2024,6 @@ msgctxt "#30816"
 msgid "Removing downloaded files…"
 msgstr "正在移除已下载的文件…"
 
-# 30817 — the shortlist's first row. Not #30030's "All": that one labels a
-# browse node ("all movies"), and the languages that decline the word render
-# the two differently — French wants "Tout" there and "Tous" for a list of
-# people. #30080 quotes this label verbatim, which pocheck.py enforces.
 msgctxt "#30817"
 msgid "All"
 msgstr "全部"

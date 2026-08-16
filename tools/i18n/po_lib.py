@@ -80,10 +80,15 @@ def render(header: str, translations, path: Path = EN) -> str:
     """Render a locale file: the given header, then the source body with each
     msgstr replaced by translations[ctx].
 
-    Copying the body line by line is what keeps comment blocks, blank lines and
-    the source's deliberately non-ascending msgctxt order byte-identical across
-    locales. Rebuilding it from parsed entries would flatten the multi-line
-    comments this file uses to record why ids are the way they are.
+    Copying the body line by line is what keeps blank lines and the source's
+    deliberately non-ascending msgctxt order identical across locales.
+    Rebuilding it from parsed entries would reorder them.
+
+    Comments are the exception: they stay in en_gb and are not copied out. They
+    are section markers and notes to whoever is *writing* a translation, and
+    translations are written in tr/<locale>.json -- so in a generated file they
+    are 74 lines nobody reads, repeated 26 times, that turn a four-line string
+    addition into a hundred-line diff.
     """
     lines = path.read_text(encoding="utf-8").splitlines()
     out = header.splitlines()
@@ -112,10 +117,19 @@ def render(header: str, translations, path: Path = EN) -> str:
             while i < n and lines[i].startswith('"'):
                 i += 1  # drop source continuation lines; we emit one line
             ctx = None
+        elif line.startswith("#"):
+            i += 1  # source-only: see the note above
         else:
             out.append(line)
             i += 1
-    return "\n".join(out) + "\n"
+    # Dropping a comment can leave the blank line that preceded it stranded
+    # against the next one, so runs collapse to a single separator.
+    body = []
+    for line in out:
+        if line == "" and body and body[-1] == "":
+            continue
+        body.append(line)
+    return "\n".join(body) + "\n"
 
 
 if __name__ == "__main__":
