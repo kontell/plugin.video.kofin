@@ -329,7 +329,10 @@ class FullSync(object):
             if synced_music:
                 databases.add("music")
 
-            self.library.refresh_libraries(databases)
+            # force_reload: the end of a full sync is the one moment kofin
+            # knows every selected library has landed, and the first-content
+            # probes cannot be trusted to notice — see refresh_libraries.
+            self.library.refresh_libraries(databases, force_reload=True)
 
         # Music playlists are files, not MyMusic rows — refresh after a
         # successful library pass when the setting is on. Soft-fail so a
@@ -368,7 +371,7 @@ class FullSync(object):
         does not abandon the rest.
         """
         try:
-            for library in libraries:
+            for position, library in enumerate(libraries):
 
                 synced = self.process_library(library)
 
@@ -383,8 +386,48 @@ class FullSync(object):
                     self.sync["Libraries"].remove(library)
 
                 save_sync(self.sync)
+
+                if synced and position < len(libraries) - 1:
+                    self._publish_library(library)
         except Exception as error:
             failures.append(error)
+
+    def _publish_library(self, library):
+        """Make a finished library visible before the rest of the sync runs.
+
+        A full sync is one unit across every selected library, and the only
+        refresh used to be the end-of-sync one, so a first sync showed an
+        empty home screen until the *last* library finished. That is a few
+        seconds on a desktop and 43 minutes on a Pi 3B (movies were complete
+        and browsable 8 minutes in, with Home still reading "empty"), because
+        Kodi raises no library-change event for direct SQLite writes.
+
+        Skipped for the final library: the end-of-sync refresh in ``sync()``
+        covers it, and firing both would pay for two scans and two vacuums to
+        show the same rows.
+
+        Cheap when there is nothing to say. ``refresh_libraries`` is
+        fingerprint-gated, so a library that changed nothing a widget renders
+        is suppressed there rather than here, and the first-content reload is
+        gated per kind on Kodi's own cached bools — so the expensive part, a
+        ``ReloadSkin()``, still happens at most once per media kind however
+        many libraries are selected.
+        """
+        if self.update_library:
+            # Update mode only plans; the drain that lands the work owns its
+            # own refresh (the same reason sync() skips it).
+            return
+
+        video, music = split_libraries([library], self._media_type)
+        databases = set()
+
+        if video:
+            databases.add("video")
+
+        if music:
+            databases.add("music")
+
+        self.library.refresh_libraries(databases)
 
     def _media_type(self, library_id):
         view = self.get_library(library_id)

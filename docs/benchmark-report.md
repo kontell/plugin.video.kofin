@@ -8,7 +8,7 @@ kofin 0.15.2 against jellyfin-kodi 2.1.0+py3, 24 of 32 scenarios. Pre-registrati
 
 The clearest behavioural difference is unattended recovery. Four interruptions were injected into kofin — an add-on bounce mid-sync, a `kill -9`, a total 120 s outage and a 20 % error rate for 180 s — and it resumed from all four with no human action, no modal and no lost rows. jellyfin-kodi recovered from none of the four injected into it without intervention: a blackout, intermittent 5xx errors and a startup timing race each needed an add-on bounce, and an add-on bounce mid-sync left it permanently stopped at 6,689 of 15,796 rows with nothing shown to the user. kofin's sync path raised no blocking modal in any measured run; jellyfin-kodi raises one or two per cold start, and cannot resume unattended after a crash because it asks first.
 
-**What it did not achieve.** Correctness is near-unchanged, because there was little to improve: both clients wrote the corpus exactly, with 0 mismatches in 3,600 field comparisons and capability tables that agree everywhere except `uniqueid`, where kofin writes 4,000 typed rows against jellyfin-kodi's 15,796 empty ones. kofin's full-sync working set is the larger of the two — see §8 for the measurement and its limits.
+**What it did not achieve.** Correctness is near-unchanged, because there was little to improve: both clients wrote the corpus exactly, with 0 mismatches in 3,600 field comparisons and capability tables that agree everywhere except `uniqueid`, where kofin writes 4,000 typed rows against jellyfin-kodi's 15,796 empty ones.
 
 **Net.** The rewrite bought speed, resilience and interactive latency, and kept correctness where it already was. Of 153 open upstream issues, 74 are resolved by evidence — 12 fixed, 10 enhancements implemented, 4 structurally impossible, 19 inapplicable to the new code, 8 out of scope, 10 enhancements not implemented, 11 still present — and 79 remain unverified.
 
@@ -198,7 +198,46 @@ Three qualifications, all of which cut against reading the row as a ratio:
 * **kofin's peak is not repeatable.** Five runs of this scenario peaked at 667, 793, 795, 806 and 939 MB — a 272 MB spread, against 485–514 MB across four jellyfin-kodi runs. A peak that moves by 40 % between identical runs is a transient allocation pattern, not a structure of a fixed size.
 * **The sampler returned impossible values elsewhere.** 200.6 MB for a whole Kodi process in B9, and 1.1/2.0 MB in two B10 runs, against a floor of ~470 MB. Those runs are excluded here; they are the reason the figures above are not extended to the other scenarios.
 
-What survives: kofin's full-sync working set is the larger of the two, by a margin measured once at ~170 MB. It is transient — the process returns to within 18 MB of baseline once the add-on cycles, which happens at every Kodi start — and the fetch path it comes through is explicitly bounded at `PREFETCH_PAGES * limitThreads * limitIndex` items (600 at the defaults, `sync/downloader.py`), so it is not the page buffer. It was not localised to any allocation. Against a Kodi floor of ~470 MB, and set beside 315 s of wall clock on 232 CPU-seconds where jellyfin-kodi takes 570 s on 467, this is a resource profile rather than a fault, and is not carried as a defect. Untested on a memory-constrained device, where the corpus size rather than the client is the dominant variable.
+What survives: kofin's full-sync working set is the larger of the two, by a margin measured once at ~170 MB. It is transient — the process returns to within 18 MB of baseline once the add-on cycles, which happens at every Kodi start — and the fetch path it comes through is explicitly bounded at `PREFETCH_PAGES * limitThreads * limitIndex` items (600 at the defaults, `sync/downloader.py`), so it is not the page buffer. It was not localised to any allocation. Against a Kodi floor of ~470 MB, and set beside 315 s of wall clock on 232 CPU-seconds where jellyfin-kodi takes 570 s on 467, this is a resource profile rather than a fault, and is not carried as a defect.
+
+#### The constrained-hardware question, since answered
+
+The paragraph above used to end "untested on a memory-constrained device, where the corpus size rather than the client is the dominant variable". It has since been tested, and the answer is that memory is not the constraint.
+
+B2 was re-run on a **Raspberry Pi 3B — 918 MB RAM, no swap, armv7l** — against the same real libraries, on LibreELEC 13.0 (Kodi 22.0-BETA1, MyVideos148). This is a different arm from the tables above in two ways that forbid pooling the numbers: kofin 0.17.0 rather than 0.15.2, and no jellyfin-kodi leg, because the box exists to test kofin. It is an absolute footprint on the worst hardware kofin realistically runs on, not a comparison.
+
+| B2, real libraries, Pi 3B | |
+|---|---|
+| Kodi baseline, idle | 140 MB |
+| Peak during the sync itself | **252 MB** |
+| Mean during the sync | 181 MB |
+| Lowest free memory during the sync | 531 MB of 918 MB |
+| Wall clock | 2610 s (43:30) against 570 s on the desktop |
+| Counts | 1767 / 4488 / 78 video, 20,802 / 1,539 / 628 music |
+| Own log errors | 0 |
+
+Two things fall out of it.
+
+**The sync does not accumulate.** RSS sat flat at ~180 MB across the whole run, including the 25-minute music phase, on a box with a 140 MB Kodi floor. That is ~110 MB of add-on working set against the desktop's measured ~198 MB over a ~470 MB floor — which is the more trustworthy of the two figures, because the smaller floor leaves less room for the measurement to be Kodi's. The desktop's unrepeatable 272 MB spread is better read as allocator behaviour on a 15 GB box than as anything kofin needs.
+
+**The expensive moment is the skin reload, not the sync.** Making a first sync visible costs a `ReloadSkin()`, and on this box that took RSS from 252 MB to 469 MB and free memory down to 177 MB for about 25 seconds before returning to 273 MB. It was the tightest point of the entire operation, and it still cleared by a wide margin.
+
+That reload has since been moved: libraries are published as they finish rather than only at the end of the whole sync, because on this hardware the old behaviour left the home screen reading "empty" for 35 minutes after the movies were written and browsable. Three reloads now fire on a first sync of three libraries — one per media kind as it lands, plus a forced one at the end. Re-running B2 with that change, against the same libraries on the same box:
+
+| B2, real libraries, Pi 3B | one reload, at the end | three reloads |
+|---|---|---|
+| Peak RSS | 469.3 MB | **447.5 MB** |
+| Mean RSS | 184.0 MB | 299.3 MB |
+| Lowest free memory | 177.4 MB | **269.3 MB** |
+| CPU seconds | 3320 | 4237 |
+| Wall clock | 2610 s | 2866 s |
+| Home screen shows movies at | 2610 s | **~500 s** |
+
+The peak went *down*, and the tightest moment got 92 MB roomier. Rebuilding Home three times costs less at its worst than rebuilding it once does, because the single end-of-sync reload rebuilt every widget against a fully populated library in one go, while the split rebuilds are each smaller and each finds a warmer texture cache.
+
+What it costs instead is sustained: mean RSS rises 184 → 299 MB and stays there, because once Home is populated it renders artwork for the remainder of the run, and CPU rises 28 % with wall clock 10 % behind it. That is the real price of the feature, and it is a price for *showing* content during the sync rather than for syncing it. It buys the home screen appearing at ~500 s instead of 2610 s.
+
+The honest summary is that on the smallest supported hardware the add-on's own footprint is around 110 MB, what the *skin* does with the synced content costs more than the sync does, and neither comes close to the limit. Memory is no longer a live question for this workload, which is why it no longer appears in §1.
 
 ## 9. Defects in kofin
 
@@ -246,5 +285,5 @@ JellyCon's 52 issues are tabled separately: mostly inapplicable by architecture,
 * One box, one server, no network variation. The client is an Intel Core i5-8400H — 4 cores / 8 threads, 2.5 GHz base and 4.2 GHz turbo, 15 GB RAM. Every wall-clock figure is bounded by that; a client with fewer cores narrows the gaps that come from concurrency, and both arms' CPU-seconds are the portable numbers.
 * Setup is excluded from the sync clock: the starting line is "logged in, libraries chosen, nothing synced".
 * Server-side changes are driven by a whole-server scan, timed and reported separately from client time.
-* Memory is the weakest measurement here: one baselined run per arm, a peak that is not repeatable on kofin, and a sampler that returned impossible values in three other runs (§8). It supports a direction, not a ratio.
+* The *comparative* memory measurement is the weakest thing here: one baselined run per arm, a peak that is not repeatable on kofin, and a sampler that returned impossible values in three other runs. It supports a direction, not a ratio, and no conclusion in this report rests on it. kofin's absolute footprint is on firmer ground — measured on a 918 MB Pi 3B with no swap, where the desktop's confounds do not apply — but that leg has no jellyfin-kodi arm and a different kofin version, so the two must not be pooled (§8).
 * Not covered: the music leg of B2, and F6–F8, F10–F12, F14, F15.

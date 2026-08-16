@@ -1118,8 +1118,25 @@ class Library(threading.Thread):
 
                 self.enable_pending_refresh()
 
-    def refresh_libraries(self, databases):
+    def refresh_libraries(self, databases, force_reload=False):
         """Make writes made straight to Kodi's databases visible.
+
+        ``force_reload`` rebuilds the skin whenever anything moved, instead of
+        asking the first-content probes whether it is needed. The end of a
+        full sync passes it, for the reason the repair command already owns an
+        unconditional reload (``_reload_skin_after_repair``): the probes key on
+        ``Library.HasContent``, and that bool can flip true *mid-sync* — it is
+        a tri-state cache in Kodi's ``CLibraryGUIInfo``, re-queried whenever a
+        scan resets it, and the running skin re-evaluates constantly — so by
+        the end it reads "Kodi knows about this content" when the question that
+        matters is "has Home been rebuilt since the content appeared". Those
+        two came apart as soon as libraries began publishing as they finish: a
+        movies reload rebuilt Home while music was empty, music synced for 27
+        minutes, and the end-of-sync music probe then self-disarmed and left
+        the row blank (measured on a Pi 3B).
+
+        It stays suppressed when the fingerprints say nothing moved, so a
+        resumed sync that changed nothing still reloads nothing.
 
         Kodi raises no library-change event for direct SQLite writes, so a list
         currently showing the affected library does not pick them up on its own,
@@ -1174,16 +1191,19 @@ class Library(threading.Thread):
             )
             return
 
+        # Flags accumulate so a cycle that reveals both databases rebuilds the
+        # skin once rather than twice; a reload is a whole-window teardown and
+        # firing two back to back reads as a flicker.
+        reload_flags = []
+
         if "video" in moved:
             # Catch the empty -> non-empty transition before the scan clears
             # Kodi's cache, because the scan alone is not enough: see
             # _video_content_hidden().
-            rebuild_home = self._video_content_hidden()
+            if force_reload or self._video_content_hidden():
+                reload_flags.extend(VIDEO_CONTENT_FLAGS)
 
             xbmc.executebuiltin("UpdateLibrary(video)")
-
-            if rebuild_home:
-                self._reload_skin_for_content(VIDEO_CONTENT_FLAGS)
 
         if "music" in moved:
             # Checked before the probe scan flips the cached bool: the music
@@ -1191,12 +1211,13 @@ class Library(threading.Thread):
             # video ones (baked include conditions plus providers that go
             # deaf when their last fetch was empty), and nothing else can
             # reveal a *first* music sync (widget-refresh-plan F6).
-            rebuild_home = self._music_content_hidden()
+            if force_reload or self._music_content_hidden():
+                reload_flags.extend(MUSIC_CONTENT_FLAGS)
 
             self._refresh_music()
 
-            if rebuild_home:
-                self._reload_skin_for_content(MUSIC_CONTENT_FLAGS)
+        if reload_flags:
+            self._reload_skin_for_content(tuple(reload_flags))
 
         # Scoped to the window's own content family (widget-refresh-plan D6):
         # a music-only cycle must not re-fetch the movie listing the user is
@@ -1446,21 +1467,31 @@ class Library(threading.Thread):
         (upstream pairs the two the same way after its database migrations).
 
         Testing the stale state itself, rather than remembering a "first sync"
-        flag, keeps this self-limiting: once the reload has happened the cache
-        is correct and this returns False forever after. It also stays False on
-        a profile whose library was already populated at startup, which is the
+        flag, keeps this self-limiting: once every populated kind's bool is
+        right this returns False forever after. It also stays False on a
+        profile whose library was already populated at startup, which is the
         normal case — the reload only ever costs the very first sync.
-        """
-        if (
-            xbmc.getCondVisibility("Library.HasContent(Movies)")
-            or xbmc.getCondVisibility("Library.HasContent(TVShows)")
-            or xbmc.getCondVisibility("Library.HasContent(MusicVideos)")
-        ):
-            return False
 
+        The test is **per kind**, not "does the video library have anything".
+        Kodi's cached bool is per kind and so is the widget row it gates, so
+        the two must be paired: with libraries published as they finish
+        (``full_sync.process_libraries``), a movies-only reload rebuilds Home
+        while ``tvshow`` is still empty, which builds the TV Shows row against
+        nothing. Asking only whether *some* video kind had content would
+        return False for the rest of that sync and leave the row empty — a
+        container whose last fetch was empty is deaf to every later library
+        announcement, so nothing short of another reload can fill it.
+        """
         try:
             with Database("video") as videodb:
-                for table in ("movie", "tvshow", "musicvideo"):
+                for flag, table in (
+                    ("Library.HasContent(Movies)", "movie"),
+                    ("Library.HasContent(TVShows)", "tvshow"),
+                    ("Library.HasContent(MusicVideos)", "musicvideo"),
+                ):
+                    if xbmc.getCondVisibility(flag):
+                        continue
+
                     videodb.cursor.execute("SELECT 1 FROM %s LIMIT 1" % table)
                     if videodb.cursor.fetchone():
                         return True

@@ -109,12 +109,14 @@ class RecordingLibrary:
 
     def __init__(self):
         self.refreshed = []
+        self.forced = []
 
     def stamp_watermark_if_empty(self):
         pass
 
-    def refresh_libraries(self, databases):
+    def refresh_libraries(self, databases, force_reload=False):
         self.refreshed.append(set(databases))
+        self.forced.append(force_reload)
 
 
 def run_start(fullsync, monkeypatch, update):
@@ -310,3 +312,117 @@ def test_exit_releases_the_claim(monkeypatch):
 
     assert library.released == 1
     assert library._full_sync_running is False
+
+
+# -- per-library publishing (docs/widget-refresh-plan.md; B2 on a Pi 3B) ------
+
+
+class PublishFullSync(FullSync):
+    """FullSync with the library pass stubbed, so process_libraries' own
+    publishing is what the test observes."""
+
+    def process_library(self, library):
+        return self.synced_result.get(library, True)
+
+
+class PublishLibrary(ClaimLibrary, RecordingLibrary):
+    """Both halves of the Library that process_libraries touches: the claim
+    FullSync takes at construction, and the refresh it hands each finished
+    library to."""
+
+    def __init__(self):
+        ClaimLibrary.__init__(self)
+        RecordingLibrary.__init__(self)
+
+
+@pytest.fixture
+def publisher(monkeypatch):
+    monkeypatch.setattr("kofin.sync.full_sync.save_sync", lambda sync: None)
+    monkeypatch.setattr("kofin.sync.full_sync.notification", lambda *a, **kw: None)
+    sync = PublishFullSync(library=PublishLibrary(), server=None)
+    sync.sync = {"Libraries": [], "Whitelist": [], "RestorePoints": {}}
+    sync.synced_result = {}
+    sync.update_library = False
+    yield sync
+    sync.release()
+
+
+def media_types(monkeypatch, publisher, mapping):
+    monkeypatch.setattr(
+        publisher, "_media_type", lambda library_id: mapping[library_id]
+    )
+
+
+def test_each_finished_library_is_published_except_the_last(publisher, monkeypatch):
+    """A full sync used to show nothing until the *last* library finished —
+    43 minutes on a Pi 3B, with movies complete and browsable at 8. The final
+    library is left to sync()'s end-of-sync refresh so the rows are not paid
+    for twice."""
+    media_types(
+        monkeypatch, publisher, {"mov": "movies", "tv": "tvshows", "mus": "music"}
+    )
+
+    publisher.process_libraries(["mov", "tv", "mus"], [])
+
+    assert publisher.library.refreshed == [{"video"}, {"video"}]
+
+
+def test_a_music_library_publishes_the_music_database(publisher, monkeypatch):
+    """Refreshing video for a music library left a freshly synced music
+    library invisible in the music widgets; the split is per database."""
+    media_types(monkeypatch, publisher, {"mus": "music", "mov": "movies"})
+
+    publisher.process_libraries(["mus", "mov"], [])
+
+    assert publisher.library.refreshed == [{"music"}]
+
+
+def test_a_library_that_did_not_sync_is_not_published(publisher, monkeypatch):
+    """process_library returning falsey means nothing landed — publishing it
+    would buy a Kodi scan and a vacuum to show no new rows."""
+    media_types(monkeypatch, publisher, {"mov": "movies", "tv": "tvshows"})
+    publisher.synced_result = {"mov": False}
+
+    publisher.process_libraries(["mov", "tv"], [])
+
+    assert publisher.library.refreshed == []
+
+
+def test_update_mode_publishes_nothing(publisher, monkeypatch):
+    """Update mode only *plans*: the incremental drain that lands the work
+    owns its own refresh, the same reason sync() skips it."""
+    media_types(monkeypatch, publisher, {"mov": "movies", "tv": "tvshows"})
+    publisher.update_library = True
+
+    publisher.process_libraries(["mov", "tv"], [])
+
+    assert publisher.library.refreshed == []
+
+
+def test_a_single_library_is_left_to_the_end_of_sync_refresh(publisher, monkeypatch):
+    media_types(monkeypatch, publisher, {"mov": "movies"})
+
+    publisher.process_libraries(["mov"], [])
+
+    assert publisher.library.refreshed == []
+
+
+def test_the_end_of_sync_refresh_forces_the_reload(fullsync, monkeypatch):
+    """The probes cannot be trusted by then: Library.HasContent can flip true
+    mid-sync, so the end-of-sync refresh asks for the rebuild outright. Live on
+    a Pi 3B, a movies reload rebuilt Home while music was empty and the music
+    probe had already self-disarmed by the time music finished."""
+    run_start(fullsync, monkeypatch, update=False)
+
+    assert fullsync.library.forced == [True]
+
+
+def test_a_mid_sync_publish_does_not_force_the_reload(publisher, monkeypatch):
+    """Only the end of the sync knows everything has landed. A publish mid-run
+    stays probe-gated, so it reveals a kind that is genuinely hidden and does
+    not rebuild the skin for one that is already on screen."""
+    media_types(monkeypatch, publisher, {"mov": "movies", "tv": "tvshows"})
+
+    publisher.process_libraries(["mov", "tv"], [])
+
+    assert publisher.library.forced == [False]

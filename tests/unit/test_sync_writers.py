@@ -113,8 +113,9 @@ class FakeMonitor:
         (kodifixtures.VIDEO_VERSION, kodifixtures.MUSIC_VERSION),
         (kodifixtures.PIERS_VIDEO_VERSION, kodifixtures.PIERS_MUSIC_VERSION),
         (kodifixtures.PIERS_VIDEO_VERSION_147, kodifixtures.PIERS_MUSIC_VERSION),
+        (kodifixtures.PIERS_VIDEO_VERSION_148, kodifixtures.PIERS_MUSIC_VERSION),
     ],
-    ids=["omega", "piers", "piers147"],
+    ids=["omega", "piers", "piers147", "piers148"],
 )
 def sync_env(request, monkeypatch, tmp_path):
     video_version, music_version = request.param
