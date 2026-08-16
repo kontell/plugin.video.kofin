@@ -399,6 +399,7 @@ def test_continue_watching_empty_is_still_a_listing(monkeypatch, directory):
 
 
 def test_root_leads_with_continue_watching(monkeypatch, directory):
+    """The two ways in that are not a place come first, then the libraries."""
     api = ResumeApi(views=[{"Id": "v1", "Name": "Movies", "CollectionType": "movies"}])
     monkeypatch.setattr(browse, "_api", lambda: api)
 
@@ -407,7 +408,8 @@ def test_root_leads_with_continue_watching(monkeypatch, directory):
     paths = [path for path, _li, _folder in directory["entries"]]
     assert "mode=continuewatching" in paths[0]
     assert directory["entries"][0][2] is True  # a folder to open
-    assert "view=v1" in paths[1]  # the libraries follow it
+    assert "mode=search" in paths[1]
+    assert "view=v1" in paths[2]  # the libraries follow them
 
 
 def test_addon_media_joins_under_resources_media(monkeypatch):
@@ -736,3 +738,126 @@ def test_the_specials_probe_asks_for_counts_not_artwork(directory):
     assert params["EnableImages"] is False
     assert params["EnableUserData"] is False
     assert "HasSpecialFeature" not in params
+
+
+class SearchApi:
+    """Records what search asked the server for."""
+
+    server = "http://server:8096"
+
+    def __init__(self, items=None, persons=None, fail=False):
+        self._items = items if items is not None else []
+        self._persons = persons if persons is not None else []
+        self.queries = []
+        self.person_calls = []
+        self.fail = fail
+
+    def items(self, params):
+        self.queries.append(params)
+        if self.fail:
+            from kofin.core.http import JellyfinError
+
+            raise JellyfinError("down")
+        return {"Items": self._items}
+
+    def persons(self, term, limit=100):
+        self.person_calls.append((term, limit))
+        return {"Items": self._persons}
+
+
+def test_search_with_no_type_is_a_menu_and_asks_nothing(monkeypatch, directory):
+    """The menu shape opens no dialog, which is what makes it safe as a node
+    or a widget: Kodi runs a node's <path> through CDirectory::GetDirectory
+    and a modal fights that fetch."""
+    monkeypatch.setattr(browse, "_api", lambda: SearchApi())
+    monkeypatch.setattr(
+        browse.xbmcgui, "Dialog", lambda: pytest.fail("the menu must not prompt")
+    )
+
+    browse.search(Request("plugin://x", 1, {}))
+
+    paths = [path for path, _li, folder in directory["entries"]]
+    assert len(paths) == len(browse.SEARCH_KINDS)
+    for kind in browse.SEARCH_KINDS:
+        assert any("type=%s" % kind in path for path in paths), kind
+    assert all(folder for _path, _li, folder in directory["entries"])
+    assert directory["succeeded"] is True
+
+
+def test_search_with_a_query_does_not_prompt(monkeypatch, directory):
+    """The term is a parameter, so a skin's own search box can address the
+    route directly and a node can carry a fixed search."""
+    api = SearchApi(items=[{"Id": "m1", "Name": "Dune", "Type": "Movie"}])
+    monkeypatch.setattr(browse, "_api", lambda: api)
+    monkeypatch.setattr(
+        browse.xbmcgui, "Dialog", lambda: pytest.fail("a given query must not prompt")
+    )
+
+    browse.search(Request("plugin://x", 1, {"type": "movies", "query": "dune"}))
+
+    assert api.queries[0]["searchTerm"] == "dune"
+    assert api.queries[0]["IncludeItemTypes"] == "Movie"
+    assert api.queries[0]["Recursive"] is True
+    assert api.queries[0]["Limit"] == browse.SEARCH_LIMIT
+    assert directory["content"] == "movies"
+    assert directory["succeeded"] is True
+
+
+def test_search_prompts_when_the_query_is_missing(monkeypatch, directory):
+    api = SearchApi(items=[])
+    monkeypatch.setattr(browse, "_api", lambda: api)
+    monkeypatch.setattr(
+        browse.xbmcgui,
+        "Dialog",
+        lambda: type("D", (), {"input": lambda *a, **k: "rat"})(),
+    )
+
+    browse.search(Request("plugin://x", 1, {"type": "episodes"}))
+
+    assert api.queries[0]["searchTerm"] == "rat"
+    assert api.queries[0]["IncludeItemTypes"] == "Episode"
+
+
+def test_search_cancelled_at_the_keyboard_fails_the_fetch(monkeypatch, directory):
+    """An empty listing would strand the viewer in a results screen they
+    never asked for; a failed fetch returns them to where they were."""
+    api = SearchApi()
+    monkeypatch.setattr(browse, "_api", lambda: api)
+    monkeypatch.setattr(
+        browse.xbmcgui, "Dialog", lambda: type("D", (), {"input": lambda *a, **k: ""})()
+    )
+
+    browse.search(Request("plugin://x", 1, {"type": "movies"}))
+
+    assert api.queries == []
+    assert directory["succeeded"] is False
+
+
+def test_search_people_lead_to_their_own_filmography(monkeypatch, directory):
+    api = SearchApi(persons=[{"Id": "p1", "Name": "Nic Cage", "Type": "Person"}])
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.search(Request("plugin://x", 1, {"type": "people", "query": "cage"}))
+
+    assert api.person_calls == [("cage", browse.SEARCH_LIMIT)]
+    path, _li, folder = directory["entries"][0]
+    assert "person=p1" in path
+    assert folder is True
+
+
+def test_search_person_lists_what_they_are_in(monkeypatch, directory):
+    api = SearchApi(items=[{"Id": "m1", "Name": "Con Air", "Type": "Movie"}])
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.search(Request("plugin://x", 1, {"person": "p1"}))
+
+    assert api.queries[0]["PersonIds"] == "p1"
+    assert directory["content"] == "videos"
+
+
+def test_search_failure_fails_the_fetch(monkeypatch, directory):
+    monkeypatch.setattr(browse, "_api", lambda: SearchApi(fail=True))
+
+    browse.search(Request("plugin://x", 1, {"type": "movies", "query": "dune"}))
+
+    assert directory["succeeded"] is False

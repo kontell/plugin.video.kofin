@@ -380,6 +380,18 @@ class Api:
     def artists(self, parent_id: str) -> JsonDict:
         return self.get("/Artists", {"userId": self.user_id, "parentId": parent_id})
 
+    def persons(self, term: str, limit: int = 100) -> JsonDict:
+        """People matching a search term.
+
+        Its own endpoint rather than /Items with IncludeItemTypes=Person:
+        /Persons is the one that answers with the person rows the cast list
+        links to, and it takes the same searchTerm.
+        """
+        return self.get(
+            "/Persons",
+            {"userId": self.user_id, "searchTerm": term, "limit": limit},
+        )
+
     def ancestors(self, item_id: str) -> List[JsonDict]:
         response = self._http.request(
             "GET",

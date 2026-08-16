@@ -77,6 +77,34 @@ NODES: Dict[str, List[Tuple[str, int]]] = {
     ],
 }
 
+# What search offers, as {type key: (Kodi core string id, IncludeItemTypes,
+# Kodi content type)}. Core string ids throughout — a feature whose every
+# label already exists in Kodi costs nothing in the 27 generated locales.
+SEARCH_KINDS: Dict[str, Tuple[int, str, str]] = {
+    "movies": (20342, "Movie", "movies"),
+    "tvshows": (20343, "Series", "tvshows"),
+    "episodes": (20360, "Episode", "episodes"),
+    "albums": (132, "MusicAlbum", "albums"),
+    "songs": (134, "Audio", "songs"),
+    "people": (344, "", ""),
+}
+
+SEARCH_ICONS = {
+    "movies": "DefaultMovies.png",
+    "tvshows": "DefaultTVShows.png",
+    "episodes": "DefaultTVShows.png",
+    "albums": "DefaultMusicAlbums.png",
+    "songs": "DefaultMusicSongs.png",
+    "people": "DefaultActor.png",
+}
+
+# Search results are bounded on purpose: the caller is waiting on this fetch,
+# and a hundred rows is already past what anyone reads. Plain BROWSE_FIELDS
+# rather than the streams set — a hundred rows of codec detail is the payload
+# BROWSE_FIELDS_STREAMS is measured against, and a search row is picked by
+# name, not by codec.
+SEARCH_LIMIT = 100
+
 CONTENT_TYPES = {
     "movies": "movies",
     "tvshows": "tvshows",
@@ -387,6 +415,15 @@ def root(request: Request) -> None:
             (listitems.plugin_url({"mode": "continuewatching"}), resume_li, True)
         )
 
+        # Search sits with Continue watching, above the libraries: both are
+        # ways in that are not a place, and a viewer who knows what they want
+        # should not have to pick a library first.
+        import xbmc as _xbmc
+
+        search_li = xbmcgui.ListItem(_xbmc.getLocalizedString(137))  # Search
+        search_li.setArt(structural_art("DefaultAddonsSearch.png"))
+        entries.append((listitems.plugin_url({"mode": "search"}), search_li, True))
+
         try:
             views = api.views().get("Items", [])
         except JellyfinError as error:
@@ -545,6 +582,153 @@ def browse(request: Request) -> None:
     ):
         xbmcplugin.addSortMethod(request.handle, method)
     xbmcplugin.endOfDirectory(request.handle)
+
+
+def search(request: Request) -> None:
+    """Search the server (mode=search).
+
+    Three shapes, one route:
+
+    * no ``type`` — the menu of what can be searched. It asks nothing, so it
+      is safe as a library node, a widget or a favourite.
+    * ``type`` with no ``query`` — asks for the term, then lists the results.
+      The keyboard is a modal, and a modal fights a directory fetch, so *this*
+      shape is the one that must not be a node (kodi-plugin-handles).
+    * ``type`` and ``query`` — lists results with nothing to answer. This is
+      what lets a skin's own search box address kofin directly, and it is why
+      the term is a parameter rather than only a prompt.
+
+    ``person`` replaces both and lists everything one person appears in, which
+    is where a result from the Actors leg leads.
+
+    Every label here is a Kodi core string, so search adds no translatable id
+    to the 27 locales.
+    """
+    if request.handle < 0:
+        return
+    api = _api()
+    if api is None:
+        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+        return
+
+    person_id = request.params.get("person", "")
+    if person_id:
+        _search_person_items(request, api, person_id)
+        return
+
+    kind = request.params.get("type", "")
+    if kind not in SEARCH_KINDS:
+        _search_menu(request)
+        return
+
+    query = request.params.get("query", "") or _ask_for_query(kind)
+    if not query:
+        # Cancelled at the keyboard. A failed fetch is what returns the
+        # viewer to where they were; an empty listing would strand them in a
+        # results screen they did not ask for.
+        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+        return
+
+    try:
+        if kind == "people":
+            items = api.persons(query, SEARCH_LIMIT).get("Items", [])
+            _add_person_items(request, api, items)
+            xbmcplugin.setContent(request.handle, "")
+            xbmcplugin.endOfDirectory(request.handle)
+            return
+        items = api.items(_search_query(kind, query)).get("Items", [])
+    except JellyfinError as error:
+        LOG.warning("search failed (%s/%s): %s", kind, query, error)
+        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+        return
+
+    _add_items(request, api, items, "", "")
+    xbmcplugin.setContent(request.handle, SEARCH_KINDS[kind][2])
+    for method in (
+        xbmcplugin.SORT_METHOD_UNSORTED,
+        xbmcplugin.SORT_METHOD_LABEL,
+        xbmcplugin.SORT_METHOD_VIDEO_YEAR,
+    ):
+        xbmcplugin.addSortMethod(request.handle, method)
+    xbmcplugin.endOfDirectory(request.handle)
+
+
+def _search_menu(request: Request) -> None:
+    """What can be searched. One row per kind, none of which asks anything."""
+    import xbmc
+
+    entries = []
+    for kind, (label_id, _types, _content) in SEARCH_KINDS.items():
+        li = xbmcgui.ListItem(xbmc.getLocalizedString(label_id))
+        li.setArt(structural_art(SEARCH_ICONS[kind]))
+        path = listitems.plugin_url({"mode": "search", "type": kind})
+        entries.append((path, li, True))
+    xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
+    xbmcplugin.setContent(request.handle, "")
+    xbmcplugin.endOfDirectory(request.handle)
+
+
+def _ask_for_query(kind: str) -> str:
+    """The search term, from the viewer. Empty when they backed out."""
+    import xbmc
+
+    heading = "%s: %s" % (
+        xbmc.getLocalizedString(137),  # Search
+        xbmc.getLocalizedString(SEARCH_KINDS[kind][0]),
+    )
+    return xbmcgui.Dialog().input(heading, type=xbmcgui.INPUT_ALPHANUM).strip()
+
+
+def _search_query(kind: str, query: str) -> JsonDict:
+    """The /Items query for one search kind."""
+    return {
+        "searchTerm": query,
+        "IncludeItemTypes": SEARCH_KINDS[kind][1],
+        "Recursive": True,
+        "Fields": BROWSE_FIELDS,
+        "ImageTypeLimit": 1,
+        "Limit": SEARCH_LIMIT,
+    }
+
+
+def _search_person_items(request: Request, api: Api, person_id: str) -> None:
+    """Everything one person appears in."""
+    try:
+        items = api.items(
+            {
+                "PersonIds": person_id,
+                "Recursive": True,
+                "IncludeItemTypes": "Movie,Series,Episode",
+                "Fields": BROWSE_FIELDS,
+                "ImageTypeLimit": 1,
+                "SortBy": "PremiereDate,SortName",
+                "Limit": SEARCH_LIMIT,
+            }
+        ).get("Items", [])
+    except JellyfinError as error:
+        LOG.warning("person listing failed (%s): %s", person_id, error)
+        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+        return
+
+    _add_items(request, api, items, "", "")
+    xbmcplugin.setContent(request.handle, "videos")
+    xbmcplugin.endOfDirectory(request.handle)
+
+
+def _add_person_items(request: Request, api: Api, items: List[JsonDict]) -> None:
+    """People as folders leading to their own filmography.
+
+    Built here rather than through :func:`_add_items`, which would give a
+    person a playable path.
+    """
+    entries = []
+    for item in items:
+        li = listitems.build(item, api.server)
+        if not li.getArt("thumb"):
+            li.setArt(structural_art("DefaultActor.png"))
+        path = listitems.plugin_url({"mode": "search", "person": item.get("Id", "")})
+        entries.append((path, li, True))
+    xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
 
 
 def extras(request: Request) -> None:

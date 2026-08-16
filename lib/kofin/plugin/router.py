@@ -40,6 +40,7 @@ ROUTES: Dict[str, Tuple[str, str]] = {
     "continuewatching": ("browse", "continue_watching"),
     "nextepisodes": ("browse", "next_episodes"),
     "extras": ("browse", "extras"),
+    "search": ("browse", "search"),
     "lyrics": ("lyrics", "lyrics"),
     "play": ("play", "play"),
     "syncplay": ("syncplay", "menu"),
@@ -88,7 +89,16 @@ ROUTES: Dict[str, Tuple[str, str]] = {
 # directory finished its script in 2 ms and hung the caller indefinitely.
 # test_router.py refuses any ROUTES entry that is in neither set.
 LISTING_MODES = frozenset(
-    {"", "browse", "continuewatching", "nextepisodes", "extras", "lyrics", "play"}
+    {
+        "",
+        "browse",
+        "continuewatching",
+        "nextepisodes",
+        "extras",
+        "search",
+        "lyrics",
+        "play",
+    }
 )
 
 
