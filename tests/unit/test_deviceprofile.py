@@ -177,6 +177,31 @@ def test_av1_preferred_ordering_and_ts_lead():
     assert transcoding[1]["VideoCodec"].startswith("hevc")
 
 
+def test_av1_transcoding_leg_withdrawn_with_the_direct_play_codec():
+    """Removing av1 from the codec list must remove it from *both* lists.
+
+    A TranscodingProfile is a device statement too. Jellyfin ranks the
+    transcoding profiles and puts the one holding the source codec first so it
+    can stream-copy, so leaving the fMP4/av1 leg behind handed an av1 source
+    straight back to a device that had just refused it — the server answered
+    VideoCodec=av1 and ran `-codec:v:0 copy` (measured against 10.11).
+    """
+    config = ProfileConfig(video_codecs=["h264", "hevc"])
+    transcoding = build(config)["TranscodingProfiles"]
+    assert [tp["Container"] for tp in transcoding] == ["ts", "opus"]
+    assert "av1" not in transcoding[0]["VideoCodec"]
+
+
+def test_av1_transcoding_leg_survives_being_preferred_but_unlisted():
+    # Preferring av1 implies the device decodes it, which is why
+    # _direct_play_profiles adds it to the direct list; the transcode
+    # fallback has to be able to target it for the same reason.
+    config = ProfileConfig(video_codecs=["h264"], preferred_video="av1")
+    transcoding = build(config)["TranscodingProfiles"]
+    assert [tp["Container"] for tp in transcoding] == ["mp4", "ts", "opus"]
+    assert transcoding[0]["VideoCodec"] == "av1"
+
+
 def test_av1_preferred_without_hevc_falls_back():
     config = ProfileConfig(preferred_video="av1", video_codecs=["av1"])
     transcoding = build(config)["TranscodingProfiles"]

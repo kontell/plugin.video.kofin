@@ -431,8 +431,9 @@ def _transcoding_profiles(
     max_bitrate: int,
 ) -> List[JsonDict]:
     # TS codec list: everything except av1 (which can't ride MPEG-TS and gets
-    # its own fMP4 profile). The lead codec is the forced-transcode target:
-    # hevc when av1 is preferred, otherwise the preferred codec.
+    # its own fMP4 profile, when the device decodes av1 at all — see below).
+    # The lead codec is the forced-transcode target: hevc when av1 is
+    # preferred, otherwise the preferred codec.
     hevc_in_list = "hevc" in video_codecs
     ts_lead = (
         "hevc"
@@ -468,7 +469,6 @@ def _transcoding_profiles(
                 "IsRequired": False,
             }
         ]
-    fmp4: JsonDict = dict(common, Container="mp4", VideoCodec="av1")
     ts: JsonDict = dict(common, Container="ts", VideoCodec=",".join(ts_codecs))
 
     music: JsonDict = {
@@ -480,6 +480,21 @@ def _transcoding_profiles(
         "MaxAudioChannels": "2",
     }
 
+    # The fMP4 leg exists to carry av1, so it is offered only when the device
+    # decodes av1 — same rule _direct_play_profiles applies to the preferred
+    # codec, because preferring one implies decoding it. Offering it
+    # unconditionally is not a harmless spare tyre: a TranscodingProfile is a
+    # device statement too, and the server reads it as one. Jellyfin's
+    # StreamBuilder ranks the transcoding profiles rather than taking the
+    # first that matches, and one whose VideoCodec list holds the *source*
+    # codec ranks top so it can stream-copy — so an av1 source correctly
+    # refused direct play came back VideoCodec=av1 and `-codec:v:0 copy`,
+    # from second place in the list. Ordering cannot fix that; only not
+    # offering av1 can.
+    if "av1" not in video_codecs and config.preferred_video != "av1":
+        return [ts, music]
+
+    fmp4: JsonDict = dict(common, Container="mp4", VideoCodec="av1")
     video_profiles = [fmp4, ts] if config.preferred_video == "av1" else [ts, fmp4]
     return video_profiles + [music]
 
