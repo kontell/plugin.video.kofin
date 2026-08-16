@@ -118,17 +118,25 @@ def dispatch(argv: List[str]) -> None:
         except ValueError:
             handle = -1
     query = argv[2] if len(argv) > 2 else ""
-    params = dict(parse_qsl(query.lstrip("?")))
+    # One trailing slash off the whole query before it is parsed. A library
+    # node's <path> is a folder path and carries one, and it lands on whichever
+    # parameter happens to be last — which is only ``mode`` for the routes that
+    # take no other. Stripping it after the parse covered those and nothing
+    # else: measured on Omega 21.3, a node on
+    # ?mode=browse&view=…&type=movies&folder=all/ reached browse with
+    # folder="all/", which node_query matches nowhere, so the listing fell
+    # through to its container branch and asked the server for an item with
+    # that id — a 400, a failed fetch, and a node that reads as broken beside a
+    # ?mode=continuewatching/ one that works.
+    params = dict(parse_qsl(query.lstrip("?").rstrip("/")))
     # Kodi appends "resume:true|false" for video plugin items (the native
     # resume prompt's outcome).
     resume = len(argv) > 3 and argv[3].split(":", 1)[-1] == "true"
     request = Request(base_url, handle, params, resume)
 
-    # A library node's <path> is a folder path, so it is natural (and, for
-    # some Kodi paths, automatic) to write it with a trailing slash — which
-    # lands here as mode="syncplay/" and would silently fall back to the root
-    # listing instead of running the route.
-    mode = params.get("mode", "").rstrip("/")
+    # Already unslashed by the query strip above, which is where a node path's
+    # trailing slash is answered for every parameter rather than just this one.
+    mode = params.get("mode", "")
     handler = _resolve(mode)
     LOG.debug("dispatch mode=%s params=%s handle=%s", mode or "<root>", params, handle)
     builds_listing = mode in LISTING_MODES
