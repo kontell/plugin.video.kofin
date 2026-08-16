@@ -243,8 +243,12 @@ def test_video_refresh_scans_video_only(builtins):
     assert builtins == ["UpdateLibrary(video)"]
 
 
-def _fake_video_db(monkeypatch, tmp_path, rows):
-    """A video database whose movie/tvshow/musicvideo tables are (non)empty."""
+def _fake_video_db(monkeypatch, tmp_path, rows, populated=("tvshow",)):
+    """A video database whose movie/tvshow/musicvideo tables are (non)empty.
+
+    ``populated`` names which tables get a row when ``rows`` is set, so a test
+    can build the half-synced state the per-kind probe exists for.
+    """
     import sqlite3
 
     path = str(tmp_path / "MyVideos131.db")
@@ -252,7 +256,8 @@ def _fake_video_db(monkeypatch, tmp_path, rows):
     for table in ("movie", "tvshow", "musicvideo"):
         conn.execute("CREATE TABLE %s (id INTEGER)" % table)
     if rows:
-        conn.execute("INSERT INTO tvshow VALUES (1)")
+        for table in populated:
+            conn.execute("INSERT INTO %s VALUES (1)" % table)
     conn.commit()
     conn.close()
     sync_db.set_path_override("video", path)
@@ -282,6 +287,49 @@ def test_no_skin_reload_once_kodi_knows_about_content(monkeypatch, tmp_path):
         "xbmc.getCondVisibility", lambda cond: cond == "Library.HasContent(TVShows)"
     )
     _fake_video_db(monkeypatch, tmp_path, rows=True)
+
+    manager, _api = make_library()
+    manager.refresh_libraries({"video"})
+
+    assert calls == ["UpdateLibrary(video)"]
+
+
+def test_a_second_video_kind_landing_later_gets_its_own_reload(monkeypatch, tmp_path):
+    """Movies synced and reloaded; now shows land. The probe is per kind, so
+    the still-false TVShows bool reloads again.
+
+    Publishing libraries as they finish makes this reachable: the movies
+    reload rebuilds Home while tvshow is empty, so the TV Shows row is built
+    against nothing, and a container whose last fetch was empty is deaf to
+    every later library announcement. Asking only whether *some* video kind
+    had content answered "not hidden" here and left the row empty for the
+    rest of the sync.
+    """
+    calls = []
+    monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(
+        "xbmc.getCondVisibility", lambda cond: cond == "Library.HasContent(Movies)"
+    )
+    _fake_video_db(monkeypatch, tmp_path, rows=True, populated=("movie", "tvshow"))
+
+    manager, _api = make_library()
+    manager.refresh_libraries({"video"})
+
+    assert calls == ["UpdateLibrary(video)", "ReloadSkin()"]
+
+
+def test_no_reload_when_every_populated_kind_is_already_known(monkeypatch, tmp_path):
+    """The other side of the same probe: both kinds have rows and Kodi knows
+    about both, so there is nothing left to reveal and the reload — the most
+    expensive moment of a sync — must not fire again."""
+    calls = []
+    monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(
+        "xbmc.getCondVisibility",
+        lambda cond: cond
+        in ("Library.HasContent(Movies)", "Library.HasContent(TVShows)"),
+    )
+    _fake_video_db(monkeypatch, tmp_path, rows=True, populated=("movie", "tvshow"))
 
     manager, _api = make_library()
     manager.refresh_libraries({"video"})

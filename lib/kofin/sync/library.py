@@ -1446,21 +1446,31 @@ class Library(threading.Thread):
         (upstream pairs the two the same way after its database migrations).
 
         Testing the stale state itself, rather than remembering a "first sync"
-        flag, keeps this self-limiting: once the reload has happened the cache
-        is correct and this returns False forever after. It also stays False on
-        a profile whose library was already populated at startup, which is the
+        flag, keeps this self-limiting: once every populated kind's bool is
+        right this returns False forever after. It also stays False on a
+        profile whose library was already populated at startup, which is the
         normal case — the reload only ever costs the very first sync.
-        """
-        if (
-            xbmc.getCondVisibility("Library.HasContent(Movies)")
-            or xbmc.getCondVisibility("Library.HasContent(TVShows)")
-            or xbmc.getCondVisibility("Library.HasContent(MusicVideos)")
-        ):
-            return False
 
+        The test is **per kind**, not "does the video library have anything".
+        Kodi's cached bool is per kind and so is the widget row it gates, so
+        the two must be paired: with libraries published as they finish
+        (``full_sync.process_libraries``), a movies-only reload rebuilds Home
+        while ``tvshow`` is still empty, which builds the TV Shows row against
+        nothing. Asking only whether *some* video kind had content would
+        return False for the rest of that sync and leave the row empty — a
+        container whose last fetch was empty is deaf to every later library
+        announcement, so nothing short of another reload can fill it.
+        """
         try:
             with Database("video") as videodb:
-                for table in ("movie", "tvshow", "musicvideo"):
+                for flag, table in (
+                    ("Library.HasContent(Movies)", "movie"),
+                    ("Library.HasContent(TVShows)", "tvshow"),
+                    ("Library.HasContent(MusicVideos)", "musicvideo"),
+                ):
+                    if xbmc.getCondVisibility(flag):
+                        continue
+
                     videodb.cursor.execute("SELECT 1 FROM %s LIMIT 1" % table)
                     if videodb.cursor.fetchone():
                         return True
