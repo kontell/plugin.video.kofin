@@ -115,6 +115,14 @@ What remains is kofin's own:
   (`service/backdrop.py`, `core/api.py::splashscreen`, `plugin/browse.py`).
 - Extras/videoversion writes read the VERSION itemType from the seeded 40400 row and the EXTRA
   value from `schema.EXTRA_ITEM_TYPE` — both differ across gated schemas.
+- **A TranscodingProfile is a device statement, not a spare tyre.** Jellyfin's `StreamBuilder`
+  *ranks* the transcoding profiles instead of taking the first that matches, and one whose
+  `VideoCodec` list holds the source codec ranks top so the server can stream-copy into it. So a
+  codec offered there is a codec the server may hand back untouched, whatever `DirectPlayProfiles`
+  says — kofin's unconditional fMP4/av1 leg answered `VideoCodec=av1` + `-codec:v:0 copy` for a
+  device that had just refused av1, from *second* place in the list. Every codec in
+  `_transcoding_profiles` must be gated on the same list that gates direct play; reordering
+  cannot substitute for withdrawing it.
 - `downloader._get_items` **must fail loudly**: it submits every page up front, so a swallowed
   error yields zero pages, which reads downstream as an empty library rather than a failure.
 - **A downloaded item plays from disk however it is reached, online included.** The repoint
