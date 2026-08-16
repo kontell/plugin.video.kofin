@@ -1,3 +1,6 @@
+v0.18.1
+- Unticking AV1 in the transcoding settings now really turns it off. The add-on was still offering AV1 to the server as something it could transcode to, so an AV1 film came back as AV1 anyway — on a device with no AV1 hardware that meant a software decode, stutter, or no picture at all. The same slip let an HDR AV1 film through untouched on a device set to SDR only
+
 v0.18.0
 - Search your Jellyfin server from the add-on: films, shows, episodes, albums, songs and people, with a person's results leading to everything they appear in. The search term is part of the path, so a skin's own search box can point straight at it
 - More ways into a library: Years, Tags and A-Z on films and shows, Unwatched on shows, Album artists, Last played and Top 100 songs on music, Genres and A-Z on music videos. A tag list too long to read is grouped by initial
