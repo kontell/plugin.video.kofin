@@ -222,7 +222,20 @@ Two things fall out of it.
 
 **The expensive moment is the skin reload, not the sync.** Making a first sync visible costs a `ReloadSkin()`, and on this box that took RSS from 252 MB to 469 MB and free memory down to 177 MB for about 25 seconds before returning to 273 MB. It was the tightest point of the entire operation, and it still cleared by a wide margin.
 
-That reload has since been moved: libraries are published as they finish rather than only at the end of the whole sync, because on this hardware the old behaviour left the home screen reading "empty" for 35 minutes after the movies were written and browsable. The re-run with that change carries a real and different memory profile — once Home is populated at ~600 s it renders artwork for the rest of the run, so RSS holds at 314–351 MB instead of ~180 MB and free memory bottoms at 271 MB rather than 531 MB. Still no swap, still no pressure, but it is a persistent ~160 MB rather than a transient spike, and it is a cost of showing content sooner rather than of syncing it.
+That reload has since been moved: libraries are published as they finish rather than only at the end of the whole sync, because on this hardware the old behaviour left the home screen reading "empty" for 35 minutes after the movies were written and browsable. Three reloads now fire on a first sync of three libraries — one per media kind as it lands, plus a forced one at the end. Re-running B2 with that change, against the same libraries on the same box:
+
+| B2, real libraries, Pi 3B | one reload, at the end | three reloads |
+|---|---|---|
+| Peak RSS | 469.3 MB | **447.5 MB** |
+| Mean RSS | 184.0 MB | 299.3 MB |
+| Lowest free memory | 177.4 MB | **269.3 MB** |
+| CPU seconds | 3320 | 4237 |
+| Wall clock | 2610 s | 2866 s |
+| Home screen shows movies at | 2610 s | **~500 s** |
+
+The peak went *down*, and the tightest moment got 92 MB roomier. Rebuilding Home three times costs less at its worst than rebuilding it once does, because the single end-of-sync reload rebuilt every widget against a fully populated library in one go, while the split rebuilds are each smaller and each finds a warmer texture cache.
+
+What it costs instead is sustained: mean RSS rises 184 → 299 MB and stays there, because once Home is populated it renders artwork for the remainder of the run, and CPU rises 28 % with wall clock 10 % behind it. That is the real price of the feature, and it is a price for *showing* content during the sync rather than for syncing it. It buys the home screen appearing at ~500 s instead of 2610 s.
 
 The honest summary is that on the smallest supported hardware the add-on's own footprint is around 110 MB, what the *skin* does with the synced content costs more than the sync does, and neither comes close to the limit. Memory is no longer a live question for this workload, which is why it no longer appears in §1.
 
