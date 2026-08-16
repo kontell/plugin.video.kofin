@@ -16,6 +16,16 @@ between the two, and the 146->147 migration is data-only — it rewrites
 upstream revisions are in ``docs/myvideos147-gate.md``; replace the file with
 a real dump when a 147 install is to hand, and ``cmp`` against 146 should
 still come back clean.
+
+``myvideos148.sql`` *is* a real dump — from a pristine LibreELEC 13.0 nightly
+(Kodi 22.0-BETA1) on a Raspberry Pi 3B, freshly created rather than migrated.
+148 is the first Piers bump that moves DDL: ``streamdetails`` gains
+``iSource`` and ``iVersion``. It therefore does **not** ``cmp`` clean against
+146/147, and must not be expected to. Note the dump also quotes ``sets`` with
+backticks where 146/147 do not — that is upstream ``80e77713eb`` (2026-04-21,
+a MySQL 9.6 reserved-word fix) landing in ``CreateTables`` after the Bravia
+dumps were taken, not a 148 change; sqlite treats the two spellings alike.
+See ``docs/myvideos148-gate.md``.
 """
 
 import os
@@ -32,10 +42,11 @@ PIERS_VIDEO_VERSION = 146
 PIERS_MUSIC_VERSION = 84
 PIERS_TEXTURE_VERSION = 14
 
-# Piers bumped MyVideos to 147 mid-beta; both numbers are in the wild (an
-# install that never ran the newer build still has 146), so both are legs of
-# the L2 suite. Music and textures did not move with it.
+# Piers bumped MyVideos to 147 and then 148 mid-beta; all three numbers are in
+# the wild (an install that never ran a newer build keeps the older file), so
+# all three are legs of the L2 suite. Music and textures moved with neither.
 PIERS_VIDEO_VERSION_147 = 147
+PIERS_VIDEO_VERSION_148 = 148
 
 
 def _apply(conn: sqlite3.Connection, filename: str) -> None:
