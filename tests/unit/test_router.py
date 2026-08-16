@@ -93,6 +93,24 @@ def test_dispatch_tolerates_a_trailing_slash_on_the_mode(routed):
     assert [mode for mode, _ in routed] == ["syncplay", "adduser"]
 
 
+def test_dispatch_tolerates_a_trailing_slash_on_the_last_parameter(routed):
+    """The slash lands on whichever parameter is last, not on the mode — so
+    answering it on the mode alone only ever covered the routes that take no
+    other parameter. Verified on Omega 21.3: a node whose <path> was
+    ?mode=browse&view=…&type=movies&folder=all/ reached browse with
+    folder="all/", node_query matched no branch, and the listing asked the
+    server for a container with that id. The server answered 400, the route
+    failed the fetch, and the node read as broken while the single-parameter
+    ?mode=continuewatching/ node beside it worked."""
+    router.dispatch(argv("?mode=browse&view=abc&type=movies&folder=all/"))
+
+    mode, request = routed[0]
+    assert mode == "browse"
+    assert request.params["folder"] == "all"
+    assert request.params["view"] == "abc"
+    assert request.params["type"] == "movies"
+
+
 def test_dispatch_falls_back_to_root_on_an_unknown_mode(routed):
     router.dispatch(argv("?mode=nosuchmode"))
     assert [mode for mode, _ in routed] == ["<root>"]
@@ -115,12 +133,14 @@ def test_dispatch_reads_handle_and_resume(routed):
     assert request.params["id"] == "abc"
 
 
-def test_dispatch_keeps_the_unslashed_mode_in_params(routed):
-    """Only the handler lookup is normalised; params stay as Kodi sent them."""
+def test_dispatch_unslashes_the_params_it_hands_the_handler(routed):
+    """The strip happens before the parse, so the handler is handed the value
+    Kodi meant rather than the folder path's spelling of it. Handlers compare
+    these against server ids and node keys; nothing downstream re-strips."""
     router.dispatch(argv("?mode=syncplay/"))
 
     _, request = routed[0]
-    assert request.params["mode"] == "syncplay/"
+    assert request.params["mode"] == "syncplay"
 
 
 def test_every_route_resolves_to_a_callable():

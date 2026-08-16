@@ -71,6 +71,12 @@ Install via the [Kontell Repository](https://github.com/kontell/repository.konte
 - The server address may be a bare host or IP (e.g. `192.168.1.10`), a `host:port`, or a full URL. `http` and port `8096` are assumed when the scheme and port are omitted. Use `https://` when connecting over the internet.
 - On login the addon stores a Jellyfin access token (not your password) in Kodi's addon settings. Like all Kodi addon settings it is kept in plaintext under `userdata/addon_data/plugin.video.kofin/` - be aware of this when sharing Kodi backups or your addon_data folder. Logging out revokes the token on the server.
 
+## Custom nodes and widgets
+
+Kofin's listings are ordinary `plugin://` paths, so a library node, a skin widget or a favourite can point at any of them - including combinations the add-on does not ship, such as a single genre or one library's unwatched films.
+
+See [docs/custom-nodes.md](docs/custom-nodes.md) for the path format, the list of keys, and a node file to copy.
+
 ## Companion server plugins
 
 For improved syncing performance install the [KofinSyncQueue](https://github.com/kontell/jellyfin-plugin-kofinsyncqueue) server plugin. it gives the add-on a typed change feed so catch-up only touches what actually changed. Without it Kofin still works, using the official KodiSyncQueue plugin or real-time websocket updates.
