@@ -306,6 +306,60 @@ def test_node_icon_mapping():
     assert node_icon("tvshows", "genres") == "DefaultGenre.png"
 
 
+def test_verify_kodi_defaults_seeds_both_trees(views_env, tmp_path, monkeypatch):
+    """Video *and* music. Kodi keeps the two node trees separately and uses
+    the profile's instead of its own as soon as the profile has one, with no
+    merge — so the music folder write_music_nodes makes is what hides Genres,
+    Artists, Albums and Songs unless the defaults are seeded beside it.
+    Measured on Omega 21.3: library://music/ returned a single entry."""
+    import shutil
+
+    monkeypatch.setattr("xbmcvfs.copy", lambda src, dst: shutil.copy(src, dst) or True)
+
+    shipped = tmp_path / "xbmc" / "system" / "library"
+    (shipped / "video").mkdir(parents=True)
+    (shipped / "video" / "movies").mkdir()
+    (shipped / "video" / "movies" / "titles.xml").write_text("<node/>")
+    (shipped / "music").mkdir()
+    (shipped / "music" / "genres.xml").write_text("<node/>")
+    (shipped / "music" / "artists.xml").write_text("<node/>")
+    (shipped / "music" / "top100").mkdir()
+    (shipped / "music" / "top100" / "index.xml").write_text("<node/>")
+
+    profile = views_env["profile"]
+    assert not (profile / "library" / "music").exists()
+
+    kodisetup.verify_kodi_defaults()
+
+    music = profile / "library" / "music"
+    assert (music / "genres.xml").exists()
+    assert (music / "artists.xml").exists()
+    # Nested node folders come too, not just the top level.
+    assert (music / "top100" / "index.xml").exists()
+    assert (profile / "library" / "video" / "movies" / "titles.xml").exists()
+
+
+def test_verify_kodi_defaults_leaves_an_edited_node_alone(
+    views_env, tmp_path, monkeypatch
+):
+    """Missing files only: the user's own node edits live in this tree."""
+    import shutil
+
+    monkeypatch.setattr("xbmcvfs.copy", lambda src, dst: shutil.copy(src, dst) or True)
+
+    shipped = tmp_path / "xbmc" / "system" / "library"
+    (shipped / "music").mkdir(parents=True)
+    (shipped / "music" / "genres.xml").write_text("<node>shipped</node>")
+
+    mine = views_env["profile"] / "library" / "music"
+    mine.mkdir(parents=True)
+    (mine / "genres.xml").write_text("<node>mine</node>")
+
+    kodisetup.verify_kodi_defaults()
+
+    assert (mine / "genres.xml").read_text() == "<node>mine</node>"
+
+
 def test_cleanonupdate_detection(views_env, monkeypatch):
     profile = views_env["profile"]
     assert kodisetup.cleanonupdate_enabled() is False
