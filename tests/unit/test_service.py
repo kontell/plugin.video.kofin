@@ -712,9 +712,11 @@ class CatchUpLibrary:
     def __init__(self, startup_done=True):
         self.startup_done = startup_done
         self.commands = []
+        self.payloads = []
 
     def enqueue_command(self, name, data=None):
         self.commands.append(name)
+        self.payloads.append(data)
 
 
 def _connected(service, monkeypatch):
@@ -737,6 +739,28 @@ def test_reconnect_catches_up_on_missed_changes(monkeypatch):
     _connected(service, monkeypatch)
 
     assert service.library.commands == ["FastSync"]
+
+
+def test_reconnect_catch_up_is_stamped_with_the_edge_it_protects(monkeypatch):
+    """Everything the socket missed predates the reconnect, and the post-
+    connect worker queues the catch-up seconds later — behind the settle,
+    capabilities, the who's-watching restore and the userdata replay. Left to
+    enqueue_command's own stamp, a just-rebuilt manager's startup pass (which
+    lands inside that gap) looked too old to count and the same change-feed
+    window was fetched twice ~2 s apart."""
+    import time
+
+    from kofin.sync.library import FAST_SYNC_REQUESTED_AT
+
+    service = Service()
+    service.library = CatchUpLibrary()
+
+    before = time.monotonic()
+    _connected(service, monkeypatch)
+
+    (payload,) = service.library.payloads
+    assert payload[FAST_SYNC_REQUESTED_AT] == service._ws_connected_at
+    assert before <= payload[FAST_SYNC_REQUESTED_AT] <= time.monotonic()
 
 
 # --- Who's watching? restore on session attach -------------------------------

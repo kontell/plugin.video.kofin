@@ -170,6 +170,11 @@ class Service(xbmc.Monitor):
         # a rebuild on every tick, each opening the databases and raising the
         # same error toast again.
         self._library_backoff = Backoff()
+        # When the websocket last (re)connected (monotonic). The reconnect
+        # catch-up stamps its FastSync with this edge rather than with the
+        # moment the post-connect worker got around to queueing it — see
+        # _catch_up_after_reconnect.
+        self._ws_connected_at: Optional[float] = None
         # This generation's IPC secret (see ipc.GUARDED): minted here so the
         # plugin process picks it up from the moment the service exists, and
         # invalidated by the next restart.
@@ -716,6 +721,10 @@ class Service(xbmc.Monitor):
         or be skipped — each pass re-reads current state, so the last one
         always serves the live session.
         """
+        # The edge, stamped before anything else runs: everything the server
+        # pushed while the socket was down predates this moment, which is
+        # what the reconnect catch-up's coalesce stamp wants to say.
+        self._ws_connected_at = time.monotonic()
         self._connection_toast(30415, self.credentials.server_name or "")
         # A live socket is the best evidence there is, and the websocket
         # reconnects itself — so this is a raising edge in its own right,
@@ -828,8 +837,23 @@ class Service(xbmc.Monitor):
         if library is None or not library.startup_done:
             return
 
+        # Stamped with the reconnect edge, not with the enqueue: this worker
+        # only gets here after a deliberate settle plus capabilities, the
+        # who's-watching restore and the userdata replay — seconds in which a
+        # just-rebuilt manager's startup typically runs a change-feed pass of
+        # its own. Everything the socket missed predates the edge, so a pass
+        # that began after it covers this command, and the edge on the payload
+        # is what lets process_commands drop it (measured on the wake path:
+        # edge at t+0.0, startup's pass at t+0.4, this enqueue at t+2.0 — the
+        # enqueue-time stamp called that pass too old and fetched the same
+        # window again).
+        from kofin.sync.library import FAST_SYNC_REQUESTED_AT
+
+        moment = self._ws_connected_at
+        payload = {} if moment is None else {FAST_SYNC_REQUESTED_AT: moment}
+
         LOG.info("websocket reconnected; catching up on missed changes")
-        library.enqueue_command("FastSync")
+        library.enqueue_command("FastSync", payload)
 
     def _on_ws_event(self, message_type: str, data: Dict[str, Any]) -> None:
         if self.remote.handle(message_type, data):
