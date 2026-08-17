@@ -488,6 +488,48 @@ SELECT                  ?, idAlbum
 FROM                    song
 WHERE                   idSong IN (%s)
 """
+# -- the reconcile's set-based legs ---------------------------------------------
+#
+# Same three writes as the per-album pair above and add_album_source_by_songs,
+# but driven from kofin.db through an ATTACHed schema so that a whole library's
+# mapping rows never cross into Python. That boundary is the entire cost of the
+# reconcile: on a Bravia (Kodi 22, ARM 32-bit) fetching one library's 20,799
+# song ids took 11.6s and its 1,538 album ids 1.1s, while these statements do
+# the identical work in-engine in 0.04s and 0.01s. Indexing does not touch it —
+# a covering index made the plan optimal and the time did not move, because the
+# rows were never the problem, shipping them was.
+#
+# The alias is fixed rather than passed in: SQLite cannot parameterise a schema
+# name, and a constant keeps these strings free of interpolation.
+MAPPING_SCHEMA = "kofinmap"
+
+add_album_source_by_folder = """
+INSERT OR IGNORE INTO   album_source(idSource, idAlbum)
+SELECT                  ?, kodi_id
+FROM                    kofinmap.jellyfin
+WHERE                   media_type = 'album'
+AND                     media_folder = ?
+AND                     kodi_id IS NOT NULL
+"""
+delete_album_other_sources_by_folder = """
+DELETE FROM     album_source
+WHERE           idSource != ?
+AND             idAlbum IN (SELECT kodi_id FROM kofinmap.jellyfin
+                            WHERE media_type = 'album'
+                            AND media_folder = ?
+                            AND kodi_id IS NOT NULL)
+AND             idSource IN (SELECT idSource FROM source
+                             WHERE strMultipath LIKE 'plugin://plugin.video.kofin/%')
+"""
+add_album_source_by_folder_songs = """
+INSERT OR IGNORE INTO   album_source(idSource, idAlbum)
+SELECT DISTINCT         ?, song.idAlbum
+FROM                    song
+WHERE                   song.idSong IN (SELECT kodi_id FROM kofinmap.jellyfin
+                                        WHERE media_type = 'song'
+                                        AND media_folder = ?
+                                        AND kodi_id IS NOT NULL)
+"""
 delete_source = """
 DELETE FROM     source
 WHERE           idSource = ?

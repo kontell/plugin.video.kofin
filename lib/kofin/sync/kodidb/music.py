@@ -28,9 +28,6 @@ BLANKARTIST_MBID = "Artist Tag Missing"
 # tries to open.
 KOFIN_SOURCE_PREFIX = "plugin://plugin.video.kofin/"
 
-# How many song ids go into one album_source backfill statement.
-SOURCE_LINK_CHUNK = 500
-
 
 def source_key(library_id):
     return "%s%s/" % (KOFIN_SOURCE_PREFIX, library_id)
@@ -585,22 +582,42 @@ class Music(Kodi):
         self.cursor.execute(QU.add_album_source, (source_id, album_id))
         self.cursor.execute(QU.delete_album_other_sources, (album_id, source_id))
 
-    def link_song_albums_source(self, song_ids, source_id):
-        """Link the albums *behind* a set of songs — the singles path.
+    # -- the reconcile, driven from an ATTACHed kofin.db ------------------------
+
+    def attach_mapping(self, path):
+        """ATTACH kofin.db so the reconcile can read the mapping in-engine.
+
+        ATTACH is refused inside a transaction, so the caller commits first.
+        """
+        self.cursor.execute(
+            "ATTACH DATABASE ? AS %s" % QU.MAPPING_SCHEMA,
+            (path,),
+        )
+
+    def detach_mapping(self):
+        """Release it. DETACH is refused inside a transaction too."""
+        self.cursor.execute("DETACH DATABASE %s" % QU.MAPPING_SCHEMA)
+
+    def link_library_albums(self, library_id, source_id):
+        """Link every mapped album in the library to its source, and unlink
+        them from any other kofin-owned one — ``link_album_source`` for a
+        whole library at once, in two statements rather than two per album.
+        """
+        self.cursor.execute(QU.add_album_source_by_folder, (source_id, library_id))
+        self.cursor.execute(
+            QU.delete_album_other_sources_by_folder, (source_id, library_id)
+        )
+
+    def link_library_song_albums(self, library_id, source_id):
+        """Link the albums *behind* the library's songs — the singles path.
 
         A single's album is created by the writer on the fly and has no
         kofin.db reference of its own, so walking the album mappings misses
-        it and every single would drop out of a source-scoped node. Chunked,
-        because this runs over a whole library's songs.
+        it and every single would drop out of a source-scoped node.
         """
-        song_ids = [song_id for song_id in song_ids if song_id is not None]
-
-        for start in range(0, len(song_ids), SOURCE_LINK_CHUNK):
-            chunk = song_ids[start : start + SOURCE_LINK_CHUNK]
-            self.cursor.execute(
-                QU.add_album_source_by_songs % ",".join("?" * len(chunk)),
-                [source_id] + list(chunk),
-            )
+        self.cursor.execute(
+            QU.add_album_source_by_folder_songs, (source_id, library_id)
+        )
 
     def kofin_sources(self):
         """(id, name, multipath) for every source kofin owns — the prefix is
