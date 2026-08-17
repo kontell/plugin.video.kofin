@@ -63,6 +63,11 @@ DOWNLOAD_BACKOFF_SECONDS = 60
 # How many pending additions the new-content announcement keeps while it waits
 # for a quiet moment (playback, or more additions still landing).
 NEW_CONTENT_LIMIT = 500
+
+# Monotonic stamp enqueue_command puts on a FastSync, and process_commands
+# takes back off before dispatch. Named rather than inlined so the two halves
+# cannot drift, and capitalised like the rest of the command payload keys.
+FAST_SYNC_REQUESTED_AT = "RequestedAt"
 TARGET_DB_VERSION = 1
 # No "AlbumArtist" here or in the queue set below, unlike the fork: it is not
 # a Jellyfin BaseItemKind at all. /Artists and /Artists/AlbumArtists both
@@ -187,6 +192,11 @@ class Library(threading.Thread):
         self._full_sync_lock = threading.Lock()
         self._full_sync_running = False
         self.commands = queue.Queue()
+        # When the last change-feed pass *began* (monotonic), or None. Begin
+        # rather than end: the guarantee a queued FastSync is protecting is
+        # that the server was asked after the event that queued it, and the
+        # request goes out at the start of the pass.
+        self.last_fast_sync_started = None
         self.added_queue = queue.Queue()
         self.updated_queue = queue.Queue()
         self.userdata_queue = queue.Queue()
@@ -367,8 +377,20 @@ class Library(threading.Thread):
 
     def enqueue_command(self, command, data=None):
         """Called from the service's notification thread; processed in the
-        library thread so IPC handling never blocks on a sync."""
-        self.commands.put((command, data or {}))
+        library thread so IPC handling never blocks on a sync.
+
+        ``FastSync`` alone is stamped with the monotonic clock, because the
+        queue can be serviced much later than it was written — the library
+        thread may be inside a startup or a drain — and it is the one command
+        that another path can satisfy on its behalf. Every other command keeps
+        the plain ``(name, data)`` shape it is dispatched and asserted on.
+        """
+        data = dict(data or {})
+
+        if command == "FastSync":
+            data.setdefault(FAST_SYNC_REQUESTED_AT, time.monotonic())
+
+        self.commands.put((command, data))
 
     def sync_music_playlists(self):
         """Rewrite managed music playlist files from the server (one-way)."""
@@ -766,6 +788,22 @@ class Library(threading.Thread):
                 command, data = self.commands.get_nowait()
             except queue.Empty:
                 break
+
+            # Off the payload before it is logged or dispatched: the stamp is
+            # queue bookkeeping, not something a handler should ever see.
+            requested_at = data.pop(FAST_SYNC_REQUESTED_AT, None)
+
+            if requested_at is not None and self.fast_sync_started_since(requested_at):
+                # A pass already asked the server for everything since the
+                # watermark, and it started after this command was queued, so
+                # it covers exactly what the command wanted covered. Running a
+                # second one re-fetches the identical window — the watermark
+                # only advances once the drain completes — and re-queues the
+                # identical work list, which is what made one wake write a
+                # movie and then read it back to skip it as unchanged.
+                LOG.info("--[ command/FastSync ] covered by the pass in flight")
+                self.commands.task_done()
+                continue
 
             LOG.info("--[ command/%s ] %s", command, data)
 
@@ -1809,11 +1847,25 @@ class Library(threading.Thread):
 
         return lambda item_id: item_id in known
 
+    def fast_sync_started_since(self, moment):
+        """Whether a change-feed pass began after ``moment`` (monotonic).
+
+        False when nothing has run yet, and false for a pass *older* than the
+        request — that one asked the server before the event the caller cares
+        about, so it proves nothing about it.
+        """
+        started = self.last_fast_sync_started
+
+        return started is not None and started > moment
+
     def fast_sync(self):
         """Incremental catch-up through the change-feed provider."""
         if self.changefeed is None:
             return True
 
+        # Stamped before the request, not after it: a pass that is still in
+        # flight has already asked, and that is what a queued FastSync needs.
+        self.last_fast_sync_started = time.monotonic()
         last_sync = settings.get_str("lastIncrementalSync")
         include = self._include_types()
         libraries = self._include_libraries()
