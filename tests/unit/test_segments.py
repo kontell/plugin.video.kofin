@@ -363,6 +363,27 @@ def test_auto_skip_fires_on_boundary_crossing(engine):
     assert engine.seeks == [40.0]
 
 
+def test_auto_skip_fires_for_every_break_of_one_type(engine):
+    # Three commercial breaks are three skips. The dedup key is the segment's
+    # own (start, end), so the type is never an identity: the fork keyed its
+    # segment map by type and so skipped only the *last* break of each type
+    # (jellyfin/jellyfin-kodi#1177), which any SponsorBlock-derived commercial
+    # run hits on every item. deconflict() guards the same property one layer
+    # up; this is the engine's half of it.
+    engine.arm(
+        [
+            seg("Commercial", 100, 220),
+            seg("Commercial", 500, 620),
+            seg("Commercial", 900, 1020),
+        ]
+    )
+    for start, end in ((100.0, 220.0), (500.0, 620.0), (900.0, 1020.0)):
+        engine.tick(start - 1.0)
+        engine.tick(start + 0.2)
+        engine.tick(end + 0.2)  # the skip lands and the settle releases
+    assert engine.seeks == [220.0, 620.0, 1020.0]
+
+
 def test_auto_skip_settles_against_laggy_position(engine):
     engine.arm([seg("Introduction", 10, 40)])
     engine.tick(9.9)
