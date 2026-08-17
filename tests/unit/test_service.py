@@ -70,6 +70,116 @@ def test_backoff_due_and_reset():
     assert backoff.failed(now=0) == 5
 
 
+# --- pacing rebuilds of a sync manager that keeps dying -----------------------
+
+
+class DeadLibrary:
+    """A manager whose thread has ended; the flags say how it ended."""
+
+    def __init__(self, startup_done=True, stop_thread=True):
+        self.startup_done = startup_done
+        self.stop_thread = stop_thread
+
+    def is_alive(self):
+        return False
+
+
+class RunningLibrary:
+    """A manager past startup, still in its service loop."""
+
+    startup_done = True
+    stop_thread = False
+
+    def is_alive(self):
+        return True
+
+
+def _paced_service(monkeypatch, clock):
+    monkeypatch.setattr("kofin.service.main.time.time", lambda: clock[0])
+    service = Service()
+    starts = []
+    monkeypatch.setattr(service, "_start_library", lambda: starts.append(clock[0]))
+    return service, starts
+
+
+def test_a_dead_manager_is_rebuilt_immediately_the_first_time(monkeypatch):
+    clock = [1000.0]
+    service, starts = _paced_service(monkeypatch, clock)
+    service.library = DeadLibrary()
+
+    service._recover_threads()
+
+    assert starts == [1000.0]
+
+
+def test_consecutive_failures_wait_out_the_backoff(monkeypatch):
+    """The schema-gate case: startup fails within a second, forever. Unpaced,
+    that was a rebuild every tick — databases opened, error toast raised, and
+    toasts queue, so the wall outlives the loop."""
+    clock = [1000.0]
+    service, starts = _paced_service(monkeypatch, clock)
+    service.library = DeadLibrary()
+
+    for _ in range(10):  # ten ticks inside the first 5 s rung
+        service._recover_threads()
+        clock[0] += 0.5
+
+    assert starts == [1000.0]
+
+    service._recover_threads()  # clock is at 1005.0: the rung is up
+    assert starts == [1000.0, 1005.0]
+
+    clock[0] = 1014.0  # inside the doubled 10 s rung
+    service._recover_threads()
+    assert starts == [1000.0, 1005.0]
+
+    clock[0] = 1015.0
+    service._recover_threads()
+    assert starts == [1000.0, 1005.0, 1015.0]
+
+
+def test_a_manager_that_gets_past_startup_resets_the_pacing(monkeypatch):
+    clock = [1000.0]
+    service, starts = _paced_service(monkeypatch, clock)
+    service.library = DeadLibrary()
+
+    service._recover_threads()  # immediate first rebuild arms the ladder
+    assert starts == [1000.0]
+
+    service.library = RunningLibrary()
+    service._recover_threads()  # healthy: the ladder resets
+
+    clock[0] = 1001.0
+    service.library = DeadLibrary()
+    service._recover_threads()  # a fresh death rebuilds immediately again
+    assert starts == [1000.0, 1001.0]
+
+
+def test_a_failing_build_on_its_way_out_does_not_reset_the_pacing(monkeypatch):
+    """run() raises stop_thread *before* startup_done on the failure path, so
+    the moment a failing build is alive with startup_done set, stop_thread is
+    already up — and must keep that brief window from resetting the ladder."""
+    clock = [1000.0]
+    service, starts = _paced_service(monkeypatch, clock)
+    service.library = DeadLibrary()
+
+    service._recover_threads()  # arm the ladder
+    assert starts == [1000.0]
+
+    class DyingLibrary(DeadLibrary):
+        def is_alive(self):
+            return True
+
+    clock[0] = 1001.0
+    service.library = DyingLibrary()
+    service._recover_threads()  # alive but stopping: no reset
+
+    clock[0] = 1002.0
+    service.library = DeadLibrary()
+    service._recover_threads()  # still inside the 5 s rung
+    assert starts == [1000.0]
+
+
 def _signed(service, payload=None):
     """A guarded message as kofin's own plugin process sends it."""
     import json
@@ -1457,6 +1567,11 @@ def test_a_cold_boot_away_from_the_server_states_the_outage(monkeypatch, tmp_pat
 
 
 class _FakeLibrary:
+    # A live fake reads as a *healthy* manager — past startup, not stopping —
+    # which is the shape _recover_threads consults when resetting its pacing.
+    startup_done = True
+    stop_thread = False
+
     def __init__(self, alive=False, workers=False):
         self._alive = alive
         self._workers = workers
