@@ -238,7 +238,7 @@
   "#30508": "Marchează ca vizionat pe Jellyfin",
   "#30509": "Marchează ca nevizionat pe Jellyfin",
   "#30551": "Activează SyncPlay",
-  "#30552": "Adaugă o intrare SyncPlay în rădăcina suplimentului, pentru vizionare sincronizată cu alți clienți Jellyfin. Dezactivat înseamnă fără meniu de grup și fără fire SyncPlay. Funcționează cel mai bine cu Sincronizează redarea cu afișajul dezactivat în setările de redare ale Kodi",
+  "#30552": "Adaugă o intrare SyncPlay în rădăcina suplimentului, pentru vizionare sincronizată cu alți clienți Jellyfin. Dezactivat înseamnă fără meniu de grup și fără fire SyncPlay. Lasă Sincronizează redarea cu afișajul dezactivat în setările de redare ale Kodi: dacă este activat, redarea urmează rata de reîmprospătare a afișajului, așa că dacă aceasta nu este un multiplu întreg al cadrelor pe secundă ale videoclipului, imaginea rulează prea repede sau prea încet și grupul nu poate rămâne sincronizat",
   "#30553": "Corecție de derivă",
   "#30554": "Ajustează ușor viteza de redare pentru a menține poziția cu grupul (necesită „Sincronizează redarea cu afișajul” din Kodi). Dezactivat: urmează doar comenzile programate.",
   "#30555": "Toleranță de sincronizare (ms)",

@@ -238,7 +238,7 @@
   "#30508": "Auf Jellyfin als gesehen markieren",
   "#30509": "Auf Jellyfin als ungesehen markieren",
   "#30551": "SyncPlay aktivieren",
-  "#30552": "Fügt dem Hauptmenü des Add-ons einen SyncPlay-Eintrag hinzu, um synchron mit anderen Jellyfin-Clients zu schauen. Aus bedeutet kein Gruppenmenü und keine SyncPlay-Threads. Funktioniert am besten, wenn „Wiedergabe an Bildschirm anpassen“ in den Kodi-Player-Einstellungen ausgeschaltet ist",
+  "#30552": "Fügt dem Hauptmenü des Add-ons einen SyncPlay-Eintrag hinzu, um synchron mit anderen Jellyfin-Clients zu schauen. Aus bedeutet kein Gruppenmenü und keine SyncPlay-Threads. Lass „Wiedergabe an Bildschirm anpassen“ in den Kodi-Player-Einstellungen ausgeschaltet: ist es an, folgt die Wiedergabe der Bildwiederholrate, sodass das Bild zu schnell oder zu langsam läuft und die Gruppe nicht synchron bleiben kann, wenn diese Rate kein ganzzahliges Vielfaches der Bildrate des Videos ist",
   "#30553": "Driftkorrektur",
   "#30554": "Passt die Wiedergabegeschwindigkeit sanft an, um die Position in der Gruppe zu halten (benötigt Kodis „Wiedergabe an Bildschirm anpassen“). Aus: nur geplanten Befehlen folgen.",
   "#30555": "Synchronisationstoleranz (ms)",

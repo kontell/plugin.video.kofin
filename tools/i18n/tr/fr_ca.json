@@ -238,7 +238,7 @@
   "#30508": "Marquer comme vu sur Jellyfin",
   "#30509": "Marquer comme non vu sur Jellyfin",
   "#30551": "Activer SyncPlay",
-  "#30552": "Ajoute une entrée SyncPlay à la racine de l'extension pour regarder en synchronisation avec d'autres clients Jellyfin. Désactivé, il n'y a ni menu de groupe ni fils SyncPlay. Fonctionne mieux avec « Synchroniser la lecture à l'affichage » désactivé dans les paramètres du lecteur de Kodi",
+  "#30552": "Ajoute une entrée SyncPlay à la racine de l'extension pour regarder en synchronisation avec d'autres clients Jellyfin. Désactivé, il n'y a ni menu de groupe ni fils SyncPlay. Laissez « Synchroniser la lecture à l'affichage » désactivé dans les paramètres du lecteur de Kodi : s'il est activé, la lecture suit la fréquence de l'écran, donc si cette fréquence n'est pas un multiple entier de la fréquence d'images de la vidéo, l'image défile trop vite ou trop lentement et le groupe ne peut pas rester synchronisé",
   "#30553": "Correction de dérive",
   "#30554": "Ajuste doucement la vitesse de lecture pour tenir la position avec le groupe (nécessite « Synchroniser la lecture à l'affichage » de Kodi). Désactivé : suit uniquement les commandes planifiées.",
   "#30555": "Tolérance de synchronisation (ms)",

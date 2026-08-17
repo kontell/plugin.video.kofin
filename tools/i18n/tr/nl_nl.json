@@ -238,7 +238,7 @@
   "#30508": "Markeren als bekeken op Jellyfin",
   "#30509": "Markeren als niet bekeken op Jellyfin",
   "#30551": "SyncPlay inschakelen",
-  "#30552": "Voegt een SyncPlay-item toe aan de hoofdmap van de add-on om synchroon met andere Jellyfin-clients te kijken. Uit betekent geen groepsmenu en geen SyncPlay-threads. Werkt het best met 'Afspelen synchroniseren met scherm' uitgeschakeld in Kodi's spelerinstellingen",
+  "#30552": "Voegt een SyncPlay-item toe aan de hoofdmap van de add-on om synchroon met andere Jellyfin-clients te kijken. Uit betekent geen groepsmenu en geen SyncPlay-threads. Laat 'Afspelen synchroniseren met scherm' uitgeschakeld in Kodi's spelerinstellingen: staat het aan, dan volgt het afspelen de verversingsfrequentie van het scherm, dus tenzij die een geheel veelvoud is van de framerate van de video loopt het beeld te snel of te langzaam en kan de groep niet synchroon blijven",
   "#30553": "Driftcorrectie",
   "#30554": "Past de afspeelsnelheid geleidelijk aan om gelijk te blijven met de groep (vereist Kodi's 'Afspelen synchroniseren met scherm'). Uit: volg alleen geplande opdrachten.",
   "#30555": "Synchronisatietolerantie (ms)",

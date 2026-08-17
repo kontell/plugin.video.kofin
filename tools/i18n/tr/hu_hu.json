@@ -238,7 +238,7 @@
   "#30508": "Megjelölés megtekintettként a Jellyfinben",
   "#30509": "Megjelölés megtekintetlenként a Jellyfinben",
   "#30551": "SyncPlay engedélyezése",
-  "#30552": "SyncPlay bejegyzést ad a kiegészítő gyökeréhez, hogy más Jellyfin-kliensekkel szinkronban nézhessen. Kikapcsolva nincs csoportmenü és nincsenek SyncPlay-szálak. Akkor működik a legjobban, ha a Kodi lejátszási beállításaiban a Lejátszás szinkronizálása a képernyőhöz ki van kapcsolva",
+  "#30552": "SyncPlay bejegyzést ad a kiegészítő gyökeréhez, hogy más Jellyfin-kliensekkel szinkronban nézhessen. Kikapcsolva nincs csoportmenü és nincsenek SyncPlay-szálak. Hagyd kikapcsolva a Kodi lejátszási beállításaiban a Lejátszás szinkronizálása a képernyőhöz opciót: ha be van kapcsolva, a lejátszás a képernyő képfrissítését követi, így ha az nem a videó képkockasebességének egész számú többszöröse, a kép túl gyorsan vagy túl lassan fut, és a csoport nem tud szinkronban maradni",
   "#30553": "Elcsúszás korrekciója",
   "#30554": "Finoman igazítja a lejátszási sebességet, hogy tartsa a pozíciót a csoporttal (a Kodi „Lejátszás szinkronizálása a képernyőhöz” beállítása kell hozzá). Kikapcsolva: csak az ütemezett parancsok követése.",
   "#30555": "Szinkrontűrés (ms)",

@@ -285,10 +285,6 @@ class SyncPlayManager(object):
 
         return state.get_playing_id() or None
 
-    def is_transcoding(self):
-        info = self._local_file_info()
-        return bool(info) and info.get("PlayMethod") == "Transcode"
-
     def post_report(self, kind, position_s=None):
         """Ready/Buffering report with our actual position (SYNCPLAY.md §4).
 

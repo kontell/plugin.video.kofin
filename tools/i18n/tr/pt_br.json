@@ -238,7 +238,7 @@
   "#30508": "Marcar como assistido no Jellyfin",
   "#30509": "Marcar como não assistido no Jellyfin",
   "#30551": "Ativar o SyncPlay",
-  "#30552": "Adiciona uma entrada SyncPlay à raiz do add-on para assistir em sincronia com outros clientes Jellyfin. Desativado, não há menu de grupos nem threads de SyncPlay. Funciona melhor com “Sincronizar reprodução com a tela” desligado nas configurações do reprodutor do Kodi",
+  "#30552": "Adiciona uma entrada SyncPlay à raiz do add-on para assistir em sincronia com outros clientes Jellyfin. Desativado, não há menu de grupos nem threads de SyncPlay. Deixe “Sincronizar reprodução com a tela” desligado nas configurações do reprodutor do Kodi: com ela ligada, a reprodução segue a taxa de atualização da tela, então se essa taxa não for um múltiplo inteiro da taxa de quadros do vídeo, a imagem corre rápido ou lento e o grupo não consegue ficar em sincronia",
   "#30553": "Correção de desvio",
   "#30554": "Ajusta suavemente a velocidade de reprodução para manter a posição do grupo (requer “Sincronizar reprodução com a tela” do Kodi). Desativado: segue apenas os comandos agendados.",
   "#30555": "Tolerância de sincronia (ms)",
