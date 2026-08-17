@@ -407,7 +407,32 @@ def test_pruning_sources_spares_the_users_own(musicdb):
     assert sorted(row[0] for row in sources(cur)) == sorted([90, kept])
 
 
-def test_song_albums_reach_a_source_without_an_album_mapping(musicdb):
+def attach_mapping(db, tmp_path, rows):
+    """Give ``db`` a kofin mapping database holding ``rows``.
+
+    Built with the real ``kofin_tables`` rather than a hand-written CREATE, so
+    a column the reconcile reads cannot drift out from under these tests.
+    ``rows`` are ``(media_type, media_folder, kodi_id)``.
+    """
+    from kofin.sync.db import kofin_tables
+
+    path = str(tmp_path / "kofin.db")
+    mapping = sqlite3.connect(path)
+    kofin_tables(mapping.cursor())
+    mapping.executemany(
+        "INSERT INTO jellyfin(jellyfin_id, media_type, media_folder, kodi_id) "
+        "VALUES (?, ?, ?, ?)",
+        [
+            ("%s-%s" % (media_type, kodi_id), media_type, folder, kodi_id)
+            for media_type, folder, kodi_id in rows
+        ],
+    )
+    mapping.commit()
+    mapping.close()
+    db.attach_mapping(path)
+
+
+def test_song_albums_reach_a_source_without_an_album_mapping(musicdb, tmp_path):
     """The singles path: a single's album is created on the fly by the writer
     and has no kofin.db reference, so walking the album mappings alone drops
     every single out of its library's nodes."""
@@ -420,7 +445,64 @@ def test_song_albums_reach_a_source_without_an_album_mapping(musicdb):
         "INSERT INTO song(idSong, idAlbum, idPath, strTitle) VALUES (?, ?, ?, ?)",
         (7, album_id, path_id, "Opening Track"),
     )
+    attach_mapping(db, tmp_path, [("song", "lib-music", 7)])
 
-    db.link_song_albums_source([7], source_id)
+    db.link_library_song_albums("lib-music", source_id)
 
     assert album_sources(cur) == [(source_id, album_id)]
+
+
+def test_a_library_links_every_mapped_album_in_one_statement(musicdb, tmp_path):
+    """The album leg, which used to be two statements per album."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    source_id = db.ensure_source("lib-music", "Tunes")
+    mine = [make_album(cur, "First"), make_album(cur, "Second")]
+    theirs = make_album(cur, "Someone Else's")
+    attach_mapping(
+        db,
+        tmp_path,
+        [("album", "lib-music", album_id) for album_id in mine]
+        + [("album", "lib-other", theirs)],
+    )
+
+    db.link_library_albums("lib-music", source_id)
+
+    assert album_sources(cur) == sorted((source_id, album) for album in mine)
+
+
+def test_a_library_move_unlinks_the_album_from_its_old_source(musicdb, tmp_path):
+    """The half that makes a move stick: the album comes back on the same
+    idAlbum, so without the unlink it sits in both libraries' nodes for good."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    old = db.ensure_source("lib-old", "Old")
+    new = db.ensure_source("lib-new", "New")
+    album_id = make_album(cur, "Moved")
+    db.link_album_source(album_id, old)
+    assert album_sources(cur) == [(old, album_id)]
+
+    attach_mapping(db, tmp_path, [("album", "lib-new", album_id)])
+    db.link_library_albums("lib-new", source_id=new)
+
+    assert album_sources(cur) == [(new, album_id)]
+
+
+def test_the_unlink_spares_a_source_kofin_does_not_own(musicdb, tmp_path):
+    """A user's own scanned source shares this table and is never ours."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    mine = db.ensure_source("lib-music", "Tunes")
+    cur.execute(
+        "INSERT INTO source(idSource, strName, strMultipath) VALUES (?, ?, ?)",
+        (90, "Ripped CDs", "/home/me/music/"),
+    )
+    album_id = make_album(cur, "Shared")
+    cur.execute(
+        "INSERT INTO album_source(idSource, idAlbum) VALUES (?, ?)", (90, album_id)
+    )
+    attach_mapping(db, tmp_path, [("album", "lib-music", album_id)])
+
+    db.link_library_albums("lib-music", mine)
+
+    assert album_sources(cur) == sorted([(90, album_id), (mine, album_id)])

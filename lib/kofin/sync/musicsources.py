@@ -63,37 +63,78 @@ def reassert(kofin_cursor, music_cursor, views):
 
     Idempotent by construction — ``ensure_source`` renames in place and the
     links are INSERT OR IGNORE against a unique index — so the healthy case
-    is a few hundred no-op statements. Returns ``{library id: source id}``.
+    is three no-op statements per library. Returns ``{library id: source id}``.
 
     The song leg is not redundant with the album leg: a single's album is
     created by the writer on the fly (``writers/music.py`` ``single``) and
     has no kofin.db reference of its own, so walking the album mappings
     alone drops every single out of the library's nodes.
-    """
-    from kofin.sync.kofindb import JellyfinDatabase
 
-    mapping = JellyfinDatabase(kofin_cursor)
+    Done entirely in SQL against an ATTACHed kofin.db. The mapping rows used
+    to be fetched into Python and fed back a library at a time, and that
+    boundary was the whole cost of the reconcile — see the measurements on
+    the statements in ``queries_music``. kofin.db is only ever *read* here,
+    so the fact that a cross-database transaction is not atomic while the
+    main database is in WAL mode does not apply: every write lands in
+    MyMusic.
+    """
     music = Music(music_cursor)
     sources = {}
 
-    for view in views:
-        view_id = _view_id(view)
-        source_id = music.ensure_source(view_id, source_name(view_id, views))
-        sources[view_id] = source_id
+    # ATTACH is refused inside a transaction and every caller has usually
+    # opened one — ``check_version`` runs prune_orphan_paths first, and
+    # ``full_sync`` arrives here at the end of a library write pass. Flushing
+    # theirs is safe rather than merely convenient: the repair paths are
+    # idempotent, and the writers already commit per page, so the most this
+    # can promote from "would have rolled back" to "committed" is the tail of
+    # a pass the resume machinery re-runs anyway.
+    music_cursor.connection.commit()
+    music.attach_mapping(_mapping_path(kofin_cursor))
 
-        for album_id in mapping.get_kodi_ids_by_media_folder("album", view_id):
-            music.link_album_source(album_id, source_id)
+    try:
+        for view in views:
+            view_id = _view_id(view)
+            source_id = music.ensure_source(view_id, source_name(view_id, views))
+            sources[view_id] = source_id
 
-        music.link_song_albums_source(
-            mapping.get_kodi_ids_by_media_folder("song", view_id), source_id
-        )
+            music.link_library_albums(view_id, source_id)
+            music.link_library_song_albums(view_id, source_id)
 
-    removed = music.prune_sources(sources)
+        removed = music.prune_sources(sources)
+    except BaseException:
+        # ``Database.__exit__`` rolls back on the error path on purpose
+        # (audit finding #15). The commit DETACH forces on us must not quietly
+        # convert that into "half a reconcile, persisted".
+        music_cursor.connection.rollback()
+        raise
+    else:
+        # DETACH is refused inside a transaction too, so the reconcile's own
+        # writes commit here rather than at the caller's context exit.
+        music_cursor.connection.commit()
+    finally:
+        # Either arm above ended the transaction, so this can always run.
+        music.detach_mapping()
 
     if removed:
         LOG.info("removed %d music source(s) for unsynced libraries", removed)
 
     return sources
+
+
+def _mapping_path(kofin_cursor):
+    """The file behind the kofin connection the caller handed us.
+
+    Asked of the connection rather than re-derived from settings, so the
+    reconcile can only ever attach the database it was given — which is also
+    what makes it follow a test's path override without knowing about one.
+    """
+    kofin_cursor.execute("PRAGMA database_list")
+
+    for _seq, name, path in kofin_cursor.fetchall():
+        if name == "main":
+            return path
+
+    raise RuntimeError("kofin connection has no main database to attach")
 
 
 def _view_id(view):
