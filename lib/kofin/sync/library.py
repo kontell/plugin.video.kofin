@@ -159,7 +159,6 @@ class Library(threading.Thread):
 
     started = False
     stop_thread = False
-    suspend = False
     pending_refresh = False
     # A first-content skin reload held back because video was playing; fired
     # by the service tick once playback ends (see _reload_skin_for_content).
@@ -2220,12 +2219,15 @@ class Library(threading.Thread):
         interrupted sync comes back after a restart but not after a
         reconnection.
 
-        Polling sync.json is what makes this reconnection-proof. There is no
-        offline->online edge to trigger from: nothing in the addon ever calls
-        ``state.set_online(False)``, so the flag latches true on the first
-        connect and a later outage is invisible here. A periodic check needs
-        no such signal — it simply succeeds on the first tick after the server
-        answers again.
+        Polling sync.json is what makes this reconnection-proof. An
+        offline->online edge does exist (``service.main._go_offline`` lowers
+        the flag on a confirmed outage, ``_connect`` raises it back), but it
+        is the wrong trigger for this thread: the same outage tears this
+        manager down (``sync.shims.stop``) and the edge builds its
+        *replacement*, and the flag can also be lowered by an older
+        generation's teardown under a live connection (``_republish_online``).
+        A periodic check needs none of that to be true — it simply succeeds on
+        the first tick after the server answers again.
         """
         if self.resume_at is not None and datetime.now() < self.resume_at:
             return
