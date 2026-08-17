@@ -276,6 +276,71 @@ def stop_player(wait_seconds: float = 0.0) -> bool:
     return True
 
 
+def resume_player() -> bool:
+    """Set every active player *playing*, by intent rather than by toggling.
+
+    ``xbmc.Player.pause()`` is a toggle and it lands asynchronously, so
+    "toggle it if it reads paused" is two races stacked: the read can predate a
+    pause still in flight, and the toggle then arrives while the player is
+    already moving the other way.
+
+    That is measured, not theoretical. A group Unpause that had to align first
+    left a member paused for good: the align seek resumed the player (Android's
+    VideoPlayer does resume on seek), the settle loop re-paused it because it
+    had been paused going in, and the toggle meant to start it read the
+    not-yet-applied pause as "playing" and did nothing — so the pause landed
+    last and the member sat still while the group played on
+    (``docs/syncplay-drift-shakedown.md`` §11).
+
+    ``Player.PlayPause`` takes an explicit ``play`` flag, which has no state to
+    race: asking for playing while already playing is a no-op.
+
+    This only *asks*. Confirming is the caller's job and cannot be done from
+    ``speed``, which reads 1 for a player that is not advancing — the position
+    sampled twice is the only proof (kodi-drive: kodi-jsonrpc). The SyncPlay
+    controller's ``_resume_and_verify`` does that, and re-asks, because the
+    failure being guarded is another thread's pause landing after this call.
+
+    Returns True when the request went out (or no player was active).
+    """
+    try:
+        listed: Dict[str, Any] = json.loads(
+            xbmc.executeJSONRPC(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "Player.GetActivePlayers",
+                    }
+                )
+            )
+        )
+        active = listed["result"]
+    except Exception as error:
+        LOG.warning("could not read the active players to resume them: %s", error)
+        return False
+
+    if not active:
+        return True
+
+    for player in active:
+        try:
+            xbmc.executeJSONRPC(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "Player.PlayPause",
+                        "params": {"playerid": int(player["playerid"]), "play": True},
+                    }
+                )
+            )
+        except Exception as error:
+            LOG.warning("resume failed for player %r: %s", player, error)
+
+    return True
+
+
 def resume_seconds(kodi_id: int, media: str) -> Optional[float]:
     """Kodi's stored resume position for a library row.
 

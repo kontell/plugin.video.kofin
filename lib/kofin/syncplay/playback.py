@@ -63,6 +63,14 @@ class PlaybackController(object):
         self._loop_thread = None
         self._loop_stop = threading.Event()
 
+        # schedule() arms the fire-time timer and *then* pre-aligns on the
+        # dispatcher, so both touch the player at once whenever the align
+        # overruns the scheduling lead — measured on a transcoding member,
+        # where a 600 ms seek beat a 437 ms lead and the align's re-pause
+        # landed after the resume, stranding it. The two sequences take this
+        # in turn instead.
+        self._player_lock = threading.RLock()
+
         self._caching_since = None
         self._buffering_reported = False
 
@@ -116,6 +124,14 @@ class PlaybackController(object):
         if self._is_audio() or self.manager.phase not in ("waiting_ready", "synced"):
             return
 
+        if self.manager.is_transcoding():
+            # A transcode cannot seek to an arbitrary position (it snaps to a
+            # segment: 47603 ms asked, 43964 ms landed) and the restart costs
+            # more than the scheduling lead, so pre-aligning makes the start
+            # both later and further out. Resume where we are instead.
+            LOG.info("[ syncplay/align ] skipped: transcoding")
+            return
+
         target_ms = utils.ticks_to_ms(command.get("PositionTicks") or 0)
 
         try:
@@ -128,7 +144,7 @@ class PlaybackController(object):
 
         LOG.info("[ syncplay/align ] %+.0fms to the start position", offset_ms)
 
-        with self.manager.programmatic():
+        with self._player_lock, self.manager.programmatic():
             self._seek_and_settle(target_ms)
 
     def cancel_pending(self):
@@ -182,7 +198,7 @@ class PlaybackController(object):
             ticks, when_ms, self.manager.server_now_ms()
         )
 
-        with self.manager.programmatic():
+        with self._player_lock, self.manager.programmatic():
             if self._is_audio():
                 # Resume first: a paused PAPlayer must never be seeked
                 # (field-verified: seeks and even the pause toggle queue
@@ -204,11 +220,25 @@ class PlaybackController(object):
 
                 # Catch-all for starts that were not pre-aligned at arm time
                 # (late commands execute immediately): the same tight band.
+                # stay_paused=False because a resume follows immediately: the
+                # settle's re-pause would fight it, and the pause it queues
+                # lands after the resume decision is taken.
+                #
+                # Never on a transcode, for the same reason the arm-time align
+                # is skipped: the seek snaps to a segment boundary, so aligning
+                # a member that was 224 ms out left it 4.2 s out instead. An
+                # offset the transport cannot close is better carried than
+                # widened.
                 if abs(behind_ms) > utils.UNPAUSE_ALIGN_MS:
-                    self._seek_and_settle(target_ms)
+                    if self.manager.is_transcoding():
+                        LOG.info(
+                            "[ syncplay/align ] %+.0fms carried: transcoding",
+                            behind_ms,
+                        )
+                    else:
+                        self._seek_and_settle(target_ms, stay_paused=False)
 
-                if self._is_paused():
-                    self.player.pause()  # toggles back to playing
+                self._resume_and_verify()
 
         self.manager.on_local_unpaused()
 
@@ -254,6 +284,33 @@ class PlaybackController(object):
 
         return False
 
+    def _resume_and_verify(self):
+        """Ask for playing, and keep asking until the clock actually moves.
+
+        ``speed`` is not proof: Kodi reports speed 1 for a player that is not
+        advancing, so the only signal is the position sampled twice
+        (kodi-drive: kodi-jsonrpc). Re-asking matters as much as checking —
+        the failure this exists for is another thread's pause landing *after*
+        our resume, and a second explicit play is what undoes that.
+        """
+        deadline = utils.local_ms() + utils.RESUME_VERIFY_S * 1000
+        attempts = 0
+
+        while utils.local_ms() < deadline:
+            kodirpc.resume_player()
+            attempts += 1
+            before = self._position_ms()
+            xbmc.sleep(utils.RESUME_VERIFY_STEP_MS)
+
+            if self._position_ms() > before + 20:
+                if attempts > 1:
+                    LOG.info("[ syncplay/unpause ] took %s attempts", attempts)
+
+                return True
+
+        LOG.warning("Unpause did not start playback; leaving it to a resync")
+        return False
+
     def _do_pause(self, ticks):
         if not self._has_media():
             return
@@ -287,6 +344,18 @@ class PlaybackController(object):
             self.manager.post_report(
                 "syncplay_ready", position_s=utils.ticks_to_seconds(ticks)
             )
+            return
+
+        if self.manager.is_transcoding():
+            # A seek inside a transcoded stream cannot land where it was asked
+            # to: Kodi snaps to the nearest segment boundary and says so
+            # ("SeekTime - seek ended up on time 3008429" for a 3000000 ms
+            # target — 8.4s past). Restarting the stream at the target is
+            # exact, because the server begins encoding there, which is how
+            # every kofin play already starts. The reload reports Ready through
+            # the normal load flow, so nothing is reported here.
+            LOG.info("[ syncplay/seek ] transcoding: reloading at the target")
+            self.manager.reload_current_item()
             return
 
         with self.manager.programmatic():
@@ -339,8 +408,13 @@ class PlaybackController(object):
 
         params = {"mode": "play", "id": str(item_id)}
 
-        if start_ticks:
-            params["startticks"] = str(int(start_ticks))
+        # Always sent, and never negative. A group start names the position
+        # even when that position is zero, so a falsy 0 must not be dropped —
+        # omitting it lets the play route fall back to the member's own resume
+        # point, which starts it minutes away from the group. And the estimate
+        # can land just below zero (extrapolation across a clock offset), which
+        # was measured reaching the route as startticks=-240000.
+        params["startticks"] = str(max(0, int(start_ticks or 0)))
 
         url = plugin_url(params)
         playlist_type = (
@@ -542,12 +616,18 @@ class PlaybackController(object):
         except Exception:
             return 0.0
 
-    def _seek_and_settle(self, target_ms):
+    def _seek_and_settle(self, target_ms, stay_paused=True):
         """Seek and wait for the position to land.
 
         Aligning on a server command (Unpause/Seek) or a fresh item is the
         only thing that seeks: between commands a residual offset is left
         alone.
+
+        ``stay_paused`` is the caller's intent for afterwards. It matters
+        because a seek can resume a paused player by itself — PAPlayer always
+        does, and Android's VideoPlayer was measured doing it too — so a caller
+        that wants to stay paused has to undo that, and a caller about to
+        resume must *not*, or the two fight and the player can end up stopped.
         """
         was_paused = self._is_paused()
         target_s = max(0.0, target_ms / 1000.0)
@@ -565,11 +645,13 @@ class PlaybackController(object):
 
             xbmc.sleep(100)
 
-        if was_paused:
-            # PAPlayer::SeekTime() unconditionally restores playback
-            # speed, silently resuming a paused music player (VideoPlayer
-            # does not). The resume can also land after the settle loop,
-            # so on audio watch a short window before trusting the state.
+        if was_paused and stay_paused:
+            # PAPlayer::SeekTime() unconditionally restores playback speed,
+            # silently resuming a paused music player, and Android's
+            # VideoPlayer does the same (OnPlayBackStarted right after the
+            # seek — the fork's comment claimed otherwise). The resume can
+            # also land after the settle loop, so on audio watch a short
+            # window before trusting the state.
             watch_until = utils.local_ms() + (
                 utils.SEEK_REPAUSE_WINDOW_MS if self._is_audio() else 0
             )

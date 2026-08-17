@@ -11,7 +11,7 @@ import pytest
 import kofin.syncplay.playback as playback_module
 from kofin.syncplay import utils
 from kofin.syncplay.playback import PlaybackController
-from tests.unit.fakes import FakeAddon, FakeWindow
+from tests.unit.fakes import FakeAddon, FakeWindow, player_ops_rpc
 
 
 class FakePlayer:
@@ -19,12 +19,24 @@ class FakePlayer:
 
     def __init__(self):
         self.playing = True
-        self.paused = False
+        self._paused = False
+        # xbmc.Player.pause() posts TMSG_MEDIA_PAUSE and returns; the state a
+        # caller reads immediately afterwards is still the old one. With
+        # pause_latency=N the next N reads see the stale value before the
+        # toggle lands, which is the window a "toggle if it reads paused"
+        # resume falls into. 0 keeps the simple synchronous model.
+        self.pause_latency = 0
+        self._pending_paused = None
+        self._stale_reads = 0
         self.position = 0.0
         self.total = 0.0
         self.audio = False  # PAPlayer semantics when True
+        self.resumes_on_seek = False  # Android VideoPlayer semantics
         self.broken_clock = False  # getTime() raises (gapless swap window)
-        self.clock_advances = False  # getTime() moves while unpaused
+        # A playing player advances, and the controller proves a resume
+        # took by sampling the position twice -- so a frozen clock reads as
+        # a failure to start. Tests wanting a jammed player set this False.
+        self.clock_advances = True
         self._reads = 0
         self.actions = []
         FakePlayer.current = self
@@ -50,8 +62,33 @@ class FakePlayer:
 
         return self.total
 
+    @property
+    def paused(self):
+        if self._stale_reads > 0:
+            self._stale_reads -= 1
+            return self._paused
+
+        if self._pending_paused is not None:
+            self._paused = self._pending_paused
+            self._pending_paused = None
+
+        return self._paused
+
+    @paused.setter
+    def paused(self, value):
+        self._paused = bool(value)
+        self._pending_paused = None
+        self._stale_reads = 0
+
     def pause(self):
-        self.paused = not self.paused
+        target = not self.paused
+
+        if self.pause_latency:
+            self._pending_paused = target
+            self._stale_reads = self.pause_latency
+        else:
+            self._paused = target
+
         self.actions.append("pause")
 
     def seekTime(self, seconds):
@@ -59,9 +96,10 @@ class FakePlayer:
         self._reads = 0
         self.actions.append(("seek", seconds))
 
-        if self.audio and self.paused:
-            # PAPlayer::SeekTime() restores playback speed, silently
-            # resuming a paused player.
+        if (self.audio or self.resumes_on_seek) and self._paused:
+            # PAPlayer::SeekTime() restores playback speed, silently resuming
+            # a paused player; Android's VideoPlayer was measured doing the
+            # same, which resumes_on_seek stands in for.
             self.paused = False
 
     def stop(self):
@@ -83,6 +121,8 @@ class FakeManager:
         self.report_positions = []
         self.unpaused = False
         self.stopped = False
+        self.transcoding = False
+        self.reloads = 0
 
     def in_group(self):
         return True
@@ -110,6 +150,12 @@ class FakeManager:
     def on_group_stopped(self):
         self.stopped = True
 
+    def is_transcoding(self):
+        return self.transcoding
+
+    def reload_current_item(self):
+        self.reloads += 1
+
 
 @pytest.fixture(autouse=True)
 def kodi_fakes(monkeypatch):
@@ -136,30 +182,14 @@ def _player_conditions(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _stop_over_jsonrpc(monkeypatch):
-    """Stops leave through JSON-RPC, not ``player.stop()`` (issue #155).
-
-    Wired back to the fake player so the controller's stops still show up as a
-    ``"stop"`` action: the seam moved, the observable behaviour did not.
+def _player_ops_over_jsonrpc(monkeypatch):
+    """Stops and resumes leave through JSON-RPC, not the player bindings
+    (issue #155 for the stop, kodirpc.resume_player for the resume). Wired
+    back to the fake player so the observable behaviour is unchanged.
     """
-    import json as _json
-
-    def rpc(query):
-        payload = _json.loads(query)
-        player = FakePlayer.current
-        if payload["method"] == "Player.GetActivePlayers":
-            if player is None or not player.playing:
-                return _json.dumps({"result": []})
-            return _json.dumps({"result": [{"playerid": 0 if player.audio else 1}]})
-        if payload["method"] == "Player.Stop":
-            if player is not None:
-                player.actions.append("stop")
-                player.playing = False
-            return _json.dumps({"result": "OK"})
-        return _json.dumps({"result": {}})
-
-    monkeypatch.setattr("xbmc.executeJSONRPC", rpc)
-    monkeypatch.setattr("xbmc.Monitor.waitForAbort", lambda self, timeout=-1: False)
+    monkeypatch.setattr(
+        "xbmc.executeJSONRPC", player_ops_rpc(lambda: FakePlayer.current)
+    )
 
 
 def make_controller(paused=False, position=0.0):
@@ -287,6 +317,7 @@ class TestPause:
 
     def test_pause_within_tolerance_no_seek(self):
         controller, manager, player = make_controller(paused=False, position=10.1)
+        player.clock_advances = False  # a still clock isolates the band itself
         controller.schedule(command("Pause", -10, ticks=utils.seconds_to_ticks(10)))
 
         assert player.paused
@@ -494,6 +525,91 @@ class TestStartHoldGates:
         assert "syncplay_ready" in manager.reports
 
 
+class TestUnpauseIsByIntent:
+    """A group Unpause must end with the player *playing*, whatever the seek
+    that preceded it did to the pause state.
+
+    Measured failure it guards (docs/syncplay-drift-shakedown.md §11): the
+    align seek resumed the player, the settle re-paused it, and the toggle that
+    was meant to start it read the not-yet-applied pause as "playing" and did
+    nothing — so the member sat still while the group played on, and with no
+    drift loop nothing ever revisited it.
+    """
+
+    def test_unpause_resumes_even_when_the_seek_resumed_the_player(self):
+        controller, manager, player = make_controller(paused=True, position=0.0)
+        player.resumes_on_seek = True  # Android VideoPlayer
+        player.pause_latency = 1  # the re-pause lands after the state read
+        controller.schedule(command("Unpause", -10, ticks=utils.seconds_to_ticks(42)))
+
+        assert player.paused is False  # playing, not stranded
+        assert player.position == pytest.approx(42, abs=0.2)
+
+    def test_align_seek_does_not_re_pause_when_a_resume_follows(self):
+        controller, manager, player = make_controller(paused=True, position=0.0)
+        player.resumes_on_seek = True
+        player.pause_latency = 1
+        controller.schedule(command("Unpause", -10, ticks=utils.seconds_to_ticks(42)))
+
+        # One pause toggle in the whole sequence would mean the settle re-paused
+        # and something had to undo it; the fixed path never re-pauses at all.
+        assert "pause" not in player.actions
+        assert player.paused is False
+
+    def test_a_seek_that_must_stay_paused_still_re_pauses(self):
+        controller, manager, player = make_controller(paused=True, position=0.0)
+        player.resumes_on_seek = True
+
+        with manager.programmatic():
+            controller._seek_and_settle(5000.0)  # default: stay paused
+
+        assert player.paused is True
+
+
+class TestTranscodedSeekReloads:
+    """A seek inside a transcoded stream cannot land on the target — Kodi snaps
+    to a segment boundary (measured 8.4 s past a 50:00 target) — and reporting
+    that position makes the server correct it, land on the same boundary, and
+    correct again: four rounds and ~13 s of the group held in Waiting. Starting
+    the stream at the target instead is exact.
+    """
+
+    def test_transcoding_reloads_at_the_target(self):
+        controller, manager, player = make_controller(position=10.0)
+        manager.transcoding = True
+
+        controller.schedule(command("Seek", -10, ticks=utils.seconds_to_ticks(1200)))
+
+        assert manager.reloads == 1
+        assert not [a for a in player.actions if a[0] == "seek"]
+        # The reload reports Ready through the load flow, not from here.
+        assert manager.reports == []
+
+    def test_transcoding_unpause_carries_the_offset(self):
+        # The fire-time align has the same problem as the arm-time one: on a
+        # transcode the seek snaps to a segment, so aligning a member that was
+        # 224 ms out left it 4.2 s out (measured). Resume where it is instead.
+        controller, manager, player = make_controller(paused=True, position=10.0)
+        manager.transcoding = True
+
+        controller.schedule(command("Unpause", -10, ticks=utils.seconds_to_ticks(12)))
+
+        assert player.paused is False  # still resumed
+        assert not [
+            a for a in player.actions if isinstance(a, tuple) and a[0] == "seek"
+        ]
+
+    def test_direct_play_still_seeks_in_place(self):
+        controller, manager, player = make_controller(position=10.0)
+        manager.transcoding = False
+
+        controller.schedule(command("Seek", -10, ticks=utils.seconds_to_ticks(1200)))
+
+        assert manager.reloads == 0
+        assert player.position == pytest.approx(1200, abs=0.2)
+        assert manager.reports == ["syncplay_ready"]
+
+
 class TestBufferingWatch:
     def test_caching_debounce_and_recovery(self, monkeypatch):
         controller, manager, player = make_controller(paused=False, position=5.0)
@@ -586,7 +702,11 @@ class TestPlayPathRetarget:
         plays = [a for a in player.actions if isinstance(a, tuple) and a[0] == "play"]
         assert plays and plays[0][2] == 0  # startpos 0
 
-    def test_zero_start_omits_startticks_and_stops_current(self):
+    def test_zero_start_sends_startticks_and_stops_current(self):
+        # It used to be omitted. A group start naming position zero must still
+        # say so: with no startticks the play route falls back to this member's
+        # own resume point, which is how a follower ended up 290 s from the
+        # group (docs/syncplay-drift-shakedown.md §11).
         import xbmc
 
         controller, manager, player = make_controller()
@@ -595,8 +715,22 @@ class TestPlayPathRetarget:
         controller.play_item({"Id": "item-2", "Type": "Episode"}, 0)
 
         playlist = FakePlaylist.instances[xbmc.PLAYLIST_VIDEO]
-        assert "startticks" not in playlist.entries[0]
+        assert "startticks=0" in playlist.entries[0]
         assert "stop" in player.actions  # the previous item was torn down
+
+    def test_negative_estimate_is_clamped_not_passed_through(self):
+        # A group start's estimate can land fractionally below zero across a
+        # clock offset; it reached the play route as startticks=-240000, which
+        # the route cannot use, so the member fell back to its own resume point
+        # and started 290 s from the group (docs/syncplay-drift-shakedown.md).
+        import xbmc
+
+        controller, manager, player = make_controller()
+        controller.play_item({"Id": "abc", "Type": "Movie"}, -240000)
+
+        url = FakePlaylist.instances[xbmc.PLAYLIST_VIDEO].entries[0]
+        assert "startticks=0" in url
+        assert "startticks=-" not in url
 
     def test_audio_items_use_the_music_playlist(self):
         import xbmc

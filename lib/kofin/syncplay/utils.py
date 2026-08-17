@@ -46,9 +46,11 @@ HOLD_RELEASE_TIMEOUT = 10.0  # a held start nobody adopted resumes after this
 STOP_PROMPT_GRACE = 1.0  # window for a replace-play to supersede a local stop
 STOP_PROMPT_POLL = 0.1  # supersession poll cadence within that window
 # PAPlayer::SeekTime() unconditionally restores playback speed, silently
-# resuming a paused music player (VideoPlayer does not do this). Every seek
-# that expects to stay paused must therefore re-pause, and the resume can
-# land after the seek settles, so audio watches a little longer.
+# resuming a paused music player. The fork's comment here said VideoPlayer does
+# not; on Android it does (OnPlayBackStarted fires right after the seek), which
+# is how a group Unpause used to strand a member — see kodirpc.resume_player.
+# So every seek that expects to stay paused re-pauses, and the resume can land
+# after the seek settles, so audio watches a little longer.
 SEEK_REPAUSE_WINDOW_MS = 600.0
 # A PAPlayer paused around a gapless boundary is unreliable: state reads
 # (isPlaying/getTime/Player.Paused) intermittently report no media, and a
@@ -59,6 +61,11 @@ UNPAUSE_RETRY_WINDOW_MS = 4000.0  # keep trying this long before giving up
 UNPAUSE_NUDGE_INTERVAL_MS = 600.0  # min gap between pause-toggle nudges
 UNPAUSE_VERIFY_STEP_MS = 300  # clock sample spacing (xbmc.sleep, int ms)
 SEEK_SETTLE_TIMEOUT = 3.0  # give up waiting for a seek to land after this
+# A group Unpause asks for playing explicitly and then confirms the clock
+# moved, because the failure to start is silent otherwise: the member simply
+# sits still while the group plays on, and nothing revisits it.
+RESUME_VERIFY_S = 1.5  # keep asking for playing this long
+RESUME_VERIFY_STEP_MS = 300  # clock sample spacing (xbmc.sleep, int ms)
 PROGRAMMATIC_ECHO_GRACE = 1.0  # player events within this window of our own actions
 STOP_WAIT_SECONDS = 3.0  # bound on waiting for a requested stop to take effect
 
