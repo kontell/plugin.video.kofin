@@ -421,6 +421,75 @@ def test_refresh_noop_without_databases(builtins):
     assert builtins == []
 
 
+def _fastsync_manager(monkeypatch):
+    """A manager whose fast_sync only records that it ran."""
+    manager, _api = make_library()
+    monkeypatch.setattr(manager, "update_status_strings", lambda: None)
+    manager.companion_tier = library_mod.TIER_OFFICIAL
+    passes = []
+
+    def fake_fast_sync():
+        manager.last_fast_sync_started = time.monotonic()
+        passes.append(True)
+        return True
+
+    monkeypatch.setattr(manager, "fast_sync", fake_fast_sync)
+    return manager, passes
+
+
+def test_a_queued_fastsync_is_dropped_when_a_later_pass_covered_it(monkeypatch):
+    """The wake case: the manager was still in startup when the screensaver
+    queued FastSync, so startup's own pass ran *after* the request and asked
+    the server the same question. Running the command too re-fetched the same
+    window — the watermark only moves when the drain completes — and re-queued
+    the same work, so one added movie was written and then read back to be
+    skipped as unchanged."""
+    manager, passes = _fastsync_manager(monkeypatch)
+
+    manager.enqueue_command("FastSync")
+    manager.fast_sync()  # startup's pass, after the command was queued
+    manager.process_commands()
+
+    assert passes == [True]
+
+
+def test_a_fastsync_queued_after_the_last_pass_still_runs(monkeypatch):
+    """The guarantee this must not break: a wake long after the last pass is
+    the only cover for a websocket that went half-open while asleep."""
+    manager, passes = _fastsync_manager(monkeypatch)
+
+    manager.fast_sync()  # an earlier pass, before the wake
+    manager.enqueue_command("FastSync")
+    manager.process_commands()
+
+    assert passes == [True, True]
+
+
+def test_the_first_fastsync_of_a_session_always_runs(monkeypatch):
+    """Nothing has run yet, so there is nothing to have covered it."""
+    manager, passes = _fastsync_manager(monkeypatch)
+    assert manager.last_fast_sync_started is None
+
+    manager.enqueue_command("FastSync")
+    manager.process_commands()
+
+    assert passes == [True]
+
+
+def test_only_fastsync_is_coalesced(monkeypatch):
+    """A pass in flight says nothing about any other command, and dropping
+    one would lose work rather than repeat it."""
+    manager, _passes = _fastsync_manager(monkeypatch)
+    repaired = []
+    monkeypatch.setattr(manager, "repoint_ratings", lambda: repaired.append(True))
+
+    manager.enqueue_command("RepointRatings")
+    manager.fast_sync()
+    manager.process_commands()
+
+    assert repaired == [True]
+
+
 def test_commands_never_blanket_refresh(builtins, monkeypatch):
     """A processed command fires no builtins of its own: refreshes belong to
     the paths that write (FullSync's end, removals, the drain). The old tail
