@@ -1427,3 +1427,76 @@ class TestLoadAllowance:
         assert len(started) == 1
         # 60s group position + the 9s this device's last load took.
         assert utils.ticks_to_ms(started[0]) == pytest.approx(69000.0, abs=50)
+
+
+class TestLoadWatchdogGeneration:
+    """A load's watchdog must only be able to fail *that* load.
+
+    It used to key on the playlist item id, which a transcode-seek reload does
+    not change: the watchdog armed by a load that succeeded 45s earlier found
+    "phase == loading" true again for the reload and declared it failed, and
+    the client left the group mid-seek. Measured live 2026-08-18 — a group
+    start at 12:59:37 killed the reload from a seek at 13:00:19.
+    """
+
+    @staticmethod
+    def _arm(manager, item_id="item-1", playlist_item_id="pli-1"):
+        """Run _start_item and hand back the watchdog it armed."""
+        armed = []
+        import threading as _t
+
+        class FakeTimer:
+            def __init__(self, delay, func, args=()):
+                armed.append((func, args))
+
+            def start(self):
+                pass
+
+            @property
+            def daemon(self):
+                return True
+
+            @daemon.setter
+            def daemon(self, v):
+                pass
+
+        real = manager_module.threading.Timer
+        manager_module.threading.Timer = FakeTimer
+        try:
+            manager._start_item(item_id, playlist_item_id)
+        finally:
+            manager_module.threading.Timer = real
+        return armed[-1] if armed else None
+
+    def test_a_superseded_load_s_watchdog_does_not_fire(self, manager):
+        join(manager)
+        manager._api_raw = lambda kind, *a, **k: {"Id": "item-1", "Type": "Movie"}
+        manager.playback.play_item = lambda item, ticks: None
+
+        failures = []
+        manager._load_failed = lambda reason: failures.append(reason)
+
+        first = self._arm(manager)
+        # The same item reloaded — a transcode seek, which is the whole point.
+        self._arm(manager)
+
+        # The first load's watchdog fires while the second is still loading.
+        func, args = first
+        func(*args)
+
+        assert failures == [], "a superseded load's watchdog killed a healthy reload"
+
+    def test_the_current_load_s_watchdog_still_fires(self, manager):
+        join(manager)
+        manager._api_raw = lambda kind, *a, **k: {"Id": "item-1", "Type": "Movie"}
+        manager.playback.play_item = lambda item, ticks: None
+
+        failures = []
+        manager._load_failed = lambda reason: failures.append(reason)
+
+        func, args = self._arm(manager)
+        func(*args)
+
+        # Nothing superseded it and the phase never left loading: this one is
+        # genuinely stuck, and the watchdog is the only thing that notices.
+        assert failures == ["no playback within 45s"]

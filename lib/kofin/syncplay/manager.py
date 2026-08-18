@@ -73,6 +73,9 @@ class SyncPlayManager(object):
         # How long this device's loads take, smoothed; None until one is timed.
         self._load_ms = None
         self._load_started_ms = None
+        # Bumped by every load so an earlier load's watchdog can tell that it
+        # has been superseded; see _start_item.
+        self._load_generation = 0
         self._last_ping_report = 0.0
         self._join_pending_since = 0.0
         self._pending_local_queue = False
@@ -1003,10 +1006,17 @@ class SyncPlayManager(object):
             self._load_failed(error)
             return
 
-        expected = playlist_item_id
+        # Identify the load, not the item. A transcode seek reloads the *same*
+        # playlist item, so "still loading, and still the item I armed for" is
+        # true for a later load as well as a stuck one -- and the watchdog from
+        # a load that succeeded 45s ago would fire into a healthy reload and
+        # leave the group. Measured: a group start at 12:59:37 killed the
+        # reload from a seek at 13:00:19, and the member dropped out mid-test.
+        self._load_generation += 1
+        generation = self._load_generation
 
         def check():
-            if self.phase == "loading" and self.current_playlist_item_id == expected:
+            if self.phase == "loading" and self._load_generation == generation:
                 self._load_failed("no playback within 45s")
 
         timer = threading.Timer(45, self._post, args=(check,))
