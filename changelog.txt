@@ -1,3 +1,12 @@
+v0.19.0
+- SyncPlay holds a group together far better. A group that started, paused, resumed or seeked could leave a member behind — sometimes minutes behind, sometimes paused for good while everyone else played on. Starting a film together now lands every member within about a fifth of a second, and pausing or resuming keeps them there
+- Drift correction is gone, and the SyncPlay setting now says why. It could only work while Kodi's "Sync playback to display" was on, and that setting ties playback to the panel's refresh rate: measured across three devices, a film whose frame rate is not a whole multiple of the refresh rate ran up to 4.3% fast, which is 2.6 minutes an hour and far beyond anything the correction could pull back. Leave that Kodi setting off and a group stays together on its own
+- A member watching a transcoded stream is no longer stranded by a group seek. It used to be corrected over and over while everyone waited, then play on out of step; it now reloads at the target and rejoins
+- A member no longer silently drops out of its group after a seek. A stale internal timer could decide a perfectly healthy reload had failed and leave the group without saying so
+- A sync that fails at startup no longer buries the screen in error toasts. A dead sync manager was rebuilt every second, and every attempt raised the same toast — Kodi queues them, so the wall of messages outlived the problem
+- Music libraries start syncing sooner. Reconciling a large music library took nearly 13 seconds of every startup on a slower box, in front of everything else; it is now done in the database in a fraction of that
+- Waking from sleep no longer runs the same catch-up twice
+
 v0.18.1
 - Unticking AV1 in the transcoding settings now really turns it off. The add-on was still offering AV1 to the server as something it could transcode to, so an AV1 film came back as AV1 anyway — on a device with no AV1 hardware that meant a software decode, stutter, or no picture at all. The same slip let an HDR AV1 film through untouched on a device set to SDR only
 
