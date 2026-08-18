@@ -476,6 +476,22 @@ def test_the_first_fastsync_of_a_session_always_runs(monkeypatch):
     assert passes == [True]
 
 
+def test_a_caller_supplied_stamp_survives_the_enqueue(monkeypatch):
+    """The reconnect catch-up stamps its FastSync with the socket's reconnect
+    edge — earlier than the enqueue, because the post-connect worker queues it
+    seconds after the socket returned. setdefault is the contract: an explicit
+    stamp must survive, or the coalesce compares against the wrong moment and
+    a pass that covered the outage looks too old to count."""
+    manager, passes = _fastsync_manager(monkeypatch)
+
+    edge = time.monotonic()
+    manager.fast_sync()  # startup's pass: after the edge, before the enqueue
+    manager.enqueue_command("FastSync", {library_mod.FAST_SYNC_REQUESTED_AT: edge})
+    manager.process_commands()
+
+    assert passes == [True]  # the pass in flight covered it
+
+
 def test_only_fastsync_is_coalesced(monkeypatch):
     """A pass in flight says nothing about any other command, and dropping
     one would lose work rather than repeat it."""

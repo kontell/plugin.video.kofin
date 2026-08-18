@@ -164,6 +164,17 @@ class Service(xbmc.Monitor):
         # server gone (see _verify_connection).
         self._verify_online = False
         self._backoff = Backoff()
+        # Paces _recover_threads' rebuilds of a sync manager that keeps dying;
+        # a manager that gets past startup resets it. Without this, a
+        # persistent startup failure — the schema gate, most plainly — meant
+        # a rebuild on every tick, each opening the databases and raising the
+        # same error toast again.
+        self._library_backoff = Backoff()
+        # When the websocket last (re)connected (monotonic). The reconnect
+        # catch-up stamps its FastSync with this edge rather than with the
+        # moment the post-connect worker got around to queueing it — see
+        # _catch_up_after_reconnect.
+        self._ws_connected_at: Optional[float] = None
         # This generation's IPC secret (see ipc.GUARDED): minted here so the
         # plugin process picks it up from the moment the service exists, and
         # invalidated by the next restart.
@@ -269,6 +280,16 @@ class Service(xbmc.Monitor):
         on its own — the library on any ``LibraryException``, the websocket on
         an upstream raise — while the object stays in its slot, and every
         restart path guards on the slot rather than the thread.
+
+        Library rebuilds are paced by ``_library_backoff``, because this runs
+        every tick and a manager that dies *in* startup dies within a second
+        or two: a persistent failure there — an ungated Kodi database, most
+        plainly — otherwise becomes a rebuild per tick, each lap opening the
+        databases and raising the same error toast, and toasts queue. The
+        first rebuild after a healthy run stays immediate; only consecutive
+        failures wait, 5 s doubling to the 120 s ceiling. The offline→online
+        edge (``_connect``) and the settings paths are deliberately not paced
+        — those are real events, not this loop finding the same corpse again.
         """
         if self.ws is not None and not self.ws.is_alive():
             self._reap_websocket()
@@ -276,8 +297,27 @@ class Service(xbmc.Monitor):
             if self.ws is None:
                 self._start_websocket()
 
-        if self.library is not None and not self.library.is_alive():
-            self._start_library()
+        library = self.library
+
+        if library is None:
+            return
+
+        if library.is_alive():
+            # Past startup and still in its service loop: whatever felled the
+            # previous builds is over, so the next death starts a fresh
+            # ladder. A manager that *failed* startup is also briefly alive on
+            # its way out — with stop_thread already raised (run() raises it
+            # before startup_done), which is what keeps a failing build from
+            # resetting the ladder it is climbing.
+            if library.startup_done and not library.stop_thread:
+                self._library_backoff.succeeded()
+            return
+
+        if not self._library_backoff.due(time.time()):
+            return
+
+        self._library_backoff.failed(time.time())
+        self._start_library()
 
     def _verify_connection(self) -> None:
         """Answer a dropped socket with a probe, not a verdict (plan W2.1).
@@ -681,6 +721,10 @@ class Service(xbmc.Monitor):
         or be skipped — each pass re-reads current state, so the last one
         always serves the live session.
         """
+        # The edge, stamped before anything else runs: everything the server
+        # pushed while the socket was down predates this moment, which is
+        # what the reconnect catch-up's coalesce stamp wants to say.
+        self._ws_connected_at = time.monotonic()
         self._connection_toast(30415, self.credentials.server_name or "")
         # A live socket is the best evidence there is, and the websocket
         # reconnects itself — so this is a raising edge in its own right,
@@ -793,8 +837,23 @@ class Service(xbmc.Monitor):
         if library is None or not library.startup_done:
             return
 
+        # Stamped with the reconnect edge, not with the enqueue: this worker
+        # only gets here after a deliberate settle plus capabilities, the
+        # who's-watching restore and the userdata replay — seconds in which a
+        # just-rebuilt manager's startup typically runs a change-feed pass of
+        # its own. Everything the socket missed predates the edge, so a pass
+        # that began after it covers this command, and the edge on the payload
+        # is what lets process_commands drop it (measured on the wake path:
+        # edge at t+0.0, startup's pass at t+0.4, this enqueue at t+2.0 — the
+        # enqueue-time stamp called that pass too old and fetched the same
+        # window again).
+        from kofin.sync.library import FAST_SYNC_REQUESTED_AT
+
+        moment = self._ws_connected_at
+        payload = {} if moment is None else {FAST_SYNC_REQUESTED_AT: moment}
+
         LOG.info("websocket reconnected; catching up on missed changes")
-        library.enqueue_command("FastSync")
+        library.enqueue_command("FastSync", payload)
 
     def _on_ws_event(self, message_type: str, data: Dict[str, Any]) -> None:
         if self.remote.handle(message_type, data):
