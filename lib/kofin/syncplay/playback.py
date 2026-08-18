@@ -238,9 +238,53 @@ class PlaybackController(object):
                     else:
                         self._seek_and_settle(target_ms, stay_paused=False)
 
-                self._resume_and_verify()
+                if self._resume_and_verify():
+                    self._align_after_resume()
 
         self.manager.on_local_unpaused()
+
+    def _align_after_resume(self):
+        """Close what the resume itself opened up, once the picture is moving.
+
+        The alignment above happens *before* the resume, and the resume then
+        takes somewhere between 0.1s and 1.2s to land -- measured across four
+        captures on two devices, from the same command, agreeing on the
+        schedule to within 3ms. Whatever was aligned is therefore stale by the
+        time anything is on screen, and nothing looked again: that is the whole
+        of why a resume drifts where a seek does not. A seek names a position,
+        so arriving late costs nothing; a resume names an instant, and the
+        instants land a second apart.
+
+        Here the clock has demonstrably started, so the reading is real and the
+        group estimate is comparable to it. Not on a transcode, where a seek
+        snaps to a segment boundary and can widen the gap it was closing, and
+        not on audio, whose resume choreography aligns itself.
+        """
+        if self._is_audio() or self.manager.is_transcoding():
+            return
+
+        target_ms = self.estimate_position_ms()
+
+        if target_ms is None:
+            return
+
+        behind_ms = target_ms - self._position_ms()
+
+        # Logged whether or not it acts. A threshold that never fires and one
+        # that fires and does nothing look identical from the outside, and
+        # both have been believed today; the residual itself distinguishes
+        # them, and it is the number the threshold should be chosen from.
+        LOG.info(
+            "[ syncplay/resumed ] residual %+.0fms (threshold %.0fms)",
+            behind_ms,
+            utils.POST_RESUME_ALIGN_MS,
+        )
+
+        if abs(behind_ms) <= utils.POST_RESUME_ALIGN_MS:
+            return
+
+        LOG.info("[ syncplay/align ] %+.0fms after the resume landed", behind_ms)
+        self._seek_and_settle(target_ms, stay_paused=False)
 
     def _resume_with_retries(self):
         """Resume paused audio and verify it, nudging until it sticks.
@@ -294,17 +338,31 @@ class PlaybackController(object):
         our resume, and a second explicit play is what undoes that.
         """
         deadline = utils.local_ms() + utils.RESUME_VERIFY_S * 1000
+        started = utils.local_ms()
+        asked_at = None
         attempts = 0
 
         while utils.local_ms() < deadline:
-            kodirpc.resume_player()
-            attempts += 1
+            now = utils.local_ms()
+
+            # Re-asking is what undoes another thread's pause landing after our
+            # resume, so it stays -- but on its own clock. Tying it to the poll
+            # cadence is what made a slow detection into a late start.
+            if asked_at is None or now - asked_at >= utils.RESUME_REASK_MS:
+                kodirpc.resume_player()
+                asked_at = now
+                attempts += 1
+
             before = self._position_ms()
             xbmc.sleep(utils.RESUME_VERIFY_STEP_MS)
 
             if self._position_ms() > before + 20:
-                if attempts > 1:
-                    LOG.info("[ syncplay/unpause ] took %s attempts", attempts)
+                LOG.info(
+                    "[ syncplay/unpause ] playing after %.0fms (%s ask%s)",
+                    utils.local_ms() - started,
+                    attempts,
+                    "" if attempts == 1 else "s",
+                )
 
                 return True
 

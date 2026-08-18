@@ -65,7 +65,29 @@ SEEK_SETTLE_TIMEOUT = 3.0  # give up waiting for a seek to land after this
 # moved, because the failure to start is silent otherwise: the member simply
 # sits still while the group plays on, and nothing revisits it.
 RESUME_VERIFY_S = 1.5  # keep asking for playing this long
-RESUME_VERIFY_STEP_MS = 300  # clock sample spacing (xbmc.sleep, int ms)
+# Poll cadence, not re-ask cadence: the two were the same number, so checking
+# less often meant asking less often, and every wasted check cost 300ms of
+# lateness. Measured: a device needing three checks landed +609ms behind the
+# group where one needing a single check landed +130ms, and that ~480ms
+# difference *was* the group's spread. The verification was manufacturing the
+# error it then reported.
+RESUME_VERIFY_STEP_MS = 50  # clock sample spacing (xbmc.sleep, int ms)
+# Measured: one device needs a *second* play request before its clock moves --
+# the pre-resume align's re-pause lands asynchronously, after the resume, which
+# is the race this re-ask exists to undo. So the interval is the recovery time,
+# not a politeness delay: at 300ms it recovered at ~900ms, at 600ms at ~665ms.
+RESUME_REASK_MS = 600  # how often to re-issue the play request while waiting
+# Correcting *after* the picture is moving costs a visible jump, so the bar is
+# higher than the arm-time band: only close a gap big enough that living with
+# it is worse than seeing it go. Measured need: a resume lands anywhere from
+# 0.1s to 1.2s after it is asked for, and the alignment done before it is stale
+# by then.
+#
+# 250ms, not 60ms. At 60 this fired on nearly every resume to close +62 to
+# +68ms -- a stream of small visible seeks buying nothing, because a correction
+# that size is under the spread two devices show anyway. The residuals worth
+# catching are the ~560ms ones a slow resume leaves behind.
+POST_RESUME_ALIGN_MS = 250.0
 PROGRAMMATIC_ECHO_GRACE = 1.0  # player events within this window of our own actions
 STOP_WAIT_SECONDS = 3.0  # bound on waiting for a requested stop to take effect
 
