@@ -1173,8 +1173,8 @@ msgid "Enable SyncPlay"
 msgstr "SyncPlay engedélyezése"
 
 msgctxt "#30552"
-msgid "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads. Works best with Sync Playback to Display turned off in Kodi player settings"
-msgstr "SyncPlay bejegyzést ad a kiegészítő gyökeréhez, hogy más Jellyfin-kliensekkel szinkronban nézhessen. Kikapcsolva nincs csoportmenü és nincsenek SyncPlay-szálak. Akkor működik a legjobban, ha a Kodi lejátszási beállításaiban a Lejátszás szinkronizálása a képernyőhöz ki van kapcsolva"
+msgid "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads. Leave Kodi's 'Sync playback to display' off: with it on, playback follows the display rate, so unless that rate is a whole multiple of the video frame rate the picture runs fast or slow and the group cannot stay in sync"
+msgstr "SyncPlay bejegyzést ad a kiegészítő gyökeréhez, hogy más Jellyfin-kliensekkel szinkronban nézhessen. Kikapcsolva nincs csoportmenü és nincsenek SyncPlay-szálak. Hagyd kikapcsolva a Kodi lejátszási beállításaiban a Lejátszás szinkronizálása a képernyőhöz opciót: ha be van kapcsolva, a lejátszás a képernyő képfrissítését követi, így ha az nem a videó képkockasebességének egész számú többszöröse, a kép túl gyorsan vagy túl lassan fut, és a csoport nem tud szinkronban maradni"
 
 msgctxt "#30553"
 msgid "Drift correction"

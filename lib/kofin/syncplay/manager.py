@@ -289,6 +289,19 @@ class SyncPlayManager(object):
         info = self._local_file_info()
         return bool(info) and info.get("PlayMethod") == "Transcode"
 
+    def reload_current_item(self):
+        """Restart the current item at the group position.
+
+        The seek path uses this where an in-stream seek cannot be accurate (a
+        transcode): starting the stream at the target is exact. The start
+        position comes from the drift reference, which the Seek command has
+        just set, so no position needs threading through.
+        """
+        if not self.in_group() or self.current_item_id is None:
+            return
+
+        self._start_item(self.current_item_id, self.current_playlist_item_id)
+
     def post_report(self, kind, position_s=None):
         """Ready/Buffering report with our actual position (SYNCPLAY.md §4).
 

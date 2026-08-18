@@ -1204,9 +1204,16 @@ msgid "Enable SyncPlay"
 msgstr ""
 
 msgctxt "#30552"
-msgid "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads. Works best with Sync Playback to Display turned off in Kodi player settings"
+msgid "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads. Leave Kodi's 'Sync playback to display' off: with it on, playback follows the display rate, so unless that rate is a whole multiple of the video frame rate the picture runs fast or slow and the group cannot stay in sync"
 msgstr ""
 
+# 30553-30556 — retired with the SyncPlay drift controller (the Player.SetTempo
+# ladder and its tolerance slider). Kept, never reused, for the reason given at
+# #30744. Why the feature went rather than being retuned: tempo needs Kodi's
+# sync-to-display, which slaves the media clock to the panel, so a refresh rate
+# that is not a whole multiple of the frame rate imposes a rate error the ladder
+# cannot reach — measured at 0.5% to 4.3% on three Piers devices
+# (docs/syncplay-drift-shakedown.md §10). #30552 now warns about that instead.
 msgctxt "#30553"
 msgid "Drift correction"
 msgstr ""

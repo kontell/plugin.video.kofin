@@ -238,7 +238,7 @@
   "#30508": "Označit jako zhlédnuté v Jellyfinu",
   "#30509": "Označit jako nezhlédnuté v Jellyfinu",
   "#30551": "Povolit SyncPlay",
-  "#30552": "Přidá položku SyncPlay do kořene doplňku pro sledování v synchronizaci s ostatními klienty Jellyfin. Vypnuto znamená žádnou nabídku skupiny a žádná vlákna SyncPlay. Nejlépe funguje, když je v nastavení přehrávače Kodi vypnuta volba Synchronizovat přehrávání s obrazovkou",
+  "#30552": "Přidá položku SyncPlay do kořene doplňku pro sledování v synchronizaci s ostatními klienty Jellyfin. Vypnuto znamená žádnou nabídku skupiny a žádná vlákna SyncPlay. Ponech v nastavení přehrávače Kodi vypnutou volbu Synchronizovat přehrávání s obrazovkou: když je zapnutá, přehrávání se řídí obnovovací frekvencí obrazovky, takže pokud tato frekvence není celočíselným násobkem snímkové frekvence videa, obraz běží rychleji nebo pomaleji a skupina nemůže zůstat synchronizovaná",
   "#30553": "Korekce odchylky",
   "#30554": "Jemně upravuje rychlost přehrávání, aby držela pozici se skupinou (vyžaduje volbu Kodi „Synchronizovat přehrávání s obrazovkou“). Vypnuto: řídí se pouze naplánovanými příkazy.",
   "#30555": "Tolerance synchronizace (ms)",

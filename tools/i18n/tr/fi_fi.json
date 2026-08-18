@@ -238,7 +238,7 @@
   "#30508": "Merkitse katsotuksi Jellyfinissä",
   "#30509": "Merkitse katsomattomaksi Jellyfinissä",
   "#30551": "Ota SyncPlay käyttöön",
-  "#30552": "Lisää SyncPlay-kohdan lisäosan juureen yhteiskatselua varten muiden Jellyfin-asiakkaiden kanssa. Pois päältä ei ole ryhmävalikkoa eikä SyncPlay-säikeitä. Toimii parhaiten, kun Synkronoi toisto näyttöön on pois päältä Kodin toistoasetuksissa",
+  "#30552": "Lisää SyncPlay-kohdan lisäosan juureen yhteiskatselua varten muiden Jellyfin-asiakkaiden kanssa. Pois päältä ei ole ryhmävalikkoa eikä SyncPlay-säikeitä. Jätä Synkronoi toisto näyttöön pois päältä Kodin toistoasetuksissa: kun se on päällä, toisto seuraa näytön virkistystaajuutta, joten ellei taajuus ole videon kuvataajuuden kokonaislukukerrannainen, kuva kulkee liian nopeasti tai liian hitaasti eikä ryhmä pysy synkronissa",
   "#30553": "Ajautuman korjaus",
   "#30554": "Säätää toistonopeutta hellävaraisesti pitääkseen toistokohdan ryhmän mukana (vaatii Kodin ”Synkronoi toisto näyttöön”). Pois: seuraa vain ajastettuja komentoja.",
   "#30555": "Synkronoinnin toleranssi (ms)",

@@ -238,7 +238,7 @@
   "#30508": "Markera som sedd på Jellyfin",
   "#30509": "Markera som osedd på Jellyfin",
   "#30551": "Aktivera SyncPlay",
-  "#30552": "Lägger till en SyncPlay-post i tilläggets rot för att titta synkroniserat med andra Jellyfin-klienter. Av innebär ingen gruppmeny och inga SyncPlay-trådar. Fungerar bäst med ”Synkronisera uppspelning till skärm” avstängt i Kodis spelarinställningar",
+  "#30552": "Lägger till en SyncPlay-post i tilläggets rot för att titta synkroniserat med andra Jellyfin-klienter. Av innebär ingen gruppmeny och inga SyncPlay-trådar. Låt ”Synkronisera uppspelning till skärm” vara avstängt i Kodis spelarinställningar: är det på följer uppspelningen skärmens uppdateringsfrekvens, så om den inte är en jämn multipel av videons bildfrekvens går bilden för fort eller för långsamt och gruppen kan inte hålla sig synkroniserad",
   "#30553": "Driftkorrigering",
   "#30554": "Justerar uppspelningshastigheten varsamt för att hålla positionen med gruppen (kräver Kodis ”Synkronisera uppspelning till skärm”). Av: följ endast schemalagda kommandon.",
   "#30555": "Synktolerans (ms)",

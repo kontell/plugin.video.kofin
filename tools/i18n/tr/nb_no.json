@@ -238,7 +238,7 @@
   "#30508": "Merk som sett på Jellyfin",
   "#30509": "Merk som usett på Jellyfin",
   "#30551": "Aktiver SyncPlay",
-  "#30552": "Legger til en SyncPlay-oppføring i tilleggets hovedmeny, for å se synkronisert med andre Jellyfin-klienter. Av betyr ingen gruppemeny og ingen SyncPlay-tråder. Fungerer best med «Synkroniser avspilling med skjerm» slått av i Kodis avspillerinnstillinger",
+  "#30552": "Legger til en SyncPlay-oppføring i tilleggets hovedmeny, for å se synkronisert med andre Jellyfin-klienter. Av betyr ingen gruppemeny og ingen SyncPlay-tråder. La «Synkroniser avspilling med skjerm» være slått av i Kodis avspillerinnstillinger: er den på, følger avspillingen skjermens oppdateringsfrekvens, så med mindre den er et helt multiplum av videoens bildefrekvens, går bildet for fort eller for sakte og gruppen kan ikke holde seg synkronisert",
   "#30553": "Avdriftskorrigering",
   "#30554": "Justerer avspillingshastigheten forsiktig for å holde posisjonen med gruppen (krever Kodis «Synkroniser avspilling med skjerm»). Av: følg bare planlagte kommandoer.",
   "#30555": "Synkroniseringstoleranse (ms)",

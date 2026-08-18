@@ -141,6 +141,15 @@ What remains is kofin's own:
   the only cover for a websocket that went half-open while asleep.
 - Every property in `core/state.py` is shared across service generations — see
   `kodi-addon-lifecycle` for why two run at once, and treat that module accordingly.
+- **SyncPlay converges position only when the group says so, and must not regain a
+  continuous drift controller.** It had one — a `Player.SetTempo` ladder — and it was
+  removed after measurement, not after taste. Tempo exists only while Kodi's
+  sync-to-display is on, that setting slaves the media clock to the panel, and a
+  refresh rate that is not a whole multiple of the frame rate then imposes a fixed
+  rate error: 0.5 %–4.3 % across three Piers devices, the worst 14× the ±3 % the
+  ladder could command, and unreachable from Kodi's own settings on those panels
+  (`docs/syncplay-drift-shakedown.md` §10). A future attempt needs a *different
+  actuator*, not a retuned band — and `#30552` is where the user is warned instead.
 - A sync thread that will not stop is a thread inside the HTTP retry ladder
   (`docs/library-thread-stop.md`); the two rules that follow are easy to undo.
 - **Never call `xbmc.Player.stop()`** — use `core/kodirpc.py::stop_player`. Kodi's binding sends

@@ -2,6 +2,8 @@
 
 Date: 2026-07-18. Operationalizes build phase 4 from `rewrite-research.md` §11 and feature §8.1 — the **SyncPlay port**. The design report is `ref/syncplay-report.md` §9 (the jellyfin-kodi SyncPlay implementation plan); it governs the flows and Kodi-capability decisions. The fork (`ref/jellyfin-kodi`, branch `combined/syncplay-sync`, `jellyfin_kodi/syncplay/`) is the source — a ~2.3k-line package (manager 1129 + playback 757 + timesync 119 + ui 106 + utils 197) with ~1.8k lines of tests (`tests/test_syncplay*.py`) — that ports as a package under the same transplant discipline phase 2 used for the sync engine. Test gates reference `testing-plan.md` (§S4), which this plan expands from its current single-paragraph form into S4.1–S4.7 (a doc update landed in the same commit, as phases 2/3 did). Phases 1–3 are complete, merged to `main`, and live-verified. **This plan deviates from report §4 in one place** — SyncPlay settings go into the existing **Playback** tab as a third group, not a dedicated tab (§4 below) — recorded here the way phase 3 recorded its report §8.2 deviation.
 
+> **Superseded in part.** The drift controller described below was built, shipped, and then removed in full — `docs/syncplay-drift-shakedown.md` §10 has the measurements that retired it. Everything else in this plan stands; the two settings marked *withdrawn* in §4 no longer exist.
+
 **Phase 4 deliverable**: a "SyncPlay" root entry (gated on `syncPlayEnabled`) that lists/creates/joins/leaves groups; once in a group, Kodi follows the group's timeline — scheduled Unpause/Pause/Seek/Stop execute against an offset-corrected clock (NTP-style timesync over `/GetUtcTime`), Ready/Buffering are reported, and a drift controller holds position with `Player.SetTempo` (micro-seek fallback where tempo is unavailable); user pause/seek/next in Kodi drive the group; and the phase-3 `syncplay_group_active` flag is finally driven — inside a group, Play Next (and cinema/near-end prompts) are withheld because the group queue is authoritative. Everything is service/plugin-side — no writer changes, no schema touch, no server-plugin work. Protocol **v1**-compatible (the report's v2 is server-side, adopted opportunistically — §7).
 
 ---
@@ -52,8 +54,8 @@ New code (no fork source): the `mode=syncplay` handler + `SyncPlayMenu` IPC (`pl
 | id | type/control | notes |
 |---|---|---|
 | `syncPlayEnabled` | bool, default **false** | master toggle; gates the root **SyncPlay** entry *and* the manager build — off means no manager thread, no root item (opt-in, since it changes playback behavior) |
-| `syncPlayDriftCorrection` | bool, default **true** | enables the `SetTempo` drift controller; off → follow via scheduled commands only, no continuous correction (still tolerant within the dead-zone) |
-| `syncPlayTolerance` | int ms, default **75** | drift dead-zone (report §9.4); below this the controller does nothing |
+| `syncPlayDriftCorrection` | *withdrawn* | enables the `SetTempo` drift controller; off → follow via scheduled commands only, no continuous correction (still tolerant within the dead-zone) |
+| `syncPlayTolerance` | *withdrawn* | drift dead-zone (report §9.4); below this the controller does nothing |
 | `syncPlayNotifications` | bool, default **true** | member join/leave and "waiting on X" toasts; off silences the informational notifications (never affects behavior) |
 
 No hidden state settings — group membership is live, not durable (a restart leaves the group, by design; the kicked-probe re-joins only within a session). `syncPlayEnabled` visibility on the root entry is read fresh by the plugin process each root listing.

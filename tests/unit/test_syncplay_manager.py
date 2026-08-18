@@ -12,7 +12,7 @@ import kofin.syncplay.manager as manager_module
 import kofin.syncplay.playback as playback_module
 from kofin.syncplay import utils
 from kofin.syncplay.manager import SyncPlayManager
-from tests.unit.fakes import FakeAddon, FakeWindow
+from tests.unit.fakes import FakeAddon, FakeWindow, player_ops_rpc
 
 
 def now_iso(delta_ms=0):
@@ -743,6 +743,7 @@ def paused_cond(manager, monkeypatch):
         return False
 
     monkeypatch.setattr(playback_module.xbmc, "getCondVisibility", cond)
+    monkeypatch.setattr("xbmc.executeJSONRPC", player_ops_rpc(lambda: manager.player))
 
 
 class TestLocalStartHold:

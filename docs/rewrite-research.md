@@ -233,7 +233,7 @@ Groups: resume/`resumeJumpBack`, `markPlayed` threshold, offer-delete group (`of
 
 ### Playback-tab group: SyncPlay
 
-*(Originally proposed as a dedicated tab; phase 4 landed it as **group 3 of the Playback tab** instead — four settings do not earn a tab, and they sit naturally beside the other player-behavior groups. Deviation recorded in `phase4-implementation-plan.md` §4.)* `syncPlayEnabled` (shows root item), `syncPlayDriftCorrection`, `syncPlayTolerance`, `syncPlayNotifications` (member join/leave toasts).
+*(Originally proposed as a dedicated tab; phase 4 landed it as **group 3 of the Playback tab** instead — four settings do not earn a tab, and they sit naturally beside the other player-behavior groups. Deviation recorded in `phase4-implementation-plan.md` §4.)* `syncPlayEnabled` (shows root item), `syncPlayDriftCorrection`, `syncPlayTolerance`, `syncPlayNotifications` (member join/leave toasts). *The middle two were later withdrawn with the drift controller — `docs/syncplay-drift-shakedown.md` §10.*
 
 ### Tab: Interface
 
