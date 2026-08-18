@@ -748,3 +748,79 @@ class TestPlayPathRetarget:
 
         with pytest.raises(ValueError):
             controller.play_item({"Type": "Movie"}, 0)
+
+
+class TestAlignAfterResume:
+    """The resume opens a gap the pre-resume alignment cannot see.
+
+    Measured on two devices from one command they agreed on to within 3ms: the
+    resume landed 82ms after the fire on one and 1202ms after it on the other,
+    four captures running. The alignment happens before the resume, so by the
+    time there is a picture it describes a position the player has left -- and
+    nothing looked again. That is the whole of why a seek holds sync and a
+    resume does not: a seek names a position, so arriving late costs nothing.
+
+    These tests model the resume *taking time*, because a gap that already
+    exists when the command arrives is closed by the pre-resume align and
+    proves nothing about this one.
+    """
+
+    def seeks(self, player):
+        return [a for a in player.actions if isinstance(a, tuple) and a[0] == "seek"]
+
+    @staticmethod
+    def _slow_resume(controller, manager, monkeypatch, resume_ms):
+        """Make the resume cost `resume_ms`, during which the group moves on."""
+        clock = [utils.local_ms()]
+        monkeypatch.setattr(utils, "local_ms", lambda: clock[0])
+        real = controller._resume_and_verify
+
+        def slow():
+            clock[0] += resume_ms  # the group keeps playing meanwhile
+            return True
+
+        monkeypatch.setattr(controller, "_resume_and_verify", slow)
+        return clock
+
+    def test_a_gap_opened_by_a_slow_resume_is_closed(self, monkeypatch):
+        controller, manager, player = make_controller(paused=True, position=100.0)
+        manager.phase = "synced"
+        now = manager.server_now_ms()
+        # In position when the command lands: the pre-resume align has nothing
+        # to do, so any seek here belongs to the new code.
+        controller.set_reference(utils.ms_to_ticks(100000), now, True)
+        self._slow_resume(controller, manager, monkeypatch, 1200.0)
+
+        controller._do_unpause(utils.ms_to_ticks(100000), now)
+
+        assert self.seeks(player), "a 1.2s resume delay was left uncorrected"
+        assert self.seeks(player)[-1][1] == pytest.approx(101.2, abs=0.2)
+
+    def test_a_prompt_resume_is_left_alone(self, monkeypatch):
+        controller, manager, player = make_controller(paused=True, position=100.0)
+        manager.phase = "synced"
+        now = manager.server_now_ms()
+        controller.set_reference(utils.ms_to_ticks(100000), now, True)
+        self._slow_resume(controller, manager, monkeypatch, 30.0)
+
+        controller._do_unpause(utils.ms_to_ticks(100000), now)
+
+        # Inside the band (POST_RESUME_ALIGN_MS): a correction here would cost
+        # a visible jump to fix less than the jump itself. Deliberately well
+        # under the threshold rather than just under it, so retuning the
+        # constant does not silently turn this into a different test.
+        assert not self.seeks(player)
+
+    def test_a_transcode_is_never_seeked_after_the_resume(self, monkeypatch):
+        controller, manager, player = make_controller(paused=True, position=100.0)
+        manager.phase = "synced"
+        manager.transcoding = True
+        now = manager.server_now_ms()
+        controller.set_reference(utils.ms_to_ticks(100000), now, True)
+        self._slow_resume(controller, manager, monkeypatch, 1200.0)
+
+        controller._do_unpause(utils.ms_to_ticks(100000), now)
+
+        # A transcode seek snaps to a segment boundary and can widen the gap it
+        # was sent to close; carrying is the established policy.
+        assert not self.seeks(player)
