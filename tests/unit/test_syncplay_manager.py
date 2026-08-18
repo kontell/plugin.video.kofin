@@ -1300,3 +1300,130 @@ class TestCommandGroupGate:
             }
         )
         assert len(scheduled) == 1
+
+
+class TestLoadAllowance:
+    """Aim a load ahead of a playing group by however long loading takes.
+
+    A load is not instant and a playing group does not wait for it, so a load
+    aimed at the position the group is at *now* starts wherever the group has
+    reached by the first frame. On a transcode that was ~9s, which is what made
+    a member look permanently adrift after a group Seek when it had in fact
+    loaded exactly where it was told.
+    """
+
+    @staticmethod
+    def _playing_at(manager, media_ms):
+        # A reference the group is moving from, which is what makes aiming
+        # ahead meaningful at all.
+        manager.playback.set_reference(
+            utils.ms_to_ticks(media_ms), manager.server_now_ms(), True
+        )
+
+    @staticmethod
+    def _load(manager, elapsed_ms, clock):
+        """One timed load: start it, let `elapsed_ms` pass, finish it."""
+        manager._load_started_ms = clock[0]
+        clock[0] += elapsed_ms
+        manager._note_load_completed()
+
+    def test_first_load_has_no_allowance(self, manager):
+        self._playing_at(manager, 60000)
+        # Nothing has been timed yet, so there is nothing to aim off by, and
+        # guessing would be worse than not.
+        assert manager._load_allowance_ms() == 0.0
+
+    def test_a_timed_load_becomes_the_next_load_s_allowance(self, manager, monkeypatch):
+        clock = [1000.0]
+        monkeypatch.setattr(utils, "local_ms", lambda: clock[0])
+        self._playing_at(manager, 60000)
+
+        self._load(manager, 9000.0, clock)
+
+        assert manager._load_allowance_ms() == pytest.approx(9000.0)
+
+    def test_a_paused_group_gets_no_allowance(self, manager, monkeypatch):
+        clock = [1000.0]
+        monkeypatch.setattr(utils, "local_ms", lambda: clock[0])
+        self._load(manager, 9000.0, clock)
+
+        # The measurement stands, but a paused group is not going anywhere:
+        # aiming ahead would land the member past a position that will not move.
+        manager.playback.set_reference(
+            utils.ms_to_ticks(60000), manager.server_now_ms(), False
+        )
+
+        assert manager._load_allowance_ms() == 0.0
+
+    def test_a_fast_load_is_not_worth_aiming_off_for(self, manager, monkeypatch):
+        clock = [1000.0]
+        monkeypatch.setattr(utils, "local_ms", lambda: clock[0])
+        self._playing_at(manager, 60000)
+
+        self._load(manager, utils.LOAD_ALLOWANCE_MIN_MS - 1, clock)
+
+        assert manager._load_allowance_ms() == 0.0
+
+    def test_an_absurd_load_does_not_poison_the_estimate(self, manager, monkeypatch):
+        clock = [1000.0]
+        monkeypatch.setattr(utils, "local_ms", lambda: clock[0])
+        self._playing_at(manager, 60000)
+
+        self._load(manager, 6000.0, clock)
+        # A dialog, a stall, a device asleep — not the load, and folding it in
+        # would aim the next load minutes past the group.
+        self._load(manager, utils.LOAD_ALLOWANCE_MAX_MS + 1, clock)
+
+        assert manager._load_allowance_ms() == pytest.approx(6000.0)
+
+    def test_successive_loads_are_smoothed(self, manager, monkeypatch):
+        clock = [1000.0]
+        monkeypatch.setattr(utils, "local_ms", lambda: clock[0])
+        self._playing_at(manager, 60000)
+
+        self._load(manager, 8000.0, clock)
+        self._load(manager, 4000.0, clock)
+
+        # One slow load among fast ones must not hold the aim high for ever,
+        # and one fast load must not drop it instantly either.
+        assert manager._load_allowance_ms() == pytest.approx(6000.0)
+
+    def test_a_load_nobody_started_is_ignored(self, manager, monkeypatch):
+        clock = [1000.0]
+        monkeypatch.setattr(utils, "local_ms", lambda: clock[0])
+        self._playing_at(manager, 60000)
+
+        # onAVStarted for a play the group did not initiate: there is no start
+        # stamp, so there is nothing to measure.
+        manager._note_load_completed()
+
+        assert manager._load_allowance_ms() == 0.0
+
+    def test_the_reload_actually_starts_ahead_of_the_group(self, manager, monkeypatch):
+        """The whole point, exercised through _start_item rather than the helper.
+
+        A group Seek on a transcoding member reloads the stream, and the reload
+        must ask the server to begin encoding where the group *will be*, not
+        where it was when the command arrived.
+        """
+        clock = [1000.0]
+        monkeypatch.setattr(utils, "local_ms", lambda: clock[0])
+        join(manager)
+
+        started = []
+        manager._api_raw = lambda kind, *a, **k: {"Id": "item-1", "Type": "Movie"}
+        manager.playback.play_item = lambda item, ticks: started.append(ticks)
+
+        # Time the load first, then plant the reference, so the expected value
+        # is the group position plus the allowance and nothing else — the clock
+        # this test drives also moves the group's own extrapolation.
+        self._load(manager, 9000.0, clock)
+        self._playing_at(manager, 60000)
+
+        manager.current_item_id = "item-1"
+        manager.current_playlist_item_id = "pli-1"
+        manager.reload_current_item()
+
+        assert len(started) == 1
+        # 60s group position + the 9s this device's last load took.
+        assert utils.ticks_to_ms(started[0]) == pytest.approx(69000.0, abs=50)

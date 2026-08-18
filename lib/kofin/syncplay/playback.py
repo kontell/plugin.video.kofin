@@ -491,6 +491,18 @@ class PlaybackController(object):
     def set_reference(self, ticks, server_when_ms, playing):
         self._reference = (utils.ticks_to_ms(ticks), server_when_ms, playing)
 
+    def reference_is_playing(self):
+        """Whether the group's last known state was playing.
+
+        Distinct from estimate_position_ms(), which returns a position either
+        way: a caller that wants to aim ahead of a moving group needs to know
+        the group is actually moving.
+        """
+        if self._reference is None:
+            return False
+
+        return bool(self._reference[2])
+
     def estimate_position_ms(self):
         """Estimated group position now, from the last command/beacon."""
         if self._reference is None:

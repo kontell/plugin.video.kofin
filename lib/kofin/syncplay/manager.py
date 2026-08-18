@@ -70,6 +70,9 @@ class SyncPlayManager(object):
         self.last_snapshot_at = 0.0
         self._last_rejoin = 0.0
         self._last_snapshot_request = 0.0
+        # How long this device's loads take, smoothed; None until one is timed.
+        self._load_ms = None
+        self._load_started_ms = None
         self._last_ping_report = 0.0
         self._join_pending_since = 0.0
         self._pending_local_queue = False
@@ -301,6 +304,62 @@ class SyncPlayManager(object):
             return
 
         self._start_item(self.current_item_id, self.current_playlist_item_id)
+
+    def _load_allowance_ms(self):
+        """How far ahead of the group to aim a load that is about to start.
+
+        A load is not instant, and a playing group does not wait for it: aim at
+        where the group is now and the stream starts wherever the group has got
+        to by the time the first frame arrives. On direct play that is a few
+        hundred milliseconds and nobody notices. On a transcode the server has
+        to start encoding first, and the measured cost was ~9s — which is what
+        a member looked "permanently adrift" by after a group Seek, having in
+        fact loaded at exactly the position it was told.
+
+        The allowance is measured, not predicted, because the load itself is
+        what determines it: whether the server transcodes depends on the
+        PlaybackInfo negotiation that happens *inside* the load. So the last
+        load's duration stands in for the next one's, which converges after a
+        single item on any given device.
+
+        Zero unless the group is playing. Aiming ahead of a paused group would
+        land the member past a position that is not going to move.
+        """
+        if self._load_ms is None or not self.playback.reference_is_playing():
+            return 0.0
+
+        return min(self._load_ms, utils.LOAD_ALLOWANCE_MAX_MS)
+
+    def _note_load_completed(self):
+        """Fold the load that just finished into the allowance."""
+        started = self._load_started_ms
+        self._load_started_ms = None
+
+        if started is None:
+            return
+
+        elapsed = utils.local_ms() - started
+
+        if (
+            elapsed < utils.LOAD_ALLOWANCE_MIN_MS
+            or elapsed > utils.LOAD_ALLOWANCE_MAX_MS
+        ):
+            # Too quick to be worth aiming off for, or so slow that something
+            # other than loading happened (a dialog, a stall) and it would
+            # poison the estimate.
+            return
+
+        if self._load_ms is None:
+            self._load_ms = elapsed
+        else:
+            weight = utils.LOAD_ALLOWANCE_SMOOTHING
+            self._load_ms = weight * elapsed + (1.0 - weight) * self._load_ms
+
+        LOG.info(
+            "[ syncplay/load ] took %.1fs; aiming %.1fs ahead next time",
+            elapsed / 1000.0,
+            self._load_ms / 1000.0,
+        )
 
     def post_report(self, kind, position_s=None):
         """Ready/Buffering report with our actual position (SYNCPLAY.md §4).
@@ -909,11 +968,20 @@ class SyncPlayManager(object):
         self.current_playlist_item_id = playlist_item_id
 
         estimate_ms = self.playback.estimate_position_ms() or 0
+        allowance_ms = self._load_allowance_ms()
+        estimate_ms += allowance_ms
+        self._load_started_ms = utils.local_ms()
+
         LOG.info(
-            "[ syncplay/play ] %s (%s) at %.1fs",
+            "[ syncplay/play ] %s (%s) at %.1fs%s",
             item_id,
             playlist_item_id,
             estimate_ms / 1000.0,
+            (
+                " (+%.1fs load allowance)" % (allowance_ms / 1000.0)
+                if allowance_ms
+                else ""
+            ),
         )
 
         try:
@@ -1036,6 +1104,7 @@ class SyncPlayManager(object):
         if self.phase == "loading":
             # Hold the first frame; the group start is choreographed by
             # the server once every member reports Ready.
+            self._note_load_completed()
             self.playback.ensure_paused()
             self.phase = "waiting_ready"
             self._post(self.playback.prepare_ready)

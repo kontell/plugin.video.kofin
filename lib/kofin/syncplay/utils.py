@@ -69,6 +69,15 @@ RESUME_VERIFY_STEP_MS = 300  # clock sample spacing (xbmc.sleep, int ms)
 PROGRAMMATIC_ECHO_GRACE = 1.0  # player events within this window of our own actions
 STOP_WAIT_SECONDS = 3.0  # bound on waiting for a requested stop to take effect
 
+# Loading an item takes time, and a group that is playing moves on while it
+# happens — so a load aimed at the position the group is at *now* arrives that
+# far behind. Aim ahead by however long this device's last load took. Measured
+# rather than predicted, because the thing that makes it big is transcoding and
+# a load cannot know in advance whether the server will transcode it.
+LOAD_ALLOWANCE_SMOOTHING = 0.5  # weight of the newest measurement in the EMA
+LOAD_ALLOWANCE_MIN_MS = 250.0  # below this, not worth aiming off for
+LOAD_ALLOWANCE_MAX_MS = 15000.0  # a pathological load must not fling the target
+
 #################################################################################################
 
 
