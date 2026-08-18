@@ -445,7 +445,21 @@ class PlaybackController(object):
         target_ms = self.estimate_position_ms()
 
         if target_ms is not None:
-            diff = target_ms - self._position_ms()
+            landed_ms = self._position_ms()
+            diff = target_ms - landed_ms
+
+            # Where a load actually lands, which is not always where it was
+            # asked to. Worth a line of its own: a transcode is served from a
+            # playlist the server is still writing, so the stream can begin
+            # somewhere other than the requested start, and the size of that is
+            # the difference between a group that looks synced and one that is.
+            LOG.info(
+                "[ syncplay/landed ] %.1fs, wanted %.1fs (%+.0fms)%s",
+                landed_ms / 1000.0,
+                target_ms / 1000.0,
+                -diff,
+                " transcoding" if self.manager.is_transcoding() else "",
+            )
 
             # Audio holds are left where they paused: a paused PAPlayer
             # must never be seeked, and the group Unpause aligns the
