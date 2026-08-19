@@ -22,6 +22,14 @@ LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
 
+# Blank rows after the last line. A list scrolls no further than its last
+# item, so without a tail the song's final lines can only ever sit at the
+# very bottom of the list's page -- which, when the lyrics addon has resized
+# the overlay shorter than its authored height, is below what is visible at
+# all. Twelve covers the deepest page any known overlay is authored with, so
+# the addon can always drag the last sung line up to the visible middle.
+TAIL_ROWS = 12
+
 
 def lyrics(request: Any) -> None:
     """Serve the published lines as a directory."""
@@ -31,5 +39,8 @@ def lyrics(request: Any) -> None:
         # A blank line still has to occupy a row: the service addresses lines
         # by index, so dropping empties would shift every line after one.
         item = xbmcgui.ListItem(label=line or " ", offscreen=True)
+        xbmcplugin.addDirectoryItem(request.handle, "", item, isFolder=False)
+    for _ in range(TAIL_ROWS):
+        item = xbmcgui.ListItem(label=" ", offscreen=True)
         xbmcplugin.addDirectoryItem(request.handle, "", item, isFolder=False)
     xbmcplugin.endOfDirectory(request.handle, cacheToDisc=False)
