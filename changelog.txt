@@ -1,3 +1,6 @@
+v0.19.1
+- Pad lyrics directory tail so kofin lyrics can draw them correctly
+
 v0.19.0
 - SyncPlay holds a group together far better. A group that started, paused, resumed or seeked could leave a member behind — sometimes minutes behind, sometimes paused for good while everyone else played on. Starting a film together now lands every member within about a fifth of a second, and pausing or resuming keeps them there
 - Drift correction is gone, and the SyncPlay setting now says why. It could only work while Kodi's "Sync playback to display" was on, and that setting ties playback to the panel's refresh rate: measured across three devices, a film whose frame rate is not a whole multiple of the refresh rate ran up to 4.3% fast, which is 2.6 minutes an hour and far beyond anything the correction could pull back. Leave that Kodi setting off and a group stays together on its own
