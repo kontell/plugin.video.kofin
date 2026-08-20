@@ -448,5 +448,7 @@
   "#30814": "Ako dlho môže stiahnutý súbor ležať neprehraný, kým sa odstráni. Ďalším prehratím sa počítanie začne odznova.",
   "#30815": "Odstrániť aj vašich %s stiahnutých súborov? Čistenie odstráni záznam Kofinu o nich, takže tie, ktoré si ponecháte, zostanú na disku a budete si ich spravovať sami.",
   "#30816": "Odstraňujú sa stiahnuté súbory…",
-  "#30817": "Všetci"
+  "#30817": "Všetci",
+  "#30819": "Zobraziť obsadenie v zoznamoch doplnku",
+  "#30820": "Načíta obsadenie a štáb pre položky prehliadané cez doplnok, aby ich mohol zobraziť informačný dialóg. Otvorenie zoznamu trvá až o sekundu dlhšie; knižnica Kodi má obsadenie vždy."
 }

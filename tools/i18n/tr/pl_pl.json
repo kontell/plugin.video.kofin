@@ -448,5 +448,7 @@
   "#30814": "Jak długo pobrany plik może leżeć nieodtwarzany, zanim zostanie usunięty. Ponowne odtworzenie zaczyna odliczanie od nowa.",
   "#30815": "Usunąć także Twoje pobrane pliki (%s)? Czyszczenie usuwa informacje Kofin o nich, więc te zachowane pozostaną na dysku do zarządzania we własnym zakresie.",
   "#30816": "Usuwanie pobranych plików…",
-  "#30817": "Wszyscy"
+  "#30817": "Wszyscy",
+  "#30819": "Pokazuj obsadę na listach dodatku",
+  "#30820": "Pobiera obsadę i ekipę dla pozycji przeglądanych przez dodatek, aby okno informacji mogło je pokazać. Otwarcie listy trwa do sekundy dłużej; biblioteka Kodi zawsze ma obsadę."
 }

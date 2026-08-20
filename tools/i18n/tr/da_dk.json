@@ -448,5 +448,7 @@
   "#30814": "Hvor længe en download må ligge uafspillet, før den fjernes. Afspilles den igen, starter tællingen forfra.",
   "#30815": "Skal dine %s hentede fil(er) også slettes? Rydning fjerner Kofins oversigt over dem, så dem, du beholder, bliver liggende på disken, som du selv må håndtere.",
   "#30816": "Fjerner hentede filer…",
-  "#30817": "Alle"
+  "#30817": "Alle",
+  "#30819": "Vis medvirkende i tilføjelsens lister",
+  "#30820": "Henter medvirkende og hold for emner, der gennemses via tilføjelsen, så informationsdialogen kan vise dem. Det tager op til et sekund længere at åbne en liste; Kodi-biblioteket har altid de medvirkende."
 }

@@ -2031,3 +2031,11 @@ msgstr "전체"
 msgctxt "#30818"
 msgid "A-Z"
 msgstr "A-Z"
+
+msgctxt "#30819"
+msgid "Show cast in add-on listings"
+msgstr "애드온 목록에 출연진 표시"
+
+msgctxt "#30820"
+msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
+msgstr "애드온으로 탐색한 항목의 출연진과 제작진을 가져와 정보 대화상자에 표시할 수 있게 합니다. 목록을 여는 데 최대 1초가 더 걸립니다. Kodi 라이브러리에는 항상 출연진이 있습니다."

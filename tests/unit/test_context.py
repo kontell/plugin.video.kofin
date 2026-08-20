@@ -80,7 +80,81 @@ def test_manage_options_omits_watched_where_there_is_no_state(monkeypatch):
     options = _options(
         monkeypatch, {"Id": "a1", "Type": "MusicArtist", "UserData": {}}, False
     )
-    assert [params["mode"] for _, params in options] == ["favorite", "settings"]
+    assert "watched" not in [params["mode"] for _, params in options]
+
+
+# --- the resume reset ---------------------------------------------------------
+
+
+def test_manage_options_reset_follows_the_watched_toggle_on_an_in_progress_row(
+    monkeypatch,
+):
+    """Kodi's own "Reset resume position" deletes a MyVideos bookmark a listing
+    row does not have and never speaks to the server, so the one that reaches
+    the server lives here -- under Kodi's own wording, and only where there is
+    a position to reset."""
+    in_progress = {
+        "Id": "i1",
+        "Type": "Episode",
+        "UserData": {"PlaybackPositionTicks": 300 * 10_000_000},
+    }
+    options = _options(monkeypatch, in_progress, False)
+    assert options[0][1]["mode"] == "watched"
+    assert options[1] == ("K38209", {"mode": "resetresume", "id": "i1"})
+
+    fresh = {"Id": "i1", "Type": "Episode", "UserData": {}}
+    modes = [params["mode"] for _, params in _options(monkeypatch, fresh, False)]
+    assert "resetresume" not in modes
+
+
+def test_manage_options_reset_is_for_kofins_own_video_rows(monkeypatch):
+    """A library row's Kodi entry works and is forwarded by the service; a song
+    has no resume point Kodi could act on."""
+    in_progress = {"PlaybackPositionTicks": 300 * 10_000_000}
+    library_row = {"Id": "i1", "Type": "Movie", "UserData": in_progress}
+    modes = [
+        params["mode"]
+        for _, params in _options(monkeypatch, library_row, False, dynamic=False)
+    ]
+    assert "resetresume" not in modes
+
+    song = {"Id": "s1", "Type": "Audio", "UserData": in_progress}
+    modes = [params["mode"] for _, params in _options(monkeypatch, song, False)]
+    assert "resetresume" not in modes
+
+
+# --- play all / shuffle -------------------------------------------------------
+
+
+def test_manage_options_play_all_leads_music_containers(monkeypatch):
+    """Kodi offers no Play on a plugin folder in either window, so the album
+    row's only way to play as a whole is here -- first, because it is what the
+    row is for. Core strings: 22083 "Play all", 191 "Shuffle"."""
+    for item_type in ("MusicAlbum", "MusicArtist", "MusicGenre"):
+        item = {"Id": "c1", "Type": item_type, "UserData": {}}
+        options = _options(monkeypatch, item, False)
+        assert options[0] == ("K22083", {"mode": "playall", "id": "c1"}), item_type
+        assert options[1] == (
+            "K191",
+            {"mode": "playall", "id": "c1", "shuffle": "1"},
+        ), item_type
+
+
+def test_manage_options_play_all_takes_audio_playlists_only(monkeypatch):
+    audio = {"Id": "p1", "Type": "Playlist", "MediaType": "Audio", "UserData": {}}
+    assert _options(monkeypatch, audio, False)[0][1]["mode"] == "playall"
+
+    video = {"Id": "p2", "Type": "Playlist", "MediaType": "Video", "UserData": {}}
+    modes = [params["mode"] for _, params in _options(monkeypatch, video, False)]
+    assert "playall" not in modes
+
+
+def test_manage_options_play_all_never_reaches_video(monkeypatch):
+    """Music only, by decision: seasons and series keep Kodi's own behaviour."""
+    for item_type in ("Season", "Series", "BoxSet", "Movie", "Episode"):
+        item = {"Id": "v1", "Type": item_type, "UserData": {}}
+        modes = [params["mode"] for _, params in _options(monkeypatch, item, False)]
+        assert "playall" not in modes, item_type
 
 
 def test_manage_options_omits_watched_on_a_library_row(monkeypatch):

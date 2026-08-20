@@ -2121,3 +2121,14 @@ msgstr ""
 msgctxt "#30818"
 msgid "A-Z"
 msgstr ""
+
+# 30819-30820 — cast in the add-on's own listings (docs/dynamic-libraries-plan.md
+# W5). Off by default, and the help states the measured cost rather than hiding
+# it: People is up to a second of server time on a 25-row listing.
+msgctxt "#30819"
+msgid "Show cast in add-on listings"
+msgstr ""
+
+msgctxt "#30820"
+msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
+msgstr ""

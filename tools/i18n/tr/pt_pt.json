@@ -448,5 +448,7 @@
   "#30814": "Quanto tempo uma transferência pode ficar sem ser reproduzida antes de ser removida. Reproduzi-la de novo reinicia a contagem.",
   "#30815": "Eliminar também os seus %s ficheiro(s) transferido(s)? A limpeza remove o registo que o Kofin tem deles, pelo que os que mantiver ficam no disco para os gerir por si.",
   "#30816": "A remover ficheiros transferidos…",
-  "#30817": "Todos"
+  "#30817": "Todos",
+  "#30819": "Mostrar elenco nas listas do add-on",
+  "#30820": "Obtém o elenco e a equipa dos itens navegados através do add-on para que a janela de informação os possa mostrar. Abrir uma lista demora até um segundo mais; a biblioteca do Kodi tem sempre o elenco."
 }

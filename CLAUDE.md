@@ -161,6 +161,17 @@ What remains is kofin's own:
   SyncPlay transplant.
 - `discography` has no unique index, so `INSERT OR REPLACE` never replaces
   (`kodi-database-writing` has the general shape; the repair path is kofin's).
+- **"Recently added albums" asks `/Items/Latest`, never albums sorted by `DateCreated`** — an
+  album's DateCreated is when the scanner last created its row, and a rescan re-creates rows in
+  folder order (`docs/dynamic-libraries-plan.md` §3). The sync writes album `dateAdded` from the
+  same field; that is a known, separate question.
+- **"Play with transcoding" is gated on `ListItem.DBTYPE`, not on `kofin.id` alone** — every
+  dynamic row carries the id, songs, albums and genres included, and the DBTYPE clause is what
+  keeps the entry off them (`addon.xml`).
+- **A listing row with no server position still stamps `setResumePoint(0, total)`** — a zero point
+  with a total is "set, nothing to resume" to Kodi, which is what stops it falling back to the
+  bookmark it saved for the plugin path; the *resolved* item in `plugin/play.py` must never be
+  stamped with zero, for the opposite reason (`plugin/listitems.py` explains both).
 - The who's-watching shortlist packs three states into one string setting
   (`plugin/adduser.py`): `all`, an id list, or `none` for "feature off". **Empty is `all`, not
   off** — it is what every install predating the sentinels holds, and it is what an unreadable

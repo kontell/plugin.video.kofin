@@ -502,5 +502,7 @@
   "#30815": "Also delete your %s downloaded file(s)? Cleaning removes Kofin's record of them, so any you keep are left on disk for you to manage yourself.",
   "#30816": "Removing downloaded files…",
   "#30817": "All",
-  "#30818": "A-Z"
+  "#30818": "A-Z",
+  "#30819": "Show cast in add-on listings",
+  "#30820": "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
 }

@@ -265,3 +265,39 @@ def test_stop_player_stops_waiting_when_kodi_is_shutting_down(monkeypatch):
 def test_stop_player_survives_an_unreadable_player_list(monkeypatch):
     monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
     assert kodirpc.stop_player() is False
+
+
+# --- clearing the bookmark Kodi keeps for a plugin path ----------------------
+
+
+def test_clear_resume_bookmark_asks_kodi_for_a_zero_position(monkeypatch):
+    """Files.SetFileDetails is the one JSON-RPC write that reaches a plugin
+    path, and a zero position is what makes it clear the bookmark rather than
+    write one (VideoLibrary.cpp UpdateResumePoint)."""
+    sent = []
+
+    def rpc(query):
+        sent.append(json.loads(query))
+        return json.dumps({"result": "OK"})
+
+    monkeypatch.setattr("xbmc.executeJSONRPC", rpc)
+
+    path = "plugin://plugin.video.kofin/?mode=play&id=jf1"
+    assert kodirpc.clear_resume_bookmark(path) is True
+    assert sent[0]["method"] == "Files.SetFileDetails"
+    assert sent[0]["params"] == {
+        "file": path,
+        "media": "video",
+        "resume": {"position": 0},
+    }
+
+
+def test_clear_resume_bookmark_reports_a_refusal(monkeypatch):
+    monkeypatch.setattr(
+        "xbmc.executeJSONRPC",
+        responder({"error": {"code": -32602, "message": "Invalid params."}}),
+    )
+    assert kodirpc.clear_resume_bookmark("plugin://x") is False
+
+    monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
+    assert kodirpc.clear_resume_bookmark("plugin://x") is False

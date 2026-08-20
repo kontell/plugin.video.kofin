@@ -220,6 +220,56 @@ def test_build_with_a_zero_override_stamps_nothing(recorded):
     assert recorded[-1].tag.resume_calls == []
 
 
+def test_build_stamps_a_zero_point_on_a_listing_row_with_a_runtime(recorded):
+    """A zero point *with a total* reads to Kodi as set-and-nothing-to-resume:
+    not resumable, and -- the point of stamping it -- no fallback to the
+    bookmark Kodi saved for this plugin path the last time the item was
+    stopped (VideoUtils.cpp GetNonFolderItemResumeInformation)."""
+    fresh = dict(EPISODE, UserData={})
+    listitems.build(fresh, SERVER)
+    assert recorded[-1].tag.resume_calls == [(0.0, 600.0)]
+
+
+def test_build_stamps_nothing_without_a_runtime(recorded):
+    """No total means no point to stamp: Kodi reads "set" off the total."""
+    listitems.build({"Type": "Episode", "Name": "No runtime", "UserData": {}}, SERVER)
+    assert recorded[-1].tag.resume_calls == []
+
+
+def test_cast_carries_the_persons_portrait(recorded, monkeypatch):
+    """A URL, fetched by Kodi only when the info dialog draws the cast; people
+    without a portrait get none rather than a path to nowhere, and crew keep
+    out of the cast list."""
+    actors = []
+    monkeypatch.setattr(
+        listitems.xbmc,
+        "Actor",
+        lambda name, role, order, thumbnail: actors.append(
+            (name, role, order, thumbnail)
+        ),
+    )
+    item = {
+        "Type": "Movie",
+        "Name": "...And Justice for All",
+        "People": [
+            {
+                "Name": "Al Pacino",
+                "Role": "Arthur Kirkland",
+                "Type": "Actor",
+                "Id": "p1",
+                "PrimaryImageTag": "t1",
+            },
+            {"Name": "No Portrait", "Role": "Judge", "Type": "Actor", "Id": "p2"},
+            {"Name": "Norman Jewison", "Type": "Director", "Id": "p3"},
+        ],
+    }
+    listitems.build(item, SERVER)
+    assert actors == [
+        ("Al Pacino", "Arthur Kirkland", 0, SERVER + "/Items/p1/Images/Primary?tag=t1"),
+        ("No Portrait", "Judge", 1, ""),
+    ]
+
+
 def test_build_does_not_stamp_mediatype_on_library_views(recorded):
     """CollectionFolder/UserView are containers, not video media rows."""
     listitems.build(VIEW, SERVER)

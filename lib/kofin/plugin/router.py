@@ -55,6 +55,8 @@ ROUTES: Dict[str, Tuple[str, str]] = {
     "userprefs": ("userprefs", "jellyfin_settings"),
     "watched": ("actions", "watched"),
     "unwatched": ("actions", "unwatched"),
+    "resetresume": ("actions", "reset_resume"),
+    "playall": ("playall", "play_all"),
     "download": ("actions", "download"),
     "downloadshow": ("actions", "download_show"),
     "downloadshows": ("actions", "manage_download_shows"),

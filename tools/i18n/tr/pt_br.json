@@ -448,5 +448,7 @@
   "#30814": "Quanto tempo um download pode ficar sem ser reproduzido antes de ser removido. Reproduzi-lo de novo reinicia a contagem.",
   "#30815": "Excluir também os seus %s arquivo(s) baixado(s)? A limpeza remove o registro que o Kofin tem deles, então os que você mantiver ficam no disco para você gerenciar por conta própria.",
   "#30816": "Removendo os arquivos baixados…",
-  "#30817": "Todos"
+  "#30817": "Todos",
+  "#30819": "Mostrar elenco nas listas do add-on",
+  "#30820": "Busca o elenco e a equipe dos itens navegados pelo add-on para que a janela de informações possa exibi-los. Abrir uma lista leva até um segundo a mais; a biblioteca do Kodi sempre tem o elenco."
 }

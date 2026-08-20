@@ -448,5 +448,7 @@
   "#30814": "Kuinka kauan lataus saa olla toistamatta ennen poistoa. Uusi toisto aloittaa laskennan alusta.",
   "#30815": "Poistetaanko myös %s ladattua tiedostoasi? Puhdistus poistaa Kofinin tiedot niistä, joten säilytettävät jäävät levylle sinun hallittaviksesi.",
   "#30816": "Poistetaan ladattuja tiedostoja…",
-  "#30817": "Kaikki"
+  "#30817": "Kaikki",
+  "#30819": "Näytä näyttelijät lisäosan listauksissa",
+  "#30820": "Hakee näyttelijät ja tekijät lisäosan kautta selatuille kohteille, jotta tietoikkuna voi näyttää ne. Listauksen avaaminen kestää jopa sekunnin kauemmin; Kodin kirjastossa näyttelijät ovat aina mukana."
 }

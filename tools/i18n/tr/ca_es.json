@@ -448,5 +448,7 @@
   "#30814": "Quant de temps pot estar una baixada sense reproduir-se abans que s'elimini. Tornar-la a reproduir reinicia el compte.",
   "#30815": "Voleu suprimir també els vostres %s fitxers baixats? La neteja elimina el registre que en té el Kofin, així que els que conserveu queden al disc perquè els gestioneu vosaltres.",
   "#30816": "S'estan eliminant els fitxers baixats…",
-  "#30817": "Tots"
+  "#30817": "Tots",
+  "#30819": "Mostra el repartiment a les llistes del complement",
+  "#30820": "Obté el repartiment i l'equip dels elements que explores a través del complement, perquè el diàleg d'informació els pugui mostrar. Obrir una llista pot trigar fins a un segon més; la biblioteca de Kodi sempre té el repartiment."
 }

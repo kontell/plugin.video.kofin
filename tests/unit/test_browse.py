@@ -41,6 +41,8 @@ def test_node_query_special_routes_return_none():
     assert node_query("tvshows", "nextup", "v1") is None
     assert node_query("music", "artists", "v1") is None
     assert node_query("movies", "genres", "v1") is None
+    # Latest, not a SortBy: an album's DateCreated is a scan artefact.
+    assert node_query("music", "recentalbums", "v1") is None
 
 
 def test_node_query_music_albums():
@@ -61,7 +63,25 @@ def test_node_query_fields_follow_boundedness():
     for node in ("recentepisodes", "inprogressepisodes", "random"):
         assert "MediaStreams" in node_query("tvshows", node, "v1")["Fields"], node
     # Bounded but music: still no stream details.
-    assert "MediaStreams" not in node_query("music", "recentalbums", "v1")["Fields"]
+    assert "MediaStreams" not in node_query("music", "favoritealbums", "v1")["Fields"]
+
+
+def test_bounded_fields_carry_cast_only_on_request():
+    """People is 7-25 ms of server time per row -- 0.6 s on a 25-row listing,
+    42 s on a whole library -- so it rides only the bounded listings, and only
+    when the viewer turned browseCast on (off by default)."""
+    FakeAddon.store["browseCast"] = "false"
+    assert browse.bounded_fields() == browse.BROWSE_FIELDS_STREAMS
+    assert "People" not in node_query("movies", "recent", "v1")["Fields"]
+
+    FakeAddon.store["browseCast"] = "true"
+    assert browse.bounded_fields() == browse.BROWSE_FIELDS_STREAMS + ",People"
+    assert "People" in node_query("movies", "recent", "v1")["Fields"]
+    assert "People" in node_query("tvshows", "inprogressepisodes", "v1")["Fields"]
+    # Never on a whole-library node and never on music, whatever the setting.
+    assert "People" not in node_query("movies", "all", "v1")["Fields"]
+    assert "People" not in node_query("movies", "genre-g1", "v1")["Fields"]
+    assert "People" not in node_query("music", "lastplayed", "v1")["Fields"]
 
 
 def test_season_episodes_keep_stream_details():
@@ -358,6 +378,56 @@ EPISODE_DTO = {
     "SeriesName": "Archer",
     "ImageTags": {},
 }
+
+
+class LatestApi:
+    server = "http://server:8096"
+
+    def __init__(self, albums):
+        self.albums = albums
+        self.latest_calls = []
+
+    def latest(self, parent_id, include_types, fields="", limit=25):
+        self.latest_calls.append((parent_id, include_types, fields, limit))
+        return self.albums
+
+    def items(self, params):  # pragma: no cover - must not be reached
+        raise AssertionError("recent albums must not come from /Items")
+
+
+ALBUM_DTO = {
+    "Id": "a1",
+    "Name": "Trainspotting",
+    "Type": "MusicAlbum",
+    "AlbumArtist": "Various Artists",
+    "ImageTags": {},
+}
+
+
+def test_recent_albums_come_from_latest_not_from_album_dates(monkeypatch, directory):
+    """An album's DateCreated is when the scanner last created its row -- a
+    rescan re-created 25 A-artists within one second on the test library -- so
+    sorting albums by it lists a scan, not arrivals. Latest sorts the songs and
+    groups them by album, which is the web client's answer too."""
+    api = LatestApi([ALBUM_DTO])
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.browse(
+        Request(
+            "plugin://x",
+            1,
+            {"mode": "browse", "view": "v1", "type": "music", "folder": "recentalbums"},
+        )
+    )
+
+    assert api.latest_calls == [("v1", "Audio", browse.BROWSE_FIELDS, 25)]
+    assert directory["succeeded"] is True
+    assert directory["content"] == "albums"
+    paths = [path for path, _li, _folder in directory["entries"]]
+    assert paths == [
+        "plugin://plugin.video.kofin/?mode=browse&folder=a1&type=musicalbum"
+    ]
+    assert [folder for _path, _li, folder in directory["entries"]] == [True]
 
 
 def test_continue_watching_lists_the_server_order(monkeypatch, directory):

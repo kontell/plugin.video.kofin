@@ -377,6 +377,47 @@ class Api:
             params["Fields"] = fields
         return self.get("/UserItems/Resume", self._as_user(params))
 
+    def latest(
+        self, parent_id: str, include_types: str, fields: str = "", limit: int = 25
+    ) -> List[JsonDict]:
+        """The server's own "recently added" — ``/Items/Latest``.
+
+        For music it is the only query that answers the question. An album's
+        ``DateCreated`` is when the scanner last *created the album row*, and
+        a rescan re-creates rows in folder order: on a 1,538-album library the
+        25 newest by that field were AC/DC, Accept and Aerosmith, all stamped
+        within the same second, while the records added that week sat nowhere
+        near the top. ``Latest`` sorts the *songs* by ``DateCreated`` and, with
+        ``GroupItems``, hands back each one's album — the query the web
+        client's Recently added section makes, so the two agree.
+
+        It honours the account's ``HidePlayedInLatest`` preference, and the
+        API has no way to ask for both sides at once (``IsPlayed`` picks one).
+        That is the web client's behaviour for the same account, and it is
+        kept on purpose (docs/dynamic-libraries-plan.md §3).
+
+        The answer is a bare list, not an ``Items`` envelope.
+        """
+        params: JsonDict = {
+            "ParentId": parent_id,
+            "IncludeItemTypes": include_types,
+            "GroupItems": True,
+            "Limit": limit,
+            "ImageTypeLimit": 1,
+        }
+        if fields:
+            params["Fields"] = fields
+        response = self._http.request(
+            "GET",
+            self._url("/Items/Latest"),
+            headers=self._headers(),
+            params=self._as_user(params),
+            timeout=self._timeout,
+            retries=self._retries,
+        )
+        listing: List[JsonDict] = response.json() if response.content else []
+        return listing
+
     def artists(self, parent_id: str) -> JsonDict:
         return self.get("/Artists", {"userId": self.user_id, "parentId": parent_id})
 
@@ -789,9 +830,17 @@ class Api:
         return results
 
     def playlist_items(
-        self, playlist_id: str, start_index: int = 0, limit: int = 100
+        self,
+        playlist_id: str,
+        start_index: int = 0,
+        limit: int = 100,
+        fields: str = "BasicSyncInfo",
     ) -> JsonDict:
-        """One page of ordered playlist entries (use ``PlaylistItemId`` if writing)."""
+        """One page of ordered playlist entries (use ``PlaylistItemId`` if writing).
+
+        ``fields`` is the sync's minimal set by default; a caller building
+        ListItems (plugin/playall.py) names what it reads instead.
+        """
         return self.get(
             "/Playlists/%s/Items" % playlist_id,
             {
@@ -799,7 +848,7 @@ class Api:
                 "StartIndex": start_index,
                 "Limit": limit,
                 "EnableTotalRecordCount": True,
-                "Fields": "BasicSyncInfo",
+                "Fields": fields,
             },
         )
 

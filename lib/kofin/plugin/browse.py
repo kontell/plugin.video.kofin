@@ -40,6 +40,27 @@ BROWSE_FIELDS = (
 # it render without codec/resolution flags, which is the stated trade.
 BROWSE_FIELDS_STREAMS = BROWSE_FIELDS + ",MediaStreams"
 
+# How many rows a "recent" node shows. Also what makes those nodes bounded,
+# which is what earns them the fields above.
+RECENT_LIMIT = 25
+
+
+def bounded_fields() -> str:
+    """The field list for a listing short enough to carry the expensive ones.
+
+    MediaStreams always (BROWSE_FIELDS_STREAMS). People only when the viewer
+    asked for cast in the add-on's listings (browseCast, off by default):
+    measured on 10.11, People costs the server 7-25 ms and ~7 KB per row —
+    0.6 s on a 25-row movie listing, 42 s on a 1,775-movie library — so it
+    rides only the listings a Limit already bounds, and never music, which
+    reads no people at all (docs/dynamic-libraries-plan.md §2).
+    """
+    fields = BROWSE_FIELDS_STREAMS
+    if settings.get_bool("browseCast"):
+        fields += ",People"
+    return fields
+
+
 # Node menus per collection type: (folder key, label string id).
 #
 # A label id under 30000 or over 30999 is Kodi's own — :func:`node_label`
@@ -107,6 +128,13 @@ ALPHABET = ("#",) + tuple("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 # both history nodes list songs (verified against a 20,802-song library: 7,176
 # played).
 PLAY_HISTORY_LIMIT = 100
+
+# "Recently added albums" is not a SortBy either: an album's DateCreated is
+# when the scanner last created its row, and a rescan re-creates rows in folder
+# order, so sorting albums by it listed a scan rather than arrivals — 25
+# A-artists stamped within one second, on the test library. The node goes
+# through /Items/Latest (Api.latest), which sorts the songs and groups them by
+# album, exactly as the web client does.
 
 # Past this many tags the menu shows initials first. Under it, a flat list is
 # friendlier than a letter you have to guess.
@@ -419,13 +447,6 @@ def node_query(media: str, node: str, view_id: str) -> Optional[JsonDict]:
         base.update(IncludeItemTypes=types, SortBy="Random", Limit=25)
     elif node == "albums":
         base.update(IncludeItemTypes="MusicAlbum", SortBy="AlbumArtist,SortName")
-    elif node == "recentalbums":
-        base.update(
-            IncludeItemTypes="MusicAlbum",
-            SortBy="DateCreated",
-            SortOrder="Descending",
-            Limit=25,
-        )
     elif node.startswith("genre-"):
         base["GenreIds"] = node.split("-", 1)[1]
         base["IncludeItemTypes"] = types
@@ -460,9 +481,9 @@ def node_query(media: str, node: str, view_id: str) -> Optional[JsonDict]:
     else:
         return None
     # Boundedness decides the field list: a Limit is what makes the payload
-    # per-row cost worth paying (see BROWSE_FIELDS_STREAMS).
+    # per-row cost worth paying (see bounded_fields).
     if media != "music" and "Limit" in base:
-        base["Fields"] = BROWSE_FIELDS_STREAMS
+        base["Fields"] = bounded_fields()
     return base
 
 
@@ -596,7 +617,7 @@ def next_episodes(request: Request) -> None:
 
     view_id = request.params.get("id", "")
     try:
-        items = api.next_up(view_id, BROWSE_FIELDS_STREAMS).get("Items", [])
+        items = api.next_up(view_id, bounded_fields()).get("Items", [])
     except JellyfinError as error:
         LOG.warning("next episodes failed (%s): %s", view_id, error)
         xbmcplugin.endOfDirectory(request.handle, succeeded=False)
@@ -629,7 +650,7 @@ def continue_watching(request: Request) -> None:
         return
 
     try:
-        items = api.resume(BROWSE_FIELDS_STREAMS).get("Items", [])
+        items = api.resume(bounded_fields()).get("Items", [])
     except JellyfinError as error:
         LOG.warning("continue watching failed: %s", error)
         xbmcplugin.endOfDirectory(request.handle, succeeded=False)
@@ -1078,8 +1099,11 @@ def _list_items(
     """Fetch the item list for a folder; returns (items, kodi content type)."""
     # Special routes first.
     if folder == "nextup":
-        result = api.next_up(view_id)
+        result = api.next_up(view_id, bounded_fields())
         return result.get("Items", []), "episodes"
+    if folder == "recentalbums":
+        # Latest, not a sort: see the note above PLAY_HISTORY_LIMIT.
+        return api.latest(view_id, "Audio", BROWSE_FIELDS, RECENT_LIMIT), "albums"
     if folder == "genres":
         # Empty content, like the node menu above it: genres are structural
         # rows carrying a stock glyph, and "files" is what hides it
@@ -1105,7 +1129,7 @@ def _list_items(
     if item_type == "season":
         series = request.params.get("series", "")
         return (
-            api.episodes(series, folder, BROWSE_FIELDS_STREAMS).get("Items", []),
+            api.episodes(series, folder, bounded_fields()).get("Items", []),
             "episodes",
         )
     if item_type == "musicartist":

@@ -448,5 +448,7 @@
   "#30814": "Wie lange ein Download unabgespielt liegen darf, bevor er entfernt wird. Erneutes Abspielen setzt die Zählung zurück.",
   "#30815": "Auch deine %s heruntergeladene(n) Datei(en) löschen? Die Bereinigung entfernt Kofins Eintrag dazu, sodass alles, was du behältst, auf der Platte bleibt und von dir selbst verwaltet werden muss.",
   "#30816": "Heruntergeladene Dateien werden entfernt…",
-  "#30817": "Alle"
+  "#30817": "Alle",
+  "#30819": "Besetzung in Add-on-Listen anzeigen",
+  "#30820": "Lädt Besetzung und Crew für Einträge, die du über das Add-on durchsuchst, damit der Informationsdialog sie anzeigen kann. Das Öffnen einer Liste dauert bis zu einer Sekunde länger; die Kodi-Bibliothek hat die Besetzung immer."
 }

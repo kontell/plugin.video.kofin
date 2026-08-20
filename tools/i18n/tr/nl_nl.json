@@ -448,5 +448,7 @@
   "#30814": "Hoe lang een download onafgespeeld mag blijven staan voordat die wordt verwijderd. Hem opnieuw afspelen laat de telling opnieuw beginnen.",
   "#30815": "Ook je %s gedownloade bestand(en) verwijderen? Het opschonen verwijdert Kofins registratie ervan, dus wat je bewaart blijft op schijf staan en beheer je zelf.",
   "#30816": "Gedownloade bestanden verwijderen…",
-  "#30817": "Alle"
+  "#30817": "Alle",
+  "#30819": "Cast tonen in add-onlijsten",
+  "#30820": "Haalt cast en crew op voor items die je via de add-on bekijkt, zodat het informatievenster ze kan tonen. Het openen van een lijst duurt tot een seconde langer; de Kodi-bibliotheek heeft de cast altijd."
 }

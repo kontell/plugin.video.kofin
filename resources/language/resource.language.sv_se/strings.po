@@ -2031,3 +2031,11 @@ msgstr "Alla"
 msgctxt "#30818"
 msgid "A-Z"
 msgstr "A-Z"
+
+msgctxt "#30819"
+msgid "Show cast in add-on listings"
+msgstr "Visa rollista i tilläggets listor"
+
+msgctxt "#30820"
+msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
+msgstr "Hämtar rollista och team för objekt som du bläddrar bland via tillägget, så att informationsdialogen kan visa dem. Det tar upp till en sekund längre att öppna en lista; Kodi-biblioteket har alltid rollistan."

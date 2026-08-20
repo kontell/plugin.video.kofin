@@ -448,5 +448,7 @@
   "#30814": "Cuánto tiempo puede estar una descarga sin reproducirse antes de eliminarse. Volver a reproducirla reinicia la cuenta.",
   "#30815": "¿Eliminar también tus %s archivos descargados? La limpieza borra el registro que Kofin tiene de ellos, así que los que conserves quedarán en el disco para que los gestiones tú.",
   "#30816": "Eliminando los archivos descargados…",
-  "#30817": "Todos"
+  "#30817": "Todos",
+  "#30819": "Mostrar el reparto en las listas del complemento",
+  "#30820": "Obtiene el reparto y el equipo de los elementos que exploras a través del complemento para que el diálogo de información pueda mostrarlos. Abrir una lista tarda hasta un segundo más; la biblioteca de Kodi siempre tiene el reparto."
 }
