@@ -448,5 +448,7 @@
   "#30814": "Meddig állhat lejátszatlanul egy letöltés, mielőtt törlődik. Az újbóli lejátszás elölről indítja a számlálást.",
   "#30815": "Törli a(z) %s letöltött fájlt is? A takarítás törli a Kofin nyilvántartását róluk, így a megtartottak a lemezen maradnak, és Önnek kell kezelnie őket.",
   "#30816": "Letöltött fájlok eltávolítása…",
-  "#30817": "Összes"
+  "#30817": "Összes",
+  "#30819": "Szereplők megjelenítése a kiegészítő listáiban",
+  "#30820": "Lekéri a szereplőket és a stábot a kiegészítőn keresztül böngészett elemekhez, hogy az információs ablak megjeleníthesse őket. Egy lista megnyitása akár egy másodperccel tovább tarthat; a Kodi könyvtárban mindig megvannak a szereplők."
 }

@@ -218,11 +218,11 @@ def play_with_transcode() -> None:
     # PlayMedia, not RunPlugin: playback Kodi starts is resolved through
     # setResolvedUrl, the path every other kofin playback takes, and the one
     # whose resume point Kodi acts on.
-    _stop_current_playback()
+    stop_current_playback()
     xbmc.executebuiltin("PlayMedia(%s)" % plugin_url(params))
 
 
-def _stop_current_playback() -> None:
+def stop_current_playback() -> None:
     """Stop whatever is playing, and wait for it to be gone.
 
     ``PlayMedia`` on a bare ``plugin://`` path handed to Kodi while something
@@ -259,6 +259,24 @@ def _stop_current_playback() -> None:
 # Same reach the listing-level toggle had: anything playable, plus the
 # containers Jellyfin tracks played state for.
 WATCHED_TYPES = PLAYABLE_TYPES | {"Series", "Season", "BoxSet"}
+
+# What a resume point can be reset on: the playable video kinds. Jellyfin
+# keeps a position for songs only as audiobooks, and Kodi has nowhere to
+# resume one (Api.resume says the same).
+RESUMABLE_TYPES = PLAYABLE_TYPES - {"Audio"}
+
+# The containers Play all / Shuffle expand (plugin/playall.py). Music only, by
+# decision: seasons and series keep Kodi's own behaviour. A Playlist joins
+# when it is an audio one (``_plays_all``).
+PLAY_ALL_TYPES = frozenset({"MusicAlbum", "MusicArtist", "MusicGenre"})
+
+
+def _plays_all(item: dict) -> bool:
+    item_type = item.get("Type")
+    if item_type in PLAY_ALL_TYPES:
+        return True
+    return item_type == "Playlist" and item.get("MediaType") == "Audio"
+
 
 # Movies/episodes since phase 1; music since phase 3 (W3.2). Containers
 # expand to their downloadable leaves at the route (W1.10).
@@ -384,6 +402,22 @@ def _manage_options(item: dict, dynamic: bool) -> List[Tuple[str, dict]]:
     is_favorite = bool(userdata.get("IsFavorite"))
     options: List[Tuple[str, dict]] = []
 
+    # Kodi offers no Play on a plugin folder in either window — its Play,
+    # Queue item and Play next are gated on IsItemPlayable, which stops at
+    # IsPlugin() for folders — so this is the only way an album, artist, genre
+    # or playlist row plays as a whole. First, because it is what the row is
+    # for. Core strings: 22083 "Play all", 191 "Shuffle".
+    if _plays_all(item):
+        options.append(
+            (xbmc.getLocalizedString(22083), {"mode": "playall", "id": item_id})
+        )
+        options.append(
+            (
+                xbmc.getLocalizedString(191),
+                {"mode": "playall", "id": item_id, "shuffle": "1"},
+            )
+        )
+
     if dynamic and item.get("Type") in WATCHED_TYPES:
         played = bool(userdata.get("Played"))
         options.append(
@@ -391,6 +425,22 @@ def _manage_options(item: dict, dynamic: bool) -> List[Tuple[str, dict]]:
                 settings.localized(30509 if played else 30508),
                 {"mode": "unwatched" if played else "watched", "id": item_id},
             )
+        )
+
+    # Kodi's own "Reset resume position" is what the viewer reaches first, and
+    # on a listing row it does nothing that lasts: it deletes a MyVideos
+    # bookmark the row does not have and never speaks to the server, so the
+    # refresh it triggers stamps the server's position straight back. Offered
+    # here under Kodi's own wording (38209), only where there is a position to
+    # reset and only on kofin's rows — a library row's Kodi entry works, and
+    # the service forwards it (kodiuserdata.py).
+    if (
+        dynamic
+        and item.get("Type") in RESUMABLE_TYPES
+        and int(userdata.get("PlaybackPositionTicks") or 0) > 0
+    ):
+        options.append(
+            (xbmc.getLocalizedString(38209), {"mode": "resetresume", "id": item_id})
         )
 
     fav_label = xbmc.getLocalizedString(14077 if is_favorite else 14076)

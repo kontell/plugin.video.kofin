@@ -4,7 +4,9 @@ puts in front of the user, and what it notifies the service."""
 import pytest
 
 from kofin.core import ipc
+from kofin.core.http import JellyfinError
 from kofin.plugin import actions
+from kofin.plugin.router import Request
 
 
 class FakeDialog:
@@ -662,3 +664,76 @@ def test_delete_all_downloads_says_so_when_there_are_none(download_wired):
 
     assert dialog.yesnos == []
     assert notified == []
+
+
+# --- the resume reset (docs/dynamic-libraries-plan.md W2) ----------------------
+
+
+class _ResumeApi:
+    def __init__(self, fail=False):
+        self.fail = fail
+        self.calls = []
+
+    def set_resume_position(self, item_id, position_ticks):
+        if self.fail:
+            raise JellyfinError("down")
+        self.calls.append((item_id, position_ticks))
+
+
+@pytest.fixture
+def reset_wired(monkeypatch):
+    api = _ResumeApi()
+    cleared = []
+    builtins = []
+    toasts = []
+    monkeypatch.setattr(actions, "_api", lambda: api)
+    monkeypatch.setattr(
+        actions.kodirpc,
+        "clear_resume_bookmark",
+        lambda path: cleared.append(path) or True,
+    )
+    monkeypatch.setattr(actions.xbmc, "executebuiltin", builtins.append)
+    monkeypatch.setattr(actions.settings, "localized", lambda i: "L%d" % i)
+    monkeypatch.setattr(
+        actions.toast, "show", lambda message, *args, **kwargs: toasts.append(message)
+    )
+    return api, cleared, builtins, toasts
+
+
+def test_reset_resume_zeroes_the_server_then_kodis_copy(reset_wired):
+    """Both halves, in that order: the server position kofin stamps on the row,
+    then the bookmark Kodi keeps for the row's plugin path and would fall back
+    to the moment the stamp is gone."""
+    api, cleared, builtins, toasts = reset_wired
+
+    actions.reset_resume(
+        Request("plugin://x", -1, {"mode": "resetresume", "id": "jf1"})
+    )
+
+    assert api.calls == [("jf1", 0)]
+    assert cleared == ["plugin://plugin.video.kofin/?mode=play&id=jf1"]
+    assert builtins == ["Container.Refresh"]
+    assert toasts == []
+
+
+def test_reset_resume_leaves_kodi_alone_when_the_server_refuses(reset_wired):
+    """Nothing local moves on a failed server call: the listing would otherwise
+    say "reset" over a position the server still holds."""
+    api, cleared, builtins, toasts = reset_wired
+    api.fail = True
+
+    actions.reset_resume(
+        Request("plugin://x", -1, {"mode": "resetresume", "id": "jf1"})
+    )
+
+    assert cleared == []
+    assert builtins == []
+    assert toasts == ["L30507"]
+
+
+def test_reset_resume_without_an_id_does_nothing(reset_wired):
+    api, cleared, builtins, _toasts = reset_wired
+
+    actions.reset_resume(Request("plugin://x", -1, {"mode": "resetresume"}))
+
+    assert (api.calls, cleared, builtins) == ([], [], [])

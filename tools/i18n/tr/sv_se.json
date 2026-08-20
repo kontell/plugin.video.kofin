@@ -448,5 +448,7 @@
   "#30814": "Hur länge en hämtning får ligga ospelad innan den tas bort. Att spela upp den igen startar om räkningen.",
   "#30815": "Ta även bort dina %s hämtade fil(er)? Rensningen tar bort Kofins register över dem, så de du behåller lämnas kvar på disken för dig att hantera själv.",
   "#30816": "Tar bort hämtade filer…",
-  "#30817": "Alla"
+  "#30817": "Alla",
+  "#30819": "Visa rollista i tilläggets listor",
+  "#30820": "Hämtar rollista och team för objekt som du bläddrar bland via tillägget, så att informationsdialogen kan visa dem. Det tar upp till en sekund längre att öppna en lista; Kodi-biblioteket har alltid rollistan."
 }

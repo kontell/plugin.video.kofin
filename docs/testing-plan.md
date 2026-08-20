@@ -207,6 +207,15 @@ Run on the `kofin-test` profile (Omega 21.3) against `jelly.konell.xyz`, branch 
 * **[PASS] X4 the format conversion** — the file written is `English.eng.srt`, 128,891 bytes, fetched from the route asked for `.srt` rather than the `.subrip` the server offered. Kodi has no parser registered for `.subrip`.
 * **Filename grammar**, measured by adding real files to a running playback: `English.eng.srt` → name "English (External)", language eng; `Commentary.eng.forced.srt` → forced flag set, token consumed; `eng.srt` → language but no name; `English SDH.eng.sdh.srt` → **`sdh` is not a flag** and leaks into the name. Hence name + language + `forced`, and nothing else.
 
+### Dynamic libraries gate — plugin listings (docs/dynamic-libraries-plan.md; 2026-08-20)
+
+* **S9.1 transcoding entry**: the context menu on a kofin song, album, genre, series and season row shows no "Play with transcoding"; a dynamic movie, an episode, a recording and a library movie still do (screenshots, `tests/live/results/dynamic-libraries-*`).
+* **S9.2 reset resume**: plant a server position on an episode of an unsynced show (above MinResumePercentage) and a local bookmark on its plugin path (`Files.SetFileDetails`); Continue watching → Jellyfin actions → Reset resume position → server `PlaybackPositionTicks` 0, bookmark row gone, row no longer resumable after the refresh.
+* **S9.3 stale local bookmark**: same plant with the server at 0 → the row reads `ListItem.IsResumable` false and plays from the start without a prompt.
+* **S9.4 recent albums**: the Recently added node lists what the web client's Music → Recently added shows, same order, for the same account.
+* **S9.5 play all / shuffle**: album → Play all → music playlist (playlistid 0) of every track in disc/track order, each track claimed and reported; Shuffle → a different order; Play all on an audio playlist keeps the server order; no entry on seasons, series or video playlists.
+* **S9.6 cast**: `browseCast` off → Continue watching rows carry no cast and the listing time is unchanged; on → Information on a row shows cast with portraits; listing time delta recorded.
+
 ## S-loops — healing-loop convergence (docs/healing-loops-plan.md; run 2026-08-06, kofin-test profile, Omega/MyVideos131, Jellyfin 10.11.11)
 
 **S-loops-1 (F1, boxset shared member) — PASS.** Two throwaway collections sharing one movie ("Kofin Loop Probe A/B") created via `/Collections`; the incremental sync landed both with the classic mid-cycle shape (B stole the shared member last-wins, A's stored count one high). Restart 1: `boxset drift probe: 1 of 56 set(s) unhealthy` → the scheduled walk logged `healing boxset` for both sets and the summary `56 checked (54 unchanged, 2 healed)` — the predicted within-walk steal cascade — and the walk-end restamp left stored == measured for both (A=0, B=1). Restart 2: zero probe lines. Collections deleted server-side; removal echo swept references, sets rows and state rows; movie's `idSet` NULLed; baseline 54 sets / 54 states byte-consistent.

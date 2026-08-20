@@ -2031,3 +2031,11 @@ msgstr "Όλοι"
 msgctxt "#30818"
 msgid "A-Z"
 msgstr "A-Z"
+
+msgctxt "#30819"
+msgid "Show cast in add-on listings"
+msgstr "Εμφάνιση ηθοποιών στις λίστες του πρόσθετου"
+
+msgctxt "#30820"
+msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
+msgstr "Λαμβάνει ηθοποιούς και συντελεστές για τα στοιχεία που περιηγείστε μέσω του πρόσθετου, ώστε να τους εμφανίζει το παράθυρο πληροφοριών. Το άνοιγμα μιας λίστας καθυστερεί έως ένα δευτερόλεπτο· η βιβλιοθήκη του Kodi έχει πάντα τους ηθοποιούς."

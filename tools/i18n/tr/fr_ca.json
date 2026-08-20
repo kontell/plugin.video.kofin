@@ -448,5 +448,7 @@
   "#30814": "Combien de temps un téléchargement peut rester sans être lu avant d'être supprimé. Le relire remet le compteur à zéro.",
   "#30815": "Supprimer aussi vos %s fichier(s) téléchargé(s)? Le nettoyage efface la trace que Kofin en garde, donc ceux que vous conservez resteront sur le disque, à vous de les gérer.",
   "#30816": "Suppression des téléchargements…",
-  "#30817": "Tous"
+  "#30817": "Tous",
+  "#30819": "Afficher la distribution dans les listes de l'extension",
+  "#30820": "Récupère la distribution et l'équipe des éléments parcourus via l'extension pour que la fenêtre d'informations puisse les afficher. L'ouverture d'une liste prend jusqu'à une seconde de plus; la médiathèque Kodi a toujours la distribution."
 }

@@ -4,10 +4,12 @@ Both processes need these. The play route has to start where Kodi is about to
 seek, and the service has to confirm a resume bookmark really is gone before
 acting on the announcement that says so.
 
-Two of these write. ``drop_cached_texture`` because rewriting a file in place
+Three of these write. ``drop_cached_texture`` because rewriting a file in place
 leaves Kodi's texture cache serving the bytes it already cached, so the backdrop
-swap has to invalidate the entry itself; and ``stop_player`` because
-``xbmc.Player.stop()`` cannot be called from a kofin thread at all (issue #155).
+swap has to invalidate the entry itself; ``stop_player`` because
+``xbmc.Player.stop()`` cannot be called from a kofin thread at all (issue #155);
+and ``clear_resume_bookmark`` because the bookmark Kodi keeps for a plugin path
+is reachable through no Python binding.
 """
 
 import json
@@ -402,3 +404,50 @@ def preferred_subtitle_language() -> str:
     if value.lower() == "default":
         return str(xbmc.getLanguage(xbmc.ISO_639_2) or "")
     return str(xbmc.convertLanguage(value, xbmc.ISO_639_2) or "")
+
+
+def clear_resume_bookmark(path: str) -> bool:
+    """Delete the resume bookmark Kodi keeps for a plugin path.
+
+    Kodi saves a bookmark for every video it stops, keyed on the listing
+    row's own path (``original_listitem_url`` for a plugin item), and reads
+    it back for any row whose tag carries no resume point of its own
+    (VideoUtils.cpp ``GetNonFolderItemResumeInformation``). So zeroing the
+    server's position is only half of a reset: the half Kodi holds has to go
+    too, or the row advertises the stale local time the moment kofin stops
+    stamping the server's.
+
+    ``Files.SetFileDetails`` is the one JSON-RPC write that reaches a plugin
+    path. It insists the file exists, and ``CPluginFile::Exists`` answers
+    true for any ``plugin://``; a zero position makes it clear the bookmark
+    rather than write one (VideoLibrary.cpp ``UpdateResumePoint``). It adds a
+    ``files`` row when none exists, which is what Kodi does after any plugin
+    play, so nothing new is left behind. Verified live on Omega 21.3.
+
+    False when Kodi refused or could not be reached; the caller has nothing
+    to undo either way.
+    """
+    try:
+        response: Dict[str, Any] = json.loads(
+            xbmc.executeJSONRPC(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "Files.SetFileDetails",
+                        "params": {
+                            "file": path,
+                            "media": "video",
+                            "resume": {"position": 0},
+                        },
+                    }
+                )
+            )
+        )
+    except Exception as error:
+        LOG.debug("bookmark clear failed for %s: %s", path, error)
+        return False
+    if "error" in response:
+        LOG.debug("bookmark clear refused for %s: %s", path, response["error"])
+        return False
+    return True

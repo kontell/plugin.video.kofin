@@ -2031,3 +2031,11 @@ msgstr "Tous"
 msgctxt "#30818"
 msgid "A-Z"
 msgstr "A-Z"
+
+msgctxt "#30819"
+msgid "Show cast in add-on listings"
+msgstr "Afficher la distribution dans les listes de l'extension"
+
+msgctxt "#30820"
+msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
+msgstr "Récupère la distribution et l'équipe des éléments parcourus via l'extension pour que la fenêtre d'informations puisse les afficher. L'ouverture d'une liste prend jusqu'à une seconde de plus ; la médiathèque Kodi a toujours la distribution."

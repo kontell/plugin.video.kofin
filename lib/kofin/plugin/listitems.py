@@ -66,12 +66,20 @@ def plugin_url(params: Dict[str, str]) -> str:
     return BASE_URL + "?" + urlencode(params)
 
 
+def play_path(item_id: str) -> str:
+    """The playback URL of an item — one spelling, because Kodi keys what it
+    remembers about a plugin row (its resume bookmark, its play count) on this
+    exact string, and the reset that clears the bookmark has to name it
+    identically (actions.reset_resume)."""
+    return plugin_url({"mode": "play", "id": item_id})
+
+
 def path_for(item: JsonDict) -> str:
     """The navigation/playback URL for an item."""
     item_type = item.get("Type", "")
     item_id = item.get("Id", "")
     if item_type in PLAYABLE_TYPES:
-        return plugin_url({"mode": "play", "id": item_id})
+        return play_path(item_id)
     return plugin_url({"mode": "browse", "folder": item_id, "type": item_type.lower()})
 
 
@@ -128,6 +136,22 @@ def hdr_type(stream: JsonDict) -> str:
     if "HLG" in range_type:
         return "hlg"
     return ""
+
+
+def person_thumb(server: str, person: JsonDict) -> str:
+    """A person's portrait URL, '' when the server has none.
+
+    A URL, not a cached file: Kodi fetches it when the info dialog draws the
+    cast, and only then, so a listing carrying fifty of these costs nothing
+    until one is looked at. (The sync path pre-caches the same images for
+    library rows — service/artcache.py — because there Kodi's own dialog
+    draws them all at once.)
+    """
+    tag = person.get("PrimaryImageTag")
+    person_id = person.get("Id")
+    if not tag or not person_id:
+        return ""
+    return "%s/Items/%s/Images/Primary?tag=%s" % (server, person_id, tag)
 
 
 def art_for(item: JsonDict, server: str) -> Dict[str, str]:
@@ -207,7 +231,7 @@ def build(
     if item.get("Type") in MUSIC_TYPES:
         _fill_music(li, item)
     elif item.get("Type") not in ("Photo", "PhotoAlbum", "Genre"):
-        _fill_video(li, item, resume_seconds, resume_offset)
+        _fill_video(li, item, server, resume_seconds, resume_offset)
 
     if not is_folder(item) and item.get("Type") != "Photo":
         li.setProperty("IsPlayable", "true")
@@ -222,6 +246,7 @@ _CONTAINER_TYPES = frozenset({"CollectionFolder", "UserView"})
 def _fill_video(
     li: xbmcgui.ListItem,
     item: JsonDict,
+    server: str,
     resume_seconds: Optional[float] = None,
     resume_offset: Optional[float] = None,
 ) -> None:
@@ -288,17 +313,33 @@ def _fill_video(
     tag.setPlaycount(playcount_of(item))
     position, total = resume_of(item, resume_offset)
     if resume_seconds is not None:
-        position = resume_seconds
-    # There is no way to unset a resume point once stamped -- Kodi reads one as
-    # set from its total, which a later zero-time call leaves in place -- so a
-    # position of 0 has to mean "never call this".
-    if position > 0 and total > 0:
+        # The resolved item. A stamped point, even a zero one, makes Kodi treat
+        # the play as a resume and seek — to the point, or with no time on it
+        # to whatever bookmark MyVideos holds for the path — and there is no
+        # way to unset one once stamped, so 0 has to mean the setter is never
+        # called (plugin.play says why).
+        if resume_seconds > 0 and total > 0:
+            tag.setResumePoint(resume_seconds, total)
+    elif total > 0:
+        # A listing row: stamped either way. Kodi reads a zero point with a
+        # total as "set, and nothing to resume", which is not resumable and —
+        # the reason it is stamped — keeps Kodi from consulting the bookmark it
+        # saved for this plugin path the last time the item was stopped
+        # (VideoUtils.cpp GetNonFolderItemResumeInformation falls back to
+        # MyVideos only for an unset point). Without it a row the server calls
+        # finished still advertised the stale local time, and no reset could
+        # make it stop (docs/dynamic-libraries-plan.md §1).
         tag.setResumePoint(position, total)
 
     people = item.get("People") or []
     if people:
         actors = [
-            xbmc.Actor(person.get("Name", ""), person.get("Role", ""), index)
+            xbmc.Actor(
+                person.get("Name", ""),
+                person.get("Role", ""),
+                index,
+                person_thumb(server, person),
+            )
             for index, person in enumerate(people)
             if person.get("Type") in ("Actor", "GuestStar")
         ]

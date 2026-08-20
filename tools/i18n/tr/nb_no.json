@@ -448,5 +448,7 @@
   "#30814": "Hvor lenge en nedlasting kan bli liggende uspilt før den fjernes. Å spille den av igjen starter tellingen på nytt.",
   "#30815": "Skal også de %s nedlastede filene dine slettes? Rydding fjerner Kofins oversikt over dem, så de du beholder, blir liggende på disken for deg å håndtere selv.",
   "#30816": "Fjerner nedlastede filer…",
-  "#30817": "Alle"
+  "#30817": "Alle",
+  "#30819": "Vis medvirkende i tilleggets lister",
+  "#30820": "Henter medvirkende og stab for elementer du blar i via tillegget, slik at informasjonsdialogen kan vise dem. Det tar opptil ett sekund lenger å åpne en liste; Kodi-biblioteket har alltid de medvirkende."
 }

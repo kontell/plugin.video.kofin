@@ -448,5 +448,7 @@
   "#30814": "Cât timp poate sta o descărcare neredată înainte de a fi eliminată. Redarea ei din nou reia numărătoarea.",
   "#30815": "Ștergeți și cele %s fișiere descărcate ale dvs.? Curățarea elimină evidența lor din Kofin, așa că orice fișier păstrat rămâne pe disc, spre a fi gestionat de dvs.",
   "#30816": "Se elimină fișierele descărcate…",
-  "#30817": "Toți"
+  "#30817": "Toți",
+  "#30819": "Afișează distribuția în listele suplimentului",
+  "#30820": "Preia distribuția și echipa pentru elementele răsfoite prin supliment, astfel încât fereastra de informații să le poată afișa. Deschiderea unei liste durează cu până la o secundă mai mult; biblioteca Kodi are întotdeauna distribuția."
 }

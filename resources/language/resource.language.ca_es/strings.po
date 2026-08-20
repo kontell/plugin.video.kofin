@@ -2031,3 +2031,11 @@ msgstr "Tots"
 msgctxt "#30818"
 msgid "A-Z"
 msgstr "A-Z"
+
+msgctxt "#30819"
+msgid "Show cast in add-on listings"
+msgstr "Mostra el repartiment a les llistes del complement"
+
+msgctxt "#30820"
+msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
+msgstr "Obté el repartiment i l'equip dels elements que explores a través del complement, perquè el diàleg d'informació els pugui mostrar. Obrir una llista pot trigar fins a un segon més; la biblioteca de Kodi sempre té el repartiment."

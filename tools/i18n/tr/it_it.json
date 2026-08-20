@@ -448,5 +448,7 @@
   "#30814": "Per quanto tempo un download può restare senza essere riprodotto prima di essere rimosso. Riprodurlo di nuovo fa ripartire il conteggio.",
   "#30815": "Eliminare anche i tuoi %s file scaricati? La pulizia rimuove il registro che Kofin ne tiene, quindi quelli che conservi restano su disco e dovrai gestirli tu.",
   "#30816": "Rimozione dei file scaricati…",
-  "#30817": "Tutti"
+  "#30817": "Tutti",
+  "#30819": "Mostra il cast negli elenchi dell'add-on",
+  "#30820": "Recupera cast e troupe degli elementi sfogliati tramite l'add-on, così la finestra delle informazioni può mostrarli. L'apertura di un elenco richiede fino a un secondo in più; la libreria di Kodi ha sempre il cast."
 }

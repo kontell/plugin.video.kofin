@@ -1391,6 +1391,15 @@
           <default>true</default>
           <control type="toggle"/>
         </setting>
+        <!-- Cast for kofin's own listings. Off by default on measured cost:
+             People is 7-25 ms of server time and ~7 KB per row on 10.11
+             (0.6 s on a 25-row listing), and even when on only the bounded
+             listings ask for it — plugin/browse.py bounded_fields. -->
+        <setting id="browseCast" type="boolean" label="30819" help="30820">
+          <level>0</level>
+          <default>false</default>
+          <control type="toggle"/>
+        </setting>
         <setting id="selectWhoIsWatching" type="string" label="30079" help="30080">
           <level>0</level>
           <default></default>

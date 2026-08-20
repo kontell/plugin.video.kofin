@@ -2031,3 +2031,11 @@ msgstr "全部"
 msgctxt "#30818"
 msgid "A-Z"
 msgstr "A-Z"
+
+msgctxt "#30819"
+msgid "Show cast in add-on listings"
+msgstr "在外掛清單中顯示演員"
+
+msgctxt "#30820"
+msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
+msgstr "為透過外掛瀏覽的項目取得演員與工作人員，讓資訊對話框能顯示。開啟清單最多會多花一秒；Kodi 媒體庫一律包含演員資訊。"

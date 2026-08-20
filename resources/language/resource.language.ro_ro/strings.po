@@ -2031,3 +2031,11 @@ msgstr "Toți"
 msgctxt "#30818"
 msgid "A-Z"
 msgstr "A-Z"
+
+msgctxt "#30819"
+msgid "Show cast in add-on listings"
+msgstr "Afișează distribuția în listele suplimentului"
+
+msgctxt "#30820"
+msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
+msgstr "Preia distribuția și echipa pentru elementele răsfoite prin supliment, astfel încât fereastra de informații să le poată afișa. Deschiderea unei liste durează cu până la o secundă mai mult; biblioteca Kodi are întotdeauna distribuția."

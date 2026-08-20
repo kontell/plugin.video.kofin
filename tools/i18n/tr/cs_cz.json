@@ -448,5 +448,7 @@
   "#30814": "Jak dlouho může stažený soubor ležet nepřehraný, než bude odstraněn. Opětovné přehrání začne počítat znovu.",
   "#30815": "Smazat také vašich %s stažených souborů? Čištění odstraní záznamy Kofinu o nich, takže ty, které ponecháte, zůstanou na disku ke správě ve vaší režii.",
   "#30816": "Odstraňování stažených souborů…",
-  "#30817": "Všichni"
+  "#30817": "Všichni",
+  "#30819": "Zobrazit obsazení v seznamech doplňku",
+  "#30820": "Načte obsazení a štáb u položek procházených přes doplněk, aby je mohl zobrazit informační dialog. Otevření seznamu trvá až o sekundu déle; knihovna Kodi má obsazení vždy."
 }

@@ -1,3 +1,11 @@
+v0.20.0
+- Reset resume position now works on items browsed through the add-on. The Jellyfin actions menu gains "Reset resume position", which clears the position on the server and the bookmark Kodi kept for the row; Kodi's own entry on those rows only ever touched Kodi's copy, so the position came straight back on the next refresh
+- An item finished on another device no longer shows as resumable in an add-on listing because of a bookmark Kodi still held for it
+- Recently added albums in an add-on music library now lists what actually arrived, in the order the Jellyfin web client shows. It sorted albums by a date the scanner rewrites whenever it re-creates an album, so a rescan could fill the list with whichever albums it happened to create first
+- Play all and Shuffle on albums, artists, genres and playlists browsed through the add-on, from the Jellyfin actions menu. Kodi offers no Play on an add-on folder, so an album could only be started one track at a time — and from a video window that track played alone
+- "Play with transcoding" no longer appears on songs, albums, artists, genres, shows and seasons, where it could only force a transcode nobody asked for
+- Cast in add-on listings, if you want it: "Show cast in add-on listings" on the Advanced tab fetches cast and crew for the shorter listings — recently added, in progress, next up, Continue watching, a season's episodes — so the information dialog shows them with portraits. Off by default, because the server takes up to a second longer to answer a 25-row listing with it on
+
 v0.19.1
 - Pad lyrics directory tail so kofin lyrics can draw them correctly
 

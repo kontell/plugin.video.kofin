@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<addon id="plugin.video.kofin" name="Kofin" version="0.19.1" provider-name="kontell">
+<addon id="plugin.video.kofin" name="Kofin" version="0.20.0" provider-name="kontell">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="script.module.requests" version="2.22.0+matrix.1"/>
@@ -25,17 +25,24 @@
       </item>
       <item library="context_play.py">
         <label>30010</label>
-        <!-- kofin browse items carry kofin.id; synced library items are
-             recognized by their DBTYPE and resolved through kofin.db. The
-             trailing clause hides the item outright when no context bitrates
-             are configured — there would be nothing to offer. The service
-             mirrors that setting into the window property because a visible
-             condition has no way to read an addon setting (core/state.py).
-             Grouping is [square brackets]: parentheses are infolabel argument
-             syntax, and using them here fails the whole expression to parse
-             ("Error parsing boolean expression"), which reads as the item
-             simply never appearing. -->
-        <visible>[!String.IsEmpty(ListItem.Property(kofin.id)) | String.IsEqual(ListItem.DBTYPE,movie) | String.IsEqual(ListItem.DBTYPE,episode) | String.IsEqual(ListItem.DBTYPE,musicvideo)] + !String.IsEmpty(Window(Home).Property(kofin.context.bitrates))</visible>
+        <!-- Video rows only, told apart by DBTYPE. movie/episode/musicvideo
+             covers a synced library row and a kofin listing row alike, since
+             listitems.build stamps the same media type, and the kofin.id +
+             video pair admits the dynamic-only kinds (trailers, recordings,
+             home videos) without admitting everything else a kofin.id rides
+             on. It used to be kofin.id alone, and every dynamic row carries
+             one — songs, albums, artists, genres, series, seasons — so the
+             entry sat on an album folder, and picked on a song it forced a
+             music transcode nobody asked for (docs/dynamic-libraries-plan.md
+             §6). The trailing clause hides the item outright when no context
+             bitrates are configured — there would be nothing to offer. The
+             service mirrors that setting into the window property because a
+             visible condition has no way to read an addon setting
+             (core/state.py). Grouping is [square brackets]: parentheses are
+             infolabel argument syntax, and using them here fails the whole
+             expression to parse ("Error parsing boolean expression"), which
+             reads as the item simply never appearing. -->
+        <visible>[String.IsEqual(ListItem.DBTYPE,movie) | String.IsEqual(ListItem.DBTYPE,episode) | String.IsEqual(ListItem.DBTYPE,musicvideo) | [!String.IsEmpty(ListItem.Property(kofin.id)) + String.IsEqual(ListItem.DBTYPE,video)]] + !String.IsEmpty(Window(Home).Property(kofin.context.bitrates))</visible>
       </item>
       <!-- Stream selection for the item currently playing. Three declarations
            of one handler, because a context item's <label> is a fixed string

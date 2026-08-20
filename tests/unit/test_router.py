@@ -28,6 +28,8 @@ ACTION_MODES = {
     "userprefs",
     "watched",
     "unwatched",
+    "resetresume",
+    "playall",
     "download",
     "downloadshow",
     "downloadshows",

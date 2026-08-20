@@ -6,11 +6,12 @@ from typing import Any, List, Union
 import xbmc
 import xbmcgui
 
-from kofin.core import ipc, settings, toast
+from kofin.core import ipc, kodirpc, settings, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError, plugin_transport
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
+from kofin.plugin.listitems import play_path
 from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
@@ -45,6 +46,29 @@ def unwatched(request: Request) -> None:
     except JellyfinError as error:
         LOG.warning("mark unplayed failed: %s", error)
         return
+    _refresh()
+
+
+def reset_resume(request: Request) -> None:
+    """Zero an item's resume point on the server, then Kodi's own copy.
+
+    The server half is the call the service makes when Kodi resets a library
+    row. The local half is the bookmark Kodi keeps for the row's plugin path:
+    once kofin stops stamping a position, Kodi falls back to that bookmark
+    and would resurrect the very resume the viewer just removed
+    (kodirpc.clear_resume_bookmark). Server first — if that fails nothing
+    local is touched, and the listing keeps telling the truth.
+    """
+    item_id = request.params.get("id", "")
+    if not item_id:
+        return
+    try:
+        _api().set_resume_position(item_id, 0)
+    except JellyfinError as error:
+        LOG.warning("resume reset failed: %s", error)
+        toast.show(settings.localized(30507), toast.ERROR)
+        return
+    kodirpc.clear_resume_bookmark(play_path(item_id))
     _refresh()
 
 

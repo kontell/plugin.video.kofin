@@ -2031,3 +2031,11 @@ msgstr "Wszyscy"
 msgctxt "#30818"
 msgid "A-Z"
 msgstr "A-Z"
+
+msgctxt "#30819"
+msgid "Show cast in add-on listings"
+msgstr "Pokazuj obsadę na listach dodatku"
+
+msgctxt "#30820"
+msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
+msgstr "Pobiera obsadę i ekipę dla pozycji przeglądanych przez dodatek, aby okno informacji mogło je pokazać. Otwarcie listy trwa do sekundy dłużej; biblioteka Kodi zawsze ma obsadę."
