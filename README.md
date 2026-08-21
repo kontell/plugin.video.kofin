@@ -96,7 +96,3 @@ Kofin is pure Python and runs anywhere Kodi 21 /22 does. Because library sync wr
 ## Uninstalling Kofin
 
 Log out (Settings -> Account), run `Clean databases`, then uninstall the add-on and accept Kodi's offer to delete the add-on data.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md): the philosophy (native Kodi integration, minimal UI), where Kodi knowledge lives (kodi-drive), and how changes are planned, tested and released.
