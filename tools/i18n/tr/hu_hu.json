@@ -450,5 +450,5 @@
   "#30816": "Letöltött fájlok eltávolítása…",
   "#30817": "Összes",
   "#30819": "Szereplők megjelenítése a kiegészítő listáiban",
-  "#30820": "Lekéri a szereplőket és a stábot a kiegészítőn keresztül böngészett elemekhez, hogy az információs ablak megjeleníthesse őket. Egy lista megnyitása akár egy másodperccel tovább tarthat; a Kodi könyvtárban mindig megvannak a szereplők."
+  "#30820": "Lekéri a szereplőket és a stábot a kiegészítő rövidebb listáihoz — Nemrég hozzáadott, Folyamatban, Következik, Nézés folytatása, a keresési találatok és egy sorozat epizódjai —, hogy az információs ablak megjeleníthesse őket. A teljes könyvtárat átfogó listák soha nem kérik le, mert a kiszolgálónak nagyjából egy másodpercre van szüksége 40 elemenként. A Kodi könyvtárban mindig megvannak a szereplők."
 }

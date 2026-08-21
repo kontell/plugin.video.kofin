@@ -2037,5 +2037,5 @@ msgid "Show cast in add-on listings"
 msgstr "Zobraziť obsadenie v zoznamoch doplnku"
 
 msgctxt "#30820"
-msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
-msgstr "Načíta obsadenie a štáb pre položky prehliadané cez doplnok, aby ich mohol zobraziť informačný dialóg. Otvorenie zoznamu trvá až o sekundu dlhšie; knižnica Kodi má obsadenie vždy."
+msgid "Fetch cast and crew for the shorter add-on listings — Recently added, In progress, Next up, Continue watching, search results and a show's episodes — so the information dialog can show them. Whole-library listings never fetch it, because the server needs about a second for every 40 items. The Kodi library always has cast."
+msgstr "Načíta obsadenie a štáb pre kratšie zoznamy doplnku — Nedávno pridané, Rozpozerané, Nasleduje, Pokračovať v sledovaní, výsledky hľadania a epizódy seriálu —, aby ich mohol zobraziť informačný dialóg. Zoznamy zahŕňajúce celú knižnicu ich nenačítajú nikdy, pretože server potrebuje približne sekundu na každých 40 položiek. Knižnica Kodi má obsadenie vždy."

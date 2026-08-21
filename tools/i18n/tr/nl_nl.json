@@ -450,5 +450,5 @@
   "#30816": "Gedownloade bestanden verwijderen…",
   "#30817": "Alle",
   "#30819": "Cast tonen in add-onlijsten",
-  "#30820": "Haalt cast en crew op voor items die je via de add-on bekijkt, zodat het informatievenster ze kan tonen. Het openen van een lijst duurt tot een seconde langer; de Kodi-bibliotheek heeft de cast altijd."
+  "#30820": "Haalt cast en crew op voor de korte lijsten van de add-on — Recent toegevoegd, Bezig met kijken, Volgende aflevering, Verder kijken, zoekresultaten en de afleveringen van een serie — zodat het informatievenster ze kan tonen. Lijsten die een hele bibliotheek beslaan doen dat nooit, omdat de server ongeveer een seconde per 40 items nodig heeft. De Kodi-bibliotheek heeft de cast altijd."
 }

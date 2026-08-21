@@ -504,5 +504,5 @@
   "#30817": "All",
   "#30818": "A-Z",
   "#30819": "Show cast in add-on listings",
-  "#30820": "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
+  "#30820": "Fetch cast and crew for the shorter add-on listings — Recently added, In progress, Next up, Continue watching, search results and a show's episodes — so the information dialog can show them. Whole-library listings never fetch it, because the server needs about a second for every 40 items. The Kodi library always has cast."
 }

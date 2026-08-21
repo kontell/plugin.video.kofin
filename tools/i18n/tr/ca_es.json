@@ -450,5 +450,5 @@
   "#30816": "S'estan eliminant els fitxers baixats…",
   "#30817": "Tots",
   "#30819": "Mostra el repartiment a les llistes del complement",
-  "#30820": "Obté el repartiment i l'equip dels elements que explores a través del complement, perquè el diàleg d'informació els pugui mostrar. Obrir una llista pot trigar fins a un segon més; la biblioteca de Kodi sempre té el repartiment."
+  "#30820": "Obté el repartiment i l'equip de les llistes curtes del complement — Afegits recentment, En curs, A continuació, Continua mirant, els resultats de cerca i els episodis d'una sèrie — perquè el diàleg d'informació els pugui mostrar. Les llistes que abasten una biblioteca sencera no ho fan mai, perquè el servidor necessita aproximadament un segon per cada 40 elements. La biblioteca de Kodi sempre té el repartiment."
 }

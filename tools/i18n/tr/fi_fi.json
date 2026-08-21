@@ -450,5 +450,5 @@
   "#30816": "Poistetaan ladattuja tiedostoja…",
   "#30817": "Kaikki",
   "#30819": "Näytä näyttelijät lisäosan listauksissa",
-  "#30820": "Hakee näyttelijät ja tekijät lisäosan kautta selatuille kohteille, jotta tietoikkuna voi näyttää ne. Listauksen avaaminen kestää jopa sekunnin kauemmin; Kodin kirjastossa näyttelijät ovat aina mukana."
+  "#30820": "Hakee näyttelijät ja tekijät lisäosan lyhyisiin listauksiin — Viimeksi lisätyt, Kesken, Seuraavaksi, Jatka katselua, hakutulokset ja sarjan jaksot — jotta tietoikkuna voi näyttää ne. Koko kirjaston kattavat listaukset eivät hae niitä koskaan, koska palvelin tarvitsee noin sekunnin jokaista 40:tä kohdetta kohden. Kodin kirjastossa näyttelijät ovat aina mukana."
 }

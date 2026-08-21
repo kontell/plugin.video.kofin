@@ -450,5 +450,5 @@
   "#30816": "A remover ficheiros transferidos…",
   "#30817": "Todos",
   "#30819": "Mostrar elenco nas listas do add-on",
-  "#30820": "Obtém o elenco e a equipa dos itens navegados através do add-on para que a janela de informação os possa mostrar. Abrir uma lista demora até um segundo mais; a biblioteca do Kodi tem sempre o elenco."
+  "#30820": "Obtém o elenco e a equipa das listas curtas do add-on — Adicionados recentemente, Em curso, A seguir, Continuar a ver, os resultados de pesquisa e os episódios de uma série — para que a janela de informação os possa mostrar. As listas que abrangem uma biblioteca inteira nunca o fazem, porque o servidor precisa de cerca de um segundo por cada 40 itens. A biblioteca do Kodi tem sempre o elenco."
 }

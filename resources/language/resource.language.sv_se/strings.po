@@ -2037,5 +2037,5 @@ msgid "Show cast in add-on listings"
 msgstr "Visa rollista i tilläggets listor"
 
 msgctxt "#30820"
-msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
-msgstr "Hämtar rollista och team för objekt som du bläddrar bland via tillägget, så att informationsdialogen kan visa dem. Det tar upp till en sekund längre att öppna en lista; Kodi-biblioteket har alltid rollistan."
+msgid "Fetch cast and crew for the shorter add-on listings — Recently added, In progress, Next up, Continue watching, search results and a show's episodes — so the information dialog can show them. Whole-library listings never fetch it, because the server needs about a second for every 40 items. The Kodi library always has cast."
+msgstr "Hämtar rollista och team till tilläggets korta listor — Nyligen tillagt, Påbörjade, Näst på tur, Fortsätt titta, sökresultat och avsnitten i en serie — så att informationsdialogen kan visa dem. Listor som täcker ett helt bibliotek hämtar det aldrig, eftersom servern behöver ungefär en sekund per 40 objekt. Kodi-biblioteket har alltid rollistan."
