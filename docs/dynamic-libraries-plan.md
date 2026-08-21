@@ -26,6 +26,8 @@ A second trap waits behind the first. When kofin stops stamping (server position
 
 The cost, measured on the live server, is linear in items and sits on the server side: about 7–25 ms and ~7 KB per item. Recent movies, 25 rows: 116 → 709 ms and 310 → 485 KB. Next up, 12 episodes: 352 → 431 ms. Continue watching, 8 rows: 116 → 268 ms. The whole movie library, 1,775 rows: 0.65 → 42.7 s and 3.6 → 14.7 MB. A People-only follow-up request by `Ids` is no cheaper (663 ms for the same 25), so the cost cannot be moved off the critical path, only avoided on unbounded listings or paid once and cached.
 
+Re-measured 2026-08-21 across the unbounded movie nodes, which is what decides where the line can sit: favourites (61 rows) 0.10 → 1.55 s, a genre (417) 0.28 → 10.4 s, unwatched (901) 0.39 → 21.9 s, all (1,778) 0.66 → 44.0 s. So boundedness is a crude proxy for size — 61 favourites would be perfectly affordable — but the only alternatives are asking for a count first (a round trip on every listing) or truncating a node the viewer asked to see whole. The honest fix for the big nodes is paging (W7), after which every page is bounded; until then they carry no cast and the setting's help says so.
+
 JellyCon asks for `People` only behind `include_people`, default **off** (`lib/utils.py:371-410`, `settings.xml:88`), maps thumbnails to `/Items/{personId}/Images/Primary?tag=…` (`lib/item_functions.py:241-268`), and its cloned skin fetches the info dialog's cast panel lazily from the single-item endpoint — a skin-side trick kofin cannot rely on.
 
 ### 3. "Recently added albums" lists AC/DC, Accept and Aerosmith
@@ -132,6 +134,8 @@ Decided against on 2026-08-20: the wiki will carry the two Kodi-side answers ins
 ## Status (2026-08-20)
 
 W1–W5 are implemented and verified live on the kofin-test profile (Kodi 21.3, Jellyfin 10.11.11); the evidence is in `tests/live/results/dynamic-libraries-2026-08-20/after/`, and the gates are S9.1–S9.6 in `docs/testing-plan.md`. W1: `addon.xml` gates the transcoding item on DBTYPE. W2: `mode=resetresume` (`plugin/actions.py`) zeroes the server position, then clears Kodi's plugin-path bookmark through `kodirpc.clear_resume_bookmark`; listing rows with no server position now stamp `setResumePoint(0, total)` (`plugin/listitems.py`), which is what made the stale-bookmark case read "not resumable" live. W3: `recentalbums` goes through `Api.latest`. W4: `plugin/playall.py` behind `mode=playall`, offered on music containers only. W5: `browseCast` (Advanced tab, off by default, strings 30819-30820) adds `People` to `browse.bounded_fields()`; actor portraits ride as URLs. W6 dropped; W7 untouched.
+
+**Follow-up, 2026-08-21.** A viewer reported cast under Recently added and not under All. That is the boundary working as designed (see the re-measured costs in §2), but two listings that *are* bounded had been left on the plain field list — search results and a person's filmography, both `SEARCH_LIMIT` — so a film's cast appeared in Recently added and vanished from a search for the same film. Both now take `bounded_fields()`. The help text (#30820) was rewording to name the listings that carry cast rather than promising it for "items browsed through the add-on"; the four node names in it are #30031, #30033, #30032 and #30049, so a translator renders them as those ids are rendered. Extras remain the one bounded listing without cast: `/Items/{id}/SpecialFeatures` takes no `Fields`.
 
 ## Deliberately not proposed
 

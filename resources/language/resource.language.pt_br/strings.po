@@ -2037,5 +2037,5 @@ msgid "Show cast in add-on listings"
 msgstr "Mostrar elenco nas listas do add-on"
 
 msgctxt "#30820"
-msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
-msgstr "Busca o elenco e a equipe dos itens navegados pelo add-on para que a janela de informações possa exibi-los. Abrir uma lista leva até um segundo a mais; a biblioteca do Kodi sempre tem o elenco."
+msgid "Fetch cast and crew for the shorter add-on listings — Recently added, In progress, Next up, Continue watching, search results and a show's episodes — so the information dialog can show them. Whole-library listings never fetch it, because the server needs about a second for every 40 items. The Kodi library always has cast."
+msgstr "Busca o elenco e a equipe das listas curtas do add-on — Adicionados recentemente, Em andamento, A seguir, Continuar assistindo, os resultados de busca e os episódios de uma série — para que a janela de informações possa exibi-los. Listas que abrangem uma biblioteca inteira nunca fazem isso, porque o servidor precisa de cerca de um segundo a cada 40 itens. A biblioteca do Kodi sempre tem o elenco."

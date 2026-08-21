@@ -1,3 +1,7 @@
+v0.20.1
+- Cast now appears in the add-on's search results and in a person's list of films when "Show cast in add-on listings" is on. It was fetched only for the shorter listings, so a film's cast showed under Recently added and vanished from a search for the same film
+- The "Show cast in add-on listings" setting now says which listings show cast, and why listings that cover a whole library never will: the server needs about a second for every 40 items, so a large library would take minutes to open
+
 v0.20.0
 - Reset resume position now works on items browsed through the add-on. The Jellyfin actions menu gains "Reset resume position", which clears the position on the server and the bookmark Kodi kept for the row; Kodi's own entry on those rows only ever touched Kodi's copy, so the position came straight back on the next refresh
 - An item finished on another device no longer shows as resumable in an add-on listing because of a bookmark Kodi still held for it

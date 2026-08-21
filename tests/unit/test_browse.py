@@ -79,9 +79,29 @@ def test_bounded_fields_carry_cast_only_on_request():
     assert "People" in node_query("movies", "recent", "v1")["Fields"]
     assert "People" in node_query("tvshows", "inprogressepisodes", "v1")["Fields"]
     # Never on a whole-library node and never on music, whatever the setting.
+    # A viewer sees cast under Recently added and not under All, which is the
+    # stated trade: People costs the server ~25 ms a row, so All (1,778 films)
+    # measured 0.66 s -> 44.0 s and a 417-film genre 0.28 s -> 10.4 s.
     assert "People" not in node_query("movies", "all", "v1")["Fields"]
+    assert "People" not in node_query("movies", "unwatched", "v1")["Fields"]
+    assert "People" not in node_query("movies", "favorites", "v1")["Fields"]
     assert "People" not in node_query("movies", "genre-g1", "v1")["Fields"]
+    assert "People" not in node_query("movies", "alpha-A", "v1")["Fields"]
     assert "People" not in node_query("music", "lastplayed", "v1")["Fields"]
+
+
+def test_search_is_bounded_so_it_carries_what_bounded_listings_carry(directory):
+    """SEARCH_LIMIT bounds both of these, so they take the same field list as a
+    node with a Limit -- cast included when it is asked for. They were left on
+    the plain list when browseCast landed, which showed as cast under Recently
+    added but not in a search result for the same film."""
+    FakeAddon.store["browseCast"] = "true"
+    assert browse._search_query("movies", "dune")["Fields"] == browse.bounded_fields()
+
+    api = ExtrasApi(view_series=[])
+    browse._search_person_items(Request("plugin://x", 1, {}), api, "p1")
+    assert api.items_params[0]["Fields"] == browse.bounded_fields()
+    assert api.items_params[0]["Limit"] == browse.SEARCH_LIMIT
 
 
 def test_season_episodes_keep_stream_details():

@@ -450,5 +450,5 @@
   "#30816": "Tar bort hämtade filer…",
   "#30817": "Alla",
   "#30819": "Visa rollista i tilläggets listor",
-  "#30820": "Hämtar rollista och team för objekt som du bläddrar bland via tillägget, så att informationsdialogen kan visa dem. Det tar upp till en sekund längre att öppna en lista; Kodi-biblioteket har alltid rollistan."
+  "#30820": "Hämtar rollista och team till tilläggets korta listor — Nyligen tillagt, Påbörjade, Näst på tur, Fortsätt titta, sökresultat och avsnitten i en serie — så att informationsdialogen kan visa dem. Listor som täcker ett helt bibliotek hämtar det aldrig, eftersom servern behöver ungefär en sekund per 40 objekt. Kodi-biblioteket har alltid rollistan."
 }

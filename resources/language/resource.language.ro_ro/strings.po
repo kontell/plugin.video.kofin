@@ -2037,5 +2037,5 @@ msgid "Show cast in add-on listings"
 msgstr "Afișează distribuția în listele suplimentului"
 
 msgctxt "#30820"
-msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
-msgstr "Preia distribuția și echipa pentru elementele răsfoite prin supliment, astfel încât fereastra de informații să le poată afișa. Deschiderea unei liste durează cu până la o secundă mai mult; biblioteca Kodi are întotdeauna distribuția."
+msgid "Fetch cast and crew for the shorter add-on listings — Recently added, In progress, Next up, Continue watching, search results and a show's episodes — so the information dialog can show them. Whole-library listings never fetch it, because the server needs about a second for every 40 items. The Kodi library always has cast."
+msgstr "Preia distribuția și echipa pentru listele scurte ale suplimentului — Adăugate recent, În curs, Urmează, Continuă vizionarea, rezultatele căutării și episoadele unui serial — astfel încât fereastra de informații să le poată afișa. Listele care acoperă o bibliotecă întreagă nu fac niciodată acest lucru, deoarece serverul are nevoie de aproximativ o secundă la fiecare 40 de elemente. Biblioteca Kodi are întotdeauna distribuția."

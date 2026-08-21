@@ -2037,5 +2037,5 @@ msgid "Show cast in add-on listings"
 msgstr "在外掛清單中顯示演員"
 
 msgctxt "#30820"
-msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
-msgstr "為透過外掛瀏覽的項目取得演員與工作人員，讓資訊對話框能顯示。開啟清單最多會多花一秒；Kodi 媒體庫一律包含演員資訊。"
+msgid "Fetch cast and crew for the shorter add-on listings — Recently added, In progress, Next up, Continue watching, search results and a show's episodes — so the information dialog can show them. Whole-library listings never fetch it, because the server needs about a second for every 40 items. The Kodi library always has cast."
+msgstr "為外掛的短清單 — 最近加入、觀看中、接下來要看、繼續觀看、搜尋結果與影集的分集 — 取得演員與工作人員，讓資訊對話框能顯示。涵蓋整個媒體庫的清單一律不取得，因為伺服器每 40 個項目大約需要一秒。Kodi 媒體庫一律包含演員資訊。"

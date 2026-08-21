@@ -450,5 +450,5 @@
   "#30816": "Eliminando los archivos descargados…",
   "#30817": "Todos",
   "#30819": "Mostrar el reparto en las listas del complemento",
-  "#30820": "Obtiene el reparto y el equipo de los elementos que exploras a través del complemento para que el diálogo de información pueda mostrarlos. Abrir una lista tarda hasta un segundo más; la biblioteca de Kodi siempre tiene el reparto."
+  "#30820": "Obtiene el reparto y el equipo de las listas cortas del complemento — Añadidos recientemente, En curso, A continuación, Seguir viendo, los resultados de búsqueda y los episodios de una serie — para que el diálogo de información pueda mostrarlos. Las listas que abarcan una biblioteca entera nunca lo hacen, porque el servidor necesita alrededor de un segundo por cada 40 elementos. La biblioteca de Kodi siempre tiene el reparto."
 }

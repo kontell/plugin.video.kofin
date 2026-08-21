@@ -2123,12 +2123,15 @@ msgid "A-Z"
 msgstr ""
 
 # 30819-30820 — cast in the add-on's own listings (docs/dynamic-libraries-plan.md
-# W5). Off by default, and the help states the measured cost rather than hiding
-# it: People is up to a second of server time on a 25-row listing.
+# W5). Off by default, and the help has to name *which* listings: People costs the
+# server ~25 ms a row, so the whole-library nodes never ask for it however the
+# setting reads, and a viewer who sees cast under Recently added but not under All
+# is otherwise looking at a bug. The four node names are #30031, #30033, #30032 and
+# #30049 — translate them as those ids are translated.
 msgctxt "#30819"
 msgid "Show cast in add-on listings"
 msgstr ""
 
 msgctxt "#30820"
-msgid "Fetch cast and crew for items browsed through the add-on, so the information dialog can show them. Opening a listing can take up to a second longer; the Kodi library always has cast."
+msgid "Fetch cast and crew for the shorter add-on listings — Recently added, In progress, Next up, Continue watching, search results and a show's episodes — so the information dialog can show them. Whole-library listings never fetch it, because the server needs about a second for every 40 items. The Kodi library always has cast."
 msgstr ""

@@ -450,5 +450,5 @@
   "#30816": "Usuwanie pobranych plików…",
   "#30817": "Wszyscy",
   "#30819": "Pokazuj obsadę na listach dodatku",
-  "#30820": "Pobiera obsadę i ekipę dla pozycji przeglądanych przez dodatek, aby okno informacji mogło je pokazać. Otwarcie listy trwa do sekundy dłużej; biblioteka Kodi zawsze ma obsadę."
+  "#30820": "Pobiera obsadę i ekipę dla krótkich list dodatku — Ostatnio dodane, W trakcie, Następne w kolejce, Kontynuuj oglądanie, wyników wyszukiwania i odcinków serialu — aby okno informacji mogło je pokazać. Listy obejmujące całą bibliotekę nigdy tego nie robią, ponieważ serwer potrzebuje około sekundy na każde 40 pozycji. Biblioteka Kodi zawsze ma obsadę."
 }

@@ -49,11 +49,25 @@ def bounded_fields() -> str:
     """The field list for a listing short enough to carry the expensive ones.
 
     MediaStreams always (BROWSE_FIELDS_STREAMS). People only when the viewer
-    asked for cast in the add-on's listings (browseCast, off by default):
-    measured on 10.11, People costs the server 7-25 ms and ~7 KB per row —
-    0.6 s on a 25-row movie listing, 42 s on a 1,775-movie library — so it
-    rides only the listings a Limit already bounds, and never music, which
-    reads no people at all (docs/dynamic-libraries-plan.md §2).
+    asked for cast in the add-on's listings (browseCast, off by default).
+
+    The gate is boundedness, and it is not a preference: People costs the
+    *server* about 25 ms per row on 10.11, linear in the result set. Measured
+    on one library: 25 recently-added films 0.12 s -> 0.71 s, 61 favourites
+    0.10 s -> 1.6 s, a 417-film genre 0.28 s -> 10.4 s, 901 unwatched 0.39 s
+    -> 21.9 s, and the whole 1,778-film library 0.66 s -> 44.0 s. A listing
+    that takes 44 seconds to open is a broken listing, so the whole-library
+    and filter nodes (all, unwatched, favorites, sets, genres, years, tags,
+    the alphabet) never ask for it, whatever the setting says — and neither
+    does music, which reads no people at all.
+
+    Every caller is a listing something already bounds: a node with a Limit,
+    Next up, Continue watching, a season's episodes, search results and a
+    person's filmography (both SEARCH_LIMIT). Extras are the one bounded
+    listing without it — /Items/{id}/SpecialFeatures takes no Fields.
+
+    Closing the gap for the big nodes needs paging, not a bigger field list
+    (docs/dynamic-libraries-plan.md §2 and W7).
     """
     fields = BROWSE_FIELDS_STREAMS
     if settings.get_bool("browseCast"):
@@ -807,12 +821,17 @@ def _ask_for_query(kind: str) -> str:
 
 
 def _search_query(kind: str, query: str) -> JsonDict:
-    """The /Items query for one search kind."""
+    """The /Items query for one search kind.
+
+    Bounded by SEARCH_LIMIT, so it takes the bounded field list — cast
+    included when the viewer asked for it. Stream details ride along for the
+    same reason every other bounded listing carries them.
+    """
     return {
         "searchTerm": query,
         "IncludeItemTypes": SEARCH_KINDS[kind][1],
         "Recursive": True,
-        "Fields": BROWSE_FIELDS,
+        "Fields": bounded_fields(),
         "ImageTypeLimit": 1,
         "Limit": SEARCH_LIMIT,
     }
@@ -826,7 +845,7 @@ def _search_person_items(request: Request, api: Api, person_id: str) -> None:
                 "PersonIds": person_id,
                 "Recursive": True,
                 "IncludeItemTypes": "Movie,Series,Episode",
-                "Fields": BROWSE_FIELDS,
+                "Fields": bounded_fields(),
                 "ImageTypeLimit": 1,
                 "SortBy": "PremiereDate,SortName",
                 "Limit": SEARCH_LIMIT,
