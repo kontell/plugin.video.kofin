@@ -1304,6 +1304,34 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr "Čekání na skupinu..."
 
+msgctxt "#30586"
+msgid "Fine sync through inputstream.tempo"
+msgstr "Jemná synchronizace přes inputstream.tempo"
+
+msgctxt "#30587"
+msgid "Keeps this device on the group position between commands by playing a few percent faster or slower for a few seconds at a time, through the inputstream.tempo add-on. Needs that add-on installed and works with Kodi's 'Sync playback to display' off. Only for video played directly, not transcodes. Audio is decoded to PCM for the session, so passthrough is suspended — see the next setting."
+msgstr "Drží toto zařízení na pozici skupiny mezi příkazy tím, že přes doplněk inputstream.tempo přehrává vždy na několik sekund o pár procent rychleji nebo pomaleji. Vyžaduje nainstalovaný doplněk a funguje s vypnutou volbou „Synchronizovat přehrávání s obrazovkou“ v Kodi. Jen pro přímo přehrávané video, ne pro překódování. Zvuk se po dobu sezení dekóduje do PCM, takže passthrough je pozastaven — viz další nastavení."
+
+msgctxt "#30588"
+msgid "Fine sync with audio passthrough on"
+msgstr "Jemná synchronizace se zapnutým passthrough zvuku"
+
+msgctxt "#30589"
+msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
+msgstr "Použít jemnou synchronizaci i při zapnutém passthrough zvuku v Kodi. Přijímač po dobu sezení dostává vícekanálové PCM místo bitstreamu: pro většinu sestav v pořádku, ale objektový zvuk Atmos a DTS:X se ztratí. Vypnuto zachová passthrough a nechá skupinu sbíhat jen podle příkazů."
+
+msgctxt "#30590"
+msgid "Shorter video queue during sessions (Kodi 22)"
+msgstr "Kratší fronta videa během sezení (Kodi 22)"
+
+msgctxt "#30591"
+msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
+msgstr "Nastaví čas fronty zvuku/videa v Kodi na 1 sekundu, dokud jsi ve skupině, a poté ho obnoví. Změna rychlosti je slyšet až po přehrání fronty, takže kratší fronta nechá opravy dopadnout zhruba za 2 sekundy místo 5. Na pomalé nebo nespolehlivé síti to vypni. Kodi 21 má pevnou frontu 8 sekund."
+
+msgctxt "#30592"
+msgid "Fine sync stopped: rate mismatch"
+msgstr "Jemná synchronizace zastavena: tempo nesedí"
+
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
 msgstr "Doplněk KofinSyncQueue (rychlá cesta)"

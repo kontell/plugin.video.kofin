@@ -60,6 +60,7 @@ class SettingsApplier:
             "sslVerify": self._ssl_verify_changed,
             "librarySelection": self._library_selection_changed,
             "syncPlayEnabled": self._syncplay_enabled_changed,
+            "syncPlayTempo": self._syncplay_tempo_changed,
             "whoIsWatchingShortlist": self._who_shortlist_changed,
             "contextBitrates": self._context_bitrates_changed,
             "syncMusicPlaylists": self._sync_music_playlists_changed,
@@ -186,6 +187,13 @@ class SettingsApplier:
         else:
             service._stop_syncplay()  # type: ignore[attr-defined]
         self._publish_root_menus()
+
+    def _syncplay_tempo_changed(self, old: str, new: str) -> None:
+        """Fine sync arms at group join; a toggle while in a group takes
+        effect now rather than at the next join."""
+        manager = getattr(self.service, "syncplay", None)
+        if manager is not None:
+            manager.refresh_tempo_session()
 
     def _who_shortlist_changed(self, old: str, new: str) -> None:
         """The Advanced-tab shortlist is also how Who's watching? is

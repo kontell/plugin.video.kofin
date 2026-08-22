@@ -450,5 +450,12 @@
   "#30816": "Fjerner nedlastede filer…",
   "#30817": "Alle",
   "#30819": "Vis medvirkende i tilleggets lister",
-  "#30820": "Henter medvirkende og stab til tilleggets korte lister — Nylig lagt til, Påbegynt, Neste på tur, Fortsett å se, søkeresultater og episodene i en serie — slik at informasjonsdialogen kan vise dem. Lister som dekker et helt bibliotek, henter det aldri, fordi serveren trenger omtrent ett sekund per 40 elementer. Kodi-biblioteket har alltid de medvirkende."
+  "#30820": "Henter medvirkende og stab til tilleggets korte lister — Nylig lagt til, Påbegynt, Neste på tur, Fortsett å se, søkeresultater og episodene i en serie — slik at informasjonsdialogen kan vise dem. Lister som dekker et helt bibliotek, henter det aldri, fordi serveren trenger omtrent ett sekund per 40 elementer. Kodi-biblioteket har alltid de medvirkende.",
+  "#30586": "Finsynkronisering via inputstream.tempo",
+  "#30587": "Holder denne enheten på gruppens posisjon mellom kommandoene ved å spille noen få prosent raskere eller saktere noen sekunder om gangen, gjennom tillegget inputstream.tempo. Krever at det tillegget er installert, og virker med «Synkroniser avspilling med skjerm» slått av i Kodi. Bare for video som spilles direkte, ikke transkodinger. Lyden dekodes til PCM under økten, så passthrough er satt på vent — se neste innstilling.",
+  "#30588": "Finsynkronisering med lyd-passthrough på",
+  "#30589": "Bruk finsynkronisering selv når Kodis lyd-passthrough er på. Mottakeren får flerkanals PCM i stedet for en bitstrøm under økten: greit for de fleste oppsett, men Atmos- og DTS:X-objektlyd går tapt. Av beholder passthrough og lar gruppen samles på kommandoene alene.",
+  "#30590": "Kortere videokø under økter (Kodi 22)",
+  "#30591": "Setter Kodis lyd-/videokøtid til 1 sekund mens du er i en gruppe og setter den tilbake etterpå. En hastighetsendring høres først når køen er spilt av, så en kortere kø gjør at rettelser lander på omtrent 2 sekunder i stedet for 5. Slå dette av på et tregt eller upålitelig nettverk. Kodi 21 har en fast kø på 8 sekunder.",
+  "#30592": "Finsynk stoppet: tempoet stemmer ikke"
 }

@@ -533,6 +533,54 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
+        <!-- Fine sync between group commands, through inputstream.tempo
+             (syncplay/tempo.py). Harmless without the add-on installed: the
+             session simply does not arm. -->
+        <setting id="syncPlayTempo" type="boolean" label="30586" help="30587">
+          <level>0</level>
+          <default>true</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="syncPlayEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <setting id="syncPlayTempoPassthrough" type="boolean" label="30588" help="30589">
+          <level>0</level>
+          <default>false</default>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="syncPlayEnabled">true</condition>
+                <condition operator="is" setting="syncPlayTempo">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <setting id="syncPlayShortQueue" type="boolean" label="30590" help="30591">
+          <level>0</level>
+          <default>true</default>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="syncPlayEnabled">true</condition>
+                <condition operator="is" setting="syncPlayTempo">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <!-- Hidden: the videoplayer.queuetimesize value a session shortened,
+             written by the service at group join and cleared when it is put
+             back. Non-empty at service start means a session was interrupted. -->
+        <setting id="syncPlayQueueRestore" type="string">
+          <level>4</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="edit" format="string"/>
+        </setting>
       </group>
       <group id="4">
         <setting id="resumeJumpBack" type="integer" label="30475" help="30476">

@@ -1304,6 +1304,34 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr "正在等待群組..."
 
+msgctxt "#30586"
+msgid "Fine sync through inputstream.tempo"
+msgstr "透過 inputstream.tempo 精細同步"
+
+msgctxt "#30587"
+msgid "Keeps this device on the group position between commands by playing a few percent faster or slower for a few seconds at a time, through the inputstream.tempo add-on. Needs that add-on installed and works with Kodi's 'Sync playback to display' off. Only for video played directly, not transcodes. Audio is decoded to PCM for the session, so passthrough is suspended — see the next setting."
+msgstr "在指令之間，透過 inputstream.tempo 附加元件每次以快或慢幾個百分點的速度播放幾秒鐘，讓此裝置保持在群組位置上。需要安裝該附加元件，並在 Kodi 的「同步播放至顯示器」關閉時運作。僅適用於直接播放的影片，不適用於轉碼。工作階段期間音訊會被解碼為 PCM，因此直通會暫停 — 見下一項設定。"
+
+msgctxt "#30588"
+msgid "Fine sync with audio passthrough on"
+msgstr "音訊直通開啟時仍精細同步"
+
+msgctxt "#30589"
+msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
+msgstr "即使 Kodi 的音訊直通已開啟也使用精細同步。工作階段期間擴大機收到的是多聲道 PCM 而不是位元串流：大多數設備沒有問題，但 Atmos 和 DTS:X 物件音訊會遺失。關閉則保留直通，群組僅靠指令收斂。"
+
+msgctxt "#30590"
+msgid "Shorter video queue during sessions (Kodi 22)"
+msgstr "工作階段期間使用較短的影片佇列 (Kodi 22)"
+
+msgctxt "#30591"
+msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
+msgstr "加入群組時將 Kodi 的音訊/影片佇列時間設為 1 秒，之後恢復。速度變化要等佇列播放完才聽得到，所以較短的佇列讓校正在約 2 秒而不是 5 秒內生效。網路緩慢或不穩定時請關閉。Kodi 21 的佇列固定為 8 秒。"
+
+msgctxt "#30592"
+msgid "Fine sync stopped: rate mismatch"
+msgstr "精細同步已停止：速率不符"
+
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
 msgstr "KofinSyncQueue 搭配外掛（快速路徑）"

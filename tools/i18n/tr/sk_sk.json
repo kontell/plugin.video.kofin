@@ -450,5 +450,12 @@
   "#30816": "Odstraňujú sa stiahnuté súbory…",
   "#30817": "Všetci",
   "#30819": "Zobraziť obsadenie v zoznamoch doplnku",
-  "#30820": "Načíta obsadenie a štáb pre kratšie zoznamy doplnku — Nedávno pridané, Rozpozerané, Nasleduje, Pokračovať v sledovaní, výsledky hľadania a epizódy seriálu —, aby ich mohol zobraziť informačný dialóg. Zoznamy zahŕňajúce celú knižnicu ich nenačítajú nikdy, pretože server potrebuje približne sekundu na každých 40 položiek. Knižnica Kodi má obsadenie vždy."
+  "#30820": "Načíta obsadenie a štáb pre kratšie zoznamy doplnku — Nedávno pridané, Rozpozerané, Nasleduje, Pokračovať v sledovaní, výsledky hľadania a epizódy seriálu —, aby ich mohol zobraziť informačný dialóg. Zoznamy zahŕňajúce celú knižnicu ich nenačítajú nikdy, pretože server potrebuje približne sekundu na každých 40 položiek. Knižnica Kodi má obsadenie vždy.",
+  "#30586": "Jemná synchronizácia cez inputstream.tempo",
+  "#30587": "Drží toto zariadenie na pozícii skupiny medzi príkazmi tak, že cez doplnok inputstream.tempo prehráva vždy na niekoľko sekúnd o pár percent rýchlejšie alebo pomalšie. Vyžaduje nainštalovaný doplnok a funguje s vypnutou možnosťou „Synchronizovať prehrávanie s obrazovkou“ v Kodi. Len pre priamo prehrávané video, nie pre prekódovanie. Zvuk sa počas relácie dekóduje do PCM, takže passthrough je pozastavený — pozri ďalšie nastavenie.",
+  "#30588": "Jemná synchronizácia so zapnutým passthrough zvuku",
+  "#30589": "Použiť jemnú synchronizáciu aj pri zapnutom passthrough zvuku v Kodi. Prijímač počas relácie dostáva viackanálové PCM namiesto bitstreamu: pre väčšinu zostáv v poriadku, ale objektový zvuk Atmos a DTS:X sa stratí. Vypnuté zachová passthrough a nechá skupinu zbiehať len podľa príkazov.",
+  "#30590": "Kratší front videa počas relácií (Kodi 22)",
+  "#30591": "Nastaví čas frontu zvuku/videa v Kodi na 1 sekundu, kým si v skupine, a potom ho obnoví. Zmena rýchlosti je počuť až po prehraní frontu, takže kratší front nechá opravy dopadnúť zhruba za 2 sekundy namiesto 5. Na pomalej alebo nespoľahlivej sieti to vypni. Kodi 21 má pevný front 8 sekúnd.",
+  "#30592": "Jemná synchronizácia zastavená: tempo nesedí"
 }
