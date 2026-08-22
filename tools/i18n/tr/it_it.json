@@ -450,5 +450,12 @@
   "#30816": "Rimozione dei file scaricati…",
   "#30817": "Tutti",
   "#30819": "Mostra il cast negli elenchi dell'add-on",
-  "#30820": "Recupera cast e troupe per gli elenchi brevi dell'add-on — Aggiunti di recente, In corso, Prossimi, Continua a guardare, i risultati della ricerca e gli episodi di una serie — così la finestra delle informazioni può mostrarli. Gli elenchi che coprono un'intera libreria non lo fanno mai, perché il server impiega circa un secondo ogni 40 elementi. La libreria di Kodi ha sempre il cast."
+  "#30820": "Recupera cast e troupe per gli elenchi brevi dell'add-on — Aggiunti di recente, In corso, Prossimi, Continua a guardare, i risultati della ricerca e gli episodi di una serie — così la finestra delle informazioni può mostrarli. Gli elenchi che coprono un'intera libreria non lo fanno mai, perché il server impiega circa un secondo ogni 40 elementi. La libreria di Kodi ha sempre il cast.",
+  "#30586": "Sincronizzazione fine tramite inputstream.tempo",
+  "#30587": "Mantiene questo dispositivo sulla posizione del gruppo tra un comando e l'altro riproducendo per qualche secondo alla volta un po' più veloce o più lento, tramite l'add-on inputstream.tempo. Richiede quell'add-on installato e funziona con «Sincronizza la riproduzione allo schermo» disattivato in Kodi. Solo per video riprodotti direttamente, non transcodifiche. L'audio viene decodificato in PCM per la sessione, quindi il passthrough è sospeso — vedi l'impostazione successiva.",
+  "#30588": "Sincronizzazione fine con passthrough audio attivo",
+  "#30589": "Usa la sincronizzazione fine anche quando il passthrough audio di Kodi è attivo. Per la sessione il ricevitore riceve PCM multicanale invece di un bitstream: va bene per la maggior parte degli impianti, ma l'audio a oggetti Atmos e DTS:X viene perso. Disattivato mantiene il passthrough e lascia che il gruppo converga con i soli comandi.",
+  "#30590": "Coda video più corta durante le sessioni (Kodi 22)",
+  "#30591": "Imposta il tempo di coda audio/video di Kodi a 1 secondo mentre sei in un gruppo e lo ripristina dopo. Un cambio di velocità si sente solo quando la coda è stata riprodotta, quindi una coda più corta fa arrivare le correzioni in circa 2 secondi invece di 5. Su una rete lenta o inaffidabile, disattivalo. Kodi 21 ha una coda fissa di 8 secondi.",
+  "#30592": "Sinc. fine fermata: velocità diverse"
 }

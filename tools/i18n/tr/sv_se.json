@@ -450,5 +450,12 @@
   "#30816": "Tar bort hämtade filer…",
   "#30817": "Alla",
   "#30819": "Visa rollista i tilläggets listor",
-  "#30820": "Hämtar rollista och team till tilläggets korta listor — Nyligen tillagt, Påbörjade, Näst på tur, Fortsätt titta, sökresultat och avsnitten i en serie — så att informationsdialogen kan visa dem. Listor som täcker ett helt bibliotek hämtar det aldrig, eftersom servern behöver ungefär en sekund per 40 objekt. Kodi-biblioteket har alltid rollistan."
+  "#30820": "Hämtar rollista och team till tilläggets korta listor — Nyligen tillagt, Påbörjade, Näst på tur, Fortsätt titta, sökresultat och avsnitten i en serie — så att informationsdialogen kan visa dem. Listor som täcker ett helt bibliotek hämtar det aldrig, eftersom servern behöver ungefär en sekund per 40 objekt. Kodi-biblioteket har alltid rollistan.",
+  "#30586": "Finsynkronisering via inputstream.tempo",
+  "#30587": "Håller den här enheten på gruppens position mellan kommandona genom att spela några procent snabbare eller långsammare några sekunder i taget, via tillägget inputstream.tempo. Kräver att det tillägget är installerat och fungerar med ”Synkronisera uppspelning till skärm” avstängt i Kodi. Bara för video som spelas direkt, inte omkodningar. Ljudet avkodas till PCM under sessionen, så passthrough pausas — se nästa inställning.",
+  "#30588": "Finsynkronisering med ljud-passthrough på",
+  "#30589": "Använd finsynkronisering även när Kodis ljud-passthrough är på. Mottagaren får flerkanalig PCM i stället för en bitström under sessionen: fungerar för de flesta uppsättningar, men Atmos- och DTS:X-objektljud går förlorat. Av behåller passthrough och låter gruppen samlas enbart på kommandona.",
+  "#30590": "Kortare videokö under sessioner (Kodi 22)",
+  "#30591": "Sätter Kodis ljud-/videokötid till 1 sekund medan du är i en grupp och återställer den efteråt. En hastighetsändring hörs först när kön har spelats upp, så en kortare kö gör att korrigeringar landar på ungefär 2 sekunder i stället för 5. Stäng av detta på ett långsamt eller opålitligt nätverk. Kodi 21 har en fast kö på 8 sekunder.",
+  "#30592": "Finsynk stoppad: hastigheterna skiljer sig"
 }

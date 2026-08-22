@@ -543,7 +543,11 @@ class TestUnpauseIsByIntent:
         controller.schedule(command("Unpause", -10, ticks=utils.seconds_to_ticks(42)))
 
         assert player.paused is False  # playing, not stranded
-        assert player.position == pytest.approx(42, abs=0.2)
+        # The post-resume align aims ahead by the seek cost (fake clock: never
+        # measured, so the default stands).
+        assert player.position == pytest.approx(
+            42 + controller.seek_lag_ms / 1000.0, abs=0.2
+        )
 
     def test_align_seek_does_not_re_pause_when_a_resume_follows(self):
         controller, manager, player = make_controller(paused=True, position=0.0)
@@ -794,7 +798,10 @@ class TestAlignAfterResume:
         controller._do_unpause(utils.ms_to_ticks(100000), now)
 
         assert self.seeks(player), "a 1.2s resume delay was left uncorrected"
-        assert self.seeks(player)[-1][1] == pytest.approx(101.2, abs=0.2)
+        # Where the group will be once the seek has landed, not where it was.
+        assert self.seeks(player)[-1][1] == pytest.approx(
+            101.2 + controller.seek_lag_ms / 1000.0, abs=0.2
+        )
 
     def test_a_prompt_resume_is_left_alone(self, monkeypatch):
         controller, manager, player = make_controller(paused=True, position=100.0)

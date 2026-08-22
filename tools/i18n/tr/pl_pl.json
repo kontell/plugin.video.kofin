@@ -450,5 +450,12 @@
   "#30816": "Usuwanie pobranych plików…",
   "#30817": "Wszyscy",
   "#30819": "Pokazuj obsadę na listach dodatku",
-  "#30820": "Pobiera obsadę i ekipę dla krótkich list dodatku — Ostatnio dodane, W trakcie, Następne w kolejce, Kontynuuj oglądanie, wyników wyszukiwania i odcinków serialu — aby okno informacji mogło je pokazać. Listy obejmujące całą bibliotekę nigdy tego nie robią, ponieważ serwer potrzebuje około sekundy na każde 40 pozycji. Biblioteka Kodi zawsze ma obsadę."
+  "#30820": "Pobiera obsadę i ekipę dla krótkich list dodatku — Ostatnio dodane, W trakcie, Następne w kolejce, Kontynuuj oglądanie, wyników wyszukiwania i odcinków serialu — aby okno informacji mogło je pokazać. Listy obejmujące całą bibliotekę nigdy tego nie robią, ponieważ serwer potrzebuje około sekundy na każde 40 pozycji. Biblioteka Kodi zawsze ma obsadę.",
+  "#30586": "Dokładna synchronizacja przez inputstream.tempo",
+  "#30587": "Utrzymuje to urządzenie na pozycji grupy między poleceniami, odtwarzając przez kilka sekund o kilka procent szybciej lub wolniej za pośrednictwem dodatku inputstream.tempo. Wymaga zainstalowanego dodatku i działa przy wyłączonej opcji „Synchronizuj odtwarzanie z ekranem” w Kodi. Tylko dla wideo odtwarzanego bezpośrednio, nie dla transkodowania. Dźwięk jest na czas sesji dekodowany do PCM, więc passthrough jest zawieszony — zobacz następne ustawienie.",
+  "#30588": "Dokładna synchronizacja przy włączonym passthrough",
+  "#30589": "Używaj dokładnej synchronizacji nawet przy włączonym passthrough dźwięku w Kodi. Odbiornik dostaje na czas sesji wielokanałowe PCM zamiast strumienia bitowego: w porządku dla większości zestawów, ale dźwięk obiektowy Atmos i DTS:X przepada. Wyłączone zachowuje passthrough i pozostawia zbieganie grupy samym poleceniom.",
+  "#30590": "Krótsza kolejka wideo podczas sesji (Kodi 22)",
+  "#30591": "Ustawia czas kolejki audio/wideo Kodi na 1 sekundę w czasie bycia w grupie i przywraca go potem. Zmianę prędkości słychać dopiero po odtworzeniu kolejki, więc krótsza kolejka sprawia, że korekty trafiają po około 2 sekundach zamiast 5. W wolnej lub zawodnej sieci wyłącz to. Kodi 21 ma stałą kolejkę 8 sekund.",
+  "#30592": "Synchronizacja zatrzymana: tempo nie zgadza się"
 }

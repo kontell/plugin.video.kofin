@@ -62,6 +62,13 @@ PROP_WHO_NAMES = "kofin.who.names"
 # conditions as the root listing.
 PROP_MENU_WHO = "kofin.menu.who"
 PROP_MENU_SYNCPLAY = "kofin.menu.syncplay"
+# The SyncPlay fine-sync session (syncplay/tempo.py): the tempo file the play
+# route stamps on every direct-play video item while a group is joined, and the
+# queue depth the add-on must report time behind. Set by the service at group
+# join, cleared at leave; absent means plays resolve as they always did. Lives
+# here because the *plugin* process resolves the play and has no other way to
+# learn that the service is in a group.
+PROP_SYNCPLAY_TEMPO = "kofin.syncplay.tempo"
 
 # The lyrics overlay's channel to the skin. These earn their place for the
 # same reason as PROP_CONTEXT_BITRATES: a skin can only read window
@@ -378,6 +385,26 @@ def menu_who() -> bool:
     return _window().getProperty(PROP_MENU_WHO) == "true"
 
 
+def publish_syncplay_tempo(payload: Dict[str, Any]) -> None:
+    _window().setProperty(PROP_SYNCPLAY_TEMPO, json.dumps(payload))
+
+
+def syncplay_tempo() -> Dict[str, Any]:
+    """The fine-sync session the play route should stamp, or {} outside one."""
+    raw = _window().getProperty(PROP_SYNCPLAY_TEMPO)
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def clear_syncplay_tempo() -> None:
+    _window().clearProperty(PROP_SYNCPLAY_TEMPO)
+
+
 def set_menu_syncplay(offered: bool) -> None:
     """Whether the SyncPlay root entry is on offer."""
     if offered:
@@ -466,6 +493,7 @@ def clear_all(keep_stop: bool = False) -> None:
         PROP_WHO_NAMES,
         PROP_MENU_WHO,
         PROP_MENU_SYNCPLAY,
+        PROP_SYNCPLAY_TEMPO,
     ]
     if not keep_stop:
         props.append(PROP_SYNC_STOP)

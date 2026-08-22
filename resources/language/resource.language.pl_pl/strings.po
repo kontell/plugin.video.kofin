@@ -1304,6 +1304,34 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr "Oczekiwanie na grupę..."
 
+msgctxt "#30586"
+msgid "Fine sync through inputstream.tempo"
+msgstr "Dokładna synchronizacja przez inputstream.tempo"
+
+msgctxt "#30587"
+msgid "Keeps this device on the group position between commands by playing a few percent faster or slower for a few seconds at a time, through the inputstream.tempo add-on. Needs that add-on installed and works with Kodi's 'Sync playback to display' off. Only for video played directly, not transcodes. Audio is decoded to PCM for the session, so passthrough is suspended — see the next setting."
+msgstr "Utrzymuje to urządzenie na pozycji grupy między poleceniami, odtwarzając przez kilka sekund o kilka procent szybciej lub wolniej za pośrednictwem dodatku inputstream.tempo. Wymaga zainstalowanego dodatku i działa przy wyłączonej opcji „Synchronizuj odtwarzanie z ekranem” w Kodi. Tylko dla wideo odtwarzanego bezpośrednio, nie dla transkodowania. Dźwięk jest na czas sesji dekodowany do PCM, więc passthrough jest zawieszony — zobacz następne ustawienie."
+
+msgctxt "#30588"
+msgid "Fine sync with audio passthrough on"
+msgstr "Dokładna synchronizacja przy włączonym passthrough"
+
+msgctxt "#30589"
+msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
+msgstr "Używaj dokładnej synchronizacji nawet przy włączonym passthrough dźwięku w Kodi. Odbiornik dostaje na czas sesji wielokanałowe PCM zamiast strumienia bitowego: w porządku dla większości zestawów, ale dźwięk obiektowy Atmos i DTS:X przepada. Wyłączone zachowuje passthrough i pozostawia zbieganie grupy samym poleceniom."
+
+msgctxt "#30590"
+msgid "Shorter video queue during sessions (Kodi 22)"
+msgstr "Krótsza kolejka wideo podczas sesji (Kodi 22)"
+
+msgctxt "#30591"
+msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
+msgstr "Ustawia czas kolejki audio/wideo Kodi na 1 sekundę w czasie bycia w grupie i przywraca go potem. Zmianę prędkości słychać dopiero po odtworzeniu kolejki, więc krótsza kolejka sprawia, że korekty trafiają po około 2 sekundach zamiast 5. W wolnej lub zawodnej sieci wyłącz to. Kodi 21 ma stałą kolejkę 8 sekund."
+
+msgctxt "#30592"
+msgid "Fine sync stopped: rate mismatch"
+msgstr "Synchronizacja zatrzymana: tempo nie zgadza się"
+
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
 msgstr "Dodatek KofinSyncQueue (szybka ścieżka)"

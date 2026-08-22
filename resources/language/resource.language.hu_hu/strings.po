@@ -1304,6 +1304,34 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr "Várakozás a csoportra…"
 
+msgctxt "#30586"
+msgid "Fine sync through inputstream.tempo"
+msgstr "Finomszinkron az inputstream.tempo segítségével"
+
+msgctxt "#30587"
+msgid "Keeps this device on the group position between commands by playing a few percent faster or slower for a few seconds at a time, through the inputstream.tempo add-on. Needs that add-on installed and works with Kodi's 'Sync playback to display' off. Only for video played directly, not transcodes. Audio is decoded to PCM for the session, so passthrough is suspended — see the next setting."
+msgstr "A parancsok között a csoport pozícióján tartja ezt az eszközt úgy, hogy az inputstream.tempo kiegészítőn keresztül néhány másodpercig néhány százalékkal gyorsabban vagy lassabban játszik le. A kiegészítő telepítése szükséges, és a Kodi „Lejátszás szinkronizálása a képernyőhöz” beállításának kikapcsolt állapotában működik. Csak közvetlenül lejátszott videóhoz, átkódoláshoz nem. A hang a munkamenet idejére PCM-re dekódolódik, így a passthrough szünetel — lásd a következő beállítást."
+
+msgctxt "#30588"
+msgid "Fine sync with audio passthrough on"
+msgstr "Finomszinkron bekapcsolt hang-passthrough mellett"
+
+msgctxt "#30589"
+msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
+msgstr "Finomszinkron használata akkor is, ha a Kodi hang-passthrough be van kapcsolva. A vevő a munkamenet alatt bitfolyam helyett többcsatornás PCM-et kap: a legtöbb rendszerhez megfelelő, de az Atmos és DTS:X objektumalapú hang elvész. Kikapcsolva megmarad a passthrough, és a csoport csak a parancsok alapján áll össze."
+
+msgctxt "#30590"
+msgid "Shorter video queue during sessions (Kodi 22)"
+msgstr "Rövidebb videósor a munkamenetek alatt (Kodi 22)"
+
+msgctxt "#30591"
+msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
+msgstr "Csoportban a Kodi hang/videó sorának idejét 1 másodpercre állítja, majd utána visszaállítja. A sebességváltás csak a sor lejátszása után hallható, így rövidebb sorral a javítások kb. 2 másodperc alatt érkeznek meg 5 helyett. Lassú vagy megbízhatatlan hálózaton kapcsold ki. A Kodi 21 rögzített, 8 másodperces sort használ."
+
+msgctxt "#30592"
+msgid "Fine sync stopped: rate mismatch"
+msgstr "Finomszinkron leállt: eltérő tempó"
+
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
 msgstr "KofinSyncQueue társkiegészítő (gyors út)"

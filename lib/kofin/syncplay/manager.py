@@ -23,6 +23,7 @@ from kofin.core.http import JellyfinError, Unauthorized
 from kofin.core.log import Logger
 from kofin.syncplay import utils
 from kofin.syncplay.playback import PlaybackController
+from kofin.syncplay.tempo import TempoSession
 from kofin.syncplay.timesync import TimeSync
 
 #################################################################################################
@@ -46,6 +47,10 @@ class SyncPlayManager(object):
         self.player = player
         self.playback = PlaybackController(self, player)
         self.timesync = None
+        # Fine sync through inputstream.tempo (syncplay/tempo.py): armed at
+        # group join when this member can use it, disarmed at leave.
+        self.tempo_session = TempoSession()
+        self._rate_mismatch_told = False
 
         self.group = None  # {"GroupId", "GroupName"}
         self.group_state = None
@@ -294,6 +299,31 @@ class SyncPlayManager(object):
     def is_transcoding(self):
         info = self._local_file_info()
         return bool(info) and info.get("PlayMethod") == "Transcode"
+
+    def current_claim(self):
+        """The claimed play state of the current playback, or None: what the
+        fine-sync scheduler reads its route (``Tempo``) off."""
+        return self._local_file_info()
+
+    def refresh_tempo_session(self):
+        """The fine-sync setting changed: arm or disarm for the current group.
+        Outside a group there is nothing to do — join arms it."""
+        if not self.in_group():
+            return
+
+        if settings.get_bool("syncPlayTempo"):
+            self.tempo_session.begin()
+        else:
+            self.tempo_session.end()
+
+    def notify_rate_mismatch(self):
+        """The scheduler gave up on a residual that keeps regrowing: tell the
+        user once per group, because the cause is on their side."""
+        if self._rate_mismatch_told:
+            return
+
+        self._rate_mismatch_told = True
+        self._toast(settings.localized(30592), warning=True)
 
     def reload_current_item(self):
         """Restart the current item at the group position.
@@ -678,6 +708,10 @@ class SyncPlayManager(object):
 
         self.playback.start_loop()
 
+        if not rejoined:
+            self._rate_mismatch_told = False
+            self.tempo_session.begin()
+
         LOG.info(
             "--->[ syncplay group/%s ] protocol v%s",
             self.group["GroupId"],
@@ -701,6 +735,7 @@ class SyncPlayManager(object):
             return
 
         self.playback.stop_loop()
+        self.tempo_session.end()
 
         if self.timesync is not None:
             self.timesync.stop()

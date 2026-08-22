@@ -373,6 +373,7 @@ class Service(xbmc.Monitor):
         self._backoff.succeeded()
         self._online = True
         state.set_online(True)
+        self._restore_player_queue()
         self._start_syncplay()  # before the websocket: messages route into it
         # Only when there is none: a reconnect after a confirmed outage finds
         # the previous client still running its own retry loop, and building a
@@ -523,6 +524,17 @@ class Service(xbmc.Monitor):
         )
 
     # -- syncplay (phase 4) ----------------------------------------------------
+
+    def _restore_player_queue(self) -> None:
+        """A Kodi 22 queue size shortened for a SyncPlay session is restored
+        at leave; a crash mid-session leaves the hidden record behind, and
+        this is what puts the user's value back."""
+        try:
+            from kofin.syncplay import tempo
+
+            tempo.restore_queue(" (left by an interrupted session)")
+        except Exception:
+            LOG.exception("player queue restore failed")
 
     def _start_syncplay(self) -> None:
         """Build the SyncPlay manager when enabled. Contained like the

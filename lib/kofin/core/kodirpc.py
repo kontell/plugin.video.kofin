@@ -406,6 +406,54 @@ def preferred_subtitle_language() -> str:
     return str(xbmc.convertLanguage(value, xbmc.ISO_639_2) or "")
 
 
+def _call(method: str, params: Optional[Dict[str, Any]] = None) -> Any:
+    """One JSON-RPC call's ``result`` — whatever shape the method answers
+    with (``Settings.SetSettingValue`` answers a bare ``true``) — or None on
+    any error."""
+    request: Dict[str, Any] = {"jsonrpc": "2.0", "id": 1, "method": method}
+    if params is not None:
+        request["params"] = params
+    try:
+        response = json.loads(xbmc.executeJSONRPC(json.dumps(request)))
+    except ValueError:
+        return None
+    return response.get("result") if isinstance(response, dict) else None
+
+
+def kodi_setting(setting_id: str) -> Any:
+    """The value of one of Kodi's own settings, or None where it does not exist.
+
+    None is the answer for a setting this Kodi version lacks — Omega has no
+    ``videoplayer.queuetimesize`` — so a caller can branch on the version
+    without asking for it.
+    """
+    result = _call("Settings.GetSettingValue", {"setting": setting_id})
+    return result.get("value") if isinstance(result, dict) else None
+
+
+def set_kodi_setting(setting_id: str, value: Any) -> bool:
+    """Set one of Kodi's own settings; True when Kodi accepted the value.
+
+    Measured on 22.0-BETA1: the answer is ``{"result": true}`` — a bare
+    boolean, not an object.
+    """
+    result = _call("Settings.SetSettingValue", {"setting": setting_id, "value": value})
+    return result is True
+
+
+def addon_enabled(addon_id: str) -> Optional[bool]:
+    """Whether an add-on is installed and enabled: True, False, or None when it
+    is not installed at all."""
+    result = _call(
+        "Addons.GetAddonDetails",
+        {"addonid": addon_id, "properties": ["enabled", "version"]},
+    )
+    addon = result.get("addon") if isinstance(result, dict) else None
+    if not isinstance(addon, dict):
+        return None
+    return bool(addon.get("enabled"))
+
+
 def clear_resume_bookmark(path: str) -> bool:
     """Delete the resume bookmark Kodi keeps for a plugin path.
 

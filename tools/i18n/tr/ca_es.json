@@ -450,5 +450,12 @@
   "#30816": "S'estan eliminant els fitxers baixats…",
   "#30817": "Tots",
   "#30819": "Mostra el repartiment a les llistes del complement",
-  "#30820": "Obté el repartiment i l'equip de les llistes curtes del complement — Afegits recentment, En curs, A continuació, Continua mirant, els resultats de cerca i els episodis d'una sèrie — perquè el diàleg d'informació els pugui mostrar. Les llistes que abasten una biblioteca sencera no ho fan mai, perquè el servidor necessita aproximadament un segon per cada 40 elements. La biblioteca de Kodi sempre té el repartiment."
+  "#30820": "Obté el repartiment i l'equip de les llistes curtes del complement — Afegits recentment, En curs, A continuació, Continua mirant, els resultats de cerca i els episodis d'una sèrie — perquè el diàleg d'informació els pugui mostrar. Les llistes que abasten una biblioteca sencera no ho fan mai, perquè el servidor necessita aproximadament un segon per cada 40 elements. La biblioteca de Kodi sempre té el repartiment.",
+  "#30586": "Sincronització fina mitjançant inputstream.tempo",
+  "#30587": "Manté aquest dispositiu a la posició del grup entre ordres reproduint uns quants per cent més ràpid o més lent durant uns segons cada vegada, a través del complement inputstream.tempo. Necessita aquest complement instal·lat i funciona amb «Sincronitza la reproducció amb la pantalla» desactivat al Kodi. Només per a vídeo reproduït directament, no transcodificacions. L'àudio es descodifica a PCM durant la sessió, de manera que el passthrough queda suspès — mira el paràmetre següent.",
+  "#30588": "Sincronització fina amb passthrough d'àudio activat",
+  "#30589": "Fes servir la sincronització fina encara que el passthrough d'àudio del Kodi estigui activat. El receptor rep PCM multicanal en lloc d'un bitstream durant la sessió: va bé per a la majoria d'equips, però es perd l'àudio per objectes Atmos i DTS:X. Desactivat manté el passthrough i deixa que el grup convergeixi només amb les ordres.",
+  "#30590": "Cua de vídeo més curta durant les sessions (Kodi 22)",
+  "#30591": "Posa el temps de cua d'àudio/vídeo del Kodi a 1 segon mentre ets en un grup i el restaura després. Un canvi de velocitat només se sent quan la cua s'ha reproduït, així que una cua més curta fa que les correccions arribin en uns 2 segons en lloc de 5. En una xarxa lenta o poc fiable, desactiva-ho. El Kodi 21 té una cua fixa de 8 segons.",
+  "#30592": "Sinc. fina aturada: ritme no coincideix"
 }
