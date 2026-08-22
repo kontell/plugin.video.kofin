@@ -25,11 +25,10 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 - Flexible playback methods - direct play, remux or transcode. Choose supported HDR formats & max resolution
     - For transcoded playback, audio streams and image-based subtitles can be accessed *after playback starts* by returning to the playing item and bringing up the context menu.
 - Play with transcoding context item: pick a bitrate
-- Jellyfin actions context menu on add-on listings: watched and favourite toggles, reset resume position, play all or shuffle an album, artist, genre or playlist, extras, downloads, delete
 - Jellyfin chapter images in Kodi's chapter list
 - Transcode music
 - Jellyfin song lyrics, timed or plain (via companion add-on)
-- Sync Jellyfin music playlists into Kodi (one way only)
+- Sync Jellyfin music playlists into Kodi
 - Edit Jellyfin user audio and subtitle preferences
 - Who's watching? - toggle additional users onto the session for multi-user watch state (persistent after restart)
 
@@ -39,7 +38,6 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 - Real Kodi database rows - skins, widgets and "recently added" work with no plugin awareness
 - Incremental and full sync
 - Real-time updates over websocket, with a fast change-feed path when the server companion plugin is installed
-- Login with username and password, or Quick Connect
 
 ### Not implemented
 
