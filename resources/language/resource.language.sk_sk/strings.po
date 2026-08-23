@@ -1304,6 +1304,62 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr "Čaká sa na skupinu..."
 
+msgctxt "#30586"
+msgid "Fine sync through inputstream.tempo"
+msgstr "Jemná synchronizácia cez inputstream.tempo"
+
+msgctxt "#30587"
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Drží toto zariadenie na pozícii skupiny medzi príkazmi tak, že cez doplnok inputstream.tempo krátko prehráva rýchlejšie alebo pomalšie (vyžaduje verziu 21.4.1 / 22.4.1 alebo novšiu; nechaj „Synchronizovať prehrávanie s obrazovkou“ v Kodi vypnuté). Len priamo prehrávané video. Zvuk sa počas relácie dekóduje do PCM, takže passthrough je pozastavený."
+
+msgctxt "#30588"
+msgid "Fine sync with audio passthrough on"
+msgstr "Jemná synchronizácia so zapnutým passthrough zvuku"
+
+msgctxt "#30589"
+msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
+msgstr "Použiť jemnú synchronizáciu aj pri zapnutom passthrough zvuku v Kodi. Prijímač počas relácie dostáva viackanálové PCM namiesto bitstreamu: pre väčšinu zostáv v poriadku, ale objektový zvuk Atmos a DTS:X sa stratí. Vypnuté zachová passthrough a nechá skupinu zbiehať len podľa príkazov."
+
+msgctxt "#30590"
+msgid "Shorter video queue during sessions (Kodi 22)"
+msgstr "Kratší front videa počas relácií (Kodi 22)"
+
+msgctxt "#30591"
+msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
+msgstr "Nastaví čas frontu zvuku/videa v Kodi na 1 sekundu, kým si v skupine, a potom ho obnoví. Zmena rýchlosti je počuť až po prehraní frontu, takže kratší front nechá opravy dopadnúť zhruba za 2 sekundy namiesto 5. Na pomalej alebo nespoľahlivej sieti to vypni. Kodi 21 má pevný front 8 sekúnd."
+
+msgctxt "#30592"
+msgid "Fine sync stopped: rate mismatch"
+msgstr "Jemná synchronizácia zastavená: tempo nesedí"
+
+msgctxt "#30593"
+msgid "Largest error closed by tempo (ms)"
+msgstr "Najväčšia chyba vyrovnaná tempom (ms)"
+
+msgctxt "#30594"
+msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
+msgstr "Chyby pozície až do tejto hodnoty sa vyrovnávajú rýchlejším alebo pomalším prehrávaním; väčšie skokom. Vyššia hodnota znamená menej skokov a dlhšie zmeny rýchlosti."
+
+msgctxt "#30595"
+msgid "Fastest correction speed (%)"
+msgstr "Najrýchlejšia oprava (%)"
+
+msgctxt "#30596"
+msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
+msgstr "O koľko sa smie počas opravy najviac zmeniť rýchlosť prehrávania. Pri 25 % sa chyba 2,5 sekundy vyrovná za 10 sekúnd; nižšia je menej nápadná, ale pomalšia. Veľké zmeny sa zavádzajú a ukončujú postupne."
+
+msgctxt "#30597"
+msgid "Fine sync on AV1 video"
+msgstr "Jemná synchronizácia pri videu AV1"
+
+msgctxt "#30598"
+msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
+msgstr "Predvolene vypnuté, s varovaním: na Pixeli 7 zmena rýchlosti nasledovaná skokom zasekla hardvérový dekodér AV1 a potom aj samotný telefón. Dekodér AV1 v Bravii bol v poriadku. Zapni iba vtedy, keď to tvoje zariadenie zvláda; inak tituly AV1 sledujú skupinu len podľa príkazov."
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "Jemná synchronizácia vyžaduje inputstream.tempo 21.4.1 / 22.4.1"
+
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
 msgstr "Sprievodný doplnok KofinSyncQueue (rýchla cesta)"

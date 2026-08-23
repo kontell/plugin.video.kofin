@@ -1304,6 +1304,62 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr "Warte auf die Gruppe..."
 
+msgctxt "#30586"
+msgid "Fine sync through inputstream.tempo"
+msgstr "Feinabgleich über inputstream.tempo"
+
+msgctxt "#30587"
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Hält dieses Gerät zwischen den Gruppenbefehlen auf der Gruppenposition, indem es über das Add-on inputstream.tempo kurz schneller oder langsamer abspielt (Version 21.4.1 / 22.4.1 oder neuer nötig; „Wiedergabe an Bildschirm anpassen“ in Kodi ausgeschaltet lassen). Nur direkt abgespieltes Video. Audio wird in einer Sitzung zu PCM dekodiert, Passthrough ist also ausgesetzt."
+
+msgctxt "#30588"
+msgid "Fine sync with audio passthrough on"
+msgstr "Feinabgleich auch bei Audio-Passthrough"
+
+msgctxt "#30589"
+msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
+msgstr "Feinabgleich auch dann verwenden, wenn Kodis Audio-Passthrough eingeschaltet ist. Der Receiver bekommt für die Sitzung Mehrkanal-PCM statt eines Bitstreams: für die meisten Anlagen in Ordnung, aber Atmos- und DTS:X-Objektaudio geht verloren. Aus behält Passthrough bei und überlässt den Abgleich allein den Gruppenbefehlen."
+
+msgctxt "#30590"
+msgid "Shorter video queue during sessions (Kodi 22)"
+msgstr "Kürzere Video-Warteschlange in Sitzungen (Kodi 22)"
+
+msgctxt "#30591"
+msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
+msgstr "Setzt Kodis Audio-/Video-Warteschlangenzeit in einer Gruppe auf 1 Sekunde und stellt sie danach wieder her. Eine Tempoänderung ist erst zu hören, wenn die Warteschlange abgespielt ist; eine kürzere Warteschlange lässt Korrekturen daher in etwa 2 statt 5 Sekunden greifen. Bei langsamem oder unzuverlässigem Netzwerk ausschalten. Kodi 21 hat eine feste Warteschlange von 8 Sekunden."
+
+msgctxt "#30592"
+msgid "Fine sync stopped: rate mismatch"
+msgstr "Feinabgleich gestoppt: Tempo passt nicht"
+
+msgctxt "#30593"
+msgid "Largest error closed by tempo (ms)"
+msgstr "Größter per Tempo ausgeglichener Fehler (ms)"
+
+msgctxt "#30594"
+msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
+msgstr "Positionsfehler bis hierher werden durch schnelleres oder langsameres Abspielen ausgeglichen; alles Größere mit einem Sprung. Höher heißt weniger Sprünge und längere Tempoänderungen."
+
+msgctxt "#30595"
+msgid "Fastest correction speed (%)"
+msgstr "Schnellste Korrekturgeschwindigkeit (%)"
+
+msgctxt "#30596"
+msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
+msgstr "So stark darf sich die Wiedergabegeschwindigkeit bei einer Korrektur höchstens ändern. Bei 25 % ist ein Fehler von 2,5 Sekunden in 10 Sekunden ausgeglichen; weniger fällt weniger auf, dauert aber länger. Große Änderungen werden ein- und ausgeblendet."
+
+msgctxt "#30597"
+msgid "Fine sync on AV1 video"
+msgstr "Feinabgleich bei AV1-Video"
+
+msgctxt "#30598"
+msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
+msgstr "Standardmäßig aus, mit Warnung: Auf einem Pixel 7 hat eine Tempoänderung mit anschließendem Sprung den AV1-Hardwaredecoder und dann das Telefon selbst aufgehängt. Der AV1-Decoder eines Bravia war unauffällig. Nur einschalten, wenn das Gerät damit klarkommt; sonst folgen AV1-Titel der Gruppe allein über Befehle."
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "Feinabgleich braucht inputstream.tempo 21.4.1 / 22.4.1"
+
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
 msgstr "KofinSyncQueue-Companion (schneller Weg)"

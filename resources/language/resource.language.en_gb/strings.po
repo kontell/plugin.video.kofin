@@ -1342,6 +1342,69 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr ""
 
+# 30586-30599 — SyncPlay fine sync through inputstream.tempo
+# (lib/kofin/syncplay/tempo.py, docs/syncplay-fine-sync.md). #30592 is a toast.
+# 30588-30589 retired (the passthrough toggle folded into #30587's help) and
+# 30597-30598 retired (the AV1 toggle: the Pixel 7 freeze it guarded against was
+# the add-on freeing the first packets after a seek, fixed in inputstream.tempo
+# 22.4.1, and the same phone then passed AV1 at 1.25x with seeks). Kept, never
+# reused, for the reason given at #30744. #30599 is a toast.
+msgctxt "#30586"
+msgid "Fine sync through inputstream.tempo"
+msgstr ""
+
+msgctxt "#30587"
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr ""
+
+msgctxt "#30588"
+msgid "Fine sync with audio passthrough on"
+msgstr ""
+
+msgctxt "#30589"
+msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
+msgstr ""
+
+msgctxt "#30590"
+msgid "Shorter video queue during sessions (Kodi 22)"
+msgstr ""
+
+msgctxt "#30591"
+msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
+msgstr ""
+
+msgctxt "#30592"
+msgid "Fine sync stopped: rate mismatch"
+msgstr ""
+
+msgctxt "#30593"
+msgid "Largest error closed by tempo (ms)"
+msgstr ""
+
+msgctxt "#30594"
+msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
+msgstr ""
+
+msgctxt "#30595"
+msgid "Fastest correction speed (%)"
+msgstr ""
+
+msgctxt "#30596"
+msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
+msgstr ""
+
+msgctxt "#30597"
+msgid "Fine sync on AV1 video"
+msgstr ""
+
+msgctxt "#30598"
+msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
+msgstr ""
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr ""
+
 # 30600-30619 — phase 5: KofinSyncQueue tier + retention + progress
 
 msgctxt "#30600"

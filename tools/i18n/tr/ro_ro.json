@@ -450,5 +450,19 @@
   "#30816": "Se elimină fișierele descărcate…",
   "#30817": "Toți",
   "#30819": "Afișează distribuția în listele suplimentului",
-  "#30820": "Preia distribuția și echipa pentru listele scurte ale suplimentului — Adăugate recent, În curs, Urmează, Continuă vizionarea, rezultatele căutării și episoadele unui serial — astfel încât fereastra de informații să le poată afișa. Listele care acoperă o bibliotecă întreagă nu fac niciodată acest lucru, deoarece serverul are nevoie de aproximativ o secundă la fiecare 40 de elemente. Biblioteca Kodi are întotdeauna distribuția."
+  "#30820": "Preia distribuția și echipa pentru listele scurte ale suplimentului — Adăugate recent, În curs, Urmează, Continuă vizionarea, rezultatele căutării și episoadele unui serial — astfel încât fereastra de informații să le poată afișa. Listele care acoperă o bibliotecă întreagă nu fac niciodată acest lucru, deoarece serverul are nevoie de aproximativ o secundă la fiecare 40 de elemente. Biblioteca Kodi are întotdeauna distribuția.",
+  "#30586": "Sincronizare fină prin inputstream.tempo",
+  "#30587": "Ține acest dispozitiv pe poziția grupului între comenzi, redând pentru scurt timp mai repede sau mai încet prin suplimentul inputstream.tempo (necesită versiunea 21.4.1 / 22.4.1 sau mai nouă; lasă „Sincronizează redarea cu afișajul” dezactivat în Kodi). Doar video redat direct. Sunetul este decodat în PCM pe durata sesiunii, deci passthrough-ul este suspendat.",
+  "#30588": "Sincronizare fină cu passthrough audio activat",
+  "#30589": "Folosește sincronizarea fină chiar și când passthrough-ul audio din Kodi este activat. Receptorul primește PCM multicanal în loc de bitstream pe durata sesiunii: potrivit pentru majoritatea sistemelor, dar sunetul pe obiecte Atmos și DTS:X se pierde. Dezactivat păstrează passthrough-ul și lasă grupul să se alinieze doar prin comenzi.",
+  "#30590": "Coadă video mai scurtă în timpul sesiunilor (Kodi 22)",
+  "#30591": "Setează timpul cozii audio/video din Kodi la 1 secundă cât ești într-un grup și îl readuce apoi la valoarea inițială. O schimbare de viteză se aude abia după ce coada a fost redată, așa că o coadă mai scurtă face corecțiile să ajungă în circa 2 secunde în loc de 5. Pe o rețea lentă sau nesigură, dezactivează opțiunea. Kodi 21 are o coadă fixă de 8 secunde.",
+  "#30592": "Sincronizare fină oprită: ritm diferit",
+  "#30593": "Cea mai mare eroare corectată prin tempo (ms)",
+  "#30594": "Erorile de poziție până la această valoare sunt corectate redând mai repede sau mai încet; cele mai mari, printr-un salt. Mai mare înseamnă mai puține salturi și schimbări de viteză mai lungi.",
+  "#30595": "Viteza maximă de corecție (%)",
+  "#30596": "Cât de mult se poate schimba cel mult viteza de redare în timpul unei corecții. La 25 %, o eroare de 2,5 secunde se închide în 10 secunde; mai jos e mai puțin sesizabil, dar mai lent. Schimbările mari sunt aplicate treptat.",
+  "#30597": "Sincronizare fină pe video AV1",
+  "#30598": "Dezactivat implicit, cu un avertisment: pe un Pixel 7, o schimbare de viteză urmată de un salt a blocat decodorul hardware AV1 și apoi telefonul însuși. Decodorul AV1 al unui Bravia nu a avut probleme. Activează doar dacă dispozitivul tău face față; altfel titlurile AV1 urmează grupul doar prin comenzi.",
+  "#30599": "Sincronizarea fină necesită inputstream.tempo 21.4.1 / 22.4.1"
 }

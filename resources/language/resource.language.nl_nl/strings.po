@@ -1304,6 +1304,62 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr "Wachten op de groep..."
 
+msgctxt "#30586"
+msgid "Fine sync through inputstream.tempo"
+msgstr "Fijnafstemming via inputstream.tempo"
+
+msgctxt "#30587"
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Houdt dit apparaat tussen groepscommando's op de groepspositie door via de add-on inputstream.tempo kort sneller of langzamer af te spelen (versie 21.4.1 / 22.4.1 of nieuwer vereist; laat 'Afspelen synchroniseren met scherm' uit in Kodi). Alleen direct afgespeelde video. Audio wordt tijdens een sessie naar PCM gedecodeerd, dus passthrough is opgeschort."
+
+msgctxt "#30588"
+msgid "Fine sync with audio passthrough on"
+msgstr "Fijnafstemming met audio-passthrough aan"
+
+msgctxt "#30589"
+msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
+msgstr "Fijnafstemming ook gebruiken als Kodi's audio-passthrough aanstaat. De ontvanger krijgt voor de sessie meerkanaals PCM in plaats van een bitstream: prima voor de meeste opstellingen, maar Atmos- en DTS:X-objectaudio gaat verloren. Uit behoudt passthrough en laat de groep alleen op commando's samenkomen."
+
+msgctxt "#30590"
+msgid "Shorter video queue during sessions (Kodi 22)"
+msgstr "Kortere videowachtrij tijdens sessies (Kodi 22)"
+
+msgctxt "#30591"
+msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
+msgstr "Zet Kodi's audio-/videowachtrijtijd in een groep op 1 seconde en herstelt die daarna. Een snelheidswijziging hoor je pas als de wachtrij is afgespeeld, dus een kortere wachtrij laat correcties in ongeveer 2 in plaats van 5 seconden landen. Zet dit uit op een traag of onbetrouwbaar netwerk. Kodi 21 heeft een vaste wachtrij van 8 seconden."
+
+msgctxt "#30592"
+msgid "Fine sync stopped: rate mismatch"
+msgstr "Fijnafstemming gestopt: tempo wijkt af"
+
+msgctxt "#30593"
+msgid "Largest error closed by tempo (ms)"
+msgstr "Grootste fout die tempo wegwerkt (ms)"
+
+msgctxt "#30594"
+msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
+msgstr "Positiefouten tot hier worden weggewerkt door sneller of langzamer af te spelen; alles groter met een sprong. Hoger betekent minder sprongen en langere snelheidswijzigingen."
+
+msgctxt "#30595"
+msgid "Fastest correction speed (%)"
+msgstr "Snelste correctiesnelheid (%)"
+
+msgctxt "#30596"
+msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
+msgstr "Hoeveel de afspeelsnelheid tijdens een correctie maximaal mag veranderen. Bij 25% is een fout van 2,5 seconde in 10 seconden weg; lager valt minder op maar duurt langer. Grote wijzigingen worden geleidelijk in- en uitgezet."
+
+msgctxt "#30597"
+msgid "Fine sync on AV1 video"
+msgstr "Fijnafstemming bij AV1-video"
+
+msgctxt "#30598"
+msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
+msgstr "Standaard uit, met een waarschuwing: op een Pixel 7 liet een snelheidswijziging gevolgd door een sprong de AV1-hardwaredecoder en daarna de telefoon zelf vastlopen. De AV1-decoder van een Bravia had er geen last van. Alleen aanzetten als je apparaat het aankan; anders volgen AV1-titels de groep alleen via commando's."
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "Fijnafstemming vereist inputstream.tempo 21.4.1 / 22.4.1"
+
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
 msgstr "KofinSyncQueue-companion (snelle route)"

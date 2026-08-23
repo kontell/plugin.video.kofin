@@ -450,5 +450,19 @@
   "#30816": "A remover ficheiros transferidos…",
   "#30817": "Todos",
   "#30819": "Mostrar elenco nas listas do add-on",
-  "#30820": "Obtém o elenco e a equipa das listas curtas do add-on — Adicionados recentemente, Em curso, A seguir, Continuar a ver, os resultados de pesquisa e os episódios de uma série — para que a janela de informação os possa mostrar. As listas que abrangem uma biblioteca inteira nunca o fazem, porque o servidor precisa de cerca de um segundo por cada 40 itens. A biblioteca do Kodi tem sempre o elenco."
+  "#30820": "Obtém o elenco e a equipa das listas curtas do add-on — Adicionados recentemente, Em curso, A seguir, Continuar a ver, os resultados de pesquisa e os episódios de uma série — para que a janela de informação os possa mostrar. As listas que abrangem uma biblioteca inteira nunca o fazem, porque o servidor precisa de cerca de um segundo por cada 40 itens. A biblioteca do Kodi tem sempre o elenco.",
+  "#30586": "Sincronização fina via inputstream.tempo",
+  "#30587": "Mantém este dispositivo na posição do grupo entre comandos, reproduzindo por instantes mais depressa ou mais devagar, através do add-on inputstream.tempo (requer a versão 21.4.1 / 22.4.1 ou posterior; deixe «Sincronizar a reprodução com o ecrã» desligado no Kodi). Só vídeo em reprodução direta. O áudio é descodificado para PCM durante uma sessão, pelo que o passthrough fica suspenso.",
+  "#30588": "Sincronização fina com passthrough de áudio ligado",
+  "#30589": "Usar a sincronização fina mesmo com o passthrough de áudio do Kodi ligado. O recetor recebe PCM multicanal em vez de um bitstream durante a sessão: serve para a maioria dos sistemas, mas o áudio por objetos Atmos e DTS:X perde-se. Desligado mantém o passthrough e deixa o grupo convergir apenas pelos comandos.",
+  "#30590": "Fila de vídeo mais curta durante sessões (Kodi 22)",
+  "#30591": "Define o tempo de fila de áudio/vídeo do Kodi para 1 segundo enquanto está num grupo e repõe-no depois. Uma mudança de velocidade só se ouve quando a fila foi reproduzida, por isso uma fila mais curta faz as correções chegarem em cerca de 2 segundos em vez de 5. Numa rede lenta ou pouco fiável, desligue isto. O Kodi 21 tem uma fila fixa de 8 segundos.",
+  "#30592": "Sinc. fina parada: ritmo não coincide",
+  "#30593": "Maior erro corrigido por tempo (ms)",
+  "#30594": "Erros de posição até este valor são corrigidos reproduzindo mais depressa ou mais devagar; maiores, com um salto. Mais alto significa menos saltos e mudanças de velocidade mais longas.",
+  "#30595": "Velocidade máxima de correção (%)",
+  "#30596": "Quanto a velocidade de reprodução pode mudar, no máximo, durante uma correção. A 25 %, um erro de 2,5 segundos fecha-se em 10 segundos; mais baixo nota-se menos mas é mais lento. Mudanças grandes são aplicadas gradualmente.",
+  "#30597": "Sincronização fina em vídeo AV1",
+  "#30598": "Desligado por predefinição, com um aviso: num Pixel 7, uma mudança de velocidade seguida de um salto bloqueou o descodificador AV1 por hardware e depois o próprio telefone. O descodificador AV1 de um Bravia não teve problemas. Ligue só se o seu dispositivo aguentar; caso contrário os títulos AV1 seguem o grupo apenas pelos comandos.",
+  "#30599": "Sinc. fina requer inputstream.tempo 21.4.1 / 22.4.1"
 }

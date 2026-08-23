@@ -1304,6 +1304,62 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr "Se așteaptă grupul..."
 
+msgctxt "#30586"
+msgid "Fine sync through inputstream.tempo"
+msgstr "Sincronizare fină prin inputstream.tempo"
+
+msgctxt "#30587"
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Ține acest dispozitiv pe poziția grupului între comenzi, redând pentru scurt timp mai repede sau mai încet prin suplimentul inputstream.tempo (necesită versiunea 21.4.1 / 22.4.1 sau mai nouă; lasă „Sincronizează redarea cu afișajul” dezactivat în Kodi). Doar video redat direct. Sunetul este decodat în PCM pe durata sesiunii, deci passthrough-ul este suspendat."
+
+msgctxt "#30588"
+msgid "Fine sync with audio passthrough on"
+msgstr "Sincronizare fină cu passthrough audio activat"
+
+msgctxt "#30589"
+msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
+msgstr "Folosește sincronizarea fină chiar și când passthrough-ul audio din Kodi este activat. Receptorul primește PCM multicanal în loc de bitstream pe durata sesiunii: potrivit pentru majoritatea sistemelor, dar sunetul pe obiecte Atmos și DTS:X se pierde. Dezactivat păstrează passthrough-ul și lasă grupul să se alinieze doar prin comenzi."
+
+msgctxt "#30590"
+msgid "Shorter video queue during sessions (Kodi 22)"
+msgstr "Coadă video mai scurtă în timpul sesiunilor (Kodi 22)"
+
+msgctxt "#30591"
+msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
+msgstr "Setează timpul cozii audio/video din Kodi la 1 secundă cât ești într-un grup și îl readuce apoi la valoarea inițială. O schimbare de viteză se aude abia după ce coada a fost redată, așa că o coadă mai scurtă face corecțiile să ajungă în circa 2 secunde în loc de 5. Pe o rețea lentă sau nesigură, dezactivează opțiunea. Kodi 21 are o coadă fixă de 8 secunde."
+
+msgctxt "#30592"
+msgid "Fine sync stopped: rate mismatch"
+msgstr "Sincronizare fină oprită: ritm diferit"
+
+msgctxt "#30593"
+msgid "Largest error closed by tempo (ms)"
+msgstr "Cea mai mare eroare corectată prin tempo (ms)"
+
+msgctxt "#30594"
+msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
+msgstr "Erorile de poziție până la această valoare sunt corectate redând mai repede sau mai încet; cele mai mari, printr-un salt. Mai mare înseamnă mai puține salturi și schimbări de viteză mai lungi."
+
+msgctxt "#30595"
+msgid "Fastest correction speed (%)"
+msgstr "Viteza maximă de corecție (%)"
+
+msgctxt "#30596"
+msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
+msgstr "Cât de mult se poate schimba cel mult viteza de redare în timpul unei corecții. La 25 %, o eroare de 2,5 secunde se închide în 10 secunde; mai jos e mai puțin sesizabil, dar mai lent. Schimbările mari sunt aplicate treptat."
+
+msgctxt "#30597"
+msgid "Fine sync on AV1 video"
+msgstr "Sincronizare fină pe video AV1"
+
+msgctxt "#30598"
+msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
+msgstr "Dezactivat implicit, cu un avertisment: pe un Pixel 7, o schimbare de viteză urmată de un salt a blocat decodorul hardware AV1 și apoi telefonul însuși. Decodorul AV1 al unui Bravia nu a avut probleme. Activează doar dacă dispozitivul tău face față; altfel titlurile AV1 urmează grupul doar prin comenzi."
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "Sincronizarea fină necesită inputstream.tempo 21.4.1 / 22.4.1"
+
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
 msgstr "Companion KofinSyncQueue (cale rapidă)"

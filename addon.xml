@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<addon id="plugin.video.kofin" name="Kofin" version="0.20.1" provider-name="kontell">
+<addon id="plugin.video.kofin" name="Kofin" version="0.21.0" provider-name="kontell">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="script.module.requests" version="2.22.0+matrix.1"/>
@@ -9,6 +9,14 @@
          the viewer hunting for a second addon. Served from the same
          repository as kofin, so it resolves. -->
     <import addon="script.kofin.lyrics" version="0.1.0"/>
+    <!-- Fine sync between SyncPlay commands (syncplay/tempo.py). Optional,
+         not required: it is a binary add-on and no build exists for every
+         architecture Kodi runs on, so a hard import would make kofin
+         uninstallable there. 21.4.1 is the floor on both channels (the
+         major tracks the Kodi version: 21.4.1 Omega, 22.4.1 Piers); older
+         builds drop the first packets after a seek. Without it, SyncPlay
+         converges on commands alone. -->
+    <import addon="inputstream.tempo" version="21.4.1" optional="true"/>
   </requires>
   <extension point="xbmc.python.pluginsource" library="default.py">
     <provides>video audio</provides>

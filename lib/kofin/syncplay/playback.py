@@ -19,6 +19,7 @@ import xbmc
 from kofin.core import kodirpc
 from kofin.core.log import Logger
 from kofin.syncplay import utils
+from kofin.syncplay.tempo import PulseScheduler, SEEK_LAG_DEFAULT_MS
 
 #################################################################################################
 
@@ -42,11 +43,14 @@ class PlaybackController(object):
     and none of it fixable from Kodi's settings on those panels.
     ``docs/syncplay-drift-shakedown.md`` §10 has the numbers and the controls.
 
-    Position is therefore converged where the group tells us to converge it —
-    on Unpause, Pause, Seek and item load — and any residual between commands
-    is left alone. All privileged player operations run inside the manager's
-    programmatic() guard so they are not echoed back to the group as user
-    actions.
+    Position is converged where the group tells us to converge it — on
+    Unpause, Pause, Seek and item load. Between commands, a video item routed
+    through inputstream.tempo is kept on the group position by the
+    :class:`~kofin.syncplay.tempo.PulseScheduler`: bounded, confirmed rate
+    pulses through an actuator that works with the display clock *off*, with a
+    quiet window after each one — not a loop. Anything else is left alone. All
+    privileged player operations run inside the manager's programmatic() guard
+    so they are not echoed back to the group as user actions.
     """
 
     def __init__(self, manager, player):
@@ -73,6 +77,14 @@ class PlaybackController(object):
 
         self._caching_since = None
         self._buffering_reported = False
+
+        # Fine sync between commands (syncplay/tempo.py), and what a seek
+        # aimed at the group's current position leaves behind on this device
+        # — its restart time plus its landing error — so a corrective seek can
+        # aim ahead of a moving group by exactly that. Learned from every
+        # playing seek (see _seek_and_settle).
+        self.tempo = PulseScheduler(self)
+        self.seek_lag_ms = SEEK_LAG_DEFAULT_MS
 
     # ------------------------------------------------------------------
     # Command scheduling (SYNCPLAY.md §5.1)
@@ -160,6 +172,9 @@ class PlaybackController(object):
             ticks = command.get("PositionTicks") or 0
 
             self.last_command = command
+            # No pulse runs across a command: the command converges position
+            # itself, and a seek under a running rate lands early.
+            self.tempo.cancel(name)
 
             if name == "Unpause":
                 self._reference = (utils.ticks_to_ms(ticks), when_ms, True)
@@ -240,6 +255,7 @@ class PlaybackController(object):
 
                 if self._resume_and_verify():
                     self._align_after_resume()
+                    self.tempo.note_settle()
 
         self.manager.on_local_unpaused()
 
@@ -283,8 +299,23 @@ class PlaybackController(object):
         if abs(behind_ms) <= utils.POST_RESUME_ALIGN_MS:
             return
 
+        if self.tempo.can_close(behind_ms):
+            # A skip is for gross errors: a residual fine sync can close is
+            # left to it — a few seconds at a raised rate instead of a visible
+            # cut; the scheduler measures again once the resume has played
+            # through the queue.
+            LOG.info(
+                "[ syncplay/align ] %+.0fms after the resume: left to fine sync",
+                behind_ms,
+            )
+            return
+
         LOG.info("[ syncplay/align ] %+.0fms after the resume landed", behind_ms)
-        self._seek_and_settle(target_ms, stay_paused=False)
+        # Aimed ahead by what a seek costs here: the group keeps moving while
+        # it lands, and a seek aimed at where the group *was* left +600-900 ms
+        # behind on both rig members, which the fine-sync scheduler then had to
+        # close with a second seek.
+        self._seek_and_settle(target_ms + self.seek_lag_ms, stay_paused=False)
 
     def _resume_with_retries(self):
         """Resume paused audio and verify it, nudging until it sticks.
@@ -526,6 +557,7 @@ class PlaybackController(object):
                 with self.manager.programmatic():
                     self._seek_and_settle(target_ms)
 
+        self.tempo.note_settle()
         self.report_ready()
 
     def ensure_paused(self):
@@ -608,6 +640,7 @@ class PlaybackController(object):
     def stop_loop(self):
         self._loop_stop.set()
         self.cancel_pending()
+        self.tempo.reset()
         self._caching_since = None
         self._buffering_reported = False
         self.last_command = None
@@ -626,6 +659,9 @@ class PlaybackController(object):
                     continue
 
                 self._watch_buffering()
+
+                if self.manager.phase == "synced" and self._expecting_playback():
+                    self.tempo.tick()
             except Exception as error:
                 LOG.exception("SyncPlay loop error: %s", error)
 
@@ -700,12 +736,56 @@ class PlaybackController(object):
         except Exception:
             return 0.0
 
+    def correct_position(self):
+        """The fine-sync scheduler found a residual beyond what a pulse can
+        close: seek to where the group will be once the seek has landed."""
+        target_ms = self.estimate_position_ms()
+
+        if target_ms is None:
+            return
+
+        with self._player_lock, self.manager.programmatic():
+            self._seek_and_settle(target_ms + self.seek_lag_ms, stay_paused=False)
+
+    def _clock_restart(self, target_ms, polls=30):
+        """(local ms, position ms) at which the clock started advancing again
+        after a seek, or None when no hold was seen (a correction too small to
+        tell from playback, or a player that stayed paused).
+
+        Kodi reports the target as soon as the seek is accepted and holds
+        there while the pipeline refills; where the clock then restarts from
+        is where the seek really landed. Bounded by polls, not by the wall
+        clock: a test may freeze the clock.
+        """
+        held = None
+        previous = None
+
+        for _ in range(polls):
+            position = self._position_ms()
+            now = utils.local_ms()
+
+            if previous is not None:
+                if held is None:
+                    if (
+                        abs(position - previous) < 15
+                        and abs(position - target_ms) < 1500
+                    ):
+                        held = position
+                elif abs(position - held) > 30:
+                    return now, position
+
+            previous = position
+            xbmc.sleep(50)
+
+        return None
+
     def _seek_and_settle(self, target_ms, stay_paused=True):
         """Seek and wait for the position to land.
 
-        Aligning on a server command (Unpause/Seek) or a fresh item is the
-        only thing that seeks: between commands a residual offset is left
-        alone.
+        Aligning on a server command (Unpause/Seek), a fresh item, or a
+        residual beyond the pulse budget is what seeks; a residual inside it
+        is closed by a tempo pulse instead, and anything under the deadband is
+        left alone.
 
         ``stay_paused`` is the caller's intent for afterwards. It matters
         because a seek can resume a paused player by itself — PAPlayer always
@@ -715,6 +795,7 @@ class PlaybackController(object):
         """
         was_paused = self._is_paused()
         target_s = max(0.0, target_ms / 1000.0)
+        self.tempo.before_seek()
         started = utils.local_ms()
         self.player.seekTime(target_s)
 
@@ -723,11 +804,38 @@ class PlaybackController(object):
         xbmc.sleep(150)
         deadline = started + utils.SEEK_SETTLE_TIMEOUT * 1000
 
+        landed = False
+
         while utils.local_ms() < deadline:
             if abs(self._position_ms() - target_ms) < 2000:
+                landed = True
                 break
 
             xbmc.sleep(100)
+
+        if landed and not was_paused:
+            # Only a seek issued while playing can be measured: a paused
+            # player's clock never restarts, and polling it for the budget
+            # held the group Unpause back by 2.5 s (measured +3.3 s residual
+            # after the resume, on two of three members).
+            # What a seek leaves behind is measured, not assumed. Kodi reports
+            # the target the moment it accepts the seek and holds there while
+            # the pipeline refills; the clock then restarts from wherever the
+            # seek really landed. Both matter: the Tab took ~370 ms to restart
+            # and landed 350 ms *early* (MediaCodec cannot drop to the accurate
+            # point), so a seek aimed at the group's current position left it
+            # ~700 ms behind — and a 2 s landing test saw none of it, which is
+            # how the earlier estimate decayed to 150 ms. The residual a seek
+            # leaves is restart time minus landing offset; smoothed, it is what
+            # the next seek aims ahead by.
+            restarted = self._clock_restart(target_ms)
+
+            if restarted is not None:
+                restart_ms, restart_pos = restarted
+                lag = (restart_ms - started) - (restart_pos - target_ms)
+                self.seek_lag_ms = 0.5 * self.seek_lag_ms + 0.5 * lag
+
+        self.tempo.note_settle()
 
         if was_paused and stay_paused:
             # PAPlayer::SeekTime() unconditionally restores playback speed,

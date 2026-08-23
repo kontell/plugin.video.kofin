@@ -450,5 +450,19 @@
   "#30816": "S'estan eliminant els fitxers baixats…",
   "#30817": "Tots",
   "#30819": "Mostra el repartiment a les llistes del complement",
-  "#30820": "Obté el repartiment i l'equip de les llistes curtes del complement — Afegits recentment, En curs, A continuació, Continua mirant, els resultats de cerca i els episodis d'una sèrie — perquè el diàleg d'informació els pugui mostrar. Les llistes que abasten una biblioteca sencera no ho fan mai, perquè el servidor necessita aproximadament un segon per cada 40 elements. La biblioteca de Kodi sempre té el repartiment."
+  "#30820": "Obté el repartiment i l'equip de les llistes curtes del complement — Afegits recentment, En curs, A continuació, Continua mirant, els resultats de cerca i els episodis d'una sèrie — perquè el diàleg d'informació els pugui mostrar. Les llistes que abasten una biblioteca sencera no ho fan mai, perquè el servidor necessita aproximadament un segon per cada 40 elements. La biblioteca de Kodi sempre té el repartiment.",
+  "#30586": "Sincronització fina mitjançant inputstream.tempo",
+  "#30587": "Manté aquest dispositiu a la posició del grup entre ordres reproduint breument més ràpid o més lent, a través del complement inputstream.tempo (cal la versió 21.4.1 / 22.4.1 o posterior; deixa «Sincronitza la reproducció amb la pantalla» desactivat al Kodi). Només vídeo en reproducció directa. L'àudio es descodifica a PCM durant una sessió, de manera que el passthrough queda suspès.",
+  "#30588": "Sincronització fina amb passthrough d'àudio activat",
+  "#30589": "Fes servir la sincronització fina encara que el passthrough d'àudio del Kodi estigui activat. El receptor rep PCM multicanal en lloc d'un bitstream durant la sessió: va bé per a la majoria d'equips, però es perd l'àudio per objectes Atmos i DTS:X. Desactivat manté el passthrough i deixa que el grup convergeixi només amb les ordres.",
+  "#30590": "Cua de vídeo més curta durant les sessions (Kodi 22)",
+  "#30591": "Posa el temps de cua d'àudio/vídeo del Kodi a 1 segon mentre ets en un grup i el restaura després. Un canvi de velocitat només se sent quan la cua s'ha reproduït, així que una cua més curta fa que les correccions arribin en uns 2 segons en lloc de 5. En una xarxa lenta o poc fiable, desactiva-ho. El Kodi 21 té una cua fixa de 8 segons.",
+  "#30592": "Sinc. fina aturada: ritme no coincideix",
+  "#30593": "Error més gran corregit amb tempo (ms)",
+  "#30594": "Els errors de posició fins a aquest valor es corregeixen reproduint més ràpid o més lent; els més grans, amb un salt. Més alt vol dir menys salts i canvis de velocitat més llargs.",
+  "#30595": "Velocitat màxima de correcció (%)",
+  "#30596": "Quant pot canviar com a màxim la velocitat de reproducció durant una correcció. Al 25 %, un error de 2,5 segons es tanca en 10 segons; més baix es nota menys però és més lent. Els canvis grans s'apliquen gradualment.",
+  "#30597": "Sincronització fina en vídeo AV1",
+  "#30598": "Desactivat per defecte, amb un avís: en un Pixel 7, un canvi de velocitat seguit d'un salt va penjar el descodificador AV1 per maquinari i després el telèfon mateix. El descodificador AV1 d'un Bravia no va tenir problemes. Activa-ho només si el teu dispositiu ho suporta; si no, els títols AV1 segueixen el grup només amb les ordres.",
+  "#30599": "Sinc. fina requereix inputstream.tempo 21.4.1 / 22.4.1"
 }

@@ -1304,6 +1304,62 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr "正在等待群組..."
 
+msgctxt "#30586"
+msgid "Fine sync through inputstream.tempo"
+msgstr "透過 inputstream.tempo 精細同步"
+
+msgctxt "#30587"
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "在指令之間，透過 inputstream.tempo 附加元件短暫地加快或放慢播放，讓此裝置保持在群組位置上（需要 21.4.1 / 22.4.1 或更新版本；請保持 Kodi 的「同步播放至顯示器」關閉）。僅限直接播放的影片。工作階段期間音訊會被解碼為 PCM，因此直通會暫停。"
+
+msgctxt "#30588"
+msgid "Fine sync with audio passthrough on"
+msgstr "音訊直通開啟時仍精細同步"
+
+msgctxt "#30589"
+msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
+msgstr "即使 Kodi 的音訊直通已開啟也使用精細同步。工作階段期間擴大機收到的是多聲道 PCM 而不是位元串流：大多數設備沒有問題，但 Atmos 和 DTS:X 物件音訊會遺失。關閉則保留直通，群組僅靠指令收斂。"
+
+msgctxt "#30590"
+msgid "Shorter video queue during sessions (Kodi 22)"
+msgstr "工作階段期間使用較短的影片佇列 (Kodi 22)"
+
+msgctxt "#30591"
+msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
+msgstr "加入群組時將 Kodi 的音訊/影片佇列時間設為 1 秒，之後恢復。速度變化要等佇列播放完才聽得到，所以較短的佇列讓校正在約 2 秒而不是 5 秒內生效。網路緩慢或不穩定時請關閉。Kodi 21 的佇列固定為 8 秒。"
+
+msgctxt "#30592"
+msgid "Fine sync stopped: rate mismatch"
+msgstr "精細同步已停止：速率不符"
+
+msgctxt "#30593"
+msgid "Largest error closed by tempo (ms)"
+msgstr "以變速校正的最大誤差 (ms)"
+
+msgctxt "#30594"
+msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
+msgstr "不超過此值的位置誤差以加快或放慢播放校正；更大的誤差以跳轉校正。數值越高，跳轉越少，變速時間越長。"
+
+msgctxt "#30595"
+msgid "Fastest correction speed (%)"
+msgstr "最快校正速度 (%)"
+
+msgctxt "#30596"
+msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
+msgstr "校正期間播放速度最多可改變的幅度。在 25% 時，2.5 秒的誤差需 10 秒校正；越低越不明顯，但越慢。較大的改變會逐步切入切出。"
+
+msgctxt "#30597"
+msgid "Fine sync on AV1 video"
+msgstr "對 AV1 影片啟用精細同步"
+
+msgctxt "#30598"
+msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
+msgstr "預設關閉，並請注意：在 Pixel 7 上，變速後緊接跳轉曾使 AV1 硬體解碼器乃至整支手機當機。Bravia 的 AV1 解碼器則沒有問題。僅在您的裝置能承受時才開啟；否則 AV1 項目僅靠指令跟隨群組。"
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "精細同步需要 inputstream.tempo 21.4.1 / 22.4.1"
+
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
 msgstr "KofinSyncQueue 搭配外掛（快速路徑）"

@@ -1304,6 +1304,62 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr "Αναμονή για την ομάδα..."
 
+msgctxt "#30586"
+msgid "Fine sync through inputstream.tempo"
+msgstr "Λεπτός συγχρονισμός μέσω inputstream.tempo"
+
+msgctxt "#30587"
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Κρατά αυτή τη συσκευή στη θέση της ομάδας ανάμεσα στις εντολές αναπαράγοντας για λίγο πιο γρήγορα ή πιο αργά, μέσω του πρόσθετου inputstream.tempo (απαιτείται έκδοση 21.4.1 / 22.4.1 ή νεότερη· αφήστε το «Συγχρονισμός αναπαραγωγής με την οθόνη» απενεργοποιημένο στο Kodi). Μόνο βίντεο άμεσης αναπαραγωγής. Ο ήχος αποκωδικοποιείται σε PCM στη διάρκεια μιας συνεδρίας, οπότε το passthrough αναστέλλεται."
+
+msgctxt "#30588"
+msgid "Fine sync with audio passthrough on"
+msgstr "Λεπτός συγχρονισμός με ενεργό passthrough ήχου"
+
+msgctxt "#30589"
+msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
+msgstr "Χρήση λεπτού συγχρονισμού ακόμη κι όταν το passthrough ήχου του Kodi είναι ενεργό. Ο δέκτης λαμβάνει για τη συνεδρία πολυκάναλο PCM αντί για bitstream: εντάξει για τα περισσότερα συστήματα, αλλά ο αντικειμενοστρεφής ήχος Atmos και DTS:X χάνεται. Απενεργοποιημένο διατηρεί το passthrough και αφήνει την ομάδα να συγκλίνει μόνο με τις εντολές."
+
+msgctxt "#30590"
+msgid "Shorter video queue during sessions (Kodi 22)"
+msgstr "Μικρότερη ουρά βίντεο στις συνεδρίες (Kodi 22)"
+
+msgctxt "#30591"
+msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
+msgstr "Ορίζει τον χρόνο ουράς ήχου/βίντεο του Kodi στο 1 δευτερόλεπτο όσο είστε σε ομάδα και τον επαναφέρει μετά. Μια αλλαγή ταχύτητας ακούγεται μόνο αφού αναπαραχθεί η ουρά, οπότε μια μικρότερη ουρά κάνει τις διορθώσεις να φτάνουν σε περίπου 2 δευτερόλεπτα αντί για 5. Σε αργό ή αναξιόπιστο δίκτυο, απενεργοποιήστε το. Το Kodi 21 έχει σταθερή ουρά 8 δευτερολέπτων."
+
+msgctxt "#30592"
+msgid "Fine sync stopped: rate mismatch"
+msgstr "Ο λεπτός συγχρονισμός σταμάτησε: ασυμφωνία ρυθμού"
+
+msgctxt "#30593"
+msgid "Largest error closed by tempo (ms)"
+msgstr "Μέγιστο σφάλμα που διορθώνεται με ρυθμό (ms)"
+
+msgctxt "#30594"
+msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
+msgstr "Σφάλματα θέσης μέχρι αυτή την τιμή διορθώνονται με πιο γρήγορη ή πιο αργή αναπαραγωγή· μεγαλύτερα με άλμα. Υψηλότερη τιμή σημαίνει λιγότερα άλματα και μεγαλύτερες αλλαγές ταχύτητας."
+
+msgctxt "#30595"
+msgid "Fastest correction speed (%)"
+msgstr "Μέγιστη ταχύτητα διόρθωσης (%)"
+
+msgctxt "#30596"
+msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
+msgstr "Πόσο μπορεί να αλλάξει το πολύ η ταχύτητα αναπαραγωγής σε μια διόρθωση. Στο 25 % ένα σφάλμα 2,5 δευτερολέπτων κλείνει σε 10 δευτερόλεπτα· χαμηλότερα γίνεται λιγότερο αντιληπτό αλλά πιο αργό. Οι μεγάλες αλλαγές εφαρμόζονται σταδιακά."
+
+msgctxt "#30597"
+msgid "Fine sync on AV1 video"
+msgstr "Λεπτός συγχρονισμός σε βίντεο AV1"
+
+msgctxt "#30598"
+msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
+msgstr "Απενεργοποιημένο από προεπιλογή, με προειδοποίηση: σε ένα Pixel 7, μια αλλαγή ταχύτητας και ένα άλμα αμέσως μετά κόλλησαν τον αποκωδικοποιητή υλικού AV1 και μετά το ίδιο το τηλέφωνο. Ο αποκωδικοποιητής AV1 ενός Bravia δεν είχε πρόβλημα. Ενεργοποιήστε μόνο αν η συσκευή σας το αντέχει· αλλιώς οι τίτλοι AV1 ακολουθούν την ομάδα μόνο με εντολές."
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "Ο λεπτός συγχρονισμός χρειάζεται inputstream.tempo 21.4.1 / 22.4.1"
+
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
 msgstr "Συνοδευτικό KofinSyncQueue (γρήγορη διαδρομή)"

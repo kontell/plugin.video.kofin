@@ -47,6 +47,46 @@ HLS_MIME = "application/x-mpegURL"
 
 AUDIO_TYPES = frozenset({"Audio"})
 
+TEMPO_ADDON = "inputstream.tempo"
+# Play methods the fine-sync add-on can take: a file, or the server's static
+# stream. A transcode is HLS off a playlist the server is still writing, which
+# the add-on's ffmpeg open path has not been qualified for (phase 2).
+TEMPO_METHODS = frozenset({"DirectPlay", "DirectStream"})
+
+
+def tempo_route(item: JsonDict, play_method: str) -> Optional[JsonDict]:
+    """The inputstream.tempo route for this play, or None.
+
+    While the service is in a SyncPlay group with fine sync armed
+    (``state.syncplay_tempo``), every direct-play video item goes through
+    inputstream.tempo so the scheduler can nudge it; the claim carries the same
+    route so the service knows the playback is nudgeable. Audio never does:
+    PAPlayer has its own choreography and the group converges it on commands.
+    """
+    if item.get("Type") in AUDIO_TYPES or play_method not in TEMPO_METHODS:
+        return None
+    session = state.syncplay_tempo()
+    path = session.get("file")
+    if not path:
+        return None
+    try:
+        queue_secs = float(session.get("queue_secs") or 8.0)
+    except (TypeError, ValueError):
+        queue_secs = 8.0
+    return {"File": str(path), "QueueSecs": queue_secs}
+
+
+def stamp_tempo_route(li: xbmcgui.ListItem, route: JsonDict) -> None:
+    """The inputstream.tempo property contract (its CLAUDE.md): the add-on
+    starts at 1.0x, polls the tempo file for live changes, and reports time
+    ``queue_secs`` behind the demux head. ``start_time`` is deliberately not
+    set — it arms a hold meant for PAPlayer resumes, and VideoPlayer seeks the
+    demuxer before any output starts."""
+    li.setProperty("inputstream", TEMPO_ADDON)
+    li.setProperty("%s.tempo" % TEMPO_ADDON, "1.0")
+    li.setProperty("%s.tempo_file" % TEMPO_ADDON, route["File"])
+    li.setProperty("%s.queue_secs" % TEMPO_ADDON, "%g" % route["QueueSecs"])
+
 
 def pick_media_source(
     sources: List[JsonDict], mediasource_id: Optional[str] = None
@@ -436,8 +476,11 @@ def resolve_downloaded(
         li.getMusicInfoTag().setDbId(int(dbid), "song")
     li.setPath(path)
     li.setContentLookup(False)
+    route = tempo_route(item, "DirectPlay")
+    if route:
+        stamp_tempo_route(li, route)
 
-    LOG.info("play %s via Download", item.get("Id", ""))
+    LOG.info("play %s via Download%s", item.get("Id", ""), " (tempo)" if route else "")
     sources = item.get("MediaSources") or [{}]
     play_item = {
         "Id": item.get("Id", ""),
@@ -458,6 +501,8 @@ def resolve_downloaded(
         "SubtitleStreamIndex": None,
         "CurrentPosition": start_ticks / 10_000_000,
     }
+    if route:
+        play_item["Tempo"] = route
     if segments is not None:
         play_item["Segments"] = segments
     state.push_play_item(play_item)
@@ -591,7 +636,8 @@ def play(request: Request) -> None:
         _fail(request)
         return
 
-    LOG.info("play %s via %s", item_id, method)
+    route = tempo_route(item, method)
+    LOG.info("play %s via %s%s", item_id, method, " (tempo)" if route else "")
     # A resume point on the *resolved* item overrides the choice the user made
     # at Kodi's resume prompt: Kodi treats a resolved item that carries one as
     # a resume regardless of the resume:true|false it just passed us, and then
@@ -617,6 +663,8 @@ def play(request: Request) -> None:
     if mime:
         li.setMimeType(mime)
     li.setContentLookup(False)
+    if route:
+        stamp_tempo_route(li, route)
     # Free: measured identical time to first frame with 0, 2 and 20 subtitles
     # attached (4.0 s each), because Kodi fetches them only when one is
     # selected. On a transcode this is the *only* way any subtitle reaches the
@@ -651,6 +699,8 @@ def play(request: Request) -> None:
         fetchable=streams.fetchable_subtitles(api.server, source),
         request_params=request.params,
     )
+    if route:
+        play_item["Tempo"] = route
     segments = _joined_segments(segments_thread, segments_box)
     if segments is not None:
         play_item["Segments"] = segments

@@ -450,5 +450,19 @@
   "#30816": "Fjerner nedlastede filer…",
   "#30817": "Alle",
   "#30819": "Vis medvirkende i tilleggets lister",
-  "#30820": "Henter medvirkende og stab til tilleggets korte lister — Nylig lagt til, Påbegynt, Neste på tur, Fortsett å se, søkeresultater og episodene i en serie — slik at informasjonsdialogen kan vise dem. Lister som dekker et helt bibliotek, henter det aldri, fordi serveren trenger omtrent ett sekund per 40 elementer. Kodi-biblioteket har alltid de medvirkende."
+  "#30820": "Henter medvirkende og stab til tilleggets korte lister — Nylig lagt til, Påbegynt, Neste på tur, Fortsett å se, søkeresultater og episodene i en serie — slik at informasjonsdialogen kan vise dem. Lister som dekker et helt bibliotek, henter det aldri, fordi serveren trenger omtrent ett sekund per 40 elementer. Kodi-biblioteket har alltid de medvirkende.",
+  "#30586": "Finsynkronisering via inputstream.tempo",
+  "#30587": "Holder denne enheten på gruppens posisjon mellom kommandoene ved kort å spille raskere eller saktere gjennom tillegget inputstream.tempo (krever versjon 21.4.1 / 22.4.1 eller nyere; la «Synkroniser avspilling med skjerm» være av i Kodi). Bare video som spilles direkte. Lyden dekodes til PCM under en økt, så passthrough er satt på vent.",
+  "#30588": "Finsynkronisering med lyd-passthrough på",
+  "#30589": "Bruk finsynkronisering selv når Kodis lyd-passthrough er på. Mottakeren får flerkanals PCM i stedet for en bitstrøm under økten: greit for de fleste oppsett, men Atmos- og DTS:X-objektlyd går tapt. Av beholder passthrough og lar gruppen samles på kommandoene alene.",
+  "#30590": "Kortere videokø under økter (Kodi 22)",
+  "#30591": "Setter Kodis lyd-/videokøtid til 1 sekund mens du er i en gruppe og setter den tilbake etterpå. En hastighetsendring høres først når køen er spilt av, så en kortere kø gjør at rettelser lander på omtrent 2 sekunder i stedet for 5. Slå dette av på et tregt eller upålitelig nettverk. Kodi 21 har en fast kø på 8 sekunder.",
+  "#30592": "Finsynk stoppet: tempoet stemmer ikke",
+  "#30593": "Største feil rettet med tempo (ms)",
+  "#30594": "Posisjonsfeil opp til dette rettes ved å spille raskere eller saktere; større feil med et hopp. Høyere betyr færre hopp og lengre hastighetsendringer.",
+  "#30595": "Raskeste korrigeringshastighet (%)",
+  "#30596": "Hvor mye avspillingshastigheten maksimalt kan endres under en korrigering. Ved 25 % lukkes en feil på 2,5 sekunder på 10 sekunder; lavere merkes mindre, men går saktere. Store endringer trappes inn og ut.",
+  "#30597": "Finsynkronisering på AV1-video",
+  "#30598": "Av som standard, med en advarsel: på en Pixel 7 fikk en hastighetsendring etterfulgt av et hopp AV1-maskinvaredekoderen og deretter selve telefonen til å henge. En Bravias AV1-dekoder hadde ingen problemer. Slå bare på hvis enheten din tåler det; ellers følger AV1-titler gruppen bare via kommandoer.",
+  "#30599": "Finsynk krever inputstream.tempo 21.4.1 / 22.4.1"
 }

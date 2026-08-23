@@ -1304,6 +1304,62 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr "Odotetaan ryhmää..."
 
+msgctxt "#30586"
+msgid "Fine sync through inputstream.tempo"
+msgstr "Hienosynkronointi inputstream.tempon kautta"
+
+msgctxt "#30587"
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Pitää tämän laitteen ryhmän kohdassa komentojen välillä toistamalla hetken nopeammin tai hitaammin inputstream.tempo-lisäosan kautta (vaatii version 21.4.1 / 22.4.1 tai uudemman; pidä Kodin ”Synkronoi toisto näyttöön” pois päältä). Vain suoraan toistettava video. Ääni dekoodataan istunnon ajaksi PCM:ksi, joten läpivienti on keskeytetty."
+
+msgctxt "#30588"
+msgid "Fine sync with audio passthrough on"
+msgstr "Hienosynkronointi äänen läpiviennin ollessa päällä"
+
+msgctxt "#30589"
+msgid "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone."
+msgstr "Käytä hienosynkronointia silloinkin, kun Kodin äänen läpivienti on päällä. Vastaanotin saa istunnon ajan monikanavaista PCM:ää bittivirran sijaan: sopii useimpiin kokoonpanoihin, mutta Atmos- ja DTS:X-objektiääni menetetään. Pois päältä säilyttää läpiviennin ja antaa ryhmän kohdistua pelkkien komentojen varassa."
+
+msgctxt "#30590"
+msgid "Shorter video queue during sessions (Kodi 22)"
+msgstr "Lyhyempi videojono istuntojen aikana (Kodi 22)"
+
+msgctxt "#30591"
+msgid "Sets Kodi's audio/video queue time to 1 second while in a group and puts it back afterwards. A speed change is heard only once the queue has played out, so a shorter queue makes corrections land in about 2 seconds instead of 5. On a slow or unreliable network, turn this off. Kodi 21 has a fixed 8 second queue."
+msgstr "Asettaa Kodin ääni-/videojonon ajaksi 1 sekunnin ryhmässä ollessasi ja palauttaa sen jälkeenpäin. Nopeuden muutos kuuluu vasta, kun jono on toistettu, joten lyhyempi jono saa korjaukset osumaan noin 2 sekunnissa 5:n sijaan. Hitaassa tai epäluotettavassa verkossa ota tämä pois päältä. Kodi 21:ssä on kiinteä 8 sekunnin jono."
+
+msgctxt "#30592"
+msgid "Fine sync stopped: rate mismatch"
+msgstr "Hienosynkronointi pysäytetty: tahti ei täsmää"
+
+msgctxt "#30593"
+msgid "Largest error closed by tempo (ms)"
+msgstr "Suurin tempolla korjattava virhe (ms)"
+
+msgctxt "#30594"
+msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
+msgstr "Tähän asti kohdan virheet korjataan toistamalla nopeammin tai hitaammin; suuremmat hypyllä. Suurempi arvo tarkoittaa vähemmän hyppyjä ja pidempiä nopeudenmuutoksia."
+
+msgctxt "#30595"
+msgid "Fastest correction speed (%)"
+msgstr "Suurin korjausnopeus (%)"
+
+msgctxt "#30596"
+msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
+msgstr "Kuinka paljon toistonopeus saa enintään muuttua korjauksen aikana. 25 %:lla 2,5 sekunnin virhe korjautuu 10 sekunnissa; pienempi huomataan vähemmän mutta on hitaampi. Suuret muutokset tehdään asteittain."
+
+msgctxt "#30597"
+msgid "Fine sync on AV1 video"
+msgstr "Hienosynkronointi AV1-videolla"
+
+msgctxt "#30598"
+msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
+msgstr "Oletuksena pois päältä, ja varoitus: Pixel 7:llä nopeuden muutos ja sitä seurannut hyppy jumittivat AV1-laitteistodekooderin ja sitten koko puhelimen. Bravian AV1-dekooderi toimi ongelmitta. Ota käyttöön vain, jos laitteesi kestää sen; muuten AV1-nimikkeet seuraavat ryhmää pelkkien komentojen varassa."
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "Hienosynkronointi vaatii inputstream.tempon 21.4.1 / 22.4.1"
+
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
 msgstr "KofinSyncQueue-apulisäosa (nopea reitti)"
