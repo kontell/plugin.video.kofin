@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "inputstream.tempo를 통한 정밀 동기화"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs it installed; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "inputstream.tempo 애드온을 통해 잠시 빠르거나 느리게 재생하여 명령 사이에도 이 기기를 그룹 위치에 맞춥니다(애드온 설치 필요, Kodi의 ‘재생을 디스플레이에 동기화’는 꺼 두세요). 직접 재생하는 동영상만 해당합니다. 세션 동안 오디오가 PCM으로 디코딩되므로 패스스루는 중단됩니다."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "inputstream.tempo 애드온을 통해 잠시 빠르거나 느리게 재생하여 명령 사이에도 이 기기를 그룹 위치에 맞춥니다(버전 21.4.1 / 22.4.1 이상 필요, Kodi의 ‘재생을 디스플레이에 동기화’는 꺼 두세요). 직접 재생하는 동영상만 해당합니다. 세션 동안 오디오가 PCM으로 디코딩되므로 패스스루는 중단됩니다."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -1355,6 +1355,10 @@ msgstr "AV1 동영상에서 정밀 동기화"
 msgctxt "#30598"
 msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
 msgstr "기본은 꺼짐이며 주의가 필요합니다. Pixel 7에서는 속도 변경 직후 탐색 시 AV1 하드웨어 디코더가, 이어서 휴대폰 자체가 멈췄습니다. Bravia의 AV1 디코더는 문제가 없었습니다. 기기가 감당할 때만 켜세요. 끄면 AV1 항목은 명령만으로 그룹을 따릅니다."
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "정밀 동기화에는 inputstream.tempo 21.4.1 / 22.4.1이 필요합니다"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

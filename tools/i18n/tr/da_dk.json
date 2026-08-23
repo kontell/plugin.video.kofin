@@ -452,7 +452,7 @@
   "#30819": "Vis medvirkende i tilføjelsens lister",
   "#30820": "Henter medvirkende og hold til tilføjelsens korte lister — Sidst tilføjet, Påbegyndt, Næste, Fortsæt med at se, søgeresultater og en series afsnit — så informationsdialogen kan vise dem. Lister, der dækker et helt bibliotek, henter det aldrig, fordi serveren skal bruge cirka et sekund pr. 40 emner. Kodi-biblioteket har altid de medvirkende.",
   "#30586": "Finsynkronisering via inputstream.tempo",
-  "#30587": "Holder denne enhed på gruppens position mellem kommandoerne ved kortvarigt at afspille hurtigere eller langsommere gennem tilføjelsen inputstream.tempo (skal være installeret; lad »Synkroniser afspilning til skærm« være slået fra i Kodi). Kun video der afspilles direkte. Lyden dekodes til PCM under en session, så passthrough er sat på pause.",
+  "#30587": "Holder denne enhed på gruppens position mellem kommandoerne ved kortvarigt at afspille hurtigere eller langsommere gennem tilføjelsen inputstream.tempo (kræver version 21.4.1 / 22.4.1 eller nyere; lad »Synkroniser afspilning til skærm« være slået fra i Kodi). Kun video der afspilles direkte. Lyden dekodes til PCM under en session, så passthrough er sat på pause.",
   "#30588": "Finsynkronisering med lyd-passthrough slået til",
   "#30589": "Brug finsynkronisering selv når Kodis lyd-passthrough er slået til. Modtageren får flerkanals-PCM i stedet for en bitstream under sessionen: fint for de fleste opsætninger, men Atmos- og DTS:X-objektlyd går tabt. Fra beholder passthrough og lader gruppen samles på kommandoerne alene.",
   "#30590": "Kortere videokø under sessioner (Kodi 22)",
@@ -463,5 +463,6 @@
   "#30595": "Hurtigste rettehastighed (%)",
   "#30596": "Hvor meget afspilningshastigheden højst må ændre sig under en rettelse. Ved 25 % lukkes en fejl på 2,5 sekund på 10 sekunder; lavere bemærkes mindre, men tager længere. Store ændringer indfases og udfases.",
   "#30597": "Finsynkronisering på AV1-video",
-  "#30598": "Slået fra som standard, med en advarsel: på en Pixel 7 fik en hastighedsændring efterfulgt af et spring AV1-hardwaredekoderen og derefter selve telefonen til at hænge. En Bravias AV1-dekoder havde ingen problemer. Slå kun til, hvis din enhed klarer det; ellers følger AV1-titler gruppen alene via kommandoer."
+  "#30598": "Slået fra som standard, med en advarsel: på en Pixel 7 fik en hastighedsændring efterfulgt af et spring AV1-hardwaredekoderen og derefter selve telefonen til at hænge. En Bravias AV1-dekoder havde ingen problemer. Slå kun til, hvis din enhed klarer det; ellers følger AV1-titler gruppen alene via kommandoer.",
+  "#30599": "Finsynk kræver inputstream.tempo 21.4.1 / 22.4.1"
 }

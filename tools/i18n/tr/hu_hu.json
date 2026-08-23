@@ -452,7 +452,7 @@
   "#30819": "Szereplők megjelenítése a kiegészítő listáiban",
   "#30820": "Lekéri a szereplőket és a stábot a kiegészítő rövidebb listáihoz — Nemrég hozzáadott, Folyamatban, Következik, Nézés folytatása, a keresési találatok és egy sorozat epizódjai —, hogy az információs ablak megjeleníthesse őket. A teljes könyvtárat átfogó listák soha nem kérik le, mert a kiszolgálónak nagyjából egy másodpercre van szüksége 40 elemenként. A Kodi könyvtárban mindig megvannak a szereplők.",
   "#30586": "Finomszinkron az inputstream.tempo segítségével",
-  "#30587": "A parancsok között a csoport pozícióján tartja ezt az eszközt úgy, hogy az inputstream.tempo kiegészítőn keresztül rövid ideig gyorsabban vagy lassabban játszik le (telepítve kell lennie; a Kodi „Lejátszás szinkronizálása a képernyőhöz” beállítása maradjon kikapcsolva). Csak közvetlenül lejátszott videó. A hang a munkamenet alatt PCM-re dekódolódik, így a passthrough szünetel.",
+  "#30587": "A parancsok között a csoport pozícióján tartja ezt az eszközt úgy, hogy az inputstream.tempo kiegészítőn keresztül rövid ideig gyorsabban vagy lassabban játszik le (21.4.1 / 22.4.1 vagy újabb verzió szükséges; a Kodi „Lejátszás szinkronizálása a képernyőhöz” beállítása maradjon kikapcsolva). Csak közvetlenül lejátszott videó. A hang a munkamenet alatt PCM-re dekódolódik, így a passthrough szünetel.",
   "#30588": "Finomszinkron bekapcsolt hang-passthrough mellett",
   "#30589": "Finomszinkron használata akkor is, ha a Kodi hang-passthrough be van kapcsolva. A vevő a munkamenet alatt bitfolyam helyett többcsatornás PCM-et kap: a legtöbb rendszerhez megfelelő, de az Atmos és DTS:X objektumalapú hang elvész. Kikapcsolva megmarad a passthrough, és a csoport csak a parancsok alapján áll össze.",
   "#30590": "Rövidebb videósor a munkamenetek alatt (Kodi 22)",
@@ -463,5 +463,6 @@
   "#30595": "Leggyorsabb javítási sebesség (%)",
   "#30596": "Legfeljebb ennyit változhat a lejátszási sebesség egy javítás alatt. 25%-nál egy 2,5 másodperces hiba 10 másodperc alatt zárul; alacsonyabb érték kevésbé feltűnő, de lassabb. A nagy változások fokozatosan lépnek be és ki.",
   "#30597": "Finomszinkron AV1-videónál",
-  "#30598": "Alapértelmezés szerint kikapcsolva, figyelmeztetéssel: egy Pixel 7-en egy sebességváltás és az azt követő ugrás lefagyasztotta az AV1 hardveres dekódert, majd magát a telefont is. Egy Bravia AV1-dekódere gond nélkül bírta. Csak akkor kapcsold be, ha az eszközöd bírja; különben az AV1-címek csak a parancsok alapján követik a csoportot."
+  "#30598": "Alapértelmezés szerint kikapcsolva, figyelmeztetéssel: egy Pixel 7-en egy sebességváltás és az azt követő ugrás lefagyasztotta az AV1 hardveres dekódert, majd magát a telefont is. Egy Bravia AV1-dekódere gond nélkül bírta. Csak akkor kapcsold be, ha az eszközöd bírja; különben az AV1-címek csak a parancsok alapján követik a csoportot.",
+  "#30599": "A finomszinkronhoz inputstream.tempo 21.4.1 / 22.4.1 kell"
 }

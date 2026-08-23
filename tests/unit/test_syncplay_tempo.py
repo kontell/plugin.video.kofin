@@ -250,6 +250,7 @@ class FakeController:
     def correct_position(self):
         self.corrections += 1
         self.local_ms = self.group_ms
+        self.lock_held_at_seek = self.scheduler._lock._is_owned()
 
 
 def routed_claim(path, session="ps-1"):
@@ -267,6 +268,7 @@ def rig(tmp_path):
     TempoFile(path).reset()
     controller.manager.claim = routed_claim(path)
     scheduler = PulseScheduler(controller)
+    controller.scheduler = scheduler
     side = FakeAddonSide(TempoFile(path))
     return scheduler, controller, side
 
@@ -278,19 +280,24 @@ def fill_window(scheduler, controller, residual_ms, extra=0):
 
 
 def start_pulse(scheduler, controller, side, residual_ms):
-    """Fill the window, then tick once with the add-on answering the write."""
+    """Fill the window, tick (the first write goes out), let the add-on
+    answer, tick again (the write is confirmed and the pulse runs)."""
     fill_window(scheduler, controller, residual_ms)
-    original = TempoFile.wait_applied
+    scheduler.tick()
+    assert scheduler._awaiting is not None and scheduler._awaiting["kind"] == "start"
+    side.answer()
+    scheduler.tick()
 
-    def answering(self, rate, after_seq, timeout_s=tempo.APPLY_TIMEOUT_S):
-        side.answer()
-        return original(self, rate, after_seq, timeout_s)
 
-    TempoFile.wait_applied = answering
-    try:
-        scheduler.tick()
-    finally:
-        TempoFile.wait_applied = original
+def finish_pulse(scheduler, side, monkeypatch, delta_ms=0.0):
+    """Time's up: the scheduler writes 1.0, the add-on confirms it."""
+    end_at = scheduler._pulse["writes"][-1][0]
+    monkeypatch.setattr(tempo.time, "time", lambda: end_at + 0.01)
+    scheduler.tick()
+    assert scheduler._pulse is None and scheduler._awaiting["kind"] == "end"
+    side.answer(delta_ms=delta_ms)
+    scheduler.tick()
+    return end_at + 0.01
 
 
 class TestScheduler:
@@ -331,29 +338,50 @@ class TestScheduler:
         scheduler.tick()
         assert scheduler._pulse is pulse
 
-        # Time's up: the add-on confirms 1.0 and the quiet window starts.
-        end_at = pulse["writes"][-1][0]
-        monkeypatch.setattr(tempo.time, "time", lambda: end_at + 0.01)
-        original = TempoFile.wait_applied
-
-        def answering(self, r, after_seq, timeout_s=tempo.APPLY_TIMEOUT_S):
-            side.answer(delta_ms=150.0)
-            return original(self, r, after_seq, timeout_s)
-
-        monkeypatch.setattr(TempoFile, "wait_applied", answering)
-        scheduler.tick()
-        assert scheduler._pulse is None
+        ended = finish_pulse(scheduler, side, monkeypatch, delta_ms=150.0)
+        assert scheduler._pulse is None and scheduler._awaiting is None
         assert side.applied[-1] == 1.0
         assert scheduler._settle_until == pytest.approx(
-            end_at + 0.01 + scheduler.queue_secs + tempo.SETTLE_EXTRA_S
+            ended + scheduler.queue_secs + tempo.SETTLE_EXTRA_S
         )
         assert len(scheduler._history) == 1
 
-    def test_unanswered_write_turns_fine_sync_off_for_the_item(self, rig):
+    def test_a_late_tick_collapses_the_ramp_to_the_latest_write(self, rig, monkeypatch):
+        scheduler, controller, side = rig
+        start_pulse(scheduler, controller, side, 2000.0)  # 25 %, ramped
+        writes = list(scheduler._pulse["writes"])
+        assert len(writes) > 2
+        # Far into the hold: every ramp-up step is overdue at once.
+        monkeypatch.setattr(tempo.time, "time", lambda: writes[4][0] + 0.01)
+        scheduler.tick()
+        assert side.rate_written() == pytest.approx(writes[4][1])
+        assert len(scheduler._pulse["writes"]) == len(writes) - 5
+
+    def test_nothing_blocks_under_the_lock(self, rig, monkeypatch):
+        # The add-on never answers; the tick returns at once every time and
+        # the item falls back to command-only sync at the deadline.
         scheduler, controller, side = rig
         fill_window(scheduler, controller, 150.0)
-        scheduler.tick()  # the add-on never answers (APPLY_TIMEOUT_S is short)
-        assert scheduler._pulse is None
+        started = time.time()
+        scheduler.tick()
+        assert time.time() - started < 0.2
+        assert scheduler._awaiting is not None
+        monkeypatch.setattr(
+            tempo.time, "time", lambda: started + tempo.APPLY_TIMEOUT_S + 1
+        )
+        scheduler.tick()
+        assert scheduler.file is None and side.rate_written() == 1.0
+
+    def test_unanswered_write_turns_fine_sync_off_for_the_item(self, rig, monkeypatch):
+        scheduler, controller, side = rig
+        fill_window(scheduler, controller, 150.0)
+        scheduler.tick()  # the write goes out, nothing answers
+        now = time.time()
+        monkeypatch.setattr(
+            tempo.time, "time", lambda: now + tempo.APPLY_TIMEOUT_S + 0.1
+        )
+        scheduler.tick()
+        assert scheduler._pulse is None and scheduler._awaiting is None
         assert scheduler.file is None
         assert side.rate_written() == 1.0  # not left running
 
@@ -381,7 +409,9 @@ class TestScheduler:
         scheduler, controller, side = rig
         start_pulse(scheduler, controller, side, 150.0)
         assert side.rate_written() > 1.0
+        started = time.time()
         scheduler.cancel("Pause")
+        assert time.time() - started < 0.2
         assert scheduler._pulse is None
         assert side.rate_written() == 1.0
         assert scheduler._settle_until > time.time()
@@ -395,19 +425,25 @@ class TestScheduler:
 
         def answering(self, rate, after_seq, timeout_s=tempo.APPLY_TIMEOUT_S):
             seen.append((rate, timeout_s))
+            assert not scheduler._lock._is_owned()  # the wait is outside the lock
             side.answer()
             return original(self, rate, after_seq, timeout_s)
 
         monkeypatch.setattr(TempoFile, "wait_applied", answering)
         scheduler.before_seek()
         assert seen == [(1.0, 1.0)]
-        assert scheduler._pulse is None
+        assert scheduler._pulse is None and scheduler._awaiting is None
         assert side.rate_written() == 1.0
+        # Nothing running: nothing to wait for.
+        scheduler.before_seek()
+        assert seen == [(1.0, 1.0)]
 
     def test_residual_beyond_the_budget_seeks(self, rig):
         scheduler, controller, side = rig
+        controller.lock_held_at_seek = None
         fill_window(scheduler, controller, 3000.0, extra=1)
         assert controller.corrections == 1
+        assert controller.lock_held_at_seek is False
         assert side.rate_written() == 1.0
         assert scheduler._seek_blackout_until > time.time()
         # The blackout holds a second seek off — and what the seek left behind
@@ -421,21 +457,17 @@ class TestScheduler:
         assert scheduler._pulse["rate"] == pytest.approx(1.0 + tempo.RATE_MAX_DEFAULT)
         assert scheduler._pulse["seconds"] == tempo.PULSE_MAX_S
 
-    def test_mixed_window_pulses_instead_of_seeking(self, rig, monkeypatch):
+    def test_mixed_window_pulses_instead_of_seeking(self, rig):
         scheduler, controller, side = rig
         # Eleven samples beyond the budget, one inside: no seek — and no
         # waiting either, a saturated pulse takes it.
         fill_window(scheduler, controller, 3000.0)
         controller.local_ms = controller.group_ms - 100.0
-        original = TempoFile.wait_applied
-
-        def answering(self, rate, after_seq, timeout_s=tempo.APPLY_TIMEOUT_S):
-            side.answer()
-            return original(self, rate, after_seq, timeout_s)
-
-        monkeypatch.setattr(TempoFile, "wait_applied", answering)
         scheduler.tick()
         assert controller.corrections == 0
+        assert scheduler._awaiting is not None
+        side.answer()
+        scheduler.tick()
         assert scheduler._pulse is not None
         assert scheduler._pulse["rate"] == pytest.approx(1.0 + tempo.RATE_MAX_DEFAULT)
 

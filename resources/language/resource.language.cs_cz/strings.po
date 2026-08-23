@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Jemná synchronizace přes inputstream.tempo"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs it installed; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Drží toto zařízení na pozici skupiny mezi příkazy tím, že přes doplněk inputstream.tempo krátce přehrává rychleji nebo pomaleji (musí být nainstalovaný; nech „Synchronizovat přehrávání s obrazovkou“ v Kodi vypnuté). Jen přímo přehrávané video. Zvuk se během sezení dekóduje do PCM, takže passthrough je pozastaven."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Drží toto zařízení na pozici skupiny mezi příkazy tím, že přes doplněk inputstream.tempo krátce přehrává rychleji nebo pomaleji (vyžaduje verzi 21.4.1 / 22.4.1 nebo novější; nech „Synchronizovat přehrávání s obrazovkou“ v Kodi vypnuté). Jen přímo přehrávané video. Zvuk se během sezení dekóduje do PCM, takže passthrough je pozastaven."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -1355,6 +1355,10 @@ msgstr "Jemná synchronizace u videa AV1"
 msgctxt "#30598"
 msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
 msgstr "Ve výchozím stavu vypnuto, s varováním: na Pixelu 7 změna rychlosti následovaná skokem zasekla hardwarový dekodér AV1 a pak i samotný telefon. Dekodér AV1 v Bravii byl v pořádku. Zapni jen tehdy, když to tvé zařízení zvládá; jinak tituly AV1 sledují skupinu jen podle příkazů."
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "Jemná synchronizace vyžaduje inputstream.tempo 21.4.1 / 22.4.1"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

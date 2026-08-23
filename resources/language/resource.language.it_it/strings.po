@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Sincronizzazione fine tramite inputstream.tempo"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs it installed; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Mantiene questo dispositivo sulla posizione del gruppo tra un comando e l'altro riproducendo per poco più veloce o più lento, tramite l'add-on inputstream.tempo (deve essere installato; lascia «Sincronizza la riproduzione allo schermo» disattivato in Kodi). Solo video in riproduzione diretta. L'audio è decodificato in PCM durante una sessione, quindi il passthrough è sospeso."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Mantiene questo dispositivo sulla posizione del gruppo tra un comando e l'altro riproducendo per poco più veloce o più lento, tramite l'add-on inputstream.tempo (serve la versione 21.4.1 / 22.4.1 o successiva; lascia «Sincronizza la riproduzione allo schermo» disattivato in Kodi). Solo video in riproduzione diretta. L'audio è decodificato in PCM durante una sessione, quindi il passthrough è sospeso."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -1355,6 +1355,10 @@ msgstr "Sincronizzazione fine su video AV1"
 msgctxt "#30598"
 msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
 msgstr "Disattivato per impostazione predefinita, con un avviso: su un Pixel 7 un cambio di velocità seguito da un salto ha bloccato il decoder hardware AV1 e poi il telefono stesso. Il decoder AV1 di un Bravia non ha avuto problemi. Attivalo solo se il tuo dispositivo regge; altrimenti i titoli AV1 seguono il gruppo solo con i comandi."
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "Sinc. fine richiede inputstream.tempo 21.4.1 / 22.4.1"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

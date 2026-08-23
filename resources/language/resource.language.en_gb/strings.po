@@ -1342,19 +1342,19 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr ""
 
-# 30586-30598 — SyncPlay fine sync through inputstream.tempo
+# 30586-30599 — SyncPlay fine sync through inputstream.tempo
 # (lib/kofin/syncplay/tempo.py, docs/syncplay-fine-sync.md). #30592 is a toast.
 # 30588-30589 retired (the passthrough toggle folded into #30587's help) and
 # 30597-30598 retired (the AV1 toggle: the Pixel 7 freeze it guarded against was
 # the add-on freeing the first packets after a seek, fixed in inputstream.tempo
 # 22.4.1, and the same phone then passed AV1 at 1.25x with seeks). Kept, never
-# reused, for the reason given at #30744.
+# reused, for the reason given at #30744. #30599 is a toast.
 msgctxt "#30586"
 msgid "Fine sync through inputstream.tempo"
 msgstr ""
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs it installed; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
 msgstr ""
 
 msgctxt "#30588"
@@ -1399,6 +1399,10 @@ msgstr ""
 
 msgctxt "#30598"
 msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
+msgstr ""
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
 msgstr ""
 
 # 30600-30619 — phase 5: KofinSyncQueue tier + retention + progress

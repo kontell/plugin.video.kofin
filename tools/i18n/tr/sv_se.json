@@ -452,7 +452,7 @@
   "#30819": "Visa rollista i tilläggets listor",
   "#30820": "Hämtar rollista och team till tilläggets korta listor — Nyligen tillagt, Påbörjade, Näst på tur, Fortsätt titta, sökresultat och avsnitten i en serie — så att informationsdialogen kan visa dem. Listor som täcker ett helt bibliotek hämtar det aldrig, eftersom servern behöver ungefär en sekund per 40 objekt. Kodi-biblioteket har alltid rollistan.",
   "#30586": "Finsynkronisering via inputstream.tempo",
-  "#30587": "Håller den här enheten på gruppens position mellan kommandona genom att kort spela snabbare eller långsammare via tillägget inputstream.tempo (måste vara installerat; låt ”Synkronisera uppspelning till skärm” vara avstängt i Kodi). Bara video som spelas direkt. Ljudet avkodas till PCM under en session, så passthrough pausas.",
+  "#30587": "Håller den här enheten på gruppens position mellan kommandona genom att kort spela snabbare eller långsammare via tillägget inputstream.tempo (kräver version 21.4.1 / 22.4.1 eller nyare; låt ”Synkronisera uppspelning till skärm” vara avstängt i Kodi). Bara video som spelas direkt. Ljudet avkodas till PCM under en session, så passthrough pausas.",
   "#30588": "Finsynkronisering med ljud-passthrough på",
   "#30589": "Använd finsynkronisering även när Kodis ljud-passthrough är på. Mottagaren får flerkanalig PCM i stället för en bitström under sessionen: fungerar för de flesta uppsättningar, men Atmos- och DTS:X-objektljud går förlorat. Av behåller passthrough och låter gruppen samlas enbart på kommandona.",
   "#30590": "Kortare videokö under sessioner (Kodi 22)",
@@ -463,5 +463,6 @@
   "#30595": "Snabbaste korrigeringshastighet (%)",
   "#30596": "Hur mycket uppspelningshastigheten som mest får ändras under en korrigering. Vid 25 % stängs ett fel på 2,5 sekunder på 10 sekunder; lägre märks mindre men går långsammare. Stora ändringar trappas in och ut.",
   "#30597": "Finsynkronisering på AV1-video",
-  "#30598": "Av som standard, med en varning: på en Pixel 7 fick en hastighetsändring följd av ett hopp AV1-maskinvaruavkodaren och sedan själva telefonen att hänga sig. En Bravias AV1-avkodare klarade sig utan problem. Slå bara på om din enhet klarar det; annars följer AV1-titlar gruppen enbart via kommandon."
+  "#30598": "Av som standard, med en varning: på en Pixel 7 fick en hastighetsändring följd av ett hopp AV1-maskinvaruavkodaren och sedan själva telefonen att hänga sig. En Bravias AV1-avkodare klarade sig utan problem. Slå bara på om din enhet klarar det; annars följer AV1-titlar gruppen enbart via kommandon.",
+  "#30599": "Finsynk kräver inputstream.tempo 21.4.1 / 22.4.1"
 }

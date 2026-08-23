@@ -452,7 +452,7 @@
   "#30819": "Mostrar el reparto en las listas del complemento",
   "#30820": "Obtiene el reparto y el equipo de las listas cortas del complemento — Añadidos recientemente, En curso, A continuación, Seguir viendo, los resultados de búsqueda y los episodios de una serie — para que el diálogo de información pueda mostrarlos. Las listas que abarcan una biblioteca entera nunca lo hacen, porque el servidor necesita alrededor de un segundo por cada 40 elementos. La biblioteca de Kodi siempre tiene el reparto.",
   "#30586": "Sincronización fina mediante inputstream.tempo",
-  "#30587": "Mantiene este dispositivo en la posición del grupo entre comandos reproduciendo brevemente más rápido o más lento, a través del add-on inputstream.tempo (debe estar instalado; deja «Sincronizar reproducción con la pantalla» desactivado en Kodi). Solo vídeo en reproducción directa. El audio se decodifica a PCM durante la sesión, así que el passthrough queda suspendido.",
+  "#30587": "Mantiene este dispositivo en la posición del grupo entre comandos reproduciendo brevemente más rápido o más lento, a través del add-on inputstream.tempo (requiere la versión 21.4.1 / 22.4.1 o posterior; deja «Sincronizar reproducción con la pantalla» desactivado en Kodi). Solo vídeo en reproducción directa. El audio se decodifica a PCM durante la sesión, así que el passthrough queda suspendido.",
   "#30588": "Sincronización fina con passthrough de audio activado",
   "#30589": "Usar la sincronización fina aunque el passthrough de audio de Kodi esté activado. El receptor recibe PCM multicanal en lugar de un bitstream durante la sesión: va bien en la mayoría de equipos, pero se pierde el audio por objetos Atmos y DTS:X. Desactivado mantiene el passthrough y deja que el grupo converja solo con los comandos.",
   "#30590": "Cola de vídeo más corta durante las sesiones (Kodi 22)",
@@ -463,5 +463,6 @@
   "#30595": "Velocidad máxima de corrección (%)",
   "#30596": "Cuánto puede cambiar como máximo la velocidad de reproducción durante una corrección. Al 25 %, un error de 2,5 segundos se corrige en 10 segundos; menos se nota menos pero tarda más. Los cambios grandes se aplican de forma gradual.",
   "#30597": "Sincronización fina en vídeo AV1",
-  "#30598": "Desactivado por defecto, y con aviso: en un Pixel 7, un cambio de velocidad seguido de un salto colgó el decodificador AV1 por hardware y luego el propio teléfono. El decodificador AV1 de un Bravia no dio problemas. Actívalo solo si tu dispositivo lo soporta; si no, los títulos AV1 siguen al grupo solo con los comandos."
+  "#30598": "Desactivado por defecto, y con aviso: en un Pixel 7, un cambio de velocidad seguido de un salto colgó el decodificador AV1 por hardware y luego el propio teléfono. El decodificador AV1 de un Bravia no dio problemas. Actívalo solo si tu dispositivo lo soporta; si no, los títulos AV1 siguen al grupo solo con los comandos.",
+  "#30599": "Sinc. fina requiere inputstream.tempo 21.4.1 / 22.4.1"
 }

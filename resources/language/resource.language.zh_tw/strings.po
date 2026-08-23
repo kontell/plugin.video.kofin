@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "透過 inputstream.tempo 精細同步"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs it installed; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "在指令之間，透過 inputstream.tempo 附加元件短暫地加快或放慢播放，讓此裝置保持在群組位置上（需安裝該附加元件；請保持 Kodi 的「同步播放至顯示器」關閉）。僅限直接播放的影片。工作階段期間音訊會被解碼為 PCM，因此直通會暫停。"
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "在指令之間，透過 inputstream.tempo 附加元件短暫地加快或放慢播放，讓此裝置保持在群組位置上（需要 21.4.1 / 22.4.1 或更新版本；請保持 Kodi 的「同步播放至顯示器」關閉）。僅限直接播放的影片。工作階段期間音訊會被解碼為 PCM，因此直通會暫停。"
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -1355,6 +1355,10 @@ msgstr "對 AV1 影片啟用精細同步"
 msgctxt "#30598"
 msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
 msgstr "預設關閉，並請注意：在 Pixel 7 上，變速後緊接跳轉曾使 AV1 硬體解碼器乃至整支手機當機。Bravia 的 AV1 解碼器則沒有問題。僅在您的裝置能承受時才開啟；否則 AV1 項目僅靠指令跟隨群組。"
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "精細同步需要 inputstream.tempo 21.4.1 / 22.4.1"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Finsynkronisering via inputstream.tempo"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs it installed; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Holder denne enhed på gruppens position mellem kommandoerne ved kortvarigt at afspille hurtigere eller langsommere gennem tilføjelsen inputstream.tempo (skal være installeret; lad »Synkroniser afspilning til skærm« være slået fra i Kodi). Kun video der afspilles direkte. Lyden dekodes til PCM under en session, så passthrough er sat på pause."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Holder denne enhed på gruppens position mellem kommandoerne ved kortvarigt at afspille hurtigere eller langsommere gennem tilføjelsen inputstream.tempo (kræver version 21.4.1 / 22.4.1 eller nyere; lad »Synkroniser afspilning til skærm« være slået fra i Kodi). Kun video der afspilles direkte. Lyden dekodes til PCM under en session, så passthrough er sat på pause."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -1355,6 +1355,10 @@ msgstr "Finsynkronisering på AV1-video"
 msgctxt "#30598"
 msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
 msgstr "Slået fra som standard, med en advarsel: på en Pixel 7 fik en hastighedsændring efterfulgt af et spring AV1-hardwaredekoderen og derefter selve telefonen til at hænge. En Bravias AV1-dekoder havde ingen problemer. Slå kun til, hvis din enhed klarer det; ellers følger AV1-titler gruppen alene via kommandoer."
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "Finsynk kræver inputstream.tempo 21.4.1 / 22.4.1"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

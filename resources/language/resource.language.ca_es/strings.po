@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Sincronització fina mitjançant inputstream.tempo"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs it installed; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Manté aquest dispositiu a la posició del grup entre ordres reproduint breument més ràpid o més lent, a través del complement inputstream.tempo (cal tenir-lo instal·lat; deixa «Sincronitza la reproducció amb la pantalla» desactivat al Kodi). Només vídeo en reproducció directa. L'àudio es descodifica a PCM durant una sessió, de manera que el passthrough queda suspès."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Manté aquest dispositiu a la posició del grup entre ordres reproduint breument més ràpid o més lent, a través del complement inputstream.tempo (cal la versió 21.4.1 / 22.4.1 o posterior; deixa «Sincronitza la reproducció amb la pantalla» desactivat al Kodi). Només vídeo en reproducció directa. L'àudio es descodifica a PCM durant una sessió, de manera que el passthrough queda suspès."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -1355,6 +1355,10 @@ msgstr "Sincronització fina en vídeo AV1"
 msgctxt "#30598"
 msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
 msgstr "Desactivat per defecte, amb un avís: en un Pixel 7, un canvi de velocitat seguit d'un salt va penjar el descodificador AV1 per maquinari i després el telèfon mateix. El descodificador AV1 d'un Bravia no va tenir problemes. Activa-ho només si el teu dispositiu ho suporta; si no, els títols AV1 segueixen el grup només amb les ordres."
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "Sinc. fina requereix inputstream.tempo 21.4.1 / 22.4.1"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

@@ -452,7 +452,7 @@
   "#30819": "Zobrazit obsazení v seznamech doplňku",
   "#30820": "Načte obsazení a štáb pro kratší seznamy doplňku — Naposledy přidané, Rozkoukané, Další na řadě, Pokračovat ve sledování, výsledky hledání a epizody seriálu —, aby je mohl zobrazit informační dialog. Seznamy zahrnující celou knihovnu je nenačítají nikdy, protože server potřebuje přibližně sekundu na každých 40 položek. Knihovna Kodi má obsazení vždy.",
   "#30586": "Jemná synchronizace přes inputstream.tempo",
-  "#30587": "Drží toto zařízení na pozici skupiny mezi příkazy tím, že přes doplněk inputstream.tempo krátce přehrává rychleji nebo pomaleji (musí být nainstalovaný; nech „Synchronizovat přehrávání s obrazovkou“ v Kodi vypnuté). Jen přímo přehrávané video. Zvuk se během sezení dekóduje do PCM, takže passthrough je pozastaven.",
+  "#30587": "Drží toto zařízení na pozici skupiny mezi příkazy tím, že přes doplněk inputstream.tempo krátce přehrává rychleji nebo pomaleji (vyžaduje verzi 21.4.1 / 22.4.1 nebo novější; nech „Synchronizovat přehrávání s obrazovkou“ v Kodi vypnuté). Jen přímo přehrávané video. Zvuk se během sezení dekóduje do PCM, takže passthrough je pozastaven.",
   "#30588": "Jemná synchronizace se zapnutým passthrough zvuku",
   "#30589": "Použít jemnou synchronizaci i při zapnutém passthrough zvuku v Kodi. Přijímač po dobu sezení dostává vícekanálové PCM místo bitstreamu: pro většinu sestav v pořádku, ale objektový zvuk Atmos a DTS:X se ztratí. Vypnuto zachová passthrough a nechá skupinu sbíhat jen podle příkazů.",
   "#30590": "Kratší fronta videa během sezení (Kodi 22)",
@@ -463,5 +463,6 @@
   "#30595": "Nejrychlejší oprava (%)",
   "#30596": "O kolik se smí během opravy nejvýš změnit rychlost přehrávání. Při 25 % se chyba 2,5 sekundy srovná za 10 sekund; nižší je méně nápadné, ale pomalejší. Velké změny se zavádějí a ukončují postupně.",
   "#30597": "Jemná synchronizace u videa AV1",
-  "#30598": "Ve výchozím stavu vypnuto, s varováním: na Pixelu 7 změna rychlosti následovaná skokem zasekla hardwarový dekodér AV1 a pak i samotný telefon. Dekodér AV1 v Bravii byl v pořádku. Zapni jen tehdy, když to tvé zařízení zvládá; jinak tituly AV1 sledují skupinu jen podle příkazů."
+  "#30598": "Ve výchozím stavu vypnuto, s varováním: na Pixelu 7 změna rychlosti následovaná skokem zasekla hardwarový dekodér AV1 a pak i samotný telefon. Dekodér AV1 v Bravii byl v pořádku. Zapni jen tehdy, když to tvé zařízení zvládá; jinak tituly AV1 sledují skupinu jen podle příkazů.",
+  "#30599": "Jemná synchronizace vyžaduje inputstream.tempo 21.4.1 / 22.4.1"
 }

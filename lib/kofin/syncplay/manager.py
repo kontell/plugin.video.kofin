@@ -49,7 +49,9 @@ class SyncPlayManager(object):
         self.timesync = None
         # Fine sync through inputstream.tempo (syncplay/tempo.py): armed at
         # group join when this member can use it, disarmed at leave.
-        self.tempo_session = TempoSession()
+        self.tempo_session = TempoSession(
+            notify=lambda message: self._toast(message, warning=True)
+        )
         self._rate_mismatch_told = False
 
         self.group = None  # {"GroupId", "GroupName"}

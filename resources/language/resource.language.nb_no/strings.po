@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Finsynkronisering via inputstream.tempo"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs it installed; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Holder denne enheten på gruppens posisjon mellom kommandoene ved kort å spille raskere eller saktere gjennom tillegget inputstream.tempo (må være installert; la «Synkroniser avspilling med skjerm» være av i Kodi). Bare video som spilles direkte. Lyden dekodes til PCM under en økt, så passthrough er satt på vent."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Holder denne enheten på gruppens posisjon mellom kommandoene ved kort å spille raskere eller saktere gjennom tillegget inputstream.tempo (krever versjon 21.4.1 / 22.4.1 eller nyere; la «Synkroniser avspilling med skjerm» være av i Kodi). Bare video som spilles direkte. Lyden dekodes til PCM under en økt, så passthrough er satt på vent."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -1355,6 +1355,10 @@ msgstr "Finsynkronisering på AV1-video"
 msgctxt "#30598"
 msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
 msgstr "Av som standard, med en advarsel: på en Pixel 7 fikk en hastighetsendring etterfulgt av et hopp AV1-maskinvaredekoderen og deretter selve telefonen til å henge. En Bravias AV1-dekoder hadde ingen problemer. Slå bare på hvis enheten din tåler det; ellers følger AV1-titler gruppen bare via kommandoer."
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "Finsynk krever inputstream.tempo 21.4.1 / 22.4.1"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

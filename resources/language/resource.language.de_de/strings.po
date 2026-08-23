@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Feinabgleich über inputstream.tempo"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs it installed; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Hält dieses Gerät zwischen den Gruppenbefehlen auf der Gruppenposition, indem es über das Add-on inputstream.tempo kurz schneller oder langsamer abspielt (muss installiert sein; „Wiedergabe an Bildschirm anpassen“ in Kodi ausgeschaltet lassen). Nur direkt abgespieltes Video. Audio wird in einer Sitzung zu PCM dekodiert, Passthrough ist also ausgesetzt."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Hält dieses Gerät zwischen den Gruppenbefehlen auf der Gruppenposition, indem es über das Add-on inputstream.tempo kurz schneller oder langsamer abspielt (Version 21.4.1 / 22.4.1 oder neuer nötig; „Wiedergabe an Bildschirm anpassen“ in Kodi ausgeschaltet lassen). Nur direkt abgespieltes Video. Audio wird in einer Sitzung zu PCM dekodiert, Passthrough ist also ausgesetzt."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -1355,6 +1355,10 @@ msgstr "Feinabgleich bei AV1-Video"
 msgctxt "#30598"
 msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
 msgstr "Standardmäßig aus, mit Warnung: Auf einem Pixel 7 hat eine Tempoänderung mit anschließendem Sprung den AV1-Hardwaredecoder und dann das Telefon selbst aufgehängt. Der AV1-Decoder eines Bravia war unauffällig. Nur einschalten, wenn das Gerät damit klarkommt; sonst folgen AV1-Titel der Gruppe allein über Befehle."
+
+msgctxt "#30599"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "Feinabgleich braucht inputstream.tempo 21.4.1 / 22.4.1"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

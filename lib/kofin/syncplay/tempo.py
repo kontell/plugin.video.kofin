@@ -294,6 +294,14 @@ class PulseScheduler(object):
 
     Driven by the controller's 250 ms loop through :meth:`tick`; told about
     every command and seek so a pulse is never left running across one.
+
+    Nothing here blocks under ``_lock``. A write to the tempo file is
+    confirmed by a later tick finding the add-on's state line, not by
+    sleeping on it: ``cancel()`` and ``before_seek()`` take the same lock on
+    the command thread, and a scheduled Pause must not wait on the actuator.
+    The one corrective seek goes through the controller with the lock
+    dropped, because the command path holds the player lock before it asks
+    for this one (``_seek_and_settle`` → ``before_seek``).
     """
 
     def __init__(self, controller):
@@ -304,7 +312,8 @@ class PulseScheduler(object):
         self.rate_max = RATE_MAX_DEFAULT
         self._session_id = None  # PlaySessionId the scheduler is armed for
         self._window = []
-        self._pulse = None
+        self._pulse = None  # the running pulse: its remaining writes
+        self._awaiting = None  # a write waiting for the add-on's state line
         self._settle_until = 0.0
         self._seek_blackout_until = 0.0
         self._history = []  # (direction, regrowth ppm) per pulse
@@ -321,6 +330,7 @@ class PulseScheduler(object):
         self._session_id = claim.get("PlaySessionId")
         self._window = []
         self._pulse = None
+        self._awaiting = None
         self._history = []
         self._gave_up = False
         route = claim.get("Tempo") or {}
@@ -381,45 +391,57 @@ class PulseScheduler(object):
 
     def tick(self):
         with self._lock:
-            self._tick()
+            seek = self._tick()
+
+        if seek is not None:
+            # Outside the lock: the controller takes the player lock, and the
+            # command path takes that one first before asking for ours.
+            self.controller.correct_position()
+            self.note_settle()
 
     def _tick(self):
+        """One scheduling step under the lock. Returns the residual to seek
+        away, or None."""
         claim = self.controller.manager.current_claim()
 
         if not claim:
-            return
+            return None
 
         if claim.get("PlaySessionId") != self._session_id:
             self._arm(claim)
 
         if self.file is None or self._gave_up:
-            return
+            return None
 
         now = time.time()
 
+        if self._awaiting is not None:
+            self._check_awaiting(now)
+            return None
+
         if self._pulse is not None:
             self._advance_pulse(now)
-            return
+            return None
 
         controller = self.controller
 
         if controller._is_paused() or not controller.reference_is_playing():
             self._window = []
-            return
+            return None
 
         if now < self._settle_until:
-            return
+            return None
 
         estimate = controller.estimate_position_ms()
 
         if estimate is None:
-            return
+            return None
 
         self._window.append(estimate - controller._position_ms())
         del self._window[:-WINDOW_SAMPLES]
 
         if len(self._window) < WINDOW_SAMPLES:
-            return
+            return None
 
         residual = statistics.median(self._window)
 
@@ -434,19 +456,25 @@ class PulseScheduler(object):
             and now >= self._seek_blackout_until
             and all(abs(sample) > self.budget_ms for sample in self._window)
         ):
-            self._seek(residual)
-            return
+            self._seek_blackout_until = now + SEEK_BLACKOUT_S
+            self._window = []
+            LOG.info(
+                "[ syncplay/align ] %+.0fms is beyond the pulse budget: seeking",
+                residual,
+            )
+            return residual
 
         plan = plan_pulse(residual, self.rate_max)
 
         if plan is None:
-            return
+            return None
 
         if self._losing(residual, now):
             self._give_up()
-            return
+            return None
 
         self._start_pulse(plan[0], plan[1], residual)
+        return None
 
     # ------------------------------------------------------------------
     # Pulses
@@ -455,10 +483,40 @@ class PulseScheduler(object):
     def _start_pulse(self, rate, seconds, residual):
         schedule = pulse_schedule(rate, seconds)
         first = schedule[0][1]
-        before = self.file.current_seq()
         asked = time.time()
+        self._awaiting = {
+            "kind": "start",
+            "rate": first,
+            "after_seq": self.file.current_seq(),
+            "asked": asked,
+            "deadline": asked + APPLY_TIMEOUT_S,
+            "plan": (rate, seconds, residual, schedule),
+        }
         self.file.write(first)
-        applied = self.file.wait_applied(first, before)
+        self._window = []
+
+    def _check_awaiting(self, now):
+        """A write is out: has the add-on's state line confirmed it yet?"""
+        waiting = self._awaiting
+        line = self.file.read_state()
+        confirmed = (
+            line
+            and int(line.get("seq") or 0) > waiting["after_seq"]
+            and abs(float(line.get("tempo") or 0.0) - waiting["rate"]) < 0.0015
+        )
+
+        if not confirmed and now < waiting["deadline"]:
+            return
+
+        self._awaiting = None
+
+        if waiting["kind"] == "start":
+            self._pulse_started(waiting, line if confirmed else None, now)
+        else:
+            self._pulse_ended(waiting, line if confirmed else None, now)
+
+    def _pulse_started(self, waiting, applied, now):
+        rate, seconds, residual, schedule = waiting["plan"]
 
         if applied is None:
             # Nothing answered: the playback is not going through the add-on
@@ -468,52 +526,63 @@ class PulseScheduler(object):
             LOG.warning(
                 "[ syncplay/pulse ] %.3fx not applied within %.0fs; "
                 "command-only sync for this item",
-                first,
+                waiting["rate"],
                 APPLY_TIMEOUT_S,
             )
             self.file = None
             return
 
-        started = time.time()
         LOG.info(
             "[ syncplay/pulse ] %+.0fms: %.3fx for %.1fs%s (applied after %.0fms)",
             residual,
             rate,
             seconds,
             " ramped" if len(schedule) > 2 else "",
-            (started - asked) * 1000.0,
+            (now - waiting["asked"]) * 1000.0,
         )
         self._pulse = {
             "rate": rate,
             "seconds": seconds,
             "residual": residual,
-            "decided_at": asked,
+            "decided_at": waiting["asked"],
             "start_delta": head_delta(applied),
             # The remaining writes, at absolute times; the last one is 1.0.
-            "writes": [(started + offset, value) for offset, value in schedule[1:]],
+            "writes": [(now + offset, value) for offset, value in schedule[1:]],
         }
-        self._window = []
 
     def _advance_pulse(self, now):
-        """Write whatever the schedule has due; the final 1.0 ends the pulse."""
+        """Write whatever the schedule has due. Several overdue at once — a
+        late tick — collapse to the latest, which is all the add-on's 250 ms
+        poll would see anyway; the final 1.0 ends the pulse."""
         writes = self._pulse["writes"]
+        due = None
 
         while writes and now >= writes[0][0]:
-            _at, value = writes.pop(0)
+            due = writes.pop(0)
 
-            if not writes:
-                self._end_pulse()
-                return
+        if due is None:
+            return
 
-            self.file.write(value)
+        if not writes:
+            self._end_pulse(now)
+        else:
+            self.file.write(due[1])
 
-    def _end_pulse(self):
+    def _end_pulse(self, now):
         pulse = self._pulse
         self._pulse = None
-        before = self.file.current_seq()
+        self._awaiting = {
+            "kind": "end",
+            "rate": 1.0,
+            "after_seq": self.file.current_seq(),
+            "asked": now,
+            "deadline": now + APPLY_TIMEOUT_S,
+            "pulse": pulse,
+        }
         self.file.write(1.0)
-        landed = self.file.wait_applied(1.0, before)
-        now = time.time()
+
+    def _pulse_ended(self, waiting, landed, now):
+        pulse = waiting["pulse"]
 
         if landed is None:
             LOG.warning("[ syncplay/pulse ] return to 1.0x not confirmed")
@@ -535,45 +604,53 @@ class PulseScheduler(object):
     def cancel(self, reason):
         """A command or seek is about to act: no pulse may run across it.
 
-        It is also a fresh start for the give-up test — that is about the
-        residual regrowing between pulses on its own, and a command moves the
-        position by hand — and for a member that had given up: a real rate
-        mismatch will earn the verdict again within three pulses, and the
-        user is told only once per group either way.
+        Returns at once — it writes 1.0 and waits for nothing. It is also a
+        fresh start for the give-up test (that is about the residual
+        regrowing between pulses on its own, and a command moves the position
+        by hand) and for a member that had given up: a real rate mismatch
+        will earn the verdict again within three pulses, and the user is told
+        only once per group either way.
         """
         with self._lock:
             self._window = []
             self._history = []
             self._gave_up = False
-
-            if self._pulse is None:
-                return
-
             pulse = self._pulse
+            waiting = self._awaiting
             self._pulse = None
+            self._awaiting = None
+
+            if pulse is None and waiting is None:
+                return
 
             if self.file is not None:
                 self.file.write(1.0)
 
             LOG.info("[ syncplay/pulse ] cut by %s", reason)
             self._settle_until = time.time() + self.queue_secs + SETTLE_EXTRA_S
-            self._remember(pulse, time.time())
+
+            if pulse is not None:
+                self._remember(pulse, time.time())
 
     def before_seek(self):
-        """Return to 1.0x and wait for it before a seek lands.
+        """Return to 1.0x, and wait for it, before a seek lands.
 
         A seek issued while a rate is running lands early: after the flush
         Kodi resyncs to the video's first picture, which sits behind the
         audio by more at 1.03x than at 1.0x (inputstream.tempo results, item
-        5). Cheap to avoid, and rare.
+        5). The wait is on the command thread that is about to seek, outside
+        the scheduler lock, and bounded.
         """
         with self._lock:
-            if self._pulse is None or self.file is None:
-                return
-
-            before = self.file.current_seq()
+            active = (self._pulse is not None or self._awaiting is not None) and (
+                self.file is not None
+            )
+            tempo_file = self.file
+            before = tempo_file.current_seq() if active else 0
             self.cancel("seek")
-            self.file.wait_applied(1.0, before, timeout_s=1.0)
+
+        if active:
+            tempo_file.wait_applied(1.0, before, timeout_s=1.0)
 
     def note_settle(self):
         """A seek or resume just landed: measure again only once it has played
@@ -587,19 +664,8 @@ class PulseScheduler(object):
             )
 
     # ------------------------------------------------------------------
-    # Seeking beyond the pulse budget, and giving up
+    # Giving up
     # ------------------------------------------------------------------
-
-    def _seek(self, residual):
-        now = time.time()
-        self._seek_blackout_until = now + SEEK_BLACKOUT_S
-        self._window = []
-        LOG.info(
-            "[ syncplay/align ] %+.0fms is beyond the pulse budget: seeking",
-            residual,
-        )
-        self.controller.correct_position()
-        self.note_settle()
 
     def _remember(self, pulse, ended_at):
         """Fold a finished pulse into the give-up history."""
@@ -621,8 +687,9 @@ class PulseScheduler(object):
         """Whether the residual is a rate mismatch pulses cannot keep up with.
 
         True once GIVEUP_PULSES pulses have gone the same way and every one of
-        them, this candidate included, found the residual regrown faster than
-        GIVEUP_PPM since the previous pulse ended.
+        them, this candidate included, found the residual regrown at a
+        steady, plausible rate above GIVEUP_PPM since the previous pulse
+        ended.
         """
         if len(self._history) < GIVEUP_PULSES:
             return False
@@ -703,9 +770,13 @@ def restore_queue(reason=""):
 class TempoSession(object):
     """What a group membership arms, and disarms again."""
 
-    def __init__(self):
+    def __init__(self, notify=None):
         self.active = False
         self.queue_secs = None
+        # Tells the user, once per group, that fine sync wanted the add-on
+        # and did not get it — a silent fallback to command-only sync reads
+        # as the feature not working.
+        self._notify = notify
 
     def begin(self):
         """Arm fine sync for the group just joined, when this member can."""
@@ -724,6 +795,7 @@ class TempoSession(object):
                 ADDON_ID,
                 "disabled" if details else "not installed",
             )
+            self._tell()
             return
 
         if not addon_is_recent(details["version"]):
@@ -734,6 +806,7 @@ class TempoSession(object):
                 details["version"],
                 ADDON_MIN_PATCH,
             )
+            self._tell()
             return
 
         self.queue_secs = self._shorten_queue()
@@ -753,6 +826,10 @@ class TempoSession(object):
             ADDON_ID,
             self.queue_secs,
         )
+
+    def _tell(self):
+        if self._notify is not None:
+            self._notify(settings.localized(30599))
 
     def end(self):
         if not self.active:
