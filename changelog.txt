@@ -1,5 +1,6 @@
 v0.21.0
 - SyncPlay now keeps a group together between commands, not only at them. A video played directly goes through the inputstream.tempo add-on during a session, and whenever a member has slipped from the group it plays faster or slower for a few seconds to catch up — with Kodi's "Sync playback to display" left off, which is where every device measured tracks real time. Needs inputstream.tempo 21.4.1 / 22.4.1 or later — an older add-on dropped the first packets after a seek, which a Pixel 7's AV1 decoder could not take — and says so once when the add-on is missing or too old; without it, nothing changes
+- inputstream.tempo is now a recommended (optional) dependency, so Kodi offers it where a build exists; it is not required, because no build exists for every architecture
 - Skips are for gross errors only. Two sliders set the largest error closed by a speed change (default 2.5 seconds) and the fastest correction speed (default 25%, ramped in and out above 5%); a slip after a resume is closed the same way instead of with a visible cut
 - On Kodi 22 a session shortens Kodi's audio/video queue to 1 second so a correction lands in about 2 seconds instead of 5, and puts the user's value back afterwards — after a crash too
 - Audio passthrough is suspended for a session (the add-on decodes to PCM); the setting's help says so
