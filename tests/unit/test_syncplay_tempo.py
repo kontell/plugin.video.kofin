@@ -413,12 +413,23 @@ class TestScheduler:
         assert scheduler._pulse["rate"] == pytest.approx(1.0 + tempo.RATE_MAX_DEFAULT)
         assert scheduler._pulse["seconds"] == tempo.PULSE_MAX_S
 
-    def test_mixed_window_does_not_seek(self, rig):
+    def test_mixed_window_pulses_instead_of_seeking(self, rig, monkeypatch):
         scheduler, controller, side = rig
+        # Eleven samples beyond the budget, one inside: no seek — and no
+        # waiting either, a saturated pulse takes it.
         fill_window(scheduler, controller, 3000.0)
-        controller.local_ms = controller.group_ms - 100.0  # one sample inside
+        controller.local_ms = controller.group_ms - 100.0
+        original = TempoFile.wait_applied
+
+        def answering(self, rate, after_seq, timeout_s=tempo.APPLY_TIMEOUT_S):
+            side.answer()
+            return original(self, rate, after_seq, timeout_s)
+
+        monkeypatch.setattr(TempoFile, "wait_applied", answering)
         scheduler.tick()
         assert controller.corrections == 0
+        assert scheduler._pulse is not None
+        assert scheduler._pulse["rate"] == pytest.approx(1.0 + tempo.RATE_MAX_DEFAULT)
 
     def test_new_session_rearms(self, rig, tmp_path):
         scheduler, controller, side = rig

@@ -409,15 +409,18 @@ class PulseScheduler(object):
 
         residual = statistics.median(self._window)
 
-        # Beyond the budget a seek is the tool — once, for gross errors. While
-        # its blackout holds, a residual the seek left behind (the Tab lands
-        # a seek 350 ms early; a first seek on any device carries an
-        # unmeasured lag) is closed by pulses after all, saturated at the rate
-        # ceiling for PULSE_MAX_S, rather than sat on for 30 s.
-        if abs(residual) > self.budget_ms and now >= self._seek_blackout_until:
-            if all(abs(sample) > self.budget_ms for sample in self._window):
-                self._seek(residual)
-
+        # Beyond the budget a seek is the tool — once, for gross errors, and
+        # only when every sample in the window agrees. Otherwise — the seek's
+        # blackout holds, or the residual straddles the budget — pulses close
+        # it after all, saturated at the rate ceiling for PULSE_MAX_S. The
+        # Bravia sat at +2.5 s for 25 s after a resume when a median beyond
+        # the budget and a window not all beyond it meant neither.
+        if (
+            abs(residual) > self.budget_ms
+            and now >= self._seek_blackout_until
+            and all(abs(sample) > self.budget_ms for sample in self._window)
+        ):
+            self._seek(residual)
             return
 
         plan = plan_pulse(residual, self.rate_max)
