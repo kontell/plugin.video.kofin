@@ -54,19 +54,7 @@ TEMPO_ADDON = "inputstream.tempo"
 TEMPO_METHODS = frozenset({"DirectPlay", "DirectStream"})
 
 
-def video_codec(item: JsonDict, source: Optional[JsonDict] = None) -> str:
-    """The video stream's codec, lower-cased, from the media source when there
-    is one (the PlaybackInfo answer) and the item otherwise; "" if unknown."""
-    for streams in ((source or {}).get("MediaStreams"), item.get("MediaStreams")):
-        for stream in streams or []:
-            if stream.get("Type") == "Video":
-                return str(stream.get("Codec") or "").lower()
-    return ""
-
-
-def tempo_route(
-    item: JsonDict, play_method: str, source: Optional[JsonDict] = None
-) -> Optional[JsonDict]:
+def tempo_route(item: JsonDict, play_method: str) -> Optional[JsonDict]:
     """The inputstream.tempo route for this play, or None.
 
     While the service is in a SyncPlay group with fine sync armed
@@ -74,22 +62,12 @@ def tempo_route(
     inputstream.tempo so the scheduler can nudge it; the claim carries the same
     route so the service knows the playback is nudgeable. Audio never does:
     PAPlayer has its own choreography and the group converges it on commands.
-
-    AV1 only behind ``syncPlayTempoAv1`` (off): on a Pixel 7 a rate change
-    followed by a seek wedged the AV1 hardware decoder and then the phone
-    (watchdog reboot), while a Bravia's AV1 decoder took the same sequence
-    without complaint. Measured 2026-08-23; the add-on side is a follow-up.
     """
     if item.get("Type") in AUDIO_TYPES or play_method not in TEMPO_METHODS:
         return None
     session = state.syncplay_tempo()
     path = session.get("file")
     if not path:
-        return None
-    if video_codec(item, source) == "av1" and not settings.get_bool("syncPlayTempoAv1"):
-        LOG.info(
-            "fine sync: %s is AV1 and AV1 is off; command-only sync", item.get("Id")
-        )
         return None
     try:
         queue_secs = float(session.get("queue_secs") or 8.0)
@@ -658,7 +636,7 @@ def play(request: Request) -> None:
         _fail(request)
         return
 
-    route = tempo_route(item, method, source)
+    route = tempo_route(item, method)
     LOG.info("play %s via %s%s", item_id, method, " (tempo)" if route else "")
     # A resume point on the *resolved* item overrides the choice the user made
     # at Kodi's resume prompt: Kodi treats a resolved item that carries one as

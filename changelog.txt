@@ -3,7 +3,7 @@ v0.21.0
 - Skips are for gross errors only. Two sliders set the largest error closed by a speed change (default 2.5 seconds) and the fastest correction speed (default 25%, ramped in and out above 5%); a slip after a resume is closed the same way instead of with a visible cut
 - On Kodi 22 a session shortens Kodi's audio/video queue to 1 second so a correction lands in about 2 seconds instead of 5, and puts the user's value back afterwards — after a crash too
 - Audio passthrough is suspended for a session (the add-on decodes to PCM); the setting's help says so
-- AV1 video is not routed through the add-on unless "Fine sync on AV1 video" is turned on: on a Pixel 7 a speed change followed by a seek hung the AV1 hardware decoder and then the phone, while a Bravia's AV1 decoder was fine
+- Needs inputstream.tempo 21.4.1 / 22.4.1: the earlier add-on dropped the first packets after a seek, which a Pixel 7's AV1 hardware decoder could not take (a frozen picture, then a rebooted phone); with the fixed add-on the same phone plays AV1 at 1.25x through seeks
 - A member whose playback rate keeps drifting away from the group — the display clock on with a mismatched panel — is told so once and left on command-only sync instead of being corrected over and over
 
 v0.20.1

@@ -180,28 +180,6 @@ def test_resolve_downloaded_routes_and_claims(monkeypatch):
     assert claim["PlayMethod"] == "DirectPlay"
 
 
-def test_av1_is_routed_only_behind_its_toggle():
-    av1 = {
-        "Type": "Movie",
-        "Id": "m1",
-        "MediaStreams": [{"Type": "Video", "Codec": "av1"}],
-    }
-    state.publish_syncplay_tempo({"file": "/tmp/tempo", "queue_secs": 1.0})
-    assert play.tempo_route(av1, "DirectStream") is None
-    FakeAddon.store["syncPlayTempoAv1"] = "true"
-    assert play.tempo_route(av1, "DirectStream") is not None
-    # The PlaybackInfo source wins over the item when both name a codec.
-    FakeAddon.store["syncPlayTempoAv1"] = "false"
-    h264 = {
-        "Type": "Movie",
-        "Id": "m2",
-        "MediaStreams": [{"Type": "Video", "Codec": "av1"}],
-    }
-    source = {"MediaStreams": [{"Type": "Video", "Codec": "h264"}]}
-    assert play.tempo_route(h264, "DirectStream", source) is not None
-    assert play.video_codec({"MediaStreams": []}) == ""
-
-
 def test_resolve_downloaded_outside_a_session_is_untouched(monkeypatch):
     built = BuiltListItem()
     monkeypatch.setattr(play.listitems, "build", lambda *a, **k: built)

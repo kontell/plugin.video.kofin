@@ -582,19 +582,6 @@
           </dependencies>
           <control type="slider" format="integer"/>
         </setting>
-        <setting id="syncPlayTempoAv1" type="boolean" label="30597" help="30598">
-          <level>0</level>
-          <default>false</default>
-          <dependencies>
-            <dependency type="visible">
-              <and>
-                <condition operator="is" setting="syncPlayEnabled">true</condition>
-                <condition operator="is" setting="syncPlayTempo">true</condition>
-              </and>
-            </dependency>
-          </dependencies>
-          <control type="toggle"/>
-        </setting>
         <setting id="syncPlayShortQueue" type="boolean" label="30590" help="30591">
           <level>0</level>
           <default>true</default>

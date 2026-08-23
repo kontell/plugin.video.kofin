@@ -1344,8 +1344,11 @@ msgstr ""
 
 # 30586-30598 — SyncPlay fine sync through inputstream.tempo
 # (lib/kofin/syncplay/tempo.py, docs/syncplay-fine-sync.md). #30592 is a toast.
-# 30588-30589 retired (the passthrough toggle folded into #30587's help); kept,
-# never reused, for the reason given at #30744.
+# 30588-30589 retired (the passthrough toggle folded into #30587's help) and
+# 30597-30598 retired (the AV1 toggle: the Pixel 7 freeze it guarded against was
+# the add-on freeing the first packets after a seek, fixed in inputstream.tempo
+# 22.4.1, and the same phone then passed AV1 at 1.25x with seeks). Kept, never
+# reused, for the reason given at #30744.
 msgctxt "#30586"
 msgid "Fine sync through inputstream.tempo"
 msgstr ""
