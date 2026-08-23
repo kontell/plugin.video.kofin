@@ -180,6 +180,28 @@ def test_resolve_downloaded_routes_and_claims(monkeypatch):
     assert claim["PlayMethod"] == "DirectPlay"
 
 
+def test_av1_is_routed_only_behind_its_toggle():
+    av1 = {
+        "Type": "Movie",
+        "Id": "m1",
+        "MediaStreams": [{"Type": "Video", "Codec": "av1"}],
+    }
+    state.publish_syncplay_tempo({"file": "/tmp/tempo", "queue_secs": 1.0})
+    assert play.tempo_route(av1, "DirectStream") is None
+    FakeAddon.store["syncPlayTempoAv1"] = "true"
+    assert play.tempo_route(av1, "DirectStream") is not None
+    # The PlaybackInfo source wins over the item when both name a codec.
+    FakeAddon.store["syncPlayTempoAv1"] = "false"
+    h264 = {
+        "Type": "Movie",
+        "Id": "m2",
+        "MediaStreams": [{"Type": "Video", "Codec": "av1"}],
+    }
+    source = {"MediaStreams": [{"Type": "Video", "Codec": "h264"}]}
+    assert play.tempo_route(h264, "DirectStream", source) is not None
+    assert play.video_codec({"MediaStreams": []}) == ""
+
+
 def test_resolve_downloaded_outside_a_session_is_untouched(monkeypatch):
     built = BuiltListItem()
     monkeypatch.setattr(play.listitems, "build", lambda *a, **k: built)
@@ -330,6 +352,19 @@ def test_correct_position_aims_ahead_by_the_seek_lag():
     controller.correct_position()
     seeks = [a for a in player.actions if isinstance(a, tuple) and a[0] == "seek"]
     assert seeks and abs(seeks[0][1] - 20.4) < 0.2
+
+
+def test_post_resume_residual_is_left_to_fine_sync_when_it_can():
+    controller, manager_, player = make_controller(paused=False, position=10.0)
+
+    class CanClose(SchedulerSpy):
+        def can_close(self, residual):
+            return True
+
+    controller.tempo = CanClose()
+    controller.set_reference(10.7 * 10_000_000, manager_.server_now_ms(), True)
+    controller._align_after_resume()
+    assert not [a for a in player.actions if isinstance(a, tuple) and a[0] == "seek"]
 
 
 def test_stop_loop_resets_the_scheduler():

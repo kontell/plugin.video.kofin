@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "inputstream.tempo를 통한 정밀 동기화"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by playing a few percent faster or slower for a few seconds at a time, through the inputstream.tempo add-on. Needs that add-on installed and works with Kodi's 'Sync playback to display' off. Only for video played directly, not transcodes. Audio is decoded to PCM for the session, so passthrough is suspended — see the next setting."
-msgstr "inputstream.tempo 애드온을 통해 몇 초씩 몇 퍼센트 빠르거나 느리게 재생하여 명령 사이에도 이 기기를 그룹 위치에 맞춥니다. 해당 애드온이 설치되어 있어야 하며 Kodi의 ‘재생을 디스플레이에 동기화’가 꺼진 상태에서 동작합니다. 직접 재생하는 동영상에만 적용되고 트랜스코딩에는 적용되지 않습니다. 세션 동안 오디오가 PCM으로 디코딩되므로 패스스루는 중단됩니다 — 다음 설정을 참고하세요."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs it installed; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "inputstream.tempo 애드온을 통해 잠시 빠르거나 느리게 재생하여 명령 사이에도 이 기기를 그룹 위치에 맞춥니다(애드온 설치 필요, Kodi의 ‘재생을 디스플레이에 동기화’는 꺼 두세요). 직접 재생하는 동영상만 해당합니다. 세션 동안 오디오가 PCM으로 디코딩되므로 패스스루는 중단됩니다."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -1331,6 +1331,30 @@ msgstr "그룹에 있는 동안 Kodi의 오디오/동영상 큐 시간을 1초�
 msgctxt "#30592"
 msgid "Fine sync stopped: rate mismatch"
 msgstr "정밀 동기화 중지: 속도 불일치"
+
+msgctxt "#30593"
+msgid "Largest error closed by tempo (ms)"
+msgstr "템포로 보정할 최대 오차 (ms)"
+
+msgctxt "#30594"
+msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
+msgstr "이 값까지의 위치 오차는 빠르거나 느리게 재생해 보정하고, 더 큰 오차는 건너뛰기로 보정합니다. 높을수록 건너뛰기가 줄고 속도 변경이 길어집니다."
+
+msgctxt "#30595"
+msgid "Fastest correction speed (%)"
+msgstr "가장 빠른 보정 속도 (%)"
+
+msgctxt "#30596"
+msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
+msgstr "보정 중 재생 속도가 바뀔 수 있는 최대치입니다. 25%에서는 2.5초 오차를 10초에 해소합니다. 낮을수록 덜 티 나지만 느립니다. 큰 변경은 점진적으로 적용됩니다."
+
+msgctxt "#30597"
+msgid "Fine sync on AV1 video"
+msgstr "AV1 동영상에서 정밀 동기화"
+
+msgctxt "#30598"
+msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
+msgstr "기본은 꺼짐이며 주의가 필요합니다. Pixel 7에서는 속도 변경 직후 탐색 시 AV1 하드웨어 디코더가, 이어서 휴대폰 자체가 멈췄습니다. Bravia의 AV1 디코더는 문제가 없었습니다. 기기가 감당할 때만 켜세요. 끄면 AV1 항목은 명령만으로 그룹을 따릅니다."
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

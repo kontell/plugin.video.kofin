@@ -38,6 +38,7 @@ testable; the scheduler takes its player reads through the controller.
 """
 
 import json
+import math
 import os
 import statistics
 import threading
@@ -63,19 +64,25 @@ QUEUE_RESTORE_SETTING = "syncPlayQueueRestore"  # hidden: the value to put back
 OMEGA_QUEUE_SECS = 8.0  # Kodi 21 hard-codes it
 
 # Pulse planning. A pulse aims to last PULSE_AIM_S, so the rate scales with the
-# residual between RATE_MIN and RATE_MAX (atempo's artefact-free band), and the
-# duration stretches only once the rate is capped.
+# residual between RATE_MIN and the user's ceiling (syncPlayMaxRate, default
+# 25 %), and the duration stretches only once the rate is capped. Rates above
+# RAMP_STEP are ramped in and out in RAMP_STEP increments every RAMP_DT — not
+# seamless, just less of a jolt; the viewer may well notice the fast-forward.
 RATE_MIN = 0.005
-RATE_MAX = 0.03
+RATE_MAX_DEFAULT = 0.25
+RATE_MAX_CEILING = 0.25
 PULSE_AIM_S = 5.0
 PULSE_MAX_S = 10.0
+RAMP_STEP = 0.05
+RAMP_DT = 0.25
 # Below this the residual is left alone. One frame at 24 fps is 42 ms, and the
 # position reads jitter by about that much on an Android box: at 50 ms the Tab
 # pulsed ±50 ms against its own read noise, so the band sits above it.
 DEADBAND_MS = 75.0
-# Above this a pulse would take longer than PULSE_MAX_S at RATE_MAX (the
-# shakedown's 300 ms budget): seek instead, at rate 1.0.
-SEEK_ABOVE_MS = 300.0
+# Above the budget (syncPlayPulseBudget, default 2.5 s) a seek closes the
+# residual instead; a skip is for gross errors only, because it is both jarring
+# and, on Android, inaccurate. At 25 % a 2.5 s residual is a 10 s pulse.
+BUDGET_DEFAULT_MS = 2500.0
 SEEK_BLACKOUT_S = 30.0
 # What a seek aimed at the group's current position leaves behind before it
 # has been measured on a device: restart time plus landing error.
@@ -89,30 +96,75 @@ SETTLE_EXTRA_S = 1.0
 APPLY_TIMEOUT_S = 3.0
 APPLY_POLL_S = 0.05
 # Give up when this many consecutive pulses went the same way and the residual
-# regrew faster than GIVEUP_PPM between them: a rate mismatch, not jitter. The
-# display clock off, the rig's boxes free-run within ±550 ppm.
+# regrew between them at a steady rate above GIVEUP_PPM: a rate mismatch, not
+# jitter. The display clock off, the rig's boxes free-run within ±550 ppm; the
+# display clock on imposed 0.5–4.3 %. A regrowth above GIVEUP_PPM_CEILING is
+# not a rate at all but a step — a stall, a seek, an injection — and the rates
+# of a real mismatch agree with each other within GIVEUP_SPREAD. Measured: a
+# 1 s step on the desktop read as "−160 000 ppm" and tripped the old test.
 GIVEUP_PULSES = 3
 GIVEUP_PPM = 3000.0
+GIVEUP_PPM_CEILING = 60000.0
+GIVEUP_SPREAD = 3.0
 
 #################################################################################################
 
 
-def plan_pulse(residual_ms):
+def plan_pulse(residual_ms, rate_max=RATE_MAX_DEFAULT):
     """The (rate, seconds) pulse that closes ``residual_ms``, or None.
 
     Positive residual means this member is behind the group, so the rate is
-    above 1. None inside the deadband. The caller checks SEEK_ABOVE_MS first;
-    here a residual past it simply saturates at RATE_MAX for PULSE_MAX_S.
+    above 1. None inside the deadband. The caller checks the budget first;
+    here a residual past it simply saturates at ``rate_max`` for PULSE_MAX_S.
     """
     magnitude = abs(residual_ms)
 
     if magnitude <= DEADBAND_MS:
         return None
 
-    step = min(RATE_MAX, max(RATE_MIN, magnitude / (PULSE_AIM_S * 1000.0)))
+    ceiling = min(RATE_MAX_CEILING, max(RATE_MIN, rate_max))
+    step = min(ceiling, max(RATE_MIN, magnitude / (PULSE_AIM_S * 1000.0)))
     seconds = min(PULSE_MAX_S, magnitude / (step * 1000.0))
     rate = 1.0 + step if residual_ms > 0 else 1.0 - step
     return round(rate, 4), seconds
+
+
+def pulse_schedule(rate, seconds):
+    """The tempo-file writes that make up one pulse: (offset_s, rate) pairs,
+    the last of them (…, 1.0).
+
+    A rate within RAMP_STEP of 1.0 is one write and one return. Beyond that it
+    is ramped: RAMP_STEP increments every RAMP_DT up to the rate, held, then
+    stepped back down — and the hold is shortened by what the ramps already
+    displace, so the whole schedule still moves (rate − 1) × seconds.
+    """
+    step = rate - 1.0
+    sign = 1.0 if step > 0 else -1.0
+    steps = int(math.ceil(abs(step) / RAMP_STEP - 1e-9))
+
+    if steps <= 1:
+        return [(0.0, rate), (seconds, 1.0)]
+
+    intermediate = [round(1.0 + sign * RAMP_STEP * k, 4) for k in range(1, steps)]
+    ramp_displacement = 2.0 * sum((value - 1.0) * RAMP_DT for value in intermediate)
+    hold = max(2.0 * RAMP_DT, seconds - ramp_displacement / step)
+
+    schedule = []
+    offset = 0.0
+
+    for value in intermediate:
+        schedule.append((offset, value))
+        offset += RAMP_DT
+
+    schedule.append((offset, rate))
+    offset += hold
+
+    for value in reversed(intermediate):
+        schedule.append((offset, value))
+        offset += RAMP_DT
+
+    schedule.append((offset, 1.0))
+    return schedule
 
 
 def parse_state(text):
@@ -234,6 +286,8 @@ class PulseScheduler(object):
         self.controller = controller
         self.file = None  # TempoFile once the playing item is routed
         self.queue_secs = OMEGA_QUEUE_SECS
+        self.budget_ms = BUDGET_DEFAULT_MS
+        self.rate_max = RATE_MAX_DEFAULT
         self._session_id = None  # PlaySessionId the scheduler is armed for
         self._window = []
         self._pulse = None
@@ -274,11 +328,28 @@ class PulseScheduler(object):
 
         self.file = TempoFile(path)
         self.queue_secs = float(route.get("QueueSecs") or OMEGA_QUEUE_SECS)
+        self.budget_ms = float(
+            settings.get_int("syncPlayPulseBudget") or BUDGET_DEFAULT_MS
+        )
+        self.rate_max = (
+            settings.get_int("syncPlayMaxRate") or RATE_MAX_DEFAULT * 100
+        ) / 100.0
         self._unrouted_logged = False
         LOG.info(
-            "[ syncplay/tempo ] fine sync armed for %s (queue %.1fs)",
+            "[ syncplay/tempo ] fine sync armed for %s "
+            "(queue %.1fs, budget %.0fms, up to %.0f%%)",
             claim.get("Id"),
             self.queue_secs,
+            self.budget_ms,
+            self.rate_max * 100.0,
+        )
+
+    def can_close(self, residual_ms):
+        """Whether fine sync will take this residual, so a seek is not needed."""
+        return (
+            self.file is not None
+            and not self._gave_up
+            and abs(residual_ms) <= self.budget_ms
         )
 
     def reset(self):
@@ -313,9 +384,7 @@ class PulseScheduler(object):
         now = time.time()
 
         if self._pulse is not None:
-            if now >= self._pulse["end_at"]:
-                self._end_pulse()
-
+            self._advance_pulse(now)
             return
 
         controller = self.controller
@@ -340,18 +409,18 @@ class PulseScheduler(object):
 
         residual = statistics.median(self._window)
 
-        # Beyond the budget a seek is the tool — once. While its blackout
-        # holds, a residual the seek left behind (the Tab lands a seek 350 ms
-        # early; a first seek on any device carries an unmeasured lag) is
-        # closed by pulses after all, saturated at RATE_MAX for PULSE_MAX_S,
-        # rather than sat on for 30 s waiting for the next seek.
-        if abs(residual) > SEEK_ABOVE_MS and now >= self._seek_blackout_until:
-            if all(abs(sample) > SEEK_ABOVE_MS for sample in self._window):
+        # Beyond the budget a seek is the tool — once, for gross errors. While
+        # its blackout holds, a residual the seek left behind (the Tab lands
+        # a seek 350 ms early; a first seek on any device carries an
+        # unmeasured lag) is closed by pulses after all, saturated at the rate
+        # ceiling for PULSE_MAX_S, rather than sat on for 30 s.
+        if abs(residual) > self.budget_ms and now >= self._seek_blackout_until:
+            if all(abs(sample) > self.budget_ms for sample in self._window):
                 self._seek(residual)
 
             return
 
-        plan = plan_pulse(residual)
+        plan = plan_pulse(residual, self.rate_max)
 
         if plan is None:
             return
@@ -367,10 +436,12 @@ class PulseScheduler(object):
     # ------------------------------------------------------------------
 
     def _start_pulse(self, rate, seconds, residual):
+        schedule = pulse_schedule(rate, seconds)
+        first = schedule[0][1]
         before = self.file.current_seq()
         asked = time.time()
-        self.file.write(rate)
-        applied = self.file.wait_applied(rate, before)
+        self.file.write(first)
+        applied = self.file.wait_applied(first, before)
 
         if applied is None:
             # Nothing answered: the playback is not going through the add-on
@@ -380,29 +451,44 @@ class PulseScheduler(object):
             LOG.warning(
                 "[ syncplay/pulse ] %.3fx not applied within %.0fs; "
                 "command-only sync for this item",
-                rate,
+                first,
                 APPLY_TIMEOUT_S,
             )
             self.file = None
             return
 
-        dead_ms = (time.time() - asked) * 1000.0
+        started = time.time()
         LOG.info(
-            "[ syncplay/pulse ] %+.0fms: %.3fx for %.1fs (applied after %.0fms)",
+            "[ syncplay/pulse ] %+.0fms: %.3fx for %.1fs%s (applied after %.0fms)",
             residual,
             rate,
             seconds,
-            dead_ms,
+            " ramped" if len(schedule) > 2 else "",
+            (started - asked) * 1000.0,
         )
         self._pulse = {
             "rate": rate,
             "seconds": seconds,
             "residual": residual,
             "decided_at": asked,
-            "end_at": time.time() + seconds,
             "start_delta": head_delta(applied),
+            # The remaining writes, at absolute times; the last one is 1.0.
+            "writes": [(started + offset, value) for offset, value in schedule[1:]],
         }
         self._window = []
+
+    def _advance_pulse(self, now):
+        """Write whatever the schedule has due; the final 1.0 ends the pulse."""
+        writes = self._pulse["writes"]
+
+        while writes and now >= writes[0][0]:
+            _at, value = writes.pop(0)
+
+            if not writes:
+                self._end_pulse()
+                return
+
+            self.file.write(value)
 
     def _end_pulse(self):
         pulse = self._pulse
@@ -430,9 +516,18 @@ class PulseScheduler(object):
         self._remember(pulse, now)
 
     def cancel(self, reason):
-        """A command or seek is about to act: no pulse may run across it."""
+        """A command or seek is about to act: no pulse may run across it.
+
+        It is also a fresh start for the give-up test — that is about the
+        residual regrowing between pulses on its own, and a command moves the
+        position by hand — and for a member that had given up: a real rate
+        mismatch will earn the verdict again within three pulses, and the
+        user is told only once per group either way.
+        """
         with self._lock:
             self._window = []
+            self._history = []
+            self._gave_up = False
 
             if self._pulse is None:
                 return
@@ -465,9 +560,11 @@ class PulseScheduler(object):
 
     def note_settle(self):
         """A seek or resume just landed: measure again only once it has played
-        through the queue."""
+        through the queue — and, as with a command, regrowth is counted from
+        here, not across the seek."""
         with self._lock:
             self._window = []
+            self._history = []
             self._settle_until = max(
                 self._settle_until, time.time() + self.queue_secs + SETTLE_EXTRA_S
             )
@@ -519,8 +616,16 @@ class PulseScheduler(object):
             regrowth_ppm(residual, now - last["ended_at"])
         ]
 
-        return all(entry["direction"] == direction for entry in self._history) and all(
-            abs(rate) > GIVEUP_PPM and (rate > 0) == (direction > 0) for rate in rates
+        if not all(entry["direction"] == direction for entry in self._history):
+            return False
+
+        magnitudes = [abs(rate) for rate in rates]
+
+        return (
+            all((rate > 0) == (direction > 0) for rate in rates)
+            and min(magnitudes) > GIVEUP_PPM
+            and max(magnitudes) < GIVEUP_PPM_CEILING
+            and max(magnitudes) <= GIVEUP_SPREAD * min(magnitudes)
         )
 
     def _give_up(self):
@@ -604,15 +709,6 @@ class TempoSession(object):
             )
             return
 
-        if kodirpc.kodi_setting(
-            "audiooutput.passthrough"
-        ) is True and not settings.get_bool("syncPlayTempoPassthrough"):
-            LOG.info(
-                "[ syncplay/tempo ] fine sync off: audio passthrough is on and "
-                "sessions are not allowed to suspend it"
-            )
-            return
-
         self.queue_secs = self._shorten_queue()
         path = xbmcvfs.translatePath(TEMPO_FILE)
 
@@ -667,8 +763,20 @@ class TempoSession(object):
         if not settings.get_bool("syncPlayShortQueue") or tenths <= SHORT_QUEUE_TENTHS:
             return tenths / 10.0
 
+        # The record first, and only if it stuck: a shortening nobody can undo
+        # is worse than none. JSON-RPC setting writes are not saved to disk by
+        # Kodi (SettingsOperations never calls Save), so the value on disk is
+        # whatever Kodi last exited with — the Pixel was found at 1.0 s with
+        # no record, a session whose record write had been dropped.
+        settings.set_str(QUEUE_RESTORE_SETTING, str(tenths))
+
+        if settings.get_str(QUEUE_RESTORE_SETTING) != str(tenths):
+            LOG.warning(
+                "[ syncplay/tempo ] queue left alone: restore record not stored"
+            )
+            return tenths / 10.0
+
         if kodirpc.set_kodi_setting(QUEUE_SETTING, SHORT_QUEUE_TENTHS):
-            settings.set_str(QUEUE_RESTORE_SETTING, str(tenths))
             LOG.info(
                 "[ syncplay/tempo ] %s %.1fs -> %.1fs for the session",
                 QUEUE_SETTING,
@@ -677,4 +785,5 @@ class TempoSession(object):
             )
             return SHORT_QUEUE_TENTHS / 10.0
 
+        settings.set_str(QUEUE_RESTORE_SETTING, "")
         return tenths / 10.0

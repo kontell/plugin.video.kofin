@@ -320,6 +320,27 @@ def inject(member, rate, seconds):
     member.write(member.tempo_path, "1.0000\n")
 
 
+def check_moving(members):
+    """Is every member's clock advancing? A frozen player answers RPC fine."""
+    first = {m.name: m.position() for m in members}
+    time.sleep(2.0)
+    for member in members:
+        before = first[member.name]
+        after = member.position()
+        if not before or not after:
+            log("%s: NO PLAYER" % member.name)
+        elif after[1] > before[1] + 500:
+            log(
+                "%s: clock advancing (%.1fs, speed %s)"
+                % (member.name, after[1] / 1000.0, after[3])
+            )
+        else:
+            log(
+                "%s: FROZEN at %.1fs (speed %s)"
+                % (member.name, after[1] / 1000.0, after[3])
+            )
+
+
 def wait_playing(members, timeout=60):
     deadline = time.time() + timeout
     seen = {}
@@ -478,6 +499,9 @@ def main(argv):
             report[scenario] = {"before": before, "after": after}
             show_logs(members, scenario)
 
+        elif scenario == "moving":
+            check_moving(members)
+
         elif scenario == "cut":
             for member in members:
                 member.mark_log()
@@ -502,7 +526,20 @@ def main(argv):
             time.sleep(6)
             wait_playing(members, timeout=20)
             describe_all(sample_all(a, followers, 15), followers, "cut after resume")
+            check_moving(members)
             show_logs(members, "cut")
+
+        elif scenario == "seek":
+            for member in members:
+                member.mark_log()
+            pos = a.position()
+            target = int((pos[1] + 60000.0) * 10000) if pos else 600000000
+            a.jellyfin(args.server, "POST", "/SyncPlay/Seek", {"PositionTicks": target})
+            time.sleep(12)
+            wait_playing(members, timeout=20)
+            describe_all(sample_all(a, followers, 15), followers, "seek after")
+            check_moving(members)
+            show_logs(members, "seek")
 
         elif scenario == "leave":
             for member in members:

@@ -452,10 +452,16 @@
   "#30819": "Afficher la distribution dans les listes de l'extension",
   "#30820": "Récupère la distribution et l'équipe pour les listes courtes de l'extension — Ajouts récents, En cours, À suivre, Reprendre la lecture, les résultats de recherche et les épisodes d'une série — afin que la fenêtre d'informations puisse les afficher. Les listes qui couvrent une médiathèque entière ne la récupèrent jamais, car le serveur a besoin d'environ une seconde par tranche de 40 éléments. La médiathèque Kodi a toujours la distribution.",
   "#30586": "Synchronisation fine via inputstream.tempo",
-  "#30587": "Maintient cet appareil sur la position du groupe entre les commandes en lisant quelques pour cent plus vite ou plus lentement pendant quelques secondes à la fois, via l'extension inputstream.tempo. Nécessite cette extension installée et fonctionne avec « Synchroniser la lecture à l'affichage » désactivé dans Kodi. Uniquement pour la vidéo lue directement, pas les transcodages. L'audio est décodé en PCM pendant la session, le passthrough est donc suspendu — voir le réglage suivant.",
+  "#30587": "Maintient cet appareil sur la position du groupe entre les commandes en lisant brièvement plus vite ou plus lentement, via l'extension inputstream.tempo (doit être installée ; laissez « Synchroniser la lecture à l'affichage » désactivé dans Kodi). Vidéo en lecture directe uniquement. L'audio est décodé en PCM pendant une session, le passthrough est donc suspendu.",
   "#30588": "Synchronisation fine avec le passthrough audio",
   "#30589": "Utiliser la synchronisation fine même lorsque le passthrough audio de Kodi est activé. Le récepteur reçoit du PCM multicanal au lieu d'un flux binaire pendant la session : convient à la plupart des installations, mais l'audio objet Atmos et DTS:X est perdu. Désactivé conserve le passthrough et laisse le groupe se caler sur les seules commandes.",
   "#30590": "File vidéo plus courte pendant les sessions (Kodi 22)",
   "#30591": "Règle le temps de file audio/vidéo de Kodi à 1 seconde dans un groupe et le rétablit ensuite. Un changement de vitesse ne s'entend qu'une fois la file lue, donc une file plus courte fait agir les corrections en 2 secondes environ au lieu de 5. Sur un réseau lent ou peu fiable, désactivez cette option. Kodi 21 a une file fixe de 8 secondes.",
-  "#30592": "Sync fine arrêtée : vitesses différentes"
+  "#30592": "Sync fine arrêtée : vitesses différentes",
+  "#30593": "Plus grande erreur corrigée par le tempo (ms)",
+  "#30594": "Les erreurs de position jusqu'à cette valeur sont corrigées en lisant plus vite ou plus lentement ; au-delà, par un saut. Plus haut signifie moins de sauts et des changements de vitesse plus longs.",
+  "#30595": "Vitesse de correction maximale (%)",
+  "#30596": "Variation maximale de la vitesse de lecture pendant une correction. À 25 %, une erreur de 2,5 secondes se corrige en 10 secondes ; plus bas est moins perceptible mais plus lent. Les grands changements sont appliqués progressivement.",
+  "#30597": "Synchronisation fine sur la vidéo AV1",
+  "#30598": "Désactivé par défaut, avec un avertissement : sur un Pixel 7, un changement de vitesse suivi d'un saut a bloqué le décodeur matériel AV1, puis le téléphone lui-même. Le décodeur AV1 d'un Bravia n'a posé aucun problème. N'activez que si votre appareil le supporte ; sinon les titres AV1 suivent le groupe par les seules commandes."
 }

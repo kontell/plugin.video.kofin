@@ -546,7 +546,43 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
-        <setting id="syncPlayTempoPassthrough" type="boolean" label="30588" help="30589">
+        <setting id="syncPlayPulseBudget" type="integer" label="30593" help="30594">
+          <level>0</level>
+          <default>2500</default>
+          <constraints>
+            <minimum>300</minimum>
+            <step>100</step>
+            <maximum>5000</maximum>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="syncPlayEnabled">true</condition>
+                <condition operator="is" setting="syncPlayTempo">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="slider" format="integer"/>
+        </setting>
+        <setting id="syncPlayMaxRate" type="integer" label="30595" help="30596">
+          <level>0</level>
+          <default>25</default>
+          <constraints>
+            <minimum>3</minimum>
+            <step>1</step>
+            <maximum>25</maximum>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="syncPlayEnabled">true</condition>
+                <condition operator="is" setting="syncPlayTempo">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="slider" format="integer"/>
+        </setting>
+        <setting id="syncPlayTempoAv1" type="boolean" label="30597" help="30598">
           <level>0</level>
           <default>false</default>
           <dependencies>

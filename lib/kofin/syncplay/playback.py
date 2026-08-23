@@ -299,6 +299,17 @@ class PlaybackController(object):
         if abs(behind_ms) <= utils.POST_RESUME_ALIGN_MS:
             return
 
+        if self.tempo.can_close(behind_ms):
+            # A skip is for gross errors: a residual fine sync can close is
+            # left to it — a few seconds at a raised rate instead of a visible
+            # cut; the scheduler measures again once the resume has played
+            # through the queue.
+            LOG.info(
+                "[ syncplay/align ] %+.0fms after the resume: left to fine sync",
+                behind_ms,
+            )
+            return
+
         LOG.info("[ syncplay/align ] %+.0fms after the resume landed", behind_ms)
         # Aimed ahead by what a seek costs here: the group keeps moving while
         # it lands, and a seek aimed at where the group *was* left +600-900 ms

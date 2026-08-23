@@ -59,14 +59,53 @@ class TestPlanner:
 
     def test_rate_stays_inside_the_band(self):
         for residual in (76.0, 100.0, 250.0, 300.0, 2000.0):
-            rate, seconds = plan_pulse(residual)
-            assert tempo.RATE_MIN - 1e-9 <= rate - 1.0 <= tempo.RATE_MAX + 1e-9
+            rate, seconds = plan_pulse(residual, 0.03)
+            assert tempo.RATE_MIN - 1e-9 <= abs(rate - 1.0) <= 0.03 + 1e-9
             assert 0 < seconds <= tempo.PULSE_MAX_S
 
     def test_budget_saturates_at_max_rate_and_duration(self):
-        rate, seconds = plan_pulse(5000.0)
-        assert rate == pytest.approx(1.0 + tempo.RATE_MAX)
+        rate, seconds = plan_pulse(50000.0)
+        assert rate == pytest.approx(1.0 + tempo.RATE_MAX_DEFAULT)
         assert seconds == tempo.PULSE_MAX_S
+        # The user's ceiling, never above the hard one.
+        assert plan_pulse(50000.0, 0.10)[0] == pytest.approx(1.10)
+        assert plan_pulse(50000.0, 0.90)[0] == pytest.approx(
+            1.0 + tempo.RATE_MAX_CEILING
+        )
+
+    def test_large_residual_uses_the_full_rate(self):
+        # 2.5 s at 25 %: the ten-second pulse the budget default is sized for.
+        rate, seconds = plan_pulse(2500.0)
+        assert rate == pytest.approx(1.25) and seconds == pytest.approx(10.0)
+
+
+class TestSchedule:
+    def test_small_rate_is_one_write_and_a_return(self):
+        assert tempo.pulse_schedule(1.03, 5.0) == [(0.0, 1.03), (5.0, 1.0)]
+        assert tempo.pulse_schedule(0.96, 4.0) == [(0.0, 0.96), (4.0, 1.0)]
+
+    def test_large_rate_ramps_in_and_out(self):
+        schedule = tempo.pulse_schedule(1.25, 10.0)
+        values = [value for _offset, value in schedule]
+        assert values == [1.05, 1.10, 1.15, 1.20, 1.25, 1.20, 1.15, 1.10, 1.05, 1.0]
+        offsets = [offset for offset, _value in schedule]
+        assert offsets == sorted(offsets)
+        # Ramp steps are RAMP_DT apart.
+        assert offsets[1] - offsets[0] == pytest.approx(tempo.RAMP_DT)
+        assert offsets[-1] - offsets[-2] == pytest.approx(tempo.RAMP_DT)
+
+    def test_ramped_schedule_moves_what_the_plan_promised(self):
+        for rate, seconds in ((1.25, 10.0), (0.80, 8.0), (1.12, 6.0)):
+            schedule = tempo.pulse_schedule(rate, seconds)
+            moved = 0.0
+            for (t0, value), (t1, _next) in zip(schedule, schedule[1:]):
+                moved += (value - 1.0) * (t1 - t0)
+            assert moved == pytest.approx((rate - 1.0) * seconds, rel=1e-6)
+
+    def test_a_short_pulse_keeps_a_minimum_hold(self):
+        schedule = tempo.pulse_schedule(1.25, 1.0)
+        hold = schedule[5][0] - schedule[4][0]
+        assert hold == pytest.approx(2.0 * tempo.RAMP_DT)
 
 
 class TestStateParsing:
@@ -285,7 +324,8 @@ class TestScheduler:
         assert scheduler._pulse is pulse
 
         # Time's up: the add-on confirms 1.0 and the quiet window starts.
-        monkeypatch.setattr(tempo.time, "time", lambda: pulse["end_at"] + 0.01)
+        end_at = pulse["writes"][-1][0]
+        monkeypatch.setattr(tempo.time, "time", lambda: end_at + 0.01)
         original = TempoFile.wait_applied
 
         def answering(self, r, after_seq, timeout_s=tempo.APPLY_TIMEOUT_S):
@@ -297,7 +337,7 @@ class TestScheduler:
         assert scheduler._pulse is None
         assert side.applied[-1] == 1.0
         assert scheduler._settle_until == pytest.approx(
-            pulse["end_at"] + 0.01 + scheduler.queue_secs + tempo.SETTLE_EXTRA_S
+            end_at + 0.01 + scheduler.queue_secs + tempo.SETTLE_EXTRA_S
         )
         assert len(scheduler._history) == 1
 
@@ -358,22 +398,24 @@ class TestScheduler:
 
     def test_residual_beyond_the_budget_seeks(self, rig):
         scheduler, controller, side = rig
-        fill_window(scheduler, controller, 800.0, extra=1)
+        fill_window(scheduler, controller, 3000.0, extra=1)
         assert controller.corrections == 1
         assert side.rate_written() == 1.0
         assert scheduler._seek_blackout_until > time.time()
         # The blackout holds a second seek off — and what the seek left behind
         # is closed by a saturated pulse instead of waited out.
         scheduler._settle_until = 0.0
-        start_pulse(scheduler, controller, side, 800.0)
+        start_pulse(scheduler, controller, side, 3000.0)
         assert controller.corrections == 1
         assert scheduler._pulse is not None
-        assert side.applied[-1] == pytest.approx(1.0 + tempo.RATE_MAX)
+        # Ramped: the first write is the first step, the plan is the ceiling.
+        assert side.applied[-1] == pytest.approx(1.0 + tempo.RAMP_STEP)
+        assert scheduler._pulse["rate"] == pytest.approx(1.0 + tempo.RATE_MAX_DEFAULT)
         assert scheduler._pulse["seconds"] == tempo.PULSE_MAX_S
 
     def test_mixed_window_does_not_seek(self, rig):
         scheduler, controller, side = rig
-        fill_window(scheduler, controller, 800.0)
+        fill_window(scheduler, controller, 3000.0)
         controller.local_ms = controller.group_ms - 100.0  # one sample inside
         scheduler.tick()
         assert controller.corrections == 0
@@ -405,33 +447,58 @@ class TestGiveUp:
             for _ in range(count)
         ]
 
-    def test_one_signed_fast_regrowth_gives_up(self, rig):
+    def test_one_signed_steady_regrowth_gives_up(self, rig):
         scheduler, controller, side = rig
         scheduler.tick()
-        self._history(scheduler, 1, tempo.GIVEUP_PPM * 2)
-        # 100 ms regrown in ~1 s is 100 000 ppm: well past the line.
-        assert scheduler._losing(100.0, time.time()) is True
+        # 3 % mismatch: ~30 ms regrown per second between pulses, steadily.
+        self._history(scheduler, 1, 30000.0)
+        assert scheduler._losing(30.0, time.time()) is True
         scheduler._give_up()
         assert scheduler._gave_up is True
         assert controller.manager.mismatch == 1
+
+    def test_a_step_is_not_a_rate(self, rig):
+        scheduler, controller, side = rig
+        scheduler.tick()
+        self._history(scheduler, 1, 30000.0)
+        # 1 s regrown in ~1 s is a stall or a seek, not a mismatch.
+        assert scheduler._losing(1000.0, time.time()) is False
+
+    def test_rates_must_agree(self, rig):
+        scheduler, controller, side = rig
+        scheduler.tick()
+        self._history(scheduler, 1, 4000.0)
+        scheduler._history[-1]["ppm"] = 40000.0  # one pulse ten times the others
+        assert scheduler._losing(30.0, time.time()) is False
+
+    def test_a_command_is_a_fresh_start(self, rig):
+        scheduler, controller, side = rig
+        scheduler.tick()
+        self._history(scheduler, 1, 30000.0)
+        scheduler._gave_up = True
+        scheduler.cancel("Seek")
+        assert scheduler._history == [] and scheduler._gave_up is False
+        self._history(scheduler, 1, 30000.0)
+        scheduler.note_settle()
+        assert scheduler._history == []
 
     def test_slow_regrowth_is_drift_not_mismatch(self, rig):
         scheduler, controller, side = rig
         scheduler.tick()
         self._history(scheduler, 1, tempo.GIVEUP_PPM / 2)
-        assert scheduler._losing(100.0, time.time()) is False
+        assert scheduler._losing(1.5, time.time()) is False
 
     def test_alternating_directions_never_give_up(self, rig):
         scheduler, controller, side = rig
         scheduler.tick()
         self._history(scheduler, 1, tempo.GIVEUP_PPM * 2)
         scheduler._history[1]["direction"] = -1
-        assert scheduler._losing(100.0, time.time()) is False
+        assert scheduler._losing(6.0, time.time()) is False
 
     def test_too_few_pulses(self, rig):
         scheduler, controller, side = rig
         self._history(scheduler, 1, tempo.GIVEUP_PPM * 2, count=1)
-        assert scheduler._losing(100.0, time.time()) is False
+        assert scheduler._losing(6.0, time.time()) is False
 
     def test_given_up_item_is_not_pulsed(self, rig):
         scheduler, controller, side = rig
@@ -484,7 +551,6 @@ def session_env(monkeypatch, tmp_path):
     )
     FakeAddon.store["syncPlayTempo"] = "true"
     FakeAddon.store["syncPlayShortQueue"] = "true"
-    FakeAddon.store["syncPlayTempoPassthrough"] = "false"
 
     def install(rpc):
         monkeypatch.setattr("xbmc.executeJSONRPC", rpc)
@@ -551,23 +617,16 @@ def test_session_leaves_the_queue_when_told_to(session_env):
 
 
 @pytest.mark.parametrize(
-    "addon, passthrough, allow, setting",
+    "addon, setting",
     [
-        (None, False, "false", "true"),  # not installed
-        ({"enabled": False}, False, "false", "true"),  # disabled
-        ({"enabled": True}, True, "false", "true"),  # passthrough, not allowed
-        ({"enabled": True}, False, "false", "false"),  # feature off
+        (None, "true"),  # not installed
+        ({"enabled": False}, "true"),  # disabled
+        ({"enabled": True}, "false"),  # feature off
     ],
 )
-def test_session_does_not_arm(session_env, addon, passthrough, allow, setting):
-    FakeAddon.store["syncPlayTempoPassthrough"] = allow
+def test_session_does_not_arm(session_env, addon, setting):
     FakeAddon.store["syncPlayTempo"] = setting
-    rpc = session_env(
-        RpcStub(
-            {"videoplayer.queuetimesize": 40, "audiooutput.passthrough": passthrough},
-            addon,
-        )
-    )
+    rpc = session_env(RpcStub({"videoplayer.queuetimesize": 40}, addon))
     session = TempoSession()
     session.begin()
     assert not session.active
@@ -575,8 +634,9 @@ def test_session_does_not_arm(session_env, addon, passthrough, allow, setting):
     assert rpc.writes == []
 
 
-def test_session_with_passthrough_allowed(session_env):
-    FakeAddon.store["syncPlayTempoPassthrough"] = "true"
+def test_session_arms_with_passthrough_on(session_env):
+    # Passthrough is suspended for the session, and the help text says so;
+    # there is no second toggle.
     session_env(
         RpcStub(
             {"videoplayer.queuetimesize": 40, "audiooutput.passthrough": True},
@@ -586,6 +646,27 @@ def test_session_with_passthrough_allowed(session_env):
     session = TempoSession()
     session.begin()
     assert session.active
+
+
+def test_session_leaves_the_queue_when_the_record_cannot_be_kept(
+    session_env, monkeypatch
+):
+    rpc = session_env(RpcStub({"videoplayer.queuetimesize": 40}, {"enabled": True}))
+    monkeypatch.setattr("kofin.core.settings.set_str", lambda key, value: None)
+    TempoSession().begin()
+    assert rpc.writes == []  # not shortened: nobody could have restored it
+    assert state.syncplay_tempo()["queue_secs"] == 4.0
+
+
+def test_scheduler_reads_the_sliders(rig):
+    scheduler, controller, side = rig
+    FakeAddon.store["syncPlayPulseBudget"] = "1200"
+    FakeAddon.store["syncPlayMaxRate"] = "10"
+    scheduler.tick()
+    assert scheduler.budget_ms == 1200.0 and scheduler.rate_max == pytest.approx(0.10)
+    assert scheduler.can_close(1000.0) and not scheduler.can_close(1500.0)
+    scheduler.file = None
+    assert not scheduler.can_close(100.0)
 
 
 def test_restore_queue_after_an_interrupted_session(session_env):

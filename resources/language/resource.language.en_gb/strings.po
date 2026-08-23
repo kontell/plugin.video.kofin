@@ -1342,14 +1342,16 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr ""
 
-# 30586-30592 — SyncPlay fine sync through inputstream.tempo
+# 30586-30598 — SyncPlay fine sync through inputstream.tempo
 # (lib/kofin/syncplay/tempo.py, docs/syncplay-fine-sync.md). #30592 is a toast.
+# 30588-30589 retired (the passthrough toggle folded into #30587's help); kept,
+# never reused, for the reason given at #30744.
 msgctxt "#30586"
 msgid "Fine sync through inputstream.tempo"
 msgstr ""
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by playing a few percent faster or slower for a few seconds at a time, through the inputstream.tempo add-on. Needs that add-on installed and works with Kodi's 'Sync playback to display' off. Only for video played directly, not transcodes. Audio is decoded to PCM for the session, so passthrough is suspended — see the next setting."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs it installed; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
 msgstr ""
 
 msgctxt "#30588"
@@ -1370,6 +1372,30 @@ msgstr ""
 
 msgctxt "#30592"
 msgid "Fine sync stopped: rate mismatch"
+msgstr ""
+
+msgctxt "#30593"
+msgid "Largest error closed by tempo (ms)"
+msgstr ""
+
+msgctxt "#30594"
+msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
+msgstr ""
+
+msgctxt "#30595"
+msgid "Fastest correction speed (%)"
+msgstr ""
+
+msgctxt "#30596"
+msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
+msgstr ""
+
+msgctxt "#30597"
+msgid "Fine sync on AV1 video"
+msgstr ""
+
+msgctxt "#30598"
+msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
 msgstr ""
 
 # 30600-30619 — phase 5: KofinSyncQueue tier + retention + progress

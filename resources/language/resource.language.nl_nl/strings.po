@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Fijnafstemming via inputstream.tempo"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by playing a few percent faster or slower for a few seconds at a time, through the inputstream.tempo add-on. Needs that add-on installed and works with Kodi's 'Sync playback to display' off. Only for video played directly, not transcodes. Audio is decoded to PCM for the session, so passthrough is suspended — see the next setting."
-msgstr "Houdt dit apparaat tussen groepscommando's op de groepspositie door via de add-on inputstream.tempo telkens een paar seconden een paar procent sneller of langzamer af te spelen. Vereist die geïnstalleerde add-on en werkt met 'Afspelen synchroniseren met scherm' uit in Kodi. Alleen voor direct afgespeelde video, niet voor transcodes. Audio wordt voor de sessie naar PCM gedecodeerd, dus passthrough is opgeschort — zie de volgende instelling."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs it installed; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Houdt dit apparaat tussen groepscommando's op de groepspositie door via de add-on inputstream.tempo kort sneller of langzamer af te spelen (moet geïnstalleerd zijn; laat 'Afspelen synchroniseren met scherm' uit in Kodi). Alleen direct afgespeelde video. Audio wordt tijdens een sessie naar PCM gedecodeerd, dus passthrough is opgeschort."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -1331,6 +1331,30 @@ msgstr "Zet Kodi's audio-/videowachtrijtijd in een groep op 1 seconde en herstel
 msgctxt "#30592"
 msgid "Fine sync stopped: rate mismatch"
 msgstr "Fijnafstemming gestopt: tempo wijkt af"
+
+msgctxt "#30593"
+msgid "Largest error closed by tempo (ms)"
+msgstr "Grootste fout die tempo wegwerkt (ms)"
+
+msgctxt "#30594"
+msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
+msgstr "Positiefouten tot hier worden weggewerkt door sneller of langzamer af te spelen; alles groter met een sprong. Hoger betekent minder sprongen en langere snelheidswijzigingen."
+
+msgctxt "#30595"
+msgid "Fastest correction speed (%)"
+msgstr "Snelste correctiesnelheid (%)"
+
+msgctxt "#30596"
+msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
+msgstr "Hoeveel de afspeelsnelheid tijdens een correctie maximaal mag veranderen. Bij 25% is een fout van 2,5 seconde in 10 seconden weg; lager valt minder op maar duurt langer. Grote wijzigingen worden geleidelijk in- en uitgezet."
+
+msgctxt "#30597"
+msgid "Fine sync on AV1 video"
+msgstr "Fijnafstemming bij AV1-video"
+
+msgctxt "#30598"
+msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone."
+msgstr "Standaard uit, met een waarschuwing: op een Pixel 7 liet een snelheidswijziging gevolgd door een sprong de AV1-hardwaredecoder en daarna de telefoon zelf vastlopen. De AV1-decoder van een Bravia had er geen last van. Alleen aanzetten als je apparaat het aankan; anders volgen AV1-titels de groep alleen via commando's."
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
