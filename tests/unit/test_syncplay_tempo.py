@@ -125,6 +125,14 @@ class TestStateParsing:
         assert parse_state("[1,2]") is None
         assert parse_state('{"tempo": 1.0}') is None  # no seq: not a state line
 
+    def test_addon_floor(self):
+        assert tempo.addon_is_recent("22.4.1") and tempo.addon_is_recent("21.4.1")
+        assert tempo.addon_is_recent("22.5.0") and tempo.addon_is_recent("23.4.1")
+        assert not tempo.addon_is_recent("22.4.0") and not tempo.addon_is_recent(
+            "22.3.11"
+        )
+        assert not tempo.addon_is_recent("") and not tempo.addon_is_recent("x")
+
     def test_regrowth(self):
         assert tempo.regrowth_ppm(50.0, 5.0) == pytest.approx(10000.0)
         assert tempo.regrowth_ppm(50.0, 0.0) == 0.0
@@ -549,9 +557,8 @@ class RpcStub:
         if method == "Addons.GetAddonDetails":
             if self.addon is None:
                 return json.dumps({"error": {"code": -32602}})
-            return json.dumps(
-                {"result": {"addon": {"addonid": params["addonid"], **self.addon}}}
-            )
+            addon = {"addonid": params["addonid"], "version": "22.4.1", **self.addon}
+            return json.dumps({"result": {"addon": addon}})
         raise AssertionError(method)
 
 
@@ -633,6 +640,7 @@ def test_session_leaves_the_queue_when_told_to(session_env):
         (None, "true"),  # not installed
         ({"enabled": False}, "true"),  # disabled
         ({"enabled": True}, "false"),  # feature off
+        ({"enabled": True, "version": "22.4.0"}, "true"),  # drops post-seek packets
     ],
 )
 def test_session_does_not_arm(session_env, addon, setting):

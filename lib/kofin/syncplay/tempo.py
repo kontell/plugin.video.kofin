@@ -54,6 +54,10 @@ from kofin.core.log import Logger
 LOG = Logger(__name__)
 
 ADDON_ID = "inputstream.tempo"
+# The add-on's x.4.1 (21.4.1 Omega, 22.4.1 Piers) keeps the first packets after
+# a seek; x.4.0 freed them, which a Pixel 7's AV1 decoder could not take. The
+# major is the Kodi version, so the floor is on minor.patch.
+ADDON_MIN_PATCH = "x.4.1"
 # kofin's own file, never koshelf's special://temp/inputstream_tempo: an
 # audiobook and a SyncPlay session would otherwise write over each other.
 TEMPO_FILE = "special://temp/kofin_syncplay_tempo"
@@ -199,6 +203,16 @@ def head_delta(state_line):
         return float(state_line.get("delta_ms") or 0.0)
 
     return content - output
+
+
+def addon_is_recent(version):
+    """Whether an inputstream.tempo version is at least x.4.1 on its channel."""
+    try:
+        parts = [int(part) for part in str(version).split(".")[:3]]
+    except ValueError:
+        return False
+
+    return len(parts) == 3 and (parts[1], parts[2]) >= (4, 1)
 
 
 def regrowth_ppm(residual_ms, elapsed_s):
@@ -702,13 +716,23 @@ class TempoSession(object):
             LOG.info("[ syncplay/tempo ] fine sync is off in settings")
             return
 
-        enabled = kodirpc.addon_enabled(ADDON_ID)
+        details = kodirpc.addon_details(ADDON_ID)
 
-        if not enabled:
+        if not details or not details["enabled"]:
             LOG.info(
                 "[ syncplay/tempo ] fine sync unavailable: %s is %s",
                 ADDON_ID,
-                "disabled" if enabled is False else "not installed",
+                "disabled" if details else "not installed",
+            )
+            return
+
+        if not addon_is_recent(details["version"]):
+            LOG.info(
+                "[ syncplay/tempo ] fine sync unavailable: %s %s is older than "
+                "%s; it drops the first packets after a seek",
+                ADDON_ID,
+                details["version"],
+                ADDON_MIN_PATCH,
             )
             return
 

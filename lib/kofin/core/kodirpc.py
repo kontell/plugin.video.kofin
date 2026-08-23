@@ -441,9 +441,9 @@ def set_kodi_setting(setting_id: str, value: Any) -> bool:
     return result is True
 
 
-def addon_enabled(addon_id: str) -> Optional[bool]:
-    """Whether an add-on is installed and enabled: True, False, or None when it
-    is not installed at all."""
+def addon_details(addon_id: str) -> Optional[Dict[str, Any]]:
+    """``{"enabled": bool, "version": str}`` for an installed add-on, or None
+    when it is not installed at all."""
     result = _call(
         "Addons.GetAddonDetails",
         {"addonid": addon_id, "properties": ["enabled", "version"]},
@@ -451,7 +451,17 @@ def addon_enabled(addon_id: str) -> Optional[bool]:
     addon = result.get("addon") if isinstance(result, dict) else None
     if not isinstance(addon, dict):
         return None
-    return bool(addon.get("enabled"))
+    return {
+        "enabled": bool(addon.get("enabled")),
+        "version": str(addon.get("version") or ""),
+    }
+
+
+def addon_enabled(addon_id: str) -> Optional[bool]:
+    """Whether an add-on is installed and enabled: True, False, or None when it
+    is not installed at all."""
+    details = addon_details(addon_id)
+    return None if details is None else details["enabled"]
 
 
 def clear_resume_bookmark(path: str) -> bool:
