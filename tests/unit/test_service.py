@@ -1,9 +1,10 @@
 import threading
+import time
 
 import pytest
 
 from kofin.core import ipc, state
-from kofin.service.main import Backoff, Service
+from kofin.service.main import LOST_TOAST_GRACE_SECONDS, Backoff, Service
 from tests.unit.fakes import FakeAddon, FakeWindow
 
 # How long a stray worker is given to finish before it is called a leak. Only
@@ -473,13 +474,197 @@ def toasts(monkeypatch):
     return RecordingDialog.raised
 
 
-def test_disconnect_is_announced(toasts):
+def _connected_service(monkeypatch):
+    """A service past its first connect, with the post-connect pass stubbed
+    (see test_connect_names_the_server for why it is not waited for)."""
     FakeAddon.store["notifyConnection"] = "true"
+    FakeAddon.store["serverName"] = "minipie"
     service = Service()
+    monkeypatch.setattr(service, "_run_post_connect", lambda: None)
+    service._on_ws_connected()
+    return service
+
+
+def _expire_grace(service):
+    """Backdate the drop so the next tick finds the grace already spent."""
+    assert service._down_since is not None
+    service._down_since = time.monotonic() - LOST_TOAST_GRACE_SECONDS
+
+
+def _messages(toasts):
+    return [message for _heading, message in toasts]
+
+
+def test_a_lost_connection_is_announced_after_the_grace(toasts, monkeypatch):
+    """The disconnect edge stamps the drop rather than toasting: one that
+    heals inside the grace is not news. On an Android TV in standby it is
+    routine — the socket recycles for hours and Kodi replays every queued
+    toast at wake (kodi-drive: kodi-android-standby)."""
+    service = _connected_service(monkeypatch)
 
     service._on_ws_disconnected()
+    service._maybe_announce_lost()
+    assert _messages(toasts) == ["Connected to minipie"]  # the edge says nothing
 
-    assert toasts == [("Kofin", "Lost connection")]
+    _expire_grace(service)
+    service._maybe_announce_lost()
+    assert _messages(toasts) == ["Connected to minipie", "Lost connection"]
+
+    # Announced once: the stamp is consumed with the toast.
+    assert service._down_since is None
+    service._maybe_announce_lost()
+    assert len(toasts) == 2
+
+
+def test_the_service_tick_owns_the_lost_toast(toasts, monkeypatch, tmp_path):
+    """No timer thread of its own: the loop that already answers a dropped
+    socket's first question (_verify_online) answers the slower one too —
+    so there is nothing to cancel at shutdown, and nothing outlives a test
+    that only wanted the online flag flipped."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = _connected_service(monkeypatch)
+
+    class AliveApi:
+        def probe_info(self):
+            return {"ServerName": "still here"}
+
+    service.api = AliveApi()
+    service._on_ws_disconnected()
+    _expire_grace(service)
+
+    service._tick()
+
+    assert _messages(toasts) == ["Connected to minipie", "Lost connection"]
+    assert not [t for t in threading.enumerate() if t.name.startswith("kofin-lost")]
+
+
+def test_a_blip_inside_the_grace_is_silent(toasts, monkeypatch):
+    service = _connected_service(monkeypatch)
+
+    service._on_ws_disconnected()
+    service._on_ws_connected()  # healed inside the grace: no loss, no close-out
+    assert service._down_since is None
+
+    service._maybe_announce_lost()  # and nothing left behind for a later tick
+    assert _messages(toasts) == ["Connected to minipie"]
+
+
+def test_reconnect_after_an_announced_loss_is_announced(toasts, monkeypatch):
+    service = _connected_service(monkeypatch)
+
+    service._on_ws_disconnected()
+    _expire_grace(service)
+    service._maybe_announce_lost()
+    service._on_ws_connected()
+
+    assert _messages(toasts) == [
+        "Connected to minipie",
+        "Lost connection",
+        "Connected to minipie",
+    ]
+
+
+def test_reconnect_after_a_server_notice_is_announced(toasts, monkeypatch):
+    """ServerRestarting was shown, so the drop that follows is explained —
+    and the recovery gets its close-out even though the socket healed inside
+    the grace."""
+    service = _connected_service(monkeypatch)
+
+    service._on_ws_event("ServerRestarting", {})
+    service._on_ws_disconnected()
+    service._on_ws_connected()
+
+    assert _messages(toasts) == [
+        "Connected to minipie",
+        "Restarting",
+        "Connected to minipie",
+    ]
+
+
+def test_a_server_notice_stands_in_for_the_lost_toast(toasts, monkeypatch):
+    """Restarting, then Lost, then Connected would be an edge pair again: the
+    notice already said the server was going away, so the grace expiring
+    adds nothing. The reconnect still gets its close-out."""
+    service = _connected_service(monkeypatch)
+
+    service._on_ws_event("ServerRestarting", {})
+    service._on_ws_disconnected()
+    _expire_grace(service)
+    service._maybe_announce_lost()
+    service._on_ws_connected()
+
+    assert _messages(toasts) == [
+        "Connected to minipie",
+        "Restarting",
+        "Connected to minipie",
+    ]
+
+
+def test_a_reconnect_racing_the_lost_toast_queues_behind_it(toasts, monkeypatch):
+    """Review of #187: deciding under the lock and toasting outside it left a
+    gap in which a reconnect on the websocket thread could announce
+    "Connected" before "Lost" was queued, leaving the last notice wrong.
+    The toast is now raised under the same lock, so a connect that lands
+    mid-toast waits for it — this test parks one there and checks the
+    order the user sees."""
+    import xbmcgui
+
+    service = _connected_service(monkeypatch)
+    service._on_ws_disconnected()
+    _expire_grace(service)
+
+    reconnect = threading.Thread(target=service._on_ws_connected, name="reconnect")
+    still_waiting = []
+
+    class RacingDialog(RecordingDialog):
+        def notification(self, heading, message, icon=None, time=None, sound=None):
+            if message == "Lost connection":
+                reconnect.start()
+                reconnect.join(timeout=0.3)
+                # Recorded rather than asserted: _connection_toast swallows
+                # anything raised in here.
+                still_waiting.append(reconnect.is_alive())
+            super().notification(heading, message, icon, time, sound)
+
+    monkeypatch.setattr(xbmcgui, "Dialog", RacingDialog)
+
+    service._maybe_announce_lost()
+    reconnect.join(timeout=5)
+
+    assert not reconnect.is_alive()
+    assert still_waiting == [True]
+    assert _messages(toasts) == [
+        "Connected to minipie",
+        "Lost connection",
+        "Connected to minipie",
+    ]
+
+
+def test_a_loss_pending_at_shutdown_is_never_announced(toasts, monkeypatch):
+    service = _connected_service(monkeypatch)
+
+    service._on_ws_disconnected()
+    _expire_grace(service)
+    service._shutdown()
+    service._maybe_announce_lost()
+
+    assert _messages(toasts) == ["Connected to minipie"]
+
+
+def test_a_loss_is_silent_once_kodi_is_stopping(toasts, monkeypatch):
+    """abortRequested is raised before _shutdown runs (the loop is what
+    notices it), and a replacement generation may already be live: a tick
+    caught in that window keeps quiet, the way the transports do."""
+    service = _connected_service(monkeypatch)
+
+    service._on_ws_disconnected()
+    _expire_grace(service)
+    monkeypatch.setattr(service, "abortRequested", lambda: True)
+    service._maybe_announce_lost()
+
+    assert _messages(toasts) == ["Connected to minipie"]
 
 
 def test_connect_names_the_server(toasts, monkeypatch):
@@ -586,30 +771,33 @@ def test_only_connecting_is_good_news(toasts, monkeypatch):
     going away are adverse, and read faster with Kodi's warning glyph."""
     import xbmcgui
 
-    FakeAddon.store["notifyConnection"] = "true"
-    FakeAddon.store["serverName"] = "minipie"
-    service = Service()
-    # Stubbed, not waited for: every icon asserted below is raised on the
-    # calling thread, and a live worker could put one of its own between two
-    # of these reads of icons[-1].
-    monkeypatch.setattr(service, "_run_post_connect", lambda: None)
-
-    service._on_ws_connected()
+    # The post-connect pass is stubbed, not waited for: every icon asserted
+    # below is raised on the calling thread, and a live worker could put one
+    # of its own between two of these reads of icons[-1].
+    service = _connected_service(monkeypatch)
     assert RecordingDialog.icons[-1].endswith("icon.png")
 
     service._on_ws_disconnected()
+    _expire_grace(service)
+    service._maybe_announce_lost()
     assert RecordingDialog.icons[-1] == xbmcgui.NOTIFICATION_WARNING
 
     service._on_ws_event("ServerRestarting", {})
     assert RecordingDialog.icons[-1] == xbmcgui.NOTIFICATION_WARNING
 
 
-def test_notifications_can_be_switched_off(toasts):
+def test_notifications_can_be_switched_off(toasts, monkeypatch):
     FakeAddon.store["notifyConnection"] = "false"
+    FakeAddon.store["serverName"] = "minipie"
     service = Service()
+    monkeypatch.setattr(service, "_run_post_connect", lambda: None)
 
+    service._on_ws_connected()
     service._on_ws_disconnected()
+    _expire_grace(service)
+    service._maybe_announce_lost()
     service._on_ws_event("ServerRestarting", {})
+    service._on_ws_connected()
 
     assert toasts == []
 
