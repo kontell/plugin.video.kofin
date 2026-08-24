@@ -85,6 +85,18 @@ SERVER_LIFECYCLE_MESSAGES = {
     "ServerShuttingDown": 30418,
 }
 
+# How long a dropped websocket may stay down before the user hears about it.
+# The disconnect callback arms a timer instead of toasting: a drop that heals
+# inside the grace was never something the user could act on, and on an
+# Android TV in standby it is routine — one Bravia recycled its socket 16
+# times across a fourteen-hour standby (reconnects took 16-81 s), and Kodi
+# queued every lost/connected pair for a back-to-back replay at wake, because
+# the GUI does not run without a rendering surface (kodi-drive:
+# kodi-android-standby, observed 2026-08-22). 90 s clears every self-healing
+# reconnect seen there while still announcing a real outage well before
+# anyone goes looking for server logs.
+LOST_TOAST_GRACE_SECONDS = 90.0
+
 CAPABILITIES: Dict[str, Any] = {
     "PlayableMediaTypes": "Audio,Video",
     "SupportsMediaControl": True,
@@ -175,6 +187,16 @@ class Service(xbmc.Monitor):
         # moment the post-connect worker got around to queueing it — see
         # _catch_up_after_reconnect.
         self._ws_connected_at: Optional[float] = None
+        # Connection-toast coalescing (see _connection_toast): the pending
+        # grace timer with its generation stamp, whether an adverse notice
+        # was actually shown, and whether this generation has connected at
+        # all. The lock covers them as one — the arming edge, the timer
+        # firing and the reconnect all run on different threads.
+        self._conn_toast_lock = threading.Lock()
+        self._lost_toast_timer: Optional[threading.Timer] = None
+        self._lost_toast_gen = 0
+        self._downtime_announced = False
+        self._ever_connected = False
         # This generation's IPC secret (see ipc.GUARDED): minted here so the
         # plugin process picks it up from the moment the service exists, and
         # invalidated by the next restart.
@@ -674,9 +696,17 @@ class Service(xbmc.Monitor):
     ) -> None:
         """Tell the user the server came, went or is restarting.
 
-        The websocket is the honest source for this: it is the connection the
-        user perceives, and it reports its own open and close. Opt-out lives
-        in the advanced sync settings for anyone who does not want the noise.
+        The websocket is the honest source for this: it is the connection
+        the user perceives, and it reports its own open and close. But its
+        edges are noisier than the state the user cares about — an Android TV
+        in standby drops and remakes the socket for hours, and Kodi replays
+        every queued pair when the screen comes back (kodi-drive:
+        kodi-android-standby) — so the edges are coalesced into states:
+        "lost" waits out LOST_TOAST_GRACE_SECONDS and fires only if the
+        socket is still down, and "connected" is announced only on this
+        generation's first connect or after an adverse notice was actually
+        shown. Opt-out lives in the advanced sync settings for anyone who
+        does not want even that.
 
         Connecting is the only good news here; losing the connection, and a
         server restarting or shutting down, are all adverse and carry Kodi's
@@ -716,9 +746,45 @@ class Service(xbmc.Monitor):
             LOG.warning("capabilities registration failed: %s", error)
 
     def _on_ws_disconnected(self) -> None:
-        self._connection_toast(30416, level=toast.WARNING)
+        with self._conn_toast_lock:
+            self._lost_toast_gen += 1
+            gen = self._lost_toast_gen
+            if self._lost_toast_timer is not None:
+                self._lost_toast_timer.cancel()
+            timer = threading.Timer(
+                LOST_TOAST_GRACE_SECONDS, self._lost_toast_due, args=(gen,)
+            )
+            timer.name = "kofin-lost-toast"
+            timer.daemon = True
+            self._lost_toast_timer = timer
+            timer.start()
         # A question for the next tick, not a verdict (see _verify_connection).
         self._verify_online = True
+
+    def _lost_toast_due(self, gen: int) -> None:
+        """The grace ran out with the socket still down: now it is news.
+
+        The generation stamp is the race guard — a reconnect or a newer drop
+        bumps it, so a stale timer that fires anyway (cancel() cannot recall
+        one already through the gate) finds itself outvoted and returns.
+        """
+        with self._conn_toast_lock:
+            if gen != self._lost_toast_gen or self._stopping.is_set():
+                return
+            self._lost_toast_timer = None
+            if not settings.get_bool("notifyConnection"):
+                return
+            # Stamped before the toast rather than after it: the flag is what
+            # entitles the next reconnect to its close-out.
+            self._downtime_announced = True
+        self._connection_toast(30416, level=toast.WARNING)
+
+    def _cancel_lost_toast(self) -> None:
+        with self._conn_toast_lock:
+            self._lost_toast_gen += 1
+            if self._lost_toast_timer is not None:
+                self._lost_toast_timer.cancel()
+                self._lost_toast_timer = None
 
     def _on_ws_connected(self) -> None:
         """Runs on the websocket's own receive loop — toast, spawn, return.
@@ -737,7 +803,16 @@ class Service(xbmc.Monitor):
         # pushed while the socket was down predates this moment, which is
         # what the reconnect catch-up's coalesce stamp wants to say.
         self._ws_connected_at = time.monotonic()
-        self._connection_toast(30415, self.credentials.server_name or "")
+        with self._conn_toast_lock:
+            self._lost_toast_gen += 1
+            if self._lost_toast_timer is not None:
+                self._lost_toast_timer.cancel()
+                self._lost_toast_timer = None
+            announce = not self._ever_connected or self._downtime_announced
+            self._downtime_announced = False
+            self._ever_connected = True
+        if announce:
+            self._connection_toast(30415, self.credentials.server_name or "")
         # A live socket is the best evidence there is, and the websocket
         # reconnects itself — so this is a raising edge in its own right,
         # not only ``_connect``'s.
@@ -876,6 +951,12 @@ class Service(xbmc.Monitor):
         # events: neither carries a payload the sync cares about.
         if message_type in SERVER_LIFECYCLE_MESSAGES:
             LOG.info("[ %s ]", message_type)
+            if settings.get_bool("notifyConnection"):
+                # An announced restart or shutdown counts as announced
+                # downtime: the reconnect that follows gets its close-out
+                # even when the socket heals inside the grace.
+                with self._conn_toast_lock:
+                    self._downtime_announced = True
             self._connection_toast(
                 SERVER_LIFECYCLE_MESSAGES[message_type], level=toast.WARNING
             )
@@ -1116,6 +1197,10 @@ class Service(xbmc.Monitor):
         if not self._superseded():
             state.set_should_stop(True)
         self._stop_syncplay()
+        # A pending "connection lost" toast dies with the generation — the
+        # timer thread would otherwise outlive the teardown by up to the
+        # grace, and its verdict belongs to a service that no longer exists.
+        self._cancel_lost_toast()
         # The websocket goes down before the library, not after: every event
         # it dispatches lands in the Library's queues — or, for UserDataChanged,
         # opens the kofin database — on the websocket thread, so a message

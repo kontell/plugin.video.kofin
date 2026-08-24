@@ -473,13 +473,94 @@ def toasts(monkeypatch):
     return RecordingDialog.raised
 
 
-def test_disconnect_is_announced(toasts):
+def test_a_lost_connection_is_announced_after_the_grace(toasts, monkeypatch):
+    """The disconnect edge arms a timer rather than toasting: a drop that
+    heals inside the grace is not news. On an Android TV in standby it is
+    routine — the socket recycles for hours and Kodi replays every queued
+    toast at wake (kodi-drive: kodi-android-standby)."""
+    monkeypatch.setattr("kofin.service.main.LOST_TOAST_GRACE_SECONDS", 0.01)
     FakeAddon.store["notifyConnection"] = "true"
     service = Service()
 
     service._on_ws_disconnected()
+    assert toasts == []  # the edge itself says nothing
+
+    timer = service._lost_toast_timer
+    assert timer is not None
+    timer.join(timeout=5)
 
     assert toasts == [("Kofin", "Lost connection")]
+
+
+def test_a_blip_inside_the_grace_is_silent(toasts, monkeypatch):
+    FakeAddon.store["notifyConnection"] = "true"
+    FakeAddon.store["serverName"] = "minipie"
+    service = Service()
+    monkeypatch.setattr(service, "_run_post_connect", lambda: None)
+
+    service._on_ws_connected()  # the generation's first connect announces
+    service._on_ws_disconnected()  # real grace: nothing fires in this test
+    service._on_ws_connected()  # healed inside it: no loss shown, no close-out
+
+    assert [message for _h, message in toasts] == ["Connected to minipie"]
+    assert service._lost_toast_timer is None
+
+
+def test_reconnect_after_an_announced_loss_is_announced(toasts, monkeypatch):
+    monkeypatch.setattr("kofin.service.main.LOST_TOAST_GRACE_SECONDS", 0.01)
+    FakeAddon.store["notifyConnection"] = "true"
+    FakeAddon.store["serverName"] = "minipie"
+    service = Service()
+    monkeypatch.setattr(service, "_run_post_connect", lambda: None)
+
+    service._on_ws_connected()
+    service._on_ws_disconnected()
+    timer = service._lost_toast_timer
+    assert timer is not None
+    timer.join(timeout=5)
+    service._on_ws_connected()
+
+    assert [message for _h, message in toasts] == [
+        "Connected to minipie",
+        "Lost connection",
+        "Connected to minipie",
+    ]
+
+
+def test_reconnect_after_a_server_notice_is_announced(toasts, monkeypatch):
+    """ServerRestarting was shown, so the drop that follows is explained —
+    and the recovery gets its close-out even though the socket healed inside
+    the grace."""
+    FakeAddon.store["notifyConnection"] = "true"
+    FakeAddon.store["serverName"] = "minipie"
+    service = Service()
+    monkeypatch.setattr(service, "_run_post_connect", lambda: None)
+
+    service._on_ws_connected()
+    service._on_ws_event("ServerRestarting", {})
+    service._on_ws_disconnected()
+    service._on_ws_connected()
+
+    assert [message for _h, message in toasts] == [
+        "Connected to minipie",
+        "Restarting",
+        "Connected to minipie",
+    ]
+
+
+def test_shutdown_cancels_a_pending_lost_toast(toasts):
+    FakeAddon.store["notifyConnection"] = "true"
+    service = Service()
+
+    service._on_ws_disconnected()
+    timer = service._lost_toast_timer
+    assert timer is not None
+
+    service._shutdown()
+    timer.join(timeout=5)
+
+    assert service._lost_toast_timer is None
+    assert toasts == []
 
 
 def test_connect_names_the_server(toasts, monkeypatch):
@@ -586,6 +667,7 @@ def test_only_connecting_is_good_news(toasts, monkeypatch):
     going away are adverse, and read faster with Kodi's warning glyph."""
     import xbmcgui
 
+    monkeypatch.setattr("kofin.service.main.LOST_TOAST_GRACE_SECONDS", 0.01)
     FakeAddon.store["notifyConnection"] = "true"
     FakeAddon.store["serverName"] = "minipie"
     service = Service()
@@ -598,17 +680,24 @@ def test_only_connecting_is_good_news(toasts, monkeypatch):
     assert RecordingDialog.icons[-1].endswith("icon.png")
 
     service._on_ws_disconnected()
+    timer = service._lost_toast_timer
+    assert timer is not None
+    timer.join(timeout=5)
     assert RecordingDialog.icons[-1] == xbmcgui.NOTIFICATION_WARNING
 
     service._on_ws_event("ServerRestarting", {})
     assert RecordingDialog.icons[-1] == xbmcgui.NOTIFICATION_WARNING
 
 
-def test_notifications_can_be_switched_off(toasts):
+def test_notifications_can_be_switched_off(toasts, monkeypatch):
+    monkeypatch.setattr("kofin.service.main.LOST_TOAST_GRACE_SECONDS", 0.01)
     FakeAddon.store["notifyConnection"] = "false"
     service = Service()
 
     service._on_ws_disconnected()
+    timer = service._lost_toast_timer
+    assert timer is not None
+    timer.join(timeout=5)
     service._on_ws_event("ServerRestarting", {})
 
     assert toasts == []
