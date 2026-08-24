@@ -770,7 +770,8 @@ class Service(xbmc.Monitor):
         with self._conn_toast_lock:
             if self._down_since is None:
                 return
-            if time.monotonic() - self._down_since < LOST_TOAST_GRACE_SECONDS:
+            down_for = time.monotonic() - self._down_since
+            if down_for < LOST_TOAST_GRACE_SECONDS:
                 return
             self._down_since = None
             if self._abort_transport():
@@ -781,6 +782,9 @@ class Service(xbmc.Monitor):
                 # Lost, Connected an edge pair again.
                 return
             self._announce_next_connect = True
+            # Toasts leave no trace in kodi.log; this line is what a standby
+            # soak reads to tell a coalesced blip from an announced loss.
+            LOG.info("websocket down for %.0f s; announcing the loss", down_for)
             self._connection_toast(30416, level=toast.WARNING)
 
     def _on_ws_connected(self) -> None:
