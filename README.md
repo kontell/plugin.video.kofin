@@ -74,7 +74,7 @@ Install via the [Kontell Repository](https://github.com/kontell/repository.konte
 
 Kofin's listings are ordinary `plugin://` paths, so a library node, a skin widget or a favourite can point at any of them - including combinations the add-on does not ship, such as a single genre or one library's unwatched films.
 
-See [docs/custom-nodes.md](docs/custom-nodes.md) for the path format, the list of keys, and a node file to copy.
+See [wiki](https://github.com/kontell/plugin.video.kofin/wiki/Custom-nodes-and-widgets) for the path format, the list of keys, and a node file to copy.
 
 ## Companion server plugins
 
