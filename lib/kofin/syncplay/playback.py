@@ -154,10 +154,45 @@ class PlaybackController(object):
         if abs(offset_ms) <= utils.UNPAUSE_ALIGN_MS:
             return
 
+        if self._leave_to_fine_sync(offset_ms, "to the start position"):
+            return
+
         LOG.info("[ syncplay/align ] %+.0fms to the start position", offset_ms)
 
         with self._player_lock, self.manager.programmatic():
             self._seek_and_settle(target_ms)
+
+    def _leave_to_fine_sync(self, offset_ms, where):
+        """Whether an unpause offset is better closed by a rate pulse than a cut.
+
+        ``_align_after_resume`` already makes this trade -- "a skip is for gross
+        errors" -- but the two aligns on the way *into* the resume did not, so
+        anything past UNPAUSE_ALIGN_MS (100 ms) was seeked even when it sat well
+        inside the pulse budget. That is the skip a viewer notices on an
+        ordinary unpause, and it is smaller than the residual fine sync would
+        have been allowed to close on the other side of the same resume.
+
+        Only in the ``synced`` phase. A ``waiting_ready`` start -- a barrier
+        restart or a hot join -- is the one chance to begin exactly on the group
+        position, and its offsets are the large ones (1.0-1.7 s measured on the
+        rig against a 5 s budget); handing those to the scheduler would trade a
+        single cut for twenty seconds off-rate. Those keep the seek.
+
+        ``can_close`` is already the right gate: the scheduler drops its tempo
+        file when an item is not routed through inputstream.tempo, and again
+        when a pulse is not confirmed, so it answers False exactly when nothing
+        can be nudged.
+        """
+        if self.manager.phase != "synced":
+            return False
+
+        if not self.tempo.can_close(offset_ms):
+            return False
+
+        LOG.info(
+            "[ syncplay/align ] %+.0fms %s: left to fine sync", offset_ms, where
+        )
+        return True
 
     def cancel_pending(self):
         with self._timer_lock:
@@ -250,7 +285,7 @@ class PlaybackController(object):
                             "[ syncplay/align ] %+.0fms carried: transcoding",
                             behind_ms,
                         )
-                    else:
+                    elif not self._leave_to_fine_sync(behind_ms, "at the resume"):
                         self._seek_and_settle(target_ms, stay_paused=False)
 
                 if self._resume_and_verify():
