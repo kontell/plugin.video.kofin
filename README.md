@@ -4,7 +4,7 @@
 
 Kodi video & music addon for Jellyfin. Browse Jellyfin libraries through the add-on or sync selected libraries directly into Kodi's own databases, so Jellyfin content appears as a Kodi library.
 
-A rewrite of [jellyfin-kodi](https://github.com/jellyfin/jellyfin-kodi) on the principle "rewrite the shell, transplant the organs": new entry points, settings and lifecycle wrapped around the proven Kodi database writers.
+A rewrite of Jellyfin-Kodi on the principle "rewrite the shell, transplant the organs": new entry points, settings and lifecycle wrapped around the proven Kodi database writers.
 
 For Jellyfin Live TV, see the companion [Kofin PVR](https://github.com/kontell/pvr.kofin) addon.
 
@@ -78,9 +78,9 @@ See [wiki](https://github.com/kontell/plugin.video.kofin/wiki/Custom-nodes-and-w
 
 ## Companion server plugins
 
-For improved syncing performance install the [KofinSyncQueue](https://github.com/kontell/jellyfin-plugin-kofinsyncqueue) server plugin. it gives the add-on a typed change feed so catch-up only touches what actually changed. Without it Kofin still works, using the official KodiSyncQueue plugin or real-time websocket updates.
+- For improved syncing performance install the [KofinSyncQueue](https://github.com/kontell/plugin.video.kofin/wiki/Companion-server-plugins) server plugin. it gives the add-on a typed change feed so catch-up only touches what actually changed. Without it Kofin still works, using the official KodiSyncQueue plugin or real-time websocket updates.
 
-For reliable syncplay install the [SyncPlay V2](https://github.com/kontell/jellyfin-plugin-syncplayv2) server plugin.
+- For reliable syncplay install the [SyncPlay V2](https://github.com/kontell/plugin.video.kofin/wiki/Companion-server-plugins) server plugin.
 
 ## Supported platforms
 
