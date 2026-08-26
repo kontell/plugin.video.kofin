@@ -963,8 +963,21 @@ class SyncPlayManager(object):
         if playlist_item_id == self.current_playlist_item_id and self.phase != "idle":
             return  # tail-only change; drift reference stays authoritative
 
-        # Position reference: extrapolate from LastUpdate while playing.
-        reference_ms = last_update if last_update is not None else self.server_now_ms()
+        # Position reference: StartPositionTicks is extrapolated to *send* time
+        # by the server (Group.cs::GetPlayQueueUpdate adds the elapsed since
+        # LastActivity), so the instant it describes is now — not LastUpdate,
+        # which timestamps the *queue's* last change and, on a group that has
+        # been playing a while, is arbitrarily far in the past.
+        #
+        # Pairing the two added the whole elapsed playback a second time, so a
+        # member cold-joining a Playing group started at the group position
+        # plus elapsed-since-the-queue-changed: measured 27.0s against a group
+        # at 11.2s, and 546.0s against a group at 271.6s. The beacons then
+        # corrected it, so the visible symptom was the joiner starting far
+        # ahead and cutting backwards by the difference.
+        #
+        # last_update keeps its real job: the queue-version dedup above.
+        reference_ms = self.server_now_ms()
         self.playback.set_reference(start_ticks, reference_ms, is_playing)
 
         held = self._hold
