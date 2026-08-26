@@ -189,9 +189,7 @@ class PlaybackController(object):
         if not self.tempo.can_close(offset_ms):
             return False
 
-        LOG.info(
-            "[ syncplay/align ] %+.0fms %s: left to fine sync", offset_ms, where
-        )
+        LOG.info("[ syncplay/align ] %+.0fms %s: left to fine sync", offset_ms, where)
         return True
 
     def cancel_pending(self):
