@@ -346,3 +346,96 @@ def test_a_movie_gone_mid_page_no_longer_aborts_the_library(fullsync, monkeypatc
 
     assert written == ["kept"]
     assert "lib1/movies" not in fullsync.sync["RestorePoints"]
+
+
+# -- the gone-probe: a child fetch's status is the endpoint's, not the item's --
+
+
+class ProbingServer:
+    def __init__(self, gone_ids):
+        self.gone = set(gone_ids)
+        self.asked = []
+
+    def item(self, item_id):
+        self.asked.append(item_id)
+        if item_id in self.gone:
+            raise HttpError(404, "GET /Items/%s -> 404" % item_id)
+        return {"Id": item_id}
+
+
+def test_a_non_404_child_fetch_on_a_gone_item_is_skipped_after_a_probe(
+    fullsync, monkeypatch
+):
+    """Jellyfin 12 answers /Items?ParentId=<deleted set> with 400, not 404
+    (live, S-P1.3c). The walk asks for the item itself once and skips it
+    when that says gone."""
+    fullsync.server = ProbingServer({"gone-set"})
+    pages(monkeypatch, [item("gone-set"), item("kept")])
+    written = []
+
+    def apply(obj, it):
+        if it["Id"] == "gone-set":
+            raise HttpError(400, "GET /Items?ParentId=gone-set -> 400")
+        written.append(it["Id"])
+
+    _, skipped, _ = fullsync._walk(
+        LIBRARY,
+        "BoxSet",
+        "k",
+        lambda j, v: None,
+        apply,
+        lambda it: it["Name"],
+        Dialog(),
+        "h",
+        fake_page,
+    )
+
+    assert skipped == ["gone-set"] and written == ["kept"]
+    assert fullsync.server.asked == ["gone-set"]
+
+
+def test_a_non_404_child_fetch_on_a_present_item_still_aborts(fullsync, monkeypatch):
+    """A 400 for an item that is still there is a real failure -- a malformed
+    query, a server bug -- and must stop the pass as before."""
+    fullsync.server = ProbingServer(set())
+    pages(monkeypatch, [item("present")])
+
+    def apply(obj, it):
+        raise HttpError(400, "GET /Items?ParentId=present -> 400")
+
+    with pytest.raises(HttpError):
+        fullsync._walk(
+            LIBRARY,
+            "BoxSet",
+            "k",
+            lambda j, v: None,
+            apply,
+            lambda it: it["Name"],
+            Dialog(),
+            "h",
+            fake_page,
+        )
+
+    assert fullsync.server.asked == ["present"]
+
+
+def test_a_plain_404_skips_without_probing(fullsync, monkeypatch):
+    fullsync.server = ProbingServer(set())
+    pages(monkeypatch, [item("gone")])
+
+    def apply(obj, it):
+        raise HttpError(404, "GET /Shows/gone/Seasons -> 404")
+
+    _, skipped, _ = fullsync._walk(
+        LIBRARY,
+        "Series",
+        "k",
+        lambda j, v: None,
+        apply,
+        lambda it: it["Name"],
+        Dialog(),
+        "h",
+        fake_page,
+    )
+
+    assert skipped == ["gone"] and fullsync.server.asked == []

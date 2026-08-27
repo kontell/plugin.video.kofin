@@ -861,7 +861,7 @@ class FullSync(object):
             )
             return False
         except HttpError as error:
-            if error.status != 404:
+            if error.status != 404 and not self._gone(item):
                 raise
             LOG.warning(
                 "%s %s is gone from the server; skipped",
@@ -869,6 +869,26 @@ class FullSync(object):
                 item.get("Id"),
             )
             return False
+
+    def _gone(self, item):
+        """Whether the item a child fetch just failed for no longer exists.
+
+        The status a child fetch answers with is the endpoint's, not the
+        item's: a show's ``/Seasons`` 404s on a deleted show, but
+        ``/Items?ParentId=<deleted set>`` is a **400** on Jellyfin 12 (live,
+        S-P1.3c), and keying the skip on 404 alone let that one abort the
+        boxsets pass exactly as before. So on any other HTTP status the item
+        itself is asked for once -- one request, only on the failure path --
+        and a 404 there is the answer that means "gone". Anything else, the
+        original error stands: a malformed query must still stop the pass.
+        """
+        try:
+            self.server.item(item.get("Id"))
+        except HttpError as probe:
+            return probe.status == 404
+        except Exception:
+            return False
+        return False
 
     @progress()
     def tvshows(self, library, dialog):
