@@ -298,6 +298,32 @@ class SyncPlayManager(object):
 
         return state.get_playing_id() or None
 
+    def watching_own_media(self):
+        """A spectator whose player is showing something that is not the
+        group's item.
+
+        ``ignore_wait`` alone cannot answer this. A spectator that is idle
+        still follows a queue update (``_apply_play_queue``) and then needs
+        the group's transport commands to start along with everyone else, so
+        a guard on the flag alone would strand it paused. Comparing what is
+        actually playing against the group's item separates the two without
+        any state to keep in step.
+        """
+        if not self.ignore_wait or not self.player.isPlaying():
+            return False
+
+        local = self._local_item_id()
+        own = bool(local) and local != self.current_item_id
+
+        if not own:
+            LOG.debug(
+                "Spectator follows the group: playing %s, group item %s",
+                local,
+                self.current_item_id,
+            )
+
+        return own
+
     def is_transcoding(self):
         info = self._local_file_info()
         return bool(info) and info.get("PlayMethod") == "Transcode"
@@ -653,6 +679,15 @@ class SyncPlayManager(object):
             LOG.info("Discarding command emitted before our join")
             return
 
+        if self.watching_own_media():
+            # _apply_play_queue already refuses to let the group's queue tear
+            # down a spectator's own playback; the transport commands had no
+            # such guard, so a group Seek or Unpause still landed on it.
+            # Measured: a spectator at 422.5s of its own item was seeked to
+            # 209.6s by the group's next command.
+            LOG.info("Spectator playing own media; not following transport")
+            return
+
         if (
             command.get("Command") != "Stop"
             and command.get("PlaylistItemId")
@@ -695,7 +730,15 @@ class SyncPlayManager(object):
         self.queue_last_update = None
         self.join_local_ms = utils.local_ms()
         self._join_pending_since = 0.0
-        self.ignore_wait = False
+
+        if not rejoined:
+            # Spectator state is client-local — the wire's Members carry no
+            # session identity, so there is nothing to read it back from — and
+            # a GroupJoined for the group we are already in would otherwise
+            # silently undo the user's choice. Measured: a spectator toggle 3s
+            # into a hot join was reset by the join's own update, and the
+            # group went on driving that member's private playback.
+            self.ignore_wait = False
 
         # The phase-3 stub is now driven: while True, Play Next and the
         # cinema/near-end prompts are withheld (the group queue is
