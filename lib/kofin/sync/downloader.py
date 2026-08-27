@@ -627,6 +627,23 @@ def _get_items(api, query):
                 abandon_jobs()
 
 
+# How many times a chunk may fail to download before it is dropped and its
+# ids flagged unapplied. Each attempt is a fresh worker on a later service
+# tick, so three attempts are three ticks apart, not three in a row.
+CHUNK_ATTEMPTS = 3
+
+
+class Chunk(list):
+    """A download chunk that has failed before: the ids, plus how many
+    attempts they have had. A plain list everywhere else -- the queues, the
+    progress counter (``len``), the request builder -- so only the retry path
+    knows it exists."""
+
+    def __init__(self, ids, attempts=0):
+        super().__init__(ids)
+        self.attempts = attempts
+
+
 class GetItemWorker(threading.Thread):
 
     is_done = False
@@ -682,6 +699,46 @@ class GetItemWorker(threading.Thread):
             self.unapplied(item_id, reason)
         else:
             LOG.warning("could not apply %s (%s)", item_id, reason)
+
+    def _retry_or_drop(self, item_ids, error):
+        """Put a chunk that failed to download back, or give up on it.
+
+        The fork's arm for a non-transport failure logged, flagged the
+        watermark and let the chunk go: its ids were never written and,
+        with the watermark held, would be re-offered by the next feed pass
+        -- but a status the server keeps returning re-offered them forever,
+        and a chunk that failed for a reason the feed cannot see (a bad
+        item in the middle of a good chunk) never came back at all
+        (docs/sync-refactor-assessment.md §3). Now the chunk goes back with
+        its attempt count, this worker ends, and the spawn path starts a
+        fresh one on a later tick. After CHUNK_ATTEMPTS the ids are flagged
+        unapplied one by one, which is what schedules the recovery prune --
+        the path that can find them however they went missing.
+        """
+        attempts = getattr(item_ids, "attempts", 0) + 1
+
+        if attempts < CHUNK_ATTEMPTS:
+            LOG.warning(
+                "--[ download of %s id(s) failed (%s); attempt %s of %s, re-queued ]",
+                len(item_ids),
+                error,
+                attempts,
+                CHUNK_ATTEMPTS,
+            )
+            self.queue.put(Chunk(item_ids, attempts))
+            return
+
+        LOG.error(
+            "--[ download of %s id(s) dropped after %s attempts: %s ]",
+            len(item_ids),
+            attempts,
+            error,
+        )
+
+        for item_id in item_ids:
+            self._flag_unapplied(
+                item_id, "download failed %s times: %s" % (attempts, error)
+            )
 
     def _put(self, output_queue, item):
         """Hand an item to its writer, waiting when the writer is behind.
@@ -796,10 +853,18 @@ class GetItemWorker(threading.Thread):
             except JellyfinError as error:
                 LOG.error("--[ http error: %s ]", error)
                 self._flag_error()
+                self.queue.task_done()
+                self._retry_or_drop(item_ids, error)
+
+                break
 
             except Exception as error:
                 LOG.exception(error)
                 self._flag_error()
+                self.queue.task_done()
+                self._retry_or_drop(item_ids, error)
+
+                break
 
             self.queue.task_done()
 
