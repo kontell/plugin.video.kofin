@@ -227,6 +227,21 @@ Run on the `kofin-test` profile (Omega 21.3) against `jelly.konell.xyz`, branch 
 
 F3's ladder is L1-only by design (clock-driven); F4 has no live surface beyond the field-list guard.
 
+## S-P1 — sync refactor phase 1 (docs/sync-refactor-phase1-plan.md; started 2026-08-27, native Omega 21.3 `kofin-test` + Piers 22.0-beta flatpak, production 10.11.11 + jf12 v12.0-rc5)
+
+Method: every item is gated on both local generations; the oracle is `tests/live/dump_diff.py` (keyed on server ids through kofin.db, Kodi ids resolved to what they point at, per-user columns dropped) against a "before" set taken on the PR #190 build. Guarded commands go through `tests/live/harness/kofin_ipc.py` inside Kodi. Evidence per scenario under `tests/live/results/S-P1.*`.
+
+* **[PENDING] S-P1.0 rig preparation + before sets**: flatpak moved to 8081/9778; `kofin-jf12` profile on Omega; `--flatpak` deploy target; dump harness; jf12 on a local .NET 10 runtime with the smoke tier and a two-movie collection; Repair of every whitelisted library on both rigs on the #190 build → before sets; a second sync on the same build must be dump-identical (method assertion).
+* **[PENDING] S-P1.1 typing smoke**: FastSync + one userdata flip + a small Repair on each rig; no tracebacks; dump-identical.
+* **[PENDING] S-P1.2 music arms**: music Repair on Omega (MyMusic83) and Piers (MyMusic84); dump-identical; `library://music/kofin/` nodes list the albums.
+* **[PENDING] S-P1.3a one walk, at scale**: Repair every whitelisted library on both rigs; dump-identical; request counts per library equal S-P1.0's.
+* **[PENDING] S-P1.3b interrupted resume**: S2.7 re-run on Omega and once on Piers.
+* **[PENDING] S-P1.3c mid-page 404 on a movie**: Omega `kofin-jf12` on jf12 `--full` movies, `limitIndex` 500, delete a movie on the page being written; the library completes; then the same for a collection member during the boxsets pass. Musicvideos: no library exists — L1 only.
+* **[PENDING] S-P1.3d failing library keeps going (live half of #190)**: jf12 stopped, `SyncLibrary` for two libraries, both stay pending with one toast; server back → the resume poll syncs both.
+* **[PENDING] S-P1.4 outage replay**: server unreachable for 30 s mid-catch-up (S2.6 method); watermark held, chunk re-queued, applied once on recovery. Generic-exception arm: L1 only.
+* **[PENDING] S-P1.5a downloads through the hook**: download one movie and one episode from jf12; Update libraries; rows stay repointed; plays from disk. **S-P1.5b music sources through the hook**: music Repair on both rigs; one `source` row per music library; every album linked; a scan that empties the table is healed by `ReassertMusicSources`.
+* **[PENDING] S-P1.6 end-to-end regression**: everything above on the finished branch, both rigs; dump-identical to S-P1.0.
+
 ## 5. Performance baselines (record, don't guess)
 
 Captured by the scenario scripts into `tests/live/results/` per run: initial full-sync wall time for the test set; catch-up latency for 100 mixed pending changes (per tier); addon HTTP request count per scenario (debug-log grep); Kodi-start→library-browsable delta; S2.5 download counts per tier. Regressions between runs of the same scenario on the same data are release blockers.
