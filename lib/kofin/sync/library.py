@@ -38,6 +38,7 @@ from kofin.sync.full_sync import FullSync, PRUNE_SERVER_TYPES, local_reference_m
 from kofin.sync.views import Views
 from kofin.sync import widgetstate
 from kofin.sync.downloader import GetItemWorker, basic_info, get_prune_count
+from kofin.sync.hooks import pipeline_hooks
 from kofin.sync import fields as api
 from kofin.sync.shims import (
     LibraryException,
@@ -2579,12 +2580,13 @@ class UpdateWorker(threading.Thread):
     def run(self):
         with self.lock, Database("kofin") as jellyfindb, self.database as kodidb:
             default_args = (self.server, jellyfindb, kodidb)
+            hooks = pipeline_hooks()
             artwork_writers: Dict[str, Any] = {}
             writers: Tuple[Any, ...]
             if kodidb.db_file == "video":
-                movies = Movies(*default_args)
-                tvshows = TVShows(*default_args)
-                musicvideos = MusicVideos(*default_args)
+                movies = Movies(*default_args, hooks=hooks)
+                tvshows = TVShows(*default_args, hooks=hooks)
+                musicvideos = MusicVideos(*default_args, hooks=hooks)
                 writers = (movies, tvshows, musicvideos)
                 artwork_writers = {
                     "Movie": movies,
@@ -2594,7 +2596,7 @@ class UpdateWorker(threading.Thread):
                     "MusicVideo": musicvideos,
                 }
             elif kodidb.db_file == "music":
-                music = Music(*default_args)
+                music = Music(*default_args, hooks=hooks)
                 writers = (music,)
             else:
                 # this should not happen
@@ -2712,11 +2714,12 @@ class UserDataWorker(threading.Thread):
 
         with self.lock, Database("kofin") as jellyfindb, self.database as kodidb:
             default_args = (self.server, jellyfindb, kodidb)
+            hooks = pipeline_hooks()
             if kodidb.db_file == "video":
-                movies = Movies(*default_args)
-                tvshows = TVShows(*default_args)
+                movies = Movies(*default_args, hooks=hooks)
+                tvshows = TVShows(*default_args, hooks=hooks)
             elif kodidb.db_file == "music":
-                music = Music(*default_args)
+                music = Music(*default_args, hooks=hooks)
             else:
                 # this should not happen
                 LOG.error(

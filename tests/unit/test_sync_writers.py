@@ -22,6 +22,9 @@ from kofin.sync.library import UpdateWorker
 from kofin.sync.newcontent import Entry
 from kofin.sync.shims import LibraryOrphanException
 from kofin.sync.writers import Movies, MusicVideos, TVShows, Music
+from kofin.sync.hooks import pipeline_hooks
+
+HOOKS = pipeline_hooks()
 from kofin.sync.writers.movies import (
     BOXSET_GUARDED,
     BOXSET_HEALED,
@@ -179,12 +182,14 @@ def register_views(*views):
 
 def write_movie(api, payload=None):
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        Movies(api, kdb, vdb, library=LIBRARY).movie(payload or dto(MOVIE))
+        Movies(api, kdb, vdb, library=LIBRARY, hooks=HOOKS).movie(payload or dto(MOVIE))
 
 
 def write_boxset(api, payload=None):
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        return Movies(api, kdb, vdb, library=LIBRARY).boxset(payload or dto(BOXSET))
+        return Movies(api, kdb, vdb, library=LIBRARY, hooks=HOOKS).boxset(
+            payload or dto(BOXSET)
+        )
 
 
 def dump(path):
@@ -781,7 +786,7 @@ def test_movie_extras_removed_with_movie(api):
     write_movie(api, movie_with_extras())
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        Movies(api, kdb, vdb, library=LIBRARY).remove("movie1")
+        Movies(api, kdb, vdb, library=LIBRARY, hooks=HOOKS).remove("movie1")
 
     assert video_query("SELECT COUNT(*) FROM movie") == [(0,)]
     assert video_query("SELECT COUNT(*) FROM videoversion") == [(0,)]
@@ -1020,7 +1025,7 @@ def test_movie_versions_removed_with_movie(api):
     assert len(version_rows()) == 2
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        Movies(api, kdb, vdb, library=LIBRARY).remove("movie1")
+        Movies(api, kdb, vdb, library=LIBRARY, hooks=HOOKS).remove("movie1")
 
     assert video_query("SELECT COUNT(*) FROM movie") == [(0,)]
     assert video_query("SELECT COUNT(*) FROM videoversion") == [(0,)]
@@ -1084,7 +1089,7 @@ def test_boxset_links_and_removal(api):
     write_movie(api, dto(MOVIE_2))
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        Movies(api, kdb, vdb, library=LIBRARY).boxset(dto(BOXSET))
+        Movies(api, kdb, vdb, library=LIBRARY, hooks=HOOKS).boxset(dto(BOXSET))
 
     sets = video_query("SELECT idSet, strSet FROM sets")
     assert sets == [(1, "Example Collection")]
@@ -1095,7 +1100,7 @@ def test_boxset_links_and_removal(api):
     ]
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        Movies(api, kdb, vdb, library=LIBRARY).remove("set1")
+        Movies(api, kdb, vdb, library=LIBRARY, hooks=HOOKS).remove("set1")
 
     assert video_query("SELECT COUNT(*) FROM sets") == [(0,)]
     assert video_query("SELECT idSet FROM movie WHERE idMovie=1") == [(None,)]
@@ -1171,7 +1176,7 @@ def test_boxset_heals_readded_member(api):
     linked_boxset(api)
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        Movies(api, kdb, vdb, library=LIBRARY).remove("movie1")
+        Movies(api, kdb, vdb, library=LIBRARY, hooks=HOOKS).remove("movie1")
     write_movie(api)
 
     assert video_query("SELECT COUNT(*) FROM movie WHERE idSet = 1") == [(1,)]
@@ -1304,7 +1309,7 @@ def test_boxset_state_dies_with_the_set(api):
     linked_boxset(api)
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        Movies(api, kdb, vdb, library=LIBRARY).remove("set1")
+        Movies(api, kdb, vdb, library=LIBRARY, hooks=HOOKS).remove("set1")
     assert kofin_query("SELECT COUNT(*) FROM boxset_state") == [(0,)]
 
     api.boxset_children = {"set1": [dto(MOVIE)]}
@@ -1312,7 +1317,7 @@ def test_boxset_state_dies_with_the_set(api):
     assert kofin_query("SELECT COUNT(*) FROM boxset_state") == [(1,)]
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        Movies(api, kdb, vdb, library=LIBRARY).boxsets_reset()
+        Movies(api, kdb, vdb, library=LIBRARY, hooks=HOOKS).boxsets_reset()
     assert kofin_query("SELECT COUNT(*) FROM boxset_state") == [(0,)]
     assert video_query("SELECT COUNT(*) FROM sets") == [(0,)]
 
@@ -1505,7 +1510,7 @@ def test_boxset_guarded_set_keeps_missing_state(api, boxset_log):
 def write_series_tree(api):
     register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        shows = TVShows(api, kdb, vdb, library=TV_LIBRARY)
+        shows = TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS)
         shows.tvshow(dto(SERIES))
         shows.episode(dto(EPISODE))
 
@@ -1527,7 +1532,7 @@ def test_episode_with_only_a_tmdb_id_keeps_it(api):
     episode["ProviderIds"] = {"Tmdb": "777"}
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        shows = TVShows(api, kdb, vdb, library=TV_LIBRARY)
+        shows = TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS)
         shows.tvshow(dto(SERIES))
         shows.episode(episode)
 
@@ -1623,7 +1628,7 @@ def test_virtual_season_is_referenced_like_any_other(api):
     register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        TVShows(api, kdb, vdb, library=TV_LIBRARY).tvshow(dto(SERIES))
+        TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).tvshow(dto(SERIES))
 
     # Kodi gets the seasons row either way -- that was never in question.
     assert video_query("SELECT COUNT(*) FROM seasons WHERE season=1") == [(1,)]
@@ -1648,7 +1653,7 @@ def test_orphan_season_pulls_its_series(api):
     register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        TVShows(api, kdb, vdb, library=TV_LIBRARY).season(dto(SEASON_1))
+        TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).season(dto(SEASON_1))
 
     # The series was fetched and written on the season's behalf.
     assert video_query("SELECT c00 FROM tvshow") == [("The Show",)]
@@ -1680,7 +1685,7 @@ def test_orphan_season_declines_when_series_is_gone(api):
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
         with pytest.raises(LibraryOrphanException):
-            TVShows(api, kdb, vdb, library=TV_LIBRARY).season(orphan)
+            TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).season(orphan)
 
     assert video_query("SELECT COUNT(*) FROM tvshow") == [(0,)]
     assert video_query("SELECT COUNT(*) FROM seasons") == [(0,)]
@@ -1958,7 +1963,7 @@ def test_series_removal_leaves_no_orphans(api):
     write_series_tree(api)
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        TVShows(api, kdb, vdb, library=TV_LIBRARY).remove("series1")
+        TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).remove("series1")
 
     assert video_query("SELECT COUNT(*) FROM tvshow") == [(0,)]
     assert video_query("SELECT COUNT(*) FROM seasons") == [(0,)]
@@ -2017,7 +2022,7 @@ def test_season_removal_spares_a_colliding_seasons_episodes(api):
         )
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        TVShows(api, kdb, vdb, library=TV_LIBRARY).remove("bb-s1")
+        TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).remove("bb-s1")
 
     remaining = {row[0] for row in kofin_query("SELECT jellyfin_id FROM jellyfin")}
 
@@ -2049,7 +2054,7 @@ def test_duplicate_season_ids_collapse_to_one_reference(api):
     alias["Id"] = "season1-alias"
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        TVShows(api, kdb, vdb, library=TV_LIBRARY).season(alias, show_id=1)
+        TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).season(alias, show_id=1)
 
     # Still one Kodi row -- get_season found it rather than adding another.
     assert video_query("SELECT COUNT(*) FROM seasons WHERE season = 1") == [(1,)]
@@ -2065,7 +2070,7 @@ def test_episode_removal_prunes_empty_show(api):
     write_series_tree(api)
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        TVShows(api, kdb, vdb, library=TV_LIBRARY).remove("episode1")
+        TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).remove("episode1")
 
     # Last episode gone -> season and show pruned too (fork semantics).
     assert video_query("SELECT COUNT(*) FROM episode") == [(0,)]
@@ -2104,7 +2109,7 @@ def test_episode_removal_drops_its_reference_when_the_season_moved(api):
         )
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        TVShows(api, kdb, vdb, library=TV_LIBRARY).remove("episode1")
+        TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).remove("episode1")
 
     # The Kodi row went, so the reference must go with it.
     assert video_query(
@@ -2307,7 +2312,7 @@ def pool_season():
 
 def write_show(api, payload, library):
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        TVShows(api, kdb, vdb, library=library).tvshow(payload)
+        TVShows(api, kdb, vdb, library=library, hooks=HOOKS).tvshow(payload)
 
 
 def show_folder(jellyfin_id):
@@ -2409,7 +2414,7 @@ def test_series_pool_placeholder_dies_with_the_show(api):
     ]
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        TVShows(api, kdb, vdb, library=TV_LIBRARY).remove("series1")
+        TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).remove("series1")
 
     assert kofin_query("SELECT COUNT(*) FROM jellyfin WHERE media_type = 'tvshow'") == [
         (0,)
@@ -2464,7 +2469,9 @@ def test_prune_rehome_spared_references(api):
 def test_musicvideo_write_and_idempotency(api):
     register_views({"Id": "lib-mv", "Name": "Clips", "Media": "musicvideos"})
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        MusicVideos(api, kdb, vdb, library=MV_LIBRARY).musicvideo(dto(MUSICVIDEO))
+        MusicVideos(api, kdb, vdb, library=MV_LIBRARY, hooks=HOOKS).musicvideo(
+            dto(MUSICVIDEO)
+        )
 
     row = video_query("SELECT c00, c09, c10, premiered FROM musicvideo")[0]
     assert row[0] == "Hit Single"
@@ -2477,7 +2484,9 @@ def test_musicvideo_write_and_idempotency(api):
 
     first = dump(str(sync_db._path_overrides["video"]))
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        MusicVideos(api, kdb, vdb, library=MV_LIBRARY).musicvideo(dto(MUSICVIDEO))
+        MusicVideos(api, kdb, vdb, library=MV_LIBRARY, hooks=HOOKS).musicvideo(
+            dto(MUSICVIDEO)
+        )
     assert dump(str(sync_db._path_overrides["video"])) == first
 
 
@@ -2503,7 +2512,7 @@ def frozen_music_clock(monkeypatch):
 def write_music_tree(api, song=None):
     register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
         music.artist(dto(ARTIST))
         music.album(dto(ALBUM))
         music.song(dto(song or SONG))
@@ -2632,7 +2641,7 @@ def test_music_blank_credit_yields_to_a_real_one(api, frozen_music_clock):
     # The tags arrive later (new Etag, real ArtistItems): the placeholder
     # credit must go, or the song keeps showing under [Missing Tag] too.
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        Music(api, kdb, mdb, library=MUSIC_LIBRARY).song(
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS).song(
             dict(dto(SONG), Etag="etag-song1-v2")
         )
 
@@ -2690,7 +2699,7 @@ def test_music_artist_removal_spares_compilation_appearances(api, frozen_music_c
     write_music_tree(api)
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
         music.artist(dto(va_artist))
         music.album(dto(va_album))
         music.song(dto(va_song))
@@ -2704,7 +2713,7 @@ def test_music_artist_removal_spares_compilation_appearances(api, frozen_music_c
     ) == [(band_kodi_id,)]
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        Music(api, kdb, mdb, library=MUSIC_LIBRARY).remove("artist1")
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS).remove("artist1")
 
     # The artist and its own album/song are gone...
     assert music_query("SELECT COUNT(*) FROM artist WHERE strArtist='The Band'") == [
@@ -2756,7 +2765,7 @@ def test_music_artist_removal_spares_compilation_appearances(api, frozen_music_c
     # song — which re-creates the artist reference and restores the true
     # credit, replacing the substitute.
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        Music(api, kdb, mdb, library=MUSIC_LIBRARY).song(dto(va_song))
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS).song(dto(va_song))
 
     band_id = music_query("SELECT idArtist FROM artist WHERE strArtist='The Band'")[0][
         0
@@ -2826,7 +2835,7 @@ def test_music_rewrite_with_a_bumped_etag_is_byte_identical(api, frozen_music_cl
 
     register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
         music.album(dto(dict(ALBUM, Etag="etag-album1-v2")))
         music.song(dto(dict(SONG, Etag="etag-song1-v2")))
 
@@ -2845,7 +2854,7 @@ def test_music_discography_keeps_one_row_per_album(api, frozen_music_clock):
 
     for walk in (1, 2, 3):
         with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-            music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+            music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
             music.artist(dto(dict(ARTIST, Etag="etag-artist1-v%d" % walk)))
             music.album(dto(dict(ALBUM, Etag="etag-album1-v%d" % walk)))
             for track in range(1, 13):
@@ -2872,7 +2881,7 @@ def test_music_discography_year_follows_the_album(api, frozen_music_clock):
     write_music_tree(api)
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
         music.album(dto(dict(ALBUM, Etag="etag-album1-v2", ProductionYear=1971)))
 
     assert music_query("SELECT strAlbum, strYear FROM discography") == [
@@ -2899,7 +2908,7 @@ def test_music_discography_song_leg_covers_an_unlisted_album_artist(
     register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
         music.artist(dto(ARTIST))
         music.album(dto(ALBUM))  # ArtistItems names artist1 only
         music.song(
@@ -2933,7 +2942,7 @@ def test_music_discography_keys_on_the_albums_own_title(api, frozen_music_clock)
     register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
         music.artist(dto(ARTIST))
         music.album(dto(ALBUM))  # named "Greatest Hits"
         music.song(dto(dict(SONG, Album="Greatest Hits (Remastered)")))
@@ -2948,7 +2957,7 @@ def test_music_discography_falls_back_to_the_song_tag(api, frozen_music_clock):
     register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
         music.artist(dto(ARTIST))
         obj = music.objects.map(dto(dict(SONG, Album="Tag Only Title")), "Song")
         obj["AlbumId"] = 9999  # no album row carries this id
@@ -2970,7 +2979,7 @@ def test_music_album_removal_takes_its_discography(api, frozen_music_clock):
     assert music_query("SELECT COUNT(*) FROM discography") == [(1,)]
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
         music.remove("song1")
         music.remove("album1")
 
@@ -3002,7 +3011,7 @@ def test_music_album_removal_spares_another_artists_same_title(api, frozen_music
         )
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
         music.remove("song1")
         music.remove("album1")
 
@@ -3015,7 +3024,7 @@ def test_music_artist_removal_no_orphans(api, frozen_music_clock):
     write_music_tree(api)
 
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        Music(api, kdb, mdb, library=MUSIC_LIBRARY).remove("artist1")
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS).remove("artist1")
 
     assert music_query("SELECT COUNT(*) FROM song") == [(0,)]
     assert music_query("SELECT COUNT(*) FROM album") == [(0,)]
@@ -3082,7 +3091,7 @@ def test_music_source_link_survives_a_rewrite(api, frozen_music_clock):
 
     register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
         music.album(dto(dict(ALBUM, Etag="etag-album1-v2")))
         music.song(dto(dict(SONG, Etag="etag-song1-v2")))
 
@@ -3096,7 +3105,7 @@ def test_music_single_reaches_its_library_source(api, frozen_music_clock):
     library's nodes."""
     register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
         music.artist(dto(ARTIST))
         music.song(dto(dict(SONG, AlbumId=None, Album=None)))
 

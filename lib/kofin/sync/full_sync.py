@@ -24,6 +24,7 @@ from kofin.core.log import Logger
 from kofin.sync import changefeed
 from kofin.sync import downloader as server
 from kofin.sync import musicsources
+from kofin.sync.hooks import pipeline_hooks
 from kofin.sync.fields import find_library, reference_checksum
 from kofin.sync.kodidb import Music as MusicKodiDb
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
@@ -183,6 +184,9 @@ class FullSync(object):
         self._claimed = False
         # Set by begin_walk, stamped onto every point that walk saves.
         self._restore_fingerprint = None
+        # The pipeline's writer hooks (kofin.sync.hooks), one composition per
+        # sync.
+        self.hooks = pipeline_hooks()
 
         if library is not None and not library.claim_full_sync():
             # Deviation from the fork: a refusal, not a failure — the sync
@@ -820,7 +824,7 @@ class FullSync(object):
                 "Movie",
                 restore_key,
                 lambda jellyfindb, videodb: Movies(
-                    self.server, jellyfindb, videodb, library
+                    self.server, jellyfindb, videodb, library, hooks=self.hooks
                 ),
                 lambda obj, movie: obj.movie(movie),
                 lambda movie: movie["Name"],
@@ -909,7 +913,12 @@ class FullSync(object):
                     item_type,
                     "%s/tvshows-%s" % (library["Id"], key_suffix),
                     lambda jellyfindb, videodb: TVShows(
-                        self.server, jellyfindb, videodb, library, True
+                        self.server,
+                        jellyfindb,
+                        videodb,
+                        library,
+                        True,
+                        hooks=self.hooks,
                     ),
                     apply,
                     describe,
@@ -934,7 +943,7 @@ class FullSync(object):
                 "MusicVideo",
                 restore_key,
                 lambda jellyfindb, videodb: MusicVideos(
-                    self.server, jellyfindb, videodb, library
+                    self.server, jellyfindb, videodb, library, hooks=self.hooks
                 ),
                 lambda obj, mvideo: obj.musicvideo(mvideo),
                 lambda mvideo: mvideo["Name"],
@@ -953,7 +962,9 @@ class FullSync(object):
             # video_database_locks.
             with Database("kofin") as jellyfindb:
                 with Database("music") as musicdb:
-                    obj = Music(self.server, jellyfindb, musicdb, library)
+                    obj = Music(
+                        self.server, jellyfindb, musicdb, library, hooks=self.hooks
+                    )
 
                     library_id = library["Id"]
 

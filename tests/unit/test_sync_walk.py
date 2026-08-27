@@ -299,7 +299,7 @@ def test_boxsets_walks_with_the_child_count_field_and_tallies_outcomes(
     )
 
     class Restamper:
-        def __init__(self, *args):
+        def __init__(self, *args, **kwargs):
             pass
 
         def restamp_boxset_states(self, guarded):
@@ -328,7 +328,7 @@ def test_a_movie_gone_mid_page_no_longer_aborts_the_library(fullsync, monkeypatc
     written = []
 
     class FakeMovies:
-        def __init__(self, *args):
+        def __init__(self, *args, **kwargs):
             pass
 
         def movie(self, movie):

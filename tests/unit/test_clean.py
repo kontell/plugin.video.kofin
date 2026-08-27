@@ -23,6 +23,9 @@ from kofin.sync import schema
 from kofin.sync.kodidb.kodi import Kodi
 from kofin.sync.kodidb.texture import TextureCache
 from kofin.sync.writers import Movies, Music, MusicVideos, TVShows
+from kofin.sync.hooks import pipeline_hooks
+
+HOOKS = pipeline_hooks()
 from tests.unit import kodifixtures
 from tests.unit.fakes import FakeAddon, FakeWindow
 from tests.unit.sync_dtos import (
@@ -120,16 +123,18 @@ def _build_full_video(api):
     write_movie(api)
     write_boxset(api)
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        shows = TVShows(api, kdb, vdb, library=TV_LIBRARY)
+        shows = TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS)
         shows.tvshow(dto(SERIES))
         shows.season(dto(SEASON_1))
         shows.episode(dto(EPISODE))
-        MusicVideos(api, kdb, vdb, library=MV_LIBRARY).musicvideo(dto(MUSICVIDEO))
+        MusicVideos(api, kdb, vdb, library=MV_LIBRARY, hooks=HOOKS).musicvideo(
+            dto(MUSICVIDEO)
+        )
 
 
 def _build_full_music(api):
     with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
-        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY)
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
         music.artist(dto(ARTIST))
         music.album(dto(ALBUM))
         music.song(dto(SONG))
