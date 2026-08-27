@@ -220,3 +220,21 @@ def test_clear_covers_every_sub_node_the_table_knows(views_env):
     assert not any(name in FakeWindow.store for name in planted if ".all." not in name)
     assert "Kofin.nodes.0.title" not in FakeWindow.store
     assert "Kofin.nodes.title" not in FakeWindow.store
+
+
+def test_a_whitelisted_kind_without_nodes_is_skipped_not_fatal(views_env):
+    """Live, 2026-08-27: a boxsets view reached the whitelist (update mode
+    whitelists whatever it planned), and NODES["boxsets"] raised at
+    startup -- the library thread died with it. The tree is written
+    without the entry and the rest stands."""
+    seed(
+        [("lib1", "Movies", "movies"), ("libc", "Collections", "boxsets")],
+        ["lib1", "libc"],
+    )
+
+    Views(FakeApi()).get_nodes()
+
+    root = views_env["profile"] / "library" / "video" / "kofin"
+    assert (root / "kofinmovieslib1" / "all.xml").is_file()
+    assert not any(path.name.endswith("libc") for path in root.iterdir())
+    assert props()["Kofin.nodes.0.id"] == "lib1"

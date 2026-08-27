@@ -487,7 +487,19 @@ def write_tree(entries, singles):
     order = 0
 
     for view, mixed in entries:
-        if view["Media"] == "music":
+        if view["Media"] not in NODES:
+            # A music library is whitelisted like the rest and has no video
+            # node; the same is true of any kind the table does not know
+            # (a boxsets view that reached the whitelist through update
+            # mode, live on 2026-08-27). Skipping is the only answer that
+            # keeps the rest of the tree -- raising here killed the library
+            # thread at startup, and with it every sync until a restart.
+            if view["Media"] != "music":
+                LOG.warning(
+                    "--[ nodes ] no node kind for %s (%s); skipped",
+                    view["Id"],
+                    view["Media"],
+                )
             continue
         write_library(root, view, mixed, order)
         keep.add(node_folder(view))
