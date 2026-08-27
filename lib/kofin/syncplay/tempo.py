@@ -753,6 +753,19 @@ def restore_queue(reason=""):
         settings.set_str(QUEUE_RESTORE_SETTING, "")
         return False
 
+    current = kodirpc.kodi_setting(QUEUE_SETTING)
+
+    try:
+        already_back = current is not None and int(current) != SHORT_QUEUE_TENTHS
+    except (TypeError, ValueError):
+        already_back = False
+
+    if already_back:
+        # The value really is back — an earlier restore reached the disk, or
+        # the user has set it themselves. Only now is the record safe to drop.
+        settings.set_str(QUEUE_RESTORE_SETTING, "")
+        return False
+
     if kodirpc.set_kodi_setting(QUEUE_SETTING, tenths):
         LOG.info(
             "[ syncplay/tempo ] %s restored to %.1fs%s",
@@ -760,7 +773,13 @@ def restore_queue(reason=""):
             tenths / 10.0,
             reason,
         )
-        settings.set_str(QUEUE_RESTORE_SETTING, "")
+        # The record is deliberately kept. A JSON-RPC settings write lives in
+        # Kodi's memory and only reaches guisettings.xml when Kodi saves, so a
+        # Kodi that is killed between the two leaves the shortened value on
+        # disk with no record left to undo it — which is how two devices in
+        # the shakedown were found stuck at 1.0s, one of them stuttering at
+        # every 3s HLS segment boundary because of it. The next start clears
+        # the record once it can see the value came back.
         return True
 
     LOG.warning("[ syncplay/tempo ] could not restore %s to %s", QUEUE_SETTING, saved)
