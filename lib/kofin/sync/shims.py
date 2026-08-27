@@ -64,6 +64,22 @@ def _get_monitor():
     return _monitor
 
 
+def raise_if_stopping():
+    """Raise LibraryExitException when Kodi is exiting, the service is
+    shutting down, or the server went offline -- the three conditions the
+    ``stop`` decorator checks, callable from inside a loop (the pager asks
+    before every page it yields; a decorator on a generator only ever asked
+    once, at creation)."""
+    if _get_monitor().abortRequested():
+        raise LibraryExitException("Kodi aborted, exiting...")
+
+    if state.should_stop():
+        raise LibraryExitException("Should stop flag raised, exiting...")
+
+    if not state.is_online():
+        raise LibraryExitException("Server not online, exiting...")
+
+
 def stop(func):
     """Abort the wrapped call when Kodi exits, the service shuts down, or the
     server went offline (fork ``helper.wrapper.stop`` semantics).
@@ -71,16 +87,7 @@ def stop(func):
 
     @wraps(func)
     def wrapper(*args, **kwargs):
-
-        if _get_monitor().abortRequested():
-            raise LibraryExitException("Kodi aborted, exiting...")
-
-        if state.should_stop():
-            raise LibraryExitException("Should stop flag raised, exiting...")
-
-        if not state.is_online():
-            raise LibraryExitException("Server not online, exiting...")
-
+        raise_if_stopping()
         return func(*args, **kwargs)
 
     return wrapper

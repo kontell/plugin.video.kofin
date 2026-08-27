@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Tuple
 from kofin.core import settings, state
 from kofin.core.http import JellyfinError, ServerUnreachable
 from kofin.core.log import Logger
-from kofin.sync.shims import LibraryException, LibraryExitException, stop
+from kofin.sync.shims import LibraryException, LibraryExitException, raise_if_stopping
 
 LOG = Logger(__name__)
 
@@ -115,7 +115,8 @@ def get_episode_by_season(api, show_id, season_id):
             "Fields": info(),
         },
     }
-    for items in _get_items(api, query):
+    limit, threads = page_settings()
+    for items in _get_items(api, query, limit, threads):
         yield items
 
 
@@ -128,6 +129,36 @@ def get_seasons(api, show_id):
 
 def get_local_trailers(api, item_id):
     return api.get("/Items/%s/LocalTrailers" % item_id, {"userId": api.user_id})
+
+
+def library_filter(api, parent_id, item_types=None):
+    """The filter every library listing shares: this parent, recursive,
+    real files only (present, not virtual-unaired), sets uncollapsed.
+
+    One spelling for the walk (build_query), the prune's id+Etag paging
+    (get_id_etag_map) and its count (get_prune_count): the prune's count
+    must count exactly the set the prune diffs, and the walk must page the
+    set the prune will later reconcile. get_item_count is deliberately not
+    on it (see get_prune_count).
+    """
+    return {
+        "userId": api.user_id,
+        "ParentId": parent_id,
+        "IncludeItemTypes": item_types,
+        "CollapseBoxSetItems": False,
+        "IsVirtualUnaired": False,
+        "LocationTypes": "FileSystem,Remote,Offline",
+        "IsMissing": False,
+        "Recursive": True,
+    }
+
+
+def page_settings():
+    """The page size and the pool width, from the settings -- read by the
+    callers of the pager, which itself reads nothing from Kodi."""
+    return min(settings.get_int("limitIndex") or 50, 100), (
+        settings.get_int("limitThreads") or 3
+    )
 
 
 def get_item_count(api, parent_id, item_type=None):
@@ -182,14 +213,10 @@ def build_query(api, parent_id, item_type=None, basic=False, params=None):
     """
     query: Dict[str, Any] = {
         "url": "/Items",
-        "params": {
-            "userId": api.user_id,
-            "ParentId": parent_id,
-            # Load-bearing: the 3-pass tvshows walk (Series, then Season,
-            # then Episode) is only three *different* queries because of
-            # this. Dropping it makes every pass fetch the whole library and
-            # apply the wrong writer to each item.
-            "IncludeItemTypes": item_type,
+        "params": library_filter(api, parent_id, item_type),
+    }
+    query["params"].update(
+        {
             # Newest first (phase 5, sync-plan Phase 3): fresh content is
             # browsable minutes into an initial sync. SortName breaks the
             # tie so pagination stays deterministic under equal timestamps
@@ -199,14 +226,13 @@ def build_query(api, parent_id, item_type=None, basic=False, params=None):
             "SortBy": "DateCreated,SortName",
             "SortOrder": "Descending,Ascending",
             "Fields": basic_info() if basic else info(),
-            "CollapseBoxSetItems": False,
-            "IsVirtualUnaired": False,
             "EnableTotalRecordCount": False,
-            "LocationTypes": "FileSystem,Remote,Offline",
-            "IsMissing": False,
-            "Recursive": True,
-        },
-    }
+        }
+    )
+    # IncludeItemTypes is load-bearing: the 3-pass tvshows walk (Series,
+    # then Season, then Episode) is only three *different* queries because
+    # of it. Dropping it makes every pass fetch the whole library and apply
+    # the wrong writer to each item.
     if params:
         # Directions belong to the fields they were written for: a caller that
         # names its own SortBy without a SortOrder gets a plain ascending
@@ -247,8 +273,9 @@ def restore_fingerprint(api, parent_id, item_type=None, basic=False, params=None
 
 def get_items(api, parent_id, item_type=None, basic=False, params=None):
     query = build_query(api, parent_id, item_type, basic, params)
+    limit, threads = page_settings()
 
-    for items in _get_items(api, query):
+    for items in _get_items(api, query, limit, threads):
         yield items
 
 
@@ -296,22 +323,15 @@ def get_id_etag_map(api, parent_id, item_types):
     costs one skipped prune, where guessing costs rows.
     """
     url = "/Items"
-    params = {
-        "userId": api.user_id,
-        "ParentId": parent_id,
-        "IncludeItemTypes": item_types,
-        "SortBy": "SortName",
-        "SortOrder": "Ascending",
-        "Fields": basic_info(),
-        "EnableUserData": False,
-        "EnableImages": False,
-        "EnableTotalRecordCount": False,
-        "CollapseBoxSetItems": False,
-        "IsVirtualUnaired": False,
-        "LocationTypes": "FileSystem,Remote,Offline",
-        "IsMissing": False,
-        "Recursive": True,
-    }
+    params = dict(
+        library_filter(api, parent_id, item_types),
+        SortBy="SortName",
+        SortOrder="Ascending",
+        Fields=basic_info(),
+        EnableUserData=False,
+        EnableImages=False,
+        EnableTotalRecordCount=False,
+    )
 
     result = {}
     start = 0
@@ -388,20 +408,13 @@ def get_prune_count(api, parent_id, item_types):
     """
     result = api.get(
         "/Items",
-        {
-            "userId": api.user_id,
-            "ParentId": parent_id,
-            "IncludeItemTypes": item_types,
-            "EnableUserData": False,
-            "EnableImages": False,
-            "EnableTotalRecordCount": True,
-            "CollapseBoxSetItems": False,
-            "IsVirtualUnaired": False,
-            "LocationTypes": "FileSystem,Remote,Offline",
-            "IsMissing": False,
-            "Recursive": True,
-            "Limit": 0,
-        },
+        dict(
+            library_filter(api, parent_id, item_types),
+            EnableUserData=False,
+            EnableImages=False,
+            EnableTotalRecordCount=True,
+            Limit=0,
+        ),
     )
 
     return result.get("TotalRecordCount")
@@ -474,33 +487,38 @@ def get_artists(api, parent_id=None):
             "Recursive": True,
         },
     }
+    limit, threads = page_settings()
 
-    for items in _get_items(api, query):
+    for items in _get_items(api, query, limit, threads):
         yield items
 
 
-@stop
-def _get_items(api, query):
-    """query = {
-        'url': string,
-        'params': dict -- opt, include StartIndex to resume
-    }
+def _get_items(api, query, limit=50, threads=3, should_stop=raise_if_stopping):
+    """Page one query through a thread pool; one dict per page.
+
+    ``query`` is ``{"url": ..., "params": {...}}``; a ``StartIndex`` in the
+    params is where paging resumes. ``limit`` and ``threads`` are the page
+    size and the pool width -- the callers read the settings, this reads
+    nothing from Kodi. ``should_stop`` is called before every page is
+    handed out and raises to end the walk (the fork's ``@stop`` on this
+    generator ran once, at creation, and never again).
+
+    Each page is a fresh dict -- ``Items``, ``TotalRecordCount`` and the
+    ``RestorePoint`` (the query with this page's params) -- so a consumer
+    may keep a page after the next one is yielded.
     """
-    items: Dict[str, Any] = {"Items": [], "TotalRecordCount": 0, "RestorePoint": {}}
-
-    limit = min(settings.get_int("limitIndex") or 50, 100)
-    dthreads = settings.get_int("limitThreads") or 3
-
     url = query["url"]
     query.setdefault("params", {})
     params = query["params"]
+
+    should_stop()
 
     try:
         test_params = dict(params)
         test_params["Limit"] = 1
         test_params["EnableTotalRecordCount"] = True
 
-        items["TotalRecordCount"] = api.get(url, test_params)["TotalRecordCount"]
+        total = api.get(url, test_params)["TotalRecordCount"]
 
     except Exception as error:
         LOG.exception(
@@ -513,120 +531,107 @@ def _get_items(api, query):
         # turns a rejected query into an empty pass: the caller writes no
         # items, the library is dropped from sync.json as done and the sync
         # reports success, so a library that never landed looks synced. An
-        # empty library is not this path — the count query answers 200 with
+        # empty library is not this path -- the count query answers 200 with
         # TotalRecordCount 0. Failing keeps the library pending for retry.
         raise
 
-    else:
-        params.setdefault("StartIndex", 0)
+    params.setdefault("StartIndex", 0)
 
-        def get_query_params(params, start, count):
-            params_copy = dict(params)
-            params_copy["StartIndex"] = start
-            params_copy["Limit"] = count
-            return params_copy
+    query_params = [
+        dict(params, StartIndex=offset, Limit=limit)
+        for offset in range(params["StartIndex"], total, limit)
+    ]
 
-        query_params = [
-            get_query_params(params, offset, limit)
-            for offset in range(params["StartIndex"], items["TotalRecordCount"], limit)
+    # multiprocessing.dummy.Pool completes all requests in multiple threads
+    # but has to complete all tasks before allowing any results to be
+    # processed. ThreadPoolExecutor allows for completed tasks to be
+    # processed while other tasks are completed on other threads.
+    with concurrent.futures.ThreadPoolExecutor(threads) as pool:
+        # Semaphore to avoid fetching the complete library into memory,
+        # deliberately deeper than the pool is wide. A permit is held from
+        # the moment a worker starts a page until the consumer is done with
+        # it, so a depth equal to the width let the network idle whenever
+        # the writer was the faster side: the album pass drained its three
+        # buffered pages in about a second and then waited ~9s for the next
+        # three -- measured at 26% of that pass's wall time. An extra page
+        # per thread keeps ``threads`` fetches in flight while finished
+        # pages wait their turn, and still bounds memory to
+        # ``PREFETCH_PAGES * threads * limit`` items (600 at the defaults).
+        # Consumption stays in submission order either way, so the restore
+        # point is unaffected.
+        thread_buffer = threading.Semaphore(threads * PREFETCH_PAGES)
+
+        def get_wrapper(page_params):
+            thread_buffer.acquire()
+            return api.get(url, page_params)
+
+        jobs: List[Tuple[Any, Any]] = [
+            (pool.submit(get_wrapper, page_params), page_params)
+            for page_params in query_params
         ]
 
-        # multiprocessing.dummy.Pool completes all requests in multiple threads but has to
-        # complete all tasks before allowing any results to be processed. ThreadPoolExecutor
-        # allows for completed tasks to be processed while other tasks are completed on other
-        # threads. Don't be a dummy.Pool, be a ThreadPoolExecutor
-        with concurrent.futures.ThreadPoolExecutor(dthreads) as p:
-            # Semaphore to avoid fetching the complete library into memory,
-            # deliberately deeper than the pool is wide. A permit is held from
-            # the moment a worker starts a page until the consumer is done with
-            # it, so a depth equal to the width let the network idle whenever
-            # the writer was the faster side: the album pass drained its three
-            # buffered pages in about a second and then waited ~9s for the next
-            # three — measured at 26% of that pass's wall time. An extra page
-            # per thread keeps ``dthreads`` fetches in flight while finished
-            # pages wait their turn, and still bounds memory to
-            # ``PREFETCH_PAGES * dthreads * limit`` items (600 at the
-            # defaults). Consumption stays in submission order either way, so
-            # the restore point is unaffected.
-            thread_buffer = threading.Semaphore(dthreads * PREFETCH_PAGES)
+        def abandon_jobs():
+            """Let the executor shut down when the consumer stops early.
 
-            # wrapper function for api.get that uses a semaphore
-            def get_wrapper(params):
-                thread_buffer.acquire()
-                return api.get(url, params)
+            Every page is submitted up front and each worker blocks on
+            ``thread_buffer`` until the consumer releases a permit, so a
+            consumer that stops mid-iteration strands them: the
+            ``with ThreadPoolExecutor(...)`` exit calls ``shutdown(wait=True)``,
+            which waits on jobs nobody will ever unblock, and the wait never
+            ends. That is the multi-minute freeze on quitting Kodi mid-sync
+            -- a writer's ``@stop`` raises LibraryExitException, which closes
+            this generator.
 
-            # create jobs
-            jobs: List[Tuple[Any, Any]] = [
-                (p.submit(get_wrapper, param), param) for param in query_params
-            ]
+            Cancelling covers the pages that have not started; releasing a
+            permit per job covers every worker that could still reach an
+            ``acquire`` while the cancellations land. Over-releasing is
+            harmless -- the semaphore dies with the generator.
+            """
+            for pending, _ in jobs:
+                if pending is not None and not pending.done():
+                    pending.cancel()
 
-            def abandon_jobs():
-                """Let the executor shut down when the consumer stops early.
+            for _ in jobs:
+                thread_buffer.release()
 
-                Every page is submitted up front and each worker blocks on
-                ``thread_buffer`` until the consumer releases a permit, so a
-                consumer that stops mid-iteration strands them: the
-                ``with ThreadPoolExecutor(...)`` exit calls
-                ``shutdown(wait=True)``, which waits on jobs nobody will ever
-                unblock, and the wait never ends. That is the multi-minute
-                freeze on quitting Kodi mid-sync — a writer's ``@stop`` raises
-                LibraryExitException, which closes this generator.
+        # Consume pages strictly in submission order: the RestorePoint may
+        # only ever advance past pages that have been handed to the caller.
+        # Out-of-order consumption could persist a restore point beyond
+        # pages that were still in flight, and a resumed sync would then
+        # skip those items entirely. The semaphore still bounds how far
+        # ahead of the consumer the pool may run.
+        try:
+            for index, (job, page_params) in enumerate(jobs):
+                try:
+                    result = job.result() or {"Items": []}
+                except Exception as error:
+                    LOG.exception("Failed to retrieve page %s: %s", page_params, error)
+                    # The finally below cancels the rest and unblocks the
+                    # workers, so the executor can actually shut down.
+                    raise
 
-                Cancelling covers the pages that have not started; releasing a
-                permit per job covers every worker that could still reach an
-                ``acquire`` while the cancellations land. Over-releasing is
-                harmless — the semaphore dies with the generator.
-                """
-                for pending, _ in jobs:
-                    if pending is not None and not pending.done():
-                        pending.cancel()
+                # free job memory
+                jobs[index] = (None, None)
 
-                for _ in jobs:
-                    thread_buffer.release()
-
-            # Consume pages strictly in submission order: the RestorePoint may
-            # only ever advance past pages that have been handed to the caller.
-            # Out-of-order consumption could persist a restore point beyond
-            # pages that were still in flight, and a resumed sync would then
-            # skip those items entirely. The semaphore still bounds how far
-            # ahead of the consumer the pool may run.
-            try:
-                for index, (job, param) in enumerate(jobs):
+                # Mitigates #216 till the server validates the date provided is valid
+                if result["Items"] and result["Items"][0].get("ProductionYear"):
                     try:
-                        result = job.result() or {"Items": []}
-                    except Exception as error:
-                        LOG.exception("Failed to retrieve page %s: %s", param, error)
-                        # The finally below cancels the rest and unblocks the
-                        # workers, so the executor can actually shut down.
-                        raise
+                        date(result["Items"][0]["ProductionYear"], 1, 1)
+                    except ValueError:
+                        LOG.info(
+                            "#216 mitigation triggered. Setting ProductionYear to None"
+                        )
+                        result["Items"][0]["ProductionYear"] = None
 
-                    # free job memory
-                    jobs[index] = (None, None)
-                    query["params"] = param
+                should_stop()
 
-                    # Mitigates #216 till the server validates the date provided is valid
-                    if result["Items"] and result["Items"][0].get("ProductionYear"):
-                        try:
-                            date(result["Items"][0]["ProductionYear"], 1, 1)
-                        except ValueError:
-                            LOG.info(
-                                "#216 mitigation triggered. Setting ProductionYear to None"
-                            )
-                            result["Items"][0]["ProductionYear"] = None
+                yield {
+                    "Items": list(result["Items"]),
+                    "TotalRecordCount": total,
+                    "RestorePoint": {"url": url, "params": dict(page_params)},
+                }
 
-                    items["Items"].extend(result["Items"])
-                    # Using items to return data and communicate a restore point back to the callee is
-                    # a violation of the SRP. TODO: Separate responsibilities.
-                    items["RestorePoint"] = query
-                    yield items
-                    del items["Items"][:]
-
-                    # release the semaphore again
-                    thread_buffer.release()
-            finally:
-                abandon_jobs()
-
-
-# How many times a chunk may fail to download before it is dropped and its
-# ids flagged unapplied. Each attempt is a fresh worker on a later service
-# tick, so three attempts are three ticks apart, not three in a row.
+                # release the semaphore again
+                thread_buffer.release()
+        finally:
+            abandon_jobs()
