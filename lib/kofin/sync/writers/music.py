@@ -5,6 +5,7 @@ from the server), ``self.server`` is the kofin Api, and the ``musicTranscode``
 setting picks between the fork's direct stream URLs and kofin plugin paths."""
 
 import datetime
+from typing import Any, List
 
 from kofin.core import settings
 from kofin.core.log import Logger
@@ -816,7 +817,7 @@ class Music(KodiDb):
     def get_child(self, item_id, e_item):
         """Get all child elements from tv show jellyfin id."""
         obj = {"Id": item_id}
-        child = []
+        child: List[Any] = []
 
         try:
             obj["KodiId"] = e_item[0]

@@ -5,6 +5,7 @@ Adaptations per plan §3: imports/shims, addon id and path base,
 kofin Api."""
 
 import sqlite3
+from typing import Any, List
 from urllib.parse import urlencode
 
 from kofin.core.log import Logger
@@ -171,7 +172,7 @@ class TVShows(KodiDb):
                 str(Local(obj["Premiere"])).split(".")[0].replace("T", " ")
             )
 
-        tags = []
+        tags: List[str] = []
         tags.extend(obj["Tags"] or [])
         tags.append(obj["LibraryName"])
 
@@ -970,7 +971,7 @@ class TVShows(KodiDb):
     def get_child(self, item_id, e_item):
         """Get all child elements from tv show jellyfin id."""
         obj = {"Id": item_id}
-        child = []
+        child: List[Any] = []
 
         try:
             obj["KodiId"] = e_item[0]

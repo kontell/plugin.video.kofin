@@ -16,6 +16,7 @@ import concurrent.futures
 from datetime import date
 
 import queue
+from typing import Any, Dict, List, Tuple
 
 from kofin.core import settings, state
 from kofin.core.http import JellyfinError, ServerUnreachable
@@ -194,7 +195,7 @@ def build_query(api, parent_id, item_type=None, basic=False, params=None):
     result set it claims to be an index into (``restore_fingerprint``); the
     construction below is unchanged.
     """
-    query = {
+    query: Dict[str, Any] = {
         "url": "/Items",
         "params": {
             "userId": api.user_id,
@@ -500,7 +501,7 @@ def _get_items(api, query):
         'params': dict -- opt, include StartIndex to resume
     }
     """
-    items = {"Items": [], "TotalRecordCount": 0, "RestorePoint": {}}
+    items: Dict[str, Any] = {"Items": [], "TotalRecordCount": 0, "RestorePoint": {}}
 
     limit = min(settings.get_int("limitIndex") or 50, 100)
     dthreads = settings.get_int("limitThreads") or 3
@@ -570,7 +571,9 @@ def _get_items(api, query):
                 return api.get(url, params)
 
             # create jobs
-            jobs = [(p.submit(get_wrapper, param), param) for param in query_params]
+            jobs: List[Tuple[Any, Any]] = [
+                (p.submit(get_wrapper, param), param) for param in query_params
+            ]
 
             def abandon_jobs():
                 """Let the executor shut down when the consumer stops early.
@@ -642,6 +645,8 @@ def _get_items(api, query):
 class GetItemWorker(threading.Thread):
 
     is_done = False
+    # Stamped by Library.worker_downloads after construction.
+    source = ""
     # Set when this worker stopped because the server was unreachable, so the
     # library can pause the spawn path instead of starting a replacement into
     # the same wall (see Library.DOWNLOAD_BACKOFF_SECONDS).

@@ -8,6 +8,8 @@ only); artwork-quality settings read kofin's Sync tab ids (``compressArt``,
 ``find_library`` resolves through the kofin Api and sync.json whitelist.
 """
 
+from typing import List
+
 from kofin.core import settings
 from kofin.core.log import Logger
 
@@ -129,7 +131,7 @@ class API(object):
     @classmethod
     def adjust_resume(cls, resume_seconds):
 
-        resume = 0
+        resume: float = 0
         if resume_seconds:
             # The jumpback rule itself lives in core.settings so the bookmark
             # written here, the resume point a listing advertises and the
@@ -295,7 +297,7 @@ class API(object):
 
     def get_backdrops(self, item_id, tags, query=None):
         """Get backdrops based of "BackdropImageTags" in the jellyfin object."""
-        backdrops = []
+        backdrops: List[str] = []
 
         if item_id is None:
             return backdrops

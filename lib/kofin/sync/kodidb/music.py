@@ -402,7 +402,7 @@ class Music(Kodi):
     def rate_song(self, *args):
         self.cursor.execute(QU.update_song_rating, args)
 
-    def add_genres(self, kodi_id, genres, media):
+    def add_genres(self, kodi_id, genres, media):  # type: ignore[override]
         """Add genres, but delete current genres first.
         Album_genres was removed in kodi 18
         """

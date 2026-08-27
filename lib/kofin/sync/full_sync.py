@@ -14,6 +14,7 @@ at service start (kodisetup), not here.
 from contextlib import contextmanager
 import datetime
 import time
+from typing import Any, Dict, List, Optional, Tuple
 
 import xbmc
 
@@ -168,7 +169,9 @@ class FullSync(object):
     # refused to sync at all until Kodi itself restarted, while the dict also
     # pinned the old Library's queues, threads and Api forever. The guard now
     # belongs to the Library the sync runs for, so it dies with it.
-    sync = None
+    # Loaded by libraries()/remove_library() before anything reads it; the
+    # fork's class-level None was a Borg leftover and is gone.
+    sync: Dict[str, Any]
     update_library = False
 
     def __init__(self, library, server):
@@ -302,7 +305,7 @@ class FullSync(object):
         self.library.stamp_watermark_if_empty()
 
         libraries = list(self.sync["Libraries"])
-        failures = []
+        failures: List[Exception] = []
 
         self.process_libraries(libraries, failures)
         save_sync(self.sync)
@@ -1039,6 +1042,7 @@ class FullSync(object):
         route through the SortWorker). The catch-up that runs alongside
         (Update = sync-queue catch-up **plus** this prune) covers userdata.
         """
+        classes: Tuple[Optional[str], ...]
         if library_id.startswith("Mixed:"):
             classes = ("movies", "tvshows")
         else:
@@ -1049,7 +1053,7 @@ class FullSync(object):
         stale = []
 
         for media_class in classes:
-            server_types = PRUNE_SERVER_TYPES.get(media_class)
+            server_types = PRUNE_SERVER_TYPES.get(media_class or "")
 
             if not server_types:
                 LOG.info("prune skips %s (%s)", library["Id"], media_class)

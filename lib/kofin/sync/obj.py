@@ -4,6 +4,7 @@ verbatim port; the mapping file ``obj_map.json`` is data)."""
 
 import json
 import os
+from typing import Any, Dict
 
 from kofin.core.log import Logger
 
@@ -43,7 +44,7 @@ class Objects(object):
         # Build into a local dict: Objects is a Borg, so an attribute here
         # would be shared state — concurrent writers (video and music run in
         # parallel) would corrupt each other's mapping mid-build.
-        mapped_item = {}
+        mapped_item: Dict[str, Any] = {}
 
         if not mapping_name:
             raise Exception("execute mapping() first")

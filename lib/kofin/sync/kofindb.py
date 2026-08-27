@@ -21,7 +21,7 @@ def sqlite_namedtuple_factory(cursor, row):
     http://peter-hoffmann.com/2010/python-sqlite-namedtuple-factory.html
     """
     fields = [col[0] for col in cursor.description]
-    Row = namedtuple("Row", fields)
+    Row = namedtuple("Row", fields)  # type: ignore[misc]
     return Row(*row)
 
 

@@ -21,6 +21,8 @@ and with an empty sources.xml it disagrees the moment kofin writes a row —
 so any user-triggered music scan empties every node this feature draws.
 """
 
+from typing import Dict, List
+
 from kofin.core.log import Logger
 from kofin.sync.kodidb.music import Music
 
@@ -39,7 +41,7 @@ def source_name(view_id, views):
     clash, and both the node writer and the database writer derive it from
     the same view list so the two cannot disagree about it.
     """
-    names = {}
+    names: Dict[str, List[str]] = {}
 
     for view in views:
         names.setdefault(_view_name(view), []).append(_view_id(view))

@@ -254,6 +254,19 @@ def _node_label(value, fallback=""):
     return value or fallback
 
 
+def _require(xml, tag):
+    """The child element the caller has just ensured exists.
+
+    ``find`` is typed Optional; the callers below all create the element
+    when it is missing a few lines earlier, so a miss here is a programming
+    error and says so instead of failing on ``.text``.
+    """
+    element = xml.find(tag)
+    if element is None:
+        raise ValueError("node XML is missing its <%s> element" % tag)
+    return element
+
+
 def set_node_icon(xml, icon):
     """Set (or add) a node's ``<icon>``, keeping it before the other
     children the way Kodi's own node files write it."""
@@ -867,12 +880,12 @@ class Views(object):
             etree.SubElement(xml, "name")
             etree.SubElement(xml, "match")
 
-        name = xml.find("name")
+        name = _require(xml, "name")
         name.text = (
             view["Name"] if not mixed else "%s (%s)" % (view["Name"], view["Media"])
         )
 
-        match = xml.find("match")
+        match = _require(xml, "match")
         match.text = "all"
 
         for rule in xml.findall(".//value"):
@@ -1016,13 +1029,13 @@ class Views(object):
         # and a NODE_LAYOUT bump changed nothing visible.
         set_node_icon(xml, icon)
 
-        label = xml.find("label")
+        label = _require(xml, "label")
         label.text = view["Name"]
 
-        content = xml.find("content")
+        content = _require(xml, "content")
         content.text = view["Media"]
 
-        match = xml.find("match")
+        match = _require(xml, "match")
         match.text = "all"
 
         if view["Media"] != "episodes":
@@ -1131,7 +1144,7 @@ class Views(object):
             xml = self.node_root("main", index, node_icon(view["Media"]))
             etree.SubElement(xml, "label")
 
-        label = xml.find("label")
+        label = _require(xml, "label")
         label.text = (
             view["Name"]
             if not mixed
@@ -1185,13 +1198,13 @@ class Views(object):
             etree.SubElement(xml, "match")
             etree.SubElement(xml, "content")
 
-        label = xml.find("label")
+        label = _require(xml, "label")
         label.text = _node_label(name)
 
-        content = xml.find("content")
+        content = _require(xml, "content")
         content.text = view["Media"]
 
-        match = xml.find("match")
+        match = _require(xml, "match")
         match.text = "all"
 
         for rule in xml.findall(".//value"):
@@ -1220,7 +1233,7 @@ class Views(object):
             etree.SubElement(xml, "label")
             etree.SubElement(xml, "content")
 
-        label = xml.find("label")
+        label = _require(xml, "label")
         label.text = _node_label(name)
 
         getattr(self, "node_" + node)(xml, path)

@@ -14,6 +14,7 @@ The queue/worker/priority logic is the fork's, byte for byte where possible.
 
 import threading
 import time
+from typing import Any, Dict, List, Tuple
 from datetime import datetime, timedelta, timezone
 
 import queue
@@ -190,19 +191,19 @@ class Library(threading.Thread):
         # so a service restart's fresh Library starts unclaimed.
         self._full_sync_lock = threading.Lock()
         self._full_sync_running = False
-        self.commands = queue.Queue()
+        self.commands: "queue.Queue[Any]" = queue.Queue()
         # When the last change-feed pass *began* (monotonic), or None. Begin
         # rather than end: the guarantee a queued FastSync is protecting is
         # that the server was asked after the event that queued it, and the
         # request goes out at the start of the pass.
         self.last_fast_sync_started = None
-        self.added_queue = queue.Queue()
-        self.updated_queue = queue.Queue()
-        self.userdata_queue = queue.Queue()
-        self.removed_queue = queue.Queue()
+        self.added_queue: "queue.Queue[Any]" = queue.Queue()
+        self.updated_queue: "queue.Queue[Any]" = queue.Queue()
+        self.userdata_queue: "queue.Queue[Any]" = queue.Queue()
+        self.removed_queue: "queue.Queue[Any]" = queue.Queue()
         # Image-only updates (tier 1): downloaded last with minimal fields,
         # written through the artwork-only path instead of the full cascade.
-        self.artwork_queue = queue.Queue()
+        self.artwork_queue: "queue.Queue[Any]" = queue.Queue()
         # Bounded: these two carry whole downloaded items, and the downloaders
         # outrun the writers by a wide margin. Deliberately not applied to the
         # other two — userdata_output is fed straight from this thread by
@@ -212,7 +213,7 @@ class Library(threading.Thread):
         self.updated_output = self.__new_queues__(WRITE_QUEUE_MAX)
         self.userdata_output = self.__new_queues__()
         self.removed_output = self.__new_queues__()
-        self.notify_output = queue.Queue()
+        self.notify_output: "queue.Queue[Any]" = queue.Queue()
         # Announceable additions written this cycle, drained from
         # notify_output by notify_new_content and held until the cycle's
         # additions are all in (and, during playback, until it ends).
@@ -234,7 +235,11 @@ class Library(threading.Thread):
 
         self.jellyfin_threads = []
         self.download_threads = []
-        self.writer_threads = {"updated": [], "userdata": [], "removed": []}
+        self.writer_threads: Dict[str, List[Any]] = {
+            "updated": [],
+            "userdata": [],
+            "removed": [],
+        }
         self.database_lock = threading.Lock()
         self.music_database_lock = threading.Lock()
         self.download_errors = threading.Event()
@@ -1231,7 +1236,7 @@ class Library(threading.Thread):
         # Flags accumulate so a cycle that reveals both databases rebuilds the
         # skin once rather than twice; a reload is a whole-window teardown and
         # firing two back to back reads as a flicker.
-        reload_flags = []
+        reload_flags: List[str] = []
 
         if "video" in moved:
             # Catch the empty -> non-empty transition before the scan clears
@@ -1423,7 +1428,7 @@ class Library(threading.Thread):
         owns an unconditional reload, routed through the first-content
         machinery for its HasContent poll and its during-playback hold.
         """
-        flags = []
+        flags: List[str] = []
 
         if "video" in kinds:
             flags.extend(VIDEO_CONTENT_FLAGS)
@@ -2096,7 +2101,7 @@ class Library(threading.Thread):
         for entry in self.whitelist():
             library_id = entry.replace("Mixed:", "").replace("Boxsets:", "")
             media_class = views.get(library_id)
-            item_types = PRUNE_SERVER_TYPES.get(media_class)
+            item_types = PRUNE_SERVER_TYPES.get(media_class) if media_class else None
 
             if not item_types:
                 continue
@@ -2307,6 +2312,7 @@ class Library(threading.Thread):
         if envelope is not None and envelope.server_time:
             time_now = self._naive_utc(envelope.server_time)
         elif self.companion_tier == TIER_KOFIN:
+            assert self.changefeed is not None
             try:
                 server_now = self.changefeed.server_now()
                 if server_now:
@@ -2514,6 +2520,10 @@ def _release_worker(thread):
 class UpdateWorker(threading.Thread):
 
     is_done = False
+    # Stamped by worker_updates after construction and read back by the
+    # reaper and the added/updated gates.
+    db_file = ""
+    source = ""
 
     def __init__(
         self,
@@ -2567,7 +2577,8 @@ class UpdateWorker(threading.Thread):
     def run(self):
         with self.lock, Database("kofin") as jellyfindb, self.database as kodidb:
             default_args = (self.server, jellyfindb, kodidb)
-            artwork_writers = {}
+            artwork_writers: Dict[str, Any] = {}
+            writers: Tuple[Any, ...]
             if kodidb.db_file == "video":
                 movies = Movies(*default_args)
                 tvshows = TVShows(*default_args)
@@ -2673,6 +2684,7 @@ class UpdateWorker(threading.Thread):
 class UserDataWorker(threading.Thread):
 
     is_done = False
+    db_file = ""
 
     def __init__(self, queue, lock, database, server, unapplied=None):
 
@@ -2842,7 +2854,7 @@ def removal_writer_for(item_type, movies, tvshows, music, musicvideos):
         "tvshows": tvshows,
         "music": music,
         "musicvideos": musicvideos,
-    }.get(REMOVAL_WRITERS.get(item_type))
+    }.get(REMOVAL_WRITERS.get(item_type or "", ""))
 
     return None if writer is None else writer.remove
 
@@ -2850,6 +2862,7 @@ def removal_writer_for(item_type, movies, tvshows, music, musicvideos):
 class RemovedWorker(threading.Thread):
 
     is_done = False
+    db_file = ""
 
     def __init__(self, queue, lock, database, server, unapplied=None):
 

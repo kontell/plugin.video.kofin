@@ -5,6 +5,7 @@ stripped (plugin mode only), ``self.server`` is the kofin Api."""
 
 import datetime
 import re
+from typing import List
 from urllib.parse import urlencode
 
 from kofin.core.log import Logger
@@ -151,7 +152,7 @@ class MusicVideos(KodiDb):
             if search:
                 obj["Index"] = search.group()
 
-        tags = []
+        tags: List[str] = []
         tags.extend(obj["Tags"] or [])
         tags.append(obj["LibraryName"])
 
