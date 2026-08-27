@@ -19,7 +19,7 @@ from kofin.sync import db as sync_db
 from kofin.sync import schema
 from kofin.sync.kodidb import Music as MusicKodiDb
 from kofin.sync.kodidb.kodi import Kodi
-from kofin.sync.library import UpdateWorker
+from kofin.sync.workers import UpdateWorker
 from kofin.sync.newcontent import Entry
 from kofin.sync.shims import LibraryOrphanException
 from kofin.sync.writers import Movies, MusicVideos, TVShows, Music
@@ -1979,7 +1979,7 @@ def _writer_queues():
 
 def test_userdata_worker_applies_video_userdata(api):
     """A favourite flip and a resume point, through the drain loop."""
-    from kofin.sync.library import UserDataWorker
+    from kofin.sync.workers import UserDataWorker
 
     register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
     write_movie(api)
@@ -2018,7 +2018,7 @@ def test_userdata_worker_applies_video_userdata(api):
 
 
 def test_userdata_worker_flags_what_it_cannot_apply(api):
-    from kofin.sync.library import UserDataWorker
+    from kofin.sync.workers import UserDataWorker
 
     register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
     write_movie(api)
@@ -2044,7 +2044,7 @@ def test_userdata_worker_flags_what_it_cannot_apply(api):
 
 
 def test_userdata_worker_applies_music_userdata(api, frozen_music_clock):
-    from kofin.sync.library import UserDataWorker
+    from kofin.sync.workers import UserDataWorker
 
     write_music_tree(api)
     song = dto(SONG)
@@ -2062,7 +2062,7 @@ def test_userdata_worker_applies_music_userdata(api, frozen_music_clock):
 def test_sort_worker_routes_ids_to_their_media_queue(api):
     """The removed feed carries bare ids; the sorter resolves each to the
     media type its writer queue is keyed on, children via the parent."""
-    from kofin.sync.library import SortWorker
+    from kofin.sync.workers import SortWorker
 
     register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
     write_movie(api)
@@ -2090,7 +2090,7 @@ def test_sort_worker_expands_a_parent_it_never_synced(api):
     """A series removed server-side arrives as its own id; with its own row
     already gone the sorter still finds the children referencing it
     (jellyfin_parent_id, the episode's SeriesId) and routes those."""
-    from kofin.sync.library import SortWorker
+    from kofin.sync.workers import SortWorker
 
     write_series_tree(api)
     kofin_exec("DELETE FROM jellyfin WHERE jellyfin_id = 'series1'")
@@ -2106,7 +2106,7 @@ def test_sort_worker_expands_a_parent_it_never_synced(api):
 
 
 def test_removed_worker_removes_every_kind_and_leaves_no_orphans(api):
-    from kofin.sync.library import RemovedWorker
+    from kofin.sync.workers import RemovedWorker
 
     register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
     write_movie(api)
@@ -2135,7 +2135,7 @@ def test_removed_worker_removes_every_kind_and_leaves_no_orphans(api):
 
 
 def test_removed_worker_leaves_an_unknown_kind_in_place(api):
-    from kofin.sync.library import RemovedWorker
+    from kofin.sync.workers import RemovedWorker
 
     register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
     write_movie(api)

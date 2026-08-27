@@ -50,4 +50,4 @@ def test_bookkeeping_reaches_the_manager(monkeypatch):
     host.defer_playlist_poll()
 
     assert refreshed == [({"video"}, True)]
-    assert manager.playlist_poll_at is not None
+    assert manager.playlist_poll.armed

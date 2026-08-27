@@ -14,7 +14,7 @@ The queue/worker/priority logic is the fork's, byte for byte where possible.
 
 import threading
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Set, Tuple
 from datetime import datetime, timedelta, timezone
 
 import queue
@@ -38,8 +38,18 @@ from kofin.sync.full_sync import FullSync
 from kofin.sync.host import SyncHost
 from kofin.sync.prune import PRUNE_SERVER_TYPES, local_reference_map
 from kofin.sync.views import Views
-from kofin.sync import widgetstate
-from kofin.sync.downloader import GetItemWorker, basic_info, get_prune_count
+from kofin.sync.clock import Deferred
+from kofin.sync.downloader import basic_info, get_prune_count
+from kofin.sync.refresh import Refresher
+from kofin.sync.workers import (
+    ChunkQueue,
+    GetItemWorker,
+    RemovedWorker,
+    SortWorker,
+    UpdateWorker,
+    UserDataWorker,
+    release_worker,
+)
 from kofin.sync.hooks import pipeline_hooks
 from kofin.sync import fields as api
 from kofin.sync.shims import (
@@ -82,11 +92,6 @@ TARGET_DB_VERSION = 1
 # set, both writer dispatches and its removal map, all of it dead, dispatching
 # to a Music.albumartist that does not exist in either codebase.
 MUSIC_QUEUES = ("Audio", "MusicArtist", "MusicAlbum")
-# Writers commit every N items: kofin.db is shared by the writers of every
-# category, and sqlite allows only one open write transaction per file — an
-# unbounded drain-long transaction would block another writer past its busy
-# timeout.
-COMMIT_INTERVAL = 50
 # How often the library thread re-checks sync.json for an unfinished full
 # sync, and the ceiling that interval backs off to while resuming keeps
 # failing (see Library.resume_pending_libraries).
@@ -118,39 +123,10 @@ AUTO_PRUNE_MAX_SECONDS = 86400
 # only way an edit reaches Kodi without a full sync; it costs one request plus
 # one per playlist, and rewrites nothing that has not changed.
 PLAYLIST_POLL_SECONDS = 900
-# Deliberately nonexistent: scanning it is how music gets a library-change
-# event without a real walk (see Library._refresh_music). Must never be
-# created — if it existed the scan would descend into it.
-MUSIC_REFRESH_PROBE = "special://temp/kofin-music-refresh-probe/"
-# The Library.HasContent flags each database's first-content reload waits on
-# (see _reload_skin_for_content). Per database because a music-only first
-# sync flips only the music bool.
-VIDEO_CONTENT_FLAGS = (
-    "Library.HasContent(Movies)",
-    "Library.HasContent(TVShows)",
-    "Library.HasContent(MusicVideos)",
-)
-MUSIC_CONTENT_FLAGS = ("Library.HasContent(Music)",)
-# How long the first-content reload waits for the scan cycle to flip
-# Library.HasContent before reloading anyway. The old fixed 2 s wait was a
-# guess: a slow box rebuilt the skin against still-false bools, and the
-# hidden-content checks are self-disarming, so the race could never retry.
-CONTENT_FLAG_TIMEOUT_SECONDS = 10.0
-CONTENT_FLAG_POLL_SECONDS = 0.25
 # New-content toast display time (ms), the fork's video default. One time for
 # every line: the fork's shorter music toast existed because music notified
 # per song and a synced album fired a dozen of them, which aggregation ends.
 NEW_CONTENT_TIME = 5000
-# Drain-completion refreshes wait out this settle, so the mini-cycles one
-# user action fans out into (a music track change is two userdata echoes,
-# stop-of-A and start-of-B, seconds apart) fold into a single refresh
-# instead of re-rendering every widget per echo (widget-refresh-plan F3/D3).
-# Two service ticks: long enough to catch the trailing echo, short enough
-# that a lone change is visible almost as fast as before.
-REFRESH_SETTLE_SECONDS = 4
-# ...but never wait longer than this from the first deferred cycle: a steady
-# event stream re-arms the settle forever, and bounded staleness beats none.
-REFRESH_MAX_HOLD_SECONDS = 15
 
 # Companion tiers come from the change-feed ladder (phase 5, plan §2); the
 # aliases keep the phase-2 names working.
@@ -164,9 +140,6 @@ class Library(threading.Thread):
     started = False
     stop_thread = False
     pending_refresh = False
-    # A first-content skin reload held back because video was playing; fired
-    # by the service tick once playback ends (see _reload_skin_for_content).
-    pending_skin_reload = False
     progress_updates = None
     total_updates = 0
 
@@ -200,13 +173,13 @@ class Library(threading.Thread):
         # that the server was asked after the event that queued it, and the
         # request goes out at the start of the pass.
         self.last_fast_sync_started = None
-        self.added_queue: "queue.Queue[Any]" = queue.Queue()
-        self.updated_queue: "queue.Queue[Any]" = queue.Queue()
-        self.userdata_queue: "queue.Queue[Any]" = queue.Queue()
-        self.removed_queue: "queue.Queue[Any]" = queue.Queue()
+        self.added_queue = ChunkQueue()
+        self.updated_queue = ChunkQueue()
+        self.userdata_queue = ChunkQueue()
+        self.removed_queue = ChunkQueue()
         # Image-only updates (tier 1): downloaded last with minimal fields,
         # written through the artwork-only path instead of the full cascade.
-        self.artwork_queue: "queue.Queue[Any]" = queue.Queue()
+        self.artwork_queue = ChunkQueue()
         # Bounded: these two carry whole downloaded items, and the downloaders
         # outrun the writers by a wide margin. Deliberately not applied to the
         # other two — userdata_output is fed straight from this thread by
@@ -246,54 +219,44 @@ class Library(threading.Thread):
         self.database_lock = threading.Lock()
         self.music_database_lock = threading.Lock()
         self.download_errors = threading.Event()
-        # Monotonic time before which no new download worker is started. A
-        # worker that dies on ServerUnreachable re-queues its chunk, and the
-        # spawn path would otherwise start a replacement against the same
-        # queue at once — three threads taking turns to wait out the
-        # transport's whole budget, forever, while the server is away
-        # (audit finding #7).
-        self.download_backoff_until = 0.0
-        self.retry_at = None
-        self.retry_delay = 60
-        # Next time to re-check sync.json for a full sync that never finished
-        # (see resume_pending_libraries). None = check on the next tick.
-        self.resume_at = None
-        self.resume_delay = RESUME_POLL_SECONDS
-        # Items the pipeline could not apply this cycle (see flag_unapplied).
-        # Written from worker threads; ints and set.add are atomic enough here,
-        # and an undercount only delays a recovery prune by one cycle.
-        self.unapplied_count = 0
-        self.unapplied_sample = set()
-        # Earliest time another automatic recovery prune may be scheduled,
-        # the current rung on its escalation ladder, and whether a recovery
-        # is owed but waiting out its floor (see schedule_recovery_prune /
-        # flush_recovery_prune).
-        self.auto_prune_at = None
-        self.auto_prune_interval = AUTO_PRUNE_MIN_SECONDS
+        # The clocks the tick reads, each one deferred action (sync/clock.py):
+        # a moment it is due and, where it retries, a delay ladder.
+        #
+        # A download worker that gave up on an unreachable server holds the
+        # spawn path off for a while rather than feeding it straight back
+        # in (audit finding #7).
+        self.download_backoff = Deferred(DOWNLOAD_BACKOFF_SECONDS)
+        # The incremental sync's retry: 60 s doubling to 30 minutes.
+        self.retry = Deferred(60, 1800)
+        # The pending-queue check that makes an interrupted full sync
+        # reconnection-proof (resume_pending_libraries); backs off while
+        # resuming keeps failing.
+        self.resume = Deferred(RESUME_POLL_SECONDS, RESUME_POLL_MAX_SECONDS)
+        # The recovery prune's floor: consecutive failing recoveries climb
+        # from an hour to a day instead of retrying hourly forever
+        # (healing-loops-plan F3). recovery_pending books a retry that
+        # landed inside the floor for flush_recovery_prune.
+        self.recovery = Deferred(AUTO_PRUNE_MIN_SECONDS, AUTO_PRUNE_MAX_SECONDS)
         self.recovery_pending = False
-        # Libraries whose sync failure already raised a toast this service
-        # lifetime; retries keep logging but stop toasting
-        # (FullSync._notify_sync_failure).
-        self.sync_failure_toasted = set()
-        # Next music playlist poll (see poll_music_playlists). None = poll on
-        # the first tick, so a playlist edited while Kodi was off is picked up
-        # at startup rather than at the next full sync.
-        self.playlist_poll_at = None
-        # Kodi databases ("video"/"music") that new content landed in, and that
-        # anything at all was written to. Kodi is not told about writes made
-        # straight to its SQLite files, so widgets only refresh when we say so.
-        self.added_databases = set()
-        self.touched_databases = set()
-        # Databases whose drain-completion refresh is waiting out the settle,
-        # and the two clocks that release it (see _arm_refresh_settle).
-        self.refresh_pending = set()
-        self.refresh_due_at = None
-        self.refresh_hold_until = None
-        # Last-refresh widget fingerprints per database (the D2 gate's
-        # memory). Instance state on purpose: a service restart forgets, and
-        # an unknown fingerprint refreshes once — pvr.kofin's first-poll
-        # rule, never a missed refresh.
-        self.widget_fingerprints = {}
+        # Music playlists are re-read on this clock; nothing else reaches a
+        # playlist edit (poll_music_playlists).
+        self.playlist_poll = Deferred(PLAYLIST_POLL_SECONDS)
+        # The widget-refresh policy: the fingerprint gate, the settle window,
+        # the content probes and the skin reload (sync/refresh.py).
+        self.refresher = Refresher(
+            self, self.required_kinds, lambda: self.pending_refresh
+        )
+        # Items a drain could not apply, counted per cycle and sampled for
+        # the log; what schedule_recovery_prune reads.
+        self.unapplied_count = 0
+        self.unapplied_sample: set = set()
+        # Libraries already toasted as failed this service lifetime
+        # (FullSync._notify_sync_failure: one toast per library).
+        self.sync_failure_toasted: set = set()
+        # The databases this cycle wrote, and the subset that took additions
+        # (refresh_added publishes those early).
+        self.added_databases: set = set()
+        self.touched_databases: set = set()
 
         threading.Thread.__init__(self, name="kofin-library")
 
@@ -421,9 +384,7 @@ class Library(threading.Thread):
         thread with its own Api — without it the first tick after a sync
         re-reads every playlist for nothing.
         """
-        self.playlist_poll_at = datetime.now() + timedelta(
-            seconds=PLAYLIST_POLL_SECONDS
-        )
+        self.playlist_poll.arm()
 
     def poll_music_playlists(self):
         """Re-read managed music playlists on the PLAYLIST_POLL_SECONDS clock.
@@ -439,7 +400,7 @@ class Library(threading.Thread):
         if self.pending_refresh or not state.is_online():
             return
 
-        if self.playlist_poll_at is not None and datetime.now() < self.playlist_poll_at:
+        if self.playlist_poll.waiting():
             return
 
         # Before the refresh, not after: one that raises must not retry on
@@ -643,16 +604,13 @@ class Library(threading.Thread):
         for category in ("updated", "userdata", "removed"):
             for thread in self.writer_threads[category]:
                 if thread.is_done:
-                    _release_worker(thread)
+                    release_worker(thread)
 
         finished = [thread for thread in self.download_threads if thread.is_done]
         for thread in finished:
-            _release_worker(thread)
+            release_worker(thread)
         if any(getattr(thread, "unreachable", False) for thread in finished):
-            # A worker just gave up on an unreachable server and put its chunk
-            # back. Hold the spawn path off for a while rather than feeding it
-            # straight back in (audit finding #7).
-            self.download_backoff_until = time.time() + DOWNLOAD_BACKOFF_SECONDS
+            self.download_backoff.arm()
             LOG.warning(
                 "--[ downloads paused %ss: server unreachable ]",
                 DOWNLOAD_BACKOFF_SECONDS,
@@ -672,9 +630,9 @@ class Library(threading.Thread):
 
         self.resume_pending_libraries()
 
-        if self.retry_at is not None and datetime.now() >= self.retry_at:
+        if self.retry.due():
 
-            self.retry_at = None
+            self.retry.disarm()
 
             if state.is_online():
                 LOG.info("--[ sync retry ]")
@@ -765,7 +723,7 @@ class Library(threading.Thread):
                 self.schedule_retry()
             else:
                 self.save_last_sync()
-                self.retry_delay = 60
+                self.retry.reset()
 
             # After the watermark decision, not instead of it: these items
             # were downloaded fine and failed later, so re-running the feed
@@ -813,99 +771,101 @@ class Library(threading.Thread):
                 continue
 
             LOG.info("--[ command/%s ] %s", command, data)
+            handler = self.command_handlers().get(command)
 
             try:
-                if command == "SyncLibrary":
-                    if data.get("Id"):
-                        self.add_library(data["Id"], data.get("Update", False))
-                elif command == "RemoveLibrary":
-                    if data.get("Id"):
-                        kinds = set()
-
-                        for lib in data["Id"].split(","):
-                            # Before the removal deletes the view row.
-                            kind = self._removal_kind(lib)
-
-                            if not self.remove_library(lib):
-                                break
-
-                            if kind:
-                                kinds.add(kind)
-
-                        # Removal is the one write path with no other refresh
-                        # owner, and it must aim at the removed library's own
-                        # database — the old blanket refresh aimed at video,
-                        # so a removed music library lingered in the music
-                        # widgets indefinitely (widget-refresh-plan F5).
-                        if kinds:
-                            self.refresh_libraries(kinds)
-                elif command == "RepairLibrary":
-                    if data.get("Id"):
-                        libraries = data["Id"].split(",")
-                        kinds = set()
-
-                        for lib in libraries:
-                            # Before the removal deletes the view row.
-                            kind = self._removal_kind(lib)
-
-                            if not self.remove_library(lib):
-                                break
-
-                            if kind:
-                                kinds.add(kind)
-                        else:
-                            if self.add_library(data["Id"]):
-                                self._reload_skin_after_repair(kinds)
-                elif command == "UpdateLibrary":
-                    ids = data.get("Id")
-                    if ids:
-                        # Targeted subset from the settings-button picker: no
-                        # retention bookkeeping — that belongs to the
-                        # full-whitelist pass below.
-                        self.add_library(ids, update=True)
-                    else:
-                        whitelist = self.whitelist()
-                        if whitelist:
-                            ok = self.add_library(",".join(whitelist), update=True)
-
-                            if ok and self.retention_repair_pending:
-                                # The targeted pass has planned/enqueued the
-                                # heal; release the watermark hold. With work
-                                # still queued the drain-success path saves as
-                                # usual; on a clean tree nothing will drain, so
-                                # save here — the prune verified everything.
-                                self.retention_repair_pending = False
-
-                                if not self.pending_refresh:
-                                    self.save_last_sync()
-                elif command == "RefreshBoxsets":
-                    self.add_library("Boxsets:Refresh")
-                elif command == "FastSync":
-                    if self.companion_tier != TIER_NONE:
-                        if not self.fast_sync():
-                            self.schedule_retry()
-                elif command == "SyncMusicPlaylists":
-                    self.sync_music_playlists()
-                elif command == "CleanupMusicPlaylists":
-                    self.cleanup_music_playlists()
-                elif command == "RepointRatings":
-                    self.repoint_ratings()
-                elif command == "ReassertMusicSources":
-                    self.reassert_music_sources()
-                else:
+                if handler is None:
                     LOG.warning("unknown library command %s", command)
+                else:
+                    handler(data)
             except Exception as error:
                 LOG.exception(error)
 
             self.update_status_strings()
-            # No blanket refresh here: every path that writes owns its own
-            # refresh — FullSync at its end, removals above, queued work at
-            # the drain. The old tail refresh fired UpdateLibrary(video)
-            # after *every* command (a no-op FastSync on each screensaver
-            # wake included) and aimed at the wrong database for music-only
-            # commands (widget-refresh-plan F1/D4).
 
             self.commands.task_done()
+
+    def command_handlers(self):
+        """The command table: one bound handler per IPC/service command."""
+        return {
+            "SyncLibrary": self._cmd_sync_library,
+            "RemoveLibrary": self._cmd_remove_library,
+            "RepairLibrary": self._cmd_repair_library,
+            "UpdateLibrary": self._cmd_update_library,
+            "RefreshBoxsets": lambda data: self.add_library("Boxsets:Refresh"),
+            "FastSync": self._cmd_fast_sync,
+            "SyncMusicPlaylists": lambda data: self.sync_music_playlists(),
+            "CleanupMusicPlaylists": lambda data: self.cleanup_music_playlists(),
+            "RepointRatings": lambda data: self.repoint_ratings(),
+            "ReassertMusicSources": lambda data: self.reassert_music_sources(),
+        }
+
+    def _cmd_sync_library(self, data):
+        if data.get("Id"):
+            self.add_library(data["Id"], data.get("Update", False))
+
+    def _remove_each(self, libraries):
+        """Remove libraries in order, collecting the Kodi databases they
+        wrote (from the still-present view rows). Stops at the first
+        failure; the second value says whether every one went."""
+        kinds: Set[str] = set()
+
+        for lib in libraries:
+            # Before the removal deletes the view row.
+            kind = self._removal_kind(lib)
+
+            if not self.remove_library(lib):
+                return kinds, False
+
+            if kind:
+                kinds.add(kind)
+
+        return kinds, True
+
+    def _cmd_remove_library(self, data):
+        if not data.get("Id"):
+            return
+
+        kinds, _ = self._remove_each(data["Id"].split(","))
+
+        # Removal is the one write path with no other refresh owner, and it
+        # must aim at the removed library's own database -- the old blanket
+        # refresh aimed at video, so a removed music library lingered in the
+        # music widgets indefinitely (widget-refresh-plan F5).
+        if kinds:
+            self.refresh_libraries(kinds)
+
+    def _cmd_repair_library(self, data):
+        if not data.get("Id"):
+            return
+
+        kinds, removed = self._remove_each(data["Id"].split(","))
+
+        if removed and self.add_library(data["Id"]):
+            self._reload_skin_after_repair(kinds)
+
+    def _cmd_update_library(self, data):
+        ids = data.get("Id")
+
+        if ids:
+            self.add_library(ids, update=True)
+            return
+
+        whitelist = self.whitelist()
+
+        if whitelist:
+            ok = self.add_library(",".join(whitelist), update=True)
+
+            if ok and self.retention_repair_pending:
+                self.retention_repair_pending = False
+
+                if not self.pending_refresh:
+                    self.save_last_sync()
+
+    def _cmd_fast_sync(self, data):
+        if self.companion_tier != TIER_NONE:
+            if not self.fast_sync():
+                self.schedule_retry()
 
     def _removal_kind(self, library_id):
         """Which Kodi database ("video"/"music") removing this library writes,
@@ -992,9 +952,7 @@ class Library(threading.Thread):
             self.userdata_queue,
             self.artwork_queue,
         ):
-            # list() snapshots the deque; the queues are only appended to by
-            # other threads, so a racing put is simply counted next tick.
-            total += sum(len(chunk) for chunk in list(work_queue.queue))
+            total += work_queue.items_pending
 
         return total + self.worker_queue_size()
 
@@ -1086,7 +1044,7 @@ class Library(threading.Thread):
                 # each item routes it to the artwork-only write).
                 sources.append(("artwork", self.artwork_queue, self.updated_output))
 
-        if time.time() < self.download_backoff_until:
+        if self.download_backoff.waiting():
             # Still inside the pause a ServerUnreachable bought. The queues
             # keep their work; the connect probe in service/main.py is what
             # notices the server coming back, and the next tick starts fresh
@@ -1105,10 +1063,10 @@ class Library(threading.Thread):
                     artwork_ids=self.artwork_only_ids,
                     fields=basic_info() if source == "artwork" else None,
                     unapplied=self.flag_unapplied,
+                    # Read back by added_downloads_pending: the added-first
+                    # gate on metadata downloads keys on it.
+                    source=source,
                 )
-                # Read back by added_downloads_pending: the added-first gate
-                # on metadata downloads keys on it.
-                new_thread.source = source
                 new_thread.start()
                 LOG.info("-->[ q:download/%s/%s ]", source, id(new_thread))
                 self.download_threads.append(new_thread)
@@ -1156,9 +1114,8 @@ class Library(threading.Thread):
                     notify_enabled=source == "added",
                     artwork_fallback=self.requeue_full,
                     unapplied=self.flag_unapplied,
+                    source=source,
                 )
-                new_thread.db_file = db_file
-                new_thread.source = source
                 new_thread.start()
                 LOG.info("-->[ q:%s/%s/%s ]", source, queues, id(new_thread))
                 self.writer_threads["updated"].append(new_thread)
@@ -1170,386 +1127,28 @@ class Library(threading.Thread):
                 self.enable_pending_refresh()
 
     def refresh_libraries(self, databases, force_reload=False):
-        """Make writes made straight to Kodi's databases visible.
-
-        ``force_reload`` rebuilds the skin whenever anything moved, instead of
-        asking the first-content probes whether it is needed. The end of a
-        full sync passes it, for the reason the repair command already owns an
-        unconditional reload (``_reload_skin_after_repair``): the probes key on
-        ``Library.HasContent``, and that bool can flip true *mid-sync* — it is
-        a tri-state cache in Kodi's ``CLibraryGUIInfo``, re-queried whenever a
-        scan resets it, and the running skin re-evaluates constantly — so by
-        the end it reads "Kodi knows about this content" when the question that
-        matters is "has Home been rebuilt since the content appeared". Those
-        two came apart as soon as libraries began publishing as they finish: a
-        movies reload rebuilt Home while music was empty, music synced for 27
-        minutes, and the end-of-sync music probe then self-disarmed and left
-        the row blank (measured on a Pi 3B).
-
-        It stays suppressed when the fingerprints say nothing moved, so a
-        resumed sync that changed nothing still reloads nothing.
-
-        Kodi raises no library-change event for direct SQLite writes, so a list
-        currently showing the affected library does not pick them up on its own,
-        and ``Library.HasContent`` stays cached — on a first sync into an empty
-        library the home screen keeps saying "Your library is currently empty"
-        until something resets it.
-
-        ``UpdateLibrary(video)`` is that reset, and it is cheap *by
-        construction*: every path the video writers create carries
-        ``noUpdate=1`` (see ``update_path_movie_obj`` and friends), and
-        ``CVideoDatabase::GetPaths()`` skips noUpdate paths when collecting what
-        to scan. The scan therefore walks nothing and finishes immediately, but
-        still fires the scan-finished event that clears Kodi's cached library
-        bools (``CVideoInfoScanner`` → ``ResetLibraryBools``). Upstream relies
-        on exactly this, at the end of a full sync and each sync cycle.
-
-        ``UpdateLibrary(music)`` is a different animal and is never called: the
-        music writer's ``update_path`` sets only ``strPath``, leaving noUpdate
-        unset, so a music scan probes every song's remote
-        ``http://<server>/Audio/<id>/`` path (~21k requests, ~3 min on the real
-        library) and overlapping scans have crashed Kodi
-        (``CMusicLibraryQueue::StopLibraryScanning`` → ``CGUITextureGLES::Draw``,
-        SIGBUS on Android — fork commit e4f8dc3f). Music gets the container
-        refresh only.
-        """
-        if not databases:
-            return
-
-        # Whatever is being refreshed right now no longer owes a deferred
-        # refresh: the immediate paths (refresh_added, command-owned
-        # refreshes) settle the debt for their databases as they fire. The
-        # clocks clear with the last debt, or a stale hold cap would leak
-        # into the next deferral sequence.
-        self.refresh_pending -= set(databases)
-
-        if not self.refresh_pending:
-            self.refresh_due_at = None
-            self.refresh_hold_until = None
-
-        # The fingerprint gate (widget-refresh-plan D2): every builtin below
-        # makes Kodi re-fetch and re-render widgets with no same-content
-        # check of its own, so a candidate database only proceeds when what
-        # widgets render actually moved. The echo of our own playback
-        # reporting — identical userdata written back moments after Kodi's
-        # native write — is the class this suppresses.
-        moved = self._moved_databases(set(databases))
-
-        if not moved:
-            LOG.info(
-                "--[ widgets unchanged: %s; refresh suppressed ]",
-                "+".join(sorted(databases)),
-            )
-            return
-
-        # Flags accumulate so a cycle that reveals both databases rebuilds the
-        # skin once rather than twice; a reload is a whole-window teardown and
-        # firing two back to back reads as a flicker.
-        reload_flags: List[str] = []
-
-        if "video" in moved:
-            # Catch the empty -> non-empty transition before the scan clears
-            # Kodi's cache, because the scan alone is not enough: see
-            # _video_content_hidden().
-            if force_reload or self._video_content_hidden():
-                reload_flags.extend(VIDEO_CONTENT_FLAGS)
-
-            xbmc.executebuiltin("UpdateLibrary(video)")
-
-        if "music" in moved:
-            # Checked before the probe scan flips the cached bool: the music
-            # widget sections have the same empty->populated blindness as the
-            # video ones (baked include conditions plus providers that go
-            # deaf when their last fetch was empty), and nothing else can
-            # reveal a *first* music sync (widget-refresh-plan F6).
-            if force_reload or self._music_content_hidden():
-                reload_flags.extend(MUSIC_CONTENT_FLAGS)
-
-            self._refresh_music()
-
-        if reload_flags:
-            self._reload_skin_for_content(tuple(reload_flags))
-
-        # Scoped to the window's own content family (widget-refresh-plan D6):
-        # a music-only cycle must not re-fetch the movie listing the user is
-        # browsing. Unknown path families refresh as before.
-        if xbmc.getCondVisibility("Window.IsMedia") and (
-            widgetstate.container_wants_refresh(
-                xbmc.getInfoLabel("Container.FolderPath"), moved
-            )
-        ):
-            xbmc.executebuiltin("Container.Refresh")
-
-    def _moved_databases(self, databases):
-        """The candidate databases whose widget fingerprint moved since the
-        last refresh; unknown fingerprints count as moved (pvr.kofin's
-        first-poll rule — a service restart refreshes once).
-
-        Computed only here, at refresh decision time, for the candidates only
-        ("only hashed when needed"): behind the settle that is at most one
-        fingerprint pass per user action. No process lock is taken — the
-        connections run WAL, so the read never blocks a mid-drain writer and
-        must not block the service tick; a mid-drain snapshot at worst costs
-        one extra refresh when that drain completes and re-arms.
-
-        An unreadable fingerprint refreshes: firing for nothing is
-        recoverable, suppressing a real change is not.
-        """
-        moved = set()
-
-        for db_file in sorted(databases):
-            if db_file == "music" and "music" not in self.required_kinds():
-                # Never open MyMusic for users who never synced music (the
-                # check_version rule): pass the refresh through ungated.
-                moved.add(db_file)
-                continue
-
-            try:
-                current = widgetstate.fingerprint(db_file)
-            except Exception as error:
-                LOG.warning(
-                    "widget fingerprint failed for %s (%s); refreshing",
-                    db_file,
-                    error,
-                )
-                self.widget_fingerprints.pop(db_file, None)
-                moved.add(db_file)
-                continue
-
-            stored = self.widget_fingerprints.get(db_file)
-            changed = widgetstate.moved_sections(stored or {}, current)
-
-            if changed:
-                LOG.info(
-                    "--[ widgets moved: %s/%s ]",
-                    db_file,
-                    "+".join(sorted(changed)),
-                )
-                self.widget_fingerprints[db_file] = current
-                moved.add(db_file)
-
-        return moved
+        """Make writes made straight to Kodi's databases visible
+        (refresh.Refresher.refresh: the fingerprint gate, the cheap scan,
+        the first-content reload)."""
+        self.refresher.refresh(databases, force_reload)
 
     def _arm_refresh_settle(self, databases):
-        """Defer a drain-completion refresh behind the settle window.
-
-        Each drain pushes the due clock out by REFRESH_SETTLE_SECONDS; the
-        hold clock is stamped once, by the first deferred drain, and caps how
-        long re-arming can postpone the refresh.
-        """
-        if not databases:
-            return
-
-        now = datetime.now()
-        self.refresh_pending |= set(databases)
-        self.refresh_due_at = now + timedelta(seconds=REFRESH_SETTLE_SECONDS)
-
-        if self.refresh_hold_until is None:
-            self.refresh_hold_until = now + timedelta(seconds=REFRESH_MAX_HOLD_SECONDS)
+        """Defer a drain-completion refresh behind the settle window."""
+        self.refresher.arm(databases)
 
     def flush_refresh_settle(self):
-        """Fire the deferred drain refresh once it has settled.
+        """Fire the deferred drain refresh once it has settled (the tick)."""
+        databases = self.refresher.settled()
 
-        Runs on the service tick. Waits for quiet — never before the settle
-        is out, and an active cycle holds it (that cycle's completion folds
-        its own databases in and re-arms) — but never past the hold cap, so
-        a steady stream of server events cannot postpone visibility
-        indefinitely.
-        """
-        if not self.refresh_pending:
-            return
-
-        now = datetime.now()
-        capped = self.refresh_hold_until is not None and now >= self.refresh_hold_until
-
-        if not capped:
-            if self.refresh_due_at is not None and now < self.refresh_due_at:
-                return
-
-            if self.pending_refresh:
-                return
-
-        databases, self.refresh_pending = self.refresh_pending, set()
-        self.refresh_due_at = None
-        self.refresh_hold_until = None
-        self.refresh_libraries(databases)
-
-    def _reload_skin_for_content(self, conditions):
-        """Rebuild the skin for the empty -> populated transition, once the
-        scan cycle has flipped a matching ``Library.HasContent`` bool.
-
-        A reload is the only mechanism that works here: the skin's widget
-        sections are gated on ``Library.HasContent`` conditions that bake at
-        window load, and a widget container whose last fetch was empty is
-        deaf to library announcements (widget-refresh-plan, the
-        DirectoryProvider facts). Polling for the flag replaces the old fixed
-        2 s wait; on timeout the reload still fires, because a reload against
-        stale bools at least becomes right on the next one, while not
-        reloading leaves the section invisible until Kodi restarts.
-
-        Held while video plays — a skin reload rebuilds the OSD under the
-        viewer — and fired by the service tick once playback ends.
-        """
-        for _ in range(int(CONTENT_FLAG_TIMEOUT_SECONDS / CONTENT_FLAG_POLL_SECONDS)):
-            if any(xbmc.getCondVisibility(flag) for flag in conditions):
-                break
-
-            if self.monitor.waitForAbort(CONTENT_FLAG_POLL_SECONDS):
-                return
-        else:
-            LOG.warning(
-                "Library.HasContent did not flip within %ss; reloading anyway",
-                CONTENT_FLAG_TIMEOUT_SECONDS,
-            )
-
-        if self.player.isPlayingVideo():
-            LOG.info("holding the first-content skin reload until playback ends")
-            self.pending_skin_reload = True
-            return
-
-        self._fire_skin_reload()
+        if databases:
+            self.refresh_libraries(databases)
 
     def flush_pending_reload(self):
         """Fire a held first-content reload once video playback has ended."""
-        if not self.pending_skin_reload or self.player.isPlayingVideo():
-            return
-
-        self.pending_skin_reload = False
-        self._fire_skin_reload()
-
-    def _fire_skin_reload(self):
-        LOG.info("first content synced; reloading skin for home widgets")
-        xbmc.executebuiltin("ReloadSkin()")
+        self.refresher.flush_pending_reload()
 
     def _reload_skin_after_repair(self, kinds):
-        """Rebuild the skin once a repair has re-added its libraries.
-
-        A repair empties whole Kodi tables and refills them over minutes,
-        and any home widget that re-fetches inside that hollow gets zero
-        items — a DirectoryProvider whose last fetch was empty is deaf to
-        every later library announcement, so the end-of-sync refresh cannot
-        reach it and the widgets sit empty until the skin is rebuilt
-        (observed live: a 27-minute music repair left the Music row blank
-        with the data underneath fully healed). The first-content probes
-        cannot cover this: they key on Library.HasContent, whose cached
-        bool only re-samples after a scan cycle, and a repair's scan
-        cycles all run while the tables hold rows. So the repair command
-        owns an unconditional reload, routed through the first-content
-        machinery for its HasContent poll and its during-playback hold.
-        """
-        flags: List[str] = []
-
-        if "video" in kinds:
-            flags.extend(VIDEO_CONTENT_FLAGS)
-
-        if "music" in kinds:
-            flags.extend(MUSIC_CONTENT_FLAGS)
-
-        self._reload_skin_for_content(
-            tuple(flags) or VIDEO_CONTENT_FLAGS + MUSIC_CONTENT_FLAGS
-        )
-
-    def _music_content_hidden(self):
-        """The music twin of ``_video_content_hidden``: MyMusic holds rows
-        while Kodi still believes there is no music library.
-
-        Guarded on the whitelist actually requiring music so this never puts
-        the music schema gate in front of users who never asked kofin to
-        touch their music (same rule as ``check_version``). Self-limiting
-        exactly like the video probe: once the reload has happened the cache
-        is right and this returns False forever after.
-        """
-        if xbmc.getCondVisibility("Library.HasContent(Music)"):
-            return False
-
-        if "music" not in self.required_kinds():
-            return False
-
-        try:
-            with Database("music") as musicdb:
-                for table in ("album", "song"):
-                    musicdb.cursor.execute("SELECT 1 FROM %s LIMIT 1" % table)
-                    if musicdb.cursor.fetchone():
-                        return True
-        except Exception:
-            LOG.exception("could not determine music library content state")
-
-        return False
-
-    def _refresh_music(self):
-        """Give music the library event that direct SQLite writes never fire.
-
-        Without it the data is right and the *display* is stale indefinitely:
-        home-screen ``musicdb://`` widgets ("Recently played albums") keep the
-        rows they were built with, so an album played on another client lands
-        in the database and never appears. Kodi keeps Home alive, so
-        navigating away and back does not rebuild them either.
-
-        A bare ``UpdateLibrary(music)`` is the obvious fix and is unusable —
-        see ``refresh_libraries`` for why (no ``noUpdate`` column on MyMusic's
-        path table, ~21k remote probes, and a crash on Android when scans
-        overlap).
-
-        Scanning a directory that **does not exist** gets the event without
-        the walk: Kodi logs "does not exist - skipping scan", finishes in 0 s
-        having probed nothing, and still completes the scan cycle that
-        invalidates the cached containers. Verified on both generations —
-        Omega (0 s, zero song requests) and Piers, where a stale "Recently
-        played albums" widget picked up an album played seconds earlier on
-        another client.
-        """
-        if xbmc.getCondVisibility("Library.IsScanningMusic"):
-            # Never stack scans: cancelling an in-flight one is the crash path.
-            return
-
-        xbmc.executebuiltin("UpdateLibrary(music,%s)" % MUSIC_REFRESH_PROBE)
-
-    def _video_content_hidden(self):
-        """Whether Kodi still believes the video library is empty while rows
-        actually exist — the state where the home screen reads "Your library is
-        currently empty".
-
-        ``UpdateLibrary(video)`` fixes the *section*, by resetting the cached
-        ``Library.HasContent`` bools. It cannot fix the *widget rows*: those are
-        ``videodb://`` containers populated when the Home window was built, and
-        Kodi keeps Home alive, so a container built against an empty library
-        stays empty — navigating away and back does not rebuild it. Only
-        recreating the windows does, which is what ``ReloadSkin()`` is for
-        (upstream pairs the two the same way after its database migrations).
-
-        Testing the stale state itself, rather than remembering a "first sync"
-        flag, keeps this self-limiting: once every populated kind's bool is
-        right this returns False forever after. It also stays False on a
-        profile whose library was already populated at startup, which is the
-        normal case — the reload only ever costs the very first sync.
-
-        The test is **per kind**, not "does the video library have anything".
-        Kodi's cached bool is per kind and so is the widget row it gates, so
-        the two must be paired: with libraries published as they finish
-        (``full_sync.process_libraries``), a movies-only reload rebuilds Home
-        while ``tvshow`` is still empty, which builds the TV Shows row against
-        nothing. Asking only whether *some* video kind had content would
-        return False for the rest of that sync and leave the row empty — a
-        container whose last fetch was empty is deaf to every later library
-        announcement, so nothing short of another reload can fill it.
-        """
-        try:
-            with Database("video") as videodb:
-                for flag, table in (
-                    ("Library.HasContent(Movies)", "movie"),
-                    ("Library.HasContent(TVShows)", "tvshow"),
-                    ("Library.HasContent(MusicVideos)", "musicvideo"),
-                ):
-                    if xbmc.getCondVisibility(flag):
-                        continue
-
-                    videodb.cursor.execute("SELECT 1 FROM %s LIMIT 1" % table)
-                    if videodb.cursor.fetchone():
-                        return True
-        except Exception:
-            LOG.exception("could not determine video library content state")
-
-        return False
+        self.refresher.reload_after_repair(kinds)
 
     def metadata_pending(self):
         """Whether metadata-only updates are still queued or being written."""
@@ -1622,7 +1221,6 @@ class Library(threading.Thread):
             new_thread = worker_class(
                 queue, lock, db_file, self.api_factory(), unapplied=self.flag_unapplied
             )
-            new_thread.db_file = db_file
             new_thread.start()
             LOG.info("-->[ q:%s/%s/%s ]", category, queues, id(new_thread))
             self.writer_threads[category].append(new_thread)
@@ -1996,18 +1594,16 @@ class Library(threading.Thread):
             # backlog is genuinely gone (a clean recovery lands here): reset
             # the ladder. Unrelated clean drains mid-backoff keep it.
             if not self.recovery_pending:
-                self.auto_prune_interval = AUTO_PRUNE_MIN_SECONDS
+                self.recovery.reset()
             return
 
-        now = datetime.now()
-
-        if self.auto_prune_at is not None and now < self.auto_prune_at:
+        if self.recovery.waiting():
             self.recovery_pending = True
             LOG.warning(
                 "%s item(s) did not apply (%s); next recovery in at most %ss",
                 count,
                 ", ".join(sample),
-                self.auto_prune_interval,
+                self.recovery.delay,
             )
             return
 
@@ -2016,15 +1612,13 @@ class Library(threading.Thread):
             count,
             ", ".join(sample),
         )
-        self._arm_recovery(now)
+        self._arm_recovery()
 
-    def _arm_recovery(self, now):
+    def _arm_recovery(self):
         """Enqueue the recovery, stamp its floor, climb the ladder."""
         self.recovery_pending = False
-        self.auto_prune_at = now + timedelta(seconds=self.auto_prune_interval)
-        self.auto_prune_interval = min(
-            self.auto_prune_interval * 2, AUTO_PRUNE_MAX_SECONDS
-        )
+        self.recovery.arm()
+        self.recovery.escalate()
         self.enqueue_command("UpdateLibrary")
 
     def flush_recovery_prune(self):
@@ -2037,13 +1631,11 @@ class Library(threading.Thread):
         if not self.recovery_pending:
             return
 
-        now = datetime.now()
-
-        if self.auto_prune_at is not None and now < self.auto_prune_at:
+        if self.recovery.waiting():
             return
 
         LOG.warning("recovery floor passed; scheduling the owed library update")
-        self._arm_recovery(now)
+        self._arm_recovery()
 
     def sync_allowed_now(self):
         """Whether sync work may run at this moment.
@@ -2243,7 +1835,7 @@ class Library(threading.Thread):
         A periodic check needs none of that to be true — it simply succeeds on
         the first tick after the server answers again.
         """
-        if self.resume_at is not None and datetime.now() < self.resume_at:
+        if self.resume.waiting():
             return
 
         # A sync already under way owns the queue; FullSync is a Borg and
@@ -2279,11 +1871,11 @@ class Library(threading.Thread):
     def _schedule_resume(self, failed=False):
         """Arm the next pending-queue check; back off while resuming fails."""
         if failed:
-            self.resume_delay = min(self.resume_delay * 2, RESUME_POLL_MAX_SECONDS)
+            self.resume.escalate()
         else:
-            self.resume_delay = RESUME_POLL_SECONDS
+            self.resume.reset()
 
-        self.resume_at = datetime.now() + timedelta(seconds=self.resume_delay)
+        self.resume.arm()
 
     def schedule_retry(self):
         """Retry the incremental sync later, with exponential backoff.
@@ -2292,9 +1884,9 @@ class Library(threading.Thread):
         failure without the user doing anything, so a toast only invites
         worry about work already in hand. The warning below is the record.
         """
-        self.retry_at = datetime.now() + timedelta(seconds=self.retry_delay)
-        LOG.warning("Sync incomplete, retrying in %s seconds", self.retry_delay)
-        self.retry_delay = min(self.retry_delay * 2, 1800)
+        self.retry.arm()
+        LOG.warning("Sync incomplete, retrying in %s seconds", self.retry.delay)
+        self.retry.escalate()
 
     def save_last_sync(self):
         """Advance the incremental watermark, preferring the server clock.
@@ -2491,7 +2083,7 @@ class Library(threading.Thread):
         if not data:
             return
 
-        queued = set(self.removed_queue.queue)
+        queued = set(self.removed_queue.snapshot())
         count = 0
 
         for item in data:
@@ -2505,452 +2097,3 @@ class Library(threading.Thread):
 
         self.total_updates += count
         LOG.info("---[ removed:%s ]", count)
-
-
-def _release_worker(thread):
-    """Close a finished worker's HTTP session (audit finding #9).
-
-    Each worker was handed its own Api, hence its own connection pool, and
-    none of them were ever closed — a catch-up that spawns dozens leaves that
-    many idle pools until the garbage collector notices. Idempotent: the
-    reaper sees a finished thread on every tick until it is pruned.
-    """
-    server = getattr(thread, "server", None)
-    close = getattr(server, "close", None)
-    if close is None or getattr(thread, "_released", False):
-        return
-    thread._released = True
-    try:
-        close()
-    except Exception as error:  # pragma: no cover - defensive
-        LOG.debug("worker session close failed: %s", error)
-
-
-class UpdateWorker(threading.Thread):
-
-    is_done = False
-    # Stamped by worker_updates after construction and read back by the
-    # reaper and the added/updated gates.
-    db_file = ""
-    source = ""
-
-    def __init__(
-        self,
-        queue,
-        notify,
-        lock,
-        database,
-        server=None,
-        notify_enabled=False,
-        artwork_fallback=None,
-        unapplied=None,
-        *args,
-    ):
-        self.queue = queue
-        self.notify_output = notify
-        # Only the added writers report new content (worker_updates passes
-        # notify_enabled=True for those alone), which is why a metadata-only
-        # update can never announce itself as new.
-        self.notify = notify_enabled
-        self.lock = lock
-        self.database = Database(database)
-        self.args = args
-        self.server = server
-        # Callable(item_id) that re-queues an item for the full update path
-        # when the artwork-only write cannot handle it (phase 5).
-        self.artwork_fallback = artwork_fallback
-        # Callable(item_id, reason) for items this worker could not write, so
-        # the library can schedule a recovery prune (see flag_unapplied).
-        self.unapplied = unapplied
-        threading.Thread.__init__(self)
-
-    def _report_unapplied(self, item, error):
-        if self.unapplied is not None:
-            self.unapplied(item.get("Id"), "%s: %s" % (item.get("Type"), error))
-
-    def _artwork_only(self, item, writers):
-        """Apply an image-only item through the artwork-only path; fall back
-        to a full re-download when it cannot be handled (unknown reference,
-        unexpected payload). Returns True when the item is consumed."""
-        writer = writers.get(item["Type"])
-
-        handled = writer is not None and api.artwork_only(
-            writer, item, writer.jellyfin_db.get_item_by_id(item["Id"])
-        )
-
-        if not handled and self.artwork_fallback is not None:
-            self.artwork_fallback(item["Id"])
-
-        return True
-
-    def run(self):
-        with self.lock, Database("kofin") as jellyfindb, self.database as kodidb:
-            default_args = (self.server, jellyfindb, kodidb)
-            hooks = pipeline_hooks()
-            artwork_writers: Dict[str, Any] = {}
-            writers: Tuple[Any, ...]
-            if kodidb.db_file == "video":
-                movies = Movies(*default_args, hooks=hooks)
-                tvshows = TVShows(*default_args, hooks=hooks)
-                musicvideos = MusicVideos(*default_args, hooks=hooks)
-                writers = (movies, tvshows, musicvideos)
-                artwork_writers = {
-                    "Movie": movies,
-                    "Series": tvshows,
-                    "Season": tvshows,
-                    "Episode": tvshows,
-                    "MusicVideo": musicvideos,
-                }
-            elif kodidb.db_file == "music":
-                music = Music(*default_args, hooks=hooks)
-                writers = (music,)
-            else:
-                # this should not happen
-                LOG.error(
-                    '"{}" is not a valid Kodi library type.'.format(kodidb.db_file)
-                )
-                return
-
-            processed = 0
-
-            while True:
-
-                try:
-                    item = self.queue.get(timeout=1)
-                except queue.Empty:
-                    break
-
-                try:
-                    LOG.debug("{} - {}".format(item["Type"], item["Name"]))
-                    if item.get("_artwork_only"):
-                        self._artwork_only(item, artwork_writers)
-                    elif item["Type"] == "Movie":
-                        movies.movie(item)
-                    elif item["Type"] == "BoxSet":
-                        movies.boxset(item)
-                    elif item["Type"] == "Series":
-                        tvshows.tvshow(item)
-                    elif item["Type"] == "Season":
-                        tvshows.season(item)
-                    elif item["Type"] == "Episode":
-                        tvshows.episode(item)
-                    elif item["Type"] == "MusicVideo":
-                        musicvideos.musicvideo(item)
-                    elif item["Type"] == "MusicAlbum":
-                        music.album(item)
-                    elif item["Type"] == "MusicArtist":
-                        music.artist(item)
-                    elif item["Type"] == "Audio":
-                        music.song(item)
-
-                    # A writer that refused this item wrote no Kodi row and no
-                    # kofin.db reference, so there is nothing to announce. It
-                    # refuses by returning early, and the return value cannot
-                    # carry that news -- tvshow() returns None on unchanged
-                    # deliberately, so full sync still walks its episodes --
-                    # hence the explicit set. A refusal that *raises*
-                    # (LibraryOrphanException) skips this block anyway.
-                    #
-                    # Not cosmetic: everything announced here also reaches
-                    # downloads_auto.queue_new_content, so items the writers
-                    # had already declined were pushing real ones out of a
-                    # backlog that overflowed 165 times on a live box.
-                    if self.notify and not any(
-                        item["Id"] in writer.refused for writer in writers
-                    ):
-                        # What is announceable, and what it is called, is
-                        # newcontent's to decide; a watched item comes back
-                        # None here and is never reported.
-                        entry = newcontent.entry_for(item)
-
-                        if entry is not None:
-                            self.notify_output.put(entry)
-                except LibraryException as error:
-                    # Still swallowed so one bad item cannot stop the drain,
-                    # but no longer forgotten: it never landed, and the
-                    # watermark is about to move past it.
-                    if isinstance(error, LibraryExitException):
-                        break
-                    LOG.warning("Ignoring exception %s", error)
-                    self._report_unapplied(item, error)
-                except Exception as error:
-                    LOG.exception(error)
-                    self._report_unapplied(item, error)
-
-                self.queue.task_done()
-                processed += 1
-
-                if not processed % COMMIT_INTERVAL:
-                    kodidb.conn.commit()
-                    jellyfindb.conn.commit()
-
-                if state.should_stop():
-                    break
-
-        LOG.info("--<[ q:updated/%s ]", id(self))
-        self.is_done = True
-
-
-class UserDataWorker(threading.Thread):
-
-    is_done = False
-    db_file = ""
-
-    def __init__(self, queue, lock, database, server, unapplied=None):
-
-        self.queue = queue
-        self.lock = lock
-        self.database = Database(database)
-        self.server = server
-        # Callable(item_id, reason) for items this worker could not write.
-        # UpdateWorker has always had one; these two only logged, so a failed
-        # watched flag or resume point was lost for good — the recovery prune
-        # diffs ids and Etags, which say nothing about userdata (finding #19).
-        self.unapplied = unapplied
-
-        threading.Thread.__init__(self)
-
-    def _report_unapplied(self, item, error):
-        if self.unapplied is not None:
-            self.unapplied(
-                item.get("Id"), "userdata %s: %s" % (item.get("Type"), error)
-            )
-
-    def run(self):
-
-        with self.lock, Database("kofin") as jellyfindb, self.database as kodidb:
-            default_args = (self.server, jellyfindb, kodidb)
-            hooks = pipeline_hooks()
-            if kodidb.db_file == "video":
-                movies = Movies(*default_args, hooks=hooks)
-                tvshows = TVShows(*default_args, hooks=hooks)
-            elif kodidb.db_file == "music":
-                music = Music(*default_args, hooks=hooks)
-            else:
-                # this should not happen
-                LOG.error(
-                    '"{}" is not a valid Kodi library type.'.format(kodidb.db_file)
-                )
-                return
-
-            processed = 0
-
-            while True:
-
-                try:
-                    item = self.queue.get(timeout=1)
-                except queue.Empty:
-                    break
-
-                try:
-                    if item["Type"] == "Movie":
-                        movies.userdata(item)
-                    elif item["Type"] in ["Series", "Season", "Episode"]:
-                        tvshows.userdata(item)
-                    elif item["Type"] == "MusicAlbum":
-                        music.album(item)
-                    elif item["Type"] == "MusicArtist":
-                        music.artist(item)
-                    elif item["Type"] == "Audio":
-                        music.userdata(item)
-                except LibraryException as error:
-                    # Still swallowed so one bad item cannot stop the drain,
-                    # but no longer forgotten: the item's userdata never
-                    # landed and the watermark is about to move past it.
-                    if isinstance(error, LibraryExitException):
-                        break
-                    LOG.warning("Ignoring exception %s", error)
-                    self._report_unapplied(item, error)
-                except Exception as error:
-                    LOG.exception(error)
-                    self._report_unapplied(item, error)
-
-                self.queue.task_done()
-                processed += 1
-
-                if not processed % COMMIT_INTERVAL:
-                    kodidb.conn.commit()
-                    jellyfindb.conn.commit()
-
-                if state.should_stop():
-                    break
-
-        LOG.info("--<[ q:userdata/%s ]", id(self))
-        self.is_done = True
-
-
-class SortWorker(threading.Thread):
-
-    is_done = False
-
-    def __init__(self, queue, output, *args):
-
-        self.queue = queue
-        self.output = output
-        self.args = args
-        threading.Thread.__init__(self)
-
-    def run(self):
-
-        with Database("kofin") as jellyfindb:
-            database = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
-
-            while True:
-
-                try:
-                    item_id = self.queue.get(timeout=1)
-                except queue.Empty:
-                    break
-
-                try:
-                    media = database.get_media_by_id(item_id)
-                    if media:
-                        self.output[media].put({"Id": item_id, "Type": media})
-                    else:
-                        items = database.get_media_by_parent_id(item_id)
-
-                        if not items:
-                            # Expected, and deliberately so: removals are
-                            # never library-scoped, so a library the user does
-                            # not sync sends its deletions here and none of
-                            # them is known locally. Two indexed lookups and
-                            # nothing to say about it.
-                            LOG.debug(
-                                "Could not find media %s in the kofin database.",
-                                item_id,
-                            )
-                        else:
-                            for item in items:
-                                self.output[item[1]].put(
-                                    {"Id": item[0], "Type": item[1]}
-                                )
-                except Exception as error:
-                    LOG.exception(error)
-
-                self.queue.task_done()
-
-                if state.should_stop():
-                    break
-
-        LOG.info("--<[ q:sort/%s ]", id(self))
-        self.is_done = True
-
-
-# Which writer removes which item kind. Returned per item rather than
-# assigned in the drain loop: the loop used to keep the previous iteration's
-# writer for any kind it did not match, so a BoxSet removal following a Movie
-# removal ran movies.remove against a set id — and, as the first item in a
-# drain, raised UnboundLocalError and left the rows in place. Found live on
-# tier 1, where the change feed delivers BoxSet records the fork's dispatch
-# never expected.
-REMOVAL_WRITERS = {
-    # Movies.remove dispatches on the mapping row's media ("movie" / "set"),
-    # so a boxset id removes the set through the same entry point.
-    "Movie": "movies",
-    "BoxSet": "movies",
-    "Series": "tvshows",
-    "Season": "tvshows",
-    "Episode": "tvshows",
-    "MusicAlbum": "music",
-    "MusicArtist": "music",
-    "Audio": "music",
-    "MusicVideo": "musicvideos",
-}
-
-
-def removal_writer_for(item_type, movies, tvshows, music, musicvideos):
-    """The bound ``remove`` for this kind, or None when nothing handles it."""
-    writer = {
-        "movies": movies,
-        "tvshows": tvshows,
-        "music": music,
-        "musicvideos": musicvideos,
-    }.get(REMOVAL_WRITERS.get(item_type or "", ""))
-
-    return None if writer is None else writer.remove
-
-
-class RemovedWorker(threading.Thread):
-
-    is_done = False
-    db_file = ""
-
-    def __init__(self, queue, lock, database, server, unapplied=None):
-
-        self.queue = queue
-        self.lock = lock
-        self.database = Database(database)
-        self.server = server
-        # See UserDataWorker: a removal that raised left an orphaned Kodi row
-        # with nothing owing a retry (finding #19).
-        self.unapplied = unapplied
-        threading.Thread.__init__(self)
-
-    def _report_unapplied(self, item, error):
-        if self.unapplied is not None:
-            self.unapplied(item.get("Id"), "removal %s: %s" % (item.get("Type"), error))
-
-    def run(self):
-
-        with self.lock, Database("kofin") as jellyfindb, self.database as kodidb:
-            default_args = (self.server, jellyfindb, kodidb)
-            # Only one family is built per worker (video or music), but the
-            # dispatch is handed all four, so the unbuilt ones must exist.
-            movies = tvshows = musicvideos = music = None
-            if kodidb.db_file == "video":
-                movies = Movies(*default_args)
-                tvshows = TVShows(*default_args)
-                musicvideos = MusicVideos(*default_args)
-            elif kodidb.db_file == "music":
-                music = Music(*default_args)
-            else:
-                # this should not happen
-                LOG.error(
-                    '"{}" is not a valid Kodi library type.'.format(kodidb.db_file)
-                )
-                return
-
-            processed = 0
-
-            while True:
-
-                try:
-                    item = self.queue.get(timeout=1)
-                except queue.Empty:
-                    break
-
-                obj = removal_writer_for(
-                    item["Type"], movies, tvshows, music, musicvideos
-                )
-
-                try:
-                    if obj is None:
-                        LOG.warning(
-                            "no removal writer for type %s; %s left in place",
-                            item["Type"],
-                            item["Id"],
-                        )
-                    else:
-                        obj(item["Id"])
-                except LibraryException as error:
-                    if isinstance(error, LibraryExitException):
-                        break
-                    LOG.warning("Ignoring exception %s", error)
-                    self._report_unapplied(item, error)
-                except Exception as error:
-                    LOG.exception(error)
-                    self._report_unapplied(item, error)
-                finally:
-                    self.queue.task_done()
-
-                processed += 1
-
-                if not processed % COMMIT_INTERVAL:
-                    kodidb.conn.commit()
-                    jellyfindb.conn.commit()
-
-                if state.should_stop():
-                    break
-
-        LOG.info("--<[ q:removed/%s ]", id(self))
-        self.is_done = True

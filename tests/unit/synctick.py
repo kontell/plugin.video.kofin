@@ -47,6 +47,10 @@ class RecordingWorker:
         self.is_done = False
         self.started = False
         self.server = FakeSession()
+        # What the real workers take as constructor arguments (P2.3):
+        # the source tag, and the database name among the positionals.
+        self.source = kwargs.get("source")
+        self.db_file = next((a for a in args if a in ("video", "music")), None)
         RecordingWorker.instances.append(self)
 
     def start(self):
@@ -99,6 +103,17 @@ def make_ticking_library(monkeypatch, clock=None):
             return clock.datetime_now()
 
     monkeypatch.setattr(library_module, "datetime", TickDatetime)
+    # The clocks were built in Library.__init__ against the real
+    # datetime.now; point every one of them at the test clock.
+    for deferred in (
+        manager.retry,
+        manager.resume,
+        manager.recovery,
+        manager.playlist_poll,
+        manager.download_backoff,
+        manager.refresher.settle,
+    ):
+        deferred._now = clock.datetime_now
 
     return manager, api, clock, RecordingWorker.instances
 

@@ -10,7 +10,7 @@ import threading
 import pytest
 
 from kofin.core.http import HttpError
-from kofin.sync.downloader import CHUNK_ATTEMPTS, Chunk, GetItemWorker
+from kofin.sync.workers import CHUNK_ATTEMPTS, Chunk, GetItemWorker
 
 
 class Api:

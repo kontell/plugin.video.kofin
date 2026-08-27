@@ -12,8 +12,10 @@ from kofin.core.http import JellyfinError, ServerUnreachable
 from kofin.sync import db as sync_db
 from kofin.sync import kofindb
 from kofin.sync import library as library_mod
+from kofin.sync import refresh as refresh_mod
+from kofin.sync import workers as workers_mod
 from kofin.sync import newcontent
-from kofin.sync.downloader import GetItemWorker
+from kofin.sync.workers import GetItemWorker
 from kofin.sync.library import Library
 from tests.unit.fakes import FakeAddon, FakeWindow
 
@@ -361,7 +363,7 @@ def test_music_only_sync_never_reloads_skin(monkeypatch, tmp_path):
     manager, _api = make_library()
     manager.refresh_libraries({"music"})
 
-    assert calls == ["UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE]
+    assert calls == ["UpdateLibrary(music,%s)" % refresh_mod.MUSIC_REFRESH_PROBE]
     assert not any("ReloadSkin" in c or "video" in c for c in calls)
 
 
@@ -372,7 +374,7 @@ def test_music_refresh_never_scans_the_real_library(builtins):
     manager, _api = make_library()
     manager.refresh_libraries({"music"})
 
-    assert builtins == ["UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE]
+    assert builtins == ["UpdateLibrary(music,%s)" % refresh_mod.MUSIC_REFRESH_PROBE]
     assert "UpdateLibrary(music)" not in builtins
 
 
@@ -398,7 +400,7 @@ def test_mixed_refresh_scans_video_but_not_music(builtins):
     manager.refresh_libraries({"video", "music"})
     assert builtins == [
         "UpdateLibrary(video)",
-        "UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE,
+        "UpdateLibrary(music,%s)" % refresh_mod.MUSIC_REFRESH_PROBE,
     ]
     assert "UpdateLibrary(music)" not in builtins
 
@@ -410,7 +412,7 @@ def test_container_refresh_only_in_media_window(monkeypatch):
     manager, _api = make_library()
     manager.refresh_libraries({"music"})
     assert calls == [
-        "UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE,
+        "UpdateLibrary(music,%s)" % refresh_mod.MUSIC_REFRESH_PROBE,
         "Container.Refresh",
     ]
 
@@ -599,7 +601,7 @@ def test_remove_library_refreshes_the_removed_kind(builtins, monkeypatch):
     manager.enqueue_command("RemoveLibrary", {"Id": "lib2"})
     manager.process_commands()
 
-    assert builtins == ["UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE]
+    assert builtins == ["UpdateLibrary(music,%s)" % refresh_mod.MUSIC_REFRESH_PROBE]
 
 
 def test_repair_reloads_the_skin(builtins, monkeypatch):
@@ -674,7 +676,7 @@ def test_repair_reload_held_during_playback(builtins, monkeypatch):
     manager.process_commands()
 
     assert builtins == []
-    assert manager.pending_skin_reload is True
+    assert manager.refresher.pending_skin_reload is True
 
     manager.player.playing = False
     manager.flush_pending_reload()
@@ -727,7 +729,7 @@ def test_first_content_reload_held_during_playback(monkeypatch, tmp_path):
     manager.refresh_libraries({"video"})
 
     assert calls == ["UpdateLibrary(video)"]
-    assert manager.pending_skin_reload is True
+    assert manager.refresher.pending_skin_reload is True
 
     manager.flush_pending_reload()
     assert calls == ["UpdateLibrary(video)"]  # still playing: held
@@ -735,7 +737,7 @@ def test_first_content_reload_held_during_playback(monkeypatch, tmp_path):
     manager.player.playing = False
     manager.flush_pending_reload()
     assert calls == ["UpdateLibrary(video)", "ReloadSkin()"]
-    assert manager.pending_skin_reload is False
+    assert manager.refresher.pending_skin_reload is False
 
 
 def _fake_music_db(tmp_path, rows):
@@ -770,7 +772,7 @@ def test_first_music_content_reloads_skin(monkeypatch, tmp_path):
     manager.refresh_libraries({"music"})
 
     assert calls == [
-        "UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE,
+        "UpdateLibrary(music,%s)" % refresh_mod.MUSIC_REFRESH_PROBE,
         "ReloadSkin()",
     ]
 
@@ -796,7 +798,7 @@ def test_no_music_probe_for_unsynced_music(monkeypatch, tmp_path):
     manager.refresh_libraries({"music"})
 
     assert "music" not in opened
-    assert calls == ["UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE]
+    assert calls == ["UpdateLibrary(music,%s)" % refresh_mod.MUSIC_REFRESH_PROBE]
 
 
 def test_drain_refresh_waits_out_the_settle(builtins):
@@ -810,15 +812,15 @@ def test_drain_refresh_waits_out_the_settle(builtins):
 
     manager._arm_refresh_settle({"music"})  # the second echo folds in
 
-    manager.refresh_due_at = datetime.now() - timedelta(seconds=1)
+    manager.refresher.settle.due_at = datetime.now() - timedelta(seconds=1)
     manager.flush_refresh_settle()
 
     assert builtins == [
         "UpdateLibrary(video)",
-        "UpdateLibrary(music,%s)" % library_mod.MUSIC_REFRESH_PROBE,
+        "UpdateLibrary(music,%s)" % refresh_mod.MUSIC_REFRESH_PROBE,
     ]
-    assert manager.refresh_pending == set()
-    assert manager.refresh_hold_until is None
+    assert manager.refresher.pending == set()
+    assert manager.refresher.settle.hold_until is None
 
 
 def test_settle_holds_while_a_cycle_is_draining(builtins):
@@ -826,13 +828,13 @@ def test_settle_holds_while_a_cycle_is_draining(builtins):
     its own databases in and re-arms, so the eventual refresh covers both."""
     manager, _api = make_library()
     manager._arm_refresh_settle({"video"})
-    manager.refresh_due_at = datetime.now() - timedelta(seconds=1)
+    manager.refresher.settle.due_at = datetime.now() - timedelta(seconds=1)
     manager.pending_refresh = True
 
     manager.flush_refresh_settle()
 
     assert builtins == []
-    assert manager.refresh_pending == {"video"}
+    assert manager.refresher.pending == {"video"}
 
 
 def test_settle_cap_bounds_the_wait(builtins):
@@ -841,8 +843,8 @@ def test_settle_cap_bounds_the_wait(builtins):
     manager, _api = make_library()
     manager._arm_refresh_settle({"video"})
     manager.pending_refresh = True
-    manager.refresh_due_at = datetime.now() + timedelta(seconds=60)
-    manager.refresh_hold_until = datetime.now() - timedelta(seconds=1)
+    manager.refresher.settle.due_at = datetime.now() + timedelta(seconds=60)
+    manager.refresher.settle.hold_until = datetime.now() - timedelta(seconds=1)
 
     manager.flush_refresh_settle()
 
@@ -859,10 +861,10 @@ def test_immediate_refresh_settles_the_deferred_debt(builtins):
     manager.refresh_libraries({"video"})
 
     assert builtins == ["UpdateLibrary(video)"]
-    assert manager.refresh_pending == set()
-    assert manager.refresh_hold_until is None
+    assert manager.refresher.pending == set()
+    assert manager.refresher.settle.hold_until is None
 
-    manager.refresh_due_at = datetime.now() - timedelta(seconds=1)
+    manager.refresher.settle.due_at = datetime.now() - timedelta(seconds=1)
     manager.flush_refresh_settle()
     assert builtins == ["UpdateLibrary(video)"]  # no second refresh
 
@@ -899,12 +901,12 @@ def test_status_strings_write_only_on_change(monkeypatch):
 
 def test_schedule_retry_backs_off():
     manager, _api = make_library()
-    assert manager.retry_delay == 60
+    assert manager.retry.delay == 60
     manager.schedule_retry()
-    assert manager.retry_at is not None
-    assert manager.retry_delay == 120
+    assert manager.retry.due_at is not None
+    assert manager.retry.delay == 120
     manager.schedule_retry()
-    assert manager.retry_delay == 240
+    assert manager.retry.delay == 240
 
 
 def test_save_last_sync_prefers_server_clock():
@@ -1365,7 +1367,7 @@ def test_boxset_removal_routes_to_the_movies_writer():
     media, so a set id belongs there."""
     movies, tvshows, music, musicvideos = _writers()
 
-    writer = library_mod.removal_writer_for(
+    writer = workers_mod.removal_writer_for(
         "BoxSet", movies, tvshows, music, musicvideos
     )
 
@@ -1391,7 +1393,7 @@ def test_every_synced_kind_has_a_removal_writer():
         "Audio",
     ):
         assert (
-            library_mod.removal_writer_for(kind, movies, tvshows, music, musicvideos)
+            workers_mod.removal_writer_for(kind, movies, tvshows, music, musicvideos)
             is not None
         ), kind
 
@@ -1402,7 +1404,7 @@ def test_unknown_kind_returns_none_never_a_stale_writer():
     movies, tvshows, music, musicvideos = _writers()
 
     assert (
-        library_mod.removal_writer_for("Photo", movies, tvshows, music, musicvideos)
+        workers_mod.removal_writer_for("Photo", movies, tvshows, music, musicvideos)
         is None
     )
     assert movies.removed == []
@@ -1416,16 +1418,16 @@ def test_dispatch_tolerates_the_unbuilt_writer_family():
     movies, tvshows, _music, musicvideos = _writers()
 
     # Music worker: video writers unbuilt.
-    assert library_mod.removal_writer_for("Movie", None, None, None, None) is None
-    assert library_mod.removal_writer_for("BoxSet", None, None, None, None) is None
+    assert workers_mod.removal_writer_for("Movie", None, None, None, None) is None
+    assert workers_mod.removal_writer_for("BoxSet", None, None, None, None) is None
 
     # Video worker: music writer unbuilt, video kinds still route.
     assert (
-        library_mod.removal_writer_for("Audio", movies, tvshows, None, musicvideos)
+        workers_mod.removal_writer_for("Audio", movies, tvshows, None, musicvideos)
         is None
     )
     assert (
-        library_mod.removal_writer_for("Movie", movies, tvshows, None, musicvideos)
+        workers_mod.removal_writer_for("Movie", movies, tvshows, None, musicvideos)
         is not None
     )
 
@@ -1502,7 +1504,7 @@ def _pending(*library_ids):
 
 def _arm_resume(lib):
     """Make the next tick due (the interval is otherwise a minute away)."""
-    lib.resume_at = None
+    lib.resume.due_at = None
 
 
 def test_resume_reenters_a_pending_full_sync(monkeypatch):
@@ -1597,10 +1599,10 @@ def test_resume_backs_off_while_it_keeps_failing(monkeypatch):
     for _ in range(4):
         _arm_resume(lib)
         lib.resume_pending_libraries()
-        delays.append(lib.resume_delay)
+        delays.append(lib.resume.delay)
 
     assert delays == [120, 240, 480, 960]
-    assert lib.resume_delay <= library_mod.RESUME_POLL_MAX_SECONDS
+    assert lib.resume.delay <= library_mod.RESUME_POLL_MAX_SECONDS
 
 
 def test_resume_delay_resets_after_a_success(monkeypatch):
@@ -1611,13 +1613,13 @@ def test_resume_delay_resets_after_a_success(monkeypatch):
 
     _arm_resume(lib)
     lib.resume_pending_libraries()
-    assert lib.resume_delay > library_mod.RESUME_POLL_SECONDS
+    assert lib.resume.delay > library_mod.RESUME_POLL_SECONDS
 
     monkeypatch.setattr(lib, "add_library", lambda lib_id: True)
     _arm_resume(lib)
     lib.resume_pending_libraries()
 
-    assert lib.resume_delay == library_mod.RESUME_POLL_SECONDS
+    assert lib.resume.delay == library_mod.RESUME_POLL_SECONDS
 
 
 # --- recovery from items that never applied ----------------------------------
@@ -2091,7 +2093,7 @@ def test_playlist_poll_is_rate_limited(monkeypatch):
 
     assert len(runs) == 1
 
-    lib.playlist_poll_at = datetime.now() - timedelta(seconds=1)
+    lib.playlist_poll.due_at = datetime.now() - timedelta(seconds=1)
     lib.poll_music_playlists()
 
     assert len(runs) == 2
@@ -2116,7 +2118,7 @@ def test_playlist_poll_yields_to_a_running_sync(monkeypatch):
 
     assert runs == []
     # Not consumed either: the poll must still happen once the sync lands.
-    assert lib.playlist_poll_at is None
+    assert lib.playlist_poll.due_at is None
 
 
 def test_playlist_poll_waits_while_offline(monkeypatch):
@@ -2286,8 +2288,8 @@ def test_first_failure_schedules_recovery_and_climbs(monkeypatch):
 
     assert drain(manager.commands) == [("UpdateLibrary", {})]
     assert manager.recovery_pending is False
-    assert manager.auto_prune_interval == 2 * library_mod.AUTO_PRUNE_MIN_SECONDS
-    assert manager.auto_prune_at is not None
+    assert manager.recovery.delay == 2 * library_mod.AUTO_PRUNE_MIN_SECONDS
+    assert manager.recovery.due_at is not None
 
 
 def test_failure_inside_the_floor_books_the_retry(monkeypatch):
@@ -2305,7 +2307,7 @@ def test_failure_inside_the_floor_books_the_retry(monkeypatch):
     assert drain(manager.commands) == []
     assert manager.recovery_pending is True
     # Booked, not escalated: the ladder climbs when an attempt fires.
-    assert manager.auto_prune_interval == 2 * library_mod.AUTO_PRUNE_MIN_SECONDS
+    assert manager.recovery.delay == 2 * library_mod.AUTO_PRUNE_MIN_SECONDS
 
 
 def test_flush_fires_the_booked_retry_when_the_floor_passes():
@@ -2319,36 +2321,36 @@ def test_flush_fires_the_booked_retry_when_the_floor_passes():
     manager.flush_recovery_prune()
     assert drain(manager.commands) == []  # floor not passed yet
 
-    manager.auto_prune_at = datetime.now() - timedelta(seconds=1)
+    manager.recovery.due_at = datetime.now() - timedelta(seconds=1)
     manager.flush_recovery_prune()
 
     assert drain(manager.commands) == [("UpdateLibrary", {})]
     assert manager.recovery_pending is False
-    assert manager.auto_prune_interval == 4 * library_mod.AUTO_PRUNE_MIN_SECONDS
+    assert manager.recovery.delay == 4 * library_mod.AUTO_PRUNE_MIN_SECONDS
 
 
 def test_ladder_caps_at_the_ceiling():
     manager, _ = make_library()
-    manager.auto_prune_interval = library_mod.AUTO_PRUNE_MAX_SECONDS
+    manager.recovery.delay = library_mod.AUTO_PRUNE_MAX_SECONDS
 
     manager.flag_unapplied("item1", "writer raised")
     manager.schedule_recovery_prune()
 
     assert drain(manager.commands) == [("UpdateLibrary", {})]
-    assert manager.auto_prune_interval == library_mod.AUTO_PRUNE_MAX_SECONDS
+    assert manager.recovery.delay == library_mod.AUTO_PRUNE_MAX_SECONDS
 
 
 def test_clean_drain_resets_the_ladder_only_when_no_retry_is_owed():
     manager, _ = make_library()
-    manager.auto_prune_interval = 4 * library_mod.AUTO_PRUNE_MIN_SECONDS
+    manager.recovery.delay = 4 * library_mod.AUTO_PRUNE_MIN_SECONDS
 
     manager.recovery_pending = True
     manager.schedule_recovery_prune()
-    assert manager.auto_prune_interval == 4 * library_mod.AUTO_PRUNE_MIN_SECONDS
+    assert manager.recovery.delay == 4 * library_mod.AUTO_PRUNE_MIN_SECONDS
 
     manager.recovery_pending = False
     manager.schedule_recovery_prune()
-    assert manager.auto_prune_interval == library_mod.AUTO_PRUNE_MIN_SECONDS
+    assert manager.recovery.delay == library_mod.AUTO_PRUNE_MIN_SECONDS
 
 
 # --- offline downloads: re-queue and back off (audit finding #7) -------------
@@ -2393,18 +2395,18 @@ def test_the_spawn_path_pauses_after_an_unreachable_worker(monkeypatch):
     manager.process_commands = lambda: None
 
     manager.service()
-    assert manager.download_backoff_until > time.time()
+    assert manager.download_backoff.waiting()
 
     # The gate itself: with the pause armed, the real spawn path does nothing.
     manager.download_threads = []
     real_manager, _real_api = make_library()
     real_manager.added_queue.put(["id1"])
-    real_manager.download_backoff_until = time.time() + 60
+    real_manager.download_backoff.arm()
     real_manager.worker_downloads()
     assert real_manager.download_threads == []
 
     # And once it expires, work resumes.
-    real_manager.download_backoff_until = 0.0
+    real_manager.download_backoff.disarm()
     real_manager.worker_downloads()
     assert len(real_manager.download_threads) == 1
     for thread in real_manager.download_threads:
@@ -2418,7 +2420,7 @@ def test_userdata_and_removal_failures_schedule_recovery():
     """Both workers only logged, so a failed watched flag or a failed removal
     was lost for good — the recovery prune diffs ids and Etags, which say
     nothing about userdata (audit finding #19)."""
-    from kofin.sync.library import RemovedWorker, UserDataWorker
+    from kofin.sync.workers import RemovedWorker, UserDataWorker
     from kofin.sync.shims import LibraryException
 
     flagged = []
@@ -2435,7 +2437,7 @@ def test_userdata_and_removal_failures_schedule_recovery():
 
 def test_a_worker_without_a_hook_is_still_safe():
     """The hook is optional (tests and direct construction pass none)."""
-    from kofin.sync.library import UserDataWorker
+    from kofin.sync.workers import UserDataWorker
 
     worker = UserDataWorker.__new__(UserDataWorker)
     worker.unapplied = None
@@ -2446,7 +2448,7 @@ def test_finished_workers_release_their_http_session():
     """Each worker gets its own Api, hence its own connection pool, and none
     were ever closed — a catch-up spawning dozens left that many idle pools
     until the GC noticed (audit finding #9)."""
-    from kofin.sync.library import _release_worker
+    from kofin.sync.workers import release_worker
 
     closed = []
 
@@ -2459,8 +2461,8 @@ def test_finished_workers_release_their_http_session():
             self.server = FakeApi()
 
     worker = FakeWorker()
-    _release_worker(worker)
-    _release_worker(worker)  # idempotent: the reaper sees it until it prunes
+    release_worker(worker)
+    release_worker(worker)  # idempotent: the reaper sees it until it prunes
 
     assert closed == [1]
 
