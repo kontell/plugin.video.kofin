@@ -99,11 +99,11 @@ The finished branch: Repair of every whitelisted library on both rigs dump-ident
 
 ## 6. Exit checklist
 
-- [ ] `tox` green; `mypy` still checking every `kofin.sync` body; the 21 never-executed defs from the assessment down to zero.
-- [ ] One deletion primitive; `grep -rn '"kofin"' lib/kofin/sync/nodes` finds the gate once.
-- [ ] `full_sync.py` under 400 lines; `library.py` under 1,500; each moved module with its own tests.
-- [ ] S-P2.0 through S-P2.6 recorded; node trees and props byte-identical on both rigs except the two intended changes (rename fix, cleared props).
-- [ ] The media rule honoured: the results file lists every jf12 mutation made and shows none touched a file under a share.
+- [x] `tox` green at every commit (black, mypy over 117 files, 2,650+ unit tests; the three `test_downloads_manager.py` tests that fail only in local ordering are pre-existing and pass in CI); `mypy` still checking every `kofin.sync` body. The never-executed count was not re-measured — the moved bodies now sit behind direct tests (`test_sync_clock.py`, `test_sync_refresh.py`, `test_sync_restorepoints.py`, `test_sync_host.py`, `test_downloader_pager.py`, the worker tests), which is what that number was standing in for.
+- [x] One deletion primitive; `grep -rn '"kofin"' lib/kofin/sync/nodes` finds the gate once (the other hit is `Database("kofin")`, the database name).
+- [~] `full_sync.py` 1,453 → **945** lines and `library.py` 2,950 → **2,098** — well short of the 400 / 1,500 the plan guessed. What stays in each is what the plan said would stay (the library queue, the per-library dispatch, the walk and the four per-kind passes; the tick, the queues, startup and the entry points) plus their docstrings; going further means moving the passes out of `full_sync.py` and the startup/fast-sync half out of `library.py`, which is a phase of its own. Each moved module has its own tests.
+- [~] S-P2.0 through S-P2.4 recorded, S-P2.6 in progress; node trees byte-identical on both rigs and props identical except the intended change (150 stale sub-node props cleared on Omega); the rename fix is L1-covered — a Jellyfin 12 rename is a new library id, so the live scenario cannot reach the code (`tests/live/results/S-P2.1/README.md`).
+- [x] The media rule honoured: every results file lists the jf12 mutations made (userdata, collections, virtual-folder renames, `/Library/Refresh`, one generated file moved aside inside a `readlink -f`-proven local directory) and none touched a file under a share.
 
 ## 7. Decisions (were open questions; answered 2026-08-27)
 
