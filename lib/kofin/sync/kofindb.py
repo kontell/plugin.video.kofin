@@ -214,12 +214,6 @@ class JellyfinDatabase:
 
         return self.cursor.fetchall()
 
-    def get_kodi_ids_by_media_folder(self, media_type, library_id):
-        """Kodi ids of one media type inside one library."""
-        self.cursor.execute(QU.get_kodi_ids_by_media_folder, (media_type, library_id))
-
-        return [row[0] for row in self.cursor.fetchall()]
-
     def get_item_ids_by_media(self, *args):
         """(jellyfin_id, kodi_id) pairs for a media type."""
         self.cursor.execute(QU.get_item_ids_by_media, args)

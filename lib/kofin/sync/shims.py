@@ -15,7 +15,6 @@ no-module-globals rule that protects the restart path.
 """
 
 import datetime
-import json
 import re
 import threading
 from functools import wraps
@@ -216,31 +215,6 @@ def convert_to_local(date):
 Local = convert_to_local
 
 
-class JSONRPC(object):
-
-    id = 1
-    jsonrpc_version = "2.0"
-
-    def __init__(self, method):
-        self.method = method
-        self.params = None
-
-    def _query(self):
-        query = {
-            "jsonrpc": self.jsonrpc_version,
-            "id": self.id,
-            "method": self.method,
-        }
-        if self.params is not None:
-            query["params"] = self.params
-
-        return json.dumps(query)
-
-    def execute(self, params=None):
-        self.params = params
-        return json.loads(xbmc.executeJSONRPC(self._query()))
-
-
 def window_prop(key, value=None, clear=False):
     """Plain string window-property access on the home window (the fork's
     ``window()`` helper minus the .json/.bool suffixes, which the ported
@@ -254,11 +228,3 @@ def window_prop(key, value=None, clear=False):
         window.setProperty(key, value)
         return None
     return window.getProperty(key)
-
-
-def get_grouped_set():
-    """Get if boxsets should be grouped"""
-    result = JSONRPC("Settings.GetSettingValue").execute(
-        {"setting": "videolibrary.groupmoviesets"}
-    )
-    return result.get("result", {}).get("value", False)

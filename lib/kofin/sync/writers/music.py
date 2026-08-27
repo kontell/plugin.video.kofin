@@ -262,11 +262,7 @@ class Music(KodiDb):
 
     def album_add(self, obj):
         """Add object to kodi."""
-        if self.version_id >= 82:
-            obj_values = values(obj, QU.get_album_obj82)
-        else:
-            obj_values = values(obj, QU.get_album_obj)
-        obj["AlbumId"] = self.get_album(*obj_values)
+        obj["AlbumId"] = self.get_album(*values(obj, QU.get_album_obj82))
         self.jellyfin_db.add_reference(*values(obj, QUEM.add_reference_album_obj))
         LOG.debug("ADD album [%s] %s: %s", obj["AlbumId"], obj["Title"], obj["Id"])
 
@@ -395,7 +391,6 @@ class Music(KodiDb):
         else:
             self.song_add(obj)
 
-        self.link_song_album(*values(obj, QU.update_song_album_obj))
         self.link_library_source(obj)
         self.add_role(*values(obj, QU.update_role_obj))  # defaultt role
         self.song_artist_link(obj)

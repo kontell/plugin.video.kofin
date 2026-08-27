@@ -74,8 +74,9 @@ MUSIC_NODE_ROOT_ORDER = 55
 # prefix so the pruner claims it like everything else kofin writes.
 MUSIC_DOWNLOADED_FOLDER = "kofin_Downloaded"
 
-# The flat Downloaded-music node this replaced. Kept only so the pruner can
-# name it: an install that generated it has no other route to being rid of it.
+# The flat Downloaded-music node this replaced. The pruner sweeps it by
+# prefix like any other stale file; the name survives only for the tests
+# that plant one.
 MUSIC_DOWNLOADED_FILE = "kofin_DownloadedMusic.xml"
 
 # (file stem, label, content, group) for the sub-nodes inside a music folder.
@@ -149,59 +150,6 @@ NODES = {
         ("unwatched", 30352),
     ],
 }
-DYNNODES = {
-    "tvshows": [
-        ("all", None),
-        ("RecentlyAdded", 30350),
-        ("recentepisodes", 30355),
-        ("InProgress", 30351),
-        ("inprogressepisodes", 30356),
-        ("nextepisodes", 30357),
-        ("Genres", 135),
-        ("Random", 30353),
-        ("recommended", 30354),
-    ],
-    "movies": [
-        ("all", None),
-        ("RecentlyAdded", 30350),
-        ("InProgress", 30351),
-        ("Boxsets", 20434),
-        ("Favorite", 30361),
-        ("FirstLetter", 30362),
-        ("Genres", 135),
-        ("Random", 30353),
-    ],
-    "musicvideos": [
-        ("all", None),
-        ("RecentlyAdded", 30350),
-        ("InProgress", 30351),
-        ("Unwatched", 30352),
-    ],
-    "homevideos": [
-        ("all", None),
-        ("RecentlyAdded", 30350),
-        ("InProgress", 30351),
-        ("Favorite", 30361),
-    ],
-    "books": [
-        ("all", None),
-        ("RecentlyAdded", 30350),
-        ("InProgress", 30351),
-        ("Favorite", 30361),
-    ],
-    "audiobooks": [
-        ("all", None),
-        ("RecentlyAdded", 30350),
-        ("InProgress", 30351),
-        ("Favorite", 30361),
-    ],
-    "music": [
-        ("all", None),
-        ("RecentlyAdded", 30350),
-        ("Favorite", 30361),
-    ],
-}
-
 # Stock Kodi icon per media type (structural entries never carry addon or
 # server art — plan §2).
 MEDIA_ICONS = {
@@ -1465,9 +1413,9 @@ class Views(object):
             etree.SubElement(root, "content").text = "episodes"
 
     def order_media_folders(self, folders):
-        """Returns a list of sorted media folders based on the Jellyfin views.
-        Insert them in SortedViews and remove Views that are not in media folders.
-        """
+        """The media folders in SortedViews order, unknown ones last. Pure: it
+        neither reads nor writes anything but its argument and the stored
+        order."""
         if not folders:
             return folders
 

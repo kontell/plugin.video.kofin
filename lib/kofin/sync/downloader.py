@@ -103,21 +103,6 @@ def get_movies_by_boxset(api, boxset_id):
         yield items
 
 
-def get_episode_by_show(api, show_id):
-
-    query = {
-        "url": "/Shows/%s/Episodes" % show_id,
-        "params": {
-            "EnableUserData": True,
-            "EnableImages": True,
-            "UserId": api.user_id,
-            "Fields": info(),
-        },
-    }
-    for items in _get_items(api, query):
-        yield items
-
-
 def get_episode_by_season(api, show_id, season_id):
 
     query = {
@@ -645,7 +630,8 @@ def _get_items(api, query):
 class GetItemWorker(threading.Thread):
 
     is_done = False
-    # Stamped by Library.worker_downloads after construction.
+    # Stamped by Library.worker_downloads after construction; the added-first
+    # download gate reads it back.
     source = ""
     # Set when this worker stopped because the server was unreachable, so the
     # library can pause the spawn path instead of starting a replacement into

@@ -1099,6 +1099,8 @@ class Library(threading.Thread):
                     fields=basic_info() if source == "artwork" else None,
                     unapplied=self.flag_unapplied,
                 )
+                # Read back by added_downloads_pending: the added-first gate
+                # on metadata downloads keys on it.
                 new_thread.source = source
                 new_thread.start()
                 LOG.info("-->[ q:download/%s/%s ]", source, id(new_thread))
