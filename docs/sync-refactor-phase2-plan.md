@@ -4,7 +4,7 @@
 |---|---|
 | **Date** | 2026-08-27 |
 | **Source** | `docs/sync-refactor-assessment.md` §7, Tier 2, plus the findings phase 1 left on the ledger (`docs/sync-refactor-phase1-plan.md` §4b, `docs/testing-plan.md` §S-P1). |
-| **Branch** | `refactor/sync-phase2`, stacked on `refactor/sync-phase1` (PR #191), draft PR. One commit per item, each revertible on its own; merges after #191. |
+| **Branch** | `refactor/sync-phase2`, stacked on `refactor/sync-phase1` (PR #191), draft PR #192. One commit per item, each revertible on its own; merges after #191. **Decided 2026-08-27:** the three phase-1 findings (P2.5) land first as their own small PR stacked between #191 and this one, so phase 2 restructures a clean baseline; `sync/nodes/` is a package; rewrite-whole node files proceed on the assessment's finding that nothing user-editable lives under `kofin/`; the `kofin-jf12` profile's databases may be reset for the first-sync scenario. |
 | **Scope** | The four shell-side files the assessment named, restructured along the seams it mapped: `views.py` (one deletion primitive, split by concern, rewrite-whole, table-driven builders), `full_sync.py` (restore points, prune, boxsets and removal as their own modules; the Library port named), `library.py` (the refresh policy out, one clock primitive, a dispatch table, one worker loop), `downloader.py` (the pager's seams). Plus the three small defects phase 1 found. Nothing inside `writers/`, `kodidb/`, `fields.py` or `obj.py` beyond what P2.4 states. |
 | **Rule** | Safety nets before any move; every item lands with its unit proof *and* its live gate on both local generations; **nothing is ever deleted through jf12 and no file is written under any jf12 library path** — its media is the household's (§2). |
 
@@ -78,7 +78,7 @@ Servers: production for scale and dump comparisons (both rigs); jf12 (`kofin-jf1
 
 **Live.** S-P2.4 both rigs: Repair identical with request counts on baseline; S2.7 resume from a mid-pass restore point on Omega.
 
-### P2.5 — The phase-1 findings
+### P2.5 — The phase-1 findings (lands first, as its own PR)
 
 **Change.** (a) `process_commands` and the service log guarded payloads with `_nonce` stripped (the guard secret stays out of kodi.log). (b) The resume-shadow `files` row (the second row under the add-on root path an episode or movie with a resume point gets) is removed with its bookmark by the removal writers; a new L2 zero-orphan rule covers `files` and `bookmark`. (c) `extras()` and `trailer()` still swallow every other error, but a **404 on the item's own child fetch** propagates as gone, so the walk skips it instead of writing a row for a deleted movie — with the gone-probe already in place this is the one case it cannot reach today. (b) and (c) are writer changes and carry their in-place deviation notes.
 
@@ -105,9 +105,11 @@ The finished branch: Repair of every whitelisted library on both rigs dump-ident
 - [ ] S-P2.0 through S-P2.6 recorded; node trees and props byte-identical on both rigs except the two intended changes (rename fix, cleared props).
 - [ ] The media rule honoured: the results file lists every jf12 mutation made and shows none touched a file under a share.
 
-## 7. Open questions
+## 7. Decisions (were open questions; answered 2026-08-27)
 
-1. **Layout.** `sync/nodes/` as a package (`fs.py`, `video.py`, `music.py`, `props.py`) with `views.py` keeping the view table — or flat `sync/nodes_video.py` etc.? Recommendation: the package; it is the seam the assessment mapped.
-2. **P2.5 first, or last?** The three findings are independent of the restructure and small; landing them as the first commits gives the restructure a cleaner baseline, but (b) and (c) touch writers and might deserve their own small PR ahead of this one. Recommendation: their own PR, stacked before phase 2.
-3. **The rename fix is a behaviour change** visible to anyone with a hand-edited node file under `kofin/` (rewrite-whole overwrites it). The assessment argued nothing user-editable lives there; the plan proceeds on that. Confirm.
-4. **S-P2.3c resets the `kofin-jf12` profile's databases** to stage a first sync. Fine to do (it is the throwaway profile), or keep a copy first?
+1. **Layout:** `sync/nodes/` as a package (`fs.py`, `video.py`, `music.py`, `props.py`), `views.py` keeping the view table, the server listing and the hash.
+2. **P2.5 first, as its own PR:** the logged nonce, the resume-shadow `files` row and the swallowed child 404 land on a branch stacked on `refactor/sync-phase1`, ahead of this one; phase 2 rebases onto it.
+3. **Rewrite-whole is confirmed:** a hand-edited node file under `kofin/` is overwritten on regeneration; the assessment's finding that nothing user-editable lives there stands, and the plan proceeds on it.
+4. **S-P2.3c may reset the `kofin-jf12` profile's databases** for the first-sync scenario; it is the throwaway profile.
+
+These answers are the go-ahead; implementation starts with P2.5's PR, then P2.0.
