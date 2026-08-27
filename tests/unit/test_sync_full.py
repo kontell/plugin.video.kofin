@@ -6,6 +6,7 @@ import pytest
 
 from kofin.core.http import HttpError
 from kofin.sync.full_sync import FullSync
+from tests.unit.synchost import FakeHost
 
 
 class FakeServer:
@@ -25,7 +26,7 @@ class FakeServer:
 def fullsync(monkeypatch):
     monkeypatch.setattr("kofin.sync.full_sync.save_sync", lambda sync: None)
     monkeypatch.setattr("kofin.sync.full_sync.notification", lambda *a, **kw: None)
-    sync = FullSync(library=None, server=None)
+    sync = FullSync(None, None)
     sync.sync = {"Libraries": [], "Whitelist": [], "RestorePoints": {}}
     yield sync
 
@@ -62,7 +63,7 @@ def test_a_failing_library_does_not_abandon_the_ones_after_it(fullsync, monkeypa
     for the resume backoff instead of syncing now."""
     fullsync.server = FakeServer({"flaky1": 500, "lib2": 200})
     fullsync.sync["Libraries"] = ["flaky1", "lib2"]
-    fullsync.library = RecordingLibrary()
+    fullsync.host = FakeHost()
     monkeypatch.setattr(fullsync, "movies", lambda library: None)
     monkeypatch.setattr(fullsync, "_media_type", lambda library_id: "movies")
     failures = []
@@ -77,7 +78,7 @@ def test_a_failing_library_does_not_abandon_the_ones_after_it(fullsync, monkeypa
     # The last library is not published from the loop: start()'s end-of-sync
     # refresh covers it, failure or not, and runs before the re-raise
     # (test_a_failed_run_still_gets_the_end_of_sync_refresh).
-    assert fullsync.library.refreshed == []
+    assert fullsync.host.refreshed == []
 
 
 def test_an_exit_exception_abandons_the_rest(fullsync, monkeypatch):
@@ -156,21 +157,6 @@ def test_synced_library_still_whitelisted(fullsync, monkeypatch):
     assert fullsync.sync["Whitelist"] == ["lib1"]
 
 
-class RecordingLibrary:
-    """The Library slice start() touches once the passes are done."""
-
-    def __init__(self):
-        self.refreshed = []
-        self.forced = []
-
-    def stamp_watermark_if_empty(self):
-        pass
-
-    def refresh_libraries(self, databases, force_reload=False):
-        self.refreshed.append(set(databases))
-        self.forced.append(force_reload)
-
-
 def run_start(fullsync, monkeypatch, update):
     toasts = []
     monkeypatch.setattr(
@@ -181,7 +167,7 @@ def run_start(fullsync, monkeypatch, update):
     monkeypatch.setattr(fullsync, "_media_type", lambda library_id: "music")
     monkeypatch.setattr(fullsync, "process_libraries", lambda libraries, failures: None)
 
-    fullsync.library = RecordingLibrary()
+    fullsync.host = FakeHost()
     fullsync.update_library = update
     fullsync.sync["Libraries"] = ["lib2"]
     fullsync.start()
@@ -211,24 +197,21 @@ def test_update_mode_plans_without_refreshing(fullsync, monkeypatch):
     (widget-refresh-plan F2/D4)."""
     run_start(fullsync, monkeypatch, update=True)
 
-    assert fullsync.library.refreshed == []
+    assert fullsync.host.refreshed == []
 
 
 def test_full_sync_refreshes_what_it_wrote(fullsync, monkeypatch):
     run_start(fullsync, monkeypatch, update=False)
 
-    assert fullsync.library.refreshed == [{"music"}]
+    assert fullsync.host.refreshed == [{"music"}]
 
 
 def test_resumed_queue_is_deduplicated(fullsync, monkeypatch):
-    monkeypatch.setattr(
-        "kofin.sync.full_sync.get_sync",
-        lambda: {
-            "Libraries": ["a", "Boxsets:x", "a", "b", "Boxsets:x", "a"],
-            "Whitelist": [],
-            "RestorePoints": {},
-        },
-    )
+    fullsync._load = lambda: {
+        "Libraries": ["a", "Boxsets:x", "a", "b", "Boxsets:x", "a"],
+        "Whitelist": [],
+        "RestorePoints": {},
+    }
     started = []
     monkeypatch.setattr(fullsync, "start", lambda: started.append(True))
 
@@ -251,11 +234,9 @@ def _toast_recorder(monkeypatch):
 
 
 def test_failing_library_toasts_once_per_service_lifetime(fullsync, monkeypatch):
-    from types import SimpleNamespace
-
     toasts = _toast_recorder(monkeypatch)
     fullsync.server = FakeServer({"flaky1": 500})
-    fullsync.library = SimpleNamespace(sync_failure_toasted=set())
+    fullsync.host = FakeHost()
 
     for _ in range(3):
         failures = []
@@ -266,7 +247,7 @@ def test_failing_library_toasts_once_per_service_lifetime(fullsync, monkeypatch)
 
 
 def test_failing_library_without_a_manager_still_toasts(fullsync, monkeypatch):
-    """library=None constructions (tests, tools) keep the old per-attempt
+    """host=None constructions (tests, tools) keep the old per-attempt
     behavior rather than crashing on the dedup set."""
     toasts = _toast_recorder(monkeypatch)
     fullsync.server = FakeServer({"flaky1": 500})
@@ -307,63 +288,52 @@ def test_library_exception_keeps_the_entry(fullsync, monkeypatch):
 # --- the one-sync-at-a-time claim (audit finding #11) -------------------------
 
 
-class ClaimLibrary:
-    """The claim half of Library, standing in for the real manager."""
-
-    def __init__(self):
-        import threading
-
-        self._full_sync_lock = threading.Lock()
-        self._full_sync_running = False
-        self.released = 0
-
-    def claim_full_sync(self):
-        with self._full_sync_lock:
-            if self._full_sync_running:
-                return False
-            self._full_sync_running = True
-            return True
-
-    def release_full_sync(self):
-        with self._full_sync_lock:
-            self._full_sync_running = False
-            self.released += 1
-
-
-def test_a_second_sync_on_the_same_library_is_refused(monkeypatch):
+def test_a_second_sync_on_the_same_host_is_refused(monkeypatch):
+    """The claim is taken on entry, not at construction (P2.2): a FullSync
+    that is only ever called directly never holds one."""
     monkeypatch.setattr("kofin.sync.full_sync.notification", lambda *a, **kw: None)
-    library = ClaimLibrary()
+    monkeypatch.setattr("kofin.sync.full_sync.state.set_sync_active", lambda on: None)
+    host = FakeHost()
 
-    first = FullSync(library, server=None)
-    with pytest.raises(Exception, match="already running"):
-        FullSync(library, server=None)
+    FullSync(host, server=None)  # constructed, not entered: no claim
+    assert host.claimed is False
 
-    first.release()
-    FullSync(library, server=None).release()  # the claim came back
+    with FullSync(host, server=None):
+        assert host.claimed is True
+        with pytest.raises(Exception, match="already running"):
+            FullSync(host, server=None).__enter__()
+
+    assert host.claimed is False
+    with FullSync(host, server=None):  # the claim came back
+        pass
 
 
-def test_the_claim_dies_with_its_library(monkeypatch):
+def test_the_claim_dies_with_its_host(monkeypatch):
     """The fork kept this in a class-level Borg dict, which outlived the
     service's object graph: an orphaned sync left it True and the *new*
     Library refused to sync at all until Kodi restarted (audit finding #11)."""
     monkeypatch.setattr("kofin.sync.full_sync.notification", lambda *a, **kw: None)
-    orphaned = ClaimLibrary()
-    FullSync(orphaned, server=None)  # never released: the old manager is gone
+    monkeypatch.setattr("kofin.sync.full_sync.state.set_sync_active", lambda on: None)
+    orphaned = FakeHost()
+    FullSync(
+        orphaned, server=None
+    ).__enter__()  # never released: the old manager is gone
 
-    rebuilt = ClaimLibrary()
-    FullSync(rebuilt, server=None)  # must not raise
+    rebuilt = FakeHost()
+    with FullSync(rebuilt, server=None):  # must not raise
+        pass
 
 
 def test_exit_releases_the_claim(monkeypatch):
     monkeypatch.setattr("kofin.sync.full_sync.notification", lambda *a, **kw: None)
     monkeypatch.setattr("kofin.sync.full_sync.state.set_sync_active", lambda on: None)
-    library = ClaimLibrary()
+    host = FakeHost()
 
-    with FullSync(library, server=None):
+    with FullSync(host, server=None):
         pass
 
-    assert library.released == 1
-    assert library._full_sync_running is False
+    assert host.released == 1
+    assert host.claimed is False
 
 
 # -- per-library publishing (docs/widget-refresh-plan.md; B2 on a Pi 3B) ------
@@ -377,21 +347,11 @@ class PublishFullSync(FullSync):
         return self.synced_result.get(library, True)
 
 
-class PublishLibrary(ClaimLibrary, RecordingLibrary):
-    """Both halves of the Library that process_libraries touches: the claim
-    FullSync takes at construction, and the refresh it hands each finished
-    library to."""
-
-    def __init__(self):
-        ClaimLibrary.__init__(self)
-        RecordingLibrary.__init__(self)
-
-
 @pytest.fixture
 def publisher(monkeypatch):
     monkeypatch.setattr("kofin.sync.full_sync.save_sync", lambda sync: None)
     monkeypatch.setattr("kofin.sync.full_sync.notification", lambda *a, **kw: None)
-    sync = PublishFullSync(library=PublishLibrary(), server=None)
+    sync = PublishFullSync(FakeHost(), server=None)
     sync.sync = {"Libraries": [], "Whitelist": [], "RestorePoints": {}}
     sync.synced_result = {}
     sync.update_library = False
@@ -416,7 +376,7 @@ def test_each_finished_library_is_published_except_the_last(publisher, monkeypat
 
     publisher.process_libraries(["mov", "tv", "mus"], [])
 
-    assert publisher.library.refreshed == [{"video"}, {"video"}]
+    assert publisher.host.refreshed == [{"video"}, {"video"}]
 
 
 def test_a_music_library_publishes_the_music_database(publisher, monkeypatch):
@@ -426,7 +386,7 @@ def test_a_music_library_publishes_the_music_database(publisher, monkeypatch):
 
     publisher.process_libraries(["mus", "mov"], [])
 
-    assert publisher.library.refreshed == [{"music"}]
+    assert publisher.host.refreshed == [{"music"}]
 
 
 def test_a_library_that_did_not_sync_is_not_published(publisher, monkeypatch):
@@ -437,7 +397,7 @@ def test_a_library_that_did_not_sync_is_not_published(publisher, monkeypatch):
 
     publisher.process_libraries(["mov", "tv"], [])
 
-    assert publisher.library.refreshed == []
+    assert publisher.host.refreshed == []
 
 
 def test_a_failed_run_still_gets_the_end_of_sync_refresh(publisher, monkeypatch):
@@ -459,8 +419,8 @@ def test_a_failed_run_still_gets_the_end_of_sync_refresh(publisher, monkeypatch)
     with pytest.raises(HttpError):
         publisher.start()
 
-    assert publisher.library.refreshed == [{"video"}]
-    assert publisher.library.forced == [True]
+    assert publisher.host.refreshed == [{"video"}]
+    assert publisher.host.forced == [True]
 
 
 def test_update_mode_publishes_nothing(publisher, monkeypatch):
@@ -471,7 +431,7 @@ def test_update_mode_publishes_nothing(publisher, monkeypatch):
 
     publisher.process_libraries(["mov", "tv"], [])
 
-    assert publisher.library.refreshed == []
+    assert publisher.host.refreshed == []
 
 
 def test_a_single_library_is_left_to_the_end_of_sync_refresh(publisher, monkeypatch):
@@ -479,7 +439,7 @@ def test_a_single_library_is_left_to_the_end_of_sync_refresh(publisher, monkeypa
 
     publisher.process_libraries(["mov"], [])
 
-    assert publisher.library.refreshed == []
+    assert publisher.host.refreshed == []
 
 
 def test_the_end_of_sync_refresh_forces_the_reload(fullsync, monkeypatch):
@@ -489,7 +449,7 @@ def test_the_end_of_sync_refresh_forces_the_reload(fullsync, monkeypatch):
     probe had already self-disarmed by the time music finished."""
     run_start(fullsync, monkeypatch, update=False)
 
-    assert fullsync.library.forced == [True]
+    assert fullsync.host.forced == [True]
 
 
 def test_a_mid_sync_publish_does_not_force_the_reload(publisher, monkeypatch):
@@ -500,4 +460,4 @@ def test_a_mid_sync_publish_does_not_force_the_reload(publisher, monkeypatch):
 
     publisher.process_libraries(["mov", "tv"], [])
 
-    assert publisher.library.forced == [False]
+    assert publisher.host.forced == [False]

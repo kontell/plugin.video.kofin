@@ -27,7 +27,7 @@ def fullsync(monkeypatch):
     monkeypatch.setattr(
         "kofin.sync.full_sync.server.restore_fingerprint", lambda *a, **kw: "fp"
     )
-    sync = FullSync(library=None, server=None)
+    sync = FullSync(None, None)
     sync.sync = {"Libraries": [], "Whitelist": [], "RestorePoints": {}}
     return sync
 
@@ -285,7 +285,7 @@ def test_tvshows_walks_three_passes_parents_first(fullsync, monkeypatch):
 def test_boxsets_walks_with_the_child_count_field_and_tallies_outcomes(
     fullsync, monkeypatch
 ):
-    from kofin.sync.full_sync import BOXSET_GUARDED, BOXSET_WRITTEN
+    from kofin.sync.writers.movies import BOXSET_GUARDED, BOXSET_WRITTEN
 
     calls = recording_walk(
         fullsync,
@@ -305,9 +305,9 @@ def test_boxsets_walks_with_the_child_count_field_and_tallies_outcomes(
         def restamp_boxset_states(self, guarded):
             restamped.append(set(guarded))
 
-    monkeypatch.setattr("kofin.sync.full_sync.Movies", Restamper)
+    monkeypatch.setattr("kofin.sync.boxsets.Movies", Restamper)
     monkeypatch.setattr(fullsync, "video_database_locks", fake_page)
-    monkeypatch.setattr("kofin.sync.full_sync.localized", lambda code: "Collections")
+    monkeypatch.setattr("kofin.sync.boxsets.localized", lambda code: "Collections")
 
     fullsync.boxsets({"Id": "cols", "Name": "Collections"})
 

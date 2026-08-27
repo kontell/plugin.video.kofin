@@ -34,7 +34,9 @@ from kofin.sync.kodidb import Music as MusicKodiDb
 from kofin.sync.db import Database, get_sync, save_sync
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import schema
-from kofin.sync.full_sync import FullSync, PRUNE_SERVER_TYPES, local_reference_map
+from kofin.sync.full_sync import FullSync
+from kofin.sync.host import SyncHost
+from kofin.sync.prune import PRUNE_SERVER_TYPES, local_reference_map
 from kofin.sync.views import Views
 from kofin.sync import widgetstate
 from kofin.sync.downloader import GetItemWorker, basic_info, get_prune_count
@@ -922,6 +924,10 @@ class Library(threading.Thread):
     def stop_client(self):
         self.stop_thread = True
 
+    def sync_host(self):
+        """The slice of this manager a full sync runs against (sync/host.py)."""
+        return SyncHost(self)
+
     def claim_full_sync(self):
         """Take the one-sync-at-a-time claim; False when one is already up.
 
@@ -1747,7 +1753,7 @@ class Library(threading.Thread):
             if get_sync()["Libraries"]:
 
                 try:
-                    with FullSync(self, self.api) as sync:
+                    with FullSync(self.sync_host(), self.api) as sync:
                         sync.libraries()
 
                     Views(self.api).get_nodes()
@@ -2377,7 +2383,7 @@ class Library(threading.Thread):
     def add_library(self, library_id, update=False):
 
         try:
-            with FullSync(self, server=self.api) as sync:
+            with FullSync(self.sync_host(), self.api) as sync:
                 sync.libraries(library_id, update)
         except Exception as error:
             LOG.exception(error)
@@ -2391,7 +2397,7 @@ class Library(threading.Thread):
     def remove_library(self, library_id):
 
         try:
-            with FullSync(self, self.api) as sync:
+            with FullSync(self.sync_host(), self.api) as sync:
                 sync.remove_library(library_id)
 
             Views().remove_library(library_id)

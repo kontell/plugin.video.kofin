@@ -23,7 +23,9 @@ from kofin.sync import db as sync_db
 from kofin.sync import downloader
 from kofin.sync import kofindb
 from kofin.sync import shims
-from kofin.sync.full_sync import RESTORE_POINT_TTL, FullSync
+from kofin.sync import prune, restorepoints
+from kofin.sync.full_sync import FullSync
+from tests.unit.synchost import FakeHost
 from tests.unit.fakes import FakeAddon, FakeWindow
 
 
@@ -53,32 +55,8 @@ def sync_env(monkeypatch, tmp_path):
     sync_db.reset_overrides()
 
 
-class RecordingLibrary:
-    """Stands in for the Library thread: the prune only enqueues."""
-
-    def __init__(self):
-        self.calls = {"removed": [], "added": [], "updated": []}
-
-    # The one-sync-at-a-time claim lives on the Library now (audit finding
-    # #11): FullSync asks its manager rather than a class-level dict.
-    def claim_full_sync(self):
-        return True
-
-    def release_full_sync(self):
-        pass
-
-    def removed(self, data):
-        self.calls["removed"].extend(data)
-
-    def added(self, data):
-        self.calls["added"].extend(data)
-
-    def updated(self, data):
-        self.calls["updated"].extend(data)
-
-
-def make_fullsync(library=None):
-    sync = FullSync(library=library or RecordingLibrary(), server=None)
+def make_fullsync(host=None):
+    sync = FullSync(host or FakeHost(), server=None)
     sync.sync = {"Libraries": [], "Whitelist": [], "RestorePoints": {}}
     return sync
 
@@ -108,18 +86,18 @@ def test_prune_three_way_diff(monkeypatch):
         "m5": (None, "Movie"),  # no etag -> safe direction: fetch
     }
     monkeypatch.setattr(
-        "kofin.sync.full_sync.server.get_id_etag_map",
+        "kofin.sync.prune.server.get_id_etag_map",
         lambda api, parent_id, types: dict(server_map),
     )
     # The server confirms m3 really is gone (see the stale-confirmation tests).
     monkeypatch.setattr(
-        "kofin.sync.full_sync.server.get_existing_ids", lambda api, ids: set()
+        "kofin.sync.prune.server.get_existing_ids", lambda api, ids: set()
     )
 
     fullsync = make_fullsync()
     fullsync.prune({"Id": "lib1", "Name": "Movies", "CollectionType": "movies"}, "lib1")
 
-    calls = fullsync.library.calls
+    calls = fullsync.host.calls
     assert calls["added"] == ["m4", "m5"] or set(calls["added"]) == {"m4", "m5"}
     assert calls["updated"] == ["m2"]
     assert calls["removed"] == ["m3"]  # gone from the server
@@ -157,7 +135,7 @@ def test_prune_spares_a_stale_candidate_the_server_resolves(monkeypatch):
             )
 
     monkeypatch.setattr(
-        "kofin.sync.full_sync.server.get_id_etag_map",
+        "kofin.sync.prune.server.get_id_etag_map",
         lambda api, parent_id, types: {
             "s1": ("cs", "Series"),
             "se-listed": ("cse", "Season"),
@@ -165,14 +143,14 @@ def test_prune_spares_a_stale_candidate_the_server_resolves(monkeypatch):
     )
     # The alias resolves by id -- it is a live season, just not in the listing.
     monkeypatch.setattr(
-        "kofin.sync.full_sync.server.get_existing_ids",
+        "kofin.sync.prune.server.get_existing_ids",
         lambda api, ids: {item_id for item_id in ids if item_id == "se-alias"},
     )
 
     fullsync = make_fullsync()
     fullsync.prune({"Id": "lib1", "Name": "Shows", "CollectionType": "tvshows"}, "lib1")
 
-    assert fullsync.library.calls["removed"] == []
+    assert fullsync.host.calls["removed"] == []
 
 
 def test_prune_still_removes_what_the_server_cannot_resolve(monkeypatch):
@@ -184,17 +162,17 @@ def test_prune_still_removes_what_the_server_cannot_resolve(monkeypatch):
         add_ref(db, "gone", 4, 5, 6, "Movie", "movie", None, "e2|plugin", "lib1", None)
 
     monkeypatch.setattr(
-        "kofin.sync.full_sync.server.get_id_etag_map",
+        "kofin.sync.prune.server.get_id_etag_map",
         lambda api, parent_id, types: {"m1": ("e1", "Movie")},
     )
     monkeypatch.setattr(
-        "kofin.sync.full_sync.server.get_existing_ids", lambda api, ids: set()
+        "kofin.sync.prune.server.get_existing_ids", lambda api, ids: set()
     )
 
     fullsync = make_fullsync()
     fullsync.prune({"Id": "lib1", "Name": "Movies", "CollectionType": "movies"}, "lib1")
 
-    assert fullsync.library.calls["removed"] == ["gone"]
+    assert fullsync.host.calls["removed"] == ["gone"]
 
 
 def test_prune_removes_nothing_when_confirmation_fails(monkeypatch):
@@ -208,10 +186,10 @@ def test_prune_removes_nothing_when_confirmation_fails(monkeypatch):
         raise HttpError(500, "server down")
 
     monkeypatch.setattr(
-        "kofin.sync.full_sync.server.get_id_etag_map",
+        "kofin.sync.prune.server.get_id_etag_map",
         lambda api, parent_id, types: {},
     )
-    monkeypatch.setattr("kofin.sync.full_sync.server.get_existing_ids", unreachable)
+    monkeypatch.setattr("kofin.sync.prune.server.get_existing_ids", unreachable)
 
     fullsync = make_fullsync()
 
@@ -220,7 +198,7 @@ def test_prune_removes_nothing_when_confirmation_fails(monkeypatch):
             {"Id": "lib1", "Name": "Movies", "CollectionType": "movies"}, "lib1"
         )
 
-    assert fullsync.library.calls["removed"] == []
+    assert fullsync.host.calls["removed"] == []
 
 
 def test_get_existing_ids_asks_by_id_without_filters():
@@ -285,14 +263,14 @@ def test_prune_enqueues_missing_parents_first(monkeypatch):
         "s-f": ("e6", "Series"),
     }
     monkeypatch.setattr(
-        "kofin.sync.full_sync.server.get_id_etag_map",
+        "kofin.sync.prune.server.get_id_etag_map",
         lambda api, parent_id, types: dict(server_map),
     )
 
     fullsync = make_fullsync()
     fullsync.prune({"Id": "lib1", "Name": "Shows", "CollectionType": "tvshows"}, "lib1")
 
-    assert fullsync.library.calls["added"] == [
+    assert fullsync.host.calls["added"] == [
         "s-c",
         "s-f",
         "se-b",
@@ -311,14 +289,14 @@ def test_prune_orders_music_children_after_albums(monkeypatch):
         "song-c": ("e3", "Audio"),
     }
     monkeypatch.setattr(
-        "kofin.sync.full_sync.server.get_id_etag_map",
+        "kofin.sync.prune.server.get_id_etag_map",
         lambda api, parent_id, types: dict(server_map),
     )
 
     fullsync = make_fullsync()
     fullsync.prune({"Id": "lib2", "Name": "Music", "CollectionType": "music"}, "lib2")
 
-    assert fullsync.library.calls["added"] == ["album-b", "song-a", "song-c"]
+    assert fullsync.host.calls["added"] == ["album-b", "song-a", "song-c"]
 
 
 def test_prune_converges_on_unchanged_seasons(monkeypatch):
@@ -346,14 +324,14 @@ def test_prune_converges_on_unchanged_seasons(monkeypatch):
 
     server_map = {"s1": ("cs", "Series"), "se1": ("cse", "Season")}
     monkeypatch.setattr(
-        "kofin.sync.full_sync.server.get_id_etag_map",
+        "kofin.sync.prune.server.get_id_etag_map",
         lambda api, parent_id, types: dict(server_map),
     )
 
     fullsync = make_fullsync()
     fullsync.prune({"Id": "lib1", "Name": "Shows", "CollectionType": "tvshows"}, "lib1")
 
-    calls = fullsync.library.calls
+    calls = fullsync.host.calls
     assert calls == {"removed": [], "added": [], "updated": []}
 
 
@@ -361,7 +339,7 @@ def test_prune_mixed_covers_both_classes(monkeypatch):
     requested = []
 
     monkeypatch.setattr(
-        "kofin.sync.full_sync.server.get_id_etag_map",
+        "kofin.sync.prune.server.get_id_etag_map",
         lambda api, parent_id, types: requested.append(types) or {},
     )
 
@@ -436,7 +414,7 @@ def test_local_reference_map_walks_tv_children():
         add_ref(db, "sX", 500, None, 8, "Series", "tvshow", None, "cx", "lib2", None)
 
     fullsync = make_fullsync()
-    local = fullsync._local_reference_map("lib1", "tvshows")
+    local = prune.local_reference_map("lib1", "tvshows")
 
     assert set(local) == {"s1", "se1", "ep1", "ep2"}
     assert local["s1"] == "cs|plugin"
@@ -466,7 +444,7 @@ def test_local_reference_map_music_needs_no_walk():
         add_ref(db, "so1", 3, None, 4, "Audio", "song", 2, "cc|plugin", "lib2", None)
 
     fullsync = make_fullsync()
-    local = fullsync._local_reference_map("lib2", "music")
+    local = prune.local_reference_map("lib2", "music")
 
     # Artists are deliberately outside the prune (see _local_reference_map).
     assert set(local) == {"al1", "so1"}
@@ -944,7 +922,7 @@ def test_an_expired_restore_point_is_dropped():
     sync.begin_walk("lib1/movies", "lib1", "Movie")
     sync.set_restore_point("lib1/movies", {"params": {"StartIndex": 1250}})
     stored = sync.sync["RestorePoints"]["lib1/movies"]
-    stored["SavedAt"] = time.time() - (RESTORE_POINT_TTL + 60)
+    stored["SavedAt"] = time.time() - (restorepoints.TTL + 60)
 
     assert sync.begin_walk("lib1/movies", "lib1", "Movie") is None
     assert "lib1/movies" not in sync.sync["RestorePoints"]

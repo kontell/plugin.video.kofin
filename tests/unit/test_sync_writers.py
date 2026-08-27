@@ -1426,19 +1426,10 @@ def test_boxset_state_dies_with_the_set(api):
 def make_fullsync(api):
     """A FullSync wired for direct method calls (no context manager, no
     Kodi): only the database lock is real."""
-    from types import SimpleNamespace
-
     from kofin.sync.full_sync import FullSync
+    from tests.unit.synchost import FakeHost
 
-    # The claim methods stand in for the real Library's one-sync-at-a-time
-    # guard, which moved off FullSync's class-level Borg dict so it dies with
-    # the manager that owns it (audit finding #11).
-    library = SimpleNamespace(
-        database_lock=threading.Lock(),
-        claim_full_sync=lambda: True,
-        release_full_sync=lambda: None,
-    )
-    sync = FullSync(library=library, server=api)
+    sync = FullSync(FakeHost(), server=api)
     sync.sync = {"Libraries": [], "Whitelist": [], "RestorePoints": {}}
     return sync
 
@@ -2166,6 +2157,57 @@ def drain(q):
             return items
 
 
+# --- library removal through the moved module (P2.2, sync/removal.py) ----------
+
+
+class _Dialog:
+    def update(self, *args, **kwargs):
+        pass
+
+
+def test_removal_takes_every_row_of_the_library_and_drops_it_from_the_whitelist(api):
+    from kofin.sync import removal
+    from tests.unit.synchost import FakeHost
+
+    register_views(
+        {"Id": LIBRARY["Id"], "Name": "Movies", "Media": "movies"},
+        {"Id": TV_LIBRARY["Id"], "Name": "Shows", "Media": "tvshows"},
+    )
+    write_movie(api)
+    write_series_tree(api)  # a second library: must survive
+    sync = {"Whitelist": [LIBRARY["Id"], TV_LIBRARY["Id"]], "Libraries": []}
+
+    removal.remove_library(FakeHost(), api, sync, LIBRARY["Id"], _Dialog())
+
+    assert video_query("SELECT COUNT(*) FROM movie") == [(0,)]
+    assert video_query("SELECT COUNT(*) FROM episode") == [(1,)]
+    assert kofin_query(
+        "SELECT COUNT(*) FROM jellyfin WHERE media_folder = ?", (LIBRARY["Id"],)
+    ) == [(0,)]
+    assert sync["Whitelist"] == [TV_LIBRARY["Id"]]
+    # The surviving episode keeps its resume shadow (an unlinked files row
+    # by design while the episode exists), so the two unlinked rules are
+    # the removed library's to satisfy, not this test's.
+    for label, sql in ORPHAN_RULES:
+        if "unlinked" in label:
+            continue
+        assert video_query(sql) == [(0,)], "orphans in %s" % label
+    assert video_query("SELECT COUNT(*) FROM files") == [(2,)]  # episode + shadow
+
+
+def test_removal_of_an_unknown_library_is_a_no_op(api):
+    from kofin.sync import removal
+    from tests.unit.synchost import FakeHost
+
+    write_movie(api)
+    sync = {"Whitelist": ["lib-movies"], "Libraries": []}
+
+    removal.remove_library(FakeHost(), api, sync, "never-synced", _Dialog())
+
+    assert video_query("SELECT COUNT(*) FROM movie") == [(1,)]
+    assert sync["Whitelist"] == ["lib-movies"]
+
+
 ORPHAN_RULES = [
     (
         "genre_link media_id/movie",
@@ -2803,6 +2845,8 @@ def test_series_pool_placeholder_dies_with_the_show(api):
 
 
 def test_prune_rehome_spared_references(api):
+    from kofin.sync import prune
+
     """A legacy misattributed row heals on the next UpdateLibrary instead of
     sparing and warning forever: re-homed to its whitelisted ancestor view,
     or to the NULL placeholder state when no synced library owns it. Season
@@ -2822,17 +2866,17 @@ def test_prune_rehome_spared_references(api):
 
     fullsync = make_fullsync(api)
     try:
-        fullsync._rehome_spared({"series2"})
+        prune.rehome_spared(fullsync.server, {"series2"})
         assert show_folder("series2") == [("lib-shows-b",)]
 
         api.ancestors_by_id = {}
-        fullsync._rehome_spared({"series2"})
+        prune.rehome_spared(fullsync.server, {"series2"})
         assert show_folder("series2") == [(None,)]
 
         season_folder = kofin_query(
             "SELECT media_folder FROM jellyfin WHERE jellyfin_id = 'season1'"
         )
-        fullsync._rehome_spared({"season1"})
+        prune.rehome_spared(fullsync.server, {"season1"})
         assert (
             kofin_query(
                 "SELECT media_folder FROM jellyfin WHERE jellyfin_id = 'season1'"
