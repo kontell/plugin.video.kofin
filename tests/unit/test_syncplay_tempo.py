@@ -346,6 +346,70 @@ class TestScheduler:
         )
         assert len(scheduler._history) == 1
 
+    def test_the_gain_is_learned_and_the_next_ask_is_corrected(self, rig, monkeypatch):
+        """An actuator that overshoots is corrected by asking for less.
+
+        Measured live on a transcoded stream: seven consecutive pulses landed
+        8-24 % long and none short, because the rate stays in force past the
+        scheduled window on a segmented route. A direct route measures 1.00, so
+        learning the gain costs nothing where there is nothing to correct.
+        """
+        scheduler, controller, side = rig
+        assert scheduler._gain == 1.0
+
+        # Ask for 400ms, get 460ms: 1.15x.
+        start_pulse(scheduler, controller, side, 400.0)
+        assert scheduler._pulse["ask_ms"] == pytest.approx(400.0)
+        finish_pulse(scheduler, side, monkeypatch, delta_ms=460.0)
+        assert scheduler._gain == pytest.approx(1.0 + 0.34 * 0.15, abs=1e-6)
+
+        # The next pulse asks for less than the residual, by that gain.
+        scheduler.note_settle()
+        monkeypatch.setattr(tempo.time, "time", lambda: scheduler._settle_until + 1.0)
+        start_pulse(scheduler, controller, side, 400.0)
+        assert scheduler._pulse["residual"] == pytest.approx(400.0)
+        assert scheduler._pulse["ask_ms"] == pytest.approx(400.0 / scheduler._gain)
+        assert scheduler._pulse["ask_ms"] < 400.0
+
+    def test_the_gain_survives_a_re_arm_but_not_a_stop(self, rig, monkeypatch):
+        """A transcode restarts with a new PlaySessionId on every seek, so it
+        re-arms constantly — resetting the gain there threw the measurement
+        away on the one route that needs it. A stop is a different matter."""
+        scheduler, controller, side = rig
+        start_pulse(scheduler, controller, side, 400.0)
+        finish_pulse(scheduler, side, monkeypatch, delta_ms=460.0)
+        learned = scheduler._gain
+        assert learned > 1.0
+
+        claim = dict(controller.manager.current_claim())
+        claim["PlaySessionId"] = "a-reload"
+        scheduler._arm(claim)
+        assert scheduler._gain == pytest.approx(learned)
+
+        scheduler.reset()
+        assert scheduler._gain == 1.0
+
+    def test_a_faithful_actuator_leaves_the_gain_alone(self, rig, monkeypatch):
+        scheduler, controller, side = rig
+        start_pulse(scheduler, controller, side, 400.0)
+        finish_pulse(scheduler, side, monkeypatch, delta_ms=400.0)
+        assert scheduler._gain == pytest.approx(1.0)
+
+    def test_a_small_ask_does_not_move_the_gain(self, rig, monkeypatch):
+        """At 80ms the confirmation quantisation is most of the measurement."""
+        scheduler, controller, side = rig
+        start_pulse(scheduler, controller, side, 100.0)
+        finish_pulse(scheduler, side, monkeypatch, delta_ms=300.0)
+        assert scheduler._gain == pytest.approx(1.0)
+
+    def test_a_pulse_that_moved_the_wrong_way_does_not_move_the_gain(
+        self, rig, monkeypatch
+    ):
+        scheduler, controller, side = rig
+        start_pulse(scheduler, controller, side, 400.0)
+        finish_pulse(scheduler, side, monkeypatch, delta_ms=-200.0)
+        assert scheduler._gain == pytest.approx(1.0)
+
     def test_a_late_tick_collapses_the_ramp_to_the_latest_write(self, rig, monkeypatch):
         scheduler, controller, side = rig
         start_pulse(scheduler, controller, side, 2000.0)  # 25 %, ramped

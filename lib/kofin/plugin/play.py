@@ -48,20 +48,73 @@ HLS_MIME = "application/x-mpegURL"
 AUDIO_TYPES = frozenset({"Audio"})
 
 TEMPO_ADDON = "inputstream.tempo"
-# Play methods the fine-sync add-on can take: a file, or the server's static
-# stream. A transcode is HLS off a playlist the server is still writing, which
-# the add-on's ffmpeg open path has not been qualified for (phase 2).
-TEMPO_METHODS = frozenset({"DirectPlay", "DirectStream"})
+# Play methods the fine-sync add-on can take: a file, the server's static
+# stream, or a transcode.
+#
+# A transcode is HLS off a playlist the server is still writing. It is included
+# because it is the case that needs fine sync *most*: a transcoded member cannot
+# be seeked accurately (Kodi snaps to a segment boundary), so before this the
+# only way to align one was to restart the stream at the target — several
+# seconds of black. A rate pulse touches the transport not at all, so it is the
+# one correction a transcode can actually take.
+TEMPO_METHODS = frozenset({"DirectPlay", "DirectStream", "Transcode"})
+
+# Fine sync shortens Kodi 22's player queue to 1s so a pulse is audible in ~2s.
+# A segmented stream cannot live on that: the server's HLS segments are 3s by
+# default, and a queue shorter than a segment cannot bridge a boundary, so the
+# player drains and re-caches at every one — measured as a stall every ~3s, a
+# visible stutter, and a stream that sampled between 0.75x and 1.49x. The queue
+# is read when the player object is constructed, so it can be sized for the
+# route about to play rather than once for the session.
+QUEUE_SETTING = "videoplayer.queuetimesize"  # tenths of a second
+TRANSCODE_MIN_QUEUE_TENTHS = 40  # 4.0s, clear of the usual 3s segment
 
 
-def tempo_route(item: JsonDict, play_method: str) -> Optional[JsonDict]:
+def _size_player_queue(session: JsonDict, play_method: str) -> Optional[float]:
+    """Set the player queue for the route about to play; its size in seconds.
+
+    None when there is nothing to size (Kodi 21 has no such setting and is
+    fixed at 8s, and a session that never shortened publishes no sizes).
+    """
+    short = session.get("queue_short_tenths")
+    full = session.get("queue_full_tenths")
+
+    if not short:
+        return None
+
+    try:
+        if play_method == "Transcode":
+            tenths = max(int(full or 0), TRANSCODE_MIN_QUEUE_TENTHS)
+        else:
+            tenths = int(short)
+    except (TypeError, ValueError):
+        return None
+
+    if not kodirpc.set_kodi_setting(QUEUE_SETTING, tenths):
+        return None
+
+    return tenths / 10.0
+
+
+def tempo_route(
+    item: JsonDict, play_method: str, source: Optional[JsonDict] = None
+) -> Optional[JsonDict]:
     """The inputstream.tempo route for this play, or None.
 
     While the service is in a SyncPlay group with fine sync armed
-    (``state.syncplay_tempo``), every direct-play video item goes through
-    inputstream.tempo so the scheduler can nudge it; the claim carries the same
-    route so the service knows the playback is nudgeable. Audio never does:
-    PAPlayer has its own choreography and the group converges it on commands.
+    (``state.syncplay_tempo``), every video item goes through inputstream.tempo
+    so the scheduler can nudge it; the claim carries the same route so the
+    service knows the playback is nudgeable. Audio never does: PAPlayer has its
+    own choreography and the group converges it on commands.
+
+    The player queue is sized here too, for the route rather than the session:
+    the shortened one for a direct route, and at least the segment duration for
+    a transcode, which cannot bridge a segment boundary on a 1s queue.
+
+    A transcode carries its manifest type as well. The add-on is
+    ffmpegdirect-based and takes ``manifest_type`` for a playlist stream; without
+    it the ffmpeg open path has to guess at a URL that has no container
+    extension, and the server's HLS playlist is still being written.
     """
     if item.get("Type") in AUDIO_TYPES or play_method not in TEMPO_METHODS:
         return None
@@ -69,11 +122,19 @@ def tempo_route(item: JsonDict, play_method: str) -> Optional[JsonDict]:
     path = session.get("file")
     if not path:
         return None
-    try:
-        queue_secs = float(session.get("queue_secs") or 8.0)
-    except (TypeError, ValueError):
-        queue_secs = 8.0
-    return {"File": str(path), "QueueSecs": queue_secs}
+    sized = _size_player_queue(session, play_method)
+    if sized is None:
+        try:
+            queue_secs = float(session.get("queue_secs") or 8.0)
+        except (TypeError, ValueError):
+            queue_secs = 8.0
+    else:
+        queue_secs = sized
+    route = {"File": str(path), "QueueSecs": queue_secs}
+    if play_method == "Transcode":
+        sub = ((source or {}).get("TranscodingSubProtocol") or "hls").lower()
+        route["ManifestType"] = sub if sub in ("hls", "dash") else ""
+    return route
 
 
 def stamp_tempo_route(li: xbmcgui.ListItem, route: JsonDict) -> None:
@@ -86,6 +147,10 @@ def stamp_tempo_route(li: xbmcgui.ListItem, route: JsonDict) -> None:
     li.setProperty("%s.tempo" % TEMPO_ADDON, "1.0")
     li.setProperty("%s.tempo_file" % TEMPO_ADDON, route["File"])
     li.setProperty("%s.queue_secs" % TEMPO_ADDON, "%g" % route["QueueSecs"])
+    if route.get("ManifestType"):
+        # A playlist stream: tell the ffmpeg open path what it is rather than
+        # leaving it to infer from a URL with no container extension.
+        li.setProperty("%s.manifest_type" % TEMPO_ADDON, route["ManifestType"])
 
 
 def pick_media_source(
@@ -636,7 +701,7 @@ def play(request: Request) -> None:
         _fail(request)
         return
 
-    route = tempo_route(item, method)
+    route = tempo_route(item, method, source)
     LOG.info("play %s via %s%s", item_id, method, " (tempo)" if route else "")
     # A resume point on the *resolved* item overrides the choice the user made
     # at Kodi's resume prompt: Kodi treats a resolved item that carries one as
