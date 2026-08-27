@@ -55,6 +55,57 @@ def test_other_http_errors_still_fail_and_keep_the_entry(fullsync):
     assert fullsync.sync["Whitelist"] == []
 
 
+def test_a_failing_library_does_not_abandon_the_ones_after_it(fullsync, monkeypatch):
+    """The failures list and start()'s ``raise failures[0]`` always meant
+    collect-and-continue, but the try sat around the loop, so the first
+    failure ended the walk: a 500 on library one left library two waiting
+    for the resume backoff instead of syncing now."""
+    fullsync.server = FakeServer({"flaky1": 500, "lib2": 200})
+    fullsync.sync["Libraries"] = ["flaky1", "lib2"]
+    fullsync.library = RecordingLibrary()
+    monkeypatch.setattr(fullsync, "movies", lambda library: None)
+    monkeypatch.setattr(fullsync, "_media_type", lambda library_id: "movies")
+    failures = []
+
+    fullsync.process_libraries(["flaky1", "lib2"], failures)
+
+    assert len(failures) == 1
+    assert isinstance(failures[0], HttpError)
+    # The failed one stays queued for the resume backoff; the other landed.
+    assert fullsync.sync["Libraries"] == ["flaky1"]
+    assert fullsync.sync["Whitelist"] == ["lib2"]
+    # ...and was made visible from the loop: start() will re-raise before
+    # its own end-of-sync refresh.
+    assert fullsync.library.refreshed == [{"video"}]
+
+
+def test_an_exit_exception_abandons_the_rest(fullsync, monkeypatch):
+    """Kodi quitting, the service stopping or the server going away is not a
+    library failure -- every remaining library would raise the same -- so it
+    propagates at once and nothing after it is attempted."""
+    from kofin.sync.shims import LibraryExitException
+
+    class ExitingServer(FakeServer):
+        def item(self, item_id):
+            if item_id == "exit1":
+                raise LibraryExitException("Server not online, exiting...")
+            return super().item(item_id)
+
+    fullsync.server = ExitingServer({"lib2": 200})
+    fullsync.sync["Libraries"] = ["exit1", "lib2"]
+    attempted = []
+    monkeypatch.setattr(fullsync, "movies", lambda library: attempted.append(library))
+    failures = []
+
+    with pytest.raises(LibraryExitException):
+        fullsync.process_libraries(["exit1", "lib2"], failures)
+
+    assert failures == []
+    assert attempted == []
+    assert fullsync.sync["Libraries"] == ["exit1", "lib2"]
+    assert fullsync.sync["Whitelist"] == []
+
+
 def test_item_gone_server_side_is_skipped_not_fatal(fullsync):
     """A show deleted after it was paged 404s on the writer's /Seasons fetch.
     Live phase 5: that aborted the whole library and re-fired a sync-failed
@@ -386,6 +437,29 @@ def test_a_library_that_did_not_sync_is_not_published(publisher, monkeypatch):
     publisher.process_libraries(["mov", "tv"], [])
 
     assert publisher.library.refreshed == []
+
+
+def test_the_last_library_is_published_when_an_earlier_one_failed(
+    publisher, monkeypatch
+):
+    """start() re-raises the failure before its end-of-sync refresh, so the
+    last library -- normally left to that refresh -- would sit synced and
+    invisible. With a failure on the list it is published like the others."""
+    media_types(monkeypatch, publisher, {"mov": "movies", "tv": "tvshows"})
+    real = publisher.process_library
+
+    def failing_first(library):
+        if library == "mov":
+            raise HttpError(500, "GET /Items/mov -> 500")
+        return real(library)
+
+    monkeypatch.setattr(publisher, "process_library", failing_first)
+    failures = []
+
+    publisher.process_libraries(["mov", "tv"], failures)
+
+    assert len(failures) == 1
+    assert publisher.library.refreshed == [{"video"}]
 
 
 def test_update_mode_publishes_nothing(publisher, monkeypatch):

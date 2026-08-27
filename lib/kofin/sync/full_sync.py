@@ -368,29 +368,45 @@ class FullSync(object):
         """Process libraries in order, recording completion after each.
 
         Failures are collected for the caller to re-raise, so one bad library
-        does not abandon the rest.
+        does not abandon the rest: a library that fails stays in the pending
+        queue (process_library saved it there before raising) and the resume
+        backoff owns its retry, while the libraries after it sync now rather
+        than after that retry lands. The ``try`` sits inside the loop for that
+        reason -- around it, the first failure ended the walk and the list
+        never held more than one entry.
+
+        A LibraryExitException is not a library failure: Kodi is quitting,
+        the service is stopping, or the server has gone away, and every
+        remaining library would raise the same. It abandons the rest.
         """
-        try:
-            for position, library in enumerate(libraries):
+        for position, library in enumerate(libraries):
 
+            try:
                 synced = self.process_library(library)
+            except LibraryExitException:
+                raise
+            except Exception as error:
+                failures.append(error)
+                continue
 
-                if (
-                    synced
-                    and not library.startswith("Boxsets:")
-                    and library not in self.sync["Whitelist"]
-                ):
-                    self.sync["Whitelist"].append(library)
+            if (
+                synced
+                and not library.startswith("Boxsets:")
+                and library not in self.sync["Whitelist"]
+            ):
+                self.sync["Whitelist"].append(library)
 
-                if library in self.sync["Libraries"]:
-                    self.sync["Libraries"].remove(library)
+            if library in self.sync["Libraries"]:
+                self.sync["Libraries"].remove(library)
 
-                save_sync(self.sync)
+            save_sync(self.sync)
 
-                if synced and position < len(libraries) - 1:
-                    self._publish_library(library)
-        except Exception as error:
-            failures.append(error)
+            # The last library is left to the end-of-sync refresh -- unless a
+            # failure is on the list, because start() then raises before that
+            # refresh runs and this library would sit synced and invisible
+            # until something else refreshed its database.
+            if synced and (position < len(libraries) - 1 or failures):
+                self._publish_library(library)
 
     def _publish_library(self, library):
         """Make a finished library visible before the rest of the sync runs.
@@ -402,9 +418,11 @@ class FullSync(object):
         and browsable 8 minutes in, with Home still reading "empty"), because
         Kodi raises no library-change event for direct SQLite writes.
 
-        Skipped for the final library: the end-of-sync refresh in ``sync()``
+        Skipped for the final library: the end-of-sync refresh in ``start()``
         covers it, and firing both would pay for two scans and two vacuums to
-        show the same rows.
+        show the same rows. Not skipped when an earlier library failed --
+        ``start()`` re-raises before that refresh, so the caller publishes the
+        last one itself.
 
         Cheap when there is nothing to say. ``refresh_libraries`` is
         fingerprint-gated, so a library that changed nothing a widget renders
