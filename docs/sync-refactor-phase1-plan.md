@@ -17,7 +17,7 @@ Each item is small enough to review as one diff, is proven by an oracle that alr
 | P1.0 | Rig preparation and the "before" snapshots | — | the oracle every later gate diffs against |
 | P1.1 | `check_untyped_defs` over `kofin.sync.*` | ~25 real type errors, 61 phantom ones | mypy gate; smoke sync |
 | P1.2 | Dead code | 17 unreachable MyMusic arms, a Kodi-19 query, five dead functions | L2 across MyMusic 83/84; live music sync dump-identical |
-| P1.3 | One walk in `full_sync.py` | the mid-page-404 abort on movies, musicvideos and boxsets; four copies of the skeleton | L2; live full syncs dump-identical; the 404 scenario |
+| P1.3 | One walk in `full_sync.py` | four copies of the skeleton, one of them with the mid-page-404 skip; live, the unguarded child fetch that abort-then-skips is the **boxset** writer's (the movie writer guards its own — assessment §3 erratum) | L2; live full syncs dump-identical; the 404 scenario on the boxsets walk |
 | P1.4 | `GetItemWorker` re-queues on any exception | ids lost until the recovery prune | L1; live outage replay |
 | P1.5 | `post_write` hook: writers stop importing `kofin.downloads`/`musicsources` | the only shell→transplant import direction violation | L2 dumps; live downloads repoint and music sources |
 | P1.6 | End-to-end regression on both rigs | — | the "before" snapshots vs the finished branch |

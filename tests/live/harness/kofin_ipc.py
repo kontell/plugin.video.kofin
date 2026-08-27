@@ -24,7 +24,14 @@ method = sys.argv[1]
 data = {}
 ids = []
 for arg in sys.argv[2:]:
-    if "=" in arg:
+    if arg.startswith("jsonfile="):
+        # A payload with lists (DownloadAdd wants Ids and Types) cannot ride
+        # RunScript's comma-split argv; read it from a file instead.
+        import json
+
+        with open(arg.split("=", 1)[1]) as handle:
+            data.update(json.load(handle))
+    elif "=" in arg:
         key, value = arg.split("=", 1)
         data[key] = value
     else:

@@ -119,6 +119,19 @@ def do_whitelist(names):
     log("librarySelection set to %s (%s)" % (csv, [n for n in names if n in by_name]))
 
 
+def do_set(pairs):
+    """Write add-on settings through the add-on's own setters (the applier
+    reacts as it would to the settings dialog). ``key=true``/``false`` is a
+    bool, anything else a string (Kodi stores ints as strings)."""
+    for pair in pairs:
+        key, value = pair.split("=", 1)
+        if value.lower() in ("true", "false"):
+            settings.set_bool(key, value.lower() == "true")
+        else:
+            settings.set_str(key, value)
+        log("set %s=%s" % (key, value))
+
+
 def do_status():
     creds = Credentials.load()
     log(
@@ -137,6 +150,8 @@ if mode == "login":
     do_login(sys.argv[2], sys.argv[3], sys.argv[4])
 elif mode == "whitelist":
     do_whitelist(sys.argv[2:])
+elif mode == "set":
+    do_set(sys.argv[2:])
 elif mode == "status":
     do_status()
 else:

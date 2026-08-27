@@ -321,9 +321,12 @@ def test_boxsets_walks_with_the_child_count_field_and_tallies_outcomes(
 
 
 def test_a_movie_gone_mid_page_no_longer_aborts_the_library(fullsync, monkeypatch):
-    """The defect P1.3 closes: only the tvshows copy of the walk skipped a
-    404 on an item deleted after it was paged; a movie did the same and the
-    whole library failed, wedging every later run on the dead id."""
+    """Only the tvshows copy of the walk skipped a 404 on an item deleted
+    after it was paged; the other three copies let it abort the library.
+    The fake writer raises the way an unguarded child fetch does -- the
+    boxset writer's get_movies_by_boxset is the live case (the real movie
+    writer guards its trailer and extras fetches itself; assessment §3
+    erratum). Whatever raises, the walk now skips the item and completes."""
     pages(monkeypatch, [item("gone"), item("kept")])
     written = []
 

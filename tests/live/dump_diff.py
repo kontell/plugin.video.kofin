@@ -300,8 +300,10 @@ class Video:
                     (kodi_id,),
                 )
             ]
+            # A season row may carry a NULL name (Kodi fills it from the number
+            # at render time), so the sort key cannot be the bare tuple.
             out["seasons"] = sorted(
-                (s["season"], s["name"])
+                (s["season"], s["name"] or "")
                 for s in rows(
                     self.c,
                     "SELECT season, name FROM seasons WHERE idShow=?",
