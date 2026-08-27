@@ -438,9 +438,6 @@ class Chunk(list):
 class GetItemWorker(threading.Thread):
 
     is_done = False
-    # Stamped by Library.worker_downloads after construction; the added-first
-    # download gate reads it back.
-    source = ""
     # Set when this worker stopped because the server was unreachable, so the
     # library can pause the spawn path instead of starting a replacement into
     # the same wall (see Library.DOWNLOAD_BACKOFF_SECONDS).

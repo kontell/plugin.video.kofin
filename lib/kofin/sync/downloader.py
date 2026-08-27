@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Server download helpers for the sync pipeline (fork ``downloader.py``
-port: in-order paging with a look-ahead thread pool, plus the incremental
-GetItemWorker).
+"""Server listing helpers for the sync pipeline (fork ``downloader.py``
+port): the /Items query shapes and the pager -- in-order paging with a
+look-ahead thread pool. The incremental GetItemWorker lives in workers.py.
 
 Adaptations per plan §3: every helper takes the kofin ``Api`` as its first
 argument instead of reaching for the fork's client singleton; the field
@@ -15,11 +15,9 @@ import threading
 import concurrent.futures
 from datetime import date
 
-import queue
 from typing import Any, Dict, List, Tuple
 
 from kofin.core import settings, state
-from kofin.core.http import JellyfinError, ServerUnreachable
 from kofin.core.log import Logger
 from kofin.sync.shims import LibraryException, LibraryExitException, raise_if_stopping
 
