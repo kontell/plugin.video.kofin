@@ -247,6 +247,34 @@ def test_a_forged_library_removal_never_reaches_the_manager(monkeypatch, tmp_pat
     assert commands == ["RemoveLibrary"]
 
 
+def test_the_secret_is_spent_at_the_door(monkeypatch, tmp_path):
+    """A verified guarded command reaches the manager without its nonce.
+    The library thread logs every command it dequeues, so the secret left
+    in the payload was printed into kodi.log on every Repair and removal
+    (phase-1 finding, P2.5a)."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    received = []
+
+    class RecordingLibrary:
+        startup_done = True
+
+        def enqueue_command(self, command, data=None):
+            received.append((command, dict(data or {})))
+
+    service = Service()
+    service.library = RecordingLibrary()
+    monkeypatch.setattr(Service, "_start_library", lambda self: None)
+
+    service.onNotification(
+        ipc.SENDER, "Other.RepairLibrary", _signed(service, {"Id": "lib1"})
+    )
+
+    assert received == [("RepairLibrary", {"Id": "lib1"})]
+    assert ipc.NONCE_KEY not in received[0][1]
+
+
 def test_ssl_change_triggers_restart():
     FakeAddon.store["sslVerify"] = "true"
     service = Service()
