@@ -248,6 +248,15 @@ Captured by the scenario scripts into `tests/live/results/` per run: initial ful
 
 ## 6. Cadence
 
+## S-P2 — sync refactor phase 2 (docs/sync-refactor-phase2-plan.md; started 2026-08-27, native Omega 21.3 `kofin-jf12`/`kofin-test` + Piers 22.0-beta flatpak, production 10.11.11 + jf12 v12.0)
+
+The media rule from phase 1 applies to every scenario here: nothing is deleted through jf12 and no file is written under any jf12 library path; the results READMEs list every server mutation made. Evidence in `tests/live/results/S-P2.*/` (gitignored).
+
+* **[PASS] S-P2.5a nonce out of the log** (build `6767e5d`, PR #193): a guarded `RemoveLibrary` sent through the in-Kodi harness logs as `{'Id': '…'}` on the new generation; the same command on the previous build logged the `_nonce` beside it (the negative control the deploy slip below supplied for free).
+* **[PASS] S-P2.5b resume shadow removed with the episode** (Omega `kofin-jf12` on jf12): a 25 % resume planted server-side on Archer S1E1 (`POST /UserItems/{id}/UserData?userId=` — userdata only) arrived over `UserDataChanged` 2 s later and produced the shadow — one `files` row under `plugin://plugin.video.kofin/` with a bookmark, unlinked counts 0 → 1/1. `RemoveLibrary` Shows on the previous build left it (1/1, the S-P1.3b finding reproduced); on the new build the same removal returned root-path files, unlinked files and unlinked bookmarks to **0/0/0**, 204 episodes and 2 shows gone, the 6 movies untouched. Shows re-added afterwards; the planted resume cleared.
+* **[L2 only] S-P2.5c child-fetch 404**: cannot be staged without a server-side delete; `test_movie_gone_at_its_extras_fetch_is_not_written`, the trailer twin and the series twin cover it on all four gated schemas, with 500/RuntimeError controls still writing a trailer-less movie.
+* **Rig lesson:** `tools/dev-install.sh` does not bounce an already-enabled add-on and `UpdateLocalAddons()` does not restart an unchanged version, so a generation started by a profile switch kept running the old code after the rsync — the first S-P2.5b removal ran on it. After every deploy: disable → enable, and read a `--->>> kofin service` line newer than the deployed tree's ctime before measuring. Also: re-whitelisting on a profile whose old list held a library the server no longer has raises the "Remove synced library?" prompt (No focused) and holds the apply — screenshot, then `Action(Left)`+`Action(Select)`.
+
 * Every commit: L0 + L1 (+ L2 when writers changed) via tox.
 * Before merge to main: smoke set — S1.4, S1.5, S2.1, S2.3.
 * Per release: full catalog for the phases shipped so far.
