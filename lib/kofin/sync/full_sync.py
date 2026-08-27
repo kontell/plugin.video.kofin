@@ -707,50 +707,127 @@ class FullSync(object):
                 with Database() as videodb:
                     yield videodb, jellyfindb
 
-    @progress()
-    def movies(self, library, dialog):
-        """Process movies from a single library.
-
-        Connections are held across the pass (phase 5, sync-plan Phase 3);
-        the writer lock is still taken and the transaction committed per
-        page, so realtime writers interleave exactly as before — only the
-        per-page open/close churn is gone.
-        """
-        restore_key = "%s/movies" % library["Id"]
-        restore_point = self.begin_walk(restore_key, library["Id"], "Movie")
-
+    @contextmanager
+    def _held_connections(self):
+        """Connections held across a pass; the writer lock and the commits
+        are per page (phase 5, sync-plan Phase 3): realtime writers
+        interleave exactly as before, only the per-page open/close churn is
+        gone. Yields the per-page scope ``_walk`` enters for each page."""
         with Database("kofin") as jellyfindb, Database() as videodb:
-            for items in server.get_items(
-                self.server,
-                library["Id"],
-                "Movie",
-                False,
-                restore_point,
-            ):
 
+            @contextmanager
+            def page():
                 with self.library.database_lock:
-                    obj = Movies(self.server, jellyfindb, videodb, library)
-
-                    self.set_restore_point(restore_key, items["RestorePoint"])
-                    start_index = items["RestorePoint"]["params"]["StartIndex"]
-
-                    for index, movie in enumerate(items["Items"]):
-
-                        dialog.update(
-                            int(
-                                (
-                                    float(start_index + index)
-                                    / float(items["TotalRecordCount"])
-                                )
-                                * 100
-                            ),
-                            heading="%s: %s" % ("Kofin", library["Name"]),
-                            message=movie["Name"],
-                        )
-                        obj.movie(movie)
-
+                    yield videodb, jellyfindb
                     videodb.conn.commit()
                     jellyfindb.conn.commit()
+
+            yield page
+
+    def _walk(
+        self,
+        library,
+        item_type,
+        restore_key,
+        writer,
+        apply,
+        describe,
+        dialog,
+        heading,
+        page,
+        params=None,
+    ):
+        """The one library walk: page the server from the restore point,
+        enter ``page`` for each page (the lock and the connections, one of
+        the two shapes above), construct the writer, stamp the restore
+        point, write every item through ``apply_or_skip``, and let the page
+        scope commit.
+
+        This used to exist four times -- movies, each tvshows pass,
+        musicvideos and boxsets -- and only the tvshows copy had grown the
+        mid-page-404 skip, so a movie deleted after it was paged aborted its
+        whole library (docs/sync-refactor-assessment.md §3). Now every walk
+        skips it. The restore key, the writer, the per-item call and the
+        label are what a caller supplies; the mechanics are here once.
+
+        Returns ``(resumed, skipped, results)``: whether the walk resumed a
+        restore point, the ids ``apply_or_skip`` declined, and a list of
+        ``(item, value)`` for every item applied, ``value`` being what
+        ``apply`` returned -- the boxsets walk reads its outcome codes from
+        it, the others ignore it.
+        """
+        restore_point = self.begin_walk(
+            restore_key, library["Id"], item_type, False, params
+        )
+        resumed = restore_point is not None
+        skipped = []
+        results = []
+
+        for items in server.get_items(
+            self.server,
+            library["Id"],
+            item_type,
+            False,
+            restore_point or params,
+        ):
+
+            with page() as (videodb, jellyfindb):
+                obj = writer(jellyfindb, videodb)
+
+                self.set_restore_point(restore_key, items["RestorePoint"])
+                start_index = items["RestorePoint"]["params"]["StartIndex"]
+                total = float(items["TotalRecordCount"])
+
+                for index, item in enumerate(items["Items"]):
+
+                    dialog.update(
+                        int((float(start_index + index) / total) * 100),
+                        heading=heading,
+                        message=describe(item),
+                    )
+                    captured = {}
+
+                    def run(obj, item):
+                        captured["value"] = apply(obj, item)
+
+                    if self.apply_or_skip(run, obj, item, item_type):
+                        results.append((item, captured.get("value")))
+                    else:
+                        skipped.append(item.get("Id"))
+
+        if skipped:
+            # Never let a partial pass look complete in the log.
+            LOG.warning(
+                "--[ %s pass: %d not applied, skipped ]",
+                item_type,
+                len(skipped),
+            )
+
+        return resumed, skipped, results
+
+    @staticmethod
+    def _heading(library):
+        return "%s: %s" % ("Kofin", library["Name"])
+
+    @progress()
+    def movies(self, library, dialog):
+        """Process movies from a single library."""
+        restore_key = "%s/movies" % library["Id"]
+
+        with self._held_connections() as page:
+            self._walk(
+                library,
+                "Movie",
+                restore_key,
+                lambda jellyfindb, videodb: Movies(
+                    self.server, jellyfindb, videodb, library
+                ),
+                lambda obj, movie: obj.movie(movie),
+                lambda movie: movie["Name"],
+                dialog,
+                self._heading(library),
+                page,
+            )
 
         self.clear_restore_point(restore_key)
 
@@ -795,7 +872,7 @@ class FullSync(object):
 
         Three per-library passes (phase 5, sync-plan P5) instead of one
         episode request per show: Series pages, then Season pages, then
-        Episode pages — parents land before children by construction, and
+        Episode pages -- parents land before children by construction, and
         a 500-show library costs pages, not 500+ requests. Restore points
         are per pass and cleared together at the end: an interruption
         resumes inside the pass it happened in, completed passes re-do only
@@ -803,80 +880,43 @@ class FullSync(object):
         A pre-phase-5 pending ``{lib}/tvshows`` key simply restarts the
         library's passes; it is cleared alongside.
         """
-        heading = "%s: %s" % ("Kofin", library["Name"])
 
-        with Database("kofin") as jellyfindb, Database() as videodb:
+        def child_label(item):
+            return "%s / %s" % (item.get("SeriesName") or "", item.get("Name"))
 
-            def tvshows_pass(item_type, key_suffix, apply, describe):
-                restore_key = "%s/tvshows-%s" % (library["Id"], key_suffix)
-                restore_point = self.begin_walk(restore_key, library["Id"], item_type)
-                skipped = []
-
-                for items in server.get_items(
-                    self.server,
-                    library["Id"],
-                    item_type,
-                    False,
-                    restore_point,
-                ):
-
-                    with self.library.database_lock:
-                        obj = TVShows(self.server, jellyfindb, videodb, library, True)
-
-                        self.set_restore_point(restore_key, items["RestorePoint"])
-                        start_index = items["RestorePoint"]["params"]["StartIndex"]
-
-                        for index, item in enumerate(items["Items"]):
-
-                            dialog.update(
-                                int(
-                                    (
-                                        float(start_index + index)
-                                        / float(items["TotalRecordCount"])
-                                    )
-                                    * 100
-                                ),
-                                heading=heading,
-                                message=describe(item),
-                            )
-
-                            if not self.apply_or_skip(apply, obj, item, item_type):
-                                skipped.append(item.get("Id"))
-
-                        videodb.conn.commit()
-                        jellyfindb.conn.commit()
-
-                if skipped:
-                    # Never let a partial pass look complete in the log.
-                    LOG.warning(
-                        "--[ %s pass: %d not applied, skipped ]",
-                        item_type,
-                        len(skipped),
-                    )
-
-            def child_label(item):
-                return "%s / %s" % (item.get("SeriesName") or "", item.get("Name"))
-
-            tvshows_pass(
+        passes = (
+            (
                 "Series",
                 "series",
                 lambda obj, show: obj.tvshow(show),
-                lambda show: show["Name"],
-            )
-            tvshows_pass(
-                "Season",
-                "seasons",
-                lambda obj, season: obj.season(season),
-                child_label,
-            )
-            tvshows_pass(
+                lambda s: s["Name"],
+            ),
+            ("Season", "seasons", lambda obj, season: obj.season(season), child_label),
+            (
                 "Episode",
                 "episodes",
                 lambda obj, episode: (
                     obj.episode(episode) if episode.get("Path") else None
                 ),
                 child_label,
-            )
+            ),
+        )
+
+        with self._held_connections() as page:
+            for item_type, key_suffix, apply, describe in passes:
+                self._walk(
+                    library,
+                    item_type,
+                    "%s/tvshows-%s" % (library["Id"], key_suffix),
+                    lambda jellyfindb, videodb: TVShows(
+                        self.server, jellyfindb, videodb, library, True
+                    ),
+                    apply,
+                    describe,
+                    dialog,
+                    self._heading(library),
+                    page,
+                )
 
         for key_suffix in ("series", "seasons", "episodes"):
             self.clear_restore_point("%s/tvshows-%s" % (library["Id"], key_suffix))
@@ -887,40 +927,21 @@ class FullSync(object):
     def musicvideos(self, library, dialog):
         """Process musicvideos from a single library."""
         restore_key = "%s/musicvideos" % library["Id"]
-        restore_point = self.begin_walk(restore_key, library["Id"], "MusicVideo")
 
-        with Database("kofin") as jellyfindb, Database() as videodb:
-            for items in server.get_items(
-                self.server,
-                library["Id"],
+        with self._held_connections() as page:
+            self._walk(
+                library,
                 "MusicVideo",
-                False,
-                restore_point,
-            ):
-
-                with self.library.database_lock:
-                    obj = MusicVideos(self.server, jellyfindb, videodb, library)
-
-                    self.set_restore_point(restore_key, items["RestorePoint"])
-                    start_index = items["RestorePoint"]["params"]["StartIndex"]
-
-                    for index, mvideo in enumerate(items["Items"]):
-
-                        dialog.update(
-                            int(
-                                (
-                                    float(start_index + index)
-                                    / float(items["TotalRecordCount"])
-                                )
-                                * 100
-                            ),
-                            heading="%s: %s" % ("Kofin", library["Name"]),
-                            message=mvideo["Name"],
-                        )
-                        obj.musicvideo(mvideo)
-
-                    videodb.conn.commit()
-                    jellyfindb.conn.commit()
+                restore_key,
+                lambda jellyfindb, videodb: MusicVideos(
+                    self.server, jellyfindb, videodb, library
+                ),
+                lambda obj, mvideo: obj.musicvideo(mvideo),
+                lambda mvideo: mvideo["Name"],
+                dialog,
+                self._heading(library),
+                page,
+            )
 
         self.clear_restore_point(restore_key)
 
@@ -1190,12 +1211,6 @@ class FullSync(object):
         """
         restore_key = "%s/boxsets" % library["Id"]
         boxset_params = {"Fields": "%s,ChildCount" % server.info()}
-        restore_point = self.begin_walk(
-            restore_key, library["Id"], "BoxSet", False, boxset_params
-        )
-        resumed = restore_point is not None
-        walked = set()
-        guarded_ids = set()
         stats = {
             BOXSET_UNCHANGED: 0,
             BOXSET_WRITTEN: 0,
@@ -1203,41 +1218,36 @@ class FullSync(object):
             BOXSET_GUARDED: 0,
         }
 
-        for items in server.get_items(
-            self.server,
-            library["Id"],
+        # Lock first, fresh connections per page, commit at page exit --
+        # kofin.db outermost so MyVideos commits first (video_database_locks).
+        resumed, skipped, results = self._walk(
+            library,
             "BoxSet",
-            False,
-            restore_point or boxset_params,
-        ):
+            restore_key,
+            lambda jellyfindb, videodb: Movies(
+                self.server, jellyfindb, videodb, library
+            ),
+            lambda obj, boxset: obj.boxset(boxset),
+            lambda boxset: boxset["Name"],
+            dialog,
+            "%s: %s" % ("Kofin", localized(30407)),
+            self.video_database_locks,
+            params=boxset_params,
+        )
 
-            with self.video_database_locks() as (videodb, jellyfindb):
-                obj = Movies(self.server, jellyfindb, videodb, library)
+        # Every set the listing carried counts as walked, skipped ones
+        # included: the sweep below treats absence from ``walked`` as
+        # deletion, and a set that 404'd mid-page is gone from the server
+        # anyway -- the next fresh walk sweeps its reference.
+        walked = {item["Id"] for item, _ in results} | set(skipped)
+        guarded_ids = set()
 
-                self.set_restore_point(restore_key, items["RestorePoint"])
-                start_index = items["RestorePoint"]["params"]["StartIndex"]
+        for boxset, outcome in results:
+            if outcome in stats:
+                stats[outcome] += 1
 
-                for index, boxset in enumerate(items["Items"]):
-
-                    dialog.update(
-                        int(
-                            (
-                                float(start_index + index)
-                                / float(items["TotalRecordCount"])
-                            )
-                            * 100
-                        ),
-                        heading="%s: %s" % ("Kofin", localized(30407)),
-                        message=boxset["Name"],
-                    )
-                    walked.add(boxset["Id"])
-                    outcome = obj.boxset(boxset)
-
-                    if outcome in stats:
-                        stats[outcome] += 1
-
-                    if outcome == BOXSET_GUARDED:
-                        guarded_ids.add(boxset["Id"])
+            if outcome == BOXSET_GUARDED:
+                guarded_ids.add(boxset["Id"])
 
         self.clear_restore_point(restore_key)
 
