@@ -13,7 +13,12 @@ from kofin.sync import downloader as server
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import queries_map as QUEM
 from kofin.sync import fields as api
-from kofin.sync.fields import check_unchanged, find_library, sync_checksum
+from kofin.sync.fields import (
+    check_unchanged,
+    find_library,
+    gone_on_fetch,
+    sync_checksum,
+)
 from kofin.sync.hooks import WriterHooks
 from kofin.sync.shims import (
     LibraryOrphanException,
@@ -353,6 +358,10 @@ class TVShows(KodiDb):
                     % obj["Trailer"].rsplit("=", 1)[1]
                 )
         except Exception as error:
+            # Deviation from the fork, as Movies.trailer(): a 404 on the
+            # show's own child fetch is the show being gone, and propagates.
+            if gone_on_fetch(error):
+                raise
             LOG.exception("Failed to get trailer for tvshow %s: %s", obj["Id"], error)
             obj["Trailer"] = None
 

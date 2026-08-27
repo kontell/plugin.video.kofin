@@ -324,9 +324,10 @@ def test_a_movie_gone_mid_page_no_longer_aborts_the_library(fullsync, monkeypatc
     """Only the tvshows copy of the walk skipped a 404 on an item deleted
     after it was paged; the other three copies let it abort the library.
     The fake writer raises the way an unguarded child fetch does -- the
-    boxset writer's get_movies_by_boxset is the live case (the real movie
-    writer guards its trailer and extras fetches itself; assessment §3
-    erratum). Whatever raises, the walk now skips the item and completes."""
+    boxset writer's get_movies_by_boxset is the live case, and since P2.5c
+    the movie writer's own trailer and special-features fetches re-raise a
+    404 too (they swallowed it before; assessment §3 erratum). Whatever
+    raises, the walk now skips the item and completes."""
     pages(monkeypatch, [item("gone"), item("kept")])
     written = []
 

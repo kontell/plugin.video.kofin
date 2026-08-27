@@ -14,6 +14,7 @@ import threading
 
 import pytest
 
+from kofin.core.http import HttpError
 from kofin.sync import db as sync_db
 from kofin.sync import schema
 from kofin.sync.kodidb import Music as MusicKodiDb
@@ -63,6 +64,7 @@ class FakeApi:
         self.boxset_children = {}
         self.seasons_by_series = {}
         self.special_features_by_id = {}
+        self.local_trailers_by_id = {}
         self.ancestors_by_id = {}
 
     def special_features(self, item_id):
@@ -82,7 +84,10 @@ class FakeApi:
         if path.startswith("/Shows/") and path.endswith("/Episodes"):
             return {"TotalRecordCount": 0, "Items": []}
         if path.endswith("/LocalTrailers"):
-            return []
+            trailers = self.local_trailers_by_id.get(path.split("/")[2], [])
+            if isinstance(trailers, Exception):
+                raise trailers
+            return trailers
         if path == "/Items":
             assert params.get("userId") == self.user_id, "item query lost its user"
             children = self.boxset_children.get(params.get("ParentId"), [])
@@ -803,6 +808,102 @@ def test_movie_extras_fetch_failure_never_gates_sync(api):
 
     assert video_query("SELECT COUNT(*) FROM movie") == [(1,)]
     assert extras_rows() == []
+
+
+def test_movie_extras_fetch_failure_leaves_the_stored_set_alone(api):
+    """A failed listing is not an empty listing: the extras already in the
+    database stay, exactly as when the fetch raised inside extras()."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    api.special_features_by_id = {"movie1": FEATURES}
+    write_movie(api, movie_with_extras())
+    assert len(extras_rows()) == 2
+
+    api.special_features_by_id = {"movie1": RuntimeError("special features down")}
+    write_movie(api, movie_with_extras(etag="etag-movie1-v2"))
+
+    assert len(extras_rows()) == 2
+
+
+def test_movie_gone_at_its_extras_fetch_is_not_written(api):
+    """P2.5c. A movie deleted between the page and the write 404s on the
+    one child fetch a movie makes, its special features -- and the fork's
+    extras() swallowed that with every other fetch error, after the row was
+    in. The listing is fetched first now and the 404 propagates, so the
+    walk skips the movie (test_sync_walk) and nothing at all is written."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    api.special_features_by_id = {
+        "movie1": HttpError(404, "GET /Items/movie1/SpecialFeatures -> 404")
+    }
+
+    with pytest.raises(HttpError):
+        write_movie(api, movie_with_extras())
+
+    assert video_query("SELECT COUNT(*) FROM movie") == [(0,)]
+    assert video_query("SELECT COUNT(*) FROM files") == [(0,)]
+    assert video_query("SELECT COUNT(*) FROM path") == [(0,)]
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin") == [(0,)]
+
+
+def test_movie_gone_at_its_trailer_fetch_is_not_written(api):
+    """The same 404 on the local-trailers fetch, the other child request a
+    movie can make."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    api.local_trailers_by_id = {
+        "movie1": HttpError(404, "GET /Items/movie1/LocalTrailers -> 404")
+    }
+    payload = dto(MOVIE)
+    payload["LocalTrailerCount"] = 1
+
+    with pytest.raises(HttpError):
+        write_movie(api, payload)
+
+    assert video_query("SELECT COUNT(*) FROM movie") == [(0,)]
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin") == [(0,)]
+
+
+def test_movie_trailer_fetch_failure_never_gates_sync(api):
+    """Anything but a 404 is still a trailer-less movie, as in the fork."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    api.local_trailers_by_id = {"movie1": RuntimeError("trailers down")}
+    payload = dto(MOVIE)
+    payload["LocalTrailerCount"] = 1
+
+    write_movie(api, payload)
+
+    assert video_query("SELECT c19 FROM movie") == [(None,)]
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin") == [(1,)]
+
+
+def test_movie_trailer_status_other_than_404_never_gates_sync(api):
+    """The status a child fetch answers with is the endpoint's: only a 404
+    says gone. A 500 on the trailers is absorbed like any other failure."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    api.local_trailers_by_id = {
+        "movie1": HttpError(500, "GET /Items/movie1/LocalTrailers -> 500")
+    }
+    payload = dto(MOVIE)
+    payload["LocalTrailerCount"] = 1
+
+    write_movie(api, payload)
+
+    assert video_query("SELECT COUNT(*) FROM movie") == [(1,)]
+
+
+def test_series_gone_at_its_trailer_fetch_is_not_written(api):
+    """TVShows.trailer() mirrors Movies.trailer(), the 404 included."""
+    register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
+    api.local_trailers_by_id = {
+        "series1": HttpError(404, "GET /Items/series1/LocalTrailers -> 404")
+    }
+    payload = dto(SERIES)
+    payload["LocalTrailerCount"] = 1
+
+    with pytest.raises(HttpError):
+        with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+            TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).tvshow(payload)
+
+    assert video_query("SELECT COUNT(*) FROM tvshow") == [(0,)]
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin") == [(0,)]
 
 
 def test_movie_extras_duration_not_film_duration(api):
