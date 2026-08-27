@@ -129,7 +129,7 @@ CLAUDE.md said the writers "were proven equivalent to the fork's against real li
 - Re-queue the chunk on generic exceptions in `GetItemWorker.run`.
 - Hoist the `kofin.downloads`/`musicsources` calls out of the writers behind a `post_write(obj, item)` seam (after `writers/movies.py:201`, `tvshows.py:585`, `music.py:411`; tag injection needs a pre-`add_tags` seam at `movies.py:166-180`). `test_downloads_repoint.py:89-99, 373` and `test_sync_writers.py:3051-3140` already pin the observable outcome, so the change is dump-verifiable.
 
-### Tier 2 — structural (one to two weeks), safety net first
+### Tier 2 — structural (one to two weeks), safety net first — **landed 2026-08-27 as phase 2, PR #192** (`docs/sync-refactor-phase2-plan.md`; live gates in `docs/testing-plan.md` §S-P2)
 
 Before moving anything: a golden-XML test of the full generated node tree (the DB A/B proof never covered node XML), a two-libraries-first-fails test (now landed), and real `UserDataWorker`/`RemovedWorker`/`SortWorker` tests.
 
