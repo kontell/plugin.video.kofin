@@ -6,7 +6,10 @@ library removal.
 P2.2 split: the restore points (``restorepoints``), the update-mode plan
 (``prune``), the boxsets pass (``boxsets``) and the removal (``removal``)
 are modules of their own; what a sync needs from the Library it runs for is
-the ``SyncHost`` port (``host``). This class keeps the library queue, the
+the ``host`` duck type named on ``Library`` (its locks, ``claim``/``release``,
+the three enqueue entry points, ``refresh_libraries``, and the bookkeeping
+calls; ``tests/unit/synchost.py`` is the one fake). This class keeps the
+library queue, the
 per-library dispatch, the one walk every video pass runs through, and the
 locks and connections it hands out.
 
@@ -89,8 +92,9 @@ class FullSync(object):
     update_library = False
 
     def __init__(self, host, server, loader=None, saver=None):
-        """``host`` is the SyncHost of the Library this sync runs for (None
-        for the direct-call paths tests use); ``loader``/``saver`` read and
+        """``host`` is the Library this sync runs for, or anything that speaks
+        its port (None for the direct-call paths tests use); ``loader``/``saver``
+        read and
         write sync.json (``get_sync``/``save_sync`` unless injected).
 
         Construction claims nothing: the one-sync-at-a-time claim is taken
@@ -525,7 +529,7 @@ class FullSync(object):
         library into a nag loop (healing-loops-plan F3). The log still
         carries every attempt.
         """
-        toasted = self.host.failure_toasted if self.host is not None else None
+        toasted = self.host.sync_failure_toasted if self.host is not None else None
 
         if toasted is None or library_id not in toasted:
             if toasted is not None:

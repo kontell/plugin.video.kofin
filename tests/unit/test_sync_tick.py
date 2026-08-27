@@ -171,7 +171,7 @@ def test_a_drained_cycle_saves_the_watermark_and_arms_the_refresh(ticking, monke
     saved = []
     armed = []
     manager.save_last_sync = lambda: saved.append(True)
-    manager._arm_refresh_settle = lambda databases: armed.append(set(databases))
+    manager.refresher.arm = lambda databases: armed.append(set(databases))
     manager.pending_refresh = True
     manager.touched_databases = {"video"}
     manager.total_updates = 3
@@ -189,7 +189,7 @@ def test_a_cycle_with_download_errors_keeps_the_watermark_and_retries(ticking):
     manager, _api, _clock, _spawned = ticking
     saved = []
     manager.save_last_sync = lambda: saved.append(True)
-    manager._arm_refresh_settle = lambda databases: None
+    manager.refresher.arm = lambda databases: None
     manager.pending_refresh = True
     manager.download_errors.set()
 

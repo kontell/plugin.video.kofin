@@ -103,7 +103,8 @@ def plan(
     api: Any, host: Any, library: Dict[str, Any], library_id: str, dialog: Any
 ) -> None:
     """Diff one library and enqueue the work. ``dialog`` is the progress
-    bar of the pass; ``host`` takes the plan (SyncHost)."""
+    bar of the pass; ``host`` takes the plan (the Library, or the tests'
+    FakeHost -- the port named above ``Library.claim``)."""
     classes: Tuple[Optional[str], ...]
     if library_id.startswith("Mixed:"):
         classes = ("movies", "tvshows")

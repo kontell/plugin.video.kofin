@@ -113,3 +113,5 @@ The finished branch: Repair of every whitelisted library on both rigs dump-ident
 4. **S-P2.3c may reset the `kofin-jf12` profile's databases** for the first-sync scenario; it is the throwaway profile.
 
 These answers are the go-ahead; implementation starts with P2.5's PR, then P2.0.
+
+**Post-review (2026-08-27, #190–#192):** the `SyncHost` wrapper was an identity hop and is gone — `Library` speaks the port itself (`claim`/`release` plus the members it already had; the note above `Library.claim` lists them) and `FakeHost` stays the one fake; the four one-line bounces into the `Refresher` are gone too, the tick calls it directly and `refresh_libraries` is the one facade. `apply_or_skip` returns what `apply` returned, so `_walk` no longer captures it through a nested function. And `start()` refreshes before it re-raises a library failure, so the loop's publish-on-failure arm is gone (the covering refresh keeps `force_reload`).

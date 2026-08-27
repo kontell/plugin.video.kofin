@@ -1,6 +1,7 @@
-"""The one fake of the SyncHost port (sync/host.py) every full-sync test
-uses -- the claim, the locks, the three enqueue entry points, the refresh
-and the bookkeeping, all recorded."""
+"""The one fake of the host port every full-sync test uses -- the slice of
+Library a FullSync speaks (see the note above Library.claim): the claim,
+the locks, the three enqueue entry points, the refresh and the
+bookkeeping, all recorded."""
 
 import threading
 
@@ -17,7 +18,7 @@ class FakeHost:
         self.forced = []
         self.watermark_stamps = 0
         self.playlist_polls_deferred = 0
-        self.failure_toasted = set()
+        self.sync_failure_toasted = set()
 
     def claim(self):
         if self.claimed or not self.claim_ok:

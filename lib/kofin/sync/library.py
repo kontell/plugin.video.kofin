@@ -35,7 +35,6 @@ from kofin.sync.db import Database, get_sync, save_sync
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import schema
 from kofin.sync.full_sync import FullSync
-from kofin.sync.host import SyncHost
 from kofin.sync.prune import PRUNE_SERVER_TYPES, local_reference_map
 from kofin.sync.views import Views
 from kofin.sync.clock import Deferred
@@ -163,7 +162,7 @@ class Library(threading.Thread):
         # (plan §2 retention overrun).
         self.retention_repair_pending = False
         self.startup_done = False
-        # The one-sync-at-a-time claim (see claim_full_sync): instance state,
+        # The one-sync-at-a-time claim (see claim): instance state,
         # so a service restart's fresh Library starts unclaimed.
         self._full_sync_lock = threading.Lock()
         self._full_sync_running = False
@@ -663,8 +662,12 @@ class Library(threading.Thread):
         self.notify_new_content()
         # Same shape: a first-content reload held during playback fires here,
         # and so does a drain refresh whose settle has run out.
-        self.flush_pending_reload()
-        self.flush_refresh_settle()
+        self.refresher.flush_pending_reload()
+
+        settled = self.refresher.settled()
+
+        if settled:
+            self.refresh_libraries(settled)
         self.flush_recovery_prune()
 
         if self.pending_refresh:
@@ -742,7 +745,7 @@ class Library(threading.Thread):
             # only the video database was refreshed, so newly synced albums
             # never showed up in the music widgets until something else
             # triggered a scan.)
-            self._arm_refresh_settle(self.touched_databases)
+            self.refresher.arm(self.touched_databases)
             self.touched_databases = set()
             self.added_databases = set()
 
@@ -842,7 +845,7 @@ class Library(threading.Thread):
         kinds, removed = self._remove_each(data["Id"].split(","))
 
         if removed and self.add_library(data["Id"]):
-            self._reload_skin_after_repair(kinds)
+            self.refresher.reload_after_repair(kinds)
 
     def _cmd_update_library(self, data):
         ids = data.get("Id")
@@ -884,11 +887,12 @@ class Library(threading.Thread):
     def stop_client(self):
         self.stop_thread = True
 
-    def sync_host(self):
-        """The slice of this manager a full sync runs against (sync/host.py)."""
-        return SyncHost(self)
+    # What a full sync needs from this manager -- the port FullSync speaks
+    # and tests/unit/synchost.py fakes: database_lock, music_database_lock,
+    # claim/release, added/updated/removed, refresh_libraries,
+    # stamp_watermark_if_empty, defer_playlist_poll, sync_failure_toasted.
 
-    def claim_full_sync(self):
+    def claim(self):
         """Take the one-sync-at-a-time claim; False when one is already up.
 
         Lives here rather than on FullSync (where the fork kept it, in a
@@ -902,7 +906,7 @@ class Library(threading.Thread):
             self._full_sync_running = True
             return True
 
-    def release_full_sync(self):
+    def release(self):
         with self._full_sync_lock:
             self._full_sync_running = False
 
@@ -1132,24 +1136,6 @@ class Library(threading.Thread):
         the first-content reload)."""
         self.refresher.refresh(databases, force_reload)
 
-    def _arm_refresh_settle(self, databases):
-        """Defer a drain-completion refresh behind the settle window."""
-        self.refresher.arm(databases)
-
-    def flush_refresh_settle(self):
-        """Fire the deferred drain refresh once it has settled (the tick)."""
-        databases = self.refresher.settled()
-
-        if databases:
-            self.refresh_libraries(databases)
-
-    def flush_pending_reload(self):
-        """Fire a held first-content reload once video playback has ended."""
-        self.refresher.flush_pending_reload()
-
-    def _reload_skin_after_repair(self, kinds):
-        self.refresher.reload_after_repair(kinds)
-
     def metadata_pending(self):
         """Whether metadata-only updates are still queued or being written."""
         if self.updated_queue.qsize() or self.artwork_queue.qsize():
@@ -1351,7 +1337,7 @@ class Library(threading.Thread):
             if get_sync()["Libraries"]:
 
                 try:
-                    with FullSync(self.sync_host(), self.api) as sync:
+                    with FullSync(self, self.api) as sync:
                         sync.libraries()
 
                     Views(self.api).get_nodes()
@@ -1838,8 +1824,9 @@ class Library(threading.Thread):
         if self.resume.waiting():
             return
 
-        # A sync already under way owns the queue; FullSync is a Borg and
-        # would raise "Sync is already running" at us.
+        # A sync already under way owns the queue: starting another here would
+        # only be refused at the claim (FullSync.__enter__), and the one in
+        # flight will drain what this poll would have picked up.
         if state.is_sync_active() or not state.is_online():
             self._schedule_resume()
             return
@@ -1975,7 +1962,7 @@ class Library(threading.Thread):
     def add_library(self, library_id, update=False):
 
         try:
-            with FullSync(self.sync_host(), self.api) as sync:
+            with FullSync(self, self.api) as sync:
                 sync.libraries(library_id, update)
         except Exception as error:
             LOG.exception(error)
@@ -1989,7 +1976,7 @@ class Library(threading.Thread):
     def remove_library(self, library_id):
 
         try:
-            with FullSync(self.sync_host(), self.api) as sync:
+            with FullSync(self, self.api) as sync:
                 sync.remove_library(library_id)
 
             Views().remove_library(library_id)
