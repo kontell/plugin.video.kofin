@@ -13,7 +13,9 @@
 # variable; they are never printed.
 set -euo pipefail
 
-SRC="$(cd "$(dirname "$0")/.." && pwd)"
+# KOFIN_SRC deploys a checkout other than the working tree (a `git archive`
+# of the commit under test, while the tree has moved on).
+SRC="${KOFIN_SRC:-$(cd "$(dirname "$0")/.." && pwd)}"
 KODI_HOME="$HOME/.kodi"
 TARGET="native"
 
