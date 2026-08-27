@@ -789,13 +789,10 @@ class FullSync(object):
                         heading=heading,
                         message=describe(item),
                     )
-                    captured = {}
+                    applied, value = self.apply_or_skip(apply, obj, item, item_type)
 
-                    def run(obj, item):
-                        captured["value"] = apply(obj, item)
-
-                    if self.apply_or_skip(run, obj, item, item_type):
-                        results.append((item, captured.get("value")))
+                    if applied:
+                        results.append((item, value))
                     else:
                         skipped.append(item.get("Id"))
 
@@ -836,7 +833,8 @@ class FullSync(object):
         self.clear_restore_point(restore_key)
 
     def apply_or_skip(self, apply, obj, item, item_type):
-        """Write one item; True on success, False if it could not be applied.
+        """Write one item: ``(True, what apply returned)`` on success,
+        ``(False, None)`` when it could not be applied.
 
         The library-level drop in ``process_library``, one level down. An
         item deleted after it was paged 404s on the child fetches its writer
@@ -853,13 +851,12 @@ class FullSync(object):
         already says a pass did not fully land.
         """
         try:
-            apply(obj, item)
-            return True
+            return True, apply(obj, item)
         except LibraryOrphanException as error:
             LOG.warning(
                 "%s %s could not be applied: %s", item_type, item.get("Id"), error
             )
-            return False
+            return False, None
         except HttpError as error:
             if error.status != 404 and not self._gone(item):
                 raise
@@ -868,7 +865,7 @@ class FullSync(object):
                 item_type,
                 item.get("Id"),
             )
-            return False
+            return False, None
 
     def _gone(self, item):
         """Whether the item a child fetch just failed for no longer exists.

@@ -115,7 +115,10 @@ def test_item_gone_server_side_is_skipped_not_fatal(fullsync):
     def apply(obj, item):
         raise HttpError(404, "GET /Shows/%s/Seasons -> 404" % item["Id"])
 
-    assert fullsync.apply_or_skip(apply, None, {"Id": "gone-show"}, "Series") is False
+    assert fullsync.apply_or_skip(apply, None, {"Id": "gone-show"}, "Series") == (
+        False,
+        None,
+    )
 
 
 def test_item_other_http_error_still_aborts_the_pass(fullsync):
@@ -131,15 +134,12 @@ def test_item_other_http_error_still_aborts_the_pass(fullsync):
 
 def test_item_applied_normally_reports_success(fullsync):
     written = []
-    assert (
-        fullsync.apply_or_skip(
-            lambda obj, item: written.append(item["Id"]),
-            None,
-            {"Id": "live-show"},
-            "Series",
-        )
-        is True
-    )
+    assert fullsync.apply_or_skip(
+        lambda obj, item: written.append(item["Id"]),
+        None,
+        {"Id": "live-show"},
+        "Series",
+    ) == (True, None)
     assert written == ["live-show"]
 
 
