@@ -3,7 +3,8 @@
 playlists under ``special://profile/playlists/music/Kofin/``.
 
 Download each Audio playlist, rewrite track lines to the same path already
-stored for that song in MyMusic, write ``<Server Name>.m3u8``. The folder is
+stored for that song in MyMusic, write one ``.m3u8`` per playlist named after
+the playlist's title (``_unique_stem``, no ``kofin`` prefix). The folder is
 the ownership boundary — never touch sibling files under ``playlists/music/``.
 
 **The line has to be one Kodi can trace back to the song row**, and which line
@@ -42,6 +43,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import xml.etree.ElementTree as etree
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set
 
 import xbmcvfs
@@ -51,6 +53,7 @@ from kofin.core.log import Logger
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync.db import Database
 from kofin.sync.kodidb import Music as MusicKodiDb
+from kofin.sync.nodes import fs
 
 LOG = Logger(__name__)
 
@@ -522,3 +525,108 @@ def refresh_with_databases(api: Any, root: Optional[str] = None) -> Dict[str, in
             mapping = jellyfin_db.JellyfinDatabase(kofindb_conn.cursor)
             music = MusicKodiDb(musicdb.cursor)
             return refresh_music_playlists(api, mapping, music, root=root)
+
+
+# --- the video smart playlists (P2.1: moved here from views.py) -----------------
+#
+# One .xsp per synced video library, in a managed folder under Kodi's own
+# video playlists. The folder holds only generated files, so there is no
+# user ordering or label to preserve; its icon is the only thing that can
+# carry the addon's art (a .tbn beside an .xsp does nothing, measured on
+# Piers). Written whole every pass, like the nodes: a leftover tag rule
+# for a renamed library matched nothing under match=all.
+#
+# Ownership differs from the music side above: here the ``kofin`` prefix
+# gates every deletion and a foreign file in the folder is spared
+# (CLAUDE.md), because the folder used to be the user's own directory.
+
+PLAYLIST_KINDS = ("movies", "tvshows", "musicvideos")
+
+
+def video_playlists_dir() -> str:
+    """Kodi's own video playlist directory -- the user's, not ours."""
+    return xbmcvfs.translatePath("special://profile/playlists/video")
+
+
+def managed_video_dir() -> str:
+    """The managed folder inside it -- ours."""
+    return os.path.join(video_playlists_dir(), FOLDER_NAME)
+
+
+def video_playlist_file(view: Dict[str, Any]) -> str:
+    return "%s%s%s.xsp" % (fs.PREFIX, view["Media"], view["Id"])
+
+
+def build_video_playlist(view: Dict[str, Any], mixed: bool = False) -> etree.Element:
+    xml = etree.Element("smartplaylist", {"type": view["Media"]})
+    etree.SubElement(xml, "name").text = (
+        view["Name"] if not mixed else "%s (%s)" % (view["Name"], view["Media"])
+    )
+    etree.SubElement(xml, "match").text = "all"
+    rule = etree.SubElement(xml, "rule", {"field": "tag", "operator": "is"})
+    etree.SubElement(rule, "value").text = view["Tag"]
+    return xml
+
+
+def write_video_playlists(entries: Iterable[Any]) -> None:
+    """One playlist per video-kind entry; the folder, its icon, and a
+    reconcile of whatever else kofin left in there."""
+    directory = managed_video_dir()
+
+    if not os.path.isdir(directory):
+        os.makedirs(directory)
+
+    write_folder_icon(directory)
+    keep = set()
+
+    for view, mixed in entries:
+        if view["Media"] not in PLAYLIST_KINDS:
+            continue
+        name = video_playlist_file(view)
+        etree.ElementTree(build_video_playlist(view, mixed)).write(
+            os.path.join(directory, name)
+        )
+        keep.add(name)
+
+    for name in fs.remove_managed_entries(directory, keep=keep, label="playlist"):
+        LOG.info("--[ playlists ] pruned stale %s", name)
+
+
+def remove_video_playlists() -> None:
+    """Remove every generated playlist, the managed folder with them.
+
+    The generated files and the folder's own icon go, the folder once it is
+    empty; anything else in there is not ours to remove.
+    """
+    directory = managed_video_dir()
+    fs.remove_managed_entries(directory, also=(FOLDER_ICON,), label="playlist")
+    fs.remove_empty(directory)
+    migrate_flat_video_playlists()
+
+
+def remove_video_playlist_for(view_id: str) -> None:
+    """Remove one library's playlist from either home: a library removed
+    between the upgrade and the next generation still has its playlist out
+    in the old flat layout."""
+    for directory in (managed_video_dir(), video_playlists_dir()):
+        _, files = fs.listdir(directory)
+        for name in files:
+            if fs.is_managed(name) and name.endswith("%s.xsp" % view_id):
+                fs.delete_file(os.path.join(directory, name), "playlist")
+
+
+def migrate_flat_video_playlists() -> None:
+    """Clear out the pre-folder layout.
+
+    The generated smart playlists used to sit directly in the user's
+    ``playlists/video/``. They are regenerated inside the managed folder, so
+    the old copies are dead weight -- and, being smart playlists over the
+    same tag, would show up twice under two names. This sweeps the user's
+    directory, so only a generated ``kofin*.xsp`` qualifies; the managed
+    folder is a directory and is never touched here.
+    """
+    directory = video_playlists_dir()
+    _, files = fs.listdir(directory)
+    for name in files:
+        if fs.is_managed(name) and name.endswith(".xsp"):
+            fs.delete_file(os.path.join(directory, name), "playlist")

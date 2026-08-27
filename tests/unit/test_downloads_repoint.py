@@ -18,6 +18,9 @@ from kofin.sync import db as sync_db
 from kofin.sync import schema
 from kofin.sync.kodidb.kodi import Kodi
 from kofin.sync.writers import Movies, TVShows
+from kofin.sync.hooks import pipeline_hooks
+
+HOOKS = pipeline_hooks()
 from tests.unit import kodifixtures
 from tests.unit.fakes import FakeAddon, FakeWindow
 from tests.unit.sync_dtos import EPISODE, LIBRARY, MOVIE, SERIES, TV_LIBRARY, dto
@@ -86,13 +89,13 @@ def register_views(*views):
 
 def write_movie(api, payload=None):
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        Movies(api, kdb, vdb, library=LIBRARY).movie(payload or dto(MOVIE))
+        Movies(api, kdb, vdb, library=LIBRARY, hooks=HOOKS).movie(payload or dto(MOVIE))
 
 
 def write_series_tree(api, extra_episodes=()):
     register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        shows = TVShows(api, kdb, vdb, library=TV_LIBRARY)
+        shows = TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS)
         shows.tvshow(dto(SERIES))
         shows.episode(dto(EPISODE))
         for episode in extra_episodes:
@@ -370,7 +373,7 @@ def test_the_show_carries_the_tag_while_any_episode_is_downloaded(api):
     changed = dto(SERIES)
     changed["Etag"] = "etag-series1-v2"
     with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
-        TVShows(api, kdb, vdb, library=TV_LIBRARY).tvshow(changed)
+        TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).tvshow(changed)
     assert _tag_links("tvshow") == 1  # survived the wholesale replace
 
     row = store.get("episode1")
@@ -585,3 +588,47 @@ def test_marking_watched_tolerates_an_item_kodi_no_longer_holds(api, sync_env):
     )
 
     manager._mark_local_watched(row)  # no raise
+
+
+def test_a_writer_with_no_hooks_writes_the_forks_rows(api):
+    """P1.5: the repoint and the Downloads tag survive a rewrite only because
+    the pipeline registers the downloads hooks. A writer built without them
+    writes the plugin path back and drops the tag -- the fork's rows, and
+    the proof that the behaviour lives in the hook rather than the writer."""
+    from kofin.downloads import TAG
+
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    kodi_id, file_id, _ = mapping_row("movie1")
+    download = done_download("movie1", "movie", "Movies/The Movie (2019)/movie.mkv")
+    assert repoint.repoint(download, ROOT) is True
+
+    def filename():
+        return video_query(
+            "SELECT strFilename FROM files WHERE idFile = ?", (file_id,)
+        )[0][0]
+
+    def tags():
+        return sorted(
+            r[0]
+            for r in video_query(
+                "SELECT t.name FROM tag_link l JOIN tag t ON t.tag_id = l.tag_id "
+                "WHERE l.media_id = ? AND l.media_type = 'movie'",
+                (kodi_id,),
+            )
+        )
+
+    assert not filename().startswith("plugin://")
+
+    changed = dto(MOVIE)
+    changed["Etag"] = "etag-movie1-hooked"
+    write_movie(api, changed)  # through HOOKS
+    assert not filename().startswith("plugin://")
+    assert TAG in tags()
+
+    bare = dto(MOVIE)
+    bare["Etag"] = "etag-movie1-bare"
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        Movies(api, kdb, vdb, library=LIBRARY).movie(bare)  # no hooks
+    assert filename().startswith("plugin://")
+    assert TAG not in tags()

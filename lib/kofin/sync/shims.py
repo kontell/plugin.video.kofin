@@ -15,7 +15,6 @@ no-module-globals rule that protects the restart path.
 """
 
 import datetime
-import json
 import re
 import threading
 from functools import wraps
@@ -65,6 +64,22 @@ def _get_monitor():
     return _monitor
 
 
+def raise_if_stopping():
+    """Raise LibraryExitException when Kodi is exiting, the service is
+    shutting down, or the server went offline -- the three conditions the
+    ``stop`` decorator checks, callable from inside a loop (the pager asks
+    before every page it yields; a decorator on a generator only ever asked
+    once, at creation)."""
+    if _get_monitor().abortRequested():
+        raise LibraryExitException("Kodi aborted, exiting...")
+
+    if state.should_stop():
+        raise LibraryExitException("Should stop flag raised, exiting...")
+
+    if not state.is_online():
+        raise LibraryExitException("Server not online, exiting...")
+
+
 def stop(func):
     """Abort the wrapped call when Kodi exits, the service shuts down, or the
     server went offline (fork ``helper.wrapper.stop`` semantics).
@@ -72,16 +87,7 @@ def stop(func):
 
     @wraps(func)
     def wrapper(*args, **kwargs):
-
-        if _get_monitor().abortRequested():
-            raise LibraryExitException("Kodi aborted, exiting...")
-
-        if state.should_stop():
-            raise LibraryExitException("Should stop flag raised, exiting...")
-
-        if not state.is_online():
-            raise LibraryExitException("Server not online, exiting...")
-
+        raise_if_stopping()
         return func(*args, **kwargs)
 
     return wrapper
@@ -216,31 +222,6 @@ def convert_to_local(date):
 Local = convert_to_local
 
 
-class JSONRPC(object):
-
-    id = 1
-    jsonrpc_version = "2.0"
-
-    def __init__(self, method):
-        self.method = method
-        self.params = None
-
-    def _query(self):
-        query = {
-            "jsonrpc": self.jsonrpc_version,
-            "id": self.id,
-            "method": self.method,
-        }
-        if self.params is not None:
-            query["params"] = self.params
-
-        return json.dumps(query)
-
-    def execute(self, params=None):
-        self.params = params
-        return json.loads(xbmc.executeJSONRPC(self._query()))
-
-
 def window_prop(key, value=None, clear=False):
     """Plain string window-property access on the home window (the fork's
     ``window()`` helper minus the .json/.bool suffixes, which the ported
@@ -254,11 +235,3 @@ def window_prop(key, value=None, clear=False):
         window.setProperty(key, value)
         return None
     return window.getProperty(key)
-
-
-def get_grouped_set():
-    """Get if boxsets should be grouped"""
-    result = JSONRPC("Settings.GetSettingValue").execute(
-        {"setting": "videolibrary.groupmoviesets"}
-    )
-    return result.get("result", {}).get("value", False)

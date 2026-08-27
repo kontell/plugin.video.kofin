@@ -5,6 +5,7 @@ Adaptations per plan §3: imports/shims, addon id and path base,
 kofin Api."""
 
 import sqlite3
+from typing import Any, List
 from urllib.parse import urlencode
 
 from kofin.core.log import Logger
@@ -12,7 +13,13 @@ from kofin.sync import downloader as server
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import queries_map as QUEM
 from kofin.sync import fields as api
-from kofin.sync.fields import check_unchanged, find_library, sync_checksum
+from kofin.sync.fields import (
+    check_unchanged,
+    find_library,
+    gone_on_fetch,
+    sync_checksum,
+)
+from kofin.sync.hooks import WriterHooks
 from kofin.sync.shims import (
     LibraryOrphanException,
     stop,
@@ -24,9 +31,6 @@ from kofin.sync.shims import (
 from kofin.sync.obj import Objects
 from kofin.sync.kodidb import TVShows as KodiDb
 from kofin.sync.kodidb import queries as QU
-from kofin.downloads import TAG as DOWNLOADS_TAG
-from kofin.downloads import repoint as downloads_repoint
-from kofin.downloads import store as downloads_store
 
 ##################################################################################################
 
@@ -44,6 +48,7 @@ class TVShows(KodiDb):
         videodb,
         library=None,
         update_library=False,
+        hooks=None,
     ):
 
         self.server = server
@@ -58,6 +63,10 @@ class TVShows(KodiDb):
         self.objects = Objects()
         self.item_ids = []
         self.library = library
+        # What the pipeline adds to a write that the writer does not own
+        # (kofin.sync.hooks): the downloads tag and repoint, for one. Empty
+        # means the fork's rows and nothing more.
+        self.hooks = hooks or WriterHooks()
         # Memo for find_library, per writer instance (see fields.find_library).
         self.library_cache = {}
         # Ids this writer declined to write, so the caller can tell a
@@ -171,20 +180,14 @@ class TVShows(KodiDb):
                 str(Local(obj["Premiere"])).split(".")[0].replace("T", " ")
             )
 
-        tags = []
+        tags: List[str] = []
         tags.extend(obj["Tags"] or [])
         tags.append(obj["LibraryName"])
 
         if obj["Favorite"]:
             tags.append("Favorite tvshows")
 
-        # A show with any downloaded episode carries the downloads tag the
-        # way favorites carry theirs -- add_tags replaces the set wholesale,
-        # so the manager's stamp dies on the next rewrite without this
-        # (docs/offline-downloads-plan.md W1.8; the show's own jellyfin id
-        # is the series id the download rows carry).
-        if downloads_store.series_done_on(self.jellyfin_db.cursor, obj["Id"]):
-            tags.append(DOWNLOADS_TAG)
+        tags.extend(self.hooks.extra_tags("tvshow", self, obj))
 
         obj["Tags"] = tags
 
@@ -355,6 +358,10 @@ class TVShows(KodiDb):
                     % obj["Trailer"].rsplit("=", 1)[1]
                 )
         except Exception as error:
+            # Deviation from the fork, as Movies.trailer(): a 404 on the
+            # show's own child fetch is the show being gone, and propagates.
+            if gone_on_fetch(error):
+                raise
             LOG.exception("Failed to get trailer for tvshow %s: %s", obj["Id"], error)
             obj["Trailer"] = None
 
@@ -583,10 +590,7 @@ class TVShows(KodiDb):
         self.artwork.update(
             obj["Artwork"]["Primary"], obj["EpisodeId"], "episode", "thumb"
         )
-        # Same contract as the movie writer: a downloaded episode's rewrite
-        # is re-pointed at its local file before the page commits, fresh URL
-        # recaptured (plan W1.8).
-        downloads_repoint.reassert_on(self.cursor, self.jellyfin_db.cursor, obj["Id"])
+        self.hooks.after_write("episode", self, obj)
         self.item_ids.append(obj["Id"])
 
         if obj["Resume"]:
@@ -963,14 +967,29 @@ class TVShows(KodiDb):
     def remove_episode(self, kodi_id, file_id, item_id):
 
         self.artwork.delete(kodi_id, "episode")
+        # Deviation from the fork: the resume shadow goes with the episode.
+        # An episode with a resume point gets a second files row -- its own
+        # play URL under the add-on's root path, the bookmark repeated on it
+        # (episode(), ``if obj["Resume"]``; the fork's shape for a resume
+        # dialog on a plugin path). delete_episode drops the episode's own
+        # file only, and nothing in kofin.db references the shadow, so every
+        # removal left it and its bookmark behind: eight unlinked files rows
+        # on the Omega rig after one Shows round trip (S-P1.3b). The userdata
+        # path already removes it when the resume clears; this is that
+        # delete, and the delete_file trigger takes the bookmark with it.
+        filename = self.get_filename(file_id)
         self.delete_episode(kodi_id, file_id)
+
+        if filename:
+            self.remove_file("plugin://plugin.video.kofin/", filename)
+
         LOG.debug("DELETE episode [%s/%s] %s", file_id, kodi_id, item_id)
 
     @jellyfin_item
     def get_child(self, item_id, e_item):
         """Get all child elements from tv show jellyfin id."""
         obj = {"Id": item_id}
-        child = []
+        child: List[Any] = []
 
         try:
             obj["KodiId"] = e_item[0]

@@ -3,6 +3,16 @@
 restore-point resume, update (catch-up + prune) and repair modes, boxsets,
 library removal.
 
+P2.2 split: the restore points (``restorepoints``), the update-mode plan
+(``prune``), the boxsets pass (``boxsets``) and the removal (``removal``)
+are modules of their own; what a sync needs from the Library it runs for is
+the ``host`` duck type named on ``Library`` (its locks, ``claim``/``release``,
+the three enqueue entry points, ``refresh_libraries``, and the bookkeeping
+calls; ``tests/unit/synchost.py`` is the one fake). This class keeps the
+library queue, the
+per-library dispatch, the one walk every video pass runs through, and the
+locks and connections it hands out.
+
 Adaptations per plan §3: RestorePoints and resume-without-modal are kept;
 the first-run selection dialog and ``LibrarySyncLaterException`` are gone
 (selection lives in the settings dialog); ``enableMusic`` auto-flip dropped
@@ -13,25 +23,18 @@ at service start (kodisetup), not here.
 
 from contextlib import contextmanager
 import datetime
-import time
+from typing import Any, Dict, List, Optional, Tuple
 
 import xbmc
 
 from kofin.core import settings, state
 from kofin.core.http import HttpError
 from kofin.core.log import Logger
-from kofin.sync import changefeed
+from kofin.sync import boxsets, prune, removal, restorepoints
 from kofin.sync import downloader as server
 from kofin.sync import musicsources
-from kofin.sync.fields import find_library, reference_checksum
-from kofin.sync.kodidb import Music as MusicKodiDb
+from kofin.sync.hooks import pipeline_hooks
 from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
-from kofin.sync.writers.movies import (
-    BOXSET_GUARDED,
-    BOXSET_HEALED,
-    BOXSET_UNCHANGED,
-    BOXSET_WRITTEN,
-)
 from kofin.sync.db import Database, get_sync, save_sync
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync.shims import (
@@ -45,23 +48,11 @@ from kofin.sync.shims import (
 
 LOG = Logger(__name__)
 
+
 # How long a restore point stays usable. An interrupted pass is retried on the
 # resume backoff (60s doubling to 30 minutes), so anything that has gone
 # unclaimed for hours is not a pass waiting to continue — it is a leftover, and
 # the result set it indexes has had time to move underneath it.
-RESTORE_POINT_TTL = 6 * 3600
-
-# Server-side item types the update-mode prune diffs per library class
-# (phase 5). Boxsets keep their own refresh path; MusicArtist is deliberately
-# absent — see _local_reference_map.
-PRUNE_SERVER_TYPES = {
-    "movies": "Movie",
-    "tvshows": "Series,Season,Episode",
-    "musicvideos": "MusicVideo",
-    "music": "MusicAlbum,Audio",
-}
-
-
 def split_libraries(libraries, media_type_for):
     """Partition sync-list entries into (video, music), preserving order
     within each class. Music writes a different SQLite file than the video
@@ -82,79 +73,6 @@ def split_libraries(libraries, media_type_for):
     return video, music
 
 
-def local_reference_map(library_id, media_class):
-    """{jellyfin_id: stored checksum} for everything kofin.db attributes
-    to the library.
-
-    Movies/musicvideos/music rows carry media_folder directly. TV
-    children (seasons/episodes) do not — they are collected through the
-    kodi-id parent chain plus the jellyfin_parent_id fallback, mirroring
-    the writers' get_child walk. Checksums load once per involved
-    jellyfin_type via the existing get_checksum query.
-
-    Module-level so the divergence probe can measure the same local set the
-    prune diffs without constructing a FullSync: that is a Borg and raises
-    "Sync is already running" whenever one is in flight, which is precisely
-    when a probe must stay out of the way rather than throw. A probe that
-    counted a different set than the prune would schedule heals the prune
-    then reports nothing to do.
-    """
-    top_types = {
-        "movies": ("Movie",),
-        "tvshows": ("Series",),
-        "musicvideos": ("MusicVideo",),
-        # MusicArtist rows also carry media_folder but are not pruned:
-        # artists are not reliably reachable via /Items under a library
-        # parent, so a stale artist row lingers until Repair (rare —
-        # artists rarely vanish without their albums going too).
-        "music": ("MusicAlbum", "Audio"),
-    }[media_class]
-
-    checksum_types = {
-        "movies": ("Movie",),
-        "tvshows": ("Series", "Season", "Episode"),
-        "musicvideos": ("MusicVideo",),
-        "music": ("MusicAlbum", "Audio"),
-    }[media_class]
-
-    with Database("kofin") as kofin_db:
-        db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
-
-        checksums = {}
-        for jellyfin_type in checksum_types:
-            for row in db.get_checksum(jellyfin_type):
-                checksums[row[0]] = row[1]
-
-        ids = []
-        series_ids = []
-
-        for row in db.get_item_by_media_folder(library_id):
-            if row[1] in top_types:
-                ids.append(row[0])
-            if row[1] == "Series":
-                series_ids.append(row[0])
-
-        if media_class == "tvshows":
-            for series_id in series_ids:
-                reference = db.get_item_by_id(series_id)
-
-                if reference is None:
-                    continue
-
-                for season in db.get_item_id_by_parent_id(reference.kodi_id, "season"):
-                    ids.append(season[0])
-
-                    for episode in db.get_item_id_by_parent_id(season[1], "episode"):
-                        ids.append(episode[0])
-
-                # Episodes referencing the series directly (the writers'
-                # get_child fallback arm).
-                for row in db.get_media_by_parent_id(series_id):
-                    ids.append(row[0])
-
-    return {item_id: checksums.get(item_id) for item_id in dict.fromkeys(ids)}
-
-
 class FullSync(object):
     """This should be called like a context.
     i.e. with FullSync(library, server) as sync:
@@ -168,30 +86,42 @@ class FullSync(object):
     # refused to sync at all until Kodi itself restarted, while the dict also
     # pinned the old Library's queues, threads and Api forever. The guard now
     # belongs to the Library the sync runs for, so it dies with it.
-    sync = None
+    # Loaded by libraries()/remove_library() before anything reads it; the
+    # fork's class-level None was a Borg leftover and is gone.
+    sync: Dict[str, Any]
     update_library = False
 
-    def __init__(self, library, server):
-        """You can call all big syncing methods here.
-        Initial, update, repair, remove.
+    def __init__(self, host, server, loader=None, saver=None):
+        """``host`` is the Library this sync runs for, or anything that speaks
+        its port (None for the direct-call paths tests use); ``loader``/``saver``
+        read and
+        write sync.json (``get_sync``/``save_sync`` unless injected).
+
+        Construction claims nothing: the one-sync-at-a-time claim is taken
+        by ``__enter__``, so a FullSync that is only ever called directly
+        (the prune planner, a boxsets walk in a test) never holds one.
         """
-        self.library = library
+        self.host = host
         self.server = server
+        self._load = loader or get_sync
+        self._save = saver or save_sync
         self._claimed = False
         # Set by begin_walk, stamped onto every point that walk saves.
         self._restore_fingerprint = None
+        # The pipeline's writer hooks (kofin.sync.hooks), one composition per
+        # sync.
+        self.hooks = pipeline_hooks()
 
-        if library is not None and not library.claim_full_sync():
+    def __enter__(self):
+        """Take the claim and mark the sync active."""
+        if self.host is not None and not self.host.claim():
             # Deviation from the fork: a refusal, not a failure — the sync
             # already under way is fine and is what the user wanted.
             notification(localized(30410), warning=True)
 
             raise Exception("Sync is already running.")
 
-        self._claimed = library is not None
-
-    def __enter__(self):
-        """Do everything we need before the sync"""
+        self._claimed = self.host is not None
         LOG.info("-->[ fullsync ]")
 
         # No screensaver/idle-shutdown fiddling any more: the screensaver
@@ -205,14 +135,14 @@ class FullSync(object):
     def release(self):
         """Give the library's sync claim back. Idempotent: __exit__ calls it,
         and so does the constructor's failure path by never having claimed."""
-        if self._claimed and self.library is not None:
-            self.library.release_full_sync()
+        if self._claimed and self.host is not None:
+            self.host.release()
             self._claimed = False
 
     def libraries(self, libraries=None, update=False):
         """Map the syncing process and start the sync. Ensure only one sync is running."""
         self.update_library = update
-        self.sync = get_sync()
+        self.sync = self._load()
 
         if libraries:
             # Can be a single ID or a comma separated list
@@ -286,12 +216,12 @@ class FullSync(object):
             )
             notification(localized(30404))
 
-        save_sync(self.sync)
+        self._save(self.sync)
 
     def start(self):
         """Main sync process."""
         LOG.info("starting sync with %s", self.sync["Libraries"])
-        save_sync(self.sync)
+        self._save(self.sync)
         start_time = datetime.datetime.now()
 
         # Watermark-at-start (phase 5, plan §2): the very first sync stamps
@@ -299,18 +229,13 @@ class FullSync(object):
         # the sync window. Full syncs never advance the watermark at their
         # end — that jumped it past pending queue records for other
         # libraries; the incremental path is the sole owner.
-        self.library.stamp_watermark_if_empty()
+        self.host.stamp_watermark_if_empty()
 
         libraries = list(self.sync["Libraries"])
-        failures = []
+        failures: List[Exception] = []
 
         self.process_libraries(libraries, failures)
-
-        if failures:
-            raise failures[0]
-
-        elapsed = datetime.datetime.now() - start_time
-        save_sync(self.sync)
+        self._save(self.sync)
 
         # Refresh the databases this sync actually wrote. Refreshing only video
         # left a freshly synced music library invisible in the music widgets.
@@ -319,6 +244,13 @@ class FullSync(object):
         # the drain that lands the work — refreshing at plan time re-rendered
         # every widget for rows that had not changed yet, doubling the update
         # command's cost for nothing (widget-refresh-plan F2/D4).
+        #
+        # Before the failure re-raise, not after: a run that lost one library
+        # still wrote the others, and this is the refresh that shows them --
+        # ``libraries`` is the whole queue, so a database a failed library
+        # half-wrote is covered too, fingerprint-gated like the rest. The
+        # per-library publish in process_libraries must not stand in for it:
+        # that one carries no force_reload, and force_reload is the point.
         if not self.update_library:
             synced_video, synced_music = split_libraries(libraries, self._media_type)
             databases = set()
@@ -332,7 +264,14 @@ class FullSync(object):
             # force_reload: the end of a full sync is the one moment kofin
             # knows every selected library has landed, and the first-content
             # probes cannot be trusted to notice — see refresh_libraries.
-            self.library.refresh_libraries(databases, force_reload=True)
+            self.host.refresh_libraries(databases, force_reload=True)
+
+        if failures:
+            # After the refresh, before the completion toast: what synced is
+            # visible, and a partial run never claims success.
+            raise failures[0]
+
+        elapsed = datetime.datetime.now() - start_time
 
         # Music playlists are files, not MyMusic rows — refresh after a
         # successful library pass when the setting is on. Soft-fail so a
@@ -358,9 +297,9 @@ class FullSync(object):
         try:
             from kofin.sync import playlists as music_playlists
 
-            with self.library.music_database_lock:
+            with self.host.music_database_lock:
                 music_playlists.refresh_with_databases(self.server)
-            self.library.defer_playlist_poll()
+            self.host.defer_playlist_poll()
         except Exception:
             LOG.exception("music playlist refresh failed (library sync kept)")
 
@@ -368,29 +307,43 @@ class FullSync(object):
         """Process libraries in order, recording completion after each.
 
         Failures are collected for the caller to re-raise, so one bad library
-        does not abandon the rest.
+        does not abandon the rest: a library that fails stays in the pending
+        queue (process_library saved it there before raising) and the resume
+        backoff owns its retry, while the libraries after it sync now rather
+        than after that retry lands. The ``try`` sits inside the loop for that
+        reason -- around it, the first failure ended the walk and the list
+        never held more than one entry.
+
+        A LibraryExitException is not a library failure: Kodi is quitting,
+        the service is stopping, or the server has gone away, and every
+        remaining library would raise the same. It abandons the rest.
         """
-        try:
-            for position, library in enumerate(libraries):
+        for position, library in enumerate(libraries):
 
+            try:
                 synced = self.process_library(library)
+            except LibraryExitException:
+                raise
+            except Exception as error:
+                failures.append(error)
+                continue
 
-                if (
-                    synced
-                    and not library.startswith("Boxsets:")
-                    and library not in self.sync["Whitelist"]
-                ):
-                    self.sync["Whitelist"].append(library)
+            if (
+                synced
+                and not library.startswith("Boxsets:")
+                and library not in self.sync["Whitelist"]
+            ):
+                self.sync["Whitelist"].append(library)
 
-                if library in self.sync["Libraries"]:
-                    self.sync["Libraries"].remove(library)
+            if library in self.sync["Libraries"]:
+                self.sync["Libraries"].remove(library)
 
-                save_sync(self.sync)
+            self._save(self.sync)
 
-                if synced and position < len(libraries) - 1:
-                    self._publish_library(library)
-        except Exception as error:
-            failures.append(error)
+            # The last library is left to the end-of-sync refresh in start(),
+            # which runs whether or not a failure is on the list.
+            if synced and position < len(libraries) - 1:
+                self._publish_library(library)
 
     def _publish_library(self, library):
         """Make a finished library visible before the rest of the sync runs.
@@ -402,9 +355,9 @@ class FullSync(object):
         and browsable 8 minutes in, with Home still reading "empty"), because
         Kodi raises no library-change event for direct SQLite writes.
 
-        Skipped for the final library: the end-of-sync refresh in ``sync()``
-        covers it, and firing both would pay for two scans and two vacuums to
-        show the same rows.
+        Skipped for the final library: the end-of-sync refresh in ``start()``
+        covers it -- failure or not, it runs before the re-raise -- and firing
+        both would pay for two scans and two vacuums to show the same rows.
 
         Cheap when there is nothing to say. ``refresh_libraries`` is
         fingerprint-gated, so a library that changed nothing a widget renders
@@ -427,7 +380,7 @@ class FullSync(object):
         if music:
             databases.add("music")
 
-        self.library.refresh_libraries(databases)
+        self.host.refresh_libraries(databases)
 
     def _media_type(self, library_id):
         view = self.get_library(library_id)
@@ -448,107 +401,22 @@ class FullSync(object):
         return self.get_restore_point(key, self._restore_fingerprint)
 
     def get_restore_point(self, key, fingerprint=None):
-        """The position to resume this walk at, when it still means something.
-
-        A restore point is an index into a result set, and it survives in
-        sync.json until the walk that owns it completes. Nothing else expired
-        it, so one could outlive the pass it belonged to indefinitely: a
-        movies point reading ``StartIndex: 1250`` was found on a live box
-        having crossed an addon upgrade (its stored url was the pre-10.9
-        ``/Users/{id}/Items`` route), left behind because update mode
-        reconciles through ``prune`` and never runs the walk that would have
-        cleared it.
-
-        Resuming into a stale number is silent and one-directional. The walk
-        sorts DateCreated descending, so N items added since the point was
-        written push everything down by N: the resumed pass re-does N items
-        it had already done (idempotent, harmless) and **never visits the N
-        newest** — the items a user is most likely to be waiting for. So an
-        unusable point is dropped rather than trusted; a walk from zero is
-        idempotent and Etag-short-circuits, which makes discarding cheap and
-        resuming wrongly the only expensive option.
-
-        Two ways to be unusable, both checked here:
-
-        * the query changed, so the number indexes a different set
-          (``downloader.restore_fingerprint``) — an upgrade that adds a field
-          is the routine case, and this box hit exactly that;
-        * it is too old to be a resume at all. An interrupted pass retries on
-          the resume backoff, which tops out at 30 minutes, so a point that
-          has not been picked up within ``RESTORE_POINT_TTL`` is not a pass
-          waiting to continue, it is a corpse.
-        """
-        entry = self.sync["RestorePoints"].get(key)
-
-        if not entry:
-            return None
-
-        stored = entry.get("Fingerprint")
-
-        if fingerprint is not None and stored != fingerprint:
-            LOG.info(
-                "--[ restore point/%s ] discarded: the query changed since it "
-                "was written",
-                key,
-            )
-            self.clear_restore_point(key)
-
-            return None
-
-        if self._restore_point_expired(entry):
-            LOG.info(
-                "--[ restore point/%s ] discarded: older than %s seconds",
-                key,
-                RESTORE_POINT_TTL,
-            )
-            self.clear_restore_point(key)
-
-            return None
-
-        return entry.get("params")
-
-    def _restore_point_expired(self, entry):
-        """Whether a stored point is too old to be a resume.
-
-        An unstamped point is expired by definition: it predates this check,
-        so it is exactly the kind that has been sitting there across upgrades.
-        """
-        saved_at = entry.get("SavedAt")
-
-        if not saved_at:
-            return True
-
-        try:
-            age = time.time() - float(saved_at)
-        except (TypeError, ValueError):
-            return True
-
-        return age > RESTORE_POINT_TTL
+        """The position to resume this walk at, when it still means
+        something (restorepoints.resume_at)."""
+        return restorepoints.resume_at(self.sync["RestorePoints"], key, fingerprint)
 
     def set_restore_point(self, key, restore_point):
-        stamped = dict(restore_point)
-        stamped["SavedAt"] = time.time()
-        stamped["Fingerprint"] = self._restore_fingerprint
-        self.sync["RestorePoints"][key] = stamped
+        restorepoints.save(
+            self.sync["RestorePoints"], key, restore_point, self._restore_fingerprint
+        )
 
     def clear_restore_point(self, key):
-        self.sync["RestorePoints"].pop(key, None)
+        restorepoints.clear(self.sync["RestorePoints"], key)
 
     def clear_library_restore_points(self, library_id):
-        """Drop every restore point belonging to a library.
-
-        Update mode reconciles through ``prune`` and never runs the walk that
-        owns the point, so without this a library proven fully in sync keeps a
-        position claiming it is part-way through one — which is how the live
-        one survived. Keyed by prefix because a library owns several (the
-        tvshows walk keeps one slot per pass).
-        """
-        prefix = "%s/" % library_id
-        stale = [key for key in self.sync["RestorePoints"] if key.startswith(prefix)]
-
-        for key in stale:
-            LOG.info("--[ restore point/%s ] cleared: library reconciled", key)
-            self.clear_restore_point(key)
+        """Drop every restore point belonging to a library
+        (restorepoints.clear_library)."""
+        restorepoints.clear_library(self.sync["RestorePoints"], library_id)
 
     def process_library(self, library_id):
         """Add a library by its id. Create a node and a playlist whenever appropriate.
@@ -626,7 +494,7 @@ class FullSync(object):
             return True
         except LibraryException as error:
             if isinstance(error, LibraryExitException):
-                save_sync(self.sync)
+                self._save(self.sync)
                 raise
 
             # A non-exit LibraryException is a pass-level failure: per-item
@@ -639,7 +507,7 @@ class FullSync(object):
             # entry stays queued and the resume backoff owns the retry.
             self._notify_sync_failure(library_id)
             LOG.error("library %s failed: %s", library_id, error)
-            save_sync(self.sync)
+            self._save(self.sync)
 
             raise
 
@@ -649,7 +517,7 @@ class FullSync(object):
             LOG.error("full sync exited unexpectedly")
             LOG.exception(error)
 
-            save_sync(self.sync)
+            self._save(self.sync)
 
             raise
 
@@ -661,7 +529,7 @@ class FullSync(object):
         library into a nag loop (healing-loops-plan F3). The log still
         carries every attempt.
         """
-        toasted = getattr(self.library, "sync_failure_toasted", None)
+        toasted = self.host.sync_failure_toasted if self.host is not None else None
 
         if toasted is None or library_id not in toasted:
             if toasted is not None:
@@ -671,7 +539,7 @@ class FullSync(object):
 
     @contextmanager
     def video_database_locks(self):
-        with self.library.database_lock:
+        with self.host.database_lock:
             # kofin.db outermost, so the Kodi database commits first at block
             # exit: a failed Kodi commit must not leave the mapping claiming
             # rows MyVideos never got (audit finding #17) — those short-circuit
@@ -681,55 +549,130 @@ class FullSync(object):
                 with Database() as videodb:
                     yield videodb, jellyfindb
 
-    @progress()
-    def movies(self, library, dialog):
-        """Process movies from a single library.
-
-        Connections are held across the pass (phase 5, sync-plan Phase 3);
-        the writer lock is still taken and the transaction committed per
-        page, so realtime writers interleave exactly as before — only the
-        per-page open/close churn is gone.
-        """
-        restore_key = "%s/movies" % library["Id"]
-        restore_point = self.begin_walk(restore_key, library["Id"], "Movie")
-
+    @contextmanager
+    def _held_connections(self):
+        """Connections held across a pass; the writer lock and the commits
+        are per page (phase 5, sync-plan Phase 3): realtime writers
+        interleave exactly as before, only the per-page open/close churn is
+        gone. Yields the per-page scope ``_walk`` enters for each page."""
         with Database("kofin") as jellyfindb, Database() as videodb:
-            for items in server.get_items(
-                self.server,
-                library["Id"],
-                "Movie",
-                False,
-                restore_point,
-            ):
 
-                with self.library.database_lock:
-                    obj = Movies(self.server, jellyfindb, videodb, library)
-
-                    self.set_restore_point(restore_key, items["RestorePoint"])
-                    start_index = items["RestorePoint"]["params"]["StartIndex"]
-
-                    for index, movie in enumerate(items["Items"]):
-
-                        dialog.update(
-                            int(
-                                (
-                                    float(start_index + index)
-                                    / float(items["TotalRecordCount"])
-                                )
-                                * 100
-                            ),
-                            heading="%s: %s" % ("Kofin", library["Name"]),
-                            message=movie["Name"],
-                        )
-                        obj.movie(movie)
-
+            @contextmanager
+            def page():
+                with self.host.database_lock:
+                    yield videodb, jellyfindb
                     videodb.conn.commit()
                     jellyfindb.conn.commit()
+
+            yield page
+
+    def _walk(
+        self,
+        library,
+        item_type,
+        restore_key,
+        writer,
+        apply,
+        describe,
+        dialog,
+        heading,
+        page,
+        params=None,
+    ):
+        """The one library walk: page the server from the restore point,
+        enter ``page`` for each page (the lock and the connections, one of
+        the two shapes above), construct the writer, stamp the restore
+        point, write every item through ``apply_or_skip``, and let the page
+        scope commit.
+
+        This used to exist four times -- movies, each tvshows pass,
+        musicvideos and boxsets -- and only the tvshows copy had grown the
+        mid-page-404 skip, so a movie deleted after it was paged aborted its
+        whole library (docs/sync-refactor-assessment.md §3). Now every walk
+        skips it. The restore key, the writer, the per-item call and the
+        label are what a caller supplies; the mechanics are here once.
+
+        Returns ``(resumed, skipped, results)``: whether the walk resumed a
+        restore point, the ids ``apply_or_skip`` declined, and a list of
+        ``(item, value)`` for every item applied, ``value`` being what
+        ``apply`` returned -- the boxsets walk reads its outcome codes from
+        it, the others ignore it.
+        """
+        restore_point = self.begin_walk(
+            restore_key, library["Id"], item_type, False, params
+        )
+        resumed = restore_point is not None
+        skipped = []
+        results = []
+
+        for items in server.get_items(
+            self.server,
+            library["Id"],
+            item_type,
+            False,
+            restore_point or params,
+        ):
+
+            with page() as (videodb, jellyfindb):
+                obj = writer(jellyfindb, videodb)
+
+                self.set_restore_point(restore_key, items["RestorePoint"])
+                start_index = items["RestorePoint"]["params"]["StartIndex"]
+                total = float(items["TotalRecordCount"])
+
+                for index, item in enumerate(items["Items"]):
+
+                    dialog.update(
+                        int((float(start_index + index) / total) * 100),
+                        heading=heading,
+                        message=describe(item),
+                    )
+                    applied, value = self.apply_or_skip(apply, obj, item, item_type)
+
+                    if applied:
+                        results.append((item, value))
+                    else:
+                        skipped.append(item.get("Id"))
+
+        if skipped:
+            # Never let a partial pass look complete in the log.
+            LOG.warning(
+                "--[ %s pass: %d not applied, skipped ]",
+                item_type,
+                len(skipped),
+            )
+
+        return resumed, skipped, results
+
+    @staticmethod
+    def _heading(library):
+        return "%s: %s" % ("Kofin", library["Name"])
+
+    @progress()
+    def movies(self, library, dialog):
+        """Process movies from a single library."""
+        restore_key = "%s/movies" % library["Id"]
+
+        with self._held_connections() as page:
+            self._walk(
+                library,
+                "Movie",
+                restore_key,
+                lambda jellyfindb, videodb: Movies(
+                    self.server, jellyfindb, videodb, library, hooks=self.hooks
+                ),
+                lambda obj, movie: obj.movie(movie),
+                lambda movie: movie["Name"],
+                dialog,
+                self._heading(library),
+                page,
+            )
 
         self.clear_restore_point(restore_key)
 
     def apply_or_skip(self, apply, obj, item, item_type):
-        """Write one item; True on success, False if it could not be applied.
+        """Write one item: ``(True, what apply returned)`` on success,
+        ``(False, None)`` when it could not be applied.
 
         The library-level drop in ``process_library``, one level down. An
         item deleted after it was paged 404s on the child fetches its writer
@@ -746,22 +689,41 @@ class FullSync(object):
         already says a pass did not fully land.
         """
         try:
-            apply(obj, item)
-            return True
+            return True, apply(obj, item)
         except LibraryOrphanException as error:
             LOG.warning(
                 "%s %s could not be applied: %s", item_type, item.get("Id"), error
             )
-            return False
+            return False, None
         except HttpError as error:
-            if error.status != 404:
+            if error.status != 404 and not self._gone(item):
                 raise
             LOG.warning(
                 "%s %s is gone from the server; skipped",
                 item_type,
                 item.get("Id"),
             )
+            return False, None
+
+    def _gone(self, item):
+        """Whether the item a child fetch just failed for no longer exists.
+
+        The status a child fetch answers with is the endpoint's, not the
+        item's: a show's ``/Seasons`` 404s on a deleted show, but
+        ``/Items?ParentId=<deleted set>`` is a **400** on Jellyfin 12 (live,
+        S-P1.3c), and keying the skip on 404 alone let that one abort the
+        boxsets pass exactly as before. So on any other HTTP status the item
+        itself is asked for once -- one request, only on the failure path --
+        and a 404 there is the answer that means "gone". Anything else, the
+        original error stands: a malformed query must still stop the pass.
+        """
+        try:
+            self.server.item(item.get("Id"))
+        except HttpError as probe:
+            return probe.status == 404
+        except Exception:
             return False
+        return False
 
     @progress()
     def tvshows(self, library, dialog):
@@ -769,7 +731,7 @@ class FullSync(object):
 
         Three per-library passes (phase 5, sync-plan P5) instead of one
         episode request per show: Series pages, then Season pages, then
-        Episode pages — parents land before children by construction, and
+        Episode pages -- parents land before children by construction, and
         a 500-show library costs pages, not 500+ requests. Restore points
         are per pass and cleared together at the end: an interruption
         resumes inside the pass it happened in, completed passes re-do only
@@ -777,80 +739,48 @@ class FullSync(object):
         A pre-phase-5 pending ``{lib}/tvshows`` key simply restarts the
         library's passes; it is cleared alongside.
         """
-        heading = "%s: %s" % ("Kofin", library["Name"])
 
-        with Database("kofin") as jellyfindb, Database() as videodb:
+        def child_label(item):
+            return "%s / %s" % (item.get("SeriesName") or "", item.get("Name"))
 
-            def tvshows_pass(item_type, key_suffix, apply, describe):
-                restore_key = "%s/tvshows-%s" % (library["Id"], key_suffix)
-                restore_point = self.begin_walk(restore_key, library["Id"], item_type)
-                skipped = []
-
-                for items in server.get_items(
-                    self.server,
-                    library["Id"],
-                    item_type,
-                    False,
-                    restore_point,
-                ):
-
-                    with self.library.database_lock:
-                        obj = TVShows(self.server, jellyfindb, videodb, library, True)
-
-                        self.set_restore_point(restore_key, items["RestorePoint"])
-                        start_index = items["RestorePoint"]["params"]["StartIndex"]
-
-                        for index, item in enumerate(items["Items"]):
-
-                            dialog.update(
-                                int(
-                                    (
-                                        float(start_index + index)
-                                        / float(items["TotalRecordCount"])
-                                    )
-                                    * 100
-                                ),
-                                heading=heading,
-                                message=describe(item),
-                            )
-
-                            if not self.apply_or_skip(apply, obj, item, item_type):
-                                skipped.append(item.get("Id"))
-
-                        videodb.conn.commit()
-                        jellyfindb.conn.commit()
-
-                if skipped:
-                    # Never let a partial pass look complete in the log.
-                    LOG.warning(
-                        "--[ %s pass: %d not applied, skipped ]",
-                        item_type,
-                        len(skipped),
-                    )
-
-            def child_label(item):
-                return "%s / %s" % (item.get("SeriesName") or "", item.get("Name"))
-
-            tvshows_pass(
+        passes = (
+            (
                 "Series",
                 "series",
                 lambda obj, show: obj.tvshow(show),
-                lambda show: show["Name"],
-            )
-            tvshows_pass(
-                "Season",
-                "seasons",
-                lambda obj, season: obj.season(season),
-                child_label,
-            )
-            tvshows_pass(
+                lambda s: s["Name"],
+            ),
+            ("Season", "seasons", lambda obj, season: obj.season(season), child_label),
+            (
                 "Episode",
                 "episodes",
                 lambda obj, episode: (
                     obj.episode(episode) if episode.get("Path") else None
                 ),
                 child_label,
-            )
+            ),
+        )
+
+        with self._held_connections() as page:
+            for item_type, key_suffix, apply, describe in passes:
+                self._walk(
+                    library,
+                    item_type,
+                    "%s/tvshows-%s" % (library["Id"], key_suffix),
+                    lambda jellyfindb, videodb: TVShows(
+                        self.server,
+                        jellyfindb,
+                        videodb,
+                        library,
+                        True,
+                        hooks=self.hooks,
+                    ),
+                    apply,
+                    describe,
+                    dialog,
+                    self._heading(library),
+                    page,
+                )
 
         for key_suffix in ("series", "seasons", "episodes"):
             self.clear_restore_point("%s/tvshows-%s" % (library["Id"], key_suffix))
@@ -861,52 +791,35 @@ class FullSync(object):
     def musicvideos(self, library, dialog):
         """Process musicvideos from a single library."""
         restore_key = "%s/musicvideos" % library["Id"]
-        restore_point = self.begin_walk(restore_key, library["Id"], "MusicVideo")
 
-        with Database("kofin") as jellyfindb, Database() as videodb:
-            for items in server.get_items(
-                self.server,
-                library["Id"],
+        with self._held_connections() as page:
+            self._walk(
+                library,
                 "MusicVideo",
-                False,
-                restore_point,
-            ):
-
-                with self.library.database_lock:
-                    obj = MusicVideos(self.server, jellyfindb, videodb, library)
-
-                    self.set_restore_point(restore_key, items["RestorePoint"])
-                    start_index = items["RestorePoint"]["params"]["StartIndex"]
-
-                    for index, mvideo in enumerate(items["Items"]):
-
-                        dialog.update(
-                            int(
-                                (
-                                    float(start_index + index)
-                                    / float(items["TotalRecordCount"])
-                                )
-                                * 100
-                            ),
-                            heading="%s: %s" % ("Kofin", library["Name"]),
-                            message=mvideo["Name"],
-                        )
-                        obj.musicvideo(mvideo)
-
-                    videodb.conn.commit()
-                    jellyfindb.conn.commit()
+                restore_key,
+                lambda jellyfindb, videodb: MusicVideos(
+                    self.server, jellyfindb, videodb, library, hooks=self.hooks
+                ),
+                lambda obj, mvideo: obj.musicvideo(mvideo),
+                lambda mvideo: mvideo["Name"],
+                dialog,
+                self._heading(library),
+                page,
+            )
 
         self.clear_restore_point(restore_key)
 
     @progress()
     def music(self, library, dialog):
         """Process artists, album, songs from a single library."""
-        with self.library.music_database_lock:
+        with self.host.music_database_lock:
             # kofin.db outermost for the same commit-order reason as
             # video_database_locks.
             with Database("kofin") as jellyfindb:
                 with Database("music") as musicdb:
-                    obj = Music(self.server, jellyfindb, musicdb, library)
+                    obj = Music(
+                        self.server, jellyfindb, musicdb, library, hooks=self.hooks
+                    )
 
                     library_id = library["Id"]
 
@@ -1008,379 +921,28 @@ class FullSync(object):
 
     @progress()
     def prune(self, library, library_id, dialog):
-        """Update-mode pass (phase 5, research §3 "update that works"):
-        page the library's id+Etag set, diff against kofin.db three ways —
-        missing here → fetch; stale here → remove; Etag mismatch → fetch;
-        match → nothing — and enqueue the work through the incremental
-        pipeline (downloads Etag-short-circuit again on write, removals
-        route through the SortWorker). The catch-up that runs alongside
-        (Update = sync-queue catch-up **plus** this prune) covers userdata.
-        """
-        if library_id.startswith("Mixed:"):
-            classes = ("movies", "tvshows")
-        else:
-            classes = (library.get("CollectionType"),)
-
-        missing = []
-        changed = []
-        stale = []
-
-        for media_class in classes:
-            server_types = PRUNE_SERVER_TYPES.get(media_class)
-
-            if not server_types:
-                LOG.info("prune skips %s (%s)", library["Id"], media_class)
-                continue
-
-            dialog.update(
-                0,
-                heading="%s: %s" % ("Kofin", library["Name"]),
-                message=localized(30603),
-            )
-
-            server_map = server.get_id_etag_map(
-                self.server, library["Id"], server_types
-            )
-            local_map = self._local_reference_map(library["Id"], media_class)
-
-            for item_id, (etag, item_type) in server_map.items():
-                if item_id not in local_map:
-                    missing.append((changefeed.type_rank(item_type), item_id))
-                    continue
-
-                # No Etag from the server (unexpected with Fields=Etag) →
-                # re-fetch: the safe direction is a redundant download.
-                if not etag or local_map[item_id] != reference_checksum(etag):
-                    changed.append(item_id)
-
-            for item_id in local_map:
-                if item_id not in server_map:
-                    stale.append(item_id)
-
-        # Parent-first, by the same ranks the typed feed sorts additions by:
-        # get_id_etag_map pages in SortName order, which interleaves
-        # Series/Season/Episode (and MusicAlbum/Audio), so a child could be
-        # downloaded and written while its parent sat in a later chunk. The
-        # writers heal that by fetching the parent inside the write lock,
-        # which is a fallback and not something to route work into. Stable, so
-        # SortName order survives within a rank and paging stays predictable.
-        missing.sort(key=lambda entry: entry[0])
-        missing_ids = [item_id for _rank, item_id in missing]
-
-        # Confirm every stale candidate by id before deleting anything. The
-        # diff above infers "stale" from absence in a *filtered listing*, and
-        # a listing can omit an item that is alive and well -- so the removal
-        # arm, the only destructive one here, asks the server directly instead
-        # of trusting the inference. See get_existing_ids.
-        #
-        # Failure to confirm leaves the candidate alone: the invariant is that
-        # nothing is removed on an unverified id, so a confirmation that could
-        # not be made must not read as "gone".
-        spared = []
-
-        if stale:
-            resolved = server.get_existing_ids(self.server, stale)
-
-            if resolved:
-                spared = [item_id for item_id in stale if item_id in resolved]
-                stale = [item_id for item_id in stale if item_id not in resolved]
-
-        LOG.info(
-            "--[ prune/%s ] missing:%s changed:%s stale:%s spared:%s",
-            library["Id"],
-            len(missing_ids),
-            len(changed),
-            len(stale),
-            len(spared),
-        )
-
-        if spared:
-            # Not routine: the library listing and the reference set disagree
-            # about an item -- the signature of a misattributed media_folder,
-            # a series pooled under whichever library saw it first
-            # (healing-loops-plan F2). Warn, then re-home instead of only
-            # sparing: left alone the same ids spare and warn on every prune
-            # and hold probe_divergence permanently diverged.
-            LOG.warning(
-                "prune/%s spared %s stale candidate(s) the server still "
-                "resolves: %s",
-                library["Id"],
-                len(spared),
-                ", ".join(sorted(spared)[:10]),
-            )
-            self._rehome_spared(spared)
-
-        self.library.removed(stale)
-        self.library.added(missing_ids)
-        self.library.updated(changed)
-
-    def _rehome_spared(self, spared):
-        """Move spared references to the library the server says owns them.
-
-        One Ancestors round trip per spared id -- rare by construction --
-        re-homes it to its whitelisted ancestor view, or to NULL (the pool
-        placeholder state) when no synced library owns it. Either way the
-        next prune's local map matches the server's listing and the loop
-        closes. Seasons and episodes are exempt: they carry no media_folder
-        by design and their fate follows their series. A resolution failure
-        skips the id; the next prune retries.
-        """
-        with Database("kofin") as jellyfindb:
-            db = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
-
-            for item_id in sorted(spared):
-                if db.get_media_by_id(item_id) in ("Season", "Episode"):
-                    continue
-
-                try:
-                    home = find_library(self.server, {"Id": item_id})
-                except Exception as error:
-                    LOG.warning("could not re-home %s: %s", item_id, error)
-                    continue
-
-                folder = home["Id"] if home else None
-                db.update_media_folder(folder, item_id)
-                LOG.warning(
-                    "re-homed spared %s to %s", item_id, folder or "placeholder"
-                )
-
-    def _local_reference_map(self, library_id, media_class):
-        """Instance view of the module-level
-        :func:`local_reference_map` -- see there."""
-        return local_reference_map(library_id, media_class)
+        """Update-mode pass: plan the diff and hand the work to the
+        incremental pipeline (prune.plan)."""
+        prune.plan(self.server, self.host, library, library_id, dialog)
 
     @progress(30407)
     def boxsets(self, library, dialog=None):
-        """Process all boxsets.
-
-        Beyond the fork (docs/boxsets-robustness-plan.md): the walk asks the
-        server for ChildCount — the unlink guard's server signal, measured
-        harmless at set counts and deliberately not added to the shared
-        info() field list — tallies per-set outcomes into one summary line,
-        sweeps references the server listing no longer contains, and ends by
-        re-stamping every non-guarded set's state from measured reality
-        (shared members drift the mid-walk stamps; healing-loops-plan F1).
-        """
-        restore_key = "%s/boxsets" % library["Id"]
-        boxset_params = {"Fields": "%s,ChildCount" % server.info()}
-        restore_point = self.begin_walk(
-            restore_key, library["Id"], "BoxSet", False, boxset_params
-        )
-        resumed = restore_point is not None
-        walked = set()
-        guarded_ids = set()
-        stats = {
-            BOXSET_UNCHANGED: 0,
-            BOXSET_WRITTEN: 0,
-            BOXSET_HEALED: 0,
-            BOXSET_GUARDED: 0,
-        }
-
-        for items in server.get_items(
-            self.server,
-            library["Id"],
-            "BoxSet",
-            False,
-            restore_point or boxset_params,
-        ):
-
-            with self.video_database_locks() as (videodb, jellyfindb):
-                obj = Movies(self.server, jellyfindb, videodb, library)
-
-                self.set_restore_point(restore_key, items["RestorePoint"])
-                start_index = items["RestorePoint"]["params"]["StartIndex"]
-
-                for index, boxset in enumerate(items["Items"]):
-
-                    dialog.update(
-                        int(
-                            (
-                                float(start_index + index)
-                                / float(items["TotalRecordCount"])
-                            )
-                            * 100
-                        ),
-                        heading="%s: %s" % ("Kofin", localized(30407)),
-                        message=boxset["Name"],
-                    )
-                    walked.add(boxset["Id"])
-                    outcome = obj.boxset(boxset)
-
-                    if outcome in stats:
-                        stats[outcome] += 1
-
-                    if outcome == BOXSET_GUARDED:
-                        guarded_ids.add(boxset["Id"])
-
-        self.clear_restore_point(restore_key)
-
-        # A resumed walk never listed its earlier pages, so only a fresh,
-        # complete walk may treat absence from the listing as deletion.
-        swept = 0 if resumed else self.sweep_stale_boxsets(walked)
-
-        # Walk-end restamp (docs/healing-loops-plan.md F1): after the sweep,
-        # so measured state covers exactly the references that survived. It
-        # runs on resumed walks too -- it is measurement, not deletion, so
-        # the fresh-start gate above does not apply.
-        with self.video_database_locks() as (videodb, jellyfindb):
-            Movies(self.server, jellyfindb, videodb).restamp_boxset_states(guarded_ids)
-
-        LOG.info(
-            "boxsets: %s checked (%s unchanged, %s written, %s healed, "
-            "%s guarded, %s swept)",
-            len(walked),
-            stats[BOXSET_UNCHANGED],
-            stats[BOXSET_WRITTEN],
-            stats[BOXSET_HEALED],
-            stats[BOXSET_GUARDED],
-            swept,
-        )
+        """Process all boxsets (boxsets.walk)."""
+        boxsets.walk(self, library, dialog)
 
     def sweep_stale_boxsets(self, walked):
-        """Remove set references the server listing no longer contains.
-
-        The walk is the same listing the writes came from, so a reference
-        absent from it is a set deleted server-side with no record to say so
-        — the prune never covers boxsets, and without a change-feed Removed
-        record such a set was a ghost forever. An empty listing against
-        existing references is not a deletion order (permission and filter
-        failures look exactly like it): skip and warn, mirroring the prune's
-        get_existing_ids philosophy.
-        """
-        with self.video_database_locks() as (videodb, jellyfindb):
-            db = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
-            known = [row[0] for row in db.get_items_by_media("set")]
-            stale = [item_id for item_id in known if item_id not in walked]
-
-            if not walked and known:
-                LOG.warning(
-                    "boxsets walk listed no sets while %s are referenced; "
-                    "skipping the sweep (an empty listing is not a deletion "
-                    "order)",
-                    len(known),
-                )
-                return 0
-
-            if not stale:
-                return 0
-
-            obj = Movies(self.server, jellyfindb, videodb)
-
-            for item_id in stale:
-                obj.remove(item_id)
-
-        LOG.info("swept %s stale boxset(s): %s", len(stale), ", ".join(stale[:5]))
-
-        return len(stale)
+        return boxsets.sweep_stale(self, walked)
 
     def refresh_boxsets(self, library):
-        """Delete all existing boxsets and re-add."""
-        with self.video_database_locks() as (videodb, jellyfindb):
-            db = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
-            before = len(db.get_items_by_media("set"))
-            obj = Movies(self.server, jellyfindb, videodb, library)
-            obj.boxsets_reset()
-
-        LOG.info("refresh boxsets: reset %s set(s), re-adding", before)
-        self.boxsets(library)
+        boxsets.refresh(self, library)
 
     @progress(30408)
     def remove_library(self, library_id, dialog):
-        """Remove library by their id from the Kodi database."""
-        with Database("kofin") as jellyfindb:
-
-            db = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
-            library = db.get_view(library_id.replace("Mixed:", ""))
-
-            if library is None:
-                LOG.info("Library %s is already removed", library_id)
-
-                return
-
-            items = db.get_item_by_media_folder(library_id.replace("Mixed:", ""))
-            media = "music" if library.media_type == "music" else "video"
-
-            # A music library's `source` row is not one of its items, so it
-            # outlives an item-less removal: the gate has to open for the
-            # media type, not just for the count. Every album's own
-            # album_source link goes with the album (tgrDeleteAlbum), and
-            # what tgrDeleteSource does not cover is exactly this row.
-            if items or library.media_type == "music":
-                with (
-                    self.library.music_database_lock
-                    if media == "music"
-                    else self.library.database_lock
-                ):
-                    with Database(media) as kodidb:
-
-                        count = 0
-
-                        if library.media_type == "mixed":
-
-                            movies = [x for x in items if x[1] == "Movie"]
-                            tvshows = [x for x in items if x[1] == "Series"]
-
-                            obj = Movies(
-                                self.server, jellyfindb, kodidb, library
-                            ).remove
-
-                            for item in movies:
-
-                                obj(item[0])
-                                dialog.update(
-                                    int((float(count) / float(len(items)) * 100)),
-                                    heading="%s: %s" % ("Kofin", library.view_name),
-                                )
-                                count += 1
-
-                            obj = TVShows(
-                                self.server, jellyfindb, kodidb, library
-                            ).remove
-
-                            for item in tvshows:
-
-                                obj(item[0])
-                                dialog.update(
-                                    int((float(count) / float(len(items)) * 100)),
-                                    heading="%s: %s" % ("Kofin", library.view_name),
-                                )
-                                count += 1
-                        else:
-                            default_args = (self.server, jellyfindb, kodidb)
-                            for item in items:
-                                if item[1] in ("Series", "Season", "Episode"):
-                                    TVShows(*default_args).remove(item[0])
-                                elif item[1] in ("Movie", "BoxSet"):
-                                    Movies(*default_args).remove(item[0])
-                                elif item[1] in (
-                                    "MusicAlbum",
-                                    "MusicArtist",
-                                    "Audio",
-                                ):
-                                    Music(*default_args).remove(item[0])
-                                elif item[1] == "MusicVideo":
-                                    MusicVideos(*default_args).remove(item[0])
-
-                                dialog.update(
-                                    int((float(count) / float(len(items)) * 100)),
-                                    heading="%s: %s" % ("Kofin", library.view_name),
-                                )
-                                count += 1
-
-                        if library.media_type == "music":
-                            MusicKodiDb(kodidb.cursor).delete_source_for(
-                                library_id.replace("Mixed:", "")
-                            )
-
-        self.sync = get_sync()
-
-        if library_id in self.sync["Whitelist"]:
-            self.sync["Whitelist"].remove(library_id)
-
-        elif "Mixed:%s" % library_id in self.sync["Whitelist"]:
-            self.sync["Whitelist"].remove("Mixed:%s" % library_id)
-
-        save_sync(self.sync)
+        """Remove a library's rows from Kodi's database and drop it from the
+        whitelist (removal.remove_library)."""
+        self.sync = self._load()
+        removal.remove_library(self.host, self.server, self.sync, library_id, dialog)
+        self._save(self.sync)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Exiting sync"""

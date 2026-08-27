@@ -1,0 +1,1 @@
+<node order="2" type="filter"><icon>DefaultFavourites.png</icon><label>string-30359</label><match>all</match><content>tvshows</content><rule field="tag" operator="is"><value>Favorite tvshows</value></rule><order direction="ascending">sorttitle</order></node>

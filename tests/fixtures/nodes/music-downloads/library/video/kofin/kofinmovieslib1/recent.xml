@@ -1,0 +1,1 @@
+<node order="1" type="filter"><icon>DefaultRecentlyAddedMovies.png</icon><label>string-30350</label><match>all</match><content>movies</content><rule field="tag" operator="is"><value>Movies</value></rule><order direction="descending">dateadded</order><limit>25</limit><rule field="playcount" operator="is"><value>0</value></rule></node>

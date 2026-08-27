@@ -55,23 +55,23 @@ class Logger:
     def __init__(self, name: str) -> None:
         self._prefix = "[kofin] %s: " % name
 
-    def debug(self, msg: str, *args: Any) -> None:
+    def debug(self, msg: object, *args: Any) -> None:
         self._write(xbmc.LOGDEBUG, msg, args)
 
-    def info(self, msg: str, *args: Any) -> None:
+    def info(self, msg: object, *args: Any) -> None:
         self._write(xbmc.LOGINFO, msg, args)
 
-    def warning(self, msg: str, *args: Any) -> None:
+    def warning(self, msg: object, *args: Any) -> None:
         self._write(xbmc.LOGWARNING, msg, args)
 
-    def error(self, msg: str, *args: Any) -> None:
+    def error(self, msg: object, *args: Any) -> None:
         self._write(xbmc.LOGERROR, msg, args)
 
-    def exception(self, msg: str, *args: Any) -> None:
+    def exception(self, msg: object, *args: Any) -> None:
         self._write(xbmc.LOGERROR, msg, args, trailer=traceback.format_exc())
 
     def _write(
-        self, level: int, msg: str, args: Tuple[Any, ...], trailer: str = ""
+        self, level: int, msg: object, args: Tuple[Any, ...], trailer: str = ""
     ) -> None:
         # The ported sync code logs exception objects directly
         # (LOG.exception(error)); accept anything stringable.

@@ -13,15 +13,18 @@ from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import queries_map as QUEM
 from kofin.sync import fields as api
 from kofin.sync import schema
-from kofin.sync.fields import check_unchanged, find_library, streams_and_runtime
+from kofin.sync.fields import (
+    check_unchanged,
+    find_library,
+    gone_on_fetch,
+    streams_and_runtime,
+)
+from kofin.sync.hooks import WriterHooks
 from kofin.sync.shims import stop, jellyfin_item, values, Local
 
 from kofin.sync.obj import Objects
 from kofin.sync.kodidb import Movies as KodiDb
 from kofin.sync.kodidb import queries as QU
-from kofin.downloads import TAG as DOWNLOADS_TAG
-from kofin.downloads import repoint as downloads_repoint
-from kofin.downloads import store as downloads_store
 
 ##################################################################################################
 
@@ -54,7 +57,7 @@ def server_children(item):
 
 class Movies(KodiDb):
 
-    def __init__(self, server, jellyfindb, videodb, library=None):
+    def __init__(self, server, jellyfindb, videodb, library=None, hooks=None):
 
         self.server = server
         self.jellyfin = jellyfindb
@@ -67,6 +70,10 @@ class Movies(KodiDb):
         self.objects = Objects()
         self.item_ids = []
         self.library = library
+        # What the pipeline adds to a write that the writer does not own
+        # (kofin.sync.hooks): the downloads tag and repoint, for one. Empty
+        # means the fork's rows and nothing more.
+        self.hooks = hooks or WriterHooks()
         # Memo for find_library, per writer instance (see fields.find_library).
         self.library_cache = {}
         # Ids this writer declined to write, so the caller can tell a
@@ -159,6 +166,7 @@ class Movies(KodiDb):
 
         self.get_path_filename(obj)
         self.trailer(obj)
+        features = self.special_features(obj, item)
 
         if obj["Countries"]:
             self.add_countries(*values(obj, QU.update_country_obj))
@@ -169,13 +177,7 @@ class Movies(KodiDb):
         if obj["Favorite"]:
             tags.append("Favorite movies")
 
-        # Downloaded items carry the downloads tag through every rewrite the
-        # same way favorites do: add_tags below replaces the set wholesale,
-        # so an out-of-band stamp dies on the next pass without this
-        # (docs/offline-downloads-plan.md W1.8; the Downloads node filters
-        # on the tag).
-        if downloads_store.is_done_on(self.jellyfin_db.cursor, obj["Id"]):
-            tags.append(DOWNLOADS_TAG)
+        tags.extend(self.hooks.extra_tags("movie", self, obj))
 
         obj["Tags"] = tags
 
@@ -200,12 +202,8 @@ class Movies(KodiDb):
         self.add_streams(*values(obj, QU.add_streams_obj))
         self.artwork.add(obj["Artwork"], obj["MovieId"], "movie")
         self.versions(obj, item)
-        self.extras(obj, item)
-        # A changed item's rewrite put the file row back in writer shape;
-        # a downloaded one is re-pointed at its local file before the page
-        # commits, with the fresh URL recaptured for restore (plan W1.8 —
-        # the L2 suite pins both halves).
-        downloads_repoint.reassert_on(self.cursor, self.jellyfin_db.cursor, obj["Id"])
+        self.extras(obj, features)
+        self.hooks.after_write("movie", self, obj)
         self.item_ids.append(obj["Id"])
 
         return not update
@@ -276,7 +274,14 @@ class Movies(KodiDb):
                     % obj["Trailer"].rsplit("=", 1)[1]
                 )
         except Exception as error:
-
+            # Deviation from the fork: a 404 on the movie's own child fetch is
+            # the movie being gone -- deleted between the page and the write
+            # -- not a trailer problem, and swallowing it here wrote a row for
+            # a deleted movie. It propagates, and the walk's gone-skip
+            # (full_sync.apply_or_skip) takes it from there; every other
+            # failure is still a trailer-less movie, as before.
+            if gone_on_fetch(error):
+                raise
             LOG.exception("Failed to get trailer for movie %s: %s", obj["Id"], error)
             obj["Trailer"] = None
 
@@ -392,16 +397,46 @@ class Movies(KodiDb):
         }
         return "%s?%s" % (obj["Path"], urlencode(params))
 
-    def extras(self, obj, item):
+    def special_features(self, obj, item):
+        """The movie's extras listing, fetched before its row is written.
+
+        Deviation from the fork: extras() used to fetch inside its own
+        try/except, after the movie was in the database, so a 404 here -- the
+        movie deleted between the page and the write -- was logged and the
+        movie written regardless; the walk's gone-skip never saw it. That was
+        the one deleted-movie case the phase-1 probe could not reach
+        (S-P1.3c: a movie makes no other child request). The listing is now
+        asked for first and a 404 propagates, so the walk skips the movie and
+        nothing is written. Every other failure is still swallowed -- None,
+        which leaves the stored extras alone -- and never gates the movie;
+        and no request is made when the item reports no features, as before.
+        """
+        if self.extra_itemtype is None:
+            return []
+        if not (item.get("SpecialFeatureCount") or 0):
+            return []
+
+        try:
+            return self.server.special_features(obj["Id"])
+        except Exception as error:
+            if gone_on_fetch(error):
+                raise
+            LOG.exception(
+                "Failed to get special features for movie %s: %s", obj["Id"], error
+            )
+            return None
+
+    def extras(self, obj, features):
         """Sync special features as native Kodi extras: one ``files`` +
         ``videoversion`` row per feature (plan §2 — movies are native,
         ``itemType`` = the schema-keyed EXTRA constant). Upserts against the
         stored play URLs; streamdetails (including duration) are always
         rewritten for the desired set so the extras UI does not fall back to
-        the film's runtime. Best-effort — a failed fetch or write never
-        gates the movie sync."""
+        the film's runtime. Best-effort — a failed write never gates the
+        movie sync, and a failed fetch (``features`` None, see
+        special_features) leaves the stored set as it is."""
         item_type = self.extra_itemtype
-        if item_type is None:
+        if item_type is None or features is None:
             return
 
         try:
@@ -409,11 +444,9 @@ class Movies(KodiDb):
                 row[1]: row[0]  # strFilename -> idFile
                 for row in self.get_extra_assets(obj["MovieId"], item_type)
             }
-            count = item.get("SpecialFeatureCount") or 0
-            if not count and not existing:
+            if not features and not existing:
                 return
 
-            features = self.server.special_features(obj["Id"]) if count else []
             desired = {}
             for feature in features:
                 if feature.get("Id"):

@@ -91,13 +91,6 @@ SELECT      jellyfin_id
 FROM        jellyfin
 WHERE       media_type = ?
 """
-get_kodi_ids_by_media_folder = """
-SELECT      kodi_id
-FROM        jellyfin
-WHERE       media_type = ?
-AND         media_folder = ?
-AND         kodi_id IS NOT NULL
-"""
 get_item_ids_by_media = """
 SELECT      jellyfin_id, kodi_id
 FROM        jellyfin

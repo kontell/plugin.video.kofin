@@ -6,6 +6,9 @@ refuses anything below MyVideos131 (Kodi 21), so only the strHdrType arm
 survives. Everything else is verbatim.
 """
 
+import sqlite3
+from typing import Any, Callable, Dict, List, Tuple
+
 from kofin.core.log import Logger
 from kofin.sync.shims import values
 
@@ -16,6 +19,14 @@ LOG = Logger(__name__)
 
 
 class Kodi(object):
+    # Assigned by every subclass before Kodi.__init__ runs (movies.py:22).
+    cursor: sqlite3.Cursor
+    # Provided by the Movies and TVShows subclasses only; sync_unique_ids
+    # documents the gap for MusicVideos. Declared, not defined: an attribute
+    # here would shadow nothing and add a fourth copy of the method.
+    create_entry_unique_id: Callable[[], int]
+    add_unique_id: Callable[..., None]
+    update_unique_id: Callable[..., None]
 
     # Shared name -> person id cache, primed once per process. Writer instances
     # are created per work batch, so loading the actor table in __init__ re-read
@@ -219,7 +230,7 @@ class Kodi(object):
 
         cast_order = 1
 
-        bulk_updates = {}
+        bulk_updates: Dict[str, List[Tuple[Any, ...]]] = {}
 
         # Define the types of people considered "actors" in a "cast".
         cast_types = ["Actor", "GuestStar"]

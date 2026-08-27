@@ -1,0 +1,1 @@
+<node order="4" type="filter"><icon>DefaultSets.png</icon><label>20434</label><match>all</match><content>movies</content><rule field="tag" operator="is"><value>Both</value></rule><order direction="ascending">sorttitle</order><group>sets</group></node>

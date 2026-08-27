@@ -1,0 +1,1 @@
+<node order="2" type="filter"><icon>DefaultRecentlyAddedEpisodes.png</icon><label>string-30355</label><match>all</match><content>episodes</content><rule field="tag" operator="is"><value>Shows</value></rule><order direction="descending">dateadded</order><limit>25</limit><rule field="playcount" operator="is"><value>0</value></rule></node>

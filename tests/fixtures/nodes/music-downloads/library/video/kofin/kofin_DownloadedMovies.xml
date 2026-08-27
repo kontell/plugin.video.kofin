@@ -1,0 +1,1 @@
+<node order="4" type="filter"><icon>special://home/addons/plugin.video.kofin/resources/media/downloaded.png</icon><label>string-30718</label><match>all</match><content>movies</content><rule field="tag" operator="is"><value>Kofin Downloads</value></rule><order direction="ascending">sorttitle</order></node>

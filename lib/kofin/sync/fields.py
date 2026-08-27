@@ -8,7 +8,10 @@ only); artwork-quality settings read kofin's Sync tab ids (``compressArt``,
 ``find_library`` resolves through the kofin Api and sync.json whitelist.
 """
 
+from typing import List
+
 from kofin.core import settings
+from kofin.core.http import HttpError
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
@@ -129,7 +132,7 @@ class API(object):
     @classmethod
     def adjust_resume(cls, resume_seconds):
 
-        resume = 0
+        resume: float = 0
         if resume_seconds:
             # The jumpback rule itself lives in core.settings so the bookmark
             # written here, the resume point a listing advertises and the
@@ -295,7 +298,7 @@ class API(object):
 
     def get_backdrops(self, item_id, tags, query=None):
         """Get backdrops based of "BackdropImageTags" in the jellyfin object."""
-        backdrops = []
+        backdrops: List[str] = []
 
         if item_id is None:
             return backdrops
@@ -327,6 +330,22 @@ class API(object):
             url += query or ""
 
         return url
+
+
+def gone_on_fetch(error):
+    """Whether a child fetch's failure means the item itself is gone.
+
+    A writer that asks the server about the item it is writing -- a movie's
+    trailers or special features, a show's trailers -- gets a 404 when the
+    item was deleted between the page it came in on and the write. The fork
+    swallowed that with every other fetch error and wrote the row anyway;
+    kofin's writers re-raise on this one answer, and the walk's gone-skip
+    (``full_sync.apply_or_skip``) or the worker's unapplied flag takes it
+    from there. Only a 404 says gone: the status a child fetch answers with
+    is the endpoint's, and anything else is a fetch problem the writer still
+    absorbs as before.
+    """
+    return isinstance(error, HttpError) and error.status == 404
 
 
 def streams_and_runtime(item):

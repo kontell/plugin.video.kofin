@@ -5,15 +5,15 @@ from the server), ``self.server`` is the kofin Api, and the ``musicTranscode``
 setting picks between the fork's direct stream URLs and kofin plugin paths."""
 
 import datetime
+from typing import Any, List
 
 from kofin.core import settings
 from kofin.core.log import Logger
-from kofin.downloads import repoint as downloads_repoint
 from kofin.sync import kofindb as jellyfin_db
-from kofin.sync import musicsources
 from kofin.sync import queries_map as QUEM
 from kofin.sync import fields as api
 from kofin.sync.fields import check_unchanged, find_library
+from kofin.sync.hooks import WriterHooks
 from kofin.sync.shims import stop, jellyfin_item, values, Local
 
 from kofin.sync.obj import Objects
@@ -30,7 +30,7 @@ LOG = Logger(__name__)
 
 class Music(KodiDb):
 
-    def __init__(self, server, jellyfindb, musicdb, library=None):
+    def __init__(self, server, jellyfindb, musicdb, library=None, hooks=None):
 
         self.server = server
         self.jellyfin = jellyfindb
@@ -48,6 +48,10 @@ class Music(KodiDb):
         self.objects = Objects()
         self.item_ids = []
         self.library = library
+        # What the pipeline adds to a write that the writer does not own
+        # (kofin.sync.hooks): the downloads tag and repoint, for one. Empty
+        # means the fork's rows and nothing more.
+        self.hooks = hooks or WriterHooks()
         # Memo for find_library, per writer instance (see fields.find_library).
         self.library_cache = {}
         # Ids this writer declined to write, so the caller can tell a
@@ -217,34 +221,12 @@ class Music(KodiDb):
 
         self.artist_link(obj)
         self.artist_discography(obj)
-        self.link_library_source(obj)
+        self.hooks.after_write("album", self, obj)
         self.update_album(*values(obj, QU.update_album_obj))
         self.update_album_duration(*values(obj, QU.update_album_duration_obj))
         self.add_genres(*values(obj, QU.add_genres_obj))
         self.artwork.add(obj["Artwork"], obj["AlbumId"], "album")
         self.item_ids.append(obj["Id"])
-
-    def link_library_source(self, obj):
-        """Link the item's album to its library's MyMusic ``source`` row.
-
-        The music side of the video writers' tag injection. MyMusic has no
-        tag table, so a per-library node filters on the source name instead,
-        and ``album_source`` is the one link that survives a downloaded song
-        being repointed at the filesystem (sync/musicsources.py says why).
-
-        Called from both ``album`` and ``song``: a single's album is created
-        on the fly by ``song_add`` and never passes through ``album``, so the
-        album leg alone would drop every single out of its library's nodes.
-        """
-        library_id = obj.get("LibraryId")
-
-        if not library_id or not obj.get("AlbumId"):
-            return
-
-        source_id = self.ensure_source(
-            library_id, musicsources.source_name(library_id, self.music_views())
-        )
-        self.link_album_source(obj["AlbumId"], source_id)
 
     def music_views(self):
         """The synced music libraries, read once per writer.
@@ -261,11 +243,7 @@ class Music(KodiDb):
 
     def album_add(self, obj):
         """Add object to kodi."""
-        if self.version_id >= 82:
-            obj_values = values(obj, QU.get_album_obj82)
-        else:
-            obj_values = values(obj, QU.get_album_obj)
-        obj["AlbumId"] = self.get_album(*obj_values)
+        obj["AlbumId"] = self.get_album(*values(obj, QU.get_album_obj82))
         self.jellyfin_db.add_reference(*values(obj, QUEM.add_reference_album_obj))
         LOG.debug("ADD album [%s] %s: %s", obj["AlbumId"], obj["Title"], obj["Id"])
 
@@ -394,8 +372,6 @@ class Music(KodiDb):
         else:
             self.song_add(obj)
 
-        self.link_song_album(*values(obj, QU.update_song_album_obj))
-        self.link_library_source(obj)
         self.add_role(*values(obj, QU.update_role_obj))  # defaultt role
         self.song_artist_link(obj)
         self.song_artist_discography(obj)
@@ -410,13 +386,7 @@ class Music(KodiDb):
         if obj["SongAlbumId"] is None:
             self.artwork.add(obj["Artwork"], obj["AlbumId"], "album")
 
-        # Downloaded songs get their local location re-asserted inside this
-        # same transaction (plan W1.8/W3.2): the write above rebuilt the row
-        # in writer shape, and committing that would point a downloaded song
-        # back at the server until the next reconcile.
-        downloads_repoint.reassert_music_on(
-            self.cursor, self.jellyfin_db.cursor, obj["Id"]
-        )
+        self.hooks.after_write("song", self, obj)
 
         return not update
 
@@ -816,7 +786,7 @@ class Music(KodiDb):
     def get_child(self, item_id, e_item):
         """Get all child elements from tv show jellyfin id."""
         obj = {"Id": item_id}
-        child = []
+        child: List[Any] = []
 
         try:
             obj["KodiId"] = e_item[0]

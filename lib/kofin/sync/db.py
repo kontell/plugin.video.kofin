@@ -53,10 +53,6 @@ def addon_data_path() -> str:
     return xbmcvfs.translatePath(ADDON_DATA)
 
 
-def _kofin_db_path() -> str:
-    return os.path.join(addon_data_path(), "kofin.db")
-
-
 def resolve_path(db_file: str) -> str:
     """Resolve a kind or literal path to the sqlite file to open.
 

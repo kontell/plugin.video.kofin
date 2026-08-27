@@ -1032,6 +1032,11 @@ class Service(xbmc.Monitor):
             # ever a real kofin message, this line is the only trace.
             LOG.warning("dropped unauthenticated %s", name)
             return
+        # Verified, and now spent. The secret is not part of the command, and
+        # the library thread logs every command it dequeues (process_commands)
+        # -- so left in, the guard was printed into kodi.log on every Repair,
+        # and a pasted log is exactly the kind of channel it exists to close.
+        payload.pop(ipc.NONCE_KEY, None)
         if name == ipc.RESTART:
             LOG.info("restart requested")
             self._restart_requested = True

@@ -1,0 +1,1 @@
+<node order="4" type="filter"><icon>DefaultInProgressShows.png</icon><label>string-30356</label><match>all</match><content>episodes</content><rule field="tag" operator="is"><value>Both</value></rule><limit>25</limit><rule field="inprogress" operator="true" /></node>

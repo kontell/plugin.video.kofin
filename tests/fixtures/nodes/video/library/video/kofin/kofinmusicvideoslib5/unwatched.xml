@@ -1,0 +1,1 @@
+<node order="3" type="filter"><icon>DefaultMusicVideos.png</icon><label>string-30352</label><match>all</match><content>musicvideos</content><rule field="tag" operator="is"><value>Clips</value></rule><order direction="ascending">sorttitle</order><rule field="playcount" operator="is"><value>0</value></rule></node>

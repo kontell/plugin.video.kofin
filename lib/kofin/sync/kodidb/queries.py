@@ -316,16 +316,6 @@ INSERT INTO     streamdetails(idFile, iStreamType, strVideoCodec, fVideoAspect, 
                 iVideoHeight, iVideoDuration, strStereoMode)
 VALUES          (?, ?, ?, ?, ?, ?, ?, ?)
 """
-add_stream_video_obj_19 = [
-    "{FileId}",
-    0,
-    "{codec}",
-    "{aspect}",
-    "{width}",
-    "{height}",
-    "{Runtime}",
-    "{3d}",
-]
 add_stream_audio = """
 INSERT INTO     streamdetails(idFile, iStreamType, strAudioCodec, iAudioChannels, strAudioLanguage)
 VALUES          (?, ?, ?, ?, ?)

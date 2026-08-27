@@ -5,6 +5,7 @@ stripped (plugin mode only), ``self.server`` is the kofin Api."""
 
 import datetime
 import re
+from typing import List
 from urllib.parse import urlencode
 
 from kofin.core.log import Logger
@@ -12,6 +13,7 @@ from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import queries_map as QUEM
 from kofin.sync import fields as api
 from kofin.sync.fields import check_unchanged, find_library
+from kofin.sync.hooks import WriterHooks
 from kofin.sync.shims import stop, jellyfin_item, values, Local
 
 from kofin.sync.obj import Objects
@@ -27,7 +29,7 @@ LOG = Logger(__name__)
 
 class MusicVideos(KodiDb):
 
-    def __init__(self, server, jellyfindb, videodb, library=None):
+    def __init__(self, server, jellyfindb, videodb, library=None, hooks=None):
 
         self.server = server
         self.jellyfin = jellyfindb
@@ -40,6 +42,10 @@ class MusicVideos(KodiDb):
         self.objects = Objects()
         self.item_ids = []
         self.library = library
+        # What the pipeline adds to a write that the writer does not own
+        # (kofin.sync.hooks): the downloads tag and repoint, for one. Empty
+        # means the fork's rows and nothing more.
+        self.hooks = hooks or WriterHooks()
         # Memo for find_library, per writer instance (see fields.find_library).
         self.library_cache = {}
         # Ids this writer declined to write, so the caller can tell a
@@ -151,7 +157,7 @@ class MusicVideos(KodiDb):
             if search:
                 obj["Index"] = search.group()
 
-        tags = []
+        tags: List[str] = []
         tags.extend(obj["Tags"] or [])
         tags.append(obj["LibraryName"])
 
