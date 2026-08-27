@@ -1,0 +1,1 @@
+<node order="3" type="filter"><icon>DefaultMusicGenres.png</icon><label>135</label><content>artists</content><group>genres</group><match>all</match><rule field="source" operator="is"><value>Tunes (libm2)</value></rule></node>

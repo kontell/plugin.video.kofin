@@ -1,0 +1,1 @@
+<node order="1" type="filter"><icon>DefaultRecentlyAddedMusicVideos.png</icon><label>string-30350</label><match>all</match><content>musicvideos</content><rule field="tag" operator="is"><value>Clips</value></rule><order direction="descending">dateadded</order><limit>25</limit><rule field="playcount" operator="is"><value>0</value></rule></node>

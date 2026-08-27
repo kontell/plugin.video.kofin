@@ -1,0 +1,1 @@
+<node order="0" type="filter"><icon>DefaultMusicVideos.png</icon><label>Clips</label><match>all</match><content>musicvideos</content><rule field="tag" operator="is"><value>Clips</value></rule><order direction="ascending">sorttitle</order></node>

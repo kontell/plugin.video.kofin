@@ -1,0 +1,1 @@
+<node order="6" type="filter"><icon>DefaultGenre.png</icon><label>135</label><match>all</match><content>tvshows</content><rule field="tag" operator="is"><value>Both</value></rule><order direction="ascending">sorttitle</order><group>genres</group></node>

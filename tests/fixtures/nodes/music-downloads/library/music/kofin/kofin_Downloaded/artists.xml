@@ -1,0 +1,1 @@
+<node order="0" type="filter"><icon>DefaultMusicArtists.png</icon><label>133</label><content>artists</content><match>all</match><rule field="path" operator="startswith"><value><tmp>/profile/dl/Music/</value></rule></node>

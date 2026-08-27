@@ -1962,6 +1962,210 @@ def test_metadata_writers_cannot_announce_anything(api):
     assert notify.qsize() == 0
 
 
+# --- the other three workers (P2.0b) -------------------------------------------
+#
+# Only UpdateWorker was ever constructed by a test before phase 2; the other
+# three drain loops ran only inside Kodi. Each is driven here exactly as
+# Library.start_writers / worker_sort drives it, against the L2 fixtures.
+
+
+def _writer_queues():
+    from kofin.sync.library import MUSIC_QUEUES
+
+    return {
+        item_type: queue.Queue()
+        for item_type in (
+            "Movie",
+            "BoxSet",
+            "MusicVideo",
+            "Series",
+            "Season",
+            "Episode",
+        )
+        + tuple(MUSIC_QUEUES)
+    }
+
+
+def test_userdata_worker_applies_video_userdata(api):
+    """A favourite flip and a resume point, through the drain loop."""
+    from kofin.sync.library import UserDataWorker
+
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    write_series_tree(api)
+
+    movie = dto(MOVIE)
+    movie["UserData"] = {
+        "Played": False,
+        "PlayCount": 0,
+        "IsFavorite": True,
+        "PlaybackPositionTicks": 12000000000,
+    }
+    episode = dto(EPISODE)
+    episode["UserData"]["PlaybackPositionTicks"] = 0  # resume cleared
+    work = queue.Queue()
+    work.put(movie)
+    work.put(episode)
+
+    worker = UserDataWorker(work, threading.Lock(), "video", api)
+    worker.run()
+
+    assert worker.is_done is True
+    assert work.qsize() == 0
+    favourites = video_query(
+        "SELECT COUNT(*) FROM tag_link JOIN tag ON tag.tag_id = tag_link.tag_id"
+        " WHERE tag.name = 'Favorite movies' AND tag_link.media_type = 'movie'"
+    )
+    assert favourites == [(1,)]
+    movie_file = video_query("SELECT idFile FROM movie")[0][0]
+    # No jumpback configured in the fake store, so the point lands as sent.
+    assert video_query(
+        "SELECT timeInSeconds FROM bookmark WHERE idFile = ?", (movie_file,)
+    ) == [(1200.0,)]
+    # The cleared resume took the episode's shadow row with it.
+    assert resume_shadow_rows() == []
+
+
+def test_userdata_worker_flags_what_it_cannot_apply(api):
+    from kofin.sync.library import UserDataWorker
+
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    flagged = []
+    broken = dto(MOVIE)
+    broken["UserData"]["PlaybackPositionTicks"] = "not a number"  # the writer raises
+    work = queue.Queue()
+    work.put(broken)
+    work.put(dto(MOVIE))  # and the drain lives on
+
+    worker = UserDataWorker(
+        work,
+        threading.Lock(),
+        "video",
+        api,
+        unapplied=lambda item_id, reason: flagged.append((item_id, reason)),
+    )
+    worker.run()
+
+    assert [item_id for item_id, _ in flagged] == ["movie1"]
+    assert flagged[0][1].startswith("userdata Movie:")
+    assert worker.is_done is True
+
+
+def test_userdata_worker_applies_music_userdata(api, frozen_music_clock):
+    from kofin.sync.library import UserDataWorker
+
+    write_music_tree(api)
+    song = dto(SONG)
+    song["UserData"] = dict(song["UserData"], PlayCount=3, Played=True)
+    work = queue.Queue()
+    work.put(song)
+
+    worker = UserDataWorker(work, threading.Lock(), "music", api)
+    worker.run()
+
+    assert worker.is_done is True
+    assert music_query("SELECT iTimesPlayed FROM song") == [(3,)]
+
+
+def test_sort_worker_routes_ids_to_their_media_queue(api):
+    """The removed feed carries bare ids; the sorter resolves each to the
+    media type its writer queue is keyed on, children via the parent."""
+    from kofin.sync.library import SortWorker
+
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    write_series_tree(api)
+    output = _writer_queues()
+    work = queue.Queue()
+    for item_id in ("movie1", "episode1", "series1", "never-synced"):
+        work.put(item_id)
+
+    worker = SortWorker(work, output)
+    worker.run()
+
+    assert worker.is_done is True
+    routed = {
+        item_type: [entry["Id"] for entry in drain(output[item_type])]
+        for item_type in output
+    }
+    assert routed["Movie"] == ["movie1"]
+    assert routed["Episode"] == ["episode1"]
+    assert routed["Series"] == ["series1"]
+    assert not any(routed[t] for t in routed if t not in ("Movie", "Episode", "Series"))
+
+
+def test_sort_worker_expands_a_parent_it_never_synced(api):
+    """A series removed server-side arrives as its own id; with its own row
+    already gone the sorter still finds the children referencing it
+    (jellyfin_parent_id, the episode's SeriesId) and routes those."""
+    from kofin.sync.library import SortWorker
+
+    write_series_tree(api)
+    kofin_exec("DELETE FROM jellyfin WHERE jellyfin_id = 'series1'")
+    output = _writer_queues()
+    work = queue.Queue()
+    work.put("series1")
+
+    SortWorker(work, output).run()
+
+    routed = [entry["Id"] for entry in drain(output["Episode"])]
+    assert routed == ["episode1"]
+    assert drain(output["Series"]) == []
+
+
+def test_removed_worker_removes_every_kind_and_leaves_no_orphans(api):
+    from kofin.sync.library import RemovedWorker
+
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    write_series_tree(api)  # EPISODE resumes: the shadow row is in play
+    work = queue.Queue()
+    work.put({"Id": "movie1", "Type": "Movie"})
+    work.put({"Id": "episode1", "Type": "Episode"})
+    flagged = []
+
+    worker = RemovedWorker(
+        work,
+        threading.Lock(),
+        "video",
+        api,
+        unapplied=lambda item_id, reason: flagged.append((item_id, reason)),
+    )
+    worker.run()
+
+    assert worker.is_done is True and flagged == []
+    assert video_query("SELECT COUNT(*) FROM movie") == [(0,)]
+    assert video_query("SELECT COUNT(*) FROM episode") == [(0,)]
+    assert video_query("SELECT COUNT(*) FROM tvshow") == [(0,)]  # the cascade
+    assert kofin_query("SELECT COUNT(*) FROM jellyfin") == [(0,)]
+    for label, sql in ORPHAN_RULES:
+        assert video_query(sql) == [(0,)], "orphans in %s" % label
+
+
+def test_removed_worker_leaves_an_unknown_kind_in_place(api):
+    from kofin.sync.library import RemovedWorker
+
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api)
+    work = queue.Queue()
+    work.put({"Id": "movie1", "Type": "Photo"})
+
+    RemovedWorker(work, threading.Lock(), "video", api).run()
+
+    assert video_query("SELECT COUNT(*) FROM movie") == [(1,)]
+    assert work.qsize() == 0
+
+
+def drain(q):
+    items = []
+    while True:
+        try:
+            items.append(q.get_nowait())
+        except queue.Empty:
+            return items
+
+
 ORPHAN_RULES = [
     (
         "genre_link media_id/movie",

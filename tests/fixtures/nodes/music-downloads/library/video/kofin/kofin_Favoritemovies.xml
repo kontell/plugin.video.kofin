@@ -1,0 +1,1 @@
+<node order="1" type="filter"><icon>DefaultFavourites.png</icon><label>string-30358</label><match>all</match><content>movies</content><rule field="tag" operator="is"><value>Favorite movies</value></rule><order direction="ascending">sorttitle</order></node>

@@ -1,0 +1,1 @@
+<node order="3" type="filter"><icon>DefaultInProgressShows.png</icon><label>string-30351</label><match>all</match><content>tvshows</content><rule field="tag" operator="is"><value>Shows</value></rule><rule field="inprogress" operator="true" /><limit>25</limit></node>

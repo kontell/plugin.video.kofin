@@ -1,0 +1,1 @@
+<node order="6" type="filter"><icon>special://home/addons/plugin.video.kofin/resources/media/downloaded.png</icon><label>string-30721</label><match>all</match><content>episodes</content><rule field="path" operator="startswith"><value><tmp>/profile/dl/</value></rule><order direction="ascending">sorttitle</order></node>
