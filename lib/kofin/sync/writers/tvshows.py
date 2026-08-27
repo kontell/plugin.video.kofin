@@ -967,7 +967,22 @@ class TVShows(KodiDb):
     def remove_episode(self, kodi_id, file_id, item_id):
 
         self.artwork.delete(kodi_id, "episode")
+        # Deviation from the fork: the resume shadow goes with the episode.
+        # An episode with a resume point gets a second files row -- its own
+        # play URL under the add-on's root path, the bookmark repeated on it
+        # (episode(), ``if obj["Resume"]``; the fork's shape for a resume
+        # dialog on a plugin path). delete_episode drops the episode's own
+        # file only, and nothing in kofin.db references the shadow, so every
+        # removal left it and its bookmark behind: eight unlinked files rows
+        # on the Omega rig after one Shows round trip (S-P1.3b). The userdata
+        # path already removes it when the resume clears; this is that
+        # delete, and the delete_file trigger takes the bookmark with it.
+        filename = self.get_filename(file_id)
         self.delete_episode(kodi_id, file_id)
+
+        if filename:
+            self.remove_file("plugin://plugin.video.kofin/", filename)
+
         LOG.debug("DELETE episode [%s/%s] %s", file_id, kodi_id, item_id)
 
     @jellyfin_item

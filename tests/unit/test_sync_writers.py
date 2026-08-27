@@ -2055,7 +2055,82 @@ ORPHAN_RULES = [
         "tag_link.tag_id",
         "SELECT COUNT(*) FROM tag_link WHERE tag_id NOT IN (SELECT tag_id FROM tag)",
     ),
+    # P2.5b: a files row belongs to a movie, an episode, a music video or a
+    # version/extra asset; a bookmark belongs to one of the first three. The
+    # resume shadow (writers/tvshows.py remove_episode) is neither once its
+    # episode is gone.
+    (
+        "files unlinked",
+        "SELECT COUNT(*) FROM files WHERE idFile NOT IN (SELECT idFile FROM movie)"
+        " AND idFile NOT IN (SELECT idFile FROM episode)"
+        " AND idFile NOT IN (SELECT idFile FROM musicvideo)"
+        " AND idFile NOT IN (SELECT idFile FROM videoversion)",
+    ),
+    (
+        "bookmark unlinked",
+        "SELECT COUNT(*) FROM bookmark WHERE idFile NOT IN (SELECT idFile FROM movie)"
+        " AND idFile NOT IN (SELECT idFile FROM episode)"
+        " AND idFile NOT IN (SELECT idFile FROM musicvideo)",
+    ),
 ]
+
+
+ROOT_PATH = "plugin://plugin.video.kofin/"
+
+
+def resume_shadow_rows():
+    """The files rows under the add-on's root path: the second row an
+    episode with a resume point gets, its bookmark repeated on it."""
+    return video_query(
+        "SELECT files.idFile, (SELECT COUNT(*) FROM bookmark WHERE bookmark.idFile = files.idFile)"
+        " FROM files JOIN path ON path.idPath = files.idPath WHERE path.strPath = ?",
+        (ROOT_PATH,),
+    )
+
+
+def test_episode_removal_takes_its_resume_shadow(api):
+    """P2.5b. An episode with a resume point carries a second files row under
+    the add-on root path with its own bookmark, and delete_episode drops the
+    episode's own file only: after one Shows round trip the Omega rig held
+    the shadow and its bookmark for every removed episode (S-P1.3b). The
+    removal takes both now, and the zero-orphan rules cover files and
+    bookmark from here on."""
+    write_series_tree(api)  # EPISODE resumes at 300 s
+
+    assert resume_shadow_rows() == [
+        (video_query("SELECT MAX(idFile) FROM files")[0][0], 1)
+    ]
+    assert video_query("SELECT COUNT(*) FROM bookmark") == [(2,)]
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).remove("episode1")
+
+    assert video_query("SELECT COUNT(*) FROM episode") == [(0,)]
+    assert resume_shadow_rows() == []
+    assert video_query("SELECT COUNT(*) FROM bookmark") == [(0,)]
+    for label, sql in ORPHAN_RULES:
+        assert video_query(sql) == [(0,)], "orphans in %s" % label
+
+
+def test_episode_without_a_resume_point_removes_cleanly_too(api):
+    """The shadow is only there when there was a resume point; the delete
+    must not depend on it."""
+    register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
+    payload = dto(EPISODE)
+    payload["UserData"]["PlaybackPositionTicks"] = 0
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        shows = TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS)
+        shows.tvshow(dto(SERIES))
+        shows.episode(payload)
+
+    assert resume_shadow_rows() == []
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).remove("episode1")
+
+    assert video_query("SELECT COUNT(*) FROM episode") == [(0,)]
+    for label, sql in ORPHAN_RULES:
+        assert video_query(sql) == [(0,)], "orphans in %s" % label
 
 
 def test_series_removal_leaves_no_orphans(api):
