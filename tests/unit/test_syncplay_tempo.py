@@ -629,6 +629,12 @@ def test_session_arms_on_piers_and_shortens_the_queue(session_env):
     assert not session.active
     assert state.syncplay_tempo() == {}
     assert rpc.settings["videoplayer.queuetimesize"] == 40
+    # The record survives the restore on purpose — see
+    # test_the_record_outlives_a_restore_kodi_never_saved.
+    assert FakeAddon.store["syncPlayQueueRestore"] == "40"
+
+    # A later start sees the value really is back, and only then drops it.
+    assert tempo.restore_queue() is False
     assert FakeAddon.store["syncPlayQueueRestore"] == ""
 
 
@@ -720,11 +726,41 @@ def test_scheduler_reads_the_sliders(rig):
     assert not scheduler.can_close(100.0)
 
 
+def test_the_record_outlives_a_restore_kodi_never_saved(session_env):
+    """A JSON-RPC settings write lives in Kodi's memory until Kodi saves.
+
+    Kill Kodi in between and guisettings.xml still holds the shortened value.
+    Clearing the record on the strength of the in-memory write therefore left
+    two shakedown devices stuck at a 1s queue with nothing left to undo it —
+    one of them stuttering at every 3s HLS segment boundary. The record has to
+    outlive a restore that may not have reached the disk.
+    """
+    rpc = session_env(RpcStub({"videoplayer.queuetimesize": 10}, {"enabled": True}))
+    FakeAddon.store["syncPlayQueueRestore"] = "40"
+
+    assert tempo.restore_queue() is True
+    assert FakeAddon.store["syncPlayQueueRestore"] == "40"
+
+    # Kodi is killed: the write never reached the disk, so the next start comes
+    # up shortened again — and can still put it back.
+    rpc.settings["videoplayer.queuetimesize"] = 10
+    assert tempo.restore_queue() is True
+    assert rpc.settings["videoplayer.queuetimesize"] == 40
+    assert FakeAddon.store["syncPlayQueueRestore"] == "40"
+
+    # A start that finds the value already back retires the record.
+    assert tempo.restore_queue() is False
+    assert FakeAddon.store["syncPlayQueueRestore"] == ""
+
+
 def test_restore_queue_after_an_interrupted_session(session_env):
     rpc = session_env(RpcStub({"videoplayer.queuetimesize": 10}, {"enabled": True}))
     FakeAddon.store["syncPlayQueueRestore"] = "40"
     assert tempo.restore_queue() is True
     assert rpc.settings["videoplayer.queuetimesize"] == 40
+    # Kept until something can confirm it stuck.
+    assert FakeAddon.store["syncPlayQueueRestore"] == "40"
+    assert tempo.restore_queue() is False
     assert FakeAddon.store["syncPlayQueueRestore"] == ""
     # Nothing recorded: nothing to do.
     assert tempo.restore_queue() is False
