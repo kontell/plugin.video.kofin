@@ -9,13 +9,9 @@ import pytest
 from kofin.sync import db as sync_db
 from kofin.sync import kofindb
 from kofin.sync import kodisetup
-from kofin.sync.views import (
-    NODE_ROOT,
-    NODE_ROOT_ICON,
-    PLAYLIST_FOLDER,
-    Views,
-    node_icon,
-)
+from kofin.sync.nodes.video import NODE_ROOT, NODE_ROOT_ICON, node_icon
+from kofin.sync.playlists import FOLDER_NAME as PLAYLIST_FOLDER
+from kofin.sync.views import Views
 from tests.unit.fakes import FakeAddon, FakeWindow
 
 
@@ -834,7 +830,7 @@ def test_downloaded_nodes_carry_the_addon_icon_even_on_an_existing_file(views_en
     these files would have kept the star through any number of NODE_LAYOUT
     bumps.
     """
-    from kofin.sync.views import NODE_DOWNLOADS_ICON
+    from kofin.sync.nodes.video import NODE_DOWNLOADS_ICON
 
     seed([("lib1", "Movies", "movies")], ["lib1"])
     FakeAddon.store["downloadsEnabled"] = "true"
@@ -866,12 +862,8 @@ def test_downloaded_music_nodes_appear_and_leave_with_the_feature(views_env):
     Downloaded-music smart playlist and no node, which filed it under
     Playlists instead of beside the rest of Kofin."""
     from kofin.downloads import downloads_root
-    from kofin.sync.views import (
-        MUSIC_DOWNLOADED_FOLDER,
-        NODE_DOWNLOADS_ICON,
-        NODE_ROOT_ICON,
-        write_music_nodes,
-    )
+    from kofin.sync.nodes.music import MUSIC_DOWNLOADED_FOLDER, write_music_nodes
+    from kofin.sync.nodes.video import NODE_DOWNLOADS_ICON, NODE_ROOT_ICON
 
     root = music_root(views_env)
     assert write_music_nodes() is False  # nothing synced, feature off
@@ -914,7 +906,7 @@ def test_downloaded_music_nodes_appear_and_leave_with_the_feature(views_env):
 def test_music_library_nodes_mirror_the_library(views_env):
     """The per-library music folder: the same four ways in Kodi's own music
     library offers, scoped to the library by its MyMusic source row."""
-    from kofin.sync.views import write_music_nodes
+    from kofin.sync.nodes.music import write_music_nodes
 
     seed(
         [("libm", "Tunes", "music"), ("lib1", "Movies", "movies")],
@@ -957,7 +949,7 @@ def test_music_library_nodes_mirror_the_library(views_env):
 def test_music_library_nodes_survive_without_downloads(views_env):
     """The music tree is no longer keyed on the downloads feature: a synced
     music library is reason enough for it to exist."""
-    from kofin.sync.views import MUSIC_DOWNLOADED_FOLDER, write_music_nodes
+    from kofin.sync.nodes.music import MUSIC_DOWNLOADED_FOLDER, write_music_nodes
 
     seed([("libm", "Tunes", "music")], ["libm"])
     FakeAddon.store["downloadsEnabled"] = "false"
@@ -968,7 +960,7 @@ def test_music_library_nodes_survive_without_downloads(views_env):
 
 
 def test_music_nodes_prune_a_library_that_left_the_whitelist(views_env):
-    from kofin.sync.views import write_music_nodes
+    from kofin.sync.nodes.music import write_music_nodes
 
     seed([("libm", "Tunes", "music"), ("libn", "More", "music")], ["libm", "libn"])
     write_music_nodes()
@@ -984,7 +976,7 @@ def test_music_nodes_prune_a_library_that_left_the_whitelist(views_env):
 def test_music_source_names_disambiguate_a_shared_library_name(views_env):
     """The source name is the whole of what a node's rule matches, so two
     libraries both called Music would each show the other's contents."""
-    from kofin.sync.views import write_music_nodes
+    from kofin.sync.nodes.music import write_music_nodes
 
     seed([("libm", "Music", "music"), ("libn", "Music", "music")], ["libm", "libn"])
     write_music_nodes()
@@ -999,7 +991,7 @@ def test_music_source_names_disambiguate_a_shared_library_name(views_env):
 def test_music_nodes_rewrite_a_stale_source_rule(views_env):
     """A renamed library must not leave the old rule behind: with match=all
     a stale source name means the node matches nothing, silently."""
-    from kofin.sync.views import write_music_nodes
+    from kofin.sync.nodes.music import write_music_nodes
 
     seed([("libm", "Tunes", "music")], ["libm"])
     write_music_nodes()
@@ -1015,7 +1007,7 @@ def test_music_nodes_rewrite_a_stale_source_rule(views_env):
 def test_music_node_folder_replaces_the_flat_downloaded_file(views_env):
     """The migration: an install generated before the Downloaded folder has
     no other route to being rid of the loose node."""
-    from kofin.sync.views import (
+    from kofin.sync.nodes.music import (
         MUSIC_DOWNLOADED_FILE,
         MUSIC_DOWNLOADED_FOLDER,
         write_music_nodes,
@@ -1035,7 +1027,7 @@ def test_music_node_folder_replaces_the_flat_downloaded_file(views_env):
 def test_music_node_removal_leaves_hand_made_entries_alone(views_env):
     """Same rule as the video pruner: this folder is ours by name only, and
     anything else in it is the user's."""
-    from kofin.sync.views import write_music_nodes
+    from kofin.sync.nodes.music import write_music_nodes
 
     FakeAddon.store["downloadsEnabled"] = "true"
     write_music_nodes()
@@ -1054,7 +1046,7 @@ def test_music_node_removal_leaves_hand_made_entries_alone(views_env):
 
 def test_music_nodes_prune_spares_hand_made_entries(views_env):
     """The reconcile is prefix-gated too, not just the teardown."""
-    from kofin.sync.views import write_music_nodes
+    from kofin.sync.nodes.music import write_music_nodes
 
     seed([("libm", "Tunes", "music")], ["libm"])
     write_music_nodes()

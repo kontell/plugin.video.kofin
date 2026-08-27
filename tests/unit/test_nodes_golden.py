@@ -144,12 +144,10 @@ def tag_rules(text):
     ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="P2.1: node files are parsed and amended, so a renamed library keeps "
-    "its old tag rule beside the new one and matches nothing under match=all",
-)
 def test_a_renamed_library_carries_only_its_new_tag(views_env):
+    """Failed before P2.1: node files were parsed and amended, so a renamed
+    library kept its old tag rule beside the new one and matched nothing
+    under match=all. Written whole, the file says what the server says."""
     seed(VIDEO_VIEWS, VIDEO_WHITELIST)
     Views(FakeApi()).get_nodes()
     root = views_env["profile"] / "library" / "video" / "kofin"
@@ -161,3 +159,64 @@ def test_a_renamed_library_carries_only_its_new_tag(views_env):
     assert tag_rules((root / "kofinmovieslib1" / "all.xml").read_text()) == ["Films"]
     playlist = views_env["profile"] / "playlists" / "video" / "Kofin"
     assert tag_rules((playlist / "kofinmovieslib1.xsp").read_text()) == ["Films"]
+
+
+# --- the props are cleared as completely as they are published (P2.1c) ---------
+
+
+def test_republishing_a_smaller_view_set_leaves_no_stale_props(views_env):
+    """A library removed from the whitelist: every Kofin.nodes.N.* prop it
+    published is cleared on the next publish, the sub-node ones included --
+    the fork's fixed clear list missed genres/random/recommended/sets and
+    every sub-node's id/type/artwork."""
+    seed(VIDEO_VIEWS, VIDEO_WHITELIST)
+    Views(FakeApi()).get_nodes()
+    before = props()
+    assert any(name.startswith("Kofin.nodes.1.genres.") for name in before)
+    assert any(name.startswith("Kofin.nodes.1.recommended.id") for name in before)
+
+    for view_id, _name, _media in VIDEO_VIEWS[1:]:
+        Views().remove_library(view_id)  # only Shows stays
+    seed(VIDEO_VIEWS[:1], ["lib2"])
+    Views(FakeApi()).get_nodes()
+    after = props()
+
+    removed = [view_id for view_id, _name, _media in VIDEO_VIEWS[1:]]
+    stale = sorted(
+        name
+        for name, value in after.items()
+        if any(view_id in value for view_id in removed)
+    )
+    assert stale == []
+    assert after["Kofin.nodes.total"] == "4"  # Shows + the three favourites
+    assert after["Kofin.nodes.0.id"] == "lib2"
+    # The singles at 1..3 publish entry props only; a sub-node prop there
+    # could only be a leftover.
+    assert not any(
+        name.startswith("Kofin.nodes.%d." % index) and name.count(".") > 3
+        for index in (1, 2, 3)
+        for name in after
+    )
+    assert not any(name.startswith("Kofin.wnodes.1.") for name in after)
+
+
+def test_clear_covers_every_sub_node_the_table_knows(views_env):
+    from kofin.sync.nodes import props as node_props
+    from kofin.sync.nodes.video import NODES
+
+    FakeWindow.store["Kofin.nodes.total"] = "1"
+    planted = []
+    for kind in NODES.values():
+        for key, _label in kind:
+            for prop in ("title", "content", "path", "id", "type", "artwork"):
+                name = "Kofin.nodes.0.%s.%s" % (key, prop)
+                FakeWindow.store[name] = "x"
+                planted.append(name)
+    FakeWindow.store["Kofin.nodes.0.title"] = "x"
+    FakeWindow.store["Kofin.nodes.title"] = "x"
+
+    node_props.clear()
+
+    assert not any(name in FakeWindow.store for name in planted if ".all." not in name)
+    assert "Kofin.nodes.0.title" not in FakeWindow.store
+    assert "Kofin.nodes.title" not in FakeWindow.store

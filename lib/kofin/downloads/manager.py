@@ -634,10 +634,11 @@ class DownloadManager:
         if self._music_view_written and not force:
             return
         try:
-            from kofin.sync import playlists, views
+            from kofin.sync import playlists
+            from kofin.sync.nodes import music as music_nodes
 
             playlists.refresh_downloaded_music()
-            views.write_music_nodes()
+            music_nodes.write_music_nodes()
             self._music_view_written = True
         except Exception:  # pragma: no cover - the view is best-effort
             LOG.exception("downloaded-music view refresh failed")
