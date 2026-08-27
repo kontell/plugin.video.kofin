@@ -106,7 +106,7 @@ What remains is kofin's own:
   `playlists/music/` — **capital K** — but the two folders have opposite ownership rules.
   Under `playlists/video/Kofin/` the `kofin` prefix gates deletion and a foreign file is
   spared (`views.py`); under `playlists/music/Kofin/` the **folder** is the boundary — the
-  managed `.m3u8` files are named after the server, carry no prefix, and every file not in
+  managed `.m3u8` files are named after the Jellyfin playlist's title, carry no prefix, and every file not in
   the managed set is removed on the next poll (`playlists.py`). Nothing of the user's may
   be told to live there.
 - Every show's path row carries `strContent='tvshows'` + `metadata.local` **and**

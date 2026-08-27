@@ -305,11 +305,6 @@ class FullSync(object):
         failures = []
 
         self.process_libraries(libraries, failures)
-
-        if failures:
-            raise failures[0]
-
-        elapsed = datetime.datetime.now() - start_time
         save_sync(self.sync)
 
         # Refresh the databases this sync actually wrote. Refreshing only video
@@ -319,6 +314,13 @@ class FullSync(object):
         # the drain that lands the work — refreshing at plan time re-rendered
         # every widget for rows that had not changed yet, doubling the update
         # command's cost for nothing (widget-refresh-plan F2/D4).
+        #
+        # Before the failure re-raise, not after: a run that lost one library
+        # still wrote the others, and this is the refresh that shows them --
+        # ``libraries`` is the whole queue, so a database a failed library
+        # half-wrote is covered too, fingerprint-gated like the rest. The
+        # per-library publish in process_libraries must not stand in for it:
+        # that one carries no force_reload, and force_reload is the point.
         if not self.update_library:
             synced_video, synced_music = split_libraries(libraries, self._media_type)
             databases = set()
@@ -333,6 +335,13 @@ class FullSync(object):
             # knows every selected library has landed, and the first-content
             # probes cannot be trusted to notice — see refresh_libraries.
             self.library.refresh_libraries(databases, force_reload=True)
+
+        if failures:
+            # After the refresh, before the completion toast: what synced is
+            # visible, and a partial run never claims success.
+            raise failures[0]
+
+        elapsed = datetime.datetime.now() - start_time
 
         # Music playlists are files, not MyMusic rows — refresh after a
         # successful library pass when the setting is on. Soft-fail so a
@@ -401,11 +410,9 @@ class FullSync(object):
 
             save_sync(self.sync)
 
-            # The last library is left to the end-of-sync refresh -- unless a
-            # failure is on the list, because start() then raises before that
-            # refresh runs and this library would sit synced and invisible
-            # until something else refreshed its database.
-            if synced and (position < len(libraries) - 1 or failures):
+            # The last library is left to the end-of-sync refresh in start(),
+            # which runs whether or not a failure is on the list.
+            if synced and position < len(libraries) - 1:
                 self._publish_library(library)
 
     def _publish_library(self, library):
@@ -419,10 +426,8 @@ class FullSync(object):
         Kodi raises no library-change event for direct SQLite writes.
 
         Skipped for the final library: the end-of-sync refresh in ``start()``
-        covers it, and firing both would pay for two scans and two vacuums to
-        show the same rows. Not skipped when an earlier library failed --
-        ``start()`` re-raises before that refresh, so the caller publishes the
-        last one itself.
+        covers it -- failure or not, it runs before the re-raise -- and firing
+        both would pay for two scans and two vacuums to show the same rows.
 
         Cheap when there is nothing to say. ``refresh_libraries`` is
         fingerprint-gated, so a library that changed nothing a widget renders

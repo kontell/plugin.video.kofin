@@ -3,7 +3,8 @@
 playlists under ``special://profile/playlists/music/Kofin/``.
 
 Download each Audio playlist, rewrite track lines to the same path already
-stored for that song in MyMusic, write ``<Server Name>.m3u8``. The folder is
+stored for that song in MyMusic, write one ``.m3u8`` per playlist named after
+the playlist's title (``_unique_stem``, no ``kofin`` prefix). The folder is
 the ownership boundary — never touch sibling files under ``playlists/music/``.
 
 **The line has to be one Kodi can trace back to the song row**, and which line

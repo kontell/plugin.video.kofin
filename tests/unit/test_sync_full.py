@@ -74,9 +74,10 @@ def test_a_failing_library_does_not_abandon_the_ones_after_it(fullsync, monkeypa
     # The failed one stays queued for the resume backoff; the other landed.
     assert fullsync.sync["Libraries"] == ["flaky1"]
     assert fullsync.sync["Whitelist"] == ["lib2"]
-    # ...and was made visible from the loop: start() will re-raise before
-    # its own end-of-sync refresh.
-    assert fullsync.library.refreshed == [{"video"}]
+    # The last library is not published from the loop: start()'s end-of-sync
+    # refresh covers it, failure or not, and runs before the re-raise
+    # (test_a_failed_run_still_gets_the_end_of_sync_refresh).
+    assert fullsync.library.refreshed == []
 
 
 def test_an_exit_exception_abandons_the_rest(fullsync, monkeypatch):
@@ -439,12 +440,11 @@ def test_a_library_that_did_not_sync_is_not_published(publisher, monkeypatch):
     assert publisher.library.refreshed == []
 
 
-def test_the_last_library_is_published_when_an_earlier_one_failed(
-    publisher, monkeypatch
-):
-    """start() re-raises the failure before its end-of-sync refresh, so the
-    last library -- normally left to that refresh -- would sit synced and
-    invisible. With a failure on the list it is published like the others."""
+def test_a_failed_run_still_gets_the_end_of_sync_refresh(publisher, monkeypatch):
+    """start() re-raises a library failure only after its end-of-sync
+    refresh, so what the other libraries wrote is shown -- with
+    force_reload, which the per-library publish does not carry -- and the
+    whole queue's databases are covered, the failed library's included."""
     media_types(monkeypatch, publisher, {"mov": "movies", "tv": "tvshows"})
     real = publisher.process_library
 
@@ -454,12 +454,13 @@ def test_the_last_library_is_published_when_an_earlier_one_failed(
         return real(library)
 
     monkeypatch.setattr(publisher, "process_library", failing_first)
-    failures = []
+    publisher.sync["Libraries"] = ["mov", "tv"]
 
-    publisher.process_libraries(["mov", "tv"], failures)
+    with pytest.raises(HttpError):
+        publisher.start()
 
-    assert len(failures) == 1
     assert publisher.library.refreshed == [{"video"}]
+    assert publisher.library.forced == [True]
 
 
 def test_update_mode_publishes_nothing(publisher, monkeypatch):
