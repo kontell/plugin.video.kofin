@@ -121,7 +121,7 @@ CLAUDE.md said the writers "were proven equivalent to the fork's against real li
 - Correct the playlist-gate sentence: `playlists/video/Kofin/` is prefix-gated, `playlists/music/Kofin/` is folder-gated (`playlists.py` module docstring). Same folder name, opposite semantics — the doc must say so.
 - Make `process_libraries` do what its docstring says: per-library `try`, collect and continue, re-raise `LibraryExitException` immediately. A library that syncs last after a failure is published from the loop, because `start()` re-raises before its end-of-sync refresh. Tests: two-libraries-first-fails, exit-abandons-the-rest, last-published-after-failure.
 
-### Tier 1 — cheap, high yield (days)
+### Tier 1 — cheap, high yield (days) — **landed 2026-08-27 as phase 1, PR #191** (`docs/sync-refactor-phase1-plan.md`; live gates in `docs/testing-plan.md` §S-P1)
 
 - Declare `cursor: sqlite3.Cursor` on `Kodi`, fix the ~25 real errors, flip `check_untyped_defs=True` for `kofin.sync.*`.
 - Delete the dead code in §6; L2 across MyMusic 83/84 proves the music arms unreachable.

@@ -4,7 +4,7 @@
 |---|---|
 | **Date** | 2026-08-27 |
 | **Source** | `docs/sync-refactor-assessment.md` §7, Tier 1. Findings and line references live there; this document is the work order. |
-| **Branch** | `refactor/sync-phase1`, stacked on `docs/sync-refactor-assessment` (PR #190). One commit per item below, each revertible on its own; the PR merges after #190. |
+| **Branch** | `refactor/sync-phase1`, stacked on `docs/sync-refactor-assessment` (PR #190), draft PR #191. One commit per item, each revertible on its own; the PR merges after #190. **Landed 2026-08-27:** P1.0 `984a3ab` (+`10831ff`), P1.1 `12857f4`, P1.2 `10c7395`, P1.3 `3bc9f21` + `c2849cd` (the gone-probe the live run forced), P1.4 `0982a63`, P1.5 `ff02a85`; results `94b427f` onward. |
 | **Scope** | Five code items and the rig work they need: typing over `kofin.sync.*`, dead-code removal, one library walk in `full_sync.py`, the `GetItemWorker` re-queue, and the writer→shell import hoist. Nothing from Tier 2 — no module splits, no clock primitive, no `views.py` work. |
 | **Rule** | Every item lands with its unit proof *and* its live gate on both local generations. A live gate that cannot be run is written down as such, not skipped silently. |
 
@@ -108,9 +108,17 @@ Afterwards the Omega profile returns to production and re-syncs (dump-identical 
 
 **Live.** S-P1.5a downloads, Omega on jf12: download one smoke-tier movie and one episode (the offline-downloads gates in `docs/offline-downloads-plan.md` W1.7); Update libraries; the rows stay repointed (`files.strFilename` a bare basename under a real directory row, `idFile` unchanged) and the `Downloads` tag is on the item; play it — it plays from disk. S-P1.5b music sources, **both rigs** on production: music Repair; `source` holds one row per whitelisted music library named after it; `album_source` links every kofin album; then a Kodi music scan of an empty source (`AudioLibrary.Scan` on a nonexistent path) empties the table and the `ReassertMusicSources` command restores it — the in-session heal the hook must not have broken. Dump-identical to S-P1.0 for both databases.
 
+### P1.3 — what the live gate changed
+
+S-P1.3c showed the skip could not key on 404 alone: Jellyfin 12 answers a deleted collection's child query with 400. `apply_or_skip` now asks for the item itself on any other status and skips on a 404 there (`FullSync._gone`, `c2849cd`). It also showed the movie writer guards its own child fetches (assessment §3 erratum): the boxsets walk is where the one-walk change is observable live.
+
 ### P1.6 — End-to-end regression, both rigs
 
 Everything above once more, on the finished branch, against production, in one sitting: Repair all whitelisted libraries on Omega and Piers → dump-identical to S-P1.0; a FastSync with one userdata flip; a new-content toast for one addition induced through the prune path (the S-newcontent method); the S2.7 interrupted resume on Omega; a service bounce with workers in flight (`workers_alive` path, #155's territory — `stop_player` untouched but the drain is). Results → `tests/live/results/S-P1.6-{omega,piers}.md`, and the `S-P1` section of `docs/testing-plan.md` marked PASS/PARTIAL per scenario with the evidence paths.
+
+## 4b. What went wrong, and the rule it leaves
+
+jf12 is a disposable server whose media is the household's: the smoke farm symlinks into `/media/minipie/con_wd4/video/movies` and `--full` points at it directly. S-P1.3c's first attempt deleted its victim through jf12's API and **Rush (2013) is gone from the NAS** (results README, INCIDENT). Any future gone-item scenario stages generated media under a local-only directory and never issues a delete through jf12; `readlink -f` the library path before any mutating scenario. `Movies-Full` has been removed from jf12.
 
 ## 5. What the plan deliberately does not do
 
