@@ -108,7 +108,7 @@ class RecordingListItem:
         self.props[key] = value
 
 
-def test_tempo_route_needs_a_session_a_video_and_a_direct_play():
+def test_tempo_route_needs_a_session_and_a_video():
     movie = {"Type": "Movie", "Id": "m1"}
     assert play.tempo_route(movie, "DirectStream") is None  # no session
     state.publish_syncplay_tempo({"file": "/tmp/tempo", "queue_secs": 1.0})
@@ -117,10 +117,93 @@ def test_tempo_route_needs_a_session_a_video_and_a_direct_play():
         "QueueSecs": 1.0,
     }
     assert play.tempo_route(movie, "DirectPlay")["File"] == "/tmp/tempo"
-    assert play.tempo_route(movie, "Transcode") is None
+    # Audio is still never routed: PAPlayer has its own choreography.
     assert play.tempo_route({"Type": "Audio", "Id": "a1"}, "DirectStream") is None
     state.publish_syncplay_tempo({"file": "/tmp/tempo"})
     assert play.tempo_route(movie, "DirectStream")["QueueSecs"] == 8.0
+
+
+def test_the_player_queue_is_sized_for_the_route_not_the_session(monkeypatch):
+    """Fine sync shortens the queue to 1s so a pulse is audible in ~2s. A
+    segmented stream cannot live on that — the server's HLS segments are 3s and
+    a queue shorter than a segment cannot bridge a boundary, which was measured
+    as a stall every ~3s and a stream sampling between 0.75x and 1.49x. The
+    queue is read per player construction, so the route picks."""
+    writes = []
+    monkeypatch.setattr(
+        kodirpc,
+        "set_kodi_setting",
+        lambda key, value: writes.append((key, value)) is None,
+    )
+    movie = {"Type": "Movie", "Id": "m1"}
+    state.publish_syncplay_tempo(
+        {
+            "file": "/tmp/tempo",
+            "queue_secs": 1.0,
+            "queue_short_tenths": 10,
+            "queue_full_tenths": 60,
+        }
+    )
+
+    direct = play.tempo_route(movie, "DirectStream")
+    assert writes[-1] == ("videoplayer.queuetimesize", 10)
+    assert direct["QueueSecs"] == 1.0
+
+    transcode = play.tempo_route(movie, "Transcode", {})
+    assert writes[-1] == ("videoplayer.queuetimesize", 60)
+    assert transcode["QueueSecs"] == 6.0
+
+    # A user whose own queue is below the segment duration is still floored:
+    # the alternative is the stutter above.
+    state.publish_syncplay_tempo(
+        {
+            "file": "/tmp/tempo",
+            "queue_secs": 1.0,
+            "queue_short_tenths": 10,
+            "queue_full_tenths": 20,
+        }
+    )
+    assert play.tempo_route(movie, "Transcode", {})["QueueSecs"] == 4.0
+    assert writes[-1] == ("videoplayer.queuetimesize", 40)
+
+
+def test_a_session_that_never_shortened_sizes_nothing(monkeypatch):
+    """Kodi 21 has no such setting and is fixed at 8s; a session that could not
+    record a restore leaves the queue alone. Either way the published
+    queue_secs stands and nothing is written."""
+    writes = []
+    monkeypatch.setattr(
+        kodirpc,
+        "set_kodi_setting",
+        lambda key, value: writes.append((key, value)) is None,
+    )
+    movie = {"Type": "Movie", "Id": "m1"}
+    state.publish_syncplay_tempo({"file": "/tmp/tempo", "queue_secs": 8.0})
+    assert play.tempo_route(movie, "Transcode", {})["QueueSecs"] == 8.0
+    assert writes == []
+
+
+def test_tempo_route_carries_the_manifest_type_for_a_transcode():
+    """A transcode IS routed now — it is the case that needs a rate pulse most,
+    being the one transport that cannot be seeked accurately. It carries its
+    manifest type so the add-on's ffmpeg open path is not left guessing at a URL
+    with no container extension."""
+    movie = {"Type": "Movie", "Id": "m1"}
+    state.publish_syncplay_tempo({"file": "/tmp/tempo", "queue_secs": 1.0})
+
+    hls = play.tempo_route(movie, "Transcode", {"TranscodingSubProtocol": "hls"})
+    assert hls["ManifestType"] == "hls"
+    assert hls["File"] == "/tmp/tempo"
+
+    # Jellyfin defaults a video transcode to HLS when it says nothing.
+    assert play.tempo_route(movie, "Transcode", {})["ManifestType"] == "hls"
+
+    # The music profile is plain http: no manifest, so no manifest_type.
+    plain = play.tempo_route(movie, "Transcode", {"TranscodingSubProtocol": "http"})
+    assert plain["ManifestType"] == ""
+
+    # A direct stream carries none at all.
+    assert "ManifestType" not in play.tempo_route(movie, "DirectStream")
 
 
 def test_stamp_tempo_route_is_the_addon_contract():
@@ -133,6 +216,23 @@ def test_stamp_tempo_route_is_the_addon_contract():
         "inputstream.tempo.queue_secs": "1",
     }
     assert "inputstream.tempo.start_time" not in li.props
+    # No manifest_type unless the route carries one: a file or a static stream
+    # must not be announced as a playlist.
+    assert "inputstream.tempo.manifest_type" not in li.props
+
+
+def test_stamp_tempo_route_announces_a_playlist_stream():
+    li = RecordingListItem()
+    play.stamp_tempo_route(
+        li, {"File": "/tmp/tempo", "QueueSecs": 1.0, "ManifestType": "hls"}
+    )
+    assert li.props["inputstream.tempo.manifest_type"] == "hls"
+
+    plain = RecordingListItem()
+    play.stamp_tempo_route(
+        plain, {"File": "/tmp/tempo", "QueueSecs": 1.0, "ManifestType": ""}
+    )
+    assert "inputstream.tempo.manifest_type" not in plain.props
 
 
 class BuiltListItem(RecordingListItem):

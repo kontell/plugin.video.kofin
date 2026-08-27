@@ -78,6 +78,16 @@ RATE_MAX_CEILING = 0.25
 PULSE_AIM_S = 5.0
 PULSE_MAX_S = 10.0
 RAMP_STEP = 0.05
+# Learned actuation gain: how far a pulse actually moves the content against
+# how far it was asked to. A direct route measures 1.00. A segmented one
+# (a transcode, HLS) overshoots — seven consecutive live pulses landed 8-24 %
+# long and none short, because the rate stays in force past the scheduled
+# window. Learning it rather than tabulating it keeps one rig's constant out
+# of the code and costs nothing where the gain is already 1.
+GAIN_ALPHA = 0.34
+GAIN_MIN = 0.5
+GAIN_MAX = 2.0
+GAIN_MIN_ASK_MS = 150.0  # below this the measurement is mostly noise
 RAMP_DT = 0.25
 # Below this the residual is left alone. One frame at 24 fps is 42 ms, and the
 # position reads jitter by about that much on an Android box: at 50 ms the Tab
@@ -317,6 +327,7 @@ class PulseScheduler(object):
         self._settle_until = 0.0
         self._seek_blackout_until = 0.0
         self._history = []  # (direction, regrowth ppm) per pulse
+        self._gain = 1.0  # measured displacement / displacement asked for
         self._gave_up = False
         self._unrouted_logged = False
         self._lock = threading.RLock()
@@ -333,6 +344,13 @@ class PulseScheduler(object):
         self._awaiting = None
         self._history = []
         self._gave_up = False
+        # The gain is deliberately NOT reset here. It is a property of the
+        # transport, not of the item, and a transcode re-arms on every reload
+        # — which a group seek forces, since the stream restarts with a new
+        # PlaySessionId. Resetting on re-arm threw the measurement away on
+        # exactly the route that needs it: measured live, the gain never got
+        # past 1.05 while pulses kept landing 14 % long. If the transport
+        # really does change, the EMA re-converges within about three pulses.
         route = claim.get("Tempo") or {}
         path = route.get("File")
 
@@ -383,6 +401,7 @@ class PulseScheduler(object):
             self._session_id = None
             self._window = []
             self._history = []
+            self._gain = 1.0
             self._gave_up = False
 
     # ------------------------------------------------------------------
@@ -464,7 +483,10 @@ class PulseScheduler(object):
             )
             return residual
 
-        plan = plan_pulse(residual, self.rate_max)
+        # Ask for what will land on the residual, not for the residual: an
+        # actuator that overshoots by 15 % is corrected by asking for 15 %
+        # less. The give-up history keeps the true residual.
+        plan = plan_pulse(residual / self._gain, self.rate_max)
 
         if plan is None:
             return None
@@ -473,14 +495,14 @@ class PulseScheduler(object):
             self._give_up()
             return None
 
-        self._start_pulse(plan[0], plan[1], residual)
+        self._start_pulse(plan[0], plan[1], residual, residual / self._gain)
         return None
 
     # ------------------------------------------------------------------
     # Pulses
     # ------------------------------------------------------------------
 
-    def _start_pulse(self, rate, seconds, residual):
+    def _start_pulse(self, rate, seconds, residual, ask_ms=None):
         schedule = pulse_schedule(rate, seconds)
         first = schedule[0][1]
         asked = time.time()
@@ -490,7 +512,13 @@ class PulseScheduler(object):
             "after_seq": self.file.current_seq(),
             "asked": asked,
             "deadline": asked + APPLY_TIMEOUT_S,
-            "plan": (rate, seconds, residual, schedule),
+            "plan": (
+                rate,
+                seconds,
+                residual,
+                schedule,
+                residual if ask_ms is None else ask_ms,
+            ),
         }
         self.file.write(first)
         self._window = []
@@ -516,7 +544,7 @@ class PulseScheduler(object):
             self._pulse_ended(waiting, line if confirmed else None, now)
 
     def _pulse_started(self, waiting, applied, now):
-        rate, seconds, residual, schedule = waiting["plan"]
+        rate, seconds, residual, schedule, ask_ms = waiting["plan"]
 
         if applied is None:
             # Nothing answered: the playback is not going through the add-on
@@ -544,6 +572,7 @@ class PulseScheduler(object):
             "rate": rate,
             "seconds": seconds,
             "residual": residual,
+            "ask_ms": ask_ms,
             "decided_at": waiting["asked"],
             "start_delta": head_delta(applied),
             # The remaining writes, at absolute times; the last one is 1.0.
@@ -591,15 +620,37 @@ class PulseScheduler(object):
             # difference between the two confirmed state lines is exactly the
             # displacement the pulse produced — the add-on's own account of it.
             moved = head_delta(landed) - pulse["start_delta"]
+            self._learn_gain(pulse, moved)
             LOG.info(
-                "[ syncplay/pulse ] moved %+.0fms (wanted %+.0fms)",
+                "[ syncplay/pulse ] moved %+.0fms (wanted %+.0fms, gain %.2f)",
                 moved,
                 pulse["residual"],
+                self._gain,
             )
 
         self._settle_until = now + self.queue_secs + SETTLE_EXTRA_S
         self._window = []
         self._remember(pulse, now)
+
+    def _learn_gain(self, pulse, moved):
+        """Fold one pulse's outcome into the actuation gain.
+
+        Compared against what the actuator was *asked* for, not against the
+        residual — those differ once the gain is off 1, and comparing with the
+        residual would make the correction chase its own tail. Small asks are
+        skipped: at 80ms the confirmation quantisation is a large fraction of
+        the measurement.
+        """
+        asked = pulse.get("ask_ms") or pulse["residual"]
+
+        if abs(asked) < GAIN_MIN_ASK_MS or moved * asked <= 0:
+            return
+
+        observed = moved / asked
+        self._gain = min(
+            GAIN_MAX,
+            max(GAIN_MIN, (1.0 - GAIN_ALPHA) * self._gain + GAIN_ALPHA * observed),
+        )
 
     def cancel(self, reason):
         """A command or seek is about to act: no pulse may run across it.
@@ -773,6 +824,7 @@ class TempoSession(object):
     def __init__(self, notify=None):
         self.active = False
         self.queue_secs = None
+        self.queue_full_tenths = None
         # Tells the user, once per group, that fine sync wanted the add-on
         # and did not get it — a silent fallback to command-only sync reads
         # as the feature not working.
@@ -819,7 +871,18 @@ class TempoSession(object):
             restore_queue()
             return
 
-        state.publish_syncplay_tempo({"file": path, "queue_secs": self.queue_secs})
+        state.publish_syncplay_tempo(
+            {
+                "file": path,
+                "queue_secs": self.queue_secs,
+                # Both sizes, so the play route can pick per item: a segmented
+                # stream cannot live on the shortened one.
+                "queue_short_tenths": (
+                    SHORT_QUEUE_TENTHS if self.queue_full_tenths else None
+                ),
+                "queue_full_tenths": self.queue_full_tenths,
+            }
+        )
         self.active = True
         LOG.info(
             "[ syncplay/tempo ] fine sync armed through %s, queue %.1fs",
@@ -853,16 +916,33 @@ class TempoSession(object):
         next playback — every group play starts after the join. The original
         value is recorded in a hidden setting, which is what a restore after
         a crash reads.
+
+        Also records ``queue_full_tenths``: the value a route that cannot live
+        on 1 s has to be given back. Because the queue is read per player
+        construction rather than per session, the play route can choose between
+        the two for the item it is about to resolve.
         """
         current = kodirpc.kodi_setting(QUEUE_SETTING)
 
         if current is None:
+            self.queue_full_tenths = None  # Kodi 21: fixed queue, not ours
             return OMEGA_QUEUE_SECS
 
         try:
             tenths = int(current)
         except (TypeError, ValueError):
+            self.queue_full_tenths = None
             return OMEGA_QUEUE_SECS
+
+        # The user's own value, which is the record when a previous session
+        # left one — the live setting may still be a shortened leftover.
+        self.queue_full_tenths = tenths
+        try:
+            recorded = int(settings.get_str(QUEUE_RESTORE_SETTING) or 0)
+        except ValueError:
+            recorded = 0
+        if recorded > tenths:
+            self.queue_full_tenths = recorded
 
         if not settings.get_bool("syncPlayShortQueue") or tenths <= SHORT_QUEUE_TENTHS:
             return tenths / 10.0
