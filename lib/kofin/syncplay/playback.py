@@ -693,6 +693,16 @@ class PlaybackController(object):
 
                 self._watch_buffering()
 
+                if self.manager.watching_own_media():
+                    # Blocking the group's transport commands is not enough on
+                    # its own: the member is still in phase "synced", so fine
+                    # sync went on measuring its private playback against the
+                    # group and rate-shifting it to close a residual of whole
+                    # minutes. Measured: 0.750x for 10s against a -306.6s gap.
+                    # cancel() is quiet when no pulse is in flight.
+                    self.tempo.cancel("spectator playing own media")
+                    continue
+
                 if self.manager.phase == "synced" and self._expecting_playback():
                     self.tempo.tick()
             except Exception as error:
