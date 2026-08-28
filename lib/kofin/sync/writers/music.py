@@ -428,7 +428,25 @@ class Music(KodiDb):
 
     def song_update(self, obj):
         """Update object to kodi."""
-        self.update_path(*values(obj, QU.update_path_obj))
+        # Deviation from the fork: the fork rewrote the mapped path row in
+        # place and never wrote song.idPath again, so a song whose row had
+        # gone kept pointing at nothing — an UPDATE on a missing row is a
+        # silent no-op — and no repair could bring it back. The row can go:
+        # a downloaded song's server row is referenced by nothing while the
+        # download lives, and Kodi's own clean (and kofin's startup prune,
+        # before it read the mapping) removes unreferenced rows. In place
+        # when the row is there, get-or-create by string when it is not, and
+        # the id rides along in update_song either way.
+        if self.path_exists(obj["PathId"]):
+            self.update_path(*values(obj, QU.update_path_obj))
+        else:
+            obj["PathId"] = self.add_path(obj["Path"])
+            self.jellyfin_db.update_pathid(*values(obj, QUEM.update_pathid_obj))
+            LOG.info(
+                "song %s had no path row; re-created it as %s",
+                obj["SongId"],
+                obj["PathId"],
+            )
 
         self.update_song(*values(obj, QU.update_song_obj))
         self.jellyfin_db.update_reference(*values(obj, QUEM.update_reference_obj))

@@ -63,6 +63,11 @@ FROM        path
 WHERE       strPath = ?
 """
 get_path_obj = ["{Path}"]
+get_path_by_id = """
+SELECT      idPath
+FROM        path
+WHERE       idPath = ?
+"""
 get_file = """
 SELECT      idFile
 FROM        files

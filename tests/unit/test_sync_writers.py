@@ -3248,6 +3248,36 @@ def test_music_write_is_idempotent(api, frozen_music_clock):
     assert dump(str(sync_db._path_overrides["kofin"])) == first_map
 
 
+def test_music_update_heals_a_song_whose_path_row_is_gone(api, frozen_music_clock):
+    """A song can be left pointing at a deleted path row (a download's server
+    row swept while the download lived, then a restore by id -- 61 songs on a
+    Bravia, 2026-08-28). songview inner-joins path, so the song is in no
+    listing; and the fork's update rewrote the missing row in place, a silent
+    no-op, so no repair could bring it back. The update now re-resolves the
+    row by string and the mapping follows it."""
+    write_music_tree(api)
+    original = music_query(
+        "SELECT p.strPath FROM song s JOIN path p ON p.idPath = s.idPath"
+    )[0][0]
+    with sync_db.Database("music") as mdb:
+        mdb.cursor.execute("DELETE FROM path WHERE idPath = (SELECT idPath FROM song)")
+    assert music_query("SELECT COUNT(*) FROM songview") == [(0,)]
+
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
+        music.song(dto(dict(SONG, Etag="etag-song1-v2")))
+
+    rows = music_query(
+        "SELECT s.idPath, p.strPath FROM song s JOIN path p ON p.idPath = s.idPath"
+    )
+    assert rows == [(rows[0][0], original)]
+    assert music_query("SELECT COUNT(*) FROM songview") == [(1,)]
+    assert kofin_query(
+        "SELECT kodi_pathid FROM jellyfin WHERE jellyfin_id = 'song1'"
+    ) == [(rows[0][0],)]
+
+
 def test_music_rewrite_with_a_bumped_etag_is_byte_identical(api, frozen_music_clock):
     """The plain idempotency test above never reaches the writers -- an
     unchanged Etag short-circuits in check_unchanged. This is the pass that

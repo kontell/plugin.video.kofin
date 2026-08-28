@@ -183,14 +183,14 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
         size_expected INTEGER, size_actual INTEGER, quality TEXT,
         bytes_done INTEGER, userdata_json TEXT,
         queued_at INTEGER, done_at INTEGER, error TEXT,
-        restore_filename TEXT, segments_json TEXT)""")
+        restore_filename TEXT, segments_json TEXT, restore_path TEXT)""")
     # CREATE IF NOT EXISTS never revisits an existing table, and the download
     # table can materialize on a dev box between stacked PRs; additive columns
     # keep that cheap. A new column goes in the CREATE above *and* here.
     _ensure_columns(
         cursor,
         "download",
-        {"restore_filename": "TEXT", "segments_json": "TEXT"},
+        {"restore_filename": "TEXT", "segments_json": "TEXT", "restore_path": "TEXT"},
     )
 
     cursor.execute("""CREATE INDEX IF NOT EXISTS idx_jellyfin_kodi

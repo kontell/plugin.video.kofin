@@ -248,7 +248,7 @@ def test_deleting_a_song_that_is_not_there_is_harmless(musicdb):
     assert list(paths(cur)) == [path_id]
 
 
-def test_pruning_removes_paths_kofin_abandoned(musicdb):
+def test_pruning_removes_paths_kofin_abandoned(musicdb, tmp_path):
     """Heals databases leaked into before delete_song cleaned up: one dead row
     per song per repair ever run."""
     cur, _conn = musicdb
@@ -258,12 +258,13 @@ def test_pruning_removes_paths_kofin_abandoned(musicdb):
     db.add_path("plugin://plugin.video.kofin/lib/song-2/")  # leaked plugin row
     db.add_path("http://server:8096/Audio/song-3/")  # leaked direct row
     db.add_path("https://server/Audio/song-4/")
+    attach_mapping(db, tmp_path, [])
 
     assert db.prune_orphan_paths() == 3
     assert list(paths(cur)) == [live]
 
 
-def test_pruning_leaves_paths_that_are_not_kofins(musicdb):
+def test_pruning_leaves_paths_that_are_not_kofins(musicdb, tmp_path):
     """An orphaned path row is legitimate for Kodi -- its scanner keeps folder
     rows holding no songs -- so a blanket sweep is not ours to make."""
     cur, _conn = musicdb
@@ -274,12 +275,13 @@ def test_pruning_leaves_paths_that_are_not_kofins(musicdb):
         "INSERT INTO source_path(idSource, idPath, strPath) VALUES (?, ?, ?)",
         (1, source, "smb://nas/music/"),
     )
+    attach_mapping(db, tmp_path, [])
 
     assert db.prune_orphan_paths() == 0
     assert sorted(paths(cur)) == sorted([theirs, source])
 
 
-def test_pruning_spares_a_kofin_path_a_source_still_claims(musicdb):
+def test_pruning_spares_a_kofin_path_a_source_still_claims(musicdb, tmp_path):
     cur, _conn = musicdb
     db = Music(cur)
     claimed = db.add_path("http://server:8096/Audio/song-1/")
@@ -287,9 +289,32 @@ def test_pruning_spares_a_kofin_path_a_source_still_claims(musicdb):
         "INSERT INTO source_path(idSource, idPath, strPath) VALUES (?, ?, ?)",
         (1, claimed, "http://server:8096/Audio/song-1/"),
     )
+    attach_mapping(db, tmp_path, [])
 
     assert db.prune_orphan_paths() == 0
     assert list(paths(cur)) == [claimed]
+
+
+def test_pruning_spares_a_path_the_mapping_still_names(musicdb, tmp_path):
+    """A downloaded song's server row: the repoint moved the song onto the
+    album directory, so no song references the row -- but kofin.db does, and
+    the restore puts the song back onto it. This sweep, run at every service
+    start, is what emptied four albums on a Bravia (2026-08-28). A *video*
+    mapping naming the same number is a MyVideos id and spares nothing."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    server = db.add_path("https://server/Audio/song-1/")
+    local = db.add_path("/dl/Music/The Band/Greatest Hits/")
+    add_song(cur, 1, local, "Downloaded")
+    leaked = db.add_path("https://server/Audio/song-2/")
+    attach_mapping(
+        db,
+        tmp_path,
+        [("song", "lib-music", 1, server), ("movie", "lib-movies", 2, leaked)],
+    )
+
+    assert db.prune_orphan_paths() == 1
+    assert sorted(paths(cur)) == sorted([server, local])
 
 
 # -- the per-library source rows -----------------------------------------------
@@ -412,7 +437,8 @@ def attach_mapping(db, tmp_path, rows):
 
     Built with the real ``kofin_tables`` rather than a hand-written CREATE, so
     a column the reconcile reads cannot drift out from under these tests.
-    ``rows`` are ``(media_type, media_folder, kodi_id)``.
+    ``rows`` are ``(media_type, media_folder, kodi_id)``, or with a fourth
+    ``kodi_pathid`` for the path prune's mapping arm.
     """
     from kofin.sync.db import kofin_tables
 
@@ -420,15 +446,16 @@ def attach_mapping(db, tmp_path, rows):
     mapping = sqlite3.connect(path)
     kofin_tables(mapping.cursor())
     mapping.executemany(
-        "INSERT INTO jellyfin(jellyfin_id, media_type, media_folder, kodi_id) "
-        "VALUES (?, ?, ?, ?)",
+        "INSERT INTO jellyfin(jellyfin_id, media_type, media_folder, kodi_id, "
+        "kodi_pathid) VALUES (?, ?, ?, ?, ?)",
         [
-            ("%s-%s" % (media_type, kodi_id), media_type, folder, kodi_id)
-            for media_type, folder, kodi_id in rows
+            ("%s-%s" % (row[0], row[2]), row[0], row[1], row[2], (row + (None,))[3])
+            for row in rows
         ],
     )
     mapping.commit()
     mapping.close()
+    db.cursor.connection.commit()  # ATTACH is refused inside a transaction
     db.attach_mapping(path)
 
 

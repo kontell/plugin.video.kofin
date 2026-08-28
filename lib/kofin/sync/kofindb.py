@@ -68,6 +68,10 @@ class JellyfinDatabase:
         """Parent_id is the parent Kodi id."""
         self.cursor.execute(QU.update_parent, args)
 
+    def update_pathid(self, *args):
+        """The mapping follows a path row the writer had to re-create."""
+        self.cursor.execute(QU.update_pathid, args)
+
     def get_item_id_by_parent_id(self, *args):
         self.cursor.execute(QU.get_item_id_by_parent, args)
 

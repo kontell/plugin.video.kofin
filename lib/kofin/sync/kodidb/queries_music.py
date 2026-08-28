@@ -231,15 +231,21 @@ UPDATE      album
 SET         strArtistDisp = ?
 WHERE       idAlbum = ?
 """
+# Deviation from the fork: idPath travels with the update. The fork never
+# wrote it again after the add and rewrote the mapped path row in place —
+# an UPDATE on nothing once that row is gone (``song_update`` in
+# writers/music.py says how it goes). Carrying the id is what lets a repair
+# heal a song left pointing at a deleted row.
 update_song74 = """
 UPDATE      song
-SET         idAlbum = ?, strArtistDisp = ?, strGenres = ?, strTitle = ?, iTrack = ?,
+SET         idAlbum = ?, idPath = ?, strArtistDisp = ?, strGenres = ?, strTitle = ?, iTrack = ?,
             iDuration = ?, strReleaseDate = ?, strFilename = ?, iTimesPlayed = ?, lastplayed = ?,
             rating = ?, comment = ?, dateAdded = ?
 WHERE       idSong = ?
 """
 update_song_obj = [
     "{AlbumId}",
+    "{PathId}",
     "{Artists}",
     "{Genre}",
     "{Title}",
@@ -336,11 +342,24 @@ WHERE           idPath = ?
 AND             NOT EXISTS (SELECT 1 FROM song WHERE song.idPath = ?)
 AND             NOT EXISTS (SELECT 1 FROM source_path WHERE source_path.idPath = ?)
 """
+# Needs kofin.db ATTACHed as ``kofinmap`` (musicsources.mapped). The mapping
+# arm is what keeps a *downloaded* song's server row: the repoint moves
+# song.idPath onto the album directory, so for as long as the download lives
+# nothing in MyMusic references the row — but kofin.db still names it, and
+# the restore puts the song back onto that id. Without the arm the startup
+# sweep took the row and the restore left the song on a dead id, invisible
+# to every songview listing (the Bravia's empty HU albums, 2026-08-28).
+# Scoped to songs because a video row's kodi_pathid is a MyVideos id that
+# collides numerically; NOT IN over an uncorrelated subquery so SQLite
+# materialises the id set once instead of scanning the mapping per path row.
 prune_orphan_paths = """
 DELETE FROM     path
 WHERE           NOT EXISTS (SELECT 1 FROM song WHERE song.idPath = path.idPath)
 AND             NOT EXISTS (SELECT 1 FROM source_path
                             WHERE source_path.idPath = path.idPath)
+AND             idPath NOT IN (SELECT kodi_pathid FROM kofinmap.jellyfin
+                               WHERE media_type = 'song'
+                               AND kodi_pathid IS NOT NULL)
 AND             (strPath LIKE 'plugin://plugin.video.kofin/%'
                  OR strPath LIKE 'http://%/Audio/%'
                  OR strPath LIKE 'https://%/Audio/%')

@@ -140,6 +140,14 @@ What remains is kofin's own:
   itself rather than leaving it to `backfill_library_claim`, which needs a Kodi dbid off
   `Player.OnPlay` that a group start does not carry. A request naming a source, a track or a
   bitrate still streams — a download has only the tracks it was made with.
+- **A downloaded song's server path row is referenced by nothing while the download lives.**
+  MyMusic has one `path` row per song and the repoint moves `song.idPath` off it, so any sweep
+  of unreferenced rows — Kodi's own Clean library, or kofin's startup `prune_orphan_paths`
+  before it read the mapping — takes it, and a restore by the stored id then leaves the song on
+  a deleted row, which `songview` drops from every listing (four empty albums on the Bravia,
+  2026-08-28). The prune spares rows kofin.db still maps, the repoint captures `restore_path`
+  and the restore get-or-creates from it, and `song_update` re-resolves a missing row so a
+  Repair heals old damage. Never put a song back by a path id alone.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is

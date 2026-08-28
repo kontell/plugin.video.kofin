@@ -77,6 +77,14 @@ class Download:
     # server's). Re-captured whenever a writer pass rebuilds the row, so a
     # server-side rename never restores a stale URL.
     restore_filename: str = ""
+    # The path.strPath a song sat on when the repoint captured it — the
+    # music side's second half. A song's server row is referenced by nothing
+    # while the download lives (MyMusic has one path row per song and the
+    # repoint moves the song off it), so the row can be gone by restore
+    # time, and the mapping's id alone cannot bring it back; the string can.
+    # Empty on rows captured before the column existed, or on video rows,
+    # whose path rows are shared and never orphaned by a repoint.
+    restore_path: str = ""
 
     @property
     def userdata(self) -> Dict[str, Any]:
@@ -386,6 +394,13 @@ def set_restore_filename_on(cursor: Any, jellyfin_id: str, filename: str) -> Non
     cursor.execute(
         "UPDATE download SET restore_filename = ? WHERE jellyfin_id = ?",
         (filename, jellyfin_id),
+    )
+
+
+def set_restore_path_on(cursor: Any, jellyfin_id: str, path: str) -> None:
+    cursor.execute(
+        "UPDATE download SET restore_path = ? WHERE jellyfin_id = ?",
+        (path, jellyfin_id),
     )
 
 

@@ -474,7 +474,11 @@ class Music(Kodi):
         Deliberately narrow. An orphaned path row is perfectly legitimate for
         Kodi — its scanner keeps folder rows that hold no songs — so only rows
         that nothing references *and* whose path is a shape kofin writes itself
-        are ours to remove.
+        are ours to remove. "Nothing" includes kofin's own mapping: a
+        downloaded song's server row has no song on it while the download
+        lives, and it is not abandoned — the restore needs it. So the
+        statement reads the ATTACHed kofin.db (``musicsources.mapped``), and
+        this must be called inside that window.
         """
         self.cursor.execute(QU.prune_orphan_paths)
 

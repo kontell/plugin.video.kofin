@@ -575,7 +575,7 @@ class Library(threading.Thread):
             with Database("kofin") as kofindb, Database("music") as musicdb:
                 music_db = MusicKodiDb(musicdb.cursor)
                 music_db.ensure_blank_artist()
-                pruned = music_db.prune_orphan_paths()
+                pruned = musicsources.prune_orphan_paths(kofindb.cursor, musicdb.cursor)
                 if pruned:
                     LOG.info("pruned %s orphaned music path rows", pruned)
                 # Kodi's own music scanner empties the source table whenever
