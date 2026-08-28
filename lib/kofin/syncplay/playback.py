@@ -227,10 +227,10 @@ class PlaybackController(object):
         member detaches, which is exactly when the same command could
         legitimately arrive again.
         """
-        return (
-            self.last_command is not None
-            and self._identity(self.last_command) == self._identity(command)
-        )
+        if self.last_command is None:
+            return False
+
+        return self._identity(self.last_command) == self._identity(command)
 
     def cancel_pending(self):
         with self._timer_lock:
