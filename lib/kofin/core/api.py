@@ -183,6 +183,23 @@ class Api:
 
     # -- system / session ---------------------------------------------------
 
+    def _get_list(self, path: str, params: Optional[JsonDict] = None) -> List[JsonDict]:
+        """GET whose body is a bare JSON array rather than an Items envelope.
+
+        The hand-rolled copies of this shape had started to drift (P1.7);
+        every list-shaped endpoint goes through here.
+        """
+        response = self._http.request(
+            "GET",
+            self._url(path),
+            headers=self._headers(),
+            params=params,
+            timeout=self._timeout,
+            retries=self._retries,
+        )
+        listing: List[JsonDict] = response.json() if response.content else []
+        return listing
+
     def public_info(self) -> JsonDict:
         return self.get("/System/Info/Public")
 
@@ -254,16 +271,7 @@ class Api:
         self.post("/Sessions/Playing/Stopped", data)
 
     def device_sessions(self, device_id: str) -> List[JsonDict]:
-        response = self._http.request(
-            "GET",
-            self._url("/Sessions"),
-            headers=self._headers(),
-            params={"deviceId": device_id},
-            timeout=self._timeout,
-            retries=self._retries,
-        )
-        sessions: List[JsonDict] = response.json() if response.content else []
-        return sessions
+        return self._get_list("/Sessions", {"deviceId": device_id})
 
     def close_transcode(self, device_id: str, play_session_id: str) -> None:
         self.delete(
@@ -272,26 +280,10 @@ class Api:
         )
 
     def users(self) -> List[JsonDict]:
-        response = self._http.request(
-            "GET",
-            self._url("/Users"),
-            headers=self._headers(),
-            timeout=self._timeout,
-            retries=self._retries,
-        )
-        listing: List[JsonDict] = response.json() if response.content else []
-        return listing
+        return self._get_list("/Users")
 
     def public_users(self) -> List[JsonDict]:
-        response = self._http.request(
-            "GET",
-            self._url("/Users/Public"),
-            headers=self._headers(),
-            timeout=self._timeout,
-            retries=self._retries,
-        )
-        listing: List[JsonDict] = response.json() if response.content else []
-        return listing
+        return self._get_list("/Users/Public")
 
     def me(self) -> JsonDict:
         """The logged-in user's own UserDto: Configuration and Policy.
@@ -319,15 +311,7 @@ class Api:
         ``ThreeLetterISOLanguageName`` is the value a preference stores — it is
         what the web client writes, so a code set here round-trips with it.
         """
-        response = self._http.request(
-            "GET",
-            self._url("/Localization/Cultures"),
-            headers=self._headers(),
-            timeout=self._timeout,
-            retries=self._retries,
-        )
-        listing: List[JsonDict] = response.json() if response.content else []
-        return listing
+        return self._get_list("/Localization/Cultures")
 
     def session_add_user(self, session_id: str, user_id: str) -> None:
         self.post("/Sessions/%s/User/%s" % (session_id, user_id))
@@ -349,23 +333,23 @@ class Api:
     def seasons(self, series_id: str) -> JsonDict:
         return self.get(
             "/Shows/%s/Seasons" % series_id,
-            {"userId": self.user_id, "Fields": "Etag,Overview"},
+            self._as_user({"Fields": "Etag,Overview"}),
         )
 
     def episodes(self, series_id: str, season_id: str, fields: str) -> JsonDict:
         return self.get(
             "/Shows/%s/Episodes" % series_id,
-            {"userId": self.user_id, "seasonId": season_id, "Fields": fields},
+            self._as_user({"seasonId": season_id, "Fields": fields}),
         )
 
     def genres(self, parent_id: str, include_types: Optional[str] = None) -> JsonDict:
-        params: JsonDict = {"userId": self.user_id, "parentId": parent_id}
+        params: JsonDict = self._as_user({"parentId": parent_id})
         if include_types:
             params["includeItemTypes"] = include_types
         return self.get("/Genres", params)
 
     def next_up(self, parent_id: str, fields: str = "") -> JsonDict:
-        params: JsonDict = {"userId": self.user_id, "limit": 25}
+        params: JsonDict = self._as_user({"limit": 25})
         if parent_id:
             params["parentId"] = parent_id
         if fields:
@@ -424,19 +408,10 @@ class Api:
         }
         if fields:
             params["Fields"] = fields
-        response = self._http.request(
-            "GET",
-            self._url("/Items/Latest"),
-            headers=self._headers(),
-            params=self._as_user(params),
-            timeout=self._timeout,
-            retries=self._retries,
-        )
-        listing: List[JsonDict] = response.json() if response.content else []
-        return listing
+        return self._get_list("/Items/Latest", self._as_user(params))
 
     def artists(self, parent_id: str) -> JsonDict:
-        return self.get("/Artists", {"userId": self.user_id, "parentId": parent_id})
+        return self.get("/Artists", self._as_user({"parentId": parent_id}))
 
     def album_artists(self, parent_id: str) -> JsonDict:
         """Artists credited with an album, rather than every credited artist.
@@ -446,9 +421,7 @@ class Api:
         and featured performers, which is noise when you are looking for a
         record.
         """
-        return self.get(
-            "/Artists/AlbumArtists", {"userId": self.user_id, "parentId": parent_id}
-        )
+        return self.get("/Artists/AlbumArtists", self._as_user({"parentId": parent_id}))
 
     def filters(self, parent_id: str, item_type: str = "") -> JsonDict:
         """The values a library actually holds: Years, Tags, Genres, ratings.
@@ -456,7 +429,7 @@ class Api:
         One call answers all four, which is what lets the Years and Tags menus
         offer the library's own values rather than a fixed range.
         """
-        params: JsonDict = {"userId": self.user_id, "parentId": parent_id}
+        params: JsonDict = self._as_user({"parentId": parent_id})
         if item_type:
             params["includeItemTypes"] = item_type
         return self.get("/Items/Filters", params)
@@ -470,20 +443,11 @@ class Api:
         """
         return self.get(
             "/Persons",
-            {"userId": self.user_id, "searchTerm": term, "limit": limit},
+            self._as_user({"searchTerm": term, "limit": limit}),
         )
 
     def ancestors(self, item_id: str) -> List[JsonDict]:
-        response = self._http.request(
-            "GET",
-            self._url("/Items/%s/Ancestors" % item_id),
-            headers=self._headers(),
-            params={"userId": self.user_id},
-            timeout=self._timeout,
-            retries=self._retries,
-        )
-        listing: List[JsonDict] = response.json() if response.content else []
-        return listing
+        return self._get_list("/Items/%s/Ancestors" % item_id, self._as_user())
 
     def media_folders(self) -> JsonDict:
         return self.get("/Library/MediaFolders")
@@ -561,12 +525,13 @@ class Api:
         max_bitrate: Optional[int] = None,
     ) -> JsonDict:
         body: JsonDict = {"DeviceProfile": profile, "UserId": self.user_id}
-        params: JsonDict = {
-            "UserId": self.user_id,
-            "StartTimeTicks": start_ticks,
-            "IsPlayback": True,
-            "AutoOpenLiveStream": True,
-        }
+        params: JsonDict = self._as_user(
+            {
+                "StartTimeTicks": start_ticks,
+                "IsPlayback": True,
+                "AutoOpenLiveStream": True,
+            }
+        )
         if audio_index is not None:
             params["AudioStreamIndex"] = audio_index
         if subtitle_index is not None:
@@ -589,22 +554,13 @@ class Api:
 
     def special_features(self, item_id: str) -> List[JsonDict]:
         """User-scoped special features (extras) of a movie/series/season."""
-        response = self._http.request(
-            "GET",
-            self._url("/Items/%s/SpecialFeatures" % item_id),
-            headers=self._headers(),
-            params=self._as_user(),
-            timeout=self._timeout,
-            retries=self._retries,
-        )
-        listing: List[JsonDict] = response.json() if response.content else []
-        return listing
+        return self._get_list("/Items/%s/SpecialFeatures" % item_id, self._as_user())
 
     def adjacent_episodes(self, series_id: str, item_id: str) -> JsonDict:
         """The episode window around ``item_id`` (next-episode resolution)."""
         return self.get(
             "/Shows/%s/Episodes" % series_id,
-            {"userId": self.user_id, "adjacentTo": item_id, "Fields": "Overview"},
+            self._as_user({"adjacentTo": item_id, "Fields": "Overview"}),
         )
 
     # -- SyncPlay (phase 4) ----------------------------------------------------
@@ -614,15 +570,7 @@ class Api:
         return self.get("/GetUtcTime")
 
     def syncplay_list(self) -> List[JsonDict]:
-        response = self._http.request(
-            "GET",
-            self._url("/SyncPlay/List"),
-            headers=self._headers(),
-            timeout=self._timeout,
-            retries=self._retries,
-        )
-        listing: List[JsonDict] = response.json() if response.content else []
-        return listing
+        return self._get_list("/SyncPlay/List")
 
     def syncplay_new(
         self, group_name: str, protocol_version: Optional[int] = None
@@ -860,13 +808,14 @@ class Api:
         """
         return self.get(
             "/Playlists/%s/Items" % playlist_id,
-            {
-                "UserId": self.user_id,
-                "StartIndex": start_index,
-                "Limit": limit,
-                "EnableTotalRecordCount": True,
-                "Fields": fields,
-            },
+            self._as_user(
+                {
+                    "StartIndex": start_index,
+                    "Limit": limit,
+                    "EnableTotalRecordCount": True,
+                    "Fields": fields,
+                }
+            ),
         )
 
     # -- images ---------------------------------------------------------------

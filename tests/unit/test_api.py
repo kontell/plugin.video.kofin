@@ -177,7 +177,7 @@ def test_music_playlists_and_items(api):
     items = client.playlist_items("a")
     assert items["Items"][0]["Id"] == "s1"
     assert transport.calls[1]["url"].endswith("/Playlists/a/Items")
-    assert transport.calls[1]["params"]["UserId"] == "uid"
+    assert transport.calls[1]["params"]["userId"] == "uid"
 
 
 def test_music_playlists_dedupes_repeated_pages(api):
