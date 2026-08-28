@@ -43,7 +43,8 @@ from kofin.downloads import auto as downloads_auto
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.service import chapters, latesubs
-from kofin.service.segments import SegmentChecker, parse_segments
+from kofin.core.segments import parse_segments
+from kofin.service.segments import SegmentChecker
 from kofin.service.ports import forward
 
 if TYPE_CHECKING:
@@ -1572,7 +1573,7 @@ class Player(xbmc.Player):
     def _open_overlay(
         self, segment: Optional[JsonDict], buttons: Tuple[str, ...], now: float
     ) -> None:
-        from kofin.plugin import skip as skip_dialog
+        from kofin.service import skip as skip_dialog
 
         self._close_overlay()
         offers_next = "playnext" in buttons
@@ -1695,7 +1696,7 @@ class Player(xbmc.Player):
         nxt = self._next_episode
         if nxt is None or not nxt.get("Id"):
             return
-        from kofin.plugin.listitems import plugin_url
+        from kofin.core.urls import plugin_url
 
         LOG.info("play next episode %s", nxt.get("Id"))
         # Play Next always starts the next episode from the beginning — never at

@@ -6,6 +6,7 @@ import pytest
 from kofin.core import state
 from kofin.core.http import JellyfinError
 from kofin.plugin import adduser
+from kofin.service import whoswatching
 from kofin.plugin.router import Request
 from tests.unit.fakes import FakeAddon, FakeDialog, FakeWindow
 
@@ -23,7 +24,7 @@ def _names(users):
 
 def test_offerable_drops_the_primary_user():
     """The session's own user cannot be added or removed, so it is never a row."""
-    assert _names(adduser.offerable(USERS, "primary", [], set())) == [
+    assert _names(whoswatching.offerable(USERS, "primary", [], set())) == [
         "Bob",
         "Carol",
         "Dan",
@@ -31,18 +32,18 @@ def test_offerable_drops_the_primary_user():
 
 
 def test_offerable_without_a_shortlist_offers_everyone_else():
-    assert len(adduser.offerable(USERS, "primary", [], set())) == 3
+    assert len(whoswatching.offerable(USERS, "primary", [], set())) == 3
 
 
 def test_offerable_honours_the_shortlist():
-    picked = adduser.offerable(USERS, "primary", ["u2", "u4"], set())
+    picked = whoswatching.offerable(USERS, "primary", ["u2", "u4"], set())
     assert _names(picked) == ["Bob", "Dan"]
 
 
 def test_offerable_keeps_users_already_on_the_session():
     """Dropping someone from the shortlist while they are still on the session
     must not strand them there: the toggle list is also the only way off."""
-    picked = adduser.offerable(USERS, "primary", ["u2"], {"u3"})
+    picked = whoswatching.offerable(USERS, "primary", ["u2"], {"u3"})
     assert _names(picked) == ["Bob", "Carol"]
 
 
@@ -83,15 +84,15 @@ def test_anything_else_degrades_to_enabled():
 
 
 def test_users_to_restore_skips_those_already_on_the_session():
-    assert adduser.users_to_restore(["a", "b", "c"], {"a", "c"}) == ["b"]
+    assert whoswatching.users_to_restore(["a", "b", "c"], {"a", "c"}) == ["b"]
 
 
 def test_users_to_restore_preserves_desired_order_and_dedupes():
-    assert adduser.users_to_restore(["b", "a", "b", ""], {"x"}) == ["b", "a"]
+    assert whoswatching.users_to_restore(["b", "a", "b", ""], {"x"}) == ["b", "a"]
 
 
 def test_users_to_restore_empty_desired_is_empty():
-    assert adduser.users_to_restore([], {"a"}) == []
+    assert whoswatching.users_to_restore([], {"a"}) == []
 
 
 # --- the shortlist picker ----------------------------------------------------
@@ -319,7 +320,7 @@ def test_toggle_persists_chosen_ids(toggle):
     dialog, api = toggle
     dialog.multiselect_result = [0, 2]  # Bob, Dan
 
-    adduser.show_picker(api, _logged_in())
+    whoswatching.show_picker(api, _logged_in())
 
     assert FakeAddon.store["whoIsWatching"] == "u2,u4"
     assert api.added == [("sess1", "u2"), ("sess1", "u4")]
@@ -333,7 +334,7 @@ def test_toggle_publishes_the_new_names_before_the_refresh(toggle, monkeypatch):
     dialog, api = toggle
     dialog.multiselect_result = [0, 2]  # -> u2, u4
 
-    adduser.show_picker(api, _logged_in())
+    whoswatching.show_picker(api, _logged_in())
 
     assert state.watching_names() == ["u2", "u4"]
 
@@ -344,7 +345,7 @@ def test_toggle_cleared_persists_nobody(toggle):
     FakeAddon.store["whoIsWatching"] = "u3"
     dialog.multiselect_result = []
 
-    adduser.show_picker(api, _logged_in())
+    whoswatching.show_picker(api, _logged_in())
 
     assert FakeAddon.store["whoIsWatching"] == ""
     assert api.removed == [("sess1", "u3")]
@@ -355,7 +356,7 @@ def test_toggle_cancelled_changes_nothing(toggle):
     FakeAddon.store["whoIsWatching"] = "u2"
     dialog.multiselect_result = None
 
-    adduser.show_picker(api, _logged_in())
+    whoswatching.show_picker(api, _logged_in())
 
     assert FakeAddon.store["whoIsWatching"] == "u2"
     assert api.added == []
@@ -368,7 +369,7 @@ def test_toggle_is_suppressed_when_the_feature_is_off(toggle):
     dialog, api = toggle
     FakeAddon.store["whoIsWatchingShortlist"] = adduser.SHORTLIST_NOBODY
 
-    adduser.show_picker(api, _logged_in())
+    whoswatching.show_picker(api, _logged_in())
 
     assert dialog.multiselects == []
     assert api.added == []
@@ -384,7 +385,7 @@ def test_toggle_persists_even_when_session_api_fails(toggle, monkeypatch):
 
     api.session_add_user = boom
 
-    adduser.show_picker(api, _logged_in())
+    whoswatching.show_picker(api, _logged_in())
 
     assert FakeAddon.store["whoIsWatching"] == "u2"
 
@@ -461,7 +462,7 @@ def test_restore_adds_missing_users_only(monkeypatch):
     api = SessionApi(additional=["u2"])
     api.user_id = "primary"
 
-    adduser.restore_additional_users(api, "d")
+    whoswatching.restore_additional_users(api, "d")
 
     assert api.added == [("sess1", "u3")]
 
@@ -473,7 +474,7 @@ def test_restore_empty_setting_adds_nobody(monkeypatch):
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     api = SessionApi()
 
-    adduser.restore_additional_users(api, "d")
+    whoswatching.restore_additional_users(api, "d")
 
     assert api.added == []
 
@@ -489,7 +490,7 @@ def test_restore_publishes_the_names_for_the_root_label(monkeypatch):
     api = SessionApi()
     api.user_id = "primary"
 
-    adduser.restore_additional_users(api, "d")
+    whoswatching.restore_additional_users(api, "d")
 
     assert api.added == [("sess1", "u2")]
     assert state.watching_names() == ["u2"]
@@ -505,7 +506,7 @@ def test_restore_publishes_session_truth_even_with_nothing_saved(monkeypatch):
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
     api = SessionApi(additional=["u9"])
 
-    adduser.restore_additional_users(api, "d")
+    whoswatching.restore_additional_users(api, "d")
 
     assert api.added == []
     assert state.watching_names() == ["u9"]
@@ -517,7 +518,7 @@ def test_restore_skips_primary_user(monkeypatch):
     api = SessionApi()
     api.user_id = "primary"
 
-    adduser.restore_additional_users(api, "d")
+    whoswatching.restore_additional_users(api, "d")
 
     assert api.added == [("sess1", "u2")]
 
@@ -537,7 +538,7 @@ def test_restore_survives_a_failed_add(monkeypatch):
 
     api.session_add_user = flaky
 
-    adduser.restore_additional_users(api, "d")
+    whoswatching.restore_additional_users(api, "d")
 
     assert calls == ["u2", "u3"]
 
@@ -548,7 +549,7 @@ def test_restore_no_session_yet_is_quiet(monkeypatch):
     api = SessionApi()
     api.device_sessions = lambda device_id: []
 
-    adduser.restore_additional_users(api, "d")  # must not raise
+    whoswatching.restore_additional_users(api, "d")  # must not raise
 
 
 # --- detach_all (the other half of the off switch) ---------------------------
@@ -569,7 +570,7 @@ def test_restore_detaches_everyone_when_the_feature_is_off(detach):
     FakeAddon.store["whoIsWatching"] = "u2"
     api = SessionApi(additional=["u2", "u3"])
 
-    adduser.restore_additional_users(api, "d")
+    whoswatching.restore_additional_users(api, "d")
 
     assert api.added == []
     assert api.removed == [("sess1", "u2"), ("sess1", "u3")]
@@ -590,7 +591,7 @@ def test_detach_publishes_server_truth_after_the_removals(detach):
 
     api.session_remove_user = stubborn
 
-    adduser.detach_all(api, "d")
+    whoswatching.detach_all(api, "d")
 
     assert api.removed == [("sess1", "u2"), ("sess1", "u3")]
     assert state.watching_names() == ["u2"]
@@ -600,7 +601,7 @@ def test_detach_with_nothing_attached_only_clears_the_saved_set(detach):
     FakeAddon.store["whoIsWatching"] = "u2"
     api = SessionApi()
 
-    adduser.detach_all(api, "d")
+    whoswatching.detach_all(api, "d")
 
     assert api.removed == []
     assert FakeAddon.store["whoIsWatching"] == ""
@@ -612,7 +613,7 @@ def test_detach_survives_a_missing_session(detach):
     api = SessionApi()
     api.device_sessions = lambda device_id: []
 
-    adduser.detach_all(api, "d")
+    whoswatching.detach_all(api, "d")
 
     assert FakeAddon.store["whoIsWatching"] == ""
 
@@ -627,6 +628,6 @@ def test_detach_survives_a_failed_session_lookup(detach):
 
     api.device_sessions = boom
 
-    adduser.detach_all(api, "d")
+    whoswatching.detach_all(api, "d")
 
     assert FakeAddon.store["whoIsWatching"] == ""

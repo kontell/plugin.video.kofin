@@ -354,7 +354,7 @@ def prefetch_segments(api: Api, item: JsonDict) -> Optional[List[JsonDict]]:
         return []
     if not settings.get_bool("mediaSegmentsEnabled"):
         return []
-    from kofin.service.segments import parse_segments
+    from kofin.core.segments import parse_segments
 
     try:
         return parse_segments(api.media_segments(item.get("Id", "")))

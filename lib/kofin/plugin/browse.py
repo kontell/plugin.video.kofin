@@ -11,6 +11,7 @@ from kofin.core.api import Api
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
+from kofin.core.urls import plugin_url
 from kofin.plugin import listitems
 from kofin.plugin.router import Request
 
@@ -541,9 +542,7 @@ def root(request: Request) -> None:
         resume_li = xbmcgui.ListItem(settings.localized(30049))
         resume_art = node_icon("", "inprogress")
         resume_li.setArt(structural_art(resume_art))
-        entries.append(
-            (listitems.plugin_url({"mode": "continuewatching"}), resume_li, True)
-        )
+        entries.append((plugin_url({"mode": "continuewatching"}), resume_li, True))
 
         # Search sits with Continue watching, above the libraries: both are
         # ways in that are not a place, and a viewer who knows what they want
@@ -552,7 +551,7 @@ def root(request: Request) -> None:
 
         search_li = xbmcgui.ListItem(_xbmc.getLocalizedString(137))  # Search
         search_li.setArt(structural_art("DefaultAddonsSearch.png"))
-        entries.append((listitems.plugin_url({"mode": "search"}), search_li, True))
+        entries.append((plugin_url({"mode": "search"}), search_li, True))
 
         try:
             views = api.views().get("Items", [])
@@ -579,33 +578,33 @@ def root(request: Request) -> None:
             params = {"mode": "browse", "view": view.get("Id", ""), "type": collection}
             if collection not in NODES:
                 params["folder"] = "children"
-            entries.append((listitems.plugin_url(params), li, True))
+            entries.append((plugin_url(params), li, True))
 
     import xbmc
 
     # "Who's watching?" — gone entirely when the Advanced-tab shortlist has
     # nobody on it, which is how the feature is switched off (adduser.py).
-    from kofin.plugin import adduser
+    from kofin.service import whoswatching
 
-    if api is not None and adduser.is_enabled():
+    if api is not None and whoswatching.is_enabled():
         adduser_li = xbmcgui.ListItem(_who_is_watching_label())
         watching_art = _addon_media("person-search.png") or "DefaultUser.png"
         adduser_li.setArt(structural_art(watching_art))
-        entries.append((listitems.plugin_url({"mode": "adduser"}), adduser_li, False))
+        entries.append((plugin_url({"mode": "adduser"}), adduser_li, False))
 
     # SyncPlay root entry (phase 4): gated on the master toggle, read fresh
     # each listing, and hidden when an external player is configured.
-    from kofin.plugin import syncplay
+    from kofin.syncplay import offer
 
-    if api is not None and syncplay.available():
+    if api is not None and offer.available():
         syncplay_li = xbmcgui.ListItem(settings.localized(30560))
         syncplay_art = _addon_media("syncplay-groups.png") or "DefaultUser.png"
         syncplay_li.setArt(structural_art(syncplay_art))
-        entries.append((listitems.plugin_url({"mode": "syncplay"}), syncplay_li, False))
+        entries.append((plugin_url({"mode": "syncplay"}), syncplay_li, False))
     settings_li = xbmcgui.ListItem(xbmc.getLocalizedString(5))  # "Settings"
     settings_art = "DefaultAddonService.png"
     settings_li.setArt(structural_art(settings_art))
-    entries.append((listitems.plugin_url({"mode": "settings"}), settings_li, False))
+    entries.append((plugin_url({"mode": "settings"}), settings_li, False))
 
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
     # Empty content (not "files"): Contuary/Estuary WideList only binds
@@ -800,7 +799,7 @@ def _search_menu(request: Request) -> None:
     for kind, (label_id, _types, _content) in SEARCH_KINDS.items():
         li = xbmcgui.ListItem(xbmc.getLocalizedString(label_id))
         li.setArt(structural_art(SEARCH_ICONS[kind]))
-        path = listitems.plugin_url({"mode": "search", "type": kind})
+        path = plugin_url({"mode": "search", "type": kind})
         entries.append((path, li, True))
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
     xbmcplugin.setContent(request.handle, "")
@@ -870,7 +869,7 @@ def _add_person_items(request: Request, api: Api, items: List[JsonDict]) -> None
         li = listitems.build(item, api.server)
         if not li.getArt("thumb"):
             li.setArt(structural_art("DefaultActor.png"))
-        path = listitems.plugin_url({"mode": "search", "person": item.get("Id", "")})
+        path = plugin_url({"mode": "search", "person": item.get("Id", "")})
         entries.append((path, li, True))
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
 
@@ -904,7 +903,7 @@ def _alpha_menu(request: Request, media: str, view_id: str) -> None:
     for letter in ALPHABET:
         li = xbmcgui.ListItem(letter)
         li.setArt(structural_art(node_icon(media, "alpha")))
-        path = listitems.plugin_url(
+        path = plugin_url(
             {
                 "mode": "browse",
                 "view": view_id,
@@ -926,7 +925,7 @@ def _tag_letters(request: Request, media: str, view_id: str, values: List[Any]) 
     for letter in letters:
         li = xbmcgui.ListItem(letter)
         li.setArt(structural_art(node_icon(media, "tags")))
-        path = listitems.plugin_url(
+        path = plugin_url(
             {
                 "mode": "browse",
                 "view": view_id,
@@ -950,7 +949,7 @@ def _tag_menu(
     for value in wanted:
         li = xbmcgui.ListItem(str(value))
         li.setArt(structural_art(node_icon(media, "tags")))
-        path = listitems.plugin_url(
+        path = plugin_url(
             {
                 "mode": "browse",
                 "view": view_id,
@@ -995,7 +994,7 @@ def _filter_menu(
     for value in values:
         li = xbmcgui.ListItem(str(value))
         li.setArt(structural_art(node_icon(media, kind)))
-        path = listitems.plugin_url(
+        path = plugin_url(
             {
                 "mode": "browse",
                 "view": view_id,
@@ -1027,7 +1026,7 @@ def _node_menu(request: Request, api: Api, media: str, view_id: str) -> None:
     for key, label_id in nodes:
         li = xbmcgui.ListItem(node_label(label_id))
         li.setArt(structural_art(node_icon(media, key)))
-        path = listitems.plugin_url(
+        path = plugin_url(
             {"mode": "browse", "view": view_id, "type": media, "folder": key}
         )
         entries.append((path, li, True))
@@ -1055,7 +1054,7 @@ def _extras_node(request: Request, api: Api, view_id: str) -> None:
         # No apply_backdrop: these are series rows, and a media row keeps
         # whatever backdrop the server gave it or none (MEDIA_TYPES).
         li = listitems.build(item, api.server, resume_offset=resume_offset)
-        path = listitems.plugin_url({"mode": "extras", "id": item.get("Id", "")})
+        path = plugin_url({"mode": "extras", "id": item.get("Id", "")})
         entries.append((path, li, True))
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
     xbmcplugin.setContent(request.handle, "tvshows")
@@ -1106,7 +1105,7 @@ def _append_extras_entry(request: Request, api: Api, item_id: str) -> None:
         return
     li = xbmcgui.ListItem(settings.localized(30500))
     li.setArt(structural_art("DefaultVideo.png"))
-    path = listitems.plugin_url({"mode": "extras", "id": item_id})
+    path = plugin_url({"mode": "extras", "id": item_id})
     xbmcplugin.addDirectoryItems(request.handle, [(path, li, True)], 1)
 
 
@@ -1197,7 +1196,7 @@ def _add_items(
         if item_type in ("Genre", "MusicGenre"):
             if not li.getArt("thumb"):
                 li.setArt(structural_art("DefaultGenre.png"))
-            path = listitems.plugin_url(
+            path = plugin_url(
                 {
                     "mode": "browse",
                     "view": view_id,
@@ -1239,7 +1238,7 @@ def _add_items(
 
         path = listitems.path_for(item)
         if item_type == "Season":
-            path = listitems.plugin_url(
+            path = plugin_url(
                 {
                     "mode": "browse",
                     "folder": item.get("Id", ""),

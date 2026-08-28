@@ -521,7 +521,7 @@ def test_root_art_icon_and_thumb(monkeypatch, directory, recording_art):
     use addon media for both."""
     FakeAddon.store["syncPlayEnabled"] = "true"
     monkeypatch.setattr(
-        "kofin.plugin.syncplay.external_player_configured", lambda: False
+        "kofin.syncplay.offer.external_player_configured", lambda: False
     )
 
     api = ResumeApi(
@@ -718,7 +718,7 @@ def test_every_root_row_gets_a_backdrop_including_library_rows(
     the rows the addon root is mostly made of."""
     FakeAddon.store["syncPlayEnabled"] = "true"
     monkeypatch.setattr(
-        "kofin.plugin.syncplay.external_player_configured", lambda: False
+        "kofin.syncplay.offer.external_player_configured", lambda: False
     )
     api = ResumeApi(
         views=[

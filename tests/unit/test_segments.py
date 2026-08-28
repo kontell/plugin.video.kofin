@@ -24,7 +24,7 @@ from kofin.service.player import (
     safe_seek_end,
     segments_entered_at,
 )
-from kofin.service.segments import deconflict, parse_segments
+from kofin.core.segments import deconflict, parse_segments
 from tests.unit.fakes import FakeAddon, FakeWindow
 
 SETTINGS_ON = {
@@ -137,7 +137,7 @@ class Engine:
             self.overlays.append(overlay)
             return overlay
 
-        import kofin.plugin.skip as skip_mod
+        import kofin.service.skip as skip_mod
 
         monkeypatch.setattr(skip_mod, "open_overlay", fake_open_overlay)
 

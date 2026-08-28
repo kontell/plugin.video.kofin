@@ -6,19 +6,18 @@ Kodistubs type check and exercised live.
 """
 
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlencode
 
 import xbmc
 import xbmcgui
 
 from kofin.core import settings
 from kofin.core.log import Logger
+from kofin.core.urls import plugin_url
 
 LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
 
-BASE_URL = "plugin://plugin.video.kofin/"
 
 FOLDER_TYPES = frozenset(
     {
@@ -60,10 +59,6 @@ def is_folder(item: JsonDict) -> bool:
     if item.get("Type") in PLAYABLE_TYPES:
         return False
     return bool(item.get("IsFolder")) or item.get("Type") in FOLDER_TYPES
-
-
-def plugin_url(params: Dict[str, str]) -> str:
-    return BASE_URL + "?" + urlencode(params)
 
 
 def play_path(item_id: str) -> str:

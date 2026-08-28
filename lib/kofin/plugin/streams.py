@@ -29,7 +29,7 @@ import xbmcgui
 
 from kofin.core import ipc, kodirpc, settings, state, streams, toast
 from kofin.core.log import Logger
-from kofin.plugin.listitems import plugin_url
+from kofin.core.urls import plugin_url
 from kofin.plugin.router import Request
 
 LOG = Logger(__name__)

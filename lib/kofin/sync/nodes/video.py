@@ -23,6 +23,7 @@ import xbmcvfs
 
 from kofin.core import settings
 from kofin.core.log import Logger
+from kofin.core.urls import plugin_url
 from kofin.sync.nodes import fs
 from kofin.sync.shims import localized
 
@@ -268,12 +269,12 @@ def browse_url(view, node=None):
     if node:
         params["folder"] = node
 
-    return "%s?%s" % ("plugin://plugin.video.kofin/", urlencode(params))
+    return plugin_url(params)
 
 
 def nextepisodes_url(view):
     params = {"id": view["Id"], "mode": "nextepisodes", "limit": LIMIT}
-    return "%s?%s" % ("plugin://plugin.video.kofin/", urlencode(params))
+    return plugin_url(params)
 
 
 # --- what goes in the tree ------------------------------------------------------

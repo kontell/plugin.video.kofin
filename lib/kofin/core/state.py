@@ -16,6 +16,8 @@ from typing import Any, Dict, List, Optional
 import xbmcgui
 import xbmcvfs
 
+from kofin.core.urls import BASE_URL
+
 PROP_ONLINE = "kofin.online"
 PROP_PLAYING_ID = "kofin.playing.id"
 PROP_SYNC_STOP = "kofin.sync.stop"
@@ -91,7 +93,7 @@ PROP_LYRIC_PATH = "kofin.lyric.path"
 
 # The song id is a cache-buster as much as an argument: the path has to differ
 # between songs for the skin's list to notice.
-LYRICS_DIRECTORY = "plugin://plugin.video.kofin/?mode=lyrics&id=%s"
+LYRICS_DIRECTORY = BASE_URL + "?mode=lyrics&id=%s"
 
 _HOME_WINDOW = 10000
 

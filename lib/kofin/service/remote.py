@@ -15,7 +15,7 @@ import xbmc
 
 from kofin.core import kodirpc, toast
 from kofin.core.log import Logger
-from kofin.plugin.listitems import plugin_url
+from kofin.core.urls import plugin_url
 
 if TYPE_CHECKING:
     from kofin.syncplay.manager import SyncPlayManager

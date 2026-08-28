@@ -140,7 +140,7 @@ def picker_env(monkeypatch):
         type(
             "A",
             (),
-            {"from_credentials": staticmethod(lambda http, creds, **k: FakeApi())},
+            {"for_plugin": staticmethod(lambda creds: FakeApi())},
         ),
     )
 
@@ -188,7 +188,7 @@ def test_picker_says_unreachable_when_the_server_is(monkeypatch):
         type(
             "A",
             (),
-            {"from_credentials": staticmethod(lambda http, creds, **k: Unreachable())},
+            {"for_plugin": staticmethod(lambda creds: Unreachable())},
         ),
     )
     shown = []
@@ -666,7 +666,7 @@ def _logged_in_menu_env(monkeypatch):
     FakeAddon.store["syncPlayEnabled"] = "true"
     FakeAddon.store["whoIsWatchingShortlist"] = adduser.SHORTLIST_ALL
     monkeypatch.setattr(
-        "kofin.plugin.syncplay.external_player_configured", lambda: False
+        "kofin.syncplay.offer.external_player_configured", lambda: False
     )
 
 
@@ -688,7 +688,7 @@ def test_root_menus_stay_hidden_when_logged_out(monkeypatch):
     FakeAddon.store["syncPlayEnabled"] = "true"
     FakeAddon.store["whoIsWatchingShortlist"] = adduser.SHORTLIST_ALL
     monkeypatch.setattr(
-        "kofin.plugin.syncplay.external_player_configured", lambda: False
+        "kofin.syncplay.offer.external_player_configured", lambda: False
     )
     ready_applier(FakeService())
 

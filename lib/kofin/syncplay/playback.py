@@ -564,7 +564,7 @@ class PlaybackController(object):
         play takes. SyncPlay group starts are unattended by definition; the
         plugin play path has no dialogs, so nothing needs suppressing.
         """
-        from kofin.plugin.listitems import plugin_url
+        from kofin.core.urls import plugin_url
 
         item_id = item.get("Id")
 

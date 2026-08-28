@@ -214,11 +214,12 @@ class SettingsApplier:
         a ``<visible>`` cannot read an addon setting (core/state.py).
         """
         from kofin.core.settings import Credentials
-        from kofin.plugin import adduser, syncplay
+        from kofin.service import whoswatching
+        from kofin.syncplay import offer
 
         logged_in = Credentials.load().is_logged_in
-        state.set_menu_who(logged_in and adduser.is_enabled())
-        state.set_menu_syncplay(logged_in and syncplay.available())
+        state.set_menu_who(logged_in and whoswatching.is_enabled())
+        state.set_menu_syncplay(logged_in and offer.available())
 
     def _context_bitrates_changed(self, old: str, new: str) -> None:
         """Keep the property addon.xml gates the transcode context item on."""

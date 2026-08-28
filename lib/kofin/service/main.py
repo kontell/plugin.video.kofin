@@ -626,10 +626,10 @@ class Service(xbmc.Monitor):
         self._who_is_watching.start()
 
     def _run_who_is_watching(self) -> None:
-        from kofin.plugin import adduser
+        from kofin.service import whoswatching
 
         try:
-            adduser.show_picker(self.api, self.credentials)
+            whoswatching.show_picker(self.api, self.credentials)
         except Exception:
             LOG.exception("who's-watching picker failed")
 
@@ -852,9 +852,9 @@ class Service(xbmc.Monitor):
     def _restore_additional_users(self) -> None:
         """Re-attach saved co-watchers. Contained: must never break connect."""
         try:
-            from kofin.plugin import adduser
+            from kofin.service import whoswatching
 
-            adduser.restore_additional_users(self.api, self.credentials.device_id)
+            whoswatching.restore_additional_users(self.api, self.credentials.device_id)
         except Exception as error:  # pragma: no cover - defensive
             LOG.warning("who's-watching restore failed: %s", error)
 

@@ -11,7 +11,8 @@ from kofin.core.api import Api
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
-from kofin.plugin.listitems import PLAYABLE_TYPES, plugin_url
+from kofin.core.urls import plugin_url
+from kofin.plugin.listitems import PLAYABLE_TYPES
 
 LOG = Logger(__name__)
 
