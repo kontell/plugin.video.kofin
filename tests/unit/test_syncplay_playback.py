@@ -229,6 +229,42 @@ class TestScheduling:
         assert controller._timer is not first_timer
         controller.cancel_pending()
 
+    def test_the_same_command_is_carried_out_once(self):
+        """The server re-issues the transport command when the last member
+        reports ready, so the member that reloaded to serve a seek is handed
+        that seek again as it comes back."""
+        controller, manager, player = make_controller(position=10.0)
+        seek = command("Seek", -10, ticks=utils.seconds_to_ticks(200))
+
+        controller.schedule(seek)
+        after_first = list(player.actions)
+        assert after_first, "the first delivery must be carried out"
+
+        controller.schedule(dict(seek))
+
+        assert player.actions == after_first
+
+    def test_a_second_command_of_the_same_kind_is_not_a_repeat(self):
+        controller, manager, player = make_controller(position=10.0)
+
+        controller.schedule(command("Seek", -10, ticks=utils.seconds_to_ticks(200)))
+        after_first = len(player.actions)
+        controller.schedule(command("Seek", -10, ticks=utils.seconds_to_ticks(400)))
+
+        assert len(player.actions) > after_first
+
+    def test_a_repeat_is_allowed_again_once_the_group_playback_ends(self):
+        controller, manager, player = make_controller(position=10.0)
+        seek = command("Seek", -10, ticks=utils.seconds_to_ticks(200))
+
+        controller.schedule(seek)
+        after_first = len(player.actions)
+
+        controller.last_command = None  # what stop_loop and _detach_playback do
+        controller.schedule(dict(seek))
+
+        assert len(player.actions) > after_first
+
 
 class TestUnpause:
     def test_on_time_unpause_resumes(self):

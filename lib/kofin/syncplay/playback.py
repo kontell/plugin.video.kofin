@@ -98,6 +98,14 @@ class PlaybackController(object):
             LOG.warning("Command without a usable When: %s", command)
             return
 
+        if self._is_repeat(command):
+            LOG.info(
+                "[ syncplay/%s ] at %s already applied, ignoring the repeat",
+                command.get("Command"),
+                command.get("When"),
+            )
+            return
+
         fire_local_ms = when_ms - self.manager.offset_ms()
         delay = (fire_local_ms - utils.local_ms()) / 1000.0
 
@@ -191,6 +199,38 @@ class PlaybackController(object):
 
         LOG.info("[ syncplay/align ] %+.0fms %s: left to fine sync", offset_ms, where)
         return True
+
+    @staticmethod
+    def _identity(command):
+        """What makes two commands the same group event."""
+        return (
+            command.get("Command"),
+            command.get("When"),
+            command.get("PositionTicks") or 0,
+        )
+
+    def _is_repeat(self, command):
+        """Has this exact command already been carried out?
+
+        The server re-issues the transport command when the last member
+        reports ready out of a Waiting state, so a member that reloaded to
+        serve a Seek is handed that same Seek again as it comes back --
+        identical ``When``, four seconds later. Re-applying is invisible on a
+        direct stream (a seek to where it already is) and a second full stop
+        and restart on a transcoded one, which is the reload the viewer sees
+        twice for one skip. Measured on a Pixel 7 Pro, 2026-08-28: one group
+        skip, two reloads, 6.5s of black.
+
+        ``When`` is the server's own instant for the event, so equality here
+        means the same event and not a second one that happens to match.
+        ``last_command`` is cleared whenever the group's playback ends or the
+        member detaches, which is exactly when the same command could
+        legitimately arrive again.
+        """
+        if self.last_command is None:
+            return False
+
+        return self._identity(self.last_command) == self._identity(command)
 
     def cancel_pending(self):
         with self._timer_lock:
