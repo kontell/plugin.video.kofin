@@ -39,6 +39,12 @@ def env(tmp_path, monkeypatch):
     )
     sync_db.reset_overrides()
     sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    # The free-space check runs a real statvfs on tmp_path, with a 2 GiB
+    # reserve: on a host whose /tmp is a small tmpfs the *second* _process in
+    # a test failed "not enough free space" (the first passed only because
+    # the root did not exist yet). The check has its own tests; here it is
+    # always satisfied, and the one test that wants a refusal overrides it.
+    monkeypatch.setattr(manager_module.files, "free_space_ok", lambda root, size: True)
     yield
     sync_db.reset_overrides()
 
