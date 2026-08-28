@@ -420,6 +420,24 @@ def _call(method: str, params: Optional[Dict[str, Any]] = None) -> Any:
     return response.get("result") if isinstance(response, dict) else None
 
 
+def tvshow_title(kodi_id: int) -> Optional[str]:
+    """A show's title from Kodi's own library, or None when the row is gone
+    or the call failed.
+
+    JSON-RPC rather than a SELECT on MyVideos: reading the library through
+    Kodi is what every process may do (writing it that way is what the
+    kodi-database-writing rule forbids), and it keeps the plugin process
+    out of Kodi's database files altogether.
+    """
+    result = _call(
+        "VideoLibrary.GetTVShowDetails",
+        {"tvshowid": int(kodi_id), "properties": ["title"]},
+    )
+    details = result.get("tvshowdetails") if isinstance(result, dict) else None
+    title = details.get("title") if isinstance(details, dict) else None
+    return str(title) if title else None
+
+
 def kodi_setting(setting_id: str) -> Any:
     """The value of one of Kodi's own settings, or None where it does not exist.
 

@@ -737,3 +737,50 @@ def test_reset_resume_without_an_id_does_nothing(reset_wired):
     actions.reset_resume(Request("plugin://x", -1, {"mode": "resetresume"}))
 
     assert (api.calls, cleared, builtins) == ([], [], [])
+
+
+# --- _show_names: the picker's titles without a MyVideos open ----------------
+
+
+def test_show_names_come_from_the_id_map_and_kodi_over_jsonrpc(monkeypatch, tmp_path):
+    """The plugin process opens kofin.db for the id map and asks Kodi for the
+    title; it never opens MyVideos itself (assessment P3). Unmapped shows and
+    unanswered calls fall back to the id so the picker still lists them."""
+    import json
+
+    from kofin.sync import db as sync_db
+
+    sync_db.reset_overrides()
+    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    try:
+        with sync_db.Database("kofin") as opened:
+            opened.cursor.execute(
+                "INSERT INTO jellyfin(jellyfin_id, media_type, kodi_id) VALUES (?, ?, ?)",
+                ("ser1", "tvshow", 7),
+            )
+            opened.cursor.execute(
+                "INSERT INTO jellyfin(jellyfin_id, media_type, kodi_id) VALUES (?, ?, ?)",
+                ("ser3", "tvshow", 9),
+            )
+        asked = []
+
+        def rpc(query):
+            request = json.loads(query)
+            asked.append((request["method"], request["params"]["tvshowid"]))
+            if request["params"]["tvshowid"] == 7:
+                return json.dumps({"result": {"tvshowdetails": {"title": "The Show"}}})
+            return json.dumps({"error": {"code": -32602, "message": "gone"}})
+
+        monkeypatch.setattr("xbmc.executeJSONRPC", rpc)
+
+        assert actions._show_names(["ser1", "ser2", "ser3"]) == [
+            "The Show",
+            "ser2",
+            "ser3",
+        ]
+        assert asked == [
+            ("VideoLibrary.GetTVShowDetails", 7),
+            ("VideoLibrary.GetTVShowDetails", 9),
+        ]
+    finally:
+        sync_db.reset_overrides()

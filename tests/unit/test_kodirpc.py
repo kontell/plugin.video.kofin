@@ -301,3 +301,25 @@ def test_clear_resume_bookmark_reports_a_refusal(monkeypatch):
 
     monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
     assert kodirpc.clear_resume_bookmark("plugin://x") is False
+
+
+# --- tvshow_title: the plugin's show names without a MyVideos open ----------
+
+
+def test_tvshow_title_reads_the_row_over_jsonrpc(monkeypatch):
+    monkeypatch.setattr(
+        "xbmc.executeJSONRPC",
+        responder({"result": {"tvshowdetails": {"tvshowid": 7, "title": "The Show"}}}),
+    )
+    assert kodirpc.tvshow_title(7) == "The Show"
+
+
+def test_tvshow_title_is_none_for_a_gone_row_or_a_failed_call(monkeypatch):
+    monkeypatch.setattr(
+        "xbmc.executeJSONRPC", responder({"error": {"code": -32602, "message": "x"}})
+    )
+    assert kodirpc.tvshow_title(7) is None
+    monkeypatch.setattr("xbmc.executeJSONRPC", responder({"result": {}}))
+    assert kodirpc.tvshow_title(7) is None
+    monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
+    assert kodirpc.tvshow_title(7) is None
