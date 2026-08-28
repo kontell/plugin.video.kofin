@@ -37,7 +37,7 @@ import xbmc
 import xbmcgui
 
 from kofin.core import lyrics as lyrics_render
-from kofin.core import ipc, settings, state, streams, toast
+from kofin.core import ipc, kodirpc, settings, state, streams, toast
 from kofin.core.api import Api
 from kofin.downloads import auto as downloads_auto
 from kofin.core.http import JellyfinError
@@ -1870,20 +1870,10 @@ class _Ticker(threading.Thread):
 
 
 def _volume_state() -> "tuple[int, bool]":
+    result = kodirpc.call(
+        "Application.GetProperties", {"properties": ["volume", "muted"]}
+    )
     try:
-        response = json.loads(
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "Application.GetProperties",
-                        "params": {"properties": ["volume", "muted"]},
-                    }
-                )
-            )
-        )
-        result = response.get("result", {})
         return int(result.get("volume", 100)), bool(result.get("muted", False))
     except Exception:
         return 100, False

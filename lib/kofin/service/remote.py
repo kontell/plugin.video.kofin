@@ -219,6 +219,4 @@ class RemoteHandler:
             LOG.info("unhandled general command %s", name)
 
     def _rpc(self, method: str, params: JsonDict) -> None:
-        xbmc.executeJSONRPC(
-            json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
-        )
+        kodirpc.call(method, params)

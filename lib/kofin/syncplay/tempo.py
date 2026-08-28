@@ -944,6 +944,17 @@ class TempoSession(object):
         """
         current = kodirpc.kodi_setting(QUEUE_SETTING)
 
+        if current is kodirpc.FAILED:
+            # C3: a blip is not "this Kodi lacks the setting". Leave the
+            # queue untouched — no shorten, no record — and use the
+            # conservative window for this arm only.
+            LOG.warning(
+                "[ syncplay/tempo ] %s read failed; queue left untouched",
+                QUEUE_SETTING,
+            )
+            self.queue_full_tenths = None
+            return OMEGA_QUEUE_SECS
+
         if current is None:
             self.queue_full_tenths = None  # Kodi 21: fixed queue, not ours
             return OMEGA_QUEUE_SECS

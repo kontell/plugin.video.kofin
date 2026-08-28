@@ -323,3 +323,47 @@ def test_tvshow_title_is_none_for_a_gone_row_or_a_failed_call(monkeypatch):
     assert kodirpc.tvshow_title(7) is None
     monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
     assert kodirpc.tvshow_title(7) is None
+
+
+# --- kodi_setting: absent vs unreachable (C3) --------------------------------
+
+
+def test_kodi_setting_reads_the_value(monkeypatch):
+    monkeypatch.setattr("xbmc.executeJSONRPC", responder({"result": {"value": 50}}))
+    assert kodirpc.kodi_setting("videoplayer.queuetimesize") == 50
+
+
+def test_kodi_setting_is_none_only_for_a_genuinely_absent_setting(monkeypatch):
+    """Kodi answered, refusing: this version has no such setting."""
+    monkeypatch.setattr(
+        "xbmc.executeJSONRPC",
+        responder({"error": {"code": -32602, "message": "Invalid params."}}),
+    )
+    assert kodirpc.kodi_setting("videoplayer.queuetimesize") is None
+
+
+def test_kodi_setting_reports_a_blip_as_failed_not_absent(monkeypatch):
+    """C3: a transient failure must not read as "this Kodi lacks the
+    setting" — the tempo session branched the Kodi version on exactly
+    that collapse."""
+
+    def boom(query):
+        raise RuntimeError("no answer")
+
+    monkeypatch.setattr("xbmc.executeJSONRPC", boom)
+    value = kodirpc.kodi_setting("videoplayer.queuetimesize")
+    assert value is kodirpc.FAILED
+    assert value is not None
+
+    monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
+    assert kodirpc.kodi_setting("videoplayer.queuetimesize") is kodirpc.FAILED
+
+
+def test_set_kodi_setting_true_only_when_kodi_accepted(monkeypatch):
+    monkeypatch.setattr("xbmc.executeJSONRPC", responder({"result": True}))
+    assert kodirpc.set_kodi_setting("videoplayer.queuetimesize", 10) is True
+
+    monkeypatch.setattr(
+        "xbmc.executeJSONRPC", responder({"error": {"code": -32602, "message": "x"}})
+    )
+    assert kodirpc.set_kodi_setting("videoplayer.queuetimesize", 10) is False
