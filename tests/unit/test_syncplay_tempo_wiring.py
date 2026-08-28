@@ -60,8 +60,10 @@ def test_kodi_setting_reads_a_value_and_none_for_a_missing_one(monkeypatch):
         "xbmc.executeJSONRPC", responder({"error": {"code": -32602, "message": "x"}})
     )
     assert kodirpc.kodi_setting("videoplayer.queuetimesize") is None
+    # C3: an unreadable answer is a blip, not "this Kodi lacks the setting" —
+    # collapsing the two is what made tempo mistake a failure for Omega.
     monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
-    assert kodirpc.kodi_setting("anything") is None
+    assert kodirpc.kodi_setting("anything") is kodirpc.FAILED
 
 
 def test_set_kodi_setting_reports_acceptance(monkeypatch):
