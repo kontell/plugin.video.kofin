@@ -51,6 +51,51 @@ class FakeWindow:
         self.store.pop(key, None)
 
 
+class FakeLibrary:
+    """The one service-side Library stand-in (service/ports.py LibraryPort).
+
+    Lifecycle flags are constructor knobs; everything the service asks of it
+    is recorded. Collapsed from seven per-test fakes (shell refactor P1.3).
+    """
+
+    ident = None  # a real Thread carries one; the teardown dump follows it
+
+    def __init__(
+        self, alive=False, startup_done=True, stop_thread=False, workers=False
+    ):
+        self._alive = alive
+        self._workers = workers
+        self.startup_done = startup_done
+        self.stop_thread = stop_thread
+        self.commands = []
+        self.payloads = []
+        self.applied = []
+        self.stopped = 0
+        self.joined = []
+
+    def is_alive(self):
+        return self._alive
+
+    def start(self):
+        self._alive = True
+
+    def join(self, timeout=None):
+        self.joined.append(timeout)
+
+    def workers_alive(self):
+        return self._workers
+
+    def stop_client(self):
+        self.stopped += 1
+
+    def enqueue_command(self, command, data=None):
+        self.commands.append(command)
+        self.payloads.append(dict(data) if isinstance(data, dict) else data)
+
+    def userdata(self, data):
+        self.applied.append(data)
+
+
 def player_ops_rpc(get_player):
     """A stand-in for ``xbmc.executeJSONRPC`` that drives a fake player.
 

@@ -44,6 +44,7 @@ from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.service import chapters, latesubs
 from kofin.service.segments import SegmentChecker, parse_segments
+from kofin.service.ports import forward
 
 if TYPE_CHECKING:
     from kofin.syncplay.manager import SyncPlayManager
@@ -693,12 +694,7 @@ class Player(xbmc.Player):
     def _syncplay_event(self, name: str, *args: Any) -> None:
         """Forward a player callback to SyncPlay without ever letting it
         break regular playback reporting."""
-        if self.syncplay is None:
-            return
-        try:
-            getattr(self.syncplay, name)(*args)
-        except Exception as error:
-            LOG.exception("SyncPlay hook %s failed: %s", name, error)
+        forward(self.syncplay, name, *args)
 
     def current_item(self) -> Optional[JsonDict]:
         """The claimed play state of the current kofin playback (SyncPlay's

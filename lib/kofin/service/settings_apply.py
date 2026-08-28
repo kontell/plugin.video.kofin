@@ -37,6 +37,7 @@ import xbmcgui
 
 from kofin.core import settings, state
 from kofin.core.log import Logger
+from kofin.service.ports import LibraryPort, ServiceHooks
 
 LOG = Logger(__name__)
 
@@ -57,7 +58,7 @@ LOAD_CANARY = "deviceId"
 
 
 class SettingsApplier:
-    def __init__(self, service: object) -> None:
+    def __init__(self, service: ServiceHooks) -> None:
         self.service = service
         self.ready = False
         self.handlers: Dict[str, Handler] = {
@@ -179,23 +180,23 @@ class SettingsApplier:
 
     def _ssl_verify_changed(self, old: str, new: str) -> None:
         LOG.info("sslVerify changed; restarting service cycle")
-        self.service._restart_requested = True  # type: ignore[attr-defined]
+        self.service._restart_requested = True
 
     def _syncplay_enabled_changed(self, old: str, new: str) -> None:
         """The SyncPlay master toggle builds/tears down the manager live —
         off means no manager thread at all (plan §4)."""
         service = self.service
         if new == "true":
-            if getattr(service, "_online", False):
-                service._start_syncplay()  # type: ignore[attr-defined]
+            if service._online:
+                service._start_syncplay()
         else:
-            service._stop_syncplay()  # type: ignore[attr-defined]
+            service._stop_syncplay()
         self._publish_root_menus()
 
     def _syncplay_tempo_changed(self, old: str, new: str) -> None:
         """Fine sync arms at group join; a toggle while in a group takes
         effect now rather than at the next join."""
-        manager = getattr(self.service, "syncplay", None)
+        manager = self.service.syncplay
         if manager is not None:
             manager.refresh_tempo_session()
 
@@ -257,7 +258,7 @@ class SettingsApplier:
         cannot disagree about what is on disk.
         """
         service = self.service
-        service._start_backdrop(force=True)  # type: ignore[attr-defined]
+        service._start_backdrop(force=True)
 
     def _music_transcode_changed(self, old: str, new: str) -> None:
         """Path mode flip rewrites MyMusic rows later; rematerialize playlists
@@ -289,10 +290,10 @@ class SettingsApplier:
         the same shape as SyncPlay's (plan W1.1)."""
         service = self.service
         if new == "true":
-            if getattr(service, "_online", False):
-                service._start_downloads()  # type: ignore[attr-defined]
+            if service._online:
+                service._start_downloads()
         else:
-            service._stop_downloads()  # type: ignore[attr-defined]
+            service._stop_downloads()
         self._regenerate_nodes()
 
     def _regenerate_nodes(self) -> None:
@@ -398,10 +399,10 @@ class SettingsApplier:
 
     # -- plumbing -------------------------------------------------------------
 
-    def _library_manager(self) -> Optional[Any]:
+    def _library_manager(self) -> Optional[LibraryPort]:
         service = self.service
-        service._start_library()  # type: ignore[attr-defined]
-        return getattr(service, "library", None)
+        service._start_library()
+        return service.library
 
     def _confirm_removals(
         self, removal_entries: List[str], selection: set

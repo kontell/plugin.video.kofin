@@ -23,6 +23,7 @@ from kofin.service.kodiuserdata import KodiUserData
 from kofin.service.player import Player
 from kofin.service.remote import RemoteHandler
 from kofin.service.settings_apply import SettingsApplier
+from kofin.service.ports import DownloadsPort, LibraryPort, SyncPlayPort, forward
 
 LOG = Logger(__name__)
 
@@ -156,9 +157,9 @@ class Service(xbmc.Monitor):
         self.player = Player(self.api)
         self.remote = RemoteHandler()
         self.kodi_userdata = KodiUserData(self.api)
-        self.library: Optional[Any] = None  # kofin.sync.library.Library
-        self.downloads: Optional[Any] = None  # kofin.downloads.manager.DownloadManager
-        self.syncplay: Optional[Any] = None  # kofin.syncplay.SyncPlayManager
+        self.library: Optional[LibraryPort] = None
+        self.downloads: Optional[DownloadsPort] = None
+        self.syncplay: Optional[SyncPlayPort] = None
         self._syncplay_menu: Optional[threading.Thread] = None
         self._who_is_watching: Optional[threading.Thread] = None
         self._chapter_sweep: Optional[threading.Thread] = None
@@ -567,9 +568,10 @@ class Service(xbmc.Monitor):
         try:
             from kofin.syncplay import SyncPlayManager
 
-            self.syncplay = SyncPlayManager(self.api, self.player)
-            self.player.syncplay = self.syncplay
-            self.remote.syncplay = self.syncplay
+            manager = SyncPlayManager(self.api, self.player)
+            self.syncplay = manager
+            self.player.syncplay = manager
+            self.remote.syncplay = manager
             LOG.info("SyncPlay manager started")
         except Exception:
             LOG.exception("SyncPlay manager failed to start")
@@ -1143,13 +1145,7 @@ class Service(xbmc.Monitor):
             pass
 
     def _syncplay_forward(self, name: str, *args: Any) -> None:
-        manager = self.syncplay
-        if manager is None:
-            return
-        try:
-            getattr(manager, name)(*args)
-        except Exception:
-            LOG.exception("SyncPlay %s hook failed", name)
+        forward(self.syncplay, name, *args)
 
     def _backfill_library_claim(self, data: Dict[str, Any]) -> None:
         """Claim library playback that never passed through the play route.
@@ -1282,7 +1278,7 @@ class Service(xbmc.Monitor):
                 LOG.warning(
                     "library thread still stopping after %.0fs: %s",
                     waited,
-                    diag.positions().get(library.ident, "gone"),
+                    diag.positions().get(library.ident or -1, "gone"),
                 )
             if self.abortRequested():
                 LOG.warning("abort during teardown; library thread still alive")
