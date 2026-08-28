@@ -206,3 +206,46 @@ def test_a_junk_start_index_plays_from_the_beginning(monkeypatch):
     played.clear()
     handler._play({"ItemIds": ["a", "b"], "StartIndex": -5, "PlayCommand": "PlayNow"})
     assert len(played) == 2
+
+
+# --- the start-position seek leaves the websocket thread ---------------------
+
+
+class _QuickMonitor:
+    def waitForAbort(self, seconds=0):
+        import time
+
+        time.sleep(0.005)
+        return False
+
+
+def test_play_now_with_a_start_position_returns_before_the_seek(fakes, monkeypatch):
+    """The seek waits for the player to come up — on its own thread, so the
+    websocket thread that delivered the command is free for the next one
+    (assessment S1). Here the player is not up until the test says so."""
+    import threading
+
+    monkeypatch.setattr("xbmc.Monitor", _QuickMonitor)
+    up = threading.Event()
+    monkeypatch.setattr(FakePlayer, "isPlaying", lambda self: up.is_set())
+
+    handler = RemoteHandler()
+    handler.handle(
+        "Play",
+        {"ItemIds": ["a"], "PlayCommand": "PlayNow", "StartPositionTicks": 50_000_000},
+    )
+
+    assert FakePlayer.played  # started at once
+    assert FakePlayer.actions == []  # and the seek is still waiting
+    assert handler._seek_thread is not None and handler._seek_thread.is_alive()
+
+    up.set()
+    handler._seek_thread.join(2)
+    assert FakePlayer.actions == [("seek", 5.0)]
+
+
+def test_play_now_without_a_start_position_starts_no_thread(fakes):
+    handler = RemoteHandler()
+    handler.handle("Play", {"ItemIds": ["a"], "PlayCommand": "PlayNow"})
+    assert handler._seek_thread is None
+    assert FakePlayer.actions == []

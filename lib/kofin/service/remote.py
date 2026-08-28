@@ -8,6 +8,7 @@ commands log and return — never raise.
 """
 
 import json
+import threading
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import xbmc
@@ -60,6 +61,10 @@ class RemoteHandler:
         # The SyncPlay manager (attached by the service while one is built);
         # all control-plane websocket traffic routes through this handler.
         self.syncplay: Optional["SyncPlayManager"] = None
+        # The one thing a remote command may leave running: a PlayNow's
+        # start-position seek waiting for the player to come up. Replaced
+        # by the next PlayNow; the old one exits on its own bound.
+        self._seek_thread: Optional[threading.Thread] = None
 
     def handle(self, message_type: str, data: JsonDict) -> bool:
         """Dispatch a websocket message; returns True when handled."""
@@ -104,7 +109,7 @@ class RemoteHandler:
             xbmc.Player().play(playlist)
             position_ticks = _as_int(data.get("StartPositionTicks"))
             if position_ticks:
-                self._seek_when_playing(position_ticks / 10_000_000)
+                self._start_seek(position_ticks / 10_000_000)
         elif command == "PlayNext":
             insert_at = playlist.getposition() + 1
             for offset, url in enumerate(urls):
@@ -112,6 +117,24 @@ class RemoteHandler:
         else:  # PlayLast
             for url in urls:
                 playlist.add(url)
+
+    def _start_seek(self, seconds: float) -> None:
+        """Seek once the player is up — off this thread.
+
+        The wait is up to 10 s of half-second polls, and this handler runs
+        on the websocket thread: run inline it stalled every message behind
+        it for the time to first frame (a transcode's worth), and a start
+        slower than the bound lost the seek. A daemon thread waits instead;
+        the socket keeps reading.
+        """
+        thread = threading.Thread(
+            target=self._seek_when_playing,
+            args=(seconds,),
+            name="kofin-remote-seek",
+            daemon=True,
+        )
+        self._seek_thread = thread
+        thread.start()
 
     def _seek_when_playing(self, seconds: float) -> None:
         monitor = xbmc.Monitor()
@@ -125,6 +148,7 @@ class RemoteHandler:
                 except RuntimeError:
                     pass
                 return
+        LOG.debug("remote start position dropped: nothing playing after 10 s")
 
     # -- Playstate ----------------------------------------------------------------
 
