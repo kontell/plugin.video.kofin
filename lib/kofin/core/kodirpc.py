@@ -457,13 +457,6 @@ def addon_details(addon_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def addon_enabled(addon_id: str) -> Optional[bool]:
-    """Whether an add-on is installed and enabled: True, False, or None when it
-    is not installed at all."""
-    details = addon_details(addon_id)
-    return None if details is None else details["enabled"]
-
-
 def clear_resume_bookmark(path: str) -> bool:
     """Delete the resume bookmark Kodi keeps for a plugin path.
 

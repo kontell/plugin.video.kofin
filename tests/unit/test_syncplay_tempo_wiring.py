@@ -80,21 +80,6 @@ def test_set_kodi_setting_reports_acceptance(monkeypatch):
     assert kodirpc.set_kodi_setting("x", 1) is False
 
 
-def test_addon_enabled_three_answers(monkeypatch):
-    monkeypatch.setattr(
-        "xbmc.executeJSONRPC",
-        responder({"result": {"addon": {"addonid": "a", "enabled": True}}}),
-    )
-    assert kodirpc.addon_enabled("a") is True
-    monkeypatch.setattr(
-        "xbmc.executeJSONRPC",
-        responder({"result": {"addon": {"addonid": "a", "enabled": False}}}),
-    )
-    assert kodirpc.addon_enabled("a") is False
-    monkeypatch.setattr("xbmc.executeJSONRPC", responder({"error": {"code": -32602}}))
-    assert kodirpc.addon_enabled("a") is None
-
-
 # ----------------------------------------------------------------------------
 # The play route
 # ----------------------------------------------------------------------------

@@ -87,12 +87,6 @@ class TimeSync(threading.Thread):
         self._greedy_remaining = utils.TIMESYNC_GREEDY_COUNT
         self._kick_event.set()
 
-    def server_now_ms(self):
-        return utils.local_ms() + self.offset_ms
-
-    def server_now_iso(self):
-        return utils.to_iso(self.server_now_ms())
-
     # --- measurement ---------------------------------------------------
 
     def _measure(self):

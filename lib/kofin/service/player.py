@@ -1,8 +1,18 @@
-"""Playback reporting and the segment engine (skip / Play Next overlay).
+"""Playback reporting, the segment engine, and everything else that hangs
+off a kofin playback.
 
 The player owns its progress ticker (10s cadence) — the service loop does no
 playback polling. Foreign playback (anything not queued on kofin.play.json)
-is ignored entirely.
+is ignored entirely, except that a library row Kodi started on its own is
+claimed back from ``Player.OnPlay`` (``backfill_library_claim`` and the
+module-level claim helpers) so it reports like any other.
+
+Beside the reporter and the segment engine this file also holds: the lyrics
+hand-off at playback start (``start_lyrics`` — published for a skin script,
+or pushed onto the playing item's tag for a lyrics add-on); the default
+audio and subtitle track selection for a transcode; the watched-to-end
+offers (delete from the server, remove a download); and the wiring for late
+subtitles and chapter thumbnails, which run on their own threads.
 
 The segment engine (plan §2) runs on the SegmentChecker's 0.25 s tick:
 boundary-*crossing* detection on float positions (a coarse or late poll
@@ -17,7 +27,6 @@ kofin's own play path; no ``service.upnext`` anywhere.
 
 import json
 import queue
-import json
 import os
 import re
 import threading
@@ -740,7 +749,7 @@ class Player(xbmc.Player):
         payload = self.api.lyrics(jellyfin_id)
         if mode == LYRICS_SKIN:
             self._publish_lyrics(payload, jellyfin_id)
-        else:
+        elif mode == LYRICS_ADDON:
             self._push_lyrics_to_tag(payload, jellyfin_id)
 
     def _publish_lyrics(self, payload: JsonDict, jellyfin_id: str) -> None:

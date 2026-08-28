@@ -778,19 +778,6 @@ class PulseScheduler(object):
 #################################################################################################
 
 
-def _queue_secs_in_force():
-    """Kodi's audio/video queue depth in seconds, or the Omega constant."""
-    tenths = kodirpc.kodi_setting(QUEUE_SETTING)
-
-    if tenths is None:
-        return OMEGA_QUEUE_SECS
-
-    try:
-        return int(tenths) / 10.0
-    except (TypeError, ValueError):
-        return OMEGA_QUEUE_SECS
-
-
 def restore_queue(reason=""):
     """Put back a queue size shortened for a session, if one is recorded."""
     saved = settings.get_str(QUEUE_RESTORE_SETTING)

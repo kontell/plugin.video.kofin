@@ -16,7 +16,7 @@ to queued (:func:`recover_interrupted`).
 import json
 import time
 from dataclasses import dataclass, fields as dataclass_fields
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Dict, List, Optional, Sequence
 
 from kofin.core.log import Logger
 from kofin.sync.db import Database
@@ -378,11 +378,6 @@ def set_segments(jellyfin_id: str, raw_json: str) -> None:
         )
 
 
-def set_restore_filename(jellyfin_id: str, filename: str) -> None:
-    with Database("kofin") as opened:
-        set_restore_filename_on(opened.cursor, jellyfin_id, filename)
-
-
 def set_restore_filename_on(cursor: Any, jellyfin_id: str, filename: str) -> None:
     cursor.execute(
         "UPDATE download SET restore_filename = ? WHERE jellyfin_id = ?",
@@ -445,28 +440,6 @@ def pending_count() -> int:
             (QUEUED, ACTIVE),
         )
         return int(opened.cursor.fetchone()[0])
-
-
-def done_ids() -> Set[str]:
-    with Database("kofin") as opened:
-        opened.cursor.execute(
-            "SELECT jellyfin_id FROM download WHERE state = ?", (DONE,)
-        )
-        fetched = opened.cursor.fetchall()
-    return {row[0] for row in fetched}
-
-
-def series_has_done(series_id: str) -> bool:
-    """Any completed download under this show (the tvshow tag lookup)."""
-    if not series_id:
-        return False
-    with Database("kofin") as opened:
-        opened.cursor.execute(
-            "SELECT 1 AS present FROM download WHERE series_id = ? AND state = ? LIMIT 1",
-            (series_id, DONE),
-        )
-        found = opened.cursor.fetchone()
-    return found is not None
 
 
 def recover_interrupted() -> int:

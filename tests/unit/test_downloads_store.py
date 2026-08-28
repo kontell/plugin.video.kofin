@@ -94,7 +94,6 @@ def test_finish_settles_the_row():
     assert row.bytes_done == 999
     assert row.done_at == 500
     assert store.is_done("m1") is True
-    assert store.done_ids() == {"m1"}
 
 
 def test_remove_deletes_the_row():
@@ -115,15 +114,17 @@ def test_rows_filters_by_state_in_queue_order():
     assert [row.jellyfin_id for row in store.rows()] == ["a", "b", "c"]
 
 
-def test_series_has_done_is_the_tvshow_tag_lookup():
+def test_series_done_on_is_the_tvshow_tag_lookup():
     store.queue(_movie("e1", media_type="episode", series_id="show9"))
-    assert store.series_has_done("show9") is False  # queued is not downloaded
+    with sync_db.Database("kofin") as opened:
+        assert store.series_done_on(opened.cursor, "show9") is False  # queued
 
     store.claim()
     store.finish("e1", "Shows/S/Season 01/e1.mkv", "mkv", 10)
-    assert store.series_has_done("show9") is True
-    assert store.series_has_done("othershow") is False
-    assert store.series_has_done("") is False
+    with sync_db.Database("kofin") as opened:
+        assert store.series_done_on(opened.cursor, "show9") is True
+        assert store.series_done_on(opened.cursor, "othershow") is False
+        assert store.series_done_on(opened.cursor, "") is False
 
 
 def test_recover_interrupted_requeues_crashed_actives():

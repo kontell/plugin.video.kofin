@@ -24,12 +24,6 @@ def test_encode_decode_round_trip():
     assert ipc.decode(wire) == payload
 
 
-def test_decode_hex_signal_payload():
-    payload = {"play_info": {"ItemIds": ["x"]}}
-    wire = '["%s"]' % ipc.encode_hex(payload)
-    assert ipc.decode(wire) == payload
-
-
 def test_decode_garbage_is_empty():
     assert ipc.decode("[]") == {}
 

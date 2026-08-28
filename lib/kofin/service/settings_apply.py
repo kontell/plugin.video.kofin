@@ -1,12 +1,16 @@
 """The settings diff engine: a registry of ``setting id -> handler(old, new)``
-consulted from the service's ``onSettingsChanged`` (plan §2).
+consulted from the service's ``onSettingsChanged``.
 
-Phase 1's inline sslVerify handler lives here now. Phase 2 adds
-``librarySelection``: the whitelist csv written by the library picker. Its
-handler computes add/remove sets against the *synced* whitelist (sync.json)
-— not the previous csv — so a partially failed sync self-heals on the next
-apply. Removals confirm via yesno before rows are deleted; a declined
-removal restores the ids into the selection.
+The table (``SettingsApplier.handlers``) is the whole design: one handler
+per setting whose change the running service has to act on -- the transport
+(sslVerify), the library whitelist, the SyncPlay and downloads toggles, the
+who's-watching shortlist, the backdrop, the context-menu bitrates, the music
+playlists folder -- and everything not in the table is read fresh wherever
+it is used. The whitelist handler is the one with policy: it computes add/remove
+sets against the *synced* whitelist (sync.json), not the previous csv, so a
+partially failed sync self-heals on the next apply; removals confirm via
+yesno before rows are deleted, and a declined removal restores the ids into
+the selection.
 
 Startup guard (learned in S2 live testing): Kodi fires ``onSettingsChanged``
 while it loads the profile settings, and the fresh-``Addon()``-per-call reads

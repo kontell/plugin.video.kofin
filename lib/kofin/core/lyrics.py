@@ -98,20 +98,3 @@ def to_lines(payload: Optional[JsonDict]) -> List[LyricLine]:
         else:
             out.append((None, text))
     return out
-
-
-def active_index(lines: List[LyricLine], position: float) -> Optional[int]:
-    """Index of the line playing at ``position`` seconds.
-
-    None when the lyrics carry no timings, or when playback has not yet
-    reached the first stamped line — both cases mean "nothing to highlight"
-    rather than "highlight line zero".
-
-    Lines are searched from the end so repeated stamps resolve to the last
-    line sharing the time, which is how a stacked ``[00:12.00]`` pair reads.
-    """
-    for index in range(len(lines) - 1, -1, -1):
-        start = lines[index][0]
-        if start is not None and start <= position:
-            return index
-    return None

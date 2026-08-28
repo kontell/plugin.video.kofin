@@ -204,8 +204,3 @@ def decode(data: str) -> Dict[str, Any]:
 
 def method_name(method: str) -> str:
     return method.split(".", 1)[1] if "." in method else method
-
-
-def encode_hex(data: Dict[str, Any]) -> str:
-    """Hexlify a payload the way AddonSignals consumers expect (Up Next)."""
-    return binascii.hexlify(json.dumps(data).encode()).decode()

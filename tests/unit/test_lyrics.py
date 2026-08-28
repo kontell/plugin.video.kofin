@@ -240,34 +240,6 @@ def test_untimed_payload_has_no_starts():
     assert lyrics.to_lines({}) == []
 
 
-@pytest.mark.parametrize(
-    "position,expected",
-    [
-        (0.0, None),  # before the first stamp: nothing is current yet
-        (0.57, None),
-        (0.58, 0),  # exactly on a stamp is that line
-        (50.0, 0),
-        (94.6, 1),
-        (9999.0, 1),  # past the last line it stays on the last line
-    ],
-)
-def test_active_index_follows_the_clock(position, expected):
-    assert lyrics.active_index(lyrics.to_lines(SYNCED), position) == expected
-
-
-def test_untimed_lyrics_have_no_active_line():
-    assert lyrics.active_index(lyrics.to_lines(PLAIN), 30.0) is None
-    assert lyrics.active_index([], 30.0) is None
-
-
-def test_repeated_stamps_resolve_to_the_last_line():
-    """A stacked '[00:12.00]' pair is one moment with two lines; the later one
-    is what should be lit."""
-    lines = [(0.0, "a"), (12.0, "b"), (12.0, "c"), (20.0, "d")]
-    assert lyrics.active_index(lines, 12.0) == 2
-    assert lyrics.active_index(lines, 19.9) == 2
-
-
 # -- driving it from the player ----------------------------------------------
 
 

@@ -6,8 +6,9 @@ property the service published rather than from Jellyfin, so opening this
 costs nothing and cannot fail on a slow server -- the service already paid
 for them at playback start.
 
-Item labels are the lines themselves; the service moves the highlight with
-Control.SetFocus, so nothing here needs to know which line is current.
+Item labels are the lines themselves. Which line is current is the
+renderer's business (script.kofin.lyrics follows the clock from the timed
+lines in the same property), so nothing here needs to know.
 """
 
 from typing import Any, Dict

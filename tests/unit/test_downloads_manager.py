@@ -442,7 +442,8 @@ def test_remove_restores_deletes_and_prunes(tmp_path, repoints):
     (final.parent / "The Movie (2019).eng.srt").write_bytes(b"s")
     queue_row()
     store.finish("m1", rel, "mkv", 1)
-    store.set_restore_filename("m1", "plugin://old")
+    with sync_db.Database("kofin") as opened:
+        store.set_restore_filename_on(opened.cursor, "m1", "plugin://old")
 
     manager._apply_remove("m1")
 
@@ -1526,7 +1527,10 @@ def _finished(item_id, rel, root):
     path.write_bytes(b"x")
     queue_row(item_id)
     store.finish(item_id, rel, rel.rsplit(".", 1)[-1], 1)
-    store.set_restore_filename(item_id, "plugin://old-%s" % item_id)
+    with sync_db.Database("kofin") as opened:
+        store.set_restore_filename_on(
+            opened.cursor, item_id, "plugin://old-%s" % item_id
+        )
     return path
 
 
