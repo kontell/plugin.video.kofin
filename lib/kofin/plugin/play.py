@@ -415,13 +415,13 @@ def downloaded_file(item_id: str) -> Optional[str]:
     all, a download still running or failed, a row that never recorded a
     target, and a row whose file has since gone from under it.
     """
-    from kofin.downloads import downloads_root, store
+    from kofin.downloads import downloads_root, files, store
 
     row = store.get(item_id)
     if row is None or row.state != store.DONE or not row.rel_path:
         return None
 
-    path = os.path.join(downloads_root(), row.rel_path)
+    path = files.absolute_path(downloads_root(), row.rel_path)
     return path if os.path.exists(path) else None
 
 

@@ -45,7 +45,7 @@ from kofin.core.log import Logger
 from kofin.service import chapters, latesubs
 from kofin.core.segments import parse_segments
 from kofin.service.segments import SegmentChecker
-from kofin.service.ports import forward
+from kofin.service.ports import forward, spawn_once
 
 if TYPE_CHECKING:
     from kofin.syncplay.manager import SyncPlayManager
@@ -1013,12 +1013,7 @@ class Player(xbmc.Player):
         # blocking that thread stalls the player callbacks behind it (Play
         # Next's handoff to the following episode arrives on it). Daemon, so a
         # prompt left open cannot hold up service shutdown.
-        threading.Thread(
-            target=self._delete_prompt,
-            args=(item,),
-            name="kofin-delete-prompt",
-            daemon=True,
-        ).start()
+        spawn_once(None, self._delete_prompt, "kofin-delete-prompt", item)
         return True
 
     def offer_remove_download(self, item: JsonDict) -> bool:
@@ -1053,12 +1048,13 @@ class Player(xbmc.Player):
             return True
         # The same thread shape as the delete prompt: a dialog waits on a
         # person, and Kodi's callback thread must never wait with it.
-        threading.Thread(
-            target=self._remove_download_prompt,
-            args=(item_id, str(item.get("Name") or "")),
-            name="kofin-remove-download-prompt",
-            daemon=True,
-        ).start()
+        spawn_once(
+            None,
+            self._remove_download_prompt,
+            "kofin-remove-download-prompt",
+            item_id,
+            str(item.get("Name") or ""),
+        )
         return True
 
     def _remove_download_prompt(self, item_id: str, name: str) -> None:

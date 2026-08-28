@@ -23,7 +23,13 @@ from kofin.service.kodiuserdata import KodiUserData
 from kofin.service.player import Player
 from kofin.service.remote import RemoteHandler
 from kofin.service.settings_apply import SettingsApplier
-from kofin.service.ports import DownloadsPort, LibraryPort, SyncPlayPort, forward
+from kofin.service.ports import (
+    DownloadsPort,
+    LibraryPort,
+    SyncPlayPort,
+    forward,
+    spawn_once,
+)
 
 LOG = Logger(__name__)
 
@@ -600,30 +606,27 @@ class Service(xbmc.Monitor):
                 settings.localized(30574), toast.ERROR, heading="SyncPlay", time_ms=4000
             )
             return
-        if self._syncplay_menu is not None and self._syncplay_menu.is_alive():
-            LOG.debug("SyncPlay menu already open")
-            return
         from kofin.syncplay import show_menu
 
-        self._syncplay_menu = threading.Thread(
-            target=show_menu, args=(manager,), name="kofin-syncplay-menu"
+        spawned = spawn_once(
+            self._syncplay_menu, show_menu, "kofin-syncplay-menu", manager
         )
-        self._syncplay_menu.daemon = True
-        self._syncplay_menu.start()
+        if spawned is None:
+            LOG.debug("SyncPlay menu already open")
+            return
+        self._syncplay_menu = spawned
 
     def _open_who_is_watching(self) -> None:
         """WhoIsWatching IPC: same contract as the SyncPlay menu — the picker
         blocks on a dialog, so it gets its own worker thread, never the
         notification thread."""
-        if self._who_is_watching is not None and self._who_is_watching.is_alive():
+        spawned = spawn_once(
+            self._who_is_watching, self._run_who_is_watching, "kofin-whoswatching"
+        )
+        if spawned is None:
             LOG.debug("who's-watching picker already open")
             return
-
-        self._who_is_watching = threading.Thread(
-            target=self._run_who_is_watching, name="kofin-whoswatching"
-        )
-        self._who_is_watching.daemon = True
-        self._who_is_watching.start()
+        self._who_is_watching = spawned
 
     def _run_who_is_watching(self) -> None:
         from kofin.service import whoswatching
@@ -641,11 +644,11 @@ class Service(xbmc.Monitor):
         if state.get_playing_id():
             LOG.debug("chapter sweep deferred: playback live")
             return
-        self._chapter_sweep = threading.Thread(
-            target=self._run_chapter_sweep, name="kofin-chapter-sweep"
+        spawned = spawn_once(
+            self._chapter_sweep, self._run_chapter_sweep, "kofin-chapter-sweep"
         )
-        self._chapter_sweep.daemon = True
-        self._chapter_sweep.start()
+        if spawned is not None:
+            self._chapter_sweep = spawned
 
     def _run_chapter_sweep(self) -> None:
         try:
@@ -662,14 +665,13 @@ class Service(xbmc.Monitor):
         Restarted rather than joined: the previous run is idempotent and its
         own worst case is a redundant write.
         """
-        if self._backdrop is not None and self._backdrop.is_alive():
+        spawned = spawn_once(
+            self._backdrop, self._run_backdrop, "kofin-backdrop", force
+        )
+        if spawned is None:
             LOG.debug("backdrop refresh already running")
             return
-        self._backdrop = threading.Thread(
-            target=self._run_backdrop, name="kofin-backdrop", args=(force,)
-        )
-        self._backdrop.daemon = True
-        self._backdrop.start()
+        self._backdrop = spawned
 
     def _run_backdrop(self, force: bool) -> None:
         backdrop.apply(self.api if self._online else None, time.time(), force=force)
@@ -818,11 +820,11 @@ class Service(xbmc.Monitor):
         self._verify_online = False
         state.set_online(True)
         self._post_connect_pending.set()
-        if self._post_connect is None or not self._post_connect.is_alive():
-            self._post_connect = threading.Thread(
-                target=self._run_post_connect, name="kofin-postconnect", daemon=True
-            )
-            self._post_connect.start()
+        spawned = spawn_once(
+            self._post_connect, self._run_post_connect, "kofin-postconnect"
+        )
+        if spawned is not None:
+            self._post_connect = spawned
 
     def _run_post_connect(self) -> None:
         monitor = xbmc.Monitor()
@@ -1120,15 +1122,14 @@ class Service(xbmc.Monitor):
         run is thousands of downloads — and single-flight, so a second press
         joins the run already going rather than doubling the fetches.
         """
-        if self._precache_art is not None and self._precache_art.is_alive():
+        spawned = spawn_once(
+            self._precache_art, self._run_precache_art, "kofin-artcache-now"
+        )
+        if spawned is None:
             LOG.debug("cast-image pre-cache already running")
             toast.show(settings.localized(30672), time_ms=4000)
             return
-        self._precache_art = threading.Thread(
-            target=self._run_precache_art, name="kofin-artcache-now"
-        )
-        self._precache_art.daemon = True
-        self._precache_art.start()
+        self._precache_art = spawned
 
     def _run_precache_art(self) -> None:
         toast.show(settings.localized(30672), time_ms=4000)

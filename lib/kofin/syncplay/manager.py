@@ -581,9 +581,7 @@ class SyncPlayManager(object):
             except Exception:
                 pass
 
-        timer = threading.Timer(10, self._post, args=(check,))
-        timer.daemon = True
-        timer.start()
+        utils.later(10, self._post, check)
 
     # ------------------------------------------------------------------
     # WebSocket message handling (dispatcher thread)
@@ -887,9 +885,7 @@ class SyncPlayManager(object):
                     LOG.info("No snapshot pushed after reconnect, requesting one")
                     self._request_snapshot()
 
-            timer = threading.Timer(5, self._post, args=(check,))
-            timer.daemon = True
-            timer.start()
+            utils.later(5, self._post, check)
         else:
             self._kicked_probe()
 
@@ -1121,9 +1117,7 @@ class SyncPlayManager(object):
             if self.phase == "loading" and self._load_generation == generation:
                 self._load_failed("no playback within 45s")
 
-        timer = threading.Timer(45, self._post, args=(check,))
-        timer.daemon = True
-        timer.start()
+        utils.later(45, self._post, check)
 
     def _load_failed(self, reason):
         LOG.warning("SyncPlay could not start playback: %s", reason)
@@ -1394,13 +1388,12 @@ class SyncPlayManager(object):
                 self._unmanaged_local_play()
                 return
 
-            timer = threading.Timer(
+            utils.later(
                 utils.FORWARD_RETRY_INTERVAL,
                 self._post,
-                args=(self._forward_local_play, attempt + 1),
+                self._forward_local_play,
+                attempt + 1,
             )
-            timer.daemon = True
-            timer.start()
             return
 
         if hold is not None:
@@ -1484,9 +1477,7 @@ class SyncPlayManager(object):
             LOG.warning("Held start was never adopted; releasing the hold")
             self._release_hold()
 
-        timer = threading.Timer(utils.HOLD_RELEASE_TIMEOUT, self._post, args=(check,))
-        timer.daemon = True
-        timer.start()
+        utils.later(utils.HOLD_RELEASE_TIMEOUT, self._post, check)
 
     def _release_hold(self):
         if self._hold is None:

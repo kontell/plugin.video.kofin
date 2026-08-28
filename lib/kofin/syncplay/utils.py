@@ -9,6 +9,7 @@ transplant discipline — the math and constants are the proven parts and stay
 identical.
 """
 
+import threading
 import time
 from datetime import datetime
 
@@ -180,3 +181,13 @@ def is_stale_version(version, highest_seen):
         return False
 
     return version < highest_seen
+
+
+def later(seconds, func, *args):
+    """A fire-and-forget daemon Timer — the one spelling of the
+    schedule-and-move-on blocks (P1.10). Returns the timer for the one
+    caller that stores it (the command scheduler)."""
+    timer = threading.Timer(seconds, func, args=args)
+    timer.daemon = True
+    timer.start()
+    return timer

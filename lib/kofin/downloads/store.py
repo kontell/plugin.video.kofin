@@ -44,6 +44,10 @@ QUALITY_ORIGINAL = "original"
 # where an original resumes with a Range.
 QUALITY_TRANSCODE = "transcode"
 
+# The two video kinds every per-type policy branches on. "" (unknown) is
+# deliberately not here — each consumer decides what unknown means.
+VIDEO_MEDIA_TYPES = ("movie", "episode")
+
 
 @dataclass
 class Download:

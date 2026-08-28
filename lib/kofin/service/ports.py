@@ -14,7 +14,7 @@ whole consumed surface of ``Library`` is written down in one place.
 """
 
 import threading
-from typing import Any, Dict, Iterable, List, Optional, Protocol, Set
+from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Set
 
 from kofin.core.log import Logger
 
@@ -143,3 +143,20 @@ def forward(manager: Optional[object], name: str, *args: Any) -> None:
         getattr(manager, name)(*args)
     except Exception:
         LOG.exception("SyncPlay %s hook failed", name)
+
+
+def spawn_once(
+    current: Optional[threading.Thread],
+    target: Callable[..., None],
+    name: str,
+    *args: Any,
+) -> Optional[threading.Thread]:
+    """Start a named one-shot daemon worker unless the previous one still
+    runs; returns the new thread, or None when busy (P1.10). The caller
+    keeps the slot — and its own busy message. ``current=None`` is the
+    fire-and-forget case (the player's prompt threads)."""
+    if current is not None and current.is_alive():
+        return None
+    thread = threading.Thread(target=target, args=args, name=name, daemon=True)
+    thread.start()
+    return thread

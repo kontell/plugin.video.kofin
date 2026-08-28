@@ -27,13 +27,15 @@ from typing import Any, List, Optional, Tuple
 
 from kofin.core.log import Logger
 from kofin.downloads import TAG, downloads_root, store
+from kofin.downloads import store
 from kofin.sync.db import Database
 from kofin.sync.kodidb.downloads import Downloads as KodiDownloads
 from kofin.sync.kodidb.downloads import MusicDownloads
 
 LOG = Logger(__name__)
 
-REPOINTABLE = ("movie", "episode")
+# The store names the video kinds; repoint follows it (P1.10).
+REPOINTABLE = store.VIDEO_MEDIA_TYPES
 
 
 @dataclass

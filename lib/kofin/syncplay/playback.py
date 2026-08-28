@@ -122,9 +122,7 @@ class PlaybackController(object):
             return
 
         with self._timer_lock:
-            self._timer = threading.Timer(delay, self._execute, args=(command,))
-            self._timer.daemon = True
-            self._timer.start()
+            self._timer = utils.later(delay, self._execute, command)
 
         # With the timer armed, use the scheduling lead to line the player up
         # on the start position, so the fire instant starts from exactly the

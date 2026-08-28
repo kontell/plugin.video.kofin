@@ -28,7 +28,6 @@ cached server art (``sync/clean.purge_server_art``).
 """
 
 import os
-import struct
 import threading
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -37,6 +36,7 @@ import xbmcvfs
 
 from kofin.core import settings
 from kofin.core.http import Http, HttpError
+from kofin.core.imagecache import THUMBNAILS, extension_for, image_size, store_image
 from kofin.core.log import Logger
 from kofin.sync import schema
 from kofin.sync.db import Database
@@ -46,7 +46,7 @@ LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
 
-THUMBNAILS = "special://thumbnails/"
+# THUMBNAILS, the parser and the store step live in core/imagecache (P1.10).
 
 # The setting that turns the idle trickle on. Off by default: it is disk the
 # user has not agreed to spend (see the help string's estimate).
@@ -68,13 +68,6 @@ TICK_SECONDS = 15
 # holding an idle-time worker for, and the next batch will pick it up again.
 TIMEOUT = (3.05, 10.0)
 
-
-_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
-
-_SOF_MARKERS = frozenset(
-    (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF)
-)
-
 # Actor thumbs only. Posters and fanart are already cached as a side effect of
 # browsing the library — they are on screen the moment a list is drawn — while
 # cast art is the one kind nothing renders until a dialog opens.
@@ -84,39 +77,6 @@ FROM        art
 WHERE       media_type = 'actor' AND type = 'thumb'
             AND url LIKE 'http%'
 """
-
-
-def image_size(data: bytes) -> Tuple[int, int]:
-    """(width, height) for a JPEG or PNG; (0, 0) when unparseable.
-
-    The dimensions are bookkeeping in the ``sizes`` row — Kodi's lookup keys
-    on ``size=1`` — so an unreadable header degrades rather than skips.
-    """
-    if data[:8] == _PNG_MAGIC and len(data) >= 24:
-        width, height = struct.unpack(">II", data[16:24])
-        return int(width), int(height)
-    index = 2
-    while index < len(data) - 9:
-        if data[index] != 0xFF:
-            index += 1
-            continue
-        marker = data[index + 1]
-        if marker in _SOF_MARKERS:
-            height, width = struct.unpack(">HH", data[index + 5 : index + 9])
-            return int(width), int(height)
-        if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
-            index += 2
-            continue
-        (length,) = struct.unpack(">H", data[index + 2 : index + 4])
-        index += 2 + length
-    return 0, 0
-
-
-def extension_for(data: bytes) -> str:
-    """The cache file's extension. Kodi stores a PNG source as ``.png`` and
-    everything else as ``.jpg``, and the extension is part of the cachedurl
-    this module writes — so it has to match what the bytes actually are."""
-    return ".png" if data[:8] == _PNG_MAGIC else ".jpg"
 
 
 def pending_urls(limit: int) -> List[str]:
@@ -274,13 +234,10 @@ class ActorArtCache:
             relative = cached_rel_path(url, extension_for(data))
             destination = os.path.join(self._thumbs_dir, relative)
             try:
-                os.makedirs(os.path.dirname(destination), exist_ok=True)
-                with open(destination, "wb") as handle:
-                    handle.write(data)
+                width, height = store_image(data, destination)
             except OSError as error:
                 LOG.debug("could not write %s: %s", destination, error)
                 continue
-            width, height = image_size(data)
             published.append((url, relative, width, height))
 
         if not published:

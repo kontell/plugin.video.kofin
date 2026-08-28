@@ -22,13 +22,13 @@ are likewise out of scope.
 """
 
 import os
-import struct
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 import xbmcvfs
 
 from kofin.core.api import Api
+from kofin.core.imagecache import THUMBNAILS, store_image
 from kofin.core.log import Logger
 from kofin.sync import schema
 from kofin.sync.db import Database
@@ -37,8 +37,6 @@ from kofin.sync.kodidb.texture import TextureCache, cached_rel_path, chapter_art
 LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
-
-THUMBNAILS = "special://thumbnails/"
 
 # Server-side resize for the downloads. The dialog renders small tiles;
 # source-resolution chapter images would be megabytes each for no gain.
@@ -49,10 +47,6 @@ _DIRECT_METHODS = ("DirectPlay", "DirectStream")
 
 _VIDEO_TYPES = ("Movie", "Episode", "MusicVideo", "Video")
 
-_SOF_MARKERS = frozenset(
-    (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF)
-)
-
 
 def eligible(item: JsonDict) -> bool:
     """Whether a claimed play item can carry native chapter thumbs at all."""
@@ -62,29 +56,6 @@ def eligible(item: JsonDict) -> bool:
         and item.get("PlayMethod") in _DIRECT_METHODS
         and item.get("Type") in _VIDEO_TYPES
     )
-
-
-def jpeg_size(data: bytes) -> Tuple[int, int]:
-    """(width, height) from a JPEG's SOF marker; (0, 0) when unparseable.
-
-    The sizes row wants the stored dimensions; a parse failure degrades to
-    0x0, which Kodi treats consistently (the lookup keys on ``size=1``, the
-    dimensions are bookkeeping)."""
-    i = 2
-    while i < len(data) - 9:
-        if data[i] != 0xFF:
-            i += 1
-            continue
-        marker = data[i + 1]
-        if marker in _SOF_MARKERS:
-            height, width = struct.unpack(">HH", data[i + 5 : i + 9])
-            return width, height
-        if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
-            i += 2
-            continue
-        (seglen,) = struct.unpack(">H", data[i + 2 : i + 4])
-        i += 2 + seglen
-    return 0, 0
 
 
 def sweep(device_id: str, thumbs_dir: Optional[str] = None) -> int:
@@ -193,10 +164,7 @@ class ChapterThumbs:
             with self._lock:
                 self._seeded.append((key, rel))
             destination = os.path.join(self._thumbs_dir, rel)
-            os.makedirs(os.path.dirname(destination), exist_ok=True)
-            with open(destination, "wb") as outfile:
-                outfile.write(data)
-            width, height = jpeg_size(data)
+            width, height = store_image(data, destination)
             published.append((key, rel, width, height))
 
         if not published or self._cancel.is_set():
