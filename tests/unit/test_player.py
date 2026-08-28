@@ -51,9 +51,25 @@ def kodi_fakes(monkeypatch):
     )
 
 
+_players = []
+
+
+@pytest.fixture(autouse=True)
+def _stop_player_threads():
+    """P1.11: join the _Reporter/ticker threads every constructed Player
+    starts — ~130 leaked daemon threads per run before this."""
+    yield
+    while _players:
+        try:
+            _players.pop().stop_threads()
+        except Exception:
+            pass
+
+
 def make_player(monkeypatch, url="http://s/stream"):
     api = RecordingApi()
     player = Player(api)  # type: ignore[arg-type]
+    _players.append(player)
     monkeypatch.setattr(player, "getPlayingFile", lambda: url)
     monkeypatch.setattr(player, "getTime", lambda: 42.0)
     monkeypatch.setattr(player, "_start_ticker", lambda: None)

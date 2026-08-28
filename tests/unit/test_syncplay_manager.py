@@ -94,6 +94,7 @@ def manager():
     m.timesync = None
     m._running = False
     m._inbox.put(None)
+    m._dispatcher.join(timeout=2)  # P1.11: 94 leaked dispatcher threads
 
 
 def join(manager, protocol_version=2, version=1):

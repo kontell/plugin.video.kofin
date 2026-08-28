@@ -1846,3 +1846,37 @@ def test_recovery_does_nothing_while_both_threads_live(monkeypatch):
     service._recover_threads()
 
     assert built == []
+
+
+# --- the service loop itself (P1.11: run/_join_workers previously undriven) ---
+
+
+def test_run_shuts_down_cleanly_when_kodi_aborts_at_once(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    library = FakeLibrary()
+    service.library = library
+    monkeypatch.setattr(service, "abortRequested", lambda: True)
+    monkeypatch.setattr(service, "_start_chapter_sweep", lambda: None)
+    monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
+
+    assert service.run() is False  # an abort is not a restart request
+
+    assert service._stopping.is_set() is True
+    assert library.stopped == 1
+    assert service.library is None
+
+
+def test_join_workers_joins_what_ran_and_skips_the_empty_slots():
+    service = Service()
+    done = threading.Event()
+    worker = threading.Thread(target=done.set, name="kofin-backdrop")
+    worker.start()
+    service._backdrop = worker
+
+    service._join_workers()  # joins the finished worker, skips the Nones
+
+    assert done.is_set()
+    assert not worker.is_alive()

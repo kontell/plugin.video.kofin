@@ -12,7 +12,7 @@ from kofin.plugin.browse import (
     node_query,
 )
 from kofin.plugin.router import Request
-from tests.unit.fakes import FakeAddon, FakeWindow
+from tests.unit.fakes import FakeAddon, FakeApi, FakeWindow
 
 
 def test_node_query_movies_all():
@@ -1084,3 +1084,34 @@ def test_playlists_get_their_own_glyph_and_empty_content():
     assert _guess_content([{"Type": "Playlist"}, {"Type": "Playlist"}]) == ""
     # A mixed listing still describes its media.
     assert _guess_content([{"Type": "Playlist"}, {"Type": "Movie"}]) == "movies"
+
+
+# --- the nextepisodes node target (P1.11: previously uncalled) ----------------
+
+
+def test_next_episodes_lists_the_next_up_feed(monkeypatch, directory):
+    api = FakeApi(
+        next_up={"Items": [{"Id": "e1", "Name": "Mole Hunt", "Type": "Episode"}]}
+    )
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.next_episodes(Request("plugin://x", 1, {"id": "v1"}))
+
+    assert directory["content"] == "episodes"
+    assert directory["succeeded"] is True
+    assert len(directory["entries"]) == 1
+    assert api.args("next_up")[0][0] == "v1"
+
+
+def test_next_episodes_fails_the_listing_when_the_server_is_down(
+    monkeypatch, directory
+):
+    from kofin.core.http import JellyfinError
+
+    api = FakeApi(next_up=JellyfinError("down"))
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.next_episodes(Request("plugin://x", 1, {"id": "v1"}))
+
+    assert directory["succeeded"] is False
+    assert directory["entries"] == []

@@ -225,3 +225,42 @@ def test_connection_still_names_an_unreachable_server(kodi_fakes, monkeypatch):
     account.test_connection(REQ)
 
     assert FakeDialog.notifications[-1] == "msg"  # #30018 via the stub texts
+
+
+def test_connection_success_names_server_and_version(kodi_fakes, monkeypatch):
+    """P1.11: the happy path — the toast names the server, and the client
+    is closed on the way out like every other outcome."""
+    _logged_in()
+
+    class HappyApi:
+        closed = False
+
+        @classmethod
+        def for_plugin(cls, creds):
+            return cls()
+
+        def public_info(self):
+            return {"ServerName": "minipie", "Version": "10.11.11"}
+
+        def views(self):
+            return []
+
+        def close(self):
+            HappyApi.closed = True
+
+    monkeypatch.setattr("kofin.core.api.Api", HappyApi)
+
+    account.test_connection(REQ)
+
+    assert FakeDialog.notifications[-1] == "ok minipie 10.11.11"
+    assert HappyApi.closed is True
+
+
+def test_connection_names_a_rejected_session(kodi_fakes, monkeypatch):
+    _logged_in()
+    fake = _api_raising(Unauthorized("401"), monkeypatch)
+
+    account.test_connection(REQ)
+
+    assert FakeDialog.notifications[-1] == "msg"  # #30022 via the stub texts
+    assert fake.closed is True

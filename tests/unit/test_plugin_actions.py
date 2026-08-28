@@ -748,3 +748,44 @@ def test_show_names_come_from_the_id_map_and_kodi_over_jsonrpc(monkeypatch, tmp_
         ]
     finally:
         sync_db.reset_overrides()
+
+
+# --- update libraries (P1.11: previously uncalled) ----------------------------
+
+
+def _update_wired(monkeypatch, picked):
+    sent = []
+    dialog = FakeDialog(multiselect=picked)
+    monkeypatch.setattr(actions.settings, "get_list", lambda key: ["lib1", "lib2"])
+    monkeypatch.setattr(actions.settings, "localized", lambda i: "L%d" % i)
+    monkeypatch.setattr(actions, "_selection_names", lambda ids: ["One", "Two"])
+    monkeypatch.setattr(actions.xbmcgui, "Dialog", lambda: dialog)
+    monkeypatch.setattr(actions.ipc, "notify", lambda m, d=None: sent.append((m, d)))
+    return sent, dialog
+
+
+def test_update_libraries_all_sends_the_empty_payload(monkeypatch):
+    """Empty payload = the full-whitelist pass, which keeps the service's
+    retention-repair release path intact."""
+    sent, dialog = _update_wired(monkeypatch, [0])
+
+    actions.update_libraries(actions.Request("plugin://x", -1, {}))
+
+    assert sent == [(actions.ipc.UPDATE_LIBRARY, {})]
+    assert dialog.multiselects[0][1] == ["L30267", "One", "Two"]
+
+
+def test_update_libraries_names_the_picked_libraries(monkeypatch):
+    sent, _dialog = _update_wired(monkeypatch, [1, 2])
+
+    actions.update_libraries(actions.Request("plugin://x", -1, {}))
+
+    assert sent == [(actions.ipc.UPDATE_LIBRARY, {"Id": "lib1,lib2"})]
+
+
+def test_update_libraries_cancelled_sends_nothing(monkeypatch):
+    sent, _dialog = _update_wired(monkeypatch, None)
+
+    actions.update_libraries(actions.Request("plugin://x", -1, {}))
+
+    assert sent == []
