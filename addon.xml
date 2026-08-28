@@ -8,7 +8,7 @@
          install optional dependencies, and lyrics are meant to work without
          the viewer hunting for a second addon. Served from the same
          repository as kofin, so it resolves. -->
-    <import addon="script.kofin.lyrics" version="0.1.0"/>
+    <import addon="script.kofin.lyrics" version="0.1.0" optional="true"/>
     <!-- Fine sync between SyncPlay commands (syncplay/tempo.py). Optional,
          not required: it is a binary add-on and no build exists for every
          architecture Kodi runs on, so a hard import would make kofin
