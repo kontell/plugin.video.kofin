@@ -439,7 +439,18 @@ class DownloadManager:
             self._apply_cancel(item_id)
             return
         root = downloads_root()
-        repoint.restore(row, root)
+        if not repoint.restore(row, root):
+            # Refused (no captured filename, no usable mapping): deleting
+            # the media now would leave the library row pointing at a file
+            # that no longer exists. The download stays exactly as it is —
+            # file, row, tag, badge — and the user is told; the next writer
+            # pass over the item re-captures the filename, after which the
+            # removal goes through (assessment D5).
+            LOG.error(
+                "download %s kept: its library row could not be restored", item_id
+            )
+            self._toast(30822, _display_name(row))
+            return
         self._delete_media(row)
         # The store row goes before the tag check: an episode's unstamp asks
         # whether any sibling download still holds the show in the node, and
@@ -1103,7 +1114,16 @@ class DownloadManager:
             "downloaded file missing for %s; cleaning up and marking it watched",
             row.jellyfin_id,
         )
-        repoint.restore(row, root)
+        if not repoint.restore(row, root):
+            # The file is already gone, so there is nothing to keep: the
+            # cleanup proceeds — the row must go, or the sweep finds the
+            # same missing file every pass — and the library row heals on
+            # the item's next writer pass. Said loudly; it should not
+            # happen (a done row always captured its filename).
+            LOG.error(
+                "vanished download %s: library row not restored; cleaning up anyway",
+                row.jellyfin_id,
+            )
         self._delete_media(row)
         # Before the tag check, exactly as in _apply_remove: an episode's
         # unstamp asks whether a sibling still holds the show in the node.
@@ -1416,6 +1436,13 @@ class DownloadManager:
             toast.show(settings.localized(string_id) % name, time_ms=4000)
         except Exception:  # pragma: no cover - uncached string etc.
             LOG.debug("download toast failed for %s", string_id)
+
+
+def _display_name(row: "store.Download") -> str:
+    """What a toast can call a download: the file's own name, which is what
+    the user sees in the downloads folder — the row carries no title."""
+    base = os.path.splitext(os.path.basename(row.rel_path))[0]
+    return base or row.jellyfin_id
 
 
 def _expected_total(stream: StreamedResponse, start: int, fallback: int) -> int:
