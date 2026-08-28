@@ -1049,6 +1049,8 @@ def test_ws_events_ignored_before_startup_done():
 
 
 def test_library_commands_enqueue(monkeypatch):
+    import json
+
     from kofin.core import ipc
     from kofin.service.main import Service
 
@@ -1062,17 +1064,22 @@ def test_library_commands_enqueue(monkeypatch):
 
     service = Service.__new__(Service)
     service.library = FakeLibrary()
-    # SyncLibrary is not a guarded command, but the dispatcher reads the
-    # service's secret for every message (ipc.GUARDED).
     service._ipc_nonce = "test-nonce"
     monkeypatch.setattr(Service, "_start_library", lambda self: None)
 
-    payload = '"[{\\"Id\\": \\"lib1\\"}]"'
-    import json
+    # A guarded library command carrying the secret reaches the library.
+    signed = json.dumps([{"Id": "lib1", ipc.NONCE_KEY: "test-nonce"}])
+    service.onNotification("plugin.video.kofin", "Other.RepairLibrary", signed)
+    assert commands == [("RepairLibrary", {"Id": "lib1"})]
 
-    encoded = json.dumps([{"Id": "lib1"}])
-    service.onNotification("plugin.video.kofin", "Other.SyncLibrary", encoded)
-    assert commands == [("SyncLibrary", {"Id": "lib1"})]
+    # SyncLibrary is no longer a message at all (P0.3): its producers enqueue
+    # on the Library directly, and unguarded it was a forgeable full sync.
+    commands.clear()
+    service.onNotification(
+        "plugin.video.kofin", "Other.SyncLibrary", json.dumps([{"Id": "lib1"}])
+    )
+    assert commands == []
+    assert not hasattr(ipc, "SYNC_LIBRARY")
 
 
 # --- phase 5: tier-1 change feed ---------------------------------------------
