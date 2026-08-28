@@ -247,6 +247,36 @@ def test_a_forged_library_removal_never_reaches_the_manager(monkeypatch, tmp_pat
     assert commands == ["RemoveLibrary"]
 
 
+def test_a_forged_update_or_sync_never_reaches_the_manager(monkeypatch, tmp_path):
+    """UpdateLibrary with an empty payload plans a prune over the whole
+    whitelist, and SyncLibrary used to be an unguarded, never-sent message
+    that walked a library on anyone's say-so. Neither runs without the
+    secret; the real Update button, which carries it, still does."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    commands = []
+
+    class RecordingLibrary:
+        startup_done = True
+
+        def enqueue_command(self, command, data=None):
+            commands.append((command, dict(data or {})))
+
+    service = Service()
+    service.library = RecordingLibrary()
+    monkeypatch.setattr(Service, "_start_library", lambda self: None)
+
+    service.onNotification(ipc.SENDER, "Other.SyncLibrary", '[{"Id": "lib1"}]')
+    service.onNotification(ipc.SENDER, "Other.UpdateLibrary", "[{}]")
+    service.onNotification(ipc.SENDER, "Other.RefreshBoxsets", "[{}]")
+    assert commands == []
+
+    service.onNotification(ipc.SENDER, "Other.UpdateLibrary", _signed(service, {}))
+    service.onNotification(ipc.SENDER, "Other.RefreshBoxsets", _signed(service, {}))
+    assert commands == [("UpdateLibrary", {}), ("RefreshBoxsets", {})]
+
+
 def test_the_secret_is_spent_at_the_door(monkeypatch, tmp_path):
     """A verified guarded command reaches the manager without its nonce.
     The library thread logs every command it dequeues, so the secret left

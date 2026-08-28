@@ -62,7 +62,7 @@ def test_a_guarded_command_carries_the_secret_and_others_do_not(
     secret = ipc.rotate_nonce()
 
     ipc.notify(ipc.REMOVE_LIBRARY, {"Id": "lib1"})
-    ipc.notify(ipc.SYNC_LIBRARY, {"Id": "lib1"})
+    ipc.notify(ipc.PRECACHE_ART, {})
 
     assert secret in sent[0]
     assert secret not in sent[1]
@@ -78,8 +78,32 @@ def test_verify_rejects_a_forged_destructive_command(nonce_file):
 
 def test_unguarded_commands_are_not_gated(nonce_file):
     secret = ipc.rotate_nonce()
-    assert ipc.verify(ipc.SYNC_LIBRARY, {}, secret) is True
+    assert ipc.verify(ipc.PRECACHE_ART, {}, secret) is True
     assert ipc.verify(ipc.WHO_IS_WATCHING, {}, secret) is True
+
+
+def test_every_library_command_is_guarded(nonce_file):
+    """A prune deletes rows and a boxsets refresh re-walks every collection —
+    the guard's own rationale — so UpdateLibrary and RefreshBoxsets carry
+    the secret like Remove and Repair do."""
+    secret = ipc.rotate_nonce()
+    assert {
+        ipc.REMOVE_LIBRARY,
+        ipc.REPAIR_LIBRARY,
+        ipc.UPDATE_LIBRARY,
+        ipc.REFRESH_BOXSETS,
+    } <= ipc.GUARDED
+    assert ipc.verify(ipc.UPDATE_LIBRARY, {}, secret) is False
+    assert ipc.verify(ipc.REFRESH_BOXSETS, {}, secret) is False
+
+
+def test_sync_library_is_not_a_message(monkeypatch):
+    """Nothing ever sent it over NotifyAll (its producers enqueue on the
+    Library directly), and unguarded it was a forgeable full sync."""
+    monkeypatch.setattr("xbmc.executebuiltin", lambda cmd: None)
+    assert not hasattr(ipc, "SYNC_LIBRARY")
+    with pytest.raises(ValueError):
+        ipc.notify("SyncLibrary", {"Id": "lib1"})
 
 
 def test_a_service_with_no_secret_accepts_nothing_guarded():

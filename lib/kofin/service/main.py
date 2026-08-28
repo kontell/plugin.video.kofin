@@ -28,7 +28,6 @@ LOG = Logger(__name__)
 
 LIBRARY_COMMANDS = frozenset(
     {
-        ipc.SYNC_LIBRARY,
         ipc.REMOVE_LIBRARY,
         ipc.REPAIR_LIBRARY,
         ipc.UPDATE_LIBRARY,
@@ -1105,6 +1104,12 @@ class Service(xbmc.Monitor):
                 LOG.warning("library command %s ignored: manager not running", name)
                 return
             self.library.enqueue_command(name, payload)
+        else:
+            # Registered but matched by no arm, or not registered at all
+            # (a message the registry once held, or a forgery that guessed
+            # wrong). Nothing happens either way; this line is the only
+            # trace that it arrived.
+            LOG.debug("unhandled IPC %s", name)
 
     def _precache_art_now(self) -> None:
         """Settings button: seed every outstanding cast image.

@@ -24,8 +24,12 @@ RESTART = "Restart"
 AUTH_CHANGED = "AuthChanged"
 
 # Library-manager commands (settings buttons / picker -> RunPlugin ->
-# ipc.notify -> service). Payloads carry {"Id": "<library id or csv>"}.
-SYNC_LIBRARY = "SyncLibrary"
+# ipc.notify -> service). Payloads carry {"Id": "<library id or csv>"}; an
+# empty UpdateLibrary payload means the whole whitelist. The library's own
+# SyncLibrary command has no message here: its two producers (the whitelist
+# applier and the boxset drift probe) run in the service and enqueue it on
+# the Library directly, and a message nobody sends is a message only a
+# forger would.
 REMOVE_LIBRARY = "RemoveLibrary"
 REPAIR_LIBRARY = "RepairLibrary"
 UPDATE_LIBRARY = "UpdateLibrary"
@@ -65,7 +69,6 @@ _REGISTRY = frozenset(
     {
         RESTART,
         AUTH_CHANGED,
-        SYNC_LIBRARY,
         REMOVE_LIBRARY,
         REPAIR_LIBRARY,
         UPDATE_LIBRARY,
@@ -88,12 +91,17 @@ _REGISTRY = frozenset(
 # "sender == kofin" proves nothing on its own, and these carry a shared secret
 # as well (see nonce()). The download trio is here wholesale: REMOVE deletes
 # files, ADD pulls gigabytes on someone else's say-so, CANCEL wastes work.
+# UPDATE_LIBRARY plans a prune that deletes rows and REFRESH_BOXSETS re-walks
+# every collection: both things the first sentence names, so every library
+# command is here.
 GUARDED = frozenset(
     {
         RESTART,
         AUTH_CHANGED,
         REMOVE_LIBRARY,
         REPAIR_LIBRARY,
+        UPDATE_LIBRARY,
+        REFRESH_BOXSETS,
         DOWNLOAD_ADD,
         DOWNLOAD_CANCEL,
         DOWNLOAD_REMOVE,
