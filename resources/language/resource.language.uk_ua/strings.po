@@ -2095,3 +2095,11 @@ msgstr "Показувати акторів у списках додатка"
 msgctxt "#30820"
 msgid "Fetch cast and crew for the shorter add-on listings — Recently added, In progress, Next up, Continue watching, search results and a show's episodes — so the information dialog can show them. Whole-library listings never fetch it, because the server needs about a second for every 40 items. The Kodi library always has cast."
 msgstr "Завантажує акторів і знімальну групу для коротких списків додатка — Нещодавно додані, Розпочаті, Дивитися далі, Продовжити перегляд, результатів пошуку та серій серіалу — щоб вікно інформації могло їх показати. Списки, що охоплюють усю медіатеку, ніколи цього не роблять: серверу потрібно близько секунди на кожні 40 елементів. У медіатеці Kodi актори є завжди."
+
+msgctxt "#30821"
+msgid "Server error — %s"
+msgstr "Помилка сервера — %s"
+
+msgctxt "#30822"
+msgid "Kept %s — its library entry could not be restored"
+msgstr "%s збережено — запис у медіатеці не вдалося відновити"

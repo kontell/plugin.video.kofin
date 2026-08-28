@@ -1,7 +1,7 @@
 import pytest
 
 from kofin.core import auth, settings
-from kofin.core.http import Unauthorized
+from kofin.core.http import HttpError, ServerUnreachable, Unauthorized
 from kofin.plugin import account
 from kofin.plugin.router import Request
 from tests.unit.fakes import FakeAddon
@@ -52,6 +52,7 @@ TEXTS = {
     30019: "out from %s?",
     30021: "ok %s %s",
     30027: "sign in to %s",
+    30821: "server error %s",
 }
 
 
@@ -170,3 +171,60 @@ def test_logout_clears_and_notifies(kodi_fakes, monkeypatch):
     assert FakeAddon.store.get("whoIsWatching", "") == ""
     assert FakeAddon.store["whoIsWatchingShortlist"] == "u2,u3"
     assert any("AuthChanged" in cmd for cmd in kodi_fakes)
+
+
+def _logged_in():
+    creds = settings.Credentials.load()
+    creds.server_address = "http://minipie:8096"
+    creds.token = "tok9"
+    creds.user_id = "uid9"
+    creds.is_logged_in = True
+    creds.save()
+
+
+class _Transport:
+    closed = False
+
+    def close(self):
+        _Transport.closed = True
+
+
+def _api_raising(error, monkeypatch):
+    class FakeApi:
+        @classmethod
+        def from_credentials(cls, transport, creds, interactive=False):
+            return cls()
+
+        def public_info(self):
+            raise error
+
+        def views(self):
+            return []
+
+    monkeypatch.setattr(account, "plugin_transport", lambda verify: _Transport())
+    monkeypatch.setattr("kofin.core.api.Api", FakeApi)
+
+
+def test_connection_reports_a_server_error_instead_of_raising(kodi_fakes, monkeypatch):
+    """A 5xx is neither "unreachable" nor "session rejected": the server
+    answered, badly. Before, it was an uncaught HttpError out of a settings
+    button (assessment P2)."""
+    _logged_in()
+    _api_raising(HttpError(500, "HTTP 500 for /System/Info/Public"), monkeypatch)
+    _Transport.closed = False
+
+    account.test_connection(REQ)
+
+    assert (
+        FakeDialog.notifications[-1] == "server error HTTP 500 for /System/Info/Public"
+    )
+    assert _Transport.closed is True
+
+
+def test_connection_still_names_an_unreachable_server(kodi_fakes, monkeypatch):
+    _logged_in()
+    _api_raising(ServerUnreachable("refused"), monkeypatch)
+
+    account.test_connection(REQ)
+
+    assert FakeDialog.notifications[-1] == "msg"  # #30018 via the stub texts

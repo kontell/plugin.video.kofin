@@ -464,5 +464,7 @@
   "#30596": "Quanto a velocidade de reprodução pode mudar, no máximo, durante uma correção. A 25 %, um erro de 2,5 segundos fecha-se em 10 segundos; mais baixo nota-se menos mas é mais lento. Mudanças grandes são aplicadas gradualmente.",
   "#30597": "Sincronização fina em vídeo AV1",
   "#30598": "Desligado por predefinição, com um aviso: num Pixel 7, uma mudança de velocidade seguida de um salto bloqueou o descodificador AV1 por hardware e depois o próprio telefone. O descodificador AV1 de um Bravia não teve problemas. Ligue só se o seu dispositivo aguentar; caso contrário os títulos AV1 seguem o grupo apenas pelos comandos.",
-  "#30599": "Sinc. fina requer inputstream.tempo 21.4.1 / 22.4.1"
+  "#30599": "Sinc. fina requer inputstream.tempo 21.4.1 / 22.4.1",
+  "#30821": "Erro do servidor — %s",
+  "#30822": "%s mantido — não foi possível restaurar a entrada da biblioteca"
 }

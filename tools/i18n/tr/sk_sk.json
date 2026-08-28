@@ -464,5 +464,7 @@
   "#30596": "O koľko sa smie počas opravy najviac zmeniť rýchlosť prehrávania. Pri 25 % sa chyba 2,5 sekundy vyrovná za 10 sekúnd; nižšia je menej nápadná, ale pomalšia. Veľké zmeny sa zavádzajú a ukončujú postupne.",
   "#30597": "Jemná synchronizácia pri videu AV1",
   "#30598": "Predvolene vypnuté, s varovaním: na Pixeli 7 zmena rýchlosti nasledovaná skokom zasekla hardvérový dekodér AV1 a potom aj samotný telefón. Dekodér AV1 v Bravii bol v poriadku. Zapni iba vtedy, keď to tvoje zariadenie zvláda; inak tituly AV1 sledujú skupinu len podľa príkazov.",
-  "#30599": "Jemná synchronizácia vyžaduje inputstream.tempo 21.4.1 / 22.4.1"
+  "#30599": "Jemná synchronizácia vyžaduje inputstream.tempo 21.4.1 / 22.4.1",
+  "#30821": "Chyba servera — %s",
+  "#30822": "%s ponechané — položku knižnice sa nepodarilo obnoviť"
 }

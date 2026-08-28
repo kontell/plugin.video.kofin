@@ -464,5 +464,7 @@
   "#30596": "Hoeveel de afspeelsnelheid tijdens een correctie maximaal mag veranderen. Bij 25% is een fout van 2,5 seconde in 10 seconden weg; lager valt minder op maar duurt langer. Grote wijzigingen worden geleidelijk in- en uitgezet.",
   "#30597": "Fijnafstemming bij AV1-video",
   "#30598": "Standaard uit, met een waarschuwing: op een Pixel 7 liet een snelheidswijziging gevolgd door een sprong de AV1-hardwaredecoder en daarna de telefoon zelf vastlopen. De AV1-decoder van een Bravia had er geen last van. Alleen aanzetten als je apparaat het aankan; anders volgen AV1-titels de groep alleen via commando's.",
-  "#30599": "Fijnafstemming vereist inputstream.tempo 21.4.1 / 22.4.1"
+  "#30599": "Fijnafstemming vereist inputstream.tempo 21.4.1 / 22.4.1",
+  "#30821": "Serverfout — %s",
+  "#30822": "%s behouden — bibliotheekitem kon niet worden hersteld"
 }

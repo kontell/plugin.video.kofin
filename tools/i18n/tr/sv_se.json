@@ -464,5 +464,7 @@
   "#30596": "Hur mycket uppspelningshastigheten som mest får ändras under en korrigering. Vid 25 % stängs ett fel på 2,5 sekunder på 10 sekunder; lägre märks mindre men går långsammare. Stora ändringar trappas in och ut.",
   "#30597": "Finsynkronisering på AV1-video",
   "#30598": "Av som standard, med en varning: på en Pixel 7 fick en hastighetsändring följd av ett hopp AV1-maskinvaruavkodaren och sedan själva telefonen att hänga sig. En Bravias AV1-avkodare klarade sig utan problem. Slå bara på om din enhet klarar det; annars följer AV1-titlar gruppen enbart via kommandon.",
-  "#30599": "Finsynk kräver inputstream.tempo 21.4.1 / 22.4.1"
+  "#30599": "Finsynk kräver inputstream.tempo 21.4.1 / 22.4.1",
+  "#30821": "Serverfel — %s",
+  "#30822": "%s behölls — posten i biblioteket kunde inte återställas"
 }

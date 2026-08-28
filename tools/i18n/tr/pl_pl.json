@@ -464,5 +464,7 @@
   "#30596": "O ile najwyżej może zmienić się prędkość odtwarzania podczas korekty. Przy 25% błąd 2,5 sekundy zamyka się w 10 sekund; niższa wartość jest mniej zauważalna, ale wolniejsza. Duże zmiany są wprowadzane i wycofywane stopniowo.",
   "#30597": "Dokładna synchronizacja dla wideo AV1",
   "#30598": "Domyślnie wyłączone, z ostrzeżeniem: na Pixelu 7 zmiana prędkości, a po niej skok, zawiesiły sprzętowy dekoder AV1, a potem sam telefon. Dekoder AV1 w Bravii nie miał problemów. Włącz tylko, jeśli twoje urządzenie to znosi; inaczej tytuły AV1 podążają za grupą wyłącznie poleceniami.",
-  "#30599": "Synchronizacja wymaga inputstream.tempo 21.4.1 / 22.4.1"
+  "#30599": "Synchronizacja wymaga inputstream.tempo 21.4.1 / 22.4.1",
+  "#30821": "Błąd serwera — %s",
+  "#30822": "Zachowano %s — nie udało się przywrócić wpisu w bibliotece"
 }

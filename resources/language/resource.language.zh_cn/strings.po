@@ -2095,3 +2095,11 @@ msgstr "在插件列表中显示演员"
 msgctxt "#30820"
 msgid "Fetch cast and crew for the shorter add-on listings — Recently added, In progress, Next up, Continue watching, search results and a show's episodes — so the information dialog can show them. Whole-library listings never fetch it, because the server needs about a second for every 40 items. The Kodi library always has cast."
 msgstr "为插件的短列表 — 最近添加、正在观看、接下来观看、继续观看、搜索结果和剧集列表 — 获取演职人员，以便信息对话框显示。覆盖整个媒体库的列表从不获取，因为服务器每 40 个项目大约需要一秒。Kodi 媒体库始终包含演员信息。"
+
+msgctxt "#30821"
+msgid "Server error — %s"
+msgstr "服务器错误 — %s"
+
+msgctxt "#30822"
+msgid "Kept %s — its library entry could not be restored"
+msgstr "已保留《%s》— 无法恢复其媒体库条目"

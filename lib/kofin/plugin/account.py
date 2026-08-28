@@ -192,6 +192,12 @@ def test_connection(request: Request) -> None:
     except ServerUnreachable:
         _notification(_text(30018), toast.ERROR)
         return
+    except JellyfinError as error:
+        # A server that answered, badly (a 5xx, an unparseable body): not
+        # unreachable, not a session problem. Said as what it is, with the
+        # transport's own description of the status.
+        _notification(_text(30821) % error, toast.ERROR)
+        return
     finally:
         transport.close()
     _notification(_text(30021) % (info.get("ServerName", ""), info.get("Version", "")))
