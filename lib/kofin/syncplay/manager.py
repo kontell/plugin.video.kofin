@@ -14,6 +14,7 @@ import threading
 import time
 from contextlib import contextmanager
 from queue import Queue
+from typing import Any, Dict, List, Optional, Tuple
 
 import xbmc
 import xbmcgui
@@ -23,6 +24,7 @@ from kofin.core.http import JellyfinError, Unauthorized
 from kofin.core.log import Logger
 from kofin.syncplay import utils
 from kofin.syncplay.playback import PlaybackController
+from kofin.syncplay.ports import SyncPlayApi
 from kofin.syncplay.tempo import TempoSession
 from kofin.syncplay.timesync import TimeSync
 
@@ -42,11 +44,11 @@ class SyncPlayManager(object):
     blocked.
     """
 
-    def __init__(self, api, player):
+    def __init__(self, api: Optional[SyncPlayApi], player):
         self.api = api
         self.player = player
         self.playback = PlaybackController(self, player)
-        self.timesync = None
+        self.timesync: Optional[TimeSync] = None
         # Fine sync through inputstream.tempo (syncplay/tempo.py): armed at
         # group join when this member can use it, disarmed at leave.
         self.tempo_session = TempoSession(
@@ -54,9 +56,9 @@ class SyncPlayManager(object):
         )
         self._rate_mismatch_told = False
 
-        self.group = None  # {"GroupId", "GroupName"}
+        self.group: Optional[Dict[str, Any]] = None  # {"GroupId", "GroupName"}
         self.group_state = None
-        self.members = []
+        self.members: List[Any] = []
         self.protocol_version = 1
         self.state_version = 0
         # Dedicated time-sync socket path from the server's Hello (plugin
@@ -64,7 +66,8 @@ class SyncPlayManager(object):
         self.timesync_ws_path = None
         self.ignore_wait = False
 
-        self.queue = []  # [(ItemId, PlaylistItemId)] mirror of the group queue
+        # [(ItemId, PlaylistItemId)] mirror of the group queue
+        self.queue: List[Tuple[str, str]] = []
         self.queue_last_update = None
         self.current_item_id = None
         self.current_playlist_item_id = None
@@ -91,7 +94,7 @@ class SyncPlayManager(object):
         # group echo: {"transition", "proposed", "item_id"}. "transition"
         # marks a native playlist advance (starts at 0); otherwise the
         # start position is read from the player once it settles.
-        self._hold = None
+        self._hold: Optional[Dict[str, Any]] = None
 
         self._prog_depth = 0
         self._prog_release = 0.0
@@ -156,7 +159,7 @@ class SyncPlayManager(object):
 
         LOG.info("---<[ syncplay dispatcher ]")
 
-    def get_api(self):
+    def get_api(self) -> Optional[SyncPlayApi]:
         return self.api
 
     def _api(self, name, *args):
