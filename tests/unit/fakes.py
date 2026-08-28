@@ -51,6 +51,87 @@ class FakeWindow:
         self.store.pop(key, None)
 
 
+class FakeApi:
+    """Answers Api methods from canned values (shell refactor P1.4).
+
+    ``FakeApi(item=DTO, users=USERS)`` — a plain value is returned as-is, a
+    callable is called with the arguments, an Exception instance is raised.
+    Every call is recorded in ``calls`` as ``(method, args, kwargs)``;
+    ``args("users")`` filters one method's positional args. Unconfigured
+    methods raise AttributeError, so a test fakes only the surface it
+    means to.
+    """
+
+    server = "http://server:8096"
+    user_id = "user1"
+    device_id = "dev1"
+
+    def __init__(self, **methods):
+        self._methods = methods
+        self.calls = []
+
+    def args(self, name):
+        return [call[1] for call in self.calls if call[0] == name]
+
+    def set_response(self, name, value):
+        """Reconfigure one method after construction (a test turning the
+        server hostile mid-flight)."""
+        self._methods[name] = value
+
+    def __getattr__(self, name):
+        if name.startswith("_") or name not in self.__dict__.get("_methods", {}):
+            raise AttributeError(name)
+        value = self._methods[name]
+
+        def _call(*a, **k):
+            # A configured Exception is "the server refused": raised without
+            # recording, so .calls holds only what the server accepted.
+            if isinstance(value, Exception):
+                raise value
+            self.calls.append((name, a, k))
+            if callable(value):
+                return value(*a, **k)
+            return value
+
+        return _call
+
+
+class FakeDialog:
+    """Records every dialog raised; answers from constructor knobs
+    (shell refactor P1.4). ``select()`` pops from ``select_answers``;
+    ``multiselect()``/``yesno()`` return their fixed results."""
+
+    def __init__(self, multiselect=None, yesno=True, selects=()):
+        self.multiselect_result = multiselect
+        self.yesno_result = yesno
+        self.select_answers = list(selects)
+        self.multiselects = []  # (heading, choices, preselect)
+        self.selects = []  # (heading, choices, preselect)
+        self.yesnos = []  # (heading, message)
+        self.notifications = []  # message
+
+    def multiselect(self, heading, choices, **kwargs):
+        self.multiselects.append((heading, list(choices), kwargs.get("preselect")))
+        return self.multiselect_result
+
+    def select(self, heading, choices, **kwargs):
+        self.selects.append((heading, list(choices), kwargs.get("preselect")))
+        return self.select_answers.pop(0) if self.select_answers else -1
+
+    def yesno(self, heading, message, **kwargs):
+        self.yesnos.append((heading, message))
+        return self.yesno_result
+
+    def input(self, heading, defaultt="", **kwargs):
+        return ""
+
+    def ok(self, *args, **kwargs):
+        pass
+
+    def notification(self, heading=None, message=None, *args, **kwargs):
+        self.notifications.append(message)
+
+
 class FakeLibrary:
     """The one service-side Library stand-in (service/ports.py LibraryPort).
 

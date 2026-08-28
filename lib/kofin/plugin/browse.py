@@ -8,7 +8,7 @@ import xbmcplugin
 
 from kofin.core import settings, state
 from kofin.core.api import Api
-from kofin.core.http import JellyfinError, plugin_transport
+from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin import listitems
@@ -505,9 +505,7 @@ def _api() -> Optional[Api]:
     creds = Credentials.load()
     if not creds.is_logged_in:
         return None
-    return Api.from_credentials(
-        plugin_transport(settings.get_bool("sslVerify")), creds, interactive=True
-    )
+    return Api.for_plugin(creds)
 
 
 def _who_is_watching_label() -> str:

@@ -16,7 +16,7 @@ import xbmcplugin
 
 from kofin.core import deviceprofile, kodirpc, settings, state, streams, toast
 from kofin.core.api import Api
-from kofin.core.http import JellyfinError, plugin_transport
+from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin import listitems, subtitles
@@ -596,8 +596,8 @@ def play(request: Request) -> None:
     except ValueError:
         bitrate_mbps = 0.0
 
-    http = plugin_transport(settings.get_bool("sslVerify"))
-    api = Api.from_credentials(http, creds, interactive=True)
+    api = Api.for_plugin(creds)
+    http = api.http
     # The media-segments prefetch shares nothing with PlaybackInfo or the
     # subtitle fetches, so it runs beside them instead of after them and its
     # round trip leaves the resolve's critical path (perf plan W2.6). The

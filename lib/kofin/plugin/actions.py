@@ -8,7 +8,7 @@ import xbmcgui
 
 from kofin.core import ipc, kodirpc, settings, toast
 from kofin.core.api import Api
-from kofin.core.http import JellyfinError, plugin_transport
+from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin.listitems import play_path
@@ -18,11 +18,7 @@ LOG = Logger(__name__)
 
 
 def _api() -> Api:
-    return Api.from_credentials(
-        plugin_transport(settings.get_bool("sslVerify")),
-        Credentials.load(),
-        interactive=True,
-    )
+    return Api.for_plugin(Credentials.load())
 
 
 def _refresh() -> None:

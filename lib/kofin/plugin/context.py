@@ -8,7 +8,7 @@ import xbmcgui
 
 from kofin.core import kodirpc, settings, state, toast
 from kofin.core.api import Api
-from kofin.core.http import JellyfinError, plugin_transport
+from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin.listitems import PLAYABLE_TYPES, plugin_url
@@ -23,11 +23,7 @@ STOP_POLL_SECONDS = 0.05
 
 
 def _api() -> Api:
-    return Api.from_credentials(
-        plugin_transport(settings.get_bool("sslVerify")),
-        Credentials.load(),
-        interactive=True,
-    )
+    return Api.for_plugin(Credentials.load())
 
 
 def _focused_listitem() -> Optional[xbmcgui.ListItem]:

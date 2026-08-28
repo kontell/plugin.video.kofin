@@ -7,24 +7,7 @@ from kofin.core import ipc
 from kofin.core.http import JellyfinError
 from kofin.plugin import actions
 from kofin.plugin.router import Request
-
-
-class FakeDialog:
-    """Records every dialog raised, and answers from a canned script."""
-
-    def __init__(self, multiselect=None, yesno=True):
-        self.multiselect_result = multiselect
-        self.yesno_result = yesno
-        self.multiselects = []
-        self.yesnos = []
-
-    def multiselect(self, heading, choices, **kwargs):
-        self.multiselects.append((heading, list(choices)))
-        return self.multiselect_result
-
-    def yesno(self, heading, message, **kwargs):
-        self.yesnos.append((heading, message))
-        return self.yesno_result
+from tests.unit.fakes import FakeApi, FakeDialog
 
 
 @pytest.fixture
@@ -98,18 +81,10 @@ def test_repair_without_a_whitelist_does_nothing(wired, monkeypatch):
 # --- delete from server ------------------------------------------------------
 
 
-class DeletingApi:
-    def __init__(self):
-        self.deleted = []
-
-    def delete_item(self, item_id):
-        self.deleted.append(item_id)
-
-
 @pytest.fixture
 def delete_wired(wired, monkeypatch):
     dialog, _ = wired
-    api = DeletingApi()
+    api = FakeApi(delete_item=None)
     toggles = {"enableDelete": True, "deleteNoConfirm": False}
     monkeypatch.setattr(actions, "_api", lambda: api)
     monkeypatch.setattr(
@@ -131,7 +106,7 @@ def test_delete_confirms_first(delete_wired):
     actions.delete_item(_delete_request())
 
     assert len(dialog.yesnos) == 1
-    assert api.deleted == ["i1"]
+    assert api.args("delete_item") == [("i1",)]
 
 
 def test_delete_declined_keeps_the_item(delete_wired):
@@ -140,7 +115,7 @@ def test_delete_declined_keeps_the_item(delete_wired):
 
     actions.delete_item(_delete_request())
 
-    assert api.deleted == []
+    assert api.args("delete_item") == []
 
 
 def test_delete_without_confirmation_skips_the_prompt(delete_wired):
@@ -152,7 +127,7 @@ def test_delete_without_confirmation_skips_the_prompt(delete_wired):
     actions.delete_item(_delete_request())
 
     assert dialog.yesnos == []
-    assert api.deleted == ["i1"]
+    assert api.args("delete_item") == [("i1",)]
 
 
 def test_delete_stays_off_without_the_opt_in(delete_wired):
@@ -163,7 +138,7 @@ def test_delete_stays_off_without_the_opt_in(delete_wired):
     actions.delete_item(_delete_request())
 
     assert dialog.yesnos == []
-    assert api.deleted == []
+    assert api.args("delete_item") == []
 
 
 def test_a_failed_delete_reads_as_an_error_and_stays_quiet(delete_wired, monkeypatch):
@@ -669,20 +644,9 @@ def test_delete_all_downloads_says_so_when_there_are_none(download_wired):
 # --- the resume reset (docs/dynamic-libraries-plan.md W2) ----------------------
 
 
-class _ResumeApi:
-    def __init__(self, fail=False):
-        self.fail = fail
-        self.calls = []
-
-    def set_resume_position(self, item_id, position_ticks):
-        if self.fail:
-            raise JellyfinError("down")
-        self.calls.append((item_id, position_ticks))
-
-
 @pytest.fixture
 def reset_wired(monkeypatch):
-    api = _ResumeApi()
+    api = FakeApi(set_resume_position=None)
     cleared = []
     builtins = []
     toasts = []
@@ -710,7 +674,7 @@ def test_reset_resume_zeroes_the_server_then_kodis_copy(reset_wired):
         Request("plugin://x", -1, {"mode": "resetresume", "id": "jf1"})
     )
 
-    assert api.calls == [("jf1", 0)]
+    assert api.args("set_resume_position") == [("jf1", 0)]
     assert cleared == ["plugin://plugin.video.kofin/?mode=play&id=jf1"]
     assert builtins == ["Container.Refresh"]
     assert toasts == []
@@ -720,7 +684,7 @@ def test_reset_resume_leaves_kodi_alone_when_the_server_refuses(reset_wired):
     """Nothing local moves on a failed server call: the listing would otherwise
     say "reset" over a position the server still holds."""
     api, cleared, builtins, toasts = reset_wired
-    api.fail = True
+    api.set_response("set_resume_position", JellyfinError("down"))
 
     actions.reset_resume(
         Request("plugin://x", -1, {"mode": "resetresume", "id": "jf1"})

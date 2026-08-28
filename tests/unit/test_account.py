@@ -182,17 +182,12 @@ def _logged_in():
     creds.save()
 
 
-class _Transport:
-    closed = False
-
-    def close(self):
-        _Transport.closed = True
-
-
 def _api_raising(error, monkeypatch):
-    class FakeApi:
+    class FakeConnectionApi:
+        closed = False
+
         @classmethod
-        def from_credentials(cls, transport, creds, interactive=False):
+        def for_plugin(cls, creds):
             return cls()
 
         def public_info(self):
@@ -201,8 +196,11 @@ def _api_raising(error, monkeypatch):
         def views(self):
             return []
 
-    monkeypatch.setattr(account, "plugin_transport", lambda verify: _Transport())
-    monkeypatch.setattr("kofin.core.api.Api", FakeApi)
+        def close(self):
+            FakeConnectionApi.closed = True
+
+    monkeypatch.setattr("kofin.core.api.Api", FakeConnectionApi)
+    return FakeConnectionApi
 
 
 def test_connection_reports_a_server_error_instead_of_raising(kodi_fakes, monkeypatch):
@@ -210,15 +208,14 @@ def test_connection_reports_a_server_error_instead_of_raising(kodi_fakes, monkey
     answered, badly. Before, it was an uncaught HttpError out of a settings
     button (assessment P2)."""
     _logged_in()
-    _api_raising(HttpError(500, "HTTP 500 for /System/Info/Public"), monkeypatch)
-    _Transport.closed = False
+    fake = _api_raising(HttpError(500, "HTTP 500 for /System/Info/Public"), monkeypatch)
 
     account.test_connection(REQ)
 
     assert (
         FakeDialog.notifications[-1] == "server error HTTP 500 for /System/Info/Public"
     )
-    assert _Transport.closed is True
+    assert fake.closed is True
 
 
 def test_connection_still_names_an_unreachable_server(kodi_fakes, monkeypatch):

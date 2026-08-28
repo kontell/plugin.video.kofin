@@ -181,8 +181,7 @@ def test_connection(request: Request) -> None:
         _notification(_text(30026))
         return
 
-    transport = plugin_transport(settings.get_bool("sslVerify"))
-    api = Api.from_credentials(transport, creds, interactive=True)
+    api = Api.for_plugin(creds)
     try:
         info = api.public_info()
         api.views()
@@ -199,7 +198,7 @@ def test_connection(request: Request) -> None:
         _notification(_text(30821) % error, toast.ERROR)
         return
     finally:
-        transport.close()
+        api.close()
     _notification(_text(30021) % (info.get("ServerName", ""), info.get("Version", "")))
 
 

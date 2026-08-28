@@ -7,7 +7,7 @@ from kofin.core import state
 from kofin.core.http import JellyfinError
 from kofin.plugin import adduser
 from kofin.plugin.router import Request
-from tests.unit.fakes import FakeAddon, FakeWindow
+from tests.unit.fakes import FakeAddon, FakeDialog, FakeWindow
 
 USERS = [
     {"Id": "primary", "Name": "Alice"},
@@ -97,27 +97,14 @@ def test_users_to_restore_empty_desired_is_empty():
 # --- the shortlist picker ----------------------------------------------------
 
 
-class FakeDialog:
-    def __init__(self, result=None):
-        self.result = result
-        self.calls = []
+class SessionApi:
+    """users() plus the mutable session surface the picker drives."""
 
-    def multiselect(self, heading, choices, **kwargs):
-        self.calls.append((heading, list(choices), kwargs.get("preselect")))
-        return self.result
-
-    def notification(self, *args, **kwargs):
-        pass
-
-
-class UsersApi:
     user_id = "primary"
 
     def users(self):
         return USERS
 
-
-class SessionApi(UsersApi):
     def __init__(self, additional=None):
         self.additional = list(additional or [])
         self.added = []
@@ -175,11 +162,11 @@ def _request(mode="whoshortlist"):
 
 def test_shortlist_leads_with_the_all_row(picker):
     dialog, _api = picker
-    dialog.result = None
+    dialog.multiselect_result = None
 
     adduser.select_shortlist(_request())
 
-    _, choices, _ = dialog.calls[0]
+    _, choices, _ = dialog.multiselects[0]
     assert choices == ["string-30817", "Bob", "Carol", "Dan"]
 
 
@@ -187,19 +174,22 @@ def test_shortlist_preselects_all_by_default(picker):
     """Both spellings of the default: the sentinel a fresh install carries, and
     the empty value an install from before the All row still holds."""
     dialog, _api = picker
-    dialog.result = None
+    dialog.multiselect_result = None
 
     for stored in (adduser.SHORTLIST_ALL, ""):
         FakeAddon.store["whoIsWatchingShortlist"] = stored
         adduser.select_shortlist(_request())
 
-    assert [call[2] for call in dialog.calls] == [[0], [0]]
+    assert [call[2] for call in dialog.multiselects] == [[0], [0]]
 
 
 def test_shortlist_records_ids_not_names(picker):
     """A rename on the server must not silently empty the shortlist."""
     dialog, _api = picker
-    dialog.result = [1, 3]  # Bob, Dan — row 0 is All, and no row is the primary
+    dialog.multiselect_result = [
+        1,
+        3,
+    ]  # Bob, Dan — row 0 is All, and no row is the primary
 
     adduser.select_shortlist(_request())
 
@@ -210,7 +200,7 @@ def test_shortlist_all_wins_over_individual_rows(picker):
     """All stores the sentinel, not a snapshot of today's user list, so an
     account added on the server later is offered without revisiting this."""
     dialog, _api = picker
-    dialog.result = [0, 2]
+    dialog.multiselect_result = [0, 2]
 
     adduser.select_shortlist(_request())
 
@@ -220,11 +210,11 @@ def test_shortlist_all_wins_over_individual_rows(picker):
 def test_shortlist_preselects_the_current_choice(picker):
     dialog, _api = picker
     FakeAddon.store["whoIsWatchingShortlist"] = "u3"
-    dialog.result = None
+    dialog.multiselect_result = None
 
     adduser.select_shortlist(_request())
 
-    _, choices, preselect = dialog.calls[0]
+    _, choices, preselect = dialog.multiselects[0]
     assert choices == ["string-30817", "Bob", "Carol", "Dan"]
     assert preselect == [2]  # Carol, one row down from All
 
@@ -233,7 +223,7 @@ def test_shortlist_cancelled_changes_nothing(picker):
     dialog, api = picker
     FakeAddon.store["whoIsWatchingShortlist"] = "u3"
     api.additional = ["u3"]
-    dialog.result = None
+    dialog.multiselect_result = None
 
     adduser.select_shortlist(_request())
 
@@ -248,7 +238,7 @@ def test_shortlist_emptied_switches_the_feature_off(picker):
     FakeAddon.store["whoIsWatchingShortlist"] = "u3"
     FakeAddon.store["whoIsWatching"] = "u3"
     api.additional = ["u3"]
-    dialog.result = []
+    dialog.multiselect_result = []
 
     adduser.select_shortlist(_request())
 
@@ -265,23 +255,23 @@ def test_shortlist_offers_the_all_row_on_a_one_account_server(picker):
     most wanted."""
     dialog, api = picker
     api.users = lambda: [USERS[0]]
-    dialog.result = []
+    dialog.multiselect_result = []
 
     adduser.select_shortlist(_request())
 
-    assert dialog.calls[0][1] == ["string-30817"]
+    assert dialog.multiselects[0][1] == ["string-30817"]
     assert FakeAddon.store["whoIsWatchingShortlist"] == adduser.SHORTLIST_NOBODY
 
 
 def test_shortlist_switched_back_on_leaves_the_session_alone(picker):
     dialog, api = picker
     FakeAddon.store["whoIsWatchingShortlist"] = adduser.SHORTLIST_NOBODY
-    dialog.result = [0]
+    dialog.multiselect_result = [0]
 
     adduser.select_shortlist(_request())
 
     assert adduser.is_enabled() is True
-    assert dialog.calls[0][2] == []  # nothing ticked while it was off
+    assert dialog.multiselects[0][2] == []  # nothing ticked while it was off
     assert api.removed == []
 
 
@@ -293,11 +283,11 @@ def test_shortlist_refreshes_the_root_only_when_the_entry_changes(picker, monkey
     monkeypatch.setattr(adduser.xbmc, "getCondVisibility", lambda _c: True)
     monkeypatch.setattr(adduser.xbmc, "executebuiltin", refreshed.append)
 
-    dialog.result = [1]  # all -> one user: still listed
+    dialog.multiselect_result = [1]  # all -> one user: still listed
     adduser.select_shortlist(_request())
     assert refreshed == []
 
-    dialog.result = []  # one user -> off: the entry goes
+    dialog.multiselect_result = []  # one user -> off: the entry goes
     adduser.select_shortlist(_request())
     assert refreshed == ["Container.Refresh"]
 
@@ -327,7 +317,7 @@ def toggle(monkeypatch):
 def test_toggle_persists_chosen_ids(toggle):
     """Confirming the dialog is what makes the selection survive a restart."""
     dialog, api = toggle
-    dialog.result = [0, 2]  # Bob, Dan
+    dialog.multiselect_result = [0, 2]  # Bob, Dan
 
     adduser.show_picker(api, _logged_in())
 
@@ -341,7 +331,7 @@ def test_toggle_publishes_the_new_names_before_the_refresh(toggle, monkeypatch):
     FakeWindow.store = {}
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
     dialog, api = toggle
-    dialog.result = [0, 2]  # -> u2, u4
+    dialog.multiselect_result = [0, 2]  # -> u2, u4
 
     adduser.show_picker(api, _logged_in())
 
@@ -352,7 +342,7 @@ def test_toggle_cleared_persists_nobody(toggle):
     dialog, api = toggle
     api.additional = ["u3"]
     FakeAddon.store["whoIsWatching"] = "u3"
-    dialog.result = []
+    dialog.multiselect_result = []
 
     adduser.show_picker(api, _logged_in())
 
@@ -363,7 +353,7 @@ def test_toggle_cleared_persists_nobody(toggle):
 def test_toggle_cancelled_changes_nothing(toggle):
     dialog, api = toggle
     FakeAddon.store["whoIsWatching"] = "u2"
-    dialog.result = None
+    dialog.multiselect_result = None
 
     adduser.show_picker(api, _logged_in())
 
@@ -380,14 +370,14 @@ def test_toggle_is_suppressed_when_the_feature_is_off(toggle):
 
     adduser.show_picker(api, _logged_in())
 
-    assert dialog.calls == []
+    assert dialog.multiselects == []
     assert api.added == []
 
 
 def test_toggle_persists_even_when_session_api_fails(toggle, monkeypatch):
     """Intended set is saved first so the next session can retry a failed add."""
     dialog, api = toggle
-    dialog.result = [0]
+    dialog.multiselect_result = [0]
 
     def boom(session_id, user_id):
         raise JellyfinError("server busy")
@@ -428,7 +418,7 @@ def test_route_hands_off_to_the_service(route):
     adduser.who_is_watching(_request("adduser"))
 
     assert sent == [adduser.ipc.WHO_IS_WATCHING]
-    assert dialog.calls == []
+    assert dialog.multiselects == []
 
 
 def test_route_is_quiet_when_logged_out(route, monkeypatch):

@@ -3,7 +3,13 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 from kofin.core import auth, settings
-from kofin.core.http import DEFAULT_TIMEOUT, Http, HttpError, StreamedResponse
+from kofin.core.http import (
+    DEFAULT_TIMEOUT,
+    Http,
+    HttpError,
+    StreamedResponse,
+    plugin_transport,
+)
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 
@@ -82,6 +88,17 @@ class Api:
             creds.token,
             creds.user_id,
             interactive=interactive,
+        )
+
+    @classmethod
+    def for_plugin(cls, creds: Credentials) -> "Api":
+        """The plugin process's one way to build a client (P1.4): the stdlib
+        transport (``plugin_transport`` — the ~1 s requests import is the
+        browse latency budget), ``sslVerify`` read here, and the interactive
+        retry/timeout budget every plugin surface wants. Folds the ten
+        spellings the plugin routes had grown."""
+        return cls.from_credentials(
+            plugin_transport(settings.get_bool("sslVerify")), creds, interactive=True
         )
 
     def close(self) -> None:

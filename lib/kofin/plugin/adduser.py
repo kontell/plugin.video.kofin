@@ -28,7 +28,7 @@ import xbmcgui
 
 from kofin.core import ipc, settings, state, toast
 from kofin.core.api import Api
-from kofin.core.http import JellyfinError, Unauthorized, plugin_transport
+from kofin.core.http import JellyfinError, Unauthorized
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin.router import Request
@@ -371,9 +371,7 @@ def select_shortlist(request: Request) -> None:
     creds = Credentials.load()
     if not creds.is_logged_in:
         return
-    api = Api.from_credentials(
-        plugin_transport(settings.get_bool("sslVerify")), creds, interactive=True
-    )
+    api = Api.for_plugin(creds)
 
     try:
         users = api.users()
