@@ -570,6 +570,15 @@ class DownloadManager:
                 api, row, item, source, owner_id, decision, root
             )
 
+        # The chunk loop consults the cancel flag before each chunk, so a
+        # cancel that lands during the last chunk's write is one it never
+        # sees. Asked once more here, with the body complete: the item is
+        # not done yet, and the user asked first. From store.finish on the
+        # item *is* done and a cancel that arrives in between (the sidecars,
+        # the rename — a second at most) is superseded by completion: the
+        # flag is cleared there, and the row is removed, not cancelled.
+        if self._cancelled(item_id):
+            raise _Cancelled()
         absolute = os.path.join(root, rel_path)
         part = absolute + ".part"
         self._download_subtitles(
@@ -582,6 +591,10 @@ class DownloadManager:
         )
         os.replace(part, absolute)
         store.finish(item_id, rel_path, container, actual)
+        # Spent: a cancel that arrived after the check above completed
+        # anyway, and left in the set it would cancel the *next* download
+        # of this id at its first chunk (assessment D1).
+        self._clear_cancel(item_id)
         self._attempts.pop(item_id, None)
         finished = store.get(item_id)
         if finished is not None:

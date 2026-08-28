@@ -1913,3 +1913,64 @@ def test_a_drain_that_queues_nothing_notifies_nobody(tmp_path, repoints):
     manager._drain_ops(own=manager._new_wake())
 
     assert not other.is_set()
+
+
+# --- a late cancel neither leaks nor poisons (assessment D1) -----------------
+
+
+def _one_movie_api():
+    return FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcd", b"efgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+
+
+def test_a_cancel_on_the_last_chunk_still_cancels(tmp_path, repoints):
+    """The chunk loop consults the flag before each chunk, so a cancel that
+    lands while the last chunk is written is one it never sees; the item
+    completed DONE with the flag left set. Asked once more after the body:
+    the user asked first."""
+    manager, _ = make_manager(repoints)
+    api = _one_movie_api()
+    api._streams[0].on_chunk = lambda index: index == 1 and manager._cancels.add("m1")
+
+    manager._process(api, queue_row())
+
+    assert store.get("m1") is None
+    assert list((tmp_path / "dl").rglob("*.part")) == []
+    assert manager._cancels == set()
+
+
+def test_a_cancel_during_the_sidecars_is_superseded_and_cleared(
+    tmp_path, repoints, monkeypatch
+):
+    """Past the post-body check the item is done: a cancel arriving during
+    the sidecar fetch is overtaken by completion. What must not happen is
+    the flag surviving — it cancelled the *next* download of the same id at
+    its first chunk."""
+    manager, _ = make_manager(repoints)
+    original = manager._download_subtitles
+
+    def cancel_during_sidecars(*args, **kwargs):
+        manager._cancels.add("m1")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(manager, "_download_subtitles", cancel_during_sidecars)
+
+    manager._process(_one_movie_api(), queue_row())
+
+    assert store.get("m1").state == store.DONE
+    assert manager._cancels == set()
+
+    # Remove it and download it again: the re-download completes.
+    monkeypatch.setattr(manager, "_download_subtitles", original)
+    manager._apply_remove("m1")
+    assert store.get("m1") is None
+    manager._process(_one_movie_api(), queue_row())
+    assert store.get("m1").state == store.DONE
