@@ -4,6 +4,7 @@ Ported from the fork; the JSON-RPC seam is kofin's module-level ``_rpc``
 and settings come from the FakeAddon store. New kofin coverage at the end:
 the play-path re-target (plugin URLs, never resolved paths — plan §2)."""
 
+import threading
 from contextlib import contextmanager
 
 import pytest
@@ -350,6 +351,27 @@ class TestPause:
         assert player.paused
         seeks = [a for a in player.actions if isinstance(a, tuple) and a[0] == "seek"]
         assert seeks and abs(seeks[0][1] - 10.0) < 0.01
+
+    def test_pause_waits_for_the_player_lock(self):
+        # Y1: schedule() arms the fire-time timer and then pre-aligns on the
+        # dispatcher holding _player_lock, so a timer-thread Pause landing
+        # mid-align must queue behind it, not interleave with its seek.
+        controller, manager, player = make_controller(paused=False, position=12.0)
+        done = threading.Event()
+
+        def pause():
+            controller._do_pause(utils.seconds_to_ticks(10))
+            done.set()
+
+        with controller._player_lock:  # the pre-align holds it
+            worker = threading.Thread(target=pause)
+            worker.start()
+            assert not done.wait(0.15)  # the Pause is waiting, not pausing
+            assert "pause" not in player.actions
+
+        assert done.wait(2.0)  # released: the Pause goes through
+        worker.join(2.0)
+        assert player.paused
 
     def test_pause_within_tolerance_no_seek(self):
         controller, manager, player = make_controller(paused=False, position=10.1)

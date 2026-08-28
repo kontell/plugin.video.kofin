@@ -477,7 +477,10 @@ class PlaybackController(object):
         if not self._has_media():
             return
 
-        with self.manager.programmatic():
+        # Y1: schedule() arms the timer and then pre-aligns on the dispatcher
+        # under _player_lock, so a timer-thread Pause fired mid-align waits
+        # its turn instead of interleaving with that seek.
+        with self._player_lock, self.manager.programmatic():
             if not self._is_paused():
                 self.player.pause()
 
@@ -499,7 +502,7 @@ class PlaybackController(object):
             # group Seek with an Unpause carrying the same position, so
             # pause here, promise the target in the ready report, and let
             # the Unpause land it on resume.
-            with self.manager.programmatic():
+            with self._player_lock, self.manager.programmatic():  # Y1
                 if not self._is_paused():
                     self.player.pause()
 
@@ -520,7 +523,7 @@ class PlaybackController(object):
             self.manager.reload_current_item()
             return
 
-        with self.manager.programmatic():
+        with self._player_lock, self.manager.programmatic():  # Y1
             if not self._is_paused():
                 self.player.pause()
 

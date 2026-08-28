@@ -486,6 +486,7 @@ class SyncPlayManager(object):
         if not self.in_group():
             return
 
+        assert self.group is not None  # in_group() above
         for group in self.list_groups() or []:
             if group.get("GroupId") == self.group["GroupId"]:
                 self.members = (
@@ -607,6 +608,7 @@ class SyncPlayManager(object):
         if not self.in_group():
             return
 
+        assert self.group is not None  # in_group() above
         if data.get("GroupId") and data["GroupId"] != self.group["GroupId"]:
             return
 
@@ -659,6 +661,7 @@ class SyncPlayManager(object):
         if not self.in_group():
             return
 
+        assert self.group is not None  # in_group() above
         if command.get("GroupId") and command["GroupId"] != self.group["GroupId"]:
             LOG.info("Discarding command for another group")
             return
@@ -713,7 +716,8 @@ class SyncPlayManager(object):
             LOG.info("SyncPlay is disabled in settings, ignoring GroupJoined")
             return
 
-        rejoined = self.in_group() and self.group["GroupId"] == info.get("GroupId")
+        group = self.group  # in_group() is exactly this None test
+        rejoined = group is not None and group["GroupId"] == info.get("GroupId")
 
         self.group = {
             "GroupId": info.get("GroupId"),
@@ -894,7 +898,8 @@ class SyncPlayManager(object):
             LOG.debug("kicked-probe skipped: group list unavailable")
             return
 
-        group_id = self.group["GroupId"] if self.in_group() else self.last_group_id
+        group = self.group  # in_group() is exactly this None test
+        group_id = group["GroupId"] if group is not None else self.last_group_id
 
         if any(group.get("GroupId") == group_id for group in groups):
             self._attempt_rejoin(force=True)
@@ -913,6 +918,7 @@ class SyncPlayManager(object):
         self.last_snapshot_at = time.time()
 
         if snapshot.get("GroupName"):
+            assert self.group is not None  # snapshots only arrive in-group
             self.group["GroupName"] = snapshot["GroupName"]
 
         self.group_state = snapshot.get("State")
