@@ -174,7 +174,7 @@ Fine: every file but `manager.py`, and `manager.py` is not yet a split candidate
 - C1 and §2.7: delete the lyrics orphans, rewrite `state.py:79-92` and `plugin/lyrics.py:9-10` to what exists, mark S3.7 superseded in `docs/testing-plan.md`; amend W1.7 in the downloads plan; refresh the two module docstrings.
 - P2, D5, and the §9 list.
 
-### Tier 1 — cheap, high yield (days, one PR each)
+### Tier 1 — cheap, high yield (days, one PR each) — **done 2026-08-28** (phase 1, PR #202, one branch per §7.1; the two-client SyncPlay live leg deferred per §7.2)
 
 - Type the seams. `Protocol`s for the three manager ports (`LibraryPort` 11 names, `DownloadsPort` 6, `SyncPlayPort` 6) replacing `Optional[Any]`; a `ServiceHooks` protocol for `SettingsApplier` replacing `object` and the seven `type: ignore`; one `_forward(manager, name, *args)` for the two forwarders; a `Protocol` naming the 17 SyncPlay verbs so `getattr(api_client, name)` is checked. Then `test_service.py`'s seven `*Library` fakes collapse onto `tests/unit/synchost.py`. Proof: mypy over the existing tests; no behaviour change.
 - One client construction. `Api.for_plugin(creds)` in `core/` replacing the ten spellings; a shared `FakeApi` and `FakeDialog` in `tests/unit/fakes.py`. Tests then patch one target instead of `browse._api` ×17.
