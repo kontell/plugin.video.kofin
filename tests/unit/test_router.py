@@ -214,3 +214,58 @@ def test_importing_the_router_imports_no_handler_modules():
         % lib
     )
     subprocess.check_call([sys.executable, "-c", code])
+
+
+# --- a handler that raises must still release the caller ---------------------
+
+
+def _raising(mode_to_raise):
+    def resolve(mode):
+        if mode == mode_to_raise:
+
+            def boom(request):
+                raise RuntimeError("database is locked")
+
+            return boom
+        return None
+
+    return resolve
+
+
+def test_a_listing_handler_that_raises_still_closes_its_handle(ended, monkeypatch):
+    """Every listing route catches only JellyfinError and closes its own
+    handle on that path; anything else escaped with the handle open, and
+    under invoker reuse an open handle is a caller that waits forever
+    (assessment P1). The exception still propagates."""
+    monkeypatch.setattr(router, "_resolve", _raising("browse"))
+    with pytest.raises(RuntimeError):
+        router.dispatch(argv("?mode=browse", "7"))
+    assert ended == [(7, False)]
+
+
+def test_a_play_handler_that_raises_still_closes_its_handle(ended, monkeypatch):
+    monkeypatch.setattr(router, "_resolve", _raising("play"))
+    with pytest.raises(RuntimeError):
+        router.dispatch(argv("?mode=play&id=x", "7"))
+    assert ended == [(7, False)]
+
+
+def test_an_action_handler_that_raises_closes_its_handle_once(ended, monkeypatch):
+    monkeypatch.setattr(router, "_resolve", _raising("watched"))
+    with pytest.raises(RuntimeError):
+        router.dispatch(argv("?mode=watched&id=x", "7"))
+    assert ended == [(7, False)]
+
+
+def test_a_raise_on_a_negative_handle_closes_nothing(ended, monkeypatch):
+    monkeypatch.setattr(router, "_resolve", _raising("browse"))
+    with pytest.raises(RuntimeError):
+        router.dispatch(argv("?mode=browse", "-1"))
+    assert ended == []
+
+
+def test_a_listing_handler_that_returns_is_left_to_close_itself(
+    routed, ended, monkeypatch
+):
+    router.dispatch(argv("?mode=browse", "7"))
+    assert ended == []  # the recorder never called it, and neither did dispatch
