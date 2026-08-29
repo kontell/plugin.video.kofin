@@ -889,6 +889,51 @@ def test_movie_trailer_status_other_than_404_never_gates_sync(api):
     assert video_query("SELECT COUNT(*) FROM movie") == [(1,)]
 
 
+def test_a_short_youtube_trailer_link_is_written_without_a_traceback(api):
+    """Jellyfin stores RemoteTrailers verbatim; a youtu.be or /shorts/ link
+    has no '=' and the old rsplit raised IndexError — caught as a
+    trailer-less film, with a full LOG.exception per movie (audit R3)."""
+    from kofin.sync.writers import movies as movies_module
+
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    tracebacks = []
+    api.local_trailers_by_id = {}
+    payload = dto(MOVIE)
+    payload["LocalTrailerCount"] = 0
+    payload["RemoteTrailers"] = [{"Url": "https://youtu.be/dQw4w9WgXcQ"}]
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            movies_module.LOG, "exception", lambda *a, **k: tracebacks.append(a)
+        )
+        write_movie(api, payload)
+
+    assert video_query("SELECT c19 FROM movie") == [
+        ("plugin://plugin.video.youtube/play/?video_id=dQw4w9WgXcQ",)
+    ]
+    assert tracebacks == []
+
+
+def test_a_trailer_that_is_not_youtube_is_no_trailer(api):
+    from kofin.sync.writers import movies as movies_module
+
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    tracebacks = []
+    api.local_trailers_by_id = {}
+    payload = dto(MOVIE)
+    payload["LocalTrailerCount"] = 0
+    payload["RemoteTrailers"] = [{"Url": "https://example.com/trailer.mp4"}]
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            movies_module.LOG, "exception", lambda *a, **k: tracebacks.append(a)
+        )
+        write_movie(api, payload)
+
+    assert video_query("SELECT c19 FROM movie") == [(None,)]
+    assert tracebacks == []
+
+
 def test_series_gone_at_its_trailer_fetch_is_not_written(api):
     """TVShows.trailer() mirrors Movies.trailer(), the 404 included."""
     register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})

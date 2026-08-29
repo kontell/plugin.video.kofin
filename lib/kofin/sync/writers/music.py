@@ -5,7 +5,6 @@ from the server), ``self.server`` is the kofin Api, and the ``musicTranscode``
 setting picks between the fork's direct stream URLs and kofin plugin paths."""
 
 import datetime
-from typing import Any, List
 
 from kofin.core import settings
 from kofin.core.log import Logger
@@ -709,10 +708,9 @@ class Music(KodiDb):
                 *values(obj, QUEM.get_item_by_parent_song_obj)
             ):
                 self.remove_song(song[1], obj["Id"])
-            else:
-                self.jellyfin_db.remove_items_by_parent_id(
-                    *values(obj, QUEM.delete_item_by_parent_song_obj)
-                )
+            self.jellyfin_db.remove_items_by_parent_id(
+                *values(obj, QUEM.delete_item_by_parent_song_obj)
+            )
 
             self.remove_album(obj["KodiId"], obj["Id"])
 
@@ -750,18 +748,16 @@ class Music(KodiDb):
                     *values(temp_obj, QUEM.get_item_by_parent_song_obj)
                 ):
                     self.remove_song(song[1], obj["Id"])
-                else:
-                    self.jellyfin_db.remove_items_by_parent_id(
-                        *values(temp_obj, QUEM.delete_item_by_parent_song_obj)
-                    )
-                    self.jellyfin_db.remove_items_by_parent_id(
-                        *values(temp_obj, QUEM.delete_item_by_parent_artist_obj)
-                    )
-                    self.remove_album(temp_obj["ParentId"], obj["Id"])
-            else:
                 self.jellyfin_db.remove_items_by_parent_id(
-                    *values(obj, QUEM.delete_item_by_parent_album_obj)
+                    *values(temp_obj, QUEM.delete_item_by_parent_song_obj)
                 )
+                self.jellyfin_db.remove_items_by_parent_id(
+                    *values(temp_obj, QUEM.delete_item_by_parent_artist_obj)
+                )
+                self.remove_album(temp_obj["ParentId"], obj["Id"])
+            self.jellyfin_db.remove_items_by_parent_id(
+                *values(obj, QUEM.delete_item_by_parent_album_obj)
+            )
 
             self.remove_artist(obj["KodiId"], obj["Id"])
 
@@ -799,34 +795,3 @@ class Music(KodiDb):
         self.artwork.delete(kodi_id, "song")
         self.delete_song(kodi_id)
         LOG.debug("DELETE song [%s] %s", kodi_id, item_id)
-
-    @jellyfin_item
-    def get_child(self, item_id, e_item):
-        """Get all child elements from tv show jellyfin id."""
-        obj = {"Id": item_id}
-        child: List[Any] = []
-
-        try:
-            obj["KodiId"] = e_item[0]
-            obj["FileId"] = e_item[1]
-            obj["ParentId"] = e_item[3]
-            obj["Media"] = e_item[4]
-        except TypeError:
-            return child
-
-        obj["ParentId"] = obj["KodiId"]
-
-        for album in self.jellyfin_db.get_item_by_parent_id(
-            *values(obj, QUEM.get_item_by_parent_album_obj)
-        ):
-
-            temp_obj = dict(obj)
-            temp_obj["ParentId"] = album[1]
-            child.append((album[0],))
-
-            for song in self.jellyfin_db.get_item_by_parent_id(
-                *values(temp_obj, QUEM.get_item_by_parent_song_obj)
-            ):
-                child.append((song[0],))
-
-        return child

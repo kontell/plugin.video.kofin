@@ -279,9 +279,14 @@ class Movies(KodiDb):
                 )
 
             elif obj["Trailer"]:
+                # Any YouTube URL shape Jellyfin stores verbatim; None for a
+                # link that is not one (audit R3 — the old rsplit("=") raised
+                # on youtu.be/ and /shorts/ and logged a traceback per film).
+                video_id = api.youtube_video_id(obj["Trailer"])
                 obj["Trailer"] = (
-                    "plugin://plugin.video.youtube/play/?video_id=%s"
-                    % obj["Trailer"].rsplit("=", 1)[1]
+                    "plugin://plugin.video.youtube/play/?video_id=%s" % video_id
+                    if video_id
+                    else None
                 )
         except Exception as error:
             # Deviation from the fork: a 404 on the movie's own child fetch is
