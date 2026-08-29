@@ -8,7 +8,7 @@ lives on the objects rebuilt each pass.
 import json
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import xbmc
 
@@ -145,6 +145,35 @@ class Backoff:
 
 
 class Service(xbmc.Monitor):
+    # The two notification tables (P2.4): Kodi's bus by method, kofin's IPC
+    # by message name — one small handler per arm, the guards inside the
+    # handlers. Method names rather than bound methods, on the class rather
+    # than built in __init__, because the unit suite legitimately builds a
+    # Service with __new__ and no __init__ to drive onNotification alone.
+    _KODI_HANDLERS: Dict[str, str] = {
+        "GUI.OnScreensaverDeactivated": "_kodi_screensaver_deactivated",
+        "System.OnWake": "_kodi_wake",
+        "System.OnSleep": "_kodi_sleep",
+        "Player.OnPlay": "_kodi_player_play",
+        "AudioLibrary.OnScanFinished": "_kodi_music_scan_finished",
+        "VideoLibrary.OnCleanFinished": "_kodi_clean_finished",
+        "Player.OnStop": "_kodi_player_stop",
+        "VideoLibrary.OnUpdate": "_kodi_library_update",
+    }
+    _IPC_HANDLERS: Dict[str, str] = {
+        ipc.RESTART: "_ipc_restart",
+        ipc.AUTH_CHANGED: "_ipc_auth_changed",
+        ipc.SYNCPLAY_MENU: "_ipc_syncplay_menu",
+        ipc.WHO_IS_WATCHING: "_ipc_who_is_watching",
+        ipc.PRECACHE_ART: "_ipc_precache_art",
+        ipc.ATTACH_SUBTITLE: "_ipc_attach_subtitle",
+        ipc.DOWNLOAD_ADD: "_ipc_download_add",
+        ipc.DOWNLOAD_CANCEL: "_ipc_download_cancel",
+        ipc.DOWNLOAD_REMOVE: "_ipc_download_remove",
+        ipc.DOWNLOAD_REMOVE_ALL: "_ipc_download_remove_all",
+        **{command: "_ipc_library_command" for command in LIBRARY_COMMANDS},
+    }
+
     def __init__(self) -> None:
         super().__init__()
         self._restart_requested = False
@@ -194,33 +223,6 @@ class Service(xbmc.Monitor):
         # moment the post-connect worker got around to queueing it — see
         # _catch_up_after_reconnect.
         self._ws_connected_at: Optional[float] = None
-        # The two notification tables (P2.4): Kodi's bus by method, kofin's
-        # IPC by message name — the settings_apply.py shape, one small
-        # handler per arm, the guards inside the handlers.
-        self._kodi_handlers: Dict[str, Callable[[str], None]] = {
-            "GUI.OnScreensaverDeactivated": self._kodi_screensaver_deactivated,
-            "System.OnWake": self._kodi_wake,
-            "System.OnSleep": self._kodi_sleep,
-            "Player.OnPlay": self._kodi_player_play,
-            "AudioLibrary.OnScanFinished": self._kodi_music_scan_finished,
-            "VideoLibrary.OnCleanFinished": self._kodi_clean_finished,
-            "Player.OnStop": self._kodi_player_stop,
-            "VideoLibrary.OnUpdate": self._kodi_library_update,
-        }
-        self._ipc_handlers: Dict[str, Callable[[str, Dict[str, Any]], None]] = {
-            ipc.RESTART: self._ipc_restart,
-            ipc.AUTH_CHANGED: self._ipc_auth_changed,
-            ipc.SYNCPLAY_MENU: self._ipc_syncplay_menu,
-            ipc.WHO_IS_WATCHING: self._ipc_who_is_watching,
-            ipc.PRECACHE_ART: self._ipc_precache_art,
-            ipc.ATTACH_SUBTITLE: self._ipc_attach_subtitle,
-            ipc.DOWNLOAD_ADD: self._ipc_download_add,
-            ipc.DOWNLOAD_CANCEL: self._ipc_download_cancel,
-            ipc.DOWNLOAD_REMOVE: self._ipc_download_remove,
-            ipc.DOWNLOAD_REMOVE_ALL: self._ipc_download_remove_all,
-        }
-        for command in LIBRARY_COMMANDS:
-            self._ipc_handlers[command] = self._ipc_library_command
         # Connection toasts announce states, not websocket edges (see
         # _connection_toast). Both fields are read and written under the lock,
         # from the websocket thread and the service tick.
@@ -1016,9 +1018,9 @@ class Service(xbmc.Monitor):
         method not in the table is ignored; an IPC message is verified at the
         door and its secret spent before any handler runs."""
         if sender == "xbmc":
-            handler = self._kodi_handlers.get(method)
-            if handler is not None:
-                handler(data)
+            kodi_handler = self._KODI_HANDLERS.get(method)
+            if kodi_handler is not None:
+                getattr(self, kodi_handler)(data)
             return
         if sender != ipc.SENDER:
             return
@@ -1036,7 +1038,7 @@ class Service(xbmc.Monitor):
         # -- so left in, the guard was printed into kodi.log on every Repair,
         # and a pasted log is exactly the kind of channel it exists to close.
         payload.pop(ipc.NONCE_KEY, None)
-        ipc_handler = self._ipc_handlers.get(name)
+        ipc_handler = self._IPC_HANDLERS.get(name)
         if ipc_handler is None:
             # Registered but matched by no arm, or not registered at all
             # (a message the registry once held, or a forgery that guessed
@@ -1044,7 +1046,7 @@ class Service(xbmc.Monitor):
             # trace that it arrived.
             LOG.debug("unhandled IPC %s", name)
             return
-        ipc_handler(name, payload)
+        getattr(self, ipc_handler)(name, payload)
 
     # -- the Kodi bus, one handler per method ----------------------------------
 
