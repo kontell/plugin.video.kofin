@@ -47,26 +47,27 @@ def test_a_json_200_is_the_body(server, client):
     assert api.get("/Items") == {"Items": [1, 2], "TotalRecordCount": 2}
 
 
-def test_a_redirect_today_differs_by_transport(server, client):
-    """Pins today's asymmetry (audit F4): requests follows the redirect and
-    the plugin transport reads the empty 302 body as an empty library.
-    H4 replaces this with one answer for both."""
-    api, name = client
+def test_a_redirect_is_refused_on_both_and_names_the_location(server, client):
+    """Before H4 (audit F4) requests followed the redirect while the plugin
+    transport read the empty 302 body as an empty library — a working
+    service beside listings of nothing. One answer now: an HttpError that
+    carries the address the user should have entered."""
+    api, _ = client
     server.answer("/Old", 302, headers={"Location": server.url + "/Items"})
     server.answer("/Items", 200, json_body={"Items": [1]})
 
-    body = api.get("/Old")
+    with pytest.raises(HttpError) as raised:
+        api.get("/Old")
 
-    if name == "requests":
-        assert body == {"Items": [1]}
-    else:
-        assert body == {}
+    assert raised.value.status == 302
+    assert server.url + "/Items" in str(raised.value)
+    assert [r[1] for r in server.requests] == ["/Old"]  # never followed
 
 
-def test_a_non_json_200_escapes_the_taxonomy_today(server, client):
+def test_a_non_json_200_is_an_http_error_on_both(server, client):
     """A proxy that is up while Jellyfin is down answers HTML with a 200.
-    Today that raises a ValueError past every ``except JellyfinError``
-    (audit F4); H4 turns it into an HttpError."""
+    That used to raise a ValueError past every ``except JellyfinError``
+    and end in a Kodi error dialog (audit F4)."""
     api, _ = client
     server.answer(
         "/Items",
@@ -75,8 +76,11 @@ def test_a_non_json_200_escapes_the_taxonomy_today(server, client):
         headers={"Content-Type": "text/html"},
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(HttpError) as raised:
         api.get("/Items")
+
+    assert raised.value.status == 200
+    assert "not JSON" in str(raised.value)
 
 
 def test_a_503_is_terminal_today(server, client):

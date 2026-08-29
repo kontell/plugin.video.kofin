@@ -113,6 +113,27 @@ class Api:
 
     # -- plumbing ----------------------------------------------------------
 
+    @staticmethod
+    def _json(response: Any, empty: Any) -> Any:
+        """The decoded body, or ``empty`` for none.
+
+        A body that is not JSON — a proxy that is up while Jellyfin is not
+        answers HTML with a 200 — used to raise ValueError past every
+        ``except JellyfinError`` in the plugin and land in a Kodi error
+        dialog (audit F4). It is a server that did not answer as one, so it
+        is an HttpError like any other bad answer.
+        """
+        if not response.content:
+            return empty
+        try:
+            return response.json()
+        except ValueError as error:
+            raise HttpError(
+                response.status_code,
+                "%s -> %d with a body that is not JSON (%s)"
+                % (getattr(response, "url", "?"), response.status_code, error),
+            )
+
     def get(self, path: str, params: Optional[JsonDict] = None) -> JsonDict:
         response = self._http.request(
             "GET",
@@ -122,7 +143,7 @@ class Api:
             timeout=self._timeout,
             retries=self._retries,
         )
-        body: JsonDict = response.json() if response.content else {}
+        body: JsonDict = self._json(response, {})
         return body
 
     def post(
@@ -141,9 +162,7 @@ class Api:
             json_body=body,
             timeout=self._timeout,
         )
-        if not response.content:
-            return {}
-        parsed: JsonDict = response.json()
+        parsed: JsonDict = self._json(response, {})
         return parsed
 
     def delete(self, path: str, params: Optional[JsonDict] = None) -> None:
@@ -197,7 +216,7 @@ class Api:
             timeout=self._timeout,
             retries=self._retries,
         )
-        listing: List[JsonDict] = response.json() if response.content else []
+        listing: List[JsonDict] = self._json(response, [])
         return listing
 
     def public_info(self) -> JsonDict:

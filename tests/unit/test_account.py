@@ -148,6 +148,29 @@ def test_login_wrong_password_leaves_logged_out(kodi_fakes, monkeypatch):
     assert not any("AuthChanged" in cmd for cmd in kodi_fakes)
 
 
+def test_login_names_a_redirected_address(kodi_fakes, monkeypatch):
+    """A proxy redirecting http to https, or an address missing its path,
+    answers the ping with a 3xx. Both transports refuse it now (audit F4),
+    and the toast carries the Location — "unreachable" would send the user
+    checking cables when the fix is the address they typed."""
+
+    def redirect(h, a):
+        raise HttpError(
+            302,
+            "GET %s/System/Info/Public -> 302 (redirected to "
+            "https://minipie:8920/jellyfin; use that address)" % a,
+        )
+
+    monkeypatch.setattr(account.auth, "public_info", redirect)
+    settings.set_str("serverAddress", "minipie")
+
+    account.login(REQ)
+
+    assert "https://minipie:8920/jellyfin" in FakeDialog.notifications[-1]
+    assert FakeDialog.notifications[-1].startswith("server error")
+    assert settings.Credentials.load().is_logged_in is False
+
+
 def test_logout_clears_and_notifies(kodi_fakes, monkeypatch):
     creds = settings.Credentials.load()
     creds.server_address = "http://minipie:8096"

@@ -9,6 +9,7 @@ import xbmcgui
 from kofin.core import auth, ipc, settings, toast
 from kofin.core.http import (
     Http,
+    HttpError,
     JellyfinError,
     ServerUnreachable,
     Unauthorized,
@@ -52,6 +53,14 @@ def login(request: Request) -> None:
     transport = plugin_transport(settings.get_bool("sslVerify"))
     try:
         info = auth.public_info(transport, address)
+    except HttpError as error:
+        # A server that answered, badly — the same wording test_connection
+        # uses, because the description matters here: a redirect names the
+        # address the user should have typed (audit F4), and "unreachable"
+        # would send them checking cables.
+        LOG.warning("server ping answered badly for %s: %s", address, error)
+        _notification(_text(30821) % error, toast.ERROR)
+        return
     except JellyfinError as error:
         LOG.warning("server ping failed for %s: %s", address, error)
         _notification(_text(30018), toast.ERROR)

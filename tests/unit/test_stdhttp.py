@@ -19,13 +19,17 @@ from kofin.core import stdhttp
 class FakeRaw:
     """What http.client hands back."""
 
-    def __init__(self, status=200, payload=b"{}", will_close=False):
+    def __init__(self, status=200, payload=b"{}", will_close=False, headers=()):
         self.status = status
         self._payload = payload
         self.will_close = will_close
+        self._headers = list(headers)
 
     def read(self):
         return self._payload
+
+    def getheaders(self):
+        return list(self._headers)
 
 
 class FakeConnection:

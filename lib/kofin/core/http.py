@@ -119,6 +119,20 @@ def run_ladder(
 
         if response.status_code in (401, 403):
             raise Unauthorized("%s %s -> %d" % (method, url, response.status_code))
+        if 300 <= response.status_code < 400:
+            # A redirect is refused on both transports rather than followed
+            # by one of them (audit F4): requests followed it silently while
+            # the stdlib plugin transport handed the empty 302 body back as
+            # an empty library — a working service beside a plugin listing
+            # nothing. Nobody had a working redirected address, so refusing
+            # costs no one and names the cause at login: the Location is
+            # the address the user should have entered.
+            location = (getattr(response, "headers", None) or {}).get("Location")
+            raise HttpError(
+                response.status_code,
+                "%s %s -> %d (redirected to %s; use that address)"
+                % (method, url, response.status_code, location or "?"),
+            )
         if response.status_code >= 400:
             raise HttpError(
                 response.status_code,
@@ -263,6 +277,8 @@ class Http:
             retries = METHOD_RETRIES.get(method.upper(), 0)
 
         def attempt() -> "requests.Response":
+            # Redirects reach run_ladder's 3xx refusal like they do on the
+            # stdlib transport, instead of being followed here alone.
             return self.session().request(
                 method,
                 url,
@@ -270,6 +286,7 @@ class Http:
                 params=params,
                 json=json_body,
                 timeout=timeout or DEFAULT_TIMEOUT,
+                allow_redirects=False,
             )
 
         response: "requests.Response" = run_ladder(

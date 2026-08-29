@@ -62,10 +62,19 @@ class Response:
     module has no intention of providing.
     """
 
-    def __init__(self, status_code: int, content: bytes, url: str) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        content: bytes,
+        url: str,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> None:
         self.status_code = status_code
         self.content = content
         self.url = url
+        # Only ``Location`` is read (run_ladder's redirect refusal); kept as
+        # a plain dict so the requests transport and this one look alike there.
+        self.headers: Dict[str, str] = dict(headers or {})
 
     def json(self) -> Any:
         return json.loads(self.content)
@@ -257,7 +266,7 @@ class StdlibHttp(Http):
             # The server is done with this socket; do not offer it to the next
             # call as though it were alive.
             self._drop()
-        return Response(raw.status, payload, url)
+        return Response(raw.status, payload, url, dict(raw.getheaders()))
 
 
 def _split(
