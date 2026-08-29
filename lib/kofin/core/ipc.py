@@ -188,10 +188,17 @@ def notify(method: str, data: Optional[Dict[str, Any]] = None) -> None:
 
 
 def _encode(data: Dict[str, Any]) -> str:
-    # The builtin parser re-parses its arguments, so the JSON payload is
-    # wrapped in a quoted single-element list (same scheme the old addon and
-    # AddonSignals use — receivers run json.loads(...)[0]).
-    return '"[%s]"' % json.dumps(data).replace('"', '\\"')
+    # The builtin parser re-parses its arguments, so the payload is wrapped
+    # in a quoted single-element list (the scheme the old addon and
+    # AddonSignals use — receivers run json.loads(...)[0]). Hex rather than
+    # escaped JSON: CUtil::SplitParams lets only every second character be
+    # escaped, so a value containing a quote — json.dumps writes \" and the
+    # old escaping made it \\" — closed the parameter early and left the
+    # rest to be parsed as builtin syntax (audit M1). Hex has no quotes,
+    # commas or backslashes for the parser to see, and decode() already
+    # accepted it (the Up Next wire format).
+    hexed = binascii.hexlify(json.dumps(data).encode("utf-8")).decode("ascii")
+    return '"[\\"%s\\"]"' % hexed
 
 
 def decode(data: str) -> Dict[str, Any]:

@@ -16,12 +16,51 @@ def test_notify_encodes_payload(monkeypatch):
     assert sent and sent[0].startswith("NotifyAll(plugin.video.kofin, Restart,")
 
 
+def _split_params(text):
+    """CUtil::SplitParams' quote handling, as Kodi 21.3 has it: a quote
+    preceded by a backslash is escaped — unless that backslash was itself
+    escaped, because "only every second character can be escaped" — and
+    the parameter ends at the first unescaped quote after the opening
+    one. Returns the first parameter's unescaped text."""
+    out = []
+    in_quotes = False
+    last_escaped = False
+    for index, ch in enumerate(text):
+        escaped = index > 0 and text[index - 1] == "\\" and not last_escaped
+        last_escaped = escaped
+        if ch == '"' and not escaped:
+            if in_quotes:
+                break
+            in_quotes = True
+            continue
+        if ch == "\\" and index + 1 < len(text) and text[index + 1] == '"':
+            continue  # the escaping backslash itself is not part of the value
+        if in_quotes:
+            out.append(ch)
+    return "".join(out)
+
+
 def test_encode_decode_round_trip():
     payload = {"a": 1, "b": "two", "nested": {"c": [1, 2]}}
-    encoded = ipc._encode(payload)
-    # Kodi's builtin parser strips the outer quotes and unescapes; simulate.
-    wire = encoded[1:-1].replace('\\"', '"')
-    assert ipc.decode(wire) == payload
+    assert ipc.decode(_split_params(ipc._encode(payload))) == payload
+
+
+def test_a_payload_with_quotes_and_backslashes_survives_the_builtin_parser():
+    """json.dumps writes a quote inside a value as \\" and the old encoder
+    then escaped that quote again, producing \\\\" — which SplitParams reads
+    as an escaped backslash followed by the closing quote (audit M1). No
+    payload carries free text today; this is the trap for the next field
+    that does (a name, a title)."""
+    payload = {"Name": 'The "Example" \\ Film', "Id": "abc", "Types": ["Movie"]}
+    assert ipc.decode(_split_params(ipc._encode(payload))) == payload
+
+
+def test_the_wire_form_has_nothing_for_the_builtin_parser_to_misread():
+    encoded = ipc._encode({"x": '"'})
+    inner = encoded[1:-1]
+    assert inner.startswith('[\\"') and inner.endswith('\\"]')
+    body = inner[3:-3]
+    assert body and all(ch in "0123456789abcdef" for ch in body)
 
 
 def test_decode_garbage_is_empty():
@@ -96,8 +135,13 @@ def test_a_guarded_command_carries_the_secret_and_others_do_not(
     ipc.notify(ipc.REMOVE_LIBRARY, {"Id": "lib1"})
     ipc.notify(ipc.PRECACHE_ART, {})
 
-    assert secret in sent[0]
-    assert secret not in sent[1]
+    def payload_of(builtin):
+        # NotifyAll(sender, method, <param>) — the third argument, as the
+        # builtin parser would hand it to the receiver.
+        return ipc.decode(_split_params(builtin.split(", ", 2)[2].rstrip(")")))
+
+    assert payload_of(sent[0]) == {"Id": "lib1", ipc.NONCE_KEY: secret}
+    assert payload_of(sent[1]) == {}
 
 
 def test_verify_rejects_a_forged_destructive_command(nonce_file):
