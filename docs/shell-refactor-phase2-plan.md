@@ -109,14 +109,14 @@ Everything once more on the finished branch: `tests/unit` green (pipefail); both
 - The `phase` machine's missing lock and the `_item` write race (S5): documented, unchanged — Tier 2 names the spellings, not the concurrency design.
 - The two-client SyncPlay live leg (S1-P1.2b), still owed to a SyncPlay-focused session.
 
-## 6. Exit checklist
+## 6. Exit checklist — all met 2026-08-29 (PR #205)
 
-- [ ] `tox` green; the route golden and phase table pass byte-identical to their P2.0 capture.
-- [ ] `service/player.py` under ~800 lines with the claim module and `SegmentEngine` beside it; `test_segments` changed only at the harness constructor; `test_player` untouched.
-- [ ] `browse.py`'s six openings and six menu bodies are one wrapper and one body; `play.py` has one resolve tail and no restated `play_state` keys; the URL parameter names have one spelling in `core/urls.py`.
-- [ ] `Service.onNotification` and `_handle_group_update` are tables; the download wire parse lives in `downloads/wire.py`.
-- [ ] `grep -rn 'from kofin.plugin' lib/kofin/service lib/kofin/syncplay` returns nothing.
-- [ ] The phase-1 identity trio and the six listing captures unchanged on both rigs; S1-P2.0–S1-P2.7 recorded under `tests/live/results/` with build shas; `docs/testing-plan.md` gains the S1-P2 section; assessment §10 Tier 2 marked done with the date.
+- [x] `tox` green; the route golden and phase table pass byte-identical to their P2.0 capture.
+- [x] `service/player.py` under ~800 lines with the claim module and `SegmentEngine` beside it; `test_segments` changed only at the harness constructor; `test_player` untouched.
+- [x] `browse.py`'s six openings and six menu bodies are one wrapper and one body; `play.py` has one resolve tail and no restated `play_state` keys; the URL parameter names have one spelling in `core/urls.py`.
+- [x] `Service.onNotification` and `_handle_group_update` are tables; the download wire parse lives in `downloads/wire.py`.
+- [x] `grep -rn 'from kofin.plugin' lib/kofin/service lib/kofin/syncplay` returns nothing.
+- [x] The phase-1 identity trio and the six listing captures unchanged on both rigs; S1-P2.0–S1-P2.7 recorded under `tests/live/results/` with build shas; `docs/testing-plan.md` gains the S1-P2 section; assessment §10 Tier 2 marked done with the date.
 
 ## 7. Open questions
 
