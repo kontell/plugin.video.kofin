@@ -44,7 +44,7 @@ from typing import Any, Dict, List, Optional
 from kofin.core import streams
 from kofin.core.http import Http
 from kofin.core.log import Logger
-from kofin.plugin import subtitles
+from kofin.core import subtitles
 
 LOG = Logger(__name__)
 
