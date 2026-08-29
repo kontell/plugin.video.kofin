@@ -107,7 +107,7 @@ Everything once more on the finished branch: `tests/unit` green (pipefail); both
 - The `api` field-vocabulary collapse (the five inlined field lists, the free-string `fields` params, the three caller-owned constants) — still the focused pass phase 1 deferred; the P2.2 constants are URL *parameter names*, not fields.
 - `offer_remove_download`'s self-IPC round trip (`player.py:1019` region): giving `Player` a service handle is a new seam, not a split; ledger for a later pass.
 - The `phase` machine's missing lock and the `_item` write race (S5): documented, unchanged — Tier 2 names the spellings, not the concurrency design.
-- The two-client SyncPlay live leg (S1-P1.2b), still owed to a SyncPlay-focused session.
+- ~~The two-client SyncPlay live leg (S1-P1.2b)~~ — run 2026-08-29 with three real clients (native, flatpak, the Tab) on `7df0463`: `docs/testing-plan.md` §S1-P2, `tests/live/results/S1-P1.2b/`.
 
 ## 6. Exit checklist — all met 2026-08-29 (PR #205)
 
