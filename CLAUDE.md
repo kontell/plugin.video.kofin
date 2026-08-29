@@ -120,6 +120,19 @@ What remains is kofin's own:
   (`service/backdrop.py`, `core/api.py::splashscreen`, `plugin/browse.py`).
 - Extras/videoversion writes read the VERSION itemType from the seeded 40400 row and the EXTRA
   value from `schema.EXTRA_ITEM_TYPE` — both differ across gated schemas.
+- **A single-file movie's `MediaSource.Name` is its file stem, not a label.** Jellyfin's
+  `GetMediaSourceName` returns the file name without extension unless local alternate versions
+  exist (then the folder prefix is stripped and a suffix label remains). `resolve_version_type`
+  maps a stem-named source to the seeded Standard Edition; minting a `videoversiontype` row per
+  name put 1,799 entries in Kodi's "Manage versions" picker for 1,784 films, none versioned, and
+  nothing sweeps that table but kofin's own `sweep_orphan_version_types` (Kodi's only deletes are
+  its v128/v131 migrations). A rewrite or removal runs the sweep; Repair converts old profiles.
+- **An empty listing against existing references is not a deletion order** — the rule lives in
+  three places and every one is load-bearing: `boxsets.sweep_stale`, the prune's
+  `get_existing_ids`, and `Views.get_views`, whose floor is gated on the whitelist (not on "no
+  views", since a Live TV grant still lists one) and sits *before* the `SortedViews` stamp,
+  because an empty stamp would regenerate an empty node tree. A withdrawn user gets `/UserViews`
+  200 with zero items and a 403 on MediaFolders (executed on jf12, `tests/live/jf12_user_policy.py`).
 - **A TranscodingProfile is a device statement, not a spare tyre.** Jellyfin's `StreamBuilder`
   *ranks* the transcoding profiles instead of taking the first that matches, and one whose
   `VideoCodec` list holds the source codec ranks top so the server can stream-copy into it. So a
