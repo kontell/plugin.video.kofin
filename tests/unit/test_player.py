@@ -289,6 +289,27 @@ def test_current_item_exposes_claim(monkeypatch):
     assert player.current_item() is None
 
 
+def test_the_claim_wait_is_logged_with_its_outcome(monkeypatch):
+    """The measurement audit F6 asked for before any restructuring: one
+    line per start with the outcome, the seconds waited and the kind of
+    playback, so an album on the Bravia says whether the backfill grace is
+    the GET's latency or dead time (fixes plan H11)."""
+    from kofin.service import player as player_mod
+
+    player, api = make_player(monkeypatch)
+    lines = []
+    monkeypatch.setattr(
+        player_mod.LOG, "info", lambda msg, *args: lines.append(msg % args)
+    )
+
+    queue_item()
+    player.onPlayBackStarted()
+
+    claim_lines = [line for line in lines if line.startswith("claim ")]
+    assert len(claim_lines) == 1
+    assert claim_lines[0].startswith("claim claimed after 0.00s (")
+
+
 # --- library-originated claims (music) ---------------------------------------
 
 

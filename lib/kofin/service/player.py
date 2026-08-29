@@ -1707,17 +1707,40 @@ class Player(xbmc.Player):
     # -- internals -------------------------------------------------------------
 
     def _claim(self) -> Optional[JsonDict]:
+        """The claim for the playback that just started, or None.
+
+        Runs inside onPlayBackStarted, i.e. on the service's own thread
+        (Kodi delivers Python player and monitor callbacks on the thread
+        that created the object, from inside its Kodi API calls), so every
+        beat waited here delays onAVStarted — the SyncPlay Ready trigger and
+        apply_default_tracks. The ``waitForAbort`` in the grace loop is also
+        what delivers the pending Player.OnPlay notification whose backfill
+        this waits for, so the grace is satisfiable, and the wait is bounded
+        by the backfill's server GET — or the full grace when the server is
+        away. The log line at the end is the measurement audit F6 asked for
+        before restructuring: outcome, elapsed and kind, one line per start.
+        """
         monitor = xbmc.Monitor()
         waited = 0.0
+        outcome = "timed out"
+        kind = "none"
+        claimed: Optional[JsonDict] = None
         while waited < CLAIM_TIMEOUT_SECONDS:
             try:
                 current_file = self.getPlayingFile()
             except RuntimeError:
                 current_file = ""
             if current_file:
+                if self.isPlayingAudio():
+                    kind = "audio"
+                elif _downloaded_path(current_file):
+                    kind = "downloaded"
+                else:
+                    kind = "video"
                 claimed = state.claim_play_item(current_file)
                 if claimed is not None:
-                    return claimed
+                    outcome = "claimed"
+                    break
                 # Two kinds of playback never pass through the play route
                 # and get their claim back-filled from the Player.OnPlay
                 # notification instead, which can land after this callback:
@@ -1726,18 +1749,23 @@ class Player(xbmc.Player):
                 # (W1.7). Wait a beat for the back-fill rather than calling
                 # either foreign playback.
                 if (
-                    (self.isPlayingAudio() or _downloaded_path(current_file))
+                    kind != "video"
                     and waited < BACKFILL_GRACE_SECONDS
                     and not monitor.waitForAbort(0.25)
                 ):
                     waited += 0.25
                     continue
-                # A file is playing but nothing is queued: foreign playback.
-                return None
+                # A file is playing but nothing is queued: foreign playback
+                # — or, for the two back-filled kinds, a back-fill that never
+                # landed inside the grace.
+                outcome = "foreign" if kind == "video" else "backfill missed"
+                break
             if monitor.waitForAbort(0.5):
-                return None
+                outcome = "aborted"
+                break
             waited += 0.5
-        return None
+        LOG.info("claim %s after %.2fs (%s)", outcome, waited, kind)
+        return claimed
 
     def _set_paused(self, paused: bool) -> None:
         if self._item is None:
