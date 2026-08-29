@@ -741,6 +741,109 @@ def test_a_library_the_server_really_dropped_is_still_removed(views_env, monkeyp
     assert ipc.REMOVE_LIBRARY in sent
 
 
+# --- an empty listing is not a deletion order (audit F2, fixes plan H3) --------
+
+LIVETV_VIEW = {
+    "Id": "0f6ba4fd8c7a1c4f3b8c9d2e1a5b6c7d",
+    "Name": "Live TV",
+    "Type": "UserView",
+    "CollectionType": "livetv",
+}
+
+
+def _warnings(monkeypatch):
+    from kofin.sync import views as views_module
+
+    lines = []
+    monkeypatch.setattr(
+        views_module.LOG, "warning", lambda msg, *args: lines.append(msg % args)
+    )
+    return lines
+
+
+def test_a_listing_with_none_of_the_synced_libraries_is_refused(views_env, monkeypatch):
+    """The executed shape (tests/live/jf12_user_policy.py): a user whose
+    library access was withdrawn gets /UserViews 200 with zero items and a
+    403 on MediaFolders. Both are "successful", so ``complete`` stays True
+    and every synced library would have gone to remove_library."""
+    from kofin.core import ipc
+
+    seed(
+        [
+            ("f137a2dd21bbc1b99aa5c0f6bf02a805", "Movies", "movies"),
+            ("455b9a6cc37d4d2e961d7d5236820ee4", "Music-Alt", "music"),
+        ],
+        ["f137a2dd21bbc1b99aa5c0f6bf02a805", "Mixed:455b9a6cc37d4d2e961d7d5236820ee4"],
+    )
+    sent = []
+    monkeypatch.setattr(ipc, "notify", lambda method, data=None: sent.append(method))
+    warned = _warnings(monkeypatch)
+    before = sync_db.get_sync()["SortedViews"]
+
+    Views(TwoEndpointApi([], [], folders_fail=True)).get_views()
+
+    assert ipc.REMOVE_LIBRARY not in sent
+    assert sync_db.get_sync()["SortedViews"] == before
+    assert any("not a deletion order" in line for line in warned)
+
+
+def test_a_live_tv_only_listing_is_still_refused(views_env, monkeypatch):
+    """Live TV is granted independently of folder access, so the withdrawn
+    user's listing is not always empty — it is empty of anything synced."""
+    from kofin.core import ipc
+
+    seed(
+        [("f137a2dd21bbc1b99aa5c0f6bf02a805", "Movies", "movies")],
+        ["f137a2dd21bbc1b99aa5c0f6bf02a805"],
+    )
+    sent = []
+    monkeypatch.setattr(ipc, "notify", lambda method, data=None: sent.append(method))
+
+    Views(TwoEndpointApi([], [LIVETV_VIEW], folders_fail=True)).get_views()
+
+    assert ipc.REMOVE_LIBRARY not in sent
+
+
+def test_one_of_two_synced_libraries_leaving_is_still_removed(views_env, monkeypatch):
+    """The floor must not cost the real case: a library genuinely withdrawn
+    while another stays listed is removed as before."""
+    from kofin.core import ipc
+
+    seed(
+        [
+            ("f137a2dd21bbc1b99aa5c0f6bf02a805", "Movies", "movies"),
+            ("455b9a6cc37d4d2e961d7d5236820ee4", "Music-Alt", "music"),
+        ],
+        ["f137a2dd21bbc1b99aa5c0f6bf02a805", "455b9a6cc37d4d2e961d7d5236820ee4"],
+    )
+    sent = []
+    monkeypatch.setattr(
+        ipc, "notify", lambda method, data=None: sent.append((method, data))
+    )
+
+    Views(TwoEndpointApi([ADMIN_MEDIA_FOLDERS[0]], [], folders_fail=False)).get_views()
+
+    assert (ipc.REMOVE_LIBRARY, {"Id": "455b9a6cc37d4d2e961d7d5236820ee4"}) in sent
+
+
+def test_an_empty_listing_against_nothing_synced_is_unchanged(views_env, monkeypatch):
+    """Nothing to protect: no whitelist means no floor, and the pass runs
+    exactly as it did (the remove_library tail re-lists after the last
+    library goes)."""
+    from kofin.core import ipc
+
+    seed([("f137a2dd21bbc1b99aa5c0f6bf02a805", "Movies", "movies")], [])
+    sent = []
+    monkeypatch.setattr(ipc, "notify", lambda method, data=None: sent.append(method))
+    warned = _warnings(monkeypatch)
+
+    Views(TwoEndpointApi([], [], folders_fail=False)).get_views()
+
+    assert warned == []
+    assert sync_db.get_sync()["SortedViews"] == []
+    assert ipc.REMOVE_LIBRARY in sent  # the stale view row really is gone
+
+
 # --- downloads nodes (offline-downloads plan W1.9) ---------------------------
 
 
