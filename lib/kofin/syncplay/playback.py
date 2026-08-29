@@ -19,6 +19,7 @@ import xbmc
 from kofin.core import kodirpc
 from kofin.core.log import Logger
 from kofin.syncplay import utils
+from kofin.syncplay.utils import FOLLOWING, Phase
 from kofin.syncplay.tempo import PulseScheduler, SEEK_LAG_DEFAULT_MS
 
 #################################################################################################
@@ -139,7 +140,7 @@ class PlaybackController(object):
         PositionTicks — no extrapolation. Audio is excluded: a paused
         PAPlayer must never be seeked (it aligns after its resume instead).
         """
-        if self._is_audio() or self.manager.phase not in ("waiting_ready", "synced"):
+        if self._is_audio() or self.manager.phase not in FOLLOWING:
             return
 
         if self.manager.is_transcoding():
@@ -189,7 +190,7 @@ class PlaybackController(object):
         when a pulse is not confirmed, so it answers False exactly when nothing
         can be nudged.
         """
-        if self.manager.phase != "synced":
+        if self.manager.phase != Phase.SYNCED:
             return False
 
         if not self.tempo.can_close(offset_ms):
@@ -270,11 +271,11 @@ class PlaybackController(object):
         # for media that is right there, paused (fork field log 2026-07-10).
         phase = self.manager.phase
 
-        if phase == "loading":
+        if phase == Phase.LOADING:
             LOG.info("Unpause while still loading, deferring to ready flow")
             return
 
-        if phase not in ("waiting_ready", "synced"):
+        if phase not in FOLLOWING:
             LOG.info("Unpause with nothing followed, ignoring")
             return
 
@@ -533,7 +534,7 @@ class PlaybackController(object):
         # Read before on_group_stopped() resets it: only media SyncPlay
         # is actually driving is stopped — a group Stop must not kill a
         # detached spectator's own playback.
-        was_following = self.manager.phase != "idle"
+        was_following = self.manager.phase != Phase.IDLE
 
         self.cancel_pending()
         self.manager.on_group_stopped()
@@ -729,7 +730,7 @@ class PlaybackController(object):
                     self._caching_since = None
                     continue
 
-                if self.manager.phase not in ("waiting_ready", "synced"):
+                if self.manager.phase not in FOLLOWING:
                     continue
 
                 self._watch_buffering()
@@ -744,7 +745,7 @@ class PlaybackController(object):
                     self.tempo.cancel("spectator playing own media")
                     continue
 
-                if self.manager.phase == "synced" and self._expecting_playback():
+                if self.manager.phase == Phase.SYNCED and self._expecting_playback():
                     self.tempo.tick()
             except Exception as error:
                 LOG.exception("SyncPlay loop error: %s", error)
