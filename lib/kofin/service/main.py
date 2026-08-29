@@ -1012,6 +1012,22 @@ class Service(xbmc.Monitor):
                 # node filters on those rows, so without this a user-run music
                 # scan leaves them all matching nothing until the next sync.
                 self.library.enqueue_command("ReassertMusicSources")
+            elif method == "VideoLibrary.OnCleanFinished":
+                # Kodi's Clean library deletes every actor with no surviving
+                # link (CVideoDatabase::CleanDatabase) — exactly what kofin's
+                # own removals and prunes leave behind, since the writers
+                # never delete actor rows — and the shared name → id cache
+                # in kodidb.Kodi is primed once per process. actor_id has no
+                # AUTOINCREMENT, so a freed id is reused and a stale entry
+                # then names the *wrong* actor, not just a missing one. The
+                # clean also removes every kofin movie row (benchmark F13),
+                # so the Repair that follows would write every cast link
+                # against that cache (audit F5). Reset; the next get_person
+                # re-primes from the table.
+                from kofin.sync.kodidb.kodi import Kodi
+
+                LOG.info("Kodi cleaned its video library; dropping the people cache")
+                Kodi.reset_people_cache()
             elif method == "Player.OnStop" and self.downloads is not None:
                 # Let a pool held back by downloadsPauseDuringPlayback pick up
                 # again now rather than at its next poll. Only a nudge — the

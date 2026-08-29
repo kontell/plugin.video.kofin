@@ -198,6 +198,28 @@ def test_a_forged_restart_is_dropped(monkeypatch, tmp_path):
     assert service._restart_requested is False
 
 
+def test_kodis_clean_library_drops_the_people_cache(monkeypatch, tmp_path):
+    """Kodi's Clean library deletes unlinked actor rows and actor_id is
+    reused, so the process-wide name → id cache would link the next cast
+    to the wrong person (audit F5). The clean's own notification resets it;
+    the next write re-primes from the table."""
+    from kofin.sync.kodidb.kodi import Kodi
+
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    Kodi._people_cache = {"Alice Actor": 41}
+    Kodi._people_cache_primed = True
+
+    service.onNotification("xbmc", "VideoLibrary.OnCleanStarted", "{}")
+    assert Kodi._people_cache_primed is True  # only the finish means rows went
+
+    service.onNotification("xbmc", "VideoLibrary.OnCleanFinished", "{}")
+    assert Kodi._people_cache == {}
+    assert Kodi._people_cache_primed is False
+
+
 def test_a_forged_library_removal_never_reaches_the_manager(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
