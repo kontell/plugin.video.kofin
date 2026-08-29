@@ -135,7 +135,7 @@ class Api:
                 response.status_code,
                 "%s -> %d with a body that is not JSON (%s)"
                 % (getattr(response, "url", "?"), response.status_code, error),
-            )
+            ) from error
 
     def get(self, path: str, params: Optional[JsonDict] = None) -> JsonDict:
         response = self._http.request(

@@ -13,7 +13,6 @@ from contextlib import contextmanager
 import pytest
 
 from kofin.core.http import HttpError
-from kofin.sync import full_sync as full_sync_mod
 from kofin.sync.full_sync import FullSync
 from kofin.sync.shims import LibraryOrphanException
 

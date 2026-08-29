@@ -1484,7 +1484,6 @@ class TestLoadWatchdogGeneration:
     def _arm(manager, item_id="item-1", playlist_item_id="pli-1"):
         """Run _start_item and hand back the watchdog it armed."""
         armed = []
-        import threading as _t
 
         class FakeTimer:
             def __init__(self, delay, func, args=()):

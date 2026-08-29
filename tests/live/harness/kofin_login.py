@@ -11,7 +11,6 @@ inside the Kodi process and never logged.
 
 import os
 import sys
-import time
 
 import xbmc
 import xbmcvfs

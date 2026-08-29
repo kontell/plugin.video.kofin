@@ -32,7 +32,7 @@ re-read on its own can land inside the same broken window. See
 """
 
 import threading
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import xbmcgui
 
@@ -371,7 +371,6 @@ class SettingsApplier:
     def _library_selection_changed(self, old: str, new: str) -> None:
         """The apply-on-save path for the library multiselect."""
         from kofin.sync import db as sync_db
-        from kofin.sync import kofindb
 
         selection = {part for part in new.split(",") if part}
 

@@ -835,7 +835,6 @@ class TestAlignAfterResume:
         """Make the resume cost `resume_ms`, during which the group moves on."""
         clock = [utils.local_ms()]
         monkeypatch.setattr(utils, "local_ms", lambda: clock[0])
-        real = controller._resume_and_verify
 
         def slow():
             clock[0] += resume_ms  # the group keeps playing meanwhile

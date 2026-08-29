@@ -32,7 +32,7 @@ from kofin.sync.writers.movies import (
     BOXSET_UNCHANGED,
     BOXSET_WRITTEN,
 )
-from tests.unit import kodifixtures, sync_dtos
+from tests.unit import kodifixtures
 from tests.unit.fakes import FakeAddon, FakeWindow
 from tests.unit.sync_dtos import (
     ALBUM,

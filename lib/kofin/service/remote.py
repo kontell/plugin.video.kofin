@@ -7,7 +7,6 @@ thread, so ordering is preserved and this thread never blocks. Unknown
 commands log and return — never raise.
 """
 
-import json
 import threading
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 

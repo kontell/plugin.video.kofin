@@ -16,7 +16,7 @@ to be attached from outside after construction and read back with getattr.
 
 import queue
 import threading
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from kofin.core import state
 from kofin.core.http import JellyfinError, ServerUnreachable
@@ -556,7 +556,9 @@ class GetItemWorker(threading.Thread):
                 return
             except queue.Full:
                 if state.should_stop():
-                    raise LibraryExitException("stopping with writer queues full")
+                    raise LibraryExitException(
+                        "stopping with writer queues full"
+                    ) from None
 
     def run(self):
         while True:

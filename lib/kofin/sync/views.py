@@ -105,7 +105,7 @@ class Views(object):
 
         except Exception as error:
             LOG.exception(error)
-            raise IndexError("Unable to retrieve libraries: %s" % error)
+            raise IndexError("Unable to retrieve libraries: %s" % error) from error
 
         return libraries, complete
 

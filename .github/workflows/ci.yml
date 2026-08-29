@@ -28,6 +28,20 @@ jobs:
       - name: black --check
         run: black --check --diff .
 
+  ruff:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: ruff check
+        run: ruff check --output-format github .
+
   mypy:
     name: mypy
     runs-on: ubuntu-latest

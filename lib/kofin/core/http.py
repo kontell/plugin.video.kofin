@@ -232,7 +232,7 @@ class StreamedResponse:
         except requests.RequestException as error:
             # A body that dies mid-read is a connection fact, whatever
             # requests dresses it as (ChunkedEncodingError and friends).
-            raise ServerUnreachable("stream interrupted: %s" % error)
+            raise ServerUnreachable("stream interrupted: %s" % error) from error
 
     def close(self) -> None:
         try:
@@ -350,7 +350,7 @@ class Http:
                 timeout=timeout or DEFAULT_TIMEOUT,
             )
         except (requests.ConnectionError, requests.Timeout) as error:
-            raise ServerUnreachable("GET %s: %s" % (url, error))
+            raise ServerUnreachable("GET %s: %s" % (url, error)) from error
         LOG.debug("http GET %s -> %d (stream)", url, response.status_code)
         if response.status_code == 416:
             response.close()

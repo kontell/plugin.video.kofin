@@ -107,7 +107,7 @@ def _seed_default_nodes(kind):
         return
 
     # Make sure the files exist in the local profile.
-    for source_path, dirs, files in os.walk(source_base_path):
+    for source_path, _dirs, files in os.walk(source_base_path):
         relative_path = os.path.relpath(source_path, source_base_path)
         dest_path = os.path.join(dest_base_path, relative_path)
 

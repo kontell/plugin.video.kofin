@@ -23,9 +23,8 @@ at service start (kodisetup), not here.
 
 from contextlib import contextmanager
 import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
-import xbmc
 
 from kofin.core import settings, state
 from kofin.core.http import HttpError

@@ -102,7 +102,7 @@ def jellyfin_item(func):
             item["Id"] if isinstance(item, dict) else item
         )
 
-        return func(self, item, e_item=e_item, *args, **kwargs)
+        return func(self, item, *args, e_item=e_item, **kwargs)
 
     return wrapper
 
@@ -132,7 +132,7 @@ def progress(message=None):
                 args = (item,) + args
 
             try:
-                return func(self, dialog=dialog, *args, **kwargs)
+                return func(self, *args, dialog=dialog, **kwargs)
             finally:
                 dialog.close()
 

@@ -388,7 +388,6 @@ def _row(state):
 
 
 def test_download_offered_only_when_the_server_allows(monkeypatch):
-    from kofin.downloads import store as downloads_store
 
     movie = {"Id": "i1", "Type": "Movie", "Name": "M", "CanDownload": True}
     offered = _download_entry_options(monkeypatch, movie)

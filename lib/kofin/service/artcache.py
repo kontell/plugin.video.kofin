@@ -36,7 +36,7 @@ import xbmcvfs
 
 from kofin.core import settings
 from kofin.core.http import Http, HttpError
-from kofin.core.imagecache import THUMBNAILS, extension_for, image_size, store_image
+from kofin.core.imagecache import THUMBNAILS, extension_for, store_image
 from kofin.core.log import Logger
 from kofin.sync import schema
 from kofin.sync.db import Database

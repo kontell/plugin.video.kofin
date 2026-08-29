@@ -9,7 +9,6 @@ from datetime import timedelta
 
 import pytest
 
-from kofin.sync import db as sync_db
 from kofin.sync.library import DOWNLOAD_BACKOFF_SECONDS
 from tests.unit.fakes import FakeAddon
 from tests.unit.synctick import FakeWorker, make_ticking_library, spawned_by

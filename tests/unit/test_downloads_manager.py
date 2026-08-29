@@ -232,7 +232,7 @@ def test_resume_appends_from_the_part_watermark(tmp_path, repoints):
     part.parent.mkdir(parents=True)
     (part.parent / (part.name + ".part")).write_bytes(b"abcd")
 
-    row = queue_row()
+    queue_row()
     store.record_target("m1", rel, "mkv")
     api = FakeManagerApi(
         MOVIE_DTO,

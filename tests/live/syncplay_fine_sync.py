@@ -203,7 +203,7 @@ class Member(object):
             with urllib.request.urlopen(req, timeout=15) as response:
                 raw = response.read().decode()
         except urllib.error.HTTPError as error:
-            raise RuntimeError(
+            raise RuntimeError(  # noqa: B904 - the HTTPError body is the message
                 "%s %s -> %s %s" % (method, path, error.code, error.read()[:200])
             )
         return json.loads(raw) if raw else None

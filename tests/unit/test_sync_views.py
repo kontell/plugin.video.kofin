@@ -2,7 +2,6 @@
 regeneration guard (plan §5 step 4)."""
 
 import os
-import pathlib
 
 import pytest
 

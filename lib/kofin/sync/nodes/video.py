@@ -16,7 +16,6 @@ Downloaded singles) are the addon itself and have nothing to substitute.
 
 import os
 import xml.etree.ElementTree as etree
-from urllib.parse import urlencode
 
 import xbmc
 import xbmcvfs

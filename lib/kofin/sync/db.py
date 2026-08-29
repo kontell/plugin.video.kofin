@@ -268,14 +268,14 @@ def get_sync() -> Dict[str, Any]:
     except FileNotFoundError:
         raw = b""
     except OSError as error:
-        raise SyncStateCorrupt("sync.json unreadable: %s" % error)
+        raise SyncStateCorrupt("sync.json unreadable: %s" % error) from error
 
     sync: Dict[str, Any] = {}
     if raw.strip():
         try:
             loaded = json.loads(raw)
         except ValueError as error:
-            raise SyncStateCorrupt("sync.json corrupt: %s" % error)
+            raise SyncStateCorrupt("sync.json corrupt: %s" % error) from error
         if not isinstance(loaded, dict):
             raise SyncStateCorrupt(
                 "sync.json corrupt: expected an object, found %s" % type(loaded)

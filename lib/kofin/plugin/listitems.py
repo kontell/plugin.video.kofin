@@ -5,7 +5,7 @@ tag-setter glue so they can be unit tested; the setters are validated by the
 Kodistubs type check and exercised live.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import xbmc
 import xbmcgui
