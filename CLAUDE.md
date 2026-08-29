@@ -178,8 +178,9 @@ What remains is kofin's own:
   **off**, where the same devices free-run within a few hundred ppm. `syncplay/tempo.py`
   issues one bounded pulse at a time, confirms it from the add-on's state file, waits a queue
   depth before measuring again, and gives up on a one-signed residual
-  (`docs/syncplay-fine-sync.md`). A transcode, an audio item, or a Kodi without the add-on
-  gets command-only sync, exactly as 0.19 did.
+  (`docs/syncplay-fine-sync.md`). An audio item, or a Kodi without the add-on, gets
+  command-only sync, exactly as 0.19 did; a transcode has gone through inputstream.tempo since
+  `165d686` (its `[ syncplay/align ] skipped: transcoding` line is the landing check, not the sync).
 - A sync thread that will not stop is a thread inside the HTTP retry ladder
   (`docs/library-thread-stop.md`); the two rules that follow are easy to undo.
 - **Never call `xbmc.Player.stop()`** — use `core/kodirpc.py::stop_player`. Kodi's binding sends

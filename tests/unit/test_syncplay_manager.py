@@ -1540,3 +1540,72 @@ class TestLoadWatchdogGeneration:
         # Nothing superseded it and the phase never left loading: this one is
         # genuinely stuck, and the watchdog is the only thing that notices.
         assert failures == ["no playback within 45s"]
+
+
+# ---------------------------------------------------------------------------
+# The three group-update tables (P2.4) hold method names, and these are the
+# arms no other test sends: the table-name check first, then each arm.
+# ---------------------------------------------------------------------------
+
+
+class TestGroupUpdateTables:
+    def test_every_table_value_is_a_method(self):
+        from kofin.syncplay.manager import SyncPlayManager
+
+        for table in (
+            SyncPlayManager._GROUP_UPDATES_ANY_STATE,
+            SyncPlayManager._GROUP_UPDATES_UNVERSIONED,
+            SyncPlayManager._GROUP_UPDATES_VERSIONED,
+        ):
+            for gtype, name in table.items():
+                assert callable(getattr(SyncPlayManager, name, None)), (gtype, name)
+
+    def test_user_joined_and_left_toast_once_each(self, manager):
+        join(manager)
+        toasts = []
+        manager._toast = lambda message, **kwargs: toasts.append(message)
+        manager._handle_group_update(
+            {"GroupId": "g1", "Type": "UserJoined", "Data": "Alice"}
+        )
+        manager._handle_group_update(
+            {"GroupId": "g1", "Type": "UserLeft", "Data": "Alice"}
+        )
+        assert len(toasts) == 2
+        assert manager.in_group()
+
+    def test_user_joined_for_another_group_is_ignored(self, manager):
+        join(manager)
+        toasts = []
+        manager._toast = lambda message, **kwargs: toasts.append(message)
+        manager._handle_group_update(
+            {"GroupId": "OTHER", "Type": "UserJoined", "Data": "Alice"}
+        )
+        assert toasts == []
+
+    def test_group_does_not_exist_rejoins_like_not_in_group(self, manager, monkeypatch):
+        join(manager)
+        attempts = []
+        monkeypatch.setattr(manager, "_attempt_rejoin", lambda: attempts.append(1))
+        manager._handle_group_update(
+            {"GroupId": "g1", "Type": "GroupDoesNotExist", "Data": "g1"}
+        )
+        assert attempts == [1]
+
+    def test_group_does_not_exist_outside_a_group_is_quiet(self, manager, monkeypatch):
+        attempts = []
+        monkeypatch.setattr(manager, "_attempt_rejoin", lambda: attempts.append(1))
+        manager._handle_group_update({"Type": "GroupDoesNotExist", "Data": "g1"})
+        assert attempts == [] and not manager.in_group()
+
+    def test_library_access_denied_toasts_an_error_in_any_state(self, manager):
+        toasts = []
+        manager._toast = lambda message, **kwargs: toasts.append(kwargs.get("error"))
+        manager._handle_group_update({"Type": "LibraryAccessDenied", "Data": "x"})
+        assert toasts == [True]
+        join(manager)
+        toasts.clear()
+        manager._handle_group_update(
+            {"GroupId": "g1", "Type": "LibraryAccessDenied", "Data": "x"}
+        )
+        assert toasts == [True]
+        assert manager.in_group()

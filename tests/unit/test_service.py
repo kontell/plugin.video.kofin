@@ -1390,6 +1390,8 @@ def test_connect_probes_on_the_probe_budget():
 
 class FakeDownloadManager:
     def __init__(self):
+        self.removed_all = 0
+        self.woken = 0
         self.started = 0
         self.stopped = 0
         self.submitted = []
@@ -1414,6 +1416,12 @@ class FakeDownloadManager:
 
     def remove(self, item_id):
         self.removed.append(item_id)
+
+    def remove_all(self):
+        self.removed_all += 1
+
+    def wake(self):
+        self.woken += 1
 
 
 def test_download_manager_builds_only_when_enabled(monkeypatch):
@@ -1902,3 +1910,94 @@ def test_join_workers_joins_what_ran_and_skips_the_empty_slots():
 
     assert done.is_set()
     assert not worker.is_alive()
+
+
+# ---------------------------------------------------------------------------
+# The two dispatch tables (P2.4). Their values are method *names* — a string
+# mypy cannot check — so the first test is the one that turns a typo in a
+# rarely-hit arm into a unit failure instead of an AttributeError the day
+# that message arrives. The rest drive every arm no other test names.
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_tables_name_defined_methods():
+    for table in (Service._KODI_HANDLERS, Service._IPC_HANDLERS):
+        for key, name in table.items():
+            assert callable(getattr(Service, name, None)), (key, name)
+    # Every guarded library command routes through the one handler.
+    from kofin.service.main import LIBRARY_COMMANDS
+
+    for command in LIBRARY_COMMANDS:
+        assert Service._IPC_HANDLERS[command] == "_ipc_library_command"
+
+
+def test_music_scan_finished_reasserts_the_sources():
+    service = Service()
+    service.onNotification(
+        "xbmc", "AudioLibrary.OnScanFinished", "{}"
+    )  # no library yet
+    library = FakeLibrary()
+    service.library = library
+    service.onNotification("xbmc", "AudioLibrary.OnScanFinished", "{}")
+    assert library.commands == ["ReassertMusicSources"]
+
+
+def test_player_stop_wakes_a_paused_download_pool():
+    service = Service()
+    service.onNotification("xbmc", "Player.OnStop", "{}")  # no manager: ignored
+    manager = FakeDownloadManager()
+    service.downloads = manager
+    service.onNotification("xbmc", "Player.OnStop", "{}")
+    assert manager.woken == 1
+
+
+def test_precache_art_ipc_runs_the_precache(monkeypatch, tmp_path):
+    import json
+
+    # PrecacheArt is not in the registry's GUARDED set — a precache is a
+    # cost, not a capability — so the bare message is enough. The membership
+    # is asserted so a future guard changes this test, not just the plugin.
+    assert ipc.PRECACHE_ART not in ipc.GUARDED
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    runs = []
+    monkeypatch.setattr(service, "_precache_art_now", lambda: runs.append(1))
+    service.onNotification(ipc.SENDER, "Other.PrecacheArt", json.dumps([{}]))
+    assert runs == [1]
+
+
+def test_attach_subtitle_ipc_reaches_the_player_with_an_int_index(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    fetched = []
+    service.player = type(
+        "P", (), {"fetch_subtitle": lambda self, i: fetched.append(i)}
+    )()
+    service.onNotification(
+        ipc.SENDER, "Other.AttachSubtitle", _signed(service, {"Index": "3"})
+    )
+    assert fetched == [3]
+    # A message without a usable index is logged and dropped, not raised.
+    service.onNotification(ipc.SENDER, "Other.AttachSubtitle", _signed(service, {}))
+    service.onNotification(
+        ipc.SENDER, "Other.AttachSubtitle", _signed(service, {"Index": "x"})
+    )
+    assert fetched == [3]
+
+
+def test_download_remove_all_ipc_routes_to_the_manager(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    FakeAddon.store["downloadsEnabled"] = "true"
+    service = Service()
+    manager = FakeDownloadManager()
+    service.downloads = manager
+    service.onNotification(ipc.SENDER, "Other.DownloadRemoveAll", _signed(service))
+    assert manager.removed_all == 1
