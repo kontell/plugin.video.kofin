@@ -29,7 +29,15 @@ import xbmcgui
 
 from kofin.core import ipc, kodirpc, settings, state, streams, toast
 from kofin.core.log import Logger
-from kofin.core.urls import plugin_url
+from kofin.core.urls import (
+    PARAM_AUDIO_INDEX,
+    PARAM_BITRATE,
+    PARAM_BURN_SUBS,
+    PARAM_MEDIA_SOURCE,
+    PARAM_SUBTITLE_INDEX,
+    PARAM_TRANSCODE,
+    plugin_url,
+)
 from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
@@ -337,12 +345,12 @@ def _restart(payload: JsonDict, playing: Playing) -> None:
     request = payload.get("Request") or {}
 
     params: Dict[str, str] = {"mode": "play", "id": item_id}
-    for key in ("transcode", "bitrate", "dbid", "mediasourceid"):
+    for key in (PARAM_TRANSCODE, PARAM_BITRATE, "dbid", PARAM_MEDIA_SOURCE):
         value = request.get(key)
         if value:
             params[key] = str(value)
-    if not params.get("mediasourceid") and payload.get("MediaSourceId"):
-        params["mediasourceid"] = str(payload["MediaSourceId"])
+    if not params.get(PARAM_MEDIA_SOURCE) and payload.get("MediaSourceId"):
+        params[PARAM_MEDIA_SOURCE] = str(payload["MediaSourceId"])
     if not params.get("dbid"):
         # Play Next builds its own URL and carries no dbid, so a restart of an
         # autoplayed episode would drop the library link. Kodi's own playing
@@ -351,14 +359,14 @@ def _restart(payload: JsonDict, playing: Playing) -> None:
         if dbid:
             params["dbid"] = dbid
     if playing.audio is not None:
-        params["audioindex"] = str(playing.audio)
+        params[PARAM_AUDIO_INDEX] = str(playing.audio)
     # -1 is how Jellyfin is told "no subtitle", as distinct from omitting the
     # parameter and letting the user's profile choose one (plugin.play).
-    params["subtitleindex"] = str(
+    params[PARAM_SUBTITLE_INDEX] = str(
         playing.subtitle if playing.subtitle is not None else -1
     )
     if playing.burned:
-        params["burnsubs"] = "1"
+        params[PARAM_BURN_SUBS] = "1"
     if position > 0:
         params["startticks"] = str(int(position * 10_000_000))
     else:

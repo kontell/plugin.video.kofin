@@ -11,7 +11,7 @@ from kofin.core.api import Api
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
-from kofin.core.urls import plugin_url
+from kofin.core.urls import PARAM_BITRATE, PARAM_TRANSCODE, plugin_url
 from kofin.plugin.listitems import PLAYABLE_TYPES
 
 LOG = Logger(__name__)
@@ -190,8 +190,8 @@ def play_with_transcode() -> None:
     params: Dict[str, str] = {
         "mode": "play",
         "id": item_id,
-        "transcode": "1",
-        "bitrate": bitrate,
+        PARAM_TRANSCODE: "1",
+        PARAM_BITRATE: bitrate,
     }
     if dbid:
         params["dbid"] = dbid

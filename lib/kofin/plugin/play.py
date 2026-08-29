@@ -19,6 +19,15 @@ from kofin.core.api import Api
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
+from kofin.core.urls import (
+    PARAM_AUDIO_INDEX,
+    PARAM_BITRATE,
+    PARAM_BURN_SUBS,
+    PARAM_MEDIA_SOURCE,
+    PARAM_SUBTITLE_INDEX,
+    PARAM_TRANSCODE,
+    STREAM_REQUEST_PARAMS,
+)
 from kofin.plugin import listitems, subtitles
 from kofin.plugin.router import Request
 
@@ -295,8 +304,13 @@ def play_state(
     deferred: Optional[List[streams.Attachment]] = None,
     fetchable: Optional[List[streams.Attachment]] = None,
     request_params: Optional[Dict[str, str]] = None,
+    streams_menu: bool = True,
 ) -> JsonDict:
-    return {
+    """The play state the service claims: what the resolved playback is,
+    how it is served, and (unless ``streams_menu`` is off — a downloaded
+    play, whose one file has only the tracks it was made with) everything
+    the stream menu needs, resolved while the PlaybackInfo is fresh."""
+    play_item = {
         "Id": item.get("Id", ""),
         "Type": item.get("Type", ""),
         # Carried so the service can name the item in a dialog after playback
@@ -317,12 +331,15 @@ def play_state(
         "AudioStreamIndex": source.get("DefaultAudioStreamIndex"),
         "SubtitleStreamIndex": source.get("DefaultSubtitleStreamIndex"),
         "CurrentPosition": start_seconds,
+    }
+    if streams_menu:
         # Everything the stream menu needs, resolved here because the
         # PlaybackInfo that answers it has just been made — the menu costs no
-        # round trip and is complete before the first frame. The service moves
-        # this to a window property when it claims the playback, since by then
-        # the queue entry is gone and the context item runs in a third process.
-        "Streams": {
+        # round trip and is complete before the first frame. The service
+        # moves this to a window property when it claims the playback, since
+        # by then the queue entry is gone and the context item runs in a
+        # third process.
+        play_item["Streams"] = {
             "MediaStreams": streams.summarize(source),
             # The setSubtitles order, which is what makes a Jellyfin index
             # translatable to a Kodi subtitle number at all.
@@ -341,8 +358,8 @@ def play_state(
             # transcode's bitrate lives nowhere else — the settings would
             # resolve it back to direct play.
             "Request": dict(request_params or {}),
-        },
-    }
+        }
+    return play_item
 
 
 def prefetch_segments(api: Api, item: JsonDict) -> Optional[List[JsonDict]]:
@@ -425,25 +442,28 @@ def downloaded_file(item_id: str) -> Optional[str]:
     return path if os.path.exists(path) else None
 
 
-# Params that name a stream or a quality. A download is one file with the
-# tracks it was made with, so a request that asks for a particular media
-# source, audio or subtitle track, or a transcode at a stated bitrate is
-# asking for something only the server can answer — it streams even when a
-# download exists. This is also what keeps the stream menu's restart
-# (plugin/streams.py) resolving back to the server it was picked from.
-STREAM_REQUEST_PARAMS = (
-    "transcode",
-    "bitrate",
-    "mediasourceid",
-    "audioindex",
-    "subtitleindex",
-    "burnsubs",
-)
-
-
 def stream_requested(request: Request) -> bool:
-    """Whether this request names a stream or quality the server must serve."""
+    """Whether this request names a stream or quality the server must serve.
+
+    A download is one file with the tracks it was made with, so a request
+    that asks for a particular media source, audio or subtitle track, or a
+    transcode at a stated bitrate is asking for something only the server
+    can answer — it streams even when a download exists. This is also what
+    keeps the stream menu's restart (plugin/streams.py) resolving back to
+    the server it was picked from. The names live in core/urls.py beside
+    the builder (P2.2).
+    """
     return any(request.params.get(name) for name in STREAM_REQUEST_PARAMS)
+
+
+def _resolve_to(request: Request, listitem: xbmcgui.ListItem, path: str) -> None:
+    """Hand the resolved item back — to the directory handle that asked, or,
+    when there is none (a RunPlugin play, a SyncPlay group start), to the
+    player directly. The one tail every resolve ends in (P2.2)."""
+    if request.handle >= 0:
+        xbmcplugin.setResolvedUrl(request.handle, True, listitem)
+    else:
+        xbmc.Player().play(path, listitem)
 
 
 def offline_answer(request: Request, item_id: str) -> bool:
@@ -473,16 +493,11 @@ def offline_answer(request: Request, item_id: str) -> bool:
         dbid = request.params.get("dbid", "")
         if dbid.isdigit():
             listitem.getVideoInfoTag().setDbId(int(dbid))
-        if request.handle >= 0:
-            xbmcplugin.setResolvedUrl(request.handle, True, listitem)
-        else:
-            xbmc.Player().play(path, listitem)
+        _resolve_to(request, listitem, path)
         return True
 
     LOG.info("offline: %s is not downloaded", item_id)
-    if request.handle >= 0:
-        xbmcplugin.setResolvedUrl(request.handle, False, xbmcgui.ListItem())
-    toast.show(settings.localized(30720), toast.ERROR, time_ms=4000)
+    _fail(request, 30720)
     return True
 
 
@@ -547,35 +562,30 @@ def resolve_downloaded(
 
     LOG.info("play %s via Download%s", item.get("Id", ""), " (tempo)" if route else "")
     sources = item.get("MediaSources") or [{}]
-    play_item = {
-        "Id": item.get("Id", ""),
-        "Type": item.get("Type", ""),
-        "Name": item.get("Name", ""),
-        "CanDelete": bool(item.get("CanDelete")),
-        "SeriesId": item.get("SeriesId", ""),
-        "Path": path,
-        # The file is on disk and Kodi opens it directly, which is what
-        # DirectPlay means — the same method ``_offline_claim`` reports for
-        # the same file.
-        "PlayMethod": "DirectPlay",
-        "PlaySessionId": uuid4().hex,
-        "MediaSourceId": sources[0].get("Id") or item.get("Id", ""),
-        "DeviceId": device_id,
-        "Runtime": int(item.get("RunTimeTicks") or 0),
-        "AudioStreamIndex": None,
-        "SubtitleStreamIndex": None,
-        "CurrentPosition": start_ticks / 10_000_000,
-    }
+    # The same claim shape the streamed play pushes, with the downloaded
+    # play's deviations stated rather than restated key by key (P2.2): the
+    # file is on disk and Kodi opens it directly, which is what DirectPlay
+    # means — the same method ``_offline_claim`` reports for the same file;
+    # the "source" is the id alone, so the runtime is the item's and no
+    # server-side default track index rides along (a download has the
+    # tracks it was made with); and no stream menu travels with it.
+    play_item = play_state(
+        item,
+        {"Id": sources[0].get("Id") or item.get("Id", "")},
+        path,
+        "DirectPlay",
+        uuid4().hex,
+        device_id,
+        start_ticks / 10_000_000,
+        streams_menu=False,
+    )
     if route:
         play_item["Tempo"] = route
     if segments is not None:
         play_item["Segments"] = segments
     state.push_play_item(play_item)
 
-    if request.handle >= 0:
-        xbmcplugin.setResolvedUrl(request.handle, True, li)
-    else:
-        xbmc.Player().play(path, li)
+    _resolve_to(request, li, path)
 
 
 def play(request: Request) -> None:
@@ -590,9 +600,9 @@ def play(request: Request) -> None:
     if offline_answer(request, item_id):
         return
 
-    transcode = request.params.get("transcode") == "1"
+    transcode = request.params.get(PARAM_TRANSCODE) == "1"
     try:
-        bitrate_mbps = float(request.params.get("bitrate", "0"))
+        bitrate_mbps = float(request.params.get(PARAM_BITRATE, "0"))
     except ValueError:
         bitrate_mbps = 0.0
 
@@ -652,16 +662,16 @@ def play(request: Request) -> None:
             config,
             bitrate_override_mbps=bitrate_mbps,
             force_transcode=transcode,
-            burn_subtitles=request.params.get("burnsubs") == "1",
+            burn_subtitles=request.params.get(PARAM_BURN_SUBS) == "1",
         )
         # The stream indices only bind when MediaSourceId travels with them:
         # measured, a PlaybackInfo carrying AudioStreamIndex=3 and no source id
         # came back with the server's own default and no complaint. The first
         # call cannot name a source it has not seen yet, so a request that
         # selects streams states which source it is selecting them on.
-        wanted_source = request.params.get("mediasourceid") or ""
-        audio_index = _stream_index(request.params.get("audioindex"))
-        subtitle_index = _stream_index(request.params.get("subtitleindex"))
+        wanted_source = request.params.get(PARAM_MEDIA_SOURCE) or ""
+        audio_index = _stream_index(request.params.get(PARAM_AUDIO_INDEX))
+        subtitle_index = _stream_index(request.params.get(PARAM_SUBTITLE_INDEX))
         info = api.playback_info(
             item_id,
             profile,
@@ -771,13 +781,12 @@ def play(request: Request) -> None:
         play_item["Segments"] = segments
     state.push_play_item(play_item)
 
-    if request.handle >= 0:
-        xbmcplugin.setResolvedUrl(request.handle, True, li)
-    else:
-        xbmc.Player().play(url, li)
+    _resolve_to(request, li, url)
 
 
-def _fail(request: Request) -> None:
+def _fail(request: Request, message_id: int = 30018) -> None:
+    """A failed resolve: the handle answered with nothing, and a toast that
+    says why — the server, or (30720) an offline play with no download."""
     if request.handle >= 0:
         xbmcplugin.setResolvedUrl(request.handle, False, xbmcgui.ListItem())
-    toast.show(settings.localized(30018), toast.ERROR, time_ms=4000)
+    toast.show(settings.localized(message_id), toast.ERROR, time_ms=4000)
