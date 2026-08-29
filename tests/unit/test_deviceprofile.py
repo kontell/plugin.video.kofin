@@ -379,3 +379,107 @@ def test_for_downloads_reads_the_downloads_settings(monkeypatch):
     assert config.video_codecs == ["h264", "hevc"]
     assert not config.force_direct_play
     assert not config.force_transcode
+
+
+# --- the P1.8 identity golden -------------------------------------------------
+#
+# build()/build_download() canonical-JSON digests captured on the *before*
+# build (5b3b3dc, pre-_envelope) over a matrix covering every leg. The
+# refactor must not move a byte; a digest that changes is a finding, not a
+# rename.
+
+GOLDEN_CONFIGS = {
+    "defaults": {},
+    "capped": {"max_bitrate_mbps": 8, "max_width": 1920, "music_max_bitrate_kbps": 192},
+    "force_direct": {"force_direct_play": True},
+    "force_remux": {"force_remux": True},
+    "force_transcode_cfg": {"force_transcode": True},
+    "av1_preferred": {"preferred_video": "av1"},
+    "no_av1": {"video_codecs": ["h264", "hevc"], "hdr_types": ["HDR10"]},
+    "hevc_only_rext": {"video_codecs": ["hevc_rext", "vp9"]},
+    "audio_narrow": {
+        "audio_codecs": ["aac", "mp3"],
+        "preferred_audio": "mp3",
+        "max_channels": 2,
+        "audio_bitrate_kbps": 256,
+    },
+    "music": {
+        "music_codec": "mp3",
+        "music_bitrate_kbps": 320,
+        "music_max_bitrate_kbps": 320,
+    },
+}
+GOLDEN_CALLS = {
+    "plain": {},
+    "override": {"bitrate_override_mbps": 0.75},
+    "forced": {"force_transcode": True},
+    "burn": {"burn_subtitles": True},
+}
+GOLDEN = {
+    ("defaults", "plain"): "c68216246e4c2b00",
+    ("defaults", "override"): "25d7b4b1738c42ed",
+    ("defaults", "forced"): "37368a081f4a8076",
+    ("defaults", "burn"): "4fd9d7ef77cbbe80",
+    ("defaults", "download"): "af8f53d825e2ef92",
+    ("capped", "plain"): "5ea0b39a9856a1b2",
+    ("capped", "override"): "78fb533eb65c6de7",
+    ("capped", "forced"): "2f07a299b3b4a40e",
+    ("capped", "burn"): "c6fc0468a6991820",
+    ("capped", "download"): "084a14bde7d73f7b",
+    ("force_direct", "plain"): "c6103b90d63a489d",
+    ("force_direct", "override"): "c6103b90d63a489d",
+    ("force_direct", "forced"): "37368a081f4a8076",
+    ("force_direct", "burn"): "328a810c03abedd7",
+    ("force_direct", "download"): "af8f53d825e2ef92",
+    ("force_remux", "plain"): "5eeef495c22c6d43",
+    ("force_remux", "override"): "fa5b5024e407dc55",
+    ("force_remux", "forced"): "37368a081f4a8076",
+    ("force_remux", "burn"): "3b0120cee7bb47a3",
+    ("force_remux", "download"): "af8f53d825e2ef92",
+    ("force_transcode_cfg", "plain"): "5eeef495c22c6d43",
+    ("force_transcode_cfg", "override"): "fa5b5024e407dc55",
+    ("force_transcode_cfg", "forced"): "37368a081f4a8076",
+    ("force_transcode_cfg", "burn"): "3b0120cee7bb47a3",
+    ("force_transcode_cfg", "download"): "af8f53d825e2ef92",
+    ("av1_preferred", "plain"): "eff9b6f63d1a8c0c",
+    ("av1_preferred", "override"): "4f71d7470dac2d85",
+    ("av1_preferred", "forced"): "83484c59c3aacd99",
+    ("av1_preferred", "burn"): "64d4c26ff9bf45b5",
+    ("av1_preferred", "download"): "5d5628f7d14110e1",
+    ("no_av1", "plain"): "2bd2562cd93edd7f",
+    ("no_av1", "override"): "7a13b4b7c9199087",
+    ("no_av1", "forced"): "3c7983fb854b73ee",
+    ("no_av1", "burn"): "6df8c9584ec5ea25",
+    ("no_av1", "download"): "cb581e8be95aa21b",
+    ("hevc_only_rext", "plain"): "34fb9703d90322b6",
+    ("hevc_only_rext", "override"): "1659626f78a6b602",
+    ("hevc_only_rext", "forced"): "75b8ba6c604b934a",
+    ("hevc_only_rext", "burn"): "8e79239a9db8e482",
+    ("hevc_only_rext", "download"): "01a96df055606043",
+    ("audio_narrow", "plain"): "c41aa8ce1075d873",
+    ("audio_narrow", "override"): "9ddcd8cb954ad11a",
+    ("audio_narrow", "forced"): "33dd0113d264844c",
+    ("audio_narrow", "burn"): "1ece55cf97aa243c",
+    ("audio_narrow", "download"): "f3d092ee67b6f01a",
+    ("music", "plain"): "716ca5c82c2175b9",
+    ("music", "override"): "ca08694a64c08f39",
+    ("music", "forced"): "e9b1ff2ee8fc46bf",
+    ("music", "burn"): "f6892d429c665adc",
+    ("music", "download"): "e2d895cada328016",
+}
+
+
+def test_the_profile_json_matches_the_pre_envelope_golden():
+    import hashlib
+    import json
+
+    for (config_name, call_name), digest in GOLDEN.items():
+        config = ProfileConfig(**GOLDEN_CONFIGS[config_name])
+        if call_name == "download":
+            document = deviceprofile.build_download(config)
+        else:
+            document = build(config, **GOLDEN_CALLS[call_name])
+        actual = hashlib.sha256(
+            json.dumps(document, sort_keys=True).encode()
+        ).hexdigest()[:16]
+        assert actual == digest, (config_name, call_name, actual)

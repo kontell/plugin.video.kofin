@@ -4,6 +4,7 @@ Ported from the fork; the JSON-RPC seam is kofin's module-level ``_rpc``
 and settings come from the FakeAddon store. New kofin coverage at the end:
 the play-path re-target (plugin URLs, never resolved paths — plan §2)."""
 
+import threading
 from contextlib import contextmanager
 
 import pytest
@@ -229,6 +230,42 @@ class TestScheduling:
         assert controller._timer is not first_timer
         controller.cancel_pending()
 
+    def test_the_same_command_is_carried_out_once(self):
+        """The server re-issues the transport command when the last member
+        reports ready, so the member that reloaded to serve a seek is handed
+        that seek again as it comes back."""
+        controller, manager, player = make_controller(position=10.0)
+        seek = command("Seek", -10, ticks=utils.seconds_to_ticks(200))
+
+        controller.schedule(seek)
+        after_first = list(player.actions)
+        assert after_first, "the first delivery must be carried out"
+
+        controller.schedule(dict(seek))
+
+        assert player.actions == after_first
+
+    def test_a_second_command_of_the_same_kind_is_not_a_repeat(self):
+        controller, manager, player = make_controller(position=10.0)
+
+        controller.schedule(command("Seek", -10, ticks=utils.seconds_to_ticks(200)))
+        after_first = len(player.actions)
+        controller.schedule(command("Seek", -10, ticks=utils.seconds_to_ticks(400)))
+
+        assert len(player.actions) > after_first
+
+    def test_a_repeat_is_allowed_again_once_the_group_playback_ends(self):
+        controller, manager, player = make_controller(position=10.0)
+        seek = command("Seek", -10, ticks=utils.seconds_to_ticks(200))
+
+        controller.schedule(seek)
+        after_first = len(player.actions)
+
+        controller.last_command = None  # what stop_loop and _detach_playback do
+        controller.schedule(dict(seek))
+
+        assert len(player.actions) > after_first
+
 
 class TestUnpause:
     def test_on_time_unpause_resumes(self):
@@ -314,6 +351,27 @@ class TestPause:
         assert player.paused
         seeks = [a for a in player.actions if isinstance(a, tuple) and a[0] == "seek"]
         assert seeks and abs(seeks[0][1] - 10.0) < 0.01
+
+    def test_pause_waits_for_the_player_lock(self):
+        # Y1: schedule() arms the fire-time timer and then pre-aligns on the
+        # dispatcher holding _player_lock, so a timer-thread Pause landing
+        # mid-align must queue behind it, not interleave with its seek.
+        controller, manager, player = make_controller(paused=False, position=12.0)
+        done = threading.Event()
+
+        def pause():
+            controller._do_pause(utils.seconds_to_ticks(10))
+            done.set()
+
+        with controller._player_lock:  # the pre-align holds it
+            worker = threading.Thread(target=pause)
+            worker.start()
+            assert not done.wait(0.15)  # the Pause is waiting, not pausing
+            assert "pause" not in player.actions
+
+        assert done.wait(2.0)  # released: the Pause goes through
+        worker.join(2.0)
+        assert player.paused
 
     def test_pause_within_tolerance_no_seek(self):
         controller, manager, player = make_controller(paused=False, position=10.1)
@@ -777,7 +835,6 @@ class TestAlignAfterResume:
         """Make the resume cost `resume_ms`, during which the group moves on."""
         clock = [utils.local_ms()]
         monkeypatch.setattr(utils, "local_ms", lambda: clock[0])
-        real = controller._resume_and_verify
 
         def slow():
             clock[0] += resume_ms  # the group keeps playing meanwhile

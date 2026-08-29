@@ -214,3 +214,13 @@ def free_space_ok(root: str, expected_bytes: int) -> bool:
     if free < 0:
         return True
     return free >= int(expected_bytes) + FREE_SPACE_RESERVE
+
+
+def absolute_path(root: str, rel_path: str) -> str:
+    """The one spelling of a download's on-disk location (P1.10)."""
+    return os.path.join(root, rel_path)
+
+
+def part_path(root: str, rel_path: str) -> str:
+    """The in-flight sibling ``absolute_path`` lands as."""
+    return absolute_path(root, rel_path) + ".part"

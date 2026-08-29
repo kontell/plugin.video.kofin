@@ -35,8 +35,9 @@ ROOT = "/dl"
         kodifixtures.VIDEO_VERSION,
         kodifixtures.PIERS_VIDEO_VERSION,
         kodifixtures.PIERS_VIDEO_VERSION_147,
+        kodifixtures.PIERS_VIDEO_VERSION_148,
     ],
-    ids=["omega", "piers", "piers147"],
+    ids=["omega", "piers", "piers147", "piers148"],
 )
 def sync_env(request, monkeypatch, tmp_path):
     FakeAddon.store = {

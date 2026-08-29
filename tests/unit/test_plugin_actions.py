@@ -7,24 +7,7 @@ from kofin.core import ipc
 from kofin.core.http import JellyfinError
 from kofin.plugin import actions
 from kofin.plugin.router import Request
-
-
-class FakeDialog:
-    """Records every dialog raised, and answers from a canned script."""
-
-    def __init__(self, multiselect=None, yesno=True):
-        self.multiselect_result = multiselect
-        self.yesno_result = yesno
-        self.multiselects = []
-        self.yesnos = []
-
-    def multiselect(self, heading, choices, **kwargs):
-        self.multiselects.append((heading, list(choices)))
-        return self.multiselect_result
-
-    def yesno(self, heading, message, **kwargs):
-        self.yesnos.append((heading, message))
-        return self.yesno_result
+from tests.unit.fakes import FakeApi, FakeDialog
 
 
 @pytest.fixture
@@ -98,18 +81,10 @@ def test_repair_without_a_whitelist_does_nothing(wired, monkeypatch):
 # --- delete from server ------------------------------------------------------
 
 
-class DeletingApi:
-    def __init__(self):
-        self.deleted = []
-
-    def delete_item(self, item_id):
-        self.deleted.append(item_id)
-
-
 @pytest.fixture
 def delete_wired(wired, monkeypatch):
     dialog, _ = wired
-    api = DeletingApi()
+    api = FakeApi(delete_item=None)
     toggles = {"enableDelete": True, "deleteNoConfirm": False}
     monkeypatch.setattr(actions, "_api", lambda: api)
     monkeypatch.setattr(
@@ -131,7 +106,7 @@ def test_delete_confirms_first(delete_wired):
     actions.delete_item(_delete_request())
 
     assert len(dialog.yesnos) == 1
-    assert api.deleted == ["i1"]
+    assert api.args("delete_item") == [("i1",)]
 
 
 def test_delete_declined_keeps_the_item(delete_wired):
@@ -140,7 +115,7 @@ def test_delete_declined_keeps_the_item(delete_wired):
 
     actions.delete_item(_delete_request())
 
-    assert api.deleted == []
+    assert api.args("delete_item") == []
 
 
 def test_delete_without_confirmation_skips_the_prompt(delete_wired):
@@ -152,7 +127,7 @@ def test_delete_without_confirmation_skips_the_prompt(delete_wired):
     actions.delete_item(_delete_request())
 
     assert dialog.yesnos == []
-    assert api.deleted == ["i1"]
+    assert api.args("delete_item") == [("i1",)]
 
 
 def test_delete_stays_off_without_the_opt_in(delete_wired):
@@ -163,7 +138,7 @@ def test_delete_stays_off_without_the_opt_in(delete_wired):
     actions.delete_item(_delete_request())
 
     assert dialog.yesnos == []
-    assert api.deleted == []
+    assert api.args("delete_item") == []
 
 
 def test_a_failed_delete_reads_as_an_error_and_stays_quiet(delete_wired, monkeypatch):
@@ -669,20 +644,9 @@ def test_delete_all_downloads_says_so_when_there_are_none(download_wired):
 # --- the resume reset (docs/dynamic-libraries-plan.md W2) ----------------------
 
 
-class _ResumeApi:
-    def __init__(self, fail=False):
-        self.fail = fail
-        self.calls = []
-
-    def set_resume_position(self, item_id, position_ticks):
-        if self.fail:
-            raise JellyfinError("down")
-        self.calls.append((item_id, position_ticks))
-
-
 @pytest.fixture
 def reset_wired(monkeypatch):
-    api = _ResumeApi()
+    api = FakeApi(set_resume_position=None)
     cleared = []
     builtins = []
     toasts = []
@@ -710,7 +674,7 @@ def test_reset_resume_zeroes_the_server_then_kodis_copy(reset_wired):
         Request("plugin://x", -1, {"mode": "resetresume", "id": "jf1"})
     )
 
-    assert api.calls == [("jf1", 0)]
+    assert api.args("set_resume_position") == [("jf1", 0)]
     assert cleared == ["plugin://plugin.video.kofin/?mode=play&id=jf1"]
     assert builtins == ["Container.Refresh"]
     assert toasts == []
@@ -720,7 +684,7 @@ def test_reset_resume_leaves_kodi_alone_when_the_server_refuses(reset_wired):
     """Nothing local moves on a failed server call: the listing would otherwise
     say "reset" over a position the server still holds."""
     api, cleared, builtins, toasts = reset_wired
-    api.fail = True
+    api.set_response("set_resume_position", JellyfinError("down"))
 
     actions.reset_resume(
         Request("plugin://x", -1, {"mode": "resetresume", "id": "jf1"})
@@ -737,3 +701,91 @@ def test_reset_resume_without_an_id_does_nothing(reset_wired):
     actions.reset_resume(Request("plugin://x", -1, {"mode": "resetresume"}))
 
     assert (api.calls, cleared, builtins) == ([], [], [])
+
+
+# --- _show_names: the picker's titles without a MyVideos open ----------------
+
+
+def test_show_names_come_from_the_id_map_and_kodi_over_jsonrpc(monkeypatch, tmp_path):
+    """The plugin process opens kofin.db for the id map and asks Kodi for the
+    title; it never opens MyVideos itself (assessment P3). Unmapped shows and
+    unanswered calls fall back to the id so the picker still lists them."""
+    import json
+
+    from kofin.sync import db as sync_db
+
+    sync_db.reset_overrides()
+    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    try:
+        with sync_db.Database("kofin") as opened:
+            opened.cursor.execute(
+                "INSERT INTO jellyfin(jellyfin_id, media_type, kodi_id) VALUES (?, ?, ?)",
+                ("ser1", "tvshow", 7),
+            )
+            opened.cursor.execute(
+                "INSERT INTO jellyfin(jellyfin_id, media_type, kodi_id) VALUES (?, ?, ?)",
+                ("ser3", "tvshow", 9),
+            )
+        asked = []
+
+        def rpc(query):
+            request = json.loads(query)
+            asked.append((request["method"], request["params"]["tvshowid"]))
+            if request["params"]["tvshowid"] == 7:
+                return json.dumps({"result": {"tvshowdetails": {"title": "The Show"}}})
+            return json.dumps({"error": {"code": -32602, "message": "gone"}})
+
+        monkeypatch.setattr("xbmc.executeJSONRPC", rpc)
+
+        assert actions._show_names(["ser1", "ser2", "ser3"]) == [
+            "The Show",
+            "ser2",
+            "ser3",
+        ]
+        assert asked == [
+            ("VideoLibrary.GetTVShowDetails", 7),
+            ("VideoLibrary.GetTVShowDetails", 9),
+        ]
+    finally:
+        sync_db.reset_overrides()
+
+
+# --- update libraries (P1.11: previously uncalled) ----------------------------
+
+
+def _update_wired(monkeypatch, picked):
+    sent = []
+    dialog = FakeDialog(multiselect=picked)
+    monkeypatch.setattr(actions.settings, "get_list", lambda key: ["lib1", "lib2"])
+    monkeypatch.setattr(actions.settings, "localized", lambda i: "L%d" % i)
+    monkeypatch.setattr(actions, "_selection_names", lambda ids: ["One", "Two"])
+    monkeypatch.setattr(actions.xbmcgui, "Dialog", lambda: dialog)
+    monkeypatch.setattr(actions.ipc, "notify", lambda m, d=None: sent.append((m, d)))
+    return sent, dialog
+
+
+def test_update_libraries_all_sends_the_empty_payload(monkeypatch):
+    """Empty payload = the full-whitelist pass, which keeps the service's
+    retention-repair release path intact."""
+    sent, dialog = _update_wired(monkeypatch, [0])
+
+    actions.update_libraries(actions.Request("plugin://x", -1, {}))
+
+    assert sent == [(actions.ipc.UPDATE_LIBRARY, {})]
+    assert dialog.multiselects[0][1] == ["L30267", "One", "Two"]
+
+
+def test_update_libraries_names_the_picked_libraries(monkeypatch):
+    sent, _dialog = _update_wired(monkeypatch, [1, 2])
+
+    actions.update_libraries(actions.Request("plugin://x", -1, {}))
+
+    assert sent == [(actions.ipc.UPDATE_LIBRARY, {"Id": "lib1,lib2"})]
+
+
+def test_update_libraries_cancelled_sends_nothing(monkeypatch):
+    sent, _dialog = _update_wired(monkeypatch, None)
+
+    actions.update_libraries(actions.Request("plugin://x", -1, {}))
+
+    assert sent == []

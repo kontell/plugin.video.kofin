@@ -8,7 +8,7 @@ import pytest
 from kofin.core.http import HttpError, ServerUnreachable
 from kofin.plugin import userprefs
 from kofin.plugin.router import Request
-from tests.unit.fakes import FakeAddon
+from tests.unit.fakes import FakeAddon, FakeDialog
 
 # resources/settings.xml's label for honourJellyfinDefaultTracks, which the
 # caveat row has to quote verbatim.
@@ -222,22 +222,6 @@ def test_subtitle_mode_offers_the_servers_own_enum():
 # --- the dialog --------------------------------------------------------------
 
 
-class FakeDialog:
-    """Answers each select() from a script, recording what it was shown."""
-
-    def __init__(self, answers=()):
-        self.answers = list(answers)
-        self.selects = []
-        self.notifications = []
-
-    def select(self, heading, choices, **kwargs):
-        self.selects.append((heading, list(choices), kwargs.get("preselect")))
-        return self.answers.pop(0) if self.answers else -1
-
-    def notification(self, heading, message, *args, **kwargs):
-        self.notifications.append(message)
-
-
 class FakeApi:
     """Stands in for Api; ``fail`` refuses the write the way a 403 does."""
 
@@ -326,7 +310,7 @@ def test_ask_flips_a_boolean_without_a_second_dialog(dialog):
 
 
 def test_ask_opens_an_enum_on_its_current_value(dialog):
-    dialog.answers = [2]  # OnlyForced
+    dialog.select_answers = [2]  # OnlyForced
 
     chosen = userprefs._ask(_field("SubtitleMode"), CONFIG, CULTURES)
 
@@ -338,7 +322,7 @@ def test_ask_opens_an_enum_on_its_current_value(dialog):
 
 
 def test_ask_preselects_any_for_a_language_that_was_never_set(dialog):
-    dialog.answers = [1]  # English
+    dialog.select_answers = [1]  # English
     config = dict(CONFIG)
     del config["AudioLanguagePreference"]
 
@@ -349,7 +333,7 @@ def test_ask_preselects_any_for_a_language_that_was_never_set(dialog):
 
 
 def test_ask_returns_none_when_the_sub_dialog_is_backed_out_of(dialog):
-    dialog.answers = [-1]
+    dialog.select_answers = [-1]
 
     assert userprefs._ask(_field("SubtitleMode"), CONFIG, CULTURES) is None
 
@@ -358,7 +342,7 @@ def test_the_menu_saves_each_change_and_redraws_with_it(dialog, monkeypatch):
     api = _serving(monkeypatch, FakeApi())
     FakeAddon.store["honourJellyfinDefaultTracks"] = "true"
     # Row 3 (Subtitle mode) -> option 3 (None); then row 1, a bool, toggles.
-    dialog.answers = [3, 3, 1, -1]
+    dialog.select_answers = [3, 3, 1, -1]
 
     userprefs.jellyfin_settings(_request())
 
@@ -373,7 +357,7 @@ def test_the_menu_saves_each_change_and_redraws_with_it(dialog, monkeypatch):
 def test_the_menu_returns_the_cursor_to_the_row_just_edited(dialog, monkeypatch):
     _serving(monkeypatch, FakeApi())
     FakeAddon.store["honourJellyfinDefaultTracks"] = "true"
-    dialog.answers = [3, 1, -1]
+    dialog.select_answers = [3, 1, -1]
 
     userprefs.jellyfin_settings(_request())
 
@@ -386,7 +370,7 @@ def test_the_menu_returns_the_cursor_to_the_row_just_edited(dialog, monkeypatch)
 def test_the_menu_writes_nothing_when_the_value_did_not_change(dialog, monkeypatch):
     """Re-picking what is already set is not worth a round trip."""
     api = _serving(monkeypatch, FakeApi())
-    dialog.answers = [3, 4, -1]  # Subtitle mode -> Smart, which it already is
+    dialog.select_answers = [3, 4, -1]  # Subtitle mode -> Smart, which it already is
 
     userprefs.jellyfin_settings(_request())
 
@@ -397,7 +381,7 @@ def test_the_caveat_row_is_a_caption_not_a_choice(dialog, monkeypatch):
     """Selecting it must redraw, never index past the field table."""
     api = _serving(monkeypatch, FakeApi())
     FakeAddon.store["honourJellyfinDefaultTracks"] = "false"
-    dialog.answers = [len(userprefs.FIELDS), -1]
+    dialog.select_answers = [len(userprefs.FIELDS), -1]
 
     userprefs.jellyfin_settings(_request())
 

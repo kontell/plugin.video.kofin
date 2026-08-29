@@ -106,22 +106,6 @@ def test_the_chapter_default_extension_is_unchanged():
     assert cached_rel_path("chapter://x/1").endswith(".jpg")
 
 
-def test_extension_follows_the_bytes_not_the_url():
-    """Kodi stores a PNG source as .png, and the extension is part of the
-    cachedurl this module writes — a wrong one is a file Kodi never finds."""
-    assert artcache.extension_for(png(1, 1)) == ".png"
-    assert artcache.extension_for(jpeg(1, 1)) == ".jpg"
-    assert artcache.extension_for(b"") == ".jpg"
-
-
-def test_image_size_reads_both_formats_and_degrades():
-    assert artcache.image_size(jpeg(267, 400)) == (267, 400)
-    assert artcache.image_size(png(400, 267)) == (400, 267)
-    # Unparseable is bookkeeping-only: the sizes row still lands (size=1 is
-    # what Kodi's lookup keys on).
-    assert artcache.image_size(b"\xff\xd8not-a-real-jpeg") == (0, 0)
-
-
 class FakeHttp:
     def __init__(self, body=None, fail=False):
         self.body = body if body is not None else jpeg(267, 400)

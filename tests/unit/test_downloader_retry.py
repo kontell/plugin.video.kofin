@@ -7,7 +7,6 @@ chunk on the floor."""
 import queue
 import threading
 
-import pytest
 
 from kofin.core.http import HttpError
 from kofin.sync.workers import CHUNK_ATTEMPTS, Chunk, GetItemWorker

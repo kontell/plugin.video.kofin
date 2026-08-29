@@ -2095,3 +2095,11 @@ msgstr "Mostrar el reparto en las listas del complemento"
 msgctxt "#30820"
 msgid "Fetch cast and crew for the shorter add-on listings — Recently added, In progress, Next up, Continue watching, search results and a show's episodes — so the information dialog can show them. Whole-library listings never fetch it, because the server needs about a second for every 40 items. The Kodi library always has cast."
 msgstr "Obtiene el reparto y el equipo de las listas cortas del complemento — Añadidos recientemente, En curso, A continuación, Seguir viendo, los resultados de búsqueda y los episodios de una serie — para que el diálogo de información pueda mostrarlos. Las listas que abarcan una biblioteca entera nunca lo hacen, porque el servidor necesita alrededor de un segundo por cada 40 elementos. La biblioteca de Kodi siempre tiene el reparto."
+
+msgctxt "#30821"
+msgid "Server error — %s"
+msgstr "Error del servidor — %s"
+
+msgctxt "#30822"
+msgid "Kept %s — its library entry could not be restored"
+msgstr "Se conservó %s — no se pudo restaurar la entrada de la biblioteca"

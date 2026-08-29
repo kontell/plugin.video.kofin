@@ -14,7 +14,7 @@ the next one back to a cold interpreter.
 
 import random
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, Optional, Tuple, Type
 
 from kofin.core.log import Logger
 
@@ -43,6 +43,14 @@ STREAM_CHUNK_BYTES = 262_144
 # ``retries``.
 METHOD_RETRIES = {"GET": RETRIES, "HEAD": RETRIES, "DELETE": 1}
 
+# Answers that mean "not now" rather than "no": a reverse proxy holding the
+# door while Jellyfin restarts (502/504), a server still warming up (503), a
+# rate limiter (429). They ride the same ladder as a transport error, for
+# the methods that carry a budget — POST still gets none (audit F7). Not
+# 500: Jellyfin answers deterministic 500s for broken items, and replaying
+# those would only slow a walk by three backoffs per request.
+RETRY_STATUSES = (429, 502, 503, 504)
+
 
 class JellyfinError(Exception):
     """Base for all transport/API failures."""
@@ -60,6 +68,100 @@ class HttpError(JellyfinError):
     def __init__(self, status: int, message: str) -> None:
         super().__init__(message)
         self.status = status
+
+
+def run_ladder(
+    method: str,
+    url: str,
+    retries: int,
+    attempt: Callable[[], Any],
+    transport_errors: Tuple[Type[BaseException], ...],
+    abort: Optional[Callable[[], bool]] = None,
+) -> Any:
+    """The one retry ladder both transports ride (P1.9): backoff, the
+    abort check between attempts, the per-request log line, and the
+    status taxonomy.
+
+    The abort check is measured, not assumed: a black-holed GET rides the
+    full ladder — 4 attempts x (6s connect + 30s read) plus backoff, about
+    147s, none of which would consult the stop flag. Kodi will not finalise
+    a script while a thread it started is alive, so it sits on "waiting on
+    thread <id>" for exactly that long and every later Python invocation
+    queues behind it. Giving up here bounds the damage at the one read
+    already in flight.
+    """
+    last_error: Optional[BaseException] = None
+    for attempt_index in range(retries + 1):
+        if attempt_index:
+            if abort is not None and abort():
+                raise ServerUnreachable(
+                    "%s %s: abandoned while stopping (%s)" % (method, url, last_error)
+                )
+            delay = BACKOFF_BASE_SECONDS * (2 ** (attempt_index - 1))
+            time.sleep(delay + random.uniform(0, delay / 2))
+        try:
+            response = attempt()
+        except transport_errors as error:
+            LOG.debug(
+                "attempt %d/%d failed for %s: %s",
+                attempt_index + 1,
+                retries + 1,
+                url,
+                error,
+            )
+            last_error = error
+            continue
+
+        # Every request, not just the failures: the scenario gates assert
+        # request *counts* ("zero per-show /Episodes calls", "3067 fetches
+        # to 0"), and those are ungreppable if only errors are logged.
+        # Debug level, and masked like every other line — kofin's auth
+        # rides in headers, so the query string carries no secret.
+        sent = getattr(response, "request", None)
+        LOG.debug(
+            "http %s %s -> %d",
+            method,
+            getattr(sent, "url", None) or getattr(response, "url", None) or url,
+            response.status_code,
+        )
+
+        if response.status_code in (401, 403):
+            raise Unauthorized("%s %s -> %d" % (method, url, response.status_code))
+        if response.status_code in RETRY_STATUSES and attempt_index < retries:
+            LOG.debug(
+                "attempt %d/%d answered %d for %s; replaying",
+                attempt_index + 1,
+                retries + 1,
+                response.status_code,
+                url,
+            )
+            last_error = HttpError(
+                response.status_code,
+                "%s %s -> %d" % (method, url, response.status_code),
+            )
+            continue
+        if 300 <= response.status_code < 400:
+            # A redirect is refused on both transports rather than followed
+            # by one of them (audit F4): requests followed it silently while
+            # the stdlib plugin transport handed the empty 302 body back as
+            # an empty library — a working service beside a plugin listing
+            # nothing. Nobody had a working redirected address, so refusing
+            # costs no one and names the cause at login: the Location is
+            # the address the user should have entered.
+            location = (getattr(response, "headers", None) or {}).get("Location")
+            raise HttpError(
+                response.status_code,
+                "%s %s -> %d (redirected to %s; use that address)"
+                % (method, url, response.status_code, location or "?"),
+            )
+        if response.status_code >= 400:
+            raise HttpError(
+                response.status_code,
+                "%s %s -> %d" % (method, url, response.status_code),
+            )
+        return response
+
+    raise ServerUnreachable("%s %s: %s" % (method, url, last_error))
 
 
 def plugin_transport(verify_ssl: bool = True) -> "Http":
@@ -130,7 +232,7 @@ class StreamedResponse:
         except requests.RequestException as error:
             # A body that dies mid-read is a connection fact, whatever
             # requests dresses it as (ChunkedEncodingError and friends).
-            raise ServerUnreachable("stream interrupted: %s" % error)
+            raise ServerUnreachable("stream interrupted: %s" % error) from error
 
     def close(self) -> None:
         try:
@@ -194,67 +296,29 @@ class Http:
 
         if retries is None:
             retries = METHOD_RETRIES.get(method.upper(), 0)
-        last_error: Optional[Exception] = None
-        for attempt in range(retries + 1):
-            if attempt:
-                if self._abort is not None and self._abort():
-                    # Measured, not assumed: a black-holed GET rides the full
-                    # ladder — 4 attempts x (6s connect + 30s read) plus
-                    # backoff, about 147s, none of which consults the stop
-                    # flag. Kodi will not finalise a script while a thread it
-                    # started is alive, so it sits on "waiting on thread <id>"
-                    # for exactly that long and every later Python invocation
-                    # queues behind it. Giving up here bounds the damage at
-                    # the one read already in flight.
-                    raise ServerUnreachable(
-                        "%s %s: abandoned while stopping (%s)"
-                        % (method, url, last_error)
-                    )
-                delay = BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
-                time.sleep(delay + random.uniform(0, delay / 2))
-            try:
-                response = self.session().request(
-                    method,
-                    url,
-                    headers=headers,
-                    params=params,
-                    json=json_body,
-                    timeout=timeout or DEFAULT_TIMEOUT,
-                )
-            except (requests.ConnectionError, requests.Timeout) as error:
-                LOG.debug(
-                    "attempt %d/%d failed for %s: %s",
-                    attempt + 1,
-                    retries + 1,
-                    url,
-                    error,
-                )
-                last_error = error
-                continue
 
-            # Every request, not just the failures: the scenario gates assert
-            # request *counts* ("zero per-show /Episodes calls", "3067 fetches
-            # to 0"), and those are ungreppable if only errors are logged.
-            # Debug level, and masked like every other line — kofin's auth
-            # rides in headers, so the query string carries no secret.
-            sent = getattr(response, "request", None)
-            LOG.debug(
-                "http %s %s -> %d",
+        def attempt() -> "requests.Response":
+            # Redirects reach run_ladder's 3xx refusal like they do on the
+            # stdlib transport, instead of being followed here alone.
+            return self.session().request(
                 method,
-                getattr(sent, "url", None) or url,
-                response.status_code,
+                url,
+                headers=headers,
+                params=params,
+                json=json_body,
+                timeout=timeout or DEFAULT_TIMEOUT,
+                allow_redirects=False,
             )
 
-            if response.status_code in (401, 403):
-                raise Unauthorized("%s %s -> %d" % (method, url, response.status_code))
-            if response.status_code >= 400:
-                raise HttpError(
-                    response.status_code,
-                    "%s %s -> %d" % (method, url, response.status_code),
-                )
-            return response
-
-        raise ServerUnreachable("%s %s: %s" % (method, url, last_error))
+        response: "requests.Response" = run_ladder(
+            method,
+            url,
+            retries,
+            attempt,
+            (requests.ConnectionError, requests.Timeout),
+            abort=self._abort,
+        )
+        return response
 
     def stream(
         self,
@@ -286,7 +350,7 @@ class Http:
                 timeout=timeout or DEFAULT_TIMEOUT,
             )
         except (requests.ConnectionError, requests.Timeout) as error:
-            raise ServerUnreachable("GET %s: %s" % (url, error))
+            raise ServerUnreachable("GET %s: %s" % (url, error)) from error
         LOG.debug("http GET %s -> %d (stream)", url, response.status_code)
         if response.status_code == 416:
             response.close()

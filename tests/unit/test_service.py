@@ -5,7 +5,7 @@ import pytest
 
 from kofin.core import ipc, state
 from kofin.service.main import LOST_TOAST_GRACE_SECONDS, Backoff, Service
-from tests.unit.fakes import FakeAddon, FakeWindow
+from tests.unit.fakes import FakeAddon, FakeLibrary, FakeWindow
 
 # How long a stray worker is given to finish before it is called a leak. Only
 # ever paid by a test that leaked one, and bounded so the guard cannot itself
@@ -74,27 +74,6 @@ def test_backoff_due_and_reset():
 # --- pacing rebuilds of a sync manager that keeps dying -----------------------
 
 
-class DeadLibrary:
-    """A manager whose thread has ended; the flags say how it ended."""
-
-    def __init__(self, startup_done=True, stop_thread=True):
-        self.startup_done = startup_done
-        self.stop_thread = stop_thread
-
-    def is_alive(self):
-        return False
-
-
-class RunningLibrary:
-    """A manager past startup, still in its service loop."""
-
-    startup_done = True
-    stop_thread = False
-
-    def is_alive(self):
-        return True
-
-
 def _paced_service(monkeypatch, clock):
     monkeypatch.setattr("kofin.service.main.time.time", lambda: clock[0])
     service = Service()
@@ -106,7 +85,7 @@ def _paced_service(monkeypatch, clock):
 def test_a_dead_manager_is_rebuilt_immediately_the_first_time(monkeypatch):
     clock = [1000.0]
     service, starts = _paced_service(monkeypatch, clock)
-    service.library = DeadLibrary()
+    service.library = FakeLibrary(stop_thread=True)
 
     service._recover_threads()
 
@@ -119,7 +98,7 @@ def test_consecutive_failures_wait_out_the_backoff(monkeypatch):
     toasts queue, so the wall outlives the loop."""
     clock = [1000.0]
     service, starts = _paced_service(monkeypatch, clock)
-    service.library = DeadLibrary()
+    service.library = FakeLibrary(stop_thread=True)
 
     for _ in range(10):  # ten ticks inside the first 5 s rung
         service._recover_threads()
@@ -142,16 +121,16 @@ def test_consecutive_failures_wait_out_the_backoff(monkeypatch):
 def test_a_manager_that_gets_past_startup_resets_the_pacing(monkeypatch):
     clock = [1000.0]
     service, starts = _paced_service(monkeypatch, clock)
-    service.library = DeadLibrary()
+    service.library = FakeLibrary(stop_thread=True)
 
     service._recover_threads()  # immediate first rebuild arms the ladder
     assert starts == [1000.0]
 
-    service.library = RunningLibrary()
+    service.library = FakeLibrary(alive=True)
     service._recover_threads()  # healthy: the ladder resets
 
     clock[0] = 1001.0
-    service.library = DeadLibrary()
+    service.library = FakeLibrary(stop_thread=True)
     service._recover_threads()  # a fresh death rebuilds immediately again
     assert starts == [1000.0, 1001.0]
 
@@ -162,21 +141,18 @@ def test_a_failing_build_on_its_way_out_does_not_reset_the_pacing(monkeypatch):
     already up — and must keep that brief window from resetting the ladder."""
     clock = [1000.0]
     service, starts = _paced_service(monkeypatch, clock)
-    service.library = DeadLibrary()
+    service.library = FakeLibrary(stop_thread=True)
 
     service._recover_threads()  # arm the ladder
     assert starts == [1000.0]
 
-    class DyingLibrary(DeadLibrary):
-        def is_alive(self):
-            return True
-
     clock[0] = 1001.0
-    service.library = DyingLibrary()
+    # alive but stopping: a failing build on its way out
+    service.library = FakeLibrary(alive=True, stop_thread=True)
     service._recover_threads()  # alive but stopping: no reset
 
     clock[0] = 1002.0
-    service.library = DeadLibrary()
+    service.library = FakeLibrary(stop_thread=True)
     service._recover_threads()  # still inside the 5 s rung
     assert starts == [1000.0]
 
@@ -222,29 +198,68 @@ def test_a_forged_restart_is_dropped(monkeypatch, tmp_path):
     assert service._restart_requested is False
 
 
+def test_kodis_clean_library_drops_the_people_cache(monkeypatch, tmp_path):
+    """Kodi's Clean library deletes unlinked actor rows and actor_id is
+    reused, so the process-wide name → id cache would link the next cast
+    to the wrong person (audit F5). The clean's own notification resets it;
+    the next write re-primes from the table."""
+    from kofin.sync.kodidb.kodi import Kodi
+
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    Kodi._people_cache = {"Alice Actor": 41}
+    Kodi._people_cache_primed = True
+
+    service.onNotification("xbmc", "VideoLibrary.OnCleanStarted", "{}")
+    assert Kodi._people_cache_primed is True  # only the finish means rows went
+
+    service.onNotification("xbmc", "VideoLibrary.OnCleanFinished", "{}")
+    assert Kodi._people_cache == {}
+    assert Kodi._people_cache_primed is False
+
+
 def test_a_forged_library_removal_never_reaches_the_manager(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
     )
-    commands = []
-
-    class RecordingLibrary:
-        startup_done = True
-
-        def enqueue_command(self, command, data=None):
-            commands.append(command)
-
     service = Service()
-    service.library = RecordingLibrary()
+    library = FakeLibrary()
+    service.library = library
     monkeypatch.setattr(Service, "_start_library", lambda self: None)
 
     service.onNotification(ipc.SENDER, "Other.RemoveLibrary", '[{"Id": "lib1"}]')
-    assert commands == []
+    assert library.commands == []
 
     service.onNotification(
         ipc.SENDER, "Other.RemoveLibrary", _signed(service, {"Id": "lib1"})
     )
-    assert commands == ["RemoveLibrary"]
+    assert library.commands == ["RemoveLibrary"]
+
+
+def test_a_forged_update_or_sync_never_reaches_the_manager(monkeypatch, tmp_path):
+    """UpdateLibrary with an empty payload plans a prune over the whole
+    whitelist, and SyncLibrary used to be an unguarded, never-sent message
+    that walked a library on anyone's say-so. Neither runs without the
+    secret; the real Update button, which carries it, still does."""
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    library = FakeLibrary()
+    service.library = library
+    monkeypatch.setattr(Service, "_start_library", lambda self: None)
+
+    service.onNotification(ipc.SENDER, "Other.SyncLibrary", '[{"Id": "lib1"}]')
+    service.onNotification(ipc.SENDER, "Other.UpdateLibrary", "[{}]")
+    service.onNotification(ipc.SENDER, "Other.RefreshBoxsets", "[{}]")
+    assert library.commands == []
+
+    service.onNotification(ipc.SENDER, "Other.UpdateLibrary", _signed(service, {}))
+    service.onNotification(ipc.SENDER, "Other.RefreshBoxsets", _signed(service, {}))
+    assert library.commands == ["UpdateLibrary", "RefreshBoxsets"]
+    assert library.payloads == [{}, {}]
 
 
 def test_the_secret_is_spent_at_the_door(monkeypatch, tmp_path):
@@ -255,24 +270,18 @@ def test_the_secret_is_spent_at_the_door(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
     )
-    received = []
-
-    class RecordingLibrary:
-        startup_done = True
-
-        def enqueue_command(self, command, data=None):
-            received.append((command, dict(data or {})))
-
     service = Service()
-    service.library = RecordingLibrary()
+    library = FakeLibrary()
+    service.library = library
     monkeypatch.setattr(Service, "_start_library", lambda self: None)
 
     service.onNotification(
         ipc.SENDER, "Other.RepairLibrary", _signed(service, {"Id": "lib1"})
     )
 
-    assert received == [("RepairLibrary", {"Id": "lib1"})]
-    assert ipc.NONCE_KEY not in received[0][1]
+    assert library.commands == ["RepairLibrary"]
+    assert library.payloads == [{"Id": "lib1"}]
+    assert ipc.NONCE_KEY not in library.payloads[0]
 
 
 def test_ssl_change_triggers_restart():
@@ -380,11 +389,13 @@ def test_syncplay_menu_without_manager_is_contained():
 
 
 def test_who_is_watching_ipc_runs_picker_thread(monkeypatch):
-    from kofin.plugin import adduser
+    from kofin.service import whoswatching
 
     service = Service()
     shown = []
-    monkeypatch.setattr(adduser, "show_picker", lambda api, creds: shown.append(api))
+    monkeypatch.setattr(
+        whoswatching, "show_picker", lambda api, creds: shown.append(api)
+    )
 
     service.onNotification(ipc.SENDER, "Other.WhoIsWatching", "[]")
 
@@ -395,14 +406,14 @@ def test_who_is_watching_ipc_runs_picker_thread(monkeypatch):
 
 
 def test_who_is_watching_picker_failure_is_contained(monkeypatch):
-    from kofin.plugin import adduser
+    from kofin.service import whoswatching
 
     service = Service()
 
     def boom(api, creds):
         raise RuntimeError("dialog exploded")
 
-    monkeypatch.setattr(adduser, "show_picker", boom)
+    monkeypatch.setattr(whoswatching, "show_picker", boom)
 
     service.onNotification(ipc.SENDER, "Other.WhoIsWatching", "[]")
 
@@ -443,16 +454,8 @@ def test_broken_syncplay_never_suppresses_the_sync_kick():
         def on_wake(self):
             raise RuntimeError("boom")
 
-    class RecordingLibrary:
-        def __init__(self):
-            self.commands = []
-            self.startup_done = True
-
-        def enqueue_command(self, name, data=None):
-            self.commands.append(name)
-
     service = Service()
-    service.library = RecordingLibrary()
+    service.library = FakeLibrary()
     service.syncplay = ExplodingSyncPlay()
 
     service.onNotification("xbmc", "GUI.OnScreensaverDeactivated", "")
@@ -855,21 +858,11 @@ CONOR = "215f5fc3f7ff4a5581e8518b28203a4f"
 COWATCHER = "c4bbf728450842f983f637ac870b1de6"
 
 
-class RecordingLibrary:
-    startup_done = True
-
-    def __init__(self):
-        self.applied = []
-
-    def userdata(self, data):
-        self.applied.append(data)
-
-
 def _userdata_service(user_id=CONOR):
     FakeAddon.store["userId"] = user_id
     FakeAddon.store["notifyConnection"] = "false"
     service = Service()
-    service.library = RecordingLibrary()
+    service.library = FakeLibrary()
     return service
 
 
@@ -924,17 +917,6 @@ def test_userdata_without_a_subject_is_still_applied():
 # --- reconnect catch-up ------------------------------------------------------
 
 
-class CatchUpLibrary:
-    def __init__(self, startup_done=True):
-        self.startup_done = startup_done
-        self.commands = []
-        self.payloads = []
-
-    def enqueue_command(self, name, data=None):
-        self.commands.append(name)
-        self.payloads.append(data)
-
-
 def _connected(service, monkeypatch):
     monkeypatch.setattr(service, "_register_capabilities", lambda: None)
     monkeypatch.setattr(service, "_connection_toast", lambda *a: None)
@@ -950,7 +932,7 @@ def test_reconnect_catches_up_on_missed_changes(monkeypatch):
     was disconnected, the socket returned at 14:39:51, and the film stayed
     missing while a client with a live socket applied it in seconds."""
     service = Service()
-    service.library = CatchUpLibrary()
+    service.library = FakeLibrary()
 
     _connected(service, monkeypatch)
 
@@ -969,7 +951,7 @@ def test_reconnect_catch_up_is_stamped_with_the_edge_it_protects(monkeypatch):
     from kofin.sync.library import FAST_SYNC_REQUESTED_AT
 
     service = Service()
-    service.library = CatchUpLibrary()
+    service.library = FakeLibrary()
 
     before = time.monotonic()
     _connected(service, monkeypatch)
@@ -1069,7 +1051,7 @@ def test_first_connect_does_not_double_up_with_startup(monkeypatch):
     """startup() runs the same catch-up a moment later; the library reports
     itself unfinished until then."""
     service = Service()
-    service.library = CatchUpLibrary(startup_done=False)
+    service.library = FakeLibrary(startup_done=False)
 
     _connected(service, monkeypatch)
 
@@ -1172,26 +1154,6 @@ def test_post_connect_reruns_once_for_a_connect_landing_mid_pass(monkeypatch):
 # --- teardown must end, and must not lie about it ----------------------------
 
 
-class StuckLibrary:
-    """A library thread that will not stop, which is the case that wedged
-    Kodi: a service script that never returns leaves every later Python
-    invocation hanging."""
-
-    ident = None  # a real Thread carries one; the dump follows it
-
-    def __init__(self):
-        self.stopped = False
-
-    def stop_client(self):
-        self.stopped = True
-
-    def is_alive(self):
-        return True
-
-    def join(self, timeout=None):
-        return None
-
-
 def test_the_teardown_gives_up_on_a_stuck_library(monkeypatch):
     """Waiting on abortRequested alone never ends on an addon bounce — that
     flag means Kodi is shutting down. The wait has to have a deadline."""
@@ -1199,7 +1161,7 @@ def test_the_teardown_gives_up_on_a_stuck_library(monkeypatch):
 
     monkeypatch.setattr(main_module, "LIBRARY_JOIN_SECONDS", 10.0)
     service = Service()
-    service.library = StuckLibrary()
+    service.library = FakeLibrary(alive=True)
     monkeypatch.setattr(service, "abortRequested", lambda: False)
 
     assert service._join_library() is False  # reported, not pretended
@@ -1213,7 +1175,7 @@ def test_a_stuck_library_keeps_the_sync_stop_flag_raised(monkeypatch):
 
     monkeypatch.setattr(main_module, "LIBRARY_JOIN_SECONDS", 0.0)
     service = Service()
-    service.library = StuckLibrary()
+    service.library = FakeLibrary(alive=True)
     monkeypatch.setattr(service, "abortRequested", lambda: False)
     monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
     monkeypatch.setattr(service, "_join_workers", lambda: None)
@@ -1235,7 +1197,7 @@ def test_a_stuck_library_is_dumped_not_merely_reported(monkeypatch):
         main_module.diag, "thread_dump", lambda reason: dumps.append(reason) or {}
     )
     service = Service()
-    service.library = StuckLibrary()
+    service.library = FakeLibrary(alive=True)
     monkeypatch.setattr(service, "abortRequested", lambda: False)
 
     assert service._join_library() is False
@@ -1253,14 +1215,12 @@ def test_a_library_that_stops_in_time_is_never_dumped(monkeypatch):
         main_module.diag, "thread_dump", lambda reason: dumps.append(reason) or {}
     )
 
-    class SlowButFinishing(StuckLibrary):
-        alive = True
+    class SlowButFinishing(FakeLibrary):
+        def __init__(self):
+            super().__init__(alive=True)
 
         def join(self, timeout=None):
-            self.alive = False
-
-        def is_alive(self):
-            return self.alive
+            self._alive = False
 
     service = Service()
     service.library = SlowButFinishing()
@@ -1269,18 +1229,13 @@ def test_a_library_that_stops_in_time_is_never_dumped(monkeypatch):
     assert dumps == []
 
 
-class FinishedLibrary(StuckLibrary):
-    def is_alive(self):
-        return False
-
-
 def _teardown_service(monkeypatch, tmp_path):
     """A service whose teardown reaches the shared-state writes."""
     monkeypatch.setattr(
         "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
     )
     service = Service()
-    service.library = FinishedLibrary()
+    service.library = FakeLibrary()
     monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
     monkeypatch.setattr(service, "_join_workers", lambda: None)
     return service
@@ -1336,13 +1291,13 @@ def test_a_superseded_teardown_still_stops_its_own_threads(monkeypatch, tmp_path
     service._shutdown()
 
     assert service._stopping.is_set() is True
-    assert library.stopped is True  # the instance flag that ends the thread
+    assert library.stopped == 1  # stop_client reached the instance
     assert service.library is None
 
 
 def test_a_clean_teardown_clears_everything(monkeypatch):
     service = Service()
-    service.library = FinishedLibrary()
+    service.library = FakeLibrary()
     monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
     monkeypatch.setattr(service, "_join_workers", lambda: None)
 
@@ -1435,6 +1390,8 @@ def test_connect_probes_on_the_probe_budget():
 
 class FakeDownloadManager:
     def __init__(self):
+        self.removed_all = 0
+        self.woken = 0
         self.started = 0
         self.stopped = 0
         self.submitted = []
@@ -1459,6 +1416,12 @@ class FakeDownloadManager:
 
     def remove(self, item_id):
         self.removed.append(item_id)
+
+    def remove_all(self):
+        self.removed_all += 1
+
+    def wake(self):
+        self.woken += 1
 
 
 def test_download_manager_builds_only_when_enabled(monkeypatch):
@@ -1806,27 +1769,6 @@ def test_a_cold_boot_away_from_the_server_states_the_outage(monkeypatch, tmp_pat
 # --- rebuilding threads that died on their own -------------------------------
 
 
-class _FakeLibrary:
-    # A live fake reads as a *healthy* manager — past startup, not stopping —
-    # which is the shape _recover_threads consults when resetting its pacing.
-    startup_done = True
-    stop_thread = False
-
-    def __init__(self, alive=False, workers=False):
-        self._alive = alive
-        self._workers = workers
-        self.stopped = 0
-
-    def is_alive(self):
-        return self._alive
-
-    def stop_client(self):
-        self.stopped += 1
-
-    def workers_alive(self):
-        return self._workers
-
-
 class _FakeWs:
     def __init__(self, alive=False):
         self._alive = alive
@@ -1841,7 +1783,7 @@ class _FakeWs:
 
 def test_a_live_library_is_left_alone():
     service = Service()
-    live = _FakeLibrary(alive=True)
+    live = FakeLibrary(alive=True)
     service.library = live
 
     service._reap_library()
@@ -1856,7 +1798,7 @@ def test_a_dead_library_slot_is_cleared_for_a_rebuild():
     the manager exits itself on any LibraryException, most routinely the
     offline one."""
     service = Service()
-    service.library = _FakeLibrary(alive=False)
+    service.library = FakeLibrary(alive=False)
 
     service._reap_library()
 
@@ -1868,7 +1810,7 @@ def test_a_dead_library_with_workers_in_flight_is_not_rebuilt_yet():
     that still has writers running puts two independent locks in front of the
     same SQLite files. The slot stays until the workers are done."""
     service = Service()
-    corpse = _FakeLibrary(alive=False, workers=True)
+    corpse = FakeLibrary(alive=False, workers=True)
     service.library = corpse
 
     service._reap_library()
@@ -1909,7 +1851,7 @@ def test_threads_that_die_while_online_are_rebuilt(monkeypatch):
     service = Service()
     service._online = True
     service.ws = _FakeWs(alive=False)
-    service.library = _FakeLibrary(alive=False)
+    service.library = FakeLibrary(alive=False)
 
     built = []
     monkeypatch.setattr(service, "_start_websocket", lambda: built.append("ws"))
@@ -1925,7 +1867,7 @@ def test_recovery_does_nothing_while_both_threads_live(monkeypatch):
     service = Service()
     service._online = True
     service.ws = _FakeWs(alive=True)
-    service.library = _FakeLibrary(alive=True)
+    service.library = FakeLibrary(alive=True)
 
     built = []
     monkeypatch.setattr(service, "_start_websocket", lambda: built.append("ws"))
@@ -1934,3 +1876,128 @@ def test_recovery_does_nothing_while_both_threads_live(monkeypatch):
     service._recover_threads()
 
     assert built == []
+
+
+# --- the service loop itself (P1.11: run/_join_workers previously undriven) ---
+
+
+def test_run_shuts_down_cleanly_when_kodi_aborts_at_once(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    library = FakeLibrary()
+    service.library = library
+    monkeypatch.setattr(service, "abortRequested", lambda: True)
+    monkeypatch.setattr(service, "_start_chapter_sweep", lambda: None)
+    monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
+
+    assert service.run() is False  # an abort is not a restart request
+
+    assert service._stopping.is_set() is True
+    assert library.stopped == 1
+    assert service.library is None
+
+
+def test_join_workers_joins_what_ran_and_skips_the_empty_slots():
+    service = Service()
+    done = threading.Event()
+    worker = threading.Thread(target=done.set, name="kofin-backdrop")
+    worker.start()
+    service._backdrop = worker
+
+    service._join_workers()  # joins the finished worker, skips the Nones
+
+    assert done.is_set()
+    assert not worker.is_alive()
+
+
+# ---------------------------------------------------------------------------
+# The two dispatch tables (P2.4). Their values are method *names* — a string
+# mypy cannot check — so the first test is the one that turns a typo in a
+# rarely-hit arm into a unit failure instead of an AttributeError the day
+# that message arrives. The rest drive every arm no other test names.
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_tables_name_defined_methods():
+    for table in (Service._KODI_HANDLERS, Service._IPC_HANDLERS):
+        for key, name in table.items():
+            assert callable(getattr(Service, name, None)), (key, name)
+    # Every guarded library command routes through the one handler.
+    from kofin.service.main import LIBRARY_COMMANDS
+
+    for command in LIBRARY_COMMANDS:
+        assert Service._IPC_HANDLERS[command] == "_ipc_library_command"
+
+
+def test_music_scan_finished_reasserts_the_sources():
+    service = Service()
+    service.onNotification(
+        "xbmc", "AudioLibrary.OnScanFinished", "{}"
+    )  # no library yet
+    library = FakeLibrary()
+    service.library = library
+    service.onNotification("xbmc", "AudioLibrary.OnScanFinished", "{}")
+    assert library.commands == ["ReassertMusicSources"]
+
+
+def test_player_stop_wakes_a_paused_download_pool():
+    service = Service()
+    service.onNotification("xbmc", "Player.OnStop", "{}")  # no manager: ignored
+    manager = FakeDownloadManager()
+    service.downloads = manager
+    service.onNotification("xbmc", "Player.OnStop", "{}")
+    assert manager.woken == 1
+
+
+def test_precache_art_ipc_runs_the_precache(monkeypatch, tmp_path):
+    import json
+
+    # PrecacheArt is not in the registry's GUARDED set — a precache is a
+    # cost, not a capability — so the bare message is enough. The membership
+    # is asserted so a future guard changes this test, not just the plugin.
+    assert ipc.PRECACHE_ART not in ipc.GUARDED
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    runs = []
+    monkeypatch.setattr(service, "_precache_art_now", lambda: runs.append(1))
+    service.onNotification(ipc.SENDER, "Other.PrecacheArt", json.dumps([{}]))
+    assert runs == [1]
+
+
+def test_attach_subtitle_ipc_reaches_the_player_with_an_int_index(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    fetched = []
+    service.player = type(
+        "P", (), {"fetch_subtitle": lambda self, i: fetched.append(i)}
+    )()
+    service.onNotification(
+        ipc.SENDER, "Other.AttachSubtitle", _signed(service, {"Index": "3"})
+    )
+    assert fetched == [3]
+    # A message without a usable index is logged and dropped, not raised.
+    service.onNotification(ipc.SENDER, "Other.AttachSubtitle", _signed(service, {}))
+    service.onNotification(
+        ipc.SENDER, "Other.AttachSubtitle", _signed(service, {"Index": "x"})
+    )
+    assert fetched == [3]
+
+
+def test_download_remove_all_ipc_routes_to_the_manager(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    FakeAddon.store["downloadsEnabled"] = "true"
+    service = Service()
+    manager = FakeDownloadManager()
+    service.downloads = manager
+    service.onNotification(ipc.SENDER, "Other.DownloadRemoveAll", _signed(service))
+    assert manager.removed_all == 1

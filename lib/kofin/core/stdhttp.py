@@ -27,22 +27,12 @@ unused on kofin's API paths or deliberately out of scope (see the notes on
 
 import http.client
 import json
-import random
 import ssl
 import threading
-import time
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote, urlencode, urlsplit
 
-from kofin.core.http import (
-    BACKOFF_BASE_SECONDS,
-    DEFAULT_TIMEOUT,
-    METHOD_RETRIES,
-    Http,
-    HttpError,
-    ServerUnreachable,
-    Unauthorized,
-)
+from kofin.core.http import DEFAULT_TIMEOUT, Http, METHOD_RETRIES, run_ladder
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
@@ -61,10 +51,19 @@ class Response:
     module has no intention of providing.
     """
 
-    def __init__(self, status_code: int, content: bytes, url: str) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        content: bytes,
+        url: str,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> None:
         self.status_code = status_code
         self.content = content
         self.url = url
+        # Only ``Location`` is read (run_ladder's redirect refusal); kept as
+        # a plain dict so the requests transport and this one look alike there.
+        self.headers: Dict[str, str] = dict(headers or {})
 
     def json(self) -> Any:
         return json.loads(self.content)
@@ -194,47 +193,25 @@ class StdlibHttp(Http):
         origin, target = _split(url, params)
         body, send_headers = _body(json_body, headers)
 
-        last_error: Optional[Exception] = None
-        for attempt in range(retries + 1):
-            if attempt:
-                delay = BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
-                time.sleep(delay + random.uniform(0, delay / 2))
-            try:
-                response = self._exchange(
-                    origin,
-                    method,
-                    target,
-                    body,
-                    send_headers,
-                    connect_timeout,
-                    read_timeout,
-                    url,
-                )
-            except _TRANSPORT_ERRORS as error:
-                LOG.debug(
-                    "attempt %d/%d failed for %s: %s",
-                    attempt + 1,
-                    retries + 1,
-                    url,
-                    error,
-                )
-                last_error = error
-                continue
+        def attempt() -> Response:
+            return self._exchange(
+                origin,
+                method,
+                target,
+                body,
+                send_headers,
+                connect_timeout,
+                read_timeout,
+                url,
+            )
 
-            # Logged for every request, not just failures: the scenario gates
-            # assert request counts, and those are ungreppable otherwise.
-            LOG.debug("http %s %s -> %d", method, response.url, response.status_code)
-
-            if response.status_code in (401, 403):
-                raise Unauthorized("%s %s -> %d" % (method, url, response.status_code))
-            if response.status_code >= 400:
-                raise HttpError(
-                    response.status_code,
-                    "%s %s -> %d" % (method, url, response.status_code),
-                )
-            return response
-
-        raise ServerUnreachable("%s %s: %s" % (method, url, last_error))
+        # run_ladder gives this transport the abort check it used to lack —
+        # None in the plugin process (short-lived, nothing wires one in), so
+        # the two transports are honestly identical (P1.9).
+        result: Response = run_ladder(
+            method, url, retries, attempt, _TRANSPORT_ERRORS, abort=self._abort
+        )
+        return result
 
     def _exchange(
         self,
@@ -278,7 +255,7 @@ class StdlibHttp(Http):
             # The server is done with this socket; do not offer it to the next
             # call as though it were alive.
             self._drop()
-        return Response(raw.status, payload, url)
+        return Response(raw.status, payload, url, dict(raw.getheaders()))
 
 
 def _split(

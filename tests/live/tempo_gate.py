@@ -40,7 +40,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from syncplay_drift import Device, local_ms, parse_device, slope_ppm, time_to_ms
+from syncplay_drift import parse_device, slope_ppm, time_to_ms
 
 TEMPO = 1.03
 SETTING = "videoplayer.usedisplayasclock"

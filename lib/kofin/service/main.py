@@ -23,12 +23,18 @@ from kofin.service.kodiuserdata import KodiUserData
 from kofin.service.player import Player
 from kofin.service.remote import RemoteHandler
 from kofin.service.settings_apply import SettingsApplier
+from kofin.service.ports import (
+    DownloadsPort,
+    LibraryPort,
+    SyncPlayPort,
+    forward,
+    spawn_once,
+)
 
 LOG = Logger(__name__)
 
 LIBRARY_COMMANDS = frozenset(
     {
-        ipc.SYNC_LIBRARY,
         ipc.REMOVE_LIBRARY,
         ipc.REPAIR_LIBRARY,
         ipc.UPDATE_LIBRARY,
@@ -139,6 +145,35 @@ class Backoff:
 
 
 class Service(xbmc.Monitor):
+    # The two notification tables (P2.4): Kodi's bus by method, kofin's IPC
+    # by message name — one small handler per arm, the guards inside the
+    # handlers. Method names rather than bound methods, on the class rather
+    # than built in __init__, because the unit suite legitimately builds a
+    # Service with __new__ and no __init__ to drive onNotification alone.
+    _KODI_HANDLERS: Dict[str, str] = {
+        "GUI.OnScreensaverDeactivated": "_kodi_screensaver_deactivated",
+        "System.OnWake": "_kodi_wake",
+        "System.OnSleep": "_kodi_sleep",
+        "Player.OnPlay": "_kodi_player_play",
+        "AudioLibrary.OnScanFinished": "_kodi_music_scan_finished",
+        "VideoLibrary.OnCleanFinished": "_kodi_clean_finished",
+        "Player.OnStop": "_kodi_player_stop",
+        "VideoLibrary.OnUpdate": "_kodi_library_update",
+    }
+    _IPC_HANDLERS: Dict[str, str] = {
+        ipc.RESTART: "_ipc_restart",
+        ipc.AUTH_CHANGED: "_ipc_auth_changed",
+        ipc.SYNCPLAY_MENU: "_ipc_syncplay_menu",
+        ipc.WHO_IS_WATCHING: "_ipc_who_is_watching",
+        ipc.PRECACHE_ART: "_ipc_precache_art",
+        ipc.ATTACH_SUBTITLE: "_ipc_attach_subtitle",
+        ipc.DOWNLOAD_ADD: "_ipc_download_add",
+        ipc.DOWNLOAD_CANCEL: "_ipc_download_cancel",
+        ipc.DOWNLOAD_REMOVE: "_ipc_download_remove",
+        ipc.DOWNLOAD_REMOVE_ALL: "_ipc_download_remove_all",
+        **{command: "_ipc_library_command" for command in LIBRARY_COMMANDS},
+    }
+
     def __init__(self) -> None:
         super().__init__()
         self._restart_requested = False
@@ -157,9 +192,9 @@ class Service(xbmc.Monitor):
         self.player = Player(self.api)
         self.remote = RemoteHandler()
         self.kodi_userdata = KodiUserData(self.api)
-        self.library: Optional[Any] = None  # kofin.sync.library.Library
-        self.downloads: Optional[Any] = None  # kofin.downloads.manager.DownloadManager
-        self.syncplay: Optional[Any] = None  # kofin.syncplay.SyncPlayManager
+        self.library: Optional[LibraryPort] = None
+        self.downloads: Optional[DownloadsPort] = None
+        self.syncplay: Optional[SyncPlayPort] = None
         self._syncplay_menu: Optional[threading.Thread] = None
         self._who_is_watching: Optional[threading.Thread] = None
         self._chapter_sweep: Optional[threading.Thread] = None
@@ -568,9 +603,10 @@ class Service(xbmc.Monitor):
         try:
             from kofin.syncplay import SyncPlayManager
 
-            self.syncplay = SyncPlayManager(self.api, self.player)
-            self.player.syncplay = self.syncplay
-            self.remote.syncplay = self.syncplay
+            manager = SyncPlayManager(self.api, self.player)
+            self.syncplay = manager
+            self.player.syncplay = manager
+            self.remote.syncplay = manager
             LOG.info("SyncPlay manager started")
         except Exception:
             LOG.exception("SyncPlay manager failed to start")
@@ -599,36 +635,33 @@ class Service(xbmc.Monitor):
                 settings.localized(30574), toast.ERROR, heading="SyncPlay", time_ms=4000
             )
             return
-        if self._syncplay_menu is not None and self._syncplay_menu.is_alive():
-            LOG.debug("SyncPlay menu already open")
-            return
         from kofin.syncplay import show_menu
 
-        self._syncplay_menu = threading.Thread(
-            target=show_menu, args=(manager,), name="kofin-syncplay-menu"
+        spawned = spawn_once(
+            self._syncplay_menu, show_menu, "kofin-syncplay-menu", manager
         )
-        self._syncplay_menu.daemon = True
-        self._syncplay_menu.start()
+        if spawned is None:
+            LOG.debug("SyncPlay menu already open")
+            return
+        self._syncplay_menu = spawned
 
     def _open_who_is_watching(self) -> None:
         """WhoIsWatching IPC: same contract as the SyncPlay menu — the picker
         blocks on a dialog, so it gets its own worker thread, never the
         notification thread."""
-        if self._who_is_watching is not None and self._who_is_watching.is_alive():
+        spawned = spawn_once(
+            self._who_is_watching, self._run_who_is_watching, "kofin-whoswatching"
+        )
+        if spawned is None:
             LOG.debug("who's-watching picker already open")
             return
-
-        self._who_is_watching = threading.Thread(
-            target=self._run_who_is_watching, name="kofin-whoswatching"
-        )
-        self._who_is_watching.daemon = True
-        self._who_is_watching.start()
+        self._who_is_watching = spawned
 
     def _run_who_is_watching(self) -> None:
-        from kofin.plugin import adduser
+        from kofin.service import whoswatching
 
         try:
-            adduser.show_picker(self.api, self.credentials)
+            whoswatching.show_picker(self.api, self.credentials)
         except Exception:
             LOG.exception("who's-watching picker failed")
 
@@ -640,11 +673,11 @@ class Service(xbmc.Monitor):
         if state.get_playing_id():
             LOG.debug("chapter sweep deferred: playback live")
             return
-        self._chapter_sweep = threading.Thread(
-            target=self._run_chapter_sweep, name="kofin-chapter-sweep"
+        spawned = spawn_once(
+            self._chapter_sweep, self._run_chapter_sweep, "kofin-chapter-sweep"
         )
-        self._chapter_sweep.daemon = True
-        self._chapter_sweep.start()
+        if spawned is not None:
+            self._chapter_sweep = spawned
 
     def _run_chapter_sweep(self) -> None:
         try:
@@ -661,14 +694,13 @@ class Service(xbmc.Monitor):
         Restarted rather than joined: the previous run is idempotent and its
         own worst case is a redundant write.
         """
-        if self._backdrop is not None and self._backdrop.is_alive():
+        spawned = spawn_once(
+            self._backdrop, self._run_backdrop, "kofin-backdrop", force
+        )
+        if spawned is None:
             LOG.debug("backdrop refresh already running")
             return
-        self._backdrop = threading.Thread(
-            target=self._run_backdrop, name="kofin-backdrop", args=(force,)
-        )
-        self._backdrop.daemon = True
-        self._backdrop.start()
+        self._backdrop = spawned
 
     def _run_backdrop(self, force: bool) -> None:
         backdrop.apply(self.api if self._online else None, time.time(), force=force)
@@ -817,11 +849,11 @@ class Service(xbmc.Monitor):
         self._verify_online = False
         state.set_online(True)
         self._post_connect_pending.set()
-        if self._post_connect is None or not self._post_connect.is_alive():
-            self._post_connect = threading.Thread(
-                target=self._run_post_connect, name="kofin-postconnect", daemon=True
-            )
-            self._post_connect.start()
+        spawned = spawn_once(
+            self._post_connect, self._run_post_connect, "kofin-postconnect"
+        )
+        if spawned is not None:
+            self._post_connect = spawned
 
     def _run_post_connect(self) -> None:
         monitor = xbmc.Monitor()
@@ -851,9 +883,9 @@ class Service(xbmc.Monitor):
     def _restore_additional_users(self) -> None:
         """Re-attach saved co-watchers. Contained: must never break connect."""
         try:
-            from kofin.plugin import adduser
+            from kofin.service import whoswatching
 
-            adduser.restore_additional_users(self.api, self.credentials.device_id)
+            whoswatching.restore_additional_users(self.api, self.credentials.device_id)
         except Exception as error:  # pragma: no cover - defensive
             LOG.warning("who's-watching restore failed: %s", error)
 
@@ -981,45 +1013,14 @@ class Service(xbmc.Monitor):
     # -- kodi callbacks --------------------------------------------------------
 
     def onNotification(self, sender: str, method: str, data: str) -> None:
+        """Two tables, one per bus (P2.4): Kodi's own announcements by method,
+        kofin's IPC by message name. The guard order is unchanged — a Kodi
+        method not in the table is ignored; an IPC message is verified at the
+        door and its secret spent before any handler runs."""
         if sender == "xbmc":
-            if method == "GUI.OnScreensaverDeactivated" and self.library is not None:
-                # Unconditional: the wake catch-up is the only cover for a
-                # websocket that went half-open during long idle (a dead
-                # socket that never reported closing delivers nothing, and
-                # the reconnect catch-up only fires on *detected* drops). An
-                # empty catch-up costs one request. The screensaver itself
-                # never pauses sync — verified live, docs/widget-refresh-plan.md
-                # F9 — so there is nothing to "resume" here, only to re-check.
-                LOG.info("screensaver deactivated; catching up")
-                self.library.enqueue_command("FastSync")
-            # Independent of the sync kick above (plan §7): a broken manager
-            # must never suppress the library catch-up, and vice versa.
-            if method in ("GUI.OnScreensaverDeactivated", "System.OnWake"):
-                self._syncplay_forward("on_wake")
-            elif method == "System.OnSleep":
-                self._syncplay_forward("on_sleep")
-            elif method == "Player.OnPlay":
-                decoded = _decode_kodi_data(data)
-                self._syncplay_forward("on_kodi_play", decoded)
-                self._backfill_library_claim(decoded)
-            elif method == "AudioLibrary.OnScanFinished" and self.library is not None:
-                # Kodi's scanner runs DELETE FROM source whenever the table
-                # disagrees with sources.xml — which, with an empty one, it
-                # does the moment kofin writes a row. Every per-library music
-                # node filters on those rows, so without this a user-run music
-                # scan leaves them all matching nothing until the next sync.
-                self.library.enqueue_command("ReassertMusicSources")
-            elif method == "Player.OnStop" and self.downloads is not None:
-                # Let a pool held back by downloadsPauseDuringPlayback pick up
-                # again now rather than at its next poll. Only a nudge — the
-                # worker re-reads the gate itself, and its poll is the cover
-                # for every stop that never reaches here.
-                self.downloads.wake()
-            elif method == "VideoLibrary.OnUpdate" and self.credentials.is_logged_in:
-                # Kodi's own "Mark as watched" / "Reset resume position" only
-                # touch MyVideos; without this they never reach the server and
-                # the next userdata sync undoes them.
-                self.kodi_userdata.submit(_decode_kodi_data(data))
+            kodi_handler = self._KODI_HANDLERS.get(method)
+            if kodi_handler is not None:
+                getattr(self, kodi_handler)(data)
             return
         if sender != ipc.SENDER:
             return
@@ -1037,74 +1038,158 @@ class Service(xbmc.Monitor):
         # -- so left in, the guard was printed into kodi.log on every Repair,
         # and a pasted log is exactly the kind of channel it exists to close.
         payload.pop(ipc.NONCE_KEY, None)
-        if name == ipc.RESTART:
-            LOG.info("restart requested")
-            self._restart_requested = True
-        elif name == ipc.AUTH_CHANGED:
-            LOG.info("auth changed; restarting service cycle")
-            self._restart_requested = True
-        elif name == ipc.SYNCPLAY_MENU:
-            self._open_syncplay_menu()
-        elif name == ipc.WHO_IS_WATCHING:
-            self._open_who_is_watching()
-        elif name == ipc.PRECACHE_ART:
-            self._precache_art_now()
-        elif name == ipc.ATTACH_SUBTITLE:
-            try:
-                index = int(payload["Index"])
-            except (KeyError, TypeError, ValueError):
-                LOG.warning("AttachSubtitle without a usable index: %s", payload)
-            else:
-                self.player.fetch_subtitle(index)
-        elif name in DOWNLOAD_COMMANDS:
-            # Notification thread: the manager's surface only enqueues onto
-            # its ops queue — no database, no socket (audit finding #3).
-            self._start_downloads()
-            if self.downloads is None:
-                LOG.warning("download command %s ignored: manager not running", name)
-                return
-            if name == ipc.DOWNLOAD_ADD:
-                # The optional Origin marks automatic downloads for W4.2's
-                # retention sweep; anything unrecognized is a user download —
-                # the label that is never auto-deleted.
-                from kofin.downloads import store as downloads_store
+        ipc_handler = self._IPC_HANDLERS.get(name)
+        if ipc_handler is None:
+            # Registered but matched by no arm, or not registered at all
+            # (a message the registry once held, or a forgery that guessed
+            # wrong). Nothing happens either way; this line is the only
+            # trace that it arrived.
+            LOG.debug("unhandled IPC %s", name)
+            return
+        getattr(self, ipc_handler)(name, payload)
 
-                origin = str(payload.get("Origin") or downloads_store.ORIGIN_USER)
-                if origin != downloads_store.ORIGIN_USER and not (
-                    downloads_store.is_auto_origin(origin)
-                ):
-                    origin = downloads_store.ORIGIN_USER
-                # Types is optional and positional against Ids: the sender
-                # holds each item's DTO type, and passing it here is what
-                # lets the queue split by media kind without an item fetch
-                # per row. Paired before the empty ids are dropped, so a
-                # blank in the middle cannot shift the rest by one; a short
-                # or absent list just leaves kinds unknown, which the video
-                # pool claims.
-                raw_ids = [str(one) for one in (payload.get("Ids") or [])]
-                raw_types = [str(one) for one in (payload.get("Types") or [])]
-                pairs = [
-                    (item_id, raw_types[index] if index < len(raw_types) else "")
-                    for index, item_id in enumerate(raw_ids)
-                    if item_id
-                ]
-                self.downloads.submit(
-                    [item_id for item_id, _ in pairs],
-                    origin=origin,
-                    media_types=[dto_type for _, dto_type in pairs],
-                )
-            elif name == ipc.DOWNLOAD_CANCEL:
-                self.downloads.cancel(str(payload.get("Id") or ""))
-            elif name == ipc.DOWNLOAD_REMOVE:
-                self.downloads.remove(str(payload.get("Id") or ""))
-            elif name == ipc.DOWNLOAD_REMOVE_ALL:
-                self.downloads.remove_all()
-        elif name in LIBRARY_COMMANDS:
-            self._start_library()
-            if self.library is None:
-                LOG.warning("library command %s ignored: manager not running", name)
-                return
-            self.library.enqueue_command(name, payload)
+    # -- the Kodi bus, one handler per method ----------------------------------
+
+    def _kodi_screensaver_deactivated(self, data: str) -> None:
+        if self.library is not None:
+            # Unconditional: the wake catch-up is the only cover for a
+            # websocket that went half-open during long idle (a dead
+            # socket that never reported closing delivers nothing, and
+            # the reconnect catch-up only fires on *detected* drops). An
+            # empty catch-up costs one request. The screensaver itself
+            # never pauses sync — verified live, docs/widget-refresh-plan.md
+            # F9 — so there is nothing to "resume" here, only to re-check.
+            LOG.info("screensaver deactivated; catching up")
+            self.library.enqueue_command("FastSync")
+        # Independent of the sync kick above (plan §7): a broken manager
+        # must never suppress the library catch-up, and vice versa.
+        self._syncplay_forward("on_wake")
+
+    def _kodi_wake(self, data: str) -> None:
+        self._syncplay_forward("on_wake")
+
+    def _kodi_sleep(self, data: str) -> None:
+        self._syncplay_forward("on_sleep")
+
+    def _kodi_player_play(self, data: str) -> None:
+        decoded = _decode_kodi_data(data)
+        self._syncplay_forward("on_kodi_play", decoded)
+        self._backfill_library_claim(decoded)
+
+    def _kodi_music_scan_finished(self, data: str) -> None:
+        if self.library is None:
+            return
+        # Kodi's scanner runs DELETE FROM source whenever the table
+        # disagrees with sources.xml — which, with an empty one, it
+        # does the moment kofin writes a row. Every per-library music
+        # node filters on those rows, so without this a user-run music
+        # scan leaves them all matching nothing until the next sync.
+        self.library.enqueue_command("ReassertMusicSources")
+
+    def _kodi_clean_finished(self, data: str) -> None:
+        # Kodi's Clean library deletes every actor with no surviving
+        # link (CVideoDatabase::CleanDatabase) — exactly what kofin's
+        # own removals and prunes leave behind, since the writers
+        # never delete actor rows — and the shared name → id cache
+        # in kodidb.Kodi is primed once per process. actor_id has no
+        # AUTOINCREMENT, so a freed id is reused and a stale entry
+        # then names the *wrong* actor, not just a missing one. The
+        # clean also removes every kofin movie row (benchmark F13),
+        # so the Repair that follows would write every cast link
+        # against that cache (audit F5). Reset; the next get_person
+        # re-primes from the table.
+        from kofin.sync.kodidb.kodi import Kodi
+
+        LOG.info("Kodi cleaned its video library; dropping the people cache")
+        Kodi.reset_people_cache()
+
+    def _kodi_player_stop(self, data: str) -> None:
+        if self.downloads is None:
+            return
+        # Let a pool held back by downloadsPauseDuringPlayback pick up
+        # again now rather than at its next poll. Only a nudge — the
+        # worker re-reads the gate itself, and its poll is the cover
+        # for every stop that never reaches here.
+        self.downloads.wake()
+
+    def _kodi_library_update(self, data: str) -> None:
+        if not self.credentials.is_logged_in:
+            return
+        # Kodi's own "Mark as watched" / "Reset resume position" only
+        # touch MyVideos; without this they never reach the server and
+        # the next userdata sync undoes them.
+        self.kodi_userdata.submit(_decode_kodi_data(data))
+
+    # -- kofin's IPC, one handler per message ----------------------------------
+
+    def _ipc_restart(self, name: str, payload: Dict[str, Any]) -> None:
+        LOG.info("restart requested")
+        self._restart_requested = True
+
+    def _ipc_auth_changed(self, name: str, payload: Dict[str, Any]) -> None:
+        LOG.info("auth changed; restarting service cycle")
+        self._restart_requested = True
+
+    def _ipc_syncplay_menu(self, name: str, payload: Dict[str, Any]) -> None:
+        self._open_syncplay_menu()
+
+    def _ipc_who_is_watching(self, name: str, payload: Dict[str, Any]) -> None:
+        self._open_who_is_watching()
+
+    def _ipc_precache_art(self, name: str, payload: Dict[str, Any]) -> None:
+        self._precache_art_now()
+
+    def _ipc_attach_subtitle(self, name: str, payload: Dict[str, Any]) -> None:
+        try:
+            index = int(payload["Index"])
+        except (KeyError, TypeError, ValueError):
+            LOG.warning("AttachSubtitle without a usable index: %s", payload)
+        else:
+            self.player.fetch_subtitle(index)
+
+    def _downloads_for(self, name: str) -> Optional[DownloadsPort]:
+        """The download manager a download command goes to, started on
+        demand. Notification thread: the manager's surface only enqueues
+        onto its ops queue — no database, no socket (audit finding #3)."""
+        self._start_downloads()
+        if self.downloads is None:
+            LOG.warning("download command %s ignored: manager not running", name)
+        return self.downloads
+
+    def _ipc_download_add(self, name: str, payload: Dict[str, Any]) -> None:
+        downloads = self._downloads_for(name)
+        if downloads is None:
+            return
+        from kofin.downloads import wire
+
+        ids, origin, media_types = wire.parse_add(payload)
+        downloads.submit(ids, origin=origin, media_types=media_types)
+
+    def _ipc_download_cancel(self, name: str, payload: Dict[str, Any]) -> None:
+        downloads = self._downloads_for(name)
+        if downloads is not None:
+            from kofin.downloads import wire
+
+            downloads.cancel(wire.item_id(payload))
+
+    def _ipc_download_remove(self, name: str, payload: Dict[str, Any]) -> None:
+        downloads = self._downloads_for(name)
+        if downloads is not None:
+            from kofin.downloads import wire
+
+            downloads.remove(wire.item_id(payload))
+
+    def _ipc_download_remove_all(self, name: str, payload: Dict[str, Any]) -> None:
+        downloads = self._downloads_for(name)
+        if downloads is not None:
+            downloads.remove_all()
+
+    def _ipc_library_command(self, name: str, payload: Dict[str, Any]) -> None:
+        self._start_library()
+        if self.library is None:
+            LOG.warning("library command %s ignored: manager not running", name)
+            return
+        self.library.enqueue_command(name, payload)
 
     def _precache_art_now(self) -> None:
         """Settings button: seed every outstanding cast image.
@@ -1113,15 +1198,14 @@ class Service(xbmc.Monitor):
         run is thousands of downloads — and single-flight, so a second press
         joins the run already going rather than doubling the fetches.
         """
-        if self._precache_art is not None and self._precache_art.is_alive():
+        spawned = spawn_once(
+            self._precache_art, self._run_precache_art, "kofin-artcache-now"
+        )
+        if spawned is None:
             LOG.debug("cast-image pre-cache already running")
             toast.show(settings.localized(30672), time_ms=4000)
             return
-        self._precache_art = threading.Thread(
-            target=self._run_precache_art, name="kofin-artcache-now"
-        )
-        self._precache_art.daemon = True
-        self._precache_art.start()
+        self._precache_art = spawned
 
     def _run_precache_art(self) -> None:
         toast.show(settings.localized(30672), time_ms=4000)
@@ -1138,13 +1222,7 @@ class Service(xbmc.Monitor):
             pass
 
     def _syncplay_forward(self, name: str, *args: Any) -> None:
-        manager = self.syncplay
-        if manager is None:
-            return
-        try:
-            getattr(manager, name)(*args)
-        except Exception:
-            LOG.exception("SyncPlay %s hook failed", name)
+        forward(self.syncplay, name, *args)
 
     def _backfill_library_claim(self, data: Dict[str, Any]) -> None:
         """Claim library playback that never passed through the play route.
@@ -1277,7 +1355,7 @@ class Service(xbmc.Monitor):
                 LOG.warning(
                     "library thread still stopping after %.0fs: %s",
                     waited,
-                    diag.positions().get(library.ident, "gone"),
+                    diag.positions().get(library.ident or -1, "gone"),
                 )
             if self.abortRequested():
                 LOG.warning("abort during teardown; library thread still alive")

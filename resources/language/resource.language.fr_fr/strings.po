@@ -2095,3 +2095,11 @@ msgstr "Afficher la distribution dans les listes de l'extension"
 msgctxt "#30820"
 msgid "Fetch cast and crew for the shorter add-on listings — Recently added, In progress, Next up, Continue watching, search results and a show's episodes — so the information dialog can show them. Whole-library listings never fetch it, because the server needs about a second for every 40 items. The Kodi library always has cast."
 msgstr "Récupère la distribution et l'équipe pour les listes courtes de l'extension — Ajouts récents, En cours, À suivre, Reprendre la lecture, les résultats de recherche et les épisodes d'une série — afin que la fenêtre d'informations puisse les afficher. Les listes qui couvrent une médiathèque entière ne la récupèrent jamais, car le serveur a besoin d'environ une seconde par tranche de 40 éléments. La médiathèque Kodi a toujours la distribution."
+
+msgctxt "#30821"
+msgid "Server error — %s"
+msgstr "Erreur du serveur — %s"
+
+msgctxt "#30822"
+msgid "Kept %s — its library entry could not be restored"
+msgstr "%s conservé — l'entrée de la médiathèque n'a pas pu être restaurée"

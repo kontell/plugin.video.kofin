@@ -1,6 +1,6 @@
 v0.22.0
-- Sync refactored
-- Fine sync works on a transcoded stream
+- Fine sync works supported for a transcoded stream
+- Add-on refactored
 - A spectator's own playback is no longer driven by the group
 - Kodi's audio/video queue is restored after an interrupted SyncPlay session
 - A library that fails to sync no longer abandons the ones after it
@@ -9,6 +9,12 @@ v0.22.0
 - A sync page that fails to fetch is retried, not dropped
 - A whitelisted library kind with no nodes is skipped, not fatal
 - The IPC nonce is no longer written to the log
+- Kodi's "Manage versions" picker no longer lists every film in the library
+- A user whose library access was withdrawn no longer has every synced library deleted from Kodi
+- Cast is written correctly after Kodi's own "Clean library" has run
+- Leaving a SyncPlay group during shutdown no longer holds Kodi past its five-second stop grace when the server has gone away
+- The widget-refresh fingerprint reads kofin's mapping table about forty times faster per row
+- A music library whose item count answers zero no longer crashes its sync
 
 v0.21.1
 - Joining a group in progress starts at the group's position, not double it

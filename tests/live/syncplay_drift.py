@@ -363,7 +363,7 @@ def sample(args):
             if device.resolve_player() is None:
                 idle.append(device.name)
         except Exception as error:
-            raise SystemExit("%s unreachable: %s" % (device.name, error))
+            raise SystemExit("%s unreachable: %s" % (device.name, error)) from error
 
     if idle:
         raise SystemExit("not playing: %s — start the group first" % ", ".join(idle))
@@ -421,7 +421,9 @@ def sample(args):
             rows = dict(
                 zip(
                     [d.name for d in devices],
-                    list(pool.map(lambda d: d.sample(want_flags), devices)),
+                    list(
+                        pool.map(lambda d, flags=want_flags: d.sample(flags), devices)
+                    ),
                 )
             )
             rounds += 1

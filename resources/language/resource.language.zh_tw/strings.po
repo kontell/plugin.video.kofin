@@ -2095,3 +2095,11 @@ msgstr "在外掛清單中顯示演員"
 msgctxt "#30820"
 msgid "Fetch cast and crew for the shorter add-on listings — Recently added, In progress, Next up, Continue watching, search results and a show's episodes — so the information dialog can show them. Whole-library listings never fetch it, because the server needs about a second for every 40 items. The Kodi library always has cast."
 msgstr "為外掛的短清單 — 最近加入、觀看中、接下來要看、繼續觀看、搜尋結果與影集的分集 — 取得演員與工作人員，讓資訊對話框能顯示。涵蓋整個媒體庫的清單一律不取得，因為伺服器每 40 個項目大約需要一秒。Kodi 媒體庫一律包含演員資訊。"
+
+msgctxt "#30821"
+msgid "Server error — %s"
+msgstr "伺服器錯誤 — %s"
+
+msgctxt "#30822"
+msgid "Kept %s — its library entry could not be restored"
+msgstr "已保留「%s」— 無法還原其媒體庫項目"

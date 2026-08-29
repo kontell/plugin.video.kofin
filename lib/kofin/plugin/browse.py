@@ -1,16 +1,17 @@
 """Directory listings: addon root, library nodes, and drill-down browsing."""
 
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import xbmcgui
 import xbmcplugin
 
 from kofin.core import settings, state
 from kofin.core.api import Api
-from kofin.core.http import JellyfinError, plugin_transport
+from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
+from kofin.core.urls import plugin_url
 from kofin.plugin import listitems
 from kofin.plugin.router import Request
 
@@ -187,6 +188,16 @@ CONTENT_TYPES = {
     "tvshows": "tvshows",
     "musicvideos": "musicvideos",
     "music": "artists",
+}
+
+# The Jellyfin item type one collection type is made of: the genre listing,
+# the year/tag filter menus and the tag pages all ask by it, and each used to
+# carry its own copy of this map (P2.1).
+ITEM_TYPES = {
+    "movies": "Movie",
+    "tvshows": "Series",
+    "music": "MusicAlbum",
+    "musicvideos": "MusicVideo",
 }
 
 # Stock Kodi icons for structural entries (never addon art — the skin
@@ -505,9 +516,62 @@ def _api() -> Optional[Api]:
     creds = Credentials.load()
     if not creds.is_logged_in:
         return None
-    return Api.from_credentials(
-        plugin_transport(settings.get_bool("sslVerify")), creds, interactive=True
-    )
+    return Api.for_plugin(creds)
+
+
+Builder = Callable[[Request, Api], None]
+
+
+def listing(request: Request, build: Builder, what: str) -> None:
+    """The opening every listing route shares (P2.1): nothing for a
+    handle-less invocation, a failed directory for a logged-out one, and a
+    failed directory — rather than a Kodi error dialog — when the server
+    refuses the fetch. ``build`` does the route's own work with the Api;
+    phase 0's router ``finally`` already guarantees the handle closes on
+    any other exception, so this is the same shape the six routes spelled
+    one by one, spelled once.
+
+    The root listing is not one of them on purpose: it tolerates a
+    logged-out state (Settings must stay reachable) and treats an
+    unavailable view list as a warning, not a failure.
+    """
+    if request.handle < 0:
+        return
+    api = _api()
+    if api is None:
+        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+        return
+    try:
+        build(request, api)
+    except JellyfinError as error:
+        LOG.warning("%s failed %s: %s", what, dict(request.params), error)
+        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+
+
+StructuralRow = Tuple[str, str, Dict[str, str]]
+
+
+def structural_row(
+    label: str, icon: str, params: Dict[str, str], folder: bool = True
+) -> Tuple[str, xbmcgui.ListItem, bool]:
+    """One row that stands for a place to go rather than a piece of media:
+    a label, stock art on both keys (:func:`structural_art`), a plugin URL."""
+    li = xbmcgui.ListItem(label)
+    li.setArt(structural_art(icon))
+    return plugin_url(params), li, folder
+
+
+def structural_rows(
+    request: Request, rows: Iterable[StructuralRow], content: str = ""
+) -> None:
+    """A whole structural menu — the search kinds, the alphabet, a
+    library's nodes, its years or tags — from ``(label, icon, params)``
+    triples, closed with the empty content type the skins need to draw
+    ``setArt(icon)`` instead of watched-status overlays (P2.1)."""
+    entries = [structural_row(label, icon, params) for label, icon, params in rows]
+    xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
+    xbmcplugin.setContent(request.handle, content)
+    xbmcplugin.endOfDirectory(request.handle)
 
 
 def _who_is_watching_label() -> str:
@@ -533,6 +597,8 @@ def root(request: Request) -> None:
     api = _api()
     entries: List[Tuple[str, xbmcgui.ListItem, bool]] = []
 
+    import xbmc
+
     if api is not None:
         # First, the way the web client leads with it: the one entry that is
         # about what the viewer was in the middle of rather than about where it
@@ -540,21 +606,24 @@ def root(request: Request) -> None:
         # every root render would pay for that question, and the answer changes
         # with every playback. Stock art on icon and thumb: Contuary list
         # glyphs bind ListItem.Icon, which prefers thumb over Art(icon).
-        resume_li = xbmcgui.ListItem(settings.localized(30049))
-        resume_art = node_icon("", "inprogress")
-        resume_li.setArt(structural_art(resume_art))
         entries.append(
-            (listitems.plugin_url({"mode": "continuewatching"}), resume_li, True)
+            structural_row(
+                settings.localized(30049),
+                node_icon("", "inprogress"),
+                {"mode": "continuewatching"},
+            )
         )
 
         # Search sits with Continue watching, above the libraries: both are
         # ways in that are not a place, and a viewer who knows what they want
         # should not have to pick a library first.
-        import xbmc as _xbmc
-
-        search_li = xbmcgui.ListItem(_xbmc.getLocalizedString(137))  # Search
-        search_li.setArt(structural_art("DefaultAddonsSearch.png"))
-        entries.append((listitems.plugin_url({"mode": "search"}), search_li, True))
+        entries.append(
+            structural_row(
+                xbmc.getLocalizedString(137),  # Search
+                "DefaultAddonsSearch.png",
+                {"mode": "search"},
+            )
+        )
 
         try:
             views = api.views().get("Items", [])
@@ -581,33 +650,43 @@ def root(request: Request) -> None:
             params = {"mode": "browse", "view": view.get("Id", ""), "type": collection}
             if collection not in NODES:
                 params["folder"] = "children"
-            entries.append((listitems.plugin_url(params), li, True))
-
-    import xbmc
+            entries.append((plugin_url(params), li, True))
 
     # "Who's watching?" — gone entirely when the Advanced-tab shortlist has
     # nobody on it, which is how the feature is switched off (adduser.py).
-    from kofin.plugin import adduser
+    from kofin.service import whoswatching
 
-    if api is not None and adduser.is_enabled():
-        adduser_li = xbmcgui.ListItem(_who_is_watching_label())
-        watching_art = _addon_media("person-search.png") or "DefaultUser.png"
-        adduser_li.setArt(structural_art(watching_art))
-        entries.append((listitems.plugin_url({"mode": "adduser"}), adduser_li, False))
+    if api is not None and whoswatching.is_enabled():
+        entries.append(
+            structural_row(
+                _who_is_watching_label(),
+                _addon_media("person-search.png") or "DefaultUser.png",
+                {"mode": "adduser"},
+                folder=False,
+            )
+        )
 
     # SyncPlay root entry (phase 4): gated on the master toggle, read fresh
     # each listing, and hidden when an external player is configured.
-    from kofin.plugin import syncplay
+    from kofin.syncplay import offer
 
-    if api is not None and syncplay.available():
-        syncplay_li = xbmcgui.ListItem(settings.localized(30560))
-        syncplay_art = _addon_media("syncplay-groups.png") or "DefaultUser.png"
-        syncplay_li.setArt(structural_art(syncplay_art))
-        entries.append((listitems.plugin_url({"mode": "syncplay"}), syncplay_li, False))
-    settings_li = xbmcgui.ListItem(xbmc.getLocalizedString(5))  # "Settings"
-    settings_art = "DefaultAddonService.png"
-    settings_li.setArt(structural_art(settings_art))
-    entries.append((listitems.plugin_url({"mode": "settings"}), settings_li, False))
+    if api is not None and offer.available():
+        entries.append(
+            structural_row(
+                settings.localized(30560),
+                _addon_media("syncplay-groups.png") or "DefaultUser.png",
+                {"mode": "syncplay"},
+                folder=False,
+            )
+        )
+    entries.append(
+        structural_row(
+            xbmc.getLocalizedString(5),  # "Settings"
+            "DefaultAddonService.png",
+            {"mode": "settings"},
+            folder=False,
+        )
+    )
 
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
     # Empty content (not "files"): Contuary/Estuary WideList only binds
@@ -622,24 +701,15 @@ def next_episodes(request: Request) -> None:
     """Next-up episodes for a library — the target of the generated
     'nextepisodes' video node (dynamic content Kodi can't express as a
     node filter)."""
-    if request.handle < 0:
-        return
-    api = _api()
-    if api is None:
-        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
-        return
 
-    view_id = request.params.get("id", "")
-    try:
+    def build(request: Request, api: Api) -> None:
+        view_id = request.params.get("id", "")
         items = api.next_up(view_id, bounded_fields()).get("Items", [])
-    except JellyfinError as error:
-        LOG.warning("next episodes failed (%s): %s", view_id, error)
-        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
-        return
+        _add_items(request, api, items, view_id, "tvshows")
+        xbmcplugin.setContent(request.handle, "episodes")
+        xbmcplugin.endOfDirectory(request.handle)
 
-    _add_items(request, api, items, view_id, "tvshows")
-    xbmcplugin.setContent(request.handle, "episodes")
-    xbmcplugin.endOfDirectory(request.handle)
+    listing(request, build, "next episodes")
 
 
 def continue_watching(request: Request) -> None:
@@ -656,60 +726,44 @@ def continue_watching(request: Request) -> None:
     played first, which is the whole point of the listing -- letting Kodi sort
     them by title would throw that away.
     """
-    if request.handle < 0:
-        return
-    api = _api()
-    if api is None:
-        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
-        return
 
-    try:
+    def build(request: Request, api: Api) -> None:
         items = api.resume(bounded_fields()).get("Items", [])
-    except JellyfinError as error:
-        LOG.warning("continue watching failed: %s", error)
-        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
-        return
+        _add_items(request, api, items, "", "")
+        # Movies and episodes in one listing: "videos" is the content type
+        # that describes both, and the items carry their own media type for
+        # the skin.
+        xbmcplugin.setContent(request.handle, "videos")
+        xbmcplugin.endOfDirectory(request.handle)
 
-    _add_items(request, api, items, "", "")
-    # Movies and episodes in one listing: "videos" is the content type that
-    # describes both, and the items carry their own media type for the skin.
-    xbmcplugin.setContent(request.handle, "videos")
-    xbmcplugin.endOfDirectory(request.handle)
+    listing(request, build, "continue watching")
 
 
 def browse(request: Request) -> None:
-    if request.handle < 0:
-        return
-    api = _api()
-    if api is None:
-        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
-        return
+    listing(request, _browse, "browse")
 
+
+def _browse(request: Request, api: Api) -> None:
     view_id = request.params.get("view", "")
     media = request.params.get("type", "")
     folder = request.params.get("folder", "")
 
-    try:
-        if not folder and media in NODES:
-            _node_menu(request, api, media, view_id)
-            return
-        if folder == "alpha":
-            _alpha_menu(request, media, view_id)
-            return
-        if folder in ("years", "tags"):
-            _filter_menu(request, api, media, view_id, folder)
-            return
-        if folder.startswith("tags-"):
-            _tag_menu(request, api, media, view_id, folder.split("-", 1)[1])
-            return
-        if folder == "extras" and media == "tvshows":
-            _extras_node(request, api, view_id)
-            return
-        items, content = _list_items(api, media, folder or "children", view_id, request)
-    except JellyfinError as error:
-        LOG.warning("browse failed (%s/%s): %s", media, folder, error)
-        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+    if not folder and media in NODES:
+        _node_menu(request, api, media, view_id)
         return
+    if folder == "alpha":
+        _alpha_menu(request, media, view_id)
+        return
+    if folder in ("years", "tags"):
+        _filter_menu(request, api, media, view_id, folder)
+        return
+    if folder.startswith("tags-"):
+        _tag_menu(request, api, media, view_id, folder.split("-", 1)[1])
+        return
+    if folder == "extras" and media == "tvshows":
+        _extras_node(request, api, view_id)
+        return
+    items, content = _list_items(api, media, folder or "children", view_id, request)
 
     _add_items(request, api, items, view_id, media)
     if media in ("series", "season"):
@@ -745,13 +799,10 @@ def search(request: Request) -> None:
     Every label here is a Kodi core string, so search adds no translatable id
     to the 27 locales.
     """
-    if request.handle < 0:
-        return
-    api = _api()
-    if api is None:
-        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
-        return
+    listing(request, _search, "search")
 
+
+def _search(request: Request, api: Api) -> None:
     person_id = request.params.get("person", "")
     if person_id:
         _search_person_items(request, api, person_id)
@@ -770,18 +821,13 @@ def search(request: Request) -> None:
         xbmcplugin.endOfDirectory(request.handle, succeeded=False)
         return
 
-    try:
-        if kind == "people":
-            items = api.persons(query, SEARCH_LIMIT).get("Items", [])
-            _add_person_items(request, api, items)
-            xbmcplugin.setContent(request.handle, "")
-            xbmcplugin.endOfDirectory(request.handle)
-            return
-        items = api.items(_search_query(kind, query)).get("Items", [])
-    except JellyfinError as error:
-        LOG.warning("search failed (%s/%s): %s", kind, query, error)
-        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
+    if kind == "people":
+        items = api.persons(query, SEARCH_LIMIT).get("Items", [])
+        _add_person_items(request, api, items)
+        xbmcplugin.setContent(request.handle, "")
+        xbmcplugin.endOfDirectory(request.handle)
         return
+    items = api.items(_search_query(kind, query)).get("Items", [])
 
     _add_items(request, api, items, "", "")
     xbmcplugin.setContent(request.handle, SEARCH_KINDS[kind][2])
@@ -798,15 +844,17 @@ def _search_menu(request: Request) -> None:
     """What can be searched. One row per kind, none of which asks anything."""
     import xbmc
 
-    entries = []
-    for kind, (label_id, _types, _content) in SEARCH_KINDS.items():
-        li = xbmcgui.ListItem(xbmc.getLocalizedString(label_id))
-        li.setArt(structural_art(SEARCH_ICONS[kind]))
-        path = listitems.plugin_url({"mode": "search", "type": kind})
-        entries.append((path, li, True))
-    xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
-    xbmcplugin.setContent(request.handle, "")
-    xbmcplugin.endOfDirectory(request.handle)
+    structural_rows(
+        request,
+        [
+            (
+                xbmc.getLocalizedString(label_id),
+                SEARCH_ICONS[kind],
+                {"mode": "search", "type": kind},
+            )
+            for kind, (label_id, _types, _content) in SEARCH_KINDS.items()
+        ],
+    )
 
 
 def _ask_for_query(kind: str) -> str:
@@ -872,7 +920,7 @@ def _add_person_items(request: Request, api: Api, items: List[JsonDict]) -> None
         li = listitems.build(item, api.server)
         if not li.getArt("thumb"):
             li.setArt(structural_art("DefaultActor.png"))
-        path = listitems.plugin_url({"mode": "search", "person": item.get("Id", "")})
+        path = plugin_url({"mode": "search", "person": item.get("Id", "")})
         entries.append((path, li, True))
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
 
@@ -880,66 +928,40 @@ def _add_person_items(request: Request, api: Api, items: List[JsonDict]) -> None
 def extras(request: Request) -> None:
     """Special features of a series/season (mode=extras) — a live listing
     over the SpecialFeatures endpoint, no DB writes (plan §2 TV extras)."""
-    if request.handle < 0:
-        return
-    api = _api()
-    if api is None:
-        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
-        return
 
-    item_id = request.params.get("id", "")
-    try:
-        items = api.special_features(item_id)
-    except JellyfinError as error:
-        LOG.warning("extras listing failed (%s): %s", item_id, error)
-        xbmcplugin.endOfDirectory(request.handle, succeeded=False)
-        return
+    def build(request: Request, api: Api) -> None:
+        items = api.special_features(request.params.get("id", ""))
+        _add_items(request, api, items, "", "")
+        xbmcplugin.setContent(request.handle, "videos")
+        xbmcplugin.endOfDirectory(request.handle)
 
-    _add_items(request, api, items, "", "")
-    xbmcplugin.setContent(request.handle, "videos")
-    xbmcplugin.endOfDirectory(request.handle)
+    listing(request, build, "extras listing")
 
 
 def _alpha_menu(request: Request, media: str, view_id: str) -> None:
     """The alphabet. Letters are letters, so no server call and no strings."""
-    entries = []
-    for letter in ALPHABET:
-        li = xbmcgui.ListItem(letter)
-        li.setArt(structural_art(node_icon(media, "alpha")))
-        path = listitems.plugin_url(
-            {
-                "mode": "browse",
-                "view": view_id,
-                "type": media,
-                "folder": "alpha-%s" % letter,
-            }
-        )
-        entries.append((path, li, True))
-    xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
-    xbmcplugin.setContent(request.handle, "")
-    xbmcplugin.endOfDirectory(request.handle)
+    icon = node_icon(media, "alpha")
+    structural_rows(
+        request,
+        [
+            (letter, icon, _folder_params(view_id, media, "alpha-%s" % letter))
+            for letter in ALPHABET
+        ],
+    )
 
 
 def _tag_letters(request: Request, media: str, view_id: str, values: List[Any]) -> None:
     """The initials a library's tags actually use, for a tag list too long to
     show flat. Only letters with tags behind them, so no empty rows."""
     letters = sorted({str(v)[:1].upper() or "#" for v in values})
-    entries = []
-    for letter in letters:
-        li = xbmcgui.ListItem(letter)
-        li.setArt(structural_art(node_icon(media, "tags")))
-        path = listitems.plugin_url(
-            {
-                "mode": "browse",
-                "view": view_id,
-                "type": media,
-                "folder": "tags-%s" % letter,
-            }
-        )
-        entries.append((path, li, True))
-    xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
-    xbmcplugin.setContent(request.handle, "")
-    xbmcplugin.endOfDirectory(request.handle)
+    icon = node_icon(media, "tags")
+    structural_rows(
+        request,
+        [
+            (letter, icon, _folder_params(view_id, media, "tags-%s" % letter))
+            for letter in letters
+        ],
+    )
 
 
 def _tag_menu(
@@ -948,22 +970,14 @@ def _tag_menu(
     """One letter's worth of tags."""
     values = api.filters(view_id, _search_item_type(media)).get("Tags") or []
     wanted = sorted(v for v in values if str(v)[:1].upper() == letter.upper())
-    entries = []
-    for value in wanted:
-        li = xbmcgui.ListItem(str(value))
-        li.setArt(structural_art(node_icon(media, "tags")))
-        path = listitems.plugin_url(
-            {
-                "mode": "browse",
-                "view": view_id,
-                "type": media,
-                "folder": "tag-%s" % value,
-            }
-        )
-        entries.append((path, li, True))
-    xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
-    xbmcplugin.setContent(request.handle, "")
-    xbmcplugin.endOfDirectory(request.handle)
+    icon = node_icon(media, "tags")
+    structural_rows(
+        request,
+        [
+            (str(value), icon, _folder_params(view_id, media, "tag-%s" % value))
+            for value in wanted
+        ],
+    )
 
 
 def _filter_menu(
@@ -993,49 +1007,47 @@ def _filter_menu(
         # letters come first and the tags sit under them.
         _tag_letters(request, media, view_id, values)
         return
-    entries = []
-    for value in values:
-        li = xbmcgui.ListItem(str(value))
-        li.setArt(structural_art(node_icon(media, kind)))
-        path = listitems.plugin_url(
-            {
-                "mode": "browse",
-                "view": view_id,
-                "type": media,
-                "folder": "%s-%s" % ("year" if kind == "years" else "tag", value),
-            }
-        )
-        entries.append((path, li, True))
-    xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
-    xbmcplugin.setContent(request.handle, "")
-    xbmcplugin.endOfDirectory(request.handle)
+    icon = node_icon(media, kind)
+    prefix = "year" if kind == "years" else "tag"
+    structural_rows(
+        request,
+        [
+            (
+                str(value),
+                icon,
+                _folder_params(view_id, media, "%s-%s" % (prefix, value)),
+            )
+            for value in values
+        ],
+    )
 
 
 def _search_item_type(media: str) -> str:
     """The Jellyfin item type one collection type is made of."""
-    return {
-        "movies": "Movie",
-        "tvshows": "Series",
-        "music": "MusicAlbum",
-        "musicvideos": "MusicVideo",
-    }.get(media, "")
+    return ITEM_TYPES.get(media, "")
+
+
+def _folder_params(view_id: str, media: str, folder: str) -> Dict[str, str]:
+    """The browse URL for one node of one library — the shape every
+    structural menu row links to."""
+    return {"mode": "browse", "view": view_id, "type": media, "folder": folder}
 
 
 def _node_menu(request: Request, api: Api, media: str, view_id: str) -> None:
     nodes = list(NODES[media])
     if media == "tvshows" and _view_has_specials(api, view_id):
         nodes.append(("extras", 30500))
-    entries = []
-    for key, label_id in nodes:
-        li = xbmcgui.ListItem(node_label(label_id))
-        li.setArt(structural_art(node_icon(media, key)))
-        path = listitems.plugin_url(
-            {"mode": "browse", "view": view_id, "type": media, "folder": key}
-        )
-        entries.append((path, li, True))
-    xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
-    xbmcplugin.setContent(request.handle, "")
-    xbmcplugin.endOfDirectory(request.handle)
+    structural_rows(
+        request,
+        [
+            (
+                node_label(label_id),
+                node_icon(media, key),
+                _folder_params(view_id, media, key),
+            )
+            for key, label_id in nodes
+        ],
+    )
 
 
 def _extras_node(request: Request, api: Api, view_id: str) -> None:
@@ -1057,7 +1069,7 @@ def _extras_node(request: Request, api: Api, view_id: str) -> None:
         # No apply_backdrop: these are series rows, and a media row keeps
         # whatever backdrop the server gave it or none (MEDIA_TYPES).
         li = listitems.build(item, api.server, resume_offset=resume_offset)
-        path = listitems.plugin_url({"mode": "extras", "id": item.get("Id", "")})
+        path = plugin_url({"mode": "extras", "id": item.get("Id", "")})
         entries.append((path, li, True))
     xbmcplugin.addDirectoryItems(request.handle, entries, len(entries))
     xbmcplugin.setContent(request.handle, "tvshows")
@@ -1106,10 +1118,10 @@ def _append_extras_entry(request: Request, api: Api, item_id: str) -> None:
         return
     if not count:
         return
-    li = xbmcgui.ListItem(settings.localized(30500))
-    li.setArt(structural_art("DefaultVideo.png"))
-    path = listitems.plugin_url({"mode": "extras", "id": item_id})
-    xbmcplugin.addDirectoryItems(request.handle, [(path, li, True)], 1)
+    row = structural_row(
+        settings.localized(30500), "DefaultVideo.png", {"mode": "extras", "id": item_id}
+    )
+    xbmcplugin.addDirectoryItems(request.handle, [row], 1)
 
 
 def _list_items(
@@ -1199,7 +1211,7 @@ def _add_items(
         if item_type in ("Genre", "MusicGenre"):
             if not li.getArt("thumb"):
                 li.setArt(structural_art("DefaultGenre.png"))
-            path = listitems.plugin_url(
+            path = plugin_url(
                 {
                     "mode": "browse",
                     "view": view_id,
@@ -1241,7 +1253,7 @@ def _add_items(
 
         path = listitems.path_for(item)
         if item_type == "Season":
-            path = listitems.plugin_url(
+            path = plugin_url(
                 {
                     "mode": "browse",
                     "folder": item.get("Id", ""),
@@ -1276,12 +1288,7 @@ def _node_content(media: str, node: str) -> str:
 
 
 def _genre_types(media: str) -> str:
-    return {
-        "movies": "Movie",
-        "tvshows": "Series",
-        "music": "MusicAlbum",
-        "musicvideos": "MusicVideo",
-    }.get(media, "")
+    return ITEM_TYPES.get(media, "")
 
 
 def _guess_content(items: List[JsonDict]) -> str:

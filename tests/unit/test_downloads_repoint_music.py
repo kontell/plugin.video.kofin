@@ -12,7 +12,7 @@ import pytest
 
 from kofin.downloads import repoint, store
 from kofin.sync import db as sync_db
-from kofin.sync import schema
+from kofin.sync import musicsources, schema
 from kofin.sync.kodidb.kodi import Kodi
 from tests.unit import kodifixtures
 from tests.unit.fakes import FakeAddon, FakeWindow
@@ -78,6 +78,32 @@ def song_row():
     )[0]
 
 
+def listed():
+    """songview inner-joins path: a song on a deleted row is in no listing."""
+    return music_query(
+        "SELECT COUNT(*) FROM songview WHERE strTitle = 'Opening Track'"
+    )[0][0]
+
+
+def mapped_path_id():
+    return kofin_query(
+        "SELECT kodi_pathid FROM jellyfin "
+        "WHERE jellyfin_id = 'song1' AND media_type = 'song'"
+    )[0][0]
+
+
+def startup_prune():
+    """What every service start runs (library.py check_version)."""
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        return musicsources.prune_orphan_paths(kdb.cursor, mdb.cursor)
+
+
+def delete_path_row(path_id):
+    """Kodi's own Clean library: any path row no song references goes."""
+    with sync_db.Database("music") as mdb:
+        mdb.cursor.execute("DELETE FROM path WHERE idPath = ?", (path_id,))
+
+
 def test_repoint_moves_the_song_row(writers_api):
     write_music_tree(writers_api)
     row = downloaded()
@@ -106,6 +132,86 @@ def test_restore_is_byte_identical(writers_api):
 
     assert repoint.restore(store.get("song1"), ROOT) is True
     assert music_dump(str(sync_db._path_overrides["music"])) == baseline
+
+
+def test_repoint_captures_the_server_path(writers_api):
+    """The row the restore needs is not guaranteed to survive (below), so the
+    string is captured beside the filename -- and only from a song still on
+    its server row, never from one already on its local directory."""
+    write_music_tree(writers_api)
+    original = song_row()[2]
+
+    assert repoint.repoint(downloaded(), ROOT) is True
+    assert store.get("song1").restore_path == original
+
+    assert repoint.repoint(store.get("song1"), ROOT) is True
+    assert store.get("song1").restore_path == original
+
+
+def test_the_startup_prune_spares_a_downloaded_songs_server_row(writers_api):
+    """The Bravia sequence (2026-08-28): download, service restart, delete.
+    The server row has no song on it while the download lives, and the sweep
+    used to take it -- then the restore put the song back onto a deleted id
+    and every listing dropped it. Now the sweep reads the mapping, and the
+    restore is byte-identical the way the plain one is."""
+    write_music_tree(writers_api)
+    baseline = music_dump(str(sync_db._path_overrides["music"]))
+    assert repoint.repoint(downloaded(), ROOT) is True
+
+    assert startup_prune() == 0
+
+    assert repoint.restore(store.get("song1"), ROOT) is True
+    assert music_dump(str(sync_db._path_overrides["music"])) == baseline
+    assert listed() == 1
+
+
+def test_restore_recreates_a_server_row_kodi_cleaned(writers_api):
+    """Kodi's own Clean library takes any path row no song references -- a
+    downloaded song's server row included -- and the mapping's id alone
+    cannot bring it back. The captured string can, and the mapping follows
+    the new id so the writers, the next repoint and delete_song agree."""
+    write_music_tree(writers_api)
+    original = song_row()[2]
+    stored = mapped_path_id()
+    assert repoint.repoint(downloaded(), ROOT) is True
+    delete_path_row(stored)
+
+    assert repoint.restore(store.get("song1"), ROOT) is True
+
+    path_id, filename, str_path = song_row()  # the join finds a row again
+    assert str_path == original
+    assert filename == "stream.flac?static=true"
+    assert path_id != stored
+    assert mapped_path_id() == path_id
+    assert listed() == 1
+    assert music_query("SELECT COUNT(*) FROM path WHERE strPath LIKE '/dl/%'") == [(0,)]
+
+
+def test_restore_of_a_legacy_row_refuses_rather_than_pointing_at_nothing(
+    writers_api,
+):
+    """A row captured before restore_path existed: put back by id while the
+    row is there, refused once it is not -- the song stays listed on its
+    local row instead of vanishing onto a deleted id."""
+    write_music_tree(writers_api)
+    baseline = music_dump(str(sync_db._path_overrides["music"]))
+    stored = mapped_path_id()
+
+    assert repoint.repoint(downloaded(), ROOT) is True
+    with sync_db.Database("kofin") as kdb:
+        store.set_restore_path_on(kdb.cursor, "song1", "")
+    assert repoint.restore(store.get("song1"), ROOT) is True
+    assert music_dump(str(sync_db._path_overrides["music"])) == baseline
+
+    assert repoint.repoint(store.get("song1"), ROOT) is True
+    with sync_db.Database("kofin") as kdb:
+        store.set_restore_path_on(kdb.cursor, "song1", "")
+    delete_path_row(stored)
+    assert repoint.restore(store.get("song1"), ROOT) is False
+    path_id, _filename, str_path = song_row()
+    assert str_path == "/dl/Music/The Band/Greatest Hits/"
+    assert path_id != stored
+    assert listed() == 1
 
 
 def test_restore_refuses_without_a_captured_filename(writers_api):

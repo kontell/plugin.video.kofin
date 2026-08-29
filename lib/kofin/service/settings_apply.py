@@ -1,12 +1,16 @@
 """The settings diff engine: a registry of ``setting id -> handler(old, new)``
-consulted from the service's ``onSettingsChanged`` (plan §2).
+consulted from the service's ``onSettingsChanged``.
 
-Phase 1's inline sslVerify handler lives here now. Phase 2 adds
-``librarySelection``: the whitelist csv written by the library picker. Its
-handler computes add/remove sets against the *synced* whitelist (sync.json)
-— not the previous csv — so a partially failed sync self-heals on the next
-apply. Removals confirm via yesno before rows are deleted; a declined
-removal restores the ids into the selection.
+The table (``SettingsApplier.handlers``) is the whole design: one handler
+per setting whose change the running service has to act on -- the transport
+(sslVerify), the library whitelist, the SyncPlay and downloads toggles, the
+who's-watching shortlist, the backdrop, the context-menu bitrates, the music
+playlists folder -- and everything not in the table is read fresh wherever
+it is used. The whitelist handler is the one with policy: it computes add/remove
+sets against the *synced* whitelist (sync.json), not the previous csv, so a
+partially failed sync self-heals on the next apply; removals confirm via
+yesno before rows are deleted, and a declined removal restores the ids into
+the selection.
 
 Startup guard (learned in S2 live testing): Kodi fires ``onSettingsChanged``
 while it loads the profile settings, and the fresh-``Addon()``-per-call reads
@@ -27,12 +31,14 @@ re-read on its own can land inside the same broken window. See
 ``_is_spurious_clear``.
 """
 
-from typing import Any, Callable, Dict, List, Optional
+import threading
+from typing import Callable, Dict, List, Optional
 
 import xbmcgui
 
 from kofin.core import settings, state
 from kofin.core.log import Logger
+from kofin.service.ports import LibraryPort, ServiceHooks, spawn_once
 
 LOG = Logger(__name__)
 
@@ -53,7 +59,7 @@ LOAD_CANARY = "deviceId"
 
 
 class SettingsApplier:
-    def __init__(self, service: object) -> None:
+    def __init__(self, service: ServiceHooks) -> None:
         self.service = service
         self.ready = False
         self.handlers: Dict[str, Handler] = {
@@ -71,6 +77,10 @@ class SettingsApplier:
             "downloadsPath": self._downloads_path_changed,
         }
         self.snapshot: Dict[str, str] = self._read_all()
+        # The one-shot worker a library removal's confirmation runs on; its
+        # slot, so a second save while the dialog is up is refused rather
+        # than doubled (see _library_selection_changed).
+        self._removal_worker: Optional[threading.Thread] = None
 
     def _read_all(self) -> Dict[str, str]:
         return {
@@ -175,23 +185,23 @@ class SettingsApplier:
 
     def _ssl_verify_changed(self, old: str, new: str) -> None:
         LOG.info("sslVerify changed; restarting service cycle")
-        self.service._restart_requested = True  # type: ignore[attr-defined]
+        self.service._restart_requested = True
 
     def _syncplay_enabled_changed(self, old: str, new: str) -> None:
         """The SyncPlay master toggle builds/tears down the manager live —
         off means no manager thread at all (plan §4)."""
         service = self.service
         if new == "true":
-            if getattr(service, "_online", False):
-                service._start_syncplay()  # type: ignore[attr-defined]
+            if service._online:
+                service._start_syncplay()
         else:
-            service._stop_syncplay()  # type: ignore[attr-defined]
+            service._stop_syncplay()
         self._publish_root_menus()
 
     def _syncplay_tempo_changed(self, old: str, new: str) -> None:
         """Fine sync arms at group join; a toggle while in a group takes
         effect now rather than at the next join."""
-        manager = getattr(self.service, "syncplay", None)
+        manager = self.service.syncplay
         if manager is not None:
             manager.refresh_tempo_session()
 
@@ -209,11 +219,12 @@ class SettingsApplier:
         a ``<visible>`` cannot read an addon setting (core/state.py).
         """
         from kofin.core.settings import Credentials
-        from kofin.plugin import adduser, syncplay
+        from kofin.service import whoswatching
+        from kofin.syncplay import offer
 
         logged_in = Credentials.load().is_logged_in
-        state.set_menu_who(logged_in and adduser.is_enabled())
-        state.set_menu_syncplay(logged_in and syncplay.available())
+        state.set_menu_who(logged_in and whoswatching.is_enabled())
+        state.set_menu_syncplay(logged_in and offer.available())
 
     def _context_bitrates_changed(self, old: str, new: str) -> None:
         """Keep the property addon.xml gates the transcode context item on."""
@@ -253,7 +264,7 @@ class SettingsApplier:
         cannot disagree about what is on disk.
         """
         service = self.service
-        service._start_backdrop(force=True)  # type: ignore[attr-defined]
+        service._start_backdrop(force=True)
 
     def _music_transcode_changed(self, old: str, new: str) -> None:
         """Path mode flip rewrites MyMusic rows later; rematerialize playlists
@@ -285,10 +296,10 @@ class SettingsApplier:
         the same shape as SyncPlay's (plan W1.1)."""
         service = self.service
         if new == "true":
-            if getattr(service, "_online", False):
-                service._start_downloads()  # type: ignore[attr-defined]
+            if service._online:
+                service._start_downloads()
         else:
-            service._stop_downloads()  # type: ignore[attr-defined]
+            service._stop_downloads()
         self._regenerate_nodes()
 
     def _regenerate_nodes(self) -> None:
@@ -360,7 +371,6 @@ class SettingsApplier:
     def _library_selection_changed(self, old: str, new: str) -> None:
         """The apply-on-save path for the library multiselect."""
         from kofin.sync import db as sync_db
-        from kofin.sync import kofindb
 
         selection = {part for part in new.split(",") if part}
 
@@ -379,8 +389,40 @@ class SettingsApplier:
             return
 
         if removal_entries:
-            removal_entries = self._confirm_removals(removal_entries, selection)
+            # The yes/no gate stays — it is the last thing before rows are
+            # deleted — but the thread it runs on moves. This handler runs
+            # inside Service.onSettingsChanged, and Kodi delivers a monitor
+            # callback on the thread that created the Monitor, from inside
+            # its own Kodi API calls: the service main thread. A modal here
+            # held that thread — the run loop and every other kofin player
+            # and monitor callback — for as long as the person took to
+            # answer (audit R5). A one-shot worker asks and dispatches; a
+            # second save while the dialog is up is refused with a log line
+            # rather than opening a second one.
+            def confirm_and_dispatch() -> None:
+                confirmed = self._confirm_removals(removal_entries, selection)
+                self._dispatch_selection(confirmed, additions)
 
+            worker = spawn_once(
+                self._removal_worker, confirm_and_dispatch, "kofin-library-removal"
+            )
+            if worker is None:
+                LOG.info("a library removal is already awaiting confirmation")
+                return
+            self._removal_worker = worker
+            return
+
+        self._dispatch_selection([], additions)
+
+    def join_removal(self, timeout: float = 5.0) -> None:
+        """Wait for a removal confirmation still in progress (tests, teardown)."""
+        worker = self._removal_worker
+        if worker is not None:
+            worker.join(timeout)
+
+    def _dispatch_selection(
+        self, removal_entries: List[str], additions: List[str]
+    ) -> None:
         library = self._library_manager()
         if library is None:
             LOG.warning("library selection changed but sync manager unavailable")
@@ -394,10 +436,10 @@ class SettingsApplier:
 
     # -- plumbing -------------------------------------------------------------
 
-    def _library_manager(self) -> Optional[Any]:
+    def _library_manager(self) -> Optional[LibraryPort]:
         service = self.service
-        service._start_library()  # type: ignore[attr-defined]
-        return getattr(service, "library", None)
+        service._start_library()
+        return service.library
 
     def _confirm_removals(
         self, removal_entries: List[str], selection: set

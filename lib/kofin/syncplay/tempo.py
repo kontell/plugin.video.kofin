@@ -503,13 +503,15 @@ class PulseScheduler(object):
     # ------------------------------------------------------------------
 
     def _start_pulse(self, rate, seconds, residual, ask_ms=None):
+        tempo_file = self.file
+        assert tempo_file is not None  # only called armed (_tick)
         schedule = pulse_schedule(rate, seconds)
         first = schedule[0][1]
         asked = time.time()
         self._awaiting = {
             "kind": "start",
             "rate": first,
-            "after_seq": self.file.current_seq(),
+            "after_seq": tempo_file.current_seq(),
             "asked": asked,
             "deadline": asked + APPLY_TIMEOUT_S,
             "plan": (
@@ -520,13 +522,15 @@ class PulseScheduler(object):
                 residual if ask_ms is None else ask_ms,
             ),
         }
-        self.file.write(first)
+        tempo_file.write(first)
         self._window = []
 
     def _check_awaiting(self, now):
         """A write is out: has the add-on's state line confirmed it yet?"""
         waiting = self._awaiting
-        line = self.file.read_state()
+        tempo_file = self.file
+        assert waiting is not None and tempo_file is not None  # armed, awaiting
+        line = tempo_file.read_state()
         confirmed = (
             line
             and int(line.get("seq") or 0) > waiting["after_seq"]
@@ -544,13 +548,15 @@ class PulseScheduler(object):
             self._pulse_ended(waiting, line if confirmed else None, now)
 
     def _pulse_started(self, waiting, applied, now):
+        tempo_file = self.file
+        assert tempo_file is not None  # only called armed (_check_awaiting)
         rate, seconds, residual, schedule, ask_ms = waiting["plan"]
 
         if applied is None:
             # Nothing answered: the playback is not going through the add-on
             # after all (or it is wedged). Either way do not leave a rate on
             # the file, and stop treating the item as routed.
-            self.file.write(1.0)
+            tempo_file.write(1.0)
             LOG.warning(
                 "[ syncplay/pulse ] %.3fx not applied within %.0fs; "
                 "command-only sync for this item",
@@ -583,7 +589,10 @@ class PulseScheduler(object):
         """Write whatever the schedule has due. Several overdue at once — a
         late tick — collapse to the latest, which is all the add-on's 250 ms
         poll would see anyway; the final 1.0 ends the pulse."""
-        writes = self._pulse["writes"]
+        pulse = self._pulse
+        tempo_file = self.file
+        assert pulse is not None and tempo_file is not None  # armed, pulsing
+        writes = pulse["writes"]
         due = None
 
         while writes and now >= writes[0][0]:
@@ -595,20 +604,22 @@ class PulseScheduler(object):
         if not writes:
             self._end_pulse(now)
         else:
-            self.file.write(due[1])
+            tempo_file.write(due[1])
 
     def _end_pulse(self, now):
+        tempo_file = self.file
+        assert tempo_file is not None  # only called armed (_advance_pulse)
         pulse = self._pulse
         self._pulse = None
         self._awaiting = {
             "kind": "end",
             "rate": 1.0,
-            "after_seq": self.file.current_seq(),
+            "after_seq": tempo_file.current_seq(),
             "asked": now,
             "deadline": now + APPLY_TIMEOUT_S,
             "pulse": pulse,
         }
-        self.file.write(1.0)
+        tempo_file.write(1.0)
 
     def _pulse_ended(self, waiting, landed, now):
         pulse = waiting["pulse"]
@@ -693,14 +704,17 @@ class PulseScheduler(object):
         the scheduler lock, and bounded.
         """
         with self._lock:
-            active = (self._pulse is not None or self._awaiting is not None) and (
-                self.file is not None
-            )
             tempo_file = self.file
-            before = tempo_file.current_seq() if active else 0
+            if tempo_file is not None and (
+                self._pulse is not None or self._awaiting is not None
+            ):
+                before = tempo_file.current_seq()
+            else:
+                tempo_file = None
+                before = 0
             self.cancel("seek")
 
-        if active:
+        if tempo_file is not None:
             tempo_file.wait_applied(1.0, before, timeout_s=1.0)
 
     def note_settle(self):
@@ -776,19 +790,6 @@ class PulseScheduler(object):
 
 
 #################################################################################################
-
-
-def _queue_secs_in_force():
-    """Kodi's audio/video queue depth in seconds, or the Omega constant."""
-    tenths = kodirpc.kodi_setting(QUEUE_SETTING)
-
-    if tenths is None:
-        return OMEGA_QUEUE_SECS
-
-    try:
-        return int(tenths) / 10.0
-    except (TypeError, ValueError):
-        return OMEGA_QUEUE_SECS
 
 
 def restore_queue(reason=""):
@@ -942,6 +943,17 @@ class TempoSession(object):
         the two for the item it is about to resolve.
         """
         current = kodirpc.kodi_setting(QUEUE_SETTING)
+
+        if current is kodirpc.FAILED:
+            # C3: a blip is not "this Kodi lacks the setting". Leave the
+            # queue untouched — no shorten, no record — and use the
+            # conservative window for this arm only.
+            LOG.warning(
+                "[ syncplay/tempo ] %s read failed; queue left untouched",
+                QUEUE_SETTING,
+            )
+            self.queue_full_tenths = None
+            return OMEGA_QUEUE_SECS
 
         if current is None:
             self.queue_full_tenths = None  # Kodi 21: fixed queue, not ours

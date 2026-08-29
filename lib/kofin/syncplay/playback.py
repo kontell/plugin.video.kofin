@@ -19,6 +19,7 @@ import xbmc
 from kofin.core import kodirpc
 from kofin.core.log import Logger
 from kofin.syncplay import utils
+from kofin.syncplay.utils import FOLLOWING, Phase
 from kofin.syncplay.tempo import PulseScheduler, SEEK_LAG_DEFAULT_MS
 
 #################################################################################################
@@ -98,6 +99,14 @@ class PlaybackController(object):
             LOG.warning("Command without a usable When: %s", command)
             return
 
+        if self._is_repeat(command):
+            LOG.info(
+                "[ syncplay/%s ] at %s already applied, ignoring the repeat",
+                command.get("Command"),
+                command.get("When"),
+            )
+            return
+
         fire_local_ms = when_ms - self.manager.offset_ms()
         delay = (fire_local_ms - utils.local_ms()) / 1000.0
 
@@ -114,9 +123,7 @@ class PlaybackController(object):
             return
 
         with self._timer_lock:
-            self._timer = threading.Timer(delay, self._execute, args=(command,))
-            self._timer.daemon = True
-            self._timer.start()
+            self._timer = utils.later(delay, self._execute, command)
 
         # With the timer armed, use the scheduling lead to line the player up
         # on the start position, so the fire instant starts from exactly the
@@ -133,7 +140,7 @@ class PlaybackController(object):
         PositionTicks — no extrapolation. Audio is excluded: a paused
         PAPlayer must never be seeked (it aligns after its resume instead).
         """
-        if self._is_audio() or self.manager.phase not in ("waiting_ready", "synced"):
+        if self._is_audio() or self.manager.phase not in FOLLOWING:
             return
 
         if self.manager.is_transcoding():
@@ -183,7 +190,7 @@ class PlaybackController(object):
         when a pulse is not confirmed, so it answers False exactly when nothing
         can be nudged.
         """
-        if self.manager.phase != "synced":
+        if self.manager.phase != Phase.SYNCED:
             return False
 
         if not self.tempo.can_close(offset_ms):
@@ -191,6 +198,38 @@ class PlaybackController(object):
 
         LOG.info("[ syncplay/align ] %+.0fms %s: left to fine sync", offset_ms, where)
         return True
+
+    @staticmethod
+    def _identity(command):
+        """What makes two commands the same group event."""
+        return (
+            command.get("Command"),
+            command.get("When"),
+            command.get("PositionTicks") or 0,
+        )
+
+    def _is_repeat(self, command):
+        """Has this exact command already been carried out?
+
+        The server re-issues the transport command when the last member
+        reports ready out of a Waiting state, so a member that reloaded to
+        serve a Seek is handed that same Seek again as it comes back --
+        identical ``When``, four seconds later. Re-applying is invisible on a
+        direct stream (a seek to where it already is) and a second full stop
+        and restart on a transcoded one, which is the reload the viewer sees
+        twice for one skip. Measured on a Pixel 7 Pro, 2026-08-28: one group
+        skip, two reloads, 6.5s of black.
+
+        ``When`` is the server's own instant for the event, so equality here
+        means the same event and not a second one that happens to match.
+        ``last_command`` is cleared whenever the group's playback ends or the
+        member detaches, which is exactly when the same command could
+        legitimately arrive again.
+        """
+        if self.last_command is None:
+            return False
+
+        return self._identity(self.last_command) == self._identity(command)
 
     def cancel_pending(self):
         with self._timer_lock:
@@ -232,11 +271,11 @@ class PlaybackController(object):
         # for media that is right there, paused (fork field log 2026-07-10).
         phase = self.manager.phase
 
-        if phase == "loading":
+        if phase == Phase.LOADING:
             LOG.info("Unpause while still loading, deferring to ready flow")
             return
 
-        if phase not in ("waiting_ready", "synced"):
+        if phase not in FOLLOWING:
             LOG.info("Unpause with nothing followed, ignoring")
             return
 
@@ -437,7 +476,10 @@ class PlaybackController(object):
         if not self._has_media():
             return
 
-        with self.manager.programmatic():
+        # Y1: schedule() arms the timer and then pre-aligns on the dispatcher
+        # under _player_lock, so a timer-thread Pause fired mid-align waits
+        # its turn instead of interleaving with that seek.
+        with self._player_lock, self.manager.programmatic():
             if not self._is_paused():
                 self.player.pause()
 
@@ -459,7 +501,7 @@ class PlaybackController(object):
             # group Seek with an Unpause carrying the same position, so
             # pause here, promise the target in the ready report, and let
             # the Unpause land it on resume.
-            with self.manager.programmatic():
+            with self._player_lock, self.manager.programmatic():  # Y1
                 if not self._is_paused():
                     self.player.pause()
 
@@ -480,7 +522,7 @@ class PlaybackController(object):
             self.manager.reload_current_item()
             return
 
-        with self.manager.programmatic():
+        with self._player_lock, self.manager.programmatic():  # Y1
             if not self._is_paused():
                 self.player.pause()
 
@@ -492,7 +534,7 @@ class PlaybackController(object):
         # Read before on_group_stopped() resets it: only media SyncPlay
         # is actually driving is stopped — a group Stop must not kill a
         # detached spectator's own playback.
-        was_following = self.manager.phase != "idle"
+        was_following = self.manager.phase != Phase.IDLE
 
         self.cancel_pending()
         self.manager.on_group_stopped()
@@ -521,7 +563,7 @@ class PlaybackController(object):
         play takes. SyncPlay group starts are unattended by definition; the
         plugin play path has no dialogs, so nothing needs suppressing.
         """
-        from kofin.plugin.listitems import plugin_url
+        from kofin.core.urls import plugin_url
 
         item_id = item.get("Id")
 
@@ -688,7 +730,7 @@ class PlaybackController(object):
                     self._caching_since = None
                     continue
 
-                if self.manager.phase not in ("waiting_ready", "synced"):
+                if self.manager.phase not in FOLLOWING:
                     continue
 
                 self._watch_buffering()
@@ -703,7 +745,7 @@ class PlaybackController(object):
                     self.tempo.cancel("spectator playing own media")
                     continue
 
-                if self.manager.phase == "synced" and self._expecting_playback():
+                if self.manager.phase == Phase.SYNCED and self._expecting_playback():
                     self.tempo.tick()
             except Exception as error:
                 LOG.exception("SyncPlay loop error: %s", error)

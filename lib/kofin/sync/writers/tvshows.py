@@ -5,7 +5,7 @@ Adaptations per plan §3: imports/shims, addon id and path base,
 kofin Api."""
 
 import sqlite3
-from typing import Any, List
+from typing import List
 from urllib.parse import urlencode
 
 from kofin.core.log import Logger
@@ -258,9 +258,11 @@ class TVShows(KodiDb):
                 self.item_ids.append(season["Id"])
             except TypeError:
                 self.season(season, obj["ShowId"])
-        else:
-            season_id = self.get_season(*values(obj, QU.get_season_special_obj))
-            self.artwork.add(obj["Artwork"], season_id, "season")
+        # Unconditionally after the loop (it was a for...else with no break,
+        # which runs the else every time — audit R1): the "all seasons" row
+        # every show carries.
+        season_id = self.get_season(*values(obj, QU.get_season_special_obj))
+        self.artwork.add(obj["Artwork"], season_id, "season")
 
         for season in season_episodes:
             for episodes in server.get_episode_by_season(
@@ -353,9 +355,13 @@ class TVShows(KodiDb):
                     % trailer[0]["Id"]
                 )
             elif obj["Trailer"]:
+                # As Movies.trailer(): every YouTube URL shape, None for the
+                # rest (audit R3).
+                video_id = api.youtube_video_id(obj["Trailer"])
                 obj["Trailer"] = (
-                    "plugin://plugin.video.youtube/play/?video_id=%s"
-                    % obj["Trailer"].rsplit("=", 1)[1]
+                    "plugin://plugin.video.youtube/play/?video_id=%s" % video_id
+                    if video_id
+                    else None
                 )
         except Exception as error:
             # Deviation from the fork, as Movies.trailer(): a 404 on the
@@ -859,10 +865,9 @@ class TVShows(KodiDb):
                         *values(temp_obj, QUEM.get_item_by_parent_season_obj)
                     ):
                         self.remove_season(season[1], obj["Id"])
-                    else:
-                        self.jellyfin_db.remove_items_by_parent_id(
-                            *values(temp_obj, QUEM.delete_item_by_parent_season_obj)
-                        )
+                    self.jellyfin_db.remove_items_by_parent_id(
+                        *values(temp_obj, QUEM.delete_item_by_parent_season_obj)
+                    )
 
                     self.remove_tvshow(temp_obj["ParentId"], obj["Id"])
                     self.jellyfin_db.remove_item(
@@ -883,14 +888,12 @@ class TVShows(KodiDb):
                     *values(temp_obj, QUEM.get_item_by_parent_episode_obj)
                 ):
                     self.remove_episode(episode[1], episode[2], obj["Id"])
-                else:
-                    self.jellyfin_db.remove_items_by_parent_id(
-                        *values(temp_obj, QUEM.delete_item_by_parent_episode_obj)
-                    )
-            else:
                 self.jellyfin_db.remove_items_by_parent_id(
-                    *values(obj, QUEM.delete_item_by_parent_season_obj)
+                    *values(temp_obj, QUEM.delete_item_by_parent_episode_obj)
                 )
+            self.jellyfin_db.remove_items_by_parent_id(
+                *values(obj, QUEM.delete_item_by_parent_season_obj)
+            )
 
             self.remove_tvshow(obj["KodiId"], obj["Id"])
 
@@ -928,10 +931,9 @@ class TVShows(KodiDb):
                 *values(season_obj, QUEM.get_item_by_parent_episode_obj)
             ):
                 self.remove_episode(episode[1], episode[2], obj["Id"])
-            else:
-                self.jellyfin_db.remove_items_by_parent_id(
-                    *values(season_obj, QUEM.delete_item_by_parent_episode_obj)
-                )
+            self.jellyfin_db.remove_items_by_parent_id(
+                *values(season_obj, QUEM.delete_item_by_parent_episode_obj)
+            )
 
             self.remove_season(obj["KodiId"], obj["Id"])
 
@@ -947,8 +949,7 @@ class TVShows(KodiDb):
         # Remove any series pooling episodes
         for episode in self.jellyfin_db.get_media_by_parent_id(obj["Id"]):
             self.remove_episode(episode[2], episode[3], obj["Id"])
-        else:
-            self.jellyfin_db.remove_media_by_parent_id(obj["Id"])
+        self.jellyfin_db.remove_media_by_parent_id(obj["Id"])
 
         self.jellyfin_db.remove_item(*values(obj, QUEM.delete_item_obj))
 
@@ -984,37 +985,3 @@ class TVShows(KodiDb):
             self.remove_file("plugin://plugin.video.kofin/", filename)
 
         LOG.debug("DELETE episode [%s/%s] %s", file_id, kodi_id, item_id)
-
-    @jellyfin_item
-    def get_child(self, item_id, e_item):
-        """Get all child elements from tv show jellyfin id."""
-        obj = {"Id": item_id}
-        child: List[Any] = []
-
-        try:
-            obj["KodiId"] = e_item[0]
-            obj["FileId"] = e_item[1]
-            obj["ParentId"] = e_item[3]
-            obj["Media"] = e_item[4]
-        except TypeError:
-            return child
-
-        obj["ParentId"] = obj["KodiId"]
-
-        for season in self.jellyfin_db.get_item_by_parent_id(
-            *values(obj, QUEM.get_item_by_parent_season_obj)
-        ):
-
-            temp_obj = dict(obj)
-            temp_obj["ParentId"] = season[1]
-            child.append(season[0])
-
-            for episode in self.jellyfin_db.get_item_by_parent_id(
-                *values(temp_obj, QUEM.get_item_by_parent_episode_obj)
-            ):
-                child.append(episode[0])
-
-        for episode in self.jellyfin_db.get_media_by_parent_id(obj["Id"]):
-            child.append(episode[0])
-
-        return child

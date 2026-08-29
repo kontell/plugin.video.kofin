@@ -135,7 +135,11 @@ class Objects(object):
         if obj:
             for item in obj:
                 if rest:
-                    self.__recursiveloop__(item, rest)
+                    # ``yield from``: the recursive call is a generator, and
+                    # calling it without iterating yielded nothing at all for
+                    # any mapping with two or more ``:`` segments (audit R6;
+                    # no mapping in obj_map.json has one yet).
+                    yield from self.__recursiveloop__(item, rest)
                 else:
                     yield item
 
@@ -151,8 +155,11 @@ class Objects(object):
         return obj
 
     def __filters__(self, obj, filters):
-
-        result = False
+        # Every filter must hold: the fork assigned the result on each pass,
+        # so with two ``&``-joined filters only the last one decided (audit
+        # R6; no mapping in obj_map.json joins two yet). No filters is still
+        # no match, as before — callers never reach here without one.
+        result = bool(filters)
 
         for key, value in filters.items():
 
@@ -166,6 +173,7 @@ class Objects(object):
             if value.lower() == "null":
                 value = None
 
-            result = obj.get(key) != value if inverse else obj.get(key) == value
+            matched = obj.get(key) != value if inverse else obj.get(key) == value
+            result = result and matched
 
         return result

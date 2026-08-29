@@ -21,7 +21,8 @@ and with an empty sources.xml it disagrees the moment kofin writes a row —
 so any user-triggered music scan empties every node this feature draws.
 """
 
-from typing import Dict, List
+from contextlib import contextmanager
+from typing import Dict, Iterator, List
 
 from kofin.core.log import Logger
 from kofin.sync.kodidb.music import Music
@@ -80,20 +81,9 @@ def reassert(kofin_cursor, music_cursor, views):
     main database is in WAL mode does not apply: every write lands in
     MyMusic.
     """
-    music = Music(music_cursor)
     sources = {}
 
-    # ATTACH is refused inside a transaction and every caller has usually
-    # opened one — ``check_version`` runs prune_orphan_paths first, and
-    # ``full_sync`` arrives here at the end of a library write pass. Flushing
-    # theirs is safe rather than merely convenient: the repair paths are
-    # idempotent, and the writers already commit per page, so the most this
-    # can promote from "would have rolled back" to "committed" is the tail of
-    # a pass the resume machinery re-runs anyway.
-    music_cursor.connection.commit()
-    music.attach_mapping(_mapping_path(kofin_cursor))
-
-    try:
+    with mapped(kofin_cursor, music_cursor) as music:
         for view in views:
             view_id = _view_id(view)
             source_id = music.ensure_source(view_id, source_name(view_id, views))
@@ -103,24 +93,57 @@ def reassert(kofin_cursor, music_cursor, views):
             music.link_library_song_albums(view_id, source_id)
 
         removed = music.prune_sources(sources)
-    except BaseException:
-        # ``Database.__exit__`` rolls back on the error path on purpose
-        # (audit finding #15). The commit DETACH forces on us must not quietly
-        # convert that into "half a reconcile, persisted".
-        music_cursor.connection.rollback()
-        raise
-    else:
-        # DETACH is refused inside a transaction too, so the reconcile's own
-        # writes commit here rather than at the caller's context exit.
-        music_cursor.connection.commit()
-    finally:
-        # Either arm above ended the transaction, so this can always run.
-        music.detach_mapping()
 
     if removed:
         LOG.info("removed %d music source(s) for unsynced libraries", removed)
 
     return sources
+
+
+def prune_orphan_paths(kofin_cursor, music_cursor) -> int:
+    """Reclaim the path rows kofin abandoned; how many went.
+
+    The statement needs the mapping in-engine — a downloaded song's server
+    row is referenced by nothing in MyMusic and must be spared — so it runs
+    inside the same ATTACH window as the reconcile. ``check_version`` calls
+    it once per service start.
+    """
+    with mapped(kofin_cursor, music_cursor) as music:
+        return int(music.prune_orphan_paths())
+
+
+@contextmanager
+def mapped(kofin_cursor, music_cursor) -> Iterator[Music]:
+    """kofin.db ATTACHed to the music connection for the block's duration.
+
+    ATTACH is refused inside a transaction and every caller has usually
+    opened one — ``check_version`` arrives with its blank-artist repair
+    pending, ``full_sync`` at the end of a library write pass. Flushing
+    theirs is safe rather than merely convenient: the repair paths are
+    idempotent, and the writers already commit per page, so the most this
+    can promote from "would have rolled back" to "committed" is the tail of
+    a pass the resume machinery re-runs anyway.
+
+    DETACH is refused inside a transaction too, so the block's own writes
+    commit here rather than at the caller's context exit — and on the error
+    path they roll back first, because ``Database.__exit__`` rolls back on
+    purpose (audit finding #15) and the commit DETACH forces must not
+    quietly convert that into "half a reconcile, persisted".
+    """
+    music = Music(music_cursor)
+    music_cursor.connection.commit()
+    music.attach_mapping(_mapping_path(kofin_cursor))
+
+    try:
+        yield music
+    except BaseException:
+        music_cursor.connection.rollback()
+        raise
+    else:
+        music_cursor.connection.commit()
+    finally:
+        # Either arm above ended the transaction, so this can always run.
+        music.detach_mapping()
 
 
 def _mapping_path(kofin_cursor):

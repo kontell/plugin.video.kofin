@@ -6,29 +6,18 @@ This handler only validates that a menu makes sense right now and sends
 ``SyncPlayMenu``; the service opens the menu on a dedicated worker thread.
 """
 
-import xbmcvfs
-
 from kofin.core import ipc, settings, state, toast
 from kofin.core.log import Logger
 from kofin.plugin.router import Request
 
+# Re-exported: the root listing and this route gate on them; the gates
+# themselves live with the syncplay package so the service can read them
+# without importing the plugin (P1.5).
+from kofin.syncplay.offer import available, external_player_configured
+
 LOG = Logger(__name__)
 
-
-def external_player_configured() -> bool:
-    """A playercorefactory override routes video to a non-kofin external
-    player, which SyncPlay cannot drive (report §9.5.5) — the root entry is
-    hidden and the menu refuses."""
-    return bool(
-        xbmcvfs.exists("special://profile/playercorefactory.xml")
-        or xbmcvfs.exists("special://masterprofile/playercorefactory.xml")
-    )
-
-
-def available() -> bool:
-    """Whether the SyncPlay root entry should be offered (read fresh per
-    root listing: the master toggle on, no external player configured)."""
-    return settings.get_bool("syncPlayEnabled") and not external_player_configured()
+__all__ = ["available", "external_player_configured", "menu"]
 
 
 def menu(request: Request) -> None:

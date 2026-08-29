@@ -222,31 +222,42 @@ def build(
         max_bitrate = int(bitrate_mbps * 1_000_000)
 
     audio_codecs = _preferred_first(config.audio_codecs, config.preferred_audio)
-    tokens = set(config.video_codecs)
-    h264 = "h264" in tokens
-    h264_10bit = "h264_10bit" in tokens
-    hevc = "hevc" in tokens
-    hevc_rext = "hevc_rext" in tokens
     video_codecs = _direct_video_codecs(config)
 
-    profile: JsonDict = {
+    return _envelope(
+        config,
+        max_bitrate,
+        _transcoding_profiles(config, audio_codecs, video_codecs, max_bitrate),
+        _direct_play_profiles(
+            config, audio_codecs, video_codecs, force_direct, force_transcode
+        ),
+        force_direct,
+        burn_subtitles,
+    )
+
+
+def _envelope(
+    config: ProfileConfig,
+    max_bitrate: int,
+    transcoding: List[JsonDict],
+    direct: List[JsonDict],
+    force_direct: bool,
+    burn_subtitles: bool,
+) -> JsonDict:
+    """The DeviceProfile shell :func:`build` and :func:`build_download`
+    share (P1.8): the envelope fields, the codec profiles — which derive
+    their own capability tokens from ``config`` — and the subtitle list."""
+    return {
         "Name": "Kodi",
         "MaxStreamingBitrate": max_bitrate,
         "MaxStaticBitrate": max_bitrate,
         "MusicStreamingTranscodingBitrate": config.music_bitrate_kbps * 1000,
         "TimelineOffsetSeconds": 5,
-        "TranscodingProfiles": _transcoding_profiles(
-            config, audio_codecs, video_codecs, max_bitrate
-        ),
-        "DirectPlayProfiles": _direct_play_profiles(
-            config, audio_codecs, video_codecs, force_direct, force_transcode
-        ),
-        "CodecProfiles": _codec_profiles(
-            config, force_direct, h264, h264_10bit, hevc, hevc_rext, tokens
-        ),
+        "TranscodingProfiles": transcoding,
+        "DirectPlayProfiles": direct,
+        "CodecProfiles": _codec_profiles(config, force_direct),
         "SubtitleProfiles": _subtitle_profiles(burn_subtitles),
     }
-    return profile
 
 
 def _subtitle_profiles(burn_subtitles: bool) -> List[JsonDict]:
@@ -317,31 +328,26 @@ def build_download(config: ProfileConfig) -> JsonDict:
         max_bitrate = int(config.max_bitrate_mbps * 1_000_000)
 
     audio_codecs = _preferred_first(config.audio_codecs, config.preferred_audio)
-    tokens = set(config.video_codecs)
     video_codecs = _direct_video_codecs(config)
 
+    return _envelope(
+        config,
+        max_bitrate,
+        _download_transcoding_profiles(config, audio_codecs, video_codecs, max_bitrate),
+        _download_direct_play_profiles(config, audio_codecs, video_codecs),
+        False,
+        False,
+    )
+
+
+def _music_transcoding_profile(config: ProfileConfig) -> JsonDict:
     return {
-        "Name": "Kodi",
-        "MaxStreamingBitrate": max_bitrate,
-        "MaxStaticBitrate": max_bitrate,
-        "MusicStreamingTranscodingBitrate": config.music_bitrate_kbps * 1000,
-        "TimelineOffsetSeconds": 5,
-        "TranscodingProfiles": _download_transcoding_profiles(
-            config, audio_codecs, video_codecs, max_bitrate
-        ),
-        "DirectPlayProfiles": _download_direct_play_profiles(
-            config, audio_codecs, video_codecs
-        ),
-        "CodecProfiles": _codec_profiles(
-            config,
-            False,
-            "h264" in tokens,
-            "h264_10bit" in tokens,
-            "hevc" in tokens,
-            "hevc_rext" in tokens,
-            tokens,
-        ),
-        "SubtitleProfiles": _subtitle_profiles(False),
+        "Type": "Audio",
+        "Container": config.music_codec,
+        "AudioCodec": config.music_codec,
+        "Context": "Streaming",
+        "Protocol": "http",
+        "MaxAudioChannels": "2",
     }
 
 
@@ -381,24 +387,10 @@ def _download_transcoding_profiles(
         "Protocol": "http",
         "MaxAudioChannels": str(config.max_channels),
     }
-    audio_bps = audio_bitrate_bps(config.audio_bitrate_kbps, max_bitrate)
-    if audio_bps > 0:
-        video["Conditions"] = [
-            {
-                "Condition": "LessThanEqual",
-                "Property": "AudioBitrate",
-                "Value": str(audio_bps),
-                "IsRequired": False,
-            }
-        ]
-    music: JsonDict = {
-        "Type": "Audio",
-        "Container": config.music_codec,
-        "AudioCodec": config.music_codec,
-        "Context": "Streaming",
-        "Protocol": "http",
-        "MaxAudioChannels": "2",
-    }
+    conditions = _audio_bitrate_conditions(config, max_bitrate)
+    if conditions is not None:
+        video["Conditions"] = conditions
+    music = _music_transcoding_profile(config)
     return [video, music]
 
 
@@ -407,19 +399,7 @@ def _download_direct_play_profiles(
 ) -> List[JsonDict]:
     profiles: List[JsonDict] = []
     if video_codecs:
-        direct_video = list(video_codecs)
-        if config.preferred_video not in direct_video:
-            direct_video.append(config.preferred_video)
-        # No Container constraint on purpose: the download plays from disk
-        # through Kodi's own demuxer, which reads anything ffmpeg does, so a
-        # container must never be what forces a transcode.
-        profiles.append(
-            {
-                "Type": "Video",
-                "VideoCodec": ",".join(direct_video),
-                "AudioCodec": ",".join(audio_codecs),
-            }
-        )
+        profiles.append(_video_direct_play_profile(config, audio_codecs, video_codecs))
     profiles.append({"Type": "Audio", "AudioCodec": ",".join(LOSSY_AUDIO_CODECS)})
     return profiles
 
@@ -456,29 +436,12 @@ def _transcoding_profiles(
         "MinSegments": "1",
         "BreakOnNonKeyFrames": True,
     }
-    audio_bps = audio_bitrate_bps(config.audio_bitrate_kbps, max_bitrate)
-    if audio_bps > 0:
-        # Output constraint for transcodes only — never a direct-play gate.
-        # Capped against the streaming budget so the profile agrees with the
-        # split ``plugin/play.py`` writes into the transcoding URL.
-        common["Conditions"] = [
-            {
-                "Condition": "LessThanEqual",
-                "Property": "AudioBitrate",
-                "Value": str(audio_bps),
-                "IsRequired": False,
-            }
-        ]
+    conditions = _audio_bitrate_conditions(config, max_bitrate)
+    if conditions is not None:
+        common["Conditions"] = conditions
     ts: JsonDict = dict(common, Container="ts", VideoCodec=",".join(ts_codecs))
 
-    music: JsonDict = {
-        "Type": "Audio",
-        "Container": config.music_codec,
-        "AudioCodec": config.music_codec,
-        "Context": "Streaming",
-        "Protocol": "http",
-        "MaxAudioChannels": "2",
-    }
+    music = _music_transcoding_profile(config)
 
     # The fMP4 leg exists to carry av1, so it is offered only when the device
     # decodes av1 — same rule _direct_play_profiles applies to the preferred
@@ -497,6 +460,26 @@ def _transcoding_profiles(
     fmp4: JsonDict = dict(common, Container="mp4", VideoCodec="av1")
     video_profiles = [fmp4, ts] if config.preferred_video == "av1" else [ts, fmp4]
     return video_profiles + [music]
+
+
+def _audio_bitrate_conditions(
+    config: ProfileConfig, max_bitrate: int
+) -> Optional[List[JsonDict]]:
+    """Output constraint for transcodes only — never a direct-play gate.
+    Capped against the streaming budget so the profile agrees with the
+    split ``plugin/play.py`` writes into the transcoding URL; None when
+    no cap applies."""
+    audio_bps = audio_bitrate_bps(config.audio_bitrate_kbps, max_bitrate)
+    if audio_bps <= 0:
+        return None
+    return [
+        {
+            "Condition": "LessThanEqual",
+            "Property": "AudioBitrate",
+            "Value": str(audio_bps),
+            "IsRequired": False,
+        }
+    ]
 
 
 def _direct_play_profiles(
@@ -529,28 +512,32 @@ def _direct_play_profiles(
     if config.force_remux or config.force_transcode or not video_codecs:
         return audio
 
+    return [_video_direct_play_profile(config, audio_codecs, video_codecs)] + audio
+
+
+def _video_direct_play_profile(
+    config: ProfileConfig, audio_codecs: List[str], video_codecs: List[str]
+) -> JsonDict:
+    """No Container constraint on purpose: a stream and a downloaded file
+    both go through demuxers that read anything ffmpeg does, so a container
+    must never be what forces a transcode. Preferring a codec implies the
+    device decodes it."""
     direct_video = list(video_codecs)
     if config.preferred_video not in direct_video:
-        # Preferring a codec implies the device decodes it.
         direct_video.append(config.preferred_video)
-    return [
-        {
-            "Type": "Video",
-            "VideoCodec": ",".join(direct_video),
-            "AudioCodec": ",".join(audio_codecs),
-        }
-    ] + audio
+    return {
+        "Type": "Video",
+        "VideoCodec": ",".join(direct_video),
+        "AudioCodec": ",".join(audio_codecs),
+    }
 
 
-def _codec_profiles(
-    config: ProfileConfig,
-    force_direct: bool,
-    h264: bool,
-    h264_10bit: bool,
-    hevc: bool,
-    hevc_rext: bool,
-    tokens: "set[str]",
-) -> List[JsonDict]:
+def _codec_profiles(config: ProfileConfig, force_direct: bool) -> List[JsonDict]:
+    tokens = set(config.video_codecs)
+    h264 = "h264" in tokens
+    h264_10bit = "h264_10bit" in tokens
+    hevc = "hevc" in tokens
+    hevc_rext = "hevc_rext" in tokens
     profiles: List[JsonDict] = []
 
     if h264 and not h264_10bit:

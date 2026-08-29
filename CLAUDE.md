@@ -120,6 +120,19 @@ What remains is kofin's own:
   (`service/backdrop.py`, `core/api.py::splashscreen`, `plugin/browse.py`).
 - Extras/videoversion writes read the VERSION itemType from the seeded 40400 row and the EXTRA
   value from `schema.EXTRA_ITEM_TYPE` — both differ across gated schemas.
+- **A single-file movie's `MediaSource.Name` is its file stem, not a label.** Jellyfin's
+  `GetMediaSourceName` returns the file name without extension unless local alternate versions
+  exist (then the folder prefix is stripped and a suffix label remains). `resolve_version_type`
+  maps a stem-named source to the seeded Standard Edition; minting a `videoversiontype` row per
+  name put 1,799 entries in Kodi's "Manage versions" picker for 1,784 films, none versioned, and
+  nothing sweeps that table but kofin's own `sweep_orphan_version_types` (Kodi's only deletes are
+  its v128/v131 migrations). A rewrite or removal runs the sweep; Repair converts old profiles.
+- **An empty listing against existing references is not a deletion order** — the rule lives in
+  three places and every one is load-bearing: `boxsets.sweep_stale`, the prune's
+  `get_existing_ids`, and `Views.get_views`, whose floor is gated on the whitelist (not on "no
+  views", since a Live TV grant still lists one) and sits *before* the `SortedViews` stamp,
+  because an empty stamp would regenerate an empty node tree. A withdrawn user gets `/UserViews`
+  200 with zero items and a 403 on MediaFolders (executed on jf12, `tests/live/jf12_user_policy.py`).
 - **A TranscodingProfile is a device statement, not a spare tyre.** Jellyfin's `StreamBuilder`
   *ranks* the transcoding profiles instead of taking the first that matches, and one whose
   `VideoCodec` list holds the source codec ranks top so the server can stream-copy into it. So a
@@ -140,6 +153,14 @@ What remains is kofin's own:
   itself rather than leaving it to `backfill_library_claim`, which needs a Kodi dbid off
   `Player.OnPlay` that a group start does not carry. A request naming a source, a track or a
   bitrate still streams — a download has only the tracks it was made with.
+- **A downloaded song's server path row is referenced by nothing while the download lives.**
+  MyMusic has one `path` row per song and the repoint moves `song.idPath` off it, so any sweep
+  of unreferenced rows — Kodi's own Clean library, or kofin's startup `prune_orphan_paths`
+  before it read the mapping — takes it, and a restore by the stored id then leaves the song on
+  a deleted row, which `songview` drops from every listing (four empty albums on the Bravia,
+  2026-08-28). The prune spares rows kofin.db still maps, the repoint captures `restore_path`
+  and the restore get-or-creates from it, and `song_update` re-resolves a missing row so a
+  Repair heals old damage. Never put a song back by a path id alone.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is
@@ -157,8 +178,9 @@ What remains is kofin's own:
   **off**, where the same devices free-run within a few hundred ppm. `syncplay/tempo.py`
   issues one bounded pulse at a time, confirms it from the add-on's state file, waits a queue
   depth before measuring again, and gives up on a one-signed residual
-  (`docs/syncplay-fine-sync.md`). A transcode, an audio item, or a Kodi without the add-on
-  gets command-only sync, exactly as 0.19 did.
+  (`docs/syncplay-fine-sync.md`). An audio item, or a Kodi without the add-on, gets
+  command-only sync, exactly as 0.19 did; a transcode has gone through inputstream.tempo since
+  `165d686` (its `[ syncplay/align ] skipped: transcoding` line is the landing check, not the sync).
 - A sync thread that will not stop is a thread inside the HTTP retry ladder
   (`docs/library-thread-stop.md`); the two rules that follow are easy to undo.
 - **Never call `xbmc.Player.stop()`** — use `core/kodirpc.py::stop_player`. Kodi's binding sends

@@ -464,5 +464,7 @@
   "#30596": "Cât de mult se poate schimba cel mult viteza de redare în timpul unei corecții. La 25 %, o eroare de 2,5 secunde se închide în 10 secunde; mai jos e mai puțin sesizabil, dar mai lent. Schimbările mari sunt aplicate treptat.",
   "#30597": "Sincronizare fină pe video AV1",
   "#30598": "Dezactivat implicit, cu un avertisment: pe un Pixel 7, o schimbare de viteză urmată de un salt a blocat decodorul hardware AV1 și apoi telefonul însuși. Decodorul AV1 al unui Bravia nu a avut probleme. Activează doar dacă dispozitivul tău face față; altfel titlurile AV1 urmează grupul doar prin comenzi.",
-  "#30599": "Sincronizarea fină necesită inputstream.tempo 21.4.1 / 22.4.1"
+  "#30599": "Sincronizarea fină necesită inputstream.tempo 21.4.1 / 22.4.1",
+  "#30821": "Eroare de server — %s",
+  "#30822": "%s păstrat — intrarea din bibliotecă nu a putut fi restaurată"
 }

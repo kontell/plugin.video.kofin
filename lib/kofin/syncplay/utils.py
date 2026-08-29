@@ -9,12 +9,48 @@ transplant discipline — the math and constants are the proven parts and stay
 identical.
 """
 
+import threading
 import time
 from datetime import datetime
+from enum import Enum
 
 #################################################################################################
 
 TICKS_PER_SECOND = 10000000
+
+
+class Phase(str, Enum):
+    """The manager's playback phase (shell refactor P2.5).
+
+    ``idle`` → ``loading`` (we asked Kodi to play the group's item) →
+    ``waiting_ready`` (first frame held, Ready reported) → ``synced`` (the
+    group unpaused us). ``str``-valued so every log line, comparison and
+    property keeps the spelling the fork used; the nine write sites and the
+    tuple reads name these members instead of restating the strings. The
+    thread story is unchanged — this removes the spelling drift, not the
+    race (assessment §6).
+    """
+
+    IDLE = "idle"
+    LOADING = "loading"
+    WAITING_READY = "waiting_ready"
+    SYNCED = "synced"
+
+    def __str__(self) -> str:
+        return str(self.value)
+
+    def __format__(self, spec: str) -> str:
+        return format(str(self.value), spec)
+
+
+# The phases in which this member follows the group's timeline — a user
+# pause, seek or resume is forwarded, a stop detaches.
+FOLLOWING = frozenset({Phase.WAITING_READY, Phase.SYNCED})
+# The phases from which a local start is the member proposing an item.
+STARTABLE = frozenset({Phase.IDLE, Phase.SYNCED})
+# Media loaded for the group but not yet released by it: an Unpause here is
+# the group start.
+HELD = frozenset({Phase.WAITING_READY, Phase.LOADING})
 TICKS_PER_MS = 10000
 
 # Client-side constants from the protocol specification (SYNCPLAY.md §12)
@@ -180,3 +216,13 @@ def is_stale_version(version, highest_seen):
         return False
 
     return version < highest_seen
+
+
+def later(seconds, func, *args):
+    """A fire-and-forget daemon Timer — the one spelling of the
+    schedule-and-move-on blocks (P1.10). Returns the timer for the one
+    caller that stores it (the command scheduler)."""
+    timer = threading.Timer(seconds, func, args=args)
+    timer.daemon = True
+    timer.start()
+    return timer

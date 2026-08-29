@@ -413,7 +413,7 @@ def test_local_reference_map_walks_tv_children():
         # Another library's series must not leak in.
         add_ref(db, "sX", 500, None, 8, "Series", "tvshow", None, "cx", "lib2", None)
 
-    fullsync = make_fullsync()
+    make_fullsync()
     local = prune.local_reference_map("lib1", "tvshows")
 
     assert set(local) == {"s1", "se1", "ep1", "ep2"}
@@ -443,7 +443,7 @@ def test_local_reference_map_music_needs_no_walk():
         )
         add_ref(db, "so1", 3, None, 4, "Audio", "song", 2, "cc|plugin", "lib2", None)
 
-    fullsync = make_fullsync()
+    make_fullsync()
     local = prune.local_reference_map("lib2", "music")
 
     # Artists are deliberately outside the prune (see _local_reference_map).

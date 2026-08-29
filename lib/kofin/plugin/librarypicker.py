@@ -12,7 +12,7 @@ import xbmcgui
 
 from kofin.core import settings, toast
 from kofin.core.api import Api
-from kofin.core.http import JellyfinError, plugin_transport
+from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin.router import Request
@@ -44,9 +44,7 @@ def select_libraries(request: Request) -> None:
     if not creds.is_logged_in:
         return
 
-    api = Api.from_credentials(
-        plugin_transport(settings.get_bool("sslVerify")), creds, interactive=True
-    )
+    api = Api.for_plugin(creds)
     try:
         views = api.views().get("Items", [])
     except JellyfinError as error:

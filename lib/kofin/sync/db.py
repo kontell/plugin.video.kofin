@@ -183,14 +183,14 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
         size_expected INTEGER, size_actual INTEGER, quality TEXT,
         bytes_done INTEGER, userdata_json TEXT,
         queued_at INTEGER, done_at INTEGER, error TEXT,
-        restore_filename TEXT, segments_json TEXT)""")
+        restore_filename TEXT, segments_json TEXT, restore_path TEXT)""")
     # CREATE IF NOT EXISTS never revisits an existing table, and the download
     # table can materialize on a dev box between stacked PRs; additive columns
     # keep that cheap. A new column goes in the CREATE above *and* here.
     _ensure_columns(
         cursor,
         "download",
-        {"restore_filename": "TEXT", "segments_json": "TEXT"},
+        {"restore_filename": "TEXT", "segments_json": "TEXT", "restore_path": "TEXT"},
     )
 
     cursor.execute("""CREATE INDEX IF NOT EXISTS idx_jellyfin_kodi
@@ -268,14 +268,14 @@ def get_sync() -> Dict[str, Any]:
     except FileNotFoundError:
         raw = b""
     except OSError as error:
-        raise SyncStateCorrupt("sync.json unreadable: %s" % error)
+        raise SyncStateCorrupt("sync.json unreadable: %s" % error) from error
 
     sync: Dict[str, Any] = {}
     if raw.strip():
         try:
             loaded = json.loads(raw)
         except ValueError as error:
-            raise SyncStateCorrupt("sync.json corrupt: %s" % error)
+            raise SyncStateCorrupt("sync.json corrupt: %s" % error) from error
         if not isinstance(loaded, dict):
             raise SyncStateCorrupt(
                 "sync.json corrupt: expected an object, found %s" % type(loaded)

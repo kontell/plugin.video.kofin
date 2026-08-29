@@ -157,12 +157,23 @@ def dispatch(argv: List[str]) -> None:
         handler = _root
         # The fallback *is* the root listing, whatever was asked for.
         builds_listing = True
-    handler(request)
+    failed = False
+    try:
+        handler(request)
+    except BaseException:
+        failed = True
+        raise
+    finally:
+        # Close the handle for the routes that build nothing, so a directory
+        # fetch that reached one fails out at once instead of waiting on an
+        # invoker thread that parks rather than exiting (see LISTING_MODES) —
+        # and for *any* route whose handler raised. A listing route catches
+        # JellyfinError and closes its own handle on that path; everything
+        # else (a locked kofin.db under the play resolve, a settings read
+        # that failed) used to leave the handle open, which is the same
+        # indefinite wait. The exception still propagates, so Kodi logs the
+        # traceback exactly as before; only the caller is released.
+        if handle >= 0 and (failed or not builds_listing):
+            import xbmcplugin
 
-    # Close the handle for the routes that build nothing, so a directory fetch
-    # that reached one fails out at once instead of waiting on an invoker
-    # thread that parks rather than exiting (see LISTING_MODES).
-    if handle >= 0 and not builds_listing:
-        import xbmcplugin
-
-        xbmcplugin.endOfDirectory(handle, succeeded=False)
+            xbmcplugin.endOfDirectory(handle, succeeded=False)

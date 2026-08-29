@@ -3,6 +3,7 @@ pytest
 mypy
 types-requests
 black
+ruff==0.6.9
 requests
 websocket-client
 tox

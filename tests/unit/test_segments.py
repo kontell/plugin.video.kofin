@@ -9,12 +9,12 @@ import threading
 
 import pytest
 
-from kofin.service import player as player_mod
-from kofin.service.player import (
+from kofin.service import segments as segments_mod
+from kofin.service.player import Player
+from kofin.service.segments import (
     MIN_PROMPT_SECONDS,
     SEEK_RETRIES,
     SEEK_SETTLE_TICKS,
-    Player,
     crossed_into,
     format_span,
     near_end_prompt_at,
@@ -24,7 +24,7 @@ from kofin.service.player import (
     safe_seek_end,
     segments_entered_at,
 )
-from kofin.service.segments import deconflict, parse_segments
+from kofin.core.segments import deconflict, parse_segments
 from tests.unit.fakes import FakeAddon, FakeWindow
 
 SETTINGS_ON = {
@@ -117,6 +117,7 @@ class Engine:
     def __init__(self, monkeypatch):
         self.api = SegmentsApi()
         self.player = Player(self.api)
+        self.segments = self.player.segments
         self.now = 0.0
         self.total = 1500.0
         self.seeks = []
@@ -137,7 +138,7 @@ class Engine:
             self.overlays.append(overlay)
             return overlay
 
-        import kofin.plugin.skip as skip_mod
+        import kofin.service.skip as skip_mod
 
         monkeypatch.setattr(skip_mod, "open_overlay", fake_open_overlay)
 
@@ -154,13 +155,13 @@ class Engine:
             "PlaySessionId": "ps1",
             "PlayMethod": "DirectStream",
         }
-        self.player._segments = sorted(segments, key=lambda s: s["Start"])
-        self.player._segments_loaded = True
-        self.player._next_episode = next_episode
+        self.player.segments._segments = sorted(segments, key=lambda s: s["Start"])
+        self.player.segments._segments_loaded = True
+        self.player.segments._next_episode = next_episode
 
     def tick(self, at):
         self.now = at
-        self.player.segment_tick()
+        self.player.segments.segment_tick()
 
     @property
     def overlay(self):
@@ -397,7 +398,7 @@ def test_auto_skip_settles_against_laggy_position(engine):
     engine.tick(40.1)
     engine.tick(40.4)
     assert engine.seeks == [40.0]
-    assert engine.player._armed_index == 1
+    assert engine.segments._armed_index == 1
 
 
 def test_auto_skip_retries_dropped_seek_and_defers_toast(engine, monkeypatch):
@@ -405,7 +406,7 @@ def test_auto_skip_retries_dropped_seek_and_defers_toast(engine, monkeypatch):
     # the position stays short through the settle window, so the engine must
     # re-issue the seek, and the "Skipped" toast must wait until it lands.
     notifies = []
-    monkeypatch.setattr(engine.player, "_notify", notifies.append)
+    monkeypatch.setattr(engine.segments, "_notify", notifies.append)
     engine.arm([seg("Introduction", 0, 88)])
     engine.tick(0.0)  # crossing at t=0 -> first (dropped) seek
     assert engine.seeks == [88.0]
@@ -417,14 +418,14 @@ def test_auto_skip_retries_dropped_seek_and_defers_toast(engine, monkeypatch):
     assert notifies == []
     engine.tick(88.1)  # the retry lands
     assert notifies == ["Skipped Introduction"]
-    assert engine.player._armed_index == 1
+    assert engine.segments._armed_index == 1
 
 
 def test_auto_skip_gives_up_after_retries_without_false_toast(engine, monkeypatch):
     # A seek that never lands must not report a skip that did not happen: after
     # SEEK_RETRIES re-issues, the engine gives up silently (no toast).
     notifies = []
-    monkeypatch.setattr(engine.player, "_notify", notifies.append)
+    monkeypatch.setattr(engine.segments, "_notify", notifies.append)
     engine.arm([seg("Introduction", 0, 88)])
     engine.tick(0.0)
     now = 0.5
@@ -442,7 +443,7 @@ def test_fresh_start_ignores_stale_transition_position(engine):
     # Outro; once playback reaches B the intro arms normally.
     engine.arm([seg("Introduction", 0, 80), seg("Credits", 1300, 1380)])
     engine.player._item["CurrentPosition"] = 0.0  # fromstart
-    engine.player._fresh_start = True
+    engine.segments._fresh_start = True
     engine.tick(1341.0)  # stale (A's position), inside B's credits
     assert engine.overlay is None and engine.seeks == []  # ignored
     engine.tick(0.4)  # B's real position near its start -> arm; intro auto-skips
@@ -458,13 +459,13 @@ def test_fresh_start_waits_for_a_resume_seek_to_land(engine):
     FakeAddon.store["skipIntroductionMode"] = "2"
     engine.arm([seg("Introduction", 0, 88.4)])
     engine.player._item["CurrentPosition"] = 180.3  # resolved resume position
-    engine.player._fresh_start = True
+    engine.segments._fresh_start = True
     engine.tick(0.0)  # pre-seek phantom
     engine.tick(0.0)
     assert engine.overlays == []
     engine.tick(178.9)  # the seek landed
     assert engine.overlays == []  # the intro is long behind us
-    assert engine.player._fresh_start is False
+    assert engine.segments._fresh_start is False
 
 
 def test_fresh_start_gives_up_waiting_rather_than_disarming_the_item(engine):
@@ -472,10 +473,10 @@ def test_fresh_start_gives_up_waiting_rather_than_disarming_the_item(engine):
     FakeAddon.store["skipIntroductionMode"] = "2"
     engine.arm([seg("Introduction", 100, 130)])
     engine.player._item["CurrentPosition"] = 900.0  # never reached
-    engine.player._fresh_start = True
-    for _ in range(player_mod.FRESH_START_MAX_TICKS):
+    engine.segments._fresh_start = True
+    for _ in range(segments_mod.FRESH_START_MAX_TICKS):
         engine.tick(0.0)
-    assert engine.player._fresh_start is False
+    assert engine.segments._fresh_start is False
     engine.tick(101.0)
     assert engine.overlay is not None  # armed again, offering the skip
 
@@ -485,7 +486,7 @@ def test_resume_into_a_segment_offers_no_skip(engine):
     # prompt used to open and auto-close a moment later, which is all they saw.
     engine.arm([seg("Credits", 1300, 1380)], next_episode=None)
     engine.player._item["CurrentPosition"] = 1341.0  # resumed here
-    engine.player._fresh_start = True
+    engine.segments._fresh_start = True
     engine.tick(1341.0)
     assert engine.overlay is None
     assert engine.seeks == []
@@ -497,7 +498,7 @@ def test_resume_into_a_segment_still_auto_skips(engine):
     FakeAddon.store["skipIntroductionMode"] = "1"
     engine.arm([seg("Introduction", 100, 130)])
     engine.player._item["CurrentPosition"] = 115.0
-    engine.player._fresh_start = True
+    engine.segments._fresh_start = True
     engine.tick(115.0)
     assert engine.seeks == [130.0]
     assert engine.overlay is None
@@ -508,7 +509,7 @@ def test_resume_into_credits_still_offers_play_next(engine):
     # of reaching the credits and stands either way.
     engine.arm([seg("Credits", 1300, 1380)], next_episode=NEXT_EPISODE)
     engine.player._item["CurrentPosition"] = 1341.0
-    engine.player._fresh_start = True
+    engine.segments._fresh_start = True
     engine.tick(1341.0)
     overlay = engine.overlay
     assert overlay is not None
@@ -521,11 +522,11 @@ def test_resume_suppression_lifts_once_the_segment_is_left(engine):
     FakeAddon.store["skipIntroductionMode"] = "2"
     engine.arm([seg("Introduction", 100, 130)])
     engine.player._item["CurrentPosition"] = 115.0
-    engine.player._fresh_start = True
+    engine.segments._fresh_start = True
     engine.tick(115.0)
     assert engine.overlays == []
     engine.tick(131.0)  # leave it
-    engine.player.note_seek(105.0)
+    engine.segments.note_seek(105.0)
     engine.tick(105.0)  # and seek back in
     assert len(engine.overlays) == 1
     assert engine.overlays[0].skip_label == "string-30481"
@@ -549,7 +550,7 @@ def test_playing_from_the_start_still_offers_to_skip_an_intro_at_zero(engine):
     FakeAddon.store["skipIntroductionMode"] = "2"
     engine.arm([seg("Introduction", 0, 88.4)])
     engine.player._item["CurrentPosition"] = 0.0
-    engine.player._fresh_start = True
+    engine.segments._fresh_start = True
     engine.tick(0.1)
     overlay = engine.overlay
     assert overlay is not None and overlay.skip_label == "string-30481"
@@ -611,7 +612,7 @@ def test_ask_overlay_autocloses_past_segment_end(engine):
     assert not overlay.closed
     engine.tick(40.3)
     assert overlay.closed
-    assert engine.player._overlay is None
+    assert engine.segments._overlay is None
 
 
 def test_skip_button_carries_the_span_it_would_save(engine):
@@ -636,7 +637,7 @@ def test_skip_prompt_hides_part_way_through_the_segment(engine):
     engine.arm([seg("Introduction", 100, 200)])
     engine.tick(100.1)
     overlay = engine.overlay
-    assert engine.player._overlay_hide_at == 150.0
+    assert engine.segments._overlay_hide_at == 150.0
     engine.tick(149.0)
     assert not overlay.closed
     engine.tick(150.5)
@@ -663,7 +664,7 @@ def test_a_seek_back_before_the_start_still_reoffers_after_a_hide(engine):
     engine.tick(100.1)
     engine.tick(150.5)  # hidden, but still inside the segment
     assert len(engine.overlays) == 1
-    engine.player.note_seek(90.0)
+    engine.segments.note_seek(90.0)
     engine.tick(90.0)
     engine.tick(100.5)
     assert len(engine.overlays) == 2
@@ -675,7 +676,7 @@ def test_a_short_segment_keeps_its_prompt_readable(engine):
     FakeAddon.store["skipPromptHidePercent"] = "50"
     engine.arm([seg("Introduction", 100, 112)])
     engine.tick(100.0)
-    assert engine.player._overlay_hide_at == 100.0 + MIN_PROMPT_SECONDS
+    assert engine.segments._overlay_hide_at == 100.0 + MIN_PROMPT_SECONDS
 
 
 def test_a_segment_too_short_to_read_offers_nothing(engine):
@@ -695,13 +696,13 @@ def test_a_segment_too_short_to_seek_is_not_auto_skipped(engine):
 def test_recoverable_dedup_reoffers_after_seek_back(engine):
     FakeAddon.store["skipIntroductionMode"] = "2"
     engine.arm([seg("Introduction", 100, 130)])
-    engine.player.note_seek(110.0)
+    engine.segments.note_seek(110.0)
     engine.tick(110.0)
     assert len(engine.overlays) == 1
     engine.tick(110.3)
     assert len(engine.overlays) == 1  # no re-nag while inside
     engine.tick(131.0)  # leave the segment: dedup re-arms
-    engine.player.note_seek(105.0)
+    engine.segments.note_seek(105.0)
     engine.tick(105.0)
     assert len(engine.overlays) == 2
 
@@ -714,7 +715,7 @@ def test_never_two_overlays_at_once(engine):
     )
     engine.tick(10.1)
     first = engine.overlays[0]
-    engine.player.note_seek(1401.0)
+    engine.segments.note_seek(1401.0)
     engine.tick(1401.0)
     assert len(engine.overlays) == 2
     assert first.closed
@@ -727,10 +728,10 @@ def test_seek_away_closes_stale_overlay(engine):
     engine.tick(1400.2)
     overlay = engine.overlay
     assert overlay is not None
-    engine.player.note_seek(100.0)
+    engine.segments.note_seek(100.0)
     engine.tick(100.0)
     assert overlay.closed
-    engine.player.note_seek(1401.0)
+    engine.segments.note_seek(1401.0)
     engine.tick(1401.0)
     assert len(engine.overlays) == 2
 
@@ -738,13 +739,13 @@ def test_seek_away_closes_stale_overlay(engine):
 def test_user_seek_echo_of_our_own_skip_is_ignored(engine):
     engine.arm([seg("Introduction", 10, 40)])
     engine.tick(10.1)
-    assert engine.player._settle_target == 40.0
-    engine.player.note_seek(40.0)  # Kodi's onPlayBackSeek echo of our seek
-    assert engine.player._settle_target == 40.0
-    assert not engine.player._pending_jump
-    engine.player.note_seek(300.0)  # a real user seek re-arms
-    assert engine.player._settle_target is None
-    assert engine.player._pending_jump
+    assert engine.segments._settle_target == 40.0
+    engine.segments.note_seek(40.0)  # Kodi's onPlayBackSeek echo of our seek
+    assert engine.segments._settle_target == 40.0
+    assert not engine.segments._pending_jump
+    engine.segments.note_seek(300.0)  # a real user seek re-arms
+    assert engine.segments._settle_target is None
+    assert engine.segments._pending_jump
 
 
 # --- the unified Play Next dialog (S3.3 decision surface) --------------------
@@ -760,7 +761,7 @@ def test_credits_ask_with_next_episode_offers_all_three(engine):
     # A Play Next offer stands to the end of the video, not the segment end —
     # this is the autoplay deadline, and it must stay put now that a separate
     # field decides when the window closes.
-    assert engine.player._overlay_end == 1500.0
+    assert engine.segments._overlay_end == 1500.0
     overlay.on_play_next()
     # Play Next starts the next episode from the beginning, never a resume point.
     assert any(
@@ -775,8 +776,8 @@ def test_the_credits_overlay_hides_on_the_deadline_too(engine):
     engine.arm([seg("Credits", 1400, 1470)], next_episode=NEXT_EPISODE)
     engine.tick(1400.2)
     overlay = engine.overlay
-    assert engine.player._overlay_hide_at == 1435.0
-    assert engine.player._overlay_end == 1500.0  # autoplay deadline untouched
+    assert engine.segments._overlay_hide_at == 1435.0
+    assert engine.segments._overlay_end == 1500.0  # autoplay deadline untouched
     engine.tick(1434.0)
     assert not overlay.closed
     engine.tick(1435.5)
@@ -791,7 +792,7 @@ def test_an_armed_autoplay_overlay_is_exempt_from_the_hide(engine):
     engine.arm([seg("Credits", 1400, 1470)], next_episode=NEXT_EPISODE)
     engine.tick(1400.2)
     overlay = engine.overlay
-    assert engine.player._overlay_hide_at == 1500.0
+    assert engine.segments._overlay_hide_at == 1500.0
     engine.tick(1436.0)
     assert not overlay.closed
     assert overlay.countdowns[-1] == 64
@@ -803,7 +804,7 @@ def test_credits_finale_offers_skip_and_close_only(engine):
     overlay = engine.overlay
     assert overlay.skip_label == "string-30482"
     assert overlay.next_label == ""
-    assert engine.player._overlay_end == 1470.0
+    assert engine.segments._overlay_end == 1470.0
 
 
 def test_credits_auto_seeks_and_still_offers_play_next(engine):
@@ -863,7 +864,7 @@ def test_near_end_prompt_without_segments(engine):
 def test_near_end_prompt_absent_when_credits_segment_exists(engine):
     engine.arm([seg("Credits", 1400, 1470)], next_episode=NEXT_EPISODE)
     engine.tick(100.0)
-    assert engine.player._near_end_at is None
+    assert engine.segments._near_end_at is None
 
 
 def test_near_end_prompt_clamped_on_short_items(engine):
@@ -878,7 +879,7 @@ def test_near_end_prompt_needs_next_episode(engine):
     engine.arm([], next_episode=None)
     engine.tick(1470.2)
     assert engine.overlays == []
-    assert engine.player._near_end_at is None
+    assert engine.segments._near_end_at is None
 
 
 def test_near_end_prompt_disabled_by_setting(engine):
@@ -908,9 +909,9 @@ def test_prepare_falls_back_to_service_fetch(engine):
     engine.api.segments_response = {
         "Items": [{"Type": "Intro", "StartTicks": 0, "EndTicks": 300_000_000}]
     }
-    engine.player.prepare_segment_state(threading.Event())
-    assert engine.player._segments_loaded
-    assert engine.player._segments[0]["Type"] == "Introduction"
+    engine.segments.prepare_segment_state(threading.Event())
+    assert engine.segments._segments_loaded
+    assert engine.segments._segments[0]["Type"] == "Introduction"
 
 
 def test_prepare_retries_once_then_degrades(engine):
@@ -919,40 +920,40 @@ def test_prepare_retries_once_then_degrades(engine):
     engine.api.segments_response = {
         "Items": [{"Type": "Intro", "StartTicks": 0, "EndTicks": 300_000_000}]
     }
-    engine.player.prepare_segment_state(threading.Event())
-    assert engine.player._segments_loaded
-    assert len(engine.player._segments) == 1
+    engine.segments.prepare_segment_state(threading.Event())
+    assert engine.segments._segments_loaded
+    assert len(engine.segments._segments) == 1
 
-    engine.player._segment_reset()
+    engine.segments.reset()
     engine.player._item = {"Id": "ep1", "Type": "Episode", "SeriesId": "show1"}
     engine.api.fail_segments = 2
-    engine.player.prepare_segment_state(threading.Event())
-    assert engine.player._segments_loaded
-    assert engine.player._segments == []
+    engine.segments.prepare_segment_state(threading.Event())
+    assert engine.segments._segments_loaded
+    assert engine.segments._segments == []
 
 
 def test_prepare_resolves_next_episode(engine):
     engine.player._item = {"Id": "ep1", "Type": "Episode", "SeriesId": "show1"}
-    engine.player._segments_loaded = True
+    engine.segments._segments_loaded = True
     engine.api.adjacent_response = {"Items": [{"Id": "ep1"}, {"Id": "ep2"}]}
-    engine.player.prepare_segment_state(threading.Event())
-    assert engine.player._next_episode == {"Id": "ep2"}
+    engine.segments.prepare_segment_state(threading.Event())
+    assert engine.segments._next_episode == {"Id": "ep2"}
 
 
 def test_prepare_finale_has_no_next(engine):
     engine.player._item = {"Id": "ep1", "Type": "Episode", "SeriesId": "show1"}
-    engine.player._segments_loaded = True
+    engine.segments._segments_loaded = True
     engine.api.adjacent_response = {"Items": [{"Id": "ep0"}, {"Id": "ep1"}]}
-    engine.player.prepare_segment_state(threading.Event())
-    assert engine.player._next_episode is None
+    engine.segments.prepare_segment_state(threading.Event())
+    assert engine.segments._next_episode is None
 
 
 def test_prepare_survives_adjacency_failure(engine):
     engine.player._item = {"Id": "ep1", "Type": "Episode", "SeriesId": "show1"}
-    engine.player._segments_loaded = True
+    engine.segments._segments_loaded = True
     engine.api.fail_adjacent = True
-    engine.player.prepare_segment_state(threading.Event())
-    assert engine.player._next_episode is None
+    engine.segments.prepare_segment_state(threading.Event())
+    assert engine.segments._next_episode is None
 
 
 def test_prepare_discards_result_for_superseded_playback(engine):
@@ -972,10 +973,10 @@ def test_prepare_discards_result_for_superseded_playback(engine):
         return original(item_id)
 
     engine.api.media_segments = swap_playback_mid_fetch
-    engine.player.prepare_segment_state(threading.Event())
-    assert engine.player._segments == []
-    assert not engine.player._segments_loaded
-    assert engine.player._next_episode is None
+    engine.segments.prepare_segment_state(threading.Event())
+    assert engine.segments._segments == []
+    assert not engine.segments._segments_loaded
+    assert engine.segments._next_episode is None
 
 
 # --- engine lifecycle --------------------------------------------------------
@@ -995,7 +996,7 @@ class DummyChecker:
 
 
 def test_start_segment_engine_uses_prefetched_segments(engine, monkeypatch):
-    monkeypatch.setattr(player_mod, "SegmentChecker", DummyChecker)
+    monkeypatch.setattr(segments_mod, "SegmentChecker", DummyChecker)
     DummyChecker.started = 0
     item = {
         "Id": "ep1",
@@ -1006,15 +1007,15 @@ def test_start_segment_engine_uses_prefetched_segments(engine, monkeypatch):
     engine.player._item = item
     engine.player._start_segment_engine(item)
     assert DummyChecker.started == 1
-    assert engine.player._segments_loaded
-    assert [s["Type"] for s in engine.player._segments] == [
+    assert engine.segments._segments_loaded
+    assert [s["Type"] for s in engine.segments._segments] == [
         "Introduction",
         "Credits",
     ]
 
 
 def test_start_segment_engine_skips_non_video_and_disabled(engine, monkeypatch):
-    monkeypatch.setattr(player_mod, "SegmentChecker", DummyChecker)
+    monkeypatch.setattr(segments_mod, "SegmentChecker", DummyChecker)
     DummyChecker.started = 0
     engine.player._start_segment_engine({"Id": "a1", "Type": "Audio"})
     assert DummyChecker.started == 0
@@ -1025,7 +1026,7 @@ def test_start_segment_engine_skips_non_video_and_disabled(engine, monkeypatch):
 
 
 def test_play_next_disabled_engine_still_runs_for_segments(engine, monkeypatch):
-    monkeypatch.setattr(player_mod, "SegmentChecker", DummyChecker)
+    monkeypatch.setattr(segments_mod, "SegmentChecker", DummyChecker)
     DummyChecker.started = 0
     FakeAddon.store["playNextEnabled"] = "false"
     engine.player._start_segment_engine(
@@ -1041,6 +1042,6 @@ def test_finalize_tears_down_overlay_and_state(engine):
     overlay = engine.overlay
     engine.player.finalize()
     assert overlay.closed
-    assert engine.player._segments == []
-    assert not engine.player._segments_loaded
-    assert engine.player._next_episode is None
+    assert engine.segments._segments == []
+    assert not engine.segments._segments_loaded
+    assert engine.segments._next_episode is None

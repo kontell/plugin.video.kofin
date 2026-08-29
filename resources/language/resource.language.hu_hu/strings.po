@@ -2095,3 +2095,11 @@ msgstr "Szereplők megjelenítése a kiegészítő listáiban"
 msgctxt "#30820"
 msgid "Fetch cast and crew for the shorter add-on listings — Recently added, In progress, Next up, Continue watching, search results and a show's episodes — so the information dialog can show them. Whole-library listings never fetch it, because the server needs about a second for every 40 items. The Kodi library always has cast."
 msgstr "Lekéri a szereplőket és a stábot a kiegészítő rövidebb listáihoz — Nemrég hozzáadott, Folyamatban, Következik, Nézés folytatása, a keresési találatok és egy sorozat epizódjai —, hogy az információs ablak megjeleníthesse őket. A teljes könyvtárat átfogó listák soha nem kérik le, mert a kiszolgálónak nagyjából egy másodpercre van szüksége 40 elemenként. A Kodi könyvtárban mindig megvannak a szereplők."
+
+msgctxt "#30821"
+msgid "Server error — %s"
+msgstr "Kiszolgálóhiba — %s"
+
+msgctxt "#30822"
+msgid "Kept %s — its library entry could not be restored"
+msgstr "%s megtartva — a médiatár bejegyzése nem állítható vissza"

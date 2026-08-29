@@ -464,5 +464,7 @@
   "#30596": "So stark darf sich die Wiedergabegeschwindigkeit bei einer Korrektur höchstens ändern. Bei 25 % ist ein Fehler von 2,5 Sekunden in 10 Sekunden ausgeglichen; weniger fällt weniger auf, dauert aber länger. Große Änderungen werden ein- und ausgeblendet.",
   "#30597": "Feinabgleich bei AV1-Video",
   "#30598": "Standardmäßig aus, mit Warnung: Auf einem Pixel 7 hat eine Tempoänderung mit anschließendem Sprung den AV1-Hardwaredecoder und dann das Telefon selbst aufgehängt. Der AV1-Decoder eines Bravia war unauffällig. Nur einschalten, wenn das Gerät damit klarkommt; sonst folgen AV1-Titel der Gruppe allein über Befehle.",
-  "#30599": "Feinabgleich braucht inputstream.tempo 21.4.1 / 22.4.1"
+  "#30599": "Feinabgleich braucht inputstream.tempo 21.4.1 / 22.4.1",
+  "#30821": "Serverfehler — %s",
+  "#30822": "%s behalten — Bibliothekseintrag konnte nicht wiederhergestellt werden"
 }

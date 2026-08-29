@@ -3,7 +3,7 @@ import sqlite3
 import pytest
 
 from kofin.sync import db as sync_db
-from kofin.sync import kofindb, queries_map
+from kofin.sync import kofindb
 from tests.unit import kodifixtures
 
 

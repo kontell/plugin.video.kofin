@@ -2095,3 +2095,11 @@ msgstr "Mostra il cast negli elenchi dell'add-on"
 msgctxt "#30820"
 msgid "Fetch cast and crew for the shorter add-on listings — Recently added, In progress, Next up, Continue watching, search results and a show's episodes — so the information dialog can show them. Whole-library listings never fetch it, because the server needs about a second for every 40 items. The Kodi library always has cast."
 msgstr "Recupera cast e troupe per gli elenchi brevi dell'add-on — Aggiunti di recente, In corso, Prossimi, Continua a guardare, i risultati della ricerca e gli episodi di una serie — così la finestra delle informazioni può mostrarli. Gli elenchi che coprono un'intera libreria non lo fanno mai, perché il server impiega circa un secondo ogni 40 elementi. La libreria di Kodi ha sempre il cast."
+
+msgctxt "#30821"
+msgid "Server error — %s"
+msgstr "Errore del server — %s"
+
+msgctxt "#30822"
+msgid "Kept %s — its library entry could not be restored"
+msgstr "%s conservato — impossibile ripristinare la voce della libreria"
