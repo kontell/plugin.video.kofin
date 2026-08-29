@@ -5,12 +5,28 @@ The class keeps the fork's name so the transplanted writers stay
 recognizably identical (plan §2: renaming buys nothing, costs diff-ability).
 """
 
+import functools
 from collections import namedtuple
+from typing import Tuple
 
 from kofin.core.log import Logger
 from kofin.sync import queries_map as QU
 
 LOG = Logger(__name__)
+
+
+@functools.lru_cache(maxsize=64)
+def _row_class(fields: Tuple[str, ...]):
+    """One namedtuple class per distinct column list.
+
+    sqlite3 calls the row factory once per row, and the fork's factory
+    built the class inside it — ``namedtuple()`` generates and ``exec``s a
+    Python class, ~90 µs, for every row of every read through this module
+    (audit finding F1: 40× the cost of the row itself). Keyed on the exact
+    column names so two queries never share a class by accident; 64 covers
+    every SELECT in queries_map several times over.
+    """
+    return namedtuple("Row", fields)
 
 
 def sqlite_namedtuple_factory(cursor, row):
@@ -20,9 +36,7 @@ def sqlite_namedtuple_factory(cursor, row):
 
     http://peter-hoffmann.com/2010/python-sqlite-namedtuple-factory.html
     """
-    fields = [col[0] for col in cursor.description]
-    Row = namedtuple("Row", fields)  # type: ignore[misc]
-    return Row(*row)
+    return _row_class(tuple(col[0] for col in cursor.description))(*row)
 
 
 class JellyfinDatabase:
