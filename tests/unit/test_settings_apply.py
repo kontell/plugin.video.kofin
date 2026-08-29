@@ -239,6 +239,7 @@ def test_removals_confirm_then_dispatch(monkeypatch):
     FakeDialog.yesno_result = True
     FakeAddon.store["librarySelection"] = "v-movies"
     applier.apply()
+    applier.join_removal()
 
     assert ("RemoveLibrary", {"Id": "v-shows"}) in service.library.commands
     assert not any(c[0] == "SyncLibrary" for c in service.library.commands)
@@ -257,12 +258,84 @@ def test_removal_declined_restores_selection(monkeypatch):
     FakeDialog.yesno_result = False
     FakeAddon.store["librarySelection"] = ""
     applier.apply()
+    applier.join_removal()
 
     assert service.library.commands == []
     assert FakeAddon.store["librarySelection"] == "v-movies"
     # Snapshot follows the restore: a further no-op apply dispatches nothing.
     applier.apply()
     assert service.library.commands == []
+
+
+# --- the confirmation off the callback thread (audit R5, fixes plan H12) ------
+
+
+class BlockingDialog:
+    """A yes/no that stays up until the test releases it — a person who
+    walked away mid-confirmation."""
+
+    opened = None
+    release = None
+    opens = 0
+
+    def yesno(self, heading, message):
+        BlockingDialog.opens += 1
+        BlockingDialog.opened.set()
+        BlockingDialog.release.wait(5)
+        return True
+
+
+def _blocking_dialog(monkeypatch):
+    import threading
+
+    BlockingDialog.opened = threading.Event()
+    BlockingDialog.release = threading.Event()
+    BlockingDialog.opens = 0
+    monkeypatch.setattr("xbmcgui.Dialog", BlockingDialog)
+
+
+def test_the_removal_confirmation_does_not_hold_the_settings_callback(monkeypatch):
+    """onSettingsChanged runs on the service main thread (Kodi delivers a
+    monitor callback on the thread that created the Monitor, from inside
+    its Kodi API calls); a modal inside it held the run loop and every
+    other kofin callback until the person answered (audit R5)."""
+    seed_views(("v-movies", "Movies", "movies"))
+    seed_whitelist("v-movies")
+    FakeAddon.store["librarySelection"] = "v-movies"
+    service = FakeService()
+    applier = ready_applier(service)
+    _blocking_dialog(monkeypatch)
+
+    FakeAddon.store["librarySelection"] = ""
+    applier.apply()  # returns while the dialog is still up
+
+    assert BlockingDialog.opened.wait(5)
+    assert service.library.commands == []  # nothing decided yet
+
+    BlockingDialog.release.set()
+    applier.join_removal()
+    assert service.library.commands == [("RemoveLibrary", {"Id": "v-movies"})]
+
+
+def test_a_save_while_the_dialog_is_up_does_not_open_a_second(monkeypatch):
+    seed_views(("v-movies", "Movies", "movies"), ("v-shows", "Shows", "tvshows"))
+    seed_whitelist("v-movies", "v-shows")
+    FakeAddon.store["librarySelection"] = "v-movies,v-shows"
+    service = FakeService()
+    applier = ready_applier(service)
+    _blocking_dialog(monkeypatch)
+
+    FakeAddon.store["librarySelection"] = "v-movies"
+    applier.apply()
+    assert BlockingDialog.opened.wait(5)
+
+    FakeAddon.store["librarySelection"] = ""  # a second removal while it is up
+    applier.apply()
+    assert BlockingDialog.opens == 1
+
+    BlockingDialog.release.set()
+    applier.join_removal()
+    assert service.library.commands == [("RemoveLibrary", {"Id": "v-shows"})]
 
 
 # --- startup guard (S2 regression: restart must not prompt a removal) --------
@@ -435,6 +508,7 @@ def test_deliberate_deselect_all_still_removes(monkeypatch):
     FakeDialog.yesno_result = True
     FakeAddon.store["librarySelection"] = ""  # reads empty every time
     applier.apply()
+    applier.join_removal()
 
     assert service.library.commands == [("RemoveLibrary", {"Id": "v-docs"})]
     assert any(c[0] == "yesno" for c in FakeDialog.calls)
@@ -484,6 +558,7 @@ def test_mixed_whitelist_entries_survive_selection(monkeypatch):
     FakeDialog.yesno_result = True
     FakeAddon.store["librarySelection"] = ""
     applier.apply()
+    applier.join_removal()
     assert service.library.commands == [("RemoveLibrary", {"Id": "Mixed:v-mixed"})]
 
 

@@ -31,13 +31,14 @@ re-read on its own can land inside the same broken window. See
 ``_is_spurious_clear``.
 """
 
+import threading
 from typing import Any, Callable, Dict, List, Optional
 
 import xbmcgui
 
 from kofin.core import settings, state
 from kofin.core.log import Logger
-from kofin.service.ports import LibraryPort, ServiceHooks
+from kofin.service.ports import LibraryPort, ServiceHooks, spawn_once
 
 LOG = Logger(__name__)
 
@@ -76,6 +77,10 @@ class SettingsApplier:
             "downloadsPath": self._downloads_path_changed,
         }
         self.snapshot: Dict[str, str] = self._read_all()
+        # The one-shot worker a library removal's confirmation runs on; its
+        # slot, so a second save while the dialog is up is refused rather
+        # than doubled (see _library_selection_changed).
+        self._removal_worker: Optional[threading.Thread] = None
 
     def _read_all(self) -> Dict[str, str]:
         return {
@@ -385,8 +390,40 @@ class SettingsApplier:
             return
 
         if removal_entries:
-            removal_entries = self._confirm_removals(removal_entries, selection)
+            # The yes/no gate stays — it is the last thing before rows are
+            # deleted — but the thread it runs on moves. This handler runs
+            # inside Service.onSettingsChanged, and Kodi delivers a monitor
+            # callback on the thread that created the Monitor, from inside
+            # its own Kodi API calls: the service main thread. A modal here
+            # held that thread — the run loop and every other kofin player
+            # and monitor callback — for as long as the person took to
+            # answer (audit R5). A one-shot worker asks and dispatches; a
+            # second save while the dialog is up is refused with a log line
+            # rather than opening a second one.
+            def confirm_and_dispatch() -> None:
+                confirmed = self._confirm_removals(removal_entries, selection)
+                self._dispatch_selection(confirmed, additions)
 
+            worker = spawn_once(
+                self._removal_worker, confirm_and_dispatch, "kofin-library-removal"
+            )
+            if worker is None:
+                LOG.info("a library removal is already awaiting confirmation")
+                return
+            self._removal_worker = worker
+            return
+
+        self._dispatch_selection([], additions)
+
+    def join_removal(self, timeout: float = 5.0) -> None:
+        """Wait for a removal confirmation still in progress (tests, teardown)."""
+        worker = self._removal_worker
+        if worker is not None:
+            worker.join(timeout)
+
+    def _dispatch_selection(
+        self, removal_entries: List[str], additions: List[str]
+    ) -> None:
         library = self._library_manager()
         if library is None:
             LOG.warning("library selection changed but sync manager unavailable")
