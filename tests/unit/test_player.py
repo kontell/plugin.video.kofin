@@ -1,6 +1,7 @@
 import pytest
 
 from kofin.core import state
+from kofin.service import libraryclaim
 from kofin.service.player import Player
 from tests.unit.fakes import FakeAddon, FakeWindow
 
@@ -1110,11 +1111,10 @@ def _seed_local_rows(tmp_path):
 
 
 def test_offline_claim_builds_from_local_rows(monkeypatch, tmp_path):
-    from kofin.service import player as player_module
 
     sync_db = _seed_local_rows(tmp_path)
     try:
-        claim = player_module._offline_claim("j1", "episode", "/dl/e.mkv")
+        claim = libraryclaim._offline_claim("j1", "episode", "/dl/e.mkv")
     finally:
         pass
     assert claim is not None
@@ -1124,7 +1124,7 @@ def test_offline_claim_builds_from_local_rows(monkeypatch, tmp_path):
     assert claim["Path"] == "/dl/e.mkv"
 
     # Anything not downloaded stays unclaimed: foreign playback is foreign.
-    assert player_module._offline_claim("stranger", "episode", "/x.mkv") is None
+    assert libraryclaim._offline_claim("stranger", "episode", "/x.mkv") is None
     sync_db.reset_overrides()
 
 
@@ -1147,8 +1147,8 @@ def test_backfill_attaches_the_cached_segments_offline(monkeypatch, tmp_path):
             return "/dl/e.mkv"
 
     monkeypatch.setattr(player_module.xbmc, "Player", PlayingStub)
-    monkeypatch.setattr(player_module, "mapped_jellyfin_id", lambda k, m: "j1")
-    monkeypatch.setattr(player_module, "library_claim", lambda *a: None)  # offline
+    monkeypatch.setattr(libraryclaim, "mapped_jellyfin_id", lambda k, m: "j1")
+    monkeypatch.setattr(libraryclaim, "library_claim", lambda *a: None)  # offline
 
     api = RecordingApi()
     assert (
@@ -1174,14 +1174,14 @@ def test_prepare_segment_state_offline_asks_nothing(monkeypatch):
         "MediaSourceId": "src",
         "PlaySessionId": "ps",
     }
-    player._segments_loaded = False
+    player.segments._segments_loaded = False
 
     import threading as threading_module
 
-    player.prepare_segment_state(threading_module.Event())
+    player.segments.prepare_segment_state(threading_module.Event())
 
-    assert player._segments == [] and player._segments_loaded is True
-    assert player._next_episode is None
+    assert player.segments._segments == [] and player.segments._segments_loaded is True
+    assert player.segments._next_episode is None
     assert api.calls == []  # neither segments nor adjacency was fetched
 
 

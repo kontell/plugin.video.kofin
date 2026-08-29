@@ -125,7 +125,7 @@ class KodiUserData:
         failure must not lose the log line explaining the original one."""
         try:
             from kofin.downloads import pending
-            from kofin.service.player import mapped_jellyfin_id
+            from kofin.service.libraryclaim import mapped_jellyfin_id
 
             jellyfin_id = mapped_jellyfin_id(kodi_id, media)
             if not jellyfin_id:
@@ -138,7 +138,7 @@ class KodiUserData:
             LOG.exception("could not park userdata for replay")
 
     def _apply(self, kind: str, kodi_id: int, media: str, playcount: int) -> None:
-        from kofin.service.player import mapped_jellyfin_id
+        from kofin.service.libraryclaim import mapped_jellyfin_id
 
         jellyfin_id = mapped_jellyfin_id(kodi_id, media)
         if not jellyfin_id:

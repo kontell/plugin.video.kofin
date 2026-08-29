@@ -60,7 +60,7 @@ def online(monkeypatch, tmp_path):
 def mapped(monkeypatch):
     """Map Kodi row 5910 to a Jellyfin id; everything else is not kofin's."""
     monkeypatch.setattr(
-        "kofin.service.player.mapped_jellyfin_id",
+        "kofin.service.libraryclaim.mapped_jellyfin_id",
         lambda kodi_id, media: "jf-ep-1" if kodi_id == 5910 else None,
     )
 

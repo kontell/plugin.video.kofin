@@ -5,7 +5,8 @@ from kofin.core import lyrics
 from kofin.core import state
 from kofin.core.api import Api
 from kofin.core.http import Http, HttpError
-from kofin.service.player import Player, playing_jellyfin_id
+from kofin.service.libraryclaim import playing_jellyfin_id
+from kofin.service.player import Player
 from tests.unit.fakes import FakeAddon, FakeWindow
 
 # One second is 10_000_000 ticks; these are the values a real server returns.
@@ -185,7 +186,8 @@ JID = "641f2c2a8c00a47efac033996582d550"
 
 def test_database_id_is_preferred(monkeypatch):
     monkeypatch.setattr(
-        "kofin.service.player.mapped_jellyfin_id", lambda kodi_id, media: "from-db"
+        "kofin.service.libraryclaim.mapped_jellyfin_id",
+        lambda kodi_id, media: "from-db",
     )
     assert playing_jellyfin_id(FakeListItem(dbid=10851), DIRECT) == "from-db"
 
@@ -194,7 +196,7 @@ def test_database_id_is_preferred(monkeypatch):
 def test_id_falls_back_to_the_path(monkeypatch, path):
     """Songs played from kofin's browse listing have no library row."""
     monkeypatch.setattr(
-        "kofin.service.player.mapped_jellyfin_id", lambda kodi_id, media: None
+        "kofin.service.libraryclaim.mapped_jellyfin_id", lambda kodi_id, media: None
     )
     assert playing_jellyfin_id(FakeListItem(dbid=0), path) == JID
 
@@ -208,7 +210,7 @@ def test_playlist_line_resolves_through_the_musicdb_id(monkeypatch):
         seen.append((kodi_id, media))
         return "from-db"
 
-    monkeypatch.setattr("kofin.service.player.mapped_jellyfin_id", lookup)
+    monkeypatch.setattr("kofin.service.libraryclaim.mapped_jellyfin_id", lookup)
     assert playing_jellyfin_id(FakeListItem(dbid=0), "musicdb://songs/10851.flac") == (
         "from-db"
     )
@@ -217,7 +219,7 @@ def test_playlist_line_resolves_through_the_musicdb_id(monkeypatch):
 
 def test_foreign_playback_is_not_claimed(monkeypatch):
     monkeypatch.setattr(
-        "kofin.service.player.mapped_jellyfin_id", lambda kodi_id, media: None
+        "kofin.service.libraryclaim.mapped_jellyfin_id", lambda kodi_id, media: None
     )
     assert playing_jellyfin_id(FakeListItem(dbid=0), "/home/me/song.mp3") is None
 
@@ -274,7 +276,7 @@ def make_player(monkeypatch, api, path=DIRECT, audio=True, landed=True):
     monkeypatch.setattr(player, "getPlayingItem", lambda: FakeListItem(dbid=10851))
     monkeypatch.setattr(player, "updateInfoTag", lambda item: pushed.append(item))
     monkeypatch.setattr(
-        "kofin.service.player.mapped_jellyfin_id", lambda kodi_id, media: JID
+        "kofin.service.libraryclaim.mapped_jellyfin_id", lambda kodi_id, media: JID
     )
     monkeypatch.setattr(
         "xbmc.getInfoLabel",
