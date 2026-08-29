@@ -445,6 +445,15 @@ add_videoversiontype = """
 INSERT INTO videoversiontype(id, name, owner, itemType)
 VALUES      (NULL, ?, ?, ?)
 """
+# Kodi's own statement from its v128 migration (CVideoDatabase::UpdateTables),
+# which removed unused user-defined version types for the same reason this
+# runs: the version picker lists every USER row, referenced or not.
+delete_orphan_videoversiontypes = """
+DELETE FROM videoversiontype
+WHERE       id NOT IN (SELECT idType FROM videoversion)
+AND         owner = ?
+AND         itemType = ?
+"""
 add_extra_version = """
 INSERT INTO videoversion(idFile, idMedia, media_type, itemType, idType)
 VALUES      (?, ?, 'movie', ?, ?)

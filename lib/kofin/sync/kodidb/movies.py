@@ -13,6 +13,13 @@ from kofin.sync.kodidb import queries as QU
 LOG = Logger(__name__)
 
 
+def _file_stem(path):
+    """The file name without its extension, for either path separator —
+    Jellyfin reports the server's own path, which may be a Windows one."""
+    name = path.replace("\\", "/").rsplit("/", 1)[-1]
+    return name.rsplit(".", 1)[0] if "." in name else name
+
+
 class Movies(Kodi):
 
     itemtype: int
@@ -95,16 +102,49 @@ class Movies(Kodi):
         )
         return self.cursor.lastrowid
 
-    def resolve_version_type(self, name):
+    def resolve_version_type(self, name, path=None):
         """Map ``MediaSource.Name`` to a VERSION ``videoversiontype`` id.
 
         Empty / ``Standard Edition`` → the seeded Standard Edition (40400).
-        Otherwise find-or-create under VERSION itemType (builtins first).
+        A name equal to the source file's own stem is Jellyfin's default for
+        a film with no other versions (``Video.GetMediaSourceName`` returns
+        the file name without extension unless local alternate versions
+        exist, in which case the folder-name prefix is stripped and a
+        suffix label remains) — that is no label at all, and it maps to the
+        Standard Edition too. Otherwise find-or-create under VERSION itemType
+        (builtins first).
+
+        Audit finding A4-1: before the stem rule every single-file movie
+        minted a ``videoversiontype`` row named after its file — 1,799 rows
+        for 1,784 films on one profile, none with a second version, every
+        one an entry in Kodi's "Manage versions" picker, which selects every
+        USER-owned row without joining ``videoversion``. Kodi's own v128
+        migration deleted that class of row for exactly that reason.
         """
         name = (name or "").strip()
         if not name or name.lower() == "standard edition":
             return 40400
+        if path and name.lower() == _file_stem(path).lower():
+            return 40400
         return self.get_extra_type_id(name, self.itemtype)
+
+    def sweep_orphan_version_types(self):
+        """Drop USER-owned VERSION type rows nothing references any more.
+
+        Nothing else ever removes them: ``delete`` and ``delete_extra_asset``
+        drop the ``videoversion`` row and leave its type, and Kodi's
+        ``CleanDatabase`` does not touch this table (only its v128/v131
+        schema migrations do). A rename, a re-encode, a removed film or a
+        rewrite to the Standard Edition each leave one behind, and the
+        picker lists them all. Kodi's own v128 statement, run after every
+        movie delete and update.
+        """
+        self.cursor.execute(QU.check_video_version)
+        if self.cursor.fetchone()[0] == 1:
+            self.cursor.execute(
+                QU.delete_orphan_videoversiontypes,
+                (schema.VIDEO_ASSET_OWNER_USER, self.itemtype),
+            )
 
     def add_extra_asset(
         self, path_id, filename, date_added, movie_id, item_type, type_id

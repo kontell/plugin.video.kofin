@@ -181,10 +181,17 @@ class Movies(KodiDb):
 
         obj["Tags"] = tags
 
+        # The primary's path rides along so a name that is merely the file's
+        # stem (Jellyfin's default for an unversioned film) resolves to the
+        # Standard Edition instead of minting a type row per file (A4-1).
+        # The alternates in ``versions()`` keep their names as labels: with
+        # versions present Jellyfin strips the folder prefix, so those names
+        # are the suffix labels the picker should show.
         primary, _alternates = self.split_media_sources(item)
         obj["VideoVersionItemType"] = self.itemtype
         obj["VideoVersionTypeId"] = self.resolve_version_type(
-            primary.get("Name") if primary else None
+            primary.get("Name") if primary else None,
+            primary.get("Path") if primary else None,
         )
 
         if update:
@@ -247,6 +254,9 @@ class Movies(KodiDb):
 
         self.update(*values(obj, QU.update_movie_obj))
         self.set_video_version_type(obj["FileId"], obj.get("VideoVersionTypeId", 40400))
+        # A rewrite that moved the type (a rename, or a Repair converting a
+        # file-named type to the Standard Edition) strands the old row.
+        self.sweep_orphan_version_types()
         self.jellyfin_db.update_reference(*values(obj, QUEM.update_reference_obj))
         LOG.debug(
             "UPDATE movie [%s/%s/%s] %s: %s",
@@ -828,6 +838,7 @@ class Movies(KodiDb):
             self.remove_versions(obj["KodiId"], obj["FileId"])
             self.remove_extras(obj["KodiId"])
             self.delete(*values(obj, QU.delete_movie_obj))
+            self.sweep_orphan_version_types()
         elif obj["Media"] == "set":
 
             for movie in self.jellyfin_db.get_item_by_parent_id(

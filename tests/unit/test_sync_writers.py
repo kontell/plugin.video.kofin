@@ -1596,6 +1596,121 @@ def test_boxset_guarded_set_keeps_missing_state(api, boxset_log):
     assert drifted_boxsets() == ["set1"]
 
 
+# --- the version-type row per film (audit A4-1, fixes plan H2) -----------------
+
+
+def _user_version_types():
+    """USER-owned VERSION type rows — what Kodi's "Manage versions" lists."""
+    return video_query(
+        "SELECT name FROM videoversiontype WHERE owner = ? AND itemType = ?"
+        " ORDER BY name",
+        (schema.VIDEO_ASSET_OWNER_USER, version_item_type()),
+    )
+
+
+def test_movie_named_as_its_file_is_the_standard_edition(api):
+    """Jellyfin names a single-file movie's MediaSource after the file
+    (``Video.GetMediaSourceName``: the stem, unless local alternate versions
+    exist). That is no label, and it must not mint a type row per film —
+    1,799 of them for 1,784 movies on one profile before this."""
+    payload = dto(MOVIE)
+    payload["MediaSources"] = [
+        _version_source(
+            "movie1",
+            "The Example",
+            "/media/movies/The Example (2020)/The Example.mkv",
+            72000000000,
+        )
+    ]
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api, payload)
+
+    rows = version_rows()
+    assert len(rows) == 1
+    assert rows[0][2] == 40400
+    assert _user_version_types() == []
+
+
+def test_the_stem_rule_ignores_case_and_windows_separators(api):
+    """Jellyfin reports the server's own path; a Windows server hands back
+    backslashes, and the name comparison is Kodi's COLLATE NOCASE anyway."""
+    payload = dto(MOVIE)
+    payload["MediaSources"] = [
+        _version_source(
+            "movie1",
+            "the example",
+            "D:\\Movies\\The Example (2020)\\The Example.MKV",
+            72000000000,
+        )
+    ]
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api, payload)
+
+    assert version_rows()[0][2] == 40400
+    assert _user_version_types() == []
+
+
+def test_a_rewrite_to_the_standard_edition_sweeps_the_stale_type(api):
+    """The Repair path for every profile written before H2: the film's
+    primary moves from its file-named type to 40400, and the row it leaves
+    behind must go with it — nothing else ever removes one."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    labelled = dto(MOVIE)
+    labelled["MediaSources"] = [
+        _version_source(
+            "movie1",
+            "IMAX Exclusive",
+            "/media/movies/The Example (2020)/The Example.mkv",
+            72000000000,
+        )
+    ]
+    write_movie(api, labelled)
+    assert version_rows()[0][2] != 40400
+    assert _user_version_types() == [("IMAX Exclusive",)]
+
+    renamed = dto(MOVIE)
+    renamed["Etag"] = "etag-movie1-v2"
+    renamed["MediaSources"] = [
+        _version_source(
+            "movie1",
+            "The Example",
+            "/media/movies/The Example (2020)/The Example.mkv",
+            72000000000,
+        )
+    ]
+    write_movie(api, renamed)
+
+    assert version_rows()[0][2] == 40400
+    assert _user_version_types() == []
+
+
+def test_movie_removal_leaves_no_orphan_version_type(api):
+    """A film removed with a custom version label takes its type row with
+    it; the seeded builtins (owner 0) are never touched."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    payload = dto(MOVIE)
+    payload["MediaSources"] = [
+        _version_source(
+            "movie1",
+            "IMAX Exclusive",
+            "/media/movies/The Example (2020)/The Example.mkv",
+            72000000000,
+        )
+    ]
+    write_movie(api, payload)
+    seeded = video_query("SELECT COUNT(*) FROM videoversiontype WHERE owner = 0")
+    assert _user_version_types() == [("IMAX Exclusive",)]
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        Movies(api, kdb, vdb, library=LIBRARY, hooks=HOOKS).remove("movie1")
+
+    assert video_query("SELECT COUNT(*) FROM videoversion") == [(0,)]
+    assert _user_version_types() == []
+    assert (
+        video_query("SELECT COUNT(*) FROM videoversiontype WHERE owner = 0") == seeded
+    )
+
+
 # --- tv shows ------------------------------------------------------------------
 
 
@@ -2209,6 +2324,12 @@ def test_removal_of_an_unknown_library_is_a_no_op(api):
 
 
 ORPHAN_RULES = [
+    (
+        "videoversiontype USER VERSION rows nothing references (A4-1)",
+        "SELECT COUNT(*) FROM videoversiontype WHERE owner = 2"
+        " AND itemType = (SELECT itemType FROM videoversiontype WHERE id = 40400)"
+        " AND id NOT IN (SELECT idType FROM videoversion)",
+    ),
     (
         "genre_link media_id/movie",
         "SELECT COUNT(*) FROM genre_link WHERE media_type='movie' AND media_id NOT IN (SELECT idMovie FROM movie)",
