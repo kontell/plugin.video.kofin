@@ -76,6 +76,46 @@ def kodi_fakes(monkeypatch):
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
 
 
+# --- teardown must not wait on the server (audit R4, fixes plan H7) ----------
+
+
+def test_stop_leaves_the_group_when_the_server_is_reachable(manager, monkeypatch):
+    join(manager)
+    monkeypatch.setattr(manager_module.state, "is_offline", lambda: False)
+
+    manager.stop()
+
+    assert len(manager._api_raw.named("syncplay_leave")) == 1
+    assert manager.group is None
+
+
+def test_stop_skips_the_leave_when_the_server_is_away(manager, monkeypatch):
+    """The leave is a courtesy, and against a server that vanished without
+    closing the socket it cost up to 36 s on the service main thread inside
+    Service.stop — past Kodi's five-second grace. Offline, it is not sent."""
+    join(manager)
+    monkeypatch.setattr(manager_module.state, "is_offline", lambda: True)
+
+    manager.stop()
+
+    assert manager._api_raw.named("syncplay_leave") == []
+    assert manager.group is None  # left locally all the same
+
+
+def test_stop_survives_a_refused_leave(manager, monkeypatch):
+    join(manager)
+    monkeypatch.setattr(manager_module.state, "is_offline", lambda: False)
+
+    def refuse(name, *args):
+        raise manager_module.JellyfinError("gone")
+
+    manager._api_raw = refuse
+
+    manager.stop()
+
+    assert manager.group is None
+
+
 @pytest.fixture
 def manager():
     m = SyncPlayManager(None, FakePlayer())

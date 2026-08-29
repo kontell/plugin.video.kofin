@@ -113,7 +113,15 @@ class SyncPlayManager(object):
     # ------------------------------------------------------------------
 
     def stop(self):
-        if self.in_group():
+        # The leave is a courtesy to the group, not something teardown waits
+        # on: this runs on the service main thread inside Service.stop, and a
+        # POST at the transport's default budget (6 s connect + 30 s read, no
+        # retries, so no abort check) against a server that vanished without
+        # closing the socket held teardown well past Kodi's five-second
+        # script-stop grace (audit R4). Skipped outright when the service
+        # already knows the server is away; otherwise sent on the short
+        # budget syncplay_leave carries.
+        if self.in_group() and not state.is_offline():
             try:
                 self._api_raw("syncplay_leave")
             except Exception:

@@ -20,6 +20,9 @@ JsonDict = Dict[str, Any]
 # Connect/read budget for the lyrics fetch. Deliberately far below the
 # transport default: see Api.lyrics.
 LYRICS_TIMEOUT = (2.0, 3.0)
+# The SyncPlay leave on the teardown path: inside Kodi's five-second
+# script-stop grace even when the server never answers (audit R4).
+LEAVE_TIMEOUT = (2.0, 3.0)
 
 # The splashscreen is a ~700KB WebP the server may render (and transcode) on
 # demand, so it gets a longer read budget than the default. It runs on its own
@@ -151,16 +154,19 @@ class Api:
         path: str,
         body: Optional[JsonDict] = None,
         params: Optional[JsonDict] = None,
+        timeout: Optional[Tuple[float, float]] = None,
     ) -> JsonDict:
         # Interactive shortens the connect budget only; retries stay the
         # transport's per-method default (POST: none — replay double-applies).
+        # A caller's own ``timeout`` wins: the one POST made on a teardown
+        # path (syncplay_leave) must not wait the transport's full budget.
         response = self._http.request(
             "POST",
             self._url(path),
             headers=self._headers(),
             params=params,
             json_body=body,
-            timeout=self._timeout,
+            timeout=timeout or self._timeout,
         )
         parsed: JsonDict = self._json(response, {})
         return parsed
@@ -612,7 +618,10 @@ class Api:
         self.post("/SyncPlay/Join", body)
 
     def syncplay_leave(self) -> None:
-        self.post("/SyncPlay/Leave")
+        # Sent from SyncPlayManager.stop on the service main thread during
+        # teardown: a courtesy to the group on its own short budget, never
+        # the transport's 6 s + 30 s (audit R4).
+        self.post("/SyncPlay/Leave", timeout=LEAVE_TIMEOUT)
 
     def syncplay_hello(self, protocol_version: int) -> JsonDict:
         """Capability probe + negotiation in one round trip (SYNCPLAY.md §2.1):

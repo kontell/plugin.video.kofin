@@ -53,6 +53,25 @@ def test_urls_and_auth_header(api):
     assert 'Token="tok"' in call["headers"]["Authorization"]
 
 
+def test_the_syncplay_leave_carries_its_own_short_budget(api):
+    """SyncPlayManager.stop sends it on the service main thread during
+    teardown; at the transport's default it held Kodi's script stop for up
+    to 36 s against a server that vanished without closing the socket
+    (audit R4). A courtesy to the group, on a courtesy's budget."""
+    from kofin.core.api import LEAVE_TIMEOUT
+
+    client, transport = api
+    client.syncplay_leave()
+    call = transport.calls[0]
+    assert call["method"] == "POST"
+    assert call["url"].endswith("/SyncPlay/Leave")
+    assert call["kwargs"]["timeout"] == LEAVE_TIMEOUT
+    assert LEAVE_TIMEOUT[0] + LEAVE_TIMEOUT[1] <= 5.0  # inside Kodi's grace
+
+    client.post("/Sessions/Playing", {"x": 1})
+    assert transport.calls[1]["kwargs"]["timeout"] == client._timeout
+
+
 def test_probe_info_is_one_attempt_on_the_probe_budget(api):
     """The service's connect probe: the backoff loop calling it is the retry
     policy, so the transport contributes no ladder of its own. The default
