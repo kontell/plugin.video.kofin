@@ -595,75 +595,104 @@ class SyncPlayManager(object):
     # WebSocket message handling (dispatcher thread)
     # ------------------------------------------------------------------
 
+    # Group updates by type (P2.4), in three tables that keep the dispatch's
+    # guard order: what is handled whether or not we are in a group, what is
+    # handled in-group before the state version moves, and what is versioned
+    # and dropped when stale. Method names, not bound methods, so the fork's
+    # __init__ stays as it is.
+    _GROUP_UPDATES_ANY_STATE = {
+        "GroupJoined": "_on_group_joined",
+        "NotInGroup": "_on_not_in_group",
+        "GroupDoesNotExist": "_on_not_in_group",
+        "LibraryAccessDenied": "_on_library_access_denied",
+    }
+    _GROUP_UPDATES_UNVERSIONED = {
+        "GroupLeft": "_on_group_left",
+        "UserJoined": "_on_user_joined",
+        "UserLeft": "_on_user_left",
+    }
+    _GROUP_UPDATES_VERSIONED = {
+        "StateUpdate": "_on_state_update",
+        "PlayQueue": "_on_play_queue",
+        "StateSnapshot": "_on_state_snapshot",
+        "PositionBeacon": "_on_beacon",
+    }
+
     def _handle_group_update(self, data):
         gtype = data.get("Type")
         payload = data.get("Data")
         version = data.get("StateVersion")
 
-        if gtype == "GroupJoined":
-            self._on_group_joined(payload or {}, version)
-            return
-
-        if gtype in ("NotInGroup", "GroupDoesNotExist"):
-            if self.in_group():
-                self._attempt_rejoin()
-
-            return
-
-        if gtype == "LibraryAccessDenied":
-            self._toast(settings.localized(30579), error=True)
+        handler = self._GROUP_UPDATES_ANY_STATE.get(gtype)
+        if handler is not None:
+            getattr(self, handler)(payload or {}, version)
             return
 
         if not self.in_group():
             return
-
         assert self.group is not None  # in_group() above
         if data.get("GroupId") and data["GroupId"] != self.group["GroupId"]:
             return
 
         if gtype == "GroupLeft":
-            self._leave_locally()
-            self._toast(settings.localized(30564))
+            # Before the version bookkeeping: a left group has no version.
+            self._on_group_left(payload or {})
             return
 
         previous_version = self.state_version
-
         if version is not None:
             self.state_version = max(previous_version, version)
 
-        if gtype == "UserJoined":
-            self._toast(self._text(30565, payload))
-            return
-
-        if gtype == "UserLeft":
-            self._toast(self._text(30566, payload))
+        handler = self._GROUP_UPDATES_UNVERSIONED.get(gtype)
+        if handler is not None:
+            getattr(self, handler)(payload or {})
             return
 
         if utils.is_stale_version(version, previous_version):
             LOG.info("Ignoring stale %s (v%s < v%s)", gtype, version, previous_version)
             return
 
-        if gtype == "StateUpdate":
-            previous = self.group_state
-            self.group_state = (payload or {}).get("State")
-            LOG.debug(
-                "[ syncplay/state ] %s (%s)",
-                self.group_state,
-                (payload or {}).get("Reason"),
-            )
-
-            if self.group_state == "Waiting" and previous == "Playing":
-                # A member dropped out or started buffering: the whole
-                # group holds. Surface why playback froze (S4.5).
-                self._toast(settings.localized(30585))
-        elif gtype == "PlayQueue":
-            self._apply_play_queue(payload or {})
-        elif gtype == "StateSnapshot":
-            self._apply_snapshot(payload or {})
-        elif gtype == "PositionBeacon":
-            self._on_beacon(payload or {}, version, previous_version)
-        else:
+        handler = self._GROUP_UPDATES_VERSIONED.get(gtype)
+        if handler is None:
             LOG.debug("Unhandled group update type: %s", gtype)
+            return
+        getattr(self, handler)(payload or {}, version, previous_version)
+
+    def _on_not_in_group(self, payload, version):
+        if self.in_group():
+            self._attempt_rejoin()
+
+    def _on_library_access_denied(self, payload, version):
+        self._toast(settings.localized(30579), error=True)
+
+    def _on_group_left(self, payload):
+        self._leave_locally()
+        self._toast(settings.localized(30564))
+
+    def _on_user_joined(self, payload):
+        self._toast(self._text(30565, payload))
+
+    def _on_user_left(self, payload):
+        self._toast(self._text(30566, payload))
+
+    def _on_state_update(self, payload, version, previous_version):
+        previous = self.group_state
+        self.group_state = payload.get("State")
+        LOG.debug(
+            "[ syncplay/state ] %s (%s)",
+            self.group_state,
+            payload.get("Reason"),
+        )
+        if self.group_state == "Waiting" and previous == "Playing":
+            # A member dropped out or started buffering: the whole
+            # group holds. Surface why playback froze (S4.5).
+            self._toast(settings.localized(30585))
+
+    def _on_play_queue(self, payload, version, previous_version):
+        self._apply_play_queue(payload)
+
+    def _on_state_snapshot(self, payload, version, previous_version):
+        self._apply_snapshot(payload)
 
     def _handle_command(self, command):
         """SyncPlayCommand gating per SYNCPLAY.md §5.1."""
