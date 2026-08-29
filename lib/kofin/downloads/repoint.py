@@ -37,7 +37,6 @@ from typing import Any, List, Optional, Tuple
 
 from kofin.core.log import Logger
 from kofin.downloads import TAG, downloads_root, store
-from kofin.downloads import store
 from kofin.sync.db import Database
 from kofin.sync.kodidb.downloads import Downloads as KodiDownloads
 from kofin.sync.kodidb.downloads import MusicDownloads

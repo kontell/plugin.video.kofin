@@ -15,6 +15,12 @@ from kofin.core import auth
         ("https://host/jellyfin/", "https://host/jellyfin"),
         ("  minipie  ", "http://minipie:8096"),
         ("", ""),
+        # An IPv6 literal is full of colons; the default port must still
+        # land after the bracket (audit R10 — it went to 80 before).
+        ("[fd00::1]", "http://[fd00::1]:8096"),
+        ("http://[fd00::1]", "http://[fd00::1]:8096"),
+        ("[fd00::1]:8920", "http://[fd00::1]:8920"),
+        ("https://[fd00::1]", "https://[fd00::1]"),
     ],
 )
 def test_normalize_address(raw, expected):

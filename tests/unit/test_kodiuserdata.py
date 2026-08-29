@@ -213,6 +213,36 @@ def test_a_failed_push_is_parked_not_dropped(mapped, kodi_resume):
     assert row.jellyfin_id == "jf-ep-1" and row.played == 1
 
 
+def test_offline_resume_reset_keeps_the_online_paths_bookmark_check(
+    mapped, kodi_resume
+):
+    """The online push refuses to zero the server's position while Kodi
+    still holds a bookmark — the one path that can discard a resume point
+    the user never asked to lose. The offline park skipped that check and
+    replayed position 0 verbatim on the next connect (audit R8); the check
+    is a local JSON-RPC read and works offline."""
+    from kofin.downloads import pending
+    from tests.unit.fakes import FakeWindow
+
+    FakeWindow.store = {"kofin.online": "false"}
+    kodi_resume["position"] = 900.0  # Kodi still has the bookmark
+
+    assert drain(RecordingApi(), [RESET_RESUME]) == []
+    assert pending.rows() == []
+
+
+def test_offline_resume_reset_with_the_bookmark_gone_is_parked(mapped, kodi_resume):
+    from kofin.downloads import pending
+    from tests.unit.fakes import FakeWindow
+
+    FakeWindow.store = {"kofin.online": "false"}
+    kodi_resume["position"] = 0.0
+
+    assert drain(RecordingApi(), [RESET_RESUME]) == []
+    (row,) = pending.rows()
+    assert row.jellyfin_id == "jf-ep-1"
+
+
 def test_a_second_event_coalesces_onto_the_row(mapped, kodi_resume):
     """One row per item: replaying "played" and then a stale "position 0"
     is how a finished episode comes back in Continue Watching."""

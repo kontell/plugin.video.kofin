@@ -144,6 +144,17 @@ class KodiUserData:
         if not jellyfin_id:
             return  # a library row kofin did not sync
 
+        if kind != UPDATE_PLAYCOUNT:
+            # Flat shape: only Kodi's resume-bookmark delete emits it, but
+            # confirm the bookmark really is gone before zeroing the server's
+            # position — this is the one path that can discard a resume point
+            # the user never asked to lose. Before the offline branch, because
+            # the check is a local JSON-RPC read that works offline and the
+            # parked replay used to zero the position without it (audit R8).
+            resume = kodirpc.resume_seconds(kodi_id, media)
+            if resume is None or resume > 0:
+                return
+
         if state.is_offline():
             # Skip the doomed attempt: the transport would spend its budget
             # before failing, and the outcome is the same parked row.
@@ -159,12 +170,5 @@ class KodiUserData:
                 self.api.mark_unplayed(jellyfin_id)
             return
 
-        # Flat shape: only Kodi's resume-bookmark delete emits it, but confirm
-        # the bookmark really is gone before zeroing the server's position —
-        # this is the one path that can discard a resume point the user never
-        # asked to lose.
-        resume = kodirpc.resume_seconds(kodi_id, media)
-        if resume is None or resume > 0:
-            return
         LOG.info("--> kodi %s %s resume reset", media, kodi_id)
         self.api.set_resume_position(jellyfin_id, 0)

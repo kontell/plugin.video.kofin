@@ -6,6 +6,7 @@ is not in the registry. Received methods arrive prefixed by Kodi (e.g.
 """
 
 import binascii
+import hmac
 import json
 import os
 import uuid
@@ -138,9 +139,12 @@ def rotate_nonce() -> str:
         # Written like every other secret-ish file here: owner-only, and
         # replaced atomically so a reader never sees half a token.
         temporary = path + ".tmp"
-        with open(temporary, "w") as handle:
+        # Created with the mode rather than chmod'ed after: open() takes the
+        # process umask, which left a 0644 window before the chmod (M2).
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "w") as handle:
             handle.write(value)
-        os.chmod(temporary, 0o600)
+        os.chmod(temporary, 0o600)  # an existing .tmp keeps its old mode
         os.replace(temporary, path)
     except OSError as error:  # pragma: no cover - defensive
         LOG.warning("could not write the IPC nonce: %s", error)
@@ -169,7 +173,9 @@ def verify(method: str, data: Dict[str, Any], expected: str) -> bool:
         return True
     if not expected:
         return False
-    return str(data.get(NONCE_KEY, "")) == expected
+    # NotifyAll offers no useful timing channel, but a secret comparison
+    # is spelled as one everywhere else in the tree (audit M2).
+    return hmac.compare_digest(str(data.get(NONCE_KEY, "")), expected)
 
 
 def notify(method: str, data: Optional[Dict[str, Any]] = None) -> None:

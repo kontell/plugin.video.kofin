@@ -31,6 +31,51 @@ def fullsync(monkeypatch):
     yield sync
 
 
+def test_the_music_pass_survives_a_zero_item_count(fullsync, monkeypatch, tmp_path):
+    """The progress denominator asks /Items while the artists walk
+    /Artists — two populations. A count of zero (the count query's
+    LocationTypes filter dropping every song) with an artist still answering
+    divided by zero on the first artist and took the whole library pass
+    down (audit F8)."""
+    from kofin.sync import db as sync_db
+    from kofin.sync import full_sync as module
+
+    sync_db.reset_overrides()
+    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    sync_db.set_path_override("music", str(tmp_path / "music.db"))
+
+    monkeypatch.setattr(module.server, "get_item_count", lambda api, lib, kinds=None: 0)
+    monkeypatch.setattr(
+        module.server,
+        "get_artists",
+        lambda api, lib: [{"Items": [{"Id": "artist1", "Name": "The Example"}]}],
+    )
+    monkeypatch.setattr(module.server, "get_items", lambda api, lib, **kw: [])
+    monkeypatch.setattr(module.server, "music_page_info", lambda: "")
+    monkeypatch.setattr(module.musicsources, "reassert", lambda *a: None)
+
+    written = []
+
+    class FakeMusic:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def artist(self, item):
+            written.append(item["Id"])
+
+        def music_views(self):
+            return []
+
+    monkeypatch.setattr(module, "Music", FakeMusic)
+    fullsync.host = FakeHost()
+    try:
+        fullsync.music({"Id": "lib-music", "Name": "Music"})
+    finally:
+        sync_db.reset_overrides()
+
+    assert written == ["artist1"]
+
+
 def test_deleted_library_dropped_not_whitelisted(fullsync):
     fullsync.server = FakeServer({"gone1": 404})
     fullsync.sync["Libraries"] = ["gone1"]

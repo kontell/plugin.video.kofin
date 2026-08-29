@@ -561,6 +561,14 @@ class FullSync(object):
             def page():
                 with self.host.database_lock:
                     yield videodb, jellyfindb
+                    # Kodi's database first, the mapping second — the same
+                    # order as workers.py's COMMIT_INTERVAL pair and as the
+                    # ``with`` unwind. A crash between the two leaves Kodi
+                    # rows with no mapping, which the next pass sees as
+                    # unwritten and writes again: a visible duplicate to
+                    # rewrite. The other order leaves a mapping with no rows,
+                    # which check_unchanged would skip forever — silent loss.
+                    # Neither is free; this one is the recoverable one.
                     videodb.conn.commit()
                     jellyfindb.conn.commit()
 
@@ -823,8 +831,17 @@ class FullSync(object):
 
                     library_id = library["Id"]
 
-                    total_items = server.get_item_count(
-                        self.server, library_id, "MusicArtist,MusicAlbum,Audio"
+                    # A denominator only: the count asks /Items while the
+                    # artists walk /Artists, so the bar can overrun 100 and
+                    # the two populations can disagree all the way to zero —
+                    # a library whose songs the count's LocationTypes filter
+                    # drops while /Artists still answers divided by zero on
+                    # the first artist and took the pass down (audit F8).
+                    total_items = max(
+                        server.get_item_count(
+                            self.server, library_id, "MusicArtist,MusicAlbum,Audio"
+                        ),
+                        1,
                     )
                     count = 0
 
@@ -839,7 +856,9 @@ class FullSync(object):
                     for batch in artists:
                         for item in batch["Items"]:
                             LOG.debug("Artist: {}".format(item.get("Name")))
-                            percent = int((float(count) / float(total_items)) * 100)
+                            percent = min(
+                                int((float(count) / float(total_items)) * 100), 100
+                            )
                             dialog.update(
                                 percent,
                                 heading="%s: %s" % ("Kofin", library["Name"]),
@@ -867,7 +886,9 @@ class FullSync(object):
                     for batch in albums:
                         for item in batch["Items"]:
                             LOG.debug("Album: {}".format(item.get("Name")))
-                            percent = int((float(count) / float(total_items)) * 100)
+                            percent = min(
+                                int((float(count) / float(total_items)) * 100), 100
+                            )
                             dialog.update(
                                 percent,
                                 heading="%s: %s" % ("Kofin", library["Name"]),
@@ -895,7 +916,9 @@ class FullSync(object):
                     for batch in songs:
                         for item in batch["Items"]:
                             LOG.debug("Song: {}".format(item.get("Name")))
-                            percent = int((float(count) / float(total_items)) * 100)
+                            percent = min(
+                                int((float(count) / float(total_items)) * 100), 100
+                            )
                             dialog.update(
                                 percent,
                                 heading="%s: %s" % ("Kofin", library["Name"]),

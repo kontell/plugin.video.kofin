@@ -123,7 +123,16 @@ class TimeSync(threading.Thread):
             LOG.debug("Unmatched TimeSync response: %s", data)
             return False
 
-        offset, rtt = utils.ntp_sample(t0, data["T1"], data["T2"], t3)
+        t1, t2 = data.get("T1"), data.get("T2")
+        if t1 is None or t2 is None:
+            # A reply that echoes T0 and omits the server's own stamps is a
+            # partial implementation, not a sample; falling through lets the
+            # HTTP measurement — the fallback that exists for exactly a
+            # socket that is not working — take this cycle (audit R9).
+            LOG.debug("Incomplete TimeSync response: %s", data)
+            return False
+
+        offset, rtt = utils.ntp_sample(t0, t1, t2, t3)
         self._add_sample(offset, rtt)
         return True
 

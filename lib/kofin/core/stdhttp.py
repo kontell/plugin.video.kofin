@@ -27,23 +27,12 @@ unused on kofin's API paths or deliberately out of scope (see the notes on
 
 import http.client
 import json
-import random
 import ssl
 import threading
-import time
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote, urlencode, urlsplit
 
-from kofin.core.http import (
-    BACKOFF_BASE_SECONDS,
-    DEFAULT_TIMEOUT,
-    Http,
-    HttpError,
-    METHOD_RETRIES,
-    run_ladder,
-    ServerUnreachable,
-    Unauthorized,
-)
+from kofin.core.http import DEFAULT_TIMEOUT, Http, METHOD_RETRIES, run_ladder
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)

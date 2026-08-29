@@ -258,6 +258,26 @@ class TestTimesyncWebSocket:
         assert sock.closed
         assert http_calls  # fell back to GET /GetUtcTime
 
+    def test_an_incomplete_reply_falls_back_to_http(self, monkeypatch):
+        """A reply that echoes T0 and omits T1/T2 — a partial server-side
+        implementation — raised KeyError out of _measure, and the HTTP
+        fallback that exists for a socket that is not working was never
+        reached that cycle (audit R9). The clock offset then stayed at 0.0
+        on a fresh join, the worst moment for it."""
+
+        class Partial(FakeTimesyncSocket):
+            def recv(self):
+                t0 = self.sent[-1]["Data"]
+                return json.dumps({"MessageType": "TimeSync", "Data": {"T0": t0}})
+
+        sync, _ = self.make(monkeypatch, Partial())
+        http_calls = []
+        sync.manager.get_utc_time = lambda: http_calls.append(1)
+
+        sync._measure()
+
+        assert http_calls  # fell back to GET /GetUtcTime this cycle
+
     def test_no_transport_uses_http(self, monkeypatch):
         manager = FakeTimesyncManager()  # no ws target advertised
         http_calls = []

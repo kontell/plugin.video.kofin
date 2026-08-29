@@ -54,6 +54,38 @@ def test_rotate_writes_a_fresh_secret_each_generation(nonce_file):
     assert oct(nonce_file.stat().st_mode)[-3:] == "600"
 
 
+def test_the_secret_is_owner_only_from_the_moment_it_exists(nonce_file, monkeypatch):
+    """The temp file used to be created under the process umask and
+    chmod'ed afterwards — a window in which it was world-readable (audit
+    M2). With the chmod taken away, the mode must already be right."""
+    import os
+
+    monkeypatch.setattr(ipc.os, "chmod", lambda path, mode: None)
+    monkeypatch.setattr(ipc.os, "umask", os.umask)
+    previous = os.umask(0o022)  # the common default: 0644 for open()
+    try:
+        ipc.rotate_nonce()
+    finally:
+        os.umask(previous)
+
+    assert oct(nonce_file.stat().st_mode)[-3:] == "600"
+
+
+def test_verify_compares_in_constant_time(nonce_file, monkeypatch):
+    seen = []
+
+    def compare(a, b):
+        seen.append((a, b))
+        return a == b
+
+    monkeypatch.setattr(ipc.hmac, "compare_digest", compare)
+    secret = ipc.rotate_nonce()
+
+    assert ipc.verify(ipc.REMOVE_LIBRARY, {ipc.NONCE_KEY: secret}, secret) is True
+    assert ipc.verify(ipc.REMOVE_LIBRARY, {ipc.NONCE_KEY: "x"}, secret) is False
+    assert len(seen) == 2
+
+
 def test_a_guarded_command_carries_the_secret_and_others_do_not(
     nonce_file, monkeypatch
 ):

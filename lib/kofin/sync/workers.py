@@ -166,6 +166,12 @@ class WriterWorker(threading.Thread):
                 processed += 1
 
                 if not processed % COMMIT_INTERVAL:
+                    # Kodi's database first, the mapping second (the order
+                    # full_sync's per-page pair keeps, and the ``with``
+                    # unwind): a crash between the two leaves rows without a
+                    # mapping — rewritten next pass, visibly — never a
+                    # mapping without rows, which check_unchanged would skip
+                    # forever.
                     kodidb.conn.commit()
                     jellyfindb.conn.commit()
 
