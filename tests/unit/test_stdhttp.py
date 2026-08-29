@@ -70,7 +70,7 @@ def fake_connections(monkeypatch):
     FakeConnection.instances = []
     monkeypatch.setattr(stdhttp.http.client, "HTTPSConnection", FakeConnection)
     monkeypatch.setattr(stdhttp.http.client, "HTTPConnection", FakeConnection)
-    monkeypatch.setattr(stdhttp.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(http_module.time, "sleep", lambda seconds: None)
     return FakeConnection
 
 
@@ -122,10 +122,21 @@ def test_status_taxonomy_matches_the_requests_transport(monkeypatch):
         with pytest.raises(http_module.Unauthorized):
             _answering(monkeypatch, status).request("GET", "https://s/x")
 
-    for status in (404, 500, 503):
+    for status in (404, 500):
         with pytest.raises(http_module.HttpError) as caught:
             _answering(monkeypatch, status).request("GET", "https://s/x")
         assert caught.value.status == status
+
+    # A transient status is replayed on the same budget as a transport
+    # error (H5); the fake answers 200 to the second attempt.
+    response = _answering(monkeypatch, 503).request("GET", "https://s/x")
+    assert response.status_code == 200
+    assert len(FakeConnection.instances[-1].requests) == 2
+
+    # POST carries no budget, so its 503 is the answer.
+    with pytest.raises(http_module.HttpError) as caught:
+        _answering(monkeypatch, 503).request("POST", "https://s/x")
+    assert caught.value.status == 503
 
 
 def test_a_success_returns_the_body_and_parses_json(monkeypatch):

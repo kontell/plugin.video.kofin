@@ -43,6 +43,14 @@ STREAM_CHUNK_BYTES = 262_144
 # ``retries``.
 METHOD_RETRIES = {"GET": RETRIES, "HEAD": RETRIES, "DELETE": 1}
 
+# Answers that mean "not now" rather than "no": a reverse proxy holding the
+# door while Jellyfin restarts (502/504), a server still warming up (503), a
+# rate limiter (429). They ride the same ladder as a transport error, for
+# the methods that carry a budget — POST still gets none (audit F7). Not
+# 500: Jellyfin answers deterministic 500s for broken items, and replaying
+# those would only slow a walk by three backoffs per request.
+RETRY_STATUSES = (429, 502, 503, 504)
+
 
 class JellyfinError(Exception):
     """Base for all transport/API failures."""
@@ -119,6 +127,19 @@ def run_ladder(
 
         if response.status_code in (401, 403):
             raise Unauthorized("%s %s -> %d" % (method, url, response.status_code))
+        if response.status_code in RETRY_STATUSES and attempt_index < retries:
+            LOG.debug(
+                "attempt %d/%d answered %d for %s; replaying",
+                attempt_index + 1,
+                retries + 1,
+                response.status_code,
+                url,
+            )
+            last_error = HttpError(
+                response.status_code,
+                "%s %s -> %d" % (method, url, response.status_code),
+            )
+            continue
         if 300 <= response.status_code < 400:
             # A redirect is refused on both transports rather than followed
             # by one of them (audit F4): requests followed it silently while

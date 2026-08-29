@@ -83,10 +83,21 @@ def test_a_non_json_200_is_an_http_error_on_both(server, client):
     assert "not JSON" in str(raised.value)
 
 
-def test_a_503_is_terminal_today(server, client):
-    """The ladder replays transport errors only (audit F7): a 503 from a
-    proxy waiting for Jellyfin spends none of the GET budget. H5 replays
-    429/502/503/504 for the methods that carry one."""
+def test_a_transient_status_rides_the_get_budget(server, client):
+    """Before H5 the ladder replayed transport errors only (audit F7): a
+    503 from a proxy waiting for Jellyfin spent none of the GET budget and
+    the sync healed at the 60 s resume ladder instead of the half-second
+    backoff already in this function."""
+    api, _ = client
+    server.answer("/Items", 503)
+    server.answer("/Items", 502)
+    server.answer("/Items", 200, json_body={"Items": [1]})
+
+    assert api.get("/Items") == {"Items": [1]}
+    assert [r[1] for r in server.requests] == ["/Items"] * 3
+
+
+def test_a_transient_status_that_never_clears_is_the_last_answer(server, client):
     api, _ = client
     server.answer("/Items", 503, repeat=True)
 
@@ -94,7 +105,7 @@ def test_a_503_is_terminal_today(server, client):
         api.get("/Items")
 
     assert raised.value.status == 503
-    assert len(server.requests) == 1
+    assert len(server.requests) == 4  # the GET budget: one try + three replays
 
 
 def test_a_500_is_terminal_for_every_method(server, client):
