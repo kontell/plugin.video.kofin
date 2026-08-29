@@ -88,19 +88,6 @@ def test_wrapped_style_is_keyed_by_texture_schema():
     assert schema.SUPPORTED["texture"] == {13, 14}
 
 
-def test_jpeg_size_reads_the_sof_marker():
-    sof = (
-        b"\xff\xd8"  # SOI
-        + b"\xff\xe0\x00\x04\x00\x00"  # APP0, length 4
-        + b"\xff\xc0\x00\x11\x08"  # SOF0, length, precision
-        + (360).to_bytes(2, "big")
-        + (640).to_bytes(2, "big")
-        + b"\x00" * 12
-    )
-    assert chapters.jpeg_size(sof) == (640, 360)
-    assert chapters.jpeg_size(b"not a jpeg") == (0, 0)
-
-
 # -- the texture writer against pristine fixture databases ---------------------
 
 

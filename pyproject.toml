@@ -4,3 +4,24 @@ extend-exclude = "/(\\.venv|\\.tox)/"
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
+
+# The third gate beside black and mypy (audit fixes plan H13): the classes
+# of defect neither of those names — an unused or duplicated import, a
+# raise inside an except that hides its cause, a for...else whose loop
+# never breaks (nine of those sat in the writers' removal paths, audit R1).
+# Correctness families only; the noisier style families stay off until
+# the tree is clean on them. RUF012 (class-level mutables, the no-module-
+# global-state doctrine) is the planned next step, after the deliberate
+# caches carry per-line comments.
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+extend-exclude = ["tests/live/results", ".venv", ".tox"]
+
+[tool.ruff.lint]
+select = ["F", "B", "PLW0120"]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest fixtures imported by name are "redefined" by the parameter that
+# receives them; that is the fixture mechanism, not a defect.
+"tests/**" = ["F811"]

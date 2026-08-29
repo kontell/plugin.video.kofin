@@ -39,6 +39,12 @@ def env(tmp_path, monkeypatch):
     )
     sync_db.reset_overrides()
     sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    # The free-space check runs a real statvfs on tmp_path, with a 2 GiB
+    # reserve: on a host whose /tmp is a small tmpfs the *second* _process in
+    # a test failed "not enough free space" (the first passed only because
+    # the root did not exist yet). The check has its own tests; here it is
+    # always satisfied, and the one test that wants a refusal overrides it.
+    monkeypatch.setattr(manager_module.files, "free_space_ok", lambda root, size: True)
     yield
     sync_db.reset_overrides()
 
@@ -226,7 +232,7 @@ def test_resume_appends_from_the_part_watermark(tmp_path, repoints):
     part.parent.mkdir(parents=True)
     (part.parent / (part.name + ".part")).write_bytes(b"abcd")
 
-    row = queue_row()
+    queue_row()
     store.record_target("m1", rel, "mkv")
     api = FakeManagerApi(
         MOVIE_DTO,
@@ -442,7 +448,8 @@ def test_remove_restores_deletes_and_prunes(tmp_path, repoints):
     (final.parent / "The Movie (2019).eng.srt").write_bytes(b"s")
     queue_row()
     store.finish("m1", rel, "mkv", 1)
-    store.set_restore_filename("m1", "plugin://old")
+    with sync_db.Database("kofin") as opened:
+        store.set_restore_filename_on(opened.cursor, "m1", "plugin://old")
 
     manager._apply_remove("m1")
 
@@ -1526,7 +1533,10 @@ def _finished(item_id, rel, root):
     path.write_bytes(b"x")
     queue_row(item_id)
     store.finish(item_id, rel, rel.rsplit(".", 1)[-1], 1)
-    store.set_restore_filename(item_id, "plugin://old-%s" % item_id)
+    with sync_db.Database("kofin") as opened:
+        store.set_restore_filename_on(
+            opened.cursor, item_id, "plugin://old-%s" % item_id
+        )
     return path
 
 
@@ -1903,3 +1913,115 @@ def test_a_drain_that_queues_nothing_notifies_nobody(tmp_path, repoints):
     manager._drain_ops(own=manager._new_wake())
 
     assert not other.is_set()
+
+
+# --- a late cancel neither leaks nor poisons (assessment D1) -----------------
+
+
+def _one_movie_api():
+    return FakeManagerApi(
+        MOVIE_DTO,
+        [
+            FakeStream(
+                200,
+                [b"abcd", b"efgh"],
+                {"Content-Length": "8", "Content-Disposition": DISPOSITION},
+            )
+        ],
+    )
+
+
+def test_a_cancel_on_the_last_chunk_still_cancels(tmp_path, repoints):
+    """The chunk loop consults the flag before each chunk, so a cancel that
+    lands while the last chunk is written is one it never sees; the item
+    completed DONE with the flag left set. Asked once more after the body:
+    the user asked first."""
+    manager, _ = make_manager(repoints)
+    api = _one_movie_api()
+    api._streams[0].on_chunk = lambda index: index == 1 and manager._cancels.add("m1")
+
+    manager._process(api, queue_row())
+
+    assert store.get("m1") is None
+    assert list((tmp_path / "dl").rglob("*.part")) == []
+    assert manager._cancels == set()
+
+
+def test_a_cancel_during_the_sidecars_is_superseded_and_cleared(
+    tmp_path, repoints, monkeypatch
+):
+    """Past the post-body check the item is done: a cancel arriving during
+    the sidecar fetch is overtaken by completion. What must not happen is
+    the flag surviving — it cancelled the *next* download of the same id at
+    its first chunk."""
+    manager, _ = make_manager(repoints)
+    original = manager._download_subtitles
+
+    def cancel_during_sidecars(*args, **kwargs):
+        manager._cancels.add("m1")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(manager, "_download_subtitles", cancel_during_sidecars)
+
+    manager._process(_one_movie_api(), queue_row())
+
+    assert store.get("m1").state == store.DONE
+    assert manager._cancels == set()
+
+    # Remove it and download it again: the re-download completes.
+    monkeypatch.setattr(manager, "_download_subtitles", original)
+    manager._apply_remove("m1")
+    assert store.get("m1") is None
+    manager._process(_one_movie_api(), queue_row())
+    assert store.get("m1").state == store.DONE
+
+
+# --- a refused restore keeps the download (assessment D5) --------------------
+
+
+def test_remove_is_refused_when_the_library_row_cannot_be_restored(
+    tmp_path, repoints, monkeypatch
+):
+    """Deleting the media after a refused restore left MyVideos pointing at
+    a file that no longer existed. The download stays — file, row, tag,
+    badge — and the user is told."""
+    manager, refreshes = make_manager(repoints)
+    monkeypatch.setattr(manager_module.repoint, "restore", lambda row, root: False)
+    shown = []
+    monkeypatch.setattr(manager_module.settings, "localized", lambda sid: "kept %s")
+    monkeypatch.setattr(manager_module.toast, "show", lambda *a, **k: shown.append(a))
+    rel = "Movies/The Movie (2019)/The Movie (2019).mkv"
+    final = tmp_path / "dl" / rel
+    final.parent.mkdir(parents=True)
+    final.write_bytes(b"x")
+    queue_row()
+    store.finish("m1", rel, "mkv", 1)
+
+    manager._apply_remove("m1")
+
+    assert final.exists()
+    assert store.get("m1").state == store.DONE
+    assert repoints["unstamp"] == [] and repoints["unbadge"] == []
+    assert refreshes == []
+    assert shown == [("kept The Movie (2019)",)]
+
+
+def test_a_vanished_file_is_cleaned_up_even_when_restore_is_refused(
+    tmp_path, repoints, vanished, monkeypatch
+):
+    """Nothing to keep: the file is already gone, and a row left behind
+    would be found by every sweep. The library row heals on the item's
+    next writer pass."""
+    manager, _refreshes = make_manager(repoints)
+    monkeypatch.setattr(manager_module.repoint, "restore", lambda row, root: False)
+    root = tmp_path / "dl"
+    rel = "Shows/The Show/Season 01/S01E01.mkv"
+    (root / rel).parent.mkdir(parents=True)
+    queue_row("e1", media_type="episode", series_id="show1")
+    store.finish("e1", rel, "mkv", 1)
+
+    manager._handle_vanished(store.get("e1"), str(root))
+
+    assert store.get("e1") is None
+    assert repoints["unstamp"] == ["e1"] and repoints["unbadge"] == ["e1"]
+    assert vanished["local"] == ["e1"]

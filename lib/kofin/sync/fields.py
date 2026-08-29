@@ -332,6 +332,33 @@ class API(object):
         return url
 
 
+def youtube_video_id(url):
+    """The video id in any of the YouTube URL shapes Jellyfin stores in
+    ``RemoteTrailers`` verbatim — ``watch?v=``, ``youtu.be/``, ``/shorts/``,
+    ``/embed/`` — or None for anything else.
+
+    The writers used to take ``rsplit("=", 1)[1]``, which raised IndexError
+    on every shape but ``watch?v=`` and logged a full traceback per film for
+    an ordinary link (audit R3). None keeps the "no trailer" outcome without
+    the noise.
+    """
+    if not url or not isinstance(url, str):
+        return None
+    text = url.strip()
+    query_start = text.find("?")
+    if query_start >= 0:
+        for pair in text[query_start + 1 :].split("&"):
+            if pair.startswith("v=") and len(pair) > 2:
+                return pair[2:].split("#", 1)[0]
+    path = text.split("?", 1)[0].split("#", 1)[0]
+    for marker in ("youtu.be/", "/shorts/", "/embed/"):
+        if marker in path:
+            candidate = path.split(marker, 1)[1].strip("/").split("/", 1)[0]
+            if candidate:
+                return candidate
+    return None
+
+
 def gone_on_fetch(error):
     """Whether a child fetch's failure means the item itself is gone.
 

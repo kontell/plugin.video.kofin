@@ -233,10 +233,14 @@ class Downloads(Kodi):
         return removed
 
 
+# LEFT JOIN: a song whose path row is gone still has a location to report
+# (the id and the filename), and "" for the string is what tells the repoint
+# there is nothing to capture.
 GET_SONG_LOCATION = """
-SELECT      idPath, strFileName
+SELECT      song.idPath, song.strFileName, path.strPath
 FROM        song
-WHERE       idSong = ?
+LEFT JOIN   path ON path.idPath = song.idPath
+WHERE       song.idSong = ?
 """
 
 SET_SONG_LOCATION = """
@@ -268,12 +272,13 @@ class MusicDownloads(Kodi):
         self.cursor = cursor
         Kodi.__init__(self)
 
-    def song_location(self, song_id: int) -> Optional[Tuple[int, str]]:
+    def song_location(self, song_id: int) -> Optional[Tuple[int, str, str]]:
+        """(idPath, strFileName, strPath) — strPath "" when the row is gone."""
         self.cursor.execute(GET_SONG_LOCATION, (song_id,))
         row = self.cursor.fetchone()
         if row is None:
             return None
-        return int(row[0]), str(row[1] or "")
+        return int(row[0]), str(row[1] or ""), str(row[2] or "")
 
     def set_song_location(self, song_id: int, path_id: int, filename: str) -> None:
         self.cursor.execute(SET_SONG_LOCATION, (path_id, filename, song_id))

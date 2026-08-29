@@ -6,7 +6,6 @@ demotion, userdata dedup."""
 
 import calendar
 
-import pytest
 
 from kofin.core.http import JellyfinError
 from kofin.sync import changefeed

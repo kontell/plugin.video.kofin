@@ -105,7 +105,7 @@ class Views(object):
 
         except Exception as error:
             LOG.exception(error)
-            raise IndexError("Unable to retrieve libraries: %s" % error)
+            raise IndexError("Unable to retrieve libraries: %s" % error) from error
 
         return libraries, complete
 
@@ -116,6 +116,30 @@ class Views(object):
         except IndexError as error:
             LOG.exception(error)
 
+            return
+
+        # An empty listing against existing references is not a deletion
+        # order — the rule the boxsets sweep and the prune already apply,
+        # and this is the case with the largest blast radius: the removal
+        # below deletes every synced row of every library it names. A user
+        # whose access was withdrawn gets a *successful* empty /UserViews
+        # (200, zero items — verified on jf12 v12, tests/live/
+        # jf12_user_policy.py) and, as a non-admin, a 403 on MediaFolders
+        # that ``complete`` rightly ignores; so ``complete`` alone cannot
+        # tell that answer from a healthy one. Gate on the whitelist rather
+        # than on "no views": a Live TV grant still lists one view for such
+        # a user. A library that really left while others stay is still
+        # removed (audit F2, fixes plan H3). Before the SortedViews stamp,
+        # because an empty stamp would regenerate an empty node tree too.
+        synced = {x.replace("Mixed:", "") for x in self.sync["Whitelist"]}
+        listed = {x["Id"] for x in libraries}
+        if synced and not (synced & listed):
+            LOG.warning(
+                "the server listed none of the %d synced libraries; an empty "
+                "listing is not a deletion order — keeping the view table and "
+                "asking again next pass",
+                len(synced),
+            )
             return
 
         # An incomplete listing may add, never reorder or remove. Stamping

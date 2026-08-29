@@ -17,7 +17,6 @@ import os
 import pathlib
 import shutil
 
-import pytest
 
 from kofin.sync import db as sync_db
 from kofin.sync.views import Views

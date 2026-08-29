@@ -30,6 +30,21 @@ def client():
     return ws, events
 
 
+def test_importing_the_client_does_not_poison_numpy():
+    """The module used to set sys.modules['numpy'] = None at import — a
+    workaround for a websocket-client code path that no longer exists (zero
+    numpy references in the pinned 1.6.4), and a module-level mutation of
+    shared interpreter state in a tree whose rule is that such state argues
+    its way in (audit M3). ``import numpy`` must not be made to fail."""
+    import importlib
+    import sys
+
+    sys.modules.pop("numpy", None)
+    importlib.reload(sys.modules["kofin.core.ws"])
+
+    assert sys.modules.get("numpy", "absent") is not None
+
+
 def test_socket_url_follows_the_scheme():
     assert socket_url("http://server:8096") == "ws://server:8096/socket"
     assert socket_url("https://server:8096") == "wss://server:8096/socket"

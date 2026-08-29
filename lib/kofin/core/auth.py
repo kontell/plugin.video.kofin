@@ -48,7 +48,10 @@ def normalize_address(text: str) -> str:
         address = "http://" + address
     parts = urlsplit(address)
     netloc = parts.netloc
-    if ":" not in netloc and parts.scheme == "http":
+    # ``parts.port`` rather than a ":" test: an IPv6 literal is full of
+    # colons and got no default port, so ``[fd00::1]`` went to 80 and
+    # failed with nothing naming the cause (audit R10).
+    if parts.port is None and parts.scheme == "http" and not netloc.endswith(":"):
         netloc = "%s:%d" % (netloc, DEFAULT_HTTP_PORT)
     base = "%s://%s" % (parts.scheme, netloc)
     if parts.path:

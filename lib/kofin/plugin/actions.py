@@ -8,7 +8,7 @@ import xbmcgui
 
 from kofin.core import ipc, kodirpc, settings, toast
 from kofin.core.api import Api
-from kofin.core.http import JellyfinError, plugin_transport
+from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin.listitems import play_path
@@ -18,11 +18,7 @@ LOG = Logger(__name__)
 
 
 def _api() -> Api:
-    return Api.from_credentials(
-        plugin_transport(settings.get_bool("sslVerify")),
-        Credentials.load(),
-        interactive=True,
-    )
+    return Api.for_plugin(Credentials.load())
 
 
 def _refresh() -> None:
@@ -457,11 +453,15 @@ def manage_download_shows(request: Request) -> None:
 
 
 def _show_names(series_ids: List[str]) -> List[str]:
+    """Titles for the picker: the kofin.db id map names the Kodi row, and
+    Kodi names the show. The plugin process opens no Kodi database — the
+    title comes over JSON-RPC (kodirpc.tvshow_title). An unmapped or
+    unanswerable show falls back to its id, so the picker still lists it."""
     from kofin.sync.db import Database
 
     names: List[str] = []
     try:
-        with Database("kofin") as kofin_db, Database("video") as video:
+        with Database("kofin") as kofin_db:
             for series_id in series_ids:
                 kofin_db.cursor.execute(
                     "SELECT kodi_id FROM jellyfin "
@@ -471,11 +471,7 @@ def _show_names(series_ids: List[str]) -> List[str]:
                 mapped = kofin_db.cursor.fetchone()
                 name = None
                 if mapped is not None and mapped[0] is not None:
-                    video.cursor.execute(
-                        "SELECT c00 FROM tvshow WHERE idShow = ?", (mapped[0],)
-                    )
-                    row = video.cursor.fetchone()
-                    name = row[0] if row is not None else None
+                    name = kodirpc.tvshow_title(int(mapped[0]))
                 names.append(str(name or series_id))
     except Exception:
         LOG.exception("show names unavailable")

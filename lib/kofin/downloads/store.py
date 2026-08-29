@@ -16,7 +16,7 @@ to queued (:func:`recover_interrupted`).
 import json
 import time
 from dataclasses import dataclass, fields as dataclass_fields
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Dict, List, Optional, Sequence
 
 from kofin.core.log import Logger
 from kofin.sync.db import Database
@@ -43,6 +43,10 @@ QUALITY_ORIGINAL = "original"
 # recovery know the .part is not byte-stable: a transcode restarts clean
 # where an original resumes with a Range.
 QUALITY_TRANSCODE = "transcode"
+
+# The two video kinds every per-type policy branches on. "" (unknown) is
+# deliberately not here — each consumer decides what unknown means.
+VIDEO_MEDIA_TYPES = ("movie", "episode")
 
 
 @dataclass
@@ -73,6 +77,14 @@ class Download:
     # server's). Re-captured whenever a writer pass rebuilds the row, so a
     # server-side rename never restores a stale URL.
     restore_filename: str = ""
+    # The path.strPath a song sat on when the repoint captured it — the
+    # music side's second half. A song's server row is referenced by nothing
+    # while the download lives (MyMusic has one path row per song and the
+    # repoint moves the song off it), so the row can be gone by restore
+    # time, and the mapping's id alone cannot bring it back; the string can.
+    # Empty on rows captured before the column existed, or on video rows,
+    # whose path rows are shared and never orphaned by a repoint.
+    restore_path: str = ""
 
     @property
     def userdata(self) -> Dict[str, Any]:
@@ -378,15 +390,17 @@ def set_segments(jellyfin_id: str, raw_json: str) -> None:
         )
 
 
-def set_restore_filename(jellyfin_id: str, filename: str) -> None:
-    with Database("kofin") as opened:
-        set_restore_filename_on(opened.cursor, jellyfin_id, filename)
-
-
 def set_restore_filename_on(cursor: Any, jellyfin_id: str, filename: str) -> None:
     cursor.execute(
         "UPDATE download SET restore_filename = ? WHERE jellyfin_id = ?",
         (filename, jellyfin_id),
+    )
+
+
+def set_restore_path_on(cursor: Any, jellyfin_id: str, path: str) -> None:
+    cursor.execute(
+        "UPDATE download SET restore_path = ? WHERE jellyfin_id = ?",
+        (path, jellyfin_id),
     )
 
 
@@ -445,28 +459,6 @@ def pending_count() -> int:
             (QUEUED, ACTIVE),
         )
         return int(opened.cursor.fetchone()[0])
-
-
-def done_ids() -> Set[str]:
-    with Database("kofin") as opened:
-        opened.cursor.execute(
-            "SELECT jellyfin_id FROM download WHERE state = ?", (DONE,)
-        )
-        fetched = opened.cursor.fetchall()
-    return {row[0] for row in fetched}
-
-
-def series_has_done(series_id: str) -> bool:
-    """Any completed download under this show (the tvshow tag lookup)."""
-    if not series_id:
-        return False
-    with Database("kofin") as opened:
-        opened.cursor.execute(
-            "SELECT 1 AS present FROM download WHERE series_id = ? AND state = ? LIMIT 1",
-            (series_id, DONE),
-        )
-        found = opened.cursor.fetchone()
-    return found is not None
 
 
 def recover_interrupted() -> int:

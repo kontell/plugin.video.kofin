@@ -5,7 +5,6 @@ from the server), ``self.server`` is the kofin Api, and the ``musicTranscode``
 setting picks between the fork's direct stream URLs and kofin plugin paths."""
 
 import datetime
-from typing import Any, List
 
 from kofin.core import settings
 from kofin.core.log import Logger
@@ -428,7 +427,25 @@ class Music(KodiDb):
 
     def song_update(self, obj):
         """Update object to kodi."""
-        self.update_path(*values(obj, QU.update_path_obj))
+        # Deviation from the fork: the fork rewrote the mapped path row in
+        # place and never wrote song.idPath again, so a song whose row had
+        # gone kept pointing at nothing — an UPDATE on a missing row is a
+        # silent no-op — and no repair could bring it back. The row can go:
+        # a downloaded song's server row is referenced by nothing while the
+        # download lives, and Kodi's own clean (and kofin's startup prune,
+        # before it read the mapping) removes unreferenced rows. In place
+        # when the row is there, get-or-create by string when it is not, and
+        # the id rides along in update_song either way.
+        if self.path_exists(obj["PathId"]):
+            self.update_path(*values(obj, QU.update_path_obj))
+        else:
+            obj["PathId"] = self.add_path(obj["Path"])
+            self.jellyfin_db.update_pathid(*values(obj, QUEM.update_pathid_obj))
+            LOG.info(
+                "song %s had no path row; re-created it as %s",
+                obj["SongId"],
+                obj["PathId"],
+            )
 
         self.update_song(*values(obj, QU.update_song_obj))
         self.jellyfin_db.update_reference(*values(obj, QUEM.update_reference_obj))
@@ -691,10 +708,9 @@ class Music(KodiDb):
                 *values(obj, QUEM.get_item_by_parent_song_obj)
             ):
                 self.remove_song(song[1], obj["Id"])
-            else:
-                self.jellyfin_db.remove_items_by_parent_id(
-                    *values(obj, QUEM.delete_item_by_parent_song_obj)
-                )
+            self.jellyfin_db.remove_items_by_parent_id(
+                *values(obj, QUEM.delete_item_by_parent_song_obj)
+            )
 
             self.remove_album(obj["KodiId"], obj["Id"])
 
@@ -732,18 +748,16 @@ class Music(KodiDb):
                     *values(temp_obj, QUEM.get_item_by_parent_song_obj)
                 ):
                     self.remove_song(song[1], obj["Id"])
-                else:
-                    self.jellyfin_db.remove_items_by_parent_id(
-                        *values(temp_obj, QUEM.delete_item_by_parent_song_obj)
-                    )
-                    self.jellyfin_db.remove_items_by_parent_id(
-                        *values(temp_obj, QUEM.delete_item_by_parent_artist_obj)
-                    )
-                    self.remove_album(temp_obj["ParentId"], obj["Id"])
-            else:
                 self.jellyfin_db.remove_items_by_parent_id(
-                    *values(obj, QUEM.delete_item_by_parent_album_obj)
+                    *values(temp_obj, QUEM.delete_item_by_parent_song_obj)
                 )
+                self.jellyfin_db.remove_items_by_parent_id(
+                    *values(temp_obj, QUEM.delete_item_by_parent_artist_obj)
+                )
+                self.remove_album(temp_obj["ParentId"], obj["Id"])
+            self.jellyfin_db.remove_items_by_parent_id(
+                *values(obj, QUEM.delete_item_by_parent_album_obj)
+            )
 
             self.remove_artist(obj["KodiId"], obj["Id"])
 
@@ -781,34 +795,3 @@ class Music(KodiDb):
         self.artwork.delete(kodi_id, "song")
         self.delete_song(kodi_id)
         LOG.debug("DELETE song [%s] %s", kodi_id, item_id)
-
-    @jellyfin_item
-    def get_child(self, item_id, e_item):
-        """Get all child elements from tv show jellyfin id."""
-        obj = {"Id": item_id}
-        child: List[Any] = []
-
-        try:
-            obj["KodiId"] = e_item[0]
-            obj["FileId"] = e_item[1]
-            obj["ParentId"] = e_item[3]
-            obj["Media"] = e_item[4]
-        except TypeError:
-            return child
-
-        obj["ParentId"] = obj["KodiId"]
-
-        for album in self.jellyfin_db.get_item_by_parent_id(
-            *values(obj, QUEM.get_item_by_parent_album_obj)
-        ):
-
-            temp_obj = dict(obj)
-            temp_obj["ParentId"] = album[1]
-            child.append((album[0],))
-
-            for song in self.jellyfin_db.get_item_by_parent_id(
-                *values(temp_obj, QUEM.get_item_by_parent_song_obj)
-            ):
-                child.append((song[0],))
-
-        return child

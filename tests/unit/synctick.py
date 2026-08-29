@@ -9,8 +9,7 @@ backoff and ``datetime.now`` for the retry ladder).
 """
 
 import datetime as _datetime
-import time as _time
-from typing import Any, Dict, List
+from typing import Any, List
 
 from kofin.sync import library as library_module
 from kofin.sync.library import Library

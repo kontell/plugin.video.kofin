@@ -52,7 +52,7 @@ MEDIA_TYPE_BY_DTO = {"Movie": "movie", "Episode": "episode", "Audio": "song"}
 # release that did not carry the type, or by a sender that had no DTO — and
 # it belongs to the video pool, whose pacing already assumes an item might
 # be a two-hour film.
-VIDEO_KINDS = ("movie", "episode", "")
+VIDEO_KINDS = store.VIDEO_MEDIA_TYPES + ("",)
 MUSIC_KINDS = ("song",)
 
 # Per-item attempts before the row settles as failed. The store keeps
@@ -431,6 +431,17 @@ class DownloadManager:
             self._clear_cancel(item_id)
             LOG.info("download cancelled: %s", item_id)
 
+    def _remove_row(self, row: "store.Download") -> None:
+        """The ordered removal every path shares (P1.10): media, store row,
+        tag, badge. The store row goes before the tag check because an
+        episode's unstamp asks whether any sibling download still holds the
+        show in the node, and the row being removed must not count itself
+        as that sibling."""
+        self._delete_media(row)
+        store.remove(row.jellyfin_id)
+        repoint.unstamp_tag(row)
+        repoint.clear_badge(row)
+
     def _apply_remove(self, item_id: str, flush: bool = True) -> None:
         row = store.get(item_id)
         if row is None:
@@ -439,14 +450,19 @@ class DownloadManager:
             self._apply_cancel(item_id)
             return
         root = downloads_root()
-        repoint.restore(row, root)
-        self._delete_media(row)
-        # The store row goes before the tag check: an episode's unstamp asks
-        # whether any sibling download still holds the show in the node, and
-        # the row being removed must not count itself as that sibling.
-        store.remove(item_id)
-        repoint.unstamp_tag(row)
-        repoint.clear_badge(row)
+        if not repoint.restore(row, root):
+            # Refused (no captured filename, no usable mapping): deleting
+            # the media now would leave the library row pointing at a file
+            # that no longer exists. The download stays exactly as it is —
+            # file, row, tag, badge — and the user is told; the next writer
+            # pass over the item re-captures the filename, after which the
+            # removal goes through (assessment D5).
+            LOG.error(
+                "download %s kept: its library row could not be restored", item_id
+            )
+            self._toast(30822, _display_name(row))
+            return
+        self._remove_row(row)
         # A removal answers something the user just asked for, so it does
         # not wait out the completion path's defer window — but "immediate"
         # has to mean once per *request*, not once per row. Removing an
@@ -570,8 +586,17 @@ class DownloadManager:
                 api, row, item, source, owner_id, decision, root
             )
 
-        absolute = os.path.join(root, rel_path)
-        part = absolute + ".part"
+        # The chunk loop consults the cancel flag before each chunk, so a
+        # cancel that lands during the last chunk's write is one it never
+        # sees. Asked once more here, with the body complete: the item is
+        # not done yet, and the user asked first. From store.finish on the
+        # item *is* done and a cancel that arrives in between (the sidecars,
+        # the rename — a second at most) is superseded by completion: the
+        # flag is cleared there, and the row is removed, not cancelled.
+        if self._cancelled(item_id):
+            raise _Cancelled()
+        absolute = files.absolute_path(root, rel_path)
+        part = files.part_path(root, rel_path)
         self._download_subtitles(
             api,
             item,
@@ -582,13 +607,17 @@ class DownloadManager:
         )
         os.replace(part, absolute)
         store.finish(item_id, rel_path, container, actual)
+        # Spent: a cancel that arrived after the check above completed
+        # anyway, and left in the set it would cancel the *next* download
+        # of this id at its first chunk (assessment D1).
+        self._clear_cancel(item_id)
         self._attempts.pop(item_id, None)
         finished = store.get(item_id)
         if finished is not None:
             repoint.repoint(finished, root)
             repoint.stamp_tag(finished)
             repoint.stamp_badge(finished)
-        if media_type in ("movie", "episode"):
+        if media_type in store.VIDEO_MEDIA_TYPES:
             self._capture_segments(api, item_id)
         if settings.get_bool("downloadsExportMetadata"):
             export.export_item(api, item, absolute)  # best-effort by contract
@@ -658,7 +687,7 @@ class DownloadManager:
         rel_path = row.rel_path
         start = 0
         if rel_path:
-            part_existing = os.path.join(root, rel_path) + ".part"
+            part_existing = files.part_path(root, rel_path)
             if os.path.exists(part_existing):
                 start = os.path.getsize(part_existing)
         stream = api.download_stream(item_id, start=start)
@@ -674,8 +703,8 @@ class DownloadManager:
                     container,
                     stream.header("Content-Disposition"),
                 )
-            absolute = os.path.join(root, rel_path)
-            part = absolute + ".part"
+            absolute = files.absolute_path(root, rel_path)
+            part = files.part_path(root, rel_path)
             os.makedirs(os.path.dirname(absolute), exist_ok=True)
             expected_total = _expected_total(stream, start, size_expected)
             self._progress.begin(
@@ -738,8 +767,8 @@ class DownloadManager:
                         decision.container,
                         stream.header("Content-Disposition"),
                     )
-                absolute = os.path.join(root, rel_path)
-                part = absolute + ".part"
+                absolute = files.absolute_path(root, rel_path)
+                part = files.part_path(root, rel_path)
                 os.makedirs(os.path.dirname(absolute), exist_ok=True)
                 _remove_quietly(part)
                 self._write_body(stream, part, 0, item_id)
@@ -983,8 +1012,8 @@ class DownloadManager:
         if not row.rel_path:
             return
         root = downloads_root()
-        absolute = os.path.join(root, row.rel_path)
-        _remove_quietly(absolute + ".part")
+        absolute = files.absolute_path(root, row.rel_path)
+        _remove_quietly(files.part_path(root, row.rel_path))
         _prune_empty_dirs(os.path.dirname(absolute), root)
 
     def _delete_media(self, row: "store.Download") -> None:
@@ -1029,7 +1058,7 @@ class DownloadManager:
         wanting = [
             row
             for row in store.rows(store.DONE)
-            if row.media_type in ("movie", "episode") and not row.segments_json
+            if row.media_type in store.VIDEO_MEDIA_TYPES and not row.segments_json
         ]
         if not wanting:
             return
@@ -1055,7 +1084,7 @@ class DownloadManager:
                 if self._should_stop():
                     return
                 songs = songs or row.media_type == "song"
-                absolute = os.path.join(root, row.rel_path)
+                absolute = files.absolute_path(root, row.rel_path)
                 if not row.rel_path or not os.path.exists(absolute):
                     self._handle_vanished(row, root)
                     touched = True
@@ -1090,13 +1119,17 @@ class DownloadManager:
             "downloaded file missing for %s; cleaning up and marking it watched",
             row.jellyfin_id,
         )
-        repoint.restore(row, root)
-        self._delete_media(row)
-        # Before the tag check, exactly as in _apply_remove: an episode's
-        # unstamp asks whether a sibling still holds the show in the node.
-        store.remove(row.jellyfin_id)
-        repoint.unstamp_tag(row)
-        repoint.clear_badge(row)
+        if not repoint.restore(row, root):
+            # The file is already gone, so there is nothing to keep: the
+            # cleanup proceeds — the row must go, or the sweep finds the
+            # same missing file every pass — and the library row heals on
+            # the item's next writer pass. Said loudly; it should not
+            # happen (a done row always captured its filename).
+            LOG.error(
+                "vanished download %s: library row not restored; cleaning up anyway",
+                row.jellyfin_id,
+            )
+        self._remove_row(row)
         self._mark_watched(row)
         self._mark_dirty(row.media_type)
 
@@ -1112,7 +1145,7 @@ class DownloadManager:
         a played track is not a finished one, and "watched" is not a thing a
         song is.
         """
-        if row.media_type not in ("movie", "episode"):
+        if row.media_type not in store.VIDEO_MEDIA_TYPES:
             return
         self._mark_local_watched(row)
         self._push_played(row)
@@ -1181,7 +1214,9 @@ class DownloadManager:
             for row in store.rows(store.DONE):
                 if self._should_stop():
                     return
-                if row.rel_path and os.path.exists(os.path.join(root, row.rel_path)):
+                if row.rel_path and os.path.exists(
+                    files.absolute_path(root, row.rel_path)
+                ):
                     continue
                 if self._playing_now(row):
                     # Not gone, just unreadable for a moment (a network share
@@ -1220,7 +1255,7 @@ class DownloadManager:
             for row in store.rows(store.DONE):
                 if self._should_stop():
                     return
-                if row.media_type not in ("movie", "episode"):
+                if row.media_type not in store.VIDEO_MEDIA_TYPES:
                     continue
                 if not _watched_locally(row):
                     continue
@@ -1277,7 +1312,7 @@ class DownloadManager:
             for row in store.rows(store.DONE):
                 if self._should_stop():
                     return
-                if row.media_type not in ("movie", "episode"):
+                if row.media_type not in store.VIDEO_MEDIA_TYPES:
                     continue
                 if not row.done_at or row.done_at > cutoff:
                     # The cheap half, off the store row alone: a library
@@ -1329,7 +1364,7 @@ class DownloadManager:
             return False
         if not playing or not row.rel_path:
             return False
-        absolute = os.path.join(downloads_root(), row.rel_path)
+        absolute = files.absolute_path(downloads_root(), row.rel_path)
         return os.path.abspath(playing) == os.path.abspath(absolute)
 
     # -- plumbing --------------------------------------------------------------
@@ -1403,6 +1438,13 @@ class DownloadManager:
             toast.show(settings.localized(string_id) % name, time_ms=4000)
         except Exception:  # pragma: no cover - uncached string etc.
             LOG.debug("download toast failed for %s", string_id)
+
+
+def _display_name(row: "store.Download") -> str:
+    """What a toast can call a download: the file's own name, which is what
+    the user sees in the downloads folder — the row carries no title."""
+    base = os.path.splitext(os.path.basename(row.rel_path))[0]
+    return base or row.jellyfin_id
 
 
 def _expected_total(stream: StreamedResponse, start: int, fallback: int) -> int:
@@ -1533,7 +1575,7 @@ def delete_media_files(row: "store.Download") -> None:
     if not row.rel_path:
         return
     root = downloads_root()
-    absolute = os.path.join(root, row.rel_path)
+    absolute = files.absolute_path(root, row.rel_path)
     directory = os.path.dirname(absolute)
     base = os.path.basename(row.rel_path).rsplit(".", 1)[0]
     _remove_quietly(absolute + ".part")

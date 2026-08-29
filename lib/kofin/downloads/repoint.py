@@ -20,6 +20,16 @@ repoint time and re-captured whenever a writer pass rebuilds the row — so a
 server-side rename never restores a stale URL, a transcode (whose local name
 shares nothing with the server's) restores exactly, and the L2 suite can
 hold restore to byte-identical.
+
+The music side captures the path string as well (``restore_path``), because
+the *row* is not guaranteed to be there: MyMusic has one path row per song,
+the repoint moves the song off it, and for as long as the download lives
+nothing references it — Kodi's own clean removes such rows, and kofin's
+startup prune did until it learned to read the mapping. A restore that
+trusted the stored id put the song back onto a deleted row, which
+``songview`` drops from every listing (four empty albums on a Bravia,
+2026-08-28). So the music restore get-or-creates the row from the captured
+string, and moves the mapping's ``kodi_pathid`` along when the id changed.
 """
 
 from dataclasses import dataclass
@@ -33,7 +43,8 @@ from kofin.sync.kodidb.downloads import MusicDownloads
 
 LOG = Logger(__name__)
 
-REPOINTABLE = ("movie", "episode")
+# The store names the video kinds; repoint follows it (P1.10).
+REPOINTABLE = store.VIDEO_MEDIA_TYPES
 
 
 @dataclass
@@ -73,6 +84,16 @@ def _song_mapping_on(kofin_cursor: Any, jellyfin_id: str) -> Optional[Mapping]:
     if row is None or row[0] is None or row[1] is None:
         return None
     return Mapping(int(row[0]), 0, int(row[1]), "song")
+
+
+def _set_song_pathid_on(kofin_cursor: Any, jellyfin_id: str, path_id: int) -> None:
+    """The mapping follows the row: the writers' ``song_update``, the next
+    repoint and ``delete_song`` all read ``kodi_pathid`` back."""
+    kofin_cursor.execute(
+        "UPDATE jellyfin SET kodi_pathid = ? "
+        "WHERE jellyfin_id = ? AND media_type = 'song'",
+        (path_id, jellyfin_id),
+    )
 
 
 def _directory_chain(root: str, rel_path: str) -> Tuple[List[str], str]:
@@ -238,9 +259,11 @@ def repoint_song_on(
             mapping.kodi_id,
         )
         return False
-    _current_path_id, current_name = location
+    _current_path_id, current_name, current_path = location
     if current_name and current_name != filename:
         store.set_restore_filename_on(kofin_cursor, download.jellyfin_id, current_name)
+        if current_path:
+            store.set_restore_path_on(kofin_cursor, download.jellyfin_id, current_path)
     target = kodi.ensure_song_path(chain[-1])
     kodi.set_song_location(mapping.kodi_id, target, filename)
     LOG.info(
@@ -267,9 +290,25 @@ def restore_song_on(
     chain, _filename = _directory_chain(root, download.rel_path)
 
     kodi = MusicDownloads(music_cursor)
-    kodi.set_song_location(
-        mapping.kodi_id, mapping.kodi_pathid, download.restore_filename
-    )
+    target = mapping.kodi_pathid
+    if download.restore_path:
+        # Get-or-create by string: the common case finds the same row at the
+        # same id, and a row Kodi's clean took comes back under a new one.
+        target = kodi.add_path(download.restore_path)
+    elif not kodi.path_exists(target):
+        # A row captured before restore_path existed, and its server row is
+        # gone. Inventing the URL here is the re-derivation this design
+        # rejects; a song left on its local row is at least still listed.
+        LOG.error(
+            "restore refused for %s: server path row %s is gone and no path "
+            "was captured",
+            download.jellyfin_id,
+            target,
+        )
+        return False
+    kodi.set_song_location(mapping.kodi_id, target, download.restore_filename)
+    if target != mapping.kodi_pathid:
+        _set_song_pathid_on(kofin_cursor, download.jellyfin_id, target)
     if chain:
         kodi.prune_song_path(chain[-1])
     LOG.info(

@@ -464,5 +464,7 @@
   "#30596": "Kuinka paljon toistonopeus saa enintään muuttua korjauksen aikana. 25 %:lla 2,5 sekunnin virhe korjautuu 10 sekunnissa; pienempi huomataan vähemmän mutta on hitaampi. Suuret muutokset tehdään asteittain.",
   "#30597": "Hienosynkronointi AV1-videolla",
   "#30598": "Oletuksena pois päältä, ja varoitus: Pixel 7:llä nopeuden muutos ja sitä seurannut hyppy jumittivat AV1-laitteistodekooderin ja sitten koko puhelimen. Bravian AV1-dekooderi toimi ongelmitta. Ota käyttöön vain, jos laitteesi kestää sen; muuten AV1-nimikkeet seuraavat ryhmää pelkkien komentojen varassa.",
-  "#30599": "Hienosynkronointi vaatii inputstream.tempon 21.4.1 / 22.4.1"
+  "#30599": "Hienosynkronointi vaatii inputstream.tempon 21.4.1 / 22.4.1",
+  "#30821": "Palvelinvirhe — %s",
+  "#30822": "%s säilytettiin — kirjaston merkintää ei voitu palauttaa"
 }

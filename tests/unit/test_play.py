@@ -3,6 +3,7 @@ import pytest
 from kofin.core.http import JellyfinError
 from kofin.plugin import play
 from kofin.plugin.router import dispatch
+from tests.unit.fakes import FakeApi
 
 SERVER = "http://s:8096"
 
@@ -176,23 +177,12 @@ def test_play_state_carries_series_id():
     assert payload["SeriesId"] == "show9"
 
 
-class SegmentsStubApi:
-    def __init__(self, response=None, fail=False):
-        self.response = response or {"Items": []}
-        self.fail = fail
-        self.calls = 0
-
-    def media_segments(self, item_id):
-        self.calls += 1
-        if self.fail:
-            raise JellyfinError("segments down")
-        return self.response
-
-
 def test_prefetch_segments_warm_path(monkeypatch):
     monkeypatch.setattr("kofin.core.settings.get_bool", lambda sid: True)
-    api = SegmentsStubApi(
-        {"Items": [{"Type": "Intro", "StartTicks": 0, "EndTicks": 300_000_000}]}
+    api = FakeApi(
+        media_segments={
+            "Items": [{"Type": "Intro", "StartTicks": 0, "EndTicks": 300_000_000}]
+        }
     )
     segments = play.prefetch_segments(api, {"Id": "e1", "Type": "Episode"})
     assert segments == [{"Type": "Introduction", "Start": 0.0, "End": 30.0}]
@@ -200,18 +190,18 @@ def test_prefetch_segments_warm_path(monkeypatch):
 
 def test_prefetch_segments_skips_non_video_and_disabled(monkeypatch):
     monkeypatch.setattr("kofin.core.settings.get_bool", lambda sid: True)
-    api = SegmentsStubApi()
+    api = FakeApi(media_segments={"Items": []})
     assert play.prefetch_segments(api, {"Id": "a1", "Type": "Audio"}) == []
-    assert api.calls == 0
+    assert api.calls == []
 
     monkeypatch.setattr("kofin.core.settings.get_bool", lambda sid: False)
     assert play.prefetch_segments(api, {"Id": "e1", "Type": "Episode"}) == []
-    assert api.calls == 0
+    assert api.calls == []
 
 
 def test_prefetch_segments_failure_defers_to_service(monkeypatch):
     monkeypatch.setattr("kofin.core.settings.get_bool", lambda sid: True)
-    api = SegmentsStubApi(fail=True)
+    api = FakeApi(media_segments=JellyfinError("segments down"))
     assert play.prefetch_segments(api, {"Id": "e1", "Type": "Episode"}) is None
 
 
@@ -411,6 +401,9 @@ def resume_env(monkeypatch):
         "UserData": {"PlaybackPositionTicks": 600 * 10_000_000},
     }
     api = ResumeApi(episode)
+    # play.py reads api.http to hand the transport to the subtitle fetch;
+    # nothing here exercises subtitles, so any placeholder serves.
+    api.http = None
     listitem = ResumeListItem()
     resolved = []
 
@@ -424,7 +417,7 @@ def resume_env(monkeypatch):
 
     class ApiFactory:
         @staticmethod
-        def from_credentials(http, creds, interactive=False):
+        def for_plugin(creds):
             return api
 
     built = {}
@@ -435,7 +428,6 @@ def resume_env(monkeypatch):
 
     monkeypatch.setattr(play, "Credentials", Creds)
     monkeypatch.setattr(play, "Api", ApiFactory)
-    monkeypatch.setattr(play, "plugin_transport", lambda verify: None)
     monkeypatch.setattr(play.listitems, "build", fake_build)
     monkeypatch.setattr(
         "xbmcplugin.setResolvedUrl", lambda h, ok, li: resolved.append(li)
@@ -892,7 +884,9 @@ def test_offline_refuses_an_item_that_is_not_downloaded(offline_env, monkeypatch
     )
     monkeypatch.setattr(play_module.toast, "show", lambda *a, **k: toasts.append(a[0]))
     built = []
-    monkeypatch.setattr(play_module, "plugin_transport", lambda verify: built.append(1))
+    monkeypatch.setattr(
+        "kofin.core.api.plugin_transport", lambda verify: built.append(1)
+    )
 
     play_module.play(Request("plugin://x", 1, {"id": "nope"}))
 
@@ -936,7 +930,7 @@ def test_offline_plays_an_item_that_is_downloaded(offline_env, monkeypatch):
         "setResolvedUrl",
         lambda handle, ok, li: resolved.append(ok),
     )
-    monkeypatch.setattr(play_module, "plugin_transport", lambda verify: 1 / 0)
+    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda verify: 1 / 0)
 
     play_module.play(Request("plugin://x", 1, {"id": "m1"}))
 

@@ -23,6 +23,19 @@ LOG = Logger(__name__)
 
 STOP_POLL_SECONDS = 0.05
 
+
+class _Failed:
+    """The type of ``FAILED``; nothing else is ever this."""
+
+    def __repr__(self) -> str:  # pragma: no cover - repr only
+        return "<kodirpc.FAILED>"
+
+
+# What ``call`` answers when Kodi could not be asked at all — the call
+# raised, or the reply would not parse. Distinct from a method-level error
+# reply (Kodi answered, refusing), which ``call`` maps to None.
+FAILED: Any = _Failed()
+
 # Kodi media type -> (JSON-RPC method, id parameter, result key). The three
 # video types kofin syncs; songs carry no resume point.
 RESUME_QUERY = {
@@ -38,37 +51,14 @@ RESUME_QUERY = {
 
 def _player_properties(properties: List[str]) -> Optional[Dict[str, Any]]:
     """Properties of whichever player is active, or None when none is."""
-    players: Dict[str, Any] = json.loads(
-        xbmc.executeJSONRPC(
-            json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "Player.GetActivePlayers",
-                }
-            )
-        )
-    )
-    active = players["result"]
-    if not active:
+    active = _active_players()
+    if not isinstance(active, list) or not active:
         return None
-    response: Dict[str, Any] = json.loads(
-        xbmc.executeJSONRPC(
-            json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "Player.GetProperties",
-                    "params": {
-                        "playerid": active[0]["playerid"],
-                        "properties": properties,
-                    },
-                }
-            )
-        )
+    result = call(
+        "Player.GetProperties",
+        {"playerid": active[0]["playerid"], "properties": properties},
     )
-    result: Dict[str, Any] = response["result"]
-    return result
+    return result if isinstance(result, dict) else None
 
 
 def current_subtitle() -> Optional[int]:
@@ -131,52 +121,33 @@ def drop_cached_texture(needle: str, require: str = "") -> int:
     by Kodi (``image://%2fhome%2f…%2fplugin.video.kofin%2f…``), so neither
     substring may span a path separator.
     """
-    try:
-        listed: Dict[str, Any] = json.loads(
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "Textures.GetTextures",
-                        "params": {
-                            # Without an explicit properties list Kodi answers
-                            # with bare texture ids, and ``require`` would have
-                            # no url to test.
-                            "properties": ["url"],
-                            "filter": {
-                                "field": "url",
-                                "operator": "contains",
-                                "value": needle,
-                            },
-                        },
-                    }
-                )
-            )
-        )
-        textures = listed["result"].get("textures", [])
-    except Exception as error:
-        LOG.warning("texture lookup failed for %r: %s", needle, error)
+    result = call(
+        "Textures.GetTextures",
+        {
+            # Without an explicit properties list Kodi answers with bare
+            # texture ids, and ``require`` would have no url to test.
+            "properties": ["url"],
+            "filter": {"field": "url", "operator": "contains", "value": needle},
+        },
+    )
+    if not isinstance(result, dict):
+        LOG.warning("texture lookup failed for %r: %r", needle, result)
         return 0
+    textures = result.get("textures", [])
 
     removed = 0
     for texture in textures:
         if require and require not in str(texture.get("url", "")):
             continue
         try:
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "Textures.RemoveTexture",
-                        "params": {"textureid": int(texture["textureid"])},
-                    }
-                )
-            )
-            removed += 1
+            texture_id = int(texture["textureid"])
         except Exception as error:
             LOG.warning("texture removal failed for %r: %s", texture, error)
+            continue
+        if call("Textures.RemoveTexture", {"textureid": texture_id}) is FAILED:
+            LOG.warning("texture removal failed for %r", texture)
+            continue
+        removed += 1
     LOG.debug("dropped %s cached texture(s) matching %r", removed, needle)
     return removed
 
@@ -212,21 +183,9 @@ def stop_player(wait_seconds: float = 0.0) -> bool:
 
     Returns True when a stop was asked for.
     """
-    try:
-        listed: Dict[str, Any] = json.loads(
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "Player.GetActivePlayers",
-                    }
-                )
-            )
-        )
-        active = listed["result"]
-    except Exception as error:
-        LOG.warning("could not read the active players to stop them: %s", error)
+    active = _active_players()
+    if not isinstance(active, list):
+        LOG.warning("could not read the active players to stop them: %r", active)
         return False
 
     if not active:
@@ -237,18 +196,12 @@ def stop_player(wait_seconds: float = 0.0) -> bool:
     # playerid that is not playing.
     for player in active:
         try:
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "Player.Stop",
-                        "params": {"playerid": int(player["playerid"])},
-                    }
-                )
-            )
+            player_id = int(player["playerid"])
         except Exception as error:
             LOG.warning("stop failed for player %r: %s", player, error)
+            continue
+        if call("Player.Stop", {"playerid": player_id}) is FAILED:
+            LOG.warning("stop failed for player %r", player)
 
     if wait_seconds > 0:
         monitor = xbmc.Monitor()
@@ -257,22 +210,11 @@ def stop_player(wait_seconds: float = 0.0) -> bool:
             if monitor.waitForAbort(STOP_POLL_SECONDS):
                 break
             waited += STOP_POLL_SECONDS
-            try:
-                still: Dict[str, Any] = json.loads(
-                    xbmc.executeJSONRPC(
-                        json.dumps(
-                            {
-                                "jsonrpc": "2.0",
-                                "id": 1,
-                                "method": "Player.GetActivePlayers",
-                            }
-                        )
-                    )
-                )
-                if not still["result"]:
-                    break
-            except Exception as error:
-                LOG.debug("player poll failed while waiting for the stop: %s", error)
+            still = _active_players()
+            if not isinstance(still, list):
+                LOG.debug("player poll failed while waiting for the stop: %r", still)
+                break
+            if not still:
                 break
 
     return True
@@ -305,21 +247,9 @@ def resume_player() -> bool:
 
     Returns True when the request went out (or no player was active).
     """
-    try:
-        listed: Dict[str, Any] = json.loads(
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "Player.GetActivePlayers",
-                    }
-                )
-            )
-        )
-        active = listed["result"]
-    except Exception as error:
-        LOG.warning("could not read the active players to resume them: %s", error)
+    active = _active_players()
+    if not isinstance(active, list):
+        LOG.warning("could not read the active players to resume them: %r", active)
         return False
 
     if not active:
@@ -327,18 +257,12 @@ def resume_player() -> bool:
 
     for player in active:
         try:
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "Player.PlayPause",
-                        "params": {"playerid": int(player["playerid"]), "play": True},
-                    }
-                )
-            )
+            player_id = int(player["playerid"])
         except Exception as error:
             LOG.warning("resume failed for player %r: %s", player, error)
+            continue
+        if call("Player.PlayPause", {"playerid": player_id, "play": True}) is FAILED:
+            LOG.warning("resume failed for player %r", player)
 
     return True
 
@@ -354,20 +278,9 @@ def resume_seconds(kodi_id: int, media: str) -> Optional[float]:
     if query is None:
         return None
     method, id_field, result_field = query
+    result = call(method, {id_field: kodi_id, "properties": ["resume"]})
     try:
-        response: Dict[str, Any] = json.loads(
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": method,
-                        "params": {id_field: kodi_id, "properties": ["resume"]},
-                    }
-                )
-            )
-        )
-        return float(response["result"][result_field]["resume"]["position"])
+        return float(result[result_field]["resume"]["position"])
     except Exception as error:
         LOG.debug("resume read failed for %s/%s: %s", media, kodi_id, error)
         return None
@@ -382,23 +295,11 @@ def preferred_subtitle_language() -> str:
     for them — all of which answer '' here, since none of them names a track
     to prefer.
     """
-    try:
-        response: Dict[str, Any] = json.loads(
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "Settings.GetSettingValue",
-                        "params": {"setting": "locale.subtitlelanguage"},
-                    }
-                )
-            )
-        )
-        value = str(response["result"]["value"])
-    except Exception as error:
-        LOG.debug("subtitle language unavailable: %s", error)
+    result = call("Settings.GetSettingValue", {"setting": "locale.subtitlelanguage"})
+    if not isinstance(result, dict) or "value" not in result:
+        LOG.debug("subtitle language unavailable: %r", result)
         return ""
+    value = str(result["value"])
     if value.lower() in ("", "none", "forced_only", "original"):
         return ""
     if value.lower() == "default":
@@ -406,28 +307,61 @@ def preferred_subtitle_language() -> str:
     return str(xbmc.convertLanguage(value, xbmc.ISO_639_2) or "")
 
 
-def _call(method: str, params: Optional[Dict[str, Any]] = None) -> Any:
+def call(method: str, params: Optional[Dict[str, Any]] = None) -> Any:
     """One JSON-RPC call's ``result`` — whatever shape the method answers
-    with (``Settings.SetSettingValue`` answers a bare ``true``) — or None on
-    any error."""
+    with (``Settings.SetSettingValue`` answers a bare ``true``); None for a
+    method-level error reply (Kodi answered, refusing); ``FAILED`` when Kodi
+    could not be asked at all or answered unparseably. Collapsing those last
+    two was the C3 defect — a blip read as "this Kodi lacks the setting"."""
     request: Dict[str, Any] = {"jsonrpc": "2.0", "id": 1, "method": method}
     if params is not None:
         request["params"] = params
     try:
         response = json.loads(xbmc.executeJSONRPC(json.dumps(request)))
-    except ValueError:
+    except Exception:
+        return FAILED
+    if not isinstance(response, dict):
+        return FAILED
+    if "error" in response:
         return None
-    return response.get("result") if isinstance(response, dict) else None
+    return response.get("result")
+
+
+def _active_players() -> Any:
+    """``Player.GetActivePlayers``'s list, or whatever ``call`` answered."""
+    return call("Player.GetActivePlayers")
+
+
+def tvshow_title(kodi_id: int) -> Optional[str]:
+    """A show's title from Kodi's own library, or None when the row is gone
+    or the call failed.
+
+    JSON-RPC rather than a SELECT on MyVideos: reading the library through
+    Kodi is what every process may do (writing it that way is what the
+    kodi-database-writing rule forbids), and it keeps the plugin process
+    out of Kodi's database files altogether.
+    """
+    result = call(
+        "VideoLibrary.GetTVShowDetails",
+        {"tvshowid": int(kodi_id), "properties": ["title"]},
+    )
+    details = result.get("tvshowdetails") if isinstance(result, dict) else None
+    title = details.get("title") if isinstance(details, dict) else None
+    return str(title) if title else None
 
 
 def kodi_setting(setting_id: str) -> Any:
-    """The value of one of Kodi's own settings, or None where it does not exist.
+    """The value of one of Kodi's own settings; None where the setting does
+    not exist; ``FAILED`` when Kodi could not be asked (C3).
 
-    None is the answer for a setting this Kodi version lacks — Omega has no
-    ``videoplayer.queuetimesize`` — so a caller can branch on the version
-    without asking for it.
+    None is the answer only for a setting this Kodi version lacks — Omega
+    has no ``videoplayer.queuetimesize`` — so a caller can branch on the
+    version without asking for it, and a transient failure no longer reads
+    as "this Kodi lacks the setting".
     """
-    result = _call("Settings.GetSettingValue", {"setting": setting_id})
+    result = call("Settings.GetSettingValue", {"setting": setting_id})
+    if result is FAILED:
+        return FAILED
     return result.get("value") if isinstance(result, dict) else None
 
 
@@ -437,14 +371,14 @@ def set_kodi_setting(setting_id: str, value: Any) -> bool:
     Measured on 22.0-BETA1: the answer is ``{"result": true}`` — a bare
     boolean, not an object.
     """
-    result = _call("Settings.SetSettingValue", {"setting": setting_id, "value": value})
+    result = call("Settings.SetSettingValue", {"setting": setting_id, "value": value})
     return result is True
 
 
 def addon_details(addon_id: str) -> Optional[Dict[str, Any]]:
     """``{"enabled": bool, "version": str}`` for an installed add-on, or None
     when it is not installed at all."""
-    result = _call(
+    result = call(
         "Addons.GetAddonDetails",
         {"addonid": addon_id, "properties": ["enabled", "version"]},
     )
@@ -455,13 +389,6 @@ def addon_details(addon_id: str) -> Optional[Dict[str, Any]]:
         "enabled": bool(addon.get("enabled")),
         "version": str(addon.get("version") or ""),
     }
-
-
-def addon_enabled(addon_id: str) -> Optional[bool]:
-    """Whether an add-on is installed and enabled: True, False, or None when it
-    is not installed at all."""
-    details = addon_details(addon_id)
-    return None if details is None else details["enabled"]
 
 
 def clear_resume_bookmark(path: str) -> bool:
@@ -485,27 +412,14 @@ def clear_resume_bookmark(path: str) -> bool:
     False when Kodi refused or could not be reached; the caller has nothing
     to undo either way.
     """
-    try:
-        response: Dict[str, Any] = json.loads(
-            xbmc.executeJSONRPC(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "Files.SetFileDetails",
-                        "params": {
-                            "file": path,
-                            "media": "video",
-                            "resume": {"position": 0},
-                        },
-                    }
-                )
-            )
-        )
-    except Exception as error:
-        LOG.debug("bookmark clear failed for %s: %s", path, error)
+    result = call(
+        "Files.SetFileDetails",
+        {"file": path, "media": "video", "resume": {"position": 0}},
+    )
+    if result is FAILED:
+        LOG.debug("bookmark clear failed for %s", path)
         return False
-    if "error" in response:
-        LOG.debug("bookmark clear refused for %s: %s", path, response["error"])
+    if result is None:
+        LOG.debug("bookmark clear refused for %s", path)
         return False
     return True

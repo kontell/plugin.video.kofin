@@ -164,6 +164,19 @@ class Kodi(object):
         except TypeError:
             return
 
+    def path_exists(self, path_id):
+        """Whether the path row a mapping names is still there.
+
+        A stored path id is not proof of a row: a downloaded song's server
+        row is referenced by nothing while the download lives, and Kodi's
+        own clean removes unreferenced rows — so anything putting a song
+        back by id looks first (``downloads/repoint.py``,
+        ``writers/music.py`` ``song_update``).
+        """
+        self.cursor.execute(QU.get_path_by_id, (path_id,))
+
+        return self.cursor.fetchone() is not None
+
     def update_path_parent_id(self, path_id, parent_path_id):
         self.cursor.execute(QU.update_path_parent_id, (parent_path_id, path_id))
 

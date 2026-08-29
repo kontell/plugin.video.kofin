@@ -1,7 +1,5 @@
 """L1 units for the NFO/artwork export (plan W4.3)."""
 
-import pytest
-
 from kofin.downloads import export
 
 

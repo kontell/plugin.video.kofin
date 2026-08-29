@@ -65,7 +65,7 @@ After a resume, a residual inside the budget is left to fine sync rather than se
 
 `tests/live/syncplay_fine_sync.py` drives it end to end on real members. It speaks to the server *as each member's own session* (kofin's Client name, the member's DeviceId and token read off its settings.xml), so it creates the group, joins, sets the queue and pauses without touching a menu, and every command reaches kofin over its own websocket exactly as a real one would. Positions are sampled over JSON-RPC, residuals are injected by writing one member's tempo file for a moment, and the scheduler's own log lines are read back from every box.
 
-1. Routing: a group play logs `play <id> via DirectStream (tempo)` and the audio decoder reads `pcm_f32le`; an audio item or a transcode does not.
+1. Routing: a group play logs `play <id> via DirectStream (tempo)` — or `via Transcode (tempo)` since `165d686` (2026-08-27), which put a transcoded stream through the add-on too — and the audio decoder reads `pcm_f32le`; an audio item does not.
 2. A pulse closes what it says: inject ~150 ms on one member (1.2× for 0.75 s) and watch its scheduler pull it back inside the deadband, each pulse's `moved` matching `wanted` within a few percent, the other members staying quiet.
 3. The seek path: inject ~1 s and see one `[ syncplay/align ]` seek followed by at most one pulse.
 4. Commands cut pulses: pause the group during a pulse — `cut by Pause`, and the file reads 1.0.

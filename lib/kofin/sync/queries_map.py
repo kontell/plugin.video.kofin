@@ -264,6 +264,12 @@ WHERE       jellyfin_id = ?
 update_parent_movie_obj = ["{SetId}", "{Id}"]
 update_parent_episode_obj = ["{SeasonId}", "{Id}"]
 update_parent_album_obj = ["{ArtistId}", "{AlbumId}"]
+update_pathid = """
+UPDATE      jellyfin
+SET         kodi_pathid = ?
+WHERE       jellyfin_id = ?
+"""
+update_pathid_obj = ["{PathId}", "{Id}"]
 
 
 delete_item = """

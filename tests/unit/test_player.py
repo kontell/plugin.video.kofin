@@ -1,6 +1,7 @@
 import pytest
 
 from kofin.core import state
+from kofin.service import libraryclaim
 from kofin.service.player import Player
 from tests.unit.fakes import FakeAddon, FakeWindow
 
@@ -51,9 +52,25 @@ def kodi_fakes(monkeypatch):
     )
 
 
+_players = []
+
+
+@pytest.fixture(autouse=True)
+def _stop_player_threads():
+    """P1.11: join the _Reporter/ticker threads every constructed Player
+    starts — ~130 leaked daemon threads per run before this."""
+    yield
+    while _players:
+        try:
+            _players.pop().stop_threads()
+        except Exception:
+            pass
+
+
 def make_player(monkeypatch, url="http://s/stream"):
     api = RecordingApi()
     player = Player(api)  # type: ignore[arg-type]
+    _players.append(player)
     monkeypatch.setattr(player, "getPlayingFile", lambda: url)
     monkeypatch.setattr(player, "getTime", lambda: 42.0)
     monkeypatch.setattr(player, "_start_ticker", lambda: None)
@@ -271,6 +288,27 @@ def test_current_item_exposes_claim(monkeypatch):
     assert item is not None and item["Id"] == "m1"
     player.onPlayBackStopped()
     assert player.current_item() is None
+
+
+def test_the_claim_wait_is_logged_with_its_outcome(monkeypatch):
+    """The measurement audit F6 asked for before any restructuring: one
+    line per start with the outcome, the seconds waited and the kind of
+    playback, so an album on the Bravia says whether the backfill grace is
+    the GET's latency or dead time (fixes plan H11)."""
+    from kofin.service import player as player_mod
+
+    player, api = make_player(monkeypatch)
+    lines = []
+    monkeypatch.setattr(
+        player_mod.LOG, "info", lambda msg, *args: lines.append(msg % args)
+    )
+
+    queue_item()
+    player.onPlayBackStarted()
+
+    claim_lines = [line for line in lines if line.startswith("claim ")]
+    assert len(claim_lines) == 1
+    assert claim_lines[0].startswith("claim claimed after 0.00s (")
 
 
 # --- library-originated claims (music) ---------------------------------------
@@ -1073,11 +1111,10 @@ def _seed_local_rows(tmp_path):
 
 
 def test_offline_claim_builds_from_local_rows(monkeypatch, tmp_path):
-    from kofin.service import player as player_module
 
     sync_db = _seed_local_rows(tmp_path)
     try:
-        claim = player_module._offline_claim("j1", "episode", "/dl/e.mkv")
+        claim = libraryclaim._offline_claim("j1", "episode", "/dl/e.mkv")
     finally:
         pass
     assert claim is not None
@@ -1087,7 +1124,7 @@ def test_offline_claim_builds_from_local_rows(monkeypatch, tmp_path):
     assert claim["Path"] == "/dl/e.mkv"
 
     # Anything not downloaded stays unclaimed: foreign playback is foreign.
-    assert player_module._offline_claim("stranger", "episode", "/x.mkv") is None
+    assert libraryclaim._offline_claim("stranger", "episode", "/x.mkv") is None
     sync_db.reset_overrides()
 
 
@@ -1110,8 +1147,8 @@ def test_backfill_attaches_the_cached_segments_offline(monkeypatch, tmp_path):
             return "/dl/e.mkv"
 
     monkeypatch.setattr(player_module.xbmc, "Player", PlayingStub)
-    monkeypatch.setattr(player_module, "mapped_jellyfin_id", lambda k, m: "j1")
-    monkeypatch.setattr(player_module, "library_claim", lambda *a: None)  # offline
+    monkeypatch.setattr(libraryclaim, "mapped_jellyfin_id", lambda k, m: "j1")
+    monkeypatch.setattr(libraryclaim, "library_claim", lambda *a: None)  # offline
 
     api = RecordingApi()
     assert (
@@ -1137,14 +1174,14 @@ def test_prepare_segment_state_offline_asks_nothing(monkeypatch):
         "MediaSourceId": "src",
         "PlaySessionId": "ps",
     }
-    player._segments_loaded = False
+    player.segments._segments_loaded = False
 
     import threading as threading_module
 
-    player.prepare_segment_state(threading_module.Event())
+    player.segments.prepare_segment_state(threading_module.Event())
 
-    assert player._segments == [] and player._segments_loaded is True
-    assert player._next_episode is None
+    assert player.segments._segments == [] and player.segments._segments_loaded is True
+    assert player.segments._next_episode is None
     assert api.calls == []  # neither segments nor adjacency was fetched
 
 

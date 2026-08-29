@@ -16,7 +16,7 @@ to be attached from outside after construction and read back with getattr.
 
 import queue
 import threading
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from kofin.core import state
 from kofin.core.http import JellyfinError, ServerUnreachable
@@ -166,6 +166,12 @@ class WriterWorker(threading.Thread):
                 processed += 1
 
                 if not processed % COMMIT_INTERVAL:
+                    # Kodi's database first, the mapping second (the order
+                    # full_sync's per-page pair keeps, and the ``with``
+                    # unwind): a crash between the two leaves rows without a
+                    # mapping — rewritten next pass, visibly — never a
+                    # mapping without rows, which check_unchanged would skip
+                    # forever.
                     kodidb.conn.commit()
                     jellyfindb.conn.commit()
 
@@ -550,7 +556,9 @@ class GetItemWorker(threading.Thread):
                 return
             except queue.Full:
                 if state.should_stop():
-                    raise LibraryExitException("stopping with writer queues full")
+                    raise LibraryExitException(
+                        "stopping with writer queues full"
+                    ) from None
 
     def run(self):
         while True:

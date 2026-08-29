@@ -30,7 +30,7 @@ import xbmcgui
 
 from kofin.core import settings, state, toast
 from kofin.core.api import Api
-from kofin.core.http import JellyfinError, plugin_transport
+from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.plugin.router import Request
@@ -182,9 +182,7 @@ def jellyfin_settings(request: Request) -> None:
         toast.show(settings.localized(STR_NO_SESSION), time_ms=4000)
         return
 
-    api = Api.from_credentials(
-        plugin_transport(settings.get_bool("sslVerify")), creds, interactive=True
-    )
+    api = Api.for_plugin(creds)
     try:
         user = api.me()
         cultures = api.cultures()

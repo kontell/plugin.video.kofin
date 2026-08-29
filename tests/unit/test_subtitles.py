@@ -12,6 +12,7 @@ import pytest
 
 from kofin.core.streams import Attachment
 from kofin.plugin import subtitles
+from kofin.core import subtitles as core_subtitles
 
 
 def attachment(**kwargs):
@@ -68,14 +69,20 @@ def test_a_url_with_no_query_still_converts():
 
 def test_the_language_is_spelled_out_when_there_is_no_title(monkeypatch):
     monkeypatch.setattr(
-        subtitles.xbmc, "convertLanguage", lambda code, fmt: "English", raising=False
+        core_subtitles.xbmc,
+        "convertLanguage",
+        lambda code, fmt: "English",
+        raising=False,
     )
     assert subtitles.filename_for(attachment()) == "English.eng.srt"
 
 
 def test_a_title_the_server_gave_wins(monkeypatch):
     monkeypatch.setattr(
-        subtitles.xbmc, "convertLanguage", lambda code, fmt: "Japanese", raising=False
+        core_subtitles.xbmc,
+        "convertLanguage",
+        lambda code, fmt: "Japanese",
+        raising=False,
     )
     named = attachment(title="Signs & Songs", language="jpn")
     assert subtitles.filename_for(named) == "Signs & Songs.jpn.srt"
@@ -83,21 +90,24 @@ def test_a_title_the_server_gave_wins(monkeypatch):
 
 def test_forced_is_a_token_kodi_reads_as_a_flag(monkeypatch):
     monkeypatch.setattr(
-        subtitles.xbmc, "convertLanguage", lambda code, fmt: "English", raising=False
+        core_subtitles.xbmc,
+        "convertLanguage",
+        lambda code, fmt: "English",
+        raising=False,
     )
     assert subtitles.filename_for(attachment(forced=True)) == "English.eng.forced.srt"
 
 
 def test_the_language_code_stands_in_when_kodi_cannot_spell_it(monkeypatch):
     monkeypatch.setattr(
-        subtitles.xbmc, "convertLanguage", lambda code, fmt: "", raising=False
+        core_subtitles.xbmc, "convertLanguage", lambda code, fmt: "", raising=False
     )
     assert subtitles.filename_for(attachment(language="qaa")) == "qaa.qaa.srt"
 
 
 def test_a_nameless_track_still_gets_a_filename(monkeypatch):
     monkeypatch.setattr(
-        subtitles.xbmc, "convertLanguage", lambda code, fmt: "", raising=False
+        core_subtitles.xbmc, "convertLanguage", lambda code, fmt: "", raising=False
     )
     assert subtitles.filename_for(attachment(language="")) == "Subtitle.srt"
 
@@ -106,7 +116,10 @@ def test_dots_and_separators_are_scrubbed_out_of_the_name(monkeypatch):
     """Kodi tokenises the filename on dots, so one inside the name would read
     as another token -- and a slash would not be a filename at all."""
     monkeypatch.setattr(
-        subtitles.xbmc, "convertLanguage", lambda code, fmt: "English", raising=False
+        core_subtitles.xbmc,
+        "convertLanguage",
+        lambda code, fmt: "English",
+        raising=False,
     )
     named = attachment(title="S.D.H. / full")
     assert subtitles.filename_for(named) == "S_D_H_ _ full.eng.srt"
@@ -120,7 +133,10 @@ def test_everything_attached_is_fetched_to_a_named_file(tmp_path, monkeypatch):
     the one embedded track a transcode resolved — and a local file is what
     gives Kodi a language to read off the name."""
     monkeypatch.setattr(
-        subtitles.xbmc, "convertLanguage", lambda code, fmt: "English", raising=False
+        core_subtitles.xbmc,
+        "convertLanguage",
+        lambda code, fmt: "English",
+        raising=False,
     )
     http = FakeHttp()
     attached = [
@@ -168,7 +184,10 @@ def test_the_order_in_is_the_order_out(tmp_path, monkeypatch):
     """It is what makes a Jellyfin index translatable to a Kodi subtitle
     number at all (streams.subtitle_ordinal)."""
     monkeypatch.setattr(
-        subtitles.xbmc, "convertLanguage", lambda code, fmt: "English", raising=False
+        core_subtitles.xbmc,
+        "convertLanguage",
+        lambda code, fmt: "English",
+        raising=False,
     )
     attached = [
         attachment(stream_index=3, sidecar=False),
@@ -182,7 +201,10 @@ def test_the_order_in_is_the_order_out(tmp_path, monkeypatch):
 
 def test_only_so_many_are_worth_the_first_frame(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        subtitles.xbmc, "convertLanguage", lambda code, fmt: "English", raising=False
+        core_subtitles.xbmc,
+        "convertLanguage",
+        lambda code, fmt: "English",
+        raising=False,
     )
     http = FakeHttp()
     attached = [attachment(stream_index=n, language="l%02d" % n) for n in range(12)]
@@ -199,7 +221,10 @@ def test_only_so_many_are_worth_the_first_frame(tmp_path, monkeypatch):
 
 def test_each_play_sweeps_the_one_before_it(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        subtitles.xbmc, "convertLanguage", lambda code, fmt: "English", raising=False
+        core_subtitles.xbmc,
+        "convertLanguage",
+        lambda code, fmt: "English",
+        raising=False,
     )
     (tmp_path / "Deutsch.ger.srt").write_bytes(b"from the last playback")
 
@@ -252,7 +277,7 @@ def test_a_sweep_that_cannot_delete_is_not_fatal(tmp_path, monkeypatch):
         raise OSError("in use")
 
     (tmp_path / "held.srt").write_bytes(b"x")
-    monkeypatch.setattr(subtitles.os, "remove", refuse)
+    monkeypatch.setattr(core_subtitles.os, "remove", refuse)
     assert subtitles.sweep(str(tmp_path)) == 0
 
 
@@ -266,7 +291,10 @@ def test_a_deferred_track_leaves_the_others_in_position(tmp_path, monkeypatch):
     """The ordinal mapping reads the attached list in order, so a track that
     did not land must close the gap rather than leave a hole."""
     monkeypatch.setattr(
-        subtitles.xbmc, "convertLanguage", lambda code, fmt: "English", raising=False
+        core_subtitles.xbmc,
+        "convertLanguage",
+        lambda code, fmt: "English",
+        raising=False,
     )
 
     class OneBadHttp(FakeHttp):
@@ -294,7 +322,10 @@ def test_sidecars_share_the_wait_instead_of_queuing(tmp_path, monkeypatch):
     import time
 
     monkeypatch.setattr(
-        subtitles.xbmc, "convertLanguage", lambda code, fmt: "English", raising=False
+        core_subtitles.xbmc,
+        "convertLanguage",
+        lambda code, fmt: "English",
+        raising=False,
     )
 
     class SlowHttp(FakeHttp):

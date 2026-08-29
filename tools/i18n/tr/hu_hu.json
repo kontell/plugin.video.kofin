@@ -464,5 +464,7 @@
   "#30596": "Legfeljebb ennyit változhat a lejátszási sebesség egy javítás alatt. 25%-nál egy 2,5 másodperces hiba 10 másodperc alatt zárul; alacsonyabb érték kevésbé feltűnő, de lassabb. A nagy változások fokozatosan lépnek be és ki.",
   "#30597": "Finomszinkron AV1-videónál",
   "#30598": "Alapértelmezés szerint kikapcsolva, figyelmeztetéssel: egy Pixel 7-en egy sebességváltás és az azt követő ugrás lefagyasztotta az AV1 hardveres dekódert, majd magát a telefont is. Egy Bravia AV1-dekódere gond nélkül bírta. Csak akkor kapcsold be, ha az eszközöd bírja; különben az AV1-címek csak a parancsok alapján követik a csoportot.",
-  "#30599": "A finomszinkronhoz inputstream.tempo 21.4.1 / 22.4.1 kell"
+  "#30599": "A finomszinkronhoz inputstream.tempo 21.4.1 / 22.4.1 kell",
+  "#30821": "Kiszolgálóhiba — %s",
+  "#30822": "%s megtartva — a médiatár bejegyzése nem állítható vissza"
 }

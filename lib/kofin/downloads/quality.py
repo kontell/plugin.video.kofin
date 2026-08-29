@@ -16,14 +16,17 @@ from typing import Any, Dict, NamedTuple
 
 from kofin.core import deviceprofile, settings
 from kofin.core.http import JellyfinError
+from kofin.downloads import store
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
 
-ORIGINAL = "original"
-TRANSCODE = "transcode"
+# The store's row value is the vocabulary; aliased rather than retyped so
+# the string-equality dependence between the two modules is named (P1.10).
+ORIGINAL = store.QUALITY_ORIGINAL
+TRANSCODE = store.QUALITY_TRANSCODE
 
 VIDEO_TYPES = ("Movie", "Episode")
 

@@ -464,5 +464,7 @@
   "#30596": "Quanto può cambiare al massimo la velocità di riproduzione durante una correzione. Al 25 % un errore di 2,5 secondi si chiude in 10 secondi; un valore più basso si nota meno ma è più lento. I cambi grandi sono applicati gradualmente.",
   "#30597": "Sincronizzazione fine su video AV1",
   "#30598": "Disattivato per impostazione predefinita, con un avviso: su un Pixel 7 un cambio di velocità seguito da un salto ha bloccato il decoder hardware AV1 e poi il telefono stesso. Il decoder AV1 di un Bravia non ha avuto problemi. Attivalo solo se il tuo dispositivo regge; altrimenti i titoli AV1 seguono il gruppo solo con i comandi.",
-  "#30599": "Sinc. fine richiede inputstream.tempo 21.4.1 / 22.4.1"
+  "#30599": "Sinc. fine richiede inputstream.tempo 21.4.1 / 22.4.1",
+  "#30821": "Errore del server — %s",
+  "#30822": "%s conservato — impossibile ripristinare la voce della libreria"
 }

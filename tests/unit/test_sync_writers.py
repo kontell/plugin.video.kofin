@@ -32,7 +32,7 @@ from kofin.sync.writers.movies import (
     BOXSET_UNCHANGED,
     BOXSET_WRITTEN,
 )
-from tests.unit import kodifixtures, sync_dtos
+from tests.unit import kodifixtures
 from tests.unit.fakes import FakeAddon, FakeWindow
 from tests.unit.sync_dtos import (
     ALBUM,
@@ -889,6 +889,51 @@ def test_movie_trailer_status_other_than_404_never_gates_sync(api):
     assert video_query("SELECT COUNT(*) FROM movie") == [(1,)]
 
 
+def test_a_short_youtube_trailer_link_is_written_without_a_traceback(api):
+    """Jellyfin stores RemoteTrailers verbatim; a youtu.be or /shorts/ link
+    has no '=' and the old rsplit raised IndexError — caught as a
+    trailer-less film, with a full LOG.exception per movie (audit R3)."""
+    from kofin.sync.writers import movies as movies_module
+
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    tracebacks = []
+    api.local_trailers_by_id = {}
+    payload = dto(MOVIE)
+    payload["LocalTrailerCount"] = 0
+    payload["RemoteTrailers"] = [{"Url": "https://youtu.be/dQw4w9WgXcQ"}]
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            movies_module.LOG, "exception", lambda *a, **k: tracebacks.append(a)
+        )
+        write_movie(api, payload)
+
+    assert video_query("SELECT c19 FROM movie") == [
+        ("plugin://plugin.video.youtube/play/?video_id=dQw4w9WgXcQ",)
+    ]
+    assert tracebacks == []
+
+
+def test_a_trailer_that_is_not_youtube_is_no_trailer(api):
+    from kofin.sync.writers import movies as movies_module
+
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    tracebacks = []
+    api.local_trailers_by_id = {}
+    payload = dto(MOVIE)
+    payload["LocalTrailerCount"] = 0
+    payload["RemoteTrailers"] = [{"Url": "https://example.com/trailer.mp4"}]
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            movies_module.LOG, "exception", lambda *a, **k: tracebacks.append(a)
+        )
+        write_movie(api, payload)
+
+    assert video_query("SELECT c19 FROM movie") == [(None,)]
+    assert tracebacks == []
+
+
 def test_series_gone_at_its_trailer_fetch_is_not_written(api):
     """TVShows.trailer() mirrors Movies.trailer(), the 404 included."""
     register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
@@ -1596,6 +1641,121 @@ def test_boxset_guarded_set_keeps_missing_state(api, boxset_log):
     assert drifted_boxsets() == ["set1"]
 
 
+# --- the version-type row per film (audit A4-1, fixes plan H2) -----------------
+
+
+def _user_version_types():
+    """USER-owned VERSION type rows — what Kodi's "Manage versions" lists."""
+    return video_query(
+        "SELECT name FROM videoversiontype WHERE owner = ? AND itemType = ?"
+        " ORDER BY name",
+        (schema.VIDEO_ASSET_OWNER_USER, version_item_type()),
+    )
+
+
+def test_movie_named_as_its_file_is_the_standard_edition(api):
+    """Jellyfin names a single-file movie's MediaSource after the file
+    (``Video.GetMediaSourceName``: the stem, unless local alternate versions
+    exist). That is no label, and it must not mint a type row per film —
+    1,799 of them for 1,784 movies on one profile before this."""
+    payload = dto(MOVIE)
+    payload["MediaSources"] = [
+        _version_source(
+            "movie1",
+            "The Example",
+            "/media/movies/The Example (2020)/The Example.mkv",
+            72000000000,
+        )
+    ]
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api, payload)
+
+    rows = version_rows()
+    assert len(rows) == 1
+    assert rows[0][2] == 40400
+    assert _user_version_types() == []
+
+
+def test_the_stem_rule_ignores_case_and_windows_separators(api):
+    """Jellyfin reports the server's own path; a Windows server hands back
+    backslashes, and the name comparison is Kodi's COLLATE NOCASE anyway."""
+    payload = dto(MOVIE)
+    payload["MediaSources"] = [
+        _version_source(
+            "movie1",
+            "the example",
+            "D:\\Movies\\The Example (2020)\\The Example.MKV",
+            72000000000,
+        )
+    ]
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    write_movie(api, payload)
+
+    assert version_rows()[0][2] == 40400
+    assert _user_version_types() == []
+
+
+def test_a_rewrite_to_the_standard_edition_sweeps_the_stale_type(api):
+    """The Repair path for every profile written before H2: the film's
+    primary moves from its file-named type to 40400, and the row it leaves
+    behind must go with it — nothing else ever removes one."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    labelled = dto(MOVIE)
+    labelled["MediaSources"] = [
+        _version_source(
+            "movie1",
+            "IMAX Exclusive",
+            "/media/movies/The Example (2020)/The Example.mkv",
+            72000000000,
+        )
+    ]
+    write_movie(api, labelled)
+    assert version_rows()[0][2] != 40400
+    assert _user_version_types() == [("IMAX Exclusive",)]
+
+    renamed = dto(MOVIE)
+    renamed["Etag"] = "etag-movie1-v2"
+    renamed["MediaSources"] = [
+        _version_source(
+            "movie1",
+            "The Example",
+            "/media/movies/The Example (2020)/The Example.mkv",
+            72000000000,
+        )
+    ]
+    write_movie(api, renamed)
+
+    assert version_rows()[0][2] == 40400
+    assert _user_version_types() == []
+
+
+def test_movie_removal_leaves_no_orphan_version_type(api):
+    """A film removed with a custom version label takes its type row with
+    it; the seeded builtins (owner 0) are never touched."""
+    register_views({"Id": "lib-movies", "Name": "Movies", "Media": "movies"})
+    payload = dto(MOVIE)
+    payload["MediaSources"] = [
+        _version_source(
+            "movie1",
+            "IMAX Exclusive",
+            "/media/movies/The Example (2020)/The Example.mkv",
+            72000000000,
+        )
+    ]
+    write_movie(api, payload)
+    seeded = video_query("SELECT COUNT(*) FROM videoversiontype WHERE owner = 0")
+    assert _user_version_types() == [("IMAX Exclusive",)]
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        Movies(api, kdb, vdb, library=LIBRARY, hooks=HOOKS).remove("movie1")
+
+    assert video_query("SELECT COUNT(*) FROM videoversion") == [(0,)]
+    assert _user_version_types() == []
+    assert (
+        video_query("SELECT COUNT(*) FROM videoversiontype WHERE owner = 0") == seeded
+    )
+
+
 # --- tv shows ------------------------------------------------------------------
 
 
@@ -2209,6 +2369,12 @@ def test_removal_of_an_unknown_library_is_a_no_op(api):
 
 
 ORPHAN_RULES = [
+    (
+        "videoversiontype USER VERSION rows nothing references (A4-1)",
+        "SELECT COUNT(*) FROM videoversiontype WHERE owner = 2"
+        " AND itemType = (SELECT itemType FROM videoversiontype WHERE id = 40400)"
+        " AND id NOT IN (SELECT idType FROM videoversion)",
+    ),
     (
         "genre_link media_id/movie",
         "SELECT COUNT(*) FROM genre_link WHERE media_type='movie' AND media_id NOT IN (SELECT idMovie FROM movie)",
@@ -3246,6 +3412,36 @@ def test_music_write_is_idempotent(api, frozen_music_clock):
     write_music_tree(api)
     assert music_dump(str(sync_db._path_overrides["music"])) == first
     assert dump(str(sync_db._path_overrides["kofin"])) == first_map
+
+
+def test_music_update_heals_a_song_whose_path_row_is_gone(api, frozen_music_clock):
+    """A song can be left pointing at a deleted path row (a download's server
+    row swept while the download lived, then a restore by id -- 61 songs on a
+    Bravia, 2026-08-28). songview inner-joins path, so the song is in no
+    listing; and the fork's update rewrote the missing row in place, a silent
+    no-op, so no repair could bring it back. The update now re-resolves the
+    row by string and the mapping follows it."""
+    write_music_tree(api)
+    original = music_query(
+        "SELECT p.strPath FROM song s JOIN path p ON p.idPath = s.idPath"
+    )[0][0]
+    with sync_db.Database("music") as mdb:
+        mdb.cursor.execute("DELETE FROM path WHERE idPath = (SELECT idPath FROM song)")
+    assert music_query("SELECT COUNT(*) FROM songview") == [(0,)]
+
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
+        music.song(dto(dict(SONG, Etag="etag-song1-v2")))
+
+    rows = music_query(
+        "SELECT s.idPath, p.strPath FROM song s JOIN path p ON p.idPath = s.idPath"
+    )
+    assert rows == [(rows[0][0], original)]
+    assert music_query("SELECT COUNT(*) FROM songview") == [(1,)]
+    assert kofin_query(
+        "SELECT kodi_pathid FROM jellyfin WHERE jellyfin_id = 'song1'"
+    ) == [(rows[0][0],)]
 
 
 def test_music_rewrite_with_a_bumped_etag_is_byte_identical(api, frozen_music_clock):

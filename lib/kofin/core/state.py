@@ -16,6 +16,8 @@ from typing import Any, Dict, List, Optional
 import xbmcgui
 import xbmcvfs
 
+from kofin.core.urls import BASE_URL
+
 PROP_ONLINE = "kofin.online"
 PROP_PLAYING_ID = "kofin.playing.id"
 PROP_SYNC_STOP = "kofin.sync.stop"
@@ -70,34 +72,28 @@ PROP_MENU_SYNCPLAY = "kofin.menu.syncplay"
 # learn that the service is in a group.
 PROP_SYNCPLAY_TEMPO = "kofin.syncplay.tempo"
 
-# The lyrics overlay's channel to the skin. These earn their place for the
-# same reason as PROP_CONTEXT_BITRATES: a skin can only read window
-# properties, and lyrics cannot reach it any other way -- Kodi's music
-# database has no lyrics column, and an addon window cannot draw a passive
-# overlay (it becomes the active window and swallows the OSD).
+# The lyrics channel. These earn their place for the same reason as
+# PROP_CONTEXT_BITRATES: a skin or a script can only read window properties,
+# and lyrics cannot reach one any other way -- Kodi's music database has no
+# lyrics column, and an addon window cannot draw a passive overlay (it becomes
+# the active window and swallows the OSD).
 #
-# The skin renders the lines in a fixedlist so Kodi animates the scroll; the
-# service drives which line is current with Control.SetFocus. PROP_LYRIC_JSON
-# carries the lines to the plugin process, which serves them as the list's
-# directory -- the alternative was fetching them from Jellyfin a second time.
-#
-# PROP_LYRIC_PATH is that directory's address, and it carries the song id so
-# that it *changes* per song: the skin binds its list content to this, and a
-# changed path is what makes Kodi re-read the directory. Container.Refresh
-# cannot do it -- the visualisation window is not a media window, so it has no
-# container for that builtin to act on.
-#
-# PROP_LYRIC_CONTROL runs the other way: the *skin* sets it, naming the
-# control to drive. So the service drives whatever id a skin declares, and
-# stays silent for skins that declare nothing.
+# kofin publishes and stops. It fetches the lyrics at playback start, when it
+# alone knows the song's Jellyfin id, and hands them over here; rendering
+# them and following the clock belong to script.kofin.lyrics (a350452 removed
+# the Control.SetFocus driver the service used to run). PROP_LYRIC_JSON
+# carries the timed lines; PROP_LYRIC_HAS is what a renderer shows and hides
+# on; PROP_LYRIC_PATH is the address of the plugin directory that serves the
+# lines as list items, and it carries the song id so that it *changes* per
+# song -- a list bound to it re-reads the directory on the change, which
+# Container.Refresh cannot do for a window that is not a media window.
 PROP_LYRIC_HAS = "kofin.lyric.has"
 PROP_LYRIC_JSON = "kofin.lyric.json"
 PROP_LYRIC_PATH = "kofin.lyric.path"
-PROP_LYRIC_CONTROL = "kofin.lyric.control"
 
 # The song id is a cache-buster as much as an argument: the path has to differ
 # between songs for the skin's list to notice.
-LYRICS_DIRECTORY = "plugin://plugin.video.kofin/?mode=lyrics&id=%s"
+LYRICS_DIRECTORY = BASE_URL + "?mode=lyrics&id=%s"
 
 _HOME_WINDOW = 10000
 
@@ -308,10 +304,6 @@ def set_context_bitrates(bitrates: str) -> None:
         _window().clearProperty(PROP_CONTEXT_BITRATES)
 
 
-def get_context_bitrates() -> str:
-    return _window().getProperty(PROP_CONTEXT_BITRATES)
-
-
 def publish_playing_streams(payload: Dict[str, Any], offer: str) -> None:
     """Publish the playing item's streams and what the menu should offer.
 
@@ -447,20 +439,6 @@ def lyric_texts() -> List[str]:
     return [str(line[1]) for line in lyric_lines() if isinstance(line, list) and line]
 
 
-def lyric_control_id() -> int:
-    """The list control a skin has asked us to drive, or 0 if none has.
-
-    Set by the skin's window on load and cleared on unload, so this doubles as
-    "is a lyrics-capable window on screen" -- Control.SetFocus only reaches the
-    active window anyway.
-    """
-    raw = _window().getProperty(PROP_LYRIC_CONTROL)
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return 0
-
-
 def clear_lyrics() -> None:
     """Drop the overlay. The skin hides on PROP_LYRIC_HAS, so this is what
     stops lyrics outliving the song that owned them."""
@@ -468,10 +446,6 @@ def clear_lyrics() -> None:
     window.clearProperty(PROP_LYRIC_HAS)
     window.clearProperty(PROP_LYRIC_JSON)
     window.clearProperty(PROP_LYRIC_PATH)
-
-
-def has_lyrics() -> bool:
-    return _window().getProperty(PROP_LYRIC_HAS) == "true"
 
 
 def clear_all(keep_stop: bool = False) -> None:

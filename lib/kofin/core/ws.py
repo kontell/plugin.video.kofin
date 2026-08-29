@@ -5,19 +5,14 @@ is the service's business.
 """
 
 import json
-import sys
 import threading
 import time
 from typing import Any, Callable, Dict, Optional
 
 import xbmc
+import websocket
 
-# If numpy is installed, the websocket library tries to use it, and then Kodi
-# hard crashes (long-standing upstream workaround — keep before the import).
-sys.modules["numpy"] = None  # type: ignore[assignment]
-import websocket  # noqa: E402
-
-from kofin.core.log import Logger  # noqa: E402
+from kofin.core.log import Logger
 
 LOG = Logger(__name__)
 

@@ -14,6 +14,7 @@ import threading
 import time
 from contextlib import contextmanager
 from queue import Queue
+from typing import Any, Dict, List, Optional, Tuple
 
 import xbmc
 import xbmcgui
@@ -22,7 +23,9 @@ from kofin.core import settings, state, toast
 from kofin.core.http import JellyfinError, Unauthorized
 from kofin.core.log import Logger
 from kofin.syncplay import utils
+from kofin.syncplay.utils import FOLLOWING, HELD, STARTABLE, Phase
 from kofin.syncplay.playback import PlaybackController
+from kofin.syncplay.ports import SyncPlayApi
 from kofin.syncplay.tempo import TempoSession
 from kofin.syncplay.timesync import TimeSync
 
@@ -42,11 +45,11 @@ class SyncPlayManager(object):
     blocked.
     """
 
-    def __init__(self, api, player):
+    def __init__(self, api: Optional[SyncPlayApi], player):
         self.api = api
         self.player = player
         self.playback = PlaybackController(self, player)
-        self.timesync = None
+        self.timesync: Optional[TimeSync] = None
         # Fine sync through inputstream.tempo (syncplay/tempo.py): armed at
         # group join when this member can use it, disarmed at leave.
         self.tempo_session = TempoSession(
@@ -54,9 +57,9 @@ class SyncPlayManager(object):
         )
         self._rate_mismatch_told = False
 
-        self.group = None  # {"GroupId", "GroupName"}
+        self.group: Optional[Dict[str, Any]] = None  # {"GroupId", "GroupName"}
         self.group_state = None
-        self.members = []
+        self.members: List[Any] = []
         self.protocol_version = 1
         self.state_version = 0
         # Dedicated time-sync socket path from the server's Hello (plugin
@@ -64,13 +67,14 @@ class SyncPlayManager(object):
         self.timesync_ws_path = None
         self.ignore_wait = False
 
-        self.queue = []  # [(ItemId, PlaylistItemId)] mirror of the group queue
+        # [(ItemId, PlaylistItemId)] mirror of the group queue
+        self.queue: List[Tuple[str, str]] = []
         self.queue_last_update = None
         self.current_item_id = None
         self.current_playlist_item_id = None
 
-        # idle -> loading -> waiting_ready -> synced
-        self.phase = "idle"
+        # idle -> loading -> waiting_ready -> synced (utils.Phase)
+        self.phase = Phase.IDLE
 
         self.join_local_ms = 0.0
         self.last_group_id = None
@@ -91,7 +95,7 @@ class SyncPlayManager(object):
         # group echo: {"transition", "proposed", "item_id"}. "transition"
         # marks a native playlist advance (starts at 0); otherwise the
         # start position is read from the player once it settles.
-        self._hold = None
+        self._hold: Optional[Dict[str, Any]] = None
 
         self._prog_depth = 0
         self._prog_release = 0.0
@@ -110,7 +114,15 @@ class SyncPlayManager(object):
     # ------------------------------------------------------------------
 
     def stop(self):
-        if self.in_group():
+        # The leave is a courtesy to the group, not something teardown waits
+        # on: this runs on the service main thread inside Service.stop, and a
+        # POST at the transport's default budget (6 s connect + 30 s read, no
+        # retries, so no abort check) against a server that vanished without
+        # closing the socket held teardown well past Kodi's five-second
+        # script-stop grace (audit R4). Skipped outright when the service
+        # already knows the server is away; otherwise sent on the short
+        # budget syncplay_leave carries.
+        if self.in_group() and not state.is_offline():
             try:
                 self._api_raw("syncplay_leave")
             except Exception:
@@ -156,7 +168,7 @@ class SyncPlayManager(object):
 
         LOG.info("---<[ syncplay dispatcher ]")
 
-    def get_api(self):
+    def get_api(self) -> Optional[SyncPlayApi]:
         return self.api
 
     def _api(self, name, *args):
@@ -486,6 +498,7 @@ class SyncPlayManager(object):
         if not self.in_group():
             return
 
+        assert self.group is not None  # in_group() above
         for group in self.list_groups() or []:
             if group.get("GroupId") == self.group["GroupId"]:
                 self.members = (
@@ -577,88 +590,117 @@ class SyncPlayManager(object):
             except Exception:
                 pass
 
-        timer = threading.Timer(10, self._post, args=(check,))
-        timer.daemon = True
-        timer.start()
+        utils.later(10, self._post, check)
 
     # ------------------------------------------------------------------
     # WebSocket message handling (dispatcher thread)
     # ------------------------------------------------------------------
+
+    # Group updates by type (P2.4), in three tables that keep the dispatch's
+    # guard order: what is handled whether or not we are in a group, what is
+    # handled in-group before the state version moves, and what is versioned
+    # and dropped when stale. Method names, not bound methods, so the fork's
+    # __init__ stays as it is.
+    _GROUP_UPDATES_ANY_STATE = {
+        "GroupJoined": "_on_group_joined",
+        "NotInGroup": "_on_not_in_group",
+        "GroupDoesNotExist": "_on_not_in_group",
+        "LibraryAccessDenied": "_on_library_access_denied",
+    }
+    _GROUP_UPDATES_UNVERSIONED = {
+        "GroupLeft": "_on_group_left",
+        "UserJoined": "_on_user_joined",
+        "UserLeft": "_on_user_left",
+    }
+    _GROUP_UPDATES_VERSIONED = {
+        "StateUpdate": "_on_state_update",
+        "PlayQueue": "_on_play_queue",
+        "StateSnapshot": "_on_state_snapshot",
+        "PositionBeacon": "_on_beacon",
+    }
 
     def _handle_group_update(self, data):
         gtype = data.get("Type")
         payload = data.get("Data")
         version = data.get("StateVersion")
 
-        if gtype == "GroupJoined":
-            self._on_group_joined(payload or {}, version)
-            return
-
-        if gtype in ("NotInGroup", "GroupDoesNotExist"):
-            if self.in_group():
-                self._attempt_rejoin()
-
-            return
-
-        if gtype == "LibraryAccessDenied":
-            self._toast(settings.localized(30579), error=True)
+        handler = self._GROUP_UPDATES_ANY_STATE.get(gtype)
+        if handler is not None:
+            getattr(self, handler)(payload or {}, version)
             return
 
         if not self.in_group():
             return
-
+        assert self.group is not None  # in_group() above
         if data.get("GroupId") and data["GroupId"] != self.group["GroupId"]:
             return
 
         if gtype == "GroupLeft":
-            self._leave_locally()
-            self._toast(settings.localized(30564))
+            # Before the version bookkeeping: a left group has no version.
+            self._on_group_left(payload or {})
             return
 
         previous_version = self.state_version
-
         if version is not None:
             self.state_version = max(previous_version, version)
 
-        if gtype == "UserJoined":
-            self._toast(self._text(30565, payload))
-            return
-
-        if gtype == "UserLeft":
-            self._toast(self._text(30566, payload))
+        handler = self._GROUP_UPDATES_UNVERSIONED.get(gtype)
+        if handler is not None:
+            getattr(self, handler)(payload or {})
             return
 
         if utils.is_stale_version(version, previous_version):
             LOG.info("Ignoring stale %s (v%s < v%s)", gtype, version, previous_version)
             return
 
-        if gtype == "StateUpdate":
-            previous = self.group_state
-            self.group_state = (payload or {}).get("State")
-            LOG.debug(
-                "[ syncplay/state ] %s (%s)",
-                self.group_state,
-                (payload or {}).get("Reason"),
-            )
-
-            if self.group_state == "Waiting" and previous == "Playing":
-                # A member dropped out or started buffering: the whole
-                # group holds. Surface why playback froze (S4.5).
-                self._toast(settings.localized(30585))
-        elif gtype == "PlayQueue":
-            self._apply_play_queue(payload or {})
-        elif gtype == "StateSnapshot":
-            self._apply_snapshot(payload or {})
-        elif gtype == "PositionBeacon":
-            self._on_beacon(payload or {}, version, previous_version)
-        else:
+        handler = self._GROUP_UPDATES_VERSIONED.get(gtype)
+        if handler is None:
             LOG.debug("Unhandled group update type: %s", gtype)
+            return
+        getattr(self, handler)(payload or {}, version, previous_version)
+
+    def _on_not_in_group(self, payload, version):
+        if self.in_group():
+            self._attempt_rejoin()
+
+    def _on_library_access_denied(self, payload, version):
+        self._toast(settings.localized(30579), error=True)
+
+    def _on_group_left(self, payload):
+        self._leave_locally()
+        self._toast(settings.localized(30564))
+
+    def _on_user_joined(self, payload):
+        self._toast(self._text(30565, payload))
+
+    def _on_user_left(self, payload):
+        self._toast(self._text(30566, payload))
+
+    def _on_state_update(self, payload, version, previous_version):
+        previous = self.group_state
+        self.group_state = payload.get("State")
+        LOG.debug(
+            "[ syncplay/state ] %s (%s)",
+            self.group_state,
+            payload.get("Reason"),
+        )
+        if self.group_state == "Waiting" and previous == "Playing":
+            # A member dropped out or started buffering: the whole
+            # group holds. Surface why playback froze (S4.5).
+            self._toast(settings.localized(30585))
+
+    def _on_play_queue(self, payload, version, previous_version):
+        self._apply_play_queue(payload)
+
+    def _on_state_snapshot(self, payload, version, previous_version):
+        self._apply_snapshot(payload)
 
     def _handle_command(self, command):
         """SyncPlayCommand gating per SYNCPLAY.md §5.1."""
         if not self.in_group():
             return
 
+        assert self.group is not None  # in_group() above
         if command.get("GroupId") and command["GroupId"] != self.group["GroupId"]:
             LOG.info("Discarding command for another group")
             return
@@ -713,7 +755,8 @@ class SyncPlayManager(object):
             LOG.info("SyncPlay is disabled in settings, ignoring GroupJoined")
             return
 
-        rejoined = self.in_group() and self.group["GroupId"] == info.get("GroupId")
+        group = self.group  # in_group() is exactly this None test
+        rejoined = group is not None and group["GroupId"] == info.get("GroupId")
 
         self.group = {
             "GroupId": info.get("GroupId"),
@@ -776,7 +819,7 @@ class SyncPlayManager(object):
             self._post(self._forward_local_play)
 
     def _leave_locally(self):
-        if not self.in_group() and self.phase == "idle":
+        if not self.in_group() and self.phase == Phase.IDLE:
             return
 
         self.playback.stop_loop()
@@ -795,7 +838,7 @@ class SyncPlayManager(object):
         self.queue_last_update = None
         self.current_item_id = None
         self.current_playlist_item_id = None
-        self.phase = "idle"
+        self.phase = Phase.IDLE
         self.ignore_wait = False
         self._join_pending_since = 0.0
         self.player.syncplay_group_active = False
@@ -880,9 +923,7 @@ class SyncPlayManager(object):
                     LOG.info("No snapshot pushed after reconnect, requesting one")
                     self._request_snapshot()
 
-            timer = threading.Timer(5, self._post, args=(check,))
-            timer.daemon = True
-            timer.start()
+            utils.later(5, self._post, check)
         else:
             self._kicked_probe()
 
@@ -894,7 +935,8 @@ class SyncPlayManager(object):
             LOG.debug("kicked-probe skipped: group list unavailable")
             return
 
-        group_id = self.group["GroupId"] if self.in_group() else self.last_group_id
+        group = self.group  # in_group() is exactly this None test
+        group_id = group["GroupId"] if group is not None else self.last_group_id
 
         if any(group.get("GroupId") == group_id for group in groups):
             self._attempt_rejoin(force=True)
@@ -913,6 +955,7 @@ class SyncPlayManager(object):
         self.last_snapshot_at = time.time()
 
         if snapshot.get("GroupName"):
+            assert self.group is not None  # snapshots only arrive in-group
             self.group["GroupName"] = snapshot["GroupName"]
 
         self.group_state = snapshot.get("State")
@@ -920,7 +963,7 @@ class SyncPlayManager(object):
 
         self._apply_play_queue(snapshot.get("PlayQueue") or {})
 
-        if self.phase == "loading":
+        if self.phase == Phase.LOADING:
             # The queue application is (re)loading the item; the ready
             # flow will converge on the snapshot position by itself.
             return
@@ -1003,7 +1046,10 @@ class SyncPlayManager(object):
 
         item_id, playlist_item_id = self.queue[index]
 
-        if playlist_item_id == self.current_playlist_item_id and self.phase != "idle":
+        if (
+            playlist_item_id == self.current_playlist_item_id
+            and self.phase != Phase.IDLE
+        ):
             return  # tail-only change; drift reference stays authoritative
 
         # Position reference: StartPositionTicks is extrapolated to *send* time
@@ -1041,7 +1087,7 @@ class SyncPlayManager(object):
             self._hold = None
             self.current_item_id = item_id
             self.current_playlist_item_id = playlist_item_id
-            self.phase = "waiting_ready"
+            self.phase = Phase.WAITING_READY
             self.playback.ensure_paused()
             self._post(self.playback.prepare_ready)
             return
@@ -1059,7 +1105,7 @@ class SyncPlayManager(object):
         if not self.in_group():  # left while this update was in flight
             return
 
-        self.phase = "loading"
+        self.phase = Phase.LOADING
         self.current_item_id = item_id
         self.current_playlist_item_id = playlist_item_id
 
@@ -1109,12 +1155,10 @@ class SyncPlayManager(object):
         generation = self._load_generation
 
         def check():
-            if self.phase == "loading" and self._load_generation == generation:
+            if self.phase == Phase.LOADING and self._load_generation == generation:
                 self._load_failed("no playback within 45s")
 
-        timer = threading.Timer(45, self._post, args=(check,))
-        timer.daemon = True
-        timer.start()
+        utils.later(45, self._post, check)
 
     def _load_failed(self, reason):
         LOG.warning("SyncPlay could not start playback: %s", reason)
@@ -1128,11 +1172,11 @@ class SyncPlayManager(object):
         self._leave_locally()
 
     def _detach_playback(self, stop_media=False):
-        was_active = self.phase != "idle"
+        was_active = self.phase != Phase.IDLE
         self._hold = None
         self.current_item_id = None
         self.current_playlist_item_id = None
-        self.phase = "idle"
+        self.phase = Phase.IDLE
         self.playback.cancel_pending()
         self.playback.last_command = None
 
@@ -1145,12 +1189,12 @@ class SyncPlayManager(object):
         """A Stop command was executed."""
         self.current_item_id = None
         self.current_playlist_item_id = None
-        self.phase = "idle"
+        self.phase = Phase.IDLE
 
     def on_local_unpaused(self):
         """An Unpause command was executed against loaded media."""
-        if self.phase in ("waiting_ready", "loading"):
-            self.phase = "synced"
+        if self.phase in HELD:
+            self.phase = Phase.SYNCED
 
     # ------------------------------------------------------------------
     # Player events (called from service/player.py hooks)
@@ -1167,7 +1211,7 @@ class SyncPlayManager(object):
         if not self.in_group():
             return
 
-        if self.phase == "loading":
+        if self.phase == Phase.LOADING:
             # Our own play_item(): try to hold before the first frame;
             # on_avstarted re-ensures once the player is fully up.
             self.playback.ensure_paused()
@@ -1181,12 +1225,12 @@ class SyncPlayManager(object):
             # the group, so there is nothing to hold (or demote) either.
             return
 
-        if self.phase in ("idle", "synced"):
+        if self.phase in STARTABLE:
             # Phase "synced" means no stop intervened since the synced
             # item: a native playlist advance, which starts at 0. Phase
             # "idle" is a fresh user start (possibly at a resume point).
             hold = {
-                "transition": self.phase == "synced",
+                "transition": self.phase == Phase.SYNCED,
                 "proposed": False,
                 "item_id": None,
             }
@@ -1204,12 +1248,12 @@ class SyncPlayManager(object):
         if not self.in_group():
             return
 
-        if self.phase == "loading":
+        if self.phase == Phase.LOADING:
             # Hold the first frame; the group start is choreographed by
             # the server once every member reports Ready.
             self._note_load_completed()
             self.playback.ensure_paused()
-            self.phase = "waiting_ready"
+            self.phase = Phase.WAITING_READY
             self._post(self.playback.prepare_ready)
             return
 
@@ -1226,14 +1270,14 @@ class SyncPlayManager(object):
             self._post(self._forward_local_play)
             return
 
-        if not self.is_programmatic() and self.phase in ("idle", "synced"):
+        if not self.is_programmatic() and self.phase in STARTABLE:
             self._post(self._forward_local_play)
 
     def on_paused(self):
         if not self.in_group() or self.is_programmatic():
             return
 
-        if self.phase == "synced":
+        if self.phase == Phase.SYNCED:
             LOG.info("[ syncplay/user pause ]")
             self._post(self._api, "syncplay_pause")
 
@@ -1241,7 +1285,7 @@ class SyncPlayManager(object):
         if not self.in_group() or self.is_programmatic():
             return
 
-        if self.phase in ("synced", "waiting_ready"):
+        if self.phase in FOLLOWING:
             LOG.info("[ syncplay/user unpause ]")
             # The group start time is the server's call: hold position
             # and ask for a group unpause instead of running ahead.
@@ -1252,7 +1296,7 @@ class SyncPlayManager(object):
         if not self.in_group() or self.is_programmatic():
             return
 
-        if self.phase in ("synced", "waiting_ready"):
+        if self.phase in FOLLOWING:
             LOG.info("[ syncplay/user seek ] %.1fs", seconds)
             self._post(self._api, "syncplay_seek", utils.seconds_to_ticks(seconds))
 
@@ -1262,10 +1306,10 @@ class SyncPlayManager(object):
         if not self.in_group() or self.is_programmatic():
             return
 
-        if self.phase == "loading":
+        if self.phase == Phase.LOADING:
             return  # load-failure timer handles it
 
-        if self.phase in ("waiting_ready", "synced"):
+        if self.phase in FOLLOWING:
             self._detach_playback()
             thread = threading.Thread(target=self._user_stopped_prompt)
             thread.daemon = True
@@ -1277,11 +1321,11 @@ class SyncPlayManager(object):
         if not self.in_group() or self.is_programmatic():
             return
 
-        if self.phase != "synced":
+        if self.phase != Phase.SYNCED:
             return
 
         playlist_item_id = self.current_playlist_item_id
-        self.phase = "idle"
+        self.phase = Phase.IDLE
 
         if playlist_item_id:
             LOG.info("[ syncplay/next item ]")
@@ -1299,7 +1343,11 @@ class SyncPlayManager(object):
 
     def _stop_superseded(self):
         """Did another local start (or a group item) replace the stop?"""
-        return self._hold is not None or self.phase != "idle" or self.player.isPlaying()
+        return (
+            self._hold is not None
+            or self.phase != Phase.IDLE
+            or self.player.isPlaying()
+        )
 
     def _user_stopped_prompt(self):
         """Local stop while synced: sort out what it means for the group.
@@ -1370,11 +1418,7 @@ class SyncPlayManager(object):
         else:
             item_id = self._local_item_id()
 
-        if (
-            item_id
-            and item_id == self.current_item_id
-            and self.phase in ("waiting_ready", "synced")
-        ):
+        if item_id and item_id == self.current_item_id and self.phase in FOLLOWING:
             # Already the group's current item: a late-delivered start
             # event for a proposal whose echo was adopted meanwhile.
             return
@@ -1385,13 +1429,12 @@ class SyncPlayManager(object):
                 self._unmanaged_local_play()
                 return
 
-            timer = threading.Timer(
+            utils.later(
                 utils.FORWARD_RETRY_INTERVAL,
                 self._post,
-                args=(self._forward_local_play, attempt + 1),
+                self._forward_local_play,
+                attempt + 1,
             )
-            timer.daemon = True
-            timer.start()
             return
 
         if hold is not None:
@@ -1475,9 +1518,7 @@ class SyncPlayManager(object):
             LOG.warning("Held start was never adopted; releasing the hold")
             self._release_hold()
 
-        timer = threading.Timer(utils.HOLD_RELEASE_TIMEOUT, self._post, args=(check,))
-        timer.daemon = True
-        timer.start()
+        utils.later(utils.HOLD_RELEASE_TIMEOUT, self._post, check)
 
     def _release_hold(self):
         if self._hold is None:

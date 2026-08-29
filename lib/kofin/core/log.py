@@ -43,7 +43,10 @@ def register_secret(value: str, keep: int = 0) -> None:
 
 
 def mask(text: str) -> str:
-    for secret, replacement in _secrets.items():
+    # A snapshot: register_secret can add a key from any thread (a login,
+    # a token change) while sync threads log, and iterating the live dict
+    # then raised RuntimeError out of a logging call (audit M4).
+    for secret, replacement in list(_secrets.items()):
         if secret in text:
             text = text.replace(secret, replacement)
     for pattern, replacement in _PATTERNS:

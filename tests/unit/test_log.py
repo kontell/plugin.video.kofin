@@ -30,6 +30,29 @@ def test_json_credential_fields_masked():
         assert "hunter2" not in masked, field
 
 
+def test_a_secret_registered_mid_mask_does_not_break_the_line():
+    """register_secret can run on any thread — a login, a token change —
+    while sync threads are logging, and iterating the live dict raised
+    RuntimeError out of a logging call (audit M4). Modelled without a
+    race: the text being masked registers a new secret the first time it
+    is searched, exactly when the old loop was mid-iteration."""
+    from kofin.core import log
+
+    class Registering(str):
+        def __contains__(self, needle):
+            log.register_secret("late-secret-value")
+            return str.__contains__(self, needle)
+
+    log.register_secret("first-secret-value")
+    try:
+        masked = log.mask(Registering("first-secret-value and late-secret-value"))
+    finally:
+        log._secrets.pop("first-secret-value", None)
+        log._secrets.pop("late-secret-value", None)
+
+    assert "first-secret-value" not in masked
+
+
 def test_short_or_empty_secrets_are_ignored():
     log.register_secret("")
     log.register_secret("abc", keep=6)

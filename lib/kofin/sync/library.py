@@ -14,7 +14,7 @@ The queue/worker/priority logic is the fork's, byte for byte where possible.
 
 import threading
 import time
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set
 from datetime import datetime, timedelta, timezone
 
 import queue
@@ -28,10 +28,9 @@ from kofin.downloads import auto as downloads_auto
 from kofin.sync import changefeed
 from kofin.sync import musicsources
 from kofin.sync import newcontent
-from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
 from kofin.sync.kodidb import Movies as KodiDb
 from kofin.sync.kodidb import Music as MusicKodiDb
-from kofin.sync.db import Database, get_sync, save_sync
+from kofin.sync.db import Database, get_sync
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import schema
 from kofin.sync.full_sync import FullSync
@@ -49,11 +48,8 @@ from kofin.sync.workers import (
     UserDataWorker,
     release_worker,
 )
-from kofin.sync.hooks import pipeline_hooks
-from kofin.sync import fields as api
 from kofin.sync.shims import (
     LibraryException,
-    LibraryExitException,
     localized,
     notification,
     split_list,
@@ -575,7 +571,7 @@ class Library(threading.Thread):
             with Database("kofin") as kofindb, Database("music") as musicdb:
                 music_db = MusicKodiDb(musicdb.cursor)
                 music_db.ensure_blank_artist()
-                pruned = music_db.prune_orphan_paths()
+                pruned = musicsources.prune_orphan_paths(kofindb.cursor, musicdb.cursor)
                 if pruned:
                     LOG.info("pruned %s orphaned music path rows", pruned)
                 # Kodi's own music scanner empties the source table whenever

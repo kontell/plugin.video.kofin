@@ -63,6 +63,11 @@ FROM        path
 WHERE       strPath = ?
 """
 get_path_obj = ["{Path}"]
+get_path_by_id = """
+SELECT      idPath
+FROM        path
+WHERE       idPath = ?
+"""
 get_file = """
 SELECT      idFile
 FROM        files
@@ -439,6 +444,15 @@ AND         itemType = ?
 add_videoversiontype = """
 INSERT INTO videoversiontype(id, name, owner, itemType)
 VALUES      (NULL, ?, ?, ?)
+"""
+# Kodi's own statement from its v128 migration (CVideoDatabase::UpdateTables),
+# which removed unused user-defined version types for the same reason this
+# runs: the version picker lists every USER row, referenced or not.
+delete_orphan_videoversiontypes = """
+DELETE FROM videoversiontype
+WHERE       id NOT IN (SELECT idType FROM videoversion)
+AND         owner = ?
+AND         itemType = ?
 """
 add_extra_version = """
 INSERT INTO videoversion(idFile, idMedia, media_type, itemType, idType)

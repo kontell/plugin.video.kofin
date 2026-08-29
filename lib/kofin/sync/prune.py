@@ -34,9 +34,13 @@ def local_reference_map(library_id, media_class):
 
     Movies/musicvideos/music rows carry media_folder directly. TV
     children (seasons/episodes) do not — they are collected through the
-    kodi-id parent chain plus the jellyfin_parent_id fallback, mirroring
-    the writers' get_child walk. Checksums load once per involved
-    jellyfin_type via the existing get_checksum query.
+    kodi-id parent chain (series → its seasons by kodi parent id → each
+    season's episodes the same way) plus the rows whose jellyfin_parent_id
+    names the series directly, which is how a series-pooled episode is
+    stored. This is the one copy of that walk: the writers' own
+    ``get_child`` was dead code citing the same rule and went with audit
+    R2. Checksums load once per involved jellyfin_type via the existing
+    get_checksum query.
 
     Module-level so the divergence probe (library.py) can measure the same
     local set the prune diffs without constructing a FullSync; a probe that
@@ -91,8 +95,9 @@ def local_reference_map(library_id, media_class):
                     for episode in db.get_item_id_by_parent_id(season[1], "episode"):
                         ids.append(episode[0])
 
-                # Episodes referencing the series directly (the writers'
-                # get_child fallback arm).
+                # Episodes whose jellyfin_parent_id names the series itself
+                # (series pooling stores them that way, outside any season
+                # row of this show).
                 for row in db.get_media_by_parent_id(series_id):
                     ids.append(row[0])
 

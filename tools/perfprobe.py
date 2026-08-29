@@ -21,6 +21,11 @@ Subcommands:
               ``/image`` endpoint, twice: the first pass is cold only for URLs
               Kodi has not already cached, the second is always warm.
 
+  fingerprint Time ``widgetstate.fingerprint("video")`` and the kofin.db
+              reference digest against *copies* of a profile's databases
+              (WAL included), outside Kodi, with the real code. The number
+              behind audit finding F1 / fixes plan H1; needs no running Kodi.
+
 Kodi's webserver (8080) and "allow remote control" TCP interface (9090) must
 be enabled; credentials default to kodi:kodi (``--auth`` to override).
 """
@@ -160,6 +165,81 @@ def probe_image(args: argparse.Namespace) -> int:
     return 0
 
 
+def probe_fingerprint(args: argparse.Namespace) -> int:
+    """Best-of-N timing of the widget-refresh gate's video fingerprint.
+
+    Copies the profile's newest MyVideos and its kofin.db together with
+    their -wal/-shm sidecars (a .db copied alone hides every row still in
+    the WAL), points the real ``kofin.sync.db`` at the copies, and times the
+    two functions ``Refresher.moved()`` runs behind its settle. Runs on the
+    dev box against Kodistubs — the arithmetic is pure sqlite + Python.
+    """
+    import glob
+    import os
+    import shutil
+    import tempfile
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
+    from kofin.sync import db as sync_db
+    from kofin.sync import widgetstate
+
+    home = os.path.expanduser(args.kodi_home)
+    profile = os.path.join(home, "userdata")
+    if args.profile:
+        profile = os.path.join(profile, "profiles", args.profile)
+    videos = sorted(
+        glob.glob(os.path.join(profile, "Database", "MyVideos*.db")),
+        key=lambda path: int(
+            "".join(ch for ch in os.path.basename(path) if ch.isdigit())
+        ),
+    )
+    mapping = os.path.join(profile, "addon_data", "plugin.video.kofin", "kofin.db")
+    if not videos or not os.path.isfile(mapping):
+        print("fingerprint: no MyVideos*.db or kofin.db under %s" % profile)
+        return 1
+
+    scratch = tempfile.mkdtemp(prefix="kofin-fingerprint-")
+    copies = {}
+    for kind, source in (("video", videos[-1]), ("kofin", mapping)):
+        target = os.path.join(scratch, os.path.basename(source))
+        for suffix in ("", "-wal", "-shm"):
+            if os.path.exists(source + suffix):
+                shutil.copy2(source + suffix, target + suffix)
+        copies[kind] = target
+        sync_db.set_path_override(kind, target)
+
+    try:
+        with sync_db.Database("kofin") as opened:
+            opened.cursor.execute("SELECT count(*) FROM jellyfin")
+            rows = opened.cursor.fetchone()[0]
+        probes = (
+            ("fingerprint('video')", lambda: widgetstate.fingerprint("video")),
+            (
+                "_reference_digest(video types)",
+                lambda: widgetstate._reference_digest(
+                    widgetstate.VIDEO_REFERENCE_TYPES
+                ),
+            ),
+        )
+        print(
+            "fingerprint: %s (%d mapping rows), best of %d after a warm-up"
+            % (os.path.basename(videos[-1]), rows, args.runs)
+        )
+        for label, func in probes:
+            func()  # warm the page cache; the sync never runs cold either
+            best = None
+            for _ in range(args.runs):
+                started = time.monotonic()
+                func()
+                elapsed = time.monotonic() - started
+                best = elapsed if best is None else min(best, elapsed)
+            print("  %-32s %8.1f ms" % (label, (best or 0.0) * 1000))
+    finally:
+        sync_db.reset_overrides()
+        shutil.rmtree(scratch, ignore_errors=True)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--host", default="localhost")
@@ -186,6 +266,16 @@ def main() -> int:
     image = commands.add_parser("image", help="time Kodi's image pipeline")
     image.add_argument("file", help="file of image URLs, one per line, - for stdin")
     image.set_defaults(func=probe_image)
+
+    fingerprint = commands.add_parser(
+        "fingerprint", help="time the widget-refresh fingerprint on DB copies"
+    )
+    fingerprint.add_argument("--kodi-home", default="~/.kodi")
+    fingerprint.add_argument(
+        "--profile", default="", help="profile name (master if empty)"
+    )
+    fingerprint.add_argument("--runs", type=int, default=5)
+    fingerprint.set_defaults(func=probe_fingerprint)
 
     args = parser.parse_args()
     result: int = args.func(args)

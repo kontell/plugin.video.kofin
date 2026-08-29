@@ -22,7 +22,7 @@ from kofin.sync import db as sync_db
 from kofin.sync import schema
 from kofin.sync.kodidb.kodi import Kodi
 from kofin.sync.kodidb.texture import TextureCache
-from kofin.sync.writers import Movies, Music, MusicVideos, TVShows
+from kofin.sync.writers import Music, MusicVideos, TVShows
 from kofin.sync.hooks import pipeline_hooks
 
 HOOKS = pipeline_hooks()
@@ -32,7 +32,6 @@ from tests.unit.sync_dtos import (
     ALBUM,
     ARTIST,
     EPISODE,
-    LIBRARY,
     MOVIE,
     MUSICVIDEO,
     MUSIC_LIBRARY,

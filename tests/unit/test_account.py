@@ -1,7 +1,7 @@
 import pytest
 
 from kofin.core import auth, settings
-from kofin.core.http import Unauthorized
+from kofin.core.http import HttpError, ServerUnreachable, Unauthorized
 from kofin.plugin import account
 from kofin.plugin.router import Request
 from tests.unit.fakes import FakeAddon
@@ -52,6 +52,7 @@ TEXTS = {
     30019: "out from %s?",
     30021: "ok %s %s",
     30027: "sign in to %s",
+    30821: "server error %s",
 }
 
 
@@ -147,6 +148,29 @@ def test_login_wrong_password_leaves_logged_out(kodi_fakes, monkeypatch):
     assert not any("AuthChanged" in cmd for cmd in kodi_fakes)
 
 
+def test_login_names_a_redirected_address(kodi_fakes, monkeypatch):
+    """A proxy redirecting http to https, or an address missing its path,
+    answers the ping with a 3xx. Both transports refuse it now (audit F4),
+    and the toast carries the Location — "unreachable" would send the user
+    checking cables when the fix is the address they typed."""
+
+    def redirect(h, a):
+        raise HttpError(
+            302,
+            "GET %s/System/Info/Public -> 302 (redirected to "
+            "https://minipie:8920/jellyfin; use that address)" % a,
+        )
+
+    monkeypatch.setattr(account.auth, "public_info", redirect)
+    settings.set_str("serverAddress", "minipie")
+
+    account.login(REQ)
+
+    assert "https://minipie:8920/jellyfin" in FakeDialog.notifications[-1]
+    assert FakeDialog.notifications[-1].startswith("server error")
+    assert settings.Credentials.load().is_logged_in is False
+
+
 def test_logout_clears_and_notifies(kodi_fakes, monkeypatch):
     creds = settings.Credentials.load()
     creds.server_address = "http://minipie:8096"
@@ -170,3 +194,96 @@ def test_logout_clears_and_notifies(kodi_fakes, monkeypatch):
     assert FakeAddon.store.get("whoIsWatching", "") == ""
     assert FakeAddon.store["whoIsWatchingShortlist"] == "u2,u3"
     assert any("AuthChanged" in cmd for cmd in kodi_fakes)
+
+
+def _logged_in():
+    creds = settings.Credentials.load()
+    creds.server_address = "http://minipie:8096"
+    creds.token = "tok9"
+    creds.user_id = "uid9"
+    creds.is_logged_in = True
+    creds.save()
+
+
+def _api_raising(error, monkeypatch):
+    class FakeConnectionApi:
+        closed = False
+
+        @classmethod
+        def for_plugin(cls, creds):
+            return cls()
+
+        def public_info(self):
+            raise error
+
+        def views(self):
+            return []
+
+        def close(self):
+            FakeConnectionApi.closed = True
+
+    monkeypatch.setattr("kofin.core.api.Api", FakeConnectionApi)
+    return FakeConnectionApi
+
+
+def test_connection_reports_a_server_error_instead_of_raising(kodi_fakes, monkeypatch):
+    """A 5xx is neither "unreachable" nor "session rejected": the server
+    answered, badly. Before, it was an uncaught HttpError out of a settings
+    button (assessment P2)."""
+    _logged_in()
+    fake = _api_raising(HttpError(500, "HTTP 500 for /System/Info/Public"), monkeypatch)
+
+    account.test_connection(REQ)
+
+    assert (
+        FakeDialog.notifications[-1] == "server error HTTP 500 for /System/Info/Public"
+    )
+    assert fake.closed is True
+
+
+def test_connection_still_names_an_unreachable_server(kodi_fakes, monkeypatch):
+    _logged_in()
+    _api_raising(ServerUnreachable("refused"), monkeypatch)
+
+    account.test_connection(REQ)
+
+    assert FakeDialog.notifications[-1] == "msg"  # #30018 via the stub texts
+
+
+def test_connection_success_names_server_and_version(kodi_fakes, monkeypatch):
+    """P1.11: the happy path — the toast names the server, and the client
+    is closed on the way out like every other outcome."""
+    _logged_in()
+
+    class HappyApi:
+        closed = False
+
+        @classmethod
+        def for_plugin(cls, creds):
+            return cls()
+
+        def public_info(self):
+            return {"ServerName": "minipie", "Version": "10.11.11"}
+
+        def views(self):
+            return []
+
+        def close(self):
+            HappyApi.closed = True
+
+    monkeypatch.setattr("kofin.core.api.Api", HappyApi)
+
+    account.test_connection(REQ)
+
+    assert FakeDialog.notifications[-1] == "ok minipie 10.11.11"
+    assert HappyApi.closed is True
+
+
+def test_connection_names_a_rejected_session(kodi_fakes, monkeypatch):
+    _logged_in()
+    fake = _api_raising(Unauthorized("401"), monkeypatch)
+
+    account.test_connection(REQ)
+
+    assert FakeDialog.notifications[-1] == "msg"  # #30022 via the stub texts
+    assert fake.closed is True

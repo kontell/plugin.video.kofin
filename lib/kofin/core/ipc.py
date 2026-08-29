@@ -6,6 +6,7 @@ is not in the registry. Received methods arrive prefixed by Kodi (e.g.
 """
 
 import binascii
+import hmac
 import json
 import os
 import uuid
@@ -24,8 +25,12 @@ RESTART = "Restart"
 AUTH_CHANGED = "AuthChanged"
 
 # Library-manager commands (settings buttons / picker -> RunPlugin ->
-# ipc.notify -> service). Payloads carry {"Id": "<library id or csv>"}.
-SYNC_LIBRARY = "SyncLibrary"
+# ipc.notify -> service). Payloads carry {"Id": "<library id or csv>"}; an
+# empty UpdateLibrary payload means the whole whitelist. The library's own
+# SyncLibrary command has no message here: its two producers (the whitelist
+# applier and the boxset drift probe) run in the service and enqueue it on
+# the Library directly, and a message nobody sends is a message only a
+# forger would.
 REMOVE_LIBRARY = "RemoveLibrary"
 REPAIR_LIBRARY = "RepairLibrary"
 UPDATE_LIBRARY = "UpdateLibrary"
@@ -65,7 +70,6 @@ _REGISTRY = frozenset(
     {
         RESTART,
         AUTH_CHANGED,
-        SYNC_LIBRARY,
         REMOVE_LIBRARY,
         REPAIR_LIBRARY,
         UPDATE_LIBRARY,
@@ -88,12 +92,17 @@ _REGISTRY = frozenset(
 # "sender == kofin" proves nothing on its own, and these carry a shared secret
 # as well (see nonce()). The download trio is here wholesale: REMOVE deletes
 # files, ADD pulls gigabytes on someone else's say-so, CANCEL wastes work.
+# UPDATE_LIBRARY plans a prune that deletes rows and REFRESH_BOXSETS re-walks
+# every collection: both things the first sentence names, so every library
+# command is here.
 GUARDED = frozenset(
     {
         RESTART,
         AUTH_CHANGED,
         REMOVE_LIBRARY,
         REPAIR_LIBRARY,
+        UPDATE_LIBRARY,
+        REFRESH_BOXSETS,
         DOWNLOAD_ADD,
         DOWNLOAD_CANCEL,
         DOWNLOAD_REMOVE,
@@ -130,9 +139,12 @@ def rotate_nonce() -> str:
         # Written like every other secret-ish file here: owner-only, and
         # replaced atomically so a reader never sees half a token.
         temporary = path + ".tmp"
-        with open(temporary, "w") as handle:
+        # Created with the mode rather than chmod'ed after: open() takes the
+        # process umask, which left a 0644 window before the chmod (M2).
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "w") as handle:
             handle.write(value)
-        os.chmod(temporary, 0o600)
+        os.chmod(temporary, 0o600)  # an existing .tmp keeps its old mode
         os.replace(temporary, path)
     except OSError as error:  # pragma: no cover - defensive
         LOG.warning("could not write the IPC nonce: %s", error)
@@ -161,7 +173,9 @@ def verify(method: str, data: Dict[str, Any], expected: str) -> bool:
         return True
     if not expected:
         return False
-    return str(data.get(NONCE_KEY, "")) == expected
+    # NotifyAll offers no useful timing channel, but a secret comparison
+    # is spelled as one everywhere else in the tree (audit M2).
+    return hmac.compare_digest(str(data.get(NONCE_KEY, "")), expected)
 
 
 def notify(method: str, data: Optional[Dict[str, Any]] = None) -> None:
@@ -174,10 +188,17 @@ def notify(method: str, data: Optional[Dict[str, Any]] = None) -> None:
 
 
 def _encode(data: Dict[str, Any]) -> str:
-    # The builtin parser re-parses its arguments, so the JSON payload is
-    # wrapped in a quoted single-element list (same scheme the old addon and
-    # AddonSignals use — receivers run json.loads(...)[0]).
-    return '"[%s]"' % json.dumps(data).replace('"', '\\"')
+    # The builtin parser re-parses its arguments, so the payload is wrapped
+    # in a quoted single-element list (the scheme the old addon and
+    # AddonSignals use — receivers run json.loads(...)[0]). Hex rather than
+    # escaped JSON: CUtil::SplitParams lets only every second character be
+    # escaped, so a value containing a quote — json.dumps writes \" and the
+    # old escaping made it \\" — closed the parameter early and left the
+    # rest to be parsed as builtin syntax (audit M1). Hex has no quotes,
+    # commas or backslashes for the parser to see, and decode() already
+    # accepted it (the Up Next wire format).
+    hexed = binascii.hexlify(json.dumps(data).encode("utf-8")).decode("ascii")
+    return '"[\\"%s\\"]"' % hexed
 
 
 def decode(data: str) -> Dict[str, Any]:
@@ -204,8 +225,3 @@ def decode(data: str) -> Dict[str, Any]:
 
 def method_name(method: str) -> str:
     return method.split(".", 1)[1] if "." in method else method
-
-
-def encode_hex(data: Dict[str, Any]) -> str:
-    """Hexlify a payload the way AddonSignals consumers expect (Up Next)."""
-    return binascii.hexlify(json.dumps(data).encode()).decode()

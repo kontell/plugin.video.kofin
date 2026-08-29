@@ -464,5 +464,7 @@
   "#30596": "Variation maximale de la vitesse de lecture pendant une correction. À 25 %, une erreur de 2,5 secondes se corrige en 10 secondes ; plus bas est moins perceptible mais plus lent. Les grands changements sont appliqués progressivement.",
   "#30597": "Synchronisation fine sur la vidéo AV1",
   "#30598": "Désactivé par défaut, avec un avertissement : sur un Pixel 7, un changement de vitesse suivi d'un saut a bloqué le décodeur matériel AV1, puis le téléphone lui-même. Le décodeur AV1 d'un Bravia n'a posé aucun problème. N'activez que si votre appareil le supporte ; sinon les titres AV1 suivent le groupe par les seules commandes.",
-  "#30599": "La sync fine requiert inputstream.tempo 21.4.1 / 22.4.1"
+  "#30599": "La sync fine requiert inputstream.tempo 21.4.1 / 22.4.1",
+  "#30821": "Erreur du serveur — %s",
+  "#30822": "%s conservé — l'entrée de la médiathèque n'a pas pu être restaurée"
 }

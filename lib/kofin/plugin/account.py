@@ -9,6 +9,7 @@ import xbmcgui
 from kofin.core import auth, ipc, settings, toast
 from kofin.core.http import (
     Http,
+    HttpError,
     JellyfinError,
     ServerUnreachable,
     Unauthorized,
@@ -52,6 +53,14 @@ def login(request: Request) -> None:
     transport = plugin_transport(settings.get_bool("sslVerify"))
     try:
         info = auth.public_info(transport, address)
+    except HttpError as error:
+        # A server that answered, badly — the same wording test_connection
+        # uses, because the description matters here: a redirect names the
+        # address the user should have typed (audit F4), and "unreachable"
+        # would send them checking cables.
+        LOG.warning("server ping answered badly for %s: %s", address, error)
+        _notification(_text(30821) % error, toast.ERROR)
+        return
     except JellyfinError as error:
         LOG.warning("server ping failed for %s: %s", address, error)
         _notification(_text(30018), toast.ERROR)
@@ -181,8 +190,7 @@ def test_connection(request: Request) -> None:
         _notification(_text(30026))
         return
 
-    transport = plugin_transport(settings.get_bool("sslVerify"))
-    api = Api.from_credentials(transport, creds, interactive=True)
+    api = Api.for_plugin(creds)
     try:
         info = api.public_info()
         api.views()
@@ -192,8 +200,14 @@ def test_connection(request: Request) -> None:
     except ServerUnreachable:
         _notification(_text(30018), toast.ERROR)
         return
+    except JellyfinError as error:
+        # A server that answered, badly (a 5xx, an unparseable body): not
+        # unreachable, not a session problem. Said as what it is, with the
+        # transport's own description of the status.
+        _notification(_text(30821) % error, toast.ERROR)
+        return
     finally:
-        transport.close()
+        api.close()
     _notification(_text(30021) % (info.get("ServerName", ""), info.get("Version", "")))
 
 

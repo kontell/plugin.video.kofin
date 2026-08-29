@@ -102,10 +102,34 @@ def test_request_log_is_masked_like_every_other_line():
 
 
 def test_500_raises_http_error_with_status(monkeypatch):
-    transport, _ = make_http(monkeypatch, [FakeResponse(503)])
+    """A 500 is Jellyfin failing on the item itself — deterministic, so a
+    replay would only add three backoffs per broken item to a walk."""
+    transport, session = make_http(monkeypatch, [FakeResponse(500)])
+    with pytest.raises(http.HttpError) as exc:
+        transport.request("GET", "http://s/x")
+    assert exc.value.status == 500
+    assert len(session.calls) == 1
+
+
+def test_a_transient_status_rides_the_retry_budget(monkeypatch):
+    """A proxy answering 502/503/504 while Jellyfin restarts, or a 429 from
+    a rate limiter, is "not now": it spends the same budget a connection
+    failure does instead of killing the page outright (audit F7)."""
+    transport, session = make_http(
+        monkeypatch,
+        [FakeResponse(503), FakeResponse(502), FakeResponse(200, {"ok": 1})],
+    )
+    response = transport.request("GET", "http://s/x")
+    assert response.status_code == 200
+    assert len(session.calls) == 3
+
+
+def test_a_transient_status_that_never_clears_is_raised_as_itself(monkeypatch):
+    transport, session = make_http(monkeypatch, [FakeResponse(503)] * 4)
     with pytest.raises(http.HttpError) as exc:
         transport.request("GET", "http://s/x")
     assert exc.value.status == 503
+    assert len(session.calls) == 4  # one try plus the GET budget of three
 
 
 def test_post_is_never_retried_by_default(monkeypatch):

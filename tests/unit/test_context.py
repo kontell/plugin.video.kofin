@@ -1,6 +1,7 @@
 import sys
 
 from kofin.plugin import context
+from tests.unit.fakes import FakeApi
 
 
 def _options(monkeypatch, item, enable_delete, dynamic=True):
@@ -299,19 +300,11 @@ def test_resume_label_survives_a_template_without_a_placeholder(monkeypatch):
 # --- which menu the focused item gets -----------------------------------------
 
 
-class _Api:
-    def __init__(self, item):
-        self._item = item
-
-    def item(self, item_id):
-        return self._item
-
-
 def _manage(monkeypatch, listitem, item):
     """Run manage() over a focused item; return the labels it offered."""
     dialog = _Dialog(-1)  # backs out: only the menu it built is under test
     monkeypatch.setattr(sys, "listitem", listitem, raising=False)
-    monkeypatch.setattr(context, "_api", lambda: _Api(item))
+    monkeypatch.setattr(context, "_api", lambda: FakeApi(item=item))
     monkeypatch.setattr(context, "lookup_item_id", lambda dbid, media: "jf1")
     monkeypatch.setattr(context.xbmcgui, "Dialog", lambda: dialog)
     monkeypatch.setattr(context.settings, "get_bool", lambda key: False)
@@ -395,7 +388,6 @@ def _row(state):
 
 
 def test_download_offered_only_when_the_server_allows(monkeypatch):
-    from kofin.downloads import store as downloads_store
 
     movie = {"Id": "i1", "Type": "Movie", "Name": "M", "CanDownload": True}
     offered = _download_entry_options(monkeypatch, movie)
