@@ -198,7 +198,12 @@ What remains is kofin's own:
   same field; that is a known, separate question.
 - **"Play with transcoding" is gated on `ListItem.DBTYPE`, not on `kofin.id` alone** — every
   dynamic row carries the id, songs, albums and genres included, and the DBTYPE clause is what
-  keeps the entry off them (`addon.xml`).
+  keeps the entry off them (`addon.xml`). Both context entries then need `kofin.id`-or-`DBID`
+  **as well**: DBTYPE is set by whoever built the row, so any other add-on that stamps a media
+  type satisfied the type clause on its own (`plugin.audio.kotome` stamps `musicvideo`, and both
+  entries duly appeared all over it). A library row always has a database id and a foreign plugin
+  row does not. It has to be an item-level test — `Container.FolderPath` answers empty on Home,
+  where the active window is not a media window, so widget rows would escape it.
 - **A listing row with no server position still stamps `setResumePoint(0, total)`** — a zero point
   with a total is "set, nothing to resume" to Kodi, which is what stops it falling back to the
   bookmark it saved for the plugin path; the *resolved* item in `plugin/play.py` must never be
