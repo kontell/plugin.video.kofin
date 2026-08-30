@@ -12,37 +12,20 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 
 ## Features
 
-### New & Improved
-
-- Hands-off, fast, robust & resumable [sync](docs/benchmark-report.md)
+- Hands-off, resumable & robust [sync](docs/benchmark-report.md)
 - Downloads
-- Consolidated, simplified settings for all add-on configuration
-- SyncPlay - watch in sync with other Jellyfin clients
+- SyncPlay, watch in sync with other Jellyfin clients
 - Integrated media segment skipping and play next episode prompt
 - Access movie special features/ extras
 - Multi-version movies as Kodi video versions
-- Flexible playback methods - direct play, remux or transcode. Choose supported HDR formats & max resolution
-    - For transcoded playback, audio streams and image-based subtitles can be accessed *after playback starts* by returning to the playing item and bringing up the context menu.
+- Flexible playback methods, direct play, remux or transcode. Choose supported HDR formats & max resolution
 - Play with transcoding context item: pick a bitrate
 - Jellyfin chapter images in Kodi's chapter list
 - Transcode music
-- Jellyfin song lyrics, timed or plain (via companion add-on)
-- Sync Jellyfin music playlists into Kodi
+- Jellyfin song lyrics via companion add-on
+- Sync music playlists
 - Edit Jellyfin user audio and subtitle preferences
 - Who's watching? - toggle additional users onto the session for multi-user watch state (persistent after restart)
-
-### Legacy
-
-- Sync Jellyfin movies, TV shows, music and music videos into Kodi's library
-- Real Kodi database rows - skins, widgets and "recently added" work with no plugin awareness
-- Incremental and full sync
-- Real-time updates over websocket, with a fast change-feed path when the server companion plugin is installed
-
-### Not implemented
-
-- Native mode playback (bypassing Jellyfin server on a local network)
-- Cinema mode
-- Sync theme media
 
 ## Installation
 
