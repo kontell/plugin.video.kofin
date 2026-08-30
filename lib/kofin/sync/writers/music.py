@@ -8,6 +8,7 @@ import datetime
 
 from kofin.core import settings
 from kofin.core.log import Logger
+from kofin.sync import downloader as server
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import queries_map as QUEM
 from kofin.sync import fields as api
@@ -23,6 +24,10 @@ from kofin.sync.kodidb import queries_music as QU
 ##################################################################################################
 
 LOG = Logger(__name__)
+# Nested relink_content passes allowed: a relinked song can create another
+# late artist inline, which relinks in turn. Real chains are one or two deep;
+# past this the artist is written and its content left to a repair.
+RELINK_MAX_DEPTH = 3
 
 ##################################################################################################
 
@@ -61,14 +66,22 @@ class Music(KodiDb):
         self.refused = set()
         # Memo for the music view list behind source naming (music_views).
         self._music_views = None
+        # How many relink_content passes are on the stack: a relinked song
+        # can create yet another late artist inline, and that one relinks
+        # too. Bounded, see RELINK_MAX_DEPTH.
+        self._relink_depth = 0
 
         KodiDb.__init__(self, musicdb.cursor)
 
     @stop
     @jellyfin_item
-    def artist(self, item, e_item, library=None):
+    def artist(self, item, e_item, library=None, skip=None):
         """If item does not exist, entry will be added.
         If item exists, entry will be updated.
+
+        ``skip`` names the album or song whose own write is creating this
+        artist inline; relink_content leaves that item to the write in
+        progress.
         """
         server_address = self.server.server
         API = api.API(item, server_address)
@@ -140,6 +153,13 @@ class Music(KodiDb):
         self.artwork.add(obj["Artwork"], obj["ArtistId"], "artist")
         self.item_ids.append(obj["Id"])
 
+        # A new row on the realtime path may post-date the content that
+        # credits it (issue #188). A full sync -- the writer built with its
+        # library -- writes artists before albums before songs, so there is
+        # nothing to relink and it never pays for the listing.
+        if not update and self.library is None:
+            self.relink_content(obj, skip)
+
     def artist_add(self, obj):
         """Add object to kodi.
 
@@ -155,9 +175,103 @@ class Music(KodiDb):
         self.jellyfin_db.update_reference(*values(obj, QUEM.update_reference_obj))
         LOG.debug("UPDATE artist [%s] %s: %s", obj["ArtistId"], obj["Name"], obj["Id"])
 
+    def relink_content(self, obj, skip=None):
+        """Re-credit what kofin already holds of an artist that arrived after it.
+
+        Jellyfin fills a track's ArtistItems by looking its tag names up
+        against the artist entities that exist at the moment of the request
+        (DtoService: GetArtists(names) is a lookup, never a create) and
+        creates the entities in a post-scan pass, after the tracks are
+        saved. A track written between the two carries no entity for its
+        own artist, so song_artist_link falls back to the album artist; the
+        artist-added event that follows names only the artist, the tracks'
+        Etags never move, and nothing rewrites them -- three guest artists
+        on a Nick Cave album sat unreachable from every listing for hours,
+        healed only by an unrelated server rewrite (issue #188). The
+        knowledge lives here, on the artist-added path: one listing of the
+        artist's content, and every album or song kofin already maps that
+        lacks this artist's link is rewritten in place with the ArtistItems
+        the server serves now, through the Etag match. An album is only
+        rewritten when the artist is one of *its* album artists; a
+        contributor's album is reached through the song credit, as Kodi
+        reaches it.
+        """
+        if self._relink_depth >= RELINK_MAX_DEPTH:
+            LOG.warning(
+                "artist [%s] %s: relink skipped at depth %s; a repair heals it",
+                obj["ArtistId"],
+                obj["Name"],
+                self._relink_depth,
+            )
+            return
+
+        try:
+            listing = self.server.items(
+                {
+                    "ArtistIds": obj["Id"],
+                    "Recursive": True,
+                    "IncludeItemTypes": "MusicAlbum,Audio",
+                    "Fields": server.music_page_info(),
+                    "EnableTotalRecordCount": False,
+                }
+            )
+        except Exception as error:
+            LOG.warning(
+                "artist [%s] %s: could not list its content to relink it: %s",
+                obj["ArtistId"],
+                obj["Name"],
+                error,
+            )
+            return
+
+        songs = albums = 0
+        self._relink_depth += 1
+
+        try:
+            for item in listing.get("Items") or []:
+                if item.get("Id") == skip:
+                    continue
+
+                e_item = self.jellyfin_db.get_item_by_id(item["Id"])
+                if e_item is None:
+                    # Not written yet: its own write will link it.
+                    continue
+
+                if item.get("Type") == "Audio":
+                    if self.song_credits_artist(e_item[0], obj["ArtistId"]):
+                        continue
+
+                    self.song(item, force=True)
+                    songs += 1
+                elif item.get("Type") == "MusicAlbum":
+                    album_artists = [
+                        a.get("Id") for a in item.get("AlbumArtists") or []
+                    ]
+                    if obj["Id"] not in album_artists:
+                        continue
+
+                    if self.album_has_album_artist(e_item[0], obj["ArtistId"]):
+                        continue
+
+                    self.album(item, force=True)
+                    albums += 1
+        finally:
+            self._relink_depth -= 1
+
+        if songs or albums:
+            LOG.info(
+                "artist [%s] %s arrived after its content: relinked %s songs, %s albums",
+                obj["ArtistId"],
+                obj["Name"],
+                songs,
+                albums,
+            )
+        else:
+            LOG.debug("artist [%s] %s: nothing to relink", obj["ArtistId"], obj["Name"])
+
     @stop
     @jellyfin_item
-    def album(self, item, e_item):
+    def album(self, item, e_item, force=False):
         """Update object to kodi."""
         server_address = self.server.server
         API = api.API(item, server_address)
@@ -191,7 +305,7 @@ class Music(KodiDb):
                     "AlbumId %s missing from kodi. repairing the entry.", obj["AlbumId"]
                 )
 
-        if check_unchanged(self, obj, item, e_item, update):
+        if check_unchanged(self, obj, item, e_item, update, force=force):
             return
 
         obj["Rating"] = 0
@@ -288,7 +402,7 @@ class Music(KodiDb):
             except TypeError:
 
                 try:
-                    self.artist(self.server.item(temp_obj["Id"]))
+                    self.artist(self.server.item(temp_obj["Id"]), skip=obj["Id"])
                     temp_obj["ArtistId"] = self.jellyfin_db.get_item_by_id(
                         *values(temp_obj, QUEM.get_item_obj)
                     )[0]
@@ -302,7 +416,7 @@ class Music(KodiDb):
 
     @stop
     @jellyfin_item
-    def song(self, item, e_item):
+    def song(self, item, e_item, force=False):
         """Update object to kodi."""
         server_address = self.server.server
         API = api.API(item, server_address)
@@ -338,7 +452,7 @@ class Music(KodiDb):
                     "SongId %s missing from kodi. repairing the entry.", obj["SongId"]
                 )
 
-        if check_unchanged(self, obj, item, e_item, update):
+        if check_unchanged(self, obj, item, e_item, update, force=force):
             return
 
         self.get_song_path_filename(obj, API)
@@ -537,6 +651,7 @@ class Music(KodiDb):
                     self.artist(
                         self.server.item(temp_obj["Id"]),
                         library={"Id": obj["LibraryId"], "Name": obj["LibraryName"]},
+                        skip=obj["Id"],
                     )
                     temp_obj["ArtistId"] = self.jellyfin_db.get_item_by_id(
                         *values(temp_obj, QUEM.get_item_obj)
@@ -589,7 +704,7 @@ class Music(KodiDb):
         """
         # Still the {Name, Id} dicts here: song_artist_discography flattens
         # AlbumArtists to names, but it runs after this.
-        linked = 0
+        credited = set()
 
         for index, artist in enumerate(obj["ArtistItems"] or obj["AlbumArtists"] or []):
 
@@ -608,6 +723,7 @@ class Music(KodiDb):
                     self.artist(
                         self.server.item(temp_obj["Id"]),
                         library={"Id": obj["LibraryId"], "Name": obj["LibraryName"]},
+                        skip=obj["Id"],
                     )
                     temp_obj["ArtistId"] = self.jellyfin_db.get_item_by_id(
                         *values(temp_obj, QUEM.get_item_obj)
@@ -618,12 +734,19 @@ class Music(KodiDb):
 
             self.link_song_artist(*values(temp_obj, QU.update_song_artist_obj))
             self.item_ids.append(temp_obj["Id"])
-            linked += 1
+            credited.add(temp_obj["ArtistId"])
 
-        if linked:
-            self.unlink_blank_artist(obj["SongId"])
-        else:
+        if not credited:
             self.link_song_artist(BLANKARTIST_ID, obj["SongId"], 1, 0, BLANKARTIST_NAME)
+            credited.add(BLANKARTIST_ID)
+
+        # Third deviation (issue #188): the credits are replaced, as Kodi's
+        # own scanner replaces them on an update. The fork only ever added,
+        # so the album-artist fallback a track was written with before its
+        # own artist existed sat beside the real credit forever once a
+        # rewrite finally carried it. The blank placeholder retires the
+        # same way.
+        self.prune_song_credits(obj["SongId"], credited)
 
     def single(self, obj):
 

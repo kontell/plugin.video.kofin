@@ -535,7 +535,9 @@ def etag_match(item, e_item, direct_path):
     return expected is not None and getattr(e_item, "checksum", None) == expected
 
 
-def check_unchanged(writer, obj, item, e_item, update, apply_userdata=True):
+def check_unchanged(
+    writer, obj, item, e_item, update, apply_userdata=True, force=False
+):
     """Stamp the reference checksum on obj and report whether the full write
     cascade can be skipped.
 
@@ -546,6 +548,10 @@ def check_unchanged(writer, obj, item, e_item, update, apply_userdata=True):
     An incremental sync tags the item with whether it actually carried a
     userdata change; when it did not, the userdata write is skipped. Items
     without the tag (full sync) apply userdata as before.
+
+    ``force`` rewrites through a match: the caller knows the rows are wrong
+    for a reason the Etag cannot see -- a track whose artist entity was
+    created after the track was saved (Music.relink_content, issue #188).
     """
     # Unconditional: the mapping default was json.dumps(item["UserData"]) — a
     # value no comparator can ever match, moving on every playback, so an
@@ -554,7 +560,7 @@ def check_unchanged(writer, obj, item, e_item, update, apply_userdata=True):
     # semantics instead: re-verify every walk, visibly (kofindb warns).
     obj["Checksum"] = sync_checksum(item, writer.direct_path)
 
-    if not (update and etag_match(item, e_item, writer.direct_path)):
+    if force or not (update and etag_match(item, e_item, writer.direct_path)):
         return False
 
     LOG.debug(

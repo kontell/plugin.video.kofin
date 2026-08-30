@@ -66,6 +66,10 @@ class FakeApi:
         self.special_features_by_id = {}
         self.local_trailers_by_id = {}
         self.ancestors_by_id = {}
+        # /Items?ArtistIds=<id>: what the server holds for an artist, and
+        # every /Items query made, for the tests that count them.
+        self.artist_content = {}
+        self.item_queries = []
 
     def special_features(self, item_id):
         features = self.special_features_by_id.get(item_id, [])
@@ -90,6 +94,10 @@ class FakeApi:
             return trailers
         if path == "/Items":
             assert params.get("userId") == self.user_id, "item query lost its user"
+            self.item_queries.append(dict(params))
+            if params.get("ArtistIds"):
+                items = self.artist_content.get(params["ArtistIds"], [])
+                return {"Items": items[: params.get("Limit") or len(items)]}
             children = self.boxset_children.get(params.get("ParentId"), [])
             if params.get("Limit") == 1 and params.get("EnableTotalRecordCount"):
                 return {"TotalRecordCount": len(children), "Items": []}
@@ -3241,6 +3249,222 @@ def test_music_blank_credit_yields_to_a_real_one(api, frozen_music_clock):
     song_id = music_query("SELECT idSong FROM song")[0][0]
     assert music_query("SELECT idArtist, idSong FROM song_artist") == [
         (artist_id, song_id)
+    ]
+
+
+def _guest_artist():
+    return dict(
+        dto(ARTIST),
+        Id="artist2",
+        Name="Guest Star",
+        Etag="etag-artist2-v1",
+        ProviderIds={"MusicBrainzArtist": "mbid-artist-2"},
+        ImageTags={},
+        BackdropImageTags=[],
+    )
+
+
+def _realtime_music(api):
+    """What a writer built the way the service builds it -- no library --
+    needs to resolve one per item: the whitelist and the ancestor walk."""
+    sync = sync_db.get_sync()
+    sync["Whitelist"] = ["lib-music"]
+    sync_db.save_sync(sync)
+    for item_id in ("album1", "song1", "song2"):
+        api.ancestors_by_id[item_id] = [MUSIC_LIBRARY]
+
+
+def test_music_rewrite_replaces_a_stale_credit(api, frozen_music_clock):
+    # Issue #188's "second credit". A track written before Jellyfin had an
+    # entity for its own artist was credited to the album artist by the
+    # fallback; the rewrite that finally carried the real ArtistItems then
+    # *added* the guest beside it, because INSERT OR REPLACE keyed on
+    # (song, artist, role) never removes a row. Kodi's own scanner replaces
+    # a song's credits on update, and so does the writer now.
+    write_music_tree(api, song=dict(SONG, Artists=["Guest Star"], ArtistItems=[]))
+    api.items_by_id["artist2"] = _guest_artist()
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS).song(
+            dict(
+                dto(SONG),
+                Etag="etag-song1-v2",
+                Artists=["Guest Star"],
+                ArtistItems=[{"Name": "Guest Star", "Id": "artist2"}],
+            )
+        )
+
+    assert music_query(
+        "SELECT a.strArtist FROM song_artist sa"
+        " JOIN artist a ON a.idArtist = sa.idArtist WHERE sa.idRole = 1"
+    ) == [("Guest Star",)]
+    # Only the song credit moved; the album is still the band's.
+    assert music_query(
+        "SELECT a.strArtist FROM album_artist aa JOIN artist a ON a.idArtist = aa.idArtist"
+    ) == [("The Band",)]
+
+
+def test_music_late_artist_relinks_its_tracks(api, frozen_music_clock):
+    # Issue #188. Jellyfin fills ArtistItems by looking the tag names up
+    # against the entities that exist at request time, and creates the
+    # entities in a post-scan pass -- so a track that arrives first credits
+    # the album artist by fallback, and the artist-added event that follows
+    # names only the artist; the track's Etag never moves. The artist
+    # writer asks the server what it holds for the newcomer and rewrites
+    # the mapped tracks that lack its credit, through the Etag match.
+    write_music_tree(api, song=dict(SONG, Artists=["Guest Star"], ArtistItems=[]))
+    band_id = music_query("SELECT idArtist FROM artist WHERE strArtist='The Band'")[0][
+        0
+    ]
+    song_id = music_query("SELECT idSong FROM song")[0][0]
+    assert music_query("SELECT idArtist, idSong FROM song_artist WHERE idRole = 1") == [
+        (band_id, song_id)
+    ]
+
+    guest = _guest_artist()
+    api.items_by_id["artist2"] = guest
+    # What the server serves for the guest now: the album (a contributor,
+    # not its album artist) and the track -- same Etag as before, nothing
+    # re-saved it, the entity merely exists.
+    api.artist_content["artist2"] = [
+        dict(
+            dto(ALBUM),
+            ArtistItems=[
+                {"Name": "The Band", "Id": "artist1"},
+                {"Name": "Guest Star", "Id": "artist2"},
+            ],
+        ),
+        dict(
+            dto(SONG),
+            Artists=["Guest Star"],
+            ArtistItems=[{"Name": "Guest Star", "Id": "artist2"}],
+        ),
+    ]
+    _realtime_music(api)
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, hooks=HOOKS).artist(dict(guest))
+
+    guest_id = music_query("SELECT idArtist FROM artist WHERE strArtist='Guest Star'")[
+        0
+    ][0]
+    # Reachable the way Kodi reaches an artist -- through the song credit --
+    # and the fallback credit is gone with it.
+    assert music_query("SELECT idArtist, idSong FROM song_artist WHERE idRole = 1") == [
+        (guest_id, song_id)
+    ]
+    # A contributor's album stays the band's.
+    assert music_query("SELECT idArtist FROM album_artist") == [(band_id,)]
+    # Forced through the match, not provoked by a cleared reference.
+    assert kofin_query("SELECT checksum FROM jellyfin WHERE jellyfin_id='song1'") == [
+        ("etag-song1-v1|plugin",)
+    ]
+    # Two listings for a new artist -- the library probe and the relink...
+    assert [q.get("ArtistIds") for q in api.item_queries] == ["artist2", "artist2"]
+
+    # ...and none for its later update.
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, hooks=HOOKS).artist(dict(guest))
+
+    assert len(api.item_queries) == 2
+
+
+def test_music_late_artist_relinks_the_album_too(api, frozen_music_clock):
+    # The whole tree can precede its artist: the album arrives with no
+    # album-artist entity to link and the song with no artist at all, so the
+    # song carries the [Missing Tag] placeholder. The artist's arrival
+    # rewrites both -- album_artist row, real song credit, placeholder gone.
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
+        music.album(dict(dto(ALBUM), AlbumArtists=[], ArtistItems=[]))
+        music.song(dict(dto(SONG), ArtistItems=[], AlbumArtists=[]))
+
+    song_id = music_query("SELECT idSong FROM song")[0][0]
+    assert music_query("SELECT idArtist, idSong FROM song_artist WHERE idRole = 1") == [
+        (1, song_id)
+    ]
+    assert music_query("SELECT COUNT(*) FROM album_artist") == [(0,)]
+
+    api.artist_content["artist1"] = [dto(ALBUM), dto(SONG)]
+    _realtime_music(api)
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, hooks=HOOKS).artist(dto(ARTIST))
+
+    band_id = music_query("SELECT idArtist FROM artist WHERE strArtist='The Band'")[0][
+        0
+    ]
+    album_id = music_query("SELECT idAlbum FROM album WHERE strAlbum='Greatest Hits'")[
+        0
+    ][0]
+    assert music_query("SELECT idArtist, idAlbum FROM album_artist") == [
+        (band_id, album_id)
+    ]
+    assert music_query("SELECT idArtist, idSong FROM song_artist WHERE idRole = 1") == [
+        (band_id, song_id)
+    ]
+
+
+def test_music_full_sync_never_lists_artist_content(api, frozen_music_clock):
+    # A full sync writes artists before albums before songs, so there is
+    # nothing to relink; a writer built with its library (the full sync's
+    # shape) never asks. The inline create inside song_artist_link takes the
+    # same exemption.
+    api.items_by_id["artist2"] = _guest_artist()
+    write_music_tree(
+        api,
+        song=dict(
+            SONG,
+            Artists=["Guest Star"],
+            ArtistItems=[{"Name": "Guest Star", "Id": "artist2"}],
+        ),
+    )
+
+    assert api.item_queries == []
+
+
+def test_music_inline_artist_create_leaves_the_song_in_progress_alone(
+    api, frozen_music_clock
+):
+    # A realtime song naming an artist kofin has never seen creates it
+    # inline from song_artist_link. That artist's relink lists the very song
+    # being written -- mapped by then, credit not yet in -- and must leave
+    # it to the write in progress rather than rewrite it underneath.
+    write_music_tree(api)
+    api.items_by_id["artist2"] = _guest_artist()
+    song2 = dict(
+        dto(SONG),
+        Id="song2",
+        Name="Second Track",
+        Etag="etag-song2-v1",
+        IndexNumber=2,
+        Path="/media/music/The Band/Greatest Hits/02 - Second Track.flac",
+        ProviderIds={"MusicBrainzTrackId": "mbid-track-2"},
+        Artists=["Guest Star"],
+        ArtistItems=[{"Name": "Guest Star", "Id": "artist2"}],
+    )
+    api.artist_content["artist2"] = [dict(song2)]
+    _realtime_music(api)
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, hooks=HOOKS).song(dict(song2))
+
+    guest_id = music_query("SELECT idArtist FROM artist WHERE strArtist='Guest Star'")[
+        0
+    ][0]
+    song2_id = music_query("SELECT idSong FROM song WHERE strTitle='Second Track'")[0][
+        0
+    ]
+    assert music_query(
+        "SELECT idArtist, iOrder FROM song_artist WHERE idSong = ? AND idRole = 1",
+        (song2_id,),
+    ) == [(guest_id, 0)]
+    # One listing -- the relink; the artist came with its library, so no
+    # probe -- and it rewrote nothing.
+    assert [q.get("ArtistIds") for q in api.item_queries] == ["artist2"]
+    assert kofin_query("SELECT checksum FROM jellyfin WHERE jellyfin_id='song2'") == [
+        ("etag-song2-v1|plugin",)
     ]
 
 
