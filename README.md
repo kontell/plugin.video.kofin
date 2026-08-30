@@ -89,7 +89,7 @@ Kofin is pure Python and runs anywhere Kodi 21 /22 does. Because library sync wr
 | Kodi | Video database | Music database |
 | --- | --- | --- |
 | 21 "Omega" | MyVideos131 | MyMusic83 |
-| 22 "Piers" | MyVideos147 | MyMusic84 |
+| 22 "Piers" | MyVideos148 | MyMusic84 |
 
 ## Uninstalling Kofin
 
