@@ -308,12 +308,30 @@ class Music(Kodi):
     def link_song_artist(self, *args):
         self.cursor.execute(QU.update_song_artist, args)
 
-    def unlink_blank_artist(self, song_id):
-        """Drop a song's [Missing Tag] credit once it has a real one: the
-        blank row is the writer's last-resort visibility guarantee, and a
-        song that regained its artists must not keep showing under the
-        placeholder too."""
-        self.cursor.execute(QU.delete_blank_song_artist, (song_id, BLANKARTIST_ID))
+    def prune_song_credits(self, song_id, keep):
+        """Drop the song's role-1 credits to artists outside ``keep``.
+
+        Kodi's own scanner replaces a song's artist rows on every update;
+        the fork only ever added (INSERT OR REPLACE keyed on song, artist
+        and role never removes a row), so a credit the tags no longer
+        carried outlived every rewrite: the album-artist fallback a track
+        was written with before its own artist existed, an artist a retag
+        dropped, the [Missing Tag] placeholder. Issue #188's "second
+        credit". Returns the artist ids removed.
+        """
+        self.cursor.execute(QU.get_song_credits, (song_id,))
+        stale = [row[0] for row in self.cursor.fetchall() if row[0] not in keep]
+
+        for artist_id in stale:
+            self.cursor.execute(QU.delete_song_credit, (song_id, artist_id))
+
+        return stale
+
+    def song_credits_artist(self, song_id, artist_id):
+        """True when the song already carries a role-1 credit for the artist."""
+        self.cursor.execute(QU.get_song_credit, (song_id, artist_id))
+
+        return self.cursor.fetchone() is not None
 
     def get_songs_by_artist(self, artist_id):
         """Kodi ids of every song credited to the artist (role 1), wherever
@@ -336,7 +354,7 @@ class Music(Kodi):
         is invisible. The blank artist rather than something plausible like
         the album artist because the substitute must also *leave*: the
         writer's rewrite drops a blank credit the moment a real one lands
-        (unlink_blank_artist), while any other borrowed credit would linger
+        (prune_song_credits), while any other borrowed credit would linger
         forever. Returns the kodi ids actually re-credited.
         """
         healed = []
