@@ -161,6 +161,18 @@ What remains is kofin's own:
   2026-08-28). The prune spares rows kofin.db still maps, the repoint captures `restore_path`
   and the restore get-or-creates from it, and `song_update` re-resolves a missing row so a
   Repair heals old damage. Never put a song back by a path id alone.
+- **A song's artist credits are replaced on every rewrite, and an artist that arrives after its
+  content re-credits it.** Jellyfin fills `ArtistItems` by looking the tag names up against the
+  entities that exist at request time (a lookup, never a create) and materialises new entities in
+  the scan's post-scan pass, so a track written between the two credits the album artist by
+  fallback and the artist-added event that follows names only the artist — the track's Etag
+  never moves (#188). `Music.relink_content` runs for a *new* artist row on the realtime path
+  only (`self.library is None`; a full sync writes artists first and must never pay for the
+  listing — an L2 test counts the queries), lists the artist's content once and rewrites the
+  mapped albums and songs that lack its link with `force=True` through `check_unchanged`.
+  `prune_song_credits` is what lets that rewrite drop the fallback credit: the fork only ever
+  added to `song_artist`, and the incidental server-side recovery left every such track with
+  two credits.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is
