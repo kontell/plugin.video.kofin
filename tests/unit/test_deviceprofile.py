@@ -277,6 +277,18 @@ def test_music_cap_only_applies_when_music_transcode_is_on(monkeypatch):
     assert ProfileConfig.from_settings().music_max_bitrate_kbps == 320
 
 
+def test_streaming_cap_carries_a_fractional_setting(monkeypatch):
+    """The streaming cap is a *string* setting so it can say 0.5 Mbit/s —
+    Kodi's integer type cannot — and the fraction has to survive as far as
+    the envelope's bits per second, not be truncated to a whole Mbit/s."""
+    FakeAddon.store = {"maxStreamingBitrate": "0.75"}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+
+    config = ProfileConfig.from_settings()
+    assert config.max_bitrate_mbps == 0.75
+    assert build(config)["MaxStreamingBitrate"] == 750000
+
+
 # -- the download profile (plan W3.1/W3.2) -----------------------------------
 
 

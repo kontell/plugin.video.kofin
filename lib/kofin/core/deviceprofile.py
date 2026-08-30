@@ -145,7 +145,10 @@ class ProfileConfig:
             preferred_video=settings.get_str("preferredVideoCodec") or "h264",
             preferred_audio=settings.get_str("preferredAudioCodec") or "aac",
             max_channels=settings.get_int("maxAudioChannels") or 6,
-            max_bitrate_mbps=settings.get_int("maxStreamingBitrate"),
+            # get_float, not get_int: the cap offers sub-1 Mbit/s options and
+            # is therefore a string setting, exactly as the downloads one is
+            # (see settings.xml, and for_downloads below).
+            max_bitrate_mbps=settings.get_float("maxStreamingBitrate"),
             max_width=settings.get_int("maxResolution"),
             audio_bitrate_kbps=settings.get_int("audioBitrate") or 384,
             music_codec=settings.get_str("musicTranscodeCodec") or "opus",
