@@ -15,6 +15,10 @@ v0.22.0
 - Leaving a SyncPlay group during shutdown no longer holds Kodi past its five-second stop grace when the server has gone away
 - The widget-refresh fingerprint reads kofin's mapping table about forty times faster per row
 - A music library whose item count answers zero no longer crashes its sync
+- Maximum streaming bitrate offers 0.5, 0.75, 1 and 2 Mbit/s, matching the download cap
+- "Jellyfin actions" and "Play with transcoding" no longer appear on other add-ons' listings
+- Deleting a download says so: the item by name, or a count when a season or album goes at once
+- A download that finishes or is deleted updates the widgets, so the downloaded badge appears and clears without waiting for something unrelated to change
 
 v0.21.1
 - Joining a group in progress starts at the group's position, not double it
