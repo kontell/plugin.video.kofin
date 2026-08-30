@@ -31,14 +31,6 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
 
 Install via the [Kontell Repository](https://github.com/kontell/repository.kontell).
 
-### Migration from Jellyfin-Kodi
-
-1.  Disable or uninstall jellyfin-kodi, its background service must not be running.
-2.  Install Kofin and enter Add-ons -> Video add-ons -> Kofin -> Settings -> Account
-3.  Run `Clean databases` (the button is only visible while logged out).
-    - It removes all jellyfin-kodi and Kofin library data, nodes and playlists, and optionally the music library, cached server artwork and custom library nodes.
-    - Cleaning is per Kodi profile, run it in each profile that synced.
-
 ### Configuration
 
 - After install the addon appears under Add-ons -> Video add-ons -> Kofin.
@@ -52,6 +44,14 @@ Install via the [Kontell Repository](https://github.com/kontell/repository.konte
 
 - The server address may be a bare host or IP (e.g. `192.168.1.10`), a `host:port`, or a full URL. `http` and port `8096` are assumed when the scheme and port are omitted. Use `https://` when connecting over the internet.
 - On login the addon stores a Jellyfin access token (not your password) in Kodi's addon settings. Like all Kodi addon settings it is kept in plaintext under `userdata/addon_data/plugin.video.kofin/` - be aware of this when sharing Kodi backups or your addon_data folder. Logging out revokes the token on the server.
+
+### Migration from Jellyfin-Kodi
+
+1.  Disable or uninstall jellyfin-kodi, its background service must not be running.
+2.  Install Kofin and enter Add-ons -> Video add-ons -> Kofin -> Settings -> Account
+3.  Run `Clean databases` (the button is only visible while logged out).
+    - It removes all jellyfin-kodi and Kofin library data, nodes and playlists, and optionally the music library, cached server artwork and custom library nodes.
+    - Cleaning is per Kodi profile, run it in each profile that synced.
 
 ## Custom nodes and widgets
 
