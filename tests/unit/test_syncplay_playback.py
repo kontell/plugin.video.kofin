@@ -33,9 +33,6 @@ class FakePlayer:
         self.total = 0.0
         self.audio = False  # PAPlayer semantics when True
         self.resumes_on_seek = False  # Android VideoPlayer semantics
-        # How far a seek lands from where it was asked to. A transcode can
-        # only start on a segment boundary, so its landing is not the target.
-        self.seek_offset = 0.0
         self.broken_clock = False  # getTime() raises (gapless swap window)
         # A playing player advances, and the controller proves a resume
         # took by sampling the position twice -- so a frozen clock reads as
@@ -96,9 +93,7 @@ class FakePlayer:
         self.actions.append("pause")
 
     def seekTime(self, seconds):
-        # seek_offset stands in for a transcode's segment snap: the stream
-        # can only start at a boundary, so the landing is not the target.
-        self.position = seconds + self.seek_offset
+        self.position = seconds
         self._reads = 0
         self.actions.append(("seek", seconds))
 
@@ -634,71 +629,27 @@ class TestUnpauseIsByIntent:
 
 
 class TestTranscodedSeekReloads:
-    """A seek inside a transcoded stream lands on a segment boundary rather
-    than on the target, so the landing decides: one fine sync can close is
-    kept, one it cannot is what the reload is for.
+    """A group Seek on a transcoding member reloads the item rather than
+    seeking inside the stream.
 
-    Both halves of the old unconditional-reload rationale were measured false
-    on production — an in-stream seek lands within one 3.003 s segment, and
-    the reload itself landed 878 ms past the target in a live group — so the
-    restart has to earn itself against what the seek actually did.
+    The reason is timing, not accuracy: a transcode seek makes the server
+    restart the encode, so the position does not move for seconds and any
+    residual read after a normal settle is the pre-seek position. Measured
+    live, seeking first and deciding on the result reported the whole 60 s
+    seek distance as the residual and made the fallback reload land 10.7 s
+    from the group instead of 0.9 s (PR #208, reverted). The playback.py
+    comment carries the numbers.
     """
 
-    def test_transcoding_keeps_a_landing_fine_sync_can_close(self):
+    def test_transcoding_reloads_at_the_target(self):
         controller, manager, player = make_controller(position=10.0)
         manager.transcoding = True
-        player.seek_offset = 1.7  # a segment boundary past the target
-        controller.tempo.can_close = lambda residual_ms: True
-
-        controller.schedule(command("Seek", -10, ticks=utils.seconds_to_ticks(1200)))
-
-        assert manager.reloads == 0
-        assert [a for a in player.actions if a[0] == "seek"]
-        assert manager.reports == ["syncplay_ready"]
-
-    def test_transcoding_reloads_when_the_landing_is_too_far(self):
-        controller, manager, player = make_controller(position=10.0)
-        manager.transcoding = True
-        player.seek_offset = 8.4
-        seen = []
-        controller.tempo.can_close = (
-            lambda residual_ms: seen.append(residual_ms) or False
-        )
 
         controller.schedule(command("Seek", -10, ticks=utils.seconds_to_ticks(1200)))
 
         assert manager.reloads == 1
-        assert [a for a in player.actions if a[0] == "seek"]
-        # The reload reports Ready through the load flow, not from here.
-        assert manager.reports == []
-        # The residual handed to the gate is the *measured* miss, signed
-        # against the target rather than the other way round.
-        assert seen and round(seen[0]) == -8400
-
-    def test_transcoding_reloads_when_the_item_is_not_routed_through_tempo(self):
-        """The real gate, not a stub: with no tempo file there is nothing to
-        nudge with, so carrying an offset would strand the member."""
-        controller, manager, player = make_controller(position=10.0)
-        manager.transcoding = True
-        player.seek_offset = 0.05  # tiny miss, but nothing can close it
-
-        controller.schedule(command("Seek", -10, ticks=utils.seconds_to_ticks(1200)))
-
-        assert controller.tempo.file is None
-        assert manager.reloads == 1
-        assert manager.reports == []
-
-    def test_an_unreadable_clock_never_reaches_the_branch(self):
-        """_has_media() is the guard: a player whose clock raises is not
-        seekable at all, so the landing test is never asked to judge one."""
-        controller, manager, player = make_controller(position=10.0)
-        manager.transcoding = True
-        player.broken_clock = True
-
-        controller.schedule(command("Seek", -10, ticks=utils.seconds_to_ticks(1200)))
-
-        assert manager.reloads == 0
         assert not [a for a in player.actions if a[0] == "seek"]
+        # The reload reports Ready through the load flow, not from here.
         assert manager.reports == []
 
     def test_transcoding_unpause_carries_the_offset(self):

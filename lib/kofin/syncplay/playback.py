@@ -510,54 +510,36 @@ class PlaybackController(object):
             )
             return
 
-        target_ms = utils.ticks_to_ms(ticks)
-
         if self.manager.is_transcoding():
-            # Seek, then look at where it landed — do not decide in advance.
+            # Reload rather than seek — but not for the reason this comment
+            # used to give, and the difference is worth writing down because
+            # the old one invites exactly the change that was tried and
+            # reverted here (PR #208).
             #
-            # This branch used to reload unconditionally, on the grounds that
-            # a seek inside a transcoded stream "cannot land where it was
-            # asked to" (a logged 8.4 s overshoot) while a reload is exact
-            # "because the server begins encoding there". Measured, neither
-            # half holds. Against production's 3.003 s segmentation an
-            # in-stream seek lands on the next segment boundary — +0.000,
-            # +0.118, +1.700 and +2.900 s for four targets, bounded by one
-            # segment on three separate devices — and the reload is not exact
-            # either: in a live group it landed 878 ms past the target and
-            # left the member ~1 s from the others for the following fifteen
-            # seconds, having restarted the stream to do it.
+            # The old claim was that an in-stream seek "cannot land where it
+            # was asked to" (a logged 8.4 s overshoot) while a reload is
+            # exact. Measured, neither half holds. An in-stream seek lands on
+            # the next segment boundary, which bounds the miss at one segment:
+            # +0.000, +0.118, +1.700 and +2.900 s for four targets on
+            # production's 3.003 s segmentation, reproduced on Omega, a Piers
+            # flatpak and an Android tablet; the 8.4 s did not reproduce
+            # anywhere. And the reload is not exact either — in a live group
+            # it landed 878 ms past the target.
             #
-            # So the reload is worth its restart only when the landing is one
-            # fine sync cannot close. ``can_close`` is the same gate the
-            # unpause aligns use, and it answers False when the item is not
-            # routed through inputstream.tempo at all, which is exactly when
-            # carrying an offset would strand the member.
-            with self._player_lock, self.manager.programmatic():  # Y1
-                if not self._is_paused():
-                    self.player.pause()
-
-                self._seek_and_settle(target_ms)
-
-            # No unreadable-clock case to handle here: _has_media() above is
-            # that guard, and a player whose clock raises never gets this far.
-            residual_ms = target_ms - self._position_ms()
-
-            if self.tempo.can_close(residual_ms):
-                LOG.info(
-                    "[ syncplay/seek ] transcoding: landed %+.0fms, "
-                    "left to fine sync",
-                    residual_ms,
-                )
-                self.report_ready()
-                return
-
-            LOG.info(
-                "[ syncplay/seek ] transcoding: landed %+.0fms, "
-                "reloading at the target",
-                residual_ms,
-            )
+            # What actually rules the seek out is *time*, which neither figure
+            # measures. A transcode seek makes the server restart the encode,
+            # so the position does not move for seconds — far longer than
+            # _seek_and_settle's SEEK_SETTLE_TIMEOUT. Seeking and then reading
+            # the position therefore measures the position *before* the seek:
+            # live, a 60 s group seek reported a residual of +59901 ms, i.e.
+            # the whole seek distance, and the fallback reload that followed
+            # started ~4 s later and landed 10.7 s from the group instead of
+            # the usual 0.9 s. Measuring first makes the fallback worse than
+            # not measuring at all.
+            #
             # The reload reports Ready through the normal load flow, so
             # nothing is reported here.
+            LOG.info("[ syncplay/seek ] transcoding: reloading at the target")
             self.manager.reload_current_item()
             return
 
@@ -565,7 +547,7 @@ class PlaybackController(object):
             if not self._is_paused():
                 self.player.pause()
 
-            self._seek_and_settle(target_ms)
+            self._seek_and_settle(utils.ticks_to_ms(ticks))
 
         self.report_ready()
 
