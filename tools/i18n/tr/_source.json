@@ -322,7 +322,7 @@
   "#30584": "Stop playback for everyone",
   "#30585": "Waiting for the group...",
   "#30586": "Fine sync through inputstream.tempo",
-  "#30587": "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended.",
+  "#30587": "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended.",
   "#30588": "Fine sync with audio passthrough on",
   "#30589": "Use fine sync even when Kodi's audio passthrough is on. The receiver gets multichannel PCM instead of a bitstream for the session: fine for most setups, but Atmos and DTS:X object audio is lost. Off keeps passthrough and leaves the group to converge on commands alone.",
   "#30590": "Shorter video queue during sessions (Kodi 22)",

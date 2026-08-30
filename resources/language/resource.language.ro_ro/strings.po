@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Sincronizare fină prin inputstream.tempo"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Ține acest dispozitiv pe poziția grupului între comenzi, redând pentru scurt timp mai repede sau mai încet prin suplimentul inputstream.tempo (necesită versiunea 21.4.1 / 22.4.1 sau mai nouă; lasă „Sincronizează redarea cu afișajul” dezactivat în Kodi). Doar video, inclusiv transcodat. Sunetul este decodat în PCM pe durata sesiunii, deci passthrough-ul este suspendat."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Ține acest dispozitiv pe poziția grupului între comenzi, redând pentru scurt timp mai repede sau mai încet prin suplimentul inputstream.tempo (lasă „Sincronizează redarea cu afișajul” dezactivat în Kodi). Doar video, inclusiv transcodat. Sunetul este decodat în PCM pe durata sesiunii, deci passthrough-ul este suspendat."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"

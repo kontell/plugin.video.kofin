@@ -452,7 +452,7 @@
   "#30819": "Vis medvirkende i tilføjelsens lister",
   "#30820": "Henter medvirkende og hold til tilføjelsens korte lister — Sidst tilføjet, Påbegyndt, Næste, Fortsæt med at se, søgeresultater og en series afsnit — så informationsdialogen kan vise dem. Lister, der dækker et helt bibliotek, henter det aldrig, fordi serveren skal bruge cirka et sekund pr. 40 emner. Kodi-biblioteket har altid de medvirkende.",
   "#30586": "Finsynkronisering via inputstream.tempo",
-  "#30587": "Holder denne enhed på gruppens position mellem kommandoerne ved kortvarigt at afspille hurtigere eller langsommere gennem tilføjelsen inputstream.tempo (kræver version 21.4.1 / 22.4.1 eller nyere; lad »Synkroniser afspilning til skærm« være slået fra i Kodi). Kun video, også transkodet. Lyden dekodes til PCM under en session, så passthrough er sat på pause.",
+  "#30587": "Holder denne enhed på gruppens position mellem kommandoerne ved kortvarigt at afspille hurtigere eller langsommere gennem tilføjelsen inputstream.tempo (lad »Synkroniser afspilning til skærm« være slået fra i Kodi). Kun video, også transkodet. Lyden dekodes til PCM under en session, så passthrough er sat på pause.",
   "#30588": "Finsynkronisering med lyd-passthrough slået til",
   "#30589": "Brug finsynkronisering selv når Kodis lyd-passthrough er slået til. Modtageren får flerkanals-PCM i stedet for en bitstream under sessionen: fint for de fleste opsætninger, men Atmos- og DTS:X-objektlyd går tabt. Fra beholder passthrough og lader gruppen samles på kommandoerne alene.",
   "#30590": "Kortere videokø under sessioner (Kodi 22)",

@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "通过 inputstream.tempo 精细同步"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "在命令之间，通过 inputstream.tempo 插件短暂地加快或放慢播放，让此设备保持在群组位置上（需要 21.4.1 / 22.4.1 或更新版本；请保持 Kodi 的“同步播放到显示器”关闭）。仅限视频，包括转码的视频。会话期间音频被解码为 PCM，因此直通会被暂停。"
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "在命令之间，通过 inputstream.tempo 插件短暂地加快或放慢播放，让此设备保持在群组位置上（请保持 Kodi 的“同步播放到显示器”关闭）。仅限视频，包括转码的视频。会话期间音频被解码为 PCM，因此直通会被暂停。"
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"

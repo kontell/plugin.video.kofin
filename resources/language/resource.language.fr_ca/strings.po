@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Synchronisation fine via inputstream.tempo"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Maintient cet appareil sur la position du groupe entre les commandes en lisant brièvement plus vite ou plus lentement, via l'extension inputstream.tempo (version 21.4.1 / 22.4.1 ou plus récente requise ; laissez « Synchroniser la lecture à l'affichage » désactivé dans Kodi). Vidéo uniquement, transcodage compris. L'audio est décodé en PCM pendant une session, le passthrough est donc suspendu."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Maintient cet appareil sur la position du groupe entre les commandes en lisant brièvement plus vite ou plus lentement, via l'extension inputstream.tempo (laissez « Synchroniser la lecture à l'affichage » désactivé dans Kodi). Vidéo uniquement, transcodage compris. L'audio est décodé en PCM pendant une session, le passthrough est donc suspendu."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"

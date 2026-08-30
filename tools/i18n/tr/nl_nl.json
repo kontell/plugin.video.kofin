@@ -452,7 +452,7 @@
   "#30819": "Cast tonen in add-onlijsten",
   "#30820": "Haalt cast en crew op voor de korte lijsten van de add-on — Recent toegevoegd, Bezig met kijken, Volgende aflevering, Verder kijken, zoekresultaten en de afleveringen van een serie — zodat het informatievenster ze kan tonen. Lijsten die een hele bibliotheek beslaan doen dat nooit, omdat de server ongeveer een seconde per 40 items nodig heeft. De Kodi-bibliotheek heeft de cast altijd.",
   "#30586": "Fijnafstemming via inputstream.tempo",
-  "#30587": "Houdt dit apparaat tussen groepscommando's op de groepspositie door via de add-on inputstream.tempo kort sneller of langzamer af te spelen (versie 21.4.1 / 22.4.1 of nieuwer vereist; laat 'Afspelen synchroniseren met scherm' uit in Kodi). Alleen video, ook getranscodeerd. Audio wordt tijdens een sessie naar PCM gedecodeerd, dus passthrough is opgeschort.",
+  "#30587": "Houdt dit apparaat tussen groepscommando's op de groepspositie door via de add-on inputstream.tempo kort sneller of langzamer af te spelen (laat 'Afspelen synchroniseren met scherm' uit in Kodi). Alleen video, ook getranscodeerd. Audio wordt tijdens een sessie naar PCM gedecodeerd, dus passthrough is opgeschort.",
   "#30588": "Fijnafstemming met audio-passthrough aan",
   "#30589": "Fijnafstemming ook gebruiken als Kodi's audio-passthrough aanstaat. De ontvanger krijgt voor de sessie meerkanaals PCM in plaats van een bitstream: prima voor de meeste opstellingen, maar Atmos- en DTS:X-objectaudio gaat verloren. Uit behoudt passthrough en laat de groep alleen op commando's samenkomen.",
   "#30590": "Kortere videowachtrij tijdens sessies (Kodi 22)",
