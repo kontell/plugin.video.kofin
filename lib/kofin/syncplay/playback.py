@@ -510,15 +510,54 @@ class PlaybackController(object):
             )
             return
 
+        target_ms = utils.ticks_to_ms(ticks)
+
         if self.manager.is_transcoding():
-            # A seek inside a transcoded stream cannot land where it was asked
-            # to: Kodi snaps to the nearest segment boundary and says so
-            # ("SeekTime - seek ended up on time 3008429" for a 3000000 ms
-            # target — 8.4s past). Restarting the stream at the target is
-            # exact, because the server begins encoding there, which is how
-            # every kofin play already starts. The reload reports Ready through
-            # the normal load flow, so nothing is reported here.
-            LOG.info("[ syncplay/seek ] transcoding: reloading at the target")
+            # Seek, then look at where it landed — do not decide in advance.
+            #
+            # This branch used to reload unconditionally, on the grounds that
+            # a seek inside a transcoded stream "cannot land where it was
+            # asked to" (a logged 8.4 s overshoot) while a reload is exact
+            # "because the server begins encoding there". Measured, neither
+            # half holds. Against production's 3.003 s segmentation an
+            # in-stream seek lands on the next segment boundary — +0.000,
+            # +0.118, +1.700 and +2.900 s for four targets, bounded by one
+            # segment on three separate devices — and the reload is not exact
+            # either: in a live group it landed 878 ms past the target and
+            # left the member ~1 s from the others for the following fifteen
+            # seconds, having restarted the stream to do it.
+            #
+            # So the reload is worth its restart only when the landing is one
+            # fine sync cannot close. ``can_close`` is the same gate the
+            # unpause aligns use, and it answers False when the item is not
+            # routed through inputstream.tempo at all, which is exactly when
+            # carrying an offset would strand the member.
+            with self._player_lock, self.manager.programmatic():  # Y1
+                if not self._is_paused():
+                    self.player.pause()
+
+                self._seek_and_settle(target_ms)
+
+            # No unreadable-clock case to handle here: _has_media() above is
+            # that guard, and a player whose clock raises never gets this far.
+            residual_ms = target_ms - self._position_ms()
+
+            if self.tempo.can_close(residual_ms):
+                LOG.info(
+                    "[ syncplay/seek ] transcoding: landed %+.0fms, "
+                    "left to fine sync",
+                    residual_ms,
+                )
+                self.report_ready()
+                return
+
+            LOG.info(
+                "[ syncplay/seek ] transcoding: landed %+.0fms, "
+                "reloading at the target",
+                residual_ms,
+            )
+            # The reload reports Ready through the normal load flow, so
+            # nothing is reported here.
             self.manager.reload_current_item()
             return
 
@@ -526,7 +565,7 @@ class PlaybackController(object):
             if not self._is_paused():
                 self.player.pause()
 
-            self._seek_and_settle(utils.ticks_to_ms(ticks))
+            self._seek_and_settle(target_ms)
 
         self.report_ready()
 
