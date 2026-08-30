@@ -544,7 +544,7 @@ class Player(xbmc.Player):
             return False
         if settings.get_bool("downloadsDeleteAutomatically"):
             LOG.info("removing watched download %s (automatic)", item_id)
-            ipc.notify(ipc.DOWNLOAD_REMOVE, {"Id": item_id})
+            ipc.notify(ipc.DOWNLOAD_REMOVE, {"Ids": [item_id]})
             return True
         # The same thread shape as the delete prompt: a dialog waits on a
         # person, and Kodi's callback thread must never wait with it.
@@ -563,7 +563,7 @@ class Player(xbmc.Player):
             settings.localized(30714) % name,
         ):
             return
-        ipc.notify(ipc.DOWNLOAD_REMOVE, {"Id": item_id})
+        ipc.notify(ipc.DOWNLOAD_REMOVE, {"Ids": [item_id]})
 
     def _delete_prompt(self, item: JsonDict) -> None:
         name = item.get("Name") or ""

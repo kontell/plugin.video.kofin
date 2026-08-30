@@ -300,7 +300,7 @@ def test_cancel_and_remove_routes(download_wired, monkeypatch):
     assert notified == [(ipc.DOWNLOAD_CANCEL, {"Id": "c1"})]
 
     actions.remove_download(Request("plugin://x", -1, {"id": "r1"}))
-    assert notified[-1] == (ipc.DOWNLOAD_REMOVE, {"Id": "r1"})
+    assert notified[-1] == (ipc.DOWNLOAD_REMOVE, {"Ids": ["r1"]})
     assert dialog.yesnos == []  # no confirmation: the download is a local copy
 
 
@@ -322,11 +322,9 @@ def test_container_remove_and_cancel_expand_from_local_state(
     actions.remove_download(Request("plugin://x", -1, {"id": "ser1"}))
 
     assert dialog.yesnos == []
-    assert notified == [
-        (ipc.DOWNLOAD_REMOVE, {"Id": "e1"}),
-        (ipc.DOWNLOAD_REMOVE, {"Id": "e2"}),
-        (ipc.DOWNLOAD_REMOVE, {"Id": "e3"}),
-    ]
+    # One message for the batch, not one per row: the manager has to see the
+    # whole request to answer it once (one refresh, one toast).
+    assert notified == [(ipc.DOWNLOAD_REMOVE, {"Ids": ["e1", "e2", "e3"]})]
 
     notified.clear()
     actions.cancel_download(Request("plugin://x", -1, {"id": "ser1"}))

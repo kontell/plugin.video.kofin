@@ -511,13 +511,34 @@ class PlaybackController(object):
             return
 
         if self.manager.is_transcoding():
-            # A seek inside a transcoded stream cannot land where it was asked
-            # to: Kodi snaps to the nearest segment boundary and says so
-            # ("SeekTime - seek ended up on time 3008429" for a 3000000 ms
-            # target — 8.4s past). Restarting the stream at the target is
-            # exact, because the server begins encoding there, which is how
-            # every kofin play already starts. The reload reports Ready through
-            # the normal load flow, so nothing is reported here.
+            # Reload rather than seek — but not for the reason this comment
+            # used to give, and the difference is worth writing down because
+            # the old one invites exactly the change that was tried and
+            # reverted here (PR #208).
+            #
+            # The old claim was that an in-stream seek "cannot land where it
+            # was asked to" (a logged 8.4 s overshoot) while a reload is
+            # exact. Measured, neither half holds. An in-stream seek lands on
+            # the next segment boundary, which bounds the miss at one segment:
+            # +0.000, +0.118, +1.700 and +2.900 s for four targets on
+            # production's 3.003 s segmentation, reproduced on Omega, a Piers
+            # flatpak and an Android tablet; the 8.4 s did not reproduce
+            # anywhere. And the reload is not exact either — in a live group
+            # it landed 878 ms past the target.
+            #
+            # What actually rules the seek out is *time*, which neither figure
+            # measures. A transcode seek makes the server restart the encode,
+            # so the position does not move for seconds — far longer than
+            # _seek_and_settle's SEEK_SETTLE_TIMEOUT. Seeking and then reading
+            # the position therefore measures the position *before* the seek:
+            # live, a 60 s group seek reported a residual of +59901 ms, i.e.
+            # the whole seek distance, and the fallback reload that followed
+            # started ~4 s later and landed 10.7 s from the group instead of
+            # the usual 0.9 s. Measuring first makes the fallback worse than
+            # not measuring at all.
+            #
+            # The reload reports Ready through the normal load flow, so
+            # nothing is reported here.
             LOG.info("[ syncplay/seek ] transcoding: reloading at the target")
             self.manager.reload_current_item()
             return

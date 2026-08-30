@@ -161,6 +161,18 @@ What remains is kofin's own:
   2026-08-28). The prune spares rows kofin.db still maps, the repoint captures `restore_path`
   and the restore get-or-creates from it, and `song_update` re-resolves a missing row so a
   Repair heals old damage. Never put a song back by a path id alone.
+- **A song's artist credits are replaced on every rewrite, and an artist that arrives after its
+  content re-credits it.** Jellyfin fills `ArtistItems` by looking the tag names up against the
+  entities that exist at request time (a lookup, never a create) and materialises new entities in
+  the scan's post-scan pass, so a track written between the two credits the album artist by
+  fallback and the artist-added event that follows names only the artist — the track's Etag
+  never moves (#188). `Music.relink_content` runs for a *new* artist row on the realtime path
+  only (`self.library is None`; a full sync writes artists first and must never pay for the
+  listing — an L2 test counts the queries), lists the artist's content once and rewrites the
+  mapped albums and songs that lack its link with `force=True` through `check_unchanged`.
+  `prune_song_credits` is what lets that rewrite drop the fallback credit: the fork only ever
+  added to `song_artist`, and the incidental server-side recovery left every such track with
+  two credits.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is
@@ -198,7 +210,12 @@ What remains is kofin's own:
   same field; that is a known, separate question.
 - **"Play with transcoding" is gated on `ListItem.DBTYPE`, not on `kofin.id` alone** — every
   dynamic row carries the id, songs, albums and genres included, and the DBTYPE clause is what
-  keeps the entry off them (`addon.xml`).
+  keeps the entry off them (`addon.xml`). Both context entries then need `kofin.id`-or-`DBID`
+  **as well**: DBTYPE is set by whoever built the row, so any other add-on that stamps a media
+  type satisfied the type clause on its own (`plugin.audio.kotome` stamps `musicvideo`, and both
+  entries duly appeared all over it). A library row always has a database id and a foreign plugin
+  row does not. It has to be an item-level test — `Container.FolderPath` answers empty on Home,
+  where the active window is not a media window, so widget rows would escape it.
 - **A listing row with no server position still stamps `setResumePoint(0, total)`** — a zero point
   with a total is "set, nothing to resume" to Kodi, which is what stops it falling back to the
   bookmark it saved for the plugin path; the *resolved* item in `plugin/play.py` must never be

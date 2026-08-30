@@ -22,7 +22,7 @@ import threading
 import time
 from datetime import datetime
 from queue import Empty, Queue
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 import xbmc
 
@@ -166,6 +166,9 @@ class DownloadManager:
         # tracks is one notification (see _announce_complete).
         self._announced: Set[str] = set()
         self._announce_lock = threading.Lock()
+        # Downloads deleted since the last announcement (see _flush_removed).
+        self._removed: List[str] = []
+        self._removed_lock = threading.Lock()
         # One *video* transcode pull at a time (plan W3.1): the encoder runs
         # flat-out with throttling force-disabled (V2), so two parallel pulls
         # would saturate the server unbidden. Originals keep the full pool.
@@ -272,8 +275,24 @@ class DownloadManager:
         self._ops.put(("cancel", item_id, "", ""))
         self._wake_all()
 
-    def remove(self, item_id: str) -> None:
-        self._ops.put(("remove", item_id, "", ""))
+    def remove(self, item_ids: List[str]) -> None:
+        """Delete finished downloads, restoring their library rows.
+
+        A list, and *one* op for the lot, because a container removal is one
+        request: the sender expands the season or album from kofin.db
+        (``plugin/actions.py``) and what arrives here is the answer to a
+        single button press. Per-id ops would race their own announcement —
+        a worker that drained the first id before the second arrived would
+        toast twice for one press — and the batch is what lets the refresh
+        and the toast fire once at the end, exactly as ``remove_all`` does.
+
+        Joined into the op tuple's id slot rather than widening it: Jellyfin
+        ids are hex, so the separator cannot appear in one.
+        """
+        wanted = [item_id for item_id in item_ids if item_id]
+        if not wanted:
+            return
+        self._ops.put(("remove", ",".join(wanted), "", ""))
         self._wake_all()
 
     def remove_all(self) -> None:
@@ -393,7 +412,7 @@ class DownloadManager:
                 elif op == "cancel":
                     self._apply_cancel(item_id)
                 elif op == "remove":
-                    self._apply_remove(item_id)
+                    self._apply_remove_batch(item_id.split(","))
                 elif op == "removeall":
                     self._apply_remove_all()
             except Exception:
@@ -442,7 +461,27 @@ class DownloadManager:
         repoint.unstamp_tag(row)
         repoint.clear_badge(row)
 
-    def _apply_remove(self, item_id: str, flush: bool = True) -> None:
+    def _apply_remove_batch(self, item_ids: Iterable[str]) -> None:
+        """One request's worth of removals: every row, then one refresh and
+        one toast.
+
+        The batch boundary is the whole point. A removal answers something
+        the user just asked for, so it does not wait out the completion
+        path's defer window — but "immediate" has to mean once per
+        *request*, not once per row. Removing an album is one menu press and
+        seventeen rows: per row that was seventeen widget passes, and would
+        now be seventeen toasts, for one answer.
+        """
+        for item_id in item_ids:
+            if self._should_stop():
+                break
+            self._apply_remove(item_id)
+        self._flush_refresh(force=True)
+        self._flush_removed()
+
+    def _apply_remove(self, item_id: str) -> None:
+        """One row. Every caller flushes the refresh and the announcement
+        itself, once its whole batch is applied (_apply_remove_batch)."""
         row = store.get(item_id)
         if row is None:
             return
@@ -463,24 +502,19 @@ class DownloadManager:
             self._toast(30822, _display_name(row))
             return
         self._remove_row(row)
-        # A removal answers something the user just asked for, so it does
-        # not wait out the completion path's defer window — but "immediate"
-        # has to mean once per *request*, not once per row. Removing an
-        # album is one menu press and seventeen rows, and refreshing per row
-        # meant seventeen widget passes for one answer.
         self._mark_dirty(row.media_type)
-        if flush and self._ops.empty():
-            self._flush_refresh(force=True)
+        with self._removed_lock:
+            self._removed.append(_display_name(row))
         LOG.info("download removed: %s", item_id)
 
     def _apply_remove_all(self) -> None:
         """Every download goes: finished ones through the full remove path,
         unfinished ones cancelled.
 
-        The refresh is suppressed per row and forced once at the end:
-        ``_apply_remove`` normally refreshes as soon as the ops queue runs
-        dry, and here it is dry from the first row on, which would make a
-        whole library's worth of widget passes out of one button press.
+        The refresh and the toast come once at the end, like every other
+        batch here (_apply_remove_batch): per row this would be a whole
+        library's worth of widget passes, and a whole library's worth of
+        notifications, out of one button press.
 
         Unfinished rows are marked cancelled before being applied, not put
         back on the ops queue: a row being transferred right now aborts at
@@ -496,7 +530,7 @@ class DownloadManager:
             if self._should_stop():
                 break
             if row.state == store.DONE:
-                self._apply_remove(row.jellyfin_id, flush=False)
+                self._apply_remove(row.jellyfin_id)
             else:
                 with self._cancels_lock:
                     self._cancels.add(row.jellyfin_id)
@@ -504,6 +538,7 @@ class DownloadManager:
 
         LOG.info("removed all %d download(s)", len(rows))
         self._flush_refresh(force=True)
+        self._flush_removed()
 
     # -- the transfer ----------------------------------------------------------
 
@@ -1267,6 +1302,8 @@ class DownloadManager:
                     row.origin,
                 )
                 self._apply_remove(row.jellyfin_id)
+            self._flush_refresh(force=True)
+            self._flush_removed()
         except Exception:  # pragma: no cover - never kill the maintenance loop
             LOG.exception("retention sweep failed")
 
@@ -1334,6 +1371,8 @@ class DownloadManager:
                     ),
                 )
                 self._apply_remove(row.jellyfin_id)
+            self._flush_refresh(force=True)
+            self._flush_removed()
         except Exception:  # pragma: no cover - never kill the maintenance loop
             LOG.exception("stale-download sweep failed")
 
@@ -1430,6 +1469,33 @@ class DownloadManager:
                 return  # more of this album is still coming
             self._announced.add(group_id)
         self._toast(30712, item.get("Album") or item.get("Name") or group_id)
+
+    def _flush_removed(self) -> None:
+        """Announce the batch just deleted: the item by name when it is one,
+        a count when a container's worth went at once.
+
+        The same rule _announce_complete follows for an album, for the same
+        reason — "Delete download" on a season is one request, and seventeen
+        toasts naming files nobody chose individually is not an answer to
+        it. Silenceable like every other download toast (``downloadsNotify``
+        via ``notify_allowed``): a deletion the user asked for is feedback,
+        not a failure. The automatic paths — the watched offer's silent mode
+        and the two retention sweeps — announce through here too, and that
+        is deliberate: a file removed without being asked for is the case
+        where saying so matters most.
+        """
+        with self._removed_lock:
+            names = self._removed
+            self._removed = []
+
+        if not names:
+            return
+
+        if len(names) == 1:
+            self._toast(30823, names[0])
+            return
+
+        self._toast(30824, len(names))
 
     def _toast(self, string_id: int, name: Any) -> None:
         if not notify_allowed(string_id):

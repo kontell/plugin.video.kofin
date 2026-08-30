@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Sincronización fina mediante inputstream.tempo"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Mantiene este dispositivo en la posición del grupo entre comandos reproduciendo brevemente más rápido o más lento, a través del add-on inputstream.tempo (requiere la versión 21.4.1 / 22.4.1 o posterior; deja «Sincronizar reproducción con la pantalla» desactivado en Kodi). Solo vídeo en reproducción directa. El audio se decodifica a PCM durante la sesión, así que el passthrough queda suspendido."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Mantiene este dispositivo en la posición del grupo entre comandos reproduciendo brevemente más rápido o más lento, a través del add-on inputstream.tempo (deja «Sincronizar reproducción con la pantalla» desactivado en Kodi). Solo vídeo, también transcodificado. El audio se decodifica a PCM durante la sesión, así que el passthrough queda suspendido."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -2103,3 +2103,11 @@ msgstr "Error del servidor — %s"
 msgctxt "#30822"
 msgid "Kept %s — its library entry could not be restored"
 msgstr "Se conservó %s — no se pudo restaurar la entrada de la biblioteca"
+
+msgctxt "#30823"
+msgid "Download deleted: %s"
+msgstr "Descarga eliminada: %s"
+
+msgctxt "#30824"
+msgid "%s download(s) deleted"
+msgstr "%s descargas eliminadas"

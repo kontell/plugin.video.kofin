@@ -446,6 +446,31 @@ def rows(state: Optional[str] = None) -> List[Download]:
     return [_row_to_download(row) for row in fetched]
 
 
+def done_signature(media_types: Sequence[str]) -> List[Any]:
+    """``(jellyfin_id, media_type)`` for every finished download of these
+    kinds, sorted — the widget fingerprint's downloads section.
+
+    Here rather than in ``sync/widgetstate.py`` because it is a fact about
+    this table, and it is the *set* that is widget state: a completed
+    download stamps a badge art row and a removed one clears it, neither of
+    which moves a checksum, a rating, a play count or an order — so nothing
+    else the fingerprint hashes can see either happen. Only finished rows
+    count: queued and active ones render nothing (the badge goes on at the
+    end), and hashing them would refresh every widget at queue time for no
+    visible change.
+    """
+    if not media_types:
+        return []
+    placeholders = ",".join("?" for _ in media_types)
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "SELECT jellyfin_id, media_type FROM download "
+            "WHERE state = ? AND media_type IN (%s)" % placeholders,
+            (DONE, *media_types),
+        )
+        return sorted(tuple(row) for row in opened.cursor.fetchall())
+
+
 def is_done(jellyfin_id: str) -> bool:
     row = get(jellyfin_id)
     return row is not None and row.state == DONE

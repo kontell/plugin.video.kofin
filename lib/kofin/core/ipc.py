@@ -50,10 +50,13 @@ SYNCPLAY_MENU = "SyncPlayMenu"
 WHO_IS_WATCHING = "WhoIsWatching"
 
 # Offline downloads (docs/offline-downloads-plan.md W1.5): the context menu
-# runs in the plugin process, the download manager in the service. ADD carries
-# {"Ids": [...]} (the sender expands seasons/series), CANCEL and REMOVE carry
-# {"Id": ...}. REMOVE_ALL carries nothing: the settings button confirmed
-# against the store's own count, and one message beats a NotifyAll per row.
+# runs in the plugin process, the download manager in the service. ADD and
+# REMOVE carry {"Ids": [...]} (the sender expands seasons/series/albums),
+# CANCEL carries {"Id": ...}. REMOVE_ALL carries nothing: the settings button
+# confirmed against the store's own count, and one message beats a NotifyAll
+# per row — which is the same reason REMOVE takes a list: a removal answers
+# once, with one refresh and one toast, and cannot do that if the batch
+# reaches the manager as one message per row.
 DOWNLOAD_ADD = "DownloadAdd"
 DOWNLOAD_CANCEL = "DownloadCancel"
 DOWNLOAD_REMOVE = "DownloadRemove"

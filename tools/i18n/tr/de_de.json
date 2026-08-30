@@ -452,7 +452,7 @@
   "#30819": "Besetzung in Add-on-Listen anzeigen",
   "#30820": "Lädt Besetzung und Crew für die kürzeren Add-on-Listen — Kürzlich hinzugefügt, Angefangen, Als Nächstes, Weiterschauen, Suchergebnisse und die Folgen einer Serie —, damit der Informationsdialog sie anzeigen kann. Listen, die eine ganze Bibliothek umfassen, laden sie nie, denn der Server braucht etwa eine Sekunde je 40 Einträge. Die Kodi-Bibliothek hat die Besetzung immer.",
   "#30586": "Feinabgleich über inputstream.tempo",
-  "#30587": "Hält dieses Gerät zwischen den Gruppenbefehlen auf der Gruppenposition, indem es über das Add-on inputstream.tempo kurz schneller oder langsamer abspielt (Version 21.4.1 / 22.4.1 oder neuer nötig; „Wiedergabe an Bildschirm anpassen“ in Kodi ausgeschaltet lassen). Nur direkt abgespieltes Video. Audio wird in einer Sitzung zu PCM dekodiert, Passthrough ist also ausgesetzt.",
+  "#30587": "Hält dieses Gerät zwischen den Gruppenbefehlen auf der Gruppenposition, indem es über das Add-on inputstream.tempo kurz schneller oder langsamer abspielt („Wiedergabe an Bildschirm anpassen“ in Kodi ausgeschaltet lassen). Nur Video, auch transkodiert. Audio wird in einer Sitzung zu PCM dekodiert, Passthrough ist also ausgesetzt.",
   "#30588": "Feinabgleich auch bei Audio-Passthrough",
   "#30589": "Feinabgleich auch dann verwenden, wenn Kodis Audio-Passthrough eingeschaltet ist. Der Receiver bekommt für die Sitzung Mehrkanal-PCM statt eines Bitstreams: für die meisten Anlagen in Ordnung, aber Atmos- und DTS:X-Objektaudio geht verloren. Aus behält Passthrough bei und überlässt den Abgleich allein den Gruppenbefehlen.",
   "#30590": "Kürzere Video-Warteschlange in Sitzungen (Kodi 22)",
@@ -466,5 +466,7 @@
   "#30598": "Standardmäßig aus, mit Warnung: Auf einem Pixel 7 hat eine Tempoänderung mit anschließendem Sprung den AV1-Hardwaredecoder und dann das Telefon selbst aufgehängt. Der AV1-Decoder eines Bravia war unauffällig. Nur einschalten, wenn das Gerät damit klarkommt; sonst folgen AV1-Titel der Gruppe allein über Befehle.",
   "#30599": "Feinabgleich braucht inputstream.tempo 21.4.1 / 22.4.1",
   "#30821": "Serverfehler — %s",
-  "#30822": "%s behalten — Bibliothekseintrag konnte nicht wiederhergestellt werden"
+  "#30822": "%s behalten — Bibliothekseintrag konnte nicht wiederhergestellt werden",
+  "#30823": "Download gelöscht: %s",
+  "#30824": "%s Download(s) gelöscht"
 }

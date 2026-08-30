@@ -278,7 +278,20 @@ VALUES                      (?, ?)
 update_genre_song_obj = ["{SongId}", "{Genres}", "song"]
 
 
-delete_blank_song_artist = """
+get_song_credits = """
+SELECT          idArtist
+FROM            song_artist
+WHERE           idSong = ?
+AND             idRole = 1
+"""
+get_song_credit = """
+SELECT          1
+FROM            song_artist
+WHERE           idSong = ?
+AND             idArtist = ?
+AND             idRole = 1
+"""
+delete_song_credit = """
 DELETE FROM     song_artist
 WHERE           idSong = ?
 AND             idArtist = ?

@@ -451,7 +451,7 @@ def test_remove_restores_deletes_and_prunes(tmp_path, repoints):
     with sync_db.Database("kofin") as opened:
         store.set_restore_filename_on(opened.cursor, "m1", "plugin://old")
 
-    manager._apply_remove("m1")
+    manager._apply_remove_batch(["m1"])
 
     assert repoints["restore"] == [("m1", str(tmp_path / "dl"))]
     assert repoints["unstamp"] == ["m1"]
@@ -1436,12 +1436,20 @@ def test_notifications_opt_out_silences_progress_but_never_failures(
     assert [call[0] for call in shown] == ["L30712 The Movie"]
 
 
-def test_a_bulk_removal_refreshes_once_not_per_row(tmp_path, repoints):
+def test_a_bulk_removal_refreshes_and_toasts_once_not_per_row(
+    tmp_path, repoints, monkeypatch
+):
     """Removing an album is one menu press and seventeen rows. Each row
-    refreshing on its own meant seventeen widget passes for one answer —
-    invisible while a removal could only ever be a single item, which is
-    what the container remove route changed."""
+    answering on its own meant seventeen widget passes — and would mean
+    seventeen toasts — for one answer, which is why the whole batch travels
+    as a single op."""
     manager, refreshes = make_manager(repoints)
+    shown = []
+    monkeypatch.setattr(
+        manager_module.toast, "show", lambda *a, **k: shown.append(a[0])
+    )
+    monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d %%s" % i)
+    item_ids = []
     for index in range(3):
         item_id = "s%d" % index
         rel = "Music/A/B/%s.opus" % item_id
@@ -1451,14 +1459,59 @@ def test_a_bulk_removal_refreshes_once_not_per_row(tmp_path, repoints):
         queue_row(item_id, media_type="song")
         store.record_details(item_id, "song", "album1", 0, "")
         store.finish(item_id, rel, "opus", 1)
-        manager._ops.put(("remove", item_id, "", ""))
+        item_ids.append(item_id)
 
+    manager.remove(item_ids)
     manager._drain_ops()
 
     assert store.rows() == []
-    # One refresh, fired by the last row — the only one that found the ops
-    # queue drained — and against the music database, not video.
+    # One refresh for the batch, against the music database, not video.
     assert refreshes == [["music"]]
+    # ...and one toast, naming the count rather than three file names.
+    assert shown == ["L30824 3"]
+
+
+def test_a_single_removal_toasts_the_item_by_name(tmp_path, repoints, monkeypatch):
+    """One row is the case where the name is the useful answer — the count
+    form would say "1 download(s) deleted" about something it could name."""
+    manager, _ = make_manager(repoints)
+    shown = []
+    monkeypatch.setattr(
+        manager_module.toast, "show", lambda *a, **k: shown.append(a[0])
+    )
+    monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d %%s" % i)
+    rel = "Movies/The Movie (2019)/The Movie (2019).mkv"
+    target = tmp_path / "dl" / rel
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"x")
+    queue_row()
+    store.finish("m1", rel, "mkv", 1)
+
+    manager.remove(["m1"])
+    manager._drain_ops()
+
+    assert shown == ["L30823 The Movie (2019)"]
+
+
+def test_a_removal_that_was_refused_is_not_announced(tmp_path, repoints, monkeypatch):
+    """The restore refusal already toasts its own line (#30822). Counting
+    the row as deleted as well would answer the user twice, and the second
+    answer would be false — the download is still there."""
+    manager, _ = make_manager(repoints)
+    shown = []
+    monkeypatch.setattr(
+        manager_module.toast, "show", lambda *a, **k: shown.append(a[0])
+    )
+    monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d %%s" % i)
+    monkeypatch.setattr(manager_module.repoint, "restore", lambda row, root: False)
+    queue_row()
+    store.finish("m1", "Movies/A/A.mkv", "mkv", 1)
+
+    manager.remove(["m1"])
+    manager._drain_ops()
+
+    assert store.get("m1") is not None
+    assert shown == ["L30822 A"]
 
 
 def test_an_album_announces_once_not_once_per_track(tmp_path, repoints, monkeypatch):

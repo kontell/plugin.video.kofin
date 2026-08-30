@@ -999,7 +999,7 @@ def test_remove_offer_modes(monkeypatch):
     FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
     FakeAddon.store["downloadsDeleteAutomatically"] = "true"
     assert player.offer_remove_download(item) is True
-    assert notified == [(player_module.ipc.DOWNLOAD_REMOVE, {"Id": "d1"})]
+    assert notified == [(player_module.ipc.DOWNLOAD_REMOVE, {"Ids": ["d1"]})]
 
     notified.clear()
     FakeAddon.store["downloadsDeleteAutomatically"] = "false"
@@ -1011,7 +1011,7 @@ def test_remove_offer_modes(monkeypatch):
 
     monkeypatch.setattr(player_module.xbmcgui, "Dialog", YesDialog)
     assert player.offer_remove_download(item) is True
-    assert notified == [(player_module.ipc.DOWNLOAD_REMOVE, {"Id": "d1"})]
+    assert notified == [(player_module.ipc.DOWNLOAD_REMOVE, {"Ids": ["d1"]})]
 
     class NoDialog:
         def yesno(self, heading, message, **kwargs):
@@ -1048,7 +1048,7 @@ def test_remove_offer_covers_automatic_downloads_too(monkeypatch):
     monkeypatch.setattr("kofin.downloads.store.get", lambda item_id: row)
 
     assert player.offer_remove_download(_watched_download_item()) is True
-    assert notified == [(player_module.ipc.DOWNLOAD_REMOVE, {"Id": "d1"})]
+    assert notified == [(player_module.ipc.DOWNLOAD_REMOVE, {"Ids": ["d1"]})]
 
     # Nothing downloaded, nothing to offer.
     notified.clear()

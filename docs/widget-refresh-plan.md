@@ -89,3 +89,11 @@ All three implementation phases landed as designed — D9 first (the setting rem
 - Settle constants: 4 s settle re-armed per drain, 15 s hold cap from the first deferral; the immediate paths (``refresh_added``, command-owned refreshes) clear the deferred debt for their databases so nothing fires twice.
 - The first-content reload polls ``Library.HasContent`` at 250 ms up to 10 s and then reloads anyway (a late reload beats an invisible section); it is held during video playback and flushed by the service tick at stop.
 - Phase-4 constraint bullets live in CLAUDE.md; the live gates are W1–W7 in docs/testing-plan.md, pending their first full run.
+
+## The downloads section (added 2026-08-30)
+
+A completed download moved nothing the gate could see, so the refresh the download manager asks for was suppressed and the downloaded badge appeared only when something unrelated next moved the fingerprint — and stayed on after a deletion for the same reason, which is what `plugin/actions.py::remove_download` meant when it said the listing itself was the feedback. The cause is exactly the maintenance contract in the module docstring: a download stamps an `art` row (`kofin.downloaded`), moves the file/path rows and adds a tag, and re-stamps no checksum, so `reference`, `userdata`, `ratings`, `recency` and `inprogress` are all blind to it by construction.
+
+`downloads` is therefore its own section on both databases — the set of *finished* downloads of the kinds that database holds (`store.done_signature`, video: movie/episode, music: song). Queued and active rows are excluded on purpose: the badge goes on at the end, so hashing them would refresh every widget when work was asked for and again when it landed. The music side has no badge but has the Downloaded-music playlist's membership, which needs the same refresh.
+
+The cost is one refresh per download batch, on every skin. Whether a given skin draws the badge is not something the addon can see — contuary reads the three overlay icons, Estuary does not — and splitting the gate by skin is not a thing Kodi offers; a stale badge is a lie under any skin, so the refresh fires for all of them. It is one pass, coalesced by the manager's own defer window (`REFRESH_MAX_DEFER_SECONDS`) and the D3 settle, so an album's worth of tracks is still one refresh.

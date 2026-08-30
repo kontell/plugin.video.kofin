@@ -28,8 +28,21 @@
         <label>30502</label>
         <!-- Jellyfin actions (favorites/delete/settings). kofin browse items
              carry kofin.id; synced video-library items resolve through
-             kofin.db. Declared first so it sits above Play with transcoding. -->
-        <visible>!String.IsEmpty(ListItem.Property(kofin.id)) | String.IsEqual(ListItem.DBTYPE,movie) | String.IsEqual(ListItem.DBTYPE,episode) | String.IsEqual(ListItem.DBTYPE,musicvideo) | String.IsEqual(ListItem.DBTYPE,tvshow) | String.IsEqual(ListItem.DBTYPE,season) | String.IsEqual(ListItem.DBTYPE,set) | String.IsEqual(ListItem.DBTYPE,song) | String.IsEqual(ListItem.DBTYPE,album) | String.IsEqual(ListItem.DBTYPE,artist)</visible>
+             kofin.db. Declared first so it sits above Play with transcoding.
+
+             The DBID clause is what keeps the entry off *other add-ons'*
+             listings. DBTYPE is set by whoever built the item, so any add-on
+             that stamps a media type on its rows satisfied the type
+             alternation on its own — plugin.audio.kotome stamps
+             "musicvideo", and the entry duly appeared all over it. A library
+             row always carries a database id (ListItem.DBID is empty below
+             zero, and CVideoInfoTag/CMusicInfoTag default to -1), a foreign
+             plugin row does not, and kofin's own rows are admitted by
+             kofin.id before the clause is reached. Item-level on purpose:
+             Container.FolderPath would answer empty on Home, where the
+             active window is not a media window (GUIInfoHelper's
+             GetMediaWindow), so widget rows would have escaped the test. -->
+        <visible>[!String.IsEmpty(ListItem.Property(kofin.id)) | [!String.IsEmpty(ListItem.DBID) + [String.IsEqual(ListItem.DBTYPE,movie) | String.IsEqual(ListItem.DBTYPE,episode) | String.IsEqual(ListItem.DBTYPE,musicvideo) | String.IsEqual(ListItem.DBTYPE,tvshow) | String.IsEqual(ListItem.DBTYPE,season) | String.IsEqual(ListItem.DBTYPE,set) | String.IsEqual(ListItem.DBTYPE,song) | String.IsEqual(ListItem.DBTYPE,album) | String.IsEqual(ListItem.DBTYPE,artist)]]]</visible>
       </item>
       <item library="context_play.py">
         <label>30010</label>
@@ -49,8 +62,11 @@
              (core/state.py). Grouping is [square brackets]: parentheses are
              infolabel argument syntax, and using them here fails the whole
              expression to parse ("Error parsing boolean expression"), which
-             reads as the item simply never appearing. -->
-        <visible>[String.IsEqual(ListItem.DBTYPE,movie) | String.IsEqual(ListItem.DBTYPE,episode) | String.IsEqual(ListItem.DBTYPE,musicvideo) | [!String.IsEmpty(ListItem.Property(kofin.id)) + String.IsEqual(ListItem.DBTYPE,video)]] + !String.IsEmpty(Window(Home).Property(kofin.context.bitrates))</visible>
+             reads as the item simply never appearing. The kofin.id-or-DBID
+             clause is the same foreign-listing guard Jellyfin actions carries
+             above, and for the same reason: a movie/episode/musicvideo DBTYPE
+             is whatever built the row said it was. -->
+        <visible>[String.IsEqual(ListItem.DBTYPE,movie) | String.IsEqual(ListItem.DBTYPE,episode) | String.IsEqual(ListItem.DBTYPE,musicvideo) | [!String.IsEmpty(ListItem.Property(kofin.id)) + String.IsEqual(ListItem.DBTYPE,video)]] + [!String.IsEmpty(ListItem.Property(kofin.id)) | !String.IsEmpty(ListItem.DBID)] + !String.IsEmpty(Window(Home).Property(kofin.context.bitrates))</visible>
       </item>
       <!-- Stream selection for the item currently playing. Three declarations
            of one handler, because a context item's <label> is a fixed string

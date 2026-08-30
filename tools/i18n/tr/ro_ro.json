@@ -452,7 +452,7 @@
   "#30819": "Afișează distribuția în listele suplimentului",
   "#30820": "Preia distribuția și echipa pentru listele scurte ale suplimentului — Adăugate recent, În curs, Urmează, Continuă vizionarea, rezultatele căutării și episoadele unui serial — astfel încât fereastra de informații să le poată afișa. Listele care acoperă o bibliotecă întreagă nu fac niciodată acest lucru, deoarece serverul are nevoie de aproximativ o secundă la fiecare 40 de elemente. Biblioteca Kodi are întotdeauna distribuția.",
   "#30586": "Sincronizare fină prin inputstream.tempo",
-  "#30587": "Ține acest dispozitiv pe poziția grupului între comenzi, redând pentru scurt timp mai repede sau mai încet prin suplimentul inputstream.tempo (necesită versiunea 21.4.1 / 22.4.1 sau mai nouă; lasă „Sincronizează redarea cu afișajul” dezactivat în Kodi). Doar video redat direct. Sunetul este decodat în PCM pe durata sesiunii, deci passthrough-ul este suspendat.",
+  "#30587": "Ține acest dispozitiv pe poziția grupului între comenzi, redând pentru scurt timp mai repede sau mai încet prin suplimentul inputstream.tempo (lasă „Sincronizează redarea cu afișajul” dezactivat în Kodi). Doar video, inclusiv transcodat. Sunetul este decodat în PCM pe durata sesiunii, deci passthrough-ul este suspendat.",
   "#30588": "Sincronizare fină cu passthrough audio activat",
   "#30589": "Folosește sincronizarea fină chiar și când passthrough-ul audio din Kodi este activat. Receptorul primește PCM multicanal în loc de bitstream pe durata sesiunii: potrivit pentru majoritatea sistemelor, dar sunetul pe obiecte Atmos și DTS:X se pierde. Dezactivat păstrează passthrough-ul și lasă grupul să se alinieze doar prin comenzi.",
   "#30590": "Coadă video mai scurtă în timpul sesiunilor (Kodi 22)",
@@ -466,5 +466,7 @@
   "#30598": "Dezactivat implicit, cu un avertisment: pe un Pixel 7, o schimbare de viteză urmată de un salt a blocat decodorul hardware AV1 și apoi telefonul însuși. Decodorul AV1 al unui Bravia nu a avut probleme. Activează doar dacă dispozitivul tău face față; altfel titlurile AV1 urmează grupul doar prin comenzi.",
   "#30599": "Sincronizarea fină necesită inputstream.tempo 21.4.1 / 22.4.1",
   "#30821": "Eroare de server — %s",
-  "#30822": "%s păstrat — intrarea din bibliotecă nu a putut fi restaurată"
+  "#30822": "%s păstrat — intrarea din bibliotecă nu a putut fi restaurată",
+  "#30823": "Descărcare ștearsă: %s",
+  "#30824": "%s descărcări șterse"
 }

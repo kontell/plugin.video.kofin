@@ -530,12 +530,14 @@ def remove_download(request: Request) -> None:
 
     Unlike Delete on the same menu, this destroys nothing the server does not
     still have: a download is a local copy, and removing it puts the item back
-    to streaming. The feedback is the listing itself — the service unstamps the
-    download badge and refreshes as soon as the rows are gone — so the answer
-    to "did that work" is on screen either way, without a dialog in front of it.
+    to streaming. The feedback is a toast and the listing itself — the service
+    unstamps the download badge and refreshes as soon as the rows are gone —
+    so the answer to "did that work" arrives without a dialog in front of it.
 
     A container removes everything finished under it, expanded from kofin.db
-    rather than the server so the entry keeps working offline.
+    rather than the server so the entry keeps working offline, and sent as one
+    message: a season is one request and gets one refresh and one toast (see
+    ``downloads/manager.py::remove``).
     """
     item_id = request.params.get("id", "")
     if not item_id:
@@ -546,5 +548,5 @@ def remove_download(request: Request) -> None:
         targets = [item_id]
     else:
         targets = store.container_done_ids(item_id)
-    for target in targets:
-        ipc.notify(ipc.DOWNLOAD_REMOVE, {"Id": target})
+    if targets:
+        ipc.notify(ipc.DOWNLOAD_REMOVE, {"Ids": targets})

@@ -629,11 +629,16 @@ class TestUnpauseIsByIntent:
 
 
 class TestTranscodedSeekReloads:
-    """A seek inside a transcoded stream cannot land on the target — Kodi snaps
-    to a segment boundary (measured 8.4 s past a 50:00 target) — and reporting
-    that position makes the server correct it, land on the same boundary, and
-    correct again: four rounds and ~13 s of the group held in Waiting. Starting
-    the stream at the target instead is exact.
+    """A group Seek on a transcoding member reloads the item rather than
+    seeking inside the stream.
+
+    The reason is timing, not accuracy: a transcode seek makes the server
+    restart the encode, so the position does not move for seconds and any
+    residual read after a normal settle is the pre-seek position. Measured
+    live, seeking first and deciding on the result reported the whole 60 s
+    seek distance as the residual and made the fallback reload land 10.7 s
+    from the group instead of 0.9 s (PR #208, reverted). The playback.py
+    comment carries the numbers.
     """
 
     def test_transcoding_reloads_at_the_target(self):
