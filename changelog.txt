@@ -19,6 +19,7 @@ v0.22.0
 - "Jellyfin actions" and "Play with transcoding" no longer appear on other add-ons' listings
 - Deleting a download says so: the item by name, or a count when a season or album goes at once
 - A download that finishes or is deleted updates the widgets, so the downloaded badge appears and clears without waiting for something unrelated to change
+- An artist that arrives after its tracks re-credits them
 
 v0.21.1
 - Joining a group in progress starts at the group's position, not double it
