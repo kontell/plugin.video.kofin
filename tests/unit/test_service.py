@@ -1414,8 +1414,8 @@ class FakeDownloadManager:
     def cancel(self, item_id):
         self.cancelled.append(item_id)
 
-    def remove(self, item_id):
-        self.removed.append(item_id)
+    def remove(self, item_ids):
+        self.removed.append(list(item_ids))
 
     def remove_all(self):
         self.removed_all += 1
@@ -1459,11 +1459,16 @@ def test_download_ipc_routes_to_the_manager_and_forgeries_do_not(monkeypatch, tm
         ipc.SENDER, "Other.DownloadCancel", _signed(service, {"Id": "c"})
     )
     service.onNotification(
-        ipc.SENDER, "Other.DownloadRemove", _signed(service, {"Id": "d"})
+        ipc.SENDER, "Other.DownloadRemove", _signed(service, {"Ids": ["d", "e"]})
+    )
+    # A bare Id is still read: the automatic paths name one item, and so does
+    # a plugin process left over from before an add-on update.
+    service.onNotification(
+        ipc.SENDER, "Other.DownloadRemove", _signed(service, {"Id": "f"})
     )
     assert manager.submitted == [["a", "b"]]
     assert manager.origins == ["user"]  # absent Origin is a user download
-    assert manager.cancelled == ["c"] and manager.removed == ["d"]
+    assert manager.cancelled == ["c"] and manager.removed == [["d", "e"], ["f"]]
 
     service.onNotification(
         ipc.SENDER,

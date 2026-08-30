@@ -452,7 +452,7 @@
   "#30819": "Mostra el repartiment a les llistes del complement",
   "#30820": "Obté el repartiment i l'equip de les llistes curtes del complement — Afegits recentment, En curs, A continuació, Continua mirant, els resultats de cerca i els episodis d'una sèrie — perquè el diàleg d'informació els pugui mostrar. Les llistes que abasten una biblioteca sencera no ho fan mai, perquè el servidor necessita aproximadament un segon per cada 40 elements. La biblioteca de Kodi sempre té el repartiment.",
   "#30586": "Sincronització fina mitjançant inputstream.tempo",
-  "#30587": "Manté aquest dispositiu a la posició del grup entre ordres reproduint breument més ràpid o més lent, a través del complement inputstream.tempo (cal la versió 21.4.1 / 22.4.1 o posterior; deixa «Sincronitza la reproducció amb la pantalla» desactivat al Kodi). Només vídeo en reproducció directa. L'àudio es descodifica a PCM durant una sessió, de manera que el passthrough queda suspès.",
+  "#30587": "Manté aquest dispositiu a la posició del grup entre ordres reproduint breument més ràpid o més lent, a través del complement inputstream.tempo (deixa «Sincronitza la reproducció amb la pantalla» desactivat al Kodi). Només vídeo, també transcodificat. L'àudio es descodifica a PCM durant una sessió, de manera que el passthrough queda suspès.",
   "#30588": "Sincronització fina amb passthrough d'àudio activat",
   "#30589": "Fes servir la sincronització fina encara que el passthrough d'àudio del Kodi estigui activat. El receptor rep PCM multicanal en lloc d'un bitstream durant la sessió: va bé per a la majoria d'equips, però es perd l'àudio per objectes Atmos i DTS:X. Desactivat manté el passthrough i deixa que el grup convergeixi només amb les ordres.",
   "#30590": "Cua de vídeo més curta durant les sessions (Kodi 22)",
@@ -466,5 +466,7 @@
   "#30598": "Desactivat per defecte, amb un avís: en un Pixel 7, un canvi de velocitat seguit d'un salt va penjar el descodificador AV1 per maquinari i després el telèfon mateix. El descodificador AV1 d'un Bravia no va tenir problemes. Activa-ho només si el teu dispositiu ho suporta; si no, els títols AV1 segueixen el grup només amb les ordres.",
   "#30599": "Sinc. fina requereix inputstream.tempo 21.4.1 / 22.4.1",
   "#30821": "Error del servidor — %s",
-  "#30822": "S'ha conservat %s — no s'ha pogut restaurar l'entrada de la biblioteca"
+  "#30822": "S'ha conservat %s — no s'ha pogut restaurar l'entrada de la biblioteca",
+  "#30823": "Baixada eliminada: %s",
+  "#30824": "%s baixades eliminades"
 }

@@ -316,6 +316,100 @@ def test_new_album_moves_recency(tmp_path, version):
     assert moved_after(before, "music") == {"recency"}
 
 
+# --- downloads -----------------------------------------------------------------
+
+
+def seed_download(jellyfin_id, media_type, state):
+    from kofin.downloads import store as downloads_store
+
+    downloads_store.queue(
+        downloads_store.Download(jellyfin_id=jellyfin_id, media_type=media_type)
+    )
+    if state != downloads_store.QUEUED:
+        with sync_db.Database("kofin") as opened:
+            opened.cursor.execute(
+                "UPDATE download SET state = ? WHERE jellyfin_id = ?",
+                (state, jellyfin_id),
+            )
+
+
+@pytest.mark.parametrize("version", VIDEO_LEGS)
+def test_a_finished_download_moves_downloads_and_nothing_else(tmp_path, version):
+    """The badge is an art row and the repoint moves file rows: no checksum,
+    no userdata, no order. Without its own section a completed download sat
+    behind an unchanged fingerprint and the badge appeared whenever something
+    unrelated next moved."""
+    from kofin.downloads import store as downloads_store
+
+    path = make_video_db(tmp_path, version)
+    seed_movie(path, 1, "Alpha", "2026-01-01 10:00:00")
+    seed_reference("jf1", "etag1")
+    before = widgetstate.fingerprint("video")
+
+    seed_download("jf1", "movie", downloads_store.DONE)
+
+    assert moved_after(before, "video") == {"downloads"}
+
+
+@pytest.mark.parametrize("version", VIDEO_LEGS)
+def test_a_queued_download_holds_the_fingerprint_still(tmp_path, version):
+    """Queued and active rows render nothing — the badge goes on at the end —
+    so hashing them would refresh every widget the moment work was asked for,
+    and again when it landed."""
+    from kofin.downloads import store as downloads_store
+
+    make_video_db(tmp_path, version)
+    seed_download("jf1", "movie", downloads_store.QUEUED)
+    before = widgetstate.fingerprint("video")
+
+    seed_download("jf2", "movie", downloads_store.ACTIVE)
+
+    assert moved_after(before, "video") == set()
+
+
+@pytest.mark.parametrize("version", VIDEO_LEGS)
+def test_a_deleted_download_moves_downloads_back(tmp_path, version):
+    """Removal is the same problem in reverse: the badge has to come off the
+    listing the user is looking at."""
+    from kofin.downloads import store as downloads_store
+
+    make_video_db(tmp_path, version)
+    seed_download("jf1", "movie", downloads_store.DONE)
+    before = widgetstate.fingerprint("video")
+
+    downloads_store.remove("jf1")
+
+    assert moved_after(before, "video") == {"downloads"}
+
+
+@pytest.mark.parametrize("version", MUSIC_LEGS)
+def test_a_downloaded_song_moves_the_music_side(tmp_path, version):
+    """Songs carry no badge, but they carry the Downloaded-music playlist's
+    membership, and that widget needs the same refresh."""
+    from kofin.downloads import store as downloads_store
+
+    make_music_db(tmp_path, version)
+    before = widgetstate.fingerprint("music")
+
+    seed_download("jf1", "song", downloads_store.DONE)
+
+    assert moved_after(before, "music") == {"downloads"}
+
+
+@pytest.mark.parametrize("version", MUSIC_LEGS)
+def test_a_downloaded_movie_does_not_move_the_music_side(tmp_path, version):
+    """The split is the manager's own (_mark_dirty): asking the wrong
+    database to refresh costs a whole fingerprint pass for nothing."""
+    from kofin.downloads import store as downloads_store
+
+    make_music_db(tmp_path, version)
+    before = widgetstate.fingerprint("music")
+
+    seed_download("jf1", "movie", downloads_store.DONE)
+
+    assert moved_after(before, "music") == set()
+
+
 # --- the gate on Library.refresh_libraries -------------------------------------
 
 

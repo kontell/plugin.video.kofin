@@ -33,6 +33,16 @@ What is hashed is the *rendered* state, not the stored one:
   anything that reorders or replaces rows moves it.
 - ``inprogress`` (video) — the ordered id list of resumable items, the
   in-progress widgets' membership and order.
+- ``downloads`` — the set of finished downloads of the kinds this database
+  holds. What renders it is the downloaded badge (an ``art`` row of type
+  ``kofin.downloaded``, which skins read as an overlay) and, on the music
+  side, the Downloaded-music playlist's membership. It needs its own section
+  because a download moves *nothing else here*: it stamps a badge, moves the
+  file rows and adds a tag, and re-stamps no checksum — so a completed or
+  deleted download used to sit behind an unchanged fingerprint and show up
+  only when something unrelated moved. That is one refresh per download
+  batch, on every skin: whether a given skin draws the badge is not
+  something the addon can see, and a stale badge is a lie either way.
 
 The maintenance contract mirrors pvr.kofin's: a field widgets render but
 this module does not hash is a stale-widget bug — extend the section that
@@ -62,6 +72,12 @@ TOP_N = 25
 
 VIDEO_REFERENCE_TYPES = ("Movie", "BoxSet", "Series", "Season", "Episode", "MusicVideo")
 MUSIC_REFERENCE_TYPES = ("MusicAlbum", "MusicArtist", "Audio")
+
+# Download media types per database, in the store's own spelling. The split
+# is the manager's (_mark_dirty): songs move MyMusic, everything else
+# MyVideos.
+VIDEO_DOWNLOAD_TYPES = ("movie", "episode")
+MUSIC_DOWNLOAD_TYPES = ("song",)
 
 # (table, id column, carries idSet, default-rating pointer column) — the video
 # item tables widgets render. The pointer column is the one the matching
@@ -149,6 +165,19 @@ def _reference_digest(types: Iterable[str]) -> str:
     return _digest(sorted(rows))
 
 
+def _downloads_digest(media_types: Iterable[str]) -> str:
+    """The finished-download set for these kinds (see the module docstring).
+
+    Imported here rather than at module scope, like the sync's other reaches
+    into the downloads package: the fingerprint runs on the service tick, and
+    a profile with downloads disabled still has the table (its DDL is
+    kofin.db's), so this stays a cheap read of a small table either way.
+    """
+    from kofin.downloads import store as downloads_store
+
+    return _digest(downloads_store.done_signature(tuple(media_types)))
+
+
 def _video_fingerprint() -> Dict[str, str]:
     userdata = hashlib.md5()
     ratings = hashlib.md5()
@@ -185,6 +214,7 @@ def _video_fingerprint() -> Dict[str, str]:
 
     return {
         "reference": _reference_digest(VIDEO_REFERENCE_TYPES),
+        "downloads": _downloads_digest(VIDEO_DOWNLOAD_TYPES),
         "userdata": userdata.hexdigest(),
         "ratings": ratings.hexdigest(),
         "recency": recency.hexdigest(),
@@ -204,6 +234,7 @@ def _music_fingerprint() -> Dict[str, str]:
 
     return {
         "reference": _reference_digest(MUSIC_REFERENCE_TYPES),
+        "downloads": _downloads_digest(MUSIC_DOWNLOAD_TYPES),
         "recency": recency.hexdigest(),
     }
 

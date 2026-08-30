@@ -452,7 +452,7 @@
   "#30819": "Mostrar elenco nas listas do add-on",
   "#30820": "Obtém o elenco e a equipa das listas curtas do add-on — Adicionados recentemente, Em curso, A seguir, Continuar a ver, os resultados de pesquisa e os episódios de uma série — para que a janela de informação os possa mostrar. As listas que abrangem uma biblioteca inteira nunca o fazem, porque o servidor precisa de cerca de um segundo por cada 40 itens. A biblioteca do Kodi tem sempre o elenco.",
   "#30586": "Sincronização fina via inputstream.tempo",
-  "#30587": "Mantém este dispositivo na posição do grupo entre comandos, reproduzindo por instantes mais depressa ou mais devagar, através do add-on inputstream.tempo (requer a versão 21.4.1 / 22.4.1 ou posterior; deixe «Sincronizar a reprodução com o ecrã» desligado no Kodi). Só vídeo em reprodução direta. O áudio é descodificado para PCM durante uma sessão, pelo que o passthrough fica suspenso.",
+  "#30587": "Mantém este dispositivo na posição do grupo entre comandos, reproduzindo por instantes mais depressa ou mais devagar, através do add-on inputstream.tempo (deixe «Sincronizar a reprodução com o ecrã» desligado no Kodi). Só vídeo, incluindo transcodificado. O áudio é descodificado para PCM durante uma sessão, pelo que o passthrough fica suspenso.",
   "#30588": "Sincronização fina com passthrough de áudio ligado",
   "#30589": "Usar a sincronização fina mesmo com o passthrough de áudio do Kodi ligado. O recetor recebe PCM multicanal em vez de um bitstream durante a sessão: serve para a maioria dos sistemas, mas o áudio por objetos Atmos e DTS:X perde-se. Desligado mantém o passthrough e deixa o grupo convergir apenas pelos comandos.",
   "#30590": "Fila de vídeo mais curta durante sessões (Kodi 22)",
@@ -466,5 +466,7 @@
   "#30598": "Desligado por predefinição, com um aviso: num Pixel 7, uma mudança de velocidade seguida de um salto bloqueou o descodificador AV1 por hardware e depois o próprio telefone. O descodificador AV1 de um Bravia não teve problemas. Ligue só se o seu dispositivo aguentar; caso contrário os títulos AV1 seguem o grupo apenas pelos comandos.",
   "#30599": "Sinc. fina requer inputstream.tempo 21.4.1 / 22.4.1",
   "#30821": "Erro do servidor — %s",
-  "#30822": "%s mantido — não foi possível restaurar a entrada da biblioteca"
+  "#30822": "%s mantido — não foi possível restaurar a entrada da biblioteca",
+  "#30823": "Transferência eliminada: %s",
+  "#30824": "%s transferência(s) eliminada(s)"
 }

@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Λεπτός συγχρονισμός μέσω inputstream.tempo"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Κρατά αυτή τη συσκευή στη θέση της ομάδας ανάμεσα στις εντολές αναπαράγοντας για λίγο πιο γρήγορα ή πιο αργά, μέσω του πρόσθετου inputstream.tempo (απαιτείται έκδοση 21.4.1 / 22.4.1 ή νεότερη· αφήστε το «Συγχρονισμός αναπαραγωγής με την οθόνη» απενεργοποιημένο στο Kodi). Μόνο βίντεο άμεσης αναπαραγωγής. Ο ήχος αποκωδικοποιείται σε PCM στη διάρκεια μιας συνεδρίας, οπότε το passthrough αναστέλλεται."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Κρατά αυτή τη συσκευή στη θέση της ομάδας ανάμεσα στις εντολές αναπαράγοντας για λίγο πιο γρήγορα ή πιο αργά, μέσω του πρόσθετου inputstream.tempo (αφήστε το «Συγχρονισμός αναπαραγωγής με την οθόνη» απενεργοποιημένο στο Kodi). Μόνο βίντεο, και με transcoding. Ο ήχος αποκωδικοποιείται σε PCM στη διάρκεια μιας συνεδρίας, οπότε το passthrough αναστέλλεται."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -2103,3 +2103,11 @@ msgstr "Σφάλμα διακομιστή — %s"
 msgctxt "#30822"
 msgid "Kept %s — its library entry could not be restored"
 msgstr "Το %s διατηρήθηκε — η καταχώριση στη βιβλιοθήκη δεν επαναφέρθηκε"
+
+msgctxt "#30823"
+msgid "Download deleted: %s"
+msgstr "Η λήψη διαγράφηκε: %s"
+
+msgctxt "#30824"
+msgid "%s download(s) deleted"
+msgstr "%s λήψεις διαγράφηκαν"
