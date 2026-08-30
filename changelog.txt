@@ -1,5 +1,5 @@
 v0.22.0
-- Fine sync works supported for a transcoded stream
+- Fine sync supported for a transcoded stream
 - Add-on refactored
 - A spectator's own playback is no longer driven by the group
 - Kodi's audio/video queue is restored after an interrupted SyncPlay session
