@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Jemná synchronizácia cez inputstream.tempo"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Drží toto zariadenie na pozícii skupiny medzi príkazmi tak, že cez doplnok inputstream.tempo krátko prehráva rýchlejšie alebo pomalšie (vyžaduje verziu 21.4.1 / 22.4.1 alebo novšiu; nechaj „Synchronizovať prehrávanie s obrazovkou“ v Kodi vypnuté). Len priamo prehrávané video. Zvuk sa počas relácie dekóduje do PCM, takže passthrough je pozastavený."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Drží toto zariadenie na pozícii skupiny medzi príkazmi tak, že cez doplnok inputstream.tempo krátko prehráva rýchlejšie alebo pomalšie (vyžaduje verziu 21.4.1 / 22.4.1 alebo novšiu; nechaj „Synchronizovať prehrávanie s obrazovkou“ v Kodi vypnuté). Len video, aj transkódované. Zvuk sa počas relácie dekóduje do PCM, takže passthrough je pozastavený."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -2103,3 +2103,11 @@ msgstr "Chyba servera — %s"
 msgctxt "#30822"
 msgid "Kept %s — its library entry could not be restored"
 msgstr "%s ponechané — položku knižnice sa nepodarilo obnoviť"
+
+msgctxt "#30823"
+msgid "Download deleted: %s"
+msgstr "Sťahovanie odstránené: %s"
+
+msgctxt "#30824"
+msgid "%s download(s) deleted"
+msgstr "Odstránené sťahovania: %s"

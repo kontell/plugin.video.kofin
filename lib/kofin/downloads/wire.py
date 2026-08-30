@@ -46,5 +46,21 @@ def parse_add(payload: JsonDict) -> Tuple[List[str], str, List[str]]:
 
 
 def item_id(payload: JsonDict) -> str:
-    """The one id a ``DownloadCancel`` / ``DownloadRemove`` names."""
+    """The one id a ``DownloadCancel`` names."""
     return str(payload.get("Id") or "")
+
+
+def item_ids(payload: JsonDict) -> List[str]:
+    """The ids a ``DownloadRemove`` names.
+
+    A list like ``DownloadAdd``'s, because the sender expands a season or an
+    album before it sends (``plugin/actions.py``) and the manager has to see
+    the whole request at once to answer it once — one refresh, one toast.
+    A bare ``Id`` is still read: the automatic paths name a single item, and
+    a plugin process left over from before an add-on update sends that shape.
+    """
+    raw = payload.get("Ids")
+    if raw is None:
+        single = item_id(payload)
+        return [single] if single else []
+    return [str(one) for one in raw if one]

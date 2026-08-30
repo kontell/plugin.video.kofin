@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Точна синхронізація через inputstream.tempo"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Утримує цей пристрій на позиції групи між командами, ненадовго відтворюючи швидше або повільніше через додаток inputstream.tempo (потрібна версія 21.4.1 / 22.4.1 або новіша; залиште «Синхронізувати відтворення з дисплеєм» у Kodi вимкненим). Лише відео, що відтворюється напряму. Звук на час сеансу декодується в PCM, тож passthrough призупиняється."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Утримує цей пристрій на позиції групи між командами, ненадовго відтворюючи швидше або повільніше через додаток inputstream.tempo (потрібна версія 21.4.1 / 22.4.1 або новіша; залиште «Синхронізувати відтворення з дисплеєм» у Kodi вимкненим). Лише відео, зокрема з перекодуванням. Звук на час сеансу декодується в PCM, тож passthrough призупиняється."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -2103,3 +2103,11 @@ msgstr "Помилка сервера — %s"
 msgctxt "#30822"
 msgid "Kept %s — its library entry could not be restored"
 msgstr "%s збережено — запис у медіатеці не вдалося відновити"
+
+msgctxt "#30823"
+msgid "Download deleted: %s"
+msgstr "Завантаження видалено: %s"
+
+msgctxt "#30824"
+msgid "%s download(s) deleted"
+msgstr "Видалено завантажень: %s"

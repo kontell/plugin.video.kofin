@@ -1354,7 +1354,7 @@ msgid "Fine sync through inputstream.tempo"
 msgstr ""
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
 msgstr ""
 
 msgctxt "#30588"
@@ -2211,4 +2211,18 @@ msgstr ""
 # deleting the media and pointing the library at nothing. %s is the item name.
 msgctxt "#30822"
 msgid "Kept %s — its library entry could not be restored"
+msgstr ""
+
+# 30823-30824 — a removal answers once, whether it was one item or a
+# container's worth (downloads/manager.py::_flush_removed). #30823 names the
+# item, #30824 counts them, exactly as #30712 and #30711 divide the same work
+# for a download that arrives: the name is the useful answer for one row, and
+# seventeen names is not an answer to one button press. %s is the file's own
+# name (what the user sees in the downloads folder) and the count.
+msgctxt "#30823"
+msgid "Download deleted: %s"
+msgstr ""
+
+msgctxt "#30824"
+msgid "%s download(s) deleted"
 msgstr ""

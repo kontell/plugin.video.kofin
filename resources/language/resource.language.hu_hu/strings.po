@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Finomszinkron az inputstream.tempo segítségével"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "A parancsok között a csoport pozícióján tartja ezt az eszközt úgy, hogy az inputstream.tempo kiegészítőn keresztül rövid ideig gyorsabban vagy lassabban játszik le (21.4.1 / 22.4.1 vagy újabb verzió szükséges; a Kodi „Lejátszás szinkronizálása a képernyőhöz” beállítása maradjon kikapcsolva). Csak közvetlenül lejátszott videó. A hang a munkamenet alatt PCM-re dekódolódik, így a passthrough szünetel."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "A parancsok között a csoport pozícióján tartja ezt az eszközt úgy, hogy az inputstream.tempo kiegészítőn keresztül rövid ideig gyorsabban vagy lassabban játszik le (21.4.1 / 22.4.1 vagy újabb verzió szükséges; a Kodi „Lejátszás szinkronizálása a képernyőhöz” beállítása maradjon kikapcsolva). Csak videó, az átkódolt is. A hang a munkamenet alatt PCM-re dekódolódik, így a passthrough szünetel."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -2103,3 +2103,11 @@ msgstr "Kiszolgálóhiba — %s"
 msgctxt "#30822"
 msgid "Kept %s — its library entry could not be restored"
 msgstr "%s megtartva — a médiatár bejegyzése nem állítható vissza"
+
+msgctxt "#30823"
+msgid "Download deleted: %s"
+msgstr "Letöltés törölve: %s"
+
+msgctxt "#30824"
+msgid "%s download(s) deleted"
+msgstr "%s letöltés törölve"

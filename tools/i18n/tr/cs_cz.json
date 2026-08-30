@@ -452,7 +452,7 @@
   "#30819": "Zobrazit obsazení v seznamech doplňku",
   "#30820": "Načte obsazení a štáb pro kratší seznamy doplňku — Naposledy přidané, Rozkoukané, Další na řadě, Pokračovat ve sledování, výsledky hledání a epizody seriálu —, aby je mohl zobrazit informační dialog. Seznamy zahrnující celou knihovnu je nenačítají nikdy, protože server potřebuje přibližně sekundu na každých 40 položek. Knihovna Kodi má obsazení vždy.",
   "#30586": "Jemná synchronizace přes inputstream.tempo",
-  "#30587": "Drží toto zařízení na pozici skupiny mezi příkazy tím, že přes doplněk inputstream.tempo krátce přehrává rychleji nebo pomaleji (vyžaduje verzi 21.4.1 / 22.4.1 nebo novější; nech „Synchronizovat přehrávání s obrazovkou“ v Kodi vypnuté). Jen přímo přehrávané video. Zvuk se během sezení dekóduje do PCM, takže passthrough je pozastaven.",
+  "#30587": "Drží toto zařízení na pozici skupiny mezi příkazy tím, že přes doplněk inputstream.tempo krátce přehrává rychleji nebo pomaleji (vyžaduje verzi 21.4.1 / 22.4.1 nebo novější; nech „Synchronizovat přehrávání s obrazovkou“ v Kodi vypnuté). Jen video, včetně transkódovaného. Zvuk se během sezení dekóduje do PCM, takže passthrough je pozastaven.",
   "#30588": "Jemná synchronizace se zapnutým passthrough zvuku",
   "#30589": "Použít jemnou synchronizaci i při zapnutém passthrough zvuku v Kodi. Přijímač po dobu sezení dostává vícekanálové PCM místo bitstreamu: pro většinu sestav v pořádku, ale objektový zvuk Atmos a DTS:X se ztratí. Vypnuto zachová passthrough a nechá skupinu sbíhat jen podle příkazů.",
   "#30590": "Kratší fronta videa během sezení (Kodi 22)",
@@ -466,5 +466,7 @@
   "#30598": "Ve výchozím stavu vypnuto, s varováním: na Pixelu 7 změna rychlosti následovaná skokem zasekla hardwarový dekodér AV1 a pak i samotný telefon. Dekodér AV1 v Bravii byl v pořádku. Zapni jen tehdy, když to tvé zařízení zvládá; jinak tituly AV1 sledují skupinu jen podle příkazů.",
   "#30599": "Jemná synchronizace vyžaduje inputstream.tempo 21.4.1 / 22.4.1",
   "#30821": "Chyba serveru — %s",
-  "#30822": "%s ponecháno — položku knihovny nelze obnovit"
+  "#30822": "%s ponecháno — položku knihovny nelze obnovit",
+  "#30823": "Stažená položka odstraněna: %s",
+  "#30824": "Odstraněno stažených položek: %s"
 }

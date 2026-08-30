@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "inputstream.tempo를 통한 정밀 동기화"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "inputstream.tempo 애드온을 통해 잠시 빠르거나 느리게 재생하여 명령 사이에도 이 기기를 그룹 위치에 맞춥니다(버전 21.4.1 / 22.4.1 이상 필요, Kodi의 ‘재생을 디스플레이에 동기화’는 꺼 두세요). 직접 재생하는 동영상만 해당합니다. 세션 동안 오디오가 PCM으로 디코딩되므로 패스스루는 중단됩니다."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "inputstream.tempo 애드온을 통해 잠시 빠르거나 느리게 재생하여 명령 사이에도 이 기기를 그룹 위치에 맞춥니다(버전 21.4.1 / 22.4.1 이상 필요, Kodi의 ‘재생을 디스플레이에 동기화’는 꺼 두세요). 동영상만 해당하며, 트랜스코딩된 스트림도 포함합니다. 세션 동안 오디오가 PCM으로 디코딩되므로 패스스루는 중단됩니다."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -2103,3 +2103,11 @@ msgstr "서버 오류 — %s"
 msgctxt "#30822"
 msgid "Kept %s — its library entry could not be restored"
 msgstr "%s 유지됨 — 라이브러리 항목을 복원할 수 없음"
+
+msgctxt "#30823"
+msgid "Download deleted: %s"
+msgstr "다운로드 삭제됨: %s"
+
+msgctxt "#30824"
+msgid "%s download(s) deleted"
+msgstr "다운로드 %s개를 삭제했습니다"

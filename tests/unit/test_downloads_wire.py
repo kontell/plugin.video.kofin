@@ -31,3 +31,16 @@ def test_item_id_is_a_string_or_empty():
     assert wire.item_id({"Id": "c"}) == "c"
     assert wire.item_id({"Id": 7}) == "7"
     assert wire.item_id({}) == ""
+
+
+def test_remove_reads_a_list_and_still_reads_a_bare_id():
+    """The batch is the shape a container removal sends. The single Id is
+    what the service's own automatic paths send, and what a plugin process
+    from before an add-on update would send — reading it is what keeps a
+    mid-session update from silently dropping a removal."""
+    assert wire.item_ids({"Ids": ["a", "b"]}) == ["a", "b"]
+    assert wire.item_ids({"Ids": [1, 2]}) == ["1", "2"]
+    assert wire.item_ids({"Ids": ["a", "", None]}) == ["a"]
+    assert wire.item_ids({"Id": "c"}) == ["c"]
+    assert wire.item_ids({"Ids": []}) == []
+    assert wire.item_ids({}) == []

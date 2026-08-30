@@ -452,7 +452,7 @@
   "#30819": "Zobraziť obsadenie v zoznamoch doplnku",
   "#30820": "Načíta obsadenie a štáb pre kratšie zoznamy doplnku — Nedávno pridané, Rozpozerané, Nasleduje, Pokračovať v sledovaní, výsledky hľadania a epizódy seriálu —, aby ich mohol zobraziť informačný dialóg. Zoznamy zahŕňajúce celú knižnicu ich nenačítajú nikdy, pretože server potrebuje približne sekundu na každých 40 položiek. Knižnica Kodi má obsadenie vždy.",
   "#30586": "Jemná synchronizácia cez inputstream.tempo",
-  "#30587": "Drží toto zariadenie na pozícii skupiny medzi príkazmi tak, že cez doplnok inputstream.tempo krátko prehráva rýchlejšie alebo pomalšie (vyžaduje verziu 21.4.1 / 22.4.1 alebo novšiu; nechaj „Synchronizovať prehrávanie s obrazovkou“ v Kodi vypnuté). Len priamo prehrávané video. Zvuk sa počas relácie dekóduje do PCM, takže passthrough je pozastavený.",
+  "#30587": "Drží toto zariadenie na pozícii skupiny medzi príkazmi tak, že cez doplnok inputstream.tempo krátko prehráva rýchlejšie alebo pomalšie (vyžaduje verziu 21.4.1 / 22.4.1 alebo novšiu; nechaj „Synchronizovať prehrávanie s obrazovkou“ v Kodi vypnuté). Len video, aj transkódované. Zvuk sa počas relácie dekóduje do PCM, takže passthrough je pozastavený.",
   "#30588": "Jemná synchronizácia so zapnutým passthrough zvuku",
   "#30589": "Použiť jemnú synchronizáciu aj pri zapnutom passthrough zvuku v Kodi. Prijímač počas relácie dostáva viackanálové PCM namiesto bitstreamu: pre väčšinu zostáv v poriadku, ale objektový zvuk Atmos a DTS:X sa stratí. Vypnuté zachová passthrough a nechá skupinu zbiehať len podľa príkazov.",
   "#30590": "Kratší front videa počas relácií (Kodi 22)",
@@ -466,5 +466,7 @@
   "#30598": "Predvolene vypnuté, s varovaním: na Pixeli 7 zmena rýchlosti nasledovaná skokom zasekla hardvérový dekodér AV1 a potom aj samotný telefón. Dekodér AV1 v Bravii bol v poriadku. Zapni iba vtedy, keď to tvoje zariadenie zvláda; inak tituly AV1 sledujú skupinu len podľa príkazov.",
   "#30599": "Jemná synchronizácia vyžaduje inputstream.tempo 21.4.1 / 22.4.1",
   "#30821": "Chyba servera — %s",
-  "#30822": "%s ponechané — položku knižnice sa nepodarilo obnoviť"
+  "#30822": "%s ponechané — položku knižnice sa nepodarilo obnoviť",
+  "#30823": "Sťahovanie odstránené: %s",
+  "#30824": "Odstránené sťahovania: %s"
 }

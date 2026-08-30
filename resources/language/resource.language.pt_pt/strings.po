@@ -1309,8 +1309,8 @@ msgid "Fine sync through inputstream.tempo"
 msgstr "Sincronização fina via inputstream.tempo"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Direct-play video only. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Mantém este dispositivo na posição do grupo entre comandos, reproduzindo por instantes mais depressa ou mais devagar, através do add-on inputstream.tempo (requer a versão 21.4.1 / 22.4.1 ou posterior; deixe «Sincronizar a reprodução com o ecrã» desligado no Kodi). Só vídeo em reprodução direta. O áudio é descodificado para PCM durante uma sessão, pelo que o passthrough fica suspenso."
+msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (needs version 21.4.1 / 22.4.1 or later; leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgstr "Mantém este dispositivo na posição do grupo entre comandos, reproduzindo por instantes mais depressa ou mais devagar, através do add-on inputstream.tempo (requer a versão 21.4.1 / 22.4.1 ou posterior; deixe «Sincronizar a reprodução com o ecrã» desligado no Kodi). Só vídeo, incluindo transcodificado. O áudio é descodificado para PCM durante uma sessão, pelo que o passthrough fica suspenso."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -2103,3 +2103,11 @@ msgstr "Erro do servidor — %s"
 msgctxt "#30822"
 msgid "Kept %s — its library entry could not be restored"
 msgstr "%s mantido — não foi possível restaurar a entrada da biblioteca"
+
+msgctxt "#30823"
+msgid "Download deleted: %s"
+msgstr "Transferência eliminada: %s"
+
+msgctxt "#30824"
+msgid "%s download(s) deleted"
+msgstr "%s transferência(s) eliminada(s)"
