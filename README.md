@@ -4,7 +4,7 @@
 
 Kodi video & music addon for Jellyfin. Browse Jellyfin libraries through the add-on or sync selected libraries directly into Kodi's own databases, so Jellyfin content appears as a Kodi library.
 
-A rewrite of Jellyfin-Kodi on the principle "rewrite the shell, transplant the organs": new entry points, settings and lifecycle wrapped around the proven Kodi database writers.
+A thin plugin over a background service that syncs, listens on the server's websocket and drives playback. Library writes (optional) go straight into Kodi's own databases and are verified against every supported Kodi version by the add-on's test suite.
 
 For Jellyfin Live TV, see the companion [Kofin PVR](https://github.com/kontell/pvr.kofin) addon.
 
