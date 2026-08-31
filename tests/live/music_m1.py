@@ -17,9 +17,17 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from syncplay_music import MusicMember, sample, qualified_delta, straddle, \
-    boundaries, hole_rate, describe, HOLE                              # noqa: E402
-from syncplay_fine_sync import log                                     # noqa: E402
+from syncplay_music import (
+    MusicMember,
+    sample,
+    qualified_delta,
+    straddle,
+    boundaries,
+    hole_rate,
+    describe,
+    HOLE,
+)  # noqa: E402
+from syncplay_fine_sync import log  # noqa: E402
 
 SERVER = "https://jelly.konell.xyz"
 GROUP = "music-m1"
@@ -32,16 +40,23 @@ NATIVE = "/home/conor/.kodi"
 NATIVE_PROFILE = "/home/conor/.kodi/userdata/profiles/kofin-test"
 FLATPAK = "/home/conor/.var/app/tv.kodi.Kodi/data"
 SPECS = [
-    "P1D=192.168.1.112:8080,ssh=conor@p1d,settings=%s/addon_data/plugin.video.kofin/settings.xml,log=%s/temp/kodi.log,tempo=%s/temp/kofin_syncplay_tempo" % (NATIVE_PROFILE, NATIVE, NATIVE),
-    "PIERS=192.168.1.112:8081,ssh=conor@p1d,settings=%s/userdata/addon_data/plugin.video.kofin/settings.xml,log=%s/temp/kodi.log,tempo=%s/temp/kofin_syncplay_tempo" % (FLATPAK, FLATPAK, FLATPAK),
-    "BRAVIA=192.168.1.198:8080,adb=192.168.1.198:34793,settings=%s/userdata/addon_data/plugin.video.kofin/settings.xml,log=%s/temp/kodi.log,tempo=%s/temp/kofin_syncplay_tempo" % (KP, KP, KP),
-    "TAB=192.168.1.150:8080,adb=192.168.1.150:35177,settings=%s/userdata/addon_data/plugin.video.kofin/settings.xml,log=%s/temp/kodi.log,tempo=%s/temp/kofin_syncplay_tempo" % (KP, KP, KP),
+    "P1D=192.168.1.112:8080,ssh=conor@p1d,settings=%s/addon_data/plugin.video.kofin/settings.xml,log=%s/temp/kodi.log,tempo=%s/temp/kofin_syncplay_tempo"
+    % (NATIVE_PROFILE, NATIVE, NATIVE),
+    "PIERS=192.168.1.112:8081,ssh=conor@p1d,settings=%s/userdata/addon_data/plugin.video.kofin/settings.xml,log=%s/temp/kodi.log,tempo=%s/temp/kofin_syncplay_tempo"
+    % (FLATPAK, FLATPAK, FLATPAK),
+    "BRAVIA=192.168.1.198:8080,adb=192.168.1.198:34793,settings=%s/userdata/addon_data/plugin.video.kofin/settings.xml,log=%s/temp/kodi.log,tempo=%s/temp/kofin_syncplay_tempo"
+    % (KP, KP, KP),
+    "TAB=192.168.1.150:8080,adb=192.168.1.150:35177,settings=%s/userdata/addon_data/plugin.video.kofin/settings.xml,log=%s/temp/kodi.log,tempo=%s/temp/kofin_syncplay_tempo"
+    % (KP, KP, KP),
 ]
 # Arm label: "" for arm A (streamed), "-D" for arm D (downloaded, repointed).
 ARM = sys.argv[1] if len(sys.argv) > 1 else ""
 OUT = "/media/bluecon/dev/plugin.video.kofin/tests/live/results/music-A/M1" + ARM
-CAP = ("/media/minipie/bluecon/dev/plugin.video.kofin/tests/live/results/music-A/M1"
-       + ARM + "/capture")
+CAP = (
+    "/media/minipie/bluecon/dev/plugin.video.kofin/tests/live/results/music-A/M1"
+    + ARM
+    + "/capture"
+)
 
 
 def _blocking_dialogs(members):
@@ -58,9 +73,9 @@ def _blocking_dialogs(members):
     stuck = []
     for m in members:
         try:
-            if m.rpc("XBMC.GetInfoBooleans",
-                     {"booleans": ["Window.IsActive(selectdialog)"]}
-                     )["Window.IsActive(selectdialog)"]:
+            if m.rpc(
+                "XBMC.GetInfoBooleans", {"booleans": ["Window.IsActive(selectdialog)"]}
+            )["Window.IsActive(selectdialog)"]:
                 stuck.append(m.name)
         except Exception:
             pass
@@ -75,22 +90,32 @@ def _all_playing(members, tries=8):
     how a wrong deviceId cost a 30-minute run. Cheap here, expensive later.
     """
     import urllib.request
+
     key = open(os.path.expanduser("~/.config/kodi-drive/targets.env")).read()
-    key = [l.split("=", 1)[1] for l in key.splitlines()
-           if l.startswith("JELLYFIN_API_KEY=")][0]
+    key = [
+        l.split("=", 1)[1]
+        for l in key.splitlines()
+        if l.startswith("JELLYFIN_API_KEY=")
+    ][0]
     want = {m.device_id: m.name for m in members}
     for _ in range(tries):
         with urllib.request.urlopen(
-                "http://localhost:8096/Sessions?api_key=%s" % key, timeout=15) as r:
+            "http://localhost:8096/Sessions?api_key=%s" % key, timeout=15
+        ) as r:
             sessions = json.load(r)
-        playing = {want[s["DeviceId"]] for s in sessions
-                   if s.get("DeviceId") in want and s.get("NowPlayingItem")}
+        playing = {
+            want[s["DeviceId"]]
+            for s in sessions
+            if s.get("DeviceId") in want and s.get("NowPlayingItem")
+        }
         if len(playing) == len(members):
             log("all %d members playing per the server" % len(members))
             return True
         time.sleep(5)
-    log("only %s playing per the server; missing %s"
-        % (sorted(playing), sorted(set(want.values()) - playing)))
+    log(
+        "only %s playing per the server; missing %s"
+        % (sorted(playing), sorted(set(want.values()) - playing))
+    )
     return False
 
 
@@ -137,24 +162,37 @@ def main():
     time.sleep(5)
     stuck = _blocking_dialogs(members)
     if stuck:
-        log("ABORT: %s sitting on a modal dialog. Clear it by hand — dismissing "
-            "kofin's stopped-prompt makes that member a spectator." % ", ".join(stuck))
+        log(
+            "ABORT: %s sitting on a modal dialog. Clear it by hand — dismissing "
+            "kofin's stopped-prompt makes that member a spectator." % ", ".join(stuck)
+        )
         _teardown(members, lead, None)
         return 1
 
     # The capture owns the P1D pair's audio routing for the whole run.
     cap = subprocess.Popen(
-        ["ssh", "-o", "BatchMode=yes", "conor@p1d",
-         "python3 /media/minipie/bluecon/dev/plugin.video.kofin/tools/music_capture.py "
-         "--a 127.0.0.1:8080 --b 127.0.0.1:8081 --albumid 1593 --record-only "
-         "--secs 1900 --out %s" % CAP],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "conor@p1d",
+            "python3 /media/minipie/bluecon/dev/plugin.video.kofin/tools/music_capture.py "
+            "--a 127.0.0.1:8080 --b 127.0.0.1:8081 --albumid 1593 --record-only "
+            "--secs 1900 --out %s" % CAP,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
     time.sleep(12)
 
     log("queueing all %d tracks" % len(ids))
-    lead.jellyfin(SERVER, "POST", "/SyncPlay/SetNewQueue",
-                  {"PlayingQueue": ids, "PlayingItemPosition": 0,
-                   "StartPositionTicks": 0})
+    lead.jellyfin(
+        SERVER,
+        "POST",
+        "/SyncPlay/SetNewQueue",
+        {"PlayingQueue": ids, "PlayingItemPosition": 0, "StartPositionTicks": 0},
+    )
     time.sleep(12)
     if not any(m.snapshot() is not HOLE for m in members):
         log("nothing playing; asking for Unpause")
@@ -181,11 +219,14 @@ def main():
     report = {"holes": hole_rate(members), "deltas": {}, "boundaries": {}}
     for m in members[1:]:
         report["deltas"][m.name] = describe(
-            qualified_delta(rows, lead.name, m.name), "Δ %s−%s" % (lead.name, m.name))
+            qualified_delta(rows, lead.name, m.name), "Δ %s−%s" % (lead.name, m.name)
+        )
     spans = straddle(rows, names)
-    report["straddle"] = {"count": len(spans),
-                          "median_s": statistics.median([s[2] for s in spans]) if spans else None,
-                          "max_s": max((s[2] for s in spans), default=None)}
+    report["straddle"] = {
+        "count": len(spans),
+        "median_s": statistics.median([s[2] for s in spans]) if spans else None,
+        "max_s": max((s[2] for s in spans), default=None),
+    }
     log("straddle: %s" % report["straddle"])
     for m in members:
         marks = boundaries(rows, m.name)
@@ -195,8 +236,13 @@ def main():
         with open(os.path.join(OUT, "log-%s.txt" % m.name), "w") as fh:
             fh.write("\n".join(m.grep_log()))
     with open(os.path.join(OUT, "rows.json"), "w") as fh:
-        json.dump([(t, {k: (v if v is not HOLE else None) for k, v in r.items()})
-                   for t, r in rows], fh)
+        json.dump(
+            [
+                (t, {k: (v if v is not HOLE else None) for k, v in r.items()})
+                for t, r in rows
+            ],
+            fh,
+        )
     with open(os.path.join(OUT, "summary.json"), "w") as fh:
         json.dump(report, fh, indent=2)
     log("written to %s" % OUT)

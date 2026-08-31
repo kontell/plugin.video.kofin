@@ -1429,8 +1429,10 @@ class SyncPlayManager(object):
                 "item_id": None,
                 "at": utils.local_ms(),
             }
-            LOG.info("[ syncplay/hold ] entered (%s)",
-                     "transition" if hold["transition"] else "fresh start")
+            LOG.info(
+                "[ syncplay/hold ] entered (%s)",
+                "transition" if hold["transition"] else "fresh start",
+            )
             self._hold = hold
             self.playback.ensure_paused()
             self._watch_hold(hold)
@@ -1783,8 +1785,11 @@ class SyncPlayManager(object):
         hold = self._hold
         if hold is None or not hold.get("at"):
             return
-        LOG.info("[ syncplay/hold ] released after %.0f ms (%s)",
-                 utils.local_ms() - hold["at"], reason)
+        LOG.info(
+            "[ syncplay/hold ] released after %.0f ms (%s)",
+            utils.local_ms() - hold["at"],
+            reason,
+        )
 
     def _release_hold(self):
         if self._hold is None:

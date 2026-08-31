@@ -90,7 +90,9 @@ class Member(object):
             # shell is how a harness corrupts the box it is measuring.
             subprocess.run(
                 ["ssh", "-o", "BatchMode=yes", self.ssh, "cat > '%s'" % path],
-                input=text, text=True, check=True,
+                input=text,
+                text=True,
+                check=True,
             )
             return
         if self.adb:
@@ -126,8 +128,13 @@ class Member(object):
             ).stdout.replace("\r\n", "\n")
         elif self.ssh:
             out = subprocess.run(
-                ["ssh", "-o", "BatchMode=yes", self.ssh,
-                 "grep -E 'syncplay/|kofin.plugin.play' '%s'" % self.log_path],
+                [
+                    "ssh",
+                    "-o",
+                    "BatchMode=yes",
+                    self.ssh,
+                    "grep -E 'syncplay/|kofin.plugin.play' '%s'" % self.log_path,
+                ],
                 capture_output=True,
                 text=True,
             ).stdout

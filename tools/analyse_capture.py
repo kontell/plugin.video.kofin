@@ -27,8 +27,8 @@ import numpy as np
 
 RATE = 48000
 WINDOW_S = 5.0
-SILENCE_DBFS = -45.0        # asset floor is -19 dBFS/10 ms, so this is wide
-MIN_CORRELATION = 0.30      # below this a window is not comparable
+SILENCE_DBFS = -45.0  # asset floor is -19 dBFS/10 ms, so this is wide
+MIN_CORRELATION = 0.30  # below this a window is not comparable
 
 
 def load(path, rate=RATE):
@@ -37,8 +37,23 @@ def load(path, rate=RATE):
         data = np.fromfile(path, dtype="<i2").astype(np.float64) / 32768.0
         return data.reshape(-1, 2).mean(axis=1) if data.size % 2 == 0 else data
     out = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", path, "-f", "f32le", "-ac", "1",
-         "-ar", str(rate), "-"], check=True, stdout=subprocess.PIPE).stdout
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-i",
+            path,
+            "-f",
+            "f32le",
+            "-ac",
+            "1",
+            "-ar",
+            str(rate),
+            "-",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+    ).stdout
     return np.frombuffer(out, dtype="<f4").astype(np.float64)
 
 
@@ -57,7 +72,7 @@ def _norm_xcorr(a, b):
         return 0.0, 0.0
     n = 1 << int(np.ceil(np.log2(len(a) + len(b))))
     corr = np.fft.irfft(np.fft.rfft(a, n) * np.conj(np.fft.rfft(b, n)), n)
-    corr = np.concatenate([corr[-(len(b) - 1):], corr[:len(a)]]) / denom
+    corr = np.concatenate([corr[-(len(b) - 1) :], corr[: len(a)]]) / denom
     idx = int(np.argmax(np.abs(corr)))
     if 0 < idx < len(corr) - 1:
         y0, y1, y2 = corr[idx - 1], corr[idx], corr[idx + 1]
@@ -73,9 +88,10 @@ def delta_series(a, b, rate=RATE, window_s=WINDOW_S):
     step = int(window_s * rate)
     out = []
     for start in range(0, min(len(a), len(b)) - step, step):
-        lag, coeff = _norm_xcorr(a[start:start + step], b[start:start + step])
-        out.append((start / float(rate), lag / rate * 1000.0, coeff,
-                    coeff >= MIN_CORRELATION))
+        lag, coeff = _norm_xcorr(a[start : start + step], b[start : start + step])
+        out.append(
+            (start / float(rate), lag / rate * 1000.0, coeff, coeff >= MIN_CORRELATION)
+        )
     return out
 
 
@@ -83,7 +99,7 @@ def silence_runs(sig, rate=RATE, block_ms=10.0, floor_dbfs=SILENCE_DBFS):
     """[(start_s, duration_ms)] for every run quieter than ``floor_dbfs``."""
     blk = int(block_ms * rate / 1000.0)
     nb = len(sig) // blk
-    rms = np.sqrt((sig[:nb * blk].reshape(nb, blk) ** 2).mean(axis=1))
+    rms = np.sqrt((sig[: nb * blk].reshape(nb, blk) ** 2).mean(axis=1))
     quiet = rms < 10 ** (floor_dbfs / 20.0)
     runs, start = [], None
     for i, q in enumerate(quiet):
@@ -104,11 +120,18 @@ def report(a, b, rate=RATE):
     skipped = len(series) - len(good)
     if good:
         mags = sorted(abs(d[1]) for d in good)
-        print("   windows %d comparable, %d not (straddle or silence)"
-              % (len(good), skipped))
-        print("   median %+.1f ms   p95 |Δ| %.1f ms   max |Δ| %.1f ms"
-              % (float(np.median([d[1] for d in good])),
-                 mags[int(0.95 * (len(mags) - 1))], mags[-1]))
+        print(
+            "   windows %d comparable, %d not (straddle or silence)"
+            % (len(good), skipped)
+        )
+        print(
+            "   median %+.1f ms   p95 |Δ| %.1f ms   max |Δ| %.1f ms"
+            % (
+                float(np.median([d[1] for d in good])),
+                mags[int(0.95 * (len(mags) - 1))],
+                mags[-1],
+            )
+        )
         print("   median correlation %.3f" % float(np.median([d[2] for d in good])))
     else:
         print("   no comparable windows")
@@ -131,38 +154,49 @@ def _selftest():
         print("  asset not found at %s" % album)
         return 1
 
-    sig = load(track)[:60 * RATE]
+    sig = load(track)[: 60 * RATE]
     offset_ms = 37.5
     offset = int(offset_ms * RATE / 1000.0)
     a = sig[offset:]
-    b = sig[:len(a)]                       # a leads b by offset_ms
+    b = sig[: len(a)]  # a leads b by offset_ms
 
     failures = []
     good = [d for d in delta_series(a, b) if d[3]]
     median = float(np.median([d[1] for d in good]))
-    print("  injected Δ %+.1f ms -> recovered %+.3f ms (error %.3f ms) over %d windows"
-          % (offset_ms, median, abs(median - offset_ms), len(good)))
+    print(
+        "  injected Δ %+.1f ms -> recovered %+.3f ms (error %.3f ms) over %d windows"
+        % (offset_ms, median, abs(median - offset_ms), len(good))
+    )
     if abs(median - offset_ms) > 1.0:
-        failures.append("Δ recovery error %.3f ms exceeds 1 ms" % abs(median - offset_ms))
+        failures.append(
+            "Δ recovery error %.3f ms exceeds 1 ms" % abs(median - offset_ms)
+        )
 
     # A 420 ms gap punched into b is a track boundary; it must be found to the
     # block, and it must NOT be reported as a delta.
     gapped = b.copy()
     gap_at, gap_ms = 20 * RATE, 420.0
-    gapped[gap_at:gap_at + int(gap_ms * RATE / 1000.0)] = 0.0
+    gapped[gap_at : gap_at + int(gap_ms * RATE / 1000.0)] = 0.0
     runs = [r for r in silence_runs(gapped) if r[1] >= 50.0]
-    print("  injected gap %.0f ms at %.1f s -> found %s"
-          % (gap_ms, gap_at / RATE,
-             ", ".join("%.0f ms at %.2f s" % (d, s) for s, d in runs) or "nothing"))
+    print(
+        "  injected gap %.0f ms at %.1f s -> found %s"
+        % (
+            gap_ms,
+            gap_at / RATE,
+            ", ".join("%.0f ms at %.2f s" % (d, s) for s, d in runs) or "nothing",
+        )
+    )
     if len(runs) != 1 or abs(runs[0][1] - gap_ms) > 20:
         failures.append("gap not recovered within a block: %r" % (runs,))
 
     # A window where the two are on different tracks must be refused, not scored.
-    other = load(os.path.join(album, "04 Marker 04.flac"))[:30 * RATE]
-    mixed = delta_series(a[:30 * RATE], other)
+    other = load(os.path.join(album, "04 Marker 04.flac"))[: 30 * RATE]
+    mixed = delta_series(a[: 30 * RATE], other)
     comparable = [d for d in mixed if d[3]]
-    print("  different tracks -> %d/%d windows comparable (want 0)"
-          % (len(comparable), len(mixed)))
+    print(
+        "  different tracks -> %d/%d windows comparable (want 0)"
+        % (len(comparable), len(mixed))
+    )
     if comparable:
         failures.append("different tracks scored as comparable")
 
@@ -173,8 +207,9 @@ def _selftest():
 
 
 def main(argv):
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--a")
     ap.add_argument("--b")

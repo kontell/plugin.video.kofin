@@ -43,11 +43,11 @@ import numpy as np
 RATE = 48000
 CHIRP_MS = 6.0
 CHIRP_PERIOD_S = 1.0
-CHIRP_START_S = 1.0          # not t=0: keeps the marker clear of the track edge
+CHIRP_START_S = 1.0  # not t=0: keeps the marker clear of the track edge
 EDGE_RAMP_MS = 3.0
 PROGRAMME_RMS_DBFS = -18.0
-CHIRP_PEAK_DBFS = -30.0      # verify_sync_asset.py measures what survives an encode
-PERC_LOWPASS_HZ = 5000.0     # keeps the programme out of the marker's band
+CHIRP_PEAK_DBFS = -30.0  # verify_sync_asset.py measures what survives an encode
+PERC_LOWPASS_HZ = 5000.0  # keeps the programme out of the marker's band
 
 # Track k sweeps CHIRP_F0[k] -> CHIRP_F0[k] + CHIRP_SPAN, so a capture can tell
 # tracks apart from the marker alone. The band sits ABOVE the programme: the
@@ -78,7 +78,7 @@ def _adsr(n, attack, decay, rate=RATE):
     env = np.ones(n, dtype=np.float64)
     env[:a] = np.linspace(0.0, 1.0, a)
     tail = np.exp(-np.linspace(0.0, 5.0, min(d, n)))
-    env[-len(tail):] *= tail
+    env[-len(tail) :] *= tail
     return env
 
 
@@ -132,7 +132,7 @@ def synth_bed(track, duration_s, rate=RATE):
     def place(start, wave, env):
         room = min(len(wave), n_ext - start)
         if room > 0:
-            out[start:start + room] += wave[:room] * env[:room]
+            out[start : start + room] += wave[:room] * env[:room]
 
     # Bass: one note per beat, walking the triad.
     degrees = [0, 4, 2, 4]
@@ -173,7 +173,7 @@ def synth_bed(track, duration_s, rate=RATE):
         place(start, (0.5 if i % 4 == 0 else 0.18) * hit, np.ones(hit_n))
 
     out = out[:n]
-    rms = math.sqrt(float(np.mean(out ** 2))) or 1.0
+    rms = math.sqrt(float(np.mean(out**2))) or 1.0
     out *= db(PROGRAMME_RMS_DBFS) / rms
 
     ramp = int(EDGE_RAMP_MS * rate / 1000.0)
@@ -202,7 +202,7 @@ def chirp_train(track, n, rate=RATE):
     out = np.zeros(n)
     step = int(CHIRP_PERIOD_S * rate)
     for start in range(int(CHIRP_START_S * rate), n - length, step):
-        out[start:start + length] += pulse
+        out[start : start + length] += pulse
     return out, f0, f1
 
 
@@ -213,7 +213,7 @@ def build_track(track, out_dir, fmt, meta):
     mono = bed + markers
 
     peak = float(np.abs(mono).max())
-    if peak > 0.99:                       # never clip: a limiter would move the edges
+    if peak > 0.99:  # never clip: a limiter would move the edges
         mono *= 0.99 / peak
     stereo = np.stack([mono, mono], axis=1)
     pcm = np.clip(np.round(stereo * 32767.0), -32768, 32767).astype("<i2")
@@ -234,12 +234,15 @@ def build_track(track, out_dir, fmt, meta):
         "track": "%d/%d" % (track + 1, len(meta["titles"])),
         "date": meta["year"],
         "genre": "Test Signal",
-        "comment": "chirp %.0f-%.0f Hz @ 1.000 s grid from %.3f s" % (f0, f1, CHIRP_START_S),
+        "comment": "chirp %.0f-%.0f Hz @ 1.000 s grid from %.3f s"
+        % (f0, f1, CHIRP_START_S),
     }
     ext = {"flac": ".flac", "aac": ".m4a", "opus": ".opus"}[fmt]
-    codec = {"flac": ["-c:a", "flac"],
-             "aac": ["-c:a", "aac", "-b:a", "256k"],
-             "opus": ["-c:a", "libopus", "-b:a", "128k"]}[fmt]
+    codec = {
+        "flac": ["-c:a", "flac"],
+        "aac": ["-c:a", "aac", "-b:a", "256k"],
+        "opus": ["-c:a", "libopus", "-b:a", "128k"],
+    }[fmt]
     final = os.path.join(out_dir, base + ext)
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", wav_path] + codec
     for key, value in tags.items():
@@ -247,13 +250,19 @@ def build_track(track, out_dir, fmt, meta):
     cmd.append(final)
     subprocess.run(cmd, check=True)
     os.unlink(wav_path)
-    return {"track": track + 1, "file": os.path.basename(final), "duration_s": duration,
-            "chirp_hz": [f0, f1], "bpm": BPMS[track % len(BPMS)]}
+    return {
+        "track": track + 1,
+        "file": os.path.basename(final),
+        "duration_s": duration,
+        "chirp_hz": [f0, f1],
+        "bpm": BPMS[track % len(BPMS)],
+    }
 
 
 def main(argv):
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--out", required=True, help="album directory to create")
     ap.add_argument("--format", default="flac", choices=("flac", "aac", "opus"))
     ap.add_argument("--tracks", type=int, default=10)
@@ -263,7 +272,12 @@ def main(argv):
     args = ap.parse_args(argv[1:])
 
     titles = ["Marker %02d" % (i + 1) for i in range(args.tracks)]
-    meta = {"album": args.album, "artist": args.artist, "year": args.year, "titles": titles}
+    meta = {
+        "album": args.album,
+        "artist": args.artist,
+        "year": args.year,
+        "titles": titles,
+    }
     os.makedirs(args.out, exist_ok=True)
 
     rows = []
@@ -272,11 +286,19 @@ def main(argv):
         rows.append(row)
         print("  %(file)s  %(duration_s)ds  %(bpm)d bpm  chirp %(chirp_hz)s" % row)
 
-    manifest = {"album": args.album, "artist": args.artist, "rate": RATE,
-                "chirp_period_s": CHIRP_PERIOD_S, "chirp_start_s": CHIRP_START_S,
-                "chirp_ms": CHIRP_MS, "chirp_peak_dbfs": CHIRP_PEAK_DBFS,
-                "programme_rms_dbfs": PROGRAMME_RMS_DBFS,
-                "edge_ramp_ms": EDGE_RAMP_MS, "format": args.format, "tracks": rows}
+    manifest = {
+        "album": args.album,
+        "artist": args.artist,
+        "rate": RATE,
+        "chirp_period_s": CHIRP_PERIOD_S,
+        "chirp_start_s": CHIRP_START_S,
+        "chirp_ms": CHIRP_MS,
+        "chirp_peak_dbfs": CHIRP_PEAK_DBFS,
+        "programme_rms_dbfs": PROGRAMME_RMS_DBFS,
+        "edge_ramp_ms": EDGE_RAMP_MS,
+        "format": args.format,
+        "tracks": rows,
+    }
     with open(os.path.join(args.out, "manifest.json"), "w") as handle:
         json.dump(manifest, handle, indent=2)
     print("manifest: %s" % os.path.join(args.out, "manifest.json"))

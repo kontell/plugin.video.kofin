@@ -7,11 +7,15 @@ rows already carry the corrected key (a filename stem, since a repointed song ha
 no item id anywhere in its path). Keys are only ever compared *within* an arm, so
 the two derivations never meet.
 """
+
 import json, os, re, statistics, sys
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests", "live"))
+
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests", "live")
+)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
-from syncplay_music import qualified_delta, straddle, boundaries, HOLE   # noqa: E402
-from analyse_capture import load, silence_runs, delta_series, RATE       # noqa: E402
+from syncplay_music import qualified_delta, straddle, boundaries, HOLE  # noqa: E402
+from analyse_capture import load, silence_runs, delta_series  # noqa: E402
 
 ITEM = re.compile(r"[0-9a-f]{32}")
 NAMES = ["P1D", "PIERS", "BRAVIA", "TAB"]
@@ -52,10 +56,10 @@ def tsg(capdir):
         sig = load(os.path.join(capdir, f))
         runs = [r for r in silence_runs(sig) if r[1] >= 50.0]
         if runs and runs[0][0] < 1.0:
-            runs = runs[1:]                     # drop the lead-in
+            runs = runs[1:]  # drop the lead-in
         c = cluster(runs)
         if c and c[-1][1] > 20000:
-            c = c[:-1]                          # drop trailing silence after the album
+            c = c[:-1]  # drop trailing silence after the album
         gaps[name] = [x[1] for x in c]
     return gaps
 
@@ -69,8 +73,11 @@ def arm(label, root):
         d = qualified_delta(rows, "P1D", other)
         if d:
             mags = sorted(abs(x[1]) for x in d)
-            r["delta_rpc"][other] = (statistics.median([x[1] for x in d]),
-                                     mags[int(0.95 * (len(mags) - 1))], len(d))
+            r["delta_rpc"][other] = (
+                statistics.median([x[1] for x in d]),
+                mags[int(0.95 * (len(mags) - 1))],
+                len(d),
+            )
     trio = ["P1D", "PIERS", "TAB"]
     r["straddle_all"] = sum(s[2] for s in straddle(rows, NAMES))
     r["straddle_trio"] = sum(s[2] for s in straddle(rows, trio))
@@ -79,11 +86,19 @@ def arm(label, root):
     g = tsg(capdir)
     allg = g["P1D"] + g["PIERS"]
     r["tsg"] = (statistics.median(allg), min(allg), max(allg), len(g["P1D"]))
-    ds = [d for d in delta_series(load(os.path.join(capdir, "a.raw")),
-                                  load(os.path.join(capdir, "b.raw"))) if d[3]]
+    ds = [
+        d
+        for d in delta_series(
+            load(os.path.join(capdir, "a.raw")), load(os.path.join(capdir, "b.raw"))
+        )
+        if d[3]
+    ]
     mags = sorted(abs(d[1]) for d in ds)
-    r["delta_cap"] = (statistics.median([d[1] for d in ds]),
-                      mags[int(0.95 * (len(mags) - 1))], len(ds))
+    r["delta_cap"] = (
+        statistics.median([d[1] for d in ds]),
+        mags[int(0.95 * (len(mags) - 1))],
+        len(ds),
+    )
     return r
 
 
@@ -94,25 +109,47 @@ def main(argv):
     print("\n%-34s %18s %18s" % ("metric", "arm A", "arm D"))
     print("-" * 72)
     print("%-34s %18d %18d" % ("sample rows", a["rows"], d["rows"]))
-    print("%-34s %15.0f ms %15.0f ms" % ("TSG median (capture)", a["tsg"][0], d["tsg"][0]))
+    print(
+        "%-34s %15.0f ms %15.0f ms" % ("TSG median (capture)", a["tsg"][0], d["tsg"][0])
+    )
     print("%-34s %15.0f ms %15.0f ms" % ("TSG min", a["tsg"][1], d["tsg"][1]))
     print("%-34s %15.0f ms %15.0f ms" % ("TSG max", a["tsg"][2], d["tsg"][2]))
     print("%-34s %18d %18d" % ("boundaries measured", a["tsg"][3], d["tsg"][3]))
-    print("%-34s %15.0f ms %15.0f ms" % ("Δ P1D−PIERS median (capture)",
-                                         a["delta_cap"][0], d["delta_cap"][0]))
-    print("%-34s %15.0f ms %15.0f ms" % ("Δ P1D−PIERS p95 (capture)",
-                                         a["delta_cap"][1], d["delta_cap"][1]))
+    print(
+        "%-34s %15.0f ms %15.0f ms"
+        % ("Δ P1D−PIERS median (capture)", a["delta_cap"][0], d["delta_cap"][0])
+    )
+    print(
+        "%-34s %15.0f ms %15.0f ms"
+        % ("Δ P1D−PIERS p95 (capture)", a["delta_cap"][1], d["delta_cap"][1])
+    )
     for other in NAMES[1:]:
-        av = a["delta_rpc"].get(other); dv = d["delta_rpc"].get(other)
-        print("%-34s %15s %15s" % ("Δ P1D−%s median (rpc)" % other,
-              ("%.0f ms" % av[0]) if av else "-", ("%.0f ms" % dv[0]) if dv else "-"))
-    print("%-34s %15.0f s  %15.0f s" % ("straddle, all four",
-                                        a["straddle_all"], d["straddle_all"]))
-    print("%-34s %15.0f s  %15.0f s" % ("straddle, P1D/PIERS/TAB",
-                                        a["straddle_trio"], d["straddle_trio"]))
-    print("%-34s %18s %18s" % ("boundaries per member",
-          "/".join(str(a["boundaries"][n]) for n in NAMES),
-          "/".join(str(d["boundaries"][n]) for n in NAMES)))
+        av = a["delta_rpc"].get(other)
+        dv = d["delta_rpc"].get(other)
+        print(
+            "%-34s %15s %15s"
+            % (
+                "Δ P1D−%s median (rpc)" % other,
+                ("%.0f ms" % av[0]) if av else "-",
+                ("%.0f ms" % dv[0]) if dv else "-",
+            )
+        )
+    print(
+        "%-34s %15.0f s  %15.0f s"
+        % ("straddle, all four", a["straddle_all"], d["straddle_all"])
+    )
+    print(
+        "%-34s %15.0f s  %15.0f s"
+        % ("straddle, P1D/PIERS/TAB", a["straddle_trio"], d["straddle_trio"])
+    )
+    print(
+        "%-34s %18s %18s"
+        % (
+            "boundaries per member",
+            "/".join(str(a["boundaries"][n]) for n in NAMES),
+            "/".join(str(d["boundaries"][n]) for n in NAMES),
+        )
+    )
     print("\n(boundaries per member listed as %s)" % "/".join(NAMES))
     return 0
 

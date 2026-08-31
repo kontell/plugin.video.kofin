@@ -437,8 +437,11 @@ class PlaybackController(object):
                 # Outcome, not just the attempts: a resume that took three
                 # nudges and one that took none look identical from the nudge
                 # lines alone, and churn (section 6.4) is the difference.
-                LOG.info("[ syncplay/unpause ] resumed after %d nudge(s), %.0f ms",
-                         nudges, utils.local_ms() - started)
+                LOG.info(
+                    "[ syncplay/unpause ] resumed after %d nudge(s), %.0f ms",
+                    nudges,
+                    utils.local_ms() - started,
+                )
                 return True  # the clock is moving: playing
 
             if pos is not None and last_pos is not None and not self._is_paused():
@@ -459,8 +462,11 @@ class PlaybackController(object):
 
             xbmc.sleep(utils.UNPAUSE_VERIFY_STEP_MS)
 
-        LOG.warning("[ syncplay/unpause ] gave up after %d nudge(s), %.0f ms",
-                    nudges, utils.local_ms() - started)
+        LOG.warning(
+            "[ syncplay/unpause ] gave up after %d nudge(s), %.0f ms",
+            nudges,
+            utils.local_ms() - started,
+        )
         return False
 
     def _resume_and_verify(self):

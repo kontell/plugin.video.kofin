@@ -128,15 +128,23 @@ class MusicMember(Member):
 
         t0 = time.time()
         try:
-            props, item = self.batch([
-                ("Player.GetProperties",
-                 {"playerid": self._playerid, "properties": ["time", "speed"]}),
-                ("Player.GetItem",
-                 {"playerid": self._playerid,
-                  "properties": ["title", "album", "file"]}),
-            ])
+            props, item = self.batch(
+                [
+                    (
+                        "Player.GetProperties",
+                        {"playerid": self._playerid, "properties": ["time", "speed"]},
+                    ),
+                    (
+                        "Player.GetItem",
+                        {
+                            "playerid": self._playerid,
+                            "properties": ["title", "album", "file"],
+                        },
+                    ),
+                ]
+            )
         except Exception:
-            self._playerid = None          # player may have gone; re-probe next time
+            self._playerid = None  # player may have gone; re-probe next time
             self.holes += 1
             return HOLE
         t1 = time.time()
@@ -147,8 +155,9 @@ class MusicMember(Member):
             return HOLE
 
         clock = props["time"]
-        pos = (((clock["hours"] * 60 + clock["minutes"]) * 60 + clock["seconds"]) * 1000
-               + clock["milliseconds"])
+        pos = (
+            (clock["hours"] * 60 + clock["minutes"]) * 60 + clock["seconds"]
+        ) * 1000 + clock["milliseconds"]
         detail = item.get("item") or {}
         key = None
         path = detail.get("file") or ""
@@ -167,8 +176,13 @@ class MusicMember(Member):
             # Nothing identifies what is playing: a hole, not a made-up key.
             self.holes += 1
             return HOLE
-        return ((t0 + t1) / 2.0, float(pos), (t1 - t0) * 500.0,
-                props.get("speed", 0), ("%s" % key, detail.get("label") or ""))
+        return (
+            (t0 + t1) / 2.0,
+            float(pos),
+            (t1 - t0) * 500.0,
+            props.get("speed", 0),
+            ("%s" % key, detail.get("label") or ""),
+        )
 
 
 def sample(members, seconds, hz=4.0):
@@ -187,6 +201,7 @@ def sample(members, seconds, hz=4.0):
 # ---------------------------------------------------------------------------
 # metrics (§6.4). Pure functions of the rows, so they self-test without a box.
 # ---------------------------------------------------------------------------
+
 
 def qualified_delta(rows, a, b):
     """Δ in ms (a − b, positive = a ahead), only where both play the same item.
@@ -216,8 +231,11 @@ def straddle(rows, names):
     """
     spans, start = [], None
     for host_s, row in rows:
-        keys = {row[n][4][0] for n in names
-                if row.get(n) is not HOLE and row.get(n) is not None}
+        keys = {
+            row[n][4][0]
+            for n in names
+            if row.get(n) is not HOLE and row.get(n) is not None
+        }
         split = len(keys) > 1
         if split and start is None:
             start = host_s
@@ -249,9 +267,10 @@ def boundaries(rows, name):
 
 
 def hole_rate(members):
-    return {m.name: (m.holes, m.samples,
-                     100.0 * m.holes / m.samples if m.samples else 0.0)
-            for m in members}
+    return {
+        m.name: (m.holes, m.samples, 100.0 * m.holes / m.samples if m.samples else 0.0)
+        for m in members
+    }
 
 
 def describe(deltas, label):
@@ -262,16 +281,25 @@ def describe(deltas, label):
     mags = sorted(abs(d) for d in divs)
     p95 = mags[int(0.95 * (len(mags) - 1))]
     unc = statistics.median([d[2] for d in deltas])
-    log("%s: median %+.0f ms, p95 |Δ| %.0f, max |Δ| %.0f, read unc ±%.0f, n=%d"
-        % (label, statistics.median(divs), p95, mags[-1], unc, len(divs)))
-    return {"median": statistics.median(divs), "p95": p95, "max": mags[-1],
-            "uncertainty": unc, "n": len(divs)}
+    log(
+        "%s: median %+.0f ms, p95 |Δ| %.0f, max |Δ| %.0f, read unc ±%.0f, n=%d"
+        % (label, statistics.median(divs), p95, mags[-1], unc, len(divs))
+    )
+    return {
+        "median": statistics.median(divs),
+        "p95": p95,
+        "max": mags[-1],
+        "uncertainty": unc,
+        "n": len(divs),
+    }
 
 
 # ---------------------------------------------------------------------------
 
+
 def _selftest():
     """Verify the metrics against rows with known answers, no devices needed."""
+
     def snap(t, pos, key):
         return (t, float(pos), 2.0, 1, (key, key))
 
@@ -279,18 +307,27 @@ def _selftest():
     # 0-2 s both on track 1, B is 40 ms behind.
     for i in range(8):
         t = i * 0.25
-        rows.append((t, {"A": snap(t, 1000 + i * 250, "t1"),
-                         "B": snap(t, 960 + i * 250, "t1")}))
+        rows.append(
+            (t, {"A": snap(t, 1000 + i * 250, "t1"), "B": snap(t, 960 + i * 250, "t1")})
+        )
     # 2-3 s A has advanced to track 2, B has not: a straddle.
     for i in range(8, 12):
         t = i * 0.25
-        rows.append((t, {"A": snap(t, (i - 8) * 250, "t2"),
-                         "B": snap(t, 960 + i * 250, "t1")}))
+        rows.append(
+            (t, {"A": snap(t, (i - 8) * 250, "t2"), "B": snap(t, 960 + i * 250, "t1")})
+        )
     # 3-4 s both on track 2, B 40 ms behind again.
     for i in range(12, 16):
         t = i * 0.25
-        rows.append((t, {"A": snap(t, (i - 8) * 250, "t2"),
-                         "B": snap(t, (i - 8) * 250 - 40, "t2")}))
+        rows.append(
+            (
+                t,
+                {
+                    "A": snap(t, (i - 8) * 250, "t2"),
+                    "B": snap(t, (i - 8) * 250 - 40, "t2"),
+                },
+            )
+        )
     # one hole on B
     rows.append((4.0, {"A": snap(4.0, 2000, "t2"), "B": HOLE}))
 
@@ -298,8 +335,10 @@ def _selftest():
 
     deltas = qualified_delta(rows, "A", "B")
     if len(deltas) != 12:
-        failures.append("qualified_delta kept %d rows, want 12 (4 straddle + 1 "
-                        "hole excluded)" % len(deltas))
+        failures.append(
+            "qualified_delta kept %d rows, want 12 (4 straddle + 1 "
+            "hole excluded)" % len(deltas)
+        )
     median = statistics.median([d[1] for d in deltas])
     if abs(median - 40.0) > 1e-6:
         failures.append("median Δ %.3f, want +40.000" % median)
@@ -307,7 +346,7 @@ def _selftest():
     # The artefact this exists to prevent: unqualified differencing across the
     # boundary would report a delta of about minus one track length.
     naive = []
-    for host_s, row in rows:
+    for _host_s, row in rows:
         pa, pb = row.get("A"), row.get("B")
         if pa is HOLE or pb is HOLE:
             continue
@@ -327,8 +366,10 @@ def _selftest():
 
     print("  qualified samples   %d (straddle and hole excluded)" % len(deltas))
     print("  median Δ            %+.1f ms" % median)
-    print("  naive Δ at boundary %+.0f ms  <- the artefact, correctly excluded"
-          % min(naive))
+    print(
+        "  naive Δ at boundary %+.0f ms  <- the artefact, correctly excluded"
+        % min(naive)
+    )
     print("  straddle spans      %s" % [round(s[2], 3) for s in spans])
     print("  boundaries A        %s" % [(b[1], b[2]) for b in bounds])
     for line in failures:
@@ -338,8 +379,9 @@ def _selftest():
 
 
 def main(argv):
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--member", action="append", default=[])
     ap.add_argument("--seconds", type=float, default=60.0)
@@ -366,24 +408,38 @@ def main(argv):
 
     lead = members[0]
     for member in members[1:]:
-        describe(qualified_delta(rows, lead.name, member.name),
-                 "Δ %s−%s" % (lead.name, member.name))
+        describe(
+            qualified_delta(rows, lead.name, member.name),
+            "Δ %s−%s" % (lead.name, member.name),
+        )
 
     spans = straddle(rows, [m.name for m in members])
     if spans:
-        log("straddle: %d spans, median %.2f s, max %.2f s"
-            % (len(spans), statistics.median([s[2] for s in spans]),
-               max(s[2] for s in spans)))
+        log(
+            "straddle: %d spans, median %.2f s, max %.2f s"
+            % (
+                len(spans),
+                statistics.median([s[2] for s in spans]),
+                max(s[2] for s in spans),
+            )
+        )
     for member in members:
         marks = boundaries(rows, member.name)
         if marks:
-            log("  %s boundaries at %s"
-                % (member.name, ", ".join("%.1f" % b[0] for b in marks)))
+            log(
+                "  %s boundaries at %s"
+                % (member.name, ", ".join("%.1f" % b[0] for b in marks))
+            )
 
     if args.out:
         with open(args.out, "w") as handle:
-            json.dump([(t, {k: (v if v is not HOLE else None) for k, v in r.items()})
-                       for t, r in rows], handle)
+            json.dump(
+                [
+                    (t, {k: (v if v is not HOLE else None) for k, v in r.items()})
+                    for t, r in rows
+                ],
+                handle,
+            )
         log("rows written to %s" % args.out)
     return 0
 

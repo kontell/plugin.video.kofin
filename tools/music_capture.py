@@ -45,10 +45,14 @@ SINKS = ("kodi_a", "kodi_b")
 def rpc(host, method, params=None):
     req = urllib.request.Request(
         "http://%s/jsonrpc" % host,
-        data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": method,
-                         "params": params or {}}).encode(),
-        headers={"Content-Type": "application/json",
-                 "Authorization": "Basic " + base64.b64encode(b"kodi:kodi").decode()})
+        data=json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
+        ).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Basic " + base64.b64encode(b"kodi:kodi").decode(),
+        },
+    )
     with urllib.request.urlopen(req, timeout=15) as response:
         answer = json.loads(response.read().decode())
     if "error" in answer:
@@ -57,8 +61,9 @@ def rpc(host, method, params=None):
 
 
 def pactl(*args):
-    return subprocess.run(["pactl"] + list(args), check=True,
-                          capture_output=True, text=True).stdout.strip()
+    return subprocess.run(
+        ["pactl"] + list(args), check=True, capture_output=True, text=True
+    ).stdout.strip()
 
 
 def device_string(host, sink):
@@ -78,31 +83,44 @@ def stop(host):
 
 
 def play_first_track(host, albumid):
-    songs = rpc(host, "AudioLibrary.GetSongs",
-                {"filter": {"albumid": albumid}, "properties": ["track"],
-                 "sort": {"method": "track"}})["songs"]
+    songs = rpc(
+        host,
+        "AudioLibrary.GetSongs",
+        {
+            "filter": {"albumid": albumid},
+            "properties": ["track"],
+            "sort": {"method": "track"},
+        },
+    )["songs"]
     rpc(host, "Player.Open", {"item": {"songid": songs[0]["songid"]}})
 
 
 def main(argv):
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--a", required=True, help="host:port of instance A")
     ap.add_argument("--b", required=True, help="host:port of instance B")
     ap.add_argument("--albumid", type=int, required=True)
     ap.add_argument("--secs", type=float, default=40.0)
     ap.add_argument("--out", required=True)
     ap.add_argument("--rate", type=int, default=48000)
-    ap.add_argument("--record-only", action="store_true",
-                    help="record the two monitors and NOTHING else: no module "
-                         "lifecycle, no device change, no playback. Once routing "
-                         "is set for a session this is the only safe mode -- "
-                         "every wedge of P1D's AudioEngine came from "
-                         "reconfiguring audio under a running Kodi.")
-    ap.add_argument("--no-play", action="store_true",
-                    help="route and record only; playback is driven elsewhere "
-                         "(a SyncPlay group owns the queue in every scenario "
-                         "after M0, so the tool must not open anything itself)")
+    ap.add_argument(
+        "--record-only",
+        action="store_true",
+        help="record the two monitors and NOTHING else: no module "
+        "lifecycle, no device change, no playback. Once routing "
+        "is set for a session this is the only safe mode -- "
+        "every wedge of P1D's AudioEngine came from "
+        "reconfiguring audio under a running Kodi.",
+    )
+    ap.add_argument(
+        "--no-play",
+        action="store_true",
+        help="route and record only; playback is driven elsewhere "
+        "(a SyncPlay group owns the queue in every scenario "
+        "after M0, so the tool must not open anything itself)",
+    )
     args = ap.parse_args(argv)
 
     os.makedirs(args.out, exist_ok=True)
@@ -114,9 +132,22 @@ def main(argv):
         for sink, name in zip(SINKS, ("a", "b")):
             path = os.path.join(args.out, "%s.raw" % name)
             handle = open(path, "wb")
-            recs.append((subprocess.Popen(
-                ["parec", "--device=%s.monitor" % sink, "--format=s16le",
-                 "--rate=%d" % args.rate, "--channels=2"], stdout=handle), handle, path))
+            recs.append(
+                (
+                    subprocess.Popen(
+                        [
+                            "parec",
+                            "--device=%s.monitor" % sink,
+                            "--format=s16le",
+                            "--rate=%d" % args.rate,
+                            "--channels=2",
+                        ],
+                        stdout=handle,
+                    ),
+                    handle,
+                    path,
+                )
+            )
         print("  recording %.0f s (record-only)" % args.secs)
         time.sleep(3)
         for _, _, path in recs:
@@ -132,26 +163,38 @@ def main(argv):
                 except Exception:
                     proc.kill()
                 handle.close()
-                print("  %s: %d bytes (%.2f s)" % (path, os.path.getsize(path),
-                      os.path.getsize(path) / 4.0 / args.rate))
+                print(
+                    "  %s: %d bytes (%.2f s)"
+                    % (
+                        path,
+                        os.path.getsize(path),
+                        os.path.getsize(path) / 4.0 / args.rate,
+                    )
+                )
         return 0
 
     try:
         for sink in SINKS:
-            modules.append(pactl("load-module", "module-null-sink",
-                                 "sink_name=%s" % sink))
+            modules.append(
+                pactl("load-module", "module-null-sink", "sink_name=%s" % sink)
+            )
             print("  null sink %s (module %s)" % (sink, modules[-1]))
 
         for host, sink in zip(hosts, SINKS):
             if not args.no_play:
                 stop(host)
-            saved[host] = rpc(host, "Settings.GetSettingValue",
-                              {"setting": "audiooutput.audiodevice"})["value"]
+            saved[host] = rpc(
+                host, "Settings.GetSettingValue", {"setting": "audiooutput.audiodevice"}
+            )["value"]
             target = device_string(host, sink)
-            rpc(host, "Settings.SetSettingValue",
-                {"setting": "audiooutput.audiodevice", "value": target})
-            back = rpc(host, "Settings.GetSettingValue",
-                       {"setting": "audiooutput.audiodevice"})["value"]
+            rpc(
+                host,
+                "Settings.SetSettingValue",
+                {"setting": "audiooutput.audiodevice", "value": target},
+            )
+            back = rpc(
+                host, "Settings.GetSettingValue", {"setting": "audiooutput.audiodevice"}
+            )["value"]
             if back != target:
                 raise RuntimeError("%s did not take the device: %r" % (host, back))
             print("  %s -> %s" % (host, sink))
@@ -171,15 +214,30 @@ def main(argv):
         for sink, name in zip(SINKS, ("a", "b")):
             path = os.path.join(args.out, "%s.raw" % name)
             handle = open(path, "wb")
-            recorders.append((subprocess.Popen(
-                ["parec", "--device=%s.monitor" % sink, "--format=s16le",
-                 "--rate=%d" % args.rate, "--channels=2"], stdout=handle), handle, path))
+            recorders.append(
+                (
+                    subprocess.Popen(
+                        [
+                            "parec",
+                            "--device=%s.monitor" % sink,
+                            "--format=s16le",
+                            "--rate=%d" % args.rate,
+                            "--channels=2",
+                        ],
+                        stdout=handle,
+                    ),
+                    handle,
+                    path,
+                )
+            )
         print("  recording %.0f s" % args.secs)
 
         time.sleep(3)
         for _, _, path in recorders:
             if os.path.getsize(path) == 0:
-                raise RuntimeError("%s empty after 3 s: nothing reached that sink" % path)
+                raise RuntimeError(
+                    "%s empty after 3 s: nothing reached that sink" % path
+                )
         print("  both sinks receiving audio")
         time.sleep(max(0.0, args.secs - 3))
         return 0
@@ -191,16 +249,21 @@ def main(argv):
             except Exception:
                 proc.kill()
             handle.close()
-            print("  %s: %d bytes (%.2f s)"
-                  % (path, os.path.getsize(path), os.path.getsize(path) / 4.0 / args.rate))
+            print(
+                "  %s: %d bytes (%.2f s)"
+                % (path, os.path.getsize(path), os.path.getsize(path) / 4.0 / args.rate)
+            )
         # Settings back BEFORE any module goes, so no stream is ever left on a
         # sink that is about to disappear.
         for host, value in saved.items():
             try:
                 if not args.no_play:
                     stop(host)
-                rpc(host, "Settings.SetSettingValue",
-                    {"setting": "audiooutput.audiodevice", "value": value})
+                rpc(
+                    host,
+                    "Settings.SetSettingValue",
+                    {"setting": "audiooutput.audiodevice", "value": value},
+                )
                 print("  restored %s -> %r" % (host, value))
             except Exception as error:
                 print("  WARNING: could not restore %s: %s" % (host, error))
