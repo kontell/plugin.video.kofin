@@ -602,8 +602,11 @@ class Service(xbmc.Monitor):
             return
         try:
             from kofin.syncplay import SyncPlayManager
+            from kofin.syncplay.providers import jellyfin_registry
 
-            manager = SyncPlayManager(self.api, self.player)
+            manager = SyncPlayManager(
+                self.api, self.player, providers=jellyfin_registry(self.api)
+            )
             self.syncplay = manager
             self.player.syncplay = manager
             self.remote.syncplay = manager

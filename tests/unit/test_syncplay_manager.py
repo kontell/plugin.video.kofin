@@ -68,6 +68,17 @@ class Recorder:
         return [c for c in self.calls if c[0] == name]
 
 
+class FakeProviders:
+    """The provider seam as _start_item drives it, recording the asked ticks."""
+
+    def __init__(self, ticks=None):
+        self.ticks = ticks if ticks is not None else []
+
+    def play_target(self, key, start_ticks, provider="jellyfin"):
+        self.ticks.append(start_ticks)
+        return {"url": "plugin://plugin.video.kofin/?mode=play", "audio": False}
+
+
 @pytest.fixture(autouse=True)
 def kodi_fakes(monkeypatch):
     FakeAddon.store = {}
@@ -125,7 +136,7 @@ def manager():
     m.enabled = lambda: True  # the fake settings store is empty
     m._api = Recorder()
     m._api_raw = Recorder()
-    m.playback.play_item = lambda item, ticks: None
+    m.playback.play_item = lambda target: None
     m.playback.prepare_ready = lambda: None
     m.playback.start_loop = lambda: None
 
@@ -1452,8 +1463,8 @@ class TestLoadAllowance:
         join(manager)
 
         started = []
-        manager._api_raw = lambda kind, *a, **k: {"Id": "item-1", "Type": "Movie"}
-        manager.playback.play_item = lambda item, ticks: started.append(ticks)
+        manager.providers = FakeProviders(started)
+        manager.playback.play_item = lambda target: None
 
         # Time the load first, then plant the reference, so the expected value
         # is the group position plus the allowance and nothing else — the clock
@@ -1510,8 +1521,8 @@ class TestLoadWatchdogGeneration:
 
     def test_a_superseded_load_s_watchdog_does_not_fire(self, manager):
         join(manager)
-        manager._api_raw = lambda kind, *a, **k: {"Id": "item-1", "Type": "Movie"}
-        manager.playback.play_item = lambda item, ticks: None
+        manager.providers = FakeProviders()
+        manager.playback.play_item = lambda target: None
 
         failures = []
         manager._load_failed = lambda reason: failures.append(reason)
@@ -1528,8 +1539,8 @@ class TestLoadWatchdogGeneration:
 
     def test_the_current_load_s_watchdog_still_fires(self, manager):
         join(manager)
-        manager._api_raw = lambda kind, *a, **k: {"Id": "item-1", "Type": "Movie"}
-        manager.playback.play_item = lambda item, ticks: None
+        manager.providers = FakeProviders()
+        manager.playback.play_item = lambda target: None
 
         failures = []
         manager._load_failed = lambda reason: failures.append(reason)

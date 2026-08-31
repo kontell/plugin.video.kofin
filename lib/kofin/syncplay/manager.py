@@ -25,7 +25,8 @@ from kofin.core.log import Logger
 from kofin.syncplay import utils
 from kofin.syncplay.utils import FOLLOWING, HELD, STARTABLE, Phase
 from kofin.syncplay.playback import PlaybackController
-from kofin.syncplay.ports import SyncPlayApi
+from kofin.syncplay.ports import Claim, SyncPlayApi
+from kofin.syncplay.providers import ProviderRegistry, jellyfin_registry
 from kofin.syncplay.tempo import TempoSession
 from kofin.syncplay.timesync import TimeSync
 
@@ -45,9 +46,19 @@ class SyncPlayManager(object):
     blocked.
     """
 
-    def __init__(self, api: Optional[SyncPlayApi], player):
+    def __init__(
+        self,
+        api: Optional[SyncPlayApi],
+        player,
+        providers: Optional[ProviderRegistry] = None,
+    ):
         self.api = api
         self.player = player
+        # The provider seam (plan G1.1): how a queue item id becomes a
+        # playing stream, and how a Kodi library id maps back to one. The
+        # service injects the registry; the default keeps the constructor
+        # honest for every caller that predates the seam.
+        self.providers = providers if providers is not None else jellyfin_registry(api)
         self.playback = PlaybackController(self, player)
         self.timesync: Optional[TimeSync] = None
         # Fine sync through inputstream.tempo (syncplay/tempo.py): armed at
@@ -285,7 +296,7 @@ class SyncPlayManager(object):
 
             return (time.time() - self._prog_release) < utils.PROGRAMMATIC_ECHO_GRACE
 
-    def _local_file_info(self):
+    def _local_file_info(self) -> Optional[Claim]:
         """The claimed play state of the current kofin playback, or None.
 
         kofin's service player claims every play resolved through the
@@ -296,7 +307,8 @@ class SyncPlayManager(object):
             if not self.player.isPlaying():
                 return None
 
-            return self.player.current_item()
+            claim: Optional[Claim] = self.player.current_item()
+            return claim
         except Exception:
             pass
 
@@ -338,9 +350,9 @@ class SyncPlayManager(object):
 
     def is_transcoding(self):
         info = self._local_file_info()
-        return bool(info) and info.get("PlayMethod") == "Transcode"
+        return info is not None and info.get("PlayMethod") == "Transcode"
 
-    def current_claim(self):
+    def current_claim(self) -> Optional[Claim]:
         """The claimed play state of the current playback, or None: what the
         fine-sync scheduler reads its route (``Tempo``) off."""
         return self._local_file_info()
@@ -1127,19 +1139,17 @@ class SyncPlayManager(object):
         )
 
         try:
-            # Not via _api: a 403 here is a library permission problem,
-            # not lost group membership.
-            item = self._api_raw("item", item_id)
+            # Through the provider seam, which reaches the client directly
+            # rather than via _api: a 403 here is a library permission
+            # problem, not lost group membership.
+            target = self.providers.play_target(item_id, utils.ms_to_ticks(estimate_ms))
         except Exception as error:
             LOG.warning("SyncPlay item lookup failed: %s", error)
-            item = None
-
-        if not item:
             self._load_failed("item lookup failed")
             return
 
         try:
-            self.playback.play_item(item, utils.ms_to_ticks(estimate_ms))
+            self.playback.play_item(target)
         except Exception as error:
             LOG.exception("SyncPlay playback start failed: %s", error)
             self._load_failed(error)
@@ -1450,11 +1460,11 @@ class SyncPlayManager(object):
     def _identify_held_play(self, data):
         """Identify a held playlist advance from the Player.OnPlay payload.
 
-        The Kodi library id maps straight to the jellyfin id (kofin.db), so
-        a transition can be proposed within milliseconds of the boundary
-        instead of waiting for the play pipeline's claim. Fresh starts keep
-        waiting for the player: their start position (a resume point) is
-        only trustworthy once A/V is up.
+        The Kodi library id maps straight to a provider key (for Jellyfin,
+        kofin.db), so a transition can be proposed within milliseconds of the
+        boundary instead of waiting for the play pipeline's claim. Fresh
+        starts keep waiting for the player: their start position (a resume
+        point) is only trustworthy once A/V is up.
         """
         hold = self._hold
 
@@ -1468,16 +1478,14 @@ class SyncPlayManager(object):
         if not kodi_id or kodi_id == -1 or not media:
             return
 
-        from kofin.sync import db as database  # deferred: pulls in the DB stack
-
         try:
-            mapped = database.get_item(kodi_id, media)
+            mapped = self.providers.resolve_kodi_id(kodi_id, media)
         except Exception as error:
             LOG.warning("SyncPlay kodi id lookup failed: %s", error)
             return
 
         if not mapped:
-            # A Kodi library item with no jellyfin mapping: the group
+            # A Kodi library item with no provider mapping: the group
             # cannot follow it, and the play pipeline (same mapping) will
             # not identify it either. Let it play now rather than after
             # the retry window.
@@ -1488,8 +1496,8 @@ class SyncPlayManager(object):
             return
 
         hold["proposed"] = True
-        hold["item_id"] = mapped[0]
-        self._propose_queue(mapped[0], position=0.0)
+        hold["item_id"] = mapped
+        self._propose_queue(mapped, position=0.0)
 
     def _unmanaged_local_play(self):
         """Playing something the group can't follow (a local file,

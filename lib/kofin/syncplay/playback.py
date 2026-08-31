@@ -574,37 +574,20 @@ class PlaybackController(object):
     # Item loading (queue application handoff)
     # ------------------------------------------------------------------
 
-    def play_item(self, item, start_ticks):
-        """Start a queue item paused-on-arrival; the ready flow reports in.
+    def play_item(self, target):
+        """Start a provider play target paused-on-arrival; the ready flow
+        reports in.
 
-        The phase-4 re-target: the playlist entry is a kofin plugin URL, so
-        the plugin process resolves it (device profile, direct-play vs
+        The phase-4 re-target, behind the G1 provider seam
+        (``syncplay/providers.py``): the playlist entry is whatever URL the
+        owning provider resolved — for Jellyfin, a kofin plugin URL, so the
+        plugin process resolves it (device profile, direct-play vs
         transcode, PlaybackInfo at ``startticks``) and pushes the play state
         for the service player to claim — exactly the path a user-initiated
         play takes. SyncPlay group starts are unattended by definition; the
         plugin play path has no dialogs, so nothing needs suppressing.
         """
-        from kofin.core.urls import plugin_url
-
-        item_id = item.get("Id")
-
-        if not item_id:
-            raise ValueError("queue item without an Id")
-
-        params = {"mode": "play", "id": str(item_id)}
-
-        # Always sent, and never negative. A group start names the position
-        # even when that position is zero, so a falsy 0 must not be dropped —
-        # omitting it lets the play route fall back to the member's own resume
-        # point, which starts it minutes away from the group. And the estimate
-        # can land just below zero (extrapolation across a clock offset), which
-        # was measured reaching the route as startticks=-240000.
-        params["startticks"] = str(max(0, int(start_ticks or 0)))
-
-        url = plugin_url(params)
-        playlist_type = (
-            xbmc.PLAYLIST_MUSIC if item.get("Type") == "Audio" else xbmc.PLAYLIST_VIDEO
-        )
+        playlist_type = xbmc.PLAYLIST_MUSIC if target["audio"] else xbmc.PLAYLIST_VIDEO
         playlist = xbmc.PlayList(playlist_type)
 
         with self.manager.programmatic():
@@ -618,7 +601,7 @@ class PlaybackController(object):
                 kodirpc.stop_player(wait_seconds=utils.STOP_WAIT_SECONDS)
 
             playlist.clear()
-            playlist.add(url)
+            playlist.add(target["url"])
             self.player.play(playlist, startpos=0)
 
     def prepare_ready(self):
