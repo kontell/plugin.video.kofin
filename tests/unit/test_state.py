@@ -19,6 +19,19 @@ def test_online_round_trip():
     assert state.is_online() is False
 
 
+def test_play_queue_files_are_owner_only(tmp_path, monkeypatch):
+    """Transcoding URLs carry api_key=; the queue must not be world-readable."""
+    import os
+    import stat
+
+    monkeypatch.setattr(state, "_queue_dir", lambda: str(tmp_path / "queue"))
+    state.push_play_item({"Path": "http://s/stream?api_key=tok", "Id": "1"})
+    files = list((tmp_path / "queue").iterdir())
+    assert files
+    mode = stat.S_IMODE(os.stat(files[0]).st_mode)
+    assert mode == 0o600
+
+
 def test_claim_by_path_match():
     state.push_play_item({"Path": "http://a", "Id": "1"})
     state.push_play_item({"Path": "http://b", "Id": "2"})

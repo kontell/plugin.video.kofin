@@ -536,6 +536,38 @@ def test_get_id_etag_map_raises_rather_than_truncate():
     assert "500 of 1000" in str(excinfo.value)
 
 
+def test_get_id_etag_map_refuses_an_empty_body():
+    """A 200 with no JSON object is not an empty library. Api._json maps
+    that to {}, and the prune would then treat every local id as stale."""
+
+    class EmptyApi:
+        user_id = "user1"
+
+        def get(self, url, params):
+            return {}
+
+    with pytest.raises(shims.LibraryException) as excinfo:
+        downloader.get_id_etag_map(EmptyApi(), "lib1", "Movie")
+
+    assert "empty body" in str(excinfo.value)
+
+
+def test_get_existing_ids_refuses_a_shapeless_confirmation():
+    """Items=[] is 'none of these exist'. {} is the empty-body default and
+    must not become a deletion order."""
+
+    class ShapelessApi:
+        user_id = "user1"
+
+        def items(self, params):
+            return {}
+
+    with pytest.raises(shims.LibraryException) as excinfo:
+        downloader.get_existing_ids(ShapelessApi(), ["alive", "gone"])
+
+    assert "Items" in str(excinfo.value)
+
+
 def test_get_id_etag_map_without_a_count_falls_back_to_short_page():
     """No TotalRecordCount to page against: end on a short page rather than
     loop forever. The heuristic is the old behaviour, kept only for servers

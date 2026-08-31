@@ -136,6 +136,17 @@ What remains is kofin's own:
   views", since a Live TV grant still lists one) and sits *before* the `SortedViews` stamp,
   because an empty stamp would regenerate an empty node tree. A withdrawn user gets `/UserViews`
   200 with zero items and a 403 on MediaFolders (executed on jf12, `tests/live/jf12_user_policy.py`).
+  `Api._json` maps a 200 with no body to `{}`; that is **not** `{"Items":[], "TotalRecordCount":0}`.
+  The prune map and the stale-id confirmation both refuse a shapeless body rather than read it as
+  "none exist" (`test_get_id_etag_map_refuses_an_empty_body`, `test_get_existing_ids_refuses_a_shapeless_confirmation`).
+- **`sslVerify` is one setting for every TLS socket**, HTTP and WSS. websocket-client 1.6.4 injects
+  `CERT_REQUIRED` when `sslopt` is omitted, so a self-signed server with verify off listed fine and
+  the websocket never came up. `WSClient` and the SyncPlay time-sync socket pass `sslopt` on `wss://`.
+- **`ATTACH_SUBTITLE` is in `ipc.GUARDED`.** It is tens of seconds of server-side ffmpeg on the
+  playing session; the dialogs (`PRECACHE_ART`, `SYNCPLAY_MENU`, `WHO_IS_WATCHING`) stay unguarded
+  on purpose.
+- **Play-queue files under addon_data are mode 0600.** The payload's `Path` is the stream URL, and a
+  transcode URL carries `api_key=`. Same owner-only write as the IPC nonce.
 - **A TranscodingProfile is a device statement, not a spare tyre.** Jellyfin's `StreamBuilder`
   *ranks* the transcoding profiles instead of taking the first that matches, and one whose
   `VideoCodec` list holds the source codec ranks top so the server can stream-copy into it. So a

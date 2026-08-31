@@ -103,7 +103,10 @@ _REGISTRY = frozenset(
 # files, ADD pulls gigabytes on someone else's say-so, CANCEL wastes work.
 # UPDATE_LIBRARY plans a prune that deletes rows and REFRESH_BOXSETS re-walks
 # every collection: both things the first sentence names, so every library
-# command is here.
+# command is here. ATTACH_SUBTITLE is tens of seconds of server-side ffmpeg
+# for whoever is playing, so it sits with the expensive set rather than the
+# dialogs (PRECACHE_ART is the same shape and stays unguarded on purpose —
+# a settings button, not a playback injection).
 GUARDED = frozenset(
     {
         RESTART,
@@ -116,6 +119,7 @@ GUARDED = frozenset(
         DOWNLOAD_CANCEL,
         DOWNLOAD_REMOVE,
         DOWNLOAD_REMOVE_ALL,
+        ATTACH_SUBTITLE,
     }
 )
 

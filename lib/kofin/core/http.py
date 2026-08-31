@@ -99,6 +99,12 @@ def run_ladder(
                 )
             delay = BACKOFF_BASE_SECONDS * (2 ** (attempt_index - 1))
             time.sleep(delay + random.uniform(0, delay / 2))
+            # sleep() cannot see the flag; a stop that lands during backoff
+            # used to start another full-timeout GET. Check again.
+            if abort is not None and abort():
+                raise ServerUnreachable(
+                    "%s %s: abandoned while stopping (%s)" % (method, url, last_error)
+                )
         try:
             response = attempt()
         except transport_errors as error:

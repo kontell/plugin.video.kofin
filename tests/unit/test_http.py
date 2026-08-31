@@ -324,6 +324,26 @@ def test_a_stopping_service_abandons_the_ladder_instead_of_replaying(monkeypatch
     assert "stopping" in str(raised.value)
 
 
+def test_a_stop_during_backoff_does_not_start_another_get(monkeypatch):
+    """sleep() cannot see the abort flag; a stop that lands in backoff used
+    to fire a second full-timeout GET. The check after sleep is the bound."""
+    stopping = {"yes": False}
+
+    def sleep(_seconds):
+        stopping["yes"] = True
+
+    monkeypatch.setattr(http.time, "sleep", sleep)
+    transport = http.Http(abort=lambda: stopping["yes"])
+    session = FakeSession([requests.ConnectionError("boom")] * 4)
+    monkeypatch.setattr(transport, "session", lambda: session)
+
+    with pytest.raises(http.ServerUnreachable) as raised:
+        transport.request("GET", "http://s/x")
+
+    assert len(session.calls) == 1
+    assert "stopping" in str(raised.value)
+
+
 def test_the_request_already_in_flight_is_still_allowed_to_answer(monkeypatch):
     """The abort bounds the replays; it must not cancel a call that is about
     to succeed, or a teardown would drop the last write of every session."""

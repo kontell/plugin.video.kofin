@@ -124,6 +124,8 @@ class SyncPlayManager(object):
         # marks a native playlist advance (starts at 0); otherwise the
         # start position is read from the player once it settles.
         self._hold: Optional[Dict[str, Any]] = None
+        # The PlaylistItemId of the last queue update we applied.
+        self._applied_playing_item: Optional[str] = None
 
         self._prog_depth = 0
         self._prog_release = 0.0
@@ -879,6 +881,7 @@ class SyncPlayManager(object):
         self.current_provider = JELLYFIN
         self.phase = Phase.IDLE
         self.ignore_wait = False
+        self._applied_playing_item = None
         self._join_pending_since = 0.0
         self.player.syncplay_group_active = False
         self._release_hold()
@@ -1062,6 +1065,35 @@ class SyncPlayManager(object):
     # Queue mirror (SYNCPLAY.md §5.3, report §9.5.1)
     # ------------------------------------------------------------------
 
+    def _queue_moves_item(self, data):
+        """Whether this update puts the group on a different item than we hold.
+
+        ``LastUpdate`` timestamps the *queue*, not the playing position. A
+        ``NextItem`` advance leaves the queue's contents untouched, so it arrives
+        carrying the **same** ``LastUpdate`` as the update before it — and the
+        version dedup below then discards it along with its new
+        ``PlayingItemIndex``, leaving the member with nothing to load.
+
+        Measured three times on 2026-08-31 (the Tab once, PIERS twice), always the
+        same sequence: ``Ignoring play queue not newer than the applied one`` at a
+        track boundary, an ``Unpause`` deferred to a ready flow with nothing
+        loading, then the 45s watchdog and a silent departure from the group. It
+        also stalled every *healthy* member for 10-11s while the server waited on
+        the one that would never report ready.
+        """
+        playlist = data.get("Playlist") or []
+        index = data.get("PlayingItemIndex", -1)
+
+        if index is None or index < 0 or index >= len(playlist):
+            return False
+
+        # Compared against what the *queue* last applied, not against
+        # current_playlist_item_id: that one is only set once the play pipeline
+        # has claimed the item, so while a load is in flight it still names the
+        # previous track (or nothing at all on the first update), and a redelivery
+        # would look like an advance.
+        return playlist[index].get("PlaylistItemId") != self._applied_playing_item
+
     def _apply_play_queue(self, data):
         last_update = utils.parse_iso_ms(data.get("LastUpdate"))
 
@@ -1069,6 +1101,7 @@ class SyncPlayManager(object):
             last_update is not None
             and self.queue_last_update is not None
             and last_update <= self.queue_last_update
+            and not self._queue_moves_item(data)
         ):
             LOG.debug("Ignoring play queue not newer than the applied one")
             return
@@ -1088,10 +1121,12 @@ class SyncPlayManager(object):
         )
 
         if index is None or index < 0 or index >= len(self.queue):
+            self._applied_playing_item = None
             self._detach_playback(stop_media=True)
             return
 
         item_id, playlist_item_id, provider = self.queue[index]
+        self._applied_playing_item = playlist_item_id
 
         if (
             playlist_item_id == self.current_playlist_item_id
@@ -1132,6 +1167,7 @@ class SyncPlayManager(object):
             # matches on the id we proposed, since the play pipeline may
             # not have claimed the new item yet.
             LOG.info("Adopting queue identity for the playing item")
+            self._hold_done("adopted")
             self._hold = None
             self.current_item_id = item_id
             self.current_playlist_item_id = playlist_item_id
@@ -1284,9 +1320,31 @@ class SyncPlayManager(object):
         self._load_generation += 1
         generation = self._load_generation
 
-        def check():
-            if self.phase == Phase.LOADING and self._load_generation == generation:
-                self._load_failed("no playback within 45s")
+        def check(retry=True):
+            if not (
+                self.phase == Phase.LOADING and self._load_generation == generation
+            ):
+                return
+
+            if retry:
+                # Still LOADING with nothing playing usually means the item we
+                # were told to load never arrived (see _queue_moves_item). A
+                # snapshot re-delivers GroupJoined + PlayQueue, which is exactly
+                # the state we are missing -- so ask once before abandoning the
+                # group, rather than leaving over a single dropped update.
+                LOG.warning(
+                    "still loading after 45s; requesting a group snapshot "
+                    "before giving up"
+                )
+                try:
+                    self._api_raw("syncplay_snapshot")
+                except Exception as error:
+                    LOG.warning("snapshot request failed: %s", error)
+
+                utils.later(15, self._post, lambda: check(False))
+                return
+
+            self._load_failed("no playback within 60s; the snapshot did not recover it")
 
         utils.later(45, self._post, check)
         self.publish_session_state()
@@ -1304,6 +1362,7 @@ class SyncPlayManager(object):
 
     def _detach_playback(self, stop_media=False):
         was_active = self.phase != Phase.IDLE
+        self._hold_done("detached")
         self._hold = None
         self.current_item_id = None
         self.current_playlist_item_id = None
@@ -1368,7 +1427,10 @@ class SyncPlayManager(object):
                 "transition": self.phase == Phase.SYNCED,
                 "proposed": False,
                 "item_id": None,
+                "at": utils.local_ms(),
             }
+            LOG.info("[ syncplay/hold ] entered (%s)",
+                     "transition" if hold["transition"] else "fresh start")
             self._hold = hold
             self.playback.ensure_paused()
             self._watch_hold(hold)
@@ -1442,6 +1504,7 @@ class SyncPlayManager(object):
 
     def on_stopped(self):
         self.foreign_claim = None  # claims are playback-scoped
+        self._hold_done("stopped")
         self._hold = None  # whatever was held is gone
 
         if not self.in_group() or self.is_programmatic():
@@ -1458,6 +1521,7 @@ class SyncPlayManager(object):
 
     def on_ended(self):
         self.foreign_claim = None  # claims are playback-scoped
+        self._hold_done("ended")
         self._hold = None
 
         if not self.in_group() or self.is_programmatic():
@@ -1708,10 +1772,25 @@ class SyncPlayManager(object):
 
         utils.later(utils.HOLD_RELEASE_TIMEOUT, self._post, check)
 
+    def _hold_done(self, reason):
+        """How long a boundary hold lasted, and what ended it.
+
+        The controller's own view of the silence at a track change: §6.1's
+        capture times the audio from outside, this says why it was held. On a
+        three-minute track this is paid every three minutes, so it is the number
+        docs/syncplay-music-shakedown.md exists to shrink.
+        """
+        hold = self._hold
+        if hold is None or not hold.get("at"):
+            return
+        LOG.info("[ syncplay/hold ] released after %.0f ms (%s)",
+                 utils.local_ms() - hold["at"], reason)
+
     def _release_hold(self):
         if self._hold is None:
             return
 
+        self._hold_done("released")
         self._hold = None
         self.playback.ensure_playing()
 

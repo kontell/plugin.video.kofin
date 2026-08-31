@@ -157,6 +157,47 @@ def test_run_forever_keeps_pings_but_never_a_pong_deadline(monkeypatch):
     assert timeouts == [10]
 
 
+def test_wss_honours_ssl_verify(monkeypatch):
+    """HTTP honours sslVerify; WSS used to inherit websocket-client's
+    CERT_REQUIRED even when the setting was off."""
+    import ssl
+
+    from kofin.core import ws as ws_module
+
+    captured = {}
+
+    class FakeApp:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run_forever(self, **kwargs):
+            captured.update(kwargs)
+
+        def close(self):
+            pass
+
+    class StopMonitor:
+        def waitForAbort(self, seconds):
+            return True
+
+    monkeypatch.setattr(ws_module.websocket, "WebSocketApp", FakeApp)
+    monkeypatch.setattr(ws_module.websocket, "setdefaulttimeout", lambda *_a: None)
+    monkeypatch.setattr(ws_module.xbmc, "Monitor", StopMonitor)
+
+    client = WSClient(
+        "https://s:8096",
+        "auth",
+        on_event=lambda message_type, data: None,
+        on_connected=lambda: None,
+        verify_ssl=False,
+    )
+    client.run()
+
+    assert captured["ping_interval"] == 10
+    assert captured["sslopt"]["cert_reqs"] == ssl.CERT_NONE
+    assert captured["sslopt"]["check_hostname"] is False
+
+
 def _liveness_client(events=None):
     return WSClient(
         "http://s:8096",

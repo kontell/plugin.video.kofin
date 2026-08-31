@@ -36,7 +36,8 @@ import urllib.request
 
 VERSION = "0.21.0"
 LOG_PATTERN = re.compile(
-    r"syncplay/(pulse|tempo|align|resumed|landed)|play [0-9a-f]{32} via"
+    r"syncplay/(pulse|tempo|align|resumed|landed|hold|unpause)"
+    r"|play [0-9a-f]{32} via"
 )
 
 
@@ -47,6 +48,10 @@ class Member(object):
         self.name = name
         self.host = rest.split(",")[0]
         self.adb = fields.get("adb")
+        # A member on another machine that is not an Android box: P1D's native
+        # Kodi and the Piers flatpak are reachable only this way, and without it
+        # half the music rig cannot be driven into a group at all.
+        self.ssh = fields.get("ssh")
         self.settings_path = os.path.expanduser(fields["settings"])
         self.log_path = os.path.expanduser(fields["log"])
         self.tempo_path = os.path.expanduser(fields["tempo"])
@@ -69,10 +74,25 @@ class Member(object):
                 capture_output=True,
                 text=True,
             ).stdout.replace("\r\n", "\n")
+        if self.ssh:
+            return subprocess.run(
+                ["ssh", "-o", "BatchMode=yes", self.ssh, "cat '%s'" % path],
+                capture_output=True,
+                text=True,
+            ).stdout
         with open(path) as handle:
             return handle.read()
 
     def write(self, path, text):
+        if self.ssh:
+            # Through stdin, not an argument: a tempo value is small but the
+            # same path writes settings, and quoting a payload into a remote
+            # shell is how a harness corrupts the box it is measuring.
+            subprocess.run(
+                ["ssh", "-o", "BatchMode=yes", self.ssh, "cat > '%s'" % path],
+                input=text, text=True, check=True,
+            )
+            return
         if self.adb:
             subprocess.run(
                 ["adb", "-s", self.adb, "shell", "printf '%s' > '%s'" % (text, path)],
@@ -104,6 +124,13 @@ class Member(object):
                 capture_output=True,
                 text=True,
             ).stdout.replace("\r\n", "\n")
+        elif self.ssh:
+            out = subprocess.run(
+                ["ssh", "-o", "BatchMode=yes", self.ssh,
+                 "grep -E 'syncplay/|kofin.plugin.play' '%s'" % self.log_path],
+                capture_output=True,
+                text=True,
+            ).stdout
         else:
             out = subprocess.run(
                 ["grep", "-E", "syncplay/|kofin.plugin.play", self.log_path],

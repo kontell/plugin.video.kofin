@@ -12,11 +12,14 @@ connection, which also stamps t3 right at ``recv()`` with no notification bus
 in the path."""
 
 import json
+import ssl
 import threading
 from collections import deque
+from typing import Any, Dict
 
 import websocket
 
+from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.syncplay import utils
 
@@ -148,9 +151,17 @@ class TimeSync(threading.Thread):
         url, authorization = target
 
         try:
-            self._ws = websocket.create_connection(
-                url, timeout=3, header={"Authorization": authorization}
-            )
+            kwargs: Dict[str, Any] = {
+                "timeout": 3,
+                "header": {"Authorization": authorization},
+            }
+            if url.startswith("wss://"):
+                kwargs["sslopt"] = (
+                    {"cert_reqs": ssl.CERT_REQUIRED, "check_hostname": True}
+                    if settings.get_bool("sslVerify")
+                    else {"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
+                )
+            self._ws = websocket.create_connection(url, **kwargs)
         except Exception as error:
             LOG.debug("Time-sync socket connect failed: %s", error)
             return None

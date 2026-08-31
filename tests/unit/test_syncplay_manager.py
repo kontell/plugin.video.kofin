@@ -336,14 +336,33 @@ class TestPlayQueue:
 
         first = make_queue(last_update=now_iso())
         manager._handle_group_update(first)
-        # Identical LastUpdate (e.g. a redelivered update)
-        second = make_queue(
-            items=(("item-2", "pl-2"),),
-            last_update=first["Data"]["LastUpdate"],
-        )
+        # A genuine redelivery: same queue, same playing item, same LastUpdate.
+        second = make_queue(last_update=first["Data"]["LastUpdate"])
         manager._handle_group_update(second)
 
         assert started == [("item-1", "pl-1")]
+
+    def test_stale_last_update_still_applies_an_item_advance(self, manager):
+        """A NextItem advance carries the *same* LastUpdate as the update before
+        it -- LastUpdate timestamps the queue, and advancing does not change the
+        queue's contents. Dropping it as stale left the member with no item to
+        load: measured three times on 2026-08-31, each time followed by an
+        Unpause deferred to a ready flow that never ran, the 45s watchdog, and a
+        silent departure that also stalled every healthy member for 10-11s.
+        """
+        join(manager)
+        started = []
+        manager._start_item = lambda i, p: started.append((i, p))
+
+        first = make_queue(last_update=now_iso())
+        manager._handle_group_update(first)
+        advance = make_queue(
+            items=(("item-2", "pl-2"),),
+            last_update=first["Data"]["LastUpdate"],
+        )
+        manager._handle_group_update(advance)
+
+        assert started == [("item-1", "pl-1"), ("item-2", "pl-2")]
 
     def test_tail_only_change_does_not_restart(self, manager):
         join(manager)
@@ -1794,6 +1813,57 @@ class TestLoadWatchdogGeneration:
 
         assert failures == [], "a superseded load's watchdog killed a healthy reload"
 
+    @staticmethod
+    def _fire(call):
+        """Run a scheduled callback, handing back whatever it schedules in turn."""
+        armed = []
+
+        class FakeTimer:
+            def __init__(self, delay, func, args=()):
+                armed.append((func, args))
+
+            def start(self):
+                pass
+
+            @property
+            def daemon(self):
+                return True
+
+            @daemon.setter
+            def daemon(self, v):
+                pass
+
+        real = manager_module.threading.Timer
+        manager_module.threading.Timer = FakeTimer
+        try:
+            func, args = call
+            func(*args)
+        finally:
+            manager_module.threading.Timer = real
+        return armed[-1] if armed else None
+
+    def test_the_current_load_s_watchdog_asks_for_a_snapshot_first(self, manager):
+        """A member must not abandon the group over one dropped queue update.
+
+        The 45s watchdog now requests a snapshot -- GroupJoined + PlayQueue, which
+        is exactly the state a member in this position is missing -- and only
+        gives up if that does not recover it.
+        """
+        join(manager)
+        manager._api_raw = lambda kind, *a, **k: {"Id": "item-1", "Type": "Movie"}
+        manager.playback.play_item = lambda item, ticks: None
+
+        failures, asked = [], []
+        manager._load_failed = lambda reason: failures.append(reason)
+
+        armed = self._arm(manager)
+        manager._api_raw = lambda kind, *a, **k: asked.append(kind)
+        second = self._fire(armed)
+
+        assert asked == ["syncplay_snapshot"]
+        assert failures == [], "gave up before the snapshot could recover it"
+        assert second is not None, "no second check was scheduled"
+
     def test_the_current_load_s_watchdog_still_fires(self, manager):
         join(manager)
         manager.providers = FakeProviders()
@@ -1802,12 +1872,17 @@ class TestLoadWatchdogGeneration:
         failures = []
         manager._load_failed = lambda reason: failures.append(reason)
 
-        func, args = self._arm(manager)
+        armed = self._arm(manager)
+        manager._api_raw = lambda kind, *a, **k: None
+        second = self._fire(armed)
+        # The snapshot did not help: the phase never left loading.
+        func, args = second
         func(*args)
 
         # Nothing superseded it and the phase never left loading: this one is
         # genuinely stuck, and the watchdog is the only thing that notices.
-        assert failures == ["no playback within 45s"]
+        assert len(failures) == 1
+        assert "did not recover" in failures[0]
 
 
 # ---------------------------------------------------------------------------

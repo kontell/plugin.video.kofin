@@ -420,7 +420,9 @@ class PlaybackController(object):
         Toggling with no media loaded is ignored by Kodi, so a nudge is
         safe even when the reads claim there is nothing playing.
         """
-        deadline = utils.local_ms() + utils.UNPAUSE_RETRY_WINDOW_MS
+        started = utils.local_ms()
+        deadline = started + utils.UNPAUSE_RETRY_WINDOW_MS
+        nudges = 0
         last_nudge = 0.0
         last_pos = None
         frozen_reads = 0
@@ -432,6 +434,11 @@ class PlaybackController(object):
                 pos = None
 
             if pos is not None and last_pos is not None and pos > last_pos + 0.1:
+                # Outcome, not just the attempts: a resume that took three
+                # nudges and one that took none look identical from the nudge
+                # lines alone, and churn (section 6.4) is the difference.
+                LOG.info("[ syncplay/unpause ] resumed after %d nudge(s), %.0f ms",
+                         nudges, utils.local_ms() - started)
                 return True  # the clock is moving: playing
 
             if pos is not None and last_pos is not None and not self._is_paused():
@@ -446,11 +453,14 @@ class PlaybackController(object):
             ):
                 LOG.info("[ syncplay/unpause ] nudging the player")
                 self.player.pause()
+                nudges += 1
                 last_nudge = now
                 frozen_reads = 0
 
             xbmc.sleep(utils.UNPAUSE_VERIFY_STEP_MS)
 
+        LOG.warning("[ syncplay/unpause ] gave up after %d nudge(s), %.0f ms",
+                    nudges, utils.local_ms() - started)
         return False
 
     def _resume_and_verify(self):
