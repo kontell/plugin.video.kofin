@@ -529,7 +529,21 @@ class Player(xbmc.Player):
         player — and it only ever acts in the silent mode, because a dialog
         about an episode finished an hour ago is not a question anyone can
         answer.
+
+        Video only, on ``DELETABLE_TYPES`` — the constant ``offer_delete``
+        already gates on, whose whole reason for existing is that reaching
+        the end of a song is not an invitation to delete anything. This
+        path was the one of the three that never got the rule: the
+        retention sweep skips a song (``store.VIDEO_MEDIA_TYPES``) and so
+        does ``_mark_watched``, but a downloaded track played to its end
+        raised "Remove download?" every time. The test is the *item's*
+        Jellyfin type rather than the row's ``media_type`` because that is
+        the vocabulary this method is handed and it is always populated —
+        a row queued before the type was knowable carries ``""``, which
+        would have made this refuse for video as well.
         """
+        if item.get("Type") not in DELETABLE_TYPES:
+            return False
         if not settings.get_bool("downloadsDeleteAfterWatching"):
             return False
         if not settings.get_bool("downloadsEnabled"):
