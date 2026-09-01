@@ -1372,6 +1372,11 @@ class SyncPlayManager(object):
         if not self.in_group():
             return
 
+        # A seamless PVR zap emits no OnPlay and no stop — this is the one
+        # event every new stream reliably fires, so the stale-claim drop
+        # anchors here as well as on OnPlay.
+        self._drop_stale_claim()
+
         if self.phase == Phase.LOADING:
             # Hold the first frame; the group start is choreographed by
             # the server once every member reports Ready.

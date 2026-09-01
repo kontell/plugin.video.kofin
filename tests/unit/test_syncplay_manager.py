@@ -954,6 +954,20 @@ class TestForwardLocalPlay:
 
         assert manager.foreign_claim == {"Id": "new-chan", "Provider": "jellyfin"}
 
+    def test_avstarted_drops_the_stale_claim_too(self, manager):
+        # A seamless PVR zap emits no OnPlay: on_avstarted is the one event
+        # every new stream fires, so the drop anchors there as well.
+        import time as time_module
+
+        join(manager)
+        manager.player.playing = True
+        manager.foreign_claim = {"Id": "old-chan", "Provider": "jellyfin"}
+        manager._foreign_claim_at = time_module.time() - 10.0
+
+        manager.on_avstarted()
+
+        assert manager.foreign_claim is None
+
     def test_claimed_item_is_the_identity_source(self, manager):
         # The service player's claimed play state names the jellyfin id.
         join(manager)
