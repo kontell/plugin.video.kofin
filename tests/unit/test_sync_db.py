@@ -46,6 +46,9 @@ def test_kofin_db_has_fork_indexes(kofin_path):
         # kofin additions beyond the fork schema (downloads plan W1.3).
         "idx_download_series",
         "idx_download_state",
+        # ...and the request the completion toast asks about once per
+        # finished track (D6).
+        "idx_download_request",
     }
 
 

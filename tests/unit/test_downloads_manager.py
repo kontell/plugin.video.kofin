@@ -1656,12 +1656,82 @@ def test_an_album_announces_once_not_once_per_track(tmp_path, repoints, monkeypa
     assert shown == ["L30712 Abbey Road"]
 
     # ... until something new is queued, which re-arms it.
-    manager._apply_add("t9", store.ORIGIN_USER, "song")
+    manager._apply_add(manager_module._Op("add", "t9", store.ORIGIN_USER, "song"))
     store.record_details("t9", "song", "album1", 0, "")
     store.claim(("song",))
     store.finish("t9", "a/9.opus", "opus", 1)
     manager._announce_complete("song", "album1", track)
     assert shown == ["L30712 Abbey Road", "L30712 Abbey Road"]
+
+
+def test_a_playlist_announces_once_for_the_whole_request(
+    tmp_path, repoints, monkeypatch
+):
+    """D6: the bug the album grouping could not reach.
+
+    A playlist's tracks come off different albums, so grouping by the
+    item's own ``AlbumId`` made every track its own complete album — ten
+    tracks, ten toasts, for one thing chosen once. The request is what the
+    user picked, and it is announced under the playlist's name.
+    """
+    manager, _ = make_manager(repoints)
+    shown = []
+    monkeypatch.setattr(
+        manager_module.toast, "show", lambda *a, **k: shown.append(a[0])
+    )
+    monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d %%s" % i)
+
+    manager.submit(
+        ["t0", "t1", "t2"],
+        media_types=["Audio", "Audio", "Audio"],
+        request_id="pl1",
+        request_name="Road Trip",
+    )
+    manager._drain_ops()
+    # One album each — the shape that used to produce a toast per track.
+    for index in range(3):
+        store.record_details("t%d" % index, "song", "album%d" % index, 0, "")
+
+    for index in range(2):
+        store.claim(("song",))
+        store.finish("t%d" % index, "a/%d.opus" % index, "opus", 1)
+        manager._announce_complete(
+            "song",
+            "album%d" % index,
+            {"Id": "t%d" % index, "Album": "Album %d" % index},
+        )
+    assert shown == []  # one still coming, however complete its album is
+
+    store.claim(("song",))
+    store.finish("t2", "a/2.opus", "opus", 1)
+    manager._announce_complete("song", "album2", {"Id": "t2", "Album": "Album 2"})
+
+    assert shown == ["L30712 Road Trip"]
+
+
+def test_a_one_item_request_still_announces_itself(tmp_path, repoints, monkeypatch):
+    """A request that expanded to a single track is that track — collapsing
+    it under a container's name would be a worse answer, not a tidier one."""
+    manager, _ = make_manager(repoints)
+    shown = []
+    monkeypatch.setattr(
+        manager_module.toast, "show", lambda *a, **k: shown.append(a[0])
+    )
+    monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d %%s" % i)
+
+    manager.submit(
+        ["t0"], media_types=["Audio"], request_id="pl1", request_name="Road Trip"
+    )
+    manager._drain_ops()
+    store.record_details("t0", "song", "album0", 0, "")
+    store.claim(("song",))
+    store.finish("t0", "a/0.opus", "opus", 1)
+
+    manager._announce_complete(
+        "song", "album0", {"Id": "t0", "Name": "One Track", "Album": "Album 0"}
+    )
+
+    assert shown == ["L30712 Album 0"]  # the album grouping underneath
 
 
 def test_video_keeps_its_per_item_completion_toast(tmp_path, repoints, monkeypatch):

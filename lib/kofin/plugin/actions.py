@@ -1,7 +1,7 @@
 """Small RunPlugin actions: watched/favorite toggles, settings, library
 maintenance buttons (Library tab -> IPC -> service library manager)."""
 
-from typing import Any, List, Union
+from typing import Any, Dict, List, Union
 
 import xbmc
 import xbmcgui
@@ -388,6 +388,7 @@ def download(request: Request) -> None:
         return
 
     from kofin.downloads import store
+    from kofin.plugin.context import DOWNLOAD_CONTAINER_TYPES
 
     live = {row.jellyfin_id for row in store.rows() if row.state != store.FAILED}
     wanted = [
@@ -407,13 +408,21 @@ def download(request: Request) -> None:
     # The types travel with the ids: the manager sizes its two worker pools
     # by media kind, and the kind is not knowable from an id alone without
     # the very server round trip the queue is trying to get ahead of.
-    ipc.notify(
-        ipc.DOWNLOAD_ADD,
-        {
-            "Ids": [child["Id"] for child in wanted],
-            "Types": [str(child.get("Type") or "") for child in wanted],
-        },
-    )
+    #
+    # So does the request — the container this expanded, and what to call it
+    # (D6). This is the only place that knows it: by the time a row reaches
+    # the manager it holds its item's own parent, which for a playlist's
+    # tracks is a different album each, and the completion toast grouped on
+    # that fired once per track for one thing the user chose once. Sent only
+    # for a real container, so a single item still announces itself.
+    payload: Dict[str, Any] = {
+        "Ids": [child["Id"] for child in wanted],
+        "Types": [str(child.get("Type") or "") for child in wanted],
+    }
+    if item.get("Type") in DOWNLOAD_CONTAINER_TYPES:
+        payload["Request"] = item_id
+        payload["RequestName"] = str(item.get("Name") or "")
+    ipc.notify(ipc.DOWNLOAD_ADD, payload)
     _download_toast(30711, len(wanted))
 
 

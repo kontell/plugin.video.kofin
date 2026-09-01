@@ -1162,8 +1162,14 @@ class Service(xbmc.Monitor):
             return
         from kofin.downloads import wire
 
-        ids, origin, media_types = wire.parse_add(payload)
-        downloads.submit(ids, origin=origin, media_types=media_types)
+        request = wire.parse_add(payload)
+        downloads.submit(
+            request.ids,
+            origin=request.origin,
+            media_types=request.media_types,
+            request_id=request.request_id,
+            request_name=request.request_name,
+        )
 
     def _ipc_download_cancel(self, name: str, payload: Dict[str, Any]) -> None:
         downloads = self._downloads_for(name)

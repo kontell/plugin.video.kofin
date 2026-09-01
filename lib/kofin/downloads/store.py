@@ -85,6 +85,18 @@ class Download:
     # Empty on rows captured before the column existed, or on video rows,
     # whose path rows are shared and never orphaned by a repoint.
     restore_path: str = ""
+    # What the user actually asked for, when it was a container: the
+    # Jellyfin id of the thing the context menu expanded, and its name
+    # (D6). Distinct from ``series_id``, which is the *item's* parent — a
+    # playlist's twelve tracks have twelve different albums and one
+    # request, and grouping the completion toast by the album meant twelve
+    # notifications for one thing somebody chose once. The name is stored
+    # rather than looked up so the toast survives a service restart, which
+    # a long request easily outlives; both are empty for a single item and
+    # for anything queued automatically, and the per-item toast is the
+    # right answer for both of those.
+    request_id: str = ""
+    request_name: str = ""
 
     @property
     def userdata(self) -> Dict[str, Any]:
@@ -220,6 +232,28 @@ def container_states(container_id: str) -> Dict[str, str]:
         )
         states.update(opened.cursor.fetchall())
     return states
+
+
+def request_counts(request_id: str) -> Dict[str, int]:
+    """``{"total": n, "pending": n}`` for one queue *request* (D6).
+
+    A plain query on the request's own column — no mapping join, unlike
+    :func:`container_states`, because a request is recorded on every row it
+    created rather than inferred from what the items happen to be under.
+    ``total`` is what tells a one-item request from a container's: the
+    completion toast collapses only when there was more than one.
+    """
+    if not request_id:
+        return {"total": 0, "pending": 0}
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "SELECT state FROM download WHERE request_id = ?", (request_id,)
+        )
+        states = [row[0] for row in opened.cursor.fetchall()]
+    return {
+        "total": len(states),
+        "pending": sum(1 for state in states if state in (QUEUED, ACTIVE)),
+    }
 
 
 def container_counts(container_id: str) -> Dict[str, int]:

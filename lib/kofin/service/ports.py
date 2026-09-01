@@ -86,6 +86,8 @@ class DownloadsPort(Protocol):
         item_ids: List[str],
         origin: str = ...,
         media_types: Optional[List[str]] = None,
+        request_id: str = ...,
+        request_name: str = ...,
     ) -> None: ...
 
     def cancel(self, item_id: str) -> None: ...

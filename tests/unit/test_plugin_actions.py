@@ -238,7 +238,7 @@ def test_download_movie_notifies_without_a_confirm(download_wired):
 
 
 def test_download_season_confirms_then_notifies_the_children(download_wired):
-    season = {"Id": "sea1", "Type": "Season", "SeriesId": "ser1"}
+    season = {"Id": "sea1", "Type": "Season", "Name": "Season 1", "SeriesId": "ser1"}
     episodes = [
         {"Id": "e1", "CanDownload": True, "MediaSources": [{"Size": 100}]},
         {"Id": "e2", "CanDownload": False, "MediaSources": [{"Size": 100}]},
@@ -250,7 +250,17 @@ def test_download_season_confirms_then_notifies_the_children(download_wired):
 
     assert len(dialog.yesnos) == 1
     assert notified == [
-        (ipc.DOWNLOAD_ADD, {"Ids": ["e1", "e3"], "Types": ["", ""]})
+        (
+            ipc.DOWNLOAD_ADD,
+            {
+                "Ids": ["e1", "e3"],
+                "Types": ["", ""],
+                # The container the user actually picked, so the manager can
+                # answer it once (D6).
+                "Request": "sea1",
+                "RequestName": "Season 1",
+            },
+        )
     ]  # e2 refused
 
 
@@ -268,7 +278,7 @@ def test_download_confirm_declined_notifies_nothing(download_wired):
 def test_download_skips_rows_the_store_already_holds(download_wired, monkeypatch):
     from kofin.downloads import store as downloads_store
 
-    series = {"Id": "ser1", "Type": "Series"}
+    series = {"Id": "ser1", "Type": "Series", "Name": "The Show"}
     episodes = [
         {"Id": "e1", "CanDownload": True, "MediaSources": []},
         {"Id": "e2", "CanDownload": True, "MediaSources": []},
@@ -282,7 +292,17 @@ def test_download_skips_rows_the_store_already_holds(download_wired, monkeypatch
 
     actions.download(Request("plugin://x", -1, {"id": "ser1"}))
 
-    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["e2"], "Types": [""]})]
+    assert notified == [
+        (
+            ipc.DOWNLOAD_ADD,
+            {
+                "Ids": ["e2"],
+                "Types": [""],
+                "Request": "ser1",
+                "RequestName": "The Show",
+            },
+        )
+    ]
 
 
 def test_cancel_and_remove_routes(download_wired, monkeypatch):
@@ -338,7 +358,7 @@ def test_container_remove_and_cancel_expand_from_local_state(
 
 
 def test_download_album_confirms_and_expands(download_wired):
-    album = {"Id": "al1", "Type": "MusicAlbum"}
+    album = {"Id": "al1", "Type": "MusicAlbum", "Name": "Abbey Road"}
     tracks = [
         {
             "Id": "t1",
@@ -358,7 +378,15 @@ def test_download_album_confirms_and_expands(download_wired):
     actions.download(Request("plugin://x", -1, {"id": "al1"}))
 
     assert notified == [
-        (ipc.DOWNLOAD_ADD, {"Ids": ["t1", "t2"], "Types": ["Audio", "Audio"]})
+        (
+            ipc.DOWNLOAD_ADD,
+            {
+                "Ids": ["t1", "t2"],
+                "Types": ["Audio", "Audio"],
+                "Request": "al1",
+                "RequestName": "Abbey Road",
+            },
+        )
     ]
     assert len(dialog.yesnos) == 1  # music containers confirm like seasons
     assert api.item_params and api.item_params[0].get("ParentId") == "al1"
@@ -366,19 +394,29 @@ def test_download_album_confirms_and_expands(download_wired):
 
 
 def test_download_artist_expands_by_artistids(download_wired):
-    artist = {"Id": "ar1", "Type": "MusicArtist"}
+    artist = {"Id": "ar1", "Type": "MusicArtist", "Name": "The Band"}
     tracks = [{"Id": "t1", "Type": "Audio", "CanDownload": True, "MediaSources": []}]
     api = FakeDownloadApi(artist, episodes=tracks)
     notified, dialog, Request = download_wired(api)
     actions.download(Request("plugin://x", -1, {"id": "ar1"}))
 
-    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["t1"], "Types": ["Audio"]})]
+    assert notified == [
+        (
+            ipc.DOWNLOAD_ADD,
+            {
+                "Ids": ["t1"],
+                "Types": ["Audio"],
+                "Request": "ar1",
+                "RequestName": "The Band",
+            },
+        )
+    ]
     params = api.item_params[0]
     assert params.get("ArtistIds") == "ar1" and "ParentId" not in params
 
 
 def test_download_playlist_keeps_only_the_leaves(download_wired):
-    playlist = {"Id": "pl1", "Type": "Playlist"}
+    playlist = {"Id": "pl1", "Type": "Playlist", "Name": "Road Trip"}
     entries = [
         {"Id": "t1", "Type": "Audio", "CanDownload": True, "MediaSources": []},
         {"Id": "m1", "Type": "Movie", "CanDownload": True, "MediaSources": []},
@@ -389,7 +427,17 @@ def test_download_playlist_keeps_only_the_leaves(download_wired):
     actions.download(Request("plugin://x", -1, {"id": "pl1"}))
 
     assert notified == [
-        (ipc.DOWNLOAD_ADD, {"Ids": ["t1", "m1"], "Types": ["Audio", "Movie"]})
+        (
+            ipc.DOWNLOAD_ADD,
+            {
+                "Ids": ["t1", "m1"],
+                "Types": ["Audio", "Movie"],
+                # The case D6 exists for: these two leaves have different
+                # parents, so only the request identifies what was chosen.
+                "Request": "pl1",
+                "RequestName": "Road Trip",
+            },
+        )
     ]
 
 
