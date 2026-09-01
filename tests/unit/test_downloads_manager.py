@@ -530,6 +530,30 @@ def test_remove_all_takes_the_category_folders(tmp_path, repoints):
     assert root.exists()
     assert (foreign / "wedding.mkv").exists()
 
+
+def test_an_artist_directory_prunes_down_to_its_exported_metadata(tmp_path, repoints):
+    """D2 × D5: the music export writes three files at the artist level, once
+    per artist. Removing the artist's last album must still clear them — and
+    still leave ``Music/`` standing."""
+    manager, _refreshes = make_manager(repoints)
+    rel = "Music/The Band/The Album/01 Track.flac"
+    track = _done_row(tmp_path, "s1", rel)
+    root = tmp_path / "dl"
+    artist_dir = track.parent.parent
+    (track.parent / "folder.jpg").write_bytes(b"x")
+    (track.parent / "album.nfo").write_bytes(b"x")
+    (artist_dir / "artist.nfo").write_bytes(b"x")
+    (artist_dir / "folder.jpg").write_bytes(b"x")
+    (artist_dir / "fanart.jpg").write_bytes(b"x")
+
+    manager._apply_remove_batch(["s1"])
+
+    assert not track.parent.exists()
+    assert not artist_dir.exists()
+    assert (root / "Music").exists()
+    assert list((root / "Music").iterdir()) == []
+
+
 def test_sweep_category_dirs_spares_anything_still_holding_something(tmp_path):
     """By name and only when empty. A category folder the user dropped their
     own file into is not kofin's to remove, and neither is a lookalike."""

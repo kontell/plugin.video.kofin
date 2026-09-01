@@ -1722,8 +1722,15 @@ def sweep_category_dirs(root: str) -> int:
 # escape-hatch sidecars must not keep the tree alive. The per-item
 # ``<basename>.nfo`` needs no entry — the sibling sweep in ``_delete_media``
 # already takes everything sharing the media file's stem.
+#
+# ``album.nfo`` and ``artist.nfo`` joined the set with the music export
+# (D5). The artist level is the one that needed it: its three files are
+# written once for a whole artist, so without an entry here an artist
+# directory whose every album had gone would have survived on its own
+# metadata — and now that pruning stops at the category folder rather than
+# the root, nothing above would ever have cleared it.
 EXPORTED_COMPANIONS = frozenset(
-    {"poster.jpg", "fanart.jpg", "tvshow.nfo", "folder.jpg"}
+    {"poster.jpg", "fanart.jpg", "tvshow.nfo", "folder.jpg", "album.nfo", "artist.nfo"}
 )
 
 
