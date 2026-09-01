@@ -6,19 +6,34 @@ from kofin.downloads import store, wire
 
 
 def test_types_pair_positionally_before_blank_ids_are_dropped():
-    ids, origin, kinds = wire.parse_add(
+    parsed = wire.parse_add(
         {"Ids": ["a", "", "c"], "Types": ["Movie", "Episode", "Audio"]}
     )
-    assert ids == ["a", "c"]
-    assert kinds == ["Movie", "Audio"]  # the blank's type went with the blank
-    assert origin == store.ORIGIN_USER
+    assert parsed.ids == ["a", "c"]
+    # the blank's type went with the blank
+    assert parsed.media_types == ["Movie", "Audio"]
+    assert parsed.origin == store.ORIGIN_USER
 
 
 def test_a_short_or_absent_types_list_leaves_kinds_unknown():
-    ids, _origin, kinds = wire.parse_add({"Ids": ["d", "e"], "Types": ["Movie"]})
-    assert ids == ["d", "e"]
-    assert kinds == ["Movie", ""]
-    assert wire.parse_add({"Ids": ["f"]})[2] == [""]
+    parsed = wire.parse_add({"Ids": ["d", "e"], "Types": ["Movie"]})
+    assert parsed.ids == ["d", "e"]
+    assert parsed.media_types == ["Movie", ""]
+    assert wire.parse_add({"Ids": ["f"]}).media_types == [""]
+
+
+def test_a_request_is_optional_and_defaults_to_none_at_all():
+    """D6: a plugin process left over from before the add-on update sends
+    no Request, and a row without one announces per item exactly as every
+    row did before."""
+    parsed = wire.parse_add({"Ids": ["a"]})
+    assert parsed.request_id == "" and parsed.request_name == ""
+
+    parsed = wire.parse_add(
+        {"Ids": ["a", "b"], "Request": "pl1", "RequestName": "Road Trip"}
+    )
+    assert parsed.request_id == "pl1"
+    assert parsed.request_name == "Road Trip"
 
 
 def test_origin_is_user_unless_it_is_a_known_automatic_one():

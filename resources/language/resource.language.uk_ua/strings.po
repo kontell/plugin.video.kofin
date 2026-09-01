@@ -2139,3 +2139,23 @@ msgstr "не відповів"
 msgctxt "#30831"
 msgid "%s did not answer — the address it gave may not work here"
 msgstr "%s не відповів — вказана ним адреса тут може не працювати"
+
+msgctxt "#30832"
+msgid "Storage used"
+msgstr "Зайнято місця"
+
+msgctxt "#30833"
+msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
+msgstr "Показує, де зберігаються завантаження та скільки місця займає кожен тип. Вимірюється сама тека, тож разом із медіафайлами враховуються обкладинки, субтитри й метадані."
+
+msgctxt "#30834"
+msgid "Other files in this folder"
+msgstr "Інші файли в цій теці"
+
+msgctxt "#30835"
+msgid "Nothing has been downloaded yet"
+msgstr "Ще нічого не завантажено"
+
+msgctxt "#30836"
+msgid "Folder too large to measure fully — the totals above are partial"
+msgstr "Тека завелика, щоб виміряти її повністю — підсумки вище неповні"

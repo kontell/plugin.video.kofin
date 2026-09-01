@@ -475,5 +475,10 @@
   "#30828": "Velg en server",
   "#30829": "Ingen Jellyfin-servere svarte — skriv inn adressen manuelt",
   "#30830": "svarte ikke",
-  "#30831": "%s svarte ikke — adressen den oppga fungerer kanskje ikke her"
+  "#30831": "%s svarte ikke — adressen den oppga fungerer kanskje ikke her",
+  "#30832": "Brukt lagringsplass",
+  "#30833": "Vis hvor nedlastingene ligger og hvor mye plass hver type bruker. Det måles på selve mappen, så bilder, undertekster og metadata telles med sammen med mediefilene.",
+  "#30834": "Andre filer i denne mappen",
+  "#30835": "Ingenting er lastet ned ennå",
+  "#30836": "Mappen er for stor til å måles helt — totalene over er ufullstendige"
 }

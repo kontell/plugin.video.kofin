@@ -2139,3 +2139,23 @@ msgstr "nu a răspuns"
 msgctxt "#30831"
 msgid "%s did not answer — the address it gave may not work here"
 msgstr "%s nu a răspuns — adresa indicată s-ar putea să nu funcționeze aici"
+
+msgctxt "#30832"
+msgid "Storage used"
+msgstr "Spațiu folosit"
+
+msgctxt "#30833"
+msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
+msgstr "Arată unde sunt păstrate descărcările și cât spațiu ocupă fiecare tip. Măsurarea se face pe folderul propriu-zis, așa că imaginile, subtitrările și metadatele sunt numărate alături de fișierele media."
+
+msgctxt "#30834"
+msgid "Other files in this folder"
+msgstr "Alte fișiere din acest folder"
+
+msgctxt "#30835"
+msgid "Nothing has been downloaded yet"
+msgstr "Nu a fost descărcat nimic încă"
+
+msgctxt "#30836"
+msgid "Folder too large to measure fully — the totals above are partial"
+msgstr "Folderul este prea mare pentru a fi măsurat complet — totalurile de mai sus sunt parțiale"

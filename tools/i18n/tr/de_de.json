@@ -475,5 +475,10 @@
   "#30828": "Server auswählen",
   "#30829": "Kein Jellyfin-Server hat geantwortet — Adresse manuell eingeben",
   "#30830": "hat nicht geantwortet",
-  "#30831": "%s hat nicht geantwortet — die angegebene Adresse funktioniert hier womöglich nicht"
+  "#30831": "%s hat nicht geantwortet — die angegebene Adresse funktioniert hier womöglich nicht",
+  "#30832": "Belegter Speicher",
+  "#30833": "Zeigt, wo die Downloads liegen und wie viel Platz jede Art belegt. Gemessen wird der Ordner selbst, also zählen Bilder, Untertitel und Metadaten zusammen mit den Medien.",
+  "#30834": "Andere Dateien in diesem Ordner",
+  "#30835": "Es wurde noch nichts heruntergeladen",
+  "#30836": "Ordner zu groß zum vollständigen Messen — die Summen oben sind unvollständig"
 }

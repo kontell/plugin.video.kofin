@@ -185,6 +185,12 @@ def remove_downloads() -> int:
     as the full remove path does — the video database is about to be wiped
     wholesale, so there is nothing left to point anywhere.
 
+    The one thing it takes beyond the rows is kofin's three category
+    directories, and only if they are empty afterwards: this and "delete all
+    downloads" are the two paths that mean *everything*, and they are the
+    exception to the floor the per-row deletes stop at. By name and empty —
+    a shared root keeps everything else in it.
+
     Errors reading the store are deliberately *not* swallowed. Without the
     rows there is no way to know which files were ours, so continuing would
     delete kofin.db and orphan them permanently while reporting success. The
@@ -192,8 +198,8 @@ def remove_downloads() -> int:
     on disk; the wipe is idempotent, so running it again is the fix. A single
     file that will not delete is different, and only costs its own row.
     """
-    from kofin.downloads import store
-    from kofin.downloads.manager import delete_media_files
+    from kofin.downloads import downloads_root, store
+    from kofin.downloads.manager import delete_media_files, sweep_category_dirs
 
     swept = 0
     for row in store.rows():
@@ -202,6 +208,10 @@ def remove_downloads() -> int:
             swept += 1
         except Exception:
             LOG.exception("could not delete download %s", row.jellyfin_id)
+    try:
+        sweep_category_dirs(downloads_root())
+    except Exception:  # pragma: no cover - a leftover folder is not a failure
+        LOG.exception("could not sweep the download category folders")
     LOG.info("removed %d download(s) from disk", swept)
     return swept
 

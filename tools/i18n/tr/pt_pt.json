@@ -475,5 +475,10 @@
   "#30828": "Selecione um servidor",
   "#30829": "Nenhum servidor Jellyfin respondeu — introduza o endereço manualmente",
   "#30830": "não respondeu",
-  "#30831": "%s não respondeu — o endereço indicado pode não funcionar aqui"
+  "#30831": "%s não respondeu — o endereço indicado pode não funcionar aqui",
+  "#30832": "Espaço utilizado",
+  "#30833": "Mostra onde as transferências são guardadas e quanto espaço cada tipo ocupa. A medição é feita na própria pasta, por isso as imagens, as legendas e os metadados contam juntamente com os ficheiros multimédia.",
+  "#30834": "Outros ficheiros nesta pasta",
+  "#30835": "Ainda não foi transferido nada",
+  "#30836": "Pasta demasiado grande para medir por completo — os totais acima são parciais"
 }

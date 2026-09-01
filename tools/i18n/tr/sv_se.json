@@ -475,5 +475,10 @@
   "#30828": "Välj en server",
   "#30829": "Ingen Jellyfin-server svarade — ange adressen manuellt",
   "#30830": "svarade inte",
-  "#30831": "%s svarade inte — adressen den uppgav fungerar kanske inte här"
+  "#30831": "%s svarade inte — adressen den uppgav fungerar kanske inte här",
+  "#30832": "Använt utrymme",
+  "#30833": "Visa var nedladdningarna sparas och hur mycket utrymme varje typ använder. Mätningen görs på själva mappen, så bilder, undertexter och metadata räknas med tillsammans med mediefilerna.",
+  "#30834": "Andra filer i den här mappen",
+  "#30835": "Inget har laddats ned ännu",
+  "#30836": "Mappen är för stor för att mätas helt — summorna ovan är ofullständiga"
 }

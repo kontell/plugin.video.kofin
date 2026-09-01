@@ -529,5 +529,10 @@
   "#30828": "Select a server",
   "#30829": "No Jellyfin servers answered — enter the address manually",
   "#30830": "did not answer",
-  "#30831": "%s did not answer — the address it gave may not work here"
+  "#30831": "%s did not answer — the address it gave may not work here",
+  "#30832": "Storage used",
+  "#30833": "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media.",
+  "#30834": "Other files in this folder",
+  "#30835": "Nothing has been downloaded yet",
+  "#30836": "Folder too large to measure fully — the totals above are partial"
 }

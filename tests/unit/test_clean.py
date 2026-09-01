@@ -359,6 +359,38 @@ def test_remove_downloads_takes_the_files_and_prunes(tmp_path, monkeypatch):
     assert not os.path.exists(str(root / "Show"))
 
 
+def test_remove_downloads_takes_the_category_folders_too(tmp_path, monkeypatch):
+    """D2: Clean library is one of the two paths that mean *everything*, so
+    it takes the three category folders the per-row deletes leave standing —
+    and still nothing else, since the root may be shared."""
+    root = tmp_path / "downloads"
+    os.makedirs(str(root / "Movies" / "The Movie (2019)"))
+    _touch(str(root / "Movies" / "The Movie (2019)" / "The Movie (2019).mkv"))
+    os.makedirs(str(root / "Music" / "The Band" / "The Album"))
+    _touch(str(root / "Music" / "The Band" / "The Album" / "01 Track.flac"))
+    os.makedirs(str(root / "Shows"))  # empty already, still kofin's
+    os.makedirs(str(root / "Home videos"))
+    _touch(str(root / "Home videos" / "wedding.mkv"))
+    monkeypatch.setattr("kofin.downloads.downloads_root", lambda: str(root))
+    monkeypatch.setattr(
+        "kofin.downloads.manager.downloads_root", lambda: str(root), raising=False
+    )
+    monkeypatch.setattr(
+        "kofin.downloads.store.rows",
+        lambda state=None: [
+            _download_row("a", "Movies/The Movie (2019)/The Movie (2019).mkv"),
+            _download_row("b", "Music/The Band/The Album/01 Track.flac"),
+        ],
+    )
+
+    assert clean.remove_downloads() == 2
+
+    for name in ("Movies", "Shows", "Music"):
+        assert not os.path.exists(str(root / name)), name
+    assert os.path.isdir(str(root))
+    assert os.path.exists(str(root / "Home videos" / "wedding.mkv"))
+
+
 def test_remove_downloads_leaves_foreign_files_alone(tmp_path, monkeypatch):
     # The downloads root is user-configurable and may be shared with other
     # media, so the sweep is per-row, never a recursive delete of the root.

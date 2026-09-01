@@ -475,5 +475,10 @@
   "#30828": "Vyberte server",
   "#30829": "Žiadny server Jellyfin neodpovedal — zadajte adresu ručne",
   "#30830": "neodpovedal",
-  "#30831": "%s neodpovedal — zadaná adresa tu nemusí fungovať"
+  "#30831": "%s neodpovedal — zadaná adresa tu nemusí fungovať",
+  "#30832": "Využité miesto",
+  "#30833": "Zobrazí, kde sú stiahnuté súbory uložené a koľko miesta zaberá každý druh. Meria sa priamo priečinok, takže popri médiách sa počítajú aj obrázky, titulky a metadáta.",
+  "#30834": "Ostatné súbory v tomto priečinku",
+  "#30835": "Zatiaľ nebolo nič stiahnuté",
+  "#30836": "Priečinok je príliš veľký na úplné zmeranie — súčty vyššie sú neúplné"
 }

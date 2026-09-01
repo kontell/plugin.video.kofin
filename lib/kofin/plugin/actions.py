@@ -1,7 +1,7 @@
 """Small RunPlugin actions: watched/favorite toggles, settings, library
 maintenance buttons (Library tab -> IPC -> service library manager)."""
 
-from typing import Any, List, Union
+from typing import Any, Dict, List, Union
 
 import xbmc
 import xbmcgui
@@ -214,6 +214,20 @@ def _human_size(size_bytes: int) -> str:
     return "%d MB" % max(1, size_bytes // 1024**2)
 
 
+def _report_size(size_bytes: int) -> str:
+    """``_human_size`` with the floor removed for the size report (D1).
+
+    That floor exists for the confirm dialogs, where "0 MB" for a small
+    download would read as "this costs nothing" — but a *report* has real
+    zeroes in it, a category nothing has ever been downloaded into, and
+    telling somebody they are using 1 MB of a folder that is empty is the
+    one number here that is simply false.
+    """
+    if size_bytes <= 0:
+        return "0 MB"
+    return _human_size(size_bytes)
+
+
 # What actually downloads: everything else expands to these.
 DOWNLOAD_LEAF_TYPES = ("Movie", "Episode", "Audio")
 
@@ -388,6 +402,7 @@ def download(request: Request) -> None:
         return
 
     from kofin.downloads import store
+    from kofin.plugin.context import DOWNLOAD_CONTAINER_TYPES
 
     live = {row.jellyfin_id for row in store.rows() if row.state != store.FAILED}
     wanted = [
@@ -407,13 +422,21 @@ def download(request: Request) -> None:
     # The types travel with the ids: the manager sizes its two worker pools
     # by media kind, and the kind is not knowable from an id alone without
     # the very server round trip the queue is trying to get ahead of.
-    ipc.notify(
-        ipc.DOWNLOAD_ADD,
-        {
-            "Ids": [child["Id"] for child in wanted],
-            "Types": [str(child.get("Type") or "") for child in wanted],
-        },
-    )
+    #
+    # So does the request — the container this expanded, and what to call it
+    # (D6). This is the only place that knows it: by the time a row reaches
+    # the manager it holds its item's own parent, which for a playlist's
+    # tracks is a different album each, and the completion toast grouped on
+    # that fired once per track for one thing the user chose once. Sent only
+    # for a real container, so a single item still announces itself.
+    payload: Dict[str, Any] = {
+        "Ids": [child["Id"] for child in wanted],
+        "Types": [str(child.get("Type") or "") for child in wanted],
+    }
+    if item.get("Type") in DOWNLOAD_CONTAINER_TYPES:
+        payload["Request"] = item_id
+        payload["RequestName"] = str(item.get("Name") or "")
+    ipc.notify(ipc.DOWNLOAD_ADD, payload)
     _download_toast(30711, len(wanted))
 
 
@@ -506,6 +529,82 @@ def delete_all_downloads(request: Request) -> None:
         return
 
     ipc.notify(ipc.DOWNLOAD_REMOVE_ALL)
+
+
+def download_size(request: Request) -> None:
+    """Settings button: where the downloads are and what they weigh (D1).
+
+    Read-only. Picking a row does nothing; the dialog exists to be read, and
+    answering it returns to the Downloads settings rather than dumping the
+    user in the library (the button carries no ``<close>``, like "Manage
+    shows" beside it).
+
+    Each size goes in the row's own **label**, not in ``label2``. That was
+    the first shape, on the reasoning that label2 is where a skin puts a
+    right-hand value and would line the column up without assuming a
+    monospace font — and it renders as nothing at all: measured on Omega
+    21.3 under Estuary, ``Dialog().select`` drew five rows reading "Movies",
+    "TV shows", "Music", "Total", "Free" and not one number (S-D1). The
+    dialog's plain list layout has no second field; only ``useDetails=True``
+    switches to one that does, and that is a per-skin layout to depend on
+    for the whole content of the report. A label carries everywhere.
+
+    The walk happens here, in the plugin process, which must stay thin — so
+    it is stat-only, bounded (``usage.MAX_ENTRIES``), and covered by a
+    background progress dialog for a root on slow or network storage.
+    """
+    from kofin.downloads import downloads_root, usage
+
+    root = downloads_root()
+    progress = xbmcgui.DialogProgressBG()
+    try:
+        progress.create(settings.localized(30832))
+        report = usage.scan(root)
+    finally:
+        try:
+            progress.close()
+        except Exception:  # pragma: no cover - Kodi's own dialog bookkeeping
+            LOG.debug("progress dialog would not close")
+
+    if report.empty:
+        toast.show(settings.localized(30835), time_ms=4000)
+        return
+
+    rows: List[Union[str, xbmcgui.ListItem]] = [
+        # The capped notice is a sentence, not a measurement, and carries no
+        # value to append.
+        "%s:  %s" % (label, value) if value else label
+        for label, value in size_rows(report)
+    ]
+    # The heading names the folder, because "where" is half the question the
+    # button answers and a path is too long for a row label.
+    xbmcgui.Dialog().select("%s — %s" % (settings.localized(30832), root), rows)
+
+
+def size_rows(report: Any) -> List[tuple]:
+    """``[(label, value)]`` for the size report — the whole decision, kept
+    out of the widget so it can be tested without one."""
+    rows = [
+        (
+            (
+                settings.localized(bucket.label_id)
+                if bucket.label_id >= 30000
+                else xbmc.getLocalizedString(bucket.label_id)
+            ),
+            _report_size(bucket.size),
+        )
+        for bucket in report.buckets
+    ]
+    rows.append((xbmc.getLocalizedString(20161), _report_size(report.total)))
+    if report.free >= 0:
+        # -1 is "could not tell" (an exotic mount, a permissions refusal),
+        # and the row is dropped rather than shown empty or as zero — zero
+        # is a real answer meaning a full disk, and the two must not read
+        # alike to somebody deciding whether to download something.
+        rows.append((xbmc.getLocalizedString(160), _report_size(report.free)))
+    if report.capped:
+        rows.append((settings.localized(30836), ""))
+    return rows
 
 
 def cancel_download(request: Request) -> None:

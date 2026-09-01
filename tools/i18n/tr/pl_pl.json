@@ -475,5 +475,10 @@
   "#30828": "Wybierz serwer",
   "#30829": "Żaden serwer Jellyfin nie odpowiedział — wpisz adres ręcznie",
   "#30830": "nie odpowiedział",
-  "#30831": "%s nie odpowiedział — podany adres może tu nie działać"
+  "#30831": "%s nie odpowiedział — podany adres może tu nie działać",
+  "#30832": "Zajęte miejsce",
+  "#30833": "Pokazuje, gdzie przechowywane są pobrane pliki i ile miejsca zajmuje każdy rodzaj. Pomiar dotyczy samego folderu, więc obok multimediów liczą się też grafiki, napisy i metadane.",
+  "#30834": "Inne pliki w tym folderze",
+  "#30835": "Nic jeszcze nie zostało pobrane",
+  "#30836": "Folder jest zbyt duży, aby zmierzyć go w całości — powyższe sumy są niepełne"
 }

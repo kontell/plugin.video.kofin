@@ -475,5 +475,10 @@
   "#30828": "Válasszon kiszolgálót",
   "#30829": "Egyetlen Jellyfin-kiszolgáló sem válaszolt — adja meg a címet kézzel",
   "#30830": "nem válaszolt",
-  "#30831": "%s nem válaszolt — a megadott cím itt nem feltétlenül működik"
+  "#30831": "%s nem válaszolt — a megadott cím itt nem feltétlenül működik",
+  "#30832": "Felhasznált tárhely",
+  "#30833": "Megmutatja, hol tárolódnak a letöltések, és melyik típus mennyi helyet foglal. A mérés magán a mappán történik, így a képek, a feliratok és a metaadatok is beleszámítanak a médiafájlok mellett.",
+  "#30834": "Egyéb fájlok ebben a mappában",
+  "#30835": "Még nincs letöltve semmi",
+  "#30836": "A mappa túl nagy a teljes méréshez — a fenti összegek részlegesek"
 }

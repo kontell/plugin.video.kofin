@@ -1397,6 +1397,7 @@ class FakeDownloadManager:
         self.submitted = []
         self.origins = []
         self.media_types = []
+        self.requests = []
         self.cancelled = []
         self.removed = []
 
@@ -1406,10 +1407,13 @@ class FakeDownloadManager:
     def stop(self):
         self.stopped += 1
 
-    def submit(self, ids, origin="user", media_types=None):
+    def submit(
+        self, ids, origin="user", media_types=None, request_id="", request_name=""
+    ):
         self.submitted.append(list(ids))
         self.origins.append(origin)
         self.media_types.append(list(media_types or []))
+        self.requests.append((request_id, request_name))
 
     def cancel(self, item_id):
         self.cancelled.append(item_id)

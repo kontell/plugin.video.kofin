@@ -475,5 +475,10 @@
   "#30828": "Kies een server",
   "#30829": "Geen enkele Jellyfin-server antwoordde — voer het adres handmatig in",
   "#30830": "gaf geen antwoord",
-  "#30831": "%s gaf geen antwoord — het opgegeven adres werkt hier misschien niet"
+  "#30831": "%s gaf geen antwoord — het opgegeven adres werkt hier misschien niet",
+  "#30832": "Gebruikte opslag",
+  "#30833": "Laat zien waar de downloads staan en hoeveel ruimte elke soort inneemt. Er wordt op de map zelf gemeten, dus afbeeldingen, ondertitels en metadata tellen mee naast de media.",
+  "#30834": "Andere bestanden in deze map",
+  "#30835": "Er is nog niets gedownload",
+  "#30836": "Map te groot om helemaal te meten — de totalen hierboven zijn onvolledig"
 }

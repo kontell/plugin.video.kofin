@@ -79,6 +79,16 @@ def _field(tag: str, value: Any) -> str:
     return "<%s>%s</%s>" % (tag, escape(str(value)), tag)
 
 
+def _repeated(tag: str, values: Any) -> List[str]:
+    """One element per value — Kodi reads ``genre`` and album ``artist`` with
+    ``XMLUtils::GetStringArray``, which collects repeats."""
+    return [_field(tag, value) for value in (values or []) if value]
+
+
+def _provider(item: JsonDict, key: str) -> str:
+    return str((item.get("ProviderIds") or {}).get(key) or "")
+
+
 def _date_part(value: Any) -> str:
     return str(value or "").split("T")[0]
 
@@ -121,6 +131,83 @@ def tvshow_nfo(series: JsonDict) -> str:
         ]
         + uniqueid_lines(series.get("ProviderIds")),
     )
+
+
+# The music NFOs take *named* MusicBrainz elements, not the ``<uniqueid>``
+# rows the video ones carry — Kodi's music side has no uniqueid table, and
+# CAlbum::Load / CArtist::Load read these names and nothing else.
+#
+# The casing is Kodi's, and it is load-bearing: XMLUtils::GetString matches
+# case-sensitively, and Kodi spells the album's id all lowercase
+# (``musicbrainzalbumid``, Album.cpp) and the artist's in camel case
+# (``musicBrainzArtistID``, Artist.cpp). Verified against the Omega/Piers
+# sources in ref/xbmc, not from memory — a mis-cased tag is silently dropped.
+def album_nfo(album: JsonDict) -> str:
+    return (
+        _document(
+            "album",
+            [
+                _field("title", album.get("Name")),
+                _field("artistdesc", album.get("AlbumArtist")),
+            ]
+            + _repeated("artist", _artist_names(album))
+            + _repeated("genre", album.get("Genres"))
+            + [
+                # <year> rather than <releasedate>: Kodi falls back to it when
+                # the ISO date is absent, and ProductionYear is the field
+                # every Jellyfin album actually has.
+                _field("year", album.get("ProductionYear")),
+                _field("review", album.get("Overview")),
+                _field("musicbrainzalbumid", _provider(album, "MusicBrainzAlbum")),
+                _field(
+                    "musicbrainzreleasegroupid",
+                    _provider(album, "MusicBrainzReleaseGroup"),
+                ),
+            ],
+        )
+        if album
+        else ""
+    )
+
+
+def artist_nfo(artist: JsonDict) -> str:
+    return _document(
+        "artist",
+        [_field("name", artist.get("Name"))]
+        + _repeated("genre", artist.get("Genres"))
+        + [
+            _field("biography", artist.get("Overview")),
+            _field("musicBrainzArtistID", _provider(artist, "MusicBrainzArtist")),
+        ],
+    )
+
+
+def _artist_names(item: JsonDict) -> List[str]:
+    """Album-artist names, from the entity list or the flat string."""
+    names = [
+        str(entry.get("Name") or "")
+        for entry in (item.get("AlbumArtists") or [])
+        if entry.get("Name")
+    ]
+    if names:
+        return names
+    single = str(item.get("AlbumArtist") or "")
+    return [single] if single else []
+
+
+def _album_artist_id(item: JsonDict) -> str:
+    """The Jellyfin id of the artist whose directory a track sits in.
+
+    ``AlbumArtists`` first, because that is what ``files.item_dirs`` names
+    the directory from; ``ArtistItems`` is the fallback for a track whose
+    album artist is only a tag. A name with no entity behind it answers
+    empty, and nothing artist-level is written — there is nothing to fetch.
+    """
+    for key in ("AlbumArtists", "ArtistItems"):
+        for entry in item.get(key) or []:
+            if entry.get("Id"):
+                return str(entry["Id"])
+    return ""
 
 
 def _write_text(path: str, content: str) -> None:
@@ -210,7 +297,33 @@ def _export_episode(api: Any, item: JsonDict, media_path: str) -> None:
 
 
 def _export_song(api: Any, item: JsonDict, media_path: str) -> None:
+    """Album art, then the album NFO, then the artist level (D5).
+
+    In that order on purpose: the cover is what every scanner and file
+    browser wants and it needs no fetch, so a server that fails the album or
+    artist lookup must not cost the track the one file it could always have
+    had. Each level below is one fetch, made only when its NFO is absent —
+    the same "one series fetch, only when it is absent" rule the show level
+    follows, and what keeps a twelve-track album to one album lookup and one
+    artist lookup rather than twenty-four.
+    """
     directory = os.path.dirname(media_path)
+    _export_album_art(api, item, directory)
+
+    album_id = str(item.get("AlbumId") or "")
+    album_nfo_path = os.path.join(directory, "album.nfo")
+    if album_id and not os.path.exists(album_nfo_path):
+        document = album_nfo(api.item(album_id))
+        if document:
+            _write_text(album_nfo_path, document)
+
+    # ``Music/<AlbumArtist>/<Album>`` — the artist level is the album
+    # directory's parent, read off the layout the way the episode leg reads
+    # the show directory off its season's.
+    _export_artist(api, item, os.path.dirname(directory))
+
+
+def _export_album_art(api: Any, item: JsonDict, directory: str) -> None:
     album_id = str(item.get("AlbumId") or "")
     album_tag = str(item.get("AlbumPrimaryImageTag") or "")
     if album_id and album_tag:
@@ -225,4 +338,40 @@ def _export_song(api: Any, item: JsonDict, media_path: str) -> None:
         str(item.get("Id") or ""),
         "Primary",
         str(tags.get("Primary") or ""),
+    )
+
+
+def _export_artist(api: Any, item: JsonDict, artist_dir: str) -> None:
+    """``artist.nfo`` plus the artist's own poster and backdrop.
+
+    Gated on the NFO alone, and the images ride on the same fetch: a song
+    DTO carries no artist image tags at all (unlike an episode, which is
+    handed ``SeriesPrimaryImageTag``), so there is no way to write the art
+    without the lookup — and once the NFO is there, the art was written on
+    the pass that made it.
+    """
+    artist_id = _album_artist_id(item)
+    if not artist_id:
+        return
+    nfo_path = os.path.join(artist_dir, "artist.nfo")
+    if os.path.exists(nfo_path):
+        return
+    artist = api.item(artist_id)
+    if not artist:
+        return
+    _write_text(nfo_path, artist_nfo(artist))
+    tags = artist.get("ImageTags") or {}
+    _write_image(
+        api,
+        os.path.join(artist_dir, "folder.jpg"),
+        artist_id,
+        "Primary",
+        str(tags.get("Primary") or ""),
+    )
+    _write_image(
+        api,
+        os.path.join(artist_dir, "fanart.jpg"),
+        artist_id,
+        "Backdrop",
+        _backdrop_tag(artist),
     )

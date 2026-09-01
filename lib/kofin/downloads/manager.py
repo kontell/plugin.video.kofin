@@ -22,7 +22,17 @@ import threading
 import time
 from datetime import datetime
 from queue import Empty, Queue
-from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    NamedTuple,
+    Optional,
+    Set,
+    Tuple,
+)
 
 import xbmc
 
@@ -107,6 +117,23 @@ class _Cancelled(Exception):
     """The item was cancelled mid-transfer (never an error)."""
 
 
+class _Op(NamedTuple):
+    """One item on the ops queue, applied by whichever worker drains it.
+
+    Named rather than a bare tuple since the request fields joined it (D6):
+    four positional strings could be read against the wrong slot at a
+    glance, six could not be read at all, and every op but ``add`` leaves
+    most of them empty.
+    """
+
+    op: str
+    item_id: str = ""
+    origin: str = ""
+    media_type: str = ""
+    request_id: str = ""
+    request_name: str = ""
+
+
 def worker_count() -> int:
     configured = settings.get_int("downloadsMaxParallel")
     return max(1, min(4, configured or 2))
@@ -148,7 +175,7 @@ class DownloadManager:
         # other obvious shape, would drop.
         self._wakes: List[threading.Event] = []
         self._wakes_lock = threading.Lock()
-        self._ops: "Queue[Tuple[str, str, str, str]]" = Queue()
+        self._ops: "Queue[_Op]" = Queue()
         self._cancels: set = set()
         self._cancels_lock = threading.Lock()
         self._attempts: Dict[str, int] = {}
@@ -254,25 +281,34 @@ class DownloadManager:
         item_ids: List[str],
         origin: str = store.ORIGIN_USER,
         media_types: Optional[List[str]] = None,
+        request_id: str = "",
+        request_name: str = "",
     ) -> None:
         """Queue ids, optionally with each one's Jellyfin DTO type.
 
         The type is what lets a row be claimed by the right worker pool
         before anything has been fetched for it. Unknown is fine and stays
         unknown until ``record_details`` learns it the slow way.
+
+        ``request_id``/``request_name`` name the container the sender
+        expanded, and ride onto every row this call creates so the
+        completion toast can answer the request rather than each item
+        (D6, ``_announce_complete``).
         """
         kinds = media_types or []
         for index, item_id in enumerate(item_ids):
             if not item_id:
                 continue
             kind = MEDIA_TYPE_BY_DTO.get(kinds[index] if index < len(kinds) else "", "")
-            self._ops.put(("add", str(item_id), origin, kind))
+            self._ops.put(
+                _Op("add", str(item_id), origin, kind, request_id, request_name)
+            )
         self._wake_all()
 
     def cancel(self, item_id: str) -> None:
         with self._cancels_lock:
             self._cancels.add(item_id)
-        self._ops.put(("cancel", item_id, "", ""))
+        self._ops.put(_Op("cancel", item_id))
         self._wake_all()
 
     def remove(self, item_ids: List[str]) -> None:
@@ -286,13 +322,13 @@ class DownloadManager:
         toast twice for one press — and the batch is what lets the refresh
         and the toast fire once at the end, exactly as ``remove_all`` does.
 
-        Joined into the op tuple's id slot rather than widening it: Jellyfin
+        Joined into the op record's id slot rather than widening it: Jellyfin
         ids are hex, so the separator cannot appear in one.
         """
         wanted = [item_id for item_id in item_ids if item_id]
         if not wanted:
             return
-        self._ops.put(("remove", ",".join(wanted), "", ""))
+        self._ops.put(_Op("remove", ",".join(wanted)))
         self._wake_all()
 
     def remove_all(self) -> None:
@@ -303,7 +339,7 @@ class DownloadManager:
         would put a whole library's worth of messages through Kodi's
         notification bus for a single button press.
         """
-        self._ops.put(("removeall", "", "", ""))
+        self._ops.put(_Op("removeall"))
         self._wake_all()
 
     def _cancelled(self, item_id: str) -> bool:
@@ -403,37 +439,41 @@ class DownloadManager:
         queued = False
         while True:
             try:
-                op, item_id, origin, media_type = self._ops.get_nowait()
+                entry = self._ops.get_nowait()
             except Empty:
                 break
             try:
-                if op == "add":
-                    queued = self._apply_add(item_id, origin, media_type) or queued
-                elif op == "cancel":
-                    self._apply_cancel(item_id)
-                elif op == "remove":
-                    self._apply_remove_batch(item_id.split(","))
-                elif op == "removeall":
+                if entry.op == "add":
+                    queued = self._apply_add(entry) or queued
+                elif entry.op == "cancel":
+                    self._apply_cancel(entry.item_id)
+                elif entry.op == "remove":
+                    self._apply_remove_batch(entry.item_id.split(","))
+                elif entry.op == "removeall":
                     self._apply_remove_all()
             except Exception:
-                LOG.exception("download op %s failed for %s", op, item_id)
+                LOG.exception("download op %s failed for %s", entry.op, entry.item_id)
         if queued:
             self._wake_all(skip=own)
 
-    def _apply_add(self, item_id: str, origin: str, media_type: str = "") -> bool:
+    def _apply_add(self, entry: "_Op") -> bool:
         """Queue a row; True when one was actually created (see _drain_ops)."""
         if store.queue(
             store.Download(
-                jellyfin_id=item_id, origin=origin, media_type=media_type or ""
+                jellyfin_id=entry.item_id,
+                origin=entry.origin,
+                media_type=entry.media_type or "",
+                request_id=entry.request_id,
+                request_name=entry.request_name,
             )
         ):
-            self._attempts.pop(item_id, None)
-            # New work re-arms every album announcement: downloading an
-            # album, removing it and downloading it again should say so
+            self._attempts.pop(entry.item_id, None)
+            # New work re-arms every announcement: downloading an album or a
+            # playlist, removing it and downloading it again should say so
             # both times (_announce_complete).
             with self._announce_lock:
                 self._announced.clear()
-            LOG.info("download queued: %s", item_id)
+            LOG.info("download queued: %s", entry.item_id)
             return True
         return False
 
@@ -520,14 +560,23 @@ class DownloadManager:
         back on the ops queue: a row being transferred right now aborts at
         its next chunk off that flag, and re-queueing would mean one op per
         row for work this loop is already doing.
+
+        This is one of the two places that means *everything*, so it also
+        takes the category directories the per-row deletes leave standing —
+        after it, the downloads root is as bare as it was before the feature
+        was ever used. Not attempted when a stop cut the loop short: rows
+        that never got their turn still have files, and a sweep would find
+        the directories non-empty anyway.
         """
         rows = store.rows()
 
         if not rows:
             return
 
+        stopped = False
         for row in rows:
             if self._should_stop():
+                stopped = True
                 break
             if row.state == store.DONE:
                 self._apply_remove(row.jellyfin_id)
@@ -536,6 +585,8 @@ class DownloadManager:
                     self._cancels.add(row.jellyfin_id)
                 self._apply_cancel(row.jellyfin_id)
 
+        if not stopped:
+            sweep_category_dirs(downloads_root())
         LOG.info("removed all %d download(s)", len(rows))
         self._flush_refresh(force=True)
         self._flush_removed()
@@ -664,7 +715,7 @@ class DownloadManager:
         # twelve times over. The flusher does it once the pool goes quiet,
         # for the databases that actually moved.
         self._mark_dirty(media_type)
-        self._announce_complete(media_type, group_id, item)
+        self._announce_complete(media_type, group_id, item, finished)
         LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
 
     def _capture_segments(self, api: Any, item_id: str) -> None:
@@ -1042,14 +1093,19 @@ class DownloadManager:
         The prune matters here as much as in ``_delete_media``: a cancel
         before the first byte lands still made the season folder on its way
         in, and without this an empty ``Season 03/`` survived every cancel
-        (found live, G6a).
+        (found live, G6a). It stops at the same category floor, for the same
+        reason and deliberately not one level lower: a cancel and a delete
+        must leave the tree in the same shape, or which of the two you last
+        did would decide whether ``Movies/`` is still there.
         """
         if not row.rel_path:
             return
         root = downloads_root()
         absolute = files.absolute_path(root, row.rel_path)
         _remove_quietly(files.part_path(root, row.rel_path))
-        _prune_empty_dirs(os.path.dirname(absolute), root)
+        _prune_empty_dirs(
+            os.path.dirname(absolute), _category_floor(root, row.rel_path)
+        )
 
     def _delete_media(self, row: "store.Download") -> None:
         """The media file, its .part and its sidecars, then any empty dirs."""
@@ -1444,31 +1500,65 @@ class DownloadManager:
             LOG.exception("downloads refresh failed")
 
     def _announce_complete(
-        self, media_type: str, group_id: str, item: JsonDict
+        self,
+        media_type: str,
+        group_id: str,
+        item: JsonDict,
+        row: Optional["store.Download"] = None,
     ) -> None:
-        """One "Download complete" per album, not one per track.
+        """One "Download complete" per *request*, not one per track.
 
-        A track is seconds of work and an album lands as a burst, so the
+        A track is seconds of work and a batch lands as a burst, so the
         per-item toast stacked a dozen notifications naming songs nobody
-        had asked for individually — the album is the thing they asked for.
-        Video keeps its per-item toast: a film or an episode *is* the unit
-        somebody chose, and they finish minutes apart.
+        had asked for individually — what they asked for was the album, or
+        the playlist. Video keeps its per-item toast: a film or an episode
+        *is* the unit somebody chose, and they finish minutes apart.
 
-        The album is announced by whichever worker finishes the last of it,
-        claimed under the lock so two tracks landing together cannot both
-        be last. ``_apply_add`` re-arms every album when anything new is
-        queued, so downloading the same one again announces again.
+        The unit is the request, and that is the fix D6 makes. Grouping
+        used to be by ``group_id`` — the item's own ``SeriesId or AlbumId``
+        — which answers an album download correctly and a *playlist*
+        download not at all: twelve tracks off twelve albums are twelve
+        complete albums, so one request produced twelve toasts. A request
+        that expanded to more than one song is announced once, under its
+        own name; the album grouping stays underneath it for anything
+        queued before this shipped, or by a path that names no request.
+
+        Announced by whichever worker finishes the last of it, claimed
+        under the lock so two tracks landing together cannot both be last.
+        ``_apply_add`` re-arms when anything new is queued, so downloading
+        the same album or playlist again announces again.
         """
-        if media_type != "song" or not group_id:
+        if media_type != "song":
             self._toast(30712, item.get("Name") or item.get("Id", ""))
             return
-        with self._announce_lock:
-            if group_id in self._announced:
+        if row is None:
+            row = store.get(str(item.get("Id") or ""))
+        request_id = row.request_id if row is not None else ""
+        if request_id:
+            counts = store.request_counts(request_id)
+            if counts["total"] > 1:
+                name = (row.request_name if row is not None else "") or request_id
+                self._announce_once(request_id, counts["pending"], name)
                 return
-            if store.container_counts(group_id)["pending"]:
-                return  # more of this album is still coming
-            self._announced.add(group_id)
-        self._toast(30712, item.get("Album") or item.get("Name") or group_id)
+        if not group_id:
+            self._toast(30712, item.get("Name") or item.get("Id", ""))
+            return
+        self._announce_once(
+            group_id,
+            store.container_counts(group_id)["pending"],
+            item.get("Album") or item.get("Name") or group_id,
+        )
+
+    def _announce_once(self, key: str, pending: int, name: Any) -> None:
+        """Toast for ``key`` when nothing under it is still coming, and only
+        for the worker that gets there first."""
+        with self._announce_lock:
+            if key in self._announced:
+                return
+            if pending:
+                return  # more of this one is still coming
+            self._announced.add(key)
+        self._toast(30712, name)
 
     def _flush_removed(self) -> None:
         """Announce the batch just deleted: the item by name when it is one,
@@ -1652,7 +1742,53 @@ def delete_media_files(row: "store.Download") -> None:
                 _remove_quietly(os.path.join(directory, name))
     except OSError:
         pass
-    _prune_empty_dirs(directory, root)
+    _prune_empty_dirs(directory, _category_floor(root, row.rel_path))
+
+
+# The three directories the layout puts under the root (files.item_dirs).
+# They are a floor, not a target: deleting downloads one at a time prunes
+# the title, season and album directories inside them and stops there, so
+# a folder the user has pointed something at — a Kodi source, a file
+# manager shortcut — does not disappear from under it the moment its last
+# item goes. Only the two bulk paths take them (sweep_category_dirs).
+CATEGORY_DIRS = frozenset({files.MOVIES_DIR, files.SHOWS_DIR, files.MUSIC_DIR})
+
+
+def _category_floor(root: str, rel_path: str) -> str:
+    """The directory pruning must stop at for ``rel_path``.
+
+    ``<root>/<category>`` when the path starts with one of the three names
+    the layout writes, and the root itself for anything else — a row whose
+    layout predates a category, or a hand-made path, prunes exactly as it
+    did before rather than being kept alive by a name nobody recognises.
+    """
+    head = rel_path.split("/", 1)[0]
+    if head in CATEGORY_DIRS:
+        return os.path.join(root, head)
+    return root
+
+
+def sweep_category_dirs(root: str) -> int:
+    """Remove the empty category directories, and only those. Returns how
+    many went.
+
+    The other half of the floor above: "delete all downloads" and the Clean
+    databases pass are the two places that mean *everything*, so they take
+    the folders the per-row deletes deliberately leave. By name and only
+    when empty — the root is user-configurable and may be shared with other
+    media, so a directory that is not one of kofin's three, or that still
+    holds anything at all, is never touched. The root itself is never a
+    candidate.
+    """
+    swept = 0
+    for name in sorted(CATEGORY_DIRS):
+        directory = os.path.join(root, name)
+        try:
+            os.rmdir(directory)
+        except OSError:
+            continue
+        swept += 1
+    return swept
 
 
 # What the metadata export leaves at directory level (W4.3). A directory
@@ -1660,8 +1796,15 @@ def delete_media_files(row: "store.Download") -> None:
 # escape-hatch sidecars must not keep the tree alive. The per-item
 # ``<basename>.nfo`` needs no entry — the sibling sweep in ``_delete_media``
 # already takes everything sharing the media file's stem.
+#
+# ``album.nfo`` and ``artist.nfo`` joined the set with the music export
+# (D5). The artist level is the one that needed it: its three files are
+# written once for a whole artist, so without an entry here an artist
+# directory whose every album had gone would have survived on its own
+# metadata — and now that pruning stops at the category folder rather than
+# the root, nothing above would ever have cleared it.
 EXPORTED_COMPANIONS = frozenset(
-    {"poster.jpg", "fanart.jpg", "tvshow.nfo", "folder.jpg"}
+    {"poster.jpg", "fanart.jpg", "tvshow.nfo", "folder.jpg", "album.nfo", "artist.nfo"}
 )
 
 
@@ -1676,11 +1819,17 @@ def _sweep_exported(directory: str) -> None:
         _remove_quietly(os.path.join(directory, name))
 
 
-def _prune_empty_dirs(directory: str, root: str) -> None:
-    """Remove now-empty directories up to (never including) the root; a
-    directory down to its exported metadata counts as empty."""
+def _prune_empty_dirs(directory: str, floor: str) -> None:
+    """Remove now-empty directories up to (never including) ``floor``; a
+    directory down to its exported metadata counts as empty.
+
+    ``floor`` is the category directory for a row that has one and the
+    downloads root otherwise (:func:`_category_floor`) — it used to be the
+    root always, which is what took ``Movies/`` away with the last film in
+    it.
+    """
     current = os.path.abspath(directory)
-    stop = os.path.abspath(root)
+    stop = os.path.abspath(floor)
     while current.startswith(stop) and current != stop:
         _sweep_exported(current)
         try:

@@ -2265,3 +2265,38 @@ msgstr ""
 msgctxt "#30831"
 msgid "%s did not answer — the address it gave may not work here"
 msgstr ""
+
+# 30832-30836 — the download size report (Downloads tab, directly above
+# "Delete all downloads"). #30832 labels the button and heads the dialog it
+# opens, where it is followed by an em dash and the folder's path. The rows
+# themselves reuse Kodi's own strings — #342 Movies, #20343 TV shows, #2
+# Music, #20161 Total, #160 Free — so only the two below need translating.
+msgctxt "#30832"
+msgid "Storage used"
+msgstr ""
+
+msgctxt "#30833"
+msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
+msgstr ""
+
+# The row for everything under the downloads folder that kofin did not put
+# there. It is listed rather than left out because the folder may be shared
+# with other media, and a total that quietly ignored those files would not
+# match what the user's own file manager reports. Not simply "Other": beside
+# Movies, TV shows and Music that reads as another kind of media.
+msgctxt "#30834"
+msgid "Other files in this folder"
+msgstr ""
+
+# Shown instead of the report when the downloads folder holds nothing at all
+# — including the case where it does not exist yet, which is normal before
+# the first download.
+msgctxt "#30835"
+msgid "Nothing has been downloaded yet"
+msgstr ""
+
+# The walk has a ceiling, and stopping at it is said out loud rather than
+# hidden: a total that quietly stopped counting is worse than no total.
+msgctxt "#30836"
+msgid "Folder too large to measure fully — the totals above are partial"
+msgstr ""

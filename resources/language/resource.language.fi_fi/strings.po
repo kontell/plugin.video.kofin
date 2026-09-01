@@ -2139,3 +2139,23 @@ msgstr "ei vastannut"
 msgctxt "#30831"
 msgid "%s did not answer — the address it gave may not work here"
 msgstr "%s ei vastannut — sen antama osoite ei ehkä toimi täältä"
+
+msgctxt "#30832"
+msgid "Storage used"
+msgstr "Käytetty tila"
+
+msgctxt "#30833"
+msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
+msgstr "Näytä, missä lataukset säilytetään ja kuinka paljon tilaa kukin tyyppi vie. Mittaus tehdään itse kansiosta, joten mukaan lasketaan myös kuvitus, tekstitykset ja metatiedot."
+
+msgctxt "#30834"
+msgid "Other files in this folder"
+msgstr "Muut tämän kansion tiedostot"
+
+msgctxt "#30835"
+msgid "Nothing has been downloaded yet"
+msgstr "Mitään ei ole vielä ladattu"
+
+msgctxt "#30836"
+msgid "Folder too large to measure fully — the totals above are partial"
+msgstr "Kansio on liian suuri mitattavaksi kokonaan — yllä olevat summat ovat osittaisia"

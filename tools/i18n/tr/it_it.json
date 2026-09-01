@@ -475,5 +475,10 @@
   "#30828": "Seleziona un server",
   "#30829": "Nessun server Jellyfin ha risposto — inserisci l'indirizzo manualmente",
   "#30830": "non ha risposto",
-  "#30831": "%s non ha risposto — l'indirizzo fornito potrebbe non funzionare qui"
+  "#30831": "%s non ha risposto — l'indirizzo fornito potrebbe non funzionare qui",
+  "#30832": "Spazio utilizzato",
+  "#30833": "Mostra dove sono conservati i download e quanto spazio occupa ogni tipo. La misurazione riguarda la cartella stessa, quindi conta anche immagini, sottotitoli e metadati insieme ai file multimediali.",
+  "#30834": "Altri file in questa cartella",
+  "#30835": "Non è ancora stato scaricato nulla",
+  "#30836": "Cartella troppo grande per essere misurata del tutto — i totali qui sopra sono parziali"
 }

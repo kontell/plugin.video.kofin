@@ -1057,6 +1057,56 @@ def test_remove_offer_covers_automatic_downloads_too(monkeypatch):
     assert notified == []
 
 
+def test_a_finished_song_is_never_offered_for_removal(monkeypatch):
+    """D3: video only, the same rule ``offer_delete`` has always had.
+
+    A downloaded track played to its end raised "Remove download?" every
+    time — this path was the one of the three watched-download rules that
+    never got the type gate (the retention sweep and ``_mark_watched`` both
+    skip a song). Both modes are asserted: the silent one must not notify,
+    and the prompting one must not raise a dialog. An episode in exactly
+    the same state still goes through, or the gate would be a mute button.
+    """
+    from kofin.downloads import store as downloads_store
+    from kofin.service import player as player_module
+
+    player, _api = make_player(monkeypatch)
+    notified = []
+    dialogs = []
+    monkeypatch.setattr(
+        player_module.ipc, "notify", lambda m, d=None: notified.append((m, d))
+    )
+    monkeypatch.setattr(player_module.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(player_module.settings, "localized", lambda i: "L%d %%s" % i)
+
+    class YesDialog:
+        def yesno(self, heading, message, **kwargs):
+            dialogs.append(heading)
+            return True
+
+    monkeypatch.setattr(player_module.xbmcgui, "Dialog", YesDialog)
+    row = downloads_store.Download(
+        jellyfin_id="d1", media_type="song", state=downloads_store.DONE, origin="user"
+    )
+    monkeypatch.setattr("kofin.downloads.store.get", lambda item_id: row)
+    FakeAddon.store["downloadsEnabled"] = "true"
+    FakeAddon.store["downloadsDeleteAfterWatching"] = "true"
+
+    song = dict(_watched_download_item(), Type="Audio")
+
+    FakeAddon.store["downloadsDeleteAutomatically"] = "true"
+    assert player.offer_remove_download(song) is False
+    assert notified == []
+
+    FakeAddon.store["downloadsDeleteAutomatically"] = "false"
+    assert player.offer_remove_download(song) is False
+    assert dialogs == []
+
+    # The gate is about the type, not about the settings around it.
+    assert player.offer_remove_download(_watched_download_item()) is True
+    assert dialogs == ["L30710 %s"]
+
+
 def test_finish_offers_local_remove_only_without_the_delete_prompt(monkeypatch):
     player, _api = make_player(monkeypatch)
     offered = []

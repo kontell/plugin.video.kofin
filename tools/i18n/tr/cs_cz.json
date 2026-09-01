@@ -475,5 +475,10 @@
   "#30828": "Vyberte server",
   "#30829": "Žádný server Jellyfin neodpověděl — zadejte adresu ručně",
   "#30830": "neodpověděl",
-  "#30831": "%s neodpověděl — zadaná adresa zde nemusí fungovat"
+  "#30831": "%s neodpověděl — zadaná adresa zde nemusí fungovat",
+  "#30832": "Využité místo",
+  "#30833": "Zobrazí, kde jsou stažené soubory uloženy a kolik místa zabírá každý druh. Měří se přímo ve složce, takže se kromě médií počítají i obrázky, titulky a metadata.",
+  "#30834": "Ostatní soubory v této složce",
+  "#30835": "Zatím nebylo nic staženo",
+  "#30836": "Složka je příliš velká na úplné změření — součty výše jsou neúplné"
 }

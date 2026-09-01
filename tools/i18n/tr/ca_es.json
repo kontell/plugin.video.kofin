@@ -475,5 +475,10 @@
   "#30828": "Selecciona un servidor",
   "#30829": "Cap servidor Jellyfin ha respost — introdueix l'adreça manualment",
   "#30830": "no ha respost",
-  "#30831": "%s no ha respost — l'adreça que ha donat potser no funciona aquí"
+  "#30831": "%s no ha respost — l'adreça que ha donat potser no funciona aquí",
+  "#30832": "Espai utilitzat",
+  "#30833": "Mostra on es guarden les baixades i quant espai ocupa cada tipus. Es mesura des de la mateixa carpeta, de manera que compta les caràtules, els subtítols i les metadades juntament amb els fitxers multimèdia.",
+  "#30834": "Altres fitxers d'aquesta carpeta",
+  "#30835": "Encara no s'ha baixat res",
+  "#30836": "La carpeta és massa gran per mesurar-la del tot — els totals de dalt són parcials"
 }

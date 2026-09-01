@@ -2139,3 +2139,23 @@ msgstr "hat nicht geantwortet"
 msgctxt "#30831"
 msgid "%s did not answer — the address it gave may not work here"
 msgstr "%s hat nicht geantwortet — die angegebene Adresse funktioniert hier womöglich nicht"
+
+msgctxt "#30832"
+msgid "Storage used"
+msgstr "Belegter Speicher"
+
+msgctxt "#30833"
+msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
+msgstr "Zeigt, wo die Downloads liegen und wie viel Platz jede Art belegt. Gemessen wird der Ordner selbst, also zählen Bilder, Untertitel und Metadaten zusammen mit den Medien."
+
+msgctxt "#30834"
+msgid "Other files in this folder"
+msgstr "Andere Dateien in diesem Ordner"
+
+msgctxt "#30835"
+msgid "Nothing has been downloaded yet"
+msgstr "Es wurde noch nichts heruntergeladen"
+
+msgctxt "#30836"
+msgid "Folder too large to measure fully — the totals above are partial"
+msgstr "Ordner zu groß zum vollständigen Messen — die Summen oben sind unvollständig"

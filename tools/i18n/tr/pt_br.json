@@ -475,5 +475,10 @@
   "#30828": "Selecione um servidor",
   "#30829": "Nenhum servidor Jellyfin respondeu — informe o endereço manualmente",
   "#30830": "não respondeu",
-  "#30831": "%s não respondeu — o endereço informado pode não funcionar aqui"
+  "#30831": "%s não respondeu — o endereço informado pode não funcionar aqui",
+  "#30832": "Espaço usado",
+  "#30833": "Mostra onde os downloads ficam guardados e quanto espaço cada tipo ocupa. A medição é feita na própria pasta, então imagens, legendas e metadados contam junto com as mídias.",
+  "#30834": "Outros arquivos nesta pasta",
+  "#30835": "Nada foi baixado ainda",
+  "#30836": "Pasta grande demais para medir por completo — os totais acima são parciais"
 }
