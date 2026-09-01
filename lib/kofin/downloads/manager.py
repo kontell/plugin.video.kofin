@@ -520,14 +520,23 @@ class DownloadManager:
         back on the ops queue: a row being transferred right now aborts at
         its next chunk off that flag, and re-queueing would mean one op per
         row for work this loop is already doing.
+
+        This is one of the two places that means *everything*, so it also
+        takes the category directories the per-row deletes leave standing —
+        after it, the downloads root is as bare as it was before the feature
+        was ever used. Not attempted when a stop cut the loop short: rows
+        that never got their turn still have files, and a sweep would find
+        the directories non-empty anyway.
         """
         rows = store.rows()
 
         if not rows:
             return
 
+        stopped = False
         for row in rows:
             if self._should_stop():
+                stopped = True
                 break
             if row.state == store.DONE:
                 self._apply_remove(row.jellyfin_id)
@@ -536,6 +545,8 @@ class DownloadManager:
                     self._cancels.add(row.jellyfin_id)
                 self._apply_cancel(row.jellyfin_id)
 
+        if not stopped:
+            sweep_category_dirs(downloads_root())
         LOG.info("removed all %d download(s)", len(rows))
         self._flush_refresh(force=True)
         self._flush_removed()
@@ -1042,14 +1053,19 @@ class DownloadManager:
         The prune matters here as much as in ``_delete_media``: a cancel
         before the first byte lands still made the season folder on its way
         in, and without this an empty ``Season 03/`` survived every cancel
-        (found live, G6a).
+        (found live, G6a). It stops at the same category floor, for the same
+        reason and deliberately not one level lower: a cancel and a delete
+        must leave the tree in the same shape, or which of the two you last
+        did would decide whether ``Movies/`` is still there.
         """
         if not row.rel_path:
             return
         root = downloads_root()
         absolute = files.absolute_path(root, row.rel_path)
         _remove_quietly(files.part_path(root, row.rel_path))
-        _prune_empty_dirs(os.path.dirname(absolute), root)
+        _prune_empty_dirs(
+            os.path.dirname(absolute), _category_floor(root, row.rel_path)
+        )
 
     def _delete_media(self, row: "store.Download") -> None:
         """The media file, its .part and its sidecars, then any empty dirs."""
@@ -1652,7 +1668,53 @@ def delete_media_files(row: "store.Download") -> None:
                 _remove_quietly(os.path.join(directory, name))
     except OSError:
         pass
-    _prune_empty_dirs(directory, root)
+    _prune_empty_dirs(directory, _category_floor(root, row.rel_path))
+
+
+# The three directories the layout puts under the root (files.item_dirs).
+# They are a floor, not a target: deleting downloads one at a time prunes
+# the title, season and album directories inside them and stops there, so
+# a folder the user has pointed something at — a Kodi source, a file
+# manager shortcut — does not disappear from under it the moment its last
+# item goes. Only the two bulk paths take them (sweep_category_dirs).
+CATEGORY_DIRS = frozenset({files.MOVIES_DIR, files.SHOWS_DIR, files.MUSIC_DIR})
+
+
+def _category_floor(root: str, rel_path: str) -> str:
+    """The directory pruning must stop at for ``rel_path``.
+
+    ``<root>/<category>`` when the path starts with one of the three names
+    the layout writes, and the root itself for anything else — a row whose
+    layout predates a category, or a hand-made path, prunes exactly as it
+    did before rather than being kept alive by a name nobody recognises.
+    """
+    head = rel_path.split("/", 1)[0]
+    if head in CATEGORY_DIRS:
+        return os.path.join(root, head)
+    return root
+
+
+def sweep_category_dirs(root: str) -> int:
+    """Remove the empty category directories, and only those. Returns how
+    many went.
+
+    The other half of the floor above: "delete all downloads" and the Clean
+    databases pass are the two places that mean *everything*, so they take
+    the folders the per-row deletes deliberately leave. By name and only
+    when empty — the root is user-configurable and may be shared with other
+    media, so a directory that is not one of kofin's three, or that still
+    holds anything at all, is never touched. The root itself is never a
+    candidate.
+    """
+    swept = 0
+    for name in sorted(CATEGORY_DIRS):
+        directory = os.path.join(root, name)
+        try:
+            os.rmdir(directory)
+        except OSError:
+            continue
+        swept += 1
+    return swept
 
 
 # What the metadata export leaves at directory level (W4.3). A directory
@@ -1676,11 +1738,17 @@ def _sweep_exported(directory: str) -> None:
         _remove_quietly(os.path.join(directory, name))
 
 
-def _prune_empty_dirs(directory: str, root: str) -> None:
-    """Remove now-empty directories up to (never including) the root; a
-    directory down to its exported metadata counts as empty."""
+def _prune_empty_dirs(directory: str, floor: str) -> None:
+    """Remove now-empty directories up to (never including) ``floor``; a
+    directory down to its exported metadata counts as empty.
+
+    ``floor`` is the category directory for a row that has one and the
+    downloads root otherwise (:func:`_category_floor`) — it used to be the
+    root always, which is what took ``Movies/`` away with the last film in
+    it.
+    """
     current = os.path.abspath(directory)
-    stop = os.path.abspath(root)
+    stop = os.path.abspath(floor)
     while current.startswith(stop) and current != stop:
         _sweep_exported(current)
         try:

@@ -342,9 +342,12 @@ def test_cancel_mid_transfer_removes_everything(tmp_path, repoints):
 
     assert store.get("m1") is None
     assert list((tmp_path / "dl").rglob("*.part")) == []
-    # The directories the transfer created go with it: a cancel used to
-    # leave an empty season folder behind on disk (found live, G6a).
-    assert not (tmp_path / "dl" / "Movies").exists()
+    # The per-item directory the transfer created goes with it: a cancel used
+    # to leave an empty season folder behind on disk (found live, G6a).
+    assert list((tmp_path / "dl" / "Movies").iterdir()) == []
+    # ...but the category folder stays, as it does after a delete (D2). A
+    # cancel and a delete must leave the tree in the same shape.
+    assert (tmp_path / "dl" / "Movies").exists()
     assert (tmp_path / "dl").exists()  # never the root
     assert repoints["repoint"] == []
     assert refreshes == []
@@ -459,10 +462,89 @@ def test_remove_restores_deletes_and_prunes(tmp_path, repoints):
     assert store.get("m1") is None
     assert not final.exists()
     assert not final.parent.exists()  # sidecar went with it, dir pruned
+    assert (tmp_path / "dl" / "Movies").exists()  # ...but not the category (D2)
     assert (tmp_path / "dl").exists()  # never the root itself
     # Immediate, unlike a completion: the row has to leave the list the user
     # is looking at.
     assert refreshes == [["video"]]
+
+
+def _done_row(tmp_path, item_id, rel):
+    """A finished download with its file on disk, ready to be removed."""
+    path = tmp_path / "dl" / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x")
+    queue_row(item_id)
+    store.finish(item_id, rel, "mkv", 1)
+    with sync_db.Database("kofin") as opened:
+        store.set_restore_filename_on(opened.cursor, item_id, "plugin://old")
+    return path
+
+
+def test_the_category_folders_survive_individual_deletes(tmp_path, repoints):
+    """D2: deleting downloads one at a time empties the category folders but
+    does not remove them.
+
+    They used to go with the last item in them, because the prune's floor was
+    the root — so a folder somebody had pointed a Kodi source or a file
+    manager at vanished the moment its last download did. The per-item
+    directories inside them still go, which is what the prune is for.
+    """
+    manager, _refreshes = make_manager(repoints)
+    movie = _done_row(tmp_path, "m1", "Movies/The Movie (2019)/The Movie (2019).mkv")
+    episode = _done_row(tmp_path, "e1", "Shows/The Show/Season 01/S01E01.mkv")
+    song = _done_row(tmp_path, "s1", "Music/The Band/The Album/01 Track.flac")
+    root = tmp_path / "dl"
+
+    manager._apply_remove_batch(["m1", "e1", "s1"])
+
+    for path in (movie, episode, song):
+        assert not path.exists()
+        assert not path.parent.exists()
+    # The show directory goes too — only the category level is a floor.
+    assert not (root / "Shows" / "The Show").exists()
+    assert not (root / "Music" / "The Band").exists()
+    for name in ("Movies", "Shows", "Music"):
+        assert (root / name).exists(), name
+        assert list((root / name).iterdir()) == []
+    assert store.rows() == []
+
+
+def test_remove_all_takes_the_category_folders(tmp_path, repoints):
+    """The other half of D2: the two paths that mean *everything* leave the
+    root as bare as they found it — but still touch nothing that is not
+    kofin's, because the root may be shared with other media."""
+    manager, _refreshes = make_manager(repoints)
+    _done_row(tmp_path, "m1", "Movies/The Movie (2019)/The Movie (2019).mkv")
+    _done_row(tmp_path, "s1", "Music/The Band/The Album/01 Track.flac")
+    root = tmp_path / "dl"
+    (root / "Shows").mkdir(parents=True, exist_ok=True)
+    foreign = root / "Home videos"
+    foreign.mkdir()
+    (foreign / "wedding.mkv").write_bytes(b"x")
+
+    manager._apply_remove_all()
+
+    for name in ("Movies", "Shows", "Music"):
+        assert not (root / name).exists(), name
+    assert root.exists()
+    assert (foreign / "wedding.mkv").exists()
+
+def test_sweep_category_dirs_spares_anything_still_holding_something(tmp_path):
+    """By name and only when empty. A category folder the user dropped their
+    own file into is not kofin's to remove, and neither is a lookalike."""
+    root = tmp_path / "dl"
+    (root / "Movies").mkdir(parents=True)
+    (root / "Shows").mkdir()
+    (root / "Shows" / "keep.txt").write_bytes(b"x")
+    (root / "MoviesToo").mkdir()
+
+    assert manager_module.sweep_category_dirs(str(root)) == 1
+
+    assert not (root / "Movies").exists()
+    assert (root / "Shows" / "keep.txt").exists()
+    assert (root / "MoviesToo").exists()
+    assert root.exists()
 
 
 EPISODE_DTO = {
