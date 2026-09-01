@@ -26,6 +26,15 @@ backticks where 146/147 do not — that is upstream ``80e77713eb`` (2026-04-21,
 a MySQL 9.6 reserved-word fix) landing in ``CreateTables`` after the Bravia
 dumps were taken, not a 148 change; sqlite treats the two spellings alike.
 See ``docs/myvideos148-gate.md``.
+
+``myvideos149.sql`` is a real dump from the same Raspberry Pi, moved on to the
+nightly that carries Kodi 22.0-BETA2, with the video databases deleted first so
+149 was *created* rather than migrated up from 148. 149 moves DDL too, by one
+more additive column: ``streamdetails`` gains ``iFlags``. That single line is
+its whole difference from 148 — the seed rows are byte-identical — and the
+created/migrated distinction is what keeps it reading ``iFlags integer``
+(``CreateTables``) rather than the migration's ``iFlags INTEGER DEFAULT 0``.
+See ``docs/myvideos149-gate.md``.
 """
 
 import os
@@ -42,11 +51,13 @@ PIERS_VIDEO_VERSION = 146
 PIERS_MUSIC_VERSION = 84
 PIERS_TEXTURE_VERSION = 14
 
-# Piers bumped MyVideos to 147 and then 148 mid-beta; all three numbers are in
-# the wild (an install that never ran a newer build keeps the older file), so
-# all three are legs of the L2 suite. Music and textures moved with neither.
+# Piers bumped MyVideos to 147, then 148, then 149 mid-beta; all four numbers
+# are in the wild (an install that never ran a newer build keeps the older
+# file), so all four are legs of the L2 suite. Music and textures moved with
+# none of them.
 PIERS_VIDEO_VERSION_147 = 147
 PIERS_VIDEO_VERSION_148 = 148
+PIERS_VIDEO_VERSION_149 = 149
 
 
 def _apply(conn: sqlite3.Connection, filename: str) -> None:

@@ -74,6 +74,16 @@ def test_supported_piers_148_versions_pass_the_gate(monkeypatch):
     assert schema.gate_status() is None
 
 
+def test_supported_piers_149_versions_pass_the_gate(monkeypatch):
+    """149 moves DDL like 148 — one more additive streamdetails column,
+    iFlags — so it too carries its own dumped fixture. Music still did not
+    move with it."""
+    fake_database_dir(monkeypatch, ["MyVideos149.db", "MyMusic84.db"])
+    assert schema.check("video") == 149
+    assert schema.check("music") == 84
+    assert schema.gate_status() is None
+
+
 def test_discovery_prefers_147_over_a_left_behind_146(monkeypatch):
     """Kodi leaves the old file behind when it migrates, so both sit in the
     directory and the newest is the live one."""
@@ -81,13 +91,14 @@ def test_discovery_prefers_147_over_a_left_behind_146(monkeypatch):
     assert schema.discover("video") == ("MyVideos147.db", 147)
 
 
-def test_discovery_prefers_148_over_every_left_behind_file(monkeypatch):
-    """Three Piers numbers can sit side by side after two migrations; the
+def test_discovery_prefers_the_newest_of_every_left_behind_file(monkeypatch):
+    """Four Piers numbers can sit side by side after three migrations; the
     newest is still the live one."""
     fake_database_dir(
-        monkeypatch, ["MyVideos146.db", "MyVideos147.db", "MyVideos148.db"]
+        monkeypatch,
+        ["MyVideos146.db", "MyVideos147.db", "MyVideos148.db", "MyVideos149.db"],
     )
-    assert schema.discover("video") == ("MyVideos148.db", 148)
+    assert schema.discover("video") == ("MyVideos149.db", 149)
 
 
 def test_unknown_version_is_refused(monkeypatch):
