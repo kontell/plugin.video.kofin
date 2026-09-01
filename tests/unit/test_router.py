@@ -36,6 +36,7 @@ ACTION_MODES = {
     "canceldownload",
     "removedownload",
     "deletealldownloads",
+    "downloadsize",
     "favorite",
     "unfavorite",
     "delete",

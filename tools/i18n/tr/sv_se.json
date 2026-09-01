@@ -468,5 +468,10 @@
   "#30821": "Serverfel — %s",
   "#30822": "%s behölls — posten i biblioteket kunde inte återställas",
   "#30823": "Hämtning borttagen: %s",
-  "#30824": "%s hämtning(ar) borttagna"
+  "#30824": "%s hämtning(ar) borttagna",
+  "#30825": "Använt utrymme",
+  "#30826": "Visa var nedladdningarna sparas och hur mycket utrymme varje typ använder. Mätningen görs på själva mappen, så bilder, undertexter och metadata räknas med tillsammans med mediefilerna.",
+  "#30827": "Andra filer i den här mappen",
+  "#30828": "Inget har laddats ned ännu",
+  "#30829": "Mappen är för stor för att mätas helt — summorna ovan är ofullständiga"
 }

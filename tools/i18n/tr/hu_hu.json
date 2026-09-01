@@ -468,5 +468,10 @@
   "#30821": "Kiszolgálóhiba — %s",
   "#30822": "%s megtartva — a médiatár bejegyzése nem állítható vissza",
   "#30823": "Letöltés törölve: %s",
-  "#30824": "%s letöltés törölve"
+  "#30824": "%s letöltés törölve",
+  "#30825": "Felhasznált tárhely",
+  "#30826": "Megmutatja, hol tárolódnak a letöltések, és melyik típus mennyi helyet foglal. A mérés magán a mappán történik, így a képek, a feliratok és a metaadatok is beleszámítanak a médiafájlok mellett.",
+  "#30827": "Egyéb fájlok ebben a mappában",
+  "#30828": "Még nincs letöltve semmi",
+  "#30829": "A mappa túl nagy a teljes méréshez — a fenti összegek részlegesek"
 }

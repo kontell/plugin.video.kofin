@@ -1413,6 +1413,22 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
+        <!-- Where the downloads are and what they weigh (D1). Sits directly
+             above "Delete all downloads" because it is the question anybody
+             asks before pressing that, and carries no <close> for the same
+             reason it does not: the report is a sub-dialog of this page, so
+             reading it returns here. -->
+        <setting id="downloadsShowSize" type="action" label="30825" help="30826">
+          <level>0</level>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadsize)</data>
+          </control>
+        </setting>
         <!-- No <close>, like "Manage shows" above: the confirmation is meant
              to read as a sub-dialog of this one, so answering it returns
              here rather than dumping the user back to the library. -->

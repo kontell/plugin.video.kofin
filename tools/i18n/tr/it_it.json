@@ -468,5 +468,10 @@
   "#30821": "Errore del server — %s",
   "#30822": "%s conservato — impossibile ripristinare la voce della libreria",
   "#30823": "Download eliminato: %s",
-  "#30824": "%s download eliminati"
+  "#30824": "%s download eliminati",
+  "#30825": "Spazio utilizzato",
+  "#30826": "Mostra dove sono conservati i download e quanto spazio occupa ogni tipo. La misurazione riguarda la cartella stessa, quindi conta anche immagini, sottotitoli e metadati insieme ai file multimediali.",
+  "#30827": "Altri file in questa cartella",
+  "#30828": "Non è ancora stato scaricato nulla",
+  "#30829": "Cartella troppo grande per essere misurata del tutto — i totali qui sopra sono parziali"
 }

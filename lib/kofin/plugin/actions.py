@@ -214,6 +214,20 @@ def _human_size(size_bytes: int) -> str:
     return "%d MB" % max(1, size_bytes // 1024**2)
 
 
+def _report_size(size_bytes: int) -> str:
+    """``_human_size`` with the floor removed for the size report (D1).
+
+    That floor exists for the confirm dialogs, where "0 MB" for a small
+    download would read as "this costs nothing" — but a *report* has real
+    zeroes in it, a category nothing has ever been downloaded into, and
+    telling somebody they are using 1 MB of a folder that is empty is the
+    one number here that is simply false.
+    """
+    if size_bytes <= 0:
+        return "0 MB"
+    return _human_size(size_bytes)
+
+
 # What actually downloads: everything else expands to these.
 DOWNLOAD_LEAF_TYPES = ("Movie", "Episode", "Audio")
 
@@ -515,6 +529,82 @@ def delete_all_downloads(request: Request) -> None:
         return
 
     ipc.notify(ipc.DOWNLOAD_REMOVE_ALL)
+
+
+def download_size(request: Request) -> None:
+    """Settings button: where the downloads are and what they weigh (D1).
+
+    Read-only. Picking a row does nothing; the dialog exists to be read, and
+    answering it returns to the Downloads settings rather than dumping the
+    user in the library (the button carries no ``<close>``, like "Manage
+    shows" beside it).
+
+    Each size goes in the row's own **label**, not in ``label2``. That was
+    the first shape, on the reasoning that label2 is where a skin puts a
+    right-hand value and would line the column up without assuming a
+    monospace font — and it renders as nothing at all: measured on Omega
+    21.3 under Estuary, ``Dialog().select`` drew five rows reading "Movies",
+    "TV shows", "Music", "Total", "Free" and not one number (S-D1). The
+    dialog's plain list layout has no second field; only ``useDetails=True``
+    switches to one that does, and that is a per-skin layout to depend on
+    for the whole content of the report. A label carries everywhere.
+
+    The walk happens here, in the plugin process, which must stay thin — so
+    it is stat-only, bounded (``usage.MAX_ENTRIES``), and covered by a
+    background progress dialog for a root on slow or network storage.
+    """
+    from kofin.downloads import downloads_root, usage
+
+    root = downloads_root()
+    progress = xbmcgui.DialogProgressBG()
+    try:
+        progress.create(settings.localized(30825))
+        report = usage.scan(root)
+    finally:
+        try:
+            progress.close()
+        except Exception:  # pragma: no cover - Kodi's own dialog bookkeeping
+            LOG.debug("progress dialog would not close")
+
+    if report.empty:
+        toast.show(settings.localized(30828), time_ms=4000)
+        return
+
+    rows: List[Union[str, xbmcgui.ListItem]] = [
+        # The capped notice is a sentence, not a measurement, and carries no
+        # value to append.
+        "%s:  %s" % (label, value) if value else label
+        for label, value in size_rows(report)
+    ]
+    # The heading names the folder, because "where" is half the question the
+    # button answers and a path is too long for a row label.
+    xbmcgui.Dialog().select("%s — %s" % (settings.localized(30825), root), rows)
+
+
+def size_rows(report: Any) -> List[tuple]:
+    """``[(label, value)]`` for the size report — the whole decision, kept
+    out of the widget so it can be tested without one."""
+    rows = [
+        (
+            (
+                settings.localized(bucket.label_id)
+                if bucket.label_id >= 30000
+                else xbmc.getLocalizedString(bucket.label_id)
+            ),
+            _report_size(bucket.size),
+        )
+        for bucket in report.buckets
+    ]
+    rows.append((xbmc.getLocalizedString(20161), _report_size(report.total)))
+    if report.free >= 0:
+        # -1 is "could not tell" (an exotic mount, a permissions refusal),
+        # and the row is dropped rather than shown empty or as zero — zero
+        # is a real answer meaning a full disk, and the two must not read
+        # alike to somebody deciding whether to download something.
+        rows.append((xbmc.getLocalizedString(160), _report_size(report.free)))
+    if report.capped:
+        rows.append((settings.localized(30829), ""))
+    return rows
 
 
 def cancel_download(request: Request) -> None:

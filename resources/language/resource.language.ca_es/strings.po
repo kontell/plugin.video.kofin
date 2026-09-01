@@ -2111,3 +2111,23 @@ msgstr "Baixada eliminada: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "%s baixades eliminades"
+
+msgctxt "#30825"
+msgid "Storage used"
+msgstr "Espai utilitzat"
+
+msgctxt "#30826"
+msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
+msgstr "Mostra on es guarden les baixades i quant espai ocupa cada tipus. Es mesura des de la mateixa carpeta, de manera que compta les caràtules, els subtítols i les metadades juntament amb els fitxers multimèdia."
+
+msgctxt "#30827"
+msgid "Other files in this folder"
+msgstr "Altres fitxers d'aquesta carpeta"
+
+msgctxt "#30828"
+msgid "Nothing has been downloaded yet"
+msgstr "Encara no s'ha baixat res"
+
+msgctxt "#30829"
+msgid "Folder too large to measure fully — the totals above are partial"
+msgstr "La carpeta és massa gran per mesurar-la del tot — els totals de dalt són parcials"

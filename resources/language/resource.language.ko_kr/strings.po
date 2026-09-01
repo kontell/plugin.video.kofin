@@ -2111,3 +2111,23 @@ msgstr "다운로드 삭제됨: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "다운로드 %s개를 삭제했습니다"
+
+msgctxt "#30825"
+msgid "Storage used"
+msgstr "사용 중인 저장 공간"
+
+msgctxt "#30826"
+msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
+msgstr "다운로드가 저장된 위치와 종류별 사용 공간을 표시합니다. 폴더 자체를 측정하므로 미디어와 함께 아트워크, 자막, 메타데이터도 포함됩니다."
+
+msgctxt "#30827"
+msgid "Other files in this folder"
+msgstr "이 폴더의 기타 파일"
+
+msgctxt "#30828"
+msgid "Nothing has been downloaded yet"
+msgstr "아직 다운로드한 항목이 없습니다"
+
+msgctxt "#30829"
+msgid "Folder too large to measure fully — the totals above are partial"
+msgstr "폴더가 너무 커서 전부 측정할 수 없습니다 — 위 합계는 일부입니다"

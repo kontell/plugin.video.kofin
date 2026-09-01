@@ -468,5 +468,10 @@
   "#30821": "Serverfeil — %s",
   "#30822": "%s beholdt — oppføringen i biblioteket kunne ikke gjenopprettes",
   "#30823": "Nedlasting slettet: %s",
-  "#30824": "%s nedlasting(er) slettet"
+  "#30824": "%s nedlasting(er) slettet",
+  "#30825": "Brukt lagringsplass",
+  "#30826": "Vis hvor nedlastingene ligger og hvor mye plass hver type bruker. Det måles på selve mappen, så bilder, undertekster og metadata telles med sammen med mediefilene.",
+  "#30827": "Andre filer i denne mappen",
+  "#30828": "Ingenting er lastet ned ennå",
+  "#30829": "Mappen er for stor til å måles helt — totalene over er ufullstendige"
 }

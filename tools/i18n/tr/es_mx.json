@@ -468,5 +468,10 @@
   "#30821": "Error del servidor — %s",
   "#30822": "Se conservó %s — no se pudo restaurar la entrada de la biblioteca",
   "#30823": "Descarga eliminada: %s",
-  "#30824": "%s descargas eliminadas"
+  "#30824": "%s descargas eliminadas",
+  "#30825": "Espacio usado",
+  "#30826": "Muestra dónde se guardan las descargas y cuánto espacio ocupa cada tipo. Se mide sobre la carpeta misma, así que cuenta las imágenes, los subtítulos y los metadatos junto con los archivos multimedia.",
+  "#30827": "Otros archivos en esta carpeta",
+  "#30828": "Todavía no se ha descargado nada",
+  "#30829": "La carpeta es demasiado grande para medirla por completo — los totales de arriba son parciales"
 }

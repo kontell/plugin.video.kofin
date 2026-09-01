@@ -2111,3 +2111,23 @@ msgstr "Hämtning borttagen: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "%s hämtning(ar) borttagna"
+
+msgctxt "#30825"
+msgid "Storage used"
+msgstr "Använt utrymme"
+
+msgctxt "#30826"
+msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
+msgstr "Visa var nedladdningarna sparas och hur mycket utrymme varje typ använder. Mätningen görs på själva mappen, så bilder, undertexter och metadata räknas med tillsammans med mediefilerna."
+
+msgctxt "#30827"
+msgid "Other files in this folder"
+msgstr "Andra filer i den här mappen"
+
+msgctxt "#30828"
+msgid "Nothing has been downloaded yet"
+msgstr "Inget har laddats ned ännu"
+
+msgctxt "#30829"
+msgid "Folder too large to measure fully — the totals above are partial"
+msgstr "Mappen är för stor för att mätas helt — summorna ovan är ofullständiga"

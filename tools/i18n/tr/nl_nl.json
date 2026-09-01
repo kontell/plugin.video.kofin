@@ -468,5 +468,10 @@
   "#30821": "Serverfout — %s",
   "#30822": "%s behouden — bibliotheekitem kon niet worden hersteld",
   "#30823": "Download verwijderd: %s",
-  "#30824": "%s download(s) verwijderd"
+  "#30824": "%s download(s) verwijderd",
+  "#30825": "Gebruikte opslag",
+  "#30826": "Laat zien waar de downloads staan en hoeveel ruimte elke soort inneemt. Er wordt op de map zelf gemeten, dus afbeeldingen, ondertitels en metadata tellen mee naast de media.",
+  "#30827": "Andere bestanden in deze map",
+  "#30828": "Er is nog niets gedownload",
+  "#30829": "Map te groot om helemaal te meten — de totalen hierboven zijn onvolledig"
 }

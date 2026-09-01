@@ -468,5 +468,10 @@
   "#30821": "Eroare de server — %s",
   "#30822": "%s păstrat — intrarea din bibliotecă nu a putut fi restaurată",
   "#30823": "Descărcare ștearsă: %s",
-  "#30824": "%s descărcări șterse"
+  "#30824": "%s descărcări șterse",
+  "#30825": "Spațiu folosit",
+  "#30826": "Arată unde sunt păstrate descărcările și cât spațiu ocupă fiecare tip. Măsurarea se face pe folderul propriu-zis, așa că imaginile, subtitrările și metadatele sunt numărate alături de fișierele media.",
+  "#30827": "Alte fișiere din acest folder",
+  "#30828": "Nu a fost descărcat nimic încă",
+  "#30829": "Folderul este prea mare pentru a fi măsurat complet — totalurile de mai sus sunt parțiale"
 }

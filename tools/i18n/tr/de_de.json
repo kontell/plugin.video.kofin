@@ -468,5 +468,10 @@
   "#30821": "Serverfehler — %s",
   "#30822": "%s behalten — Bibliothekseintrag konnte nicht wiederhergestellt werden",
   "#30823": "Download gelöscht: %s",
-  "#30824": "%s Download(s) gelöscht"
+  "#30824": "%s Download(s) gelöscht",
+  "#30825": "Belegter Speicher",
+  "#30826": "Zeigt, wo die Downloads liegen und wie viel Platz jede Art belegt. Gemessen wird der Ordner selbst, also zählen Bilder, Untertitel und Metadaten zusammen mit den Medien.",
+  "#30827": "Andere Dateien in diesem Ordner",
+  "#30828": "Es wurde noch nichts heruntergeladen",
+  "#30829": "Ordner zu groß zum vollständigen Messen — die Summen oben sind unvollständig"
 }

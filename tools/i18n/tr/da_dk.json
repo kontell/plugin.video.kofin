@@ -468,5 +468,10 @@
   "#30821": "Serverfejl — %s",
   "#30822": "%s beholdt — posten i biblioteket kunne ikke gendannes",
   "#30823": "Download slettet: %s",
-  "#30824": "%s download(s) slettet"
+  "#30824": "%s download(s) slettet",
+  "#30825": "Anvendt plads",
+  "#30826": "Vis, hvor downloads gemmes, og hvor meget plads hver type bruger. Det måles på selve mappen, så grafik, undertekster og metadata tælles med sammen med medierne.",
+  "#30827": "Andre filer i denne mappe",
+  "#30828": "Der er ikke downloadet noget endnu",
+  "#30829": "Mappen er for stor til at måle helt — totalerne ovenfor er ufuldstændige"
 }

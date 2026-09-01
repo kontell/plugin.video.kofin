@@ -468,5 +468,10 @@
   "#30821": "Chyba serveru — %s",
   "#30822": "%s ponecháno — položku knihovny nelze obnovit",
   "#30823": "Stažená položka odstraněna: %s",
-  "#30824": "Odstraněno stažených položek: %s"
+  "#30824": "Odstraněno stažených položek: %s",
+  "#30825": "Využité místo",
+  "#30826": "Zobrazí, kde jsou stažené soubory uloženy a kolik místa zabírá každý druh. Měří se přímo ve složce, takže se kromě médií počítají i obrázky, titulky a metadata.",
+  "#30827": "Ostatní soubory v této složce",
+  "#30828": "Zatím nebylo nic staženo",
+  "#30829": "Složka je příliš velká na úplné změření — součty výše jsou neúplné"
 }

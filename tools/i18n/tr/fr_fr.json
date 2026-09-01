@@ -468,5 +468,10 @@
   "#30821": "Erreur du serveur — %s",
   "#30822": "%s conservé — l'entrée de la médiathèque n'a pas pu être restaurée",
   "#30823": "Téléchargement supprimé : %s",
-  "#30824": "%s téléchargement(s) supprimé(s)"
+  "#30824": "%s téléchargement(s) supprimé(s)",
+  "#30825": "Espace utilisé",
+  "#30826": "Affiche où sont conservés les téléchargements et l'espace occupé par chaque type. La mesure porte sur le dossier lui-même : les images, les sous-titres et les métadonnées sont donc comptés avec les médias.",
+  "#30827": "Autres fichiers dans ce dossier",
+  "#30828": "Rien n'a encore été téléchargé",
+  "#30829": "Dossier trop volumineux pour être mesuré entièrement — les totaux ci-dessus sont partiels"
 }

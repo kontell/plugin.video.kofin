@@ -63,6 +63,7 @@ ROUTES: Dict[str, Tuple[str, str]] = {
     "canceldownload": ("actions", "cancel_download"),
     "removedownload": ("actions", "remove_download"),
     "deletealldownloads": ("actions", "delete_all_downloads"),
+    "downloadsize": ("actions", "download_size"),
     "favorite": ("actions", "favorite"),
     "unfavorite": ("actions", "unfavorite"),
     "delete": ("actions", "delete_item"),

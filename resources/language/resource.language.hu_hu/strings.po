@@ -2111,3 +2111,23 @@ msgstr "Letöltés törölve: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "%s letöltés törölve"
+
+msgctxt "#30825"
+msgid "Storage used"
+msgstr "Felhasznált tárhely"
+
+msgctxt "#30826"
+msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
+msgstr "Megmutatja, hol tárolódnak a letöltések, és melyik típus mennyi helyet foglal. A mérés magán a mappán történik, így a képek, a feliratok és a metaadatok is beleszámítanak a médiafájlok mellett."
+
+msgctxt "#30827"
+msgid "Other files in this folder"
+msgstr "Egyéb fájlok ebben a mappában"
+
+msgctxt "#30828"
+msgid "Nothing has been downloaded yet"
+msgstr "Még nincs letöltve semmi"
+
+msgctxt "#30829"
+msgid "Folder too large to measure fully — the totals above are partial"
+msgstr "A mappa túl nagy a teljes méréshez — a fenti összegek részlegesek"

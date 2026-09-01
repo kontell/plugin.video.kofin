@@ -2111,3 +2111,23 @@ msgstr "ダウンロードを削除しました: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "%s 件のダウンロードを削除しました"
+
+msgctxt "#30825"
+msgid "Storage used"
+msgstr "使用中の容量"
+
+msgctxt "#30826"
+msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
+msgstr "ダウンロードの保存場所と、種類ごとの使用容量を表示します。フォルダー自体を測るため、メディアに加えてアートワーク・字幕・メタデータも含まれます。"
+
+msgctxt "#30827"
+msgid "Other files in this folder"
+msgstr "このフォルダー内のその他のファイル"
+
+msgctxt "#30828"
+msgid "Nothing has been downloaded yet"
+msgstr "まだ何もダウンロードされていません"
+
+msgctxt "#30829"
+msgid "Folder too large to measure fully — the totals above are partial"
+msgstr "フォルダーが大きすぎて全体を測定できません — 上記の合計は一部のみです"

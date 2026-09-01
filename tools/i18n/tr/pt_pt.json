@@ -468,5 +468,10 @@
   "#30821": "Erro do servidor — %s",
   "#30822": "%s mantido — não foi possível restaurar a entrada da biblioteca",
   "#30823": "Transferência eliminada: %s",
-  "#30824": "%s transferência(s) eliminada(s)"
+  "#30824": "%s transferência(s) eliminada(s)",
+  "#30825": "Espaço utilizado",
+  "#30826": "Mostra onde as transferências são guardadas e quanto espaço cada tipo ocupa. A medição é feita na própria pasta, por isso as imagens, as legendas e os metadados contam juntamente com os ficheiros multimédia.",
+  "#30827": "Outros ficheiros nesta pasta",
+  "#30828": "Ainda não foi transferido nada",
+  "#30829": "Pasta demasiado grande para medir por completo — os totais acima são parciais"
 }

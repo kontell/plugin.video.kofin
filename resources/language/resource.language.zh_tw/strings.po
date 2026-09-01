@@ -2111,3 +2111,23 @@ msgstr "已刪除下載：%s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "已刪除 %s 個下載"
+
+msgctxt "#30825"
+msgid "Storage used"
+msgstr "已用空間"
+
+msgctxt "#30826"
+msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
+msgstr "顯示下載內容的存放位置以及各類佔用的空間。測量的是資料夾本身，因此除了媒體檔案，海報、字幕與中繼資料也會計入。"
+
+msgctxt "#30827"
+msgid "Other files in this folder"
+msgstr "此資料夾中的其他檔案"
+
+msgctxt "#30828"
+msgid "Nothing has been downloaded yet"
+msgstr "尚未下載任何內容"
+
+msgctxt "#30829"
+msgid "Folder too large to measure fully — the totals above are partial"
+msgstr "資料夾過大，無法完整統計 — 以上合計並不完整"

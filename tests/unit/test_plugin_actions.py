@@ -305,6 +305,92 @@ def test_download_skips_rows_the_store_already_holds(download_wired, monkeypatch
     ]
 
 
+def _size_report(download_wired, monkeypatch, root, free=8 * 1024**3):
+    notified, dialog, Request = download_wired(None)
+    monkeypatch.setattr("kofin.downloads.downloads_root", lambda: str(root))
+    monkeypatch.setattr("kofin.downloads.files.free_bytes", lambda path: free)
+    shown = []
+    monkeypatch.setattr(actions.toast, "show", lambda *a, **k: shown.append(a[0]))
+    actions.download_size(Request("plugin://x", -1, {}))
+    return dialog, shown
+
+
+def _rows(root, free):
+    """The report's rows, built the way the dialog builds them."""
+    from kofin.downloads import usage
+
+    report = usage.Usage(
+        root=str(root),
+        buckets=usage.scan(str(root)).buckets,
+        total=usage.scan(str(root)).total,
+        free=free,
+        capped=False,
+    )
+    return actions.size_rows(report)
+
+
+def test_download_size_lists_each_category_with_a_total(
+    tmp_path, download_wired, monkeypatch
+):
+    """D1: the button answers where the downloads are and what they weigh."""
+    root = tmp_path / "dl"
+    (root / "Movies" / "The Movie (2019)").mkdir(parents=True)
+    (root / "Movies" / "The Movie (2019)" / "f.mkv").write_bytes(b"x" * (2 * 1024**2))
+    (root / "Music").mkdir()
+
+    dialog, shown = _size_report(download_wired, monkeypatch, root)
+
+    assert shown == []
+    heading, rows, _ = dialog.selects[0]
+    assert str(root) in heading  # the folder is half the question
+    assert len(rows) == 5  # three categories, total, free
+    # The size is in the row's own label, not label2: label2 renders as
+    # nothing in Estuary's select layout (measured on the rig, S-D1). The
+    # label half is empty here because these are Kodi's own string ids and
+    # Kodistubs answers "" for every one of them — the live gate is what
+    # proves "Movies"/"TV shows"/"Music" render.
+    assert [row.split(":")[-1].strip() for row in rows] == [
+        "2 MB",
+        "0 MB",
+        "0 MB",
+        "2 MB",
+        "8.0 GB",
+    ]
+
+    values = [value for _label, value in _rows(root, 8 * 1024**3)]
+    # Movies, TV shows, Music, then Total and Free. An empty category is a
+    # real zero, never the confirm dialog's "at least 1 MB" floor.
+    assert values[0] == "2 MB"
+    assert (values[1], values[2]) == ("0 MB", "0 MB")
+    assert values[-2] == "2 MB"  # total
+    assert values[-1] == "8.0 GB"  # free
+
+
+def test_download_size_says_so_rather_than_showing_zeroes(
+    tmp_path, download_wired, monkeypatch
+):
+    """An empty (or not-yet-created) folder is answered in words."""
+    dialog, shown = _size_report(download_wired, monkeypatch, tmp_path / "never-made")
+
+    assert dialog.selects == []
+    assert shown == ["L30828 %s"]
+
+
+def test_download_size_drops_the_free_row_when_it_cannot_be_read(tmp_path):
+    """-1 is "could not tell"; zero is a full disk. Showing the first as the
+    second would be the one number here that lies."""
+    root = tmp_path / "dl"
+    (root / "Movies").mkdir(parents=True)
+    (root / "Movies" / "f.mkv").write_bytes(b"x" * (1024**2))
+
+    unknown = _rows(root, -1)
+    full = _rows(root, 0)
+
+    assert len(unknown) == 4  # three categories + total, no Free row
+    assert unknown[-1][1] == "1 MB"  # the total is last
+    assert len(full) == 5 and full[-1][1] == "0 MB"  # a full disk still says so
+
+
 def test_cancel_and_remove_routes(download_wired, monkeypatch):
     from kofin.downloads import store as downloads_store
 

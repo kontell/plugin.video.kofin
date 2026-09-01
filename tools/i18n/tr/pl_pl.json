@@ -468,5 +468,10 @@
   "#30821": "Błąd serwera — %s",
   "#30822": "Zachowano %s — nie udało się przywrócić wpisu w bibliotece",
   "#30823": "Usunięto pobrane: %s",
-  "#30824": "Usunięto pobranych: %s"
+  "#30824": "Usunięto pobranych: %s",
+  "#30825": "Zajęte miejsce",
+  "#30826": "Pokazuje, gdzie przechowywane są pobrane pliki i ile miejsca zajmuje każdy rodzaj. Pomiar dotyczy samego folderu, więc obok multimediów liczą się też grafiki, napisy i metadane.",
+  "#30827": "Inne pliki w tym folderze",
+  "#30828": "Nic jeszcze nie zostało pobrane",
+  "#30829": "Folder jest zbyt duży, aby zmierzyć go w całości — powyższe sumy są niepełne"
 }

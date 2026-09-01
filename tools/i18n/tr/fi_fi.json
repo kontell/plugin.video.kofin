@@ -468,5 +468,10 @@
   "#30821": "Palvelinvirhe — %s",
   "#30822": "%s säilytettiin — kirjaston merkintää ei voitu palauttaa",
   "#30823": "Lataus poistettu: %s",
-  "#30824": "%s latausta poistettu"
+  "#30824": "%s latausta poistettu",
+  "#30825": "Käytetty tila",
+  "#30826": "Näytä, missä lataukset säilytetään ja kuinka paljon tilaa kukin tyyppi vie. Mittaus tehdään itse kansiosta, joten mukaan lasketaan myös kuvitus, tekstitykset ja metatiedot.",
+  "#30827": "Muut tämän kansion tiedostot",
+  "#30828": "Mitään ei ole vielä ladattu",
+  "#30829": "Kansio on liian suuri mitattavaksi kokonaan — yllä olevat summat ovat osittaisia"
 }
