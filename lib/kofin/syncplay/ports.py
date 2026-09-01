@@ -30,6 +30,8 @@ class Claim(TypedDict, total=False):
 
     Id: str
     Provider: str
+    Name: str
+    RunTimeTicks: int
     PlayMethod: str
     PlaySessionId: str
     Tempo: Dict[str, Any]
@@ -59,7 +61,9 @@ class SyncPlayApi(Protocol):
 
     def syncplay_leave(self) -> None: ...
 
-    def syncplay_hello(self, protocol_version: int) -> JsonDict: ...
+    def syncplay_hello(
+        self, protocol_version: int, capabilities: Optional[List[str]] = None
+    ) -> JsonDict: ...
 
     def syncplay_snapshot(self) -> None: ...
 
@@ -84,6 +88,13 @@ class SyncPlayApi(Protocol):
     def syncplay_set_new_queue(
         self,
         item_ids: List[str],
+        playing_item_position: int = 0,
+        start_position_ticks: int = 0,
+    ) -> None: ...
+
+    def syncplay_set_new_queue_ex(
+        self,
+        entries: List[JsonDict],
         playing_item_position: int = 0,
         start_position_ticks: int = 0,
     ) -> None: ...

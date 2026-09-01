@@ -1,7 +1,7 @@
 # The SyncPlay provider contract, v1
 
 Date: 2026-08-31
-Status: implemented (plan G2, `feat/sync-provider-contract`); the descriptor extension for non-Jellyfin queue entries is G3 and not yet part of this page.
+Status: implemented (plan G2 and G3.6, `feat/sync-provider-contract` + `feat/syncplay-descriptors`).
 Audience: any Kodi add-on that wants its content driven by the kofin-hosted SyncPlay engine — proposing what it plays to a group, and letting followers start it.
 
 ## 1. The model
@@ -45,9 +45,9 @@ Playback with no claim at all keeps today's behavior: the engine demotes that me
 
 ### `SyncSession.Propose` (provider → service)
 
-`{"v": 1, "provider": "<name>", "key": "<content id>", "position_ticks": 0}`
+`{"v": 1, "provider": "<name>", "key": "<content id>", "position_ticks": 0, "name": "...", "runtime_ticks": 0}`
 
-Asks for the item as the group's queue (the programmatic form of the engine's hold-and-propose). Under contract v1 the queue's wire format is Jellyfin item GUIDs, so only `provider: "jellyfin"` keys are accepted; anything else is refused with a log line until the G3 descriptor extension. Ignored outside a group.
+Asks for the item as the group's queue (the programmatic form of the engine's hold-and-propose). A `jellyfin` key is proposed as a plain item GUID and works against any v2 server. Any other provider's key goes out as an external-content descriptor (SYNCPLAY.md §14) built from the payload — `name` (display, ≤256) and `runtime_ticks` are optional, and a zero runtime means "unknown": the server then treats positions on the item as unbounded rather than clamping them. That leg needs the server to have negotiated the `ExternalContent` capability; without it the propose is refused with a log line, never silently downgraded to a key the group cannot resolve. Ignored outside a group.
 
 ### `SyncSession.Menu` (provider → service)
 

@@ -162,6 +162,18 @@ def engine_claim(payload: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(payload.get("play_session"), str):
         claim["PlaySessionId"] = payload["play_session"]
 
+    # What a foreign propose needs for its descriptor (SYNCPLAY.md §14.2):
+    # the display name and the runtime, both optional on the wire.
+    if isinstance(payload.get("name"), str):
+        claim["Name"] = payload["name"][:256]
+
+    try:
+        ticks = int(payload.get("runtime_ticks") or 0)
+    except (TypeError, ValueError):
+        ticks = 0
+    if ticks > 0:
+        claim["RunTimeTicks"] = ticks
+
     tempo = payload.get("tempo")
 
     if isinstance(tempo, dict) and isinstance(tempo.get("file"), str):

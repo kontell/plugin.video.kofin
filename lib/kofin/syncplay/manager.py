@@ -87,11 +87,17 @@ class SyncPlayManager(object):
         self.timesync_ws_path = None
         self.ignore_wait = False
 
-        # [(ItemId, PlaylistItemId)] mirror of the group queue
-        self.queue: List[Tuple[str, str]] = []
+        # [(key, PlaylistItemId, provider)] mirror of the group queue
+        self.queue: List[Tuple[str, str, str]] = []
         self.queue_last_update = None
         self.current_item_id = None
         self.current_playlist_item_id = None
+        # Which provider owns the current queue item (SYNCPLAY.md §14.3):
+        # jellyfin for plain entries, the descriptor's Provider otherwise.
+        self.current_provider = JELLYFIN
+        # Whether the server negotiated the ExternalContent capability
+        # (§14.1); learned from Hello, server-scoped rather than group-scoped.
+        self.server_external_content = False
 
         # idle -> loading -> waiting_ready -> synced (utils.Phase)
         self.phase = Phase.IDLE
@@ -402,7 +408,9 @@ class SyncPlayManager(object):
         if not self.in_group() or self.current_item_id is None:
             return
 
-        self._start_item(self.current_item_id, self.current_playlist_item_id)
+        self._start_item(
+            self.current_item_id, self.current_playlist_item_id, self.current_provider
+        )
 
     def _load_allowance_ms(self):
         """How far ahead of the group to aim a load that is about to start.
@@ -866,6 +874,7 @@ class SyncPlayManager(object):
         self.queue_last_update = None
         self.current_item_id = None
         self.current_playlist_item_id = None
+        self.current_provider = JELLYFIN
         self.phase = Phase.IDLE
         self.ignore_wait = False
         self._join_pending_since = 0.0
@@ -917,7 +926,10 @@ class SyncPlayManager(object):
         Stock and integrated servers 404 — HTTP time sync stays in place and
         nothing else changes."""
         try:
-            info = self._api_raw("syncplay_hello", 2) or {}
+            # Declared because the engine honours it: a descriptor entry is
+            # resolved through the provider registry, and one no provider
+            # answers is a graceful load failure, exactly as §14.4 requires.
+            info = self._api_raw("syncplay_hello", 2, ["ExternalContent"]) or {}
         except Unauthorized:
             return
         except JellyfinError as error:
@@ -929,6 +941,12 @@ class SyncPlayManager(object):
             return
 
         self.timesync_ws_path = (info.get("TimeSync") or {}).get("WebSocketPath")
+        self.server_external_content = "ExternalContent" in (
+            info.get("Capabilities") or []
+        )
+
+        if self.server_external_content:
+            LOG.info("SyncPlay server accepts external content")
 
         if self.timesync_ws_path:
             LOG.info("SyncPlay time-sync socket at %s", self.timesync_ws_path)
@@ -1055,9 +1073,7 @@ class SyncPlayManager(object):
 
         self.queue_last_update = last_update
         playlist = data.get("Playlist") or []
-        self.queue = [
-            (entry.get("ItemId"), entry.get("PlaylistItemId")) for entry in playlist
-        ]
+        self.queue = [self._queue_entry(entry) for entry in playlist]
         index = data.get("PlayingItemIndex", -1)
         is_playing = bool(data.get("IsPlaying"))
         start_ticks = data.get("StartPositionTicks") or 0
@@ -1073,7 +1089,7 @@ class SyncPlayManager(object):
             self._detach_playback(stop_media=True)
             return
 
-        item_id, playlist_item_id = self.queue[index]
+        item_id, playlist_item_id, provider = self.queue[index]
 
         if (
             playlist_item_id == self.current_playlist_item_id
@@ -1116,6 +1132,7 @@ class SyncPlayManager(object):
             self._hold = None
             self.current_item_id = item_id
             self.current_playlist_item_id = playlist_item_id
+            self.current_provider = provider
             self.phase = Phase.WAITING_READY
             self.playback.ensure_paused()
             self._post(self.playback.prepare_ready)
@@ -1129,15 +1146,36 @@ class SyncPlayManager(object):
             LOG.info("Spectator playing own media; not following the queue")
             return
 
-        self._start_item(item_id, playlist_item_id)
+        self._start_item(item_id, playlist_item_id, provider)
 
-    def _start_item(self, item_id, playlist_item_id):
+    @staticmethod
+    def _queue_entry(entry):
+        """(key, PlaylistItemId, provider) for one wire playlist entry.
+
+        A descriptor entry (SYNCPLAY.md §14.3) is identified by its
+        Provider:Key; the ItemId beside it is a server-side sentinel and
+        never a client-side identity — claims carry the key, so every
+        comparison against _local_item_id keeps working unchanged.
+        """
+        content = entry.get("Content")
+
+        if isinstance(content, dict) and content.get("Key"):
+            return (
+                content["Key"],
+                entry.get("PlaylistItemId"),
+                content.get("Provider") or JELLYFIN,
+            )
+
+        return (entry.get("ItemId"), entry.get("PlaylistItemId"), JELLYFIN)
+
+    def _start_item(self, item_id, playlist_item_id, provider=JELLYFIN):
         if not self.in_group():  # left while this update was in flight
             return
 
         self.phase = Phase.LOADING
         self.current_item_id = item_id
         self.current_playlist_item_id = playlist_item_id
+        self.current_provider = provider
 
         estimate_ms = self.playback.estimate_position_ms() or 0
         allowance_ms = self._load_allowance_ms()
@@ -1160,7 +1198,9 @@ class SyncPlayManager(object):
             # Through the provider seam, which reaches the client directly
             # rather than via _api: a 403 here is a library permission
             # problem, not lost group membership.
-            target = self.providers.play_target(item_id, utils.ms_to_ticks(estimate_ms))
+            target = self.providers.play_target(
+                item_id, utils.ms_to_ticks(estimate_ms), provider=provider
+            )
         except Exception as error:
             LOG.warning("SyncPlay item lookup failed: %s", error)
             self._load_failed("item lookup failed")
@@ -1472,15 +1512,18 @@ class SyncPlayManager(object):
             )
             return
 
+        info = self._local_file_info() or {}
+        provider = info.get("Provider") or JELLYFIN
+
         if hold is not None:
             hold["proposed"] = True
             hold["item_id"] = item_id
 
             if hold["transition"]:
-                self._propose_queue(item_id, position=0.0)
+                self._propose_queue(item_id, position=0.0, provider=provider)
                 return
 
-        self._propose_queue(item_id)
+        self._propose_queue(item_id, provider=provider)
 
     def _identify_held_play(self, data):
         """Identify a held playlist advance from the Player.OnPlay payload.
@@ -1560,9 +1603,15 @@ class SyncPlayManager(object):
         self._hold = None
         self.playback.ensure_playing()
 
-    def _propose_queue(self, item_id, position=None):
+    def _propose_queue(self, item_id, position=None, provider=JELLYFIN, content=None):
         """Propose a queue; a held transition proposes 0 and the player is
         aligned on it at adopt time (prepare_ready), not here.
+
+        A foreign provider's item goes out as an external-content entry
+        (SYNCPLAY.md §14.2) — descriptor built from ``content`` when the
+        caller has one (the bus propose), from the claim otherwise — and
+        only when the server negotiated the capability: refused loudly
+        rather than sent as a key the server would reject for everyone.
 
         External players cannot reach this path: kofin has no play-with
         flow, and the SyncPlay root entry is hidden when a
@@ -1573,6 +1622,35 @@ class SyncPlayManager(object):
                 position = self.player.getTime()
             except Exception:
                 position = 0.0
+
+        if provider != JELLYFIN:
+            if not self.server_external_content:
+                LOG.warning(
+                    "Propose for provider %r needs the server's "
+                    "ExternalContent capability; refused",
+                    provider,
+                )
+                return
+
+            if content is None:
+                info = self._local_file_info() or {}
+                content = {
+                    "Provider": provider,
+                    "Key": item_id,
+                    "Name": info.get("Name") or "",
+                    "RunTimeTicks": int(info.get("RunTimeTicks") or 0),
+                }
+
+            LOG.info(
+                "[ syncplay/set queue ] %s:%s at %.1fs", provider, item_id, position
+            )
+            self._api(
+                "syncplay_set_new_queue_ex",
+                [{"Content": content}],
+                0,
+                utils.seconds_to_ticks(position),
+            )
+            return
 
         LOG.info("[ syncplay/set queue ] %s at %.1fs", item_id, position)
         self._api(
@@ -1636,18 +1714,26 @@ class SyncPlayManager(object):
             )
             return
 
-        if payload.get("provider") != JELLYFIN:
-            # The queue's wire format carries Jellyfin item ids until G3's
-            # descriptors name a provider per entry. Refused loudly rather
-            # than sent as a GUID the server would reject for everyone.
-            LOG.info(
-                "Propose for provider %r needs the descriptor extension (G3); refused",
-                payload.get("provider"),
-            )
-            return
-
         position = utils.ticks_to_seconds(payload.get("position_ticks") or 0)
-        self._propose_queue(payload["key"], position=position)
+        provider = payload.get("provider") or JELLYFIN
+
+        content = None
+        if provider != JELLYFIN:
+            name = payload.get("name")
+            try:
+                runtime = int(payload.get("runtime_ticks") or 0)
+            except (TypeError, ValueError):
+                runtime = 0
+            content = {
+                "Provider": provider,
+                "Key": payload["key"],
+                "Name": name[:256] if isinstance(name, str) else "",
+                "RunTimeTicks": max(0, runtime),
+            }
+
+        self._propose_queue(
+            payload["key"], position=position, provider=provider, content=content
+        )
 
     def publish_session_state(self, announce=False):
         """The public session mirror (plan G2.2) on ``syncsession.state``.
