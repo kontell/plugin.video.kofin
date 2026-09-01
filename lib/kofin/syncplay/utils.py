@@ -78,6 +78,9 @@ BUFFERING_DEBOUNCE = 2.5  # Player.Caching must persist this long before reporti
 # how long we identify the item and how long an unanswered hold may last.
 FORWARD_RETRY_INTERVAL = 0.5  # poll cadence while identifying a local start
 FORWARD_RETRY_LIMIT = 10  # give up identifying after this many polls
+# A foreign claim older than this when a new local play starts belongs to
+# the previous playback (a seamless zap emits no stop to clear it).
+STALE_CLAIM_SECS = 2.0
 HOLD_RELEASE_TIMEOUT = 10.0  # a held start nobody adopted resumes after this
 STOP_PROMPT_GRACE = 1.0  # window for a replace-play to supersede a local stop
 STOP_PROMPT_POLL = 0.1  # supersession poll cadence within that window

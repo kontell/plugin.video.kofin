@@ -926,6 +926,34 @@ class TestForwardLocalPlay:
 
         assert manager.ignore_wait is True
 
+    def test_stale_claim_dropped_when_a_new_play_starts(self, manager):
+        # A seamless zap emits no stop, so the previous channel's claim
+        # survives into the new play and made the zap read as a duplicate
+        # start (the P2 gate). A new OnPlay drops a claim older than the
+        # staleness window; the owner re-claims moments later.
+        import time as time_module
+
+        join(manager)
+        manager.foreign_claim = {"Id": "old-chan", "Provider": "jellyfin"}
+        manager._foreign_claim_at = time_module.time() - 10.0
+
+        manager._identify_held_play({"item": {}})
+
+        assert manager.foreign_claim is None
+
+    def test_fresh_claim_survives_a_new_play(self, manager):
+        # A provider that claims at resolve time (before OnPlay) must not
+        # have its claim wiped by the play start it belongs to.
+        import time as time_module
+
+        join(manager)
+        manager.foreign_claim = {"Id": "new-chan", "Provider": "jellyfin"}
+        manager._foreign_claim_at = time_module.time()
+
+        manager._identify_held_play({"item": {}})
+
+        assert manager.foreign_claim == {"Id": "new-chan", "Provider": "jellyfin"}
+
     def test_claimed_item_is_the_identity_source(self, manager):
         # The service player's claimed play state names the jellyfin id.
         join(manager)

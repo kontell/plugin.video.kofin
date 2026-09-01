@@ -68,6 +68,7 @@ class SyncPlayManager(object):
         # outside over the public bus (SyncProvider.Claim). kofin's claim
         # always wins over it.
         self.foreign_claim: Optional[Claim] = None
+        self._foreign_claim_at = 0.0
         self.playback = PlaybackController(self, player)
         self.timesync: Optional[TimeSync] = None
         # Fine sync through inputstream.tempo (syncplay/tempo.py): armed at
@@ -1591,6 +1592,8 @@ class SyncPlayManager(object):
         starts keep waiting for the player: their start position (a resume
         point) is only trustworthy once A/V is up.
         """
+        self._drop_stale_claim()
+
         hold = self._hold
 
         if not self.in_group() or hold is None or hold["proposed"]:
@@ -1630,6 +1633,23 @@ class SyncPlayManager(object):
         hold["proposed"] = True
         hold["item_id"] = mapped
         self._propose_queue(mapped, position=0.0)
+
+    def _drop_stale_claim(self):
+        """A new local play is starting: a foreign claim older than a
+        moment describes the *previous* playback — a seamless zap emits no
+        stop, so ``on_stopped`` never cleared it, and the P2 gate's zap
+        re-proposed nothing because the stale claim made the new channel
+        read as a duplicate start of the current item. A fresh claim (a
+        provider that claims at resolve time, before OnPlay) is kept;
+        pvr.kofin re-claims from its own onAVStarted moments later, inside
+        the forward retry window."""
+        if self.foreign_claim is None:
+            return
+
+        if time.time() - self._foreign_claim_at <= utils.STALE_CLAIM_SECS:
+            return
+
+        self.foreign_claim = None
 
     def _unmanaged_local_play(self):
         """Playing something the group can't follow (a local file,
@@ -1736,6 +1756,7 @@ class SyncPlayManager(object):
 
     def _set_foreign_claim(self, claim):
         self.foreign_claim = claim
+        self._foreign_claim_at = time.time()
         LOG.info(
             "[ syncplay/claim ] foreign: %s via %s",
             claim.get("Id"),
