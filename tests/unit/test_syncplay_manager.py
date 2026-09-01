@@ -745,6 +745,70 @@ class TestAdoptInProgress:
         assert started == [("item-9", "pl-9")]
 
 
+class TestReloadForTempo:
+    """The one carved exception to adopt-in-progress (the pvr sync plan,
+    P1): a *foreign* claim with no tempo route, in a group with fine sync
+    armed, reloads through the kofin route instead of being adopted — a
+    byte-stream play (a PVR recording) can never carry a tempo route, so
+    adopting it would leave the member command-only for the whole item."""
+
+    def _arm(self, manager):
+        join(manager)
+        started = []
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
+        prepared = []
+        manager.playback.prepare_ready = lambda: prepared.append(True)
+        manager.playback.ensure_paused = lambda: None
+        manager.player.playing = True
+        manager.player.item = None  # not a kofin play
+        manager.tempo_session.active = True
+        return started, prepared
+
+    def test_foreign_claim_without_tempo_reloads(self, manager):
+        started, prepared = self._arm(manager)
+        manager.foreign_claim = {"Id": "rec-1", "Provider": "jellyfin"}
+
+        manager._handle_group_update(make_queue(items=(("rec-1", "pl-1"),)))
+
+        assert started == [("rec-1", "pl-1")]
+        assert prepared == []
+
+    def test_foreign_claim_with_tempo_adopts(self, manager):
+        started, prepared = self._arm(manager)
+        manager.foreign_claim = {
+            "Id": "rec-1",
+            "Provider": "jellyfin",
+            "Tempo": {"File": "/tmp/t", "QueueSecs": 8.0},
+        }
+
+        manager._handle_group_update(make_queue(items=(("rec-1", "pl-1"),)))
+
+        assert started == []
+        assert prepared == [True]
+
+    def test_fine_sync_unarmed_adopts(self, manager):
+        started, prepared = self._arm(manager)
+        manager.tempo_session.active = False
+        manager.foreign_claim = {"Id": "rec-1", "Provider": "jellyfin"}
+
+        manager._handle_group_update(make_queue(items=(("rec-1", "pl-1"),)))
+
+        assert started == []
+        assert prepared == [True]
+
+    def test_kofin_play_without_tempo_adopts(self, manager):
+        # kofin's own claim lacking a tempo route (an audio item, a
+        # segmented stream): the reload would reproduce the same route,
+        # so adopting is right.
+        started, prepared = self._arm(manager)
+        manager.player.item = {"Id": "song-1", "PlayMethod": "DirectPlay"}
+
+        manager._handle_group_update(make_queue(items=(("song-1", "pl-1"),)))
+
+        assert started == []
+        assert prepared == [True]
+
+
 class TestForwardLocalPlay:
     def test_noop_when_nothing_playing(self, manager):
         # Creating a group before playback must not demote to spectator.
