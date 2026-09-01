@@ -12,9 +12,29 @@ The dispatch itself stays ``getattr`` — the transplant keeps its shape;
 only its target is now a checked surface.
 """
 
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, List, Optional, Protocol, TypedDict
 
 JsonDict = Dict[str, Any]
+
+
+class Claim(TypedDict, total=False):
+    """The claimed play state the engine reads (plan G1.3).
+
+    What ``player.current_item()`` answers: kofin's service player claims
+    every play resolved through the plugin, and the engine reads identity,
+    transport and the fine-sync route off that claim and nothing else.
+    ``Provider`` is absent on every claim today and defaults to
+    ``"jellyfin"`` — the key the provider registry dispatches on
+    (``syncplay/providers.py``).
+    """
+
+    Id: str
+    Provider: str
+    Name: str
+    RunTimeTicks: int
+    PlayMethod: str
+    PlaySessionId: str
+    Tempo: Dict[str, Any]
 
 
 class SyncPlayApi(Protocol):
@@ -41,7 +61,9 @@ class SyncPlayApi(Protocol):
 
     def syncplay_leave(self) -> None: ...
 
-    def syncplay_hello(self, protocol_version: int) -> JsonDict: ...
+    def syncplay_hello(
+        self, protocol_version: int, capabilities: Optional[List[str]] = None
+    ) -> JsonDict: ...
 
     def syncplay_snapshot(self) -> None: ...
 
@@ -66,6 +88,13 @@ class SyncPlayApi(Protocol):
     def syncplay_set_new_queue(
         self,
         item_ids: List[str],
+        playing_item_position: int = 0,
+        start_position_ticks: int = 0,
+    ) -> None: ...
+
+    def syncplay_set_new_queue_ex(
+        self,
+        entries: List[JsonDict],
         playing_item_position: int = 0,
         start_position_ticks: int = 0,
     ) -> None: ...

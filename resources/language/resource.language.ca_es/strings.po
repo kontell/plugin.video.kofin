@@ -2113,21 +2113,49 @@ msgid "%s download(s) deleted"
 msgstr "%s baixades eliminades"
 
 msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Cerca servidors a la xarxa local"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Cerca servidors Jellyfin en aquesta xarxa i mostra els que responen. El que triïs s'omple a \"Adreça del servidor\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "S'estan cercant servidors Jellyfin…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Selecciona un servidor"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Cap servidor Jellyfin ha respost — introdueix l'adreça manualment"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "no ha respost"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s no ha respost — l'adreça que ha donat potser no funciona aquí"
+
+msgctxt "#30832"
 msgid "Storage used"
 msgstr "Espai utilitzat"
 
-msgctxt "#30826"
+msgctxt "#30833"
 msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
 msgstr "Mostra on es guarden les baixades i quant espai ocupa cada tipus. Es mesura des de la mateixa carpeta, de manera que compta les caràtules, els subtítols i les metadades juntament amb els fitxers multimèdia."
 
-msgctxt "#30827"
+msgctxt "#30834"
 msgid "Other files in this folder"
 msgstr "Altres fitxers d'aquesta carpeta"
 
-msgctxt "#30828"
+msgctxt "#30835"
 msgid "Nothing has been downloaded yet"
 msgstr "Encara no s'ha baixat res"
 
-msgctxt "#30829"
+msgctxt "#30836"
 msgid "Folder too large to measure fully — the totals above are partial"
 msgstr "La carpeta és massa gran per mesurar-la del tot — els totals de dalt són parcials"

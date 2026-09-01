@@ -2113,21 +2113,49 @@ msgid "%s download(s) deleted"
 msgstr "Odstraněno stažených položek: %s"
 
 msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Najít servery v místní síti"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Vyhledá servery Jellyfin v této síti a zobrazí ty, které odpoví. Vybraný se doplní do pole \"Adresa serveru\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Vyhledávání serverů Jellyfin…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Vyberte server"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Žádný server Jellyfin neodpověděl — zadejte adresu ručně"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "neodpověděl"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s neodpověděl — zadaná adresa zde nemusí fungovat"
+
+msgctxt "#30832"
 msgid "Storage used"
 msgstr "Využité místo"
 
-msgctxt "#30826"
+msgctxt "#30833"
 msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
 msgstr "Zobrazí, kde jsou stažené soubory uloženy a kolik místa zabírá každý druh. Měří se přímo ve složce, takže se kromě médií počítají i obrázky, titulky a metadata."
 
-msgctxt "#30827"
+msgctxt "#30834"
 msgid "Other files in this folder"
 msgstr "Ostatní soubory v této složce"
 
-msgctxt "#30828"
+msgctxt "#30835"
 msgid "Nothing has been downloaded yet"
 msgstr "Zatím nebylo nic staženo"
 
-msgctxt "#30829"
+msgctxt "#30836"
 msgid "Folder too large to measure fully — the totals above are partial"
 msgstr "Složka je příliš velká na úplné změření — součty výše jsou neúplné"

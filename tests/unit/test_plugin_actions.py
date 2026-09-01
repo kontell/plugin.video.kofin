@@ -373,7 +373,7 @@ def test_download_size_says_so_rather_than_showing_zeroes(
     dialog, shown = _size_report(download_wired, monkeypatch, tmp_path / "never-made")
 
     assert dialog.selects == []
-    assert shown == ["L30828 %s"]
+    assert shown == ["L30835 %s"]
 
 
 def test_download_size_drops_the_free_row_when_it_cannot_be_read(tmp_path):

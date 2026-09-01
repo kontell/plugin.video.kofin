@@ -523,9 +523,16 @@
   "#30822": "Kept %s — its library entry could not be restored",
   "#30823": "Download deleted: %s",
   "#30824": "%s download(s) deleted",
-  "#30825": "Storage used",
-  "#30826": "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media.",
-  "#30827": "Other files in this folder",
-  "#30828": "Nothing has been downloaded yet",
-  "#30829": "Folder too large to measure fully — the totals above are partial"
+  "#30825": "Find servers on local network",
+  "#30826": "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\".",
+  "#30827": "Searching for Jellyfin servers…",
+  "#30828": "Select a server",
+  "#30829": "No Jellyfin servers answered — enter the address manually",
+  "#30830": "did not answer",
+  "#30831": "%s did not answer — the address it gave may not work here",
+  "#30832": "Storage used",
+  "#30833": "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media.",
+  "#30834": "Other files in this folder",
+  "#30835": "Nothing has been downloaded yet",
+  "#30836": "Folder too large to measure fully — the totals above are partial"
 }

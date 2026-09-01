@@ -10,6 +10,7 @@ from contextlib import contextmanager
 import pytest
 
 import kofin.syncplay.playback as playback_module
+from kofin.syncplay import providers as providers_module
 from kofin.syncplay import utils
 from kofin.syncplay.playback import PlaybackController
 from tests.unit.fakes import FakeAddon, FakeWindow, player_ops_rpc
@@ -742,12 +743,28 @@ class FakePlaylist:
 class TestPlayPathRetarget:
     """The one substantive transplant change (plan §2): a group play goes
     through kofin's plugin play path — a plugin:// URL naming the id and
-    start position — never a resolved stream path."""
+    start position — never a resolved stream path.
+
+    Driven end to end through the G1 provider seam: the Jellyfin provider
+    builds the target, the controller plays it, and together they must
+    reproduce the pre-seam behaviour byte for byte. (The old
+    item-without-an-Id guard is gone with the item dict: the URL is built
+    from the queue key, which a queue entry always carries; an item the
+    lookup cannot produce is the provider's LookupError, tested in
+    test_syncplay_providers.py.)"""
 
     @pytest.fixture(autouse=True)
     def _playlist(self, monkeypatch):
         FakePlaylist.instances = {}
         monkeypatch.setattr(playback_module.xbmc, "PlayList", FakePlaylist)
+
+    @staticmethod
+    def target(item, key, start_ticks):
+        class Api:
+            def item(self, item_id):
+                return item
+
+        return providers_module.JellyfinProvider(Api()).play_target(key, start_ticks)
 
     def test_group_play_resolves_through_plugin_url(self):
         import xbmc
@@ -756,7 +773,7 @@ class TestPlayPathRetarget:
         player.playing = False
         start_ticks = utils.seconds_to_ticks(90)
 
-        controller.play_item({"Id": "item-1", "Type": "Movie"}, start_ticks)
+        controller.play_item(self.target({"Type": "Movie"}, "item-1", start_ticks))
 
         playlist = FakePlaylist.instances[xbmc.PLAYLIST_VIDEO]
         assert playlist.cleared == 1
@@ -779,7 +796,7 @@ class TestPlayPathRetarget:
         controller, manager, player = make_controller()
         player.playing = True
 
-        controller.play_item({"Id": "item-2", "Type": "Episode"}, 0)
+        controller.play_item(self.target({"Type": "Episode"}, "item-2", 0))
 
         playlist = FakePlaylist.instances[xbmc.PLAYLIST_VIDEO]
         assert "startticks=0" in playlist.entries[0]
@@ -793,7 +810,7 @@ class TestPlayPathRetarget:
         import xbmc
 
         controller, manager, player = make_controller()
-        controller.play_item({"Id": "abc", "Type": "Movie"}, -240000)
+        controller.play_item(self.target({"Type": "Movie"}, "abc", -240000))
 
         url = FakePlaylist.instances[xbmc.PLAYLIST_VIDEO].entries[0]
         assert "startticks=0" in url
@@ -805,16 +822,10 @@ class TestPlayPathRetarget:
         controller, manager, player = make_controller()
         player.playing = False
 
-        controller.play_item({"Id": "song-1", "Type": "Audio"}, 0)
+        controller.play_item(self.target({"Type": "Audio"}, "song-1", 0))
 
         assert xbmc.PLAYLIST_MUSIC in FakePlaylist.instances
         assert xbmc.PLAYLIST_VIDEO not in FakePlaylist.instances
-
-    def test_item_without_id_raises(self):
-        controller, manager, player = make_controller()
-
-        with pytest.raises(ValueError):
-            controller.play_item({"Type": "Movie"}, 0)
 
 
 class TestAlignAfterResume:

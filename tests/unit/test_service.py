@@ -2010,3 +2010,86 @@ def test_download_remove_all_ipc_routes_to_the_manager(monkeypatch, tmp_path):
     service.downloads = manager
     service.onNotification(ipc.SENDER, "Other.DownloadRemoveAll", _signed(service))
     assert manager.removed_all == 1
+
+
+# --- the public provider contract routing (plan G2.1) ------------------------
+
+
+class ContractRecorder:
+    def __init__(self):
+        self.calls = []
+
+    def __getattr__(self, name):
+        def record(*args):
+            self.calls.append((name,) + args)
+
+        return record
+
+
+def test_a_foreign_sender_reaches_the_contract_arm(monkeypatch, tmp_path):
+    import json
+
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    recorder = ContractRecorder()
+    service.syncplay = recorder
+
+    service.onNotification(
+        "plugin.video.example",
+        "Other.SyncProvider.Claim",
+        json.dumps({"v": 1, "provider": "example", "key": "k1"}),
+    )
+
+    assert recorder.calls == [
+        (
+            "on_foreign_claim",
+            {"Id": "k1", "Provider": "example", "PlayMethod": "DirectPlay"},
+        )
+    ]
+
+
+def test_a_malformed_contract_payload_never_reaches_the_manager(monkeypatch, tmp_path):
+    import json
+
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    recorder = ContractRecorder()
+    service.syncplay = recorder
+
+    service.onNotification("plugin.video.example", "Other.SyncProvider.Claim", "{bad")
+    service.onNotification(
+        "plugin.video.example",
+        "Other.SyncProvider.Claim",
+        json.dumps({"v": 99, "provider": "example", "key": "k1"}),
+    )
+    service.onNotification(
+        "plugin.video.example", "Other.SomethingElse", json.dumps({"v": 1})
+    )
+
+    assert recorder.calls == []
+
+
+def test_kofins_own_sender_never_reaches_the_contract_arm(monkeypatch, tmp_path):
+    """The contract arm exists for foreign senders only: a kofin-sender
+    message goes through the IPC gate, where contract names are in no
+    table and land nowhere."""
+    import json
+
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    recorder = ContractRecorder()
+    service.syncplay = recorder
+
+    service.onNotification(
+        ipc.SENDER,
+        "Other.SyncProvider.Claim",
+        json.dumps({"v": 1, "provider": "example", "key": "k1"}),
+    )
+
+    assert recorder.calls == []

@@ -2113,21 +2113,49 @@ msgid "%s download(s) deleted"
 msgstr "已删除 %s 项下载"
 
 msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "在局域网中查找服务器"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "在本网络中查找 Jellyfin 服务器并列出有响应的服务器。所选服务器会填入 \"服务器地址\"。"
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "正在查找 Jellyfin 服务器…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "选择服务器"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "没有 Jellyfin 服务器响应 — 请手动输入地址"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "无响应"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s 无响应 — 它提供的地址在此可能无法使用"
+
+msgctxt "#30832"
 msgid "Storage used"
 msgstr "已用空间"
 
-msgctxt "#30826"
+msgctxt "#30833"
 msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
 msgstr "显示下载内容的存放位置以及各类占用的空间。测量的是文件夹本身，因此除媒体文件外，海报、字幕和元数据也会计入。"
 
-msgctxt "#30827"
+msgctxt "#30834"
 msgid "Other files in this folder"
 msgstr "此文件夹中的其他文件"
 
-msgctxt "#30828"
+msgctxt "#30835"
 msgid "Nothing has been downloaded yet"
 msgstr "尚未下载任何内容"
 
-msgctxt "#30829"
+msgctxt "#30836"
 msgid "Folder too large to measure fully — the totals above are partial"
 msgstr "文件夹过大，无法完整统计 — 以上合计并不完整"

@@ -469,9 +469,16 @@
   "#30822": "%s beholdt — oppføringen i biblioteket kunne ikke gjenopprettes",
   "#30823": "Nedlasting slettet: %s",
   "#30824": "%s nedlasting(er) slettet",
-  "#30825": "Brukt lagringsplass",
-  "#30826": "Vis hvor nedlastingene ligger og hvor mye plass hver type bruker. Det måles på selve mappen, så bilder, undertekster og metadata telles med sammen med mediefilene.",
-  "#30827": "Andre filer i denne mappen",
-  "#30828": "Ingenting er lastet ned ennå",
-  "#30829": "Mappen er for stor til å måles helt — totalene over er ufullstendige"
+  "#30825": "Finn servere på lokalnettverket",
+  "#30826": "Søker etter Jellyfin-servere på dette nettverket og viser dem som svarer. Den du velger fylles inn i \"Serveradresse\".",
+  "#30827": "Søker etter Jellyfin-servere…",
+  "#30828": "Velg en server",
+  "#30829": "Ingen Jellyfin-servere svarte — skriv inn adressen manuelt",
+  "#30830": "svarte ikke",
+  "#30831": "%s svarte ikke — adressen den oppga fungerer kanskje ikke her",
+  "#30832": "Brukt lagringsplass",
+  "#30833": "Vis hvor nedlastingene ligger og hvor mye plass hver type bruker. Det måles på selve mappen, så bilder, undertekster og metadata telles med sammen med mediefilene.",
+  "#30834": "Andre filer i denne mappen",
+  "#30835": "Ingenting er lastet ned ennå",
+  "#30836": "Mappen er for stor til å måles helt — totalene over er ufullstendige"
 }

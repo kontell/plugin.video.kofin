@@ -623,11 +623,19 @@ class Api:
         # the transport's 6 s + 30 s (audit R4).
         self.post("/SyncPlay/Leave", timeout=LEAVE_TIMEOUT)
 
-    def syncplay_hello(self, protocol_version: int) -> JsonDict:
-        """Capability probe + negotiation in one round trip (SYNCPLAY.md §2.1):
-        a 200 carries the server's protocol version and the time-sync transport
-        descriptor; stock and integrated servers 404."""
-        return self.post("/SyncPlay/Hello", {"ProtocolVersion": protocol_version})
+    def syncplay_hello(
+        self, protocol_version: int, capabilities: Optional[List[str]] = None
+    ) -> JsonDict:
+        """Capability probe + negotiation in one round trip (SYNCPLAY.md §2.1,
+        §14.1): a 200 carries the server's protocol version, the time-sync
+        transport descriptor and its capability list; stock and integrated
+        servers 404. ``capabilities`` declares this device's — a promise the
+        server's visibility rules rely on, so only ever sent for what the
+        provider registry can actually resolve."""
+        body: JsonDict = {"ProtocolVersion": protocol_version}
+        if capabilities is not None:
+            body["Capabilities"] = capabilities
+        return self.post("/SyncPlay/Hello", body)
 
     def syncplay_snapshot(self) -> None:
         """Ask a protocol v2 server to push a StateSnapshot over the websocket."""
@@ -701,6 +709,24 @@ class Api:
             "/SyncPlay/SetNewQueue",
             {
                 "PlayingQueue": item_ids,
+                "PlayingItemPosition": playing_item_position,
+                "StartPositionTicks": int(start_position_ticks),
+            },
+        )
+
+    def syncplay_set_new_queue_ex(
+        self,
+        entries: List[JsonDict],
+        playing_item_position: int = 0,
+        start_position_ticks: int = 0,
+    ) -> None:
+        """SetNewQueue whose entries may be external content (SYNCPLAY.md
+        §14.2): ``{"ItemId": guid}`` or ``{"Content": {...}}`` dicts, passed
+        through verbatim. Plugin route; capability-gated server side."""
+        self.post(
+            "/SyncPlay/SetNewQueueEx",
+            {
+                "PlayingQueue": entries,
                 "PlayingItemPosition": playing_item_position,
                 "StartPositionTicks": int(start_position_ticks),
             },

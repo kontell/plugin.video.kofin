@@ -64,7 +64,7 @@ CATEGORY_LABELS: Dict[str, int] = {
 
 # kofin's own, because "Other" alone in a list of Movies/TV shows/Music
 # reads as another media type rather than as "not ours".
-OTHER_LABEL = 30827
+OTHER_LABEL = 30834
 
 
 def scan(root: str) -> Usage:

@@ -79,6 +79,36 @@ def public_info(http: Http, address: str) -> Dict[str, Any]:
     return info
 
 
+# The reachability check behind LAN discovery (kofin.core.discovery). The
+# connect leg is api.PROBE_TIMEOUT's, for its reason: 3.05 s covers exactly
+# one TCP SYN retransmit and no more. The read leg tightens from ten seconds
+# to five, which is a deliberate deviation from that budget -- the service's
+# probe asks whether a server is alive, this one already knows it is, because
+# it answered a broadcast milliseconds ago. All this asks is whether the
+# address it published is usable from here, and every way that fails (an
+# unroutable IP, a hostname with no answer, a TLS name mismatch) fails in the
+# connect leg. A generous read leg buys nothing and stalls a dialog someone
+# is watching.
+DISCOVERY_PROBE_TIMEOUT = (3.05, 5.0)
+
+
+def probe_public_info(http: Http, address: str) -> Dict[str, Any]:
+    """/System/Info/Public on the discovery budget -- one attempt, no ladder.
+
+    ``retries=0`` because the scan window is already the retry policy: a
+    second HTTP attempt per address doubles the worst case for a server the
+    broadcast has proved is there.
+    """
+    response = http.request(
+        "GET",
+        address + "/System/Info/Public",
+        timeout=DISCOVERY_PROBE_TIMEOUT,
+        retries=0,
+    )
+    info: Dict[str, Any] = response.json()
+    return info
+
+
 def quick_connect_enabled(http: Http, address: str, header: str) -> bool:
     response = http.request(
         "GET",

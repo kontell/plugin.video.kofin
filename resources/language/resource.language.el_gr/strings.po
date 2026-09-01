@@ -2113,21 +2113,49 @@ msgid "%s download(s) deleted"
 msgstr "%s λήψεις διαγράφηκαν"
 
 msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Εύρεση διακομιστών στο τοπικό δίκτυο"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Αναζητά διακομιστές Jellyfin σε αυτό το δίκτυο και εμφανίζει όσους απαντήσουν. Ο διακομιστής που θα επιλέξετε συμπληρώνεται στο \"Διεύθυνση διακομιστή\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Αναζήτηση διακομιστών Jellyfin…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Επιλέξτε διακομιστή"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Κανένας διακομιστής Jellyfin δεν απάντησε — εισαγάγετε τη διεύθυνση χειροκίνητα"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "δεν απάντησε"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "Ο %s δεν απάντησε — η διεύθυνση που έδωσε ίσως δεν λειτουργεί εδώ"
+
+msgctxt "#30832"
 msgid "Storage used"
 msgstr "Χρησιμοποιούμενος χώρος"
 
-msgctxt "#30826"
+msgctxt "#30833"
 msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
 msgstr "Εμφανίζει πού αποθηκεύονται οι λήψεις και πόσο χώρο καταλαμβάνει κάθε είδος. Η μέτρηση γίνεται στον ίδιο τον φάκελο, οπότε προσμετρώνται και τα εικαστικά, οι υπότιτλοι και τα μεταδεδομένα μαζί με τα πολυμέσα."
 
-msgctxt "#30827"
+msgctxt "#30834"
 msgid "Other files in this folder"
 msgstr "Άλλα αρχεία σε αυτόν τον φάκελο"
 
-msgctxt "#30828"
+msgctxt "#30835"
 msgid "Nothing has been downloaded yet"
 msgstr "Δεν έχει ληφθεί τίποτα ακόμη"
 
-msgctxt "#30829"
+msgctxt "#30836"
 msgid "Folder too large to measure fully — the totals above are partial"
 msgstr "Ο φάκελος είναι πολύ μεγάλος για πλήρη μέτρηση — τα παραπάνω σύνολα είναι μερικά"

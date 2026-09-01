@@ -558,7 +558,7 @@ def download_size(request: Request) -> None:
     root = downloads_root()
     progress = xbmcgui.DialogProgressBG()
     try:
-        progress.create(settings.localized(30825))
+        progress.create(settings.localized(30832))
         report = usage.scan(root)
     finally:
         try:
@@ -567,7 +567,7 @@ def download_size(request: Request) -> None:
             LOG.debug("progress dialog would not close")
 
     if report.empty:
-        toast.show(settings.localized(30828), time_ms=4000)
+        toast.show(settings.localized(30835), time_ms=4000)
         return
 
     rows: List[Union[str, xbmcgui.ListItem]] = [
@@ -578,7 +578,7 @@ def download_size(request: Request) -> None:
     ]
     # The heading names the folder, because "where" is half the question the
     # button answers and a path is too long for a row label.
-    xbmcgui.Dialog().select("%s — %s" % (settings.localized(30825), root), rows)
+    xbmcgui.Dialog().select("%s — %s" % (settings.localized(30832), root), rows)
 
 
 def size_rows(report: Any) -> List[tuple]:
@@ -603,7 +603,7 @@ def size_rows(report: Any) -> List[tuple]:
         # alike to somebody deciding whether to download something.
         rows.append((xbmc.getLocalizedString(160), _report_size(report.free)))
     if report.capped:
-        rows.append((settings.localized(30829), ""))
+        rows.append((settings.localized(30836), ""))
     return rows
 
 

@@ -2113,21 +2113,49 @@ msgid "%s download(s) deleted"
 msgstr "Загрузок удалено: %s"
 
 msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Найти серверы в локальной сети"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Ищет серверы Jellyfin в этой сети и показывает те, что ответили. Выбранный подставляется в поле \"Адрес сервера\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Поиск серверов Jellyfin…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Выберите сервер"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Ни один сервер Jellyfin не ответил — введите адрес вручную"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "не ответил"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s не ответил — указанный им адрес может здесь не работать"
+
+msgctxt "#30832"
 msgid "Storage used"
 msgstr "Занято места"
 
-msgctxt "#30826"
+msgctxt "#30833"
 msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
 msgstr "Показывает, где хранятся загрузки и сколько места занимает каждый тип. Измеряется сама папка, поэтому вместе с медиафайлами учитываются обложки, субтитры и метаданные."
 
-msgctxt "#30827"
+msgctxt "#30834"
 msgid "Other files in this folder"
 msgstr "Другие файлы в этой папке"
 
-msgctxt "#30828"
+msgctxt "#30835"
 msgid "Nothing has been downloaded yet"
 msgstr "Пока ничего не загружено"
 
-msgctxt "#30829"
+msgctxt "#30836"
 msgid "Folder too large to measure fully — the totals above are partial"
 msgstr "Папка слишком велика, чтобы измерить её полностью — итоги выше неполные"

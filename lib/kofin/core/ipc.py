@@ -41,6 +41,12 @@ PRECACHE_ART = "PrecacheArt"
 # SyncPlay (phase 4): the root entry's plugin invocation asks the service —
 # the single owner of all SyncPlay state — to open the group menu on its
 # worker thread. No payload.
+#
+# The *public* SyncPlay provider contract is deliberately not here: its
+# inbound messages are other add-ons' to send (their sender id, no nonce —
+# nothing irreversible crosses that bus), and kofin's one outbound message
+# (SyncSession.State) is declared and sent in core/contract.py, the second,
+# public registry (plan G2.1).
 SYNCPLAY_MENU = "SyncPlayMenu"
 
 # Who's watching?: same shape, and for the same reason. A plugin invocation

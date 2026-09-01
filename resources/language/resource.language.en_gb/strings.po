@@ -2227,16 +2227,55 @@ msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr ""
 
-# 30825-30829 — the download size report (Downloads tab, directly above
-# "Delete all downloads"). #30825 labels the button and heads the dialog it
+# 30825-30831 -- LAN server discovery (core/discovery.py, plugin/serverpicker.py).
+# #30829 names manual entry rather than suggesting another go, and the wording
+# is the protocol's, not politeness: a server answers the broadcast in
+# milliseconds or not at all, so nothing is still on its way when the window
+# closes, and the usual causes -- auto-discovery switched off, Docker bridge
+# networking, another subnet, a host where something already holds UDP 7359 --
+# no number of retries reaches. #30830 marks a row whose address did not
+# answer and reads as a fragment after the address; #30831 is the same fact as
+# a sentence, raised only if the user picks that row anyway. %s is the
+# server's own name.
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr ""
+
+# Quotes #30052 verbatim -- pocheck.py holds the pair.
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr ""
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr ""
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr ""
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr ""
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr ""
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr ""
+
+# 30832-30836 — the download size report (Downloads tab, directly above
+# "Delete all downloads"). #30832 labels the button and heads the dialog it
 # opens, where it is followed by an em dash and the folder's path. The rows
 # themselves reuse Kodi's own strings — #342 Movies, #20343 TV shows, #2
 # Music, #20161 Total, #160 Free — so only the two below need translating.
-msgctxt "#30825"
+msgctxt "#30832"
 msgid "Storage used"
 msgstr ""
 
-msgctxt "#30826"
+msgctxt "#30833"
 msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
 msgstr ""
 
@@ -2245,19 +2284,19 @@ msgstr ""
 # with other media, and a total that quietly ignored those files would not
 # match what the user's own file manager reports. Not simply "Other": beside
 # Movies, TV shows and Music that reads as another kind of media.
-msgctxt "#30827"
+msgctxt "#30834"
 msgid "Other files in this folder"
 msgstr ""
 
 # Shown instead of the report when the downloads folder holds nothing at all
 # — including the case where it does not exist yet, which is normal before
 # the first download.
-msgctxt "#30828"
+msgctxt "#30835"
 msgid "Nothing has been downloaded yet"
 msgstr ""
 
 # The walk has a ceiling, and stopping at it is said out loud rather than
 # hidden: a total that quietly stopped counting is worse than no total.
-msgctxt "#30829"
+msgctxt "#30836"
 msgid "Folder too large to measure fully — the totals above are partial"
 msgstr ""

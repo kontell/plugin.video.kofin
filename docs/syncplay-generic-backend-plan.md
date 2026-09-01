@@ -8,6 +8,7 @@
 | **Branches** | One per phase in each repo: `refactor/syncplay-seams` (G1), `feat/sync-provider-contract` (G2), `feat/syncplay-external-content` (G3 client), plugin builds `x.y.0.7` (G3.1 alone) and `x.y.0.8` (G3.2-G3.4). One commit per item, each revertible on its own. |
 | **Scope** | Everything needed for pvr.kofin recordings and plugin.video.youtube to sync through the kofin-hosted engine. Explicitly out: live-channel position sync (tune-together only, and only after G3.1), a standalone service host, any v1 accommodation beyond the visibility filtering v2 already implies. |
 | **Rule** | Transplant discipline: G1 is a restructure of ported code and lands only when both live rigs (`tests/live/syncplay_fine_sync.py`, `tests/live/syncplay_music.py`) pass **unchanged** against it. Nothing in `core/ipc.py`'s closed registry is opened; the public bus is a separate module with its own rules. Every phase carries its unit proof and its live gate before the next begins. |
+| **Amended** | 2026-09-01, §7: contract-only integration. The in-service matcher tier (G2.5, G3.7's identity half) is withdrawn and pvr.kofin leaves the scope; phase G4 carries the withdrawal and the fork-side youtube adapter. G1–G3 below stand as the executed record. |
 
 ## 1. Why this order
 
@@ -175,3 +176,35 @@ G2.0c failing (no deterministic recording match) adds one pvr.kofin item: write 
 Live channels stay out until recordings prove the adapter and G3.1 is deployed; then "tune together" is a channel adapter reusing the G2.5 shape, and position work waits on the catchup/timeshift constraints the feasibility report records.
 
 The descriptor's `ImageUrl` is carried but unused by kofin initially; it exists so a future member UI can show what the group is watching without a provider installed.
+
+## 7. Amendment (2026-09-01) — contract-only integration, phase G4
+
+Decided after G3.8: the in-service matcher tier is withdrawn. A matcher can never wire fine sync — only the add-on that builds the resolved ListItem can route it through inputstream.tempo — so matcher-tier membership is capped at command-only forever, and command-only membership is not worth a second integration tier ("not much point in sync without tempo"). The public contract (G2.1–G2.4, G2.6) becomes the **only** integration surface: kofin ships the engine and the contract; a target ships its own adapter — register on the announce, claim on resolve with a `tempo` block, ListItem routed through inputstream.tempo. An add-on that does not integrate is a spectator, which is the contract's stated default, not a degraded membership kofin maintains on its behalf.
+
+pvr.kofin leaves the scope with the tier. A PVR-playing member has no tempo route kofin can supply (recording playback never passes a ListItem kofin resolves), so its membership was the permanent command-only case. Excluded, not rejected: it re-enters when pvr.kofin can hold both halves itself — hand recording playback to inputstream.tempo through its recording stream properties, and deliver its own `Register`/`Claim` (a binary add-on has no NotifyAll; the JSON-RPC TCP socket or a companion script add-on are the known routes). Until then a recording playing in a group is spectator playback like any other unintegrated add-on, and G2.7's planned `tests/live/syncplay_pvr.py` rig is dropped with it.
+
+What the executed record still proves is unchanged by the withdrawal: G2.5's live gate proved hold-and-propose, follower start and claim intake end to end — a synthesized claim enters `_local_file_info` exactly where a bus claim does — and G3.6–G3.8 proved the descriptor path, the registry dispatch and a bus-registered provider on two real members. G4 removes the *source* of the synthesized claims, not the paths they proved.
+
+| # | Item | Delivers | Proof |
+|---|---|---|---|
+| G4.1 | Withdraw the matcher tier | `syncplay/adapters/` deleted with its service wiring and the PVR identity helpers | `tox` green with the matcher suites dropped; the bus-claim and registry L1s unchanged |
+| G4.2 | Contract doc revision | cooperation is the model, spectator the default | doc reviewed against the post-G4 tree |
+| G4.3 | The youtube fork adapter | `Register` + `Claim` + tempo atop `bee4a524` | live two-member gate: the first contract fine-sync proof |
+
+### G4.1 — Withdraw the matcher tier
+
+**Change** (kofin). Executed as a rewrite of the open stack (2026-09-01), so the tier never lands: PR #214 now carries the contract without `syncplay/adapters/`, and PR #215 the descriptor path without the YouTube matcher. The withdrawal inventory — nothing of it reaches `main`: the adapters package (`pvr.py`, `youtube.py`, the `claim_soon`/`register_builtin_providers` dispatcher), the two `service/main.py` wiring points (the OnPlay probe, the built-in registration at SyncPlay start), `providers.py`'s `recording_guid` and the `media == "recording"` arm of `resolve_kodi_id`, and `core/kodirpc.py`'s `pvr_recording_file`/`playing_file`/`playing_details` (all matcher-only — `addon_details` stays, `tempo.py` reads it). Everything the matchers fed is untouched: `on_foreign_claim`, the registry and `TemplateProvider`, the descriptor propose/apply, the state property.
+
+**Proof.** The rewritten-tip-vs-old-tip diff is exactly the matcher inventory (482 deletions, no other change); every bus-path L1 (claim intake, registry round trip, descriptor dispatch) passes unchanged, which is the demonstration that the contract never depended on the tier. mypy, pytest, ruff, black green at both rewritten commits; CI on both PRs.
+
+### G4.2 — Contract doc revision
+
+**Change.** Folded into the rewritten G2 commit, so the doc lands already right: §7's worked example ("no cooperation needed") is replaced by the cooperating add-on's own adapter as the worked example (three touches: register, claim, tempo route), the spectator default is stated as the whole story for unintegrated add-ons, and §6 (the tempo route) is the reason to integrate. No wire change — the messages, shapes and property are already v1-frozen.
+
+**Proof.** Doc reviewed against the rewritten tree; no separate code.
+
+### G4.3 — The youtube fork adapter
+
+**Change** (the youtube fork, atop the tempo patch at `bee4a524`). The adapter is fork-side and is what G3.7 called the "cooperating variant", now the only variant: send `SyncProvider.Register` (the `/play/?video_id={key}&seek={position_s}` template) on start-up and on every `SyncSession.State` announce; on play resolve, read `kofin.syncplay.tempo`, stamp the session's tempo file on the ListItem instead of its own, and send `SyncProvider.Claim` with the `tempo` block, the title and the runtime. kofin changes not at all — that is the point of the phase.
+
+**Proof.** Live two-member gate, results kept: group start from a registered template, seek and pause choreography, and the pulse ledger showing confirmed pulses on a progressive stream — the first live proof of fine sync over the contract, closing the gap that every prior gate drove claims from inside kofin.

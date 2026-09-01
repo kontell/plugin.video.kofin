@@ -469,9 +469,16 @@
   "#30822": "%s mantido — não foi possível restaurar a entrada da biblioteca",
   "#30823": "Transferência eliminada: %s",
   "#30824": "%s transferência(s) eliminada(s)",
-  "#30825": "Espaço utilizado",
-  "#30826": "Mostra onde as transferências são guardadas e quanto espaço cada tipo ocupa. A medição é feita na própria pasta, por isso as imagens, as legendas e os metadados contam juntamente com os ficheiros multimédia.",
-  "#30827": "Outros ficheiros nesta pasta",
-  "#30828": "Ainda não foi transferido nada",
-  "#30829": "Pasta demasiado grande para medir por completo — os totais acima são parciais"
+  "#30825": "Procurar servidores na rede local",
+  "#30826": "Procura servidores Jellyfin nesta rede e lista os que responderem. O escolhido é preenchido em \"Endereço do servidor\".",
+  "#30827": "A procurar servidores Jellyfin…",
+  "#30828": "Selecione um servidor",
+  "#30829": "Nenhum servidor Jellyfin respondeu — introduza o endereço manualmente",
+  "#30830": "não respondeu",
+  "#30831": "%s não respondeu — o endereço indicado pode não funcionar aqui",
+  "#30832": "Espaço utilizado",
+  "#30833": "Mostra onde as transferências são guardadas e quanto espaço cada tipo ocupa. A medição é feita na própria pasta, por isso as imagens, as legendas e os metadados contam juntamente com os ficheiros multimédia.",
+  "#30834": "Outros ficheiros nesta pasta",
+  "#30835": "Ainda não foi transferido nada",
+  "#30836": "Pasta demasiado grande para medir por completo — os totais acima são parciais"
 }

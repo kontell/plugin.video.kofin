@@ -2113,21 +2113,49 @@ msgid "%s download(s) deleted"
 msgstr "%s transferência(s) eliminada(s)"
 
 msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Procurar servidores na rede local"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Procura servidores Jellyfin nesta rede e lista os que responderem. O escolhido é preenchido em \"Endereço do servidor\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "A procurar servidores Jellyfin…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Selecione um servidor"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Nenhum servidor Jellyfin respondeu — introduza o endereço manualmente"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "não respondeu"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s não respondeu — o endereço indicado pode não funcionar aqui"
+
+msgctxt "#30832"
 msgid "Storage used"
 msgstr "Espaço utilizado"
 
-msgctxt "#30826"
+msgctxt "#30833"
 msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
 msgstr "Mostra onde as transferências são guardadas e quanto espaço cada tipo ocupa. A medição é feita na própria pasta, por isso as imagens, as legendas e os metadados contam juntamente com os ficheiros multimédia."
 
-msgctxt "#30827"
+msgctxt "#30834"
 msgid "Other files in this folder"
 msgstr "Outros ficheiros nesta pasta"
 
-msgctxt "#30828"
+msgctxt "#30835"
 msgid "Nothing has been downloaded yet"
 msgstr "Ainda não foi transferido nada"
 
-msgctxt "#30829"
+msgctxt "#30836"
 msgid "Folder too large to measure fully — the totals above are partial"
 msgstr "Pasta demasiado grande para medir por completo — os totais acima são parciais"

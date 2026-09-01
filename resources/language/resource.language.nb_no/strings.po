@@ -2113,21 +2113,49 @@ msgid "%s download(s) deleted"
 msgstr "%s nedlasting(er) slettet"
 
 msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Finn servere på lokalnettverket"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Søker etter Jellyfin-servere på dette nettverket og viser dem som svarer. Den du velger fylles inn i \"Serveradresse\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Søker etter Jellyfin-servere…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Velg en server"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Ingen Jellyfin-servere svarte — skriv inn adressen manuelt"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "svarte ikke"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s svarte ikke — adressen den oppga fungerer kanskje ikke her"
+
+msgctxt "#30832"
 msgid "Storage used"
 msgstr "Brukt lagringsplass"
 
-msgctxt "#30826"
+msgctxt "#30833"
 msgid "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media."
 msgstr "Vis hvor nedlastingene ligger og hvor mye plass hver type bruker. Det måles på selve mappen, så bilder, undertekster og metadata telles med sammen med mediefilene."
 
-msgctxt "#30827"
+msgctxt "#30834"
 msgid "Other files in this folder"
 msgstr "Andre filer i denne mappen"
 
-msgctxt "#30828"
+msgctxt "#30835"
 msgid "Nothing has been downloaded yet"
 msgstr "Ingenting er lastet ned ennå"
 
-msgctxt "#30829"
+msgctxt "#30836"
 msgid "Folder too large to measure fully — the totals above are partial"
 msgstr "Mappen er for stor til å måles helt — totalene over er ufullstendige"

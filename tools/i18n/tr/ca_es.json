@@ -469,9 +469,16 @@
   "#30822": "S'ha conservat %s — no s'ha pogut restaurar l'entrada de la biblioteca",
   "#30823": "Baixada eliminada: %s",
   "#30824": "%s baixades eliminades",
-  "#30825": "Espai utilitzat",
-  "#30826": "Mostra on es guarden les baixades i quant espai ocupa cada tipus. Es mesura des de la mateixa carpeta, de manera que compta les caràtules, els subtítols i les metadades juntament amb els fitxers multimèdia.",
-  "#30827": "Altres fitxers d'aquesta carpeta",
-  "#30828": "Encara no s'ha baixat res",
-  "#30829": "La carpeta és massa gran per mesurar-la del tot — els totals de dalt són parcials"
+  "#30825": "Cerca servidors a la xarxa local",
+  "#30826": "Cerca servidors Jellyfin en aquesta xarxa i mostra els que responen. El que triïs s'omple a \"Adreça del servidor\".",
+  "#30827": "S'estan cercant servidors Jellyfin…",
+  "#30828": "Selecciona un servidor",
+  "#30829": "Cap servidor Jellyfin ha respost — introdueix l'adreça manualment",
+  "#30830": "no ha respost",
+  "#30831": "%s no ha respost — l'adreça que ha donat potser no funciona aquí",
+  "#30832": "Espai utilitzat",
+  "#30833": "Mostra on es guarden les baixades i quant espai ocupa cada tipus. Es mesura des de la mateixa carpeta, de manera que compta les caràtules, els subtítols i les metadades juntament amb els fitxers multimèdia.",
+  "#30834": "Altres fitxers d'aquesta carpeta",
+  "#30835": "Encara no s'ha baixat res",
+  "#30836": "La carpeta és massa gran per mesurar-la del tot — els totals de dalt són parcials"
 }

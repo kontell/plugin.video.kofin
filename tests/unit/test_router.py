@@ -17,6 +17,7 @@ from kofin.plugin import router
 ACTION_MODES = {
     "streams",
     "syncplay",
+    "findservers",
     "login",
     "logout",
     "cleandatabases",

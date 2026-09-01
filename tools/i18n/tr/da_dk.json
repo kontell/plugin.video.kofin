@@ -469,9 +469,16 @@
   "#30822": "%s beholdt — posten i biblioteket kunne ikke gendannes",
   "#30823": "Download slettet: %s",
   "#30824": "%s download(s) slettet",
-  "#30825": "Anvendt plads",
-  "#30826": "Vis, hvor downloads gemmes, og hvor meget plads hver type bruger. Det måles på selve mappen, så grafik, undertekster og metadata tælles med sammen med medierne.",
-  "#30827": "Andre filer i denne mappe",
-  "#30828": "Der er ikke downloadet noget endnu",
-  "#30829": "Mappen er for stor til at måle helt — totalerne ovenfor er ufuldstændige"
+  "#30825": "Find servere på lokalnetværket",
+  "#30826": "Søger efter Jellyfin-servere på dette netværk og viser dem, der svarer. Den, du vælger, udfyldes i \"Serveradresse\".",
+  "#30827": "Søger efter Jellyfin-servere…",
+  "#30828": "Vælg en server",
+  "#30829": "Ingen Jellyfin-servere svarede — indtast adressen manuelt",
+  "#30830": "svarede ikke",
+  "#30831": "%s svarede ikke — adressen virker måske ikke herfra",
+  "#30832": "Anvendt plads",
+  "#30833": "Vis, hvor downloads gemmes, og hvor meget plads hver type bruger. Det måles på selve mappen, så grafik, undertekster og metadata tælles med sammen med medierne.",
+  "#30834": "Andre filer i denne mappe",
+  "#30835": "Der er ikke downloadet noget endnu",
+  "#30836": "Mappen er for stor til at måle helt — totalerne ovenfor er ufuldstændige"
 }

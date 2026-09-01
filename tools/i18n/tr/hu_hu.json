@@ -469,9 +469,16 @@
   "#30822": "%s megtartva — a médiatár bejegyzése nem állítható vissza",
   "#30823": "Letöltés törölve: %s",
   "#30824": "%s letöltés törölve",
-  "#30825": "Felhasznált tárhely",
-  "#30826": "Megmutatja, hol tárolódnak a letöltések, és melyik típus mennyi helyet foglal. A mérés magán a mappán történik, így a képek, a feliratok és a metaadatok is beleszámítanak a médiafájlok mellett.",
-  "#30827": "Egyéb fájlok ebben a mappában",
-  "#30828": "Még nincs letöltve semmi",
-  "#30829": "A mappa túl nagy a teljes méréshez — a fenti összegek részlegesek"
+  "#30825": "Kiszolgálók keresése a helyi hálózaton",
+  "#30826": "Jellyfin-kiszolgálókat keres ezen a hálózaton, és felsorolja azokat, amelyek válaszolnak. A kiválasztott bekerül a \"Kiszolgáló címe\" mezőbe.",
+  "#30827": "Jellyfin-kiszolgálók keresése…",
+  "#30828": "Válasszon kiszolgálót",
+  "#30829": "Egyetlen Jellyfin-kiszolgáló sem válaszolt — adja meg a címet kézzel",
+  "#30830": "nem válaszolt",
+  "#30831": "%s nem válaszolt — a megadott cím itt nem feltétlenül működik",
+  "#30832": "Felhasznált tárhely",
+  "#30833": "Megmutatja, hol tárolódnak a letöltések, és melyik típus mennyi helyet foglal. A mérés magán a mappán történik, így a képek, a feliratok és a metaadatok is beleszámítanak a médiafájlok mellett.",
+  "#30834": "Egyéb fájlok ebben a mappában",
+  "#30835": "Még nincs letöltve semmi",
+  "#30836": "A mappa túl nagy a teljes méréshez — a fenti összegek részlegesek"
 }
