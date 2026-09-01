@@ -1,0 +1,111 @@
+# Watch upstream Kodi for a database schema version newer than the gate.
+#
+# `sync/schema.py` refuses to write any MyVideos/MyMusic/Textures version not in
+# its SUPPORTED map, so a Kodi that bumps one takes kofin's write sync offline
+# until fixtures exist and the version is admitted. Nothing else in this repo
+# watches upstream, so the first notice used to be a user on a new beta. This
+# runs every two days and opens one issue per new version.
+#
+# Four things about this are easy to get wrong:
+#
+# 1. `schedule` only fires for the copy of this file on the **default branch**.
+#    A copy on a feature branch never runs; edits are live once merged.
+# 2. GitHub disables scheduled workflows after 60 days with no repo activity,
+#    and emails the owner. A dormant repo therefore stops watching — re-enable
+#    it from the Actions tab.
+# 3. `*/2` in the day-of-month field counts from the 1st, so a 31-day month is
+#    followed by runs on the 31st and the 1st. Harmless here: the job is
+#    idempotent, and a duplicate run files nothing new.
+# 4. Dedupe is on the issue **title**, matched against open *and closed*
+#    issues carrying the label. A closed one means a human already decided
+#    (admitted the version, or declined it), so it must not be re-filed.
+name: Kodi schema watch
+
+on:
+  schedule:
+    - cron: "0 5 */2 * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Probe and report, but do not open issues"
+        type: boolean
+        default: false
+      refs:
+        description: "Space-separated refs to probe (blank = discover branches)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  LABEL: kodi-schema
+
+jobs:
+  watch:
+    name: probe upstream
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Probe xbmc/xbmc
+        id: probe
+        env:
+          # Only the branch listing uses this; the source files come from
+          # raw.githubusercontent unauthenticated. A probe failure — including
+          # the constant having moved file again — exits non-zero on purpose,
+          # so this run goes red rather than quietly reporting nothing new.
+          GH_TOKEN: ${{ github.token }}
+          REFS: ${{ inputs.refs }}
+        run: |
+          set -euo pipefail
+          args=()
+          for ref in $REFS; do args+=(--ref "$ref"); done
+          python3 tools/check_kodi_schema.py \
+            --token "$GH_TOKEN" \
+            --json findings.json \
+            "${args[@]}" | tee probe.txt
+          {
+            echo "## Kodi schema watch"
+            echo
+            echo '```'
+            cat probe.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "count=$(jq 'length' findings.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Open an issue per new version
+        if: steps.probe.outputs.count != '0' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # --force so a re-run updates rather than failing on "already exists".
+          gh label create "$LABEL" --force \
+            --color BFD4F2 \
+            --description "Upstream Kodi database schema version tracking"
+
+          # Titles already used, open or closed: the dedupe set.
+          gh issue list --label "$LABEL" --state all --limit 200 \
+            --json title --jq '.[].title' > seen.txt
+
+          jq -c '.[]' findings.json | while read -r finding; do
+            title="$(jq -r '.title' <<<"$finding")"
+            if grep -Fxq "$title" seen.txt; then
+              echo "::notice::already filed: $title"
+              continue
+            fi
+            jq -r '.body' <<<"$finding" > body.md
+            url="$(gh issue create \
+              --title "$title" \
+              --body-file body.md \
+              --label "$LABEL")"
+            echo "::warning::filed $title — $url"
+            echo "- filed [$title]($url)" >> "$GITHUB_STEP_SUMMARY"
+          done
