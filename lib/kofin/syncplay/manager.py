@@ -1768,6 +1768,22 @@ class SyncPlayManager(object):
             claim.get("Provider"),
         )
 
+        if (
+            self.in_group()
+            and not self.ignore_wait
+            and self.phase in FOLLOWING
+            and claim.get("Id")
+            and claim.get("Id") != self.current_item_id
+        ):
+            # A new foreign play while following the group: the claim is
+            # the propose trigger, because the event chain cannot be — a
+            # PVR zap on Omega fires no OnPlay, only an unpause echo whose
+            # programmatic grace swallows the AVStarted forward (P2 gate).
+            # A fresh start (phase idle) keeps the event-driven path, and
+            # the adoption echo is inert here: its claim names the current
+            # item.
+            self._post(self._forward_local_play)
+
     def on_provider_register(self, sender, payload):
         """SyncProvider.Register: wrap the play template as a provider.
 

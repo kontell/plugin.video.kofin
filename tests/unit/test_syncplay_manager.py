@@ -968,6 +968,31 @@ class TestForwardLocalPlay:
 
         assert manager.foreign_claim is None
 
+    def test_zap_claim_reproposes_while_following(self, manager):
+        # The zap chain fires no OnPlay and its AVStarted lands inside the
+        # unpause echo's programmatic grace — the claim itself is the
+        # propose trigger when a new foreign item arrives mid-follow.
+        join(manager)
+        manager.player.playing = True
+        manager.player.item = None
+        manager.phase = "synced"
+        manager.current_item_id = "old-chan"
+        manager.playback.ensure_paused = lambda: None
+
+        manager._set_foreign_claim({"Id": "new-chan", "Provider": "jellyfin"})
+        # the trigger posts to the live dispatcher; wait for it
+        import time as time_module
+
+        for _ in range(100):
+            if manager._api.named("syncplay_set_new_queue"):
+                break
+            time_module.sleep(0.01)
+
+        calls = manager._api.named("syncplay_set_new_queue")
+        assert len(calls) == 1
+        assert calls[0][1] == ["new-chan"]
+        assert calls[0][3] == 0  # a live claim proposes from zero
+
     def test_claimed_item_is_the_identity_source(self, manager):
         # The service player's claimed play state names the jellyfin id.
         join(manager)
