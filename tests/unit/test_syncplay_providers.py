@@ -94,3 +94,40 @@ def test_the_registry_refuses_an_unknown_provider():
 
     with pytest.raises(KeyError):
         registry.get("youtube")
+
+
+# --- the template provider (plan G2.4) ------------------------------------
+
+
+def test_a_template_substitutes_key_and_position():
+    provider = providers.TemplateProvider(
+        "plugin://plugin.video.youtube/play/?video_id={key}&seek={position_s}"
+    )
+
+    target = provider.play_target("dQw4w9WgXcQ", 1230000000)
+
+    assert target == {
+        "url": "plugin://plugin.video.youtube/play/?video_id=dQw4w9WgXcQ&seek=123",
+        "audio": False,
+    }
+
+
+def test_a_template_keeps_a_zero_position_and_clamps_a_negative_one():
+    provider = providers.TemplateProvider("p://x/?id={key}&s={position_s}")
+
+    assert provider.play_target("k", 0)["url"].endswith("&s=0")
+    assert provider.play_target("k", -240000)["url"].endswith("&s=0")
+
+
+def test_a_template_key_is_url_quoted_and_braces_are_inert():
+    """The template is foreign text: token replace only, never str.format."""
+    provider = providers.TemplateProvider("p://x/?id={key}&odd={brace}")
+
+    target = provider.play_target("a b/c", 0)
+
+    assert "id=a%20b%2Fc" in target["url"]
+    assert "{brace}" in target["url"]  # not a substitution point; left alone
+
+
+def test_a_template_provider_has_no_claim_on_the_kodi_library():
+    assert providers.TemplateProvider("p://{key}").resolve_kodi_id(1, "movie") is None

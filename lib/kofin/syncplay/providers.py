@@ -15,6 +15,7 @@ database.
 """
 
 from typing import Dict, Optional, Protocol, TypedDict
+from urllib.parse import quote
 
 from kofin.core.urls import plugin_url
 from kofin.syncplay.ports import SyncPlayApi
@@ -85,6 +86,31 @@ class JellyfinProvider:
 
 
 #################################################################################################
+
+
+class TemplateProvider:
+    """A provider registered over the public bus (plan G2.4): start-only.
+
+    The template names ``{key}`` and optionally ``{position_s}`` (whole
+    seconds). Substitution is by token replace, never str.format — the
+    template is foreign text and must not be able to name anything else.
+    ``resolve_kodi_id`` answers None: a foreign provider has no claim on
+    the Kodi library; its plays are identified by the claims it publishes.
+    """
+
+    def __init__(self, template: str, audio: bool = False):
+        self.template = template
+        self.audio = audio
+
+    def play_target(self, key: str, start_ticks: int) -> PlayTarget:
+        seconds = max(0, int(start_ticks or 0)) // 10000000
+        url = self.template.replace("{key}", quote(key, safe="")).replace(
+            "{position_s}", str(seconds)
+        )
+        return {"url": url, "audio": self.audio}
+
+    def resolve_kodi_id(self, kodi_id: int, media: str) -> Optional[str]:
+        return None
 
 
 class ProviderRegistry:

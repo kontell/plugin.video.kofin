@@ -1620,3 +1620,112 @@ class TestGroupUpdateTables:
         )
         assert toasts == [True]
         assert manager.in_group()
+
+
+# ---------------------------------------------------------------------------
+# The public provider contract (plan G2)
+# ---------------------------------------------------------------------------
+
+
+class TestForeignClaim:
+    def test_consulted_when_kofin_claims_nothing(self, manager):
+        manager.player.playing = True
+        manager.player.item = None
+        manager.on_foreign_claim({"Id": "jf-r1", "Provider": "jellyfin"})
+
+        assert manager._local_item_id() == "jf-r1"
+
+    def test_kofins_own_claim_always_wins(self, manager):
+        manager.player.playing = True
+        manager.player.item = {"Id": "jf-k1"}
+        manager.on_foreign_claim({"Id": "jf-r1", "Provider": "jellyfin"})
+
+        assert manager._local_item_id() == "jf-k1"
+
+    def test_cleared_when_playback_stops(self, manager):
+        manager.player.playing = True
+        manager.player.item = None
+        manager.on_foreign_claim({"Id": "jf-r1", "Provider": "jellyfin"})
+
+        manager.on_stopped()
+
+        assert manager.foreign_claim is None
+
+
+class TestProviderRegister:
+    def test_a_template_registration_lands_in_the_registry(self, manager):
+        manager.on_provider_register(
+            "plugin.video.example",
+            {
+                "v": 1,
+                "provider": "example",
+                "play": {"url_template": "plugin://e/?id={key}"},
+            },
+        )
+
+        target = manager.providers.play_target("k1", 0, provider="example")
+        assert target["url"] == "plugin://e/?id=k1"
+
+    def test_the_jellyfin_slot_cannot_be_replaced(self, manager):
+        before = manager.providers.get()
+
+        manager.on_provider_register(
+            "plugin.video.evil",
+            {"v": 1, "provider": "jellyfin", "play": {"url_template": "p://{key}"}},
+        )
+
+        assert manager.providers.get() is before
+
+    def test_a_useless_template_is_ignored(self, manager):
+        manager.on_provider_register(
+            "plugin.video.example",
+            {"v": 1, "provider": "example", "play": {"url_template": "p://static"}},
+        )
+
+        with pytest.raises(KeyError):
+            manager.providers.get("example")
+
+
+class TestProposeFromBus:
+    def test_a_jellyfin_propose_sets_the_queue(self, manager):
+        join(manager)
+
+        manager.on_propose(
+            {"v": 1, "provider": "jellyfin", "key": "jf-r1", "position_ticks": 50000000}
+        )
+
+        calls = manager._api.named("syncplay_set_new_queue")
+        assert calls == [("syncplay_set_new_queue", ["jf-r1"], 0, 50000000)]
+
+    def test_outside_a_group_nothing_is_sent(self, manager):
+        manager.on_propose({"v": 1, "provider": "jellyfin", "key": "jf-r1"})
+
+        assert manager._api.named("syncplay_set_new_queue") == []
+
+    def test_a_foreign_provider_is_refused_until_descriptors(self, manager):
+        join(manager)
+
+        manager.on_propose({"v": 1, "provider": "youtube", "key": "vid"})
+
+        assert manager._api.named("syncplay_set_new_queue") == []
+
+
+class TestSessionStateMirror:
+    def test_join_publishes_and_leave_clears_membership(self, manager, monkeypatch):
+        import kofin.core.state as state_module
+
+        pings = []
+        monkeypatch.setattr(
+            manager_module.contract, "publish_state", lambda: pings.append(True)
+        )
+
+        join(manager)
+        published = state_module.syncsession()
+        assert published["in_group"] is True
+        assert published["group_name"] == "movie night"
+        assert published["phase"] == "idle"
+
+        manager._leave_locally()
+        published = state_module.syncsession()
+        assert published["in_group"] is False
+        assert pings == [True, True]  # join and leave announce; nothing else

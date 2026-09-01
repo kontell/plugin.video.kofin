@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 import xbmc
 
-from kofin.core import auth, diag, ipc, log, settings, state, toast
+from kofin.core import auth, contract, diag, ipc, log, settings, state, toast
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
@@ -172,6 +172,16 @@ class Service(xbmc.Monitor):
         ipc.DOWNLOAD_REMOVE: "_ipc_download_remove",
         ipc.DOWNLOAD_REMOVE_ALL: "_ipc_download_remove_all",
         **{command: "_ipc_library_command" for command in LIBRARY_COMMANDS},
+    }
+    # The public provider contract (plan G2.1): messages any add-on may
+    # send, validated in core/contract.py. Routed by name for every sender
+    # that is neither xbmc nor kofin — the sender IS the provider's own id,
+    # which is exactly why these cannot live in the kofin-sender IPC table.
+    _CONTRACT_HANDLERS: Dict[str, str] = {
+        contract.REGISTER: "_contract_register",
+        contract.CLAIM: "_contract_claim",
+        contract.PROPOSE: "_contract_propose",
+        contract.MENU: "_contract_menu",
     }
 
     def __init__(self) -> None:
@@ -610,6 +620,9 @@ class Service(xbmc.Monitor):
             self.syncplay = manager
             self.player.syncplay = manager
             self.remote.syncplay = manager
+            # The announce is what tells provider add-ons to (re)register
+            # with this service generation (plan G2.4) — no persistence.
+            manager.publish_session_state(announce=True)
             LOG.info("SyncPlay manager started")
         except Exception:
             LOG.exception("SyncPlay manager failed to start")
@@ -626,6 +639,14 @@ class Service(xbmc.Monitor):
             manager.stop()
         except Exception:
             LOG.exception("SyncPlay manager failed to stop")
+        # The mirror must not outlive the engine it describes; the ping
+        # tells providers the session is gone (or restarting — the next
+        # generation's announce follows).
+        state.clear_syncsession()
+        try:
+            contract.publish_state()
+        except Exception:
+            pass
 
     def _open_syncplay_menu(self) -> None:
         """SyncPlayMenu IPC: run the (dialog-blocking) menu on a dedicated
@@ -1026,6 +1047,13 @@ class Service(xbmc.Monitor):
                 getattr(self, kodi_handler)(data)
             return
         if sender != ipc.SENDER:
+            # A third bus: the public provider contract, from any sender.
+            name = ipc.method_name(method)
+            contract_handler = self._CONTRACT_HANDLERS.get(name)
+            if contract_handler is not None:
+                payload = contract.decode(name, data)
+                if payload is not None:
+                    getattr(self, contract_handler)(sender, payload)
             return
         name = ipc.method_name(method)
         payload = ipc.decode(data)
@@ -1134,6 +1162,20 @@ class Service(xbmc.Monitor):
         self._restart_requested = True
 
     def _ipc_syncplay_menu(self, name: str, payload: Dict[str, Any]) -> None:
+        self._open_syncplay_menu()
+
+    # -- the public provider contract, one handler per message ---------------
+
+    def _contract_register(self, sender: str, payload: Dict[str, Any]) -> None:
+        self._syncplay_forward("on_provider_register", sender, payload)
+
+    def _contract_claim(self, sender: str, payload: Dict[str, Any]) -> None:
+        self._syncplay_forward("on_foreign_claim", contract.engine_claim(payload))
+
+    def _contract_propose(self, sender: str, payload: Dict[str, Any]) -> None:
+        self._syncplay_forward("on_propose", payload)
+
+    def _contract_menu(self, sender: str, payload: Dict[str, Any]) -> None:
         self._open_syncplay_menu()
 
     def _ipc_who_is_watching(self, name: str, payload: Dict[str, Any]) -> None:
