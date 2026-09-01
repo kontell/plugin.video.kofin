@@ -522,5 +522,12 @@
   "#30821": "Server error — %s",
   "#30822": "Kept %s — its library entry could not be restored",
   "#30823": "Download deleted: %s",
-  "#30824": "%s download(s) deleted"
+  "#30824": "%s download(s) deleted",
+  "#30825": "Find servers on local network",
+  "#30826": "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\".",
+  "#30827": "Searching for Jellyfin servers…",
+  "#30828": "Select a server",
+  "#30829": "No Jellyfin servers answered — enter the address manually",
+  "#30830": "did not answer",
+  "#30831": "%s did not answer — the address it gave may not work here"
 }

@@ -281,3 +281,35 @@ def test_a_fresh_install_still_mints_one(monkeypatch):
     minted = settings.Credentials.load().device_id
 
     assert minted and FakeAddon.store["deviceId"] == minted
+
+
+def test_every_settings_button_names_a_registered_route():
+    """A button whose mode is not in ROUTES is not an error anywhere.
+
+    ``router.dispatch`` falls through an unknown mode to the root listing, so
+    a typo in a ``RunPlugin`` data string gives a button that quietly opens
+    the add-on instead of doing its job — with nothing in the log to say so.
+    """
+    import re
+    import xml.etree.ElementTree as etree
+
+    from kofin.plugin.router import ROUTES
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+
+    # Walked downwards from each setting: ElementTree cannot climb above the
+    # element find() was called on, so a "../.." from the <data> answers None
+    # for every row and would name no owner in the failure.
+    buttons = []
+    for setting in root.iter("setting"):
+        for data in setting.iter("data"):
+            found = re.search(r"\?mode=([a-z]+)", data.text or "")
+            if found:
+                buttons.append((setting.get("id") or "?", found.group(1)))
+
+    assert buttons, "no settings buttons found — the parse is wrong, not the file"
+    assert all(owner != "?" for owner, _mode in buttons)
+    unregistered = sorted(
+        "%s -> mode=%s" % (owner, mode) for owner, mode in buttons if mode not in ROUTES
+    )
+    assert not unregistered

@@ -468,5 +468,12 @@
   "#30821": "Error del servidor — %s",
   "#30822": "Se conservó %s — no se pudo restaurar la entrada de la biblioteca",
   "#30823": "Descarga eliminada: %s",
-  "#30824": "%s descargas eliminadas"
+  "#30824": "%s descargas eliminadas",
+  "#30825": "Buscar servidores en la red local",
+  "#30826": "Busca servidores Jellyfin en esta red y muestra los que responden. El que elijas se escribe en \"Dirección del servidor\".",
+  "#30827": "Buscando servidores Jellyfin…",
+  "#30828": "Selecciona un servidor",
+  "#30829": "Ningún servidor Jellyfin respondió — introduce la dirección manualmente",
+  "#30830": "no respondió",
+  "#30831": "%s no respondió — puede que la dirección que dio no funcione aquí"
 }

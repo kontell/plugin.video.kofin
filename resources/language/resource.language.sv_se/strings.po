@@ -2111,3 +2111,31 @@ msgstr "Hämtning borttagen: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "%s hämtning(ar) borttagna"
+
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Sök servrar på lokala nätverket"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Söker efter Jellyfin-servrar på det här nätverket och visar dem som svarar. Den du väljer fylls i under \"Serveradress\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Söker efter Jellyfin-servrar…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Välj en server"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Ingen Jellyfin-server svarade — ange adressen manuellt"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "svarade inte"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s svarade inte — adressen den uppgav fungerar kanske inte här"

@@ -468,5 +468,12 @@
   "#30821": "Eroare de server — %s",
   "#30822": "%s păstrat — intrarea din bibliotecă nu a putut fi restaurată",
   "#30823": "Descărcare ștearsă: %s",
-  "#30824": "%s descărcări șterse"
+  "#30824": "%s descărcări șterse",
+  "#30825": "Caută servere în rețeaua locală",
+  "#30826": "Caută servere Jellyfin în această rețea și le afișează pe cele care răspund. Cel ales este completat în \"Adresa serverului\".",
+  "#30827": "Se caută servere Jellyfin…",
+  "#30828": "Alegeți un server",
+  "#30829": "Niciun server Jellyfin nu a răspuns — introduceți adresa manual",
+  "#30830": "nu a răspuns",
+  "#30831": "%s nu a răspuns — adresa indicată s-ar putea să nu funcționeze aici"
 }

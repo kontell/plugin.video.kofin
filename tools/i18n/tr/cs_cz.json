@@ -468,5 +468,12 @@
   "#30821": "Chyba serveru — %s",
   "#30822": "%s ponecháno — položku knihovny nelze obnovit",
   "#30823": "Stažená položka odstraněna: %s",
-  "#30824": "Odstraněno stažených položek: %s"
+  "#30824": "Odstraněno stažených položek: %s",
+  "#30825": "Najít servery v místní síti",
+  "#30826": "Vyhledá servery Jellyfin v této síti a zobrazí ty, které odpoví. Vybraný se doplní do pole \"Adresa serveru\".",
+  "#30827": "Vyhledávání serverů Jellyfin…",
+  "#30828": "Vyberte server",
+  "#30829": "Žádný server Jellyfin neodpověděl — zadejte adresu ručně",
+  "#30830": "neodpověděl",
+  "#30831": "%s neodpověděl — zadaná adresa zde nemusí fungovat"
 }

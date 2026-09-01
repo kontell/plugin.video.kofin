@@ -468,5 +468,12 @@
   "#30821": "Errore del server — %s",
   "#30822": "%s conservato — impossibile ripristinare la voce della libreria",
   "#30823": "Download eliminato: %s",
-  "#30824": "%s download eliminati"
+  "#30824": "%s download eliminati",
+  "#30825": "Cerca server sulla rete locale",
+  "#30826": "Cerca i server Jellyfin su questa rete ed elenca quelli che rispondono. Quello scelto viene inserito in \"Indirizzo del server\".",
+  "#30827": "Ricerca di server Jellyfin…",
+  "#30828": "Seleziona un server",
+  "#30829": "Nessun server Jellyfin ha risposto — inserisci l'indirizzo manualmente",
+  "#30830": "non ha risposto",
+  "#30831": "%s non ha risposto — l'indirizzo fornito potrebbe non funzionare qui"
 }

@@ -2111,3 +2111,31 @@ msgstr "Usunięto pobrane: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "Usunięto pobranych: %s"
+
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Znajdź serwery w sieci lokalnej"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Wyszukuje serwery Jellyfin w tej sieci i wyświetla te, które odpowiedzą. Wybrany zostanie wpisany w pole \"Adres serwera\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Wyszukiwanie serwerów Jellyfin…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Wybierz serwer"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Żaden serwer Jellyfin nie odpowiedział — wpisz adres ręcznie"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "nie odpowiedział"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s nie odpowiedział — podany adres może tu nie działać"

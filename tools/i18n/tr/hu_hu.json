@@ -468,5 +468,12 @@
   "#30821": "Kiszolgálóhiba — %s",
   "#30822": "%s megtartva — a médiatár bejegyzése nem állítható vissza",
   "#30823": "Letöltés törölve: %s",
-  "#30824": "%s letöltés törölve"
+  "#30824": "%s letöltés törölve",
+  "#30825": "Kiszolgálók keresése a helyi hálózaton",
+  "#30826": "Jellyfin-kiszolgálókat keres ezen a hálózaton, és felsorolja azokat, amelyek válaszolnak. A kiválasztott bekerül a \"Kiszolgáló címe\" mezőbe.",
+  "#30827": "Jellyfin-kiszolgálók keresése…",
+  "#30828": "Válasszon kiszolgálót",
+  "#30829": "Egyetlen Jellyfin-kiszolgáló sem válaszolt — adja meg a címet kézzel",
+  "#30830": "nem válaszolt",
+  "#30831": "%s nem válaszolt — a megadott cím itt nem feltétlenül működik"
 }

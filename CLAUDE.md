@@ -220,6 +220,17 @@ What remains is kofin's own:
   with a total is "set, nothing to resume" to Kodi, which is what stops it falling back to the
   bookmark it saved for the plugin path; the *resolved* item in `plugin/play.py` must never be
   stamped with zero, for the opposite reason (`plugin/listitems.py` explains both).
+- **A settings button that writes a setting has to close the dialog first.** `close=true`
+  runs `SaveAndClose()` *before* the builtin, so the route writes with the dialog already
+  shut; written into one that is still open, the value is reverted when the user backs out
+  (`service/backdrop.py` keeps its state in addon_data for that reason). The two button
+  dialects in `settings.xml` track this and are not interchangeable: every `<close>true</close>`
+  button is the older `type="string"` form, and all three `type="action"` settings omit
+  `<close>` on purpose, so their menus read as sub-dialogs. `plugin/serverpicker.py` closes,
+  writes `serverAddress`, then reopens settings — the filled field is the confirmation.
+  Observed on the Tab, both directions (`tests/live/results/S10/`): an external write into an
+  **open** dialog shows the new value on screen while `settings.xml` still holds the old one,
+  and Back discards it; the identical write with the dialog **closed** persists at once.
 - The who's-watching shortlist packs three states into one string setting
   (`plugin/adduser.py`): `all`, an id list, or `none` for "feature off". **Empty is `all`, not
   off** — it is what every install predating the sentinels holds, and it is what an unreadable

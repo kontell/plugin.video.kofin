@@ -47,6 +47,25 @@
           </dependencies>
           <control type="edit" format="string"/>
         </setting>
+        <!-- close=true is load-bearing here, not house style. Kodi runs
+             SaveAndClose before the builtin, so the route writes
+             serverAddress with the dialog already shut; written into an open
+             dialog it is reverted when the user backs out. The route reopens
+             settings afterwards so the filled field is the confirmation. -->
+        <setting id="findServers" type="string" label="30825" help="30826">
+          <level>0</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="isLoggedIn">false</condition>
+            </dependency>
+          </dependencies>
+          <control type="button" format="action">
+            <data>RunPlugin(plugin://plugin.video.kofin/?mode=findservers)</data>
+            <close>true</close>
+          </control>
+        </setting>
         <setting id="loginButton" type="string" label="30054" help="30055">
           <level>0</level>
           <default></default>

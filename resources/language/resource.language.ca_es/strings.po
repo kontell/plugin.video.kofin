@@ -2111,3 +2111,31 @@ msgstr "Baixada eliminada: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "%s baixades eliminades"
+
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Cerca servidors a la xarxa local"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Cerca servidors Jellyfin en aquesta xarxa i mostra els que responen. El que triïs s'omple a \"Adreça del servidor\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "S'estan cercant servidors Jellyfin…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Selecciona un servidor"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Cap servidor Jellyfin ha respost — introdueix l'adreça manualment"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "no ha respost"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s no ha respost — l'adreça que ha donat potser no funciona aquí"

@@ -468,5 +468,12 @@
   "#30821": "Serverfejl — %s",
   "#30822": "%s beholdt — posten i biblioteket kunne ikke gendannes",
   "#30823": "Download slettet: %s",
-  "#30824": "%s download(s) slettet"
+  "#30824": "%s download(s) slettet",
+  "#30825": "Find servere på lokalnetværket",
+  "#30826": "Søger efter Jellyfin-servere på dette netværk og viser dem, der svarer. Den, du vælger, udfyldes i \"Serveradresse\".",
+  "#30827": "Søger efter Jellyfin-servere…",
+  "#30828": "Vælg en server",
+  "#30829": "Ingen Jellyfin-servere svarede — indtast adressen manuelt",
+  "#30830": "svarede ikke",
+  "#30831": "%s svarede ikke — adressen virker måske ikke herfra"
 }

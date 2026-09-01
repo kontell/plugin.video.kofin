@@ -468,5 +468,12 @@
   "#30821": "Erreur du serveur — %s",
   "#30822": "%s conservé — l'entrée de la médiathèque n'a pas pu être restaurée",
   "#30823": "Téléchargement supprimé : %s",
-  "#30824": "%s téléchargement(s) supprimé(s)"
+  "#30824": "%s téléchargement(s) supprimé(s)",
+  "#30825": "Rechercher des serveurs sur le réseau local",
+  "#30826": "Recherche les serveurs Jellyfin sur ce réseau et affiche ceux qui répondent. Celui que vous choisissez est inscrit dans \"Adresse du serveur\".",
+  "#30827": "Recherche de serveurs Jellyfin…",
+  "#30828": "Sélectionnez un serveur",
+  "#30829": "Aucun serveur Jellyfin n'a répondu — saisissez l'adresse manuellement",
+  "#30830": "n'a pas répondu",
+  "#30831": "%s n'a pas répondu — l'adresse fournie ne fonctionne peut-être pas ici"
 }

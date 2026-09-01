@@ -468,5 +468,12 @@
   "#30821": "Serverfeil — %s",
   "#30822": "%s beholdt — oppføringen i biblioteket kunne ikke gjenopprettes",
   "#30823": "Nedlasting slettet: %s",
-  "#30824": "%s nedlasting(er) slettet"
+  "#30824": "%s nedlasting(er) slettet",
+  "#30825": "Finn servere på lokalnettverket",
+  "#30826": "Søker etter Jellyfin-servere på dette nettverket og viser dem som svarer. Den du velger fylles inn i \"Serveradresse\".",
+  "#30827": "Søker etter Jellyfin-servere…",
+  "#30828": "Velg en server",
+  "#30829": "Ingen Jellyfin-servere svarte — skriv inn adressen manuelt",
+  "#30830": "svarte ikke",
+  "#30831": "%s svarte ikke — adressen den oppga fungerer kanskje ikke her"
 }

@@ -468,5 +468,12 @@
   "#30821": "Palvelinvirhe — %s",
   "#30822": "%s säilytettiin — kirjaston merkintää ei voitu palauttaa",
   "#30823": "Lataus poistettu: %s",
-  "#30824": "%s latausta poistettu"
+  "#30824": "%s latausta poistettu",
+  "#30825": "Etsi palvelimia lähiverkosta",
+  "#30826": "Etsii Jellyfin-palvelimia tästä verkosta ja luettelee ne, jotka vastaavat. Valitsemasi palvelin täytetään kenttään \"Palvelimen osoite\".",
+  "#30827": "Etsitään Jellyfin-palvelimia…",
+  "#30828": "Valitse palvelin",
+  "#30829": "Yksikään Jellyfin-palvelin ei vastannut — syötä osoite käsin",
+  "#30830": "ei vastannut",
+  "#30831": "%s ei vastannut — sen antama osoite ei ehkä toimi täältä"
 }

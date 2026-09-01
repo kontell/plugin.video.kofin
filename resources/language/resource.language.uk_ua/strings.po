@@ -2111,3 +2111,31 @@ msgstr "Завантаження видалено: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "Видалено завантажень: %s"
+
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Знайти сервери в локальній мережі"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Шукає сервери Jellyfin у цій мережі та показує ті, що відповіли. Вибраний підставляється в поле \"Адреса сервера\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Пошук серверів Jellyfin…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Виберіть сервер"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Жоден сервер Jellyfin не відповів — введіть адресу вручну"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "не відповів"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s не відповів — вказана ним адреса тут може не працювати"

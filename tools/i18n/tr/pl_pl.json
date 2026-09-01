@@ -468,5 +468,12 @@
   "#30821": "Błąd serwera — %s",
   "#30822": "Zachowano %s — nie udało się przywrócić wpisu w bibliotece",
   "#30823": "Usunięto pobrane: %s",
-  "#30824": "Usunięto pobranych: %s"
+  "#30824": "Usunięto pobranych: %s",
+  "#30825": "Znajdź serwery w sieci lokalnej",
+  "#30826": "Wyszukuje serwery Jellyfin w tej sieci i wyświetla te, które odpowiedzą. Wybrany zostanie wpisany w pole \"Adres serwera\".",
+  "#30827": "Wyszukiwanie serwerów Jellyfin…",
+  "#30828": "Wybierz serwer",
+  "#30829": "Żaden serwer Jellyfin nie odpowiedział — wpisz adres ręcznie",
+  "#30830": "nie odpowiedział",
+  "#30831": "%s nie odpowiedział — podany adres może tu nie działać"
 }

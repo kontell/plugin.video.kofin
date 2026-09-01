@@ -2111,3 +2111,31 @@ msgstr "Transferência eliminada: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "%s transferência(s) eliminada(s)"
+
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Procurar servidores na rede local"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Procura servidores Jellyfin nesta rede e lista os que responderem. O escolhido é preenchido em \"Endereço do servidor\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "A procurar servidores Jellyfin…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Selecione um servidor"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Nenhum servidor Jellyfin respondeu — introduza o endereço manualmente"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "não respondeu"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s não respondeu — o endereço indicado pode não funcionar aqui"
