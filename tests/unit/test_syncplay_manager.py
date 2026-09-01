@@ -766,12 +766,28 @@ class TestReloadForTempo:
 
     def test_foreign_claim_without_tempo_reloads(self, manager):
         started, prepared = self._arm(manager)
-        manager.foreign_claim = {"Id": "rec-1", "Provider": "jellyfin"}
+        manager.foreign_claim = {
+            "Id": "rec-1",
+            "Provider": "jellyfin",
+            "RunTimeTicks": 3600 * 10_000_000,
+        }
 
         manager._handle_group_update(make_queue(items=(("rec-1", "pl-1"),)))
 
         assert started == [("rec-1", "pl-1")]
         assert prepared == []
+
+    def test_live_claim_adopts(self, manager):
+        # A live channel claims with no runtime (the contract's spelling of
+        # "live"): positions on it are session-relative, so the reload buys
+        # nothing until P4's anchor — tune-together adopts (P2).
+        started, prepared = self._arm(manager)
+        manager.foreign_claim = {"Id": "chan-1", "Provider": "jellyfin"}
+
+        manager._handle_group_update(make_queue(items=(("chan-1", "pl-1"),)))
+
+        assert started == []
+        assert prepared == [True]
 
     def test_foreign_claim_with_tempo_adopts(self, manager):
         started, prepared = self._arm(manager)
@@ -804,6 +820,37 @@ class TestReloadForTempo:
         manager.player.item = {"Id": "song-1", "PlayMethod": "DirectPlay"}
 
         manager._handle_group_update(make_queue(items=(("song-1", "pl-1"),)))
+
+        assert started == []
+        assert prepared == [True]
+
+    def test_held_foreign_claim_reloads(self, manager):
+        # The living case, caught by the first live gate run: the
+        # hold-and-propose flow *holds* a foreign PVR start too, and the
+        # hold must not shield it from the reload — that adopt got
+        # command-only sync for the whole recording.
+        started, prepared = self._arm(manager)
+        manager._hold = {"item_id": "rec-1", "proposed": True}
+        manager.foreign_claim = {
+            "Id": "rec-1",
+            "Provider": "jellyfin",
+            "RunTimeTicks": 3600 * 10_000_000,
+        }
+
+        manager._handle_group_update(make_queue(items=(("rec-1", "pl-1"),)))
+
+        assert started == [("rec-1", "pl-1")]
+        assert prepared == []
+
+    def test_held_kofin_start_with_stale_foreign_claim_adopts(self, manager):
+        # A held kofin start (not yet claimed) while a stale foreign claim
+        # for a *different* item lingers: the identity guard keeps the
+        # kofin pipeline's start adopted, never reloaded.
+        started, prepared = self._arm(manager)
+        manager._hold = {"item_id": "item-2", "proposed": True}
+        manager.foreign_claim = {"Id": "other-item", "Provider": "jellyfin"}
+
+        manager._handle_group_update(make_queue(items=(("item-2", "pl-2"),)))
 
         assert started == []
         assert prepared == [True]

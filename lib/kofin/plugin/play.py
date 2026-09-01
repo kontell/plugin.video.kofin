@@ -198,7 +198,16 @@ def stream_url(
     reporting a stream copy as DirectStream here buys nothing and costs the
     session-close and drift-correction paths their signal.
     """
-    if source.get("SupportsDirectPlay") or source.get("SupportsDirectStream"):
+    # A live channel never takes the static branch, whatever the source
+    # claims to support: /stream?static=true of an infinite stream hands
+    # Kodi's demuxer a download that never begins (measured, P0b of the pvr
+    # sync plan — "OpenDemuxStream - Error creating demuxer" after ~30 s).
+    # The session's live.m3u8 (AutoOpenLiveStream is already in every
+    # PlaybackInfo this module makes) is the stream that plays.
+    live = bool(source.get("IsInfiniteStream")) or item.get("Type") == "TvChannel"
+    if not live and (
+        source.get("SupportsDirectPlay") or source.get("SupportsDirectStream")
+    ):
         kind = "Audio" if item.get("Type") in AUDIO_TYPES else "Videos"
         container = (source.get("Container") or "").split(",")[0]
         suffix = ".%s" % container if container else ""
@@ -689,7 +698,10 @@ def play(request: Request) -> None:
             api.server, item, source, creds.device_id, play_session_id
         )
         is_audio = item.get("Type") in AUDIO_TYPES
-        if method == "Transcode" and not is_audio:
+        is_live = item.get("Type") == "TvChannel" or bool(
+            source.get("IsInfiniteStream")
+        )
+        if method == "Transcode" and not is_audio and not is_live:
             # The bitrate the user asked for is the budget, whether it came from
             # the context item or the setting: the server reserves its own audio
             # share off that cap, so the split is recomputed to keep audio
@@ -711,8 +723,18 @@ def play(request: Request) -> None:
         _fail(request)
         return
 
-    route = tempo_route(item, method, source)
-    LOG.info("play %s via %s%s", item_id, method, " (tempo)" if route else "")
+    # A live stream takes no tempo route under the pvr sync plan's P2:
+    # positions on it are session-relative (each member's transcode starts
+    # at its own moment), so a pulse would chase a clock no other member
+    # shares. P4's source-PTS anchor is what earns live its route.
+    route = None if is_live else tempo_route(item, method, source)
+    LOG.info(
+        "play %s via %s%s%s",
+        item_id,
+        method,
+        " (live)" if is_live else "",
+        " (tempo)" if route else "",
+    )
     # A resume point on the *resolved* item overrides the choice the user made
     # at Kodi's resume prompt: Kodi treats a resolved item that carries one as
     # a resume regardless of the resume:true|false it just passed us, and then

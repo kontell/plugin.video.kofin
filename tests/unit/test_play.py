@@ -72,6 +72,40 @@ def test_stream_url_unplayable_raises():
         play.stream_url(SERVER, {"Id": "m1"}, {"Id": "s"}, "d", "p")
 
 
+def test_stream_url_live_channel_never_takes_the_static_branch():
+    # A live channel's source claims SupportsDirectPlay, but
+    # /stream?static=true of an infinite stream hands the demuxer a download
+    # that never begins (pvr sync plan P0b). The opened live stream's
+    # TranscodingUrl is the stream that plays.
+    url, method = play.stream_url(
+        SERVER,
+        {"Type": "TvChannel", "Id": "c1"},
+        {
+            "Id": "src1",
+            "SupportsDirectPlay": True,
+            "IsInfiniteStream": True,
+            "TranscodingUrl": "/videos/c1/live.m3u8?x=1",
+        },
+        "dev1",
+        "ps1",
+    )
+    assert method == "Transcode"
+    assert url == "http://s:8096/videos/c1/live.m3u8?x=1"
+
+
+def test_stream_url_infinite_source_without_transcode_raises():
+    # No static fallback for a live stream: failing loudly beats handing
+    # Kodi a URL that times out at the demuxer half a minute later.
+    with pytest.raises(JellyfinError):
+        play.stream_url(
+            SERVER,
+            {"Type": "TvChannel", "Id": "c1"},
+            {"Id": "src1", "SupportsDirectPlay": True, "IsInfiniteStream": True},
+            "d",
+            "p",
+        )
+
+
 def test_mime_for():
     assert play.mime_for({"Container": "mkv"}, "DirectStream") == "video/x-matroska"
     assert play.mime_for({"Container": "mkv,mp4"}, "DirectStream") == "video/x-matroska"

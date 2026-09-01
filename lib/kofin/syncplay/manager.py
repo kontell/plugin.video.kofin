@@ -1121,7 +1121,7 @@ class SyncPlayManager(object):
             item_id
             and self.player.isPlaying()
             and (item_id == self._local_item_id() or held_match)
-            and not self._adopt_should_reload(provider, held_match)
+            and not self._adopt_should_reload(item_id, provider)
         ):
             # We are already playing this exact item (e.g. the queue we
             # just proposed with SetNewQueue came back with a fresh
@@ -1149,7 +1149,7 @@ class SyncPlayManager(object):
 
         self._start_item(item_id, playlist_item_id, provider)
 
-    def _adopt_should_reload(self, provider, held_match):
+    def _adopt_should_reload(self, item_id, provider):
         """Reload-for-tempo (the pvr sync plan, P1): trade the adopt for one
         visible reload when it buys the member fine sync.
 
@@ -1159,12 +1159,15 @@ class SyncPlayManager(object):
         adopted into a group with fine sync armed, the member is
         command-only forever; reloading the same id through kofin's own
         route at the group position gains the full pipeline instead. Only
-        for *foreign* claims resolved by the default provider: a kofin play
-        that lacks a tempo route (an audio item, a segmented stream on the
-        full queue) would lack it again after the reload, and a held start
-        is kofin's own pipeline already in flight.
+        for *foreign* claims naming this exact item under the default
+        provider: a kofin play that lacks a tempo route (an audio item, a
+        segmented stream on the full queue) would lack it again after the
+        reload. Held-ness is deliberately no bar — the hold-and-propose
+        flow holds a foreign PVR start too (the first gate run adopted it
+        and got command-only sync); a held *kofin* start is protected by
+        its missing foreign claim, not by the hold.
         """
-        if held_match or provider != JELLYFIN or not self.tempo_session.active:
+        if provider != JELLYFIN or not self.tempo_session.active:
             return False
 
         try:
@@ -1175,7 +1178,18 @@ class SyncPlayManager(object):
 
         claim = self.foreign_claim
 
-        if claim is None or claim.get("Tempo") is not None:
+        if (
+            claim is None
+            or claim.get("Id") != item_id
+            or claim.get("Tempo") is not None
+        ):
+            return False
+
+        if not claim.get("RunTimeTicks"):
+            # A live claim (the contract's zero-runtime spelling): positions
+            # on a live stream are session-relative, so a reload buys no
+            # convergence until P4's source-PTS anchor exists — tune-together
+            # adopts (pvr sync plan §5).
             return False
 
         LOG.info(
