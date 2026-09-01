@@ -68,6 +68,17 @@ class Recorder:
         return [c for c in self.calls if c[0] == name]
 
 
+class FakeProviders:
+    """The provider seam as _start_item drives it, recording the asked ticks."""
+
+    def __init__(self, ticks=None):
+        self.ticks = ticks if ticks is not None else []
+
+    def play_target(self, key, start_ticks, provider="jellyfin"):
+        self.ticks.append(start_ticks)
+        return {"url": "plugin://plugin.video.kofin/?mode=play", "audio": False}
+
+
 @pytest.fixture(autouse=True)
 def kodi_fakes(monkeypatch):
     FakeAddon.store = {}
@@ -125,7 +136,7 @@ def manager():
     m.enabled = lambda: True  # the fake settings store is empty
     m._api = Recorder()
     m._api_raw = Recorder()
-    m.playback.play_item = lambda item, ticks: None
+    m.playback.play_item = lambda target: None
     m.playback.prepare_ready = lambda: None
     m.playback.start_loop = lambda: None
 
@@ -304,16 +315,16 @@ class TestPlayQueue:
     def test_queue_starts_item(self, manager):
         join(manager)
         started = []
-        manager._start_item = lambda i, p: started.append((i, p))
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
 
         manager._handle_group_update(make_queue())
         assert started == [("item-1", "pl-1")]
-        assert manager.queue == [("item-1", "pl-1")]
+        assert manager.queue == [("item-1", "pl-1", "jellyfin")]
 
     def test_stale_last_update_ignored(self, manager):
         join(manager)
         started = []
-        manager._start_item = lambda i, p: started.append((i, p))
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
 
         first = make_queue(last_update=now_iso())
         manager._handle_group_update(first)
@@ -330,7 +341,7 @@ class TestPlayQueue:
         join(manager)
         started = []
 
-        def fake_start(item_id, playlist_item_id):
+        def fake_start(item_id, playlist_item_id, provider="jellyfin"):
             started.append((item_id, playlist_item_id))
             manager.current_item_id = item_id
             manager.current_playlist_item_id = playlist_item_id
@@ -349,7 +360,7 @@ class TestPlayQueue:
 
     def test_empty_queue_detaches(self, manager):
         join(manager)
-        manager._start_item = lambda i, p: None
+        manager._start_item = lambda i, p, prov=None: None
         manager._handle_group_update(make_queue())
         manager.phase = "synced"
 
@@ -364,7 +375,7 @@ class TestPlayQueueVersioning:
     def test_stale_version_ignored(self, manager):
         join(manager, version=5)
         started = []
-        manager._start_item = lambda i, p: started.append((i, p))
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
 
         manager._handle_group_update(make_queue(version=3))
         assert started == []
@@ -390,7 +401,7 @@ class TestSnapshot:
     def test_snapshot_applies_queue_and_state(self, manager):
         join(manager)
         started = []
-        manager._start_item = lambda i, p: started.append((i, p))
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
 
         manager._handle_group_update(self.snapshot())
 
@@ -402,7 +413,7 @@ class TestSnapshot:
 
     def test_snapshot_synthetic_command_when_not_loading(self, manager):
         join(manager)
-        manager._start_item = lambda i, p: None
+        manager._start_item = lambda i, p, prov=None: None
         scheduled = []
         manager.playback.schedule = scheduled.append
 
@@ -421,7 +432,7 @@ class TestSnapshot:
     def test_snapshot_idempotent(self, manager):
         join(manager)
         started = []
-        manager._start_item = lambda i, p: started.append((i, p))
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
 
         snap = self.snapshot()
         manager._handle_group_update(snap)
@@ -550,7 +561,7 @@ class TestLifecycle:
     def test_updates_for_other_groups_ignored(self, manager):
         join(manager)
         started = []
-        manager._start_item = lambda i, p: started.append((i, p))
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
 
         other = make_queue()
         other["GroupId"] = "g2"
@@ -705,7 +716,7 @@ class TestAdoptInProgress:
     def test_adopts_currently_playing_item(self, manager):
         join(manager)
         started = []
-        manager._start_item = lambda i, p: started.append((i, p))
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
         prepared = []
         manager.playback.prepare_ready = lambda: prepared.append(True)
         manager.playback.ensure_paused = lambda: None
@@ -726,7 +737,7 @@ class TestAdoptInProgress:
     def test_reloads_when_not_already_playing(self, manager):
         join(manager)
         started = []
-        manager._start_item = lambda i, p: started.append((i, p))
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
         manager.player.playing = False
         manager._local_item_id = lambda: None
 
@@ -950,7 +961,7 @@ class TestLocalStartHold:
     def test_adopt_matches_held_proposal(self, manager, paused_cond):
         join(manager)
         started = []
-        manager._start_item = lambda i, p: started.append((i, p))
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
         prepared = []
         manager.playback.prepare_ready = lambda: prepared.append(True)
 
@@ -1147,7 +1158,7 @@ class TestSpectatorLocalPlayback:
     def test_queue_not_followed_over_spectators_own_media(self, manager):
         join(manager)
         started = []
-        manager._start_item = lambda i, p: started.append((i, p))
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
         manager.ignore_wait = True
         manager.player.playing = True
         manager._local_item_id = lambda: None  # unmanaged media
@@ -1160,7 +1171,7 @@ class TestSpectatorLocalPlayback:
     def test_queue_followed_when_spectator_is_idle(self, manager):
         join(manager)
         started = []
-        manager._start_item = lambda i, p: started.append((i, p))
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
         manager.ignore_wait = True
         manager.player.playing = False
 
@@ -1452,8 +1463,8 @@ class TestLoadAllowance:
         join(manager)
 
         started = []
-        manager._api_raw = lambda kind, *a, **k: {"Id": "item-1", "Type": "Movie"}
-        manager.playback.play_item = lambda item, ticks: started.append(ticks)
+        manager.providers = FakeProviders(started)
+        manager.playback.play_item = lambda target: None
 
         # Time the load first, then plant the reference, so the expected value
         # is the group position plus the allowance and nothing else — the clock
@@ -1510,8 +1521,8 @@ class TestLoadWatchdogGeneration:
 
     def test_a_superseded_load_s_watchdog_does_not_fire(self, manager):
         join(manager)
-        manager._api_raw = lambda kind, *a, **k: {"Id": "item-1", "Type": "Movie"}
-        manager.playback.play_item = lambda item, ticks: None
+        manager.providers = FakeProviders()
+        manager.playback.play_item = lambda target: None
 
         failures = []
         manager._load_failed = lambda reason: failures.append(reason)
@@ -1528,8 +1539,8 @@ class TestLoadWatchdogGeneration:
 
     def test_the_current_load_s_watchdog_still_fires(self, manager):
         join(manager)
-        manager._api_raw = lambda kind, *a, **k: {"Id": "item-1", "Type": "Movie"}
-        manager.playback.play_item = lambda item, ticks: None
+        manager.providers = FakeProviders()
+        manager.playback.play_item = lambda target: None
 
         failures = []
         manager._load_failed = lambda reason: failures.append(reason)
@@ -1609,3 +1620,260 @@ class TestGroupUpdateTables:
         )
         assert toasts == [True]
         assert manager.in_group()
+
+
+# ---------------------------------------------------------------------------
+# The public provider contract (plan G2)
+# ---------------------------------------------------------------------------
+
+
+class TestForeignClaim:
+    def test_consulted_when_kofin_claims_nothing(self, manager):
+        manager.player.playing = True
+        manager.player.item = None
+        manager.on_foreign_claim({"Id": "jf-r1", "Provider": "jellyfin"})
+
+        assert manager._local_item_id() == "jf-r1"
+
+    def test_kofins_own_claim_always_wins(self, manager):
+        manager.player.playing = True
+        manager.player.item = {"Id": "jf-k1"}
+        manager.on_foreign_claim({"Id": "jf-r1", "Provider": "jellyfin"})
+
+        assert manager._local_item_id() == "jf-k1"
+
+    def test_cleared_when_playback_stops(self, manager):
+        manager.player.playing = True
+        manager.player.item = None
+        manager.on_foreign_claim({"Id": "jf-r1", "Provider": "jellyfin"})
+
+        manager.on_stopped()
+
+        assert manager.foreign_claim is None
+
+
+class TestProviderRegister:
+    def test_a_template_registration_lands_in_the_registry(self, manager):
+        manager.on_provider_register(
+            "plugin.video.example",
+            {
+                "v": 1,
+                "provider": "example",
+                "play": {"url_template": "plugin://e/?id={key}"},
+            },
+        )
+
+        target = manager.providers.play_target("k1", 0, provider="example")
+        assert target["url"] == "plugin://e/?id=k1"
+
+    def test_the_jellyfin_slot_cannot_be_replaced(self, manager):
+        before = manager.providers.get()
+
+        manager.on_provider_register(
+            "plugin.video.evil",
+            {"v": 1, "provider": "jellyfin", "play": {"url_template": "p://{key}"}},
+        )
+
+        assert manager.providers.get() is before
+
+    def test_a_useless_template_is_ignored(self, manager):
+        manager.on_provider_register(
+            "plugin.video.example",
+            {"v": 1, "provider": "example", "play": {"url_template": "p://static"}},
+        )
+
+        with pytest.raises(KeyError):
+            manager.providers.get("example")
+
+
+class TestProposeFromBus:
+    def test_a_jellyfin_propose_sets_the_queue(self, manager):
+        join(manager)
+
+        manager.on_propose(
+            {"v": 1, "provider": "jellyfin", "key": "jf-r1", "position_ticks": 50000000}
+        )
+
+        calls = manager._api.named("syncplay_set_new_queue")
+        assert calls == [("syncplay_set_new_queue", ["jf-r1"], 0, 50000000)]
+
+    def test_outside_a_group_nothing_is_sent(self, manager):
+        manager.on_propose({"v": 1, "provider": "jellyfin", "key": "jf-r1"})
+
+        assert manager._api.named("syncplay_set_new_queue") == []
+
+    def test_a_foreign_provider_is_refused_until_descriptors(self, manager):
+        join(manager)
+
+        manager.on_propose({"v": 1, "provider": "youtube", "key": "vid"})
+
+        assert manager._api.named("syncplay_set_new_queue") == []
+
+
+class TestSessionStateMirror:
+    def test_join_publishes_and_leave_clears_membership(self, manager, monkeypatch):
+        import kofin.core.state as state_module
+
+        pings = []
+        monkeypatch.setattr(
+            manager_module.contract, "publish_state", lambda: pings.append(True)
+        )
+
+        join(manager)
+        published = state_module.syncsession()
+        assert published["in_group"] is True
+        assert published["group_name"] == "movie night"
+        assert published["phase"] == "idle"
+
+        manager._leave_locally()
+        published = state_module.syncsession()
+        assert published["in_group"] is False
+        assert pings == [True, True]  # join and leave announce; nothing else
+
+
+# ---------------------------------------------------------------------------
+# External content (plan G3.6, SYNCPLAY.md §14)
+# ---------------------------------------------------------------------------
+
+
+class TestDescriptorQueue:
+    def test_a_content_entry_is_keyed_by_provider_and_key(self, manager):
+        """The sentinel ItemId is a server artefact; identity is the
+        descriptor's Provider:Key, which is what claims carry too."""
+        join(manager)
+        started = []
+        manager._start_item = lambda i, p, prov=None: started.append((i, p, prov))
+        update = make_queue(version=5)
+        update["Data"]["Playlist"] = [
+            {
+                "ItemId": "sentinel-guid",
+                "PlaylistItemId": "pl-9",
+                "Content": {"Provider": "youtube", "Key": "vid-1", "RunTimeTicks": 0},
+            }
+        ]
+
+        manager._handle_group_update(update)
+
+        assert started == [("vid-1", "pl-9", "youtube")]
+        assert manager.queue == [("vid-1", "pl-9", "youtube")]
+
+    def test_a_plain_entry_stays_jellyfin(self, manager):
+        assert manager._queue_entry({"ItemId": "jf-1", "PlaylistItemId": "pl-1"}) == (
+            "jf-1",
+            "pl-1",
+            "jellyfin",
+        )
+
+    def test_the_start_hands_the_provider_to_the_registry(self, manager):
+        join(manager)
+        asked = []
+
+        class Registry:
+            def play_target(self, key, ticks, provider="jellyfin"):
+                asked.append((key, provider))
+                return {"url": "u", "audio": False}
+
+        manager.providers = Registry()
+        manager.playback.play_item = lambda target: None
+
+        manager._start_item("vid-1", "pl-9", "youtube")
+
+        assert asked == [("vid-1", "youtube")]
+        assert manager.current_provider == "youtube"
+
+
+class TestForeignPropose:
+    def test_hello_declares_and_records_the_capability(self, manager):
+        manager._api_raw = Recorder(
+            {
+                "syncplay_hello": {
+                    "ProtocolVersion": 2,
+                    "Capabilities": ["ExternalContent"],
+                    "TimeSync": {"WebSocketPath": "/ts"},
+                }
+            }
+        )
+
+        manager._hello()
+
+        assert manager._api_raw.named("syncplay_hello") == [
+            ("syncplay_hello", 2, ["ExternalContent"])
+        ]
+        assert manager.server_external_content is True
+        assert manager.timesync_ws_path == "/ts"
+
+    def test_bus_propose_goes_out_as_a_descriptor(self, manager):
+        join(manager)
+        manager.server_external_content = True
+
+        manager.on_propose(
+            {
+                "v": 1,
+                "provider": "youtube",
+                "key": "vid-1",
+                "position_ticks": 50000000,
+                "name": "A Video",
+                "runtime_ticks": 100,
+            }
+        )
+
+        assert manager._api.named("syncplay_set_new_queue_ex") == [
+            (
+                "syncplay_set_new_queue_ex",
+                [
+                    {
+                        "Content": {
+                            "Provider": "youtube",
+                            "Key": "vid-1",
+                            "Name": "A Video",
+                            "RunTimeTicks": 100,
+                        }
+                    }
+                ],
+                0,
+                50000000,
+            )
+        ]
+
+    def test_without_the_server_capability_nothing_is_sent(self, manager):
+        """Refused loudly rather than sent as a key the server would
+        reject for everyone — never silently downgraded."""
+        join(manager)
+        manager.server_external_content = False
+
+        manager.on_propose({"v": 1, "provider": "youtube", "key": "vid-1"})
+
+        assert manager._api.named("syncplay_set_new_queue_ex") == []
+        assert manager._api.named("syncplay_set_new_queue") == []
+
+    def test_a_foreign_claims_local_start_proposes_a_descriptor(self, manager):
+        """The adapter claimed a YouTube play; the ordinary local-start
+        forward must propose it as external content, descriptor built from
+        the claim."""
+        join(manager)
+        manager.server_external_content = True
+        manager.player.playing = True
+        manager.player.item = None
+        manager.player.position = 12.0
+        manager.on_foreign_claim(
+            {
+                "Id": "vid-1",
+                "Provider": "youtube",
+                "PlayMethod": "DirectPlay",
+                "Name": "A Video",
+                "RunTimeTicks": 55,
+            }
+        )
+
+        manager._forward_local_play()
+
+        calls = manager._api.named("syncplay_set_new_queue_ex")
+        assert len(calls) == 1
+        content = calls[0][1][0]["Content"]
+        assert content == {
+            "Provider": "youtube",
+            "Key": "vid-1",
+            "Name": "A Video",
+            "RunTimeTicks": 55,
+        }
+        assert calls[0][3] == utils.seconds_to_ticks(12.0)

@@ -14,7 +14,13 @@ import kofin.syncplay.manager as manager_module
 from kofin.syncplay import utils
 from kofin.syncplay.manager import SyncPlayManager
 from tests.unit.fakes import FakeAddon, FakeWindow
-from tests.unit.test_syncplay_manager import FakePlayer, Recorder, join, make_queue
+from tests.unit.test_syncplay_manager import (
+    FakePlayer,
+    FakeProviders,
+    Recorder,
+    join,
+    make_queue,
+)
 
 IDLE, LOADING, WAITING_READY, SYNCED = "idle", "loading", "waiting_ready", "synced"
 
@@ -37,8 +43,9 @@ def manager():
     m._toast = lambda *a, **k: None
     m.enabled = lambda: True
     m._api = Recorder()
-    m._api_raw = Recorder({"item": {"Id": "item-1", "Name": "The Item"}})
-    m.playback.play_item = lambda item, ticks: None
+    m._api_raw = Recorder()
+    m.providers = FakeProviders()
+    m.playback.play_item = lambda target: None
     m.playback.prepare_ready = lambda: None
     m.playback.start_loop = lambda: None
     m.playback.ensure_paused = lambda: None

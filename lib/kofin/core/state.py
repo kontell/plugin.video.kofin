@@ -71,6 +71,14 @@ PROP_MENU_SYNCPLAY = "kofin.menu.syncplay"
 # here because the *plugin* process resolves the play and has no other way to
 # learn that the service is in a group.
 PROP_SYNCPLAY_TEMPO = "kofin.syncplay.tempo"
+# The public sync-session mirror (plan G2.2): what a provider add-on or a
+# skin needs to offer "watch together" affordances — in-group, group name,
+# member names, phase, the current item's provider:key. Cross-process shared
+# live state read by add-ons that are not kofin, which is exactly this
+# module's charter; deliberately NOT kofin-prefixed, because the name is part
+# of the published provider contract (docs/syncplay-provider-contract.md)
+# and must survive any future re-hosting of the engine.
+PROP_SYNCSESSION = "syncsession.state"
 
 # The lyrics channel. These earn their place for the same reason as
 # PROP_CONTEXT_BITRATES: a skin or a script can only read window properties,
@@ -397,6 +405,26 @@ def clear_syncplay_tempo() -> None:
     _window().clearProperty(PROP_SYNCPLAY_TEMPO)
 
 
+def publish_syncsession(payload: Dict[str, Any]) -> None:
+    """The public sync-session state (plan G2.2), JSON on PROP_SYNCSESSION."""
+    _window().setProperty(PROP_SYNCSESSION, json.dumps(payload))
+
+
+def syncsession() -> Dict[str, Any]:
+    raw = _window().getProperty(PROP_SYNCSESSION)
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def clear_syncsession() -> None:
+    _window().clearProperty(PROP_SYNCSESSION)
+
+
 def set_menu_syncplay(offered: bool) -> None:
     """Whether the SyncPlay root entry is on offer."""
     if offered:
@@ -468,6 +496,7 @@ def clear_all(keep_stop: bool = False) -> None:
         PROP_MENU_WHO,
         PROP_MENU_SYNCPLAY,
         PROP_SYNCPLAY_TEMPO,
+        PROP_SYNCSESSION,
     ]
     if not keep_stop:
         props.append(PROP_SYNC_STOP)
