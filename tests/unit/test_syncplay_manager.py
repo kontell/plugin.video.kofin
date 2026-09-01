@@ -83,6 +83,9 @@ class FakeProviders:
     def resolve_kodi_id(self, kodi_id, media):
         return self.resolved
 
+    def is_delegated(self, name):
+        return False
+
 
 @pytest.fixture(autouse=True)
 def kodi_fakes(monkeypatch):
@@ -1997,6 +2000,9 @@ class TestDescriptorQueue:
                 asked.append((key, provider))
                 return {"url": "u", "audio": False}
 
+            def is_delegated(self, name):
+                return False
+
         manager.providers = Registry()
         manager.playback.play_item = lambda target: None
 
@@ -2004,6 +2010,35 @@ class TestDescriptorQueue:
 
         assert asked == [("vid-1", "youtube")]
         assert manager.current_provider == "youtube"
+
+
+class TestDelegatedStart:
+    """A delegated provider (registered with no template) gets its starts
+    broadcast as SyncSession.Start; the arriving playback completes the
+    load exactly as any local play does."""
+
+    def test_registration_and_start(self, manager, monkeypatch):
+        join(manager)
+        manager.on_provider_register(
+            "pvr.kofin", {"provider": "pvr.kofin", "play": {"delegated": True}}
+        )
+        assert manager.providers.is_delegated("pvr.kofin")
+
+        published = []
+        monkeypatch.setattr(
+            manager_module.contract,
+            "publish_start",
+            lambda provider, key, ticks: published.append((provider, key, ticks)),
+        )
+        played = []
+        manager.playback.play_item = lambda target: played.append(target)
+
+        manager._start_item("chan@123", "pl-1", "pvr.kofin")
+
+        assert published == [("pvr.kofin", "chan@123", 0)]
+        assert played == []  # the provider starts it, not the engine
+        assert manager.phase == "loading"
+        assert manager.current_provider == "pvr.kofin"
 
 
 class TestForeignPropose:

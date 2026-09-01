@@ -28,6 +28,7 @@ from kofin.syncplay.playback import PlaybackController
 from kofin.syncplay.ports import Claim, SyncPlayApi
 from kofin.syncplay.providers import (
     JELLYFIN,
+    DelegatedProvider,
     ProviderRegistry,
     TemplateProvider,
     jellyfin_registry,
@@ -1245,24 +1246,32 @@ class SyncPlayManager(object):
             ),
         )
 
-        try:
-            # Through the provider seam, which reaches the client directly
-            # rather than via _api: a 403 here is a library permission
-            # problem, not lost group membership.
-            target = self.providers.play_target(
-                item_id, utils.ms_to_ticks(estimate_ms), provider=provider
-            )
-        except Exception as error:
-            LOG.warning("SyncPlay item lookup failed: %s", error)
-            self._load_failed("item lookup failed")
-            return
+        if self.providers.is_delegated(provider):
+            # A delegated start (the provider contract): the content is
+            # tuned, not fetched, so the provider's own service executes
+            # the start and this member's playback arrives like any other
+            # local play — on_avstarted completes the load, and the load
+            # watchdog below covers a start nobody executes.
+            contract.publish_start(provider, item_id, utils.ms_to_ticks(estimate_ms))
+        else:
+            try:
+                # Through the provider seam, which reaches the client directly
+                # rather than via _api: a 403 here is a library permission
+                # problem, not lost group membership.
+                target = self.providers.play_target(
+                    item_id, utils.ms_to_ticks(estimate_ms), provider=provider
+                )
+            except Exception as error:
+                LOG.warning("SyncPlay item lookup failed: %s", error)
+                self._load_failed("item lookup failed")
+                return
 
-        try:
-            self.playback.play_item(target)
-        except Exception as error:
-            LOG.exception("SyncPlay playback start failed: %s", error)
-            self._load_failed(error)
-            return
+            try:
+                self.playback.play_item(target)
+            except Exception as error:
+                LOG.exception("SyncPlay playback start failed: %s", error)
+                self._load_failed(error)
+                return
 
         # Identify the load, not the item. A transcode seek reloads the *same*
         # playlist item, so "still loading, and still the item I armed for" is
@@ -1803,10 +1812,18 @@ class SyncPlayManager(object):
             LOG.warning("Register from %s tried to replace %r", sender, JELLYFIN)
             return
 
-        self.providers.register(
-            name, TemplateProvider(play["url_template"], play["audio"])
+        if play.get("delegated"):
+            self.providers.register(name, DelegatedProvider(play["audio"]))
+        else:
+            self.providers.register(
+                name, TemplateProvider(play["url_template"], play["audio"])
+            )
+        LOG.info(
+            "[ syncplay/provider ] %r registered by %s%s",
+            name,
+            sender,
+            " (delegated)" if play.get("delegated") else "",
         )
-        LOG.info("[ syncplay/provider ] %r registered by %s", name, sender)
 
     def on_propose(self, payload):
         """SyncSession.Propose: a provider asks for its item as the group
