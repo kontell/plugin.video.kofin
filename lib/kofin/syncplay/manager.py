@@ -1573,7 +1573,14 @@ class SyncPlayManager(object):
                 self._propose_queue(item_id, position=0.0, provider=provider)
                 return
 
-        self._propose_queue(item_id, provider=provider)
+        position = None
+        if info is self.foreign_claim and not info.get("RunTimeTicks"):
+            # A live claim (zero runtime): the player's position is session
+            # time on this member's own stream, meaningless to the group —
+            # the group tunes together from its own live edge (P2).
+            position = 0.0
+
+        self._propose_queue(item_id, position=position, provider=provider)
 
     def _identify_held_play(self, data):
         """Identify a held playlist advance from the Player.OnPlay payload.
@@ -1603,6 +1610,13 @@ class SyncPlayManager(object):
             return
 
         if not mapped:
+            if media in ("channel", "recording"):
+                # A PVR play is never in the provider mapping, but its
+                # owner may claim it over the public bus a moment after
+                # OnPlay (pvr.kofin claims from onAVStarted) — the P2 gate
+                # measured the demotion beating the claim by 800 ms. Leave
+                # identification to the ordinary retry window.
+                return
             # A Kodi library item with no provider mapping: the group
             # cannot follow it, and the play pipeline (same mapping) will
             # not identify it either. Let it play now rather than after

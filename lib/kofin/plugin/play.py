@@ -647,6 +647,11 @@ def play(request: Request) -> None:
             start_ticks = int(request.params.get("startticks") or start_ticks)
         except ValueError:
             pass
+        if item.get("Type") == "TvChannel":
+            # Live has no absolute position to start at (P2): the opened
+            # live stream begins at the edge, and a session-relative tick
+            # from another member would seek a clock this stream never had.
+            start_ticks = 0
 
         # A download the user already has beats the network, exactly as the
         # repointed library row does for the same item. Here rather than
