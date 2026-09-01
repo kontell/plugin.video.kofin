@@ -44,6 +44,7 @@ ROUTES: Dict[str, Tuple[str, str]] = {
     "lyrics": ("lyrics", "lyrics"),
     "play": ("play", "play"),
     "syncplay": ("syncplay", "menu"),
+    "findservers": ("serverpicker", "find_servers"),
     "login": ("account", "login"),
     "logout": ("account", "logout"),
     "cleandatabases": ("clean", "clean_databases"),

@@ -468,5 +468,12 @@
   "#30821": "Error del servidor — %s",
   "#30822": "S'ha conservat %s — no s'ha pogut restaurar l'entrada de la biblioteca",
   "#30823": "Baixada eliminada: %s",
-  "#30824": "%s baixades eliminades"
+  "#30824": "%s baixades eliminades",
+  "#30825": "Cerca servidors a la xarxa local",
+  "#30826": "Cerca servidors Jellyfin en aquesta xarxa i mostra els que responen. El que triïs s'omple a \"Adreça del servidor\".",
+  "#30827": "S'estan cercant servidors Jellyfin…",
+  "#30828": "Selecciona un servidor",
+  "#30829": "Cap servidor Jellyfin ha respost — introdueix l'adreça manualment",
+  "#30830": "no ha respost",
+  "#30831": "%s no ha respost — l'adreça que ha donat potser no funciona aquí"
 }

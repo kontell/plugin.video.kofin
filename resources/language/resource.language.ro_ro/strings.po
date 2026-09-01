@@ -2111,3 +2111,31 @@ msgstr "Descărcare ștearsă: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "%s descărcări șterse"
+
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Caută servere în rețeaua locală"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Caută servere Jellyfin în această rețea și le afișează pe cele care răspund. Cel ales este completat în \"Adresa serverului\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Se caută servere Jellyfin…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Alegeți un server"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Niciun server Jellyfin nu a răspuns — introduceți adresa manual"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "nu a răspuns"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s nu a răspuns — adresa indicată s-ar putea să nu funcționeze aici"

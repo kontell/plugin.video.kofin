@@ -65,9 +65,11 @@ Leave them as a bare `%`. Do not double them to `%%`; these strings are never `%
 
 **Kodi bbcode.** `#30015` is `Enter code [B]%s[/B] in the Jellyfin app or web interface.` The `[B]`/`[/B]` tags stay exactly as they are.
 
-**Escaped quotes.** `#30505`, `#30506`, `#30607` and `#30794` contain `\"` in the PO source. In the JSON you write these as ordinary `"` characters (JSON-escaped as `\"`); the generator re-escapes them for the PO. What matters is that the quotes stay straight ASCII quotes in these four, because they quote a title or a setting name being repeated back verbatim.
+**Escaped quotes.** `#30505`, `#30506`, `#30607`, `#30794` and `#30826` contain `\"` in the PO source. In the JSON you write these as ordinary `"` characters (JSON-escaped as `\"`); the generator re-escapes them for the PO. What matters is that the quotes stay straight ASCII quotes in these five, because they quote a title or a setting name being repeated back verbatim.
 
 **`#30794` must quote `#30618` word for word.** The caveat string names a settings label; if the two are translated differently, the caveat points at a setting that is not on screen under that name. `pocheck.py` enforces this. Translate the pair together.
+
+**`#30826` must quote `#30052` word for word**, for the same reason: the discovery help tells the user which field it fills in, and the field is named on the same settings page. `pocheck.py` enforces this too.
 
 ## Length
 

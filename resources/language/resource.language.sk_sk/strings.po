@@ -2111,3 +2111,31 @@ msgstr "Sťahovanie odstránené: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "Odstránené sťahovania: %s"
+
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Nájsť servery v miestnej sieti"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Vyhľadá servery Jellyfin v tejto sieti a zobrazí tie, ktoré odpovedia. Vybraný sa doplní do poľa \"Adresa servera\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Vyhľadávanie serverov Jellyfin…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Vyberte server"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Žiadny server Jellyfin neodpovedal — zadajte adresu ručne"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "neodpovedal"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s neodpovedal — zadaná adresa tu nemusí fungovať"

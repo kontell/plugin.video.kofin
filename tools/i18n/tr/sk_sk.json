@@ -468,5 +468,12 @@
   "#30821": "Chyba servera — %s",
   "#30822": "%s ponechané — položku knižnice sa nepodarilo obnoviť",
   "#30823": "Sťahovanie odstránené: %s",
-  "#30824": "Odstránené sťahovania: %s"
+  "#30824": "Odstránené sťahovania: %s",
+  "#30825": "Nájsť servery v miestnej sieti",
+  "#30826": "Vyhľadá servery Jellyfin v tejto sieti a zobrazí tie, ktoré odpovedia. Vybraný sa doplní do poľa \"Adresa servera\".",
+  "#30827": "Vyhľadávanie serverov Jellyfin…",
+  "#30828": "Vyberte server",
+  "#30829": "Žiadny server Jellyfin neodpovedal — zadajte adresu ručne",
+  "#30830": "neodpovedal",
+  "#30831": "%s neodpovedal — zadaná adresa tu nemusí fungovať"
 }

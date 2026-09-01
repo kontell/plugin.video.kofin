@@ -468,5 +468,12 @@
   "#30821": "Serverfel — %s",
   "#30822": "%s behölls — posten i biblioteket kunde inte återställas",
   "#30823": "Hämtning borttagen: %s",
-  "#30824": "%s hämtning(ar) borttagna"
+  "#30824": "%s hämtning(ar) borttagna",
+  "#30825": "Sök servrar på lokala nätverket",
+  "#30826": "Söker efter Jellyfin-servrar på det här nätverket och visar dem som svarar. Den du väljer fylls i under \"Serveradress\".",
+  "#30827": "Söker efter Jellyfin-servrar…",
+  "#30828": "Välj en server",
+  "#30829": "Ingen Jellyfin-server svarade — ange adressen manuellt",
+  "#30830": "svarade inte",
+  "#30831": "%s svarade inte — adressen den uppgav fungerar kanske inte här"
 }

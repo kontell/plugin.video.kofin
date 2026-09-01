@@ -468,5 +468,12 @@
   "#30821": "Serverfout — %s",
   "#30822": "%s behouden — bibliotheekitem kon niet worden hersteld",
   "#30823": "Download verwijderd: %s",
-  "#30824": "%s download(s) verwijderd"
+  "#30824": "%s download(s) verwijderd",
+  "#30825": "Servers op lokaal netwerk zoeken",
+  "#30826": "Zoekt naar Jellyfin-servers op dit netwerk en toont de servers die antwoorden. De server die je kiest wordt ingevuld bij \"Serveradres\".",
+  "#30827": "Zoeken naar Jellyfin-servers…",
+  "#30828": "Kies een server",
+  "#30829": "Geen enkele Jellyfin-server antwoordde — voer het adres handmatig in",
+  "#30830": "gaf geen antwoord",
+  "#30831": "%s gaf geen antwoord — het opgegeven adres werkt hier misschien niet"
 }

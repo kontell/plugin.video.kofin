@@ -2111,3 +2111,31 @@ msgstr "Letöltés törölve: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "%s letöltés törölve"
+
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Kiszolgálók keresése a helyi hálózaton"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Jellyfin-kiszolgálókat keres ezen a hálózaton, és felsorolja azokat, amelyek válaszolnak. A kiválasztott bekerül a \"Kiszolgáló címe\" mezőbe."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Jellyfin-kiszolgálók keresése…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Válasszon kiszolgálót"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Egyetlen Jellyfin-kiszolgáló sem válaszolt — adja meg a címet kézzel"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "nem válaszolt"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s nem válaszolt — a megadott cím itt nem feltétlenül működik"

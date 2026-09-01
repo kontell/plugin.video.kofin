@@ -2111,3 +2111,31 @@ msgstr "Η λήψη διαγράφηκε: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "%s λήψεις διαγράφηκαν"
+
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Εύρεση διακομιστών στο τοπικό δίκτυο"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Αναζητά διακομιστές Jellyfin σε αυτό το δίκτυο και εμφανίζει όσους απαντήσουν. Ο διακομιστής που θα επιλέξετε συμπληρώνεται στο \"Διεύθυνση διακομιστή\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Αναζήτηση διακομιστών Jellyfin…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Επιλέξτε διακομιστή"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Κανένας διακομιστής Jellyfin δεν απάντησε — εισαγάγετε τη διεύθυνση χειροκίνητα"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "δεν απάντησε"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "Ο %s δεν απάντησε — η διεύθυνση που έδωσε ίσως δεν λειτουργεί εδώ"

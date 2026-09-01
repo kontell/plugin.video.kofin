@@ -2226,3 +2226,42 @@ msgstr ""
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr ""
+
+# 30825-30831 -- LAN server discovery (core/discovery.py, plugin/serverpicker.py).
+# #30829 names manual entry rather than suggesting another go, and the wording
+# is the protocol's, not politeness: a server answers the broadcast in
+# milliseconds or not at all, so nothing is still on its way when the window
+# closes, and the usual causes -- auto-discovery switched off, Docker bridge
+# networking, another subnet, a host where something already holds UDP 7359 --
+# no number of retries reaches. #30830 marks a row whose address did not
+# answer and reads as a fragment after the address; #30831 is the same fact as
+# a sentence, raised only if the user picks that row anyway. %s is the
+# server's own name.
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr ""
+
+# Quotes #30052 verbatim -- pocheck.py holds the pair.
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr ""
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr ""
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr ""
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr ""
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr ""
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr ""

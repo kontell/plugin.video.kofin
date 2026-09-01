@@ -2111,3 +2111,31 @@ msgstr "ダウンロードを削除しました: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "%s 件のダウンロードを削除しました"
+
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "ローカルネットワークでサーバーを探す"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "このネットワーク上の Jellyfin サーバーを探し、応答したものを一覧表示します。選んだサーバーは \"サーバーアドレス\" に入力されます。"
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Jellyfin サーバーを検索しています…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "サーバーを選択"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "応答した Jellyfin サーバーがありません — アドレスを手動で入力してください"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "応答なし"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s は応答しませんでした — 通知されたアドレスはここでは使えない可能性があります"

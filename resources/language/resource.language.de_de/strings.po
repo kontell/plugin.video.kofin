@@ -2111,3 +2111,31 @@ msgstr "Download gelöscht: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "%s Download(s) gelöscht"
+
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Server im lokalen Netzwerk suchen"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Sucht im Netzwerk nach Jellyfin-Servern und listet die auf, die antworten. Der ausgewählte wird in \"Serveradresse\" eingetragen."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Suche nach Jellyfin-Servern…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Server auswählen"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Kein Jellyfin-Server hat geantwortet — Adresse manuell eingeben"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "hat nicht geantwortet"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s hat nicht geantwortet — die angegebene Adresse funktioniert hier womöglich nicht"

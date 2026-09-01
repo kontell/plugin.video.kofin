@@ -2111,3 +2111,31 @@ msgstr "Lataus poistettu: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "%s latausta poistettu"
+
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Etsi palvelimia lähiverkosta"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Etsii Jellyfin-palvelimia tästä verkosta ja luettelee ne, jotka vastaavat. Valitsemasi palvelin täytetään kenttään \"Palvelimen osoite\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Etsitään Jellyfin-palvelimia…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Valitse palvelin"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Yksikään Jellyfin-palvelin ei vastannut — syötä osoite käsin"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "ei vastannut"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s ei vastannut — sen antama osoite ei ehkä toimi täältä"

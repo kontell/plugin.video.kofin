@@ -2111,3 +2111,31 @@ msgstr "Nedlasting slettet: %s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "%s nedlasting(er) slettet"
+
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "Finn servere på lokalnettverket"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "Søker etter Jellyfin-servere på dette nettverket og viser dem som svarer. Den du velger fylles inn i \"Serveradresse\"."
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "Søker etter Jellyfin-servere…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "Velg en server"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "Ingen Jellyfin-servere svarte — skriv inn adressen manuelt"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "svarte ikke"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s svarte ikke — adressen den oppga fungerer kanskje ikke her"

@@ -2111,3 +2111,31 @@ msgstr "已刪除下載：%s"
 msgctxt "#30824"
 msgid "%s download(s) deleted"
 msgstr "已刪除 %s 個下載"
+
+msgctxt "#30825"
+msgid "Find servers on local network"
+msgstr "在區域網路中尋找伺服器"
+
+msgctxt "#30826"
+msgid "Looks for Jellyfin servers on this network and lists the ones that answer. The one you choose is filled into \"Server address\"."
+msgstr "在本網路中尋找 Jellyfin 伺服器並列出有回應的伺服器。所選伺服器會填入 \"伺服器位址\"。"
+
+msgctxt "#30827"
+msgid "Searching for Jellyfin servers…"
+msgstr "正在尋找 Jellyfin 伺服器…"
+
+msgctxt "#30828"
+msgid "Select a server"
+msgstr "選擇伺服器"
+
+msgctxt "#30829"
+msgid "No Jellyfin servers answered — enter the address manually"
+msgstr "沒有 Jellyfin 伺服器回應 — 請手動輸入位址"
+
+msgctxt "#30830"
+msgid "did not answer"
+msgstr "無回應"
+
+msgctxt "#30831"
+msgid "%s did not answer — the address it gave may not work here"
+msgstr "%s 無回應 — 它提供的位址在此可能無法使用"

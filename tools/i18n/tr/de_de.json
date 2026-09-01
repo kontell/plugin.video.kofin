@@ -468,5 +468,12 @@
   "#30821": "Serverfehler — %s",
   "#30822": "%s behalten — Bibliothekseintrag konnte nicht wiederhergestellt werden",
   "#30823": "Download gelöscht: %s",
-  "#30824": "%s Download(s) gelöscht"
+  "#30824": "%s Download(s) gelöscht",
+  "#30825": "Server im lokalen Netzwerk suchen",
+  "#30826": "Sucht im Netzwerk nach Jellyfin-Servern und listet die auf, die antworten. Der ausgewählte wird in \"Serveradresse\" eingetragen.",
+  "#30827": "Suche nach Jellyfin-Servern…",
+  "#30828": "Server auswählen",
+  "#30829": "Kein Jellyfin-Server hat geantwortet — Adresse manuell eingeben",
+  "#30830": "hat nicht geantwortet",
+  "#30831": "%s hat nicht geantwortet — die angegebene Adresse funktioniert hier womöglich nicht"
 }
