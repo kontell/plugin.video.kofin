@@ -241,6 +241,44 @@ def test_music_playlists_dedupes_repeated_pages(api):
     assert idx["n"] == 2
 
 
+def test_music_playlists_refuses_an_empty_first_page_against_a_count(api):
+    """audit-F9 amplifier: returning [] here reads downstream as "this account
+    has no playlists", which is a deletion order for the managed folder. A
+    genuinely empty account answers count 0; a count with nothing behind it is
+    the server contradicting itself."""
+    client, transport = api
+
+    class Response:
+        content = b"{}"
+
+        def json(self):
+            return {"Items": [], "TotalRecordCount": 13}
+
+    def request(method, url, headers=None, params=None, json_body=None, **kwargs):
+        return Response()
+
+    transport.request = request  # type: ignore[method-assign]
+    with pytest.raises(Exception) as caught:
+        client.music_playlists()
+    assert "first page was empty" in str(caught.value)
+
+
+def test_music_playlists_accepts_a_genuinely_empty_account(api):
+    client, transport = api
+
+    class Response:
+        content = b"{}"
+
+        def json(self):
+            return {"Items": [], "TotalRecordCount": 0}
+
+    def request(method, url, headers=None, params=None, json_body=None, **kwargs):
+        return Response()
+
+    transport.request = request  # type: ignore[method-assign]
+    assert client.music_playlists() == []
+
+
 def test_playback_info_optional_params(api):
     client, transport = api
     client.playback_info("item1", {"Name": "Kodi"})

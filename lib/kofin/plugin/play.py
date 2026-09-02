@@ -516,6 +516,29 @@ def _resolve_to(request: Request, listitem: xbmcgui.ListItem, path: str) -> None
         xbmc.Player().play(path, listitem)
 
 
+def _offline_resume(item_id: str, dbid: int) -> Optional[Tuple[float, float]]:
+    """Kodi's own ``(position, total)`` for a downloaded item, or None.
+
+    Offline the server has no position to give, so the only resume in play is
+    the one Kodi already holds. The media type comes from the download row --
+    the item DTO that would name it is exactly what is unreachable. Songs and
+    anything Kodi keeps no resume for answer None.
+    """
+    from kofin.downloads import store
+
+    row = store.get(item_id)
+    media = getattr(row, "media_type", "") if row is not None else ""
+
+    if media not in kodirpc.RESUME_QUERY:
+        return None
+
+    try:
+        return kodirpc.resume_point(dbid, media)
+    except Exception:
+        LOG.debug("offline: no Kodi resume for %s", item_id)
+        return None
+
+
 def offline_answer(request: Request, item_id: str) -> bool:
     """Handle the play entirely locally when the server is unreachable.
 
@@ -543,6 +566,14 @@ def offline_answer(request: Request, item_id: str) -> bool:
         dbid = request.params.get("dbid", "")
         if dbid.isdigit():
             listitem.getVideoInfoTag().setDbId(int(dbid))
+            # The server's position is unreachable, but Kodi's own bookmark is
+            # not, and it is the number Kodi acts on for a row it knows (the
+            # same rule resume_start_ticks states online). Without this an
+            # offline play from a listing or a widget restarted from zero
+            # while the library row beside it resumed correctly (audit A2-M7).
+            point = _offline_resume(item_id, int(dbid))
+            if point and point[1] > 0:
+                listitem.getVideoInfoTag().setResumePoint(point[0], point[1])
         _resolve_to(request, listitem, path)
         return True
 

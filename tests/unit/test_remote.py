@@ -1,14 +1,18 @@
 import json
 
 import pytest
+import xbmc
 
+from kofin.service import remote
 from kofin.service.remote import RemoteHandler
 
 
 class FakePlaylist:
     instance = None
+    types = []
 
     def __init__(self, playlist_type=0):
+        FakePlaylist.types.append(playlist_type)
         if FakePlaylist.instance is not None:
             self.__dict__ = FakePlaylist.instance.__dict__
             return
@@ -55,6 +59,7 @@ class FakePlayer:
 @pytest.fixture(autouse=True)
 def fakes(monkeypatch):
     FakePlaylist.instance = None
+    FakePlaylist.types = []
     FakePlayer.played = []
     FakePlayer.actions = []
     monkeypatch.setattr("xbmc.PlayList", FakePlaylist)
@@ -249,3 +254,33 @@ def test_play_now_without_a_start_position_starts_no_thread(fakes):
     handler.handle("Play", {"ItemIds": ["a"], "PlayCommand": "PlayNow"})
     assert handler._seek_thread is None
     assert FakePlayer.actions == []
+
+
+def test_remote_play_of_a_song_uses_the_music_queue(fakes, monkeypatch):
+    """audit A2-M4: Remote Play carries ids and no media kind, so an album
+    sent from the Jellyfin app went on the video queue. SyncPlay and play-all
+    already branch; the mapping database is the local answer."""
+    monkeypatch.setattr(remote, "_is_audio", lambda item_id: item_id == "song-1")
+
+    RemoteHandler().handle("Play", {"ItemIds": ["song-1"], "PlayCommand": "PlayNow"})
+    assert FakePlaylist.types[-1] == xbmc.PLAYLIST_MUSIC
+
+    FakePlaylist.instance = None
+    FakePlaylist.types = []
+    RemoteHandler().handle("Play", {"ItemIds": ["movie-1"], "PlayCommand": "PlayNow"})
+    assert FakePlaylist.types[-1] == xbmc.PLAYLIST_VIDEO
+
+
+def test_an_unreadable_mapping_keeps_the_video_queue(fakes, monkeypatch):
+    """The mapping is a convenience, not a dependency: no row, no database,
+    anything at all -- the queue is the video one, as it always was."""
+
+    def explode(item_id):
+        raise RuntimeError("no database")
+
+    monkeypatch.setattr(remote, "_is_audio", remote._is_audio)
+    monkeypatch.setattr(
+        "kofin.sync.db.Database", lambda *a, **k: (_ for _ in ()).throw(explode)
+    )
+    RemoteHandler().handle("Play", {"ItemIds": ["x"], "PlayCommand": "PlayNow"})
+    assert FakePlaylist.types[-1] == xbmc.PLAYLIST_VIDEO

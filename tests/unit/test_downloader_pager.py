@@ -133,3 +133,49 @@ def test_should_stop_is_asked_before_every_page():
 def test_an_empty_result_set_yields_no_pages():
     api = PagingApi(0)
     assert list(pages(api)) == []
+
+
+class ShortPageApi(PagingApi):
+    """A server that hands back fewer items than asked for on one page."""
+
+    def __init__(self, count, short_at, keep):
+        super().__init__(count)
+        self.short_at = short_at
+        self.keep = keep
+
+    def get(self, url, params):
+        page = super().get(url, params)
+        if params.get("StartIndex") == self.short_at and "TotalRecordCount" not in page:
+            page["Items"] = page["Items"][: self.keep]
+        return page
+
+
+def test_a_short_page_mid_walk_refuses_to_look_complete():
+    """audit A2-M1: page offsets are computed up front by stepping ``limit``,
+    so a short page is never re-asked and its remainder is simply never handed
+    out. The walk still looked successful, and boxsets.sweep_stale floors only
+    on an entirely empty walk -- so the gap took real set rows. Ending short of
+    the count now raises, exactly as get_id_etag_map does.
+    """
+    api = ShortPageApi(4, short_at=0, keep=1)
+
+    with pytest.raises(Exception) as caught:
+        list(pages(api, limit=2))
+
+    assert "short page" in str(caught.value)
+
+
+def test_a_complete_walk_still_ends_quietly():
+    api = PagingApi(4)
+    assert sum(len(page["Items"]) for page in pages(api, limit=2)) == 4
+
+
+def test_a_stopped_walk_does_not_raise_short():
+    """The consumer stopping early is not a short walk: nothing was skipped,
+    the rest was simply never asked for."""
+    api = PagingApi(6)
+    walked = []
+    for page in pages(api, limit=2):
+        walked.append(page)
+        break
+    assert len(walked) == 1

@@ -13,7 +13,7 @@ is reachable through no Python binding.
 """
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import xbmc
 
@@ -281,6 +281,27 @@ def resume_seconds(kodi_id: int, media: str) -> Optional[float]:
     result = call(method, {id_field: kodi_id, "properties": ["resume"]})
     try:
         return float(result[result_field]["resume"]["position"])
+    except Exception as error:
+        LOG.debug("resume read failed for %s/%s: %s", media, kodi_id, error)
+        return None
+
+
+def resume_point(kodi_id: int, media: str) -> Optional[Tuple[float, float]]:
+    """Kodi's stored ``(position, total)`` for a library row, or None.
+
+    The same read as :func:`resume_seconds`, keeping the total the resume
+    object carries beside the position: a resolved plugin item needs both to
+    stamp a resume point, and offline this is the only place either number
+    exists (the server's UserData is what is unreachable).
+    """
+    query = RESUME_QUERY.get(media)
+    if query is None:
+        return None
+    method, id_field, result_field = query
+    result = call(method, {id_field: kodi_id, "properties": ["resume"]})
+    try:
+        resume = result[result_field]["resume"]
+        return float(resume["position"]), float(resume["total"])
     except Exception as error:
         LOG.debug("resume read failed for %s/%s: %s", media, kodi_id, error)
         return None

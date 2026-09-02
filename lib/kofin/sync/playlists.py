@@ -430,6 +430,34 @@ def refresh_music_playlists(
     write_folder_icon(directory)
 
     playlists = api.music_playlists()
+
+    # An empty listing against existing files is not a deletion order. This
+    # folder's ownership rule is the *folder* (CLAUDE.md): every managed
+    # .m3u8 not in ``want`` is removed, so a listing that comes back empty
+    # for any reason other than "the user has no playlists" empties the lot.
+    # Permission changes, a filter, and the server contradicting its own
+    # TotalRecordCount all look exactly like an empty account from here.
+    # Skip and warn, mirroring boxsets.sweep_stale and the prune's
+    # get_existing_ids. The cost is one skipped prune the first time a user
+    # deletes their last playlist; the folder is cleared properly by
+    # cleanup_managed_playlists, and by the next pass that lists at least one.
+    if not playlists:
+        standing = [name for name in _list_files(directory) if name.endswith(".m3u8")]
+        if standing:
+            LOG.warning(
+                "music playlists: the server listed none while %d managed "
+                "playlist(s) stand — skipping the prune rather than emptying "
+                "the folder",
+                len(standing),
+            )
+            return {
+                "playlists": 0,
+                "written": 0,
+                "tracks": 0,
+                "skipped": 0,
+                "pruned": 0,
+            }
+
     taken: Set[str] = set()
     want: Set[str] = set()
     track_total = 0

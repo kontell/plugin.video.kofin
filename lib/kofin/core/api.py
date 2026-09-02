@@ -841,9 +841,21 @@ class Api:
                     continue
                 results.append(item)
             total = int(body.get("TotalRecordCount") or 0)
+            # A first page with no items while the count says otherwise is the
+            # server contradicting itself, and returning [] here reads
+            # downstream as "this account has no playlists" -- which is a
+            # deletion order for the managed folder. Fail loudly instead; a
+            # genuinely empty account answers count 0.
+            if start == 0 and not items and total > 0:
+                raise HttpError(
+                    200,
+                    "music playlists: TotalRecordCount %d but the first page "
+                    "was empty" % total,
+                )
             start += len(items)
             # Stop on empty page, exhausted count, or a page that added no
-            # new ids (server repeating itself past the real set).
+            # new ids (server repeating itself past the real set). A later
+            # empty page is the documented over-count, not a contradiction.
             if not items or start >= total or new_on_page == 0:
                 break
         return results
