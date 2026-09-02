@@ -78,6 +78,11 @@ class FakeProviders:
         self.ticks.append(start_ticks)
         return {"url": "plugin://plugin.video.kofin/?mode=play", "audio": False}
 
+    resolved = None  # what resolve_kodi_id answers (the mapping)
+
+    def resolve_kodi_id(self, kodi_id, media):
+        return self.resolved
+
 
 @pytest.fixture(autouse=True)
 def kodi_fakes(monkeypatch):
@@ -766,12 +771,28 @@ class TestReloadForTempo:
 
     def test_foreign_claim_without_tempo_reloads(self, manager):
         started, prepared = self._arm(manager)
-        manager.foreign_claim = {"Id": "rec-1", "Provider": "jellyfin"}
+        manager.foreign_claim = {
+            "Id": "rec-1",
+            "Provider": "jellyfin",
+            "RunTimeTicks": 3600 * 10_000_000,
+        }
 
         manager._handle_group_update(make_queue(items=(("rec-1", "pl-1"),)))
 
         assert started == [("rec-1", "pl-1")]
         assert prepared == []
+
+    def test_live_claim_adopts(self, manager):
+        # A live channel claims with no runtime (the contract's spelling of
+        # "live"): positions on it are session-relative, so the reload buys
+        # nothing until P4's anchor — tune-together adopts (P2).
+        started, prepared = self._arm(manager)
+        manager.foreign_claim = {"Id": "chan-1", "Provider": "jellyfin"}
+
+        manager._handle_group_update(make_queue(items=(("chan-1", "pl-1"),)))
+
+        assert started == []
+        assert prepared == [True]
 
     def test_foreign_claim_with_tempo_adopts(self, manager):
         started, prepared = self._arm(manager)
@@ -808,6 +829,37 @@ class TestReloadForTempo:
         assert started == []
         assert prepared == [True]
 
+    def test_held_foreign_claim_reloads(self, manager):
+        # The living case, caught by the first live gate run: the
+        # hold-and-propose flow *holds* a foreign PVR start too, and the
+        # hold must not shield it from the reload — that adopt got
+        # command-only sync for the whole recording.
+        started, prepared = self._arm(manager)
+        manager._hold = {"item_id": "rec-1", "proposed": True}
+        manager.foreign_claim = {
+            "Id": "rec-1",
+            "Provider": "jellyfin",
+            "RunTimeTicks": 3600 * 10_000_000,
+        }
+
+        manager._handle_group_update(make_queue(items=(("rec-1", "pl-1"),)))
+
+        assert started == [("rec-1", "pl-1")]
+        assert prepared == []
+
+    def test_held_kofin_start_with_stale_foreign_claim_adopts(self, manager):
+        # A held kofin start (not yet claimed) while a stale foreign claim
+        # for a *different* item lingers: the identity guard keeps the
+        # kofin pipeline's start adopted, never reloaded.
+        started, prepared = self._arm(manager)
+        manager._hold = {"item_id": "item-2", "proposed": True}
+        manager.foreign_claim = {"Id": "other-item", "Provider": "jellyfin"}
+
+        manager._handle_group_update(make_queue(items=(("item-2", "pl-2"),)))
+
+        assert started == []
+        assert prepared == [True]
+
 
 class TestForwardLocalPlay:
     def test_noop_when_nothing_playing(self, manager):
@@ -832,6 +884,114 @@ class TestForwardLocalPlay:
         calls = manager._api.named("syncplay_set_new_queue")
         assert len(calls) == 1
         assert calls[0][1] == ["item-1"]
+
+    def test_live_claim_proposes_from_zero(self, manager):
+        # A live claim's player position is session time on this member's
+        # own stream — the propose says 0 so the group tunes together (P2).
+        join(manager)
+        manager.player.playing = True
+        manager.player.position = 3651.0
+        manager.player.item = None
+        manager.foreign_claim = {"Id": "chan-1", "Provider": "jellyfin"}
+
+        manager._forward_local_play()
+
+        calls = manager._api.named("syncplay_set_new_queue")
+        assert len(calls) == 1
+        assert calls[0][1] == ["chan-1"]
+        assert calls[0][3] == 0  # ticks, not 36510000000
+
+    def test_unmapped_pvr_play_waits_for_the_claim(self, manager):
+        # A channel's OnPlay carries a Kodi id the provider mapping can
+        # never answer, but its owner claims over the bus a moment later —
+        # the fast path must not demote first (the P2 gate measured the
+        # demotion beating the claim by 800 ms).
+        join(manager)
+        manager.player.playing = True
+        manager._hold = {"transition": False, "proposed": False, "item_id": None}
+        manager.providers.resolved = None
+
+        manager._identify_held_play({"item": {"id": 33, "type": "channel"}})
+
+        assert manager.ignore_wait is False
+        assert manager._api.named("syncplay_set_ignore_wait") == []
+
+    def test_unmapped_library_play_still_demotes_fast(self, manager):
+        join(manager)
+        manager.player.playing = True
+        manager._hold = {"transition": False, "proposed": False, "item_id": None}
+        manager.providers.resolved = None
+
+        manager._identify_held_play({"item": {"id": 33, "type": "movie"}})
+
+        assert manager.ignore_wait is True
+
+    def test_stale_claim_dropped_when_a_new_play_starts(self, manager):
+        # A seamless zap emits no stop, so the previous channel's claim
+        # survives into the new play and made the zap read as a duplicate
+        # start (the P2 gate). A new OnPlay drops a claim older than the
+        # staleness window; the owner re-claims moments later.
+        import time as time_module
+
+        join(manager)
+        manager.foreign_claim = {"Id": "old-chan", "Provider": "jellyfin"}
+        manager._foreign_claim_at = time_module.time() - 10.0
+
+        manager._identify_held_play({"item": {}})
+
+        assert manager.foreign_claim is None
+
+    def test_fresh_claim_survives_a_new_play(self, manager):
+        # A provider that claims at resolve time (before OnPlay) must not
+        # have its claim wiped by the play start it belongs to.
+        import time as time_module
+
+        join(manager)
+        manager.foreign_claim = {"Id": "new-chan", "Provider": "jellyfin"}
+        manager._foreign_claim_at = time_module.time()
+
+        manager._identify_held_play({"item": {}})
+
+        assert manager.foreign_claim == {"Id": "new-chan", "Provider": "jellyfin"}
+
+    def test_avstarted_drops_the_stale_claim_too(self, manager):
+        # A seamless PVR zap emits no OnPlay: on_avstarted is the one event
+        # every new stream fires, so the drop anchors there as well.
+        import time as time_module
+
+        join(manager)
+        manager.player.playing = True
+        manager.foreign_claim = {"Id": "old-chan", "Provider": "jellyfin"}
+        manager._foreign_claim_at = time_module.time() - 10.0
+
+        manager.on_avstarted()
+
+        assert manager.foreign_claim is None
+
+    def test_zap_claim_reproposes_while_following(self, manager):
+        # The zap chain fires no OnPlay and its AVStarted lands inside the
+        # unpause echo's programmatic grace — the claim itself is the
+        # propose trigger when a new foreign item arrives mid-follow.
+        join(manager)
+        manager.player.playing = True
+        manager.player.item = None
+        manager.phase = "synced"
+        manager.current_item_id = "old-chan"
+        manager.playback.ensure_paused = lambda: None
+
+        manager._set_foreign_claim({"Id": "new-chan", "Provider": "jellyfin"})
+        # the trigger posts to the live dispatcher; wait for it
+        import time as time_module
+
+        for _ in range(100):
+            if manager._api.named("syncplay_set_new_queue"):
+                break
+            time_module.sleep(0.01)
+
+        calls = manager._api.named("syncplay_set_new_queue")
+        assert len(calls) == 1
+        assert calls[0][1] == ["new-chan"]
+        assert calls[0][3] == 0  # a live claim proposes from zero
 
     def test_claimed_item_is_the_identity_source(self, manager):
         # The service player's claimed play state names the jellyfin id.

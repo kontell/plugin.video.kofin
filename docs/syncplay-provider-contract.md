@@ -41,6 +41,8 @@ Register on start-up **and every time you see `SyncSession.State`** (§4): the s
 
 Sent when your add-on resolves playback: it is how the engine knows what is on screen, which is what lets a member *propose* your item to the group and lets a spectator's own playback be told apart from the group's. Only `provider` and `key` are required. kofin's own claim always wins when both exist; a claim is playback-scoped and dropped when the player stops. The optional `tempo` block routes fine sync: only meaningful when your resolved ListItem also went through inputstream.tempo (§6) with the same file.
 
+A claim with no `runtime_ticks` is a **live** claim — a channel, not an item — and the engine converges it on commands only: positions on a live stream are session-relative, so until the live anchor work lands, members tune together rather than chase each other's clocks.
+
 Playback with no claim at all keeps today's behavior: the engine demotes that member to spectator rather than guessing — the correct default for every add-on that has not opted in.
 
 ### `SyncSession.Propose` (provider → service)

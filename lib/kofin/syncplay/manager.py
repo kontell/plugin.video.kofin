@@ -68,6 +68,7 @@ class SyncPlayManager(object):
         # outside over the public bus (SyncProvider.Claim). kofin's claim
         # always wins over it.
         self.foreign_claim: Optional[Claim] = None
+        self._foreign_claim_at = 0.0
         self.playback = PlaybackController(self, player)
         self.timesync: Optional[TimeSync] = None
         # Fine sync through inputstream.tempo (syncplay/tempo.py): armed at
@@ -1121,7 +1122,7 @@ class SyncPlayManager(object):
             item_id
             and self.player.isPlaying()
             and (item_id == self._local_item_id() or held_match)
-            and not self._adopt_should_reload(provider, held_match)
+            and not self._adopt_should_reload(item_id, provider)
         ):
             # We are already playing this exact item (e.g. the queue we
             # just proposed with SetNewQueue came back with a fresh
@@ -1149,7 +1150,7 @@ class SyncPlayManager(object):
 
         self._start_item(item_id, playlist_item_id, provider)
 
-    def _adopt_should_reload(self, provider, held_match):
+    def _adopt_should_reload(self, item_id, provider):
         """Reload-for-tempo (the pvr sync plan, P1): trade the adopt for one
         visible reload when it buys the member fine sync.
 
@@ -1159,12 +1160,15 @@ class SyncPlayManager(object):
         adopted into a group with fine sync armed, the member is
         command-only forever; reloading the same id through kofin's own
         route at the group position gains the full pipeline instead. Only
-        for *foreign* claims resolved by the default provider: a kofin play
-        that lacks a tempo route (an audio item, a segmented stream on the
-        full queue) would lack it again after the reload, and a held start
-        is kofin's own pipeline already in flight.
+        for *foreign* claims naming this exact item under the default
+        provider: a kofin play that lacks a tempo route (an audio item, a
+        segmented stream on the full queue) would lack it again after the
+        reload. Held-ness is deliberately no bar — the hold-and-propose
+        flow holds a foreign PVR start too (the first gate run adopted it
+        and got command-only sync); a held *kofin* start is protected by
+        its missing foreign claim, not by the hold.
         """
-        if held_match or provider != JELLYFIN or not self.tempo_session.active:
+        if provider != JELLYFIN or not self.tempo_session.active:
             return False
 
         try:
@@ -1175,7 +1179,18 @@ class SyncPlayManager(object):
 
         claim = self.foreign_claim
 
-        if claim is None or claim.get("Tempo") is not None:
+        if (
+            claim is None
+            or claim.get("Id") != item_id
+            or claim.get("Tempo") is not None
+        ):
+            return False
+
+        if not claim.get("RunTimeTicks"):
+            # A live claim (the contract's zero-runtime spelling): positions
+            # on a live stream are session-relative, so a reload buys no
+            # convergence until P4's source-PTS anchor exists — tune-together
+            # adopts (pvr sync plan §5).
             return False
 
         LOG.info(
@@ -1356,6 +1371,11 @@ class SyncPlayManager(object):
     def on_avstarted(self):
         if not self.in_group():
             return
+
+        # A seamless PVR zap emits no OnPlay and no stop — this is the one
+        # event every new stream reliably fires, so the stale-claim drop
+        # anchors here as well as on OnPlay.
+        self._drop_stale_claim()
 
         if self.phase == Phase.LOADING:
             # Hold the first frame; the group start is choreographed by
@@ -1559,7 +1579,14 @@ class SyncPlayManager(object):
                 self._propose_queue(item_id, position=0.0, provider=provider)
                 return
 
-        self._propose_queue(item_id, provider=provider)
+        position = None
+        if info is self.foreign_claim and not info.get("RunTimeTicks"):
+            # A live claim (zero runtime): the player's position is session
+            # time on this member's own stream, meaningless to the group —
+            # the group tunes together from its own live edge (P2).
+            position = 0.0
+
+        self._propose_queue(item_id, position=position, provider=provider)
 
     def _identify_held_play(self, data):
         """Identify a held playlist advance from the Player.OnPlay payload.
@@ -1570,6 +1597,8 @@ class SyncPlayManager(object):
         starts keep waiting for the player: their start position (a resume
         point) is only trustworthy once A/V is up.
         """
+        self._drop_stale_claim()
+
         hold = self._hold
 
         if not self.in_group() or hold is None or hold["proposed"]:
@@ -1589,6 +1618,13 @@ class SyncPlayManager(object):
             return
 
         if not mapped:
+            if media in ("channel", "recording"):
+                # A PVR play is never in the provider mapping, but its
+                # owner may claim it over the public bus a moment after
+                # OnPlay (pvr.kofin claims from onAVStarted) — the P2 gate
+                # measured the demotion beating the claim by 800 ms. Leave
+                # identification to the ordinary retry window.
+                return
             # A Kodi library item with no provider mapping: the group
             # cannot follow it, and the play pipeline (same mapping) will
             # not identify it either. Let it play now rather than after
@@ -1602,6 +1638,23 @@ class SyncPlayManager(object):
         hold["proposed"] = True
         hold["item_id"] = mapped
         self._propose_queue(mapped, position=0.0)
+
+    def _drop_stale_claim(self):
+        """A new local play is starting: a foreign claim older than a
+        moment describes the *previous* playback — a seamless zap emits no
+        stop, so ``on_stopped`` never cleared it, and the P2 gate's zap
+        re-proposed nothing because the stale claim made the new channel
+        read as a duplicate start of the current item. A fresh claim (a
+        provider that claims at resolve time, before OnPlay) is kept;
+        pvr.kofin re-claims from its own onAVStarted moments later, inside
+        the forward retry window."""
+        if self.foreign_claim is None:
+            return
+
+        if time.time() - self._foreign_claim_at <= utils.STALE_CLAIM_SECS:
+            return
+
+        self.foreign_claim = None
 
     def _unmanaged_local_play(self):
         """Playing something the group can't follow (a local file,
@@ -1708,11 +1761,28 @@ class SyncPlayManager(object):
 
     def _set_foreign_claim(self, claim):
         self.foreign_claim = claim
+        self._foreign_claim_at = time.time()
         LOG.info(
             "[ syncplay/claim ] foreign: %s via %s",
             claim.get("Id"),
             claim.get("Provider"),
         )
+
+        if (
+            self.in_group()
+            and not self.ignore_wait
+            and self.phase in FOLLOWING
+            and claim.get("Id")
+            and claim.get("Id") != self.current_item_id
+        ):
+            # A new foreign play while following the group: the claim is
+            # the propose trigger, because the event chain cannot be — a
+            # PVR zap on Omega fires no OnPlay, only an unpause echo whose
+            # programmatic grace swallows the AVStarted forward (P2 gate).
+            # A fresh start (phase idle) keeps the event-driven path, and
+            # the adoption echo is inert here: its claim names the current
+            # item.
+            self._post(self._forward_local_play)
 
     def on_provider_register(self, sender, payload):
         """SyncProvider.Register: wrap the play template as a provider.
