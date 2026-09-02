@@ -1019,7 +1019,7 @@ class TestLive:
         self, live_rig, monkeypatch
     ):
         scheduler, controller, side = live_rig
-        for miss in range(utils.LIVE_APPLY_MISSES + 1):
+        for _miss in range(utils.LIVE_APPLY_MISSES + 1):
             scheduler._settle_until = 0.0
             scheduler._window = []
             fill_window(scheduler, controller, 500.0)
