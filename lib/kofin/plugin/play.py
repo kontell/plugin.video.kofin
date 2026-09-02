@@ -106,7 +106,10 @@ def _size_player_queue(session: JsonDict, play_method: str) -> Optional[float]:
 
 
 def tempo_route(
-    item: JsonDict, play_method: str, source: Optional[JsonDict] = None
+    item: JsonDict,
+    play_method: str,
+    source: Optional[JsonDict] = None,
+    live: bool = False,
 ) -> Optional[JsonDict]:
     """The inputstream.tempo route for this play, or None.
 
@@ -124,6 +127,12 @@ def tempo_route(
     ffmpegdirect-based and takes ``manifest_type`` for a playlist stream; without
     it the ffmpeg open path has to guess at a URL that has no container
     extension, and the server's HLS playlist is still being written.
+
+    A live stream is routed in the add-on's **timeshift** mode: as a plain
+    stream a live URL behaves exactly as under inputstream.ffmpeg — no buffer,
+    no pause, no skip — and timeshift is the class whose disk buffer gives a
+    live channel those and lets a member fall behind its edge to meet the
+    group (the add-on applies the rate where Kodi reads from that buffer).
     """
     if item.get("Type") in AUDIO_TYPES or play_method not in TEMPO_METHODS:
         return None
@@ -143,6 +152,11 @@ def tempo_route(
     if play_method == "Transcode":
         sub = ((source or {}).get("TranscodingSubProtocol") or "hls").lower()
         route["ManifestType"] = sub if sub in ("hls", "dash") else ""
+    elif ((source or {}).get("Container") or "").lower() in ("hls", "m3u8"):
+        # A provider's own live playlist, played direct (stream_url).
+        route["ManifestType"] = "hls"
+    if live:
+        route["StreamMode"] = "timeshift"
     return route
 
 
@@ -160,6 +174,11 @@ def stamp_tempo_route(li: xbmcgui.ListItem, route: JsonDict) -> None:
         # A playlist stream: tell the ffmpeg open path what it is rather than
         # leaving it to infer from a URL with no container extension.
         li.setProperty("%s.manifest_type" % TEMPO_ADDON, route["ManifestType"])
+    if route.get("StreamMode"):
+        # Live: the add-on's timeshift class, which is what pvr.iptvsimple and
+        # pvr.kofin stamp for a live channel through ffmpegdirect.
+        li.setProperty("%s.is_realtime_stream" % TEMPO_ADDON, "true")
+        li.setProperty("%s.stream_mode" % TEMPO_ADDON, route["StreamMode"])
 
 
 def pick_media_source(
@@ -202,9 +221,21 @@ def stream_url(
     # claims to support: /stream?static=true of an infinite stream hands
     # Kodi's demuxer a download that never begins (measured, P0b of the pvr
     # sync plan — "OpenDemuxStream - Error creating demuxer" after ~30 s).
-    # The session's live.m3u8 (AutoOpenLiveStream is already in every
+    # When the server allows direct play the source's Path is the provider's
+    # own stream, played straight from the provider as pvr.kofin does — the
+    # one live stream whose clock every member shares (P4: the server's
+    # transcode jobs restamp each session from zero). Otherwise the
+    # session's live.m3u8 (AutoOpenLiveStream is already in every
     # PlaybackInfo this module makes) is the stream that plays.
     live = bool(source.get("IsInfiniteStream")) or item.get("Type") == "TvChannel"
+    path = source.get("Path") or ""
+    if (
+        live
+        and source.get("SupportsDirectPlay")
+        and not source.get("TranscodingUrl")
+        and path.startswith(("http://", "https://"))
+    ):
+        return path, "DirectPlay"
     if not live and (
         source.get("SupportsDirectPlay") or source.get("SupportsDirectStream")
     ):
@@ -648,9 +679,10 @@ def play(request: Request) -> None:
         except ValueError:
             pass
         if item.get("Type") == "TvChannel":
-            # Live has no absolute position to start at (P2): the opened
-            # live stream begins at the edge, and a session-relative tick
-            # from another member would seek a clock this stream never had.
+            # Live has no position to start at: the opened live stream
+            # begins at its edge, and a group position on a live item is on
+            # the source clock (P4) or a member's session time (P2) — a
+            # stream offset it never is.
             start_ticks = 0
 
         # A download the user already has beats the network, exactly as the
@@ -728,11 +760,11 @@ def play(request: Request) -> None:
         _fail(request)
         return
 
-    # A live stream takes no tempo route under the pvr sync plan's P2:
-    # positions on it are session-relative (each member's transcode starts
-    # at its own moment), so a pulse would chase a clock no other member
-    # shares. P4's source-PTS anchor is what earns live its route.
-    route = None if is_live else tempo_route(item, method, source)
+    # A live stream is routed like any other video (pvr sync plan P4): the
+    # add-on reports the source's own clock in its state line, which is the
+    # timeline the group's position is anchored on, and the engine reads the
+    # member's position off that rather than off session time.
+    route = tempo_route(item, method, source, live=is_live)
     LOG.info(
         "play %s via %s%s%s",
         item_id,
@@ -803,6 +835,11 @@ def play(request: Request) -> None:
     )
     if route:
         play_item["Tempo"] = route
+    if is_live:
+        # The engine's spelling of live for kofin's own claim
+        # (syncplay/utils.py::claim_is_live): what makes the group position
+        # a source-clock anchor rather than a stream offset.
+        play_item["Live"] = True
     segments = _joined_segments(segments_thread, segments_box)
     if segments is not None:
         play_item["Segments"] = segments

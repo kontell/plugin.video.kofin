@@ -1,4 +1,5 @@
 import pytest
+import xbmcgui
 
 from kofin.core.http import JellyfinError
 from kofin.plugin import play
@@ -91,6 +92,99 @@ def test_stream_url_live_channel_never_takes_the_static_branch():
     )
     assert method == "Transcode"
     assert url == "http://s:8096/videos/c1/live.m3u8?x=1"
+
+
+def test_stream_url_live_channel_plays_the_provider_direct():
+    # The server allowed direct play: the source's Path is the provider's
+    # own stream, and that is what plays — the one live stream whose clock
+    # every member shares (P4).
+    url, method = play.stream_url(
+        SERVER,
+        {"Type": "TvChannel", "Id": "c1"},
+        {
+            "Id": "src1",
+            "SupportsDirectPlay": True,
+            "IsInfiniteStream": True,
+            "Container": "hls",
+            "Path": "https://provider.example/live/abc.m3u8",
+        },
+        "dev1",
+        "ps1",
+    )
+    assert method == "DirectPlay"
+    assert url == "https://provider.example/live/abc.m3u8"
+
+
+def test_stream_url_live_channel_direct_needs_a_web_path():
+    # A tuner's local path is nothing this Kodi can open: the transcode
+    # stays the route.
+    url, method = play.stream_url(
+        SERVER,
+        {"Type": "TvChannel", "Id": "c1"},
+        {
+            "Id": "src1",
+            "SupportsDirectPlay": True,
+            "IsInfiniteStream": True,
+            "Path": "/dev/dvb/adapter0",
+            "TranscodingUrl": "/videos/c1/live.m3u8?x=1",
+        },
+        "dev1",
+        "ps1",
+    )
+    assert method == "Transcode"
+
+
+def test_tempo_route_live_takes_the_timeshift_mode(monkeypatch):
+    # A live URL as a plain stream is inputstream.ffmpeg with extra steps:
+    # no buffer, no pause, no skip. Live is routed through the add-on's
+    # timeshift class, and only live.
+    monkeypatch.setattr(
+        play.state, "syncplay_tempo", lambda: {"file": "/tmp/t", "queue_secs": 1.0}
+    )
+    live = play.tempo_route(
+        {"Type": "TvChannel"}, "DirectPlay", {"Container": "hls"}, live=True
+    )
+    assert live == {
+        "File": "/tmp/t",
+        "QueueSecs": 1.0,
+        "ManifestType": "hls",
+        "StreamMode": "timeshift",
+    }
+    vod = play.tempo_route({"Type": "Movie"}, "DirectPlay", {"Container": "mkv"})
+    assert "StreamMode" not in vod
+
+
+class _RecordingListItem(xbmcgui.ListItem):
+    """Kodistubs' ListItem forgets its properties; this one keeps them."""
+
+    def __init__(self):
+        super().__init__()
+        self.props = {}
+
+    def setProperty(self, key, value):
+        self.props[key] = value
+
+    def getProperty(self, key):
+        return self.props.get(key, "")
+
+
+def test_stamp_tempo_route_stamps_the_timeshift_properties():
+    li = _RecordingListItem()
+    play.stamp_tempo_route(
+        li,
+        {
+            "File": "/tmp/t",
+            "QueueSecs": 1.0,
+            "ManifestType": "hls",
+            "StreamMode": "timeshift",
+        },
+    )
+    assert li.getProperty("inputstream.tempo.stream_mode") == "timeshift"
+    assert li.getProperty("inputstream.tempo.is_realtime_stream") == "true"
+    assert li.getProperty("inputstream.tempo.manifest_type") == "hls"
+    li = _RecordingListItem()
+    play.stamp_tempo_route(li, {"File": "/tmp/t", "QueueSecs": 1.0})
+    assert li.getProperty("inputstream.tempo.stream_mode") == ""
 
 
 def test_stream_url_infinite_source_without_transcode_raises():

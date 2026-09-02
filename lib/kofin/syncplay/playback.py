@@ -20,7 +20,12 @@ from kofin.core import kodirpc
 from kofin.core.log import Logger
 from kofin.syncplay import utils
 from kofin.syncplay.utils import FOLLOWING, Phase
-from kofin.syncplay.tempo import PulseScheduler, SEEK_LAG_DEFAULT_MS
+from kofin.syncplay.tempo import (
+    PulseScheduler,
+    SEEK_LAG_DEFAULT_MS,
+    TempoFile,
+    source_offset_ms,
+)
 
 #################################################################################################
 
@@ -86,6 +91,9 @@ class PlaybackController(object):
         # playing seek (see _seek_and_settle).
         self.tempo = PulseScheduler(self)
         self.seek_lag_ms = SEEK_LAG_DEFAULT_MS
+        self._live_seek_logged = False
+        self._live_hold_ms = None  # a hold in progress: how long it was for
+        self._live_hold_seq = 0  # which hold; a superseded hold's timer resumes nothing
 
     # ------------------------------------------------------------------
     # Command scheduling (SYNCPLAY.md §5.1)
@@ -371,6 +379,20 @@ class PlaybackController(object):
         if abs(behind_ms) <= utils.POST_RESUME_ALIGN_MS:
             return
 
+        if self._live_claim() is not None:
+            # A live member has no seek. Behind the group it pulses forward;
+            # ahead of it by more than a pulse or two it holds still for the
+            # excess instead — exact on a timeshift buffer, and seconds
+            # rather than the minutes of slow motion the pulses would take.
+            if behind_ms < -utils.LIVE_HOLD_MIN_MS and self.live_on_source_clock():
+                self._live_hold(-behind_ms)
+            else:
+                LOG.info(
+                    "[ syncplay/align ] %+.0fms after the resume: left to fine sync",
+                    behind_ms,
+                )
+            return
+
         if self.tempo.can_close(behind_ms):
             # A skip is for gross errors: a residual fine sync can close is
             # left to it — a few seconds at a raised rate instead of a visible
@@ -610,6 +632,7 @@ class PlaybackController(object):
         The server compares our reported position against the group and
         answers with a private Seek if we are out of tolerance (§7).
         """
+        self._live_seek_logged = False
         target_ms = self.estimate_position_ms()
 
         if target_ms is not None:
@@ -662,10 +685,18 @@ class PlaybackController(object):
     # ------------------------------------------------------------------
 
     def report_ready(self):
-        self.manager.post_report("syncplay_ready")
+        self.manager.post_report(
+            "syncplay_ready", position_s=self.reported_position_s()
+        )
 
     def report_buffering(self):
-        self.manager.post_report("syncplay_buffering")
+        # A Buffering report is where this member *is*: the server pauses the
+        # group there and everyone resumes from it. A promise here put the
+        # group 5 s ahead of both members per provider stall on the rig
+        # (three stalls, 13 s, all of it pulsed back at the rate ceiling).
+        self.manager.post_report(
+            "syncplay_buffering", position_s=self.reported_position_s(promise=False)
+        )
 
     # ------------------------------------------------------------------
     # Group position reference (SYNCPLAY.md §11)
@@ -820,10 +851,123 @@ class PlaybackController(object):
         return bool(xbmc.getCondVisibility("Player.Paused"))
 
     def _position_ms(self):
+        """The playing position on the group's clock: the player clock, or
+        for a live item with a tempo route the source's own clock — the
+        broadcast's PTS, which every member's stream carries (pvr sync plan
+        P4) — placed on the group reference's cycle of it."""
         try:
-            return self.player.getTime() * 1000.0
+            player_ms = self.player.getTime() * 1000.0
         except Exception:
             return 0.0
+
+        offset = self._live_source_offset_ms()
+
+        if offset is None:
+            return player_ms
+
+        return utils.unwrap_live_ms(player_ms + offset, self.estimate_position_ms())
+
+    # ------------------------------------------------------------------
+    # Live items: the source clock (pvr sync plan P4)
+    # ------------------------------------------------------------------
+
+    def _live_claim(self):
+        """The current claim when it names a live stream, else None."""
+        current = getattr(self.manager, "current_claim", None)
+        claim = current() if current is not None else None
+        return claim if utils.claim_is_live(claim) else None
+
+    def _live_source_offset_ms(self):
+        """player clock → source clock, read off the tempo route's state
+        line; None for anything but a live item routed through an add-on
+        that reports it."""
+        claim = self._live_claim()
+        path = ((claim or {}).get("Tempo") or {}).get("File")
+
+        if not path:
+            return None
+
+        return source_offset_ms(TempoFile(path).read_state())
+
+    def live_on_source_clock(self):
+        """Whether this member and the group share the source clock: the
+        member can read its own, and the group's position is anchored on
+        it rather than on a proposer's session time."""
+        if self._live_source_offset_ms() is None:
+            return False
+
+        return utils.live_anchored(self.estimate_position_ms())
+
+    def live_anchor_ms(self):
+        """The group position to propose for the live item playing here:
+        LIVE_DELAY_S behind this member's own source-clock reading, or None
+        when it has no such reading (the proposal then tunes together from
+        zero, as P2 did)."""
+        offset = self._live_source_offset_ms()
+
+        if offset is None:
+            return None
+
+        try:
+            player_ms = self.player.getTime() * 1000.0
+        except Exception:
+            return None
+
+        return utils.live_anchor_ms(player_ms + offset)
+
+    def reported_position_s(self, promise=True):
+        """The position a report carries. With ``promise``, a live member
+        reports the group's own position: it converges by pulses and holds
+        of its own, a private Seek in answer would be refused here anyway,
+        and a Ready that reports the real reading — the proposer's, a
+        delay ahead of its anchor — is one the server's ready barrier does
+        not release on (measured: the group started on the 10 s wait
+        timeout instead of the Ready, and every later joiner inherited
+        that as extra distance from live). Without it, the real reading:
+        what a Buffering report must say, since the group pauses there."""
+        if promise and self._live_claim() is not None:
+            estimate = self.estimate_position_ms()
+
+            if estimate is not None:
+                return estimate / 1000.0
+
+        return self._position_ms() / 1000.0
+
+    def _live_hold(self, hold_ms):
+        """Pause for ``hold_ms`` so the group catches this member up, then
+        resume through the dispatcher. The timeshift buffer keeps the
+        stream; fine sync trims what the pause and resume leave."""
+        hold_ms = min(hold_ms, utils.LIVE_HOLD_MAX_S * 1000.0)
+        self._live_hold_ms = hold_ms
+        self._live_hold_seq += 1
+        self.tempo.cancel("hold")
+        LOG.info(
+            "[ syncplay/live ] %.1fs ahead of the group: holding for it",
+            hold_ms / 1000.0,
+        )
+        self.ensure_paused()
+        utils.later(
+            hold_ms / 1000.0, self.manager._post, self._live_resume, self._live_hold_seq
+        )
+
+    def _live_resume(self, seq):
+        if seq != self._live_hold_seq:
+            # A later hold replaced this one (a second Unpause landed during
+            # the first hold on the rig, and the first timer cut the second
+            # hold short): only the newest hold's timer resumes.
+            return
+
+        held = self._live_hold_ms
+        self._live_hold_ms = None
+
+        if held is None or not self.reference_is_playing():
+            # The group paused meanwhile: its own Unpause resumes us, and
+            # the residual it leaves is fine sync's.
+            return
+
+        self.ensure_playing()
+        self.tempo.note_settle()
+        LOG.info("[ syncplay/live ] held %.1fs; playing on", held / 1000.0)
 
     def correct_position(self):
         """The fine-sync scheduler found a residual beyond what a pulse can
@@ -882,6 +1026,17 @@ class PlaybackController(object):
         that wants to stay paused has to undo that, and a caller about to
         resume must *not*, or the two fight and the player can end up stopped.
         """
+        if self._live_claim() is not None:
+            # A live stream is never seeked: ffmpeg's HLS demuxer refuses a
+            # seek on a live playlist, and a position on the source clock is
+            # not a stream offset to begin with. Fine sync closes what it
+            # can; the rest is the feed's.
+            if not self._live_seek_logged:
+                self._live_seek_logged = True
+                LOG.info("[ syncplay/align ] skipped: live item, pulses only")
+
+            return
+
         was_paused = self._is_paused()
         target_s = max(0.0, target_ms / 1000.0)
         self.tempo.before_seek()
