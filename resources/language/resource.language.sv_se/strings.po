@@ -289,16 +289,16 @@ msgid "Force remux"
 msgstr "Tvinga remuxning"
 
 msgctxt "#30105"
-msgid "Repackage the stream without re-encoding video. Use when the container causes problems but the codecs are fine."
-msgstr "Packa om strömmen utan att koda om videon. Använd när behållaren orsakar problem men codecarna fungerar."
+msgid "Remux into HLS and copy the source codecs. Does not use Maximum audio channels, Maximum streaming bitrate or Transcode audio bitrate below — those would re-encode a listed codec. Direct play codecs, Allowed HDR types and Maximum resolution still apply."
+msgstr "Remuxar till HLS och kopierar källans codecar. Använder inte Maximalt antal ljudkanaler, Maximal strömningsbithastighet eller Bithastighet för omkodat ljud nedan — de skulle koda om en listad codec. Direct play-codecar, Tillåtna HDR-typer och Maximal upplösning gäller fortfarande."
 
 msgctxt "#30106"
 msgid "Force transcode"
 msgstr "Tvinga omkodning"
 
 msgctxt "#30107"
-msgid "Always re-encode on the server. Highest server load; use for troubleshooting or very constrained clients."
-msgstr "Koda alltid om på servern. Högst serverbelastning; använd vid felsökning eller för mycket begränsade klienter."
+msgid "Always re-encode video and audio to the preferred codecs. Honours the bitrate cap, the channel cap, allowed codecs, HDR types and resolution."
+msgstr "Kodar alltid om video och ljud till de föredragna codecarna. Följer bithastighetstaket, kanaltaket, tillåtna codecar, HDR-typer och upplösning."
 
 msgctxt "#30108"
 msgid "Direct play video codecs"

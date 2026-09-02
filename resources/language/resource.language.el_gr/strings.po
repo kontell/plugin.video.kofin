@@ -289,16 +289,16 @@ msgid "Force remux"
 msgstr "Εξαναγκασμός remux"
 
 msgctxt "#30105"
-msgid "Repackage the stream without re-encoding video. Use when the container causes problems but the codecs are fine."
-msgstr "Ανασυσκευάζει τη ροή χωρίς επανακωδικοποίηση του βίντεο. Χρησιμοποιήστε το όταν ο περιέκτης δημιουργεί προβλήματα αλλά οι κωδικοποιητές είναι εντάξει."
+msgid "Remux into HLS and copy the source codecs. Does not use Maximum audio channels, Maximum streaming bitrate or Transcode audio bitrate below — those would re-encode a listed codec. Direct play codecs, Allowed HDR types and Maximum resolution still apply."
+msgstr "Κάνει remux σε HLS και αντιγράφει τους κωδικοποιητές της πηγής. Δεν χρησιμοποιεί τα «Μέγιστος αριθμός καναλιών ήχου», «Μέγιστος ρυθμός μετάδοσης ροής» ή «Ρυθμός μετάδοσης ήχου κατά την επανακωδικοποίηση» παρακάτω — θα επανακωδικοποιούσαν έναν κωδικοποιητή της λίστας. Οι κωδικοποιητές άμεσης αναπαραγωγής, τα «Επιτρεπόμενοι τύποι HDR» και η «Μέγιστη ανάλυση» εξακολουθούν να ισχύουν."
 
 msgctxt "#30106"
 msgid "Force transcode"
 msgstr "Εξαναγκασμός επανακωδικοποίησης"
 
 msgctxt "#30107"
-msgid "Always re-encode on the server. Highest server load; use for troubleshooting or very constrained clients."
-msgstr "Επανακωδικοποιεί πάντα στον διακομιστή. Μέγιστο φορτίο διακομιστή· χρησιμοποιήστε το για διάγνωση προβλημάτων ή για πολύ περιορισμένους πελάτες."
+msgid "Always re-encode video and audio to the preferred codecs. Honours the bitrate cap, the channel cap, allowed codecs, HDR types and resolution."
+msgstr "Επανακωδικοποιεί πάντα το βίντεο και τον ήχο στους προτιμώμενους κωδικοποιητές. Τηρεί το όριο ρυθμού μετάδοσης, το όριο καναλιών, τους επιτρεπόμενους κωδικοποιητές, τους τύπους HDR και την ανάλυση."
 
 msgctxt "#30108"
 msgid "Direct play video codecs"

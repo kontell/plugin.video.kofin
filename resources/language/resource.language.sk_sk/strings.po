@@ -289,16 +289,16 @@ msgid "Force remux"
 msgstr "Vynútiť remux"
 
 msgctxt "#30105"
-msgid "Repackage the stream without re-encoding video. Use when the container causes problems but the codecs are fine."
-msgstr "Prebalí stream bez opätovného kódovania videa. Použite, keď robí problémy kontajner, ale kodeky sú v poriadku."
+msgid "Remux into HLS and copy the source codecs. Does not use Maximum audio channels, Maximum streaming bitrate or Transcode audio bitrate below — those would re-encode a listed codec. Direct play codecs, Allowed HDR types and Maximum resolution still apply."
+msgstr "Remuxuje do HLS a skopíruje zdrojové kodeky. Nepoužíva «Maximálny počet zvukových kanálov», «Maximálny dátový tok streamovania» ani «Dátový tok prekódovaného zvuku» nižšie — tie by znova zakódovali uvedený kodek. Kodeky priameho prehrávania, «Povolené typy HDR» a «Maximálne rozlíšenie» platia ďalej."
 
 msgctxt "#30106"
 msgid "Force transcode"
 msgstr "Vynútiť prekódovanie"
 
 msgctxt "#30107"
-msgid "Always re-encode on the server. Highest server load; use for troubleshooting or very constrained clients."
-msgstr "Vždy prekóduje na serveri. Najvyššia záťaž servera; použite na riešenie problémov alebo pre veľmi obmedzené zariadenia."
+msgid "Always re-encode video and audio to the preferred codecs. Honours the bitrate cap, the channel cap, allowed codecs, HDR types and resolution."
+msgstr "Vždy znova zakóduje video aj zvuk do preferovaných kodekov. Dodržiava limit dátového toku, limit kanálov, povolené kodeky, typy HDR aj rozlíšenie."
 
 msgctxt "#30108"
 msgid "Direct play video codecs"

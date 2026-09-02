@@ -289,16 +289,16 @@ msgid "Force remux"
 msgstr "리먹스 강제"
 
 msgctxt "#30105"
-msgid "Repackage the stream without re-encoding video. Use when the container causes problems but the codecs are fine."
-msgstr "비디오를 다시 인코딩하지 않고 스트림만 다시 포장합니다. 코덱은 문제없지만 컨테이너가 문제를 일으킬 때 사용하세요."
+msgid "Remux into HLS and copy the source codecs. Does not use Maximum audio channels, Maximum streaming bitrate or Transcode audio bitrate below — those would re-encode a listed codec. Direct play codecs, Allowed HDR types and Maximum resolution still apply."
+msgstr "HLS로 리먹스하고 원본 코덱을 복사합니다. 아래의 최대 오디오 채널 수, 최대 스트리밍 비트레이트, 오디오 트랜스코딩 비트레이트는 사용하지 않습니다. 사용하면 목록의 코덱이 다시 인코딩됩니다. 직접 재생 코덱, 허용되는 HDR 유형, 최대 해상도는 그대로 적용됩니다."
 
 msgctxt "#30106"
 msgid "Force transcode"
 msgstr "트랜스코딩 강제"
 
 msgctxt "#30107"
-msgid "Always re-encode on the server. Highest server load; use for troubleshooting or very constrained clients."
-msgstr "항상 서버에서 다시 인코딩합니다. 서버 부하가 가장 크며, 문제 해결이나 성능이 매우 제한된 클라이언트에 사용하세요."
+msgid "Always re-encode video and audio to the preferred codecs. Honours the bitrate cap, the channel cap, allowed codecs, HDR types and resolution."
+msgstr "비디오와 오디오를 항상 기본 코덱으로 다시 인코딩합니다. 비트레이트 한도, 채널 한도, 허용 코덱, HDR 유형, 해상도를 따릅니다."
 
 msgctxt "#30108"
 msgid "Direct play video codecs"

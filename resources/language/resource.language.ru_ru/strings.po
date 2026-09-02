@@ -289,16 +289,16 @@ msgid "Force remux"
 msgstr "Принудительный ремукс"
 
 msgctxt "#30105"
-msgid "Repackage the stream without re-encoding video. Use when the container causes problems but the codecs are fine."
-msgstr "Переупаковать поток без повторного кодирования видео. Используйте, когда проблемы вызывает контейнер, а с кодеками всё в порядке."
+msgid "Remux into HLS and copy the source codecs. Does not use Maximum audio channels, Maximum streaming bitrate or Transcode audio bitrate below — those would re-encode a listed codec. Direct play codecs, Allowed HDR types and Maximum resolution still apply."
+msgstr "Делает ремукс в HLS и копирует исходные кодеки. Не использует «Максимальное число аудиоканалов», «Максимальный битрейт потоковой передачи» и «Битрейт звука при перекодировании» ниже — они перекодировали бы кодек из списка. Кодеки прямого воспроизведения, «Разрешённые типы HDR» и «Максимальное разрешение» по-прежнему действуют."
 
 msgctxt "#30106"
 msgid "Force transcode"
 msgstr "Принудительное перекодирование"
 
 msgctxt "#30107"
-msgid "Always re-encode on the server. Highest server load; use for troubleshooting or very constrained clients."
-msgstr "Всегда перекодировать на сервере. Наибольшая нагрузка на сервер; используйте для диагностики или для очень ограниченных клиентов."
+msgid "Always re-encode video and audio to the preferred codecs. Honours the bitrate cap, the channel cap, allowed codecs, HDR types and resolution."
+msgstr "Всегда перекодирует видео и аудио в предпочитаемые кодеки. Соблюдает ограничение битрейта, ограничение каналов, разрешённые кодеки, типы HDR и разрешение."
 
 msgctxt "#30108"
 msgid "Direct play video codecs"

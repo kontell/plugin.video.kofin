@@ -289,16 +289,16 @@ msgid "Force remux"
 msgstr "Remuxen forceren"
 
 msgctxt "#30105"
-msgid "Repackage the stream without re-encoding video. Use when the container causes problems but the codecs are fine."
-msgstr "Verpak de stream opnieuw zonder de video te hercoderen. Gebruik dit wanneer de container problemen geeft maar de codecs in orde zijn."
+msgid "Remux into HLS and copy the source codecs. Does not use Maximum audio channels, Maximum streaming bitrate or Transcode audio bitrate below — those would re-encode a listed codec. Direct play codecs, Allowed HDR types and Maximum resolution still apply."
+msgstr "Remuxt naar HLS en kopieert de broncodecs. Gebruikt 'Maximaal aantal audiokanalen', 'Maximale streamingbitrate' en 'Audiobitrate bij transcoderen' hieronder niet — die zouden een codec uit de lijst hercoderen. Direct-play-codecs, 'Toegestane HDR-typen' en 'Maximale resolutie' blijven gelden."
 
 msgctxt "#30106"
 msgid "Force transcode"
 msgstr "Transcoderen forceren"
 
 msgctxt "#30107"
-msgid "Always re-encode on the server. Highest server load; use for troubleshooting or very constrained clients."
-msgstr "Hercodeer altijd op de server. Hoogste serverbelasting; gebruik dit voor probleemoplossing of zeer beperkte clients."
+msgid "Always re-encode video and audio to the preferred codecs. Honours the bitrate cap, the channel cap, allowed codecs, HDR types and resolution."
+msgstr "Hercodeert video en audio altijd naar de voorkeurscodecs. Houdt rekening met de bitrate-limiet, de kanaallimiet, toegestane codecs, HDR-typen en resolutie."
 
 msgctxt "#30108"
 msgid "Direct play video codecs"

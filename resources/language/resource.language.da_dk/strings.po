@@ -289,16 +289,16 @@ msgid "Force remux"
 msgstr "Tving remuxning"
 
 msgctxt "#30105"
-msgid "Repackage the stream without re-encoding video. Use when the container causes problems but the codecs are fine."
-msgstr "Ompak streamen uden at genkode videoen. Brug det, når containeren giver problemer, men codecs er i orden."
+msgid "Remux into HLS and copy the source codecs. Does not use Maximum audio channels, Maximum streaming bitrate or Transcode audio bitrate below — those would re-encode a listed codec. Direct play codecs, Allowed HDR types and Maximum resolution still apply."
+msgstr "Remuxer til HLS og kopierer kilde-codecs. Bruger ikke Maksimalt antal lydkanaler, Maksimal streaming-bithastighed eller Bithastighed for transkodet lyd nedenfor — de ville genkode en listet codec. Direct play-codecs, Tilladte HDR-typer og Maksimal opløsning gælder stadig."
 
 msgctxt "#30106"
 msgid "Force transcode"
 msgstr "Tving transkodning"
 
 msgctxt "#30107"
-msgid "Always re-encode on the server. Highest server load; use for troubleshooting or very constrained clients."
-msgstr "Genkod altid på serveren. Højeste serverbelastning; brug det til fejlfinding eller meget begrænsede klienter."
+msgid "Always re-encode video and audio to the preferred codecs. Honours the bitrate cap, the channel cap, allowed codecs, HDR types and resolution."
+msgstr "Genkoder altid video og lyd til de foretrukne codecs. Overholder bithastighedsloftet, kanalloftet, tilladte codecs, HDR-typer og opløsning."
 
 msgctxt "#30108"
 msgid "Direct play video codecs"

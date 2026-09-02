@@ -289,16 +289,16 @@ msgid "Force remux"
 msgstr "Remuxolás kényszerítése"
 
 msgctxt "#30105"
-msgid "Repackage the stream without re-encoding video. Use when the container causes problems but the codecs are fine."
-msgstr "Az adatfolyam újracsomagolása a videó újrakódolása nélkül. Akkor használja, ha a konténer okoz gondot, de a kodekek megfelelők."
+msgid "Remux into HLS and copy the source codecs. Does not use Maximum audio channels, Maximum streaming bitrate or Transcode audio bitrate below — those would re-encode a listed codec. Direct play codecs, Allowed HDR types and Maximum resolution still apply."
+msgstr "HLS-be remuxol, és a forrás kodekjeit másolja. Nem használja a lentebb lévő Hangcsatornák maximális száma, Maximális streamelési bitráta és Átkódolt hang bitrátája beállításokat — azok újrakódolnának egy listázott kodeket. A közvetlen lejátszás kodekjei, a Engedélyezett HDR-típusok és a Maximális felbontás továbbra is érvényesek."
 
 msgctxt "#30106"
 msgid "Force transcode"
 msgstr "Átkódolás kényszerítése"
 
 msgctxt "#30107"
-msgid "Always re-encode on the server. Highest server load; use for troubleshooting or very constrained clients."
-msgstr "Mindig újrakódolás a kiszolgálón. Ez terheli legjobban a kiszolgálót; hibakereséshez vagy erősen korlátozott klienseknél használja."
+msgid "Always re-encode video and audio to the preferred codecs. Honours the bitrate cap, the channel cap, allowed codecs, HDR types and resolution."
+msgstr "Mindig a preferált kodekekre kódolja újra a videót és a hangot. Figyelembe veszi a bitráta-korlátot, a csatornakorlátot, az engedélyezett kodekeket, a HDR-típusokat és a felbontást."
 
 msgctxt "#30108"
 msgid "Direct play video codecs"
