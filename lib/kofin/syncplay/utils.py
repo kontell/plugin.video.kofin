@@ -165,6 +165,13 @@ LIVE_EDGE_PULSES = 2
 # so a pulse can miss the confirmation window without the route being wrong.
 # This many misses in a row are retried before the item goes command-only.
 LIVE_APPLY_MISSES = 2
+# A source clock that starts below this is a job-relative one, not a
+# broadcast's: Jellyfin's transcode jobs restamp every session from about
+# ten seconds, so two members on two jobs read two clocks (measured: both
+# anchored at 10.0 s, the tab "32 s behind" while at its edge ahead of the
+# flatpak). A broadcast's own PTS is never this young except in the first
+# minute after an encoder restart.
+LIVE_CLOCK_MIN_START_S = 60.0
 
 #################################################################################################
 

@@ -226,7 +226,9 @@ def source_offset_ms(state_line):
     PTS) and ``player_ms`` what Kodi's player clock reads for that same
     head, so the difference is the constant that maps one onto the other; it
     shifts only by what a pulse moves, and the scheduler never measures
-    across a pulse.
+    across a pulse. A clock that began less than a minute ago is not a
+    broadcast's but a transcode job's, and is refused: two members on two
+    jobs would each be sure of a position the other never had.
     """
     if not state_line:
         return None
@@ -234,10 +236,16 @@ def source_offset_ms(state_line):
     try:
         source = float(state_line.get("source_ms"))
         player = float(state_line.get("player_ms"))
+        content = float(state_line.get("content_ms"))
     except (TypeError, ValueError):
         return None
 
-    if source < 0 or player < 0:
+    if source < 0 or player < 0 or content < 0:
+        return None
+
+    if source - content < utils.LIVE_CLOCK_MIN_START_S * 1000.0:
+        # The stream's clock began seconds ago: a transcode job's own
+        # timeline, shared with nobody (utils.LIVE_CLOCK_MIN_START_S).
         return None
 
     return source - player

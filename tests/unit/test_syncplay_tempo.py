@@ -863,6 +863,14 @@ class TestSourceClock:
         line = {"source_ms": 42731658.0, "player_ms": 88101.0, "content_ms": 88101.0}
         assert tempo.source_offset_ms(line) == pytest.approx(42731658.0 - 88101.0)
 
+    def test_a_transcode_job_clock_is_refused(self):
+        # Jellyfin restamps every transcode job from about ten seconds: a
+        # clock that began that recently is the job's, not the broadcast's.
+        line = {"source_ms": 32164.2, "player_ms": 22164.2, "content_ms": 22164.2}
+        assert tempo.source_offset_ms(line) is None
+        line = {"source_ms": 82164.2, "player_ms": 22164.2, "content_ms": 22164.2}
+        assert tempo.source_offset_ms(line) == pytest.approx(60000.0)
+
     def test_offset_needs_both_fields(self):
         assert tempo.source_offset_ms(None) is None
         # An older add-on reports neither.

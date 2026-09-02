@@ -143,6 +143,9 @@ def tempo_route(
     if play_method == "Transcode":
         sub = ((source or {}).get("TranscodingSubProtocol") or "hls").lower()
         route["ManifestType"] = sub if sub in ("hls", "dash") else ""
+    elif ((source or {}).get("Container") or "").lower() in ("hls", "m3u8"):
+        # A provider's own live playlist, played direct (stream_url).
+        route["ManifestType"] = "hls"
     return route
 
 
@@ -202,9 +205,21 @@ def stream_url(
     # claims to support: /stream?static=true of an infinite stream hands
     # Kodi's demuxer a download that never begins (measured, P0b of the pvr
     # sync plan — "OpenDemuxStream - Error creating demuxer" after ~30 s).
-    # The session's live.m3u8 (AutoOpenLiveStream is already in every
+    # When the server allows direct play the source's Path is the provider's
+    # own stream, played straight from the provider as pvr.kofin does — the
+    # one live stream whose clock every member shares (P4: the server's
+    # transcode jobs restamp each session from zero). Otherwise the
+    # session's live.m3u8 (AutoOpenLiveStream is already in every
     # PlaybackInfo this module makes) is the stream that plays.
     live = bool(source.get("IsInfiniteStream")) or item.get("Type") == "TvChannel"
+    path = source.get("Path") or ""
+    if (
+        live
+        and source.get("SupportsDirectPlay")
+        and not source.get("TranscodingUrl")
+        and path.startswith(("http://", "https://"))
+    ):
+        return path, "DirectPlay"
     if not live and (
         source.get("SupportsDirectPlay") or source.get("SupportsDirectStream")
     ):

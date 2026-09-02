@@ -93,6 +93,46 @@ def test_stream_url_live_channel_never_takes_the_static_branch():
     assert url == "http://s:8096/videos/c1/live.m3u8?x=1"
 
 
+def test_stream_url_live_channel_plays_the_provider_direct():
+    # The server allowed direct play: the source's Path is the provider's
+    # own stream, and that is what plays — the one live stream whose clock
+    # every member shares (P4).
+    url, method = play.stream_url(
+        SERVER,
+        {"Type": "TvChannel", "Id": "c1"},
+        {
+            "Id": "src1",
+            "SupportsDirectPlay": True,
+            "IsInfiniteStream": True,
+            "Container": "hls",
+            "Path": "https://provider.example/live/abc.m3u8",
+        },
+        "dev1",
+        "ps1",
+    )
+    assert method == "DirectPlay"
+    assert url == "https://provider.example/live/abc.m3u8"
+
+
+def test_stream_url_live_channel_direct_needs_a_web_path():
+    # A tuner's local path is nothing this Kodi can open: the transcode
+    # stays the route.
+    url, method = play.stream_url(
+        SERVER,
+        {"Type": "TvChannel", "Id": "c1"},
+        {
+            "Id": "src1",
+            "SupportsDirectPlay": True,
+            "IsInfiniteStream": True,
+            "Path": "/dev/dvb/adapter0",
+            "TranscodingUrl": "/videos/c1/live.m3u8?x=1",
+        },
+        "dev1",
+        "ps1",
+    )
+    assert method == "Transcode"
+
+
 def test_stream_url_infinite_source_without_transcode_raises():
     # No static fallback for a live stream: failing loudly beats handing
     # Kodi a URL that times out at the demuxer half a minute later.
