@@ -106,7 +106,10 @@ def _size_player_queue(session: JsonDict, play_method: str) -> Optional[float]:
 
 
 def tempo_route(
-    item: JsonDict, play_method: str, source: Optional[JsonDict] = None
+    item: JsonDict,
+    play_method: str,
+    source: Optional[JsonDict] = None,
+    live: bool = False,
 ) -> Optional[JsonDict]:
     """The inputstream.tempo route for this play, or None.
 
@@ -124,6 +127,12 @@ def tempo_route(
     ffmpegdirect-based and takes ``manifest_type`` for a playlist stream; without
     it the ffmpeg open path has to guess at a URL that has no container
     extension, and the server's HLS playlist is still being written.
+
+    A live stream is routed in the add-on's **timeshift** mode: as a plain
+    stream a live URL behaves exactly as under inputstream.ffmpeg — no buffer,
+    no pause, no skip — and timeshift is the class whose disk buffer gives a
+    live channel those and lets a member fall behind its edge to meet the
+    group (the add-on applies the rate where Kodi reads from that buffer).
     """
     if item.get("Type") in AUDIO_TYPES or play_method not in TEMPO_METHODS:
         return None
@@ -146,6 +155,8 @@ def tempo_route(
     elif ((source or {}).get("Container") or "").lower() in ("hls", "m3u8"):
         # A provider's own live playlist, played direct (stream_url).
         route["ManifestType"] = "hls"
+    if live:
+        route["StreamMode"] = "timeshift"
     return route
 
 
@@ -163,6 +174,11 @@ def stamp_tempo_route(li: xbmcgui.ListItem, route: JsonDict) -> None:
         # A playlist stream: tell the ffmpeg open path what it is rather than
         # leaving it to infer from a URL with no container extension.
         li.setProperty("%s.manifest_type" % TEMPO_ADDON, route["ManifestType"])
+    if route.get("StreamMode"):
+        # Live: the add-on's timeshift class, which is what pvr.iptvsimple and
+        # pvr.kofin stamp for a live channel through ffmpegdirect.
+        li.setProperty("%s.is_realtime_stream" % TEMPO_ADDON, "true")
+        li.setProperty("%s.stream_mode" % TEMPO_ADDON, route["StreamMode"])
 
 
 def pick_media_source(
@@ -748,7 +764,7 @@ def play(request: Request) -> None:
     # add-on reports the source's own clock in its state line, which is the
     # timeline the group's position is anchored on, and the engine reads the
     # member's position off that rather than off session time.
-    route = tempo_route(item, method, source)
+    route = tempo_route(item, method, source, live=is_live)
     LOG.info(
         "play %s via %s%s%s",
         item_id,

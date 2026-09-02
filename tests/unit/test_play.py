@@ -1,4 +1,5 @@
 import pytest
+import xbmcgui
 
 from kofin.core.http import JellyfinError
 from kofin.plugin import play
@@ -131,6 +132,59 @@ def test_stream_url_live_channel_direct_needs_a_web_path():
         "ps1",
     )
     assert method == "Transcode"
+
+
+def test_tempo_route_live_takes_the_timeshift_mode(monkeypatch):
+    # A live URL as a plain stream is inputstream.ffmpeg with extra steps:
+    # no buffer, no pause, no skip. Live is routed through the add-on's
+    # timeshift class, and only live.
+    monkeypatch.setattr(
+        play.state, "syncplay_tempo", lambda: {"file": "/tmp/t", "queue_secs": 1.0}
+    )
+    live = play.tempo_route(
+        {"Type": "TvChannel"}, "DirectPlay", {"Container": "hls"}, live=True
+    )
+    assert live == {
+        "File": "/tmp/t",
+        "QueueSecs": 1.0,
+        "ManifestType": "hls",
+        "StreamMode": "timeshift",
+    }
+    vod = play.tempo_route({"Type": "Movie"}, "DirectPlay", {"Container": "mkv"})
+    assert "StreamMode" not in vod
+
+
+class _RecordingListItem(xbmcgui.ListItem):
+    """Kodistubs' ListItem forgets its properties; this one keeps them."""
+
+    def __init__(self):
+        super().__init__()
+        self.props = {}
+
+    def setProperty(self, key, value):
+        self.props[key] = value
+
+    def getProperty(self, key):
+        return self.props.get(key, "")
+
+
+def test_stamp_tempo_route_stamps_the_timeshift_properties():
+    li = _RecordingListItem()
+    play.stamp_tempo_route(
+        li,
+        {
+            "File": "/tmp/t",
+            "QueueSecs": 1.0,
+            "ManifestType": "hls",
+            "StreamMode": "timeshift",
+        },
+    )
+    assert li.getProperty("inputstream.tempo.stream_mode") == "timeshift"
+    assert li.getProperty("inputstream.tempo.is_realtime_stream") == "true"
+    assert li.getProperty("inputstream.tempo.manifest_type") == "hls"
+    li = _RecordingListItem()
+    play.stamp_tempo_route(li, {"File": "/tmp/t", "QueueSecs": 1.0})
+    assert li.getProperty("inputstream.tempo.stream_mode") == ""
 
 
 def test_stream_url_infinite_source_without_transcode_raises():
