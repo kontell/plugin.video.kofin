@@ -121,6 +121,7 @@ class FakeManager:
         self.ignore_wait = False
         self.offset = 0.0
         self.reports = []
+        self.report_log = []
         self.report_positions = []
         self.unpaused = False
         self.stopped = False
@@ -154,6 +155,7 @@ class FakeManager:
 
     def post_report(self, kind, position_s=None):
         self.reports.append(kind)
+        self.report_log.append((kind, position_s))
         self.report_positions.append(position_s)
 
     def on_local_unpaused(self):
@@ -1111,6 +1113,22 @@ class TestLiveClock:
         assert controller.live_on_source_clock()
         assert controller.reported_position_s() == pytest.approx(
             (EPOCH_MS + 41_990_000.0) / 1000.0
+        )
+
+    def test_a_live_buffering_report_tells_the_truth(self, tmp_path):
+        # The group pauses where the stalled member says it is; a promise
+        # here would park the group ahead of it.
+        controller, manager, player = make_controller(position=100.0)
+        player.clock_advances = False
+        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        controller._reference = (EPOCH_MS + 41_990_000.0, None, True)
+
+        controller.report_buffering()
+
+        kind, position_s = manager.report_log[-1]
+        assert kind == "syncplay_buffering"
+        assert position_s == pytest.approx(
+            (EPOCH_MS + 100_000.0 + 42_000_000.0 - 120_000.0) / 1000.0
         )
 
     def test_the_anchor_is_a_delay_behind_this_member(self, tmp_path):

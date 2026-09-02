@@ -690,7 +690,13 @@ class PlaybackController(object):
         )
 
     def report_buffering(self):
-        self.manager.post_report("syncplay_buffering")
+        # A Buffering report is where this member *is*: the server pauses the
+        # group there and everyone resumes from it. A promise here put the
+        # group 5 s ahead of both members per provider stall on the rig
+        # (three stalls, 13 s, all of it pulsed back at the rate ceiling).
+        self.manager.post_report(
+            "syncplay_buffering", position_s=self.reported_position_s(promise=False)
+        )
 
     # ------------------------------------------------------------------
     # Group position reference (SYNCPLAY.md §11)
@@ -909,16 +915,17 @@ class PlaybackController(object):
 
         return utils.live_anchor_ms(player_ms + offset)
 
-    def reported_position_s(self):
-        """The position a Ready/Buffering report carries. A live member
-        promises the group's own position: it converges by pulses and holds
+    def reported_position_s(self, promise=True):
+        """The position a report carries. With ``promise``, a live member
+        reports the group's own position: it converges by pulses and holds
         of its own, a private Seek in answer would be refused here anyway,
         and a Ready that reports the real reading — the proposer's, a
         delay ahead of its anchor — is one the server's ready barrier does
         not release on (measured: the group started on the 10 s wait
         timeout instead of the Ready, and every later joiner inherited
-        that as extra distance from live)."""
-        if self._live_claim() is not None:
+        that as extra distance from live). Without it, the real reading:
+        what a Buffering report must say, since the group pauses there."""
+        if promise and self._live_claim() is not None:
             estimate = self.estimate_position_ms()
 
             if estimate is not None:
