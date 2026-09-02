@@ -299,7 +299,7 @@ msgid "Force remux"
 msgstr ""
 
 msgctxt "#30105"
-msgid "Remux into HLS and copy the source codecs. Ignores the bitrate and channel caps so a listed codec is not re-encoded. Allowed codecs, HDR types and resolution still apply."
+msgid "Remux into HLS and copy the source codecs. Does not use Maximum audio channels, Maximum streaming bitrate or Transcode audio bitrate below — those would re-encode a listed codec. Direct play codecs, Allowed HDR types and Maximum resolution still apply."
 msgstr ""
 
 msgctxt "#30106"
