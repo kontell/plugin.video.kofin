@@ -15,6 +15,13 @@ The same scoping holds the other way: ``forceRemux`` and ``forceTranscode``
 withdraw the *video* DirectPlayProfile, never the audio one. A profile with no
 audio DirectPlayProfile makes the server re-encode every song no matter what
 the music settings say.
+
+Force remux is HLS + codec-copy: the video transcoding legs list every
+HLS-legal allowed codec, copy stays on, and the bitrate / channel caps are
+ignored so StreamBuilder does not refuse a listed E-AC3 copy and then try
+to encode it (HTTP 400 on 10.11 live, same pin on VOD). Force transcode
+names the preferred encode target only and denies both copies. Transcode
+wins when both are set. Music PlaybackInfo is not this path.
 """
 
 from typing import Any, Dict, List, Optional
@@ -72,6 +79,13 @@ MP4_COPY_CODECS = ("h264", "hevc", "av1", "vp9", "mpeg2video")
 # which describes what the *device decodes* (flac included) for video-embedded
 # audio and streaming.
 LOSSY_AUDIO_CODECS = ("aac", "mp3", "opus", "vorbis", "wma", "mp2", "ac3", "eac3")
+
+# HLS will copy only these. A remux TranscodingProfile that lists anything
+# else either gets it stripped (no fallback restored) or, if the source
+# matches, pinned as the encode target.
+HLS_TS_AUDIO = ("aac", "ac3", "eac3", "mp3")
+HLS_MP4_AUDIO = ("aac", "ac3", "eac3", "mp3", "alac", "flac", "opus", "dts", "truehd")
+HLS_TS_VIDEO = ("h264", "hevc", "vp9")
 
 
 def audio_bitrate_bps(audio_cap_kbps: int, budget_bps: int) -> int:
@@ -217,9 +231,11 @@ def build(
     stream carries no subtitles and the ``.sup`` the External delivery would
     serve is neither small enough to fetch nor something Kodi can render.
     """
-    force_direct = config.force_direct_play and not force_transcode
+    force_xcode = force_transcode or config.force_transcode
+    remux_copy = config.force_remux and not force_xcode
+    force_direct = config.force_direct_play and not force_xcode
     bitrate_mbps = bitrate_override_mbps or config.max_bitrate_mbps
-    if force_direct or bitrate_mbps <= 0:
+    if force_direct or remux_copy or bitrate_mbps <= 0:
         max_bitrate = UNLIMITED_BITRATE
     else:
         max_bitrate = int(bitrate_mbps * 1_000_000)
@@ -230,7 +246,14 @@ def build(
     return _envelope(
         config,
         max_bitrate,
-        _transcoding_profiles(config, audio_codecs, video_codecs, max_bitrate),
+        _transcoding_profiles(
+            config,
+            audio_codecs,
+            video_codecs,
+            max_bitrate,
+            remux_copy=remux_copy,
+            force_xcode=force_xcode,
+        ),
         _direct_play_profiles(
             config, audio_codecs, video_codecs, force_direct, force_transcode
         ),
@@ -284,6 +307,19 @@ def _preferred_first(codecs: List[str], preferred: str) -> List[str]:
     ordered = [preferred]
     ordered.extend(codec for codec in codecs if codec != preferred)
     return ordered
+
+
+def _hls_copy_list(allowed: List[str], preferred: str, legal: tuple) -> List[str]:
+    """Preferred first when HLS-legal, then the rest of ``allowed`` that HLS can mux."""
+    legal_set = set(legal)
+    lead = (
+        preferred
+        if preferred in legal_set
+        else next((codec for codec in allowed if codec in legal_set), None)
+    )
+    if lead is None:
+        return []
+    return [lead] + [codec for codec in allowed if codec in legal_set and codec != lead]
 
 
 def _direct_video_codecs(config: ProfileConfig) -> List[str]:
@@ -412,6 +448,8 @@ def _transcoding_profiles(
     audio_codecs: List[str],
     video_codecs: List[str],
     max_bitrate: int,
+    remux_copy: bool = False,
+    force_xcode: bool = False,
 ) -> List[JsonDict]:
     # TS codec list: everything except av1 (which can't ride MPEG-TS and gets
     # its own fMP4 profile, when the device decodes av1 at all — see below).
@@ -430,19 +468,43 @@ def _transcoding_profiles(
     if ts_lead == "av1":  # preferred av1 but no hevc available
         ts_codecs = [codec for codec in ts_codecs if codec != "av1"] or ["h264"]
 
+    ts_audio = audio_codecs
+    mp4_audio = audio_codecs
+    if remux_copy:
+        ts_preferred = (
+            "aac" if config.preferred_audio == "opus" else config.preferred_audio
+        )
+        ts_audio = _hls_copy_list(audio_codecs, ts_preferred, HLS_TS_AUDIO) or [
+            ts_preferred if ts_preferred != "opus" else "aac"
+        ]
+        mp4_audio = _hls_copy_list(
+            audio_codecs, config.preferred_audio, HLS_MP4_AUDIO
+        ) or [config.preferred_audio]
+        ts_codecs = _hls_copy_list(ts_codecs, ts_lead, HLS_TS_VIDEO) or ts_codecs
+    elif force_xcode:
+        ts_audio = [
+            "aac" if config.preferred_audio == "opus" else config.preferred_audio
+        ]
+        mp4_audio = [config.preferred_audio]
+
     common = {
         "Type": "Video",
-        "AudioCodec": ",".join(audio_codecs),
         "Context": "Streaming",
         "Protocol": "hls",
-        "MaxAudioChannels": str(config.max_channels),
         "MinSegments": "1",
         "BreakOnNonKeyFrames": True,
     }
-    conditions = _audio_bitrate_conditions(config, max_bitrate)
-    if conditions is not None:
-        common["Conditions"] = conditions
-    ts: JsonDict = dict(common, Container="ts", VideoCodec=",".join(ts_codecs))
+    if not remux_copy:
+        common["MaxAudioChannels"] = str(config.max_channels)
+        conditions = _audio_bitrate_conditions(config, max_bitrate)
+        if conditions is not None:
+            common["Conditions"] = conditions
+    ts: JsonDict = dict(
+        common,
+        Container="ts",
+        VideoCodec=",".join(ts_codecs),
+        AudioCodec=",".join(ts_audio),
+    )
 
     music = _music_transcoding_profile(config)
 
@@ -460,7 +522,12 @@ def _transcoding_profiles(
     if "av1" not in video_codecs and config.preferred_video != "av1":
         return [ts, music]
 
-    fmp4: JsonDict = dict(common, Container="mp4", VideoCodec="av1")
+    fmp4: JsonDict = dict(
+        common,
+        Container="mp4",
+        VideoCodec="av1",
+        AudioCodec=",".join(mp4_audio),
+    )
     video_profiles = [fmp4, ts] if config.preferred_video == "av1" else [ts, fmp4]
     return video_profiles + [music]
 

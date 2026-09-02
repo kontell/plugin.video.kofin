@@ -315,20 +315,30 @@ def deny_video_stream_copy(url: str) -> str:
     source's audio share rather than on anything the user asked for.
 
     So the intent is stated instead of implied: ``allowVideoStreamCopy=false``
-    makes ``CanStreamCopyVideo`` answer no whatever the bitrates say. Video
-    only -- ``enableAutoStreamCopy=false`` would deny the audio copy too, and
-    forcing a video transcode is no reason to re-encode audio that already
-    fits.
+    makes ``CanStreamCopyVideo`` answer no whatever the bitrates say.
     """
+    return _deny_stream_copy(url, "allowVideoStreamCopy")
+
+
+def deny_audio_stream_copy(url: str) -> str:
+    """Take the audio stream copy off the table for a forced transcode.
+
+    Same pin as video: if E-AC3 is on the TranscodingProfile and the URL then
+    asks for an AudioBitrate below the source, StreamBuilder has already
+    collapsed AudioCodec to eac3 and 10.11 cannot encode it. Force transcode
+    names the preferred encode target on the profile *and* denies the copy
+    here. Music PlaybackInfo never reaches this — see the play path.
+    """
+    return _deny_stream_copy(url, "allowAudioStreamCopy")
+
+
+def _deny_stream_copy(url: str, flag: str) -> str:
     base, _, query = url.partition("?")
     if not query:
         return url
-    kept = [
-        param
-        for param in query.split("&")
-        if not param.startswith("allowVideoStreamCopy=")
-    ]
-    kept.append("allowVideoStreamCopy=false")
+    prefix = flag + "="
+    kept = [param for param in query.split("&") if not param.startswith(prefix)]
+    kept.append(flag + "=false")
     return "%s?%s" % (base, "&".join(kept))
 
 
@@ -750,11 +760,18 @@ def play(request: Request) -> None:
             # Music is exempt: its transcode is already sized by
             # MusicStreamingTranscodingBitrate, and the video audio share would
             # otherwise overwrite that with an unrelated number.
+            #
+            # Force remux is codec-copy: do not rewrite the bitrates (that is
+            # what refuses an E-AC3 copy) and do not deny copy. Transcode
+            # wins when both are set.
+            force_xcode = transcode or config.force_transcode
+            remux_copy = config.force_remux and not force_xcode
             budget = int(profile["MaxStreamingBitrate"])
-            if budget < deviceprofile.UNLIMITED_BITRATE:
+            if not remux_copy and budget < deviceprofile.UNLIMITED_BITRATE:
                 url = rewrite_bitrates(url, budget, config.audio_bitrate_kbps)
-            if transcode or config.force_transcode:
+            if force_xcode:
                 url = deny_video_stream_copy(url)
+                url = deny_audio_stream_copy(url)
     except JellyfinError as error:
         LOG.warning("play resolve failed for %s: %s", item_id, error)
         _fail(request)

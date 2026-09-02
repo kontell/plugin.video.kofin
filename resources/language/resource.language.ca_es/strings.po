@@ -289,16 +289,16 @@ msgid "Force remux"
 msgstr "Força el remux"
 
 msgctxt "#30105"
-msgid "Repackage the stream without re-encoding video. Use when the container causes problems but the codecs are fine."
-msgstr "Reempaqueta el flux sense recodificar el vídeo. Feu-ho servir quan el contenidor causa problemes però els còdecs són correctes."
+msgid "Remux into HLS and copy the source codecs. Does not use Maximum audio channels, Maximum streaming bitrate or Transcode audio bitrate below — those would re-encode a listed codec. Direct play codecs, Allowed HDR types and Maximum resolution still apply."
+msgstr "Remuxa a HLS i copia els còdecs d'origen. No fa servir «Nombre màxim de canals d'àudio», «Taxa de bits màxima de transmissió» ni «Taxa de bits de l'àudio transcodificat» més avall — això recodificaria un còdec de la llista. Els còdecs de reproducció directa, «Tipus d'HDR permesos» i «Resolució màxima» sí que s'apliquen."
 
 msgctxt "#30106"
 msgid "Force transcode"
 msgstr "Força la transcodificació"
 
 msgctxt "#30107"
-msgid "Always re-encode on the server. Highest server load; use for troubleshooting or very constrained clients."
-msgstr "Recodifica sempre al servidor. És la càrrega més alta per al servidor; feu-ho servir per resoldre problemes o per a clients molt limitats."
+msgid "Always re-encode video and audio to the preferred codecs. Honours the bitrate cap, the channel cap, allowed codecs, HDR types and resolution."
+msgstr "Recodifica sempre el vídeo i l'àudio als còdecs preferits. Respecta el límit de taxa de bits, el de canals, els còdecs permesos, els tipus d'HDR i la resolució."
 
 msgctxt "#30108"
 msgid "Direct play video codecs"

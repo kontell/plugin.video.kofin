@@ -289,16 +289,16 @@ msgid "Force remux"
 msgstr "强制重新封装"
 
 msgctxt "#30105"
-msgid "Repackage the stream without re-encoding video. Use when the container causes problems but the codecs are fine."
-msgstr "在不重新编码视频的情况下重新封装流。当容器有问题但编解码器没问题时使用。"
+msgid "Remux into HLS and copy the source codecs. Does not use Maximum audio channels, Maximum streaming bitrate or Transcode audio bitrate below — those would re-encode a listed codec. Direct play codecs, Allowed HDR types and Maximum resolution still apply."
+msgstr "混流为 HLS 并复制源编解码器。不使用下方的最大音频声道数、最大流式传输比特率或转码音频比特率——那些会把列表中的编解码器重新编码。直接播放编解码器、允许的 HDR 类型和最大分辨率仍然生效。"
 
 msgctxt "#30106"
 msgid "Force transcode"
 msgstr "强制转码"
 
 msgctxt "#30107"
-msgid "Always re-encode on the server. Highest server load; use for troubleshooting or very constrained clients."
-msgstr "始终在服务器上重新编码。服务器负载最高；用于排查问题或能力非常有限的客户端。"
+msgid "Always re-encode video and audio to the preferred codecs. Honours the bitrate cap, the channel cap, allowed codecs, HDR types and resolution."
+msgstr "始终将视频和音频重新编码为首选编解码器。遵守比特率上限、声道上限、允许的编解码器、HDR 类型和分辨率。"
 
 msgctxt "#30108"
 msgid "Direct play video codecs"
