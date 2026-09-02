@@ -670,6 +670,9 @@
             <dependency type="visible">
               <condition operator="is" setting="forceDirectPlay">false</condition>
             </dependency>
+            <dependency type="enable">
+              <condition operator="is" setting="forceTranscode">false</condition>
+            </dependency>
           </dependencies>
           <control type="toggle"/>
         </setting>
