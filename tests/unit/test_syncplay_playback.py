@@ -127,9 +127,14 @@ class FakeManager:
         self.transcoding = False
         self.reloads = 0
         self.claim = None
+        self.posted = []
 
     def in_group(self):
         return True
+
+    def _post(self, func, *args):
+        self.posted.append(func)
+        func(*args)
 
     def current_claim(self):
         return self.claim
@@ -1000,7 +1005,85 @@ class TestLiveClock:
         controller._reference = (EPOCH_MS + 41_990_000.0, None, True)
         assert controller.live_on_source_clock()
         assert controller.reported_position_s() == pytest.approx(
-            (EPOCH_MS + 100_000.0 + 42_000_000.0 - 120_000.0) / 1000.0
+            (EPOCH_MS + 41_990_000.0) / 1000.0
+        )
+
+    def test_a_live_member_ahead_holds_for_the_group(self, tmp_path, monkeypatch):
+        controller, manager, player = make_controller(position=100.0)
+        player.clock_advances = False
+        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        # The group sits 8 s behind this member's reading.
+        controller._reference = (
+            EPOCH_MS + 100_000.0 + 42_000_000.0 - 120_000.0 - 8_000.0,
+            None,
+            True,
+        )
+        timers = []
+        monkeypatch.setattr(
+            playback_module.utils, "later", lambda s, f, *a: timers.append((s, f, a))
+        )
+
+        controller._align_after_resume()
+
+        assert player.paused
+        assert controller._live_hold_ms == pytest.approx(8_000.0)
+        assert timers and timers[0][0] == pytest.approx(8.0)
+        assert not [
+            a for a in player.actions if isinstance(a, tuple) and a[0] == "seek"
+        ]
+
+        timers[0][1](*timers[0][2])  # the hold ends
+        assert not player.paused
+        assert controller._live_hold_ms is None
+
+    def test_a_live_member_behind_is_left_to_fine_sync(self, tmp_path, monkeypatch):
+        controller, manager, player = make_controller(position=100.0)
+        player.clock_advances = False
+        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        controller._reference = (
+            EPOCH_MS + 100_000.0 + 42_000_000.0 - 120_000.0 + 8_000.0,
+            None,
+            True,
+        )
+        monkeypatch.setattr(
+            playback_module.utils, "later", lambda *a: pytest.fail("no hold")
+        )
+
+        controller._align_after_resume()
+
+        assert not player.paused
+
+    def test_a_hold_is_bounded_and_yields_to_a_group_pause(self, tmp_path, monkeypatch):
+        controller, manager, player = make_controller(position=100.0)
+        player.clock_advances = False
+        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        controller._reference = (
+            EPOCH_MS + 100_000.0 + 42_000_000.0 - 120_000.0 - 500_000.0,
+            None,
+            True,
+        )
+        timers = []
+        monkeypatch.setattr(
+            playback_module.utils, "later", lambda s, f, *a: timers.append((s, f, a))
+        )
+
+        controller._align_after_resume()
+
+        assert controller._live_hold_ms == pytest.approx(utils.LIVE_HOLD_MAX_S * 1000.0)
+        # The group pauses during the hold: the timer must not resume us.
+        controller._reference = (controller._reference[0], None, False)
+        timers[0][1](*timers[0][2])
+        assert player.paused
+
+    def test_a_live_ready_promises_the_group_position(self, tmp_path):
+        controller, manager, player = make_controller(position=100.0)
+        player.clock_advances = False
+        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        controller._reference = (EPOCH_MS + 41_990_000.0, None, True)
+
+        assert controller.live_on_source_clock()
+        assert controller.reported_position_s() == pytest.approx(
+            (EPOCH_MS + 41_990_000.0) / 1000.0
         )
 
     def test_the_anchor_is_a_delay_behind_this_member(self, tmp_path):

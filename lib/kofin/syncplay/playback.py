@@ -92,6 +92,7 @@ class PlaybackController(object):
         self.tempo = PulseScheduler(self)
         self.seek_lag_ms = SEEK_LAG_DEFAULT_MS
         self._live_seek_logged = False
+        self._live_hold_ms = None  # a hold in progress: how long it was for
 
     # ------------------------------------------------------------------
     # Command scheduling (SYNCPLAY.md §5.1)
@@ -375,6 +376,20 @@ class PlaybackController(object):
         )
 
         if abs(behind_ms) <= utils.POST_RESUME_ALIGN_MS:
+            return
+
+        if self._live_claim() is not None:
+            # A live member has no seek. Behind the group it pulses forward;
+            # ahead of it by more than a pulse or two it holds still for the
+            # excess instead — exact on a timeshift buffer, and seconds
+            # rather than the minutes of slow motion the pulses would take.
+            if behind_ms < -utils.LIVE_HOLD_MIN_MS and self.live_on_source_clock():
+                self._live_hold(-behind_ms)
+            else:
+                LOG.info(
+                    "[ syncplay/align ] %+.0fms after the resume: left to fine sync",
+                    behind_ms,
+                )
             return
 
         if self.tempo.can_close(behind_ms):
@@ -895,16 +910,47 @@ class PlaybackController(object):
 
     def reported_position_s(self):
         """The position a Ready/Buffering report carries. A live member
-        without the shared clock promises the group's own position: it has
-        nothing the server could compare, and a private Seek in answer
-        would be refused here anyway."""
-        if self._live_claim() is not None and not self.live_on_source_clock():
+        promises the group's own position: it converges by pulses and holds
+        of its own, a private Seek in answer would be refused here anyway,
+        and a Ready that reports the real reading — the proposer's, a
+        delay ahead of its anchor — is one the server's ready barrier does
+        not release on (measured: the group started on the 10 s wait
+        timeout instead of the Ready, and every later joiner inherited
+        that as extra distance from live)."""
+        if self._live_claim() is not None:
             estimate = self.estimate_position_ms()
 
             if estimate is not None:
                 return estimate / 1000.0
 
         return self._position_ms() / 1000.0
+
+    def _live_hold(self, hold_ms):
+        """Pause for ``hold_ms`` so the group catches this member up, then
+        resume through the dispatcher. The timeshift buffer keeps the
+        stream; fine sync trims what the pause and resume leave."""
+        hold_ms = min(hold_ms, utils.LIVE_HOLD_MAX_S * 1000.0)
+        self._live_hold_ms = hold_ms
+        self.tempo.cancel("hold")
+        LOG.info(
+            "[ syncplay/live ] %.1fs ahead of the group: holding for it",
+            hold_ms / 1000.0,
+        )
+        self.ensure_paused()
+        utils.later(hold_ms / 1000.0, self.manager._post, self._live_resume)
+
+    def _live_resume(self):
+        held = self._live_hold_ms
+        self._live_hold_ms = None
+
+        if held is None or not self.reference_is_playing():
+            # The group paused meanwhile: its own Unpause resumes us, and
+            # the residual it leaves is fine sync's.
+            return
+
+        self.ensure_playing()
+        self.tempo.note_settle()
+        LOG.info("[ syncplay/live ] held %.1fs; playing on", held / 1000.0)
 
     def correct_position(self):
         """The fine-sync scheduler found a residual beyond what a pulse can

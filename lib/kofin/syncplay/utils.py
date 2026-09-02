@@ -141,21 +141,30 @@ LOAD_ALLOWANCE_MAX_MS = 15000.0  # a pathological load must not fling the target
 
 # Live position convergence (pvr sync plan P4). The group position of a live
 # item is defined on the source's own clock — the broadcast's PTS, which every
-# member's stream carries whatever moment it opened and which survives the
-# server's remux and transcode (P0d) — never on a member's session time. A
-# proposer anchors the group LIVE_DELAY_S behind its own reading, which is
-# the headroom for members whose feed runs later (a transcode member sat 12 s
-# behind a direct-tuner member on the rig); a member behind the anchor pulses
-# forward to it, one ahead pulses back. The clock is an MPEG-TS PTS and wraps
-# every LIVE_PTS_PERIOD_S, so positions are compared on that circle; and a
-# position on it is offset by LIVE_PTS_EPOCH_S on the wire, which is what
-# tells a source-clock anchor apart from the session-time zero a member
-# without the clock proposes (a group would need ten days on session time to
-# reach it). A member that cannot read the clock, or whose group is anchored
-# on session time, converges on commands only, as P2 left it.
+# member's stream carries whatever moment it opened — never on a member's
+# session time. A proposer anchors the group LIVE_DELAY_S behind its own
+# reading: the headroom for a member whose stream lands later than the
+# proposer's did (two devices opening the same provider playlist landed 2 s
+# apart on the P4 gate; a member on the server's transcode reads another
+# clock altogether and is refused, see LIVE_CLOCK_MIN_START_S). A member
+# behind the anchor pulses forward to it; one ahead holds still for the
+# excess (LIVE_HOLD_MIN_MS) and lets fine sync trim the rest. The clock is an
+# MPEG-TS PTS and wraps every LIVE_PTS_PERIOD_S, so positions are compared on
+# that circle; and a position on it is offset by LIVE_PTS_EPOCH_S on the
+# wire, which is what tells a source-clock anchor apart from the session-time
+# zero a member without the clock proposes (a group would need ten days on
+# session time to reach it). A member that cannot read the clock, or whose
+# group is anchored on session time, converges on commands only, as P2 left it.
 LIVE_PTS_PERIOD_S = 2**33 / 90000.0  # 33-bit PTS at 90 kHz: 26 h 30 m
 LIVE_PTS_EPOCH_S = 10 * 86400.0
-LIVE_DELAY_S = 15.0
+LIVE_DELAY_S = 5.0
+# A live member that lands ahead of the group by more than this pauses for
+# the excess — its timeshift buffer keeps the picture — rather than playing
+# it off at the rate ceiling (2.5 s per pulse cycle: a 25 s landing took three
+# and a half minutes of slow motion on the P4 gate). Bounded, so a broken
+# reading cannot freeze a member indefinitely.
+LIVE_HOLD_MIN_MS = 2500.0
+LIVE_HOLD_MAX_S = 60.0
 # A forward pulse that moved less than this fraction of what it asked for
 # was starved: the member is at its live edge, and this many in a row end
 # fine sync for the item — it can only wait for the feed.

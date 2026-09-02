@@ -890,10 +890,11 @@ class TestSourceClock:
         assert not utils.live_anchored(None)
 
     def test_anchor_wraps_below_the_delay(self):
-        # Five seconds into the clock: the anchor sits on the previous cycle.
-        anchor = utils.live_anchor_ms(5_000.0)
+        # Half a delay into the clock: the anchor sits on the previous cycle.
+        reading_ms = utils.LIVE_DELAY_S * 500.0
+        anchor = utils.live_anchor_ms(reading_ms)
         assert anchor == pytest.approx(
-            EPOCH_MS + PERIOD_MS + 5_000.0 - utils.LIVE_DELAY_S * 1000.0
+            EPOCH_MS + PERIOD_MS + reading_ms - utils.LIVE_DELAY_S * 1000.0
         )
 
     def test_unwrap_places_a_reading_on_the_reference_cycle(self):
