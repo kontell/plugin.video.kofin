@@ -107,6 +107,13 @@ def test_a_register_template_validates():
     }
 
 
+def test_a_delegated_registration_needs_no_template():
+    # The content is tuned, not fetched (a PVR EPG tag has no URL): the
+    # provider executes SyncSession.Start itself.
+    play = contract.register_template({"play": {"delegated": True}})
+    assert play == {"delegated": True, "audio": False}
+
+
 def test_a_template_without_the_key_token_is_useless_and_refused():
     assert contract.register_template({"play": {"url_template": "plugin://x/"}}) is None
     assert contract.register_template({"play": "nope"}) is None

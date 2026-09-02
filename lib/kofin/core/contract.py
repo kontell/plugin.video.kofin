@@ -47,6 +47,10 @@ MENU = "SyncSession.Menu"
 # state; this is the ping that says "read it again"). Also the service's
 # start-up announce, which is what tells providers to re-register.
 STATE = "SyncSession.State"
+# service -> the named provider: start this content (a delegated start —
+# the provider registered with no URL template because its content is
+# tuned, not fetched, and only the provider knows how).
+START = "SyncSession.Start"
 
 INBOUND = frozenset({REGISTER, CLAIM, PROPOSE, MENU})
 
@@ -123,12 +127,18 @@ def register_template(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     ``{"url_template": <plugin URL with {key} and optional {position_s}>,
     "audio": bool}`` — the template must name ``{key}``, or the provider
-    could never be told what to start.
+    could never be told what to start. ``{"delegated": true}`` registers a
+    provider with no template at all: its content is tuned, not fetched
+    (a PVR EPG tag has no URL), so the engine broadcasts SyncSession.Start
+    and the provider executes the start itself.
     """
     play = payload.get("play")
 
     if not isinstance(play, dict):
         return None
+
+    if play.get("delegated") is True:
+        return {"delegated": True, "audio": bool(play.get("audio"))}
 
     template = play.get("url_template")
 
@@ -187,6 +197,34 @@ def engine_claim(payload: Dict[str, Any]) -> Dict[str, Any]:
         claim["Tempo"] = route
 
     return claim
+
+
+def publish_start(provider: str, key: str, position_ticks: int) -> None:
+    """Ask a delegated provider to start its content (SyncSession.Start).
+
+    Broadcast like every bus message; the provider filters on its own
+    name. The engine's ordinary load watchdog covers a start nobody
+    executes, so this is fire-and-forget by design.
+    """
+    xbmc.executeJSONRPC(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "JSONRPC.NotifyAll",
+                "params": {
+                    "sender": "plugin.video.kofin",
+                    "message": START,
+                    "data": {
+                        "v": VERSION,
+                        "provider": provider,
+                        "key": key,
+                        "position_ticks": int(position_ticks),
+                    },
+                },
+            }
+        )
+    )
 
 
 def publish_state() -> None:

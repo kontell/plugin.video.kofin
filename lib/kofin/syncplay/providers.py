@@ -113,6 +113,24 @@ class TemplateProvider:
         return None
 
 
+class DelegatedProvider:
+    """A provider whose starts the engine cannot make (the provider
+    contract's delegated start): its content is tuned, not fetched, so
+    there is no URL to build — the engine broadcasts SyncSession.Start
+    and the provider's own service executes it."""
+
+    delegated = True
+
+    def __init__(self, audio: bool = False):
+        self.audio = audio
+
+    def play_target(self, key: str, start_ticks: int) -> PlayTarget:
+        raise LookupError("delegated provider has no play target")
+
+    def resolve_kodi_id(self, kodi_id: int, media: str) -> Optional[str]:
+        return None
+
+
 class ProviderRegistry:
     """The engine's one dispatch from a content key to its provider.
 
@@ -129,6 +147,13 @@ class ProviderRegistry:
 
     def get(self, name: str = JELLYFIN) -> Provider:
         return self._providers[name]
+
+    def is_delegated(self, name: str) -> bool:
+        """Whether the named provider takes delegated starts. False for an
+        unregistered name — the ordinary start path then fails the load
+        with the same lookup error it always has."""
+        provider = self._providers.get(name)
+        return bool(getattr(provider, "delegated", False))
 
     def play_target(
         self, key: str, start_ticks: int, provider: str = JELLYFIN

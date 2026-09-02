@@ -33,6 +33,8 @@ def sync_send(message, data):
 
 `provider` is your namespace: lowercase `[a-z0-9._-]`, 2-40 chars, and never `jellyfin` (that slot is the engine's own). `url_template` is how a follower starts your content: a `plugin://` URL naming `{key}` (required) and optionally `{position_s}` (whole seconds). Substitution is token-replace with the key URL-quoted — the template is treated as opaque text, so braces beyond the two tokens are left alone. Without `{position_s}` the engine still converges position after the start (one visible seek). `audio: true` routes starts to the music playlist.
 
+A provider whose content is *tuned rather than fetched* — a PVR EPG tag has no URL any template could carry — registers `{"play": {"delegated": true}}` instead of a template: the engine then broadcasts `SyncSession.Start` (below) when a follower must start that content, and the provider executes the start itself; the playback it produces completes the engine's load like any local play, and the ordinary load watchdog covers a start nobody executes.
+
 Register on start-up **and every time you see `SyncSession.State`** (§4): the service announces on its own start, and registrations live only as long as a service generation — there is no persistence, by design (`kodi-addon-lifecycle`: generations overlap and rebuild).
 
 ### `SyncProvider.Claim` (provider → service)
@@ -54,6 +56,10 @@ Asks for the item as the group's queue (the programmatic form of the engine's ho
 ### `SyncSession.Menu` (provider → service)
 
 `{"v": 1}` — opens the SyncPlay group menu on the service's worker, exactly as kofin's own root entry does. This is how a provider UI offers "watch together".
+
+### `SyncSession.Start` (service → the named provider)
+
+`{"v": 1, "provider": "<name>", "key": "<content id>", "position_ticks": 0}` — the engine asks a **delegated** provider (see Register) to start its content at a position. Broadcast like every bus message; filter on your own provider name. Fire-and-forget by design: fail quietly and the engine's load watchdog gives playback back to the member.
 
 ### `SyncSession.State` (service → everyone)
 
