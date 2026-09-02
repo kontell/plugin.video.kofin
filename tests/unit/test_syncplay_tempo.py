@@ -13,7 +13,7 @@ import time
 import pytest
 
 from kofin.core import state
-from kofin.syncplay import tempo
+from kofin.syncplay import tempo, utils
 from kofin.syncplay.tempo import (
     PulseScheduler,
     TempoFile,
@@ -234,9 +234,13 @@ class FakeController:
         self.group_ms = 100000.0
         self.local_ms = 100000.0
         self.corrections = 0
+        self.on_source_clock = True  # a live item: the group shares the clock
 
     def _is_paused(self):
         return self.paused
+
+    def live_on_source_clock(self):
+        return self.on_source_clock
 
     def reference_is_playing(self):
         return self.playing
@@ -259,6 +263,13 @@ def routed_claim(path, session="ps-1"):
         "PlaySessionId": session,
         "Tempo": {"File": path, "QueueSecs": 1.0},
     }
+
+
+def live_claim(path, session="ps-live"):
+    """A public-bus claim with no runtime: the contract's live spelling."""
+    claim = routed_claim(path, session)
+    claim["Provider"] = "pvr.kofin"
+    return claim
 
 
 @pytest.fixture
@@ -832,3 +843,148 @@ def test_restore_queue_after_an_interrupted_session(session_env):
     FakeAddon.store["syncPlayQueueRestore"] = "forty"
     assert tempo.restore_queue() is False
     assert FakeAddon.store["syncPlayQueueRestore"] == ""
+
+
+# ----------------------------------------------------------------------------
+# The source clock (pvr sync plan P4)
+# ----------------------------------------------------------------------------
+
+EPOCH_MS = utils.LIVE_PTS_EPOCH_S * 1000.0
+PERIOD_MS = utils.LIVE_PTS_PERIOD_S * 1000.0
+
+
+class TestSourceClock:
+    def test_offset_is_source_minus_player(self):
+        line = {"source_ms": 42731658.0, "player_ms": 88101.0, "content_ms": 88101.0}
+        assert tempo.source_offset_ms(line) == pytest.approx(42731658.0 - 88101.0)
+
+    def test_offset_needs_both_fields(self):
+        assert tempo.source_offset_ms(None) is None
+        # An older add-on reports neither.
+        assert tempo.source_offset_ms({"content_ms": 1.0, "output_ms": 1.0}) is None
+        # Not anchored yet.
+        assert tempo.source_offset_ms({"source_ms": -1.0, "player_ms": -1.0}) is None
+        assert tempo.source_offset_ms({"source_ms": "x", "player_ms": 1.0}) is None
+
+    def test_anchor_sits_a_delay_behind_on_the_epoch(self):
+        anchor = utils.live_anchor_ms(42_000_000.0)
+        assert anchor == pytest.approx(
+            EPOCH_MS + 42_000_000.0 - utils.LIVE_DELAY_S * 1000.0
+        )
+        assert utils.live_anchored(anchor)
+        assert not utils.live_anchored(0.0)
+        assert not utils.live_anchored(24 * 3600_000.0)  # a day of session time
+        assert not utils.live_anchored(None)
+
+    def test_anchor_wraps_below_the_delay(self):
+        # Five seconds into the clock: the anchor sits on the previous cycle.
+        anchor = utils.live_anchor_ms(5_000.0)
+        assert anchor == pytest.approx(
+            EPOCH_MS + PERIOD_MS + 5_000.0 - utils.LIVE_DELAY_S * 1000.0
+        )
+
+    def test_unwrap_places_a_reading_on_the_reference_cycle(self):
+        # A member that opened after the wrap reads 3 s while the group sits
+        # 2 s before it: the same instant, one cycle apart on the wire.
+        reference = EPOCH_MS + PERIOD_MS - 2_000.0
+        assert utils.unwrap_live_ms(3_000.0, reference) == pytest.approx(
+            EPOCH_MS + PERIOD_MS + 3_000.0
+        )
+        assert utils.unwrap_live_ms(PERIOD_MS - 2_000.0, EPOCH_MS + 3_000.0) == (
+            pytest.approx(EPOCH_MS - 2_000.0)
+        )
+        # ffmpeg's own unwrap past the period lands in the same place.
+        assert utils.unwrap_live_ms(PERIOD_MS + 3_000.0, reference) == pytest.approx(
+            EPOCH_MS + PERIOD_MS + 3_000.0
+        )
+        assert utils.unwrap_live_ms(3_000.0, None) == pytest.approx(EPOCH_MS + 3_000.0)
+
+    def test_claim_is_live(self):
+        assert utils.claim_is_live({"Id": "c", "Provider": "pvr.kofin"})
+        assert not utils.claim_is_live(
+            {"Id": "c", "Provider": "pvr.kofin", "RunTimeTicks": 10}
+        )
+        assert utils.claim_is_live({"Id": "c", "Runtime": 0, "Live": True})
+        # kofin's own claim for an item whose runtime the server does not
+        # know is not live: it still seeks.
+        assert not utils.claim_is_live({"Id": "c", "Runtime": 0})
+        assert not utils.claim_is_live({"Id": "c"})
+        assert not utils.claim_is_live(None)
+
+
+class TestLive:
+    @pytest.fixture
+    def live_rig(self, rig):
+        scheduler, controller, side = rig
+        path = controller.manager.claim["Tempo"]["File"]
+        controller.manager.claim = live_claim(path)
+        scheduler.tick()  # re-arms on the new PlaySessionId
+        assert scheduler._live
+        return scheduler, controller, side
+
+    def test_a_live_residual_beyond_the_budget_pulses_instead_of_seeking(
+        self, live_rig
+    ):
+        scheduler, controller, side = live_rig
+        fill_window(scheduler, controller, 3000.0, extra=1)
+
+        assert controller.corrections == 0
+        assert scheduler._awaiting is not None
+        side.answer()
+        scheduler.tick()
+        assert scheduler._pulse is not None
+        assert scheduler._pulse["rate"] == pytest.approx(1.0 + tempo.RATE_MAX_DEFAULT)
+        assert scheduler._pulse["seconds"] == tempo.PULSE_MAX_S
+        assert scheduler.can_close(30_000.0)  # nothing else will
+
+    def test_live_without_the_shared_clock_measures_nothing(self, live_rig):
+        scheduler, controller, side = live_rig
+        controller.on_source_clock = False
+
+        fill_window(scheduler, controller, 500.0, extra=3)
+
+        assert scheduler._awaiting is None and scheduler._pulse is None
+        assert controller.corrections == 0
+        assert scheduler._window == []
+
+    def test_starved_forward_pulses_end_fine_sync_at_the_edge(
+        self, live_rig, monkeypatch
+    ):
+        scheduler, controller, side = live_rig
+        # Asked for 500 ms, the feed supplied 50: the demuxer ran dry.
+        start_pulse(scheduler, controller, side, 500.0)
+        finish_pulse(scheduler, side, monkeypatch, delta_ms=50.0)
+
+        assert scheduler._edge_pulses == 1
+        assert scheduler._gain == 1.0  # a starved pulse teaches nothing
+        assert not scheduler._gave_up
+
+        scheduler._settle_until = 0.0
+        start_pulse(scheduler, controller, side, 500.0)
+        finish_pulse(scheduler, side, monkeypatch, delta_ms=100.0)
+
+        assert scheduler._gave_up
+        assert controller.manager.mismatch == 0  # the edge is not a fault
+
+    def test_a_fed_pulse_resets_the_edge_count(self, live_rig, monkeypatch):
+        scheduler, controller, side = live_rig
+        start_pulse(scheduler, controller, side, 500.0)
+        finish_pulse(scheduler, side, monkeypatch, delta_ms=50.0)
+        assert scheduler._edge_pulses == 1
+
+        scheduler._settle_until = 0.0
+        start_pulse(scheduler, controller, side, 500.0)
+        finish_pulse(scheduler, side, monkeypatch, delta_ms=550.0)
+
+        assert scheduler._edge_pulses == 0
+        assert not scheduler._gave_up
+
+    def test_a_pulse_back_is_never_starved(self, live_rig, monkeypatch):
+        scheduler, controller, side = live_rig
+        # Ahead of the group: the pulse slows, and a short move is not
+        # the edge — the buffer behind belongs to the stream.
+        start_pulse(scheduler, controller, side, -500.0)
+        finish_pulse(scheduler, side, monkeypatch, delta_ms=-20.0)
+
+        assert scheduler._edge_pulses == 0
+        assert not scheduler._gave_up

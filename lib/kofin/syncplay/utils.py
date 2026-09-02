@@ -139,6 +139,29 @@ LOAD_ALLOWANCE_SMOOTHING = 0.5  # weight of the newest measurement in the EMA
 LOAD_ALLOWANCE_MIN_MS = 250.0  # below this, not worth aiming off for
 LOAD_ALLOWANCE_MAX_MS = 15000.0  # a pathological load must not fling the target
 
+# Live position convergence (pvr sync plan P4). The group position of a live
+# item is defined on the source's own clock — the broadcast's PTS, which every
+# member's stream carries whatever moment it opened and which survives the
+# server's remux and transcode (P0d) — never on a member's session time. A
+# proposer anchors the group LIVE_DELAY_S behind its own reading, which is
+# the headroom for members whose feed runs later (a transcode member sat 12 s
+# behind a direct-tuner member on the rig); a member behind the anchor pulses
+# forward to it, one ahead pulses back. The clock is an MPEG-TS PTS and wraps
+# every LIVE_PTS_PERIOD_S, so positions are compared on that circle; and a
+# position on it is offset by LIVE_PTS_EPOCH_S on the wire, which is what
+# tells a source-clock anchor apart from the session-time zero a member
+# without the clock proposes (a group would need ten days on session time to
+# reach it). A member that cannot read the clock, or whose group is anchored
+# on session time, converges on commands only, as P2 left it.
+LIVE_PTS_PERIOD_S = 2**33 / 90000.0  # 33-bit PTS at 90 kHz: 26 h 30 m
+LIVE_PTS_EPOCH_S = 10 * 86400.0
+LIVE_DELAY_S = 15.0
+# A forward pulse that moved less than this fraction of what it asked for
+# was starved: the member is at its live edge, and this many in a row end
+# fine sync for the item — it can only wait for the feed.
+LIVE_EDGE_MOVE_FRACTION = 0.5
+LIVE_EDGE_PULSES = 2
+
 #################################################################################################
 
 
@@ -161,6 +184,57 @@ def seconds_to_ticks(seconds):
 
 def ticks_to_seconds(ticks):
     return (ticks or 0) / TICKS_PER_SECOND
+
+
+def claim_is_live(claim):
+    """Whether a claim names a live stream.
+
+    kofin's own claim says so outright (``Live``, stamped by the play route
+    from the item type and the source's IsInfiniteStream); a public-bus
+    claim — the ones that carry a ``Provider`` — spells it as no runtime,
+    per the provider contract. Anything else is not live: an item whose
+    runtime the server does not know still seeks.
+    """
+    if not claim:
+        return False
+
+    if "Live" in claim:
+        return bool(claim["Live"])
+
+    if claim.get("Provider"):
+        return not claim.get("RunTimeTicks")
+
+    return False
+
+
+def live_anchor_ms(source_ms):
+    """The group position a proposer anchors for its own source-clock
+    reading: LIVE_DELAY_S behind it, on the wire's epoch."""
+    period = LIVE_PTS_PERIOD_S * 1000.0
+    behind = (source_ms - LIVE_DELAY_S * 1000.0) % period
+    return LIVE_PTS_EPOCH_S * 1000.0 + behind
+
+
+def live_anchored(position_ms):
+    """Whether a group position is on the source clock (see LIVE_PTS_EPOCH_S)."""
+    return position_ms is not None and position_ms >= LIVE_PTS_EPOCH_S * 1000.0 / 2
+
+
+def unwrap_live_ms(source_ms, reference_ms):
+    """A source-clock reading as the wire position nearest ``reference_ms``.
+
+    The clock wraps, and a member may have opened on the far side of a wrap
+    from the proposer, so the reading is placed on the reference's cycle:
+    the representative whose difference from the reference is smallest.
+    Without a reference it sits on the epoch.
+    """
+    period = LIVE_PTS_PERIOD_S * 1000.0
+    position = LIVE_PTS_EPOCH_S * 1000.0 + (source_ms % period)
+
+    if reference_ms is None:
+        return position
+
+    return position + round((reference_ms - position) / period) * period
 
 
 def to_iso(unix_ms):

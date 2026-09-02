@@ -648,9 +648,10 @@ def play(request: Request) -> None:
         except ValueError:
             pass
         if item.get("Type") == "TvChannel":
-            # Live has no absolute position to start at (P2): the opened
-            # live stream begins at the edge, and a session-relative tick
-            # from another member would seek a clock this stream never had.
+            # Live has no position to start at: the opened live stream
+            # begins at its edge, and a group position on a live item is on
+            # the source clock (P4) or a member's session time (P2) — a
+            # stream offset it never is.
             start_ticks = 0
 
         # A download the user already has beats the network, exactly as the
@@ -728,11 +729,11 @@ def play(request: Request) -> None:
         _fail(request)
         return
 
-    # A live stream takes no tempo route under the pvr sync plan's P2:
-    # positions on it are session-relative (each member's transcode starts
-    # at its own moment), so a pulse would chase a clock no other member
-    # shares. P4's source-PTS anchor is what earns live its route.
-    route = None if is_live else tempo_route(item, method, source)
+    # A live stream is routed like any other video (pvr sync plan P4): the
+    # add-on reports the source's own clock in its state line, which is the
+    # timeline the group's position is anchored on, and the engine reads the
+    # member's position off that rather than off session time.
+    route = tempo_route(item, method, source)
     LOG.info(
         "play %s via %s%s%s",
         item_id,
@@ -803,6 +804,11 @@ def play(request: Request) -> None:
     )
     if route:
         play_item["Tempo"] = route
+    if is_live:
+        # The engine's spelling of live for kofin's own claim
+        # (syncplay/utils.py::claim_is_live): what makes the group position
+        # a source-clock anchor rather than a stream offset.
+        play_item["Live"] = True
     segments = _joined_segments(segments_thread, segments_box)
     if segments is not None:
         play_item["Segments"] = segments

@@ -483,7 +483,7 @@ class SyncPlayManager(object):
 
         if position is None:
             try:
-                position = self.player.getTime()
+                position = self.playback.reported_position_s()
             except Exception:
                 position = 0.0
 
@@ -1188,10 +1188,12 @@ class SyncPlayManager(object):
             return False
 
         if not claim.get("RunTimeTicks"):
-            # A live claim (the contract's zero-runtime spelling): positions
-            # on a live stream are session-relative, so a reload buys no
-            # convergence until P4's source-PTS anchor exists — tune-together
-            # adopts (pvr sync plan §5).
+            # A live claim (the contract's zero-runtime spelling) adopts as
+            # it plays: the member chose its own live pipeline (a tuner
+            # through its PVR add-on, say), and a reload through the kofin
+            # route would swap that for the server's transcode. A live
+            # claim that carries a tempo route converges on the source
+            # clock (P4); one without stays tune-together (P2).
             return False
 
         LOG.info(
@@ -1589,11 +1591,23 @@ class SyncPlayManager(object):
                 return
 
         position = None
-        if info is self.foreign_claim and not info.get("RunTimeTicks"):
+        if utils.claim_is_live(info):
             # A live claim (zero runtime): the player's position is session
-            # time on this member's own stream, meaningless to the group —
-            # the group tunes together from its own live edge (P2).
-            position = 0.0
+            # time on this member's own stream, meaningless to the group.
+            # With a tempo route that reports the source clock the group is
+            # anchored on that instead, a delay behind this member's reading
+            # (P4); without one it tunes together from its own edge (P2).
+            anchor_ms = self.playback.live_anchor_ms()
+            position = anchor_ms / 1000.0 if anchor_ms is not None else 0.0
+            LOG.info(
+                "[ syncplay/live ] proposing %s %s",
+                item_id,
+                (
+                    "anchored on the source clock"
+                    if anchor_ms is not None
+                    else "without a source clock; tune-together only"
+                ),
+            )
 
         self._propose_queue(item_id, position=position, provider=provider)
 

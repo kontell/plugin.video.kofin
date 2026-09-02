@@ -904,6 +904,36 @@ class TestForwardLocalPlay:
         assert calls[0][1] == ["chan-1"]
         assert calls[0][3] == 0  # ticks, not 36510000000
 
+    def test_live_claim_with_the_source_clock_proposes_an_anchor(
+        self, manager, tmp_path
+    ):
+        # A live claim whose tempo route reports the source clock anchors
+        # the group on it, a delay behind this member (P4).
+        join(manager)
+        manager.player.playing = True
+        manager.player.position = 100.0
+        manager.player.item = None
+        path = str(tmp_path / "tempo")
+        with open(path + ".state", "w") as handle:
+            handle.write(
+                '{"seq":1,"event":"anchor","tempo":1.0,"content_ms":120000.0,'
+                '"output_ms":120000.0,"delta_ms":0.0,"queue_secs":1.0,"video":true,'
+                '"source_ms":42000000.0,"player_ms":120000.0}\n'
+            )
+        manager.foreign_claim = {
+            "Id": "chan-1",
+            "Provider": "jellyfin",
+            "Tempo": {"File": path, "QueueSecs": 1.0},
+        }
+
+        manager._forward_local_play()
+
+        calls = manager._api.named("syncplay_set_new_queue")
+        assert len(calls) == 1
+        assert calls[0][1] == ["chan-1"]
+        expected = utils.live_anchor_ms(100_000.0 + 42_000_000.0 - 120_000.0)
+        assert calls[0][3] == utils.seconds_to_ticks(expected / 1000.0)
+
     def test_unmapped_pvr_play_waits_for_the_claim(self, manager):
         # A channel's OnPlay carries a Kodi id the provider mapping can
         # never answer, but its owner claims over the bus a moment later —

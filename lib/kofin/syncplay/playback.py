@@ -20,7 +20,12 @@ from kofin.core import kodirpc
 from kofin.core.log import Logger
 from kofin.syncplay import utils
 from kofin.syncplay.utils import FOLLOWING, Phase
-from kofin.syncplay.tempo import PulseScheduler, SEEK_LAG_DEFAULT_MS
+from kofin.syncplay.tempo import (
+    PulseScheduler,
+    SEEK_LAG_DEFAULT_MS,
+    TempoFile,
+    source_offset_ms,
+)
 
 #################################################################################################
 
@@ -86,6 +91,7 @@ class PlaybackController(object):
         # playing seek (see _seek_and_settle).
         self.tempo = PulseScheduler(self)
         self.seek_lag_ms = SEEK_LAG_DEFAULT_MS
+        self._live_seek_logged = False
 
     # ------------------------------------------------------------------
     # Command scheduling (SYNCPLAY.md §5.1)
@@ -610,6 +616,7 @@ class PlaybackController(object):
         The server compares our reported position against the group and
         answers with a private Seek if we are out of tolerance (§7).
         """
+        self._live_seek_logged = False
         target_ms = self.estimate_position_ms()
 
         if target_ms is not None:
@@ -662,7 +669,9 @@ class PlaybackController(object):
     # ------------------------------------------------------------------
 
     def report_ready(self):
-        self.manager.post_report("syncplay_ready")
+        self.manager.post_report(
+            "syncplay_ready", position_s=self.reported_position_s()
+        )
 
     def report_buffering(self):
         self.manager.post_report("syncplay_buffering")
@@ -820,10 +829,82 @@ class PlaybackController(object):
         return bool(xbmc.getCondVisibility("Player.Paused"))
 
     def _position_ms(self):
+        """The playing position on the group's clock: the player clock, or
+        for a live item with a tempo route the source's own clock — the
+        broadcast's PTS, which every member's stream carries (pvr sync plan
+        P4) — placed on the group reference's cycle of it."""
         try:
-            return self.player.getTime() * 1000.0
+            player_ms = self.player.getTime() * 1000.0
         except Exception:
             return 0.0
+
+        offset = self._live_source_offset_ms()
+
+        if offset is None:
+            return player_ms
+
+        return utils.unwrap_live_ms(player_ms + offset, self.estimate_position_ms())
+
+    # ------------------------------------------------------------------
+    # Live items: the source clock (pvr sync plan P4)
+    # ------------------------------------------------------------------
+
+    def _live_claim(self):
+        """The current claim when it names a live stream, else None."""
+        current = getattr(self.manager, "current_claim", None)
+        claim = current() if current is not None else None
+        return claim if utils.claim_is_live(claim) else None
+
+    def _live_source_offset_ms(self):
+        """player clock → source clock, read off the tempo route's state
+        line; None for anything but a live item routed through an add-on
+        that reports it."""
+        claim = self._live_claim()
+        path = ((claim or {}).get("Tempo") or {}).get("File")
+
+        if not path:
+            return None
+
+        return source_offset_ms(TempoFile(path).read_state())
+
+    def live_on_source_clock(self):
+        """Whether this member and the group share the source clock: the
+        member can read its own, and the group's position is anchored on
+        it rather than on a proposer's session time."""
+        if self._live_source_offset_ms() is None:
+            return False
+
+        return utils.live_anchored(self.estimate_position_ms())
+
+    def live_anchor_ms(self):
+        """The group position to propose for the live item playing here:
+        LIVE_DELAY_S behind this member's own source-clock reading, or None
+        when it has no such reading (the proposal then tunes together from
+        zero, as P2 did)."""
+        offset = self._live_source_offset_ms()
+
+        if offset is None:
+            return None
+
+        try:
+            player_ms = self.player.getTime() * 1000.0
+        except Exception:
+            return None
+
+        return utils.live_anchor_ms(player_ms + offset)
+
+    def reported_position_s(self):
+        """The position a Ready/Buffering report carries. A live member
+        without the shared clock promises the group's own position: it has
+        nothing the server could compare, and a private Seek in answer
+        would be refused here anyway."""
+        if self._live_claim() is not None and not self.live_on_source_clock():
+            estimate = self.estimate_position_ms()
+
+            if estimate is not None:
+                return estimate / 1000.0
+
+        return self._position_ms() / 1000.0
 
     def correct_position(self):
         """The fine-sync scheduler found a residual beyond what a pulse can
@@ -882,6 +963,17 @@ class PlaybackController(object):
         that wants to stay paused has to undo that, and a caller about to
         resume must *not*, or the two fight and the player can end up stopped.
         """
+        if self._live_claim() is not None:
+            # A live stream is never seeked: ffmpeg's HLS demuxer refuses a
+            # seek on a live playlist, and a position on the source clock is
+            # not a stream offset to begin with. Fine sync closes what it
+            # can; the rest is the feed's.
+            if not self._live_seek_logged:
+                self._live_seek_logged = True
+                LOG.info("[ syncplay/align ] skipped: live item, pulses only")
+
+            return
+
         was_paused = self._is_paused()
         target_s = max(0.0, target_ms / 1000.0)
         self.tempo.before_seek()

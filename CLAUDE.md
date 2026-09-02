@@ -196,6 +196,15 @@ What remains is kofin's own:
   (`docs/syncplay-fine-sync.md`). An audio item, or a Kodi without the add-on, gets
   command-only sync, exactly as 0.19 did; a transcode has gone through inputstream.tempo since
   `165d686` (its `[ syncplay/align ] skipped: transcoding` line is the landing check, not the sync).
+- **A live item's group position is on the source clock, ten days up.** The player clock of a
+  live stream is session time and means nothing to another member; the engine reads a live
+  member's position off inputstream.tempo's state line (`getTime() + (source_ms − player_ms)`,
+  the broadcast's own PTS) and a proposer anchors the group `LIVE_DELAY_S` behind its reading,
+  offset by `LIVE_PTS_EPOCH_S` on the wire so a source-clock anchor can never be mistaken for the
+  session-time zero a member without the clock proposes. `claim_is_live` is the one spelling of
+  live (kofin's own claim carries `Live`; a bus claim has no runtime), and a live item is never
+  seeked — ffmpeg's HLS demuxer refuses a seek on a live playlist — only pulsed, and two starved
+  forward pulses mean the live edge, not a fault (`docs/syncplay-fine-sync.md`).
 - A sync thread that will not stop is a thread inside the HTTP retry ladder
   (`docs/library-thread-stop.md`); the two rules that follow are easy to undo.
 - **Never call `xbmc.Player.stop()`** — use `core/kodirpc.py::stop_player`. Kodi's binding sends

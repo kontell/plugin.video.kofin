@@ -48,6 +48,7 @@ import xbmcvfs
 
 from kofin.core import kodirpc, settings, state
 from kofin.core.log import Logger
+from kofin.syncplay import utils
 
 #################################################################################################
 
@@ -185,7 +186,8 @@ def parse_state(text):
     """The add-on's ``<tempo_file>.state`` line as a dict, or None.
 
     One JSON object per write: seq, event (anchor/retarget/tempo), tempo,
-    content_ms, output_ms, delta_ms, queue_secs, video.
+    content_ms, output_ms, delta_ms, queue_secs, video, and since 22.4.6 /
+    21.4.6 source_ms and player_ms (see source_offset_ms).
     """
     if not text:
         return None
@@ -213,6 +215,32 @@ def head_delta(state_line):
         return float(state_line.get("delta_ms") or 0.0)
 
     return content - output
+
+
+def source_offset_ms(state_line):
+    """What to add to the player clock to read the source's own clock, from a
+    state line — or None when the add-on has not reported it (an older
+    add-on, or a pipeline not yet anchored).
+
+    ``source_ms`` is the demux head on the container's clock (a broadcast's
+    PTS) and ``player_ms`` what Kodi's player clock reads for that same
+    head, so the difference is the constant that maps one onto the other; it
+    shifts only by what a pulse moves, and the scheduler never measures
+    across a pulse.
+    """
+    if not state_line:
+        return None
+
+    try:
+        source = float(state_line.get("source_ms"))
+        player = float(state_line.get("player_ms"))
+    except (TypeError, ValueError):
+        return None
+
+    if source < 0 or player < 0:
+        return None
+
+    return source - player
 
 
 def addon_is_recent(version):
@@ -330,6 +358,10 @@ class PulseScheduler(object):
         self._gain = 1.0  # measured displacement / displacement asked for
         self._gave_up = False
         self._unrouted_logged = False
+        # A live item (utils.claim_is_live): never seeked, and a forward
+        # pulse the feed cannot supply ends fine sync (the live edge).
+        self._live = False
+        self._edge_pulses = 0
         self._lock = threading.RLock()
 
     # ------------------------------------------------------------------
@@ -344,6 +376,8 @@ class PulseScheduler(object):
         self._awaiting = None
         self._history = []
         self._gave_up = False
+        self._live = utils.claim_is_live(claim)
+        self._edge_pulses = 0
         # The gain is deliberately NOT reset here. It is a property of the
         # transport, not of the item, and a transcode re-arms on every reload
         # — which a group seek forces, since the stream restarts with a new
@@ -379,20 +413,23 @@ class PulseScheduler(object):
         self._unrouted_logged = False
         LOG.info(
             "[ syncplay/tempo ] fine sync armed for %s "
-            "(queue %.1fs, budget %.0fms, up to %.0f%%)",
+            "(queue %.1fs, budget %.0fms, up to %.0f%%%s)",
             claim.get("Id"),
             self.queue_secs,
             self.budget_ms,
             self.rate_max * 100.0,
+            ", live: on the source clock, pulses only" if self._live else "",
         )
 
     def can_close(self, residual_ms):
-        """Whether fine sync will take this residual, so a seek is not needed."""
-        return (
-            self.file is not None
-            and not self._gave_up
-            and abs(residual_ms) <= self.budget_ms
-        )
+        """Whether fine sync will take this residual, so a seek is not needed.
+
+        A live item has no seek to fall back on, so every residual is fine
+        sync's — saturated pulses close a large one over time."""
+        if self.file is None or self._gave_up:
+            return False
+
+        return self._live or abs(residual_ms) <= self.budget_ms
 
     def reset(self):
         with self._lock:
@@ -456,6 +493,13 @@ class PulseScheduler(object):
         if estimate is None:
             return None
 
+        if self._live and not controller.live_on_source_clock():
+            # The group is anchored on session time (a proposer without
+            # the clock) or this member cannot read its own: nothing to
+            # converge on — the commands keep it tuned together (P2).
+            self._window = []
+            return None
+
         self._window.append(estimate - controller._position_ms())
         del self._window[:-WINDOW_SAMPLES]
 
@@ -470,8 +514,12 @@ class PulseScheduler(object):
         # it after all, saturated at the rate ceiling for PULSE_MAX_S. The
         # Bravia sat at +2.5 s for 25 s after a resume when a median beyond
         # the budget and a window not all beyond it meant neither.
+        # A live stream has no seek (ffmpeg's HLS demuxer refuses one on a
+        # live playlist), so a live residual beyond the budget takes the
+        # saturated pulses instead, as many as it needs.
         if (
             abs(residual) > self.budget_ms
+            and not self._live
             and now >= self._seek_blackout_until
             and all(abs(sample) > self.budget_ms for sample in self._window)
         ):
@@ -631,17 +679,50 @@ class PulseScheduler(object):
             # difference between the two confirmed state lines is exactly the
             # displacement the pulse produced — the add-on's own account of it.
             moved = head_delta(landed) - pulse["start_delta"]
-            self._learn_gain(pulse, moved)
+            starved = self._starved(pulse, moved)
+
+            if not starved:
+                self._learn_gain(pulse, moved)
+
             LOG.info(
-                "[ syncplay/pulse ] moved %+.0fms (wanted %+.0fms, gain %.2f)",
+                "[ syncplay/pulse ] moved %+.0fms (wanted %+.0fms, gain %.2f)%s",
                 moved,
                 pulse["residual"],
                 self._gain,
+                " starved: at the live edge" if starved else "",
             )
+
+            if starved:
+                self._edge_pulses += 1
+
+                if self._edge_pulses >= utils.LIVE_EDGE_PULSES:
+                    self._give_up_edge()
+            else:
+                self._edge_pulses = 0
 
         self._settle_until = now + self.queue_secs + SETTLE_EXTRA_S
         self._window = []
         self._remember(pulse, now)
+
+    def _starved(self, pulse, moved):
+        """A forward pulse on a live item that moved well short of its ask:
+        the demuxer ran out of feed, which is the live edge. A pulse back
+        is never starved — the buffer behind is the stream's own."""
+        if not self._live or pulse["rate"] <= 1.0:
+            return False
+
+        asked = abs(pulse.get("ask_ms") or pulse["residual"])
+        return (
+            asked >= GAIN_MIN_ASK_MS and moved < utils.LIVE_EDGE_MOVE_FRACTION * asked
+        )
+
+    def _give_up_edge(self):
+        self._gave_up = True
+        LOG.warning(
+            "[ syncplay/pulse ] giving up: at the live edge — %d forward pulses "
+            "in a row were starved; this member follows the feed",
+            self._edge_pulses,
+        )
 
     def _learn_gain(self, pulse, moved):
         """Fold one pulse's outcome into the actuation gain.
