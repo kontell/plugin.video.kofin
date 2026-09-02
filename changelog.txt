@@ -1,3 +1,9 @@
+v0.24.0
+- SyncPlay tunes live channels and catchup programmes together. Needs pvr.kofin 22.15.0
+- Live channels converge on the broadcast's own clock through Tempo; a member ahead of the group waits for it. Needs inputstream.tempo 22.5.0 or 21.5.0
+- A live channel plays the provider's stream directly when the server allows it
+- A recording played from the Recordings window reloads through Tempo so it can fine sync
+
 v0.23.0
 - Find servers on the local network
 - Downloads show how much space they take, including artwork and metadata
