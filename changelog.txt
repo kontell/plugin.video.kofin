@@ -1,3 +1,13 @@
+v0.23.0
+- Find servers on the local network
+- Downloads show how much space they take, including artwork and metadata
+- A music download exports artist and album metadata with it
+- SyncPlay groups can follow another add-on's content. Needs the SyncPlay v2 plugin with external-content support
+- Kodi 22.0 beta 2 syncs again
+- A playlist download announces once, not once per album
+- A downloaded song no longer offers to remove itself after playing
+- The Movies, Shows and Music folders stay when their last download is removed
+
 v0.22.0
 - Fine sync supported for a transcoded stream
 - Add-on refactored
