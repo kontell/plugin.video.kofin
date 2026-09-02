@@ -144,6 +144,19 @@ def test_deny_video_stream_copy_without_query_is_left_alone():
     assert play.deny_video_stream_copy("http://s/x") == "http://s/x"
 
 
+def test_deny_audio_stream_copy_states_the_intent():
+    url = "http://s:8096/videos/m1/master.m3u8?PlaySessionId=abc&AudioBitrate=1"
+    out = play.deny_audio_stream_copy(url)
+    assert "PlaySessionId=abc" in out and "AudioBitrate=1" in out
+    assert out.endswith("&allowAudioStreamCopy=false")
+
+
+def test_deny_audio_stream_copy_replaces_a_server_supplied_value():
+    out = play.deny_audio_stream_copy("http://s/x?a=1&allowAudioStreamCopy=true&b=2")
+    assert out.count("allowAudioStreamCopy=") == 1
+    assert "allowAudioStreamCopy=false" in out
+
+
 def test_stream_index_param_parsing():
     # -1 is meaningful — it is how "no subtitle" is stated, as distinct from
     # omitting the parameter and letting the Jellyfin profile choose.
@@ -658,15 +671,27 @@ def test_forced_transcode_spends_the_bitrate_the_user_picked(resume_env, monkeyp
     assert "AudioBitrate=300000" in path
 
 
-def test_forced_transcode_keeps_the_audio_copy_available(resume_env, monkeypatch):
-    """Video only: the audio share is left to stand on its own, so audio that
-    fits the budget (this source's 224k inside a 300k share) can still be
-    copied."""
+def test_forced_transcode_denies_the_audio_stream_copy(resume_env, monkeypatch):
+    """Force transcode names the encode target and denies the audio copy so
+    StreamBuilder cannot pin E-AC3 then encode it."""
     _transcoding_source(resume_env, monkeypatch)
     run_play({"id": "ep1", "transcode": "1", "bitrate": "3"}, resume=False)
     path = resume_env["li"].path
     assert "enableAutoStreamCopy" not in path
+    assert "allowAudioStreamCopy=false" in path
+
+
+def test_force_remux_does_not_rewrite_or_deny_copy(resume_env, monkeypatch):
+    resume_env["addon"].store["forceRemux"] = "true"
+    resume_env["addon"].store["maxStreamingBitrate"] = "3"
+    _transcoding_source(resume_env, monkeypatch)
+    run_play({"id": "ep1"}, resume=False)
+    path = resume_env["li"].path
+    assert "allowVideoStreamCopy" not in path
     assert "allowAudioStreamCopy" not in path
+    # Server's own figures stand — remux does not split the cap onto the URL.
+    assert "VideoBitrate=2007688" in path
+    assert "AudioBitrate=224000" in path
 
 
 def test_uncapped_forced_transcode_leaves_the_server_to_size_it(

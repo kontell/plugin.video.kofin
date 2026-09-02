@@ -150,6 +150,46 @@ def test_force_remux_disables_video_direct_play():
     assert profile["DirectPlayProfiles"] == [{"Type": "Audio"}]
 
 
+def test_force_remux_is_hls_codec_copy():
+    """Remux lists every HLS-legal allowed codec, copies, and ignores the cap
+    so StreamBuilder cannot pin E-AC3 then refuse the copy."""
+    profile = build(ProfileConfig(force_remux=True, max_bitrate_mbps=3, max_channels=2))
+    assert profile["MaxStreamingBitrate"] == UNLIMITED_BITRATE
+    ts = next(tp for tp in profile["TranscodingProfiles"] if tp["Container"] == "ts")
+    assert "eac3" in ts["AudioCodec"]
+    assert ts["AudioCodec"].startswith("aac")
+    assert "MaxAudioChannels" not in ts
+    assert "Conditions" not in ts
+    assert "mpeg2video" not in ts["VideoCodec"]
+    assert "vp9" in ts["VideoCodec"]
+
+
+def test_force_transcode_names_the_encode_target_only():
+    profile = build(ProfileConfig(force_transcode=True, preferred_audio="aac"))
+    ts = next(tp for tp in profile["TranscodingProfiles"] if tp["Container"] == "ts")
+    assert ts["AudioCodec"] == "aac"
+    assert ts["MaxAudioChannels"] == "6"
+
+
+def test_force_transcode_wins_over_remux():
+    profile = build(
+        ProfileConfig(force_remux=True, force_transcode=True, max_bitrate_mbps=3)
+    )
+    assert profile["MaxStreamingBitrate"] == 3_000_000
+    ts = next(tp for tp in profile["TranscodingProfiles"] if tp["Container"] == "ts")
+    assert ts["AudioCodec"] == "aac"
+    assert "eac3" not in ts["AudioCodec"]
+
+
+def test_force_remux_opus_preferred_falls_back_on_ts():
+    profile = build(ProfileConfig(force_remux=True, preferred_audio="opus"))
+    ts = next(tp for tp in profile["TranscodingProfiles"] if tp["Container"] == "ts")
+    mp4 = next(tp for tp in profile["TranscodingProfiles"] if tp["Container"] == "mp4")
+    assert ts["AudioCodec"].startswith("aac")
+    assert "opus" not in ts["AudioCodec"]
+    assert mp4["AudioCodec"].startswith("opus")
+
+
 def test_video_force_settings_never_transcode_music():
     """forceRemux/forceTranscode describe the video pipe. Taking the audio
     DirectPlayProfile with them left the server no way to direct play a song:
@@ -395,10 +435,9 @@ def test_for_downloads_reads_the_downloads_settings(monkeypatch):
 
 # --- the P1.8 identity golden -------------------------------------------------
 #
-# build()/build_download() canonical-JSON digests captured on the *before*
-# build (5b3b3dc, pre-_envelope) over a matrix covering every leg. The
-# refactor must not move a byte; a digest that changes is a finding, not a
-# rename.
+# build()/build_download() canonical-JSON digests over a matrix covering
+# every leg. Digests for force-remux / force-transcode (and every
+# force_transcode=True call) moved with the remux-copy / encode-target split.
 
 GOLDEN_CONFIGS = {
     "defaults": {},
@@ -430,52 +469,52 @@ GOLDEN_CALLS = {
 GOLDEN = {
     ("defaults", "plain"): "c68216246e4c2b00",
     ("defaults", "override"): "25d7b4b1738c42ed",
-    ("defaults", "forced"): "37368a081f4a8076",
+    ("defaults", "forced"): "8e48c1fc0ea15dcf",
     ("defaults", "burn"): "4fd9d7ef77cbbe80",
     ("defaults", "download"): "af8f53d825e2ef92",
     ("capped", "plain"): "5ea0b39a9856a1b2",
     ("capped", "override"): "78fb533eb65c6de7",
-    ("capped", "forced"): "2f07a299b3b4a40e",
+    ("capped", "forced"): "2db0f498a903a169",
     ("capped", "burn"): "c6fc0468a6991820",
     ("capped", "download"): "084a14bde7d73f7b",
     ("force_direct", "plain"): "c6103b90d63a489d",
     ("force_direct", "override"): "c6103b90d63a489d",
-    ("force_direct", "forced"): "37368a081f4a8076",
+    ("force_direct", "forced"): "8e48c1fc0ea15dcf",
     ("force_direct", "burn"): "328a810c03abedd7",
     ("force_direct", "download"): "af8f53d825e2ef92",
-    ("force_remux", "plain"): "5eeef495c22c6d43",
-    ("force_remux", "override"): "fa5b5024e407dc55",
-    ("force_remux", "forced"): "37368a081f4a8076",
-    ("force_remux", "burn"): "3b0120cee7bb47a3",
+    ("force_remux", "plain"): "eaabefc560c4f0fe",
+    ("force_remux", "override"): "eaabefc560c4f0fe",
+    ("force_remux", "forced"): "8e48c1fc0ea15dcf",
+    ("force_remux", "burn"): "085eaa8ad6fbdc84",
     ("force_remux", "download"): "af8f53d825e2ef92",
-    ("force_transcode_cfg", "plain"): "5eeef495c22c6d43",
-    ("force_transcode_cfg", "override"): "fa5b5024e407dc55",
-    ("force_transcode_cfg", "forced"): "37368a081f4a8076",
-    ("force_transcode_cfg", "burn"): "3b0120cee7bb47a3",
+    ("force_transcode_cfg", "plain"): "715965c01bfa2f6a",
+    ("force_transcode_cfg", "override"): "5fab320905647b88",
+    ("force_transcode_cfg", "forced"): "8e48c1fc0ea15dcf",
+    ("force_transcode_cfg", "burn"): "652681c46f882a3f",
     ("force_transcode_cfg", "download"): "af8f53d825e2ef92",
     ("av1_preferred", "plain"): "eff9b6f63d1a8c0c",
     ("av1_preferred", "override"): "4f71d7470dac2d85",
-    ("av1_preferred", "forced"): "83484c59c3aacd99",
+    ("av1_preferred", "forced"): "defda24daa05304d",
     ("av1_preferred", "burn"): "64d4c26ff9bf45b5",
     ("av1_preferred", "download"): "5d5628f7d14110e1",
     ("no_av1", "plain"): "2bd2562cd93edd7f",
     ("no_av1", "override"): "7a13b4b7c9199087",
-    ("no_av1", "forced"): "3c7983fb854b73ee",
+    ("no_av1", "forced"): "0ad62b0e8048538d",
     ("no_av1", "burn"): "6df8c9584ec5ea25",
     ("no_av1", "download"): "cb581e8be95aa21b",
     ("hevc_only_rext", "plain"): "34fb9703d90322b6",
     ("hevc_only_rext", "override"): "1659626f78a6b602",
-    ("hevc_only_rext", "forced"): "75b8ba6c604b934a",
+    ("hevc_only_rext", "forced"): "b00d7e5ec3ce2d1e",
     ("hevc_only_rext", "burn"): "8e79239a9db8e482",
     ("hevc_only_rext", "download"): "01a96df055606043",
     ("audio_narrow", "plain"): "c41aa8ce1075d873",
     ("audio_narrow", "override"): "9ddcd8cb954ad11a",
-    ("audio_narrow", "forced"): "33dd0113d264844c",
+    ("audio_narrow", "forced"): "25c44ffcc02f0fff",
     ("audio_narrow", "burn"): "1ece55cf97aa243c",
     ("audio_narrow", "download"): "f3d092ee67b6f01a",
     ("music", "plain"): "716ca5c82c2175b9",
     ("music", "override"): "ca08694a64c08f39",
-    ("music", "forced"): "e9b1ff2ee8fc46bf",
+    ("music", "forced"): "f02ffacb35c03e18",
     ("music", "burn"): "f6892d429c665adc",
     ("music", "download"): "e2d895cada328016",
 }
