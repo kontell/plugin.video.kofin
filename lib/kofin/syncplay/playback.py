@@ -93,6 +93,7 @@ class PlaybackController(object):
         self.seek_lag_ms = SEEK_LAG_DEFAULT_MS
         self._live_seek_logged = False
         self._live_hold_ms = None  # a hold in progress: how long it was for
+        self._live_hold_seq = 0  # which hold; a superseded hold's timer resumes nothing
 
     # ------------------------------------------------------------------
     # Command scheduling (SYNCPLAY.md §5.1)
@@ -931,15 +932,24 @@ class PlaybackController(object):
         stream; fine sync trims what the pause and resume leave."""
         hold_ms = min(hold_ms, utils.LIVE_HOLD_MAX_S * 1000.0)
         self._live_hold_ms = hold_ms
+        self._live_hold_seq += 1
         self.tempo.cancel("hold")
         LOG.info(
             "[ syncplay/live ] %.1fs ahead of the group: holding for it",
             hold_ms / 1000.0,
         )
         self.ensure_paused()
-        utils.later(hold_ms / 1000.0, self.manager._post, self._live_resume)
+        utils.later(
+            hold_ms / 1000.0, self.manager._post, self._live_resume, self._live_hold_seq
+        )
 
-    def _live_resume(self):
+    def _live_resume(self, seq):
+        if seq != self._live_hold_seq:
+            # A later hold replaced this one (a second Unpause landed during
+            # the first hold on the rig, and the first timer cut the second
+            # hold short): only the newest hold's timer resumes.
+            return
+
         held = self._live_hold_ms
         self._live_hold_ms = None
 

@@ -1036,6 +1036,33 @@ class TestLiveClock:
         assert not player.paused
         assert controller._live_hold_ms is None
 
+    def test_a_superseded_hold_timer_resumes_nothing(self, tmp_path, monkeypatch):
+        controller, manager, player = make_controller(position=100.0)
+        player.clock_advances = False
+        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        controller._reference = (
+            EPOCH_MS + 100_000.0 + 42_000_000.0 - 120_000.0 - 8_000.0,
+            None,
+            True,
+        )
+        timers = []
+        monkeypatch.setattr(
+            playback_module.utils, "later", lambda s, f, *a: timers.append((s, f, a))
+        )
+
+        controller._align_after_resume()
+        # A second Unpause lands during the hold: the player resumes and the
+        # residual is measured again, starting a second hold.
+        player.pause()
+        controller._align_after_resume()
+        assert player.paused
+        assert len(timers) == 2
+
+        timers[0][1](*timers[0][2])  # the first hold's timer: stale
+        assert player.paused
+        timers[1][1](*timers[1][2])  # the second hold's timer
+        assert not player.paused
+
     def test_a_live_member_behind_is_left_to_fine_sync(self, tmp_path, monkeypatch):
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False
