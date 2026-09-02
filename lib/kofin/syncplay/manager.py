@@ -1121,6 +1121,7 @@ class SyncPlayManager(object):
             item_id
             and self.player.isPlaying()
             and (item_id == self._local_item_id() or held_match)
+            and not self._adopt_should_reload(provider, held_match)
         ):
             # We are already playing this exact item (e.g. the queue we
             # just proposed with SetNewQueue came back with a fresh
@@ -1147,6 +1148,41 @@ class SyncPlayManager(object):
             return
 
         self._start_item(item_id, playlist_item_id, provider)
+
+    def _adopt_should_reload(self, provider, held_match):
+        """Reload-for-tempo (the pvr sync plan, P1): trade the adopt for one
+        visible reload when it buys the member fine sync.
+
+        A foreign byte-stream play — a PVR recording is the living case —
+        can never carry a tempo route: no inputstream sits in its path, so
+        no stamp its owner could make would be true. When such a play is
+        adopted into a group with fine sync armed, the member is
+        command-only forever; reloading the same id through kofin's own
+        route at the group position gains the full pipeline instead. Only
+        for *foreign* claims resolved by the default provider: a kofin play
+        that lacks a tempo route (an audio item, a segmented stream on the
+        full queue) would lack it again after the reload, and a held start
+        is kofin's own pipeline already in flight.
+        """
+        if held_match or provider != JELLYFIN or not self.tempo_session.active:
+            return False
+
+        try:
+            if self.player.current_item():
+                return False  # kofin's own play; adopting keeps its route
+        except Exception:
+            return False
+
+        claim = self.foreign_claim
+
+        if claim is None or claim.get("Tempo") is not None:
+            return False
+
+        LOG.info(
+            "[ syncplay/reload ] adopting would keep a play with no tempo "
+            "route; reloading through the kofin route instead"
+        )
+        return True
 
     @staticmethod
     def _queue_entry(entry):
