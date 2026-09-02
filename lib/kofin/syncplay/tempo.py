@@ -106,6 +106,8 @@ SEEK_LAG_DEFAULT_MS = 500.0
 WINDOW_SAMPLES = 12
 # After a pulse ends (or any seek/resume): queue depth + this before measuring.
 SETTLE_EXTRA_S = 1.0
+# A live item logs its reading on the source clock this often (debug).
+LIVE_LOG_INTERVAL_S = 30.0
 # How long the add-on gets to confirm a write in its state file. Its poll is
 # 250 ms, but the poll runs in DemuxRead, which only runs as the queue drains.
 APPLY_TIMEOUT_S = 3.0
@@ -384,6 +386,7 @@ class PulseScheduler(object):
         self._live = False
         self._edge_pulses = 0
         self._apply_misses = 0
+        self._live_logged_at = 0.0
         self._lock = threading.RLock()
 
     # ------------------------------------------------------------------
@@ -523,7 +526,19 @@ class PulseScheduler(object):
             self._window = []
             return None
 
-        self._window.append(estimate - controller._position_ms())
+        position = controller._position_ms()
+        self._window.append(estimate - position)
+
+        if self._live and now - self._live_logged_at >= LIVE_LOG_INTERVAL_S:
+            # The ruler for a live gate: every member's reading on the one
+            # clock, against the group, at a cadence a log can be read at.
+            self._live_logged_at = now
+            LOG.debug(
+                "[ syncplay/live ] %.1fs on the source clock, %+.0fms off the group",
+                (position - utils.LIVE_PTS_EPOCH_S * 1000.0) / 1000.0,
+                estimate - position,
+            )
+
         del self._window[:-WINDOW_SAMPLES]
 
         if len(self._window) < WINDOW_SAMPLES:
