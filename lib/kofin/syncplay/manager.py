@@ -1080,6 +1080,11 @@ class SyncPlayManager(object):
         loading, then the 45s watchdog and a silent departure from the group. It
         also stalled every *healthy* member for 10-11s while the server waited on
         the one that would never report ready.
+
+        Only an update carrying the **same** ``LastUpdate`` may pass the dedup on
+        this: a strictly older one naming a different item is a stale delivery,
+        and letting it through would put the group back on a track it has left.
+        The dedup's whole job is that it never goes backwards.
         """
         playlist = data.get("Playlist") or []
         index = data.get("PlayingItemIndex", -1)
@@ -1101,7 +1106,9 @@ class SyncPlayManager(object):
             last_update is not None
             and self.queue_last_update is not None
             and last_update <= self.queue_last_update
-            and not self._queue_moves_item(data)
+            and not (
+                last_update == self.queue_last_update and self._queue_moves_item(data)
+            )
         ):
             LOG.debug("Ignoring play queue not newer than the applied one")
             return

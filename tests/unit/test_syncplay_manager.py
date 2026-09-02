@@ -352,7 +352,7 @@ class TestPlayQueue:
         """
         join(manager)
         started = []
-        manager._start_item = lambda i, p: started.append((i, p))
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
 
         first = make_queue(last_update=now_iso())
         manager._handle_group_update(first)
@@ -363,6 +363,26 @@ class TestPlayQueue:
         manager._handle_group_update(advance)
 
         assert started == [("item-1", "pl-1"), ("item-2", "pl-2")]
+
+    def test_an_older_update_never_moves_the_item(self, manager):
+        """Only a *same*-timestamp advance may pass the dedup. An update that is
+        strictly older and names another item is a stale delivery, and applying
+        it would put the group back on a track it has already left -- the one
+        thing the dedup exists to prevent.
+        """
+        join(manager)
+        started = []
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
+
+        first = make_queue(last_update="2026-08-31T12:00:10.000Z")
+        manager._handle_group_update(first)
+        older = make_queue(
+            items=(("item-0", "pl-0"),),
+            last_update="2026-08-31T12:00:00.000Z",
+        )
+        manager._handle_group_update(older)
+
+        assert started == [("item-1", "pl-1")]
 
     def test_tail_only_change_does_not_restart(self, manager):
         join(manager)
@@ -1850,8 +1870,8 @@ class TestLoadWatchdogGeneration:
         gives up if that does not recover it.
         """
         join(manager)
-        manager._api_raw = lambda kind, *a, **k: {"Id": "item-1", "Type": "Movie"}
-        manager.playback.play_item = lambda item, ticks: None
+        manager.providers = FakeProviders()
+        manager.playback.play_item = lambda target: None
 
         failures, asked = [], []
         manager._load_failed = lambda reason: failures.append(reason)
