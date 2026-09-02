@@ -161,6 +161,10 @@ LIVE_DELAY_S = 15.0
 # fine sync for the item — it can only wait for the feed.
 LIVE_EDGE_MOVE_FRACTION = 0.5
 LIVE_EDGE_PULSES = 2
+# A live demuxer at its edge polls the tempo file only as segments arrive,
+# so a pulse can miss the confirmation window without the route being wrong.
+# This many misses in a row are retried before the item goes command-only.
+LIVE_APPLY_MISSES = 2
 
 #################################################################################################
 

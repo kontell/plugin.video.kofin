@@ -163,8 +163,10 @@ class FakeAddonSide:
         self.applied = []
 
     def rate_written(self):
+        # The add-on reads the rate off the first line (ParseTempo) and takes
+        # the queue depth from the line after it.
         with open(self.file.path) as handle:
-            return float(handle.read().strip())
+            return float(handle.read().splitlines()[0])
 
     def answer(self, event="tempo", delta_ms=None):
         if delta_ms is not None:
@@ -191,6 +193,9 @@ class FakeAddonSide:
 
 
 def test_tempo_file_round_trip(tmp_path):
+    f = TempoFile(str(tmp_path / "tempo"), queue_secs=1.0)
+    f.write(1.03)
+    assert open(f.path).read() == "1.0300\nqueue_secs=1.00\n"
     f = TempoFile(str(tmp_path / "tempo"))
     f.write(1.03)
     assert open(f.path).read() == "1.0300\n"
@@ -978,6 +983,63 @@ class TestLive:
 
         assert scheduler._edge_pulses == 0
         assert not scheduler._gave_up
+
+    def test_a_live_pulse_that_misses_confirmation_is_retried(
+        self, live_rig, monkeypatch
+    ):
+        scheduler, controller, side = live_rig
+        fill_window(scheduler, controller, 500.0)
+        scheduler.tick()
+        assert scheduler._awaiting is not None
+        # Nobody answers within the window: an edge demuxer between segments.
+        late = scheduler._awaiting["deadline"] + 0.01
+        monkeypatch.setattr(tempo.time, "time", lambda: late)
+        scheduler.tick()
+
+        assert scheduler.file is not None  # still routed
+        assert side.rate_written() == 1.0
+        assert scheduler._apply_misses == 1
+
+        # The next attempt confirms: the miss count clears.
+        monkeypatch.setattr(tempo.time, "time", lambda: scheduler._settle_until + 0.01)
+        scheduler._window = []
+        start_pulse(scheduler, controller, side, 500.0)
+        assert scheduler._pulse is not None
+        assert scheduler._apply_misses == 0
+
+    def test_a_live_route_is_written_off_after_enough_misses(
+        self, live_rig, monkeypatch
+    ):
+        scheduler, controller, side = live_rig
+        for miss in range(utils.LIVE_APPLY_MISSES + 1):
+            scheduler._settle_until = 0.0
+            scheduler._window = []
+            fill_window(scheduler, controller, 500.0)
+            scheduler.tick()
+            assert scheduler._awaiting is not None
+            late = scheduler._awaiting["deadline"] + 0.01
+            monkeypatch.setattr(tempo.time, "time", lambda late=late: late)
+            scheduler.tick()
+
+        assert scheduler.file is None
+
+    def test_a_saturated_pulse_is_judged_by_what_it_could_deliver(
+        self, live_rig, monkeypatch
+    ):
+        scheduler, controller, side = live_rig
+        # 15 s behind: the pulse saturates at the ceiling for PULSE_MAX_S and
+        # can deliver 2.5 s of it. Delivering that is a faithful actuator,
+        # not a starved one, and not a 17 % gain.
+        start_pulse(scheduler, controller, side, 15000.0)
+        assert scheduler._pulse["rate"] == pytest.approx(1.0 + tempo.RATE_MAX_DEFAULT)
+        deliverable = tempo.RATE_MAX_DEFAULT * tempo.PULSE_MAX_S * 1000.0
+        finish_pulse(scheduler, side, monkeypatch, delta_ms=deliverable * 0.96)
+
+        assert scheduler._edge_pulses == 0
+        assert not scheduler._gave_up
+        assert scheduler._gain == pytest.approx(
+            (1.0 - tempo.GAIN_ALPHA) + tempo.GAIN_ALPHA * 0.96
+        )
 
     def test_a_pulse_back_is_never_starved(self, live_rig, monkeypatch):
         scheduler, controller, side = live_rig

@@ -265,11 +265,21 @@ def regrowth_ppm(residual_ms, elapsed_s):
 
 
 class TempoFile(object):
-    """The tempo file the add-on polls, and the state file it answers with."""
+    """The tempo file the add-on polls, and the state file it answers with.
 
-    def __init__(self, path):
+    The first line is the rate. A second line, ``queue_secs=<s>``, tells the
+    add-on the depth of Kodi's demux queue for this play, which is where it
+    reads the position it reports (the OSD, getTime()) relative to its head:
+    a stream whose properties did not carry ``queue_secs`` (a PVR add-on's
+    cannot know a setting a kofin session shortens) would otherwise report
+    a pulse's shift up to 8 s late. Add-ons before 22.4.6 / 21.4.6 read the
+    rate and ignore the rest.
+    """
+
+    def __init__(self, path, queue_secs=None):
         self.path = path
         self.state_path = path + ".state"
+        self.queue_secs = queue_secs
 
     def write(self, rate):
         """Replace the file atomically: the add-on may read at any instant."""
@@ -277,6 +287,9 @@ class TempoFile(object):
 
         with open(tmp, "w") as handle:
             handle.write("%.4f\n" % rate)
+
+            if self.queue_secs:
+                handle.write("queue_secs=%.2f\n" % self.queue_secs)
 
         os.replace(tmp, self.path)
 
@@ -362,6 +375,7 @@ class PulseScheduler(object):
         # pulse the feed cannot supply ends fine sync (the live edge).
         self._live = False
         self._edge_pulses = 0
+        self._apply_misses = 0
         self._lock = threading.RLock()
 
     # ------------------------------------------------------------------
@@ -378,6 +392,7 @@ class PulseScheduler(object):
         self._gave_up = False
         self._live = utils.claim_is_live(claim)
         self._edge_pulses = 0
+        self._apply_misses = 0
         # The gain is deliberately NOT reset here. It is a property of the
         # transport, not of the item, and a transcode re-arms on every reload
         # — which a group seek forces, since the stream restarts with a new
@@ -402,8 +417,8 @@ class PulseScheduler(object):
 
             return
 
-        self.file = TempoFile(path)
         self.queue_secs = float(route.get("QueueSecs") or OMEGA_QUEUE_SECS)
+        self.file = TempoFile(path, queue_secs=self.queue_secs)
         self.budget_ms = float(
             settings.get_int("syncPlayPulseBudget") or BUDGET_DEFAULT_MS
         )
@@ -603,8 +618,24 @@ class PulseScheduler(object):
         if applied is None:
             # Nothing answered: the playback is not going through the add-on
             # after all (or it is wedged). Either way do not leave a rate on
-            # the file, and stop treating the item as routed.
+            # the file, and stop treating the item as routed — except a live
+            # item at its edge, whose demuxer polls only as segments arrive:
+            # that one gets a few more tries before it is written off.
             tempo_file.write(1.0)
+
+            if self._live and self._apply_misses < utils.LIVE_APPLY_MISSES:
+                self._apply_misses += 1
+                self._settle_until = now + self.queue_secs + SETTLE_EXTRA_S
+                LOG.warning(
+                    "[ syncplay/pulse ] %.3fx not applied within %.0fs; "
+                    "live item, retrying (%d of %d)",
+                    waiting["rate"],
+                    APPLY_TIMEOUT_S,
+                    self._apply_misses,
+                    utils.LIVE_APPLY_MISSES,
+                )
+                return
+
             LOG.warning(
                 "[ syncplay/pulse ] %.3fx not applied within %.0fs; "
                 "command-only sync for this item",
@@ -613,6 +644,8 @@ class PulseScheduler(object):
             )
             self.file = None
             return
+
+        self._apply_misses = 0
 
         LOG.info(
             "[ syncplay/pulse ] %+.0fms: %.3fx for %.1fs%s (applied after %.0fms)",
@@ -711,7 +744,7 @@ class PulseScheduler(object):
         if not self._live or pulse["rate"] <= 1.0:
             return False
 
-        asked = abs(pulse.get("ask_ms") or pulse["residual"])
+        asked = abs(self._asked_ms(pulse))
         return (
             asked >= GAIN_MIN_ASK_MS and moved < utils.LIVE_EDGE_MOVE_FRACTION * asked
         )
@@ -724,16 +757,34 @@ class PulseScheduler(object):
             self._edge_pulses,
         )
 
+    @staticmethod
+    def _deliverable_ms(pulse):
+        """What the pulse could move at most: its rate over its length. A
+        saturated pulse (the rate ceiling for PULSE_MAX_S) asks for the whole
+        residual and delivers this much of it — the measure a saturated
+        pulse's outcome is judged against."""
+        return (pulse["rate"] - 1.0) * pulse["seconds"] * 1000.0
+
+    def _asked_ms(self, pulse):
+        asked = pulse.get("ask_ms") or pulse["residual"]
+        deliverable = self._deliverable_ms(pulse)
+
+        if abs(deliverable) < abs(asked):
+            return deliverable
+
+        return asked
+
     def _learn_gain(self, pulse, moved):
         """Fold one pulse's outcome into the actuation gain.
 
         Compared against what the actuator was *asked* for, not against the
         residual — those differ once the gain is off 1, and comparing with the
-        residual would make the correction chase its own tail. Small asks are
-        skipped: at 80ms the confirmation quantisation is a large fraction of
-        the measurement.
+        residual would make the correction chase its own tail — and capped at
+        what the pulse could deliver, or a saturated pulse would read as a
+        weak actuator. Small asks are skipped: at 80ms the confirmation
+        quantisation is a large fraction of the measurement.
         """
-        asked = pulse.get("ask_ms") or pulse["residual"]
+        asked = self._asked_ms(pulse)
 
         if abs(asked) < GAIN_MIN_ASK_MS or moved * asked <= 0:
             return
