@@ -825,7 +825,7 @@ class SyncPlayManager(object):
         self.player.syncplay_group_active = True
 
         if self.timesync is None:
-            self.timesync = TimeSync(self)
+            self.timesync = TimeSync(self, verify_ssl=settings.get_bool("sslVerify"))
             self.timesync.start()
         else:
             self.timesync.force_update()
@@ -1065,10 +1065,11 @@ class SyncPlayManager(object):
     def _apply_play_queue(self, data):
         last_update = utils.parse_iso_ms(data.get("LastUpdate"))
 
+        # LastUpdate timestamps queue contents, not the playing item.
         if (
             last_update is not None
             and self.queue_last_update is not None
-            and last_update <= self.queue_last_update
+            and last_update < self.queue_last_update
         ):
             LOG.debug("Ignoring play queue not newer than the applied one")
             return
@@ -1132,6 +1133,7 @@ class SyncPlayManager(object):
             # matches on the id we proposed, since the play pipeline may
             # not have claimed the new item yet.
             LOG.info("Adopting queue identity for the playing item")
+            self._hold_done("adopted")
             self._hold = None
             self.current_item_id = item_id
             self.current_playlist_item_id = playlist_item_id
@@ -1304,6 +1306,7 @@ class SyncPlayManager(object):
 
     def _detach_playback(self, stop_media=False):
         was_active = self.phase != Phase.IDLE
+        self._hold_done("detached")
         self._hold = None
         self.current_item_id = None
         self.current_playlist_item_id = None
@@ -1368,7 +1371,12 @@ class SyncPlayManager(object):
                 "transition": self.phase == Phase.SYNCED,
                 "proposed": False,
                 "item_id": None,
+                "at": utils.local_ms(),
             }
+            LOG.info(
+                "[ syncplay/hold ] entered (%s)",
+                "transition" if hold["transition"] else "fresh start",
+            )
             self._hold = hold
             self.playback.ensure_paused()
             self._watch_hold(hold)
@@ -1442,6 +1450,7 @@ class SyncPlayManager(object):
 
     def on_stopped(self):
         self.foreign_claim = None  # claims are playback-scoped
+        self._hold_done("stopped")
         self._hold = None  # whatever was held is gone
 
         if not self.in_group() or self.is_programmatic():
@@ -1458,6 +1467,7 @@ class SyncPlayManager(object):
 
     def on_ended(self):
         self.foreign_claim = None  # claims are playback-scoped
+        self._hold_done("ended")
         self._hold = None
 
         if not self.in_group() or self.is_programmatic():
@@ -1708,10 +1718,28 @@ class SyncPlayManager(object):
 
         utils.later(utils.HOLD_RELEASE_TIMEOUT, self._post, check)
 
+    def _hold_done(self, reason):
+        """How long a boundary hold lasted, and what ended it.
+
+        The controller's own view of the silence at a track change: §6.1's
+        capture times the audio from outside, this says why it was held. On a
+        three-minute track this is paid every three minutes, so it is the number
+        docs/syncplay-music-shakedown.md exists to shrink.
+        """
+        hold = self._hold
+        if hold is None or not hold.get("at"):
+            return
+        LOG.info(
+            "[ syncplay/hold ] released after %.0f ms (%s)",
+            utils.local_ms() - hold["at"],
+            reason,
+        )
+
     def _release_hold(self):
         if self._hold is None:
             return
 
+        self._hold_done("released")
         self._hold = None
         self.playback.ensure_playing()
 

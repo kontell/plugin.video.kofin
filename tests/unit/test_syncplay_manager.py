@@ -320,6 +320,20 @@ class TestCommandGating:
 
 
 class TestPlayQueue:
+    @staticmethod
+    def _claiming_start(manager, started):
+        """Production _start_item writes the playing-item identity before
+        play_item; queue tests that stub it have to do the same or the
+        same-item return never fires."""
+
+        def fake_start(item_id, playlist_item_id, provider="jellyfin"):
+            started.append((item_id, playlist_item_id))
+            manager.current_item_id = item_id
+            manager.current_playlist_item_id = playlist_item_id
+            manager.phase = "synced"
+
+        manager._start_item = fake_start
+
     def test_queue_starts_item(self, manager):
         join(manager)
         started = []
@@ -332,16 +346,53 @@ class TestPlayQueue:
     def test_stale_last_update_ignored(self, manager):
         join(manager)
         started = []
-        manager._start_item = lambda i, p, prov=None: started.append((i, p))
+        self._claiming_start(manager, started)
 
         first = make_queue(last_update=now_iso())
         manager._handle_group_update(first)
-        # Identical LastUpdate (e.g. a redelivered update)
-        second = make_queue(
+        # A genuine redelivery: same queue, same playing item, same LastUpdate.
+        second = make_queue(last_update=first["Data"]["LastUpdate"])
+        manager._handle_group_update(second)
+
+        assert started == [("item-1", "pl-1")]
+
+    def test_stale_last_update_still_applies_an_item_advance(self, manager):
+        """A NextItem advance carries the *same* LastUpdate as the update before
+        it -- LastUpdate timestamps the queue, and advancing does not change the
+        queue's contents. Dropping it as stale left the member with no item to
+        load: measured three times on 2026-08-31, each time followed by an
+        Unpause deferred to a ready flow that never ran, the 45s watchdog, and a
+        silent departure that also stalled every healthy member for 10-11s.
+        """
+        join(manager)
+        started = []
+        self._claiming_start(manager, started)
+
+        first = make_queue(last_update=now_iso())
+        manager._handle_group_update(first)
+        advance = make_queue(
             items=(("item-2", "pl-2"),),
             last_update=first["Data"]["LastUpdate"],
         )
-        manager._handle_group_update(second)
+        manager._handle_group_update(advance)
+
+        assert started == [("item-1", "pl-1"), ("item-2", "pl-2")]
+
+    def test_an_older_update_never_moves_the_item(self, manager):
+        """A strictly older update is a stale delivery. LastUpdate is the
+        queue version, so equality is not stale -- but going backwards is.
+        """
+        join(manager)
+        started = []
+        self._claiming_start(manager, started)
+
+        first = make_queue(last_update="2026-08-31T12:00:10.000Z")
+        manager._handle_group_update(first)
+        older = make_queue(
+            items=(("item-0", "pl-0"),),
+            last_update="2026-08-31T12:00:00.000Z",
+        )
+        manager._handle_group_update(older)
 
         assert started == [("item-1", "pl-1")]
 
@@ -440,11 +491,10 @@ class TestSnapshot:
     def test_snapshot_idempotent(self, manager):
         join(manager)
         started = []
-        manager._start_item = lambda i, p, prov=None: started.append((i, p))
+        TestPlayQueue._claiming_start(manager, started)
 
         snap = self.snapshot()
         manager._handle_group_update(snap)
-        manager.phase = "synced"
         manager._handle_group_update(snap)  # replay
 
         assert started == [("item-1", "pl-1")]

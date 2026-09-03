@@ -5,6 +5,7 @@ is the service's business.
 """
 
 import json
+import ssl
 import threading
 import time
 from typing import Any, Callable, Dict, Optional
@@ -36,6 +37,17 @@ def socket_url(server_address: str) -> str:
     return server_address.replace("http://", "ws://", 1) + "/socket"
 
 
+def sslopt(verify: bool) -> Dict[str, Any]:
+    """websocket-client options for a ``wss://`` connect.
+
+    1.6.4 injects CERT_REQUIRED when sslopt is omitted, so a self-signed
+    server with sslVerify off listed fine and the socket never came up.
+    """
+    if verify:
+        return {"cert_reqs": ssl.CERT_REQUIRED, "check_hostname": True}
+    return {"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
+
+
 class WSClient(threading.Thread):
     def __init__(
         self,
@@ -44,6 +56,7 @@ class WSClient(threading.Thread):
         on_event: EventCallback,
         on_connected: ConnectedCallback,
         on_disconnected: Optional[ConnectedCallback] = None,
+        verify_ssl: bool = True,
     ) -> None:
         super().__init__(name="kofin-ws")
         self._url = socket_url(server_address)
@@ -51,6 +64,7 @@ class WSClient(threading.Thread):
         self._on_event = on_event
         self._on_connected = on_connected
         self._on_disconnected = on_disconnected
+        self._verify_ssl = verify_ssl
         self._stop = False
         # Whether the socket is currently up: run_forever returns on every
         # failure and the run loop retries, so the flag is what turns that
@@ -97,7 +111,10 @@ class WSClient(threading.Thread):
             # and half-open detection is app-level: half_open() recycles the
             # socket when the server's KeepAlive echoes stop arriving.
             try:
-                self._app.run_forever(ping_interval=10)
+                kwargs: Dict[str, Any] = {"ping_interval": 10}
+                if self._url.startswith("wss://"):
+                    kwargs["sslopt"] = sslopt(self._verify_ssl)
+                self._app.run_forever(**kwargs)
             except Exception:
                 # One attempt's worth of failure, never the thread's life.
                 # Reconnection is this loop's job and it cannot do it from

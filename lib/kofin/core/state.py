@@ -197,8 +197,12 @@ def push_play_item(item: Dict[str, Any]) -> None:
         name = "%019d-%s.json" % (time.time_ns(), uuid.uuid4().hex[:8])
         target = os.path.join(directory, name)
         temporary = target + ".tmp"
-        with open(temporary, "w") as handle:
+        # Transcoding URLs carry api_key=; same owner-only mode as the IPC
+        # nonce, so a copied addon_data tree does not leak the token.
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "w") as handle:
             json.dump(item, handle)
+        os.chmod(temporary, 0o600)
         os.replace(temporary, target)
     except OSError:
         # A queue that cannot be written costs this playback its reporting,

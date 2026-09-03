@@ -742,6 +742,7 @@ class Service(xbmc.Monitor):
             on_event=self._on_ws_event,
             on_connected=self._on_ws_connected,
             on_disconnected=self._on_ws_disconnected,
+            verify_ssl=settings.get_bool("sslVerify"),
         )
         self.ws.start()
 

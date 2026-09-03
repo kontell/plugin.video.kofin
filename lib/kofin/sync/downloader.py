@@ -350,6 +350,19 @@ def get_id_etag_map(api, parent_id, item_types):
                 EnableTotalRecordCount=(total is None),
             ),
         )
+        # A 200 with no body decodes as {} (Api._json's empty default). That
+        # is not an empty library — those answer Items=[] and
+        # TotalRecordCount=0 — and treating it as one hands every local id
+        # to the prune as stale. Refuse the shapeless body before paging.
+        if (
+            total is None
+            and start == 0
+            and "Items" not in page
+            and "TotalRecordCount" not in page
+        ):
+            raise LibraryException(
+                "prune map for %s got an empty body — refusing to diff" % parent_id
+            )
         items = page.get("Items") or []
 
         if total is None:
@@ -459,6 +472,13 @@ def get_existing_ids(api, item_ids):
                 "EnableTotalRecordCount": False,
             }
         )
+        # Items=[] is "none of these exist" and is a deletion order. A
+        # shapeless {} is the empty-body default and is not a confirmation
+        # at all — the invariant above is that unverified ids stay.
+        if "Items" not in result:
+            raise LibraryException(
+                "stale confirmation did not return Items — refusing to delete"
+            )
 
         for item in result.get("Items") or []:
             if item.get("Id"):

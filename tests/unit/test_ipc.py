@@ -197,7 +197,7 @@ def test_decode_never_raises_on_rubbish():
     assert ipc.decode('[{"Id": "lib1"}]') == {"Id": "lib1"}
 
 
-def test_download_commands_are_guarded():
+def test_download_commands_are_guarded(nonce_file):
     """REMOVE deletes files, ADD pulls gigabytes on someone else's say-so,
     CANCEL wastes work, REMOVE_ALL empties the lot — every one of them
     carries the shared secret."""
@@ -208,4 +208,7 @@ def test_download_commands_are_guarded():
         ipc.DOWNLOAD_CANCEL,
         ipc.DOWNLOAD_REMOVE,
         ipc.DOWNLOAD_REMOVE_ALL,
+        ipc.ATTACH_SUBTITLE,
     } <= ipc.GUARDED
+    secret = ipc.rotate_nonce()
+    assert ipc.verify(ipc.ATTACH_SUBTITLE, {}, secret) is False
