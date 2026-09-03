@@ -267,32 +267,12 @@ def resume_player() -> bool:
     return True
 
 
-def resume_seconds(kodi_id: int, media: str) -> Optional[float]:
-    """Kodi's stored resume position for a library row.
-
-    0.0 when the row has no bookmark — which is an answer, not a failure, and
-    the callers rely on telling the two apart. None only when the row cannot
-    be read at all.
-    """
-    query = RESUME_QUERY.get(media)
-    if query is None:
-        return None
-    method, id_field, result_field = query
-    result = call(method, {id_field: kodi_id, "properties": ["resume"]})
-    try:
-        return float(result[result_field]["resume"]["position"])
-    except Exception as error:
-        LOG.debug("resume read failed for %s/%s: %s", media, kodi_id, error)
-        return None
-
-
 def resume_point(kodi_id: int, media: str) -> Optional[Tuple[float, float]]:
     """Kodi's stored ``(position, total)`` for a library row, or None.
 
-    The same read as :func:`resume_seconds`, keeping the total the resume
-    object carries beside the position: a resolved plugin item needs both to
-    stamp a resume point, and offline this is the only place either number
-    exists (the server's UserData is what is unreachable).
+    Position 0.0 is an answer, not a failure — the row has no bookmark.
+    None only when the row cannot be read at all. Total is 0.0 when the
+    payload omits it, so a resolved item still refuses to stamp.
     """
     query = RESUME_QUERY.get(media)
     if query is None:
@@ -301,10 +281,21 @@ def resume_point(kodi_id: int, media: str) -> Optional[Tuple[float, float]]:
     result = call(method, {id_field: kodi_id, "properties": ["resume"]})
     try:
         resume = result[result_field]["resume"]
-        return float(resume["position"]), float(resume["total"])
+        return float(resume["position"]), float(resume.get("total") or 0)
     except Exception as error:
         LOG.debug("resume read failed for %s/%s: %s", media, kodi_id, error)
         return None
+
+
+def resume_seconds(kodi_id: int, media: str) -> Optional[float]:
+    """Kodi's stored resume position for a library row.
+
+    0.0 when the row has no bookmark — which is an answer, not a failure, and
+    the callers rely on telling the two apart. None only when the row cannot
+    be read at all.
+    """
+    point = resume_point(kodi_id, media)
+    return None if point is None else point[0]
 
 
 def preferred_subtitle_language() -> str:

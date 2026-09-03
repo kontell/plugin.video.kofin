@@ -636,21 +636,10 @@ def _get_items(api, query, limit=50, threads=3, should_stop=raise_if_stopping):
                 # release the semaphore again
                 thread_buffer.release()
 
-            # Every page offset is computed up front by stepping ``limit``, so
-            # a short page mid-walk is not re-asked: the records it did not
-            # carry are simply never handed out. The walk still looks
-            # successful, and a consumer that treats it as the server's whole
-            # answer deletes what is missing -- boxsets.sweep_stale floors only
-            # on an entirely empty walk, so a gap takes real set rows.
-            # get_id_etag_map answers the same asymmetry by advancing on
-            # len(items) and raising when it ends short; this pager cannot
-            # re-ask (the offsets are already submitted), so it checks the
-            # total it delivered instead. Raising abandons this library for
-            # the pass and leaves it pending, which costs one retry where
-            # guessing costs rows. A library that shrinks mid-walk trips this
-            # benignly, exactly as it does in get_id_etag_map.
-            # Against what *this* walk was asked for: a resume starts partway
-            # through the library, so the count alone is not the expectation.
+            # Offsets are precomputed, so a short page is a gap, and a gap
+            # is not a complete walk -- raise rather than hand it to a
+            # destructive consumer. Relative to StartIndex: a resume is
+            # not a truncated library.
             expected = max(total - params["StartIndex"], 0)
             if delivered < expected:
                 raise LibraryException(
