@@ -320,6 +320,20 @@ class TestCommandGating:
 
 
 class TestPlayQueue:
+    @staticmethod
+    def _claiming_start(manager, started):
+        """Production _start_item writes the playing-item identity before
+        play_item; queue tests that stub it have to do the same or the
+        same-item return never fires."""
+
+        def fake_start(item_id, playlist_item_id, provider="jellyfin"):
+            started.append((item_id, playlist_item_id))
+            manager.current_item_id = item_id
+            manager.current_playlist_item_id = playlist_item_id
+            manager.phase = "synced"
+
+        manager._start_item = fake_start
+
     def test_queue_starts_item(self, manager):
         join(manager)
         started = []
@@ -332,7 +346,7 @@ class TestPlayQueue:
     def test_stale_last_update_ignored(self, manager):
         join(manager)
         started = []
-        manager._start_item = lambda i, p, prov=None: started.append((i, p))
+        self._claiming_start(manager, started)
 
         first = make_queue(last_update=now_iso())
         manager._handle_group_update(first)
@@ -352,7 +366,7 @@ class TestPlayQueue:
         """
         join(manager)
         started = []
-        manager._start_item = lambda i, p, prov=None: started.append((i, p))
+        self._claiming_start(manager, started)
 
         first = make_queue(last_update=now_iso())
         manager._handle_group_update(first)
@@ -365,14 +379,12 @@ class TestPlayQueue:
         assert started == [("item-1", "pl-1"), ("item-2", "pl-2")]
 
     def test_an_older_update_never_moves_the_item(self, manager):
-        """Only a *same*-timestamp advance may pass the dedup. An update that is
-        strictly older and names another item is a stale delivery, and applying
-        it would put the group back on a track it has already left -- the one
-        thing the dedup exists to prevent.
+        """A strictly older update is a stale delivery. LastUpdate is the
+        queue version, so equality is not stale -- but going backwards is.
         """
         join(manager)
         started = []
-        manager._start_item = lambda i, p, prov=None: started.append((i, p))
+        self._claiming_start(manager, started)
 
         first = make_queue(last_update="2026-08-31T12:00:10.000Z")
         manager._handle_group_update(first)
@@ -479,11 +491,10 @@ class TestSnapshot:
     def test_snapshot_idempotent(self, manager):
         join(manager)
         started = []
-        manager._start_item = lambda i, p, prov=None: started.append((i, p))
+        TestPlayQueue._claiming_start(manager, started)
 
         snap = self.snapshot()
         manager._handle_group_update(snap)
-        manager.phase = "synced"
         manager._handle_group_update(snap)  # replay
 
         assert started == [("item-1", "pl-1")]
@@ -1833,57 +1844,6 @@ class TestLoadWatchdogGeneration:
 
         assert failures == [], "a superseded load's watchdog killed a healthy reload"
 
-    @staticmethod
-    def _fire(call):
-        """Run a scheduled callback, handing back whatever it schedules in turn."""
-        armed = []
-
-        class FakeTimer:
-            def __init__(self, delay, func, args=()):
-                armed.append((func, args))
-
-            def start(self):
-                pass
-
-            @property
-            def daemon(self):
-                return True
-
-            @daemon.setter
-            def daemon(self, v):
-                pass
-
-        real = manager_module.threading.Timer
-        manager_module.threading.Timer = FakeTimer
-        try:
-            func, args = call
-            func(*args)
-        finally:
-            manager_module.threading.Timer = real
-        return armed[-1] if armed else None
-
-    def test_the_current_load_s_watchdog_asks_for_a_snapshot_first(self, manager):
-        """A member must not abandon the group over one dropped queue update.
-
-        The 45s watchdog now requests a snapshot -- GroupJoined + PlayQueue, which
-        is exactly the state a member in this position is missing -- and only
-        gives up if that does not recover it.
-        """
-        join(manager)
-        manager.providers = FakeProviders()
-        manager.playback.play_item = lambda target: None
-
-        failures, asked = [], []
-        manager._load_failed = lambda reason: failures.append(reason)
-
-        armed = self._arm(manager)
-        manager._api_raw = lambda kind, *a, **k: asked.append(kind)
-        second = self._fire(armed)
-
-        assert asked == ["syncplay_snapshot"]
-        assert failures == [], "gave up before the snapshot could recover it"
-        assert second is not None, "no second check was scheduled"
-
     def test_the_current_load_s_watchdog_still_fires(self, manager):
         join(manager)
         manager.providers = FakeProviders()
@@ -1892,17 +1852,12 @@ class TestLoadWatchdogGeneration:
         failures = []
         manager._load_failed = lambda reason: failures.append(reason)
 
-        armed = self._arm(manager)
-        manager._api_raw = lambda kind, *a, **k: None
-        second = self._fire(armed)
-        # The snapshot did not help: the phase never left loading.
-        func, args = second
+        func, args = self._arm(manager)
         func(*args)
 
         # Nothing superseded it and the phase never left loading: this one is
         # genuinely stuck, and the watchdog is the only thing that notices.
-        assert len(failures) == 1
-        assert "did not recover" in failures[0]
+        assert failures == ["no playback within 45s"]
 
 
 # ---------------------------------------------------------------------------

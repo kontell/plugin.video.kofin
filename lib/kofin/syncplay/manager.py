@@ -124,8 +124,6 @@ class SyncPlayManager(object):
         # marks a native playlist advance (starts at 0); otherwise the
         # start position is read from the player once it settles.
         self._hold: Optional[Dict[str, Any]] = None
-        # The PlaylistItemId of the last queue update we applied.
-        self._applied_playing_item: Optional[str] = None
 
         self._prog_depth = 0
         self._prog_release = 0.0
@@ -827,7 +825,7 @@ class SyncPlayManager(object):
         self.player.syncplay_group_active = True
 
         if self.timesync is None:
-            self.timesync = TimeSync(self)
+            self.timesync = TimeSync(self, verify_ssl=settings.get_bool("sslVerify"))
             self.timesync.start()
         else:
             self.timesync.force_update()
@@ -881,7 +879,6 @@ class SyncPlayManager(object):
         self.current_provider = JELLYFIN
         self.phase = Phase.IDLE
         self.ignore_wait = False
-        self._applied_playing_item = None
         self._join_pending_since = 0.0
         self.player.syncplay_group_active = False
         self._release_hold()
@@ -1065,50 +1062,14 @@ class SyncPlayManager(object):
     # Queue mirror (SYNCPLAY.md §5.3, report §9.5.1)
     # ------------------------------------------------------------------
 
-    def _queue_moves_item(self, data):
-        """Whether this update puts the group on a different item than we hold.
-
-        ``LastUpdate`` timestamps the *queue*, not the playing position. A
-        ``NextItem`` advance leaves the queue's contents untouched, so it arrives
-        carrying the **same** ``LastUpdate`` as the update before it — and the
-        version dedup below then discards it along with its new
-        ``PlayingItemIndex``, leaving the member with nothing to load.
-
-        Measured three times on 2026-08-31 (the Tab once, PIERS twice), always the
-        same sequence: ``Ignoring play queue not newer than the applied one`` at a
-        track boundary, an ``Unpause`` deferred to a ready flow with nothing
-        loading, then the 45s watchdog and a silent departure from the group. It
-        also stalled every *healthy* member for 10-11s while the server waited on
-        the one that would never report ready.
-
-        Only an update carrying the **same** ``LastUpdate`` may pass the dedup on
-        this: a strictly older one naming a different item is a stale delivery,
-        and letting it through would put the group back on a track it has left.
-        The dedup's whole job is that it never goes backwards.
-        """
-        playlist = data.get("Playlist") or []
-        index = data.get("PlayingItemIndex", -1)
-
-        if index is None or index < 0 or index >= len(playlist):
-            return False
-
-        # Compared against what the *queue* last applied, not against
-        # current_playlist_item_id: that one is only set once the play pipeline
-        # has claimed the item, so while a load is in flight it still names the
-        # previous track (or nothing at all on the first update), and a redelivery
-        # would look like an advance.
-        return playlist[index].get("PlaylistItemId") != self._applied_playing_item
-
     def _apply_play_queue(self, data):
         last_update = utils.parse_iso_ms(data.get("LastUpdate"))
 
+        # LastUpdate timestamps queue contents, not the playing item.
         if (
             last_update is not None
             and self.queue_last_update is not None
-            and last_update <= self.queue_last_update
-            and not (
-                last_update == self.queue_last_update and self._queue_moves_item(data)
-            )
+            and last_update < self.queue_last_update
         ):
             LOG.debug("Ignoring play queue not newer than the applied one")
             return
@@ -1128,12 +1089,10 @@ class SyncPlayManager(object):
         )
 
         if index is None or index < 0 or index >= len(self.queue):
-            self._applied_playing_item = None
             self._detach_playback(stop_media=True)
             return
 
         item_id, playlist_item_id, provider = self.queue[index]
-        self._applied_playing_item = playlist_item_id
 
         if (
             playlist_item_id == self.current_playlist_item_id
@@ -1327,31 +1286,9 @@ class SyncPlayManager(object):
         self._load_generation += 1
         generation = self._load_generation
 
-        def check(retry=True):
-            if not (
-                self.phase == Phase.LOADING and self._load_generation == generation
-            ):
-                return
-
-            if retry:
-                # Still LOADING with nothing playing usually means the item we
-                # were told to load never arrived (see _queue_moves_item). A
-                # snapshot re-delivers GroupJoined + PlayQueue, which is exactly
-                # the state we are missing -- so ask once before abandoning the
-                # group, rather than leaving over a single dropped update.
-                LOG.warning(
-                    "still loading after 45s; requesting a group snapshot "
-                    "before giving up"
-                )
-                try:
-                    self._api_raw("syncplay_snapshot")
-                except Exception as error:
-                    LOG.warning("snapshot request failed: %s", error)
-
-                utils.later(15, self._post, lambda: check(False))
-                return
-
-            self._load_failed("no playback within 60s; the snapshot did not recover it")
+        def check():
+            if self.phase == Phase.LOADING and self._load_generation == generation:
+                self._load_failed("no playback within 45s")
 
         utils.later(45, self._post, check)
         self.publish_session_state()

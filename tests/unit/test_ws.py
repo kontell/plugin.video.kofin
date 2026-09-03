@@ -8,7 +8,7 @@ own and calls back repeatedly while a server stays down.
 
 import pytest
 
-from kofin.core.ws import WSClient, socket_url
+from kofin.core.ws import WSClient, socket_url, sslopt
 
 
 @pytest.fixture
@@ -48,6 +48,17 @@ def test_importing_the_client_does_not_poison_numpy():
 def test_socket_url_follows_the_scheme():
     assert socket_url("http://server:8096") == "ws://server:8096/socket"
     assert socket_url("https://server:8096") == "wss://server:8096/socket"
+
+
+def test_sslopt_matches_the_verify_flag():
+    import ssl
+
+    required = sslopt(True)
+    assert required["cert_reqs"] == ssl.CERT_REQUIRED
+    assert required["check_hostname"] is True
+    none = sslopt(False)
+    assert none["cert_reqs"] == ssl.CERT_NONE
+    assert none["check_hostname"] is False
 
 
 def test_open_then_close_is_one_edge_each(client):

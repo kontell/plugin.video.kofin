@@ -12,15 +12,14 @@ connection, which also stamps t3 right at ``recv()`` with no notification bus
 in the path."""
 
 import json
-import ssl
 import threading
 from collections import deque
 from typing import Any, Dict
 
 import websocket
 
-from kofin.core import settings
 from kofin.core.log import Logger
+from kofin.core.ws import sslopt
 from kofin.syncplay import utils
 
 #################################################################################################
@@ -42,10 +41,11 @@ class TimeSync(threading.Thread):
     the local clock to the server's.
     """
 
-    def __init__(self, manager):
+    def __init__(self, manager, verify_ssl=True):
         threading.Thread.__init__(self, name="kofin-syncplay-timesync")
         self.daemon = True
         self.manager = manager
+        self._verify_ssl = verify_ssl
         self.samples = deque(maxlen=utils.TIMESYNC_WINDOW)  # type: deque
         self.offset_ms = 0.0
         self.rtt_ms = None
@@ -156,11 +156,7 @@ class TimeSync(threading.Thread):
                 "header": {"Authorization": authorization},
             }
             if url.startswith("wss://"):
-                kwargs["sslopt"] = (
-                    {"cert_reqs": ssl.CERT_REQUIRED, "check_hostname": True}
-                    if settings.get_bool("sslVerify")
-                    else {"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
-                )
+                kwargs["sslopt"] = sslopt(self._verify_ssl)
             self._ws = websocket.create_connection(url, **kwargs)
         except Exception as error:
             LOG.debug("Time-sync socket connect failed: %s", error)

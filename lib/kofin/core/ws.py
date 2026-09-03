@@ -37,6 +37,17 @@ def socket_url(server_address: str) -> str:
     return server_address.replace("http://", "ws://", 1) + "/socket"
 
 
+def sslopt(verify: bool) -> Dict[str, Any]:
+    """websocket-client options for a ``wss://`` connect.
+
+    1.6.4 injects CERT_REQUIRED when sslopt is omitted, so a self-signed
+    server with sslVerify off listed fine and the socket never came up.
+    """
+    if verify:
+        return {"cert_reqs": ssl.CERT_REQUIRED, "check_hostname": True}
+    return {"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
+
+
 class WSClient(threading.Thread):
     def __init__(
         self,
@@ -100,17 +111,9 @@ class WSClient(threading.Thread):
             # and half-open detection is app-level: half_open() recycles the
             # socket when the server's KeepAlive echoes stop arriving.
             try:
-                # HTTP honours sslVerify; WSS did not — websocket-client
-                # 1.6.4 injects CERT_REQUIRED when sslopt is omitted, so a
-                # self-signed server with sslVerify=false listed fine and
-                # the socket never came up.
                 kwargs: Dict[str, Any] = {"ping_interval": 10}
                 if self._url.startswith("wss://"):
-                    kwargs["sslopt"] = (
-                        {"cert_reqs": ssl.CERT_REQUIRED, "check_hostname": True}
-                        if self._verify_ssl
-                        else {"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
-                    )
+                    kwargs["sslopt"] = sslopt(self._verify_ssl)
                 self._app.run_forever(**kwargs)
             except Exception:
                 # One attempt's worth of failure, never the thread's life.

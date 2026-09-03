@@ -295,3 +295,29 @@ class TestTimesyncWebSocket:
         sync.stop()
 
         assert sock.closed
+
+    def test_wss_honours_ssl_verify(self, monkeypatch):
+        import ssl
+
+        captured = {}
+
+        def create_connection(url, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs)
+            raise OSError("stop")
+
+        monkeypatch.setattr(
+            timesync_module.websocket, "create_connection", create_connection
+        )
+        manager = FakeTimesyncManager(
+            ws_target=("wss://server/SyncPlay/TimeSync", "auth")
+        )
+
+        assert TimeSync(manager, verify_ssl=False)._ws_socket() is None
+        assert captured["sslopt"]["cert_reqs"] == ssl.CERT_NONE
+        assert captured["sslopt"]["check_hostname"] is False
+
+        captured.clear()
+        TimeSync(manager, verify_ssl=True)._ws_socket()
+        assert captured["sslopt"]["cert_reqs"] == ssl.CERT_REQUIRED
+        assert captured["sslopt"]["check_hostname"] is True
