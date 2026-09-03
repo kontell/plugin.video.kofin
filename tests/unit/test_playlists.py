@@ -413,14 +413,23 @@ def test_the_prune_leaves_the_downloads_view(tmp_path, downloads_at):
     playlists.refresh_downloaded_music(root=str(root))
     (root / "stale.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
 
-    api = FakeApi(playlist_list=[], items_by_id={})
+    # The server lists one playlist, so the prune runs (an empty listing is
+    # floored -- see test_an_empty_listing_does_not_empty_the_managed_folder).
+    api = FakeApi(
+        playlist_list=[{"Id": "pl1", "Name": "Gym", "MediaType": "Audio"}],
+        items_by_id={"pl1": []},
+    )
     stats = playlists.refresh_music_playlists(
         api, FakeMapping({}), FakeMusic({}), root=str(root)
     )
 
     assert stats["pruned"] == 1  # the stale mirror went; the view stayed
     names = sorted(p.name for p in root.iterdir())
-    assert names == [playlists.DOWNLOADED_MUSIC_XSP, playlists.FOLDER_ICON]
+    assert names == [
+        playlists.DOWNLOADED_MUSIC_XSP,
+        "Gym.m3u8",
+        playlists.FOLDER_ICON,
+    ]
 
 
 def test_cleanup_keeps_the_downloads_view(tmp_path, downloads_at):
@@ -443,3 +452,44 @@ def test_cleanup_without_the_view_still_takes_everything(tmp_path):
     (root / playlists.FOLDER_ICON).write_bytes(b"png")
     assert playlists.cleanup_managed_playlists(root=str(root)) == 2
     assert not root.exists()
+
+
+def test_an_empty_listing_does_not_empty_the_managed_folder(tmp_path):
+    """audit-F9: the managed folder's ownership rule is the folder itself, so
+    every .m3u8 not in the server's set is removed. A listing that comes back
+    empty for any reason other than "the user has no playlists" therefore
+    wipes the lot -- a permission change and an empty account look identical
+    from here. Skip and warn, as boxsets.sweep_stale and get_existing_ids do.
+    """
+    mapping = FakeMapping({"a1": SimpleNamespace(media_type="song", kodi_id=10)})
+    music = FakeMusic({10: ("http://s/a/", "s.mp3", "T", "A", 1, 60)})
+    root = str(tmp_path / "Kofin")
+
+    stocked = FakeApi(
+        playlist_list=[{"Id": "pl1", "Name": "Gym", "MediaType": "Audio"}],
+        items_by_id={"pl1": [{"Id": "a1", "Type": "Audio", "Name": "T"}]},
+    )
+    playlists.refresh_music_playlists(stocked, mapping, music, root=root)
+    directory = playlists.managed_dir(root)
+    written = [n for n in os.listdir(directory) if n.endswith(".m3u8")]
+    assert written, "the fixture did not write a playlist to prune"
+
+    empty = FakeApi(playlist_list=[])
+    stats = playlists.refresh_music_playlists(empty, mapping, music, root=root)
+
+    assert stats["pruned"] == 0
+    assert [n for n in os.listdir(directory) if n.endswith(".m3u8")] == written
+
+
+def test_an_empty_listing_on_an_empty_folder_is_not_an_error(tmp_path):
+    """Nothing standing means nothing to protect: the pass runs normally."""
+    mapping = FakeMapping({})
+    music = FakeMusic({})
+    root = str(tmp_path / "Kofin")
+
+    stats = playlists.refresh_music_playlists(
+        FakeApi(playlist_list=[]), mapping, music, root=root
+    )
+
+    assert stats["playlists"] == 0
+    assert stats["pruned"] == 0

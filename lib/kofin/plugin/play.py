@@ -543,6 +543,20 @@ def offline_answer(request: Request, item_id: str) -> bool:
         dbid = request.params.get("dbid", "")
         if dbid.isdigit():
             listitem.getVideoInfoTag().setDbId(int(dbid))
+            from_start = request.params.get("fromstart") == "1"
+            if request.resume and not from_start:
+                # Offline the server has no position. Stamp Kodi's bookmark
+                # only when the user asked to resume and the point is
+                # actually resumable — a resolved item must never carry a
+                # zero point (listitems.build).
+                from kofin.downloads import store
+
+                row = store.get(item_id)
+                media = getattr(row, "media_type", "") if row is not None else ""
+                if media in kodirpc.RESUME_QUERY:
+                    point = kodirpc.resume_point(int(dbid), media)
+                    if point is not None and point[0] > 0 and point[1] > 0:
+                        listitem.getVideoInfoTag().setResumePoint(point[0], point[1])
         _resolve_to(request, listitem, path)
         return True
 

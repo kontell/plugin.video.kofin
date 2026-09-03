@@ -25,6 +25,21 @@ def _player_responder(properties):
     return answer
 
 
+def test_resume_point_keeps_the_total(monkeypatch):
+    monkeypatch.setattr(
+        "xbmc.executeJSONRPC",
+        responder(
+            {
+                "result": {
+                    "moviedetails": {"resume": {"position": 120.0, "total": 3600.0}}
+                }
+            }
+        ),
+    )
+    assert kodirpc.resume_point(12, "movie") == (120.0, 3600.0)
+    assert kodirpc.resume_seconds(12, "movie") == 120.0
+
+
 def test_resume_seconds_reads_the_position(monkeypatch):
     monkeypatch.setattr(
         "xbmc.executeJSONRPC",

@@ -1091,6 +1091,140 @@ def test_offline_plays_an_item_that_is_downloaded(offline_env, monkeypatch):
     assert built["path"].endswith("Movies/M (2019)/m.mkv")
 
 
+def _offline_download(offline_env, item_id="m1", media_type="movie"):
+    from kofin.downloads import store
+
+    media = offline_env / "dl" / "Movies" / "M (2019)"
+    media.mkdir(parents=True)
+    (media / "m.mkv").write_bytes(b"x")
+    store.queue(store.Download(jellyfin_id=item_id, media_type=media_type, queued_at=1))
+    store.claim()
+    store.finish(item_id, "Movies/M (2019)/m.mkv", "mkv", 1)
+
+
+def _stamp_play(play_module, monkeypatch, params, resume=False):
+    stamped = []
+
+    class Tag:
+        def setDbId(self, dbid):
+            pass
+
+        def setResumePoint(self, position, total):
+            stamped.append((position, total))
+
+    class RecordingListItem:
+        def __init__(self, path="", **kwargs):
+            pass
+
+        def setContentLookup(self, value):
+            pass
+
+        def getVideoInfoTag(self):
+            return Tag()
+
+    monkeypatch.setattr(play_module.xbmcgui, "ListItem", RecordingListItem)
+    monkeypatch.setattr(
+        play_module.xbmcplugin, "setResolvedUrl", lambda handle, ok, li: None
+    )
+    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda verify: 1 / 0)
+    from kofin.plugin.router import Request
+
+    play_module.play(Request("plugin://x", 1, params, resume))
+    return stamped
+
+
+def test_offline_resumes_from_kodis_own_bookmark(offline_env, monkeypatch):
+    """audit A2-M7: offline the server has no position to give, so a resume
+    from a kofin listing or a widget restarted from zero while the library
+    row beside it resumed. Kodi's own bookmark is reachable and is the
+    number Kodi acts on, so the resolved item carries it."""
+    from kofin.plugin import play as play_module
+
+    _offline_download(offline_env)
+    monkeypatch.setattr(
+        play_module.kodirpc, "resume_point", lambda dbid, media: (120.0, 3600.0)
+    )
+
+    stamped = _stamp_play(
+        play_module, monkeypatch, {"id": "m1", "dbid": "7"}, resume=True
+    )
+    assert stamped == [(120.0, 3600.0)]
+
+
+def test_offline_play_from_beginning_stamps_nothing(offline_env, monkeypatch):
+    """resume:false is Play from beginning, even when Kodi holds a bookmark."""
+    from kofin.plugin import play as play_module
+
+    _offline_download(offline_env)
+    monkeypatch.setattr(
+        play_module.kodirpc, "resume_point", lambda dbid, media: (120.0, 3600.0)
+    )
+
+    stamped = _stamp_play(
+        play_module, monkeypatch, {"id": "m1", "dbid": "7"}, resume=False
+    )
+    assert stamped == []
+
+
+def test_offline_zero_bookmark_stamps_nothing(offline_env, monkeypatch):
+    """A resolved item must never carry a zero point, even on resume."""
+    from kofin.plugin import play as play_module
+
+    _offline_download(offline_env)
+    monkeypatch.setattr(
+        play_module.kodirpc, "resume_point", lambda dbid, media: (0.0, 3600.0)
+    )
+
+    stamped = _stamp_play(
+        play_module, monkeypatch, {"id": "m1", "dbid": "7"}, resume=True
+    )
+    assert stamped == []
+
+
+def test_offline_without_a_kodi_bookmark_stamps_nothing(offline_env, monkeypatch):
+    """No row Kodi knows, or a media kind it keeps no resume for: the play
+    starts where it always did rather than at a guessed position."""
+    from kofin.downloads import store
+    from kofin.plugin import play as play_module
+    from kofin.plugin.router import Request
+
+    media = offline_env / "dl" / "Music" / "A"
+    media.mkdir(parents=True)
+    (media / "s.flac").write_bytes(b"x")
+    store.queue(store.Download(jellyfin_id="s1", media_type="song", queued_at=1))
+    store.claim()
+    store.finish("s1", "Music/A/s.flac", "flac", 1)
+
+    stamped = []
+
+    class Tag:
+        def setDbId(self, dbid):
+            pass
+
+        def setResumePoint(self, position, total):
+            stamped.append((position, total))
+
+    class RecordingListItem:
+        def __init__(self, path="", **kwargs):
+            pass
+
+        def setContentLookup(self, value):
+            pass
+
+        def getVideoInfoTag(self):
+            return Tag()
+
+    monkeypatch.setattr(play_module.xbmcgui, "ListItem", RecordingListItem)
+    monkeypatch.setattr(
+        play_module.xbmcplugin, "setResolvedUrl", lambda handle, ok, li: None
+    )
+    monkeypatch.setattr("kofin.core.api.plugin_transport", lambda verify: 1 / 0)
+
+    play_module.play(Request("plugin://x", 1, {"id": "s1", "dbid": "7"}))
+
+    assert stamped == []
+
+
 def test_downloaded_file_answers_only_for_a_finished_download(offline_env):
     """None for every reason there is nothing to play, including a row whose
     file has gone from under it — the store is not proof the bytes are there."""

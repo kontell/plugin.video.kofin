@@ -499,3 +499,22 @@ def test_force_reload_does_not_bypass_the_gate(tmp_path, version, monkeypatch):
     calls.clear()
     manager.refresh_libraries({"video"}, force_reload=True)  # nothing moved
     assert calls == []
+
+
+@pytest.mark.parametrize("version", VIDEO_LEGS)
+def test_a_favourite_flip_moves_userdata(tmp_path, version):
+    """audit A3-M1: favourites are Kodi *tags*, so flipping one moves no
+    column the per-row scan reads and the fingerprint never moved --
+    favourites widgets stayed stale while the module's contract said they
+    would not (live S-P2.3a PARTIAL)."""
+    path = make_video_db(tmp_path, version)
+    seed_movie(path, 1, "Alpha", "2026-01-01 10:00:00")
+    before = widgetstate.fingerprint("video")
+
+    execute(path, "INSERT INTO tag (tag_id, name) VALUES (1, 'Favorite movies')")
+    execute(
+        path,
+        "INSERT INTO tag_link (tag_id, media_id, media_type) " "VALUES (1, 1, 'movie')",
+    )
+
+    assert moved_after(before, "video") == {"userdata"}

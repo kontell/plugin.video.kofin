@@ -103,6 +103,18 @@ LEFT JOIN   bookmark b ON b.idFile = i.idFile AND b.type = 1
 ORDER BY    i.%(id)s
 """
 
+# Favourites are Kodi *tags* ("Favorite movies"), so a favourite flip moves
+# no column the per-row scan above reads and the fingerprint never moved --
+# favourites widgets stayed stale (audit A3-M1, live S-P2.3a PARTIAL). One
+# scan of the link table covers every tag-driven listing, not just favourites,
+# and it is cheap: tag_link holds one row per tagged item, not per item.
+_VIDEO_TAG_LINKS = """
+SELECT      media_type, media_id, tag_id
+FROM        tag_link
+WHERE       media_type IN ('movie', 'episode', 'musicvideo', 'tvshow')
+ORDER BY    media_type, media_id, tag_id
+"""
+
 _VIDEO_RECENT = """
 SELECT      i.%(id)s
 FROM        %(table)s i
@@ -211,6 +223,10 @@ def _video_fingerprint() -> Dict[str, str]:
 
             cursor.execute(_VIDEO_INPROGRESS % params)
             inprogress.update(repr((table, cursor.fetchall())).encode("utf-8"))
+
+        # Outside the per-table loop: one scan covers every media type.
+        cursor.execute(_VIDEO_TAG_LINKS)
+        userdata.update(repr(("tags", cursor.fetchall())).encode("utf-8"))
 
     return {
         "reference": _reference_digest(VIDEO_REFERENCE_TYPES),

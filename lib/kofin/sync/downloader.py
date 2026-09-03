@@ -618,6 +618,8 @@ def _get_items(api, query, limit=50, threads=3, should_stop=raise_if_stopping):
         # pages that were still in flight, and a resumed sync would then
         # skip those items entirely. The semaphore still bounds how far
         # ahead of the consumer the pool may run.
+        delivered = 0
+
         try:
             for index, (job, page_params) in enumerate(jobs):
                 try:
@@ -643,6 +645,8 @@ def _get_items(api, query, limit=50, threads=3, should_stop=raise_if_stopping):
 
                 should_stop()
 
+                delivered += len(result["Items"])
+
                 yield {
                     "Items": list(result["Items"]),
                     "TotalRecordCount": total,
@@ -651,5 +655,17 @@ def _get_items(api, query, limit=50, threads=3, should_stop=raise_if_stopping):
 
                 # release the semaphore again
                 thread_buffer.release()
+
+            # Offsets are precomputed, so a short page is a gap, and a gap
+            # is not a complete walk -- raise rather than hand it to a
+            # destructive consumer. Relative to StartIndex: a resume is
+            # not a truncated library.
+            expected = max(total - params["StartIndex"], 0)
+            if delivered < expected:
+                raise LibraryException(
+                    "%s delivered %d of %d records from StartIndex %d -- a short "
+                    "page was skipped, refusing to hand the walk over as complete"
+                    % (url, delivered, expected, params["StartIndex"])
+                )
         finally:
             abandon_jobs()

@@ -55,6 +55,28 @@ def _as_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _is_audio(item_id: str) -> bool:
+    """Whether a Jellyfin id maps to a song in this Kodi library.
+
+    Read from kofin's own mapping table rather than the server: the remote
+    payload carries ids and nothing else, and this runs on the websocket
+    thread where a round trip would hold the command up. An unmapped or
+    unreadable id answers False -- the video queue, which is the behaviour
+    before A2-M4.
+    """
+    try:
+        from kofin.sync import kofindb
+        from kofin.sync.db import Database
+
+        with Database("kofin") as kofin_db:
+            row = kofindb.JellyfinDatabase(kofin_db.cursor).get_item_by_id(item_id)
+    except Exception:
+        LOG.debug("remote: could not resolve the media type of %s", item_id)
+        return False
+
+    return bool(row) and row.media_type == "song"
+
+
 class RemoteHandler:
     def __init__(self) -> None:
         # The SyncPlay manager (attached by the service while one is built);
@@ -98,7 +120,12 @@ class RemoteHandler:
         command = data.get("PlayCommand", "PlayNow")
         LOG.info("remote %s of %d item(s)", command, len(ordered))
 
-        playlist = xbmc.PlayList(xbmc.PLAYLIST_VIDEO)
+        # Remote Play carries no media kind, so the queue was always the video
+        # one and an album sent from the Jellyfin app landed there (A2-M4).
+        # SyncPlay and play-all already branch on it.
+        playlist = xbmc.PlayList(
+            xbmc.PLAYLIST_MUSIC if _is_audio(ordered[0]) else xbmc.PLAYLIST_VIDEO
+        )
         urls = [plugin_url({"mode": "play", "id": item_id}) for item_id in ordered]
 
         if command == "PlayNow":
