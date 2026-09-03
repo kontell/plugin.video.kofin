@@ -672,8 +672,14 @@ class Player(xbmc.Player):
         if streams.is_direct(method):
             ordinal = streams.audio_ordinal(media_streams, item.get("AudioStreamIndex"))
             if ordinal is not None:
-                self.setAudioStream(ordinal)
-                LOG.info("--> audio track %s (Jellyfin default)", ordinal)
+                # setAudioStream seeks the demuxer even for a no-op. On an HTTP
+                # Matroska that seek can miss and land at EOF, so do not
+                # re-select a track Kodi is already playing.
+                if kodirpc.current_audio() == ordinal:
+                    LOG.debug("audio track %s already current", ordinal)
+                else:
+                    self.setAudioStream(ordinal)
+                    LOG.info("--> audio track %s (Jellyfin default)", ordinal)
 
         wanted = item.get("SubtitleStreamIndex")
         if wanted is None or int(wanted) < 0:
@@ -690,6 +696,9 @@ class Player(xbmc.Player):
             return
         ordinal = streams.subtitle_ordinal(media_streams, wanted, attached, method)
         if ordinal is None:
+            return
+        if kodirpc.current_subtitle() == ordinal:
+            LOG.debug("subtitle track %s already current", ordinal)
             return
         self.setSubtitleStream(ordinal)
         self.showSubtitles(True)
