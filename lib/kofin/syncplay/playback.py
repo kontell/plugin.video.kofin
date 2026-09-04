@@ -99,6 +99,10 @@ class PlaybackController(object):
         self._live_seek_logged = False
         self._live_hold_ms = None  # a hold in progress: how long it was for
         self._live_hold_seq = 0  # which hold; a superseded hold's timer resumes nothing
+        # Server-clock instant of this stream's player t=0. Used as a live
+        # source clock when the remux restamped PTS from zero so tempo
+        # cannot read the broadcast.
+        self._live_origin_server_ms = None
 
     # ------------------------------------------------------------------
     # Command scheduling (SYNCPLAY.md §5.1)
@@ -269,12 +273,27 @@ class PlaybackController(object):
                     LOG.info("Unpause while still loading, deferring to ready flow")
                     return
                 self._deferred_unpause = None
-                self._do_unpause(ticks, when_ms)
+                self._do_unpause(
+                    ticks,
+                    when_ms,
+                    rebind_origin=command.get("_rebind_origin", True),
+                )
             elif name == "Pause":
                 self._reference = (utils.ticks_to_ms(ticks), when_ms, False)
                 self._do_pause(ticks)
             elif name == "Seek":
-                self._reference = (utils.ticks_to_ms(ticks), when_ms, False)
+                # A refused live Seek carries session time (Kodi Player.Time
+                # on PVR is EPG-relative). Do not knock a PTS group off that
+                # clock by adopting it.
+                if not (
+                    self._skip_live_seek()
+                    and utils.live_anchored(self.estimate_position_ms())
+                ):
+                    self._reference = (
+                        utils.ticks_to_ms(ticks),
+                        when_ms,
+                        False,
+                    )
                 self._do_seek(ticks)
             elif name == "Stop":
                 self._reference = None
@@ -286,7 +305,7 @@ class PlaybackController(object):
         except Exception as error:
             LOG.exception("SyncPlay command failed: %s", error)
 
-    def _do_unpause(self, ticks, when_ms):
+    def _do_unpause(self, ticks, when_ms, rebind_origin=True):
         # Gate on our own phase, not on player state reads: around a held
         # music boundary isPlaying/getTime intermittently report no media
         # for media that is right there, paused (fork field log 2026-07-10).
@@ -299,6 +318,14 @@ class PlaybackController(object):
         if phase not in FOLLOWING:
             LOG.info("Unpause with nothing followed, ignoring")
             return
+
+        # Shared-start Unpause fires at When. A zap / late Unpause carries a
+        # When the group already played through; rebinding then maps a newer
+        # picture onto that position and pulses will not close it (Premier
+        # Sports 2, 71:06 vs 71:10 after rebind, 2026-09-04).
+        late_ms = self.manager.server_now_ms() - (when_ms or 0)
+        if rebind_origin and late_ms <= 1000.0 and self._skip_live_seek():
+            self.bind_live_origin_to_group()
 
         # Late command (When already past): jump to the extrapolated live
         # position instead of starting behind the group.
@@ -561,6 +588,16 @@ class PlaybackController(object):
             )
             return
 
+        if self._skip_live_seek():
+            # Live before Transcode: Jellyfin labels a live HLS remux
+            # Transcode, and the reload path below would Player.Open the
+            # same channel. Kodi does not restart it, OnAVStarted never
+            # fires, and the 45s load watchdog leaves the group. Measured
+            # P1D/Tab, Premier Sports 1, 2026-09-03.
+            LOG.info("[ syncplay/seek ] skipped: live item, pulses only")
+            self.report_ready()
+            return
+
         if self.manager.is_transcoding():
             # Reload rather than seek — but not for the reason this comment
             # used to give, and the difference is worth writing down because
@@ -661,6 +698,7 @@ class PlaybackController(object):
         The server compares our reported position against the group and
         answers with a private Seek if we are out of tolerance (§7).
         """
+        self.note_live_origin()
         self._live_seek_logged = False
         target_ms = self.estimate_position_ms()
 
@@ -697,6 +735,10 @@ class PlaybackController(object):
             # Group already Playing: the Unpause arrived during load and
             # was not applied. The server re-issues it on Ready; run it
             # here too so a dropped re-issue cannot leave us paused.
+            # This member opened later: the open-time gap is the picture
+            # offset. Do not rebind it to zero.
+            deferred = dict(deferred)
+            deferred["_rebind_origin"] = False
             self.schedule(deferred)
 
     def ensure_paused(self):
@@ -793,6 +835,7 @@ class PlaybackController(object):
         self.last_command = None
         self._deferred_unpause = None
         self._reference = None
+        self._live_origin_server_ms = None
 
     def _loop(self):
         LOG.info("--->[ syncplay loop ]")
@@ -909,23 +952,100 @@ class PlaybackController(object):
     # Live items: the source clock (pvr sync plan P4)
     # ------------------------------------------------------------------
 
+    def _current_claim(self):
+        current = getattr(self.manager, "current_claim", None)
+        return current() if current is not None else None
+
     def _live_claim(self):
         """The current claim when it names a live stream, else None."""
-        current = getattr(self.manager, "current_claim", None)
-        claim = current() if current is not None else None
+        claim = self._current_claim()
         return claim if utils.claim_is_live(claim) else None
+
+    def _skip_live_seek(self):
+        """Whether this playback must not be seeked.
+
+        A live item is never seeked: ffmpeg's HLS demuxer refuses a seek
+        on a live playlist, and a source-clock position is not a stream
+        offset. Fine sync closes what it can.
+
+        Before the claim, a delegated start (pvr.kofin) is treated as live
+        — waiting for the claim sought a live channel to 0 on Android.
+        Once a claim exists, claim_is_live is the only signal: catchup is
+        also pvr.kofin and must seek.
+        """
+        if self._live_claim() is not None:
+            return True
+
+        if self._current_claim() is not None:
+            return False
+
+        provider = getattr(self.manager, "current_provider", None)
+        providers = getattr(self.manager, "providers", None)
+        is_delegated = getattr(providers, "is_delegated", None)
+        return bool(provider) and callable(is_delegated) and is_delegated(provider)
+
+    def note_live_origin(self):
+        """Stamp this stream's player t=0 on the server clock.
+
+        A remux that restamped from ~10 s has no broadcast PTS; t=0 is
+        the live edge at this member's open.
+        """
+        try:
+            player_ms = self.player.getTime() * 1000.0
+        except Exception:
+            player_ms = 0.0
+
+        self._live_origin_server_ms = self.manager.server_now_ms() - player_ms
+
+    def bind_live_origin_to_group(self):
+        """Map this member's player t onto the group position.
+
+        Origin is a raw offset: ``_position_ms`` unwraps player+origin onto
+        the epoch. Storing the already-unwrapped group position here
+        double-applies the epoch (measured: a 5 s residual became 5006 s).
+
+        Call only for a shared-start Unpause. A later open's gap is the
+        picture offset; zeroing it leaves pictures apart with residual ~0.
+        """
+        try:
+            player_ms = self.player.getTime() * 1000.0
+        except Exception:
+            player_ms = 0.0
+
+        group_ms = self.estimate_position_ms()
+
+        if group_ms is None:
+            return
+
+        raw_ms = group_ms - utils.LIVE_PTS_EPOCH_S * 1000.0
+        self._live_origin_server_ms = raw_ms - player_ms
+        LOG.info(
+            "[ syncplay/live ] join clock rebound to the group (player %.1fs)",
+            player_ms / 1000.0,
+        )
 
     def _live_source_offset_ms(self):
         """player clock → source clock, read off the tempo route's state
         line; None for anything but a live item routed through an add-on
-        that reports it."""
+        that reports it.
+
+        When the remux restamped (tempo reports a job clock younger than
+        LIVE_CLOCK_MIN_START_S) the join origin is the clock instead:
+        player t=0 plus the server time at open is the live edge this
+        member started on.
+        """
         claim = self._live_claim()
         path = ((claim or {}).get("Tempo") or {}).get("File")
 
-        if not path:
+        if path:
+            pts = source_offset_ms(TempoFile(path).read_state())
+            if pts is not None:
+                return pts
+
+        if claim is None:
             return None
 
-        return source_offset_ms(TempoFile(path).read_state())
+        return self._live_origin_server_ms
 
     def live_on_source_clock(self):
         """Whether this member and the group share the source clock: the
@@ -1064,7 +1184,7 @@ class PlaybackController(object):
         that wants to stay paused has to undo that, and a caller about to
         resume must *not*, or the two fight and the player can end up stopped.
         """
-        if self._live_claim() is not None:
+        if self._skip_live_seek():
             # A live stream is never seeked: ffmpeg's HLS demuxer refuses a
             # seek on a live playlist, and a position on the source clock is
             # not a stream offset to begin with. Fine sync closes what it

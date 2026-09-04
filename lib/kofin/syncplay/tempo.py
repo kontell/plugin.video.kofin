@@ -381,6 +381,7 @@ class PulseScheduler(object):
         self._gain = 1.0  # measured displacement / displacement asked for
         self._gave_up = False
         self._unrouted_logged = False
+        self._session_time_logged = False
         # A live item (utils.claim_is_live): never seeked, and a forward
         # pulse the feed cannot supply ends fine sync (the live edge).
         self._live = False
@@ -466,6 +467,7 @@ class PulseScheduler(object):
             self._history = []
             self._gain = 1.0
             self._gave_up = False
+            self._session_time_logged = False
 
     # ------------------------------------------------------------------
     # The loop
@@ -523,6 +525,12 @@ class PulseScheduler(object):
             # The group is anchored on session time (a proposer without
             # the clock) or this member cannot read its own: nothing to
             # converge on — the commands keep it tuned together (P2).
+            if not self._session_time_logged:
+                self._session_time_logged = True
+                LOG.info(
+                    "[ syncplay/tempo ] live group is on session time; "
+                    "no pulses until a source clock is shared"
+                )
             self._window = []
             return None
 

@@ -1400,6 +1400,7 @@ class SyncPlayManager(object):
         # event every new stream reliably fires, so the stale-claim drop
         # anchors here as well as on OnPlay.
         self._drop_stale_claim()
+        self.playback.note_live_origin()
 
         if self.phase == Phase.LOADING:
             # Hold the first frame; the group start is choreographed by

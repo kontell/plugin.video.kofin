@@ -114,6 +114,14 @@ class FakePlayer:
         self.actions.append(("play", item, startpos))
 
 
+class FakeProviders:
+    def __init__(self):
+        self.delegated = set()
+
+    def is_delegated(self, name):
+        return name in self.delegated
+
+
 class FakeManager:
     def __init__(self, player):
         self.player = player
@@ -129,6 +137,8 @@ class FakeManager:
         self.reloads = 0
         self.claim = None
         self.posted = []
+        self.current_provider = "jellyfin"
+        self.providers = FakeProviders()
 
     def in_group(self):
         return True
@@ -1196,3 +1206,144 @@ class TestLiveClock:
             a for a in player.actions if isinstance(a, tuple) and a[0] == "seek"
         ]
         assert "syncplay_ready" in manager.reports
+
+    def test_a_delegated_start_is_not_seeked_before_the_claim(self):
+        """Follower land runs prepare_ready before the PVR claim is
+        applied (the dispatcher is still in the Ready POST). Tune-together
+        wants 0; session time is ~1s; a seek to 0 is the skip the viewer
+        sees."""
+        controller, manager, player = make_controller(position=1.0)
+        player.clock_advances = False
+        player.resumes_on_seek = True
+        manager.transcoding = True
+        manager.claim = None
+        manager.current_provider = "pvr.kofin"
+        manager.providers.delegated.add("pvr.kofin")
+        controller._reference = (0.0, utils.local_ms(), False)
+
+        controller.prepare_ready()
+
+        assert not [
+            a for a in player.actions if isinstance(a, tuple) and a[0] == "seek"
+        ]
+        assert "syncplay_ready" in manager.reports
+
+    def test_a_catchup_claim_is_seeked(self):
+        """pvr.kofin is delegated for live and catchup. Once a claim with
+        a runtime exists, the item is not live and must seek."""
+        controller, manager, player = make_controller(position=1.0)
+        player.clock_advances = False
+        manager.claim = {
+            "Id": "prog-1",
+            "Provider": "pvr.kofin",
+            "PlaySessionId": "ps-c",
+            "RunTimeTicks": utils.seconds_to_ticks(3600),
+        }
+        manager.current_provider = "pvr.kofin"
+        manager.providers.delegated.add("pvr.kofin")
+        controller._reference = (42_000.0, None, False)
+
+        controller.prepare_ready()
+
+        seeks = [a for a in player.actions if isinstance(a, tuple) and a[0] == "seek"]
+        assert seeks and abs(seeks[0][1] - 42.0) < 0.05
+
+    def test_skipped_live_seek_keeps_a_source_clock_reference(self, tmp_path):
+        controller, manager, player = make_controller(position=100.0)
+        player.clock_advances = False
+        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        anchored = EPOCH_MS + 41_990_000.0
+        controller._reference = (anchored, None, True)
+
+        controller.schedule(command("Seek", -10, ticks=utils.seconds_to_ticks(42)))
+
+        assert controller.estimate_position_ms() == pytest.approx(anchored)
+        assert controller.live_on_source_clock()
+
+    def test_a_restamped_remux_uses_the_join_clock(self, tmp_path):
+        """Jellyfin's HLS remux restamps from ~10 s. That clock is refused
+        as not the broadcast; the join origin (server time of player t=0)
+        is what the proposer can still put on the wire."""
+        controller, manager, player = make_controller(position=0.0)
+        player.clock_advances = False
+        manager.claim = live_claim(write_state(tmp_path, 10_000.0, 0.0))
+        controller.note_live_origin()
+
+        origin = controller._live_source_offset_ms()
+        assert origin == pytest.approx(manager.server_now_ms())
+        anchor = controller.live_anchor_ms()
+        assert utils.live_anchored(anchor)
+        controller.set_reference(
+            utils.ms_to_ticks(anchor), manager.server_now_ms(), True
+        )
+        assert controller.live_on_source_clock()
+
+        late, late_mgr, late_player = make_controller(position=0.0)
+        late_player.clock_advances = False
+        late_mgr.claim = live_claim(write_state(tmp_path, 10_000.0, 0.0))
+        late._live_origin_server_ms = origin + 3000.0
+        late.set_reference(utils.ms_to_ticks(anchor), manager.server_now_ms(), True)
+
+        # The later open is ahead on the join clock by the open-time gap.
+        # That gap is the picture offset on remux; it must survive as
+        # residual so holds/pulses can close it.
+        assert late._position_ms() - controller._position_ms() == pytest.approx(3000.0)
+
+    def test_shared_start_unpause_rebinds_the_join_clock(self, tmp_path):
+        """Members that opened together show the same remux picture at
+        Unpause; AV-start origins differ by decoder-open, not picture.
+        Rebind so residual is not that fake gap."""
+        controller, manager, player = make_controller(paused=True, position=0.0)
+        player.clock_advances = False
+        manager.phase = "waiting_ready"
+        manager.transcoding = True
+        manager.claim = live_claim(write_state(tmp_path, 10_000.0, 0.0))
+        controller.note_live_origin()
+        anchor = controller.live_anchor_ms()
+        controller.set_reference(
+            utils.ms_to_ticks(anchor), manager.server_now_ms(), True
+        )
+
+        late, late_mgr, late_player = make_controller(paused=True, position=0.0)
+        late_player.clock_advances = False
+        late_mgr.phase = "waiting_ready"
+        late_mgr.transcoding = True
+        late_mgr.claim = live_claim(write_state(tmp_path, 10_000.0, 0.0))
+        late._live_origin_server_ms = controller._live_origin_server_ms + 3000.0
+        late.set_reference(utils.ms_to_ticks(anchor), late_mgr.server_now_ms(), True)
+
+        now = late_mgr.server_now_ms()
+        late._do_unpause(utils.ms_to_ticks(anchor), now)
+
+        assert late._position_ms() - anchor == pytest.approx(0.0, abs=1.0)
+
+    def test_deferred_unpause_keeps_the_open_time_gap(self, tmp_path):
+        """A zap Unpause during load is a later open. Rebind would zero
+        residual while pictures stay the open-time gap."""
+        controller, manager, player = make_controller(paused=True, position=0.0)
+        player.clock_advances = False
+        manager.phase = "waiting_ready"
+        manager.transcoding = True
+        manager.claim = live_claim(write_state(tmp_path, 10_000.0, 0.0))
+        controller.note_live_origin()
+        anchor = controller.live_anchor_ms()
+        controller.set_reference(
+            utils.ms_to_ticks(anchor), manager.server_now_ms(), True
+        )
+
+        late, late_mgr, late_player = make_controller(paused=True, position=0.0)
+        late_player.clock_advances = False
+        late_mgr.phase = "loading"
+        late_mgr.transcoding = True
+        late_mgr.claim = live_claim(write_state(tmp_path, 10_000.0, 0.0))
+        late._live_origin_server_ms = controller._live_origin_server_ms + 3000.0
+        late.set_reference(utils.ms_to_ticks(anchor), late_mgr.server_now_ms(), True)
+
+        late.schedule(command("Unpause", -10, ticks=utils.ms_to_ticks(anchor)))
+        late_mgr.phase = "waiting_ready"
+        late.note_live_origin = lambda: None
+        late.prepare_ready()
+
+        assert late._position_ms() - controller._position_ms() == pytest.approx(
+            3000.0, abs=1.0
+        )
