@@ -1232,6 +1232,10 @@ class SyncPlayManager(object):
         self.current_item_id = item_id
         self.current_playlist_item_id = playlist_item_id
         self.current_provider = provider
+        # A leftover zap Unpause must not resume the next item. last_command
+        # stays: a transcode Seek reload is the same event, and clearing it
+        # here would re-apply the Seek (Pixel 7 Pro, two reloads for one skip).
+        self.playback._deferred_unpause = None
 
         estimate_ms = self.playback.estimate_position_ms() or 0
         allowance_ms = self._load_allowance_ms()
@@ -1313,6 +1317,7 @@ class SyncPlayManager(object):
         self.phase = Phase.IDLE
         self.playback.cancel_pending()
         self.playback.last_command = None
+        self.playback._deferred_unpause = None
 
         # Only kill media that SyncPlay itself is driving: joining an
         # idle group must not stop whatever the user was watching.

@@ -308,6 +308,47 @@ class TestUnpause:
         assert estimate is not None
         assert abs(estimate - 10000.0) < 500
 
+    def test_unpause_while_loading_is_not_marked_applied(self):
+        """A zap Unpause arrives while the follower is still opening.
+        Marking it applied made the Ready re-issue a repeat, and the
+        Tab stayed paused (Raceday Live, 2026-09-03)."""
+        controller, manager, player = make_controller(paused=True, position=0.0)
+        manager.phase = "loading"
+        cmd = command("Unpause", -10, ticks=utils.seconds_to_ticks(10))
+
+        controller.schedule(cmd)
+
+        assert player.paused
+        assert controller.last_command is None
+        assert controller._deferred_unpause is not None
+
+        manager.phase = "waiting_ready"
+        controller.schedule(dict(cmd))
+
+        assert not player.paused
+
+    def test_prepare_ready_applies_a_deferred_unpause(self):
+        controller, manager, player = make_controller(paused=True, position=0.0)
+        player.clock_advances = False
+        manager.phase = "loading"
+        controller.schedule(command("Unpause", -10, ticks=utils.seconds_to_ticks(10)))
+        manager.phase = "waiting_ready"
+
+        controller.prepare_ready()
+
+        assert not player.paused
+        assert "syncplay_ready" in manager.reports
+
+    def test_stop_loop_drops_a_deferred_unpause(self):
+        controller, manager, player = make_controller(paused=True, position=0.0)
+        manager.phase = "loading"
+        controller.schedule(command("Unpause", -10, ticks=utils.seconds_to_ticks(10)))
+
+        controller.stop_loop()
+
+        assert controller._deferred_unpause is None
+        assert controller.last_command is None
+
 
 class TestUnpauseAlignment:
     """A scheduled Unpause names the exact group position: line up at arm
@@ -528,6 +569,8 @@ class TestSeekWhilePaused:
 
         assert player.actions == []
         assert not manager.unpaused
+        assert controller.last_command is None
+        assert controller._deferred_unpause is not None
 
     def test_unpause_ignored_when_idle(self):
         controller, manager, player = make_controller(paused=True, position=0.0)
