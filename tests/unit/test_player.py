@@ -803,6 +803,37 @@ def test_direct_play_starts_on_the_jellyfin_default_tracks(monkeypatch):
     assert tracks.shown == [True]
 
 
+def test_already_current_tracks_are_not_reselected(monkeypatch):
+    # setAudioStream / setSubtitleStream seek the demuxer even for a no-op.
+    player, tracks = stream_player(monkeypatch, audio=2, subtitle=4)
+    monkeypatch.setattr("kofin.service.player.kodirpc.current_audio", lambda: 1)
+    monkeypatch.setattr("kofin.service.player.kodirpc.current_subtitle", lambda: 1)
+    player.onPlayBackStarted()
+    player.onAVStarted()
+    assert tracks.audio == []
+    assert tracks.subtitle == []
+    assert tracks.shown == []
+
+
+def test_a_mismatching_audio_track_is_still_applied(monkeypatch):
+    player, tracks = stream_player(monkeypatch, audio=2, subtitle=None)
+    monkeypatch.setattr("kofin.service.player.kodirpc.current_audio", lambda: 0)
+    player.onPlayBackStarted()
+    player.onAVStarted()
+    assert tracks.audio == [1]
+    assert tracks.shown == [False]
+
+
+def test_already_current_audio_still_applies_a_subtitle(monkeypatch):
+    player, tracks = stream_player(monkeypatch, audio=2, subtitle=4)
+    monkeypatch.setattr("kofin.service.player.kodirpc.current_audio", lambda: 1)
+    player.onPlayBackStarted()
+    player.onAVStarted()
+    assert tracks.audio == []
+    assert tracks.subtitle == [1]
+    assert tracks.shown == [True]
+
+
 def test_a_transcode_only_applies_the_subtitle(monkeypatch):
     # The transcode carries the one audio track the server already encoded to
     # our request, so there is nothing to select.
