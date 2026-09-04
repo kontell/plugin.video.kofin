@@ -1,3 +1,7 @@
+v0.25.1
+- Various live tv syncplay improvements
+- Default audio stream no longer reselected
+
 v0.25.0
 - Force remux now copies the source codecs instead of re-encoding the audio; force transcode re-encodes both and wins when both are set, so force remux greys out
 - A live channel a SyncPlay group starts now plays through the PVR add-on's own channel, with its programme information and live OSD
