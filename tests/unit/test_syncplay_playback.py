@@ -1260,6 +1260,25 @@ class TestLiveClock:
         assert controller.estimate_position_ms() == pytest.approx(anchored)
         assert controller.live_on_source_clock()
 
+    def test_unpause_after_a_skipped_live_seek_keeps_the_source_clock(self, tmp_path):
+        """The protocol Unpauses at the Seek's ticks. Those are session
+        time. Adopting them left DirectPlay at residual −9919s and
+        'session time; no pulses' (P1D/Tab Sky Racing, 2026-09-04)."""
+        controller, manager, player = make_controller(paused=True, position=100.0)
+        player.clock_advances = False
+        manager.phase = "synced"
+        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        anchored = EPOCH_MS + 41_990_000.0
+        controller._reference = (anchored, None, True)
+
+        ticks = utils.seconds_to_ticks(255.8)
+        controller.schedule(command("Seek", -10, ticks=ticks))
+        controller.schedule(command("Unpause", -10, ticks=ticks))
+
+        assert controller.estimate_position_ms() == pytest.approx(anchored, abs=50)
+        assert controller.live_on_source_clock()
+        assert not player.paused
+
     def test_a_restamped_remux_uses_the_join_clock(self, tmp_path):
         """Jellyfin's HLS remux restamps from ~10 s. That clock is refused
         as not the broadcast; the join origin (server time of player t=0)

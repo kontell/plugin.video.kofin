@@ -265,7 +265,12 @@ class PlaybackController(object):
             self.tempo.cancel(name)
 
             if name == "Unpause":
-                self._reference = (utils.ticks_to_ms(ticks), when_ms, True)
+                # Seek is skipped on live, then the protocol Unpauses at the
+                # same ticks — Kodi Player.Time, EPG-relative. Adopting them
+                # knocked a DirectPlay pair off PTS (residual −9919s,
+                # session-time log, Sky Racing 2026-09-04).
+                if not self._keep_source_clock(ticks):
+                    self._reference = (utils.ticks_to_ms(ticks), when_ms, True)
                 if self.manager.phase == Phase.LOADING:
                     # Do not set last_command: this Unpause has not run, and
                     # the Ready re-issue carries the same When.
@@ -279,16 +284,11 @@ class PlaybackController(object):
                     rebind_origin=command.get("_rebind_origin", True),
                 )
             elif name == "Pause":
-                self._reference = (utils.ticks_to_ms(ticks), when_ms, False)
+                if not self._keep_source_clock(ticks):
+                    self._reference = (utils.ticks_to_ms(ticks), when_ms, False)
                 self._do_pause(ticks)
             elif name == "Seek":
-                # A refused live Seek carries session time (Kodi Player.Time
-                # on PVR is EPG-relative). Do not knock a PTS group off that
-                # clock by adopting it.
-                if not (
-                    self._skip_live_seek()
-                    and utils.live_anchored(self.estimate_position_ms())
-                ):
+                if not self._keep_source_clock(ticks):
                     self._reference = (
                         utils.ticks_to_ms(ticks),
                         when_ms,
@@ -328,10 +328,17 @@ class PlaybackController(object):
             self.bind_live_origin_to_group()
 
         # Late command (When already past): jump to the extrapolated live
-        # position instead of starting behind the group.
-        target_ms = utils.command_position_ms(
-            ticks, when_ms, self.manager.server_now_ms()
-        )
+        # position instead of starting behind the group. Session-time ticks
+        # on a source-clock group are not a live position — align to the
+        # group clock we kept.
+        if self._keep_source_clock(ticks):
+            target_ms = self.estimate_position_ms()
+            if target_ms is None:
+                target_ms = self._position_ms()
+        else:
+            target_ms = utils.command_position_ms(
+                ticks, when_ms, self.manager.server_now_ms()
+            )
 
         with self._player_lock, self.manager.programmatic():
             if self._is_audio():
@@ -983,6 +990,21 @@ class PlaybackController(object):
         providers = getattr(self.manager, "providers", None)
         is_delegated = getattr(providers, "is_delegated", None)
         return bool(provider) and callable(is_delegated) and is_delegated(provider)
+
+    def _keep_source_clock(self, ticks):
+        """Whether command ticks must not replace a live-anchored group clock.
+
+        A live Seek is refused, then Unpause (and Pause) arrive at the same
+        PositionTicks — Kodi Player.Time on PVR, EPG-relative session time.
+        Adopting those ticks knocks PTS members off the broadcast clock.
+        """
+        if not self._skip_live_seek():
+            return False
+
+        if not utils.live_anchored(self.estimate_position_ms()):
+            return False
+
+        return not utils.live_anchored(utils.ticks_to_ms(ticks))
 
     def note_live_origin(self):
         """Stamp this stream's player t=0 on the server clock.
