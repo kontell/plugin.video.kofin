@@ -2121,6 +2121,29 @@ class TestDelegatedStart:
         assert manager.current_provider == "pvr.kofin"
 
 
+class TestDeferredUnpauseCleanup:
+    def test_start_item_drops_a_deferred_unpause(self, manager):
+        join(manager)
+        manager.playback._deferred_unpause = {"Command": "Unpause"}
+        manager.playback.last_command = {"Command": "Seek"}
+        manager.providers = FakeProviders()
+
+        manager._start_item("item-1", "pli-1")
+
+        assert manager.playback._deferred_unpause is None
+        assert manager.playback.last_command == {"Command": "Seek"}
+
+    def test_detach_drops_a_deferred_unpause(self, manager):
+        join(manager)
+        manager.playback._deferred_unpause = {"Command": "Unpause"}
+        manager.playback.last_command = {"Command": "Unpause"}
+
+        manager._detach_playback()
+
+        assert manager.playback._deferred_unpause is None
+        assert manager.playback.last_command is None
+
+
 class TestForeignPropose:
     def test_hello_declares_and_records_the_capability(self, manager):
         manager._api_raw = Recorder(

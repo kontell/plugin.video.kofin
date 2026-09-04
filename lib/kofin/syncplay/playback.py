@@ -66,6 +66,11 @@ class PlaybackController(object):
         self._timer = None  # pending scheduled command
         self._timer_lock = threading.Lock()
         self.last_command = None
+        # An Unpause that arrived while LOADING. last_command is not set
+        # for it — the server re-issues the same When when we Ready, and
+        # _is_repeat would drop that re-issue if we had marked it applied.
+        # Measured: Tab zap to a second live channel, paused forever.
+        self._deferred_unpause = None
 
         # (media_ms, server_when_ms, playing) group position reference
         self._reference = None
@@ -251,13 +256,19 @@ class PlaybackController(object):
             when_ms = utils.parse_iso_ms(command.get("When"))
             ticks = command.get("PositionTicks") or 0
 
-            self.last_command = command
             # No pulse runs across a command: the command converges position
             # itself, and a seek under a running rate lands early.
             self.tempo.cancel(name)
 
             if name == "Unpause":
                 self._reference = (utils.ticks_to_ms(ticks), when_ms, True)
+                if self.manager.phase == Phase.LOADING:
+                    # Do not set last_command: this Unpause has not run, and
+                    # the Ready re-issue carries the same When.
+                    self._deferred_unpause = command
+                    LOG.info("Unpause while still loading, deferring to ready flow")
+                    return
+                self._deferred_unpause = None
                 self._do_unpause(ticks, when_ms)
             elif name == "Pause":
                 self._reference = (utils.ticks_to_ms(ticks), when_ms, False)
@@ -270,6 +281,8 @@ class PlaybackController(object):
                 self._do_stop()
             else:
                 LOG.info("Unknown SyncPlay command: %s", name)
+                return
+            self.last_command = command
         except Exception as error:
             LOG.exception("SyncPlay command failed: %s", error)
 
@@ -678,6 +691,14 @@ class PlaybackController(object):
         self.tempo.note_settle()
         self.report_ready()
 
+        deferred = self._deferred_unpause
+        self._deferred_unpause = None
+        if deferred is not None:
+            # Group already Playing: the Unpause arrived during load and
+            # was not applied. The server re-issues it on Ready; run it
+            # here too so a dropped re-issue cannot leave us paused.
+            self.schedule(deferred)
+
     def ensure_paused(self):
         # Gate on isPlaying alone: during a gapless stream swap getTime()
         # can misbehave, and this is exactly the window a start hold must
@@ -770,6 +791,7 @@ class PlaybackController(object):
         self._caching_since = None
         self._buffering_reported = False
         self.last_command = None
+        self._deferred_unpause = None
         self._reference = None
 
     def _loop(self):
