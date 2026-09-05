@@ -8,7 +8,7 @@ A thin plugin over a background service that syncs, listens on the server's webs
 
 For Jellyfin Live TV, see the companion [Kofin PVR](https://github.com/kontell/pvr.kofin) addon.
 
-Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x or later.
+Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11.x.
 
 ## Features
 
