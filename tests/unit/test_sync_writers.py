@@ -3958,6 +3958,48 @@ def test_music_single_reaches_its_library_source(api, frozen_music_clock):
     assert album_source_rows() == [(1, album_id)]
 
 
+def test_music_single_removal_takes_its_album(api, frozen_music_clock):
+    """song_add creates the album and never maps it, so the fork's wild-id
+    lookup after remove_wild_item could not find it and the empty row
+    stayed -- Kodi renders strReleaseType=single with an empty title as
+    "Singles" under the artist."""
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
+        music.artist(dto(ARTIST))
+        music.song(dto(dict(SONG, AlbumId=None, Album=None)))
+
+    assert music_query("SELECT strReleaseType, ifnull(strAlbum,'') FROM album") == [
+        ("single", "")
+    ]
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS).remove("song1")
+
+    assert music_query("SELECT COUNT(*) FROM song") == [(0,)]
+    assert music_query("SELECT COUNT(*) FROM album") == [(0,)]
+    assert music_query("SELECT COUNT(*) FROM album_artist") == [(0,)]
+    assert kofin_query(
+        "SELECT COUNT(*) FROM jellyfin WHERE media_type IN ('song', 'album')"
+    ) == [(0,)]
+
+
+def test_music_song_removal_keeps_a_mapped_album(api, frozen_music_clock):
+    """A MusicAlbum still on the server is not a single's shell: removing
+    its last track must not take the album row, or an empty album on
+    Jellyfin would vanish from Kodi until the next album write."""
+    write_music_tree(api)
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS).remove("song1")
+
+    assert music_query("SELECT COUNT(*) FROM song") == [(0,)]
+    assert music_query("SELECT strAlbum FROM album") == [("Greatest Hits",)]
+    assert kofin_query(
+        "SELECT jellyfin_id FROM jellyfin WHERE media_type = 'album'"
+    ) == [("album1",)]
+
+
 def test_music_source_removal_takes_its_links(api, frozen_music_clock):
     """The source row is the whole cleanup — tgrDeleteSource drops the links,
     and tgrDeleteAlbum has already dropped each album's own."""

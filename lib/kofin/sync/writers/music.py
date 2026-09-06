@@ -795,8 +795,8 @@ class Music(KodiDb):
         """This updates: Favorite, LastPlayedDate, Playcount, PlaybackPositionTicks
         Poster with progress bar
 
-        This should address single song scenario, where server doesn't actually
-        create an album for the song.
+        A single (no MusicAlbum on the server) is the song plus the album
+        shell ``song_add`` created for it; that shell has no kofin.db row.
         """
         obj = {"Id": item_id}
 
@@ -807,22 +807,26 @@ class Music(KodiDb):
             return
 
         if obj["Media"] == "song":
+            obj["ParentId"] = e_item[3]
 
             self.remove_song(obj["KodiId"], obj["Id"])
             self.jellyfin_db.remove_wild_item(obj["Id"])
 
-            for item in self.jellyfin_db.get_item_by_wild_id(
-                *values(obj, QUEM.get_item_by_wild_obj)
-            ):
-                if item[1] == "album":
-
-                    temp_obj = dict(obj)
-                    temp_obj["ParentId"] = item[0]
-
-                    if not self.jellyfin_db.get_item_by_parent_id(
-                        *values(temp_obj, QUEM.get_item_by_parent_song_obj)
-                    ):
-                        self.remove_album(temp_obj["ParentId"], obj["Id"])
+            # Deviation from the fork: a single's album is created by
+            # song_add and has no kofin.db row. The fork looked it up as
+            # jellyfin_id LIKE '<song-id>%' *after* remove_wild_item had
+            # already deleted that prefix, so the album was never found
+            # and the empty row stayed -- Kodi renders strReleaseType=
+            # single with an empty title as "Singles". parent_id on the
+            # song mapping is the kodi album id; an empty unmapped album
+            # is that shell and goes with the song. A mapped MusicAlbum
+            # is left for its own remove.
+            if obj["ParentId"] and not self.album_has_songs(obj["ParentId"]):
+                if (
+                    self.jellyfin_db.get_item_by_kodi_id(obj["ParentId"], "album")
+                    is None
+                ):
+                    self.remove_album(obj["ParentId"], obj["Id"])
 
         elif obj["Media"] == "album":
             obj["ParentId"] = obj["KodiId"]

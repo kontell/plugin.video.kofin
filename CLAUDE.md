@@ -167,6 +167,7 @@ What remains is kofin's own:
   itself rather than leaving it to `backfill_library_claim`, which needs a Kodi dbid off
   `Player.OnPlay` that a group start does not carry. A request naming a source, a track or a
   bitrate still streams — a download has only the tracks it was made with.
+- **A single's album has no kofin.db row.** `song_add` creates it on the fly (`strReleaseType=single`, empty title) when Jellyfin never modelled an album, and the song mapping's `parent_id` is the kodi album id. Song removal has to take that empty unmapped album with it — the fork's wild-id lookup ran after it had already deleted the prefix it was looking for, so the shell stayed and Kodi rendered it as "Singles" under the artist. Startup `prune_orphan_singles` heals rows already left behind. A mapped MusicAlbum is someone else's remove.
 - **A downloaded song's server path row is referenced by nothing while the download lives.**
   MyMusic has one `path` row per song and the repoint moves `song.idPath` off it, so any sweep
   of unreferenced rows — Kodi's own Clean library, or kofin's startup `prune_orphan_paths`
