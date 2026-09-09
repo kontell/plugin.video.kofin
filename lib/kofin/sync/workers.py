@@ -130,56 +130,60 @@ class WriterWorker(threading.Thread):
         raise NotImplementedError
 
     def run(self):
-        with self.lock, Database("kofin") as jellyfindb, self.database as kodidb:
-            writers = self.writers(jellyfindb, kodidb)
+        try:
+            with self.lock, Database("kofin") as jellyfindb, self.database as kodidb:
+                writers = self.writers(jellyfindb, kodidb)
 
-            if writers is None:
-                LOG.error(
-                    '"{}" is not a valid Kodi library type.'.format(kodidb.db_file)
-                )
-                return
+                if writers is None:
+                    LOG.error(
+                        '"{}" is not a valid Kodi library type.'.format(kodidb.db_file)
+                    )
+                    return
 
-            processed = 0
+                processed = 0
 
-            while True:
-                try:
-                    item = self.queue.get(timeout=1)
-                except queue.Empty:
-                    break
-
-                try:
-                    self.handle(item, writers)
-                except LibraryException as error:
-                    # Still swallowed so one bad item cannot stop the drain,
-                    # but no longer forgotten: it never landed, and the
-                    # watermark is about to move past it.
-                    if isinstance(error, LibraryExitException):
-                        self.queue.task_done()
+                while True:
+                    try:
+                        item = self.queue.get(timeout=1)
+                    except queue.Empty:
                         break
-                    LOG.warning("Ignoring exception %s", error)
-                    self._report_unapplied(item, error)
-                except Exception as error:
-                    LOG.exception(error)
-                    self._report_unapplied(item, error)
 
-                self.queue.task_done()
-                processed += 1
+                    try:
+                        self.handle(item, writers)
+                    except LibraryException as error:
+                        # Still swallowed so one bad item cannot stop the drain,
+                        # but no longer forgotten: it never landed, and the
+                        # watermark is about to move past it.
+                        if isinstance(error, LibraryExitException):
+                            self.queue.task_done()
+                            break
+                        LOG.warning("Ignoring exception %s", error)
+                        self._report_unapplied(item, error)
+                    except Exception as error:
+                        LOG.exception(error)
+                        self._report_unapplied(item, error)
 
-                if not processed % COMMIT_INTERVAL:
-                    # Kodi's database first, the mapping second (the order
-                    # full_sync's per-page pair keeps, and the ``with``
-                    # unwind): a crash between the two leaves rows without a
-                    # mapping — rewritten next pass, visibly — never a
-                    # mapping without rows, which check_unchanged would skip
-                    # forever.
-                    kodidb.conn.commit()
-                    jellyfindb.conn.commit()
+                    self.queue.task_done()
+                    processed += 1
 
-                if state.should_stop():
-                    break
+                    if not processed % COMMIT_INTERVAL:
+                        # Kodi's database first, the mapping second (the order
+                        # full_sync's per-page pair keeps, and the ``with``
+                        # unwind): a crash between the two leaves rows without a
+                        # mapping — rewritten next pass, visibly — never a
+                        # mapping without rows, which check_unchanged would skip
+                        # forever.
+                        kodidb.conn.commit()
+                        jellyfindb.conn.commit()
 
-        LOG.info("--<[ q:%s/%s ]", self.category, id(self))
-        self.is_done = True
+                    if state.should_stop():
+                        break
+        finally:
+            # Drain and spawn treat a missing is_done as "still running".
+            # An exception opening the databases used to leave the slot
+            # occupied forever.
+            LOG.info("--<[ q:%s/%s ]", self.category, id(self))
+            self.is_done = True
 
 
 UPDATE_DISPATCH = {
@@ -387,42 +391,43 @@ class SortWorker(threading.Thread):
         threading.Thread.__init__(self)
 
     def run(self):
-        with Database("kofin") as jellyfindb:
-            database = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
+        try:
+            with Database("kofin") as jellyfindb:
+                database = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
 
-            while True:
-                try:
-                    item_id = self.queue.get(timeout=1)
-                except queue.Empty:
-                    break
+                while True:
+                    try:
+                        item_id = self.queue.get(timeout=1)
+                    except queue.Empty:
+                        break
 
-                try:
-                    media = database.get_media_by_id(item_id)
-                    if media:
-                        self.output[media].put({"Id": item_id, "Type": media})
-                    else:
-                        items = database.get_media_by_parent_id(item_id)
-
-                        if not items:
-                            LOG.debug(
-                                "Could not find media %s in the kofin database.",
-                                item_id,
-                            )
+                    try:
+                        media = database.get_media_by_id(item_id)
+                        if media:
+                            self.output[media].put({"Id": item_id, "Type": media})
                         else:
-                            for item in items:
-                                self.output[item[1]].put(
-                                    {"Id": item[0], "Type": item[1]}
+                            items = database.get_media_by_parent_id(item_id)
+
+                            if not items:
+                                LOG.debug(
+                                    "Could not find media %s in the kofin database.",
+                                    item_id,
                                 )
-                except Exception as error:
-                    LOG.exception(error)
+                            else:
+                                for item in items:
+                                    self.output[item[1]].put(
+                                        {"Id": item[0], "Type": item[1]}
+                                    )
+                    except Exception as error:
+                        LOG.exception(error)
 
-                self.queue.task_done()
+                    self.queue.task_done()
 
-                if state.should_stop():
-                    break
-
-        LOG.info("--<[ q:sort/%s ]", id(self))
-        self.is_done = True
+                    if state.should_stop():
+                        break
+        finally:
+            LOG.info("--<[ q:sort/%s ]", id(self))
+            self.is_done = True
 
 
 # --- the pager (moved from downloader.py) ---------------------------------------
@@ -561,14 +566,17 @@ class GetItemWorker(threading.Thread):
                     ) from None
 
     def run(self):
+        try:
+            self._run()
+        finally:
+            self.is_done = True
+
+    def _run(self):
         while True:
             try:
                 item_ids = self.queue.get(timeout=1)
             except queue.Empty:
-
-                self.is_done = True
                 LOG.info("--<[ q:download/%s ]", id(self))
-
                 return
 
             params = {

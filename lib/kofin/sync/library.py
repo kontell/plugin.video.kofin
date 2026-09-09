@@ -213,6 +213,12 @@ class Library(threading.Thread):
         }
         self.database_lock = threading.Lock()
         self.music_database_lock = threading.Lock()
+        # DialogProgressBG / Window.setProperty wait on Kodi's app thread.
+        # One in-flight GUI call; a second is skipped so a hung paint cannot
+        # stall the tick (the Bravia bar freeze).
+        self._gui_lock = threading.Lock()
+        self._gui_busy = False
+        self._progress_epoch = 0
         self.download_errors = threading.Event()
         # The clocks the tick reads, each one deferred action (sync/clock.py):
         # a moment it is due and, where it retries, a delay ladder.
@@ -527,6 +533,7 @@ class Library(threading.Thread):
         failing to close a dialog must never be what stops the thread from
         exiting.
         """
+        self._progress_epoch += 1
         dialog, self.progress_updates = self.progress_updates, None
 
         if dialog is None:
@@ -600,33 +607,7 @@ class Library(threading.Thread):
         (actual daemon thread is not supported in Kodi)
         """
         self.process_commands()
-
-        for category in ("updated", "userdata", "removed"):
-            for thread in self.writer_threads[category]:
-                if thread.is_done:
-                    release_worker(thread)
-
-        finished = [thread for thread in self.download_threads if thread.is_done]
-        for thread in finished:
-            release_worker(thread)
-        if any(getattr(thread, "unreachable", False) for thread in finished):
-            self.download_backoff.arm()
-            LOG.warning(
-                "--[ downloads paused %ss: server unreachable ]",
-                DOWNLOAD_BACKOFF_SECONDS,
-            )
-        self.download_threads = [
-            thread for thread in self.download_threads if not thread.is_done
-        ]
-        self.writer_threads["updated"] = [
-            thread for thread in self.writer_threads["updated"] if not thread.is_done
-        ]
-        self.writer_threads["userdata"] = [
-            thread for thread in self.writer_threads["userdata"] if not thread.is_done
-        ]
-        self.writer_threads["removed"] = [
-            thread for thread in self.writer_threads["removed"] if not thread.is_done
-        ]
+        self._reap_workers()
 
         self.resume_pending_libraries()
 
@@ -671,84 +652,10 @@ class Library(threading.Thread):
             self.refresh_libraries(settled)
         self.flush_recovery_prune()
 
-        if self.pending_refresh:
-            state.set_sync_active(True)
-
-            if self.total_updates > settings.get_int("syncProgressThreshold"):
-                # Everything still owed, not just what has been downloaded —
-                # the "Gathering: N" count under-reported for the same reason
-                # the percentage ran backwards.
-                queue_size = self.pending_items()
-
-                # Per-class counts (sync-plan §3): a large metadata backlog
-                # is visibly not blocking new content.
-                if self.class_counts:
-                    message = localized(30602) % (
-                        self.class_counts.get("new", 0),
-                        self.class_counts.get("updates", 0),
-                        self.class_counts.get("userdata", 0),
-                    )
-                elif queue_size:
-                    message = "%s: %s" % (localized(30401), queue_size)
-                else:
-                    message = localized(30401)
-
-                if self.progress_updates is None:
-
-                    self.progress_updates = xbmcgui.DialogProgressBG()
-                    self.progress_updates.create("Kofin", localized(30401))
-
-                self.progress_updates.update(
-                    self.progress_percent(),
-                    message=message,
-                )
-
-        if (
-            self.pending_refresh
-            and not self.download_threads
-            and not self.writer_threads["updated"]
-            and not self.writer_threads["userdata"]
-            and not self.writer_threads["removed"]
-            and not self.added_queue.qsize()
-            and not self.updated_queue.qsize()
-            and not self.userdata_queue.qsize()
-            and not self.removed_queue.qsize()
-            and not self.artwork_queue.qsize()
-            and not self.worker_queue_size()
-        ):
-            self.pending_refresh = False
-
-            if self.download_errors.is_set():
-                # Something failed to download this cycle. Keep the old
-                # watermark so the next sync re-covers the window (writes are
-                # idempotent, and unchanged items short-circuit on the Etag),
-                # and retry with backoff.
-                self.download_errors.clear()
-                self.schedule_retry()
-            else:
-                self.save_last_sync()
-                self.retry.reset()
-
-            # After the watermark decision, not instead of it: these items
-            # were downloaded fine and failed later, so re-running the feed
-            # window would not offer them again. The prune is what reaches
-            # them.
-            self.schedule_recovery_prune()
-
-            self.total_updates = 0
-            self.class_counts = {}
-            state.set_sync_active(False)
-
-            self.close_progress()
-
-            # Refresh whatever this cycle actually wrote — deferred behind the
-            # settle so back-to-back mini-cycles cost one refresh. (Previously
-            # only the video database was refreshed, so newly synced albums
-            # never showed up in the music widgets until something else
-            # triggered a scan.)
-            self.refresher.arm(self.touched_databases)
-            self.touched_databases = set()
-            self.added_databases = set()
+        if self._cycle_drained():
+            self._finish_cycle()
+        elif self.pending_refresh:
+            self._schedule_gui(self._paint_progress)
 
     def process_commands(self):
         """Dispatch queued IPC/service commands inside the library thread."""
@@ -912,9 +819,187 @@ class Library(threading.Thread):
             self._full_sync_running = False
 
     def enable_pending_refresh(self):
-        """When there's an active thread. Let the main thread know."""
+        """Mark a cycle in flight.
+
+        The window property is published from the tick's progress paint,
+        not here: ``Window.setProperty`` waits on Kodi's app thread
+        (``CEvent::Wait`` / DelayedCallGuard), and doing that once per
+        writer spawn froze the Bravia manager inside one tick after the
+        Episode writer started — bar at 76%, drain never reached.
+        """
         self.pending_refresh = True
+
+    @staticmethod
+    def _worker_finished(thread):
+        """True when a worker has left the running set.
+
+        ``is_done`` is the cooperative signal. A thread that died without
+        flipping it used to sit in ``download_threads`` forever: spawn
+        counted it against ``dthreads``, drain required the list empty,
+        and the Tab's 858 metadata downloads never got a replacement.
+        A dummy that was never ``start()``-ed (``ident is None``) is not
+        a crash — tests park those in the list.
+        """
+        if getattr(thread, "is_done", False):
+            return True
+        is_alive = getattr(thread, "is_alive", None)
+        if not callable(is_alive):
+            return False
+        if getattr(thread, "ident", None) is None:
+            return False
+        return not is_alive()
+
+    def _reap_list(self, threads, crashed):
+        kept = []
+        for thread in threads:
+            if not self._worker_finished(thread):
+                kept.append(thread)
+                continue
+            if not getattr(thread, "is_done", False):
+                crashed.append(thread)
+                LOG.warning(
+                    "--[ worker %s died without finishing ]",
+                    getattr(thread, "source", None)
+                    or getattr(thread, "category", None)
+                    or id(thread),
+                )
+            release_worker(thread)
+        return kept
+
+    def _reap_workers(self):
+        crashed = []
+        done_downloads = [
+            thread
+            for thread in self.download_threads
+            if getattr(thread, "is_done", False)
+        ]
+        if any(getattr(thread, "unreachable", False) for thread in done_downloads):
+            self.download_backoff.arm()
+            LOG.warning(
+                "--[ downloads paused %ss: server unreachable ]",
+                DOWNLOAD_BACKOFF_SECONDS,
+            )
+        self.download_threads = self._reap_list(self.download_threads, crashed)
+        for category in ("updated", "userdata", "removed"):
+            self.writer_threads[category] = self._reap_list(
+                self.writer_threads[category], crashed
+            )
+        if crashed:
+            # Died mid-chunk: hold the watermark and retry. Advancing
+            # would skip ids the change feed will not offer again.
+            self.download_errors.set()
+
+    def _cycle_drained(self):
+        return bool(
+            self.pending_refresh
+            and not self.download_threads
+            and not self.writer_threads["updated"]
+            and not self.writer_threads["userdata"]
+            and not self.writer_threads["removed"]
+            and not self.added_queue.qsize()
+            and not self.updated_queue.qsize()
+            and not self.userdata_queue.qsize()
+            and not self.removed_queue.qsize()
+            and not self.artwork_queue.qsize()
+            and not self.worker_queue_size()
+        )
+
+    def _finish_cycle(self):
+        """Commit the watermark before touching the GUI.
+
+        ``DialogProgressBG`` and ``setProperty`` wait on the app thread.
+        A wait that never returns used to skip this block entirely, so
+        FastSync replayed the same window forever (Tab watermark stuck
+        on 2026-09-04 while the bar sat at 40%).
+        """
+        self.pending_refresh = False
+
+        if self.download_errors.is_set():
+            # Something failed to download this cycle. Keep the old
+            # watermark so the next sync re-covers the window (writes are
+            # idempotent, and unchanged items short-circuit on the Etag),
+            # and retry with backoff.
+            self.download_errors.clear()
+            self.schedule_retry()
+        else:
+            self.save_last_sync()
+            self.retry.reset()
+
+        # After the watermark decision, not instead of it: these items
+        # were downloaded fine and failed later, so re-running the feed
+        # window would not offer them again. The prune is what reaches
+        # them.
+        self.schedule_recovery_prune()
+
+        self.total_updates = 0
+        self.class_counts = {}
+        state.set_sync_active(False)
+        self.close_progress()
+
+        # Refresh whatever this cycle actually wrote — deferred behind the
+        # settle so back-to-back mini-cycles cost one refresh. (Previously
+        # only the video database was refreshed, so newly synced albums
+        # never showed up in the music widgets until something else
+        # triggered a scan.)
+        self.refresher.arm(self.touched_databases)
+        self.touched_databases = set()
+        self.added_databases = set()
+
+    def _schedule_gui(self, fn):
+        """Run a Kodi GUI call without stalling the tick.
+
+        One in-flight call; a second is skipped rather than queued, so a
+        hung ``DialogProgressBG.update`` cannot grow a backlog. The tick
+        keeps reaping and draining behind it.
+        """
+        with self._gui_lock:
+            if self._gui_busy:
+                return
+            self._gui_busy = True
+        threading.Thread(
+            target=self._run_gui, args=(fn,), name="kofin-sync-gui", daemon=True
+        ).start()
+
+    def _run_gui(self, fn):
+        try:
+            fn()
+        except Exception as error:
+            LOG.debug("sync GUI call failed: %s", error)
+        finally:
+            with self._gui_lock:
+                self._gui_busy = False
+
+    def _paint_progress(self):
+        epoch = self._progress_epoch
+        if not self.pending_refresh:
+            return
         state.set_sync_active(True)
+        if epoch != self._progress_epoch or not self.pending_refresh:
+            return
+        if self.total_updates <= settings.get_int("syncProgressThreshold"):
+            return
+        queue_size = self.pending_items()
+        if self.class_counts:
+            message = localized(30602) % (
+                self.class_counts.get("new", 0),
+                self.class_counts.get("updates", 0),
+                self.class_counts.get("userdata", 0),
+            )
+        elif queue_size:
+            message = "%s: %s" % (localized(30401), queue_size)
+        else:
+            message = localized(30401)
+        if epoch != self._progress_epoch:
+            return
+        if self.progress_updates is None:
+            self.progress_updates = xbmcgui.DialogProgressBG()
+            self.progress_updates.create("Kofin", localized(30401))
+        if epoch != self._progress_epoch or self.progress_updates is None:
+            return
+        self.progress_updates.update(
+            self.progress_percent(),
+            message=message,
+        )
 
     def progress_percent(self):
         """Share of this cycle's work already written, 0-100.

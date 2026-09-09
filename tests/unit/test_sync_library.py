@@ -2568,6 +2568,89 @@ def test_closing_the_progress_bar_twice_is_harmless():
     assert bar.closed == 1
 
 
+def _quiet_tick(manager):
+    """A service() tick that only reaps and drains — no spawn, no HTTP."""
+    manager.process_commands = lambda: None
+    manager.worker_downloads = lambda: None
+    manager.worker_sort = lambda: None
+    manager.worker_updates = lambda: None
+    manager.worker_userdata = lambda: None
+    manager.worker_remove = lambda: None
+    manager.refresh_added = lambda: None
+    manager.poll_music_playlists = lambda: None
+    manager.notify_new_content = lambda: None
+    manager.refresher.flush_pending_reload = lambda: None
+    manager.flush_recovery_prune = lambda: None
+    manager.resume_pending_libraries = lambda: None
+
+
+def test_enable_pending_refresh_does_not_touch_the_gui():
+    """setProperty waits on Kodi's app thread. Publishing it from every
+    writer spawn is what froze the Bravia manager inside CEvent::Wait."""
+    manager, _api = make_library()
+    FakeWindow.store.pop("kofin.sync.active", None)
+
+    manager.enable_pending_refresh()
+
+    assert manager.pending_refresh is True
+    assert FakeWindow.store.get("kofin.sync.active") != "true"
+
+
+def test_a_crashed_download_worker_is_reaped_and_holds_the_watermark():
+    """The Tab's three updated-download workers died without flipping
+    is_done. Drain required the list empty, spawn counted them against
+    dthreads, and FastSync replayed 2026-09-04 forever."""
+    manager, _api = make_library()
+    manager.companion_tier = library_mod.TIER_OFFICIAL
+    manager.pending_refresh = True
+    _quiet_tick(manager)
+
+    class Crashed:
+        is_done = False
+        unreachable = False
+        source = "updated"
+        ident = 99
+
+        def is_alive(self):
+            return False
+
+    manager.download_threads = [Crashed()]
+    manager.service()
+
+    assert manager.download_threads == []
+    assert manager.retry.due_at is not None
+    assert "lastIncrementalSync" not in FakeAddon.store
+
+
+def test_drain_commits_the_watermark_before_painting():
+    """A hung DialogProgressBG.update used to skip the drain block, so
+    the watermark never moved. The commit has to happen first."""
+    manager, _api = make_library()
+    manager.companion_tier = library_mod.TIER_OFFICIAL
+    manager.pending_refresh = True
+    _quiet_tick(manager)
+    order = []
+
+    class RecordingBar(_FakeProgress):
+        def close(self):
+            order.append("close")
+            super().close()
+
+    manager.progress_updates = RecordingBar()
+    original = manager.save_last_sync
+
+    def tracing():
+        order.append("watermark")
+        original()
+
+    manager.save_last_sync = tracing
+    manager.service()
+
+    assert order[0] == "watermark"
+    assert "close" in order
+    assert FakeAddon.store["lastIncrementalSync"] == "2026-07-17T09:58:00Z"
+
+
 # -- force_reload: the end of a full sync (measured on a Pi 3B) ---------------
 
 
