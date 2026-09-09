@@ -160,9 +160,9 @@ LIVE_PTS_EPOCH_S = 10 * 86400.0
 LIVE_DELAY_S = 5.0
 # A live member that lands ahead of the group by more than this pauses for
 # the excess — its timeshift buffer keeps the picture — rather than playing
-# it off at the rate ceiling (2.5 s per pulse cycle: a 25 s landing took three
-# and a half minutes of slow motion on the P4 gate). Bounded, so a broken
-# reading cannot freeze a member indefinitely.
+# it off at the rate ceiling (10 s per 40 s pulse at 25 %; a 25 s landing took
+# minutes of slow motion on the P4 gate, when a pulse closed only 2.5 s).
+# Bounded, so a broken reading cannot freeze a member indefinitely.
 LIVE_HOLD_MIN_MS = 2500.0
 LIVE_HOLD_MAX_S = 60.0
 # A forward pulse that moved less than this fraction of what it asked for

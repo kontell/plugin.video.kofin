@@ -567,11 +567,11 @@
         </setting>
         <setting id="syncPlayPulseBudget" type="integer" label="30593" help="30594">
           <level>0</level>
-          <default>2500</default>
+          <default>5000</default>
           <constraints>
-            <minimum>300</minimum>
-            <step>100</step>
-            <maximum>5000</maximum>
+            <minimum>1000</minimum>
+            <step>1000</step>
+            <maximum>10000</maximum>
           </constraints>
           <dependencies>
             <dependency type="visible">
