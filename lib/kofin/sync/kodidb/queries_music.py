@@ -192,6 +192,12 @@ SELECT                      strAlbum
 FROM                        album
 WHERE                       idAlbum = ?
 """
+album_has_songs = """
+SELECT      1
+FROM        song
+WHERE       idAlbum = ?
+LIMIT       1
+"""
 # Scoped by album_artist rather than by title alone: album titles repeat
 # across artists ("Greatest Hits", "Anthology"), and discography legitimately
 # holds albums that are not in the library at all -- a scraped artist's rows
@@ -376,6 +382,23 @@ AND             idPath NOT IN (SELECT kodi_pathid FROM kofinmap.jellyfin
 AND             (strPath LIKE 'plugin://plugin.video.kofin/%'
                  OR strPath LIKE 'http://%/Audio/%'
                  OR strPath LIKE 'https://%/Audio/%')
+"""
+# Needs kofin.db ATTACHed as ``kofinmap`` (musicsources.mapped). add_single
+# writes strReleaseType='single' and never sets strAlbum or a MusicAlbum
+# mapping, so an empty untitled single is the shell left when the song
+# went and remove() could not see the album. Kodi renders that row as
+# "Singles" in the artist node. A mapped MusicAlbum is someone else's
+# remove; a titled single is Kodi's own scanner and is not ours.
+orphan_singles = """
+SELECT      album.idAlbum
+FROM        album
+WHERE       album.strReleaseType = 'single'
+AND         ifnull(album.strAlbum, '') = ''
+AND         NOT EXISTS (SELECT 1 FROM song WHERE song.idAlbum = album.idAlbum)
+AND         album.idAlbum NOT IN (
+                SELECT kodi_id FROM kofinmap.jellyfin
+                WHERE media_type = 'album' AND kodi_id IS NOT NULL
+            )
 """
 # -- the per-library `source` rows ---------------------------------------------
 #

@@ -574,6 +574,11 @@ class Library(threading.Thread):
                 pruned = musicsources.prune_orphan_paths(kofindb.cursor, musicdb.cursor)
                 if pruned:
                     LOG.info("pruned %s orphaned music path rows", pruned)
+                singles = musicsources.prune_orphan_singles(
+                    kofindb.cursor, musicdb.cursor
+                )
+                if singles:
+                    LOG.info("pruned %s leftover single albums", singles)
                 # Kodi's own music scanner empties the source table whenever
                 # it disagrees with sources.xml, which with an empty one it
                 # always does — so the per-library music nodes come back from

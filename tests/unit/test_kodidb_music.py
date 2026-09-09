@@ -295,6 +295,55 @@ def test_pruning_spares_a_kofin_path_a_source_still_claims(musicdb, tmp_path):
     assert list(paths(cur)) == [claimed]
 
 
+def test_pruning_empty_untitled_singles(musicdb, tmp_path):
+    """The leftover of a removed single: song_add wrote strReleaseType=
+    single and never set a title or a MusicAlbum mapping, then the song
+    went. Kodi still lists the empty row under the artist as "Singles"."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    doomed = make_single(cur)
+    kept_song = make_single(cur)
+    path_id = db.add_path("http://server:8096/Audio/song-1/")
+    cur.execute(
+        "INSERT INTO song(idSong, idAlbum, idPath, strTitle) VALUES (?, ?, ?, ?)",
+        (1, kept_song, path_id, "Still Here"),
+    )
+    titled = make_single(cur, title="Highway to Hell")
+    named_album = make_album(cur, "Greatest Hits")
+    mapped = make_single(cur)
+    attach_mapping(db, tmp_path, [("album", "lib-music", mapped)])
+
+    assert db.prune_orphan_singles() == 1
+    assert sorted(albums(cur)) == sorted([kept_song, titled, named_album, mapped])
+    assert doomed not in albums(cur)
+
+
+def test_pruning_singles_takes_their_discography(musicdb, tmp_path):
+    """tgrDeleteAlbum never touches discography, so the sweep has to or
+    unmatched rows render as extra artist entries once the album is gone."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    album_id = make_single(cur)
+    cur.execute(
+        "INSERT INTO artist(idArtist, strArtist) VALUES (?, ?)", (2, "The Band")
+    )
+    cur.execute(
+        "INSERT INTO album_artist(idArtist, idAlbum, iOrder, strArtist) "
+        "VALUES (?, ?, ?, ?)",
+        (2, album_id, 0, "The Band"),
+    )
+    cur.execute(
+        "INSERT INTO discography(idArtist, strAlbum, strYear) VALUES (?, ?, ?)",
+        (2, "", "2010"),
+    )
+    attach_mapping(db, tmp_path, [])
+
+    assert db.prune_orphan_singles() == 1
+    assert albums(cur) == []
+    assert cur.execute("SELECT COUNT(*) FROM discography").fetchone() == (0,)
+    assert cur.execute("SELECT COUNT(*) FROM album_artist").fetchone() == (0,)
+
+
 def test_pruning_spares_a_path_the_mapping_still_names(musicdb, tmp_path):
     """A downloaded song's server row: the repoint moved the song onto the
     album directory, so no song references the row -- but kofin.db does, and
@@ -336,6 +385,21 @@ def make_album(cur, title):
     album_id = cur.fetchone()[0]
     cur.execute("INSERT INTO album(idAlbum, strAlbum) VALUES (?, ?)", (album_id, title))
     return album_id
+
+
+def make_single(cur, title=""):
+    """The shell song_add writes: releasetype single, title empty unless set."""
+    cur.execute("SELECT coalesce(max(idAlbum), 0) + 1 FROM album")
+    album_id = cur.fetchone()[0]
+    cur.execute(
+        "INSERT INTO album(idAlbum, strAlbum, strReleaseType) VALUES (?, ?, ?)",
+        (album_id, title, "single"),
+    )
+    return album_id
+
+
+def albums(cur):
+    return [row[0] for row in cur.execute("SELECT idAlbum FROM album").fetchall()]
 
 
 def test_a_library_source_is_created_once_and_renamed_in_place(musicdb):

@@ -222,6 +222,10 @@ class Music(Kodi):
         except TypeError:
             return
 
+    def album_has_songs(self, album_id):
+        self.cursor.execute(QU.album_has_songs, (album_id,))
+        return self.cursor.fetchone() is not None
+
     def validate_song(self, *args):
 
         try:
@@ -501,6 +505,25 @@ class Music(Kodi):
         self.cursor.execute(QU.prune_orphan_paths)
 
         return self.cursor.rowcount
+
+    def prune_orphan_singles(self):
+        """Drop empty untitled singles whose song is already gone.
+
+        ``song_add`` creates the album on the fly and never maps it, so the
+        song's remove used to leave the row: Kodi still lists it under the
+        artist (``strReleaseType=single`` with an empty title renders as
+        "Singles"). The statement needs the mapping ATTACHed so a real
+        MusicAlbum is never a candidate. Call inside ``musicsources.mapped``.
+        """
+        self.cursor.execute(QU.orphan_singles)
+        album_ids = [row[0] for row in self.cursor.fetchall()]
+
+        for album_id in album_ids:
+            self.artwork.delete(album_id, "album")
+            self.delete_album_discography(album_id)
+            self.delete_album(album_id)
+
+        return len(album_ids)
 
     # -- the per-library source rows -------------------------------------------
 

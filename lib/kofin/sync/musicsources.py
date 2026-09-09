@@ -112,6 +112,18 @@ def prune_orphan_paths(kofin_cursor, music_cursor) -> int:
         return int(music.prune_orphan_paths())
 
 
+def prune_orphan_singles(kofin_cursor, music_cursor) -> int:
+    """Reclaim empty untitled singles whose song is already gone; how many.
+
+    Same ATTACH window as the path prune: the mapping is what keeps a real
+    MusicAlbum out of the candidate set. ``check_version`` calls it once per
+    service start so a library that already holds the leftover rows heals
+    without a Repair.
+    """
+    with mapped(kofin_cursor, music_cursor) as music:
+        return int(music.prune_orphan_singles())
+
+
 @contextmanager
 def mapped(kofin_cursor, music_cursor) -> Iterator[Music]:
     """kofin.db ATTACHed to the music connection for the block's duration.
