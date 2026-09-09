@@ -77,7 +77,7 @@ RATE_MIN = 0.005
 RATE_MAX_DEFAULT = 0.25
 RATE_MAX_CEILING = 0.25
 PULSE_AIM_S = 5.0
-PULSE_MAX_S = 10.0
+PULSE_MAX_S = 40.0
 RAMP_STEP = 0.05
 # Learned actuation gain: how far a pulse actually moves the content against
 # how far it was asked to. A direct route measures 1.00. A segmented one
@@ -94,10 +94,11 @@ RAMP_DT = 0.25
 # position reads jitter by about that much on an Android box: at 50 ms the Tab
 # pulsed ±50 ms against its own read noise, so the band sits above it.
 DEADBAND_MS = 75.0
-# Above the budget (syncPlayPulseBudget, default 2.5 s) a seek closes the
+# Above the budget (syncPlayPulseBudget, default 5 s) a seek closes the
 # residual instead; a skip is for gross errors only, because it is both jarring
-# and, on Android, inaccurate. At 25 % a 2.5 s residual is a 10 s pulse.
-BUDGET_DEFAULT_MS = 2500.0
+# and, on Android, inaccurate. At 25 % a 5 s residual is a 20 s pulse, a 10 s
+# residual (the slider max) is a 40 s pulse — one pulse closes the budget.
+BUDGET_DEFAULT_MS = 5000.0
 SEEK_BLACKOUT_S = 30.0
 # What a seek aimed at the group's current position leaves behind before it
 # has been measured on a device: restart time plus landing error.

@@ -74,9 +74,18 @@ class TestPlanner:
         )
 
     def test_large_residual_uses_the_full_rate(self):
-        # 2.5 s at 25 %: the ten-second pulse the budget default is sized for.
+        # Rate ceiling identity: duration stretches only once the rate is
+        # capped. 2.5 s at 25 % is still a 10 s pulse; the 5 s default budget
+        # is 20 s; the 10 s slider max is one 40 s pulse (PULSE_MAX_S).
         rate, seconds = plan_pulse(2500.0)
         assert rate == pytest.approx(1.25) and seconds == pytest.approx(10.0)
+        rate, seconds = plan_pulse(5000.0)
+        assert rate == pytest.approx(1.25) and seconds == pytest.approx(20.0)
+        rate, seconds = plan_pulse(10000.0)
+        assert rate == pytest.approx(1.25) and seconds == pytest.approx(40.0)
+        rate, seconds = plan_pulse(20000.0)
+        assert rate == pytest.approx(1.25) and seconds == tempo.PULSE_MAX_S
+        assert (rate - 1.0) * seconds * 1000.0 == pytest.approx(10000.0)
 
 
 class TestSchedule:
@@ -521,7 +530,7 @@ class TestScheduler:
     def test_residual_beyond_the_budget_seeks(self, rig):
         scheduler, controller, side = rig
         controller.lock_held_at_seek = None
-        fill_window(scheduler, controller, 3000.0, extra=1)
+        fill_window(scheduler, controller, 6000.0, extra=1)
         assert controller.corrections == 1
         assert controller.lock_held_at_seek is False
         assert side.rate_written() == 1.0
@@ -529,7 +538,7 @@ class TestScheduler:
         # The blackout holds a second seek off — and what the seek left behind
         # is closed by a saturated pulse instead of waited out.
         scheduler._settle_until = 0.0
-        start_pulse(scheduler, controller, side, 3000.0)
+        start_pulse(scheduler, controller, side, 15000.0)
         assert controller.corrections == 1
         assert scheduler._pulse is not None
         # Ramped: the first write is the first step, the plan is the ceiling.
@@ -541,7 +550,7 @@ class TestScheduler:
         scheduler, controller, side = rig
         # Eleven samples beyond the budget, one inside: no seek — and no
         # waiting either, a saturated pulse takes it.
-        fill_window(scheduler, controller, 3000.0)
+        fill_window(scheduler, controller, 6000.0)
         controller.local_ms = controller.group_ms - 100.0
         scheduler.tick()
         assert controller.corrections == 0
@@ -806,6 +815,13 @@ def test_scheduler_reads_the_sliders(rig):
     assert not scheduler.can_close(100.0)
 
 
+def test_empty_store_falls_back_to_the_new_budget_default(rig):
+    scheduler, controller, side = rig
+    scheduler.tick()
+    assert scheduler.budget_ms == tempo.BUDGET_DEFAULT_MS
+    assert scheduler.can_close(5000.0) and not scheduler.can_close(5001.0)
+
+
 def test_the_record_outlives_a_restore_kodi_never_saved(session_env):
     """A JSON-RPC settings write lives in Kodi's memory until Kodi saves.
 
@@ -940,7 +956,7 @@ class TestLive:
         self, live_rig
     ):
         scheduler, controller, side = live_rig
-        fill_window(scheduler, controller, 3000.0, extra=1)
+        fill_window(scheduler, controller, 15000.0, extra=1)
 
         assert controller.corrections == 0
         assert scheduler._awaiting is not None
@@ -1037,7 +1053,7 @@ class TestLive:
     ):
         scheduler, controller, side = live_rig
         # 15 s behind: the pulse saturates at the ceiling for PULSE_MAX_S and
-        # can deliver 2.5 s of it. Delivering that is a faithful actuator,
+        # can deliver 10 s of it. Delivering that is a faithful actuator,
         # not a starved one, and not a 17 % gain.
         start_pulse(scheduler, controller, side, 15000.0)
         assert scheduler._pulse["rate"] == pytest.approx(1.0 + tempo.RATE_MAX_DEFAULT)
