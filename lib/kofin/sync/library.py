@@ -850,7 +850,7 @@ class Library(threading.Thread):
         return not is_alive()
 
     def _reap_list(self, threads, crashed):
-        kept = []
+        kept: List[Any] = []
         for thread in threads:
             if not self._worker_finished(thread):
                 kept.append(thread)
@@ -867,7 +867,7 @@ class Library(threading.Thread):
         return kept
 
     def _reap_workers(self):
-        crashed = []
+        crashed: List[Any] = []
         done_downloads = [
             thread
             for thread in self.download_threads
