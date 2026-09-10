@@ -1,3 +1,8 @@
+v0.26.0
+- Synced library nodes added for Continue watching & Next up
+- Next up path added to plugin root
+- Listings now set PluginCategory to the place's name so skins show useful path info
+
 v0.25.2
 - Fine sync closes a larger slip by speed: default 5s, up to 10s; a pulse can last 40s
 - A leftover empty Singles album is removed with its song

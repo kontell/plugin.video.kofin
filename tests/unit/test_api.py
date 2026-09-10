@@ -354,6 +354,26 @@ def test_syncplay_endpoints(api):
     assert calls["/SyncPlay/SetIgnoreWait"]["json"] == {"IgnoreWait": True}
 
 
+def test_next_up_without_a_parent_spans_every_library(api):
+    """The unified Next up (add-on root and the Kofin-folder node) omits
+    parentId so the server answers across every shows library."""
+    client, transport = api
+    client.next_up("", "Overview")
+    call = transport.calls[0]
+    assert call["url"] == "http://s:8096/Shows/NextUp"
+    assert "parentId" not in call["params"]
+    assert call["params"]["limit"] == 25
+    assert call["params"]["fields"] == "Overview"
+
+
+def test_next_up_with_a_parent_stays_inside_that_library(api):
+    client, transport = api
+    client.next_up("lib2", "")
+    call = transport.calls[0]
+    assert call["params"]["parentId"] == "lib2"
+    assert "fields" not in call["params"]
+
+
 def test_resume_asks_the_server_for_its_own_list(api):
     """Continue watching comes off /UserItems/Resume rather than an
     IsResumable filter, so what counts as in progress -- and in what order --

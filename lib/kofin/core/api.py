@@ -374,6 +374,8 @@ class Api:
         return self.get("/Genres", params)
 
     def next_up(self, parent_id: str, fields: str = "") -> JsonDict:
+        """Next-up episodes. ``parent_id`` scopes to one library; empty
+        spans every shows library, matching the web client's home row."""
         params: JsonDict = self._as_user({"limit": 25})
         if parent_id:
             params["parentId"] = parent_id

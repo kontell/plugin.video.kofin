@@ -133,6 +133,18 @@ NODES: Dict[str, List[Tuple[str, int]]] = {
     ],
 }
 
+# Folder key -> label id, flattened from NODES. First listing wins if a
+# key is reused (they currently share wording: All, Recently added, …).
+FOLDER_LABELS: Dict[str, int] = {}
+for _nodes in NODES.values():
+    for _key, _label_id in _nodes:
+        FOLDER_LABELS.setdefault(_key, _label_id)
+
+# Structural menus whose content type stays empty, so Container.FolderName
+# (the row the viewer clicked) is what Estuary shows. Setting a category
+# on those would stack the same word twice.
+_STRUCTURAL_FOLDERS = frozenset({"alpha", "years", "tags", "genres"})
+
 # The alphabet menu's rows. "#" is everything sorting before A, which Jellyfin
 # answers with NameLessThan rather than a NameStartsWith it has no character
 # for (verified: 26 films on this server, against 99 for D).
@@ -522,6 +534,70 @@ def _api() -> Optional[Api]:
 Builder = Callable[[Request, Api], None]
 
 
+def plugin_category(params: Dict[str, str]) -> str:
+    """The listing title skins show as Container.PluginCategory.
+
+    Estuary (and skins that follow it, Contuary included) hide
+    Container.FolderName in the videos window once a content type is set,
+    so a plugin listing that does not set this is just "Videos" or "Movies"
+    in the header. Structural menus leave content empty on purpose — the
+    clicked row's label is the header — and this returns "" there so the
+    two do not stack.
+    """
+    mode = params.get("mode", "")
+    if mode == "continuewatching":
+        return settings.localized(30049)
+    if mode == "nextepisodes":
+        return settings.localized(30032)
+    if mode == "extras":
+        return settings.localized(30500)
+    if mode == "search":
+        if params.get("person") or params.get("type"):
+            import xbmc
+
+            return xbmc.getLocalizedString(137)
+        return ""
+    if mode not in ("browse", ""):
+        return ""
+
+    folder = params.get("folder", "")
+    if not folder or folder in _STRUCTURAL_FOLDERS or folder.startswith("tags-"):
+        return ""
+    if folder in FOLDER_LABELS:
+        return node_label(FOLDER_LABELS[folder])
+    if folder == "extras":
+        return settings.localized(30500)
+    if folder.startswith("year-"):
+        return folder.split("-", 1)[1]
+    if folder.startswith("tag-"):
+        return folder.split("-", 1)[1]
+    if folder.startswith("alpha-"):
+        return folder.split("-", 1)[1]
+    if folder.startswith("genre-"):
+        return node_label(30036)
+    return ""
+
+
+def set_category(handle: int, category: str) -> None:
+    if handle >= 0 and category:
+        xbmcplugin.setPluginCategory(handle, category)
+
+
+def _item_category(media: str, items: List[JsonDict]) -> str:
+    """A drill-down's title, from the rows it holds (series/season names
+    never travel in the URL)."""
+    if not items:
+        return ""
+    first = items[0]
+    if media == "series":
+        return str(first.get("SeriesName") or "")
+    if media == "season":
+        series = first.get("SeriesName") or ""
+        season = first.get("SeasonName") or first.get("Name") or ""
+        return " / ".join(part for part in (series, season) if part)
+    return ""
+
+
 def listing(request: Request, build: Builder, what: str) -> None:
     """The opening every listing route shares (P2.1): nothing for a
     handle-less invocation, a failed directory for a logged-out one, and a
@@ -542,6 +618,7 @@ def listing(request: Request, build: Builder, what: str) -> None:
         xbmcplugin.endOfDirectory(request.handle, succeeded=False)
         return
     try:
+        set_category(request.handle, plugin_category(request.params))
         build(request, api)
     except JellyfinError as error:
         LOG.warning("%s failed %s: %s", what, dict(request.params), error)
@@ -614,9 +691,19 @@ def root(request: Request) -> None:
             )
         )
 
-        # Search sits with Continue watching, above the libraries: both are
-        # ways in that are not a place, and a viewer who knows what they want
-        # should not have to pick a library first.
+        # Next up across every shows library, matching the web client's
+        # home row. Per-library Next up stays on each shows node menu.
+        entries.append(
+            structural_row(
+                settings.localized(30032),
+                node_icon("tvshows", "nextup"),
+                {"mode": "nextepisodes"},
+            )
+        )
+
+        # Search sits with Continue watching and Next up, above the
+        # libraries: they are ways in that are not a place, and a viewer
+        # who knows what they want should not have to pick a library first.
         entries.append(
             structural_row(
                 xbmc.getLocalizedString(137),  # Search
@@ -698,9 +785,10 @@ def root(request: Request) -> None:
 
 
 def next_episodes(request: Request) -> None:
-    """Next-up episodes for a library — the target of the generated
-    'nextepisodes' video node (dynamic content Kodi can't express as a
-    node filter)."""
+    """Next-up episodes — one library when ``id`` is set (the generated
+    per-library node), every shows library when it is not (the add-on
+    root and the Kofin-folder node). Dynamic because no Kodi filter
+    expresses "what follows what was watched"."""
 
     def build(request: Request, api: Api) -> None:
         view_id = request.params.get("id", "")
@@ -764,6 +852,9 @@ def _browse(request: Request, api: Api) -> None:
         _extras_node(request, api, view_id)
         return
     items, content = _list_items(api, media, folder or "children", view_id, request)
+    derived = _item_category(media, items)
+    if derived:
+        set_category(request.handle, derived)
 
     _add_items(request, api, items, view_id, media)
     if media in ("series", "season"):

@@ -47,10 +47,11 @@ The same trick gives you genre ids: fetch a `folder=genres` path and each row's 
 | | `favoritealbums` | server favourites |
 | `playlists`, `boxsets`, `recordings` | `children` | the library's contents |
 
-Three listings take no library at all:
+Listings that are not a library node. Next up without `id` is every shows library, the way the web client leads:
 
 ```
 plugin://plugin.video.kofin/?mode=continuewatching
+plugin://plugin.video.kofin/?mode=nextepisodes
 plugin://plugin.video.kofin/?mode=nextepisodes&id=<library id>
 plugin://plugin.video.kofin/?mode=extras&id=<series or season id>
 ```
@@ -90,11 +91,19 @@ Newest films across every movie library:
 plugin://plugin.video.kofin/?mode=browse&type=movies&folder=recent
 ```
 
+Next up across every show library:
+
+```
+plugin://plugin.video.kofin/?mode=nextepisodes
+```
+
 Next up for one show library:
 
 ```
 plugin://plugin.video.kofin/?mode=nextepisodes&id=<tvshows library id>
 ```
+
+Continue watching and the unified Next up also ship as generated nodes under Videos → Kofin. Do not name a hand-made copy `kofin_ContinueWatching.xml` or `kofin_NextUp.xml` — those filenames are managed.
 
 ## Rules
 

@@ -14,6 +14,7 @@ from kofin.sync.nodes.video import (
     browse_url,
     library_node_path,
     nextepisodes_url,
+    root_dynamic_nodes,
     single_node_path,
 )
 from kofin.sync.shims import window_prop
@@ -128,6 +129,13 @@ def publish(libraries, sync, singles, media_folders, server):
 
     for single in singles:
         _single(index, single.get("Type", "favorites"), single)
+        index += 1
+
+    # After the libraries and the favourites, so existing Kofin.nodes.N
+    # indices stay put (a skin contract). The node files themselves lead
+    # the folder; the two orders are independent.
+    for dynamic in root_dynamic_nodes():
+        _single(index, dynamic.get("Type", "folder"), dynamic)
         index += 1
 
     window_prop("%s.total" % NODES_PREFIX, str(index))
