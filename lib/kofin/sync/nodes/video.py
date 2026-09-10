@@ -41,7 +41,8 @@ NODE_ROOT = fs.PREFIX
 #    a folder of its own rather than one flat node.
 # 9: node files are written whole (P2.1), so every install gets one pass
 #    that replaces whatever parse-and-amend had accumulated.
-NODE_LAYOUT = 9
+# 10: Continue watching and Next up sit in the Kofin folder itself.
+NODE_LAYOUT = 10
 
 # Kind ordering for the generated library nodes, following Kodi's own
 # top-level video ordering (movies 10, tvshows 20, musicvideos 30). Libraries
@@ -239,7 +240,8 @@ def node_folder(view):
 def single_file(single):
     """A single node's file name. ``File`` names it when the tag cannot:
     the two Downloads singles share one tag and would otherwise collide."""
-    return "%s_%s.xml" % (fs.PREFIX, single.get("File", single["Tag"].replace(" ", "")))
+    name = single.get("File") or single["Tag"].replace(" ", "")
+    return "%s_%s.xml" % (fs.PREFIX, name)
 
 
 def downloads_root_path():
@@ -330,6 +332,34 @@ def single_nodes():
             }
         )
     return singles
+
+
+def root_dynamic_nodes():
+    """Plugin listings that sit in the Kofin folder itself, not inside a
+    library: Continue watching (the server's resume list) and Next up
+    (every shows library, the way the web client leads).
+
+    Written as ``kofin_*.xml`` so the prefix gate owns them; skins read
+    them through the same ``Kofin.nodes.*`` singles path as favourites.
+    """
+    return [
+        {
+            "Name": localized(30049),
+            "File": "ContinueWatching",
+            "Icon": "DefaultInProgressShows.png",
+            "Content": "videos",
+            "Path": plugin_url({"mode": "continuewatching"}),
+            "Type": "resume",
+        },
+        {
+            "Name": localized(30032),
+            "File": "NextUp",
+            "Icon": "DefaultInProgressShows.png",
+            "Content": "episodes",
+            "Path": plugin_url({"mode": "nextepisodes"}),
+            "Type": "nextup",
+        },
+    ]
 
 
 # --- building one file ----------------------------------------------------------
@@ -466,6 +496,15 @@ def write_single(root, single, order):
     )
 
 
+def write_root_dynamic(root, entry, order):
+    """A folder node at the Kofin root that opens a plugin listing."""
+    xml = _node("folder", order, entry["Icon"])
+    etree.SubElement(xml, "label").text = entry["Name"]
+    etree.SubElement(xml, "content").text = entry["Content"]
+    etree.SubElement(xml, "path").text = entry["Path"]
+    write_xml(os.path.join(root, single_file(entry)), xml)
+
+
 def write_tree(entries, singles):
     """The whole tree from what should be in it: ``entries`` are the sorted
     ``(view, mixed)`` pairs of the whitelist, ``singles`` the single nodes.
@@ -485,6 +524,14 @@ def write_tree(entries, singles):
     write_parent(root)
     keep = set()
     order = 0
+
+    # Continue watching and Next up lead the folder, the way the add-on
+    # root does: they are about what the viewer was in the middle of, not
+    # about where it is filed.
+    for dynamic in root_dynamic_nodes():
+        write_root_dynamic(root, dynamic, order)
+        keep.add(single_file(dynamic))
+        order += 1
 
     for view, mixed in entries:
         if view["Media"] not in NODES:

@@ -187,13 +187,15 @@ def test_republishing_a_smaller_view_set_leaves_no_stale_props(views_env):
         if any(view_id in value for view_id in removed)
     )
     assert stale == []
-    assert after["Kofin.nodes.total"] == "4"  # Shows + the three favourites
+    assert (
+        after["Kofin.nodes.total"] == "6"
+    )  # Shows + three favourites + two root listings
     assert after["Kofin.nodes.0.id"] == "lib2"
-    # The singles at 1..3 publish entry props only; a sub-node prop there
+    # The singles at 1..5 publish entry props only; a sub-node prop there
     # could only be a leftover.
     assert not any(
         name.startswith("Kofin.nodes.%d." % index) and name.count(".") > 3
-        for index in (1, 2, 3)
+        for index in (1, 2, 3, 4, 5)
         for name in after
     )
     assert not any(name.startswith("Kofin.wnodes.1.") for name in after)

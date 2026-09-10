@@ -238,6 +238,7 @@ def capture(monkeypatch):
         "addSortMethod",
         lambda handle, method: recorded["sort"].append(method),
     )
+    monkeypatch.setattr(xbmcplugin, "setPluginCategory", lambda handle, category: None)
     api = world()
     monkeypatch.setattr(browse, "_api", lambda: api)
     return recorded
@@ -271,6 +272,7 @@ ROUTES = {
     "root": ("root", {}),
     "continue_watching": ("continue_watching", {"mode": "continuewatching"}),
     "next_episodes": ("next_episodes", {"mode": "nextepisodes", "id": V_SHOWS}),
+    "next_episodes_all": ("next_episodes", {"mode": "nextepisodes"}),
     "search_menu": ("search", {"mode": "search"}),
     "search_movies": ("search", {"mode": "search", "type": "movies", "query": "rio"}),
     "search_person": ("search", {"mode": "search", "person": "p1"}),
@@ -357,7 +359,8 @@ EXPECTED = {
     "music_playhistory": "2f236c15be769c51",
     "music_recent_albums": "1d5673b309336d5f",
     "next_episodes": "c92e9962cbefdcd0",
-    "root": "51cb37ee8dd8351e",
+    "next_episodes_all": "c92e9962cbefdcd0",
+    "root": "a1a2d078d89962b9",
     "search_menu": "1f7daa2c71011f87",
     "search_movies": "cfdff64543ad7601",
     "search_person": "581ee8741dae8a45",

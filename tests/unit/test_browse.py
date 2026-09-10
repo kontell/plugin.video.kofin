@@ -144,6 +144,51 @@ def test_generic_children_stay_slim():
     assert "MediaStreams" not in captured["params"]["Fields"]
 
 
+def test_plugin_category_names_the_listing_skins_show():
+    """Estuary hides FolderName once content is set, so this is the header."""
+    assert browse.plugin_category({"mode": "continuewatching"}) == "string-30049"
+    assert browse.plugin_category({"mode": "nextepisodes"}) == "string-30032"
+    assert browse.plugin_category({"mode": "extras"}) == "string-30500"
+    assert (
+        browse.plugin_category({"mode": "browse", "type": "movies", "folder": "recent"})
+        == "string-30031"
+    )
+    assert (
+        browse.plugin_category(
+            {"mode": "browse", "type": "tvshows", "folder": "nextup"}
+        )
+        == "string-30032"
+    )
+    assert (
+        browse.plugin_category(
+            {"mode": "browse", "type": "movies", "folder": "year-2020"}
+        )
+        == "2020"
+    )
+    assert (
+        browse.plugin_category(
+            {"mode": "browse", "type": "movies", "folder": "alpha-D"}
+        )
+        == "D"
+    )
+    # Structural menus leave content empty: FolderName is already the title.
+    assert browse.plugin_category({"mode": "browse", "type": "movies"}) == ""
+    assert (
+        browse.plugin_category({"mode": "browse", "type": "movies", "folder": "genres"})
+        == ""
+    )
+    assert browse.plugin_category({"mode": "search"}) == ""
+
+
+def test_item_category_takes_the_series_name_from_the_rows():
+    assert browse._item_category("series", [{"SeriesName": "Archer"}]) == "Archer"
+    assert (
+        browse._item_category("season", [{"SeriesName": "Archer", "Name": "Season 1"}])
+        == "Archer / Season 1"
+    )
+    assert browse._item_category("series", []) == ""
+
+
 def test_content_helpers():
     assert _node_content("tvshows", "nextup") == "episodes"
     assert _node_content("movies", "sets") == "movies"
@@ -229,7 +274,7 @@ def kodi_env(monkeypatch):
 @pytest.fixture
 def directory(monkeypatch):
     """Capture what the handlers hand to xbmcplugin."""
-    captured = {"entries": [], "content": None, "succeeded": None}
+    captured = {"entries": [], "content": None, "succeeded": None, "category": None}
 
     def add_items(handle, entries, count):
         captured["entries"].extend(entries)
@@ -247,6 +292,11 @@ def directory(monkeypatch):
         lambda handle, succeeded=True, **kw: captured.__setitem__(
             "succeeded", succeeded
         ),
+    )
+    monkeypatch.setattr(
+        xbmcplugin,
+        "setPluginCategory",
+        lambda handle, category: captured.__setitem__("category", category),
     )
     monkeypatch.setattr(xbmcplugin, "addSortMethod", lambda handle, method: None)
     return captured
@@ -467,6 +517,7 @@ def test_continue_watching_lists_the_server_order(monkeypatch, directory):
     # A 25-row listing keeps stream details (BROWSE_FIELDS_STREAMS): bounded
     # payload, and resume rows are where codec/HDR flags are most looked at.
     assert api.resume_calls == [(browse.BROWSE_FIELDS_STREAMS, 25)]
+    assert directory["category"] == "string-30049"
 
 
 def test_continue_watching_failure_fails_directory(monkeypatch, directory):
@@ -489,7 +540,7 @@ def test_continue_watching_empty_is_still_a_listing(monkeypatch, directory):
 
 
 def test_root_leads_with_continue_watching(monkeypatch, directory):
-    """The two ways in that are not a place come first, then the libraries."""
+    """The ways in that are not a place come first, then the libraries."""
     api = ResumeApi(views=[{"Id": "v1", "Name": "Movies", "CollectionType": "movies"}])
     monkeypatch.setattr(browse, "_api", lambda: api)
 
@@ -498,8 +549,10 @@ def test_root_leads_with_continue_watching(monkeypatch, directory):
     paths = [path for path, _li, _folder in directory["entries"]]
     assert "mode=continuewatching" in paths[0]
     assert directory["entries"][0][2] is True  # a folder to open
-    assert "mode=search" in paths[1]
-    assert "view=v1" in paths[2]  # the libraries follow them
+    assert "mode=nextepisodes" in paths[1]
+    assert "id=" not in paths[1]  # every shows library, not one
+    assert "mode=search" in paths[2]
+    assert "view=v1" in paths[3]  # the libraries follow them
 
 
 def test_addon_media_joins_under_resources_media(monkeypatch):
@@ -549,6 +602,10 @@ def test_root_art_icon_and_thumb(monkeypatch, directory, recording_art):
     resume = by_mode["continuewatching"]
     assert resume.getArt("icon") == "DefaultInProgressShows.png"
     assert resume.getArt("thumb") == "DefaultInProgressShows.png"
+
+    nextup = by_mode["nextepisodes"]
+    assert nextup.getArt("icon") == "DefaultInProgressShows.png"
+    assert nextup.getArt("thumb") == "DefaultInProgressShows.png"
 
     view = by_mode["browse"]
     assert view.getArt("icon") == "DefaultMovies.png"
@@ -1095,12 +1152,26 @@ def test_next_episodes_lists_the_next_up_feed(monkeypatch, directory):
     )
     monkeypatch.setattr(browse, "_api", lambda: api)
 
-    browse.next_episodes(Request("plugin://x", 1, {"id": "v1"}))
+    browse.next_episodes(Request("plugin://x", 1, {"mode": "nextepisodes", "id": "v1"}))
 
     assert directory["content"] == "episodes"
     assert directory["succeeded"] is True
     assert len(directory["entries"]) == 1
     assert api.args("next_up")[0][0] == "v1"
+    assert directory["category"] == "string-30032"
+
+
+def test_next_episodes_without_a_library_spans_every_show(monkeypatch, directory):
+    api = FakeApi(
+        next_up={"Items": [{"Id": "e1", "Name": "Mole Hunt", "Type": "Episode"}]}
+    )
+    monkeypatch.setattr(browse, "_api", lambda: api)
+
+    browse.next_episodes(Request("plugin://x", 1, {"mode": "nextepisodes"}))
+
+    assert api.args("next_up")[0][0] == ""
+    assert directory["succeeded"] is True
+    assert directory["content"] == "episodes"
 
 
 def test_next_episodes_fails_the_listing_when_the_server_is_down(

@@ -141,6 +141,48 @@ def test_get_nodes_generates_files_with_stock_icons(views_env):
     assert FakeWindow.store.get("Kofin.nodes.total")
 
 
+def test_continue_watching_and_next_up_sit_at_the_kofin_root(views_env):
+    """Videos → Kofin leads with the two listings the add-on root already
+    offers, as folder nodes (resume/next-up are server questions no Kodi
+    filter expresses)."""
+    seed(
+        [("lib1", "Movies", "movies"), ("lib2", "Shows", "tvshows")],
+        ["lib1", "lib2"],
+    )
+
+    Views(FakeApi()).get_nodes()
+
+    root = kofin_root(views_env)
+    watching = (root / "kofin_ContinueWatching.xml").read_text()
+    assert 'type="folder"' in watching
+    assert "<label>string-30049</label>" in watching
+    assert "mode=continuewatching" in watching
+    assert "<icon>DefaultInProgressShows.png</icon>" in watching
+
+    nextup = (root / "kofin_NextUp.xml").read_text()
+    assert 'type="folder"' in nextup
+    assert "<label>string-30032</label>" in nextup
+    assert "mode=nextepisodes" in nextup
+    assert "id=" not in nextup
+
+    orders = _orders(views_env)
+    assert orders["ContinueWatching"] < orders["Movies"]
+    assert orders["NextUp"] < orders["Movies"]
+    assert orders["ContinueWatching"] < orders["NextUp"]
+
+    # Skin props append them after the libraries, so existing indices stay.
+    total = int(FakeWindow.store["Kofin.nodes.total"])
+    assert FakeWindow.store["Kofin.nodes.%s.type" % (total - 2)] == "resume"
+    assert (
+        "kofin_ContinueWatching.xml"
+        in FakeWindow.store["Kofin.nodes.%s.content" % (total - 2)]
+    )
+    assert FakeWindow.store["Kofin.nodes.%s.type" % (total - 1)] == "nextup"
+    assert (
+        "kofin_NextUp.xml" in FakeWindow.store["Kofin.nodes.%s.content" % (total - 1)]
+    )
+
+
 def test_generated_nodes_live_under_one_kofin_parent(views_env):
     seed([("lib1", "Movies", "movies")], ["lib1"])
 
