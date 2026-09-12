@@ -36,7 +36,6 @@ SUB_NODES = (
     "recentepisodes",
     "inprogress",
     "inprogressepisodes",
-    "nextepisodes",
     "genres",
     "random",
     "recommended",
