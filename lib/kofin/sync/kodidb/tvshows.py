@@ -2,8 +2,11 @@
 
 ##################################################################################################
 
+from sqlite3 import DatabaseError
+
 from kofin.core.log import Logger
 
+from kofin.sync import schema
 from kofin.sync.kodidb import queries as QU
 from kofin.sync.kodidb.kodi import Kodi
 
@@ -16,10 +19,22 @@ LOG = Logger(__name__)
 
 class TVShows(Kodi):
 
+    season_has_plot: bool
+
     def __init__(self, cursor):
 
         self.cursor = cursor
         Kodi.__init__(self)
+        # seasons.plot exists from MyVideos146; Omega's season_view still
+        # aliases the show overview. Keyed in schema.py like EXTRA_ITEM_TYPE.
+        try:
+            self.cursor.execute(QU.get_version)
+            self.season_has_plot = schema.SEASON_HAS_PLOT.get(
+                self.cursor.fetchone()[0], False
+            )
+        except (IndexError, DatabaseError, TypeError) as error:
+            LOG.warning("Unable to fetch video schema version: %s", error)
+            self.season_has_plot = False
 
     def create_entry_unique_id(self):
         self.cursor.execute(QU.create_unique_id)
@@ -115,6 +130,17 @@ class TVShows(Kodi):
             self.cursor.execute(QU.update_season, (name, season_id))
 
         return season_id
+
+    def set_season_plot(self, season_id, plot):
+        """Write ``seasons.plot`` when the schema has the column.
+
+        Omega has none; its season_view exposes the show overview as plot,
+        and writing the column would raise. A missing overview stores NULL
+        so Kodi can still fall back to the show text.
+        """
+        if not self.season_has_plot:
+            return
+        self.cursor.execute(QU.update_season_plot, (plot, season_id))
 
     def add_season(self, *args):
 

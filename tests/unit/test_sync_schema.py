@@ -148,6 +148,7 @@ def test_every_supported_video_version_is_backed(monkeypatch):
             os.path.join(kodifixtures.FIXTURES, "myvideos%d_seed.sql" % version)
         ), ("no seed fixture for MyVideos%d" % version)
         assert version in schema.EXTRA_ITEM_TYPE
+        assert version in schema.SEASON_HAS_PLOT
 
 
 def test_every_supported_music_and_texture_version_is_backed():

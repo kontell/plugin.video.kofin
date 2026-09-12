@@ -67,6 +67,19 @@ VIDEO_ASSET_OWNER_USER = 2
 # a version missing from this map disables chapter-thumb seeding, not playback.
 CHAPTER_ART_WRAPPED: Dict[int, bool] = {13: False, 14: True}
 
+# Whether the seasons table has a plot column. Omega's season_view aliases
+# the *show* overview as plot (tvshow.c01), which is why a synced season
+# showed the series text; Piers added seasons.plot and season_view.seasonPlot
+# (MyVideos146) and Kodi reads that for the season's own overview. A version
+# missing from this map skips the write, not the season row.
+SEASON_HAS_PLOT: Dict[int, bool] = {
+    131: False,
+    146: True,
+    147: True,
+    148: True,
+    149: True,
+}
+
 # Rows Kodi itself writes at music-database creation: the "Default role" from
 # MusicDatabase::CreateTables and the BLANKARTIST_* "[Missing Tag]" artist —
 # the same statements as tests/fixtures/mymusic8*_seed.sql. The cleaner

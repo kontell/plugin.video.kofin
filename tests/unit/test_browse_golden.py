@@ -361,7 +361,7 @@ EXPECTED = {
     "next_episodes": "c92e9962cbefdcd0",
     "next_episodes_all": "c92e9962cbefdcd0",
     "root": "a1a2d078d89962b9",
-    "search_menu": "1f7daa2c71011f87",
+    "search_menu": "e0281abdac81e45d",
     "search_movies": "cfdff64543ad7601",
     "search_person": "581ee8741dae8a45",
     "season_episodes": "c89bc058e60d8487",

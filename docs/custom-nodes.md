@@ -103,8 +103,6 @@ Next up for one show library:
 plugin://plugin.video.kofin/?mode=nextepisodes&id=<tvshows library id>
 ```
 
-Continue watching and the unified Next up also ship as generated nodes under Videos → Kofin. Do not name a hand-made copy `kofin_ContinueWatching.xml` or `kofin_NextUp.xml` — those filenames are managed.
-
 ## Rules
 
 - **Do not name the file `kofin…`.** Kofin deletes `kofin`-prefixed files and folders from its node tree when it regenerates. Any other name is left alone.

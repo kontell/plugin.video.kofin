@@ -13,8 +13,6 @@ from kofin.sync.nodes.video import (
     _label,
     browse_url,
     library_node_path,
-    nextepisodes_url,
-    root_dynamic_nodes,
     single_node_path,
 )
 from kofin.sync.shims import window_prop
@@ -29,8 +27,15 @@ ENTRY_PROPS = ("index", "id", "path", "artwork", "title", "content", "type")
 # ...and on each of its sub-nodes. Derived from the node table, so a node
 # added there is cleared here without a second list to forget.
 SUB_PROPS = ("title", "content", "path", "id", "type", "artwork")
+# Dropped from NODES but still cleared: a skin that read the old
+# Kofin.nodes.N.nextepisodes.* would otherwise keep a dead plugin path
+# until Kodi restarts (window props outlive a regeneration).
+_RETIRED_SUB_NODES = ("nextepisodes",)
 SUB_NODES = tuple(
-    sorted({key for kind in NODES.values() for key, _label_id in kind if key != "all"})
+    sorted(
+        {key for kind in NODES.values() for key, _label_id in kind if key != "all"}
+        | set(_RETIRED_SUB_NODES)
+    )
 )
 
 
@@ -131,13 +136,6 @@ def publish(libraries, sync, singles, media_folders, server):
         _single(index, single.get("Type", "favorites"), single)
         index += 1
 
-    # After the libraries and the favourites, so existing Kofin.nodes.N
-    # indices stay put (a skin contract). The node files themselves lead
-    # the folder; the two orders are independent.
-    for dynamic in root_dynamic_nodes():
-        _single(index, dynamic.get("Type", "folder"), dynamic)
-        index += 1
-
     window_prop("%s.total" % NODES_PREFIX, str(index))
     window_prop("%s.total" % WNODES_PREFIX, str(windex))
 
@@ -176,8 +174,6 @@ def _node(index, view, artwork, node=None, node_label=None):
     """Leads to another listing of nodes."""
     if view["Media"] in ("homevideos", "photos"):
         path = browse_url(view, None if node in ("all", "browse") else node)
-    elif node == "nextepisodes":
-        path = nextepisodes_url(view)
     elif node == "music":
         path = "library://music/"
     elif node == "browse":

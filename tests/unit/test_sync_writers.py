@@ -1815,6 +1815,13 @@ def test_series_season_episode_write(api):
     assert (1, -1, None) in seasons  # specials placeholder from the fork flow
     assert (1, 1, "Season 1") in seasons
 
+    version = video_query("SELECT idVersion FROM version")[0][0]
+    if schema.SEASON_HAS_PLOT[version]:
+        assert video_query("SELECT plot FROM seasons WHERE season=1") == [
+            ("The first season.",)
+        ]
+        assert video_query("SELECT plot FROM seasons WHERE season=-1") == [(None,)]
+
     episode = video_query("SELECT c00, c12, c13, idShow, idSeason FROM episode")[0]
     assert episode[0] == "Pilot"
     assert (episode[1], episode[2]) == ("1", "1")

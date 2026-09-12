@@ -1,5 +1,8 @@
+v0.27.0
+- Artist search added
+- Synced show libraries now have season descriptions (v22 only)
+
 v0.26.0
-- Synced library nodes added for Continue watching & Next up
 - Next up path added to plugin root
 - Listings now set PluginCategory to the place's name so skins show useful path info
 

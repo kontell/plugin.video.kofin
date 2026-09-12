@@ -42,7 +42,9 @@ NODE_ROOT = fs.PREFIX
 # 9: node files are written whole (P2.1), so every install gets one pass
 #    that replaces whatever parse-and-amend had accumulated.
 # 10: Continue watching and Next up sit in the Kofin folder itself.
-NODE_LAYOUT = 10
+# 11: those two left the tree — they wrap plugin paths the add-on root
+#     already offers, and per-library Next up was the same wrapper.
+NODE_LAYOUT = 11
 
 # Kind ordering for the generated library nodes, following Kodi's own
 # top-level video ordering (movies 10, tvshows 20, musicvideos 30). Libraries
@@ -86,7 +88,6 @@ NODES = {
         ("recentepisodes", 30355),
         ("inprogress", 30351),
         ("inprogressepisodes", 30356),
-        ("nextepisodes", 30357),
         ("genres", 135),
         ("random", 30353),
         ("recommended", 30354),
@@ -143,11 +144,6 @@ NODE_PARTS = {
 }
 EPISODE_CONTENT = ("recentepisodes", "inprogressepisodes")
 
-# The one node that is a plugin listing rather than a library filter: next
-# episodes are a server question (what follows what was watched), which no
-# Kodi rule expresses.
-DYNAMIC_NODES = ("nextepisodes",)
-
 # Rows a node lists at most, where it lists a selection.
 LIMIT = 25
 
@@ -169,7 +165,6 @@ NODE_ICONS = {
     "recentepisodes": "DefaultRecentlyAddedEpisodes.png",
     "inprogress": "DefaultInProgressShows.png",
     "inprogressepisodes": "DefaultInProgressShows.png",
-    "nextepisodes": "DefaultInProgressShows.png",
     "genres": "DefaultGenre.png",
     "sets": "DefaultSets.png",
     "favorites": "DefaultFavourites.png",
@@ -273,11 +268,6 @@ def browse_url(view, node=None):
     return plugin_url(params)
 
 
-def nextepisodes_url(view):
-    params = {"id": view["Id"], "mode": "nextepisodes", "limit": LIMIT}
-    return plugin_url(params)
-
-
 # --- what goes in the tree ------------------------------------------------------
 
 
@@ -332,34 +322,6 @@ def single_nodes():
             }
         )
     return singles
-
-
-def root_dynamic_nodes():
-    """Plugin listings that sit in the Kofin folder itself, not inside a
-    library: Continue watching (the server's resume list) and Next up
-    (every shows library, the way the web client leads).
-
-    Written as ``kofin_*.xml`` so the prefix gate owns them; skins read
-    them through the same ``Kofin.nodes.*`` singles path as favourites.
-    """
-    return [
-        {
-            "Name": localized(30049),
-            "File": "ContinueWatching",
-            "Icon": "DefaultInProgressShows.png",
-            "Content": "videos",
-            "Path": plugin_url({"mode": "continuewatching"}),
-            "Type": "resume",
-        },
-        {
-            "Name": localized(30032),
-            "File": "NextUp",
-            "Icon": "DefaultInProgressShows.png",
-            "Content": "episodes",
-            "Path": plugin_url({"mode": "nextepisodes"}),
-            "Type": "nextup",
-        },
-    ]
 
 
 # --- building one file ----------------------------------------------------------
@@ -423,15 +385,6 @@ def build_node(view, key, label, order):
     return xml
 
 
-def build_dynamic(view, key, label, order, path):
-    """A folder node that opens a plugin listing (next episodes)."""
-    xml = _node("folder", order, node_icon(view["Media"], key))
-    etree.SubElement(xml, "label").text = _node_label(label or view["Name"])
-    etree.SubElement(xml, "content").text = "episodes"
-    etree.SubElement(xml, "path").text = path
-    return xml
-
-
 def build_single(single, order, item_type):
     """A single node: a favourites or a Downloads listing."""
     episodes = single["Media"] == "episodes"
@@ -480,13 +433,23 @@ def write_library(root, view, mixed, order):
 
     write_xml(os.path.join(folder, "index.xml"), build_index(view, mixed, order))
 
+    keep_files = {"index.xml"}
     for position, (key, label) in enumerate(NODES[view["Media"]]):
-        file = os.path.join(folder, "%s.xml" % key)
-        if key in DYNAMIC_NODES:
-            xml = build_dynamic(view, key, label, position, nextepisodes_url(view))
-        else:
-            xml = build_node(view, key, label, position)
-        write_xml(file, xml)
+        filename = "%s.xml" % key
+        keep_files.add(filename)
+        write_xml(
+            os.path.join(folder, filename),
+            build_node(view, key, label, position),
+        )
+
+    # A layout bump can drop a node (nextepisodes left in 11) and the
+    # folder is ours, so a leftover file would still list in Videos →
+    # Kofin. The prefix gate does not apply inside the folder: these
+    # names are all.xml, not kofin_*.xml.
+    _, files = fs.listdir(folder)
+    for name in files:
+        if name not in keep_files:
+            fs.delete_file(os.path.join(folder, name))
 
 
 def write_single(root, single, order):
@@ -494,15 +457,6 @@ def write_single(root, single, order):
     write_xml(
         os.path.join(root, single_file(single)), build_single(single, order, item_type)
     )
-
-
-def write_root_dynamic(root, entry, order):
-    """A folder node at the Kofin root that opens a plugin listing."""
-    xml = _node("folder", order, entry["Icon"])
-    etree.SubElement(xml, "label").text = entry["Name"]
-    etree.SubElement(xml, "content").text = entry["Content"]
-    etree.SubElement(xml, "path").text = entry["Path"]
-    write_xml(os.path.join(root, single_file(entry)), xml)
 
 
 def write_tree(entries, singles):
@@ -524,14 +478,6 @@ def write_tree(entries, singles):
     write_parent(root)
     keep = set()
     order = 0
-
-    # Continue watching and Next up lead the folder, the way the add-on
-    # root does: they are about what the viewer was in the middle of, not
-    # about where it is filed.
-    for dynamic in root_dynamic_nodes():
-        write_root_dynamic(root, dynamic, order)
-        keep.add(single_file(dynamic))
-        order += 1
 
     for view, mixed in entries:
         if view["Media"] not in NODES:

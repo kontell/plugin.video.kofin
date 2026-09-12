@@ -84,7 +84,8 @@
 		"Index": "IndexNumber",
 		"SeriesId": "SeriesId",
 		"Location": "LocationType",
-		"Title": "Name"
+		"Title": "Name",
+		"Plot": "Overview"
 	},
 	"EpisodeProviderName": "tvdb",
 	"Episode": {

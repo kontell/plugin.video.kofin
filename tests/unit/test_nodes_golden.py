@@ -187,15 +187,13 @@ def test_republishing_a_smaller_view_set_leaves_no_stale_props(views_env):
         if any(view_id in value for view_id in removed)
     )
     assert stale == []
-    assert (
-        after["Kofin.nodes.total"] == "6"
-    )  # Shows + three favourites + two root listings
+    assert after["Kofin.nodes.total"] == "4"  # Shows + three favourites
     assert after["Kofin.nodes.0.id"] == "lib2"
-    # The singles at 1..5 publish entry props only; a sub-node prop there
+    # The singles at 1..3 publish entry props only; a sub-node prop there
     # could only be a leftover.
     assert not any(
         name.startswith("Kofin.nodes.%d." % index) and name.count(".") > 3
-        for index in (1, 2, 3, 4, 5)
+        for index in (1, 2, 3)
         for name in after
     )
     assert not any(name.startswith("Kofin.wnodes.1.") for name in after)
@@ -207,12 +205,13 @@ def test_clear_covers_every_sub_node_the_table_knows(views_env):
 
     FakeWindow.store["Kofin.nodes.total"] = "1"
     planted = []
-    for kind in NODES.values():
-        for key, _label in kind:
-            for prop in ("title", "content", "path", "id", "type", "artwork"):
-                name = "Kofin.nodes.0.%s.%s" % (key, prop)
-                FakeWindow.store[name] = "x"
-                planted.append(name)
+    keys = {key for kind in NODES.values() for key, _label in kind}
+    keys.update(node_props._RETIRED_SUB_NODES)
+    for key in keys:
+        for prop in ("title", "content", "path", "id", "type", "artwork"):
+            name = "Kofin.nodes.0.%s.%s" % (key, prop)
+            FakeWindow.store[name] = "x"
+            planted.append(name)
     FakeWindow.store["Kofin.nodes.0.title"] = "x"
     FakeWindow.store["Kofin.nodes.title"] = "x"
 
