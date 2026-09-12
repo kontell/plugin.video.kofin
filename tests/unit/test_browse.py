@@ -950,6 +950,23 @@ def test_search_with_a_query_does_not_prompt(monkeypatch, directory):
     assert directory["succeeded"] is True
 
 
+def test_search_artists_asks_for_music_artists(monkeypatch, directory):
+    api = SearchApi(items=[{"Id": "a1", "Name": "Radiohead", "Type": "MusicArtist"}])
+    monkeypatch.setattr(browse, "_api", lambda: api)
+    monkeypatch.setattr(
+        browse.xbmcgui, "Dialog", lambda: pytest.fail("a given query must not prompt")
+    )
+
+    browse.search(Request("plugin://x", 1, {"type": "artists", "query": "radio"}))
+
+    assert api.queries[0]["searchTerm"] == "radio"
+    assert api.queries[0]["IncludeItemTypes"] == "MusicArtist"
+    assert directory["content"] == "artists"
+    path, _li, folder = directory["entries"][0]
+    assert "folder=a1" in path
+    assert folder is True
+
+
 def test_search_prompts_when_the_query_is_missing(monkeypatch, directory):
     api = SearchApi(items=[])
     monkeypatch.setattr(browse, "_api", lambda: api)
