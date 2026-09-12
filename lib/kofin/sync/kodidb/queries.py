@@ -769,6 +769,11 @@ UPDATE      seasons
 SET         name = ?
 WHERE       idSeason = ?
 """
+update_season_plot = """
+UPDATE      seasons
+SET         plot = ?
+WHERE       idSeason = ?
+"""
 update_episode = """
 UPDATE      episode
 SET         c00 = ?, c01 = ?, c03 = ?, c04 = ?, c05 = ?, c09 = ?, c10 = ?,

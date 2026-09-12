@@ -389,6 +389,14 @@ class TVShows(KodiDb):
 
         obj["ShowId"] = show_id
 
+        # Deviation from the fork: the Season map stored no Overview, so a
+        # synced season had nothing to put in seasons.plot. Piers added that
+        # column (MyVideos146) and reads it as seasonPlot; without it Kodi
+        # shows the show overview the view still aliases as plot. Omega has
+        # no column, so set_season_plot is a no-op there. Dynamic listings
+        # already stamped the season DTO's Overview on the ListItem.
+        obj["Plot"] = API.get_overview(obj.get("Plot"))
+
         # Deviation from the fork: get_show_id in place of a bare lookup, so an
         # orphan season self-heals exactly as an orphan episode does -- fetch
         # the series, write it, retry. Ordering upstream (the prune's
@@ -409,6 +417,7 @@ class TVShows(KodiDb):
             )
 
         obj["SeasonId"] = self.get_season(*values(obj, QU.get_season_obj))
+        self.set_season_plot(obj["SeasonId"], obj["Plot"])
         obj["Artwork"] = API.get_all_artwork(self.objects.map(item, "Artwork"))
 
         # Unconditional, including Location == "Virtual". A virtual season is

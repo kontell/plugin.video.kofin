@@ -172,6 +172,7 @@ SEASON_1 = {
     "Etag": "etag-season1-v1",
     "IndexNumber": 1,
     "SeriesId": "series1",
+    "Overview": "The first season.",
     "LocationType": "FileSystem",
     "ImageTags": {"Primary": "seasprim"},
     "BackdropImageTags": [],
