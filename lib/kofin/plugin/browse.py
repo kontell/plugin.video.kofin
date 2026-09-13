@@ -139,6 +139,16 @@ FOLDER_LABELS: Dict[str, int] = {}
 for _nodes in NODES.values():
     for _key, _label_id in _nodes:
         FOLDER_LABELS.setdefault(_key, _label_id)
+# Show-library Favourites is a submenu; these are its two legs (not in NODES).
+FOLDER_LABELS["favoriteshows"] = 30359
+FOLDER_LABELS["favoriteepisodes"] = 30360
+
+# The two listings under a show library's Favourites row, in menu order.
+# Empty legs are omitted; the parent row is omitted when both are.
+TV_FAVORITE_LEGS: Tuple[Tuple[str, int, str], ...] = (
+    ("favoriteshows", 30359, "Series"),
+    ("favoriteepisodes", 30360, "Episode"),
+)
 
 # Structural menus whose content type stays empty, so Container.FolderName
 # (the row the viewer clicked) is what Estuary shows. Setting a category
@@ -246,6 +256,8 @@ NODE_ICONS: Dict[str, Any] = {
     "inprogressepisodes": "DefaultInProgressShows.png",
     "nextup": "DefaultInProgressShows.png",
     "favorites": "DefaultFavourites.png",
+    "favoriteshows": "DefaultFavourites.png",
+    "favoriteepisodes": "DefaultFavourites.png",
     "favoritealbums": "DefaultFavourites.png",
     "sets": "DefaultSets.png",
     "genres": "DefaultGenre.png",
@@ -474,10 +486,14 @@ def node_query(media: str, node: str, view_id: str) -> Optional[JsonDict]:
     elif node == "unwatched":
         base.update(IncludeItemTypes=types, Filters="IsUnplayed")
     elif node == "favorites":
-        base.update(
-            IncludeItemTypes=types if media != "tvshows" else "Series",
-            Filters="IsFavorite",
-        )
+        if media == "tvshows":
+            # Submenu of favorite shows / favorite episodes, not a listing.
+            return None
+        base.update(IncludeItemTypes=types, Filters="IsFavorite")
+    elif node == "favoriteshows":
+        base.update(IncludeItemTypes="Series", Filters="IsFavorite")
+    elif node == "favoriteepisodes":
+        base.update(IncludeItemTypes="Episode", Filters="IsFavorite")
     elif node == "favoritealbums":
         base.update(IncludeItemTypes="MusicAlbum", Filters="IsFavorite")
     elif node == "sets":
@@ -850,6 +866,9 @@ def _browse(request: Request, api: Api) -> None:
     if folder.startswith("tags-"):
         _tag_menu(request, api, media, view_id, folder.split("-", 1)[1])
         return
+    if folder == "favorites" and media == "tvshows":
+        _favorites_menu(request, api, view_id)
+        return
     if folder == "extras" and media == "tvshows":
         _extras_node(request, api, view_id)
         return
@@ -1128,8 +1147,11 @@ def _folder_params(view_id: str, media: str, folder: str) -> Dict[str, str]:
 
 def _node_menu(request: Request, api: Api, media: str, view_id: str) -> None:
     nodes = list(NODES[media])
-    if media == "tvshows" and _view_has_specials(api, view_id):
-        nodes.append(("extras", 30500))
+    if media == "tvshows":
+        if not _view_has_favorites(api, view_id):
+            nodes = [(key, label_id) for key, label_id in nodes if key != "favorites"]
+        if _view_has_specials(api, view_id):
+            nodes.append(("extras", 30500))
     structural_rows(
         request,
         [
@@ -1180,6 +1202,51 @@ def specials_only(items: List[JsonDict]) -> List[JsonDict]:
     listing the entry opens, which is the property that matters.
     """
     return [item for item in items if item.get("SpecialFeatureCount")]
+
+
+def _favorites_menu(request: Request, api: Api, view_id: str) -> None:
+    """Favourites under a show library: favorite shows and favorite episodes.
+
+    Each leg is omitted when it has nothing, so a library with only
+    favourite episodes does not offer an empty Favorite shows row.
+    """
+    structural_rows(
+        request,
+        [
+            (
+                node_label(label_id),
+                node_icon("tvshows", key),
+                _folder_params(view_id, "tvshows", key),
+            )
+            for key, label_id, item_type in TV_FAVORITE_LEGS
+            if _view_has_favorites(api, view_id, item_type)
+        ],
+    )
+
+
+def _view_has_favorites(
+    api: Api, view_id: str, item_types: str = "Series,Episode"
+) -> bool:
+    """Whether this view has any favourite series or episodes (gates the node).
+
+    Limit=1, no images, no userdata: the menu only needs existence. IsFavorite
+    works here, unlike HasSpecialFeature on series (see specials_only).
+    """
+    try:
+        result = api.items(
+            {
+                "ParentId": view_id,
+                "IncludeItemTypes": item_types,
+                "Recursive": True,
+                "Filters": "IsFavorite",
+                "Limit": 1,
+                "EnableImages": False,
+                "EnableUserData": False,
+            }
+        )
+    except JellyfinError:
+        return False
+    return bool(result.get("Items"))
 
 
 def _view_has_specials(api: Api, view_id: str) -> bool:
@@ -1365,7 +1432,7 @@ def _add_items(
 
 
 def _node_content(media: str, node: str) -> str:
-    if node in ("recentepisodes", "inprogressepisodes", "nextup"):
+    if node in ("recentepisodes", "inprogressepisodes", "nextup", "favoriteepisodes"):
         return "episodes"
     if node in ("albums", "recentalbums", "favoritealbums"):
         return "albums"

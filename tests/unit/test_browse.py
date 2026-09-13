@@ -39,6 +39,7 @@ def test_node_query_genre_filter():
 
 def test_node_query_special_routes_return_none():
     assert node_query("tvshows", "nextup", "v1") is None
+    assert node_query("tvshows", "favorites", "v1") is None
     assert node_query("music", "artists", "v1") is None
     assert node_query("movies", "genres", "v1") is None
     # Latest, not a SortBy: an album's DateCreated is a scan artefact.
@@ -178,6 +179,18 @@ def test_plugin_category_names_the_listing_skins_show():
         == ""
     )
     assert browse.plugin_category({"mode": "search"}) == ""
+    assert (
+        browse.plugin_category(
+            {"mode": "browse", "type": "tvshows", "folder": "favoriteshows"}
+        )
+        == "string-30359"
+    )
+    assert (
+        browse.plugin_category(
+            {"mode": "browse", "type": "tvshows", "folder": "favoriteepisodes"}
+        )
+        == "string-30360"
+    )
 
 
 def test_item_category_takes_the_series_name_from_the_rows():
@@ -191,6 +204,7 @@ def test_item_category_takes_the_series_name_from_the_rows():
 
 def test_content_helpers():
     assert _node_content("tvshows", "nextup") == "episodes"
+    assert _node_content("tvshows", "favoriteepisodes") == "episodes"
     assert _node_content("movies", "sets") == "movies"
     assert _node_content("music", "albums") == "albums"
     assert _genre_types("musicvideos") == "MusicVideo"
@@ -370,6 +384,106 @@ def test_view_has_specials_probe():
     assert browse._view_has_specials(ExtrasApi(view_series=[SERIES_DTO]), "v1") is True
     assert browse._view_has_specials(ExtrasApi(), "v1") is False
     assert browse._view_has_specials(ExtrasApi(fail=True), "v1") is False
+
+
+class FavoriteItemsApi:
+    """Answers /Items from a type map so favourite probes can see shows,
+    episodes, both, or neither."""
+
+    server = "http://server:8096"
+
+    def __init__(self, by_type=None, fail=False):
+        self.by_type = by_type or {}
+        self.fail = fail
+        self.items_params = []
+
+    def items(self, params):
+        self.items_params.append(params)
+        if self.fail:
+            from kofin.core.http import JellyfinError
+
+            raise JellyfinError("down")
+        kinds = str(params.get("IncludeItemTypes") or "").split(",")
+        rows = []
+        for kind in kinds:
+            rows.extend(self.by_type.get(kind.strip(), []))
+        limit = params.get("Limit")
+        if limit:
+            rows = rows[: int(limit)]
+        return {"Items": rows}
+
+
+FAV_SHOW = {"Id": "s1", "Name": "Fav Show", "Type": "Series"}
+FAV_EPISODE = {"Id": "e1", "Name": "Fav Ep", "Type": "Episode"}
+
+
+def test_view_has_favorites_probe():
+    both = FavoriteItemsApi(by_type={"Series": [FAV_SHOW], "Episode": [FAV_EPISODE]})
+    assert browse._view_has_favorites(both, "v1") is True
+    assert (
+        browse._view_has_favorites(
+            FavoriteItemsApi(by_type={"Series": [FAV_SHOW]}), "v1"
+        )
+        is True
+    )
+    assert (
+        browse._view_has_favorites(
+            FavoriteItemsApi(by_type={"Episode": [FAV_EPISODE]}), "v1"
+        )
+        is True
+    )
+    assert browse._view_has_favorites(FavoriteItemsApi(), "v1") is False
+    assert browse._view_has_favorites(FavoriteItemsApi(fail=True), "v1") is False
+    probe = both.items_params[0]
+    assert probe["Filters"] == "IsFavorite"
+    assert probe["Limit"] == 1
+    assert probe["EnableImages"] is False
+    assert probe["IncludeItemTypes"] == "Series,Episode"
+
+
+def test_node_menu_hides_favorites_when_the_view_has_none(directory):
+    browse._node_menu(Request("plugin://x", 1, {}), FavoriteItemsApi(), "tvshows", "v1")
+    assert all("folder=favorites" not in path for path, _li, _f in directory["entries"])
+
+
+def test_node_menu_shows_favorites_when_the_view_has_a_favourite_episode(directory):
+    api = FavoriteItemsApi(by_type={"Episode": [FAV_EPISODE]})
+    browse._node_menu(Request("plugin://x", 1, {}), api, "tvshows", "v1")
+    assert any("folder=favorites" in path for path, _li, _f in directory["entries"])
+
+
+def test_favorites_menu_omits_empty_legs(directory):
+    api = FavoriteItemsApi(by_type={"Episode": [FAV_EPISODE]})
+    browse._favorites_menu(Request("plugin://x", 1, {}), api, "v1")
+    folders = [
+        path.split("folder=")[1].split("&")[0] for path, _li, _f in directory["entries"]
+    ]
+    assert folders == ["favoriteepisodes"]
+
+    directory["entries"].clear()
+    api = FavoriteItemsApi(by_type={"Series": [FAV_SHOW], "Episode": [FAV_EPISODE]})
+    browse._favorites_menu(Request("plugin://x", 1, {}), api, "v1")
+    folders = [
+        path.split("folder=")[1].split("&")[0] for path, _li, _f in directory["entries"]
+    ]
+    assert folders == ["favoriteshows", "favoriteepisodes"]
+
+    directory["entries"].clear()
+    browse._favorites_menu(Request("plugin://x", 1, {}), FavoriteItemsApi(), "v1")
+    assert directory["entries"] == []
+
+
+def test_node_query_tv_favorite_legs():
+    shows = node_query("tvshows", "favoriteshows", "v1")
+    assert shows["IncludeItemTypes"] == "Series"
+    assert shows["Filters"] == "IsFavorite"
+    assert "Limit" not in shows
+    episodes = node_query("tvshows", "favoriteepisodes", "v1")
+    assert episodes["IncludeItemTypes"] == "Episode"
+    assert episodes["Filters"] == "IsFavorite"
+    movies = node_query("movies", "favorites", "v1")
+    assert movies["IncludeItemTypes"] == "Movie"
+    assert movies["Filters"] == "IsFavorite"
 
 
 def test_node_menu_includes_extras_when_view_has_specials(directory):
