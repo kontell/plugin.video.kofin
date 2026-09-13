@@ -19,7 +19,6 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11 or later.
 - Access movie special features/ extras
 - Multi-version movies as Kodi video versions
 - Flexible playback methods, direct play, remux or transcode. Choose supported HDR formats & max resolution
-- Play with transcoding context item: pick a bitrate
 - Jellyfin chapter images in Kodi's chapter list
 - Transcode music
 - Jellyfin song lyrics via companion add-on
