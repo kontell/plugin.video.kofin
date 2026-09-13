@@ -111,6 +111,7 @@ WHERE       name = ?
 get_tag_movie_obj = ["Favorite movies", "{MovieId}", "movie"]
 get_tag_mvideo_obj = ["Favorite musicvideos", "{MvideoId}", "musicvideo"]
 get_tag_episode_obj = ["Favorite tvshows", "{KodiId}", "tvshow"]
+get_tag_fav_episode_obj = ["Favorite episodes", "{KodiId}", "episode"]
 get_art = """
 SELECT      url
 FROM        art
@@ -853,6 +854,13 @@ WHERE           uniqueid_id = ?
 delete_tag_movie_obj = ["Favorite movies", "{MovieId}", "movie"]
 delete_tag_mvideo_obj = ["Favorite musicvideos", "{MvideoId}", "musicvideo"]
 delete_tag_episode_obj = ["Favorite tvshows", "{KodiId}", "tvshow"]
+delete_tag_fav_episode_obj = ["Favorite episodes", "{KodiId}", "episode"]
+delete_named_link = """
+DELETE FROM     {LinkType}
+WHERE           media_id = ?
+AND             media_type = ?
+AND             actor_id IN (SELECT actor_id FROM actor WHERE name = ? COLLATE NOCASE)
+"""
 delete_movie = """
 DELETE FROM     movie
 WHERE           idMovie = ?
