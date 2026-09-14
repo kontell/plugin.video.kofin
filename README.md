@@ -52,12 +52,6 @@ Install via the [Kontell Repository](https://github.com/kontell/repository.konte
     - It removes all jellyfin-kodi and Kofin library data, nodes and playlists, and optionally the music library, cached server artwork and custom library nodes.
     - Cleaning is per Kodi profile, run it in each profile that synced.
 
-## Custom nodes and widgets
-
-Kofin's listings are ordinary `plugin://` paths, so a library node, a skin widget or a favourite can point at any of them - including combinations the add-on does not ship, such as a single genre or one library's unwatched films.
-
-See [wiki](https://github.com/kontell/plugin.video.kofin/wiki/Custom-nodes-and-widgets) for the path format, the list of keys, and a node file to copy.
-
 ## Companion server plugins
 
 - For improved syncing performance install the [KofinSyncQueue](https://github.com/kontell/plugin.video.kofin/wiki/Companion-server-plugins) server plugin. it gives the add-on a typed change feed so catch-up only touches what actually changed. Without it Kofin still works, using the official KodiSyncQueue plugin or real-time websocket updates.
