@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from kofin.core import state
 from kofin.core.http import JellyfinError, ServerUnreachable
 from kofin.sync import db as sync_db
 from kofin.sync import kofindb

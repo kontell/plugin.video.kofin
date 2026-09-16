@@ -371,8 +371,6 @@ class Library(threading.Thread):
             LOG.debug("syncMusicPlaylists off or no matching library; skip")
             return
         try:
-            from kofin.sync import playlists as music_playlists
-
             with self.music_database_lock:
                 self._reconcile_playlists(self.api, kinds)
         except Exception:
