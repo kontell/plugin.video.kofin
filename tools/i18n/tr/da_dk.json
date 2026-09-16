@@ -279,8 +279,8 @@
   "#30608": "Fra",
   "#30609": "Vis med Kofin Lyrics",
   "#30610": "Overdrag til en sangtekst-tilføjelse",
-  "#30611": "Synkroniser musikafspilningslister",
-  "#30612": "Hent Jellyfins musikafspilningslister ind i Kodi som indbyggede afspilningslister under Musik → Afspilningslister → Kofin.",
+  "#30611": "Synkroniser afspilningslister",
+  "#30612": "Kopiér Jellyfin-afspilningslister til Kodi som native lister. Musiklister vises under Musik → Afspilningslister → Kofin, når et musikbibliotek synkroniseres; videolister under Videoer → Afspilningslister → Kofin, når et videobibliotek synkroniseres. Lokale redigeringer af de filer overskrives ved opdatering — brug \"Gem i Jellyfin\" til at sende en lokal liste.",
   "#30613": "Lyd- og undertekststreams",
   "#30614": "Lydstream",
   "#30615": "Undertekster",
@@ -484,5 +484,9 @@
   "#30837": "Se synkront med andre Jellyfin-klienter.",
   "#30838": "Genbrug language invoker",
   "#30839": "Slå fra, hvis du bruger flere plugin://-stier i skin-widgets. Kræver genstart af Kodi.",
-  "#30840": "Genstart Kodi for at anvende dette"
+  "#30840": "Genstart Kodi for at anvende dette",
+  "#30841": "Gem i Jellyfin",
+  "#30842": "Denne afspilningsliste blander lyd og video og kan ikke gemmes som én Jellyfin-liste",
+  "#30843": "Afspilningsliste gemt i Jellyfin",
+  "#30844": "Ingen bibliotekselementer i denne liste at gemme"
 }

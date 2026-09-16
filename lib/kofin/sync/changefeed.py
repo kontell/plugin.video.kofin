@@ -42,7 +42,9 @@ WATERMARK_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 # Every media-type class the sync queue knows about. ``include`` lists are
 # subsets of this; the legacy protocol wants the complement (exclude list).
-ALL_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music")
+ALL_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music", "playlists")
+# The official KodiSyncQueue exclude list does not know playlists.
+LEGACY_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music")
 
 # Parent-first ranks: parents download ahead of children so the orphan
 # re-queue dance never engages on tier 1. Unranked types sit mid-field.
@@ -67,7 +69,7 @@ ARTWORK_ONLY_TYPES = ("Movie", "Series", "Season", "Episode", "MusicVideo")
 # id is never in a user's whitelist -- filtering them by library would delete
 # every collection. They are admitted by type, as _include_types has always
 # done (movies synced => boxsets synced).
-LIBRARY_AGNOSTIC_TYPES = ("boxsets",)
+LIBRARY_AGNOSTIC_TYPES = ("boxsets", "playlists")
 
 
 @dataclass
@@ -76,8 +78,10 @@ class ChangeRecord:
 
     id: str
     status: str  # "Added" | "Updated" | "Removed"
-    media_type: Optional[str] = None  # movies|tvshows|boxsets|musicvideos|music
-    item_type: Optional[str] = None  # Movie|Series|Season|Episode|...
+    media_type: Optional[str] = (
+        None  # movies|tvshows|boxsets|musicvideos|music|playlists
+    )
+    item_type: Optional[str] = None  # Movie|Series|Season|Episode|...|Playlist
     last_modified: Optional[int] = None  # unix seconds
     update_reason: Optional[str] = None  # ItemUpdateType flags, comma string
     etag: Optional[str] = None
@@ -110,6 +114,9 @@ class SyncPlan:
     added: List[str] = field(default_factory=list)
     updated: List[str] = field(default_factory=list)
     artwork: List[str] = field(default_factory=list)
+    playlist_added: List[str] = field(default_factory=list)
+    playlist_updated: List[str] = field(default_factory=list)
+    playlist_removed: List[str] = field(default_factory=list)
     userdata_changed_ids: Set[str] = field(default_factory=set)
     skipped: int = 0
     filtered: int = 0
@@ -262,7 +269,7 @@ class LegacyFeed:
             LOG.warning("GetServerDateTime failed: %s", error)
 
         # The legacy protocol takes an *exclude* list.
-        excluded = [x for x in ALL_TYPES if x not in include]
+        excluded = [x for x in LEGACY_TYPES if x not in include]
         result = self.api.sync_queue(last_sync, ",".join(excluded))
 
         if result is None:
@@ -353,6 +360,10 @@ def _is_image_only(record: ChangeRecord) -> bool:
     reasons = {part.strip() for part in record.update_reason.split(",") if part.strip()}
 
     return reasons == {"ImageUpdate"}
+
+
+def _is_playlist(record: ChangeRecord) -> bool:
+    return record.item_type == "Playlist" or record.media_type == "playlists"
 
 
 def in_scope(record: ChangeRecord, libraries: Optional[Set[str]]) -> bool:
@@ -454,7 +465,10 @@ def build_plan(
 
     for record in records:
         if record.status == "Removed":
-            plan.removed.append(record.id)
+            if _is_playlist(record):
+                plan.playlist_removed.append(record.id)
+            else:
+                plan.removed.append(record.id)
             continue
 
         if not in_scope(record, libraries):
@@ -463,6 +477,13 @@ def build_plan(
 
         if stored_checksum_matches(record.etag, checksums.get(record.id)):
             plan.skipped += 1
+            continue
+
+        if _is_playlist(record):
+            if record.status == "Added":
+                plan.playlist_added.append(record.id)
+            else:
+                plan.playlist_updated.append(record.id)
             continue
 
         if record.status == "Added":

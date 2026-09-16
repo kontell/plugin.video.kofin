@@ -441,6 +441,40 @@ def test_plan_keeps_a_record_matching_any_of_its_libraries():
     assert plan.added == ["shared"]
 
 
+def test_plan_diverts_playlists_off_writer_queues():
+    records = [
+        rec("pl-new", status="Added", media_type="playlists", item_type="Playlist"),
+        rec("pl-upd", status="Updated", media_type="playlists", item_type="Playlist"),
+        rec("pl-del", status="Removed", media_type="playlists", item_type="Playlist"),
+        rec("movie1", status="Added", item_type="Movie"),
+    ]
+    checksums = {"pl-upd": "old|plugin"}
+
+    plan = build_plan(records, [], checksums, everyone_known)
+
+    assert plan.playlist_added == ["pl-new"]
+    assert plan.playlist_updated == ["pl-upd"]
+    assert plan.playlist_removed == ["pl-del"]
+    assert plan.added == ["movie1"]
+    assert plan.updated == []
+    assert plan.removed == []
+
+
+def test_plan_skips_unchanged_playlist_etags():
+    records = [
+        rec(
+            "pl1",
+            status="Updated",
+            media_type="playlists",
+            item_type="Playlist",
+            etag="same",
+        )
+    ]
+    plan = build_plan(records, [], {"pl1": "same|plugin"}, everyone_known)
+    assert plan.skipped == 1
+    assert plan.playlist_updated == []
+
+
 def test_plan_keeps_boxsets_whatever_library_they_name():
     """Boxsets live in Jellyfin's Collections library, which no client
     whitelists. Filtering them by library would delete every collection."""

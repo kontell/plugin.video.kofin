@@ -279,8 +279,8 @@
   "#30608": "Uit",
   "#30609": "Tonen met Kofin Lyrics",
   "#30610": "Doorgeven aan een songtekst-add-on",
-  "#30611": "Muziekafspeellijsten synchroniseren",
-  "#30612": "Download Jellyfin-muziekafspeellijsten naar Kodi als eigen afspeellijsten onder Muziek → Afspeellijsten → Kofin.",
+  "#30611": "Afspeellijsten synchroniseren",
+  "#30612": "Kopieer Jellyfin-afspeellijsten naar Kodi als native afspeellijsten. Muzieklijsten verschijnen onder Muziek → Afspeellijsten → Kofin als een muziekbibliotheek is gesynchroniseerd; videolijsten onder Video's → Afspeellijsten → Kofin als een videobibliotheek is gesynchroniseerd. Lokale wijzigingen aan die bestanden worden bij vernieuwen overschreven — gebruik \"Opslaan in Jellyfin\" om een lokale lijst terug te sturen.",
   "#30613": "Audio- en ondertitelsporen",
   "#30614": "Audiospoor",
   "#30615": "Ondertiteling",
@@ -484,5 +484,9 @@
   "#30837": "Kijk synchroon met andere Jellyfin-clients.",
   "#30838": "Language invoker hergebruiken",
   "#30839": "Schakel uit als je meerdere plugin://-paden in skinwidgets gebruikt. Vereist een herstart van Kodi.",
-  "#30840": "Herstart Kodi om dit toe te passen"
+  "#30840": "Herstart Kodi om dit toe te passen",
+  "#30841": "Opslaan in Jellyfin",
+  "#30842": "Deze afspeellijst mengt audio en video en kan niet als één Jellyfin-afspeellijst worden opgeslagen",
+  "#30843": "Afspeellijst opgeslagen in Jellyfin",
+  "#30844": "Geen bibliotheekitems in deze afspeellijst om op te slaan"
 }

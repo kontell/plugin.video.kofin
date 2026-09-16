@@ -108,7 +108,6 @@ def make_ticking_library(monkeypatch, clock=None):
         manager.retry,
         manager.resume,
         manager.recovery,
-        manager.playlist_poll,
         manager.download_backoff,
         manager.refresher.settle,
     ):

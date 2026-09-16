@@ -1405,12 +1405,12 @@ msgid "Hand to a lyrics addon"
 msgstr "Παράδοση σε πρόσθετο στίχων"
 
 msgctxt "#30611"
-msgid "Sync music playlists"
-msgstr "Συγχρονισμός λιστών αναπαραγωγής μουσικής"
+msgid "Sync playlists"
+msgstr "Συγχρονισμός λιστών αναπαραγωγής"
 
 msgctxt "#30612"
-msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
-msgstr "Λαμβάνει τις λίστες αναπαραγωγής μουσικής του Jellyfin στο Kodi ως εγγενείς λίστες αναπαραγωγής, στο Μουσική → Λίστες αναπαραγωγής → Kofin."
+msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
+msgstr "Αντιγραφή των λιστών Jellyfin στο Kodi ως εγγενείς λίστες. Οι μουσικές εμφανίζονται στο Μουσική → Λίστες αναπαραγωγής → Kofin όταν συγχρονίζεται βιβλιοθήκη μουσικής· οι βίντεο στο Βίντεο → Λίστες αναπαραγωγής → Kofin όταν συγχρονίζεται βιβλιοθήκη βίντεο. Οι τοπικές αλλαγές αυτών των αρχείων αντικαθίστανται στην ανανέωση — χρησιμοποιήστε \"Αποθήκευση στο Jellyfin\" για να στείλετε μια τοπική λίστα."
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -2175,3 +2175,19 @@ msgstr "Απενεργοποίησέ το αν χρησιμοποιείς πολ
 msgctxt "#30840"
 msgid "Restart Kodi to apply this"
 msgstr "Επανεκκίνησε το Kodi για να εφαρμοστεί"
+
+msgctxt "#30841"
+msgid "Save to Jellyfin"
+msgstr "Αποθήκευση στο Jellyfin"
+
+msgctxt "#30842"
+msgid "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist"
+msgstr "Αυτή η λίστα αναμειγνύει ήχο και βίντεο και δεν μπορεί να αποθηκευτεί ως μία λίστα Jellyfin"
+
+msgctxt "#30843"
+msgid "Playlist saved to Jellyfin"
+msgstr "Η λίστα αποθηκεύτηκε στο Jellyfin"
+
+msgctxt "#30844"
+msgid "No library items in this playlist to save"
+msgstr "Δεν υπάρχουν στοιχεία βιβλιοθήκης σε αυτή τη λίστα για αποθήκευση"

@@ -1405,12 +1405,12 @@ msgid "Hand to a lyrics addon"
 msgstr "An ein Songtext-Add-on übergeben"
 
 msgctxt "#30611"
-msgid "Sync music playlists"
-msgstr "Musik-Wiedergabelisten synchronisieren"
+msgid "Sync playlists"
+msgstr "Wiedergabelisten synchronisieren"
 
 msgctxt "#30612"
-msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
-msgstr "Jellyfin-Musikwiedergabelisten als native Kodi-Wiedergabelisten unter Musik → Wiedergabelisten → Kofin herunterladen."
+msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
+msgstr "Jellyfin-Wiedergabelisten als native Kodi-Wiedergabelisten kopieren. Musiklisten erscheinen unter Musik → Wiedergabelisten → Kofin, wenn eine Musikbibliothek synchronisiert ist; Videolisten unter Videos → Wiedergabelisten → Kofin, wenn eine Videobibliothek synchronisiert ist. Lokale Änderungen an diesen Dateien werden beim Aktualisieren überschrieben — mit \"In Jellyfin speichern\" eine lokale Liste zurücksenden."
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -2175,3 +2175,19 @@ msgstr "Deaktivieren, wenn mehrere plugin://-Pfade in Skin-Widgets verwendet wer
 msgctxt "#30840"
 msgid "Restart Kodi to apply this"
 msgstr "Kodi neu starten, um das zu übernehmen"
+
+msgctxt "#30841"
+msgid "Save to Jellyfin"
+msgstr "In Jellyfin speichern"
+
+msgctxt "#30842"
+msgid "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist"
+msgstr "Diese Wiedergabeliste mischt Audio und Video und kann nicht als eine Jellyfin-Wiedergabeliste gespeichert werden"
+
+msgctxt "#30843"
+msgid "Playlist saved to Jellyfin"
+msgstr "Wiedergabeliste in Jellyfin gespeichert"
+
+msgctxt "#30844"
+msgid "No library items in this playlist to save"
+msgstr "Keine Bibliothekseinträge in dieser Wiedergabeliste zum Speichern"

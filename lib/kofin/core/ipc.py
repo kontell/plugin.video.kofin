@@ -75,6 +75,10 @@ DOWNLOAD_REMOVE_ALL = "DownloadRemoveAll"
 # or reach the running playback afterwards (service/latesubs.py).
 ATTACH_SUBTITLE = "AttachSubtitle"
 
+# Rewrite managed playlist files after an explicit save-to-Jellyfin.
+# Payload {"Id": "<playlist>"} applies one; empty reconciles the enabled sides.
+SYNC_PLAYLISTS = "SyncPlaylists"
+
 _REGISTRY = frozenset(
     {
         RESTART,
@@ -91,6 +95,7 @@ _REGISTRY = frozenset(
         DOWNLOAD_REMOVE,
         DOWNLOAD_REMOVE_ALL,
         ATTACH_SUBTITLE,
+        SYNC_PLAYLISTS,
     }
 )
 
@@ -120,6 +125,7 @@ GUARDED = frozenset(
         DOWNLOAD_REMOVE,
         DOWNLOAD_REMOVE_ALL,
         ATTACH_SUBTITLE,
+        SYNC_PLAYLISTS,
     }
 )
 

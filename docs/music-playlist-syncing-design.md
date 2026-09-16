@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | **Date** | 2026-07-29 (revised 2026-07-30) |
-| **Status** | Shipped (PR24); path form and refresh cadence revised 2026-07-30 |
+| **Status** | Superseded by `docs/playlist-syncing-design.md` |
 | **Addon** | `plugin.video.kofin` |
 
 ---

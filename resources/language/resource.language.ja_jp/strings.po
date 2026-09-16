@@ -1405,12 +1405,12 @@ msgid "Hand to a lyrics addon"
 msgstr "歌詞アドオンに渡す"
 
 msgctxt "#30611"
-msgid "Sync music playlists"
-msgstr "音楽プレイリストを同期する"
+msgid "Sync playlists"
+msgstr "プレイリストを同期する"
 
 msgctxt "#30612"
-msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
-msgstr "Jellyfin の音楽プレイリストを、ミュージック → プレイリスト → Kofin の下にネイティブのプレイリストとしてダウンロードします。"
+msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
+msgstr "Jellyfin のプレイリストを Kodi のネイティブプレイリストとしてコピーします。音楽ライブラリを同期している場合、音楽プレイリストは ミュージック → プレイリスト → Kofin に、動画ライブラリを同期している場合、動画プレイリストは ビデオ → プレイリスト → Kofin に表示されます。これらのファイルのローカル編集は更新時に上書きされます。ローカルのプレイリストを送るには \"Jellyfin に保存\" を使います。"
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -2175,3 +2175,19 @@ msgstr "スキンのウィジェットで複数の plugin:// パスを使う場�
 msgctxt "#30840"
 msgid "Restart Kodi to apply this"
 msgstr "適用するには Kodi を再起動してください"
+
+msgctxt "#30841"
+msgid "Save to Jellyfin"
+msgstr "Jellyfin に保存"
+
+msgctxt "#30842"
+msgid "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist"
+msgstr "このプレイリストは音声と動画が混在しており、1つの Jellyfin プレイリストとして保存できません"
+
+msgctxt "#30843"
+msgid "Playlist saved to Jellyfin"
+msgstr "プレイリストを Jellyfin に保存しました"
+
+msgctxt "#30844"
+msgid "No library items in this playlist to save"
+msgstr "このプレイリストに保存できるライブラリ項目がありません"

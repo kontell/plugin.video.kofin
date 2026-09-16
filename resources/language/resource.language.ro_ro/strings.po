@@ -1405,12 +1405,12 @@ msgid "Hand to a lyrics addon"
 msgstr "Predă unui supliment de versuri"
 
 msgctxt "#30611"
-msgid "Sync music playlists"
-msgstr "Sincronizează listele de redare muzicale"
+msgid "Sync playlists"
+msgstr "Sincronizează listele de redare"
 
 msgctxt "#30612"
-msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
-msgstr "Descarcă listele de redare muzicale din Jellyfin în Kodi, ca liste de redare native, în Muzică → Liste de redare → Kofin."
+msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
+msgstr "Copiază listele Jellyfin în Kodi ca liste native. Listele muzicale apar în Muzică → Liste de redare → Kofin când o bibliotecă muzicală e sincronizată; cele video în Video → Liste de redare → Kofin când o bibliotecă video e sincronizată. Editările locale ale acelor fișiere sunt suprascrise la reîmprospătare — folosiți \"Salvează în Jellyfin\" pentru a trimite o listă locală."
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -2175,3 +2175,19 @@ msgstr "Dezactivează dacă folosești mai multe căi plugin:// în widgeturile 
 msgctxt "#30840"
 msgid "Restart Kodi to apply this"
 msgstr "Repornește Kodi pentru a aplica asta"
+
+msgctxt "#30841"
+msgid "Save to Jellyfin"
+msgstr "Salvează în Jellyfin"
+
+msgctxt "#30842"
+msgid "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist"
+msgstr "Această listă amestecă audio și video și nu poate fi salvată ca o singură listă Jellyfin"
+
+msgctxt "#30843"
+msgid "Playlist saved to Jellyfin"
+msgstr "Listă salvată în Jellyfin"
+
+msgctxt "#30844"
+msgid "No library items in this playlist to save"
+msgstr "Nu există elemente din bibliotecă în această listă de salvat"

@@ -307,6 +307,53 @@ def test_playlist_line_falls_back_without_an_extension():
     )
 
 
+def test_playlist_side_skips_mixed_and_unknown():
+    audio = [{"Type": "Audio"}]
+    video = [{"Type": "Movie"}]
+    mixed = [{"Type": "Audio"}, {"Type": "Movie"}]
+    assert playlists.playlist_side("Audio", audio) == "Audio"
+    assert playlists.playlist_side("Video", video) == "Video"
+    assert playlists.playlist_side("Audio", mixed) is None
+    assert playlists.playlist_side("Unknown", audio) is None
+    assert playlists.playlist_side("", audio) is None
+    assert playlists.playlist_side("Audio", []) == "Audio"
+
+
+def test_enabled_kinds_follow_synced_libraries():
+    views = [
+        SimpleNamespace(view_id="m1", media_type="music"),
+        SimpleNamespace(view_id="v1", media_type="movies"),
+        SimpleNamespace(view_id="t1", media_type="tvshows"),
+    ]
+    assert playlists.enabled_kinds(views, {"m1"}) == {"Audio"}
+    assert playlists.enabled_kinds(views, {"v1"}) == {"Video"}
+    assert playlists.enabled_kinds(views, {"m1", "t1"}) == {"Audio", "Video"}
+    assert playlists.enabled_kinds(views, set()) == set()
+
+
+def test_jellyfin_id_from_plugin_and_stream_paths():
+    mapping = FakeMapping({})
+    assert (
+        playlists.jellyfin_id_from_path(
+            "plugin://plugin.video.kofin/?mode=play&id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            mapping,
+        )
+        == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    )
+    assert (
+        playlists.jellyfin_id_from_path(
+            "https://s/Audio/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/stream.flac?static=true",
+            mapping,
+        )
+        == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    )
+
+
+def test_parse_m3u_skips_headers():
+    text = "#EXTM3U\n#EXTINF:1,A\nhttp://a\n#comment\nhttp://b\n"
+    assert playlists.parse_m3u_paths(text) == ["http://a", "http://b"]
+
+
 def test_song_entry_writes_the_musicdb_line_for_a_direct_row():
     mapping = FakeMapping({"a1": SimpleNamespace(media_type="song", kodi_id=42)})
     music = FakeMusic(

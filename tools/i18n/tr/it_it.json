@@ -279,8 +279,8 @@
   "#30608": "Off",
   "#30609": "Mostra con Kofin Lyrics",
   "#30610": "Passa a un addon di testi",
-  "#30611": "Sincronizza le playlist musicali",
-  "#30612": "Scarica le playlist musicali di Jellyfin in Kodi come playlist native sotto Musica → Playlist → Kofin.",
+  "#30611": "Sincronizza le playlist",
+  "#30612": "Copia le playlist Jellyfin in Kodi come playlist native. Quelle musicali compaiono in Musica → Playlist → Kofin se è sincronizzata una libreria musicale; quelle video in Video → Playlist → Kofin se è sincronizzata una libreria video. Le modifiche locali a quei file vengono sovrascritte all'aggiornamento — usa \"Salva su Jellyfin\" per inviare una playlist locale.",
   "#30613": "Tracce audio e sottotitoli",
   "#30614": "Traccia audio",
   "#30615": "Sottotitoli",
@@ -484,5 +484,9 @@
   "#30837": "Guarda in sincronia con altri client Jellyfin.",
   "#30838": "Riutilizza il language invoker",
   "#30839": "Disattiva se usi più percorsi plugin:// nei widget della skin. Richiede il riavvio di Kodi.",
-  "#30840": "Riavvia Kodi per applicare questa modifica"
+  "#30840": "Riavvia Kodi per applicare questa modifica",
+  "#30841": "Salva su Jellyfin",
+  "#30842": "Questa playlist mescola audio e video e non può essere salvata come una sola playlist Jellyfin",
+  "#30843": "Playlist salvata su Jellyfin",
+  "#30844": "Nessun elemento della libreria in questa playlist da salvare"
 }

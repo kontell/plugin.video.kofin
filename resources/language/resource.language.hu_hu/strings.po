@@ -1405,12 +1405,12 @@ msgid "Hand to a lyrics addon"
 msgstr "Átadás dalszöveg-kiegészítőnek"
 
 msgctxt "#30611"
-msgid "Sync music playlists"
-msgstr "Zenei lejátszási listák szinkronizálása"
+msgid "Sync playlists"
+msgstr "Lejátszási listák szinkronizálása"
 
 msgctxt "#30612"
-msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
-msgstr "A Jellyfin zenei lejátszási listáinak letöltése a Kodiba natív lejátszási listaként, a Zene → Lejátszási listák → Kofin alá."
+msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
+msgstr "A Jellyfin-lejátszási listák másolása a Kodiba natív listaként. A zeneilisták a Zene → Lejátszási listák → Kofin alatt jelennek meg, ha egy zenekönyvtár szinkronizálva van; a videólisták a Videók → Lejátszási listák → Kofin alatt, ha egy videókönyvtár. Ezeknek a fájloknak a helyi szerkesztései frissítéskor felülíródnak — a helyi lista visszaküldéséhez használd a \"Mentés a Jellyfinbe\" parancsot."
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -2175,3 +2175,19 @@ msgstr "Kapcsold ki, ha a felszín widgetjeiben több plugin:// elérési út va
 msgctxt "#30840"
 msgid "Restart Kodi to apply this"
 msgstr "A változás érvényesítéséhez indítsd újra a Kodit"
+
+msgctxt "#30841"
+msgid "Save to Jellyfin"
+msgstr "Mentés a Jellyfinbe"
+
+msgctxt "#30842"
+msgid "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist"
+msgstr "Ez a lista hangot és videót kever, és nem menthető egyetlen Jellyfin-listaként"
+
+msgctxt "#30843"
+msgid "Playlist saved to Jellyfin"
+msgstr "Lista mentve a Jellyfinbe"
+
+msgctxt "#30844"
+msgid "No library items in this playlist to save"
+msgstr "Nincs könyvtárelem ebben a listában a mentéshez"

@@ -346,8 +346,8 @@
   "#30608": "Off",
   "#30609": "Show with Kofin Lyrics",
   "#30610": "Hand to a lyrics addon",
-  "#30611": "Sync music playlists",
-  "#30612": "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin.",
+  "#30611": "Sync playlists",
+  "#30612": "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way.",
   "#30613": "Audio and subtitle streams",
   "#30614": "Audio stream",
   "#30615": "Subtitles",
@@ -538,5 +538,9 @@
   "#30837": "Watch in sync with other Jellyfin clients.",
   "#30838": "Reuse language invoker",
   "#30839": "Disable if using multiple plugin:// paths in skin widgets. Requires Kodi restart.",
-  "#30840": "Restart Kodi to apply this"
+  "#30840": "Restart Kodi to apply this",
+  "#30841": "Save to Jellyfin",
+  "#30842": "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist",
+  "#30843": "Playlist saved to Jellyfin",
+  "#30844": "No library items in this playlist to save"
 }

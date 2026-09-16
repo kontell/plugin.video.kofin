@@ -110,14 +110,7 @@ AUTO_PRUNE_MIN_SECONDS = 3600
 # permanently-unwritable item costs one UpdateLibrary a day at worst while
 # never going silent. A recovery that applies everything resets the ladder.
 AUTO_PRUNE_MAX_SECONDS = 86400
-# How often managed music playlists are re-read from the server. Nothing
-# pushes playlist edits: Jellyfin sends no websocket message when a playlist
-# is created or a track is added to one (verified live against 10.11 — neither
-# LibraryChanged nor anything else arrives), and Playlist is a
-# NON_CONTENT_TYPE so the change feed never carries one either. A poll is the
-# only way an edit reaches Kodi without a full sync; it costs one request plus
-# one per playlist, and rewrites nothing that has not changed.
-PLAYLIST_POLL_SECONDS = 900
+
 # New-content toast display time (ms), the fork's video default. One time for
 # every line: the fork's shorter music toast existed because music notified
 # per song and a synced album fired a dozen of them, which aggregation ends.
@@ -239,9 +232,6 @@ class Library(threading.Thread):
         # landed inside the floor for flush_recovery_prune.
         self.recovery = Deferred(AUTO_PRUNE_MIN_SECONDS, AUTO_PRUNE_MAX_SECONDS)
         self.recovery_pending = False
-        # Music playlists are re-read on this clock; nothing else reaches a
-        # playlist edit (poll_music_playlists).
-        self.playlist_poll = Deferred(PLAYLIST_POLL_SECONDS)
         # The widget-refresh policy: the fingerprint gate, the settle window,
         # the content probes and the skin reload (sync/refresh.py).
         self.refresher = Refresher(
@@ -363,51 +353,96 @@ class Library(threading.Thread):
 
         self.commands.put((command, data))
 
-    def sync_music_playlists(self):
-        """Rewrite managed music playlist files from the server (one-way)."""
+    def playlist_kinds(self):
+        """Audio/Video sides to materialize, or empty when the setting is off."""
         if not settings.get_bool("syncMusicPlaylists"):
-            LOG.debug("syncMusicPlaylists off; skip SyncMusicPlaylists command")
+            return set()
+        from kofin.sync import playlists as music_playlists
+
+        whitelist = self._include_libraries()
+        with Database("kofin") as kofindb:
+            views = jellyfin_db.JellyfinDatabase(kofindb.cursor).get_views()
+        return music_playlists.enabled_kinds(views, whitelist)
+
+    def sync_music_playlists(self):
+        """Reconcile managed playlist files from the server (one-way)."""
+        kinds = self.playlist_kinds()
+        if not kinds:
+            LOG.debug("syncMusicPlaylists off or no matching library; skip")
             return
-        # However this refresh was asked for, it is the poll's answer too.
-        self.defer_playlist_poll()
         try:
             from kofin.sync import playlists as music_playlists
 
             with self.music_database_lock:
-                music_playlists.refresh_with_databases(self.api)
+                self._reconcile_playlists(self.api, kinds)
         except Exception:
             LOG.exception("SyncMusicPlaylists failed")
 
     def defer_playlist_poll(self):
-        """Start the poll interval again: playlists were just re-read.
+        """No-op: playlist apply is event-driven. Kept for the FullSync host port."""
 
-        Also called by the full sync's own refresh, which runs on the sync
-        thread with its own Api — without it the first tick after a sync
-        re-reads every playlist for nothing.
-        """
-        self.playlist_poll.arm()
-
-    def poll_music_playlists(self):
-        """Re-read managed music playlists on the PLAYLIST_POLL_SECONDS clock.
-
-        Playlist edits reach no other path (see PLAYLIST_POLL_SECONDS): before
-        this, a track added on the server stayed invisible until someone ran a
-        full sync. Held off while a sync cycle is in flight — the refresh reads
-        song rows the drain is still writing, and would only have to run again.
-        """
-        if not settings.get_bool("syncMusicPlaylists"):
+    def apply_playlist(self, data):
+        """Write or prune one playlist from a websocket/FastSync id."""
+        playlist_id = (data or {}).get("Id") or ""
+        if not playlist_id:
             return
-
-        if self.pending_refresh or not state.is_online():
+        kinds = self.playlist_kinds()
+        if not kinds:
             return
+        try:
+            from kofin.sync import playlists as music_playlists
+            from kofin.sync.kodidb import Music as MusicKodiDb
 
-        if self.playlist_poll.waiting():
-            return
+            item = self.api.item(playlist_id)
+            with self.music_database_lock:
+                with Database("kofin") as kofindb:
+                    mapping = jellyfin_db.JellyfinDatabase(kofindb.cursor)
+                    music = None
+                    if "Audio" in kinds:
+                        with Database("music") as musicdb:
+                            music = MusicKodiDb(musicdb.cursor)
+                            if "Video" in kinds:
+                                with Database("video") as videodb:
+                                    video = music_playlists.VideoPlaylistDb(
+                                        videodb.cursor
+                                    )
+                                    music_playlists.apply_one(
+                                        self.api,
+                                        mapping,
+                                        music,
+                                        video,
+                                        mapping,
+                                        item,
+                                        kinds,
+                                    )
+                                    return
+                            music_playlists.apply_one(
+                                self.api, mapping, music, None, mapping, item, kinds
+                            )
+                            return
+                    if "Video" in kinds:
+                        with Database("video") as videodb:
+                            video = music_playlists.VideoPlaylistDb(videodb.cursor)
+                            music_playlists.apply_one(
+                                self.api, mapping, None, video, mapping, item, kinds
+                            )
+        except Exception:
+            LOG.exception("ApplyPlaylist failed for %s", playlist_id)
 
-        # Before the refresh, not after: one that raises must not retry on
-        # every two-second tick.
-        self.defer_playlist_poll()
-        self.sync_music_playlists()
+    def _reconcile_playlists(self, api, kinds):
+        from kofin.sync import playlists as music_playlists
+        from kofin.sync.kodidb import Music as MusicKodiDb
+
+        with Database("kofin") as kofindb, Database("music") as musicdb:
+            mapping = jellyfin_db.JellyfinDatabase(kofindb.cursor)
+            music = MusicKodiDb(musicdb.cursor) if "Audio" in kinds else None
+            if "Video" in kinds:
+                with Database("video") as videodb:
+                    video = music_playlists.VideoPlaylistDb(videodb.cursor)
+                    return music_playlists.reconcile(
+                        api, mapping, music, video, mapping, kinds
+                    )
+            return music_playlists.reconcile(api, mapping, music, None, mapping, kinds)
 
     def reassert_music_sources(self):
         """Rewrite the per-library music ``source`` rows after a Kodi scan.
@@ -433,11 +468,14 @@ class Library(threading.Thread):
             LOG.exception("ReassertMusicSources failed")
 
     def cleanup_music_playlists(self):
-        """Remove the managed ``playlists/music/Kofin/`` folder."""
+        """Remove managed Jellyfin playlist files (music folder + video .m3u8)."""
         try:
             from kofin.sync import playlists as music_playlists
 
             music_playlists.cleanup_managed_playlists()
+            music_playlists.cleanup_video_playlists()
+            with Database("kofin") as kofindb:
+                jellyfin_db.JellyfinDatabase(kofindb.cursor).remove_playlist_states()
         except Exception:
             LOG.exception("CleanupMusicPlaylists failed")
 
@@ -636,7 +674,6 @@ class Library(threading.Thread):
             self.worker_userdata()
             self.worker_remove()
             self.refresh_added()
-            self.poll_music_playlists()
 
         # Outside the playback gate on purpose: a summary accumulated with
         # syncDuringPlay on is held while video plays, and this is the tick
@@ -706,6 +743,12 @@ class Library(threading.Thread):
             "RefreshBoxsets": lambda data: self.add_library("Boxsets:Refresh"),
             "FastSync": self._cmd_fast_sync,
             "SyncMusicPlaylists": lambda data: self.sync_music_playlists(),
+            "SyncPlaylists": lambda data: (
+                self.apply_playlist(data)
+                if (data or {}).get("Id")
+                else self.sync_music_playlists()
+            ),
+            "ApplyPlaylist": lambda data: self.apply_playlist(data),
             "CleanupMusicPlaylists": lambda data: self.cleanup_music_playlists(),
             "RepointRatings": lambda data: self.repoint_ratings(),
             "ReassertMusicSources": lambda data: self.reassert_music_sources(),
@@ -1153,6 +1196,9 @@ class Library(threading.Thread):
                     artwork_ids=self.artwork_only_ids,
                     fields=basic_info() if source == "artwork" else None,
                     unapplied=self.flag_unapplied,
+                    on_playlist=lambda item: self.enqueue_command(
+                        "ApplyPlaylist", {"Id": item.get("Id")}
+                    ),
                     # Read back by added_downloads_pending: the added-first
                     # gate on metadata downloads keys on it.
                     source=source,
@@ -1484,6 +1530,14 @@ class Library(threading.Thread):
         if "movies" in include:
             include.append("boxsets")
 
+        if settings.get_bool("syncMusicPlaylists") and (
+            "music" in include
+            or "movies" in include
+            or "tvshows" in include
+            or "musicvideos" in include
+        ):
+            include.append("playlists")
+
         return include
 
     def _include_libraries(self):
@@ -1508,8 +1562,13 @@ class Library(threading.Thread):
             db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
 
             for jellyfin_type in sorted(types):
+                if jellyfin_type == "Playlist":
+                    continue
                 for row in db.get_checksum(jellyfin_type):
                     checksums[row[0]] = row[1]
+            if "Playlist" in types:
+                for row in db.get_playlist_states():
+                    checksums[row[0]] = row[3]
 
         return checksums
 
@@ -1611,6 +1670,15 @@ class Library(threading.Thread):
             self.added(plan.added)
             self.updated(plan.updated)
             self.artwork(plan.artwork)
+            for playlist_id in plan.playlist_removed:
+                from kofin.sync import playlists as music_playlists
+
+                with Database("kofin") as kofindb:
+                    music_playlists.remove_one(
+                        jellyfin_db.JellyfinDatabase(kofindb.cursor), playlist_id
+                    )
+            for playlist_id in list(plan.playlist_added) + list(plan.playlist_updated):
+                self.apply_playlist({"Id": playlist_id})
 
         except Exception as error:
             LOG.exception(error)
@@ -2159,7 +2227,18 @@ class Library(threading.Thread):
         queued = set(self.removed_queue.snapshot())
         count = 0
 
+        from kofin.sync import playlists as music_playlists
+
+        with Database("kofin") as kofindb:
+            mapping = jellyfin_db.JellyfinDatabase(kofindb.cursor)
+            known = {row[0] for row in mapping.get_playlist_states()}
+            for item in data:
+                if item in known:
+                    music_playlists.remove_one(mapping, item)
+
         for item in data:
+            if item in known:
+                continue
 
             if item in queued:
                 continue

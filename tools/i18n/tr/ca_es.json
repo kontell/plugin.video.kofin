@@ -279,8 +279,8 @@
   "#30608": "Desactivat",
   "#30609": "Mostra amb Kofin Lyrics",
   "#30610": "Passa a un complement de lletres",
-  "#30611": "Sincronitza les llistes de reproducció de música",
-  "#30612": "Baixa les llistes de reproducció de música del Jellyfin al Kodi com a llistes natives dins de Música → Llistes de reproducció → Kofin.",
+  "#30611": "Sincronitza les llistes de reproducció",
+  "#30612": "Copia les llistes de Jellyfin a Kodi com a llistes natives. Les de música apareixen a Música → Llistes de reproducció → Kofin si hi ha una biblioteca de música sincronitzada; les de vídeo a Vídeos → Llistes de reproducció → Kofin si n'hi ha una de vídeo. Les edicions locals d'aquests fitxers se sobreescriuen en actualitzar — fes servir \"Desa a Jellyfin\" per enviar una llista local.",
   "#30613": "Fluxos d'àudio i de subtítols",
   "#30614": "Flux d'àudio",
   "#30615": "Subtítols",
@@ -484,5 +484,9 @@
   "#30837": "Mira en sincronia amb altres clients del Jellyfin.",
   "#30838": "Reutilitza l'invoker de llenguatge",
   "#30839": "Desactiva-ho si uses diversos camins plugin:// als ginys de la pell. Cal reiniciar el Kodi.",
-  "#30840": "Reinicia el Kodi per aplicar-ho"
+  "#30840": "Reinicia el Kodi per aplicar-ho",
+  "#30841": "Desa a Jellyfin",
+  "#30842": "Aquesta llista barreja àudio i vídeo i no es pot desar com una sola llista de Jellyfin",
+  "#30843": "Llista desada a Jellyfin",
+  "#30844": "No hi ha elements de la biblioteca en aquesta llista per desar"
 }

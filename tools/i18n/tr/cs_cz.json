@@ -279,8 +279,8 @@
   "#30608": "Vypnuto",
   "#30609": "Zobrazit v Kofin Lyrics",
   "#30610": "Předat doplňku pro texty",
-  "#30611": "Synchronizovat hudební seznamy stop",
-  "#30612": "Stáhne hudební seznamy stop z Jellyfinu do Kodi jako nativní seznamy stop v Hudba → Seznamy stop → Kofin.",
+  "#30611": "Synchronizovat seznamy stop",
+  "#30612": "Kopírovat seznamy Jellyfin do Kodi jako nativní seznamy. Hudební se objeví v Hudba → Seznamy stop → Kofin, když je synchronizována hudební knihovna; video v Video → Seznamy stop → Kofin, když je synchronizována video knihovna. Místní úpravy těchto souborů se při obnovení přepíší — použijte \"Uložit do Jellyfin\" k odeslání místního seznamu.",
   "#30613": "Zvukové stopy a titulky",
   "#30614": "Zvuková stopa",
   "#30615": "Titulky",
@@ -484,5 +484,9 @@
   "#30837": "Sledujte synchronizovaně s ostatními klienty Jellyfin.",
   "#30838": "Znovu použít language invoker",
   "#30839": "Vypněte, pokud v widgetech vzhledu používáte více cest plugin://. Vyžaduje restart Kodi.",
-  "#30840": "Restartujte Kodi, aby se to projevilo"
+  "#30840": "Restartujte Kodi, aby se to projevilo",
+  "#30841": "Uložit do Jellyfin",
+  "#30842": "Tento seznam míchá zvuk a video a nelze ho uložit jako jeden seznam Jellyfin",
+  "#30843": "Seznam uložen do Jellyfin",
+  "#30844": "V tomto seznamu nejsou položky knihovny k uložení"
 }

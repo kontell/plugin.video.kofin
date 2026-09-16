@@ -1405,12 +1405,12 @@ msgid "Hand to a lyrics addon"
 msgstr "Transmettre à une extension de paroles"
 
 msgctxt "#30611"
-msgid "Sync music playlists"
-msgstr "Synchroniser les listes de lecture musicales"
+msgid "Sync playlists"
+msgstr "Synchroniser les listes de lecture"
 
 msgctxt "#30612"
-msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
-msgstr "Télécharge les listes de lecture musicales Jellyfin dans Kodi comme listes de lecture natives, sous Musique → Listes de lecture → Kofin."
+msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
+msgstr "Copier les listes de lecture Jellyfin dans Kodi comme listes natives. Les listes musicales apparaissent sous Musique → Listes de lecture → Kofin lorsqu'une bibliothèque musicale est synchronisée ; les listes vidéo sous Vidéos → Listes de lecture → Kofin lorsqu'une bibliothèque vidéo est synchronisée. Les modifications locales de ces fichiers sont écrasées à l'actualisation — utilisez \"Enregistrer dans Jellyfin\" pour renvoyer une liste locale."
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -2175,3 +2175,19 @@ msgstr "Désactivez si vous utilisez plusieurs chemins plugin:// dans les widget
 msgctxt "#30840"
 msgid "Restart Kodi to apply this"
 msgstr "Redémarrez Kodi pour appliquer ceci"
+
+msgctxt "#30841"
+msgid "Save to Jellyfin"
+msgstr "Enregistrer dans Jellyfin"
+
+msgctxt "#30842"
+msgid "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist"
+msgstr "Cette liste mélange audio et vidéo et ne peut pas être enregistrée comme une seule liste Jellyfin"
+
+msgctxt "#30843"
+msgid "Playlist saved to Jellyfin"
+msgstr "Liste de lecture enregistrée dans Jellyfin"
+
+msgctxt "#30844"
+msgid "No library items in this playlist to save"
+msgstr "Aucun élément de bibliothèque à enregistrer dans cette liste"

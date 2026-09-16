@@ -279,8 +279,8 @@
   "#30608": "Aus",
   "#30609": "Mit Kofin Lyrics anzeigen",
   "#30610": "An ein Songtext-Add-on übergeben",
-  "#30611": "Musik-Wiedergabelisten synchronisieren",
-  "#30612": "Jellyfin-Musikwiedergabelisten als native Kodi-Wiedergabelisten unter Musik → Wiedergabelisten → Kofin herunterladen.",
+  "#30611": "Wiedergabelisten synchronisieren",
+  "#30612": "Jellyfin-Wiedergabelisten als native Kodi-Wiedergabelisten kopieren. Musiklisten erscheinen unter Musik → Wiedergabelisten → Kofin, wenn eine Musikbibliothek synchronisiert ist; Videolisten unter Videos → Wiedergabelisten → Kofin, wenn eine Videobibliothek synchronisiert ist. Lokale Änderungen an diesen Dateien werden beim Aktualisieren überschrieben — mit \"In Jellyfin speichern\" eine lokale Liste zurücksenden.",
   "#30613": "Audio- und Untertitelspuren",
   "#30614": "Audiospur",
   "#30615": "Untertitel",
@@ -484,5 +484,9 @@
   "#30837": "Synchron mit anderen Jellyfin-Clients schauen.",
   "#30838": "Language Invoker wiederverwenden",
   "#30839": "Deaktivieren, wenn mehrere plugin://-Pfade in Skin-Widgets verwendet werden. Erfordert einen Neustart von Kodi.",
-  "#30840": "Kodi neu starten, um das zu übernehmen"
+  "#30840": "Kodi neu starten, um das zu übernehmen",
+  "#30841": "In Jellyfin speichern",
+  "#30842": "Diese Wiedergabeliste mischt Audio und Video und kann nicht als eine Jellyfin-Wiedergabeliste gespeichert werden",
+  "#30843": "Wiedergabeliste in Jellyfin gespeichert",
+  "#30844": "Keine Bibliothekseinträge in dieser Wiedergabeliste zum Speichern"
 }

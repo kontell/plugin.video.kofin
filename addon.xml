@@ -101,6 +101,13 @@
         <label>30615</label>
         <visible>ListItem.IsPlaying + String.IsEqual(Window(Home).Property(kofin.playing.menu),subtitle)</visible>
       </item>
+      <item library="context_playlist.py">
+        <label>30841</label>
+        <!-- Basic playlist files in Music/Video → Playlists. Smart playlists
+             (.xsp) are queries, not ordered lists, and are excluded by the
+             extension test. Square brackets for grouping. -->
+        <visible>[String.EndsWith(ListItem.FileNameAndPath,.m3u) | String.EndsWith(ListItem.FileNameAndPath,.m3u8)]</visible>
+      </item>
     </menu>
   </extension>
   <extension point="xbmc.addon.metadata">

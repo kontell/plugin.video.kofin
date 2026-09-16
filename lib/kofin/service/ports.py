@@ -71,6 +71,8 @@ class LibraryPort(Protocol):
 
     def defer_playlist_poll(self) -> None: ...
 
+    def sync_music_playlists(self) -> None: ...
+
 
 class DownloadsPort(Protocol):
     """What the service drives on the download manager."""

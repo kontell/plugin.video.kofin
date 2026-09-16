@@ -1405,12 +1405,12 @@ msgid "Hand to a lyrics addon"
 msgstr "가사 애드온에 전달"
 
 msgctxt "#30611"
-msgid "Sync music playlists"
-msgstr "음악 재생목록 동기화"
+msgid "Sync playlists"
+msgstr "재생목록 동기화"
 
 msgctxt "#30612"
-msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
-msgstr "Jellyfin 음악 재생목록을 음악 → 재생목록 → Kofin 아래에 Kodi 자체 재생목록으로 내려받습니다."
+msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
+msgstr "Jellyfin 재생목록을 Kodi 기본 재생목록으로 복사합니다. 음악 라이브러리가 동기화되면 음악 재생목록은 음악 → 재생목록 → Kofin에, 비디오 라이브러리가 동기화되면 비디오 재생목록은 비디오 → 재생목록 → Kofin에 나타납니다. 해당 파일의 로컬 편집은 새로 고침 시 덮어씁니다. 로컬 재생목록을 보내려면 \"Jellyfin에 저장\"을 사용하세요."
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -2175,3 +2175,19 @@ msgstr "스킨 위젯에서 plugin:// 경로를 여러 개 쓰는 경우 끄세�
 msgctxt "#30840"
 msgid "Restart Kodi to apply this"
 msgstr "적용하려면 Kodi를 다시 시작하세요"
+
+msgctxt "#30841"
+msgid "Save to Jellyfin"
+msgstr "Jellyfin에 저장"
+
+msgctxt "#30842"
+msgid "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist"
+msgstr "이 재생목록은 오디오와 비디오가 섞여 있어 Jellyfin 재생목록 하나로 저장할 수 없습니다"
+
+msgctxt "#30843"
+msgid "Playlist saved to Jellyfin"
+msgstr "재생목록을 Jellyfin에 저장했습니다"
+
+msgctxt "#30844"
+msgid "No library items in this playlist to save"
+msgstr "이 재생목록에 저장할 라이브러리 항목이 없습니다"

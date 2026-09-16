@@ -279,8 +279,8 @@
   "#30608": "Dezactivat",
   "#30609": "Afișează cu Kofin Lyrics",
   "#30610": "Predă unui supliment de versuri",
-  "#30611": "Sincronizează listele de redare muzicale",
-  "#30612": "Descarcă listele de redare muzicale din Jellyfin în Kodi, ca liste de redare native, în Muzică → Liste de redare → Kofin.",
+  "#30611": "Sincronizează listele de redare",
+  "#30612": "Copiază listele Jellyfin în Kodi ca liste native. Listele muzicale apar în Muzică → Liste de redare → Kofin când o bibliotecă muzicală e sincronizată; cele video în Video → Liste de redare → Kofin când o bibliotecă video e sincronizată. Editările locale ale acelor fișiere sunt suprascrise la reîmprospătare — folosiți \"Salvează în Jellyfin\" pentru a trimite o listă locală.",
   "#30613": "Fluxuri audio și de subtitrare",
   "#30614": "Flux audio",
   "#30615": "Subtitrări",
@@ -484,5 +484,9 @@
   "#30837": "Urmărește sincronizat cu alți clienți Jellyfin.",
   "#30838": "Reutilizează language invoker",
   "#30839": "Dezactivează dacă folosești mai multe căi plugin:// în widgeturile temei. Necesită repornirea Kodi.",
-  "#30840": "Repornește Kodi pentru a aplica asta"
+  "#30840": "Repornește Kodi pentru a aplica asta",
+  "#30841": "Salvează în Jellyfin",
+  "#30842": "Această listă amestecă audio și video și nu poate fi salvată ca o singură listă Jellyfin",
+  "#30843": "Listă salvată în Jellyfin",
+  "#30844": "Nu există elemente din bibliotecă în această listă de salvat"
 }

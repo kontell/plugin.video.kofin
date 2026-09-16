@@ -124,6 +124,27 @@ SELECT      *
 FROM        movie
 WHERE       idMovie = ?
 """
+get_movie_playlist_row = """
+SELECT      path.strPath, files.strFilename, movie.c00
+FROM        movie
+JOIN        files ON files.idFile = movie.idFile
+JOIN        path ON path.idPath = files.idPath
+WHERE       movie.idMovie = ?
+"""
+get_episode_playlist_row = """
+SELECT      path.strPath, files.strFilename, episode.c00
+FROM        episode
+JOIN        files ON files.idFile = episode.idFile
+JOIN        path ON path.idPath = files.idPath
+WHERE       episode.idEpisode = ?
+"""
+get_musicvideo_playlist_row = """
+SELECT      path.strPath, files.strFilename, musicvideo.c00
+FROM        musicvideo
+JOIN        files ON files.idFile = musicvideo.idFile
+JOIN        path ON path.idPath = files.idPath
+WHERE       musicvideo.idMVideo = ?
+"""
 get_movie_obj = ["{MovieId}"]
 get_rating = """
 SELECT      rating_id

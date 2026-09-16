@@ -106,12 +106,13 @@ What remains is kofin's own:
 - Generated nodes live under `special://profile/library/video/kofin/` and **every deletion path is
   gated on the `kofin` name prefix** — hand-made nodes share the tree.
 - Generated playlists live in a `Kofin/` folder under Kodi's own `playlists/video/` and
-  `playlists/music/` — **capital K** — but the two folders have opposite ownership rules.
-  Under `playlists/video/Kofin/` the `kofin` prefix gates deletion and a foreign file is
-  spared (`views.py`); under `playlists/music/Kofin/` the **folder** is the boundary — the
+  `playlists/music/` — **capital K** — with three ownership rules. Under `playlists/video/Kofin/`
+  the `kofin` prefix still gates `.xsp` deletion and a foreign non-m3u8 file is spared
+  (`views.py`); unmanaged `.m3u8` in that folder are Jellyfin video playlists and are pruned
+  (`playlists.py`). Under `playlists/music/Kofin/` the **folder** is the boundary — the
   managed `.m3u8` files are named after the Jellyfin playlist's title, carry no prefix, and every file not in
-  the managed set is removed on the next poll (`playlists.py`). Nothing of the user's may
-  be told to live there.
+  the managed set is removed on reconcile. Nothing of the user's may be told to live in
+  either music `Kofin/` or as a `.m3u8` under video `Kofin/`.
 - Every show's path row carries `strContent='tvshows'` + `metadata.local` **and**
   `useFolderNames=1`, and the episode object repeats the stamp.
 - **A boxset pass ending with zero linked members must not stamp its reference checksum** —
@@ -289,8 +290,8 @@ the lot together. `tr/_source.json` records the English each translation was mad
 `pvr.kofin` had to repair by hand. `tests/unit/test_translations.py` runs the validators, so CI
 catches a locale left out of step.
 
-Three help strings quote another string's wording verbatim (`#30794` quotes `#30618`; `#30080`
-quotes `#30817`; `#30826` quotes `#30052`) and `pocheck.py` enforces all of them —
+Help strings that quote another string's wording verbatim (`#30794` quotes `#30618`; `#30080`
+quotes `#30817`; `#30826` quotes `#30052`; `#30612` quotes `#30841`) and `pocheck.py` enforces all of them —
 translate such a pair together or the help names a control that is not on screen under that name.
 The quoted label goes in ASCII double quotes even where the locale uses its own quotation marks
 elsewhere in the same string, because that is what the check looks for. `#30624`/`#30626`/`#30631`/`#30633`/`#30635`

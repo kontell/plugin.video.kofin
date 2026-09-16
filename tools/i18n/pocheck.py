@@ -7,8 +7,8 @@ Python add-on needs that msgfmt does not do:
     formats with a plain % tuple and has no positional (%1$s) form anywhere, so
     a reordered pair swaps the arguments silently;
   * Kodi bbcode tags survive ([B]%s[/B] in #30015);
-  * #30794 keeps quoting #30618's wording, the cross-string dependency
-    tests/unit/test_userprefs.py asserts for English only.
+  * help strings that quote another control's wording (see QUOTES_VERBATIM);
+    tests/unit/test_userprefs.py asserts the #30794 pair for English only.
 
     python3 tools/i18n/pocheck.py
 """
@@ -33,6 +33,7 @@ QUOTES_VERBATIM = {
     "#30794": ["#30618"],  # account caveat -> the default-tracks setting label
     "#30080": ["#30817"],  # shortlist help -> the "All" row of its own dialog
     "#30826": ["#30052"],  # discovery help -> the field it fills in
+    "#30612": ["#30841"],  # playlist sync help -> Save to Jellyfin
 }
 
 

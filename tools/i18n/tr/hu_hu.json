@@ -279,8 +279,8 @@
   "#30608": "Ki",
   "#30609": "Megjelenítés a Kofin Lyricsszel",
   "#30610": "Átadás dalszöveg-kiegészítőnek",
-  "#30611": "Zenei lejátszási listák szinkronizálása",
-  "#30612": "A Jellyfin zenei lejátszási listáinak letöltése a Kodiba natív lejátszási listaként, a Zene → Lejátszási listák → Kofin alá.",
+  "#30611": "Lejátszási listák szinkronizálása",
+  "#30612": "A Jellyfin-lejátszási listák másolása a Kodiba natív listaként. A zeneilisták a Zene → Lejátszási listák → Kofin alatt jelennek meg, ha egy zenekönyvtár szinkronizálva van; a videólisták a Videók → Lejátszási listák → Kofin alatt, ha egy videókönyvtár. Ezeknek a fájloknak a helyi szerkesztései frissítéskor felülíródnak — a helyi lista visszaküldéséhez használd a \"Mentés a Jellyfinbe\" parancsot.",
   "#30613": "Hang- és feliratsávok",
   "#30614": "Hangsáv",
   "#30615": "Feliratok",
@@ -484,5 +484,9 @@
   "#30837": "Nézd szinkronban más Jellyfin-kliensekkel.",
   "#30838": "Language invoker újrafelhasználása",
   "#30839": "Kapcsold ki, ha a felszín widgetjeiben több plugin:// elérési út van. Kodi-újraindítást igényel.",
-  "#30840": "A változás érvényesítéséhez indítsd újra a Kodit"
+  "#30840": "A változás érvényesítéséhez indítsd újra a Kodit",
+  "#30841": "Mentés a Jellyfinbe",
+  "#30842": "Ez a lista hangot és videót kever, és nem menthető egyetlen Jellyfin-listaként",
+  "#30843": "Lista mentve a Jellyfinbe",
+  "#30844": "Nincs könyvtárelem ebben a listában a mentéshez"
 }

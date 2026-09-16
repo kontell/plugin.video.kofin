@@ -43,6 +43,7 @@ def test_every_member_of_the_port_is_there():
         "refresh_libraries",
         "stamp_watermark_if_empty",
         "defer_playlist_poll",
+        "sync_music_playlists",
         "sync_failure_toasted",
     ):
         assert hasattr(manager, name), name

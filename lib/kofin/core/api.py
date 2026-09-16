@@ -824,7 +824,7 @@ class Api:
                         "StartIndex": start,
                         "Limit": page_size,
                         "EnableTotalRecordCount": True,
-                        "Fields": "MediaType,Overview",
+                        "Fields": "MediaType,Overview,Etag",
                         "SortBy": "SortName",
                         "SortOrder": "Ascending",
                     }
@@ -861,6 +861,67 @@ class Api:
             if not items or start >= total or new_on_page == 0:
                 break
         return results
+
+    def playlists(self) -> List[JsonDict]:
+        """User-visible playlists of every MediaType, with Etag.
+
+        Same paging/dedupe as :meth:`music_playlists`; the caller decides
+        Audio vs Video vs skip. An empty first page against a positive
+        TotalRecordCount is a contradiction, not "none exist".
+        """
+        results: List[JsonDict] = []
+        seen: set[str] = set()
+        start = 0
+        page_size = 100
+        while True:
+            body = self.get(
+                "/Items",
+                self._as_user(
+                    {
+                        "IncludeItemTypes": "Playlist",
+                        "Recursive": True,
+                        "StartIndex": start,
+                        "Limit": page_size,
+                        "EnableTotalRecordCount": True,
+                        "Fields": "MediaType,Overview,Etag",
+                        "SortBy": "SortName",
+                        "SortOrder": "Ascending",
+                    }
+                ),
+            )
+            items = body.get("Items") or []
+            new_on_page = 0
+            for item in items:
+                item_id = item.get("Id") or ""
+                if not item_id or item_id in seen:
+                    continue
+                seen.add(item_id)
+                new_on_page += 1
+                results.append(item)
+            total = int(body.get("TotalRecordCount") or 0)
+            if start == 0 and not items and total > 0:
+                raise HttpError(
+                    200,
+                    "playlists: TotalRecordCount %d but the first page "
+                    "was empty" % total,
+                )
+            start += len(items)
+            if not items or start >= total or new_on_page == 0:
+                break
+        return results
+
+    def create_playlist(self, name: str, ids: List[str], media_type: str) -> JsonDict:
+        return self.post(
+            "/Playlists",
+            {"Name": name, "Ids": ids, "MediaType": media_type, "UserId": self.user_id},
+        )
+
+    def replace_playlist_items(self, playlist_id: str, ids: List[str]) -> JsonDict:
+        """Replace membership with this ordered id list (not per-entry delete)."""
+        return self.post(
+            "/Playlists/%s" % playlist_id,
+            {"Ids": ids},
+        )
 
     def playlist_items(
         self,

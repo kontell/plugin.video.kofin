@@ -39,6 +39,7 @@ LIBRARY_COMMANDS = frozenset(
         ipc.REPAIR_LIBRARY,
         ipc.UPDATE_LIBRARY,
         ipc.REFRESH_BOXSETS,
+        ipc.SYNC_PLAYLISTS,
     }
 )
 

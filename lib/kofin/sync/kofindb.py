@@ -136,6 +136,25 @@ class JellyfinDatabase:
     def remove_boxset_states(self):
         self.cursor.execute(QU.delete_boxset_states)
 
+    def get_playlist_state(self, jellyfin_id):
+        """(media_type, filename, checksum) or None."""
+        self.cursor.execute(QU.get_playlist_state, (jellyfin_id,))
+        row = self.cursor.fetchone()
+        return row
+
+    def get_playlist_states(self):
+        self.cursor.execute(QU.get_playlist_states)
+        return self.cursor.fetchall()
+
+    def add_playlist_state(self, *args):
+        self.cursor.execute(QU.add_playlist_state, args)
+
+    def remove_playlist_state(self, jellyfin_id):
+        self.cursor.execute(QU.delete_playlist_state, (jellyfin_id,))
+
+    def remove_playlist_states(self):
+        self.cursor.execute(QU.delete_playlist_states)
+
     def get_item_by_kodi_id(self, *args):
 
         try:
