@@ -190,7 +190,7 @@
   "#30418": "Servern stängs av",
   "#30420": "Bibliotekssynk är av: %s",
   "#30414": "advancedsettings.xml aktiverar cleanonupdate — oförenligt med bibliotekssynk",
-  "#30450": "Uppspelning",
+  "#30450": "Hoppa över och nästa",
   "#30451": "Överhoppning av mediesegment och frågan Spela nästa.",
   "#30452": "Mediesegment",
   "#30453": "Reagera på mediesegment",
@@ -238,7 +238,7 @@
   "#30508": "Markera som sedd på Jellyfin",
   "#30509": "Markera som osedd på Jellyfin",
   "#30551": "Aktivera SyncPlay",
-  "#30552": "Lägger till en SyncPlay-post i tilläggets rot för att titta synkroniserat med andra Jellyfin-klienter. Av innebär ingen gruppmeny och inga SyncPlay-trådar. Låt ”Synkronisera uppspelning till skärm” vara avstängt i Kodis spelarinställningar: är det på följer uppspelningen skärmens uppdateringsfrekvens, så om den inte är en jämn multipel av videons bildfrekvens går bilden för fort eller för långsamt och gruppen kan inte hålla sig synkroniserad",
+  "#30552": "Titta synkroniserat med andra Jellyfin-klienter. Låt ”Synkronisera uppspelning till skärm” vara avstängt i Kodi för en pålitlig upplevelse",
   "#30553": "Driftkorrigering",
   "#30554": "Justerar uppspelningshastigheten varsamt för att hålla positionen med gruppen (kräver Kodis ”Synkronisera uppspelning till skärm”). Av: följ endast schemalagda kommandon.",
   "#30555": "Synktolerans (ms)",
@@ -480,5 +480,9 @@
   "#30833": "Visa var nedladdningarna sparas och hur mycket utrymme varje typ använder. Mätningen görs på själva mappen, så bilder, undertexter och metadata räknas med tillsammans med mediefilerna.",
   "#30834": "Andra filer i den här mappen",
   "#30835": "Inget har laddats ned ännu",
-  "#30836": "Mappen är för stor för att mätas helt — summorna ovan är ofullständiga"
+  "#30836": "Mappen är för stor för att mätas helt — summorna ovan är ofullständiga",
+  "#30837": "Titta synkroniserat med andra Jellyfin-klienter.",
+  "#30838": "Återanvänd language invoker",
+  "#30839": "Stäng av om du använder flera plugin://-sökvägar i skalets widgets. Kräver omstart av Kodi.",
+  "#30840": "Starta om Kodi för att tillämpa detta"
 }

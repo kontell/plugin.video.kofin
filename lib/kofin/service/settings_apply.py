@@ -75,6 +75,7 @@ class SettingsApplier:
             "preferCriticRating": self._prefer_critic_rating_changed,
             "downloadsEnabled": self._downloads_enabled_changed,
             "downloadsPath": self._downloads_path_changed,
+            "reuseLanguageInvoker": self._reuse_invoker_changed,
         }
         self.snapshot: Dict[str, str] = self._read_all()
         # The one-shot worker a library removal's confirmation runs on; its
@@ -100,6 +101,11 @@ class SettingsApplier:
         # Same reason: skins cannot read the settings that hide these two
         # root entries, so the service mirrors the offer onto properties.
         self._publish_root_menus()
+        # An addon update restores the zip's <reuselanguageinvoker>true</>,
+        # so a user who turned the setting off needs the file rewritten
+        # again. Too late for this session — ExtraInfo is already loaded —
+        # but the next Kodi start then matches.
+        self._reconcile_reuse_invoker()
         LOG.debug("settings applier ready; baseline re-read")
 
     def apply(self) -> None:
@@ -186,6 +192,31 @@ class SettingsApplier:
     def _ssl_verify_changed(self, old: str, new: str) -> None:
         LOG.info("sslVerify changed; restarting service cycle")
         self.service._restart_requested = True
+
+    def _reuse_invoker_changed(self, old: str, new: str) -> None:
+        """Rewrite addon.xml; Kodi only rereads ExtraInfo on the next start."""
+        from kofin.core import addonxml, toast
+
+        wrote = addonxml.apply(new == "true")
+        if wrote is None:
+            LOG.warning("reuseLanguageInvoker change did not land on addon.xml")
+            return
+        toast.show(settings.localized(30840))
+
+    def _reconcile_reuse_invoker(self) -> None:
+        """Restore a false setting after an update overwrote addon.xml."""
+        from kofin.core import addonxml
+
+        wanted = settings.get_bool("reuseLanguageInvoker")
+        wrote = addonxml.apply(wanted)
+        if wrote is True:
+            LOG.info(
+                "addon.xml reuselanguageinvoker reconciled to %s; "
+                "restart Kodi for it to take effect",
+                "true" if wanted else "false",
+            )
+        elif wrote is None:
+            LOG.warning("could not reconcile addon.xml reuselanguageinvoker")
 
     def _syncplay_enabled_changed(self, old: str, new: str) -> None:
         """The SyncPlay master toggle builds/tears down the manager live —

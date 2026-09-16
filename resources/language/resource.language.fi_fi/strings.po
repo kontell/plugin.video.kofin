@@ -977,8 +977,8 @@ msgid "advancedsettings.xml enables cleanonupdate — incompatible with library 
 msgstr "advancedsettings.xml ottaa käyttöön cleanonupdate-asetuksen — se ei ole yhteensopiva kirjaston synkronoinnin kanssa"
 
 msgctxt "#30450"
-msgid "Playback"
-msgstr "Toisto"
+msgid "Skipping & Next up"
+msgstr "Ohitukset ja seuraavaksi"
 
 msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."
@@ -1173,8 +1173,8 @@ msgid "Enable SyncPlay"
 msgstr "Ota SyncPlay käyttöön"
 
 msgctxt "#30552"
-msgid "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads. Leave Kodi's 'Sync playback to display' off: with it on, playback follows the display rate, so unless that rate is a whole multiple of the video frame rate the picture runs fast or slow and the group cannot stay in sync"
-msgstr "Lisää SyncPlay-kohdan lisäosan juureen yhteiskatselua varten muiden Jellyfin-asiakkaiden kanssa. Pois päältä ei ole ryhmävalikkoa eikä SyncPlay-säikeitä. Jätä Synkronoi toisto näyttöön pois päältä Kodin toistoasetuksissa: kun se on päällä, toisto seuraa näytön virkistystaajuutta, joten ellei taajuus ole videon kuvataajuuden kokonaislukukerrannainen, kuva kulkee liian nopeasti tai liian hitaasti eikä ryhmä pysy synkronissa"
+msgid "Watch in sync with other Jellyfin clients. Leave Kodi's 'Sync playback to display' off for a reliable experience"
+msgstr "Katso synkronissa muiden Jellyfin-asiakkaiden kanssa. Jätä Synkronoi toisto näyttöön pois päältä Kodissa luotettavan kokemuksen vuoksi"
 
 msgctxt "#30553"
 msgid "Drift correction"
@@ -2159,3 +2159,19 @@ msgstr "Mitään ei ole vielä ladattu"
 msgctxt "#30836"
 msgid "Folder too large to measure fully — the totals above are partial"
 msgstr "Kansio on liian suuri mitattavaksi kokonaan — yllä olevat summat ovat osittaisia"
+
+msgctxt "#30837"
+msgid "Watch in sync with other Jellyfin clients."
+msgstr "Katso synkronissa muiden Jellyfin-asiakkaiden kanssa."
+
+msgctxt "#30838"
+msgid "Reuse language invoker"
+msgstr "Käytä language invoker uudelleen"
+
+msgctxt "#30839"
+msgid "Disable if using multiple plugin:// paths in skin widgets. Requires Kodi restart."
+msgstr "Poista käytöstä, jos skinin widgeteissä on useita plugin://-polkuja. Vaatii Kodin uudelleenkäynnistyksen."
+
+msgctxt "#30840"
+msgid "Restart Kodi to apply this"
+msgstr "Käynnistä Kodi uudelleen, jotta tämä tulee voimaan"

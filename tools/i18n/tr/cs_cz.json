@@ -190,7 +190,7 @@
   "#30418": "Server se vypíná",
   "#30420": "Synchronizace vypnuta: %s",
   "#30414": "advancedsettings.xml zapíná cleanonupdate — neslučitelné se synchronizací knihovny",
-  "#30450": "Přehrávání",
+  "#30450": "Přeskakování a další",
   "#30451": "Přeskakování segmentů médií a nabídka přehrání dalšího dílu.",
   "#30452": "Segmenty médií",
   "#30453": "Reagovat na segmenty médií",
@@ -238,7 +238,7 @@
   "#30508": "Označit jako zhlédnuté v Jellyfinu",
   "#30509": "Označit jako nezhlédnuté v Jellyfinu",
   "#30551": "Povolit SyncPlay",
-  "#30552": "Přidá položku SyncPlay do kořene doplňku pro sledování v synchronizaci s ostatními klienty Jellyfin. Vypnuto znamená žádnou nabídku skupiny a žádná vlákna SyncPlay. Ponech v nastavení přehrávače Kodi vypnutou volbu Synchronizovat přehrávání s obrazovkou: když je zapnutá, přehrávání se řídí obnovovací frekvencí obrazovky, takže pokud tato frekvence není celočíselným násobkem snímkové frekvence videa, obraz běží rychleji nebo pomaleji a skupina nemůže zůstat synchronizovaná",
+  "#30552": "Sledujte synchronizovaně s ostatními klienty Jellyfin. Pro spolehlivý zážitek nechte v Kodi vypnutou volbu Synchronizovat přehrávání s obrazovkou",
   "#30553": "Korekce odchylky",
   "#30554": "Jemně upravuje rychlost přehrávání, aby držela pozici se skupinou (vyžaduje volbu Kodi „Synchronizovat přehrávání s obrazovkou“). Vypnuto: řídí se pouze naplánovanými příkazy.",
   "#30555": "Tolerance synchronizace (ms)",
@@ -480,5 +480,9 @@
   "#30833": "Zobrazí, kde jsou stažené soubory uloženy a kolik místa zabírá každý druh. Měří se přímo ve složce, takže se kromě médií počítají i obrázky, titulky a metadata.",
   "#30834": "Ostatní soubory v této složce",
   "#30835": "Zatím nebylo nic staženo",
-  "#30836": "Složka je příliš velká na úplné změření — součty výše jsou neúplné"
+  "#30836": "Složka je příliš velká na úplné změření — součty výše jsou neúplné",
+  "#30837": "Sledujte synchronizovaně s ostatními klienty Jellyfin.",
+  "#30838": "Znovu použít language invoker",
+  "#30839": "Vypněte, pokud v widgetech vzhledu používáte více cest plugin://. Vyžaduje restart Kodi.",
+  "#30840": "Restartujte Kodi, aby se to projevilo"
 }

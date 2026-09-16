@@ -117,7 +117,9 @@
          LanguageInvoker ... terminating" line straight after "script
          successfully run" (not reusable) rather than the thread parking, and
          "GetLanguageInvoker - Reusing LanguageInvokerThread <id>" on the next
-         click when it is. -->
+         click when it is. The Advanced-tab toggle rewrites this element's
+         true/false; the zip always ships true, and a Kodi restart is what
+         makes ExtraInfo() move. -->
     <reuselanguageinvoker>true</reuselanguageinvoker>
     <platform>all</platform>
     <license>GPL-3.0-only</license>

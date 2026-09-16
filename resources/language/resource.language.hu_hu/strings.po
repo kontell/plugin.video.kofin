@@ -977,8 +977,8 @@ msgid "advancedsettings.xml enables cleanonupdate — incompatible with library 
 msgstr "Az advancedsettings.xml bekapcsolja a cleanonupdate beállítást — ez összeférhetetlen a médiatár szinkronizálásával"
 
 msgctxt "#30450"
-msgid "Playback"
-msgstr "Lejátszás"
+msgid "Skipping & Next up"
+msgstr "Kihagyás és következő"
 
 msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."
@@ -1173,8 +1173,8 @@ msgid "Enable SyncPlay"
 msgstr "SyncPlay engedélyezése"
 
 msgctxt "#30552"
-msgid "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads. Leave Kodi's 'Sync playback to display' off: with it on, playback follows the display rate, so unless that rate is a whole multiple of the video frame rate the picture runs fast or slow and the group cannot stay in sync"
-msgstr "SyncPlay bejegyzést ad a kiegészítő gyökeréhez, hogy más Jellyfin-kliensekkel szinkronban nézhessen. Kikapcsolva nincs csoportmenü és nincsenek SyncPlay-szálak. Hagyd kikapcsolva a Kodi lejátszási beállításaiban a Lejátszás szinkronizálása a képernyőhöz opciót: ha be van kapcsolva, a lejátszás a képernyő képfrissítését követi, így ha az nem a videó képkockasebességének egész számú többszöröse, a kép túl gyorsan vagy túl lassan fut, és a csoport nem tud szinkronban maradni"
+msgid "Watch in sync with other Jellyfin clients. Leave Kodi's 'Sync playback to display' off for a reliable experience"
+msgstr "Nézd szinkronban más Jellyfin-kliensekkel. A megbízható működéshez hagyd kikapcsolva a Kodi Lejátszás szinkronizálása a képernyőhöz beállítását"
 
 msgctxt "#30553"
 msgid "Drift correction"
@@ -2159,3 +2159,19 @@ msgstr "Még nincs letöltve semmi"
 msgctxt "#30836"
 msgid "Folder too large to measure fully — the totals above are partial"
 msgstr "A mappa túl nagy a teljes méréshez — a fenti összegek részlegesek"
+
+msgctxt "#30837"
+msgid "Watch in sync with other Jellyfin clients."
+msgstr "Nézd szinkronban más Jellyfin-kliensekkel."
+
+msgctxt "#30838"
+msgid "Reuse language invoker"
+msgstr "Language invoker újrafelhasználása"
+
+msgctxt "#30839"
+msgid "Disable if using multiple plugin:// paths in skin widgets. Requires Kodi restart."
+msgstr "Kapcsold ki, ha a felszín widgetjeiben több plugin:// elérési út van. Kodi-újraindítást igényel."
+
+msgctxt "#30840"
+msgid "Restart Kodi to apply this"
+msgstr "A változás érvényesítéséhez indítsd újra a Kodit"

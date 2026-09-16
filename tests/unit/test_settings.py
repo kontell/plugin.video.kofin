@@ -162,6 +162,71 @@ def test_every_settings_label_resolves_to_a_string():
     assert missing == []
 
 
+def test_the_retired_lyrics_setting_is_gone_from_the_schema():
+    """musicLyricsMode was a three-way spinner over off / kofin lyrics / a
+    third-party lyrics addon. Lyrics now publish whenever
+    script.kofin.lyrics is installed, and otherwise do nothing."""
+    import xml.etree.ElementTree as etree
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    ids = {element.get("id") for element in root.iter("setting")}
+    assert "musicLyricsMode" not in ids
+
+
+def test_the_settings_tabs_match_the_playback_split():
+    """Playback split into Skipping & Next up and SyncPlay; default tracks moved
+    to Account (gating the Jellyfin account settings button); resume offset
+    and the language-invoker toggle live on Advanced."""
+    import xml.etree.ElementTree as etree
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    categories = [element.get("id") for element in root.iter("category")]
+    assert "playback" not in categories
+    assert categories.index("skipping") < categories.index("syncplay")
+
+    def _category(category_id):
+        return next(
+            element
+            for element in root.iter("category")
+            if element.get("id") == category_id
+        )
+
+    def _ids(category):
+        return [element.get("id") for element in category.iter("setting")]
+
+    account = _ids(_category("account"))
+    assert account.index("honourJellyfinDefaultTracks") < account.index(
+        "jellyfinUserSettings"
+    )
+    button = next(
+        element
+        for element in _category("account").iter("setting")
+        if element.get("id") == "jellyfinUserSettings"
+    )
+    referenced = {condition.get("setting") for condition in button.iter("condition")}
+    assert referenced == {"isLoggedIn", "honourJellyfinDefaultTracks"}
+
+    skipping = _category("skipping")
+    assert len(list(skipping.iter("group"))) == 1
+    skip_ids = _ids(skipping)
+    assert skip_ids[0] == "mediaSegmentsEnabled"
+    assert "playNextEnabled" in skip_ids
+    assert "syncPlayEnabled" not in skip_ids
+
+    syncplay = _ids(_category("syncplay"))
+    assert syncplay[0] == "syncPlayEnabled"
+
+    advanced = _ids(_category("advanced"))
+    assert "resumeJumpBack" in advanced
+    assert advanced[-1] == "reuseLanguageInvoker"
+    invoker = next(
+        element
+        for element in _category("advanced").iter("setting")
+        if element.get("id") == "reuseLanguageInvoker"
+    )
+    assert next(element for element in invoker.iter("default")).text == "true"
+
+
 def test_the_retired_download_settings_are_gone_from_the_schema():
     """downloadsAutoCleanup and the three-way downloadsDeleteAfterPlay were
     replaced by one toggle plus its sub-toggle; a leftover control would go

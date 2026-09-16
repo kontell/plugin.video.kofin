@@ -190,7 +190,7 @@
   "#30418": "Server fährt herunter",
   "#30420": "Bibliotheks-Sync ist aus: %s",
   "#30414": "advancedsettings.xml aktiviert cleanonupdate — unvereinbar mit dem Bibliotheks-Sync",
-  "#30450": "Wiedergabe",
+  "#30450": "Überspringen & Als Nächstes",
   "#30451": "Überspringen von Mediensegmenten und die „Nächste Folge“-Abfrage.",
   "#30452": "Mediensegmente",
   "#30453": "Auf Mediensegmente reagieren",
@@ -238,7 +238,7 @@
   "#30508": "Auf Jellyfin als gesehen markieren",
   "#30509": "Auf Jellyfin als ungesehen markieren",
   "#30551": "SyncPlay aktivieren",
-  "#30552": "Fügt dem Hauptmenü des Add-ons einen SyncPlay-Eintrag hinzu, um synchron mit anderen Jellyfin-Clients zu schauen. Aus bedeutet kein Gruppenmenü und keine SyncPlay-Threads. Lass „Wiedergabe an Bildschirm anpassen“ in den Kodi-Player-Einstellungen ausgeschaltet: ist es an, folgt die Wiedergabe der Bildwiederholrate, sodass das Bild zu schnell oder zu langsam läuft und die Gruppe nicht synchron bleiben kann, wenn diese Rate kein ganzzahliges Vielfaches der Bildrate des Videos ist",
+  "#30552": "Synchron mit anderen Jellyfin-Clients schauen. Lass „Wiedergabe an Bildschirm anpassen“ in Kodi ausgeschaltet, für ein zuverlässiges Ergebnis",
   "#30553": "Driftkorrektur",
   "#30554": "Passt die Wiedergabegeschwindigkeit sanft an, um die Position in der Gruppe zu halten (benötigt Kodis „Wiedergabe an Bildschirm anpassen“). Aus: nur geplanten Befehlen folgen.",
   "#30555": "Synchronisationstoleranz (ms)",
@@ -480,5 +480,9 @@
   "#30833": "Zeigt, wo die Downloads liegen und wie viel Platz jede Art belegt. Gemessen wird der Ordner selbst, also zählen Bilder, Untertitel und Metadaten zusammen mit den Medien.",
   "#30834": "Andere Dateien in diesem Ordner",
   "#30835": "Es wurde noch nichts heruntergeladen",
-  "#30836": "Ordner zu groß zum vollständigen Messen — die Summen oben sind unvollständig"
+  "#30836": "Ordner zu groß zum vollständigen Messen — die Summen oben sind unvollständig",
+  "#30837": "Synchron mit anderen Jellyfin-Clients schauen.",
+  "#30838": "Language Invoker wiederverwenden",
+  "#30839": "Deaktivieren, wenn mehrere plugin://-Pfade in Skin-Widgets verwendet werden. Erfordert einen Neustart von Kodi.",
+  "#30840": "Kodi neu starten, um das zu übernehmen"
 }

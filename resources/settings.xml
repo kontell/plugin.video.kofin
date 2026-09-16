@@ -104,14 +104,33 @@
           </dependencies>
           <control type="edit" format="string"/>
         </setting>
+        <!-- Playback honour of the account's track preferences. Lives here
+             rather than with the player settings because it is about the
+             Jellyfin profile, and it is the gate on the button below. -->
+        <setting id="honourJellyfinDefaultTracks" type="boolean" label="30618" help="30619">
+          <level>0</level>
+          <default>true</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="isLoggedIn">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
         <!-- No <close>, unlike the buttons around it: the menu is meant to
              read as a sub-dialog of this one, so Back returns here. The
-             Downloads tab's "Manage shows" button is the same shape. -->
+             Downloads tab's "Manage shows" button is the same shape.
+             Visible only while the toggle above is on: with it off nothing
+             here reaches playback on this box, and a button that opens a
+             dialog that then has to say so is worse than hiding it. -->
         <setting id="jellyfinUserSettings" type="action" label="30777" help="30778">
           <level>0</level>
           <dependencies>
             <dependency type="visible">
-              <condition operator="is" setting="isLoggedIn">true</condition>
+              <and>
+                <condition operator="is" setting="isLoggedIn">true</condition>
+                <condition operator="is" setting="honourJellyfinDefaultTracks">true</condition>
+              </and>
             </dependency>
           </dependencies>
           <control type="button" format="action">
@@ -380,8 +399,9 @@
       </group>
     </category>
 
-    <!-- Playback -->
-    <category id="playback" label="30450" help="30451">
+    <!-- Skipping & Next up (segments + Play Next). One group on purpose: two
+         groups drew a separator between features that belong together. -->
+    <category id="skipping" label="30450" help="30451">
       <group id="1">
         <!-- Off by default: acting on segments moves the picture without being
              asked, and a viewer who has not opted in reads that as the addon
@@ -503,8 +523,6 @@
           </dependencies>
           <control type="slider" format="percentage"/>
         </setting>
-      </group>
-      <group id="2">
         <setting id="playNextEnabled" type="boolean" label="30469" help="30470">
           <level>0</level>
           <default>false</default>
@@ -536,7 +554,12 @@
           <control type="toggle"/>
         </setting>
       </group>
-      <group id="3">
+    </category>
+
+    <!-- SyncPlay. Was a group on Playback; enough settings now to earn the
+         tab the original plan asked for. -->
+    <category id="syncplay" label="30550" help="30837">
+      <group id="1">
         <setting id="syncPlayEnabled" type="boolean" label="30551" help="30552">
           <level>0</level>
           <default>false</default>
@@ -622,35 +645,6 @@
           <default></default>
           <constraints><allowempty>true</allowempty></constraints>
           <control type="edit" format="string"/>
-        </setting>
-      </group>
-      <group id="4">
-        <setting id="resumeJumpBack" type="integer" label="30475" help="30476">
-          <level>0</level>
-          <default>-10</default>
-          <constraints>
-            <minimum>-60</minimum>
-            <step>5</step>
-            <maximum>0</maximum>
-          </constraints>
-          <control type="slider" format="integer"/>
-        </setting>
-        <setting id="honourJellyfinDefaultTracks" type="boolean" label="30618" help="30619">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="musicLyricsMode" type="integer" label="30606" help="30607">
-          <level>0</level>
-          <default>1</default>
-          <constraints>
-            <options>
-              <option label="30608">0</option>
-              <option label="30609">1</option>
-              <option label="30610">2</option>
-            </options>
-          </constraints>
-          <control type="spinner" format="string"/>
         </setting>
       </group>
     </category>
@@ -1516,6 +1510,16 @@
           <default>false</default>
           <control type="toggle"/>
         </setting>
+        <setting id="resumeJumpBack" type="integer" label="30475" help="30476">
+          <level>0</level>
+          <default>-10</default>
+          <constraints>
+            <minimum>-60</minimum>
+            <step>5</step>
+            <maximum>0</maximum>
+          </constraints>
+          <control type="slider" format="integer"/>
+        </setting>
         <setting id="selectWhoIsWatching" type="string" label="30079" help="30080">
           <level>0</level>
           <default></default>
@@ -1556,6 +1560,18 @@
               <condition operator="is" setting="enableDelete">true</condition>
             </dependency>
           </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <!-- Rewrites addon.xml's <reuselanguageinvoker>. Kodi reads that
+             element at addon load, so a change needs a Kodi restart. The
+             zip always ships true; the service reconciles a false setting
+             after an update overwrites the file. Disable when several
+             skin widgets load plugin:// paths at once — Kodi has one
+             reusable invoker thread, and overlapping GetDirectory calls
+             on it hang or crash. -->
+        <setting id="reuseLanguageInvoker" type="boolean" label="30838" help="30839">
+          <level>0</level>
+          <default>true</default>
           <control type="toggle"/>
         </setting>
       </group>

@@ -190,7 +190,7 @@
   "#30418": "Palvelin sammuu",
   "#30420": "Kirjaston synkronointi pois: %s",
   "#30414": "advancedsettings.xml ottaa käyttöön cleanonupdate-asetuksen — se ei ole yhteensopiva kirjaston synkronoinnin kanssa",
-  "#30450": "Toisto",
+  "#30450": "Ohitukset ja seuraavaksi",
   "#30451": "Mediasegmenttien ohitus ja Toista seuraava -kehote.",
   "#30452": "Mediasegmentit",
   "#30453": "Reagoi mediasegmentteihin",
@@ -238,7 +238,7 @@
   "#30508": "Merkitse katsotuksi Jellyfinissä",
   "#30509": "Merkitse katsomattomaksi Jellyfinissä",
   "#30551": "Ota SyncPlay käyttöön",
-  "#30552": "Lisää SyncPlay-kohdan lisäosan juureen yhteiskatselua varten muiden Jellyfin-asiakkaiden kanssa. Pois päältä ei ole ryhmävalikkoa eikä SyncPlay-säikeitä. Jätä Synkronoi toisto näyttöön pois päältä Kodin toistoasetuksissa: kun se on päällä, toisto seuraa näytön virkistystaajuutta, joten ellei taajuus ole videon kuvataajuuden kokonaislukukerrannainen, kuva kulkee liian nopeasti tai liian hitaasti eikä ryhmä pysy synkronissa",
+  "#30552": "Katso synkronissa muiden Jellyfin-asiakkaiden kanssa. Jätä Synkronoi toisto näyttöön pois päältä Kodissa luotettavan kokemuksen vuoksi",
   "#30553": "Ajautuman korjaus",
   "#30554": "Säätää toistonopeutta hellävaraisesti pitääkseen toistokohdan ryhmän mukana (vaatii Kodin ”Synkronoi toisto näyttöön”). Pois: seuraa vain ajastettuja komentoja.",
   "#30555": "Synkronoinnin toleranssi (ms)",
@@ -480,5 +480,9 @@
   "#30833": "Näytä, missä lataukset säilytetään ja kuinka paljon tilaa kukin tyyppi vie. Mittaus tehdään itse kansiosta, joten mukaan lasketaan myös kuvitus, tekstitykset ja metatiedot.",
   "#30834": "Muut tämän kansion tiedostot",
   "#30835": "Mitään ei ole vielä ladattu",
-  "#30836": "Kansio on liian suuri mitattavaksi kokonaan — yllä olevat summat ovat osittaisia"
+  "#30836": "Kansio on liian suuri mitattavaksi kokonaan — yllä olevat summat ovat osittaisia",
+  "#30837": "Katso synkronissa muiden Jellyfin-asiakkaiden kanssa.",
+  "#30838": "Käytä language invoker uudelleen",
+  "#30839": "Poista käytöstä, jos skinin widgeteissä on useita plugin://-polkuja. Vaatii Kodin uudelleenkäynnistyksen.",
+  "#30840": "Käynnistä Kodi uudelleen, jotta tämä tulee voimaan"
 }

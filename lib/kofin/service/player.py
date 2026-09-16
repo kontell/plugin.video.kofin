@@ -8,11 +8,12 @@ claimed back from ``Player.OnPlay`` (``backfill_library_claim`` and the
 module-level claim helpers) so it reports like any other.
 
 Beside the reporter and the segment engine this file also holds: the lyrics
-hand-off at playback start (``start_lyrics`` — published for a skin script,
-or pushed onto the playing item's tag for a lyrics add-on); the default
-audio and subtitle track selection for a transcode; the watched-to-end
-offers (delete from the server, remove a download); and the wiring for late
-subtitles and chapter thumbnails, which run on their own threads.
+hand-off at playback start (``start_lyrics`` — published for
+script.kofin.lyrics when that add-on is installed, otherwise a no-op); the
+default audio and subtitle track selection for a transcode; the
+watched-to-end offers (delete from the server, remove a download); and the
+wiring for late subtitles and chapter thumbnails, which run on their own
+threads.
 
 The segment engine is ``service/segments.py``'s ``SegmentEngine`` since P2.3 (one per
 player, reset per playback, driven by the checker's 0.25 s tick) and the claim
@@ -89,22 +90,12 @@ def watched_to_end(item: JsonDict) -> bool:
     return float(item.get("CurrentPosition") or 0) >= runtime * WATCHED_FRACTION
 
 
-# What lrclyrics shows as the attribution line. Setting it also tells the
-# addon these lyrics did not come from one of its own scrapers.
-LYRICS_SOURCE = "Jellyfin"
+KOFIN_LYRICS_ADDON = "script.kofin.lyrics"
 
-# The push is rejected until Kodi's current item is in place, which is not
-# guaranteed at the instant the callback fires. Each miss costs a sleep, and
-# the whole budget is the gap before the first frame, so this stays small.
-LYRICS_PUSH_ATTEMPTS = 4
-LYRICS_PUSH_RETRY_SECONDS = 0.05
 
-# musicLyricsMode. Two ways to show the same lyrics, and they must not both
-# run: with a lyrics addon installed, the skin overlay and the addon's own
-# window would draw the same words twice.
-LYRICS_OFF = 0
-LYRICS_SKIN = 1  # publish for the skin to render (see core/state.py)
-LYRICS_ADDON = 2  # hand to a lyrics addon via the playing item's music tag
+def kofin_lyrics_installed() -> bool:
+    """Whether script.kofin.lyrics is present to consume published lyrics."""
+    return bool(xbmc.getCondVisibility("System.HasAddon(%s)" % KOFIN_LYRICS_ADDON))
 
 
 class _Reporter(threading.Thread):
@@ -206,36 +197,29 @@ class Player(xbmc.Player):
     # -- lyrics ---------------------------------------------------------------
 
     def start_lyrics(self) -> None:
-        """Show the playing song's Jellyfin lyrics. Never raises.
+        """Publish the playing song's Jellyfin lyrics for script.kofin.lyrics.
 
-        Kodi's music database has no lyrics column, so lyrics cannot be synced
-        into the library the way everything else is — they exist only on the
-        playback that is running, and only while it runs. That holds whichever
-        path a song was written with, so this one route covers both direct
-        rows and the plugin:// rows musicTranscode writes.
+        Never raises. Does nothing when that add-on is not installed — there
+        is no other consumer. Kodi's music database has no lyrics column, so
+        lyrics cannot be synced into the library the way everything else is;
+        they exist only on the playback that is running, and only while it
+        runs. That holds whichever path a song was written with, so this one
+        route covers both direct rows and the plugin:// rows musicTranscode
+        writes.
 
-        Two destinations, never both (see the LYRICS_* modes). The skin
-        overlay is the seamless one; the lyrics-addon hand-off is what works
-        on skins that draw nothing themselves.
-
-        Timing only binds on the addon path: script.cu.lrclyrics searches on
-        onAVStarted and memoises the result per song, and its own force
-        refresh does not clear that memo, so lyrics arriving after it looked
-        are ignored until the song leaves its cache. Hence this runs
-        synchronously at the top of playback start, ahead of the claim, and
-        the fetch behind it forfeits rather than stalls (see Api.lyrics).
+        The fetch runs synchronously at the top of playback start, ahead of
+        the claim, and forfeits rather than stalls (see Api.lyrics).
         """
-        mode = settings.get_int("musicLyricsMode")
-        if mode == LYRICS_OFF:
+        if not kofin_lyrics_installed():
             return
         try:
-            self._start_lyrics(mode)
+            self._start_lyrics()
         except JellyfinError as error:
             LOG.debug("lyrics unavailable: %s", error)
         except Exception:
             LOG.exception("lyrics start failed")
 
-    def _start_lyrics(self, mode: int) -> None:
+    def _start_lyrics(self) -> None:
         if not self.isPlayingAudio():
             return
 
@@ -243,11 +227,7 @@ class Player(xbmc.Player):
         if jellyfin_id is None:
             return
 
-        payload = self.api.lyrics(jellyfin_id)
-        if mode == LYRICS_SKIN:
-            self._publish_lyrics(payload, jellyfin_id)
-        elif mode == LYRICS_ADDON:
-            self._push_lyrics_to_tag(payload, jellyfin_id)
+        self._publish_lyrics(self.api.lyrics(jellyfin_id), jellyfin_id)
 
     def _publish_lyrics(self, payload: JsonDict, jellyfin_id: str) -> None:
         """Publish the lyrics and stop. Rendering them, and following the
@@ -265,32 +245,6 @@ class Player(xbmc.Player):
         paths, which are the ones that would otherwise leave them stranded."""
         state.clear_lyrics()
 
-    def _push_lyrics_to_tag(self, payload: JsonDict, jellyfin_id: str) -> None:
-        text = lyrics_render.to_text(payload)
-        if not text:
-            return
-
-        for attempt in range(LYRICS_PUSH_ATTEMPTS):
-            if attempt:
-                xbmc.sleep(int(LYRICS_PUSH_RETRY_SECONDS * 1000))
-            # Built from the playing item so the path and the rest of the
-            # music tag already match: Kodi accepts the update only for the
-            # item it is playing, and applies the tag wholesale, so a partial
-            # one would blank the now-playing display.
-            push = self.getPlayingItem()
-            # setInfo rather than InfoTagMusic.setLyrics: only setInfo marks
-            # the tag loaded, and an unloaded tag gets re-read from the music
-            # database on its way to the screen — which clears the lyrics,
-            # there being no column to read them back from.
-            push.setInfo("music", {"lyrics": text})
-            push.setProperty("culrc.source", LYRICS_SOURCE)
-            self.updateInfoTag(push)
-            if xbmc.getInfoLabel("MusicPlayer.Lyrics").strip() == text.strip():
-                LOG.info("--> lyrics %s (%d chars)", jellyfin_id, len(text))
-                return
-
-        LOG.debug("lyrics for %s did not land on the playing item", jellyfin_id)
-
     # -- kodi callbacks ------------------------------------------------------
 
     def onPlayBackStarted(self) -> None:
@@ -299,11 +253,9 @@ class Player(xbmc.Player):
         # seconds later when the claim and round trip complete.
         self._syncplay_event("on_playback_started")
         self.finalize()  # a previous kofin play that never got its stop event
-        # Ahead of the claim, and before anything else that blocks: the lyrics
-        # addon searches on onAVStarted, so a round trip taken first has
-        # already lost the race. After finalize only because that is what
-        # releases the previous song's lyrics — it is a no-op on the normal
-        # path, where the last playback stopped cleanly. See start_lyrics.
+        # After finalize only because that is what releases the previous
+        # song's lyrics — it is a no-op on the normal path, where the last
+        # playback stopped cleanly. See start_lyrics.
         self.start_lyrics()
         claimed = self._claim()
         if claimed is None:

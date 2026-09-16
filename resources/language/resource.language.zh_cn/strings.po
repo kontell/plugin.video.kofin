@@ -977,8 +977,8 @@ msgid "advancedsettings.xml enables cleanonupdate — incompatible with library 
 msgstr "advancedsettings.xml 启用了 cleanonupdate — 与媒体库同步不兼容"
 
 msgctxt "#30450"
-msgid "Playback"
-msgstr "播放"
+msgid "Skipping & Next up"
+msgstr "跳过与下一集"
 
 msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."
@@ -1173,8 +1173,8 @@ msgid "Enable SyncPlay"
 msgstr "启用 SyncPlay"
 
 msgctxt "#30552"
-msgid "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads. Leave Kodi's 'Sync playback to display' off: with it on, playback follows the display rate, so unless that rate is a whole multiple of the video frame rate the picture runs fast or slow and the group cannot stay in sync"
-msgstr "在插件根目录添加 SyncPlay 条目，用于与其他 Jellyfin 客户端同步观看。关闭则没有群组菜单，也不运行 SyncPlay 线程。请在 Kodi 播放器设置中关闭“同步播放到显示器”：开启后播放会跟随显示器刷新率，若刷新率不是视频帧率的整数倍，画面就会偏快或偏慢，群组也无法保持同步"
+msgid "Watch in sync with other Jellyfin clients. Leave Kodi's 'Sync playback to display' off for a reliable experience"
+msgstr "与其他 Jellyfin 客户端同步观看。请在 Kodi 中关闭“同步播放到显示器”，体验会更稳定"
 
 msgctxt "#30553"
 msgid "Drift correction"
@@ -2159,3 +2159,19 @@ msgstr "尚未下载任何内容"
 msgctxt "#30836"
 msgid "Folder too large to measure fully — the totals above are partial"
 msgstr "文件夹过大，无法完整统计 — 以上合计并不完整"
+
+msgctxt "#30837"
+msgid "Watch in sync with other Jellyfin clients."
+msgstr "与其他 Jellyfin 客户端同步观看。"
+
+msgctxt "#30838"
+msgid "Reuse language invoker"
+msgstr "复用 language invoker"
+
+msgctxt "#30839"
+msgid "Disable if using multiple plugin:// paths in skin widgets. Requires Kodi restart."
+msgstr "若皮肤小组件使用了多条 plugin:// 路径，请关闭此项。需要重启 Kodi。"
+
+msgctxt "#30840"
+msgid "Restart Kodi to apply this"
+msgstr "重启 Kodi 以应用此项"

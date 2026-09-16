@@ -190,7 +190,7 @@
   "#30418": "El servidor s'està aturant",
   "#30420": "Sincronització desactivada: %s",
   "#30414": "advancedsettings.xml activa cleanonupdate — incompatible amb la sincronització de la biblioteca",
-  "#30450": "Reproducció",
+  "#30450": "Omissió i a continuació",
   "#30451": "Omissió de segments multimèdia i avís de Reprodueix el següent.",
   "#30452": "Segments multimèdia",
   "#30453": "Reacciona als segments multimèdia",
@@ -238,7 +238,7 @@
   "#30508": "Marca com a vist al Jellyfin",
   "#30509": "Marca com a no vist al Jellyfin",
   "#30551": "Activa SyncPlay",
-  "#30552": "Afegeix una entrada SyncPlay a l'arrel del complement per mirar en sincronia amb altres clients del Jellyfin. Si està desactivat, no hi ha menú de grup ni fils de SyncPlay. Deixa «Sincronitza la reproducció amb la pantalla» desactivat a la configuració del reproductor del Kodi: si està activat, la reproducció segueix la freqüència de la pantalla, així que si aquesta no és un múltiple exacte dels fotogrames per segon del vídeo, la imatge va massa ràpida o massa lenta i el grup no es pot mantenir sincronitzat",
+  "#30552": "Mira en sincronia amb altres clients del Jellyfin. Deixa «Sincronitza la reproducció amb la pantalla» desactivat al Kodi per a una experiència fiable",
   "#30553": "Correcció de desviació",
   "#30554": "Ajusta suaument la velocitat de reproducció per mantenir la posició amb el grup (cal «Sincronitza la reproducció amb la pantalla» del Kodi). Desactivat: només segueix les ordres programades.",
   "#30555": "Tolerància de sincronia (ms)",
@@ -480,5 +480,9 @@
   "#30833": "Mostra on es guarden les baixades i quant espai ocupa cada tipus. Es mesura des de la mateixa carpeta, de manera que compta les caràtules, els subtítols i les metadades juntament amb els fitxers multimèdia.",
   "#30834": "Altres fitxers d'aquesta carpeta",
   "#30835": "Encara no s'ha baixat res",
-  "#30836": "La carpeta és massa gran per mesurar-la del tot — els totals de dalt són parcials"
+  "#30836": "La carpeta és massa gran per mesurar-la del tot — els totals de dalt són parcials",
+  "#30837": "Mira en sincronia amb altres clients del Jellyfin.",
+  "#30838": "Reutilitza l'invoker de llenguatge",
+  "#30839": "Desactiva-ho si uses diversos camins plugin:// als ginys de la pell. Cal reiniciar el Kodi.",
+  "#30840": "Reinicia el Kodi per aplicar-ho"
 }

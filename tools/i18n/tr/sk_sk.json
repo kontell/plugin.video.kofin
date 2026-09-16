@@ -190,7 +190,7 @@
   "#30418": "Server sa vypína",
   "#30420": "Synchronizácia knižnice vypnutá: %s",
   "#30414": "advancedsettings.xml zapína cleanonupdate — nezlučiteľné so synchronizáciou knižnice",
-  "#30450": "Prehrávanie",
+  "#30450": "Preskakovanie a ďalšie",
   "#30451": "Preskakovanie segmentov médií a výzva Prehrať ďalšie.",
   "#30452": "Segmenty médií",
   "#30453": "Reagovať na segmenty médií",
@@ -238,7 +238,7 @@
   "#30508": "Označiť ako zhliadnuté v Jellyfine",
   "#30509": "Označiť ako nezhliadnuté v Jellyfine",
   "#30551": "Povoliť SyncPlay",
-  "#30552": "Pridá položku SyncPlay do koreňa doplnku na sledovanie synchronizovane s ostatnými klientmi Jellyfin. Vypnuté znamená žiadnu ponuku skupín a žiadne vlákna SyncPlay. Ponechaj v nastaveniach prehrávača Kodi vypnutú možnosť Synchronizovať prehrávanie s obrazovkou: ak je zapnutá, prehrávanie sa riadi obnovovacou frekvenciou obrazovky, takže ak nie je celočíselným násobkom snímkovej frekvencie videa, obraz beží rýchlejšie alebo pomalšie a skupina nedokáže zostať synchronizovaná",
+  "#30552": "Sledujte synchronizovane s ostatnými klientmi Jellyfin. Pre spoľahlivý zážitok nechajte v Kodi vypnutú možnosť Synchronizovať prehrávanie s obrazovkou",
   "#30553": "Korekcia odchýlky",
   "#30554": "Jemne upravuje rýchlosť prehrávania, aby držala pozíciu so skupinou (vyžaduje možnosť Kodi „Synchronizovať prehrávanie s obrazovkou“). Vypnuté: riadi sa len naplánovanými príkazmi.",
   "#30555": "Tolerancia synchronizácie (ms)",
@@ -480,5 +480,9 @@
   "#30833": "Zobrazí, kde sú stiahnuté súbory uložené a koľko miesta zaberá každý druh. Meria sa priamo priečinok, takže popri médiách sa počítajú aj obrázky, titulky a metadáta.",
   "#30834": "Ostatné súbory v tomto priečinku",
   "#30835": "Zatiaľ nebolo nič stiahnuté",
-  "#30836": "Priečinok je príliš veľký na úplné zmeranie — súčty vyššie sú neúplné"
+  "#30836": "Priečinok je príliš veľký na úplné zmeranie — súčty vyššie sú neúplné",
+  "#30837": "Sledujte synchronizovane s ostatnými klientmi Jellyfin.",
+  "#30838": "Znova použiť language invoker",
+  "#30839": "Vypnite, ak vo widgetoch vzhľadu používate viacero ciest plugin://. Vyžaduje reštart Kodi.",
+  "#30840": "Reštartujte Kodi, aby sa to prejavilo"
 }

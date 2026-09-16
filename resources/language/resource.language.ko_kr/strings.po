@@ -977,8 +977,8 @@ msgid "advancedsettings.xml enables cleanonupdate — incompatible with library 
 msgstr "advancedsettings.xml에 cleanonupdate가 켜져 있습니다 — 라이브러리 동기화와 호환되지 않습니다"
 
 msgctxt "#30450"
-msgid "Playback"
-msgstr "재생"
+msgid "Skipping & Next up"
+msgstr "건너뛰기 및 다음"
 
 msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."
@@ -1173,8 +1173,8 @@ msgid "Enable SyncPlay"
 msgstr "SyncPlay 사용"
 
 msgctxt "#30552"
-msgid "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads. Leave Kodi's 'Sync playback to display' off: with it on, playback follows the display rate, so unless that rate is a whole multiple of the video frame rate the picture runs fast or slow and the group cannot stay in sync"
-msgstr "다른 Jellyfin 클라이언트와 함께 보기 위한 SyncPlay 항목을 애드온 루트에 추가합니다. 끄면 그룹 메뉴도, SyncPlay 스레드도 없습니다. Kodi 재생 설정에서 ‘재생을 디스플레이에 동기화’는 꺼 두세요. 켜면 재생이 디스플레이 주사율을 따르므로, 주사율이 영상 프레임 레이트의 정수배가 아니면 화면이 빠르거나 느리게 진행되어 그룹이 동기화를 유지할 수 없습니다"
+msgid "Watch in sync with other Jellyfin clients. Leave Kodi's 'Sync playback to display' off for a reliable experience"
+msgstr "다른 Jellyfin 클라이언트와 함께 시청합니다. 안정적인 동작을 위해 Kodi의 ‘재생을 디스플레이에 동기화’는 꺼 두세요"
 
 msgctxt "#30553"
 msgid "Drift correction"
@@ -2159,3 +2159,19 @@ msgstr "아직 다운로드한 항목이 없습니다"
 msgctxt "#30836"
 msgid "Folder too large to measure fully — the totals above are partial"
 msgstr "폴더가 너무 커서 전부 측정할 수 없습니다 — 위 합계는 일부입니다"
+
+msgctxt "#30837"
+msgid "Watch in sync with other Jellyfin clients."
+msgstr "다른 Jellyfin 클라이언트와 함께 시청합니다."
+
+msgctxt "#30838"
+msgid "Reuse language invoker"
+msgstr "Language invoker 재사용"
+
+msgctxt "#30839"
+msgid "Disable if using multiple plugin:// paths in skin widgets. Requires Kodi restart."
+msgstr "스킨 위젯에서 plugin:// 경로를 여러 개 쓰는 경우 끄세요. Kodi를 다시 시작해야 합니다."
+
+msgctxt "#30840"
+msgid "Restart Kodi to apply this"
+msgstr "적용하려면 Kodi를 다시 시작하세요"

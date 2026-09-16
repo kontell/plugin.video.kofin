@@ -266,6 +266,10 @@ What remains is kofin's own:
 - `kofin.menu.who` and `kofin.menu.syncplay` are the skin-facing mirrors of those two root
   entries (same gates as `plugin.browse.root`). Skins cannot read addon settings; the service
   publishes on `mark_ready` and whenever the two settings change.
+- **The Advanced-tab `reuseLanguageInvoker` toggle rewrites addon.xml's
+  `<reuselanguageinvoker>`.** The zip ships true; Kodi reads ExtraInfo at load, so a change
+  needs a Kodi restart. An update restores the zip's true and the service reconciles a false
+  setting back onto disk. Disable it when several skin widgets load `plugin://` paths at once.
 - Docs in `docs/` use one line per paragraph — `tools/unwrap_md.py` fixes wrapped files.
 
 ## Translations
@@ -285,8 +289,8 @@ the lot together. `tr/_source.json` records the English each translation was mad
 `pvr.kofin` had to repair by hand. `tests/unit/test_translations.py` runs the validators, so CI
 catches a locale left out of step.
 
-Three help strings quote another string's wording verbatim (`#30794` quotes `#30618`; `#30607`
-quotes `#30609`/`#30610`; `#30080` quotes `#30817`) and `pocheck.py` enforces all of them —
+Three help strings quote another string's wording verbatim (`#30794` quotes `#30618`; `#30080`
+quotes `#30817`; `#30826` quotes `#30052`) and `pocheck.py` enforces all of them —
 translate such a pair together or the help names a control that is not on screen under that name.
 The quoted label goes in ASCII double quotes even where the locale uses its own quotation marks
 elsewhere in the same string, because that is what the check looks for. `#30624`/`#30626`/`#30631`/`#30633`/`#30635`

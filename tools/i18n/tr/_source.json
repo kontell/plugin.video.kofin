@@ -239,7 +239,7 @@
   "#30418": "Server is shutting down",
   "#30420": "Library sync is off: %s",
   "#30414": "advancedsettings.xml enables cleanonupdate — incompatible with library sync",
-  "#30450": "Playback",
+  "#30450": "Skipping & Next up",
   "#30451": "Media segment skipping and the Play Next prompt.",
   "#30452": "Media segments",
   "#30453": "React to media segments",
@@ -288,7 +288,7 @@
   "#30509": "Mark as unwatched on Jellyfin",
   "#30550": "SyncPlay",
   "#30551": "Enable SyncPlay",
-  "#30552": "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads. Leave Kodi's 'Sync playback to display' off: with it on, playback follows the display rate, so unless that rate is a whole multiple of the video frame rate the picture runs fast or slow and the group cannot stay in sync",
+  "#30552": "Watch in sync with other Jellyfin clients. Leave Kodi's 'Sync playback to display' off for a reliable experience",
   "#30553": "Drift correction",
   "#30554": "Gently adjusts playback speed to hold position with the group (needs Kodi's 'Sync playback to display'). Off: follow scheduled commands only.",
   "#30555": "Sync tolerance (ms)",
@@ -534,5 +534,9 @@
   "#30833": "Show where the downloads are kept and how much space each kind is using. Measured from the folder itself, so it counts artwork, subtitles and metadata alongside the media.",
   "#30834": "Other files in this folder",
   "#30835": "Nothing has been downloaded yet",
-  "#30836": "Folder too large to measure fully — the totals above are partial"
+  "#30836": "Folder too large to measure fully — the totals above are partial",
+  "#30837": "Watch in sync with other Jellyfin clients.",
+  "#30838": "Reuse language invoker",
+  "#30839": "Disable if using multiple plugin:// paths in skin widgets. Requires Kodi restart.",
+  "#30840": "Restart Kodi to apply this"
 }
