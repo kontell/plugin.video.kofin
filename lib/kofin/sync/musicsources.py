@@ -112,6 +112,20 @@ def prune_orphan_paths(kofin_cursor, music_cursor) -> int:
         return int(music.prune_orphan_paths())
 
 
+def heal_missing_artists(kofin_cursor, music_cursor) -> int:
+    """Restore artist rows kofin still maps whose Kodi row is gone; how many.
+
+    Same ATTACH window as the path prune. A MusicArtist written before it
+    has albums is invisible to Kodi's CleanupArtists keep-set, and the
+    mapping outlives the delete; the next song rewrite then credits a
+    ghost id and every listing that inner-joins ``songartistview`` goes
+    empty. ``check_version`` calls this once per service start so those
+    albums list again without a Repair.
+    """
+    with mapped(kofin_cursor, music_cursor) as music:
+        return int(music.heal_missing_artists())
+
+
 def prune_orphan_singles(kofin_cursor, music_cursor) -> int:
     """Reclaim empty untitled singles whose song is already gone; how many.
 

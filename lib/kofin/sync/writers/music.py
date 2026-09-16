@@ -372,12 +372,12 @@ class Music(KodiDb):
             temp_obj = dict(obj)
             temp_obj["Id"] = artist["Id"]
             temp_obj["AlbumId"] = obj["Id"]
-
-            try:
-                temp_obj["ArtistId"] = self.jellyfin_db.get_item_by_id(
-                    *values(temp_obj, QUEM.get_item_obj)
-                )[0]
-            except TypeError:
+            temp_obj["ArtistId"] = self._kodi_artist_id(
+                artist["Id"],
+                skip=obj["Id"],
+                library=self._credit_library(obj),
+            )
+            if temp_obj["ArtistId"] is None:
                 continue
 
             self.add_discography(*values(temp_obj, QU.update_discography_obj))
@@ -394,21 +394,13 @@ class Music(KodiDb):
             temp_obj = dict(obj)
             temp_obj["Name"] = artist["Name"]
             temp_obj["Id"] = artist["Id"]
-
-            try:
-                temp_obj["ArtistId"] = self.jellyfin_db.get_item_by_id(
-                    *values(temp_obj, QUEM.get_item_obj)
-                )[0]
-            except TypeError:
-
-                try:
-                    self.artist(self.server.item(temp_obj["Id"]), skip=obj["Id"])
-                    temp_obj["ArtistId"] = self.jellyfin_db.get_item_by_id(
-                        *values(temp_obj, QUEM.get_item_obj)
-                    )[0]
-                except Exception as error:
-                    LOG.exception(error)
-                    continue
+            temp_obj["ArtistId"] = self._kodi_artist_id(
+                artist["Id"],
+                skip=obj["Id"],
+                library=self._credit_library(obj),
+            )
+            if temp_obj["ArtistId"] is None:
+                continue
 
             self.update_artist_name(*values(temp_obj, QU.update_artist_name_obj))
             self.link(*values(temp_obj, QU.update_link_obj))
@@ -619,6 +611,47 @@ class Music(KodiDb):
         obj["Path"] = "%s/Audio/%s/" % (server_address, obj["Id"])
         obj["Filename"] = "stream.%s?static=true" % obj["Container"]
 
+    def _credit_library(self, obj):
+        if not obj.get("LibraryId"):
+            return None
+
+        return {"Id": obj["LibraryId"], "Name": obj.get("LibraryName")}
+
+    def _kodi_artist_id(self, jellyfin_id, skip=None, library=None):
+        """Kodi id for a Jellyfin artist credit, recreating the row if needed.
+
+        kofin.db can name a kodi_id whose artist row is gone: a MusicArtist
+        written before it had albums is invisible to Kodi's CleanupArtists
+        keep-set (song_artist ∪ album_artist), and any later DELETE FROM
+        artist fires tgrDeleteArtist. The mapping stays, Etag match skips
+        artist(), and the next song rewrite would credit the ghost id.
+        Recreate through artist() — it already repairs a missing row when
+        it runs — and refuse to return a kodi_id that still has no row.
+        """
+        try:
+            kodi_id = self.jellyfin_db.get_item_by_id(jellyfin_id)[0]
+        except TypeError:
+            kodi_id = None
+        else:
+            if self.validate_artist(kodi_id) is not None:
+                return kodi_id
+            LOG.info("ArtistId %s missing from kodi. repairing the entry.", kodi_id)
+
+        try:
+            kwargs = {"skip": skip}
+            if library is not None:
+                kwargs["library"] = library
+            self.artist(self.server.item(jellyfin_id), **kwargs)
+            kodi_id = self.jellyfin_db.get_item_by_id(jellyfin_id)[0]
+        except Exception as error:
+            LOG.exception(error)
+            return None
+
+        if self.validate_artist(kodi_id) is None:
+            return None
+
+        return kodi_id
+
     def song_artist_discography(self, obj):
         """Update the artist's discography."""
         artists = []
@@ -640,25 +673,13 @@ class Music(KodiDb):
             temp_obj["Id"] = artist["Id"]
 
             artists.append(temp_obj["Name"])
-
-            try:
-                temp_obj["ArtistId"] = self.jellyfin_db.get_item_by_id(
-                    *values(temp_obj, QUEM.get_item_obj)
-                )[0]
-            except TypeError:
-
-                try:
-                    self.artist(
-                        self.server.item(temp_obj["Id"]),
-                        library={"Id": obj["LibraryId"], "Name": obj["LibraryName"]},
-                        skip=obj["Id"],
-                    )
-                    temp_obj["ArtistId"] = self.jellyfin_db.get_item_by_id(
-                        *values(temp_obj, QUEM.get_item_obj)
-                    )[0]
-                except Exception as error:
-                    LOG.exception(error)
-                    continue
+            temp_obj["ArtistId"] = self._kodi_artist_id(
+                artist["Id"],
+                skip=obj["Id"],
+                library=self._credit_library(obj),
+            )
+            if temp_obj["ArtistId"] is None:
+                continue
 
             self.link(*values(temp_obj, QU.update_link_obj))
             self.item_ids.append(temp_obj["Id"])
@@ -701,6 +722,14 @@ class Music(KodiDb):
         the last resort is Kodi's own [Missing Tag] blank artist, exactly
         what its scanner files an untagged song under. The blank credit is
         dropped again the moment a rewrite lands a real one.
+
+        Fourth deviation: a mapped kodi_id whose artist row is gone is not
+        a credit. The fork trusted the mapping, wrote song_artist at the
+        ghost id, and prune_song_credits then dropped every live credit
+        that still joined. Kodi's listings inner-join songartistview, so
+        the album opened empty; a metadata replace that only moved the
+        track's Etag made it stick. Recreate the row (artist() already
+        repairs when it runs) and do not add a ghost to ``credited``.
         """
         # Still the {Name, Id} dicts here: song_artist_discography flattens
         # AlbumArtists to names, but it runs after this.
@@ -712,25 +741,13 @@ class Music(KodiDb):
             temp_obj["Name"] = artist["Name"]
             temp_obj["Id"] = artist["Id"]
             temp_obj["Index"] = index
-
-            try:
-                temp_obj["ArtistId"] = self.jellyfin_db.get_item_by_id(
-                    *values(temp_obj, QUEM.get_item_obj)
-                )[0]
-            except TypeError:
-
-                try:
-                    self.artist(
-                        self.server.item(temp_obj["Id"]),
-                        library={"Id": obj["LibraryId"], "Name": obj["LibraryName"]},
-                        skip=obj["Id"],
-                    )
-                    temp_obj["ArtistId"] = self.jellyfin_db.get_item_by_id(
-                        *values(temp_obj, QUEM.get_item_obj)
-                    )[0]
-                except Exception as error:
-                    LOG.exception(error)
-                    continue
+            temp_obj["ArtistId"] = self._kodi_artist_id(
+                artist["Id"],
+                skip=obj["Id"],
+                library=self._credit_library(obj),
+            )
+            if temp_obj["ArtistId"] is None:
+                continue
 
             self.link_song_artist(*values(temp_obj, QU.update_song_artist_obj))
             self.item_ids.append(temp_obj["Id"])
