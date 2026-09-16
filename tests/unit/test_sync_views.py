@@ -919,6 +919,28 @@ def test_downloads_nodes_appear_only_while_the_feature_is_on(views_env):
     assert "<label>3071" not in movies_xml
 
 
+def test_favorite_episodes_node_is_a_native_filter(views_env):
+    """Favorite movies/shows filter on a tag. Kodi compiles a tag rule on
+    an episodes node against the show, so Favorite episodes uses a writers
+    rule instead — still a type=filter node, not a plugin folder. The
+    plugin path it used to carry (folder=FavEpisodes) was never a browse
+    handler, so the node failed to open empty or not. The XML field is
+    ``writers`` (SmartPlayList.cpp TranslateField), not ``writer``."""
+    seed([("lib1", "Movies", "movies")], ["lib1"])
+
+    Views(FakeApi()).get_nodes()
+
+    node = kofin_root(views_env) / "kofin_Favoriteepisodes.xml"
+    xml = node.read_text()
+    assert 'type="filter"' in xml
+    assert "<content>episodes</content>" in xml
+    assert 'field="writers" operator="is"' in xml
+    assert "<value>Favorite episodes</value>" in xml
+    assert "plugin://" not in xml
+    assert 'field="tag"' not in xml
+    assert xml.rstrip().endswith("</node>")
+
+
 def test_downloaded_episodes_node_filters_on_path_not_tag(views_env):
     """Kodi compiles a tag rule on an episodes node against the *show*
     (SmartPlayList.cpp), so it answers with every episode of every tagged

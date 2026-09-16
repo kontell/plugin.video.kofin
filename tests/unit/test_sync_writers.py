@@ -1884,6 +1884,77 @@ def test_series_season_episode_write(api):
     assert len(bookmarks) == 2
 
 
+def _favorite_episode_tags():
+    return video_query(
+        "SELECT COUNT(*) FROM tag_link JOIN tag ON tag.tag_id = tag_link.tag_id"
+        " WHERE tag.name = 'Favorite episodes' AND tag_link.media_type = 'episode'"
+    )
+
+
+def _favorite_episode_writers():
+    return video_query(
+        "SELECT a.name FROM actor a JOIN writer_link l ON l.actor_id = a.actor_id"
+        " WHERE l.media_type = 'episode' AND a.name = 'Favorite episodes'"
+    )
+
+
+def test_favorite_episode_write_stamps_tag_and_writer(api):
+    """The Favorite episodes node is a native filter on writers (Kodi's
+    episode tag rule is show-scoped). The tag is still written so the
+    widget fingerprint moves."""
+    register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
+    payload = dto(EPISODE)
+    payload["UserData"]["IsFavorite"] = True
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        shows = TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS)
+        shows.tvshow(dto(SERIES))
+        shows.episode(payload)
+
+    assert _favorite_episode_tags() == [(1,)]
+    assert _favorite_episode_writers() == [("Favorite episodes",)]
+
+
+def test_favorite_episode_userdata_toggles_the_stamp(api):
+    write_series_tree(api)
+    assert _favorite_episode_tags() == [(0,)]
+    assert _favorite_episode_writers() == []
+
+    payload = dto(EPISODE)
+    payload["UserData"]["IsFavorite"] = True
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).userdata(payload)
+
+    assert _favorite_episode_tags() == [(1,)]
+    assert _favorite_episode_writers() == [("Favorite episodes",)]
+
+    payload["UserData"]["IsFavorite"] = False
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).userdata(payload)
+
+    assert _favorite_episode_tags() == [(0,)]
+    assert _favorite_episode_writers() == []
+
+
+def test_favorite_episode_removal_leaves_no_tag_orphans(api):
+    """delete_episode does not clean tag_link; the stamp has to."""
+    register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})
+    payload = dto(EPISODE)
+    payload["UserData"]["IsFavorite"] = True
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        shows = TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS)
+        shows.tvshow(dto(SERIES))
+        shows.episode(payload)
+
+    assert _favorite_episode_tags() == [(1,)]
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("video") as vdb:
+        TVShows(api, kdb, vdb, library=TV_LIBRARY, hooks=HOOKS).remove("episode1")
+
+    assert video_query("SELECT COUNT(*) FROM episode") == [(0,)]
+    for label, sql in ORPHAN_RULES:
+        assert video_query(sql) == [(0,)], "orphans in %s" % label
+
+
 def test_virtual_season_is_referenced_like_any_other(api):
     """Jellyfin marks a season virtual when it has no folder of its own --
     what a flat series layout looks like, episodes beside each other in the
@@ -2426,6 +2497,10 @@ ORPHAN_RULES = [
     (
         "tag_link/tvshow",
         "SELECT COUNT(*) FROM tag_link WHERE media_type='tvshow' AND media_id NOT IN (SELECT idShow FROM tvshow)",
+    ),
+    (
+        "tag_link/episode",
+        "SELECT COUNT(*) FROM tag_link WHERE media_type='episode' AND media_id NOT IN (SELECT idEpisode FROM episode)",
     ),
     (
         "rating/tvshow",

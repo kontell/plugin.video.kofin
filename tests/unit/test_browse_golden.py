@@ -307,6 +307,13 @@ ROUTES = {
     ),
     "tvshows_nextup": _browse(view=V_SHOWS, type="tvshows", folder="nextup"),
     "tvshows_extras": _browse(view=V_SHOWS, type="tvshows", folder="extras"),
+    "tvshows_favorites": _browse(view=V_SHOWS, type="tvshows", folder="favorites"),
+    "tvshows_favorite_shows": _browse(
+        view=V_SHOWS, type="tvshows", folder="favoriteshows"
+    ),
+    "tvshows_favorite_episodes": _browse(
+        view=V_SHOWS, type="tvshows", folder="favoriteepisodes"
+    ),
     "series_seasons": _browse(view=V_SHOWS, type="series", folder="series1"),
     "season_episodes": _browse(
         view=V_SHOWS, type="season", folder="season1", series="series1"
@@ -368,6 +375,9 @@ EXPECTED = {
     "series_seasons": "b3d70caf2a36141a",
     "tvshows_all": "9f6409ac3341064b",
     "tvshows_extras": "d369b129ada88895",
+    "tvshows_favorite_episodes": "b7b965409c40f9d2",
+    "tvshows_favorite_shows": "9f6409ac3341064b",
+    "tvshows_favorites": "0dcfcf4012887c01",
     "tvshows_inprogress_episodes": "b7b965409c40f9d2",
     "tvshows_menu": "126a0e312ffb388b",
     "tvshows_nextup": "b7b965409c40f9d2",

@@ -36,6 +36,10 @@ from kofin.sync.kodidb import queries as QU
 
 LOG = Logger(__name__)
 
+# The Favorite episodes library node filters on this string as a writer
+# credit (Kodi's episode tag rule is show-scoped; see _stamp_favorite_episode).
+FAVORITE_EPISODES = "Favorite episodes"
+
 ##################################################################################################
 
 
@@ -600,6 +604,7 @@ class TVShows(KodiDb):
         self.update_path(*values(obj, QU.update_path_episode_obj))
         self.update_file(*values(obj, QU.update_file_obj))
         self.add_people(*values(obj, QU.add_people_episode_obj))
+        self._stamp_favorite_episode(obj["EpisodeId"], bool(obj["Favorite"]))
         self.add_streams(*values(obj, QU.add_streams_obj))
         self.add_playstate(*values(obj, QU.add_bookmark_obj))
         self.artwork.update(
@@ -774,6 +779,7 @@ class TVShows(KodiDb):
                 )
 
             self.add_playstate(*values(obj, QU.add_bookmark_obj))
+            self._stamp_favorite_episode(obj["KodiId"], bool(obj["Favorite"]))
 
             if not obj["Resume"]:
 
@@ -974,9 +980,42 @@ class TVShows(KodiDb):
         self.delete_season(kodi_id)
         LOG.debug("DELETE season [%s] %s", kodi_id, item_id)
 
+    def _stamp_favorite_episode(self, kodi_id, favorite):
+        """Make a favourite episode visible to the library node.
+
+        Deviation from the fork: movies and shows are native tag filters;
+        Kodi compiles a tag rule on an episodes node against
+        ``episode_view.idShow`` (SmartPlayList.cpp), so an episode-level
+        "Favorite episodes" tag matches nothing. The fork's node was a
+        plugin folder whose browse path kofin never implemented, so the
+        node failed to open empty or not. Writer is an episode-level link
+        (the same reason Downloaded episodes filter on path). The tag is
+        still written so the widget fingerprint moves on a favourite flip
+        (widgetstate already scans ``media_type='episode'``).
+        """
+        tagged = {"KodiId": kodi_id}
+        if favorite:
+            self.get_tag(*values(tagged, QU.get_tag_fav_episode_obj))
+            person_id = self.get_person(FAVORITE_EPISODES)
+            self.cursor.execute(
+                QU.update_link.replace("{LinkType}", "writer_link"),
+                (person_id, kodi_id, "episode"),
+            )
+            return
+        self.remove_tag(*values(tagged, QU.delete_tag_fav_episode_obj))
+        self.cursor.execute(
+            QU.delete_named_link.replace("{LinkType}", "writer_link"),
+            (kodi_id, "episode", FAVORITE_EPISODES),
+        )
+
     def remove_episode(self, kodi_id, file_id, item_id):
 
         self.artwork.delete(kodi_id, "episode")
+        # Kodi's delete_episode trigger does not touch tag_link (episodes
+        # are not a tagged media type in MyVideos). The favourite stamp
+        # above writes one, so drop it before the row goes or the L2
+        # orphan rules (and a later Clean library) see it.
+        self.cursor.execute(QU.delete_tags, (kodi_id, "episode"))
         # Deviation from the fork: the resume shadow goes with the episode.
         # An episode with a resume point gets a second files row -- its own
         # play URL under the add-on's root path, the bookmark repeated on it

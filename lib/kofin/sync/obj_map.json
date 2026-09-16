@@ -111,6 +111,7 @@
 		"MultiEpisode": "IndexNumberEnd",
 		"Played": "UserData/Played",
 		"PlayCount": "UserData/PlayCount",
+		"Favorite": "UserData/IsFavorite",
 		"DateAdded": "DateCreated",
 		"DatePlayed": "UserData/LastPlayedDate",
 		"Resume": "UserData/PlaybackPositionTicks",

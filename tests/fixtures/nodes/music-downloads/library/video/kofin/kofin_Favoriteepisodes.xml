@@ -1,1 +1,1 @@
-<node order="3" type="folder"><icon>DefaultFavourites.png</icon><label>string-30360</label><match>all</match><content>episodes</content><path>plugin://plugin.video.kofin/?mode=browse&amp;type=episodes&amp;folder=FavEpisodes</path></node>
+<node order="3" type="filter"><icon>DefaultFavourites.png</icon><label>string-30360</label><match>all</match><content>episodes</content><rule field="writers" operator="is"><value>Favorite episodes</value></rule><order direction="ascending">sorttitle</order></node>

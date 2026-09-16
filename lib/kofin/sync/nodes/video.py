@@ -44,7 +44,11 @@ NODE_ROOT = fs.PREFIX
 # 10: Continue watching and Next up sit in the Kofin folder itself.
 # 11: those two left the tree — they wrap plugin paths the add-on root
 #     already offers, and per-library Next up was the same wrapper.
-NODE_LAYOUT = 11
+# 12: Favorite episodes is a native filter (writer rule), not a plugin
+#     folder whose browse path was never implemented.
+# 13: that filter's XML field is Kodi's "writers", not "writer"
+#     (SmartPlayList.cpp TranslateField); 12's node failed to open.
+NODE_LAYOUT = 13
 
 # Kind ordering for the generated library nodes, following Kodi's own
 # top-level video ordering (movies 10, tvshows 20, musicvideos 30). Libraries
@@ -385,12 +389,11 @@ def build_node(view, key, label, order):
     return xml
 
 
-def build_single(single, order, item_type):
+def build_single(single, order):
     """A single node: a favourites or a Downloads listing."""
     episodes = single["Media"] == "episodes"
-    favourite_episodes = item_type == "favorites" and episodes
     icon = single.get("Icon") or node_icon(single["Media"], "favorites")
-    xml = _node("folder" if favourite_episodes else "filter", order, icon)
+    xml = _node("filter", order, icon)
     etree.SubElement(xml, "label").text = single["Name"]
     etree.SubElement(xml, "match").text = "all"
     content = etree.SubElement(xml, "content")
@@ -405,11 +408,19 @@ def build_single(single, order, item_type):
             xml, "rule", {"field": "path", "operator": "startswith"}
         )
         etree.SubElement(rule, "value").text = single["Path"]
-
-    if favourite_episodes:
-        etree.SubElement(xml, "path").text = browse_url(single, "FavEpisodes")
     else:
-        _parts(xml, NODE_PARTS["all"])
+        # Favorite episodes: same Kodi limitation as Downloaded episodes —
+        # a tag rule on content=episodes compiles against
+        # ``episode_view.idShow`` (SmartPlayList.cpp), so tagging the
+        # episode itself would match nothing. Writer is an episode-level
+        # link; the writer stamps the same "Favorite episodes" string the
+        # tag uses (writers/tvshows.py). The XML field is ``writers``
+        # (TranslateField); ``writer`` does not translate and the node
+        # fails to open.
+        rule = etree.SubElement(xml, "rule", {"field": "writers", "operator": "is"})
+        etree.SubElement(rule, "value").text = single["Tag"]
+
+    _parts(xml, NODE_PARTS["all"])
     return xml
 
 
@@ -453,10 +464,7 @@ def write_library(root, view, mixed, order):
 
 
 def write_single(root, single, order):
-    item_type = single.get("Type", "favorites")
-    write_xml(
-        os.path.join(root, single_file(single)), build_single(single, order, item_type)
-    )
+    write_xml(os.path.join(root, single_file(single)), build_single(single, order))
 
 
 def write_tree(entries, singles):
