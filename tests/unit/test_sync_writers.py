@@ -1899,7 +1899,7 @@ def _favorite_episode_writers():
 
 
 def test_favorite_episode_write_stamps_tag_and_writer(api):
-    """The Favorite episodes node is a native filter on writer (Kodi's
+    """The Favorite episodes node is a native filter on writers (Kodi's
     episode tag rule is show-scoped). The tag is still written so the
     widget fingerprint moves."""
     register_views({"Id": "lib-shows", "Name": "Shows", "Media": "tvshows"})

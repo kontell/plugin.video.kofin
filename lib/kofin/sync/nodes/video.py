@@ -46,7 +46,9 @@ NODE_ROOT = fs.PREFIX
 #     already offers, and per-library Next up was the same wrapper.
 # 12: Favorite episodes is a native filter (writer rule), not a plugin
 #     folder whose browse path was never implemented.
-NODE_LAYOUT = 12
+# 13: that filter's XML field is Kodi's "writers", not "writer"
+#     (SmartPlayList.cpp TranslateField); 12's node failed to open.
+NODE_LAYOUT = 13
 
 # Kind ordering for the generated library nodes, following Kodi's own
 # top-level video ordering (movies 10, tvshows 20, musicvideos 30). Libraries
@@ -412,8 +414,10 @@ def build_single(single, order):
         # ``episode_view.idShow`` (SmartPlayList.cpp), so tagging the
         # episode itself would match nothing. Writer is an episode-level
         # link; the writer stamps the same "Favorite episodes" string the
-        # tag uses (writers/tvshows.py).
-        rule = etree.SubElement(xml, "rule", {"field": "writer", "operator": "is"})
+        # tag uses (writers/tvshows.py). The XML field is ``writers``
+        # (TranslateField); ``writer`` does not translate and the node
+        # fails to open.
+        rule = etree.SubElement(xml, "rule", {"field": "writers", "operator": "is"})
         etree.SubElement(rule, "value").text = single["Tag"]
 
     _parts(xml, NODE_PARTS["all"])
