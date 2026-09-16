@@ -3751,6 +3751,46 @@ def test_music_update_heals_a_song_whose_path_row_is_gone(api, frozen_music_cloc
     ) == [(rows[0][0],)]
 
 
+def test_music_song_rewrite_recreates_a_missing_artist_row(api, frozen_music_clock):
+    """kofin.db can name a kodi artist id whose row is gone (Kodi's
+    CleanupArtists deletes any artist not in song_artist ∪ album_artist;
+    a MusicArtist written before its album exists is exactly that). The
+    next song rewrite used to stamp song_artist at the ghost id, and
+    Kodi's listings inner-join songartistview, so the album opened empty.
+    The link now recreates the row, same as artist() already did when it
+    ran."""
+    write_music_tree(api)
+    artist_id = music_query("SELECT idArtist FROM artist WHERE strArtist='The Band'")[
+        0
+    ][0]
+    song_id = music_query("SELECT idSong FROM song")[0][0]
+    assert kofin_query(
+        "SELECT kodi_id FROM jellyfin WHERE jellyfin_id='artist1' AND media_type='artist'"
+    ) == [(artist_id,)]
+
+    with sync_db.Database("music") as mdb:
+        mdb.cursor.execute("DELETE FROM artist WHERE idArtist = ?", (artist_id,))
+
+    assert music_query(
+        "SELECT COUNT(*) FROM artist WHERE idArtist = ?", (artist_id,)
+    ) == [(0,)]
+    # tgrDeleteArtist stripped the credits
+    assert music_query("SELECT COUNT(*) FROM songartistview") == [(0,)]
+
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS).song(
+            dto(dict(SONG, Etag="etag-song1-v2"))
+        )
+
+    assert music_query(
+        "SELECT strArtist FROM artist WHERE idArtist = ?", (artist_id,)
+    ) == [("The Band",)]
+    assert music_query(
+        "SELECT idSong FROM songartistview WHERE idSong = ?", (song_id,)
+    ) == [(song_id,)]
+
+
 def test_music_rewrite_with_a_bumped_etag_is_byte_identical(api, frozen_music_clock):
     """The plain idempotency test above never reaches the writers -- an
     unchanged Etag short-circuits in check_unchanged. This is the pass that

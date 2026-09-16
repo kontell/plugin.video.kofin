@@ -178,6 +178,15 @@ What remains is kofin's own:
   2026-08-28). The prune spares rows kofin.db still maps, the repoint captures `restore_path`
   and the restore get-or-creates from it, and `song_update` re-resolves a missing row so a
   Repair heals old damage. Never put a song back by a path id alone.
+- **A mapped kodi artist id whose row is gone is not a credit.** A MusicArtist written before it
+  has albums is absent from `song_artist` ∪ `album_artist`, so Kodi's `CleanupArtists` deletes
+  the row; kofin.db keeps the mapping. The next song rewrite then stamped `song_artist` at the
+  ghost id and `prune_song_credits` dropped every live credit that still joined — Kodi's
+  listings inner-join `songartistview`, so the album opened empty (Má Vlast on the Bravia,
+  2026-09-16). `song_artist_link` / `artist_link` recreate the row (the same repair `artist()`
+  already does when it runs) and refuse to add a ghost to `credited`. Startup
+  `heal_missing_artists` puts the row back from the credit's denormalised name so a service
+  bounce lists the album again without a Repair.
 - **A song's artist credits are replaced on every rewrite, and an artist that arrives after its
   content re-credits it.** Jellyfin fills `ArtistItems` by looking the tag names up against the
   entities that exist at request time (a lookup, never a create) and materialises new entities in

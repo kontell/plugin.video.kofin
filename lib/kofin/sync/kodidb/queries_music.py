@@ -101,6 +101,31 @@ add_artist = """
 INSERT INTO     artist(idArtist, strArtist, strMusicBrainzArtistID)
 VALUES          (?, ?, ?)
 """
+# Needs kofin.db ATTACHed as ``kofinmap`` (musicsources.mapped). A MusicArtist
+# written before it has albums is absent from song_artist and album_artist, so
+# Kodi's CleanupArtists deletes the row; kofin.db keeps the mapping. The next
+# song rewrite then credits that ghost id and Kodi's listings inner-join
+# songartistview, so the album opens empty. The denormalized name on the
+# credit rows is enough to put the artist back without a server round-trip.
+missing_mapped_artists = """
+SELECT      m.kodi_id,
+            COALESCE(
+                (SELECT sa.strArtist FROM song_artist sa
+                 WHERE sa.idArtist = m.kodi_id
+                 AND ifnull(sa.strArtist, '') != ''
+                 LIMIT 1),
+                (SELECT aa.strArtist FROM album_artist aa
+                 WHERE aa.idArtist = m.kodi_id
+                 AND ifnull(aa.strArtist, '') != ''
+                 LIMIT 1)
+            )
+FROM        kofinmap.jellyfin m
+WHERE       m.media_type = 'artist'
+AND         m.kodi_id IS NOT NULL
+AND         NOT EXISTS (
+                SELECT 1 FROM artist a WHERE a.idArtist = m.kodi_id
+            )
+"""
 add_album82 = """
 INSERT INTO     album(idAlbum, strAlbum, strMusicBrainzAlbumID, strReleaseType, bScrapedMBID, DateAdded)
 VALUES          (?, ?, ?, ?, 1, ?)

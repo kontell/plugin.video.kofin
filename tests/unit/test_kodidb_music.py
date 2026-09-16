@@ -344,6 +344,54 @@ def test_pruning_singles_takes_their_discography(musicdb, tmp_path):
     assert cur.execute("SELECT COUNT(*) FROM album_artist").fetchone() == (0,)
 
 
+def test_heal_missing_artists_restores_a_mapped_ghost(musicdb, tmp_path):
+    """kofin.db still names the artist after Kodi deleted the row; the
+    credit's denormalised name is enough to put it back, which is what
+    makes songartistview list the album again."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    cur.execute(
+        "INSERT INTO artist(idArtist, strArtist) VALUES (?, ?)", (2, "Bedřich Smetana")
+    )
+    cur.execute(
+        "INSERT INTO album(idAlbum, strAlbum, strReleaseType) VALUES (?, ?, ?)",
+        (1, "Má Vlast", "album"),
+    )
+    path_id = db.add_path("http://server:8096/Audio/song-1/")
+    cur.execute(
+        "INSERT INTO song(idSong, idAlbum, idPath, strTitle, strFileName) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (1, 1, path_id, "Vysehrad", "stream.flac?static=true"),
+    )
+    cur.execute(
+        "INSERT INTO song_artist(idArtist, idSong, idRole, iOrder, strArtist) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (2, 1, 1, 0, "Bedřich Smetana"),
+    )
+    attach_mapping(db, tmp_path, [("artist", "lib-music", 2)])
+    # Delete the row without the trigger, so the credit (and the mapping)
+    # survive — the state a rewrite left after CleanupArtists.
+    cur.execute("DROP TRIGGER IF EXISTS tgrDeleteArtist")
+    cur.execute("DELETE FROM artist WHERE idArtist = 2")
+
+    assert db.heal_missing_artists() == 1
+    assert artists(cur)[2] == "Bedřich Smetana"
+    assert cur.execute(
+        "SELECT COUNT(*) FROM songartistview WHERE idSong = 1"
+    ).fetchone() == (1,)
+
+
+def test_heal_missing_artists_skips_a_mapping_with_no_name(musicdb, tmp_path):
+    """No remaining credit means no name to restore; artist() has to
+    fetch the item. Do not invent a blank row."""
+    cur, _conn = musicdb
+    db = Music(cur)
+    attach_mapping(db, tmp_path, [("artist", "lib-music", 2)])
+
+    assert db.heal_missing_artists() == 0
+    assert 2 not in artists(cur)
+
+
 def test_pruning_spares_a_path_the_mapping_still_names(musicdb, tmp_path):
     """A downloaded song's server row: the repoint moved the song onto the
     album directory, so no song references the row -- but kofin.db does, and

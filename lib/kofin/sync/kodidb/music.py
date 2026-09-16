@@ -487,6 +487,29 @@ class Music(Kodi):
             path_id = row[0]
             self.cursor.execute(QU.delete_path_if_unused, (path_id,) * 3)
 
+    def heal_missing_artists(self):
+        """Put back artist rows kofin.db still maps whose Kodi row is gone.
+
+        Needs the mapping ATTACHed as ``kofinmap``. The name comes off the
+        credit rows that still point at the ghost id — the same denormalised
+        ``strArtist`` Kodi stores on ``song_artist`` / ``album_artist``. A
+        mapping with no remaining credit has no name to restore and is left
+        for the next artist() write. Returns how many rows were inserted.
+        """
+        self.cursor.execute(QU.missing_mapped_artists)
+        missing = [
+            (kodi_id, name)
+            for kodi_id, name in self.cursor.fetchall()
+            if name and kodi_id != BLANKARTIST_ID
+        ]
+        healed = 0
+
+        for kodi_id, name in missing:
+            self.cursor.execute(QU.add_artist, (kodi_id, name, None))
+            healed += 1
+
+        return healed
+
     def prune_orphan_paths(self):
         """Drop path rows abandoned before ``delete_song`` learned to clean up.
 

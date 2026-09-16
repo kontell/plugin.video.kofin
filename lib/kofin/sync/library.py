@@ -586,6 +586,13 @@ class Library(threading.Thread):
                 )
                 if singles:
                     LOG.info("pruned %s leftover single albums", singles)
+                restored = musicsources.heal_missing_artists(
+                    kofindb.cursor, musicdb.cursor
+                )
+                if restored:
+                    LOG.info(
+                        "restored %s artist row(s) still mapped in kofin.db", restored
+                    )
                 # Kodi's own music scanner empties the source table whenever
                 # it disagrees with sources.xml, which with an empty one it
                 # always does — so the per-library music nodes come back from
