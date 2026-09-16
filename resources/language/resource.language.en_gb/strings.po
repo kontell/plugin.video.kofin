@@ -997,10 +997,10 @@ msgctxt "#30414"
 msgid "advancedsettings.xml enables cleanonupdate — incompatible with library sync"
 msgstr ""
 
-# 30450-30499 — Playback tab: media segments + Play Next
+# 30450-30499 — Skipping & Next up tab: media segments + Play Next
 
 msgctxt "#30450"
-msgid "Playback"
+msgid "Skipping & Next up"
 msgstr ""
 
 msgctxt "#30451"
@@ -1192,8 +1192,8 @@ msgctxt "#30509"
 msgid "Mark as unwatched on Jellyfin"
 msgstr ""
 
-# 30550-30599 — SyncPlay (settings group 30550-30558, menu/toasts 30560+;
-# fork ids 33262-33302 remapped)
+# 30550-30599 — SyncPlay (settings tab label 30550, toggle 30551-30552,
+# menu/toasts 30560+; fork ids 33262-33302 remapped). #30837 is the tab help.
 
 msgctxt "#30550"
 msgid "SyncPlay"
@@ -1204,7 +1204,7 @@ msgid "Enable SyncPlay"
 msgstr ""
 
 msgctxt "#30552"
-msgid "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads. Leave Kodi's 'Sync playback to display' off: with it on, playback follows the display rate, so unless that rate is a whole multiple of the video frame rate the picture runs fast or slow and the group cannot stay in sync"
+msgid "Watch in sync with other Jellyfin clients. Leave Kodi's 'Sync playback to display' off for a reliable experience"
 msgstr ""
 
 # 30553-30556 — retired with the SyncPlay drift controller (the Player.SetTempo
@@ -1432,7 +1432,9 @@ msgctxt "#30605"
 msgid "1440p"
 msgstr ""
 
-# 30606-30610 — Jellyfin song lyrics
+# 30606-30610 — retired with the Jellyfin song lyrics setting. Lyrics are
+# published whenever script.kofin.lyrics is installed, and otherwise left
+# alone. Kept, never reused, for the reason given at #30744.
 msgctxt "#30606"
 msgid "Jellyfin song lyrics"
 msgstr ""
@@ -2299,4 +2301,24 @@ msgstr ""
 # hidden: a total that quietly stopped counting is worse than no total.
 msgctxt "#30836"
 msgid "Folder too large to measure fully — the totals above are partial"
+msgstr ""
+
+# 30837 — SyncPlay tab help. The toggle's own help is #30552.
+msgctxt "#30837"
+msgid "Watch in sync with other Jellyfin clients."
+msgstr ""
+
+# 30838-30840 — Advanced-tab toggle that rewrites addon.xml's
+# <reuselanguageinvoker>. #30840 is the toast after a change; Kodi only
+# rereads ExtraInfo on the next start.
+msgctxt "#30838"
+msgid "Reuse language invoker"
+msgstr ""
+
+msgctxt "#30839"
+msgid "Disable if using multiple plugin:// paths in skin widgets. Requires Kodi restart."
+msgstr ""
+
+msgctxt "#30840"
+msgid "Restart Kodi to apply this"
 msgstr ""

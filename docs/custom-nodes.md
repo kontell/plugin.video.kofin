@@ -108,3 +108,4 @@ plugin://plugin.video.kofin/?mode=nextepisodes&id=<tvshows library id>
 - **Do not name the file `kofin…`.** Kofin deletes `kofin`-prefixed files and folders from its node tree when it regenerates. Any other name is left alone.
 - **A new or edited node file needs a skin reload** before Kodi reads it. Until then the fetch fails with `GetDirectory - Error getting library://…` in the log and no add-on line above it.
 - **You cannot change how many items come back.** `&limit=5` and the node's own `<limit>` are both ignored. The counts above are fixed, so prefer a capped listing for a widget — an uncapped one re-fetches the whole library every time the widget refreshes.
+- **More than one skin widget on a Kofin `plugin://` path:** turn **Reuse language invoker** off (Settings → Advanced, on by default). Kodi has one reusable plugin interpreter, and overlapping widget refreshes hang or crash while it is on. A Kodi restart is required for the change to take effect.

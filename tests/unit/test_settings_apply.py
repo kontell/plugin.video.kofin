@@ -83,6 +83,10 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr("xbmcgui.Dialog", FakeDialog)
     monkeypatch.setattr("xbmcvfs.exists", lambda p: True)
     monkeypatch.setattr("xbmcvfs.translatePath", lambda p: str(tmp_path))
+    # mark_ready reconciles <reuselanguageinvoker> against the installed
+    # addon.xml; tests that do not care patch it to a no-op so they do not
+    # touch the stub Addon path.
+    monkeypatch.setattr("kofin.core.addonxml.apply", lambda enabled, path=None: False)
     # Real strings carry a %s placeholder; the FakeAddon fallback does not.
     monkeypatch.setattr(
         "kofin.core.settings.localized", lambda sid: "string-%d %%s" % sid
@@ -803,3 +807,49 @@ def test_empty_whos_watching_shortlist_hides_the_menu(monkeypatch):
     assert state.menu_who() is False
     # SyncPlay is independent of the shortlist.
     assert state.menu_syncplay() is True
+
+
+def test_reuse_invoker_toggle_rewrites_addon_xml_and_toasts(monkeypatch):
+    from kofin.core import toast
+
+    applier = ready_applier(FakeService())
+    calls = []
+    shown = []
+    monkeypatch.setattr(
+        "kofin.core.addonxml.apply",
+        lambda enabled, path=None: calls.append(enabled) or True,
+    )
+    monkeypatch.setattr(toast, "show", lambda msg, **kwargs: shown.append(msg))
+
+    FakeAddon.store["reuseLanguageInvoker"] = "false"
+    applier.apply()
+
+    assert calls == [False]
+    assert shown == ["string-30840 %s"]
+
+
+def test_reuse_invoker_toggle_does_not_toast_when_the_write_fails(monkeypatch):
+    from kofin.core import toast
+
+    applier = ready_applier(FakeService())
+    shown = []
+    monkeypatch.setattr("kofin.core.addonxml.apply", lambda enabled, path=None: None)
+    monkeypatch.setattr(toast, "show", lambda msg, **kwargs: shown.append(msg))
+
+    FakeAddon.store["reuseLanguageInvoker"] = "false"
+    applier.apply()
+
+    assert shown == []
+
+
+def test_mark_ready_reconciles_addon_xml_to_the_setting(monkeypatch):
+    FakeAddon.store["reuseLanguageInvoker"] = "false"
+    calls = []
+    monkeypatch.setattr(
+        "kofin.core.addonxml.apply",
+        lambda enabled, path=None: calls.append(enabled) or True,
+    )
+
+    ready_applier(FakeService())
+
+    assert calls == [False]

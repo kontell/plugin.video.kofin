@@ -190,7 +190,7 @@
   "#30418": "A kiszolgáló leáll",
   "#30420": "Szinkronizálás kikapcsolva: %s",
   "#30414": "Az advancedsettings.xml bekapcsolja a cleanonupdate beállítást — ez összeférhetetlen a médiatár szinkronizálásával",
-  "#30450": "Lejátszás",
+  "#30450": "Kihagyás és következő",
   "#30451": "Médiaszakaszok átugrása és a Következő lejátszása kérdés.",
   "#30452": "Médiaszakaszok",
   "#30453": "Reagálás a médiaszakaszokra",
@@ -238,7 +238,7 @@
   "#30508": "Megjelölés megtekintettként a Jellyfinben",
   "#30509": "Megjelölés megtekintetlenként a Jellyfinben",
   "#30551": "SyncPlay engedélyezése",
-  "#30552": "SyncPlay bejegyzést ad a kiegészítő gyökeréhez, hogy más Jellyfin-kliensekkel szinkronban nézhessen. Kikapcsolva nincs csoportmenü és nincsenek SyncPlay-szálak. Hagyd kikapcsolva a Kodi lejátszási beállításaiban a Lejátszás szinkronizálása a képernyőhöz opciót: ha be van kapcsolva, a lejátszás a képernyő képfrissítését követi, így ha az nem a videó képkockasebességének egész számú többszöröse, a kép túl gyorsan vagy túl lassan fut, és a csoport nem tud szinkronban maradni",
+  "#30552": "Nézd szinkronban más Jellyfin-kliensekkel. A megbízható működéshez hagyd kikapcsolva a Kodi Lejátszás szinkronizálása a képernyőhöz beállítását",
   "#30553": "Elcsúszás korrekciója",
   "#30554": "Finoman igazítja a lejátszási sebességet, hogy tartsa a pozíciót a csoporttal (a Kodi „Lejátszás szinkronizálása a képernyőhöz” beállítása kell hozzá). Kikapcsolva: csak az ütemezett parancsok követése.",
   "#30555": "Szinkrontűrés (ms)",
@@ -480,5 +480,9 @@
   "#30833": "Megmutatja, hol tárolódnak a letöltések, és melyik típus mennyi helyet foglal. A mérés magán a mappán történik, így a képek, a feliratok és a metaadatok is beleszámítanak a médiafájlok mellett.",
   "#30834": "Egyéb fájlok ebben a mappában",
   "#30835": "Még nincs letöltve semmi",
-  "#30836": "A mappa túl nagy a teljes méréshez — a fenti összegek részlegesek"
+  "#30836": "A mappa túl nagy a teljes méréshez — a fenti összegek részlegesek",
+  "#30837": "Nézd szinkronban más Jellyfin-kliensekkel.",
+  "#30838": "Language invoker újrafelhasználása",
+  "#30839": "Kapcsold ki, ha a felszín widgetjeiben több plugin:// elérési út van. Kodi-újraindítást igényel.",
+  "#30840": "A változás érvényesítéséhez indítsd újra a Kodit"
 }

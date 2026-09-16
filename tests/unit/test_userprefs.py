@@ -174,10 +174,10 @@ def test_every_field_label_and_option_has_a_string():
     assert wanted <= known, sorted(wanted - known)
 
 
-def test_the_caveat_names_the_setting_the_way_the_playback_tab_labels_it():
+def test_the_caveat_names_the_setting_the_way_the_account_tab_labels_it():
     """The caveat row tells the user which switch to go and find, so it has to
     quote that switch's own label. It shipped saying "Honour Jellyfin default
-    tracks" while the Playback tab calls it "Use Jellyfin's default tracks" --
+    tracks" while the Account tab calls it "Use Jellyfin's default tracks" --
     caught on a real box, and nothing else would have: both strings resolve,
     both render, and only a person hunting the settings tree finds out."""
     with open(

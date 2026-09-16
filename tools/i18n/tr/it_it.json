@@ -190,7 +190,7 @@
   "#30418": "Il server si sta spegnendo",
   "#30420": "Sincronizzazione disattivata: %s",
   "#30414": "advancedsettings.xml attiva cleanonupdate — incompatibile con la sincronizzazione della libreria",
-  "#30450": "Riproduzione",
+  "#30450": "Salta e successivi",
   "#30451": "Salto dei segmenti multimediali e richiesta «Riproduci il prossimo».",
   "#30452": "Segmenti multimediali",
   "#30453": "Reagisci ai segmenti multimediali",
@@ -238,7 +238,7 @@
   "#30508": "Segna come visto su Jellyfin",
   "#30509": "Segna come non visto su Jellyfin",
   "#30551": "Attiva SyncPlay",
-  "#30552": "Aggiunge una voce SyncPlay alla radice dell'add-on per guardare in sincronia con altri client Jellyfin. Se disattivata, niente menu dei gruppi e nessun thread SyncPlay. Lascia «Sincronizza la riproduzione allo schermo» disattivato nelle impostazioni del lettore di Kodi: se è attivo, la riproduzione segue la frequenza dello schermo, quindi se questa non è un multiplo intero dei fotogrammi al secondo del video l'immagine va troppo veloce o troppo lenta e il gruppo non può restare sincronizzato",
+  "#30552": "Guarda in sincronia con altri client Jellyfin. Lascia «Sincronizza la riproduzione allo schermo» disattivato in Kodi per un'esperienza affidabile",
   "#30553": "Correzione della deriva",
   "#30554": "Regola delicatamente la velocità di riproduzione per mantenere la posizione del gruppo (richiede «Sincronizza la riproduzione allo schermo» di Kodi). Se disattivata: segue solo i comandi programmati.",
   "#30555": "Tolleranza di sincronia (ms)",
@@ -480,5 +480,9 @@
   "#30833": "Mostra dove sono conservati i download e quanto spazio occupa ogni tipo. La misurazione riguarda la cartella stessa, quindi conta anche immagini, sottotitoli e metadati insieme ai file multimediali.",
   "#30834": "Altri file in questa cartella",
   "#30835": "Non è ancora stato scaricato nulla",
-  "#30836": "Cartella troppo grande per essere misurata del tutto — i totali qui sopra sono parziali"
+  "#30836": "Cartella troppo grande per essere misurata del tutto — i totali qui sopra sono parziali",
+  "#30837": "Guarda in sincronia con altri client Jellyfin.",
+  "#30838": "Riutilizza il language invoker",
+  "#30839": "Disattiva se usi più percorsi plugin:// nei widget della skin. Richiede il riavvio di Kodi.",
+  "#30840": "Riavvia Kodi per applicare questa modifica"
 }

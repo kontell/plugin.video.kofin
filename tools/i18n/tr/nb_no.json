@@ -190,7 +190,7 @@
   "#30418": "Serveren slår seg av",
   "#30420": "Biblioteksynkronisering er av: %s",
   "#30414": "advancedsettings.xml aktiverer cleanonupdate — uforenlig med biblioteksynkronisering",
-  "#30450": "Avspilling",
+  "#30450": "Hopping og neste",
   "#30451": "Hopping over mediesegmenter og Spill neste-spørsmålet.",
   "#30452": "Mediesegmenter",
   "#30453": "Reager på mediesegmenter",
@@ -238,7 +238,7 @@
   "#30508": "Merk som sett på Jellyfin",
   "#30509": "Merk som usett på Jellyfin",
   "#30551": "Aktiver SyncPlay",
-  "#30552": "Legger til en SyncPlay-oppføring i tilleggets hovedmeny, for å se synkronisert med andre Jellyfin-klienter. Av betyr ingen gruppemeny og ingen SyncPlay-tråder. La «Synkroniser avspilling med skjerm» være slått av i Kodis avspillerinnstillinger: er den på, følger avspillingen skjermens oppdateringsfrekvens, så med mindre den er et helt multiplum av videoens bildefrekvens, går bildet for fort eller for sakte og gruppen kan ikke holde seg synkronisert",
+  "#30552": "Se synkronisert med andre Jellyfin-klienter. La «Synkroniser avspilling med skjerm» være slått av i Kodi for en pålitelig opplevelse",
   "#30553": "Avdriftskorrigering",
   "#30554": "Justerer avspillingshastigheten forsiktig for å holde posisjonen med gruppen (krever Kodis «Synkroniser avspilling med skjerm»). Av: følg bare planlagte kommandoer.",
   "#30555": "Synkroniseringstoleranse (ms)",
@@ -480,5 +480,9 @@
   "#30833": "Vis hvor nedlastingene ligger og hvor mye plass hver type bruker. Det måles på selve mappen, så bilder, undertekster og metadata telles med sammen med mediefilene.",
   "#30834": "Andre filer i denne mappen",
   "#30835": "Ingenting er lastet ned ennå",
-  "#30836": "Mappen er for stor til å måles helt — totalene over er ufullstendige"
+  "#30836": "Mappen er for stor til å måles helt — totalene over er ufullstendige",
+  "#30837": "Se synkronisert med andre Jellyfin-klienter.",
+  "#30838": "Gjenbruk language invoker",
+  "#30839": "Slå av hvis du bruker flere plugin://-stier i skin-moduler. Krever omstart av Kodi.",
+  "#30840": "Start Kodi på nytt for å ta dette i bruk"
 }

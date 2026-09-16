@@ -190,7 +190,7 @@
   "#30418": "Serverul se oprește",
   "#30420": "Sincronizare oprită: %s",
   "#30414": "advancedsettings.xml activează cleanonupdate — incompatibil cu sincronizarea bibliotecii",
-  "#30450": "Redare",
+  "#30450": "Omitere și următorul",
   "#30451": "Omiterea segmentelor media și solicitarea Redă următorul.",
   "#30452": "Segmente media",
   "#30453": "Reacționează la segmentele media",
@@ -238,7 +238,7 @@
   "#30508": "Marchează ca vizionat pe Jellyfin",
   "#30509": "Marchează ca nevizionat pe Jellyfin",
   "#30551": "Activează SyncPlay",
-  "#30552": "Adaugă o intrare SyncPlay în rădăcina suplimentului, pentru vizionare sincronizată cu alți clienți Jellyfin. Dezactivat înseamnă fără meniu de grup și fără fire SyncPlay. Lasă Sincronizează redarea cu afișajul dezactivat în setările de redare ale Kodi: dacă este activat, redarea urmează rata de reîmprospătare a afișajului, așa că dacă aceasta nu este un multiplu întreg al cadrelor pe secundă ale videoclipului, imaginea rulează prea repede sau prea încet și grupul nu poate rămâne sincronizat",
+  "#30552": "Urmărește sincronizat cu alți clienți Jellyfin. Lasă Sincronizează redarea cu afișajul dezactivat în Kodi pentru o experiență fiabilă",
   "#30553": "Corecție de derivă",
   "#30554": "Ajustează ușor viteza de redare pentru a menține poziția cu grupul (necesită „Sincronizează redarea cu afișajul” din Kodi). Dezactivat: urmează doar comenzile programate.",
   "#30555": "Toleranță de sincronizare (ms)",
@@ -480,5 +480,9 @@
   "#30833": "Arată unde sunt păstrate descărcările și cât spațiu ocupă fiecare tip. Măsurarea se face pe folderul propriu-zis, așa că imaginile, subtitrările și metadatele sunt numărate alături de fișierele media.",
   "#30834": "Alte fișiere din acest folder",
   "#30835": "Nu a fost descărcat nimic încă",
-  "#30836": "Folderul este prea mare pentru a fi măsurat complet — totalurile de mai sus sunt parțiale"
+  "#30836": "Folderul este prea mare pentru a fi măsurat complet — totalurile de mai sus sunt parțiale",
+  "#30837": "Urmărește sincronizat cu alți clienți Jellyfin.",
+  "#30838": "Reutilizează language invoker",
+  "#30839": "Dezactivează dacă folosești mai multe căi plugin:// în widgeturile temei. Necesită repornirea Kodi.",
+  "#30840": "Repornește Kodi pentru a aplica asta"
 }

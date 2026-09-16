@@ -30,8 +30,7 @@ BBCODE = re.compile(r"\[/?[A-Za-z][^\]]*\]")
 # Nothing but this check ties them together -- tests/unit/test_userprefs.py
 # asserts the #30794 pair for English only.
 QUOTES_VERBATIM = {
-    "#30794": ["#30618"],  # playback caveat -> the default-tracks setting label
-    "#30607": ["#30609", "#30610"],  # lyrics help -> its own two option labels
+    "#30794": ["#30618"],  # account caveat -> the default-tracks setting label
     "#30080": ["#30817"],  # shortlist help -> the "All" row of its own dialog
     "#30826": ["#30052"],  # discovery help -> the field it fills in
 }

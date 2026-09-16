@@ -977,8 +977,8 @@ msgid "advancedsettings.xml enables cleanonupdate — incompatible with library 
 msgstr "advancedsettings.xml active cleanonupdate — incompatible avec la synchronisation de bibliothèque"
 
 msgctxt "#30450"
-msgid "Playback"
-msgstr "Lecture"
+msgid "Skipping & Next up"
+msgstr "Passages et à suivre"
 
 msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."
@@ -1173,8 +1173,8 @@ msgid "Enable SyncPlay"
 msgstr "Activer SyncPlay"
 
 msgctxt "#30552"
-msgid "Adds a SyncPlay entry to the addon root for watching in sync with other Jellyfin clients. Off means no group menu and no SyncPlay threads. Leave Kodi's 'Sync playback to display' off: with it on, playback follows the display rate, so unless that rate is a whole multiple of the video frame rate the picture runs fast or slow and the group cannot stay in sync"
-msgstr "Ajoute une entrée SyncPlay à la racine de l'extension pour regarder en synchronisation avec d'autres clients Jellyfin. Désactivé, il n'y a ni menu de groupe ni fils SyncPlay. Laissez « Synchroniser la lecture à l'affichage » désactivé dans les paramètres du lecteur de Kodi : s'il est activé, la lecture suit la fréquence de l'écran, donc si cette fréquence n'est pas un multiple entier de la fréquence d'images de la vidéo, l'image défile trop vite ou trop lentement et le groupe ne peut pas rester synchronisé"
+msgid "Watch in sync with other Jellyfin clients. Leave Kodi's 'Sync playback to display' off for a reliable experience"
+msgstr "Regarder en synchronisation avec d'autres clients Jellyfin. Laissez « Synchroniser la lecture à l'affichage » désactivé dans Kodi pour une expérience fiable"
 
 msgctxt "#30553"
 msgid "Drift correction"
@@ -2159,3 +2159,19 @@ msgstr "Rien n'a encore été téléchargé"
 msgctxt "#30836"
 msgid "Folder too large to measure fully — the totals above are partial"
 msgstr "Dossier trop volumineux pour être mesuré entièrement — les totaux ci-dessus sont partiels"
+
+msgctxt "#30837"
+msgid "Watch in sync with other Jellyfin clients."
+msgstr "Regarder en synchronisation avec d'autres clients Jellyfin."
+
+msgctxt "#30838"
+msgid "Reuse language invoker"
+msgstr "Réutiliser l'invoker de langage"
+
+msgctxt "#30839"
+msgid "Disable if using multiple plugin:// paths in skin widgets. Requires Kodi restart."
+msgstr "Désactivez si vous utilisez plusieurs chemins plugin:// dans les widgets de l'habillage. Nécessite un redémarrage de Kodi."
+
+msgctxt "#30840"
+msgid "Restart Kodi to apply this"
+msgstr "Redémarrez Kodi pour appliquer ceci"

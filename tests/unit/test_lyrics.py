@@ -261,10 +261,15 @@ class LyricsApi:
 @pytest.fixture(autouse=True)
 def kodi_fakes(monkeypatch):
     FakeWindow.store = {}
-    # Default the suite to publishing; the hand-off tests opt in.
-    FakeAddon.store = {"musicLyricsMode": "1"}
+    FakeAddon.store = {}
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    # Default the suite to "kofin lyrics is installed"; the no-addon test
+    # opts out.
+    monkeypatch.setattr(
+        "xbmc.getCondVisibility",
+        lambda condition: "script.kofin.lyrics" in condition,
+    )
 
 
 def make_player(monkeypatch, api, path=DIRECT, audio=True, landed=True):
@@ -335,35 +340,8 @@ def test_finalize_releases_the_lyrics(monkeypatch):
     assert state.lyric_lines() == []
 
 
-def test_addon_mode_sets_lyrics_and_source(monkeypatch):
-    FakeAddon.store = {"musicLyricsMode": "2"}
-    api = LyricsApi()
-    player, pushed = make_player(monkeypatch, api)
-
-    player.start_lyrics()
-
-    assert len(pushed) == 1
-    # setInfo, not the info tag setter: only setInfo marks the tag loaded, and
-    # an unloaded tag is re-read from the music database, which clears it.
-    assert pushed[0].info["music"]["lyrics"] == lyrics.to_text(SYNCED)
-    assert pushed[0].props["culrc.source"] == "Jellyfin"
-    # The hand-off must not also publish for a renderer.
-    assert state.PROP_LYRIC_HAS not in FakeWindow.store
-
-
-def test_addon_mode_retries_until_kodi_accepts_it(monkeypatch):
-    FakeAddon.store = {"musicLyricsMode": "2"}
-    api = LyricsApi()
-    player, pushed = make_player(monkeypatch, api, landed=False)
-    monkeypatch.setattr("xbmc.sleep", lambda ms: None)
-
-    player.start_lyrics()
-
-    assert len(pushed) == 4  # retried, then gave up rather than looping
-
-
-def test_off_asks_the_server_for_nothing(monkeypatch):
-    FakeAddon.store = {"musicLyricsMode": "0"}
+def test_without_kofin_lyrics_asks_the_server_for_nothing(monkeypatch):
+    monkeypatch.setattr("xbmc.getCondVisibility", lambda condition: False)
     api = LyricsApi()
     player, pushed = make_player(monkeypatch, api)
 

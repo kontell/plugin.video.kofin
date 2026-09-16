@@ -190,7 +190,7 @@
   "#30418": "Serveren lukker ned",
   "#30420": "Synkronisering er slået fra: %s",
   "#30414": "advancedsettings.xml aktiverer cleanonupdate — uforeneligt med bibliotekssynkronisering",
-  "#30450": "Afspilning",
+  "#30450": "Overspring og næste",
   "#30451": "Overspringning af mediesegmenter og Afspil næste-prompten.",
   "#30452": "Mediesegmenter",
   "#30453": "Reagér på mediesegmenter",
@@ -238,7 +238,7 @@
   "#30508": "Markér som set på Jellyfin",
   "#30509": "Markér som uset på Jellyfin",
   "#30551": "Aktivér SyncPlay",
-  "#30552": "Tilføjer en SyncPlay-post i tilføjelsens hovedmenu, så du kan se synkront med andre Jellyfin-klienter. Fra betyder ingen gruppemenu og ingen SyncPlay-tråde. Lad »Synkroniser afspilning til skærm« være slået fra i Kodis afspillerindstillinger: er den slået til, følger afspilningen skærmens opdateringsfrekvens, så medmindre den er et helt multiplum af videoens billedfrekvens, kører billedet for hurtigt eller for langsomt, og gruppen kan ikke holde sig synkroniseret",
+  "#30552": "Se synkront med andre Jellyfin-klienter. Lad »Synkroniser afspilning til skærm« være slået fra i Kodi for en pålidelig oplevelse",
   "#30553": "Driftkorrektion",
   "#30554": "Justerer forsigtigt afspilningshastigheden for at holde positionen med gruppen (kræver Kodis »Synkroniser afspilning til skærm«). Fra: følg kun planlagte kommandoer.",
   "#30555": "Synkroniseringstolerance (ms)",
@@ -480,5 +480,9 @@
   "#30833": "Vis, hvor downloads gemmes, og hvor meget plads hver type bruger. Det måles på selve mappen, så grafik, undertekster og metadata tælles med sammen med medierne.",
   "#30834": "Andre filer i denne mappe",
   "#30835": "Der er ikke downloadet noget endnu",
-  "#30836": "Mappen er for stor til at måle helt — totalerne ovenfor er ufuldstændige"
+  "#30836": "Mappen er for stor til at måle helt — totalerne ovenfor er ufuldstændige",
+  "#30837": "Se synkront med andre Jellyfin-klienter.",
+  "#30838": "Genbrug language invoker",
+  "#30839": "Slå fra, hvis du bruger flere plugin://-stier i skin-widgets. Kræver genstart af Kodi.",
+  "#30840": "Genstart Kodi for at anvende dette"
 }
