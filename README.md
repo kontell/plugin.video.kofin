@@ -39,11 +39,6 @@ Install via the [Kontell Repository](https://github.com/kontell/repository.konte
     - From settings go to the Library tab, choose which server libraries to mirror. The background service syncs them into Kodi's library - the first sync can take a while, later ones are incremental.
 - See [wiki](https://github.com/kontell/plugin.video.kofin/wiki) for further details.
 
-### Server address
-
-- The server address may be a bare host or IP (e.g. `192.168.1.10`), a `host:port`, or a full URL. `http` and port `8096` are assumed when the scheme and port are omitted. Use `https://` when connecting over the internet.
-- On login the addon stores a Jellyfin access token (not your password) in Kodi's addon settings. Like all Kodi addon settings it is kept in plaintext under `userdata/addon_data/plugin.video.kofin/` - be aware of this when sharing Kodi backups or your addon_data folder. Logging out revokes the token on the server.
-
 ### Migration from Jellyfin-Kodi
 
 1.  Disable or uninstall jellyfin-kodi, its background service must not be running.
