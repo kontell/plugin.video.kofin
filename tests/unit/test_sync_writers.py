@@ -3387,6 +3387,219 @@ def test_music_rewrite_replaces_a_stale_credit(api, frozen_music_clock):
     ) == [("The Band",)]
 
 
+def test_music_rewrite_drops_a_stale_album_artist(api, frozen_music_clock):
+    # The fork only ever added album_artist rows, so a credit AlbumArtists
+    # no longer carries -- a MusicBrainz conductor left on the album after
+    # the server went back to the file tag -- outlived every Etag change.
+    # The album writer replaces the links, as prune_song_credits does for
+    # tracks, and drops that artist's discography row for this title.
+    api.items_by_id["artist2"] = _guest_artist()
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
+        music.artist(dto(ARTIST))
+        music.artist(_guest_artist())
+        music.album(
+            dto(
+                dict(
+                    ALBUM,
+                    AlbumArtists=[
+                        {"Name": "The Band", "Id": "artist1"},
+                        {"Name": "Guest Star", "Id": "artist2"},
+                    ],
+                    ArtistItems=[
+                        {"Name": "The Band", "Id": "artist1"},
+                        {"Name": "Guest Star", "Id": "artist2"},
+                    ],
+                )
+            )
+        )
+
+    assert music_query(
+        "SELECT a.strArtist FROM album_artist aa"
+        " JOIN artist a ON a.idArtist = aa.idArtist ORDER BY a.strArtist"
+    ) == [("Guest Star",), ("The Band",)]
+    assert music_query(
+        "SELECT a.strArtist FROM discography d"
+        " JOIN artist a ON a.idArtist = d.idArtist ORDER BY a.strArtist"
+    ) == [("Guest Star",), ("The Band",)]
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS).album(
+            dto(
+                dict(
+                    ALBUM,
+                    Etag="etag-album1-v2",
+                    AlbumArtists=[{"Name": "The Band", "Id": "artist1"}],
+                    ArtistItems=[{"Name": "The Band", "Id": "artist1"}],
+                )
+            )
+        )
+
+    assert music_query(
+        "SELECT a.strArtist FROM album_artist aa"
+        " JOIN artist a ON a.idArtist = aa.idArtist"
+    ) == [("The Band",)]
+    assert music_query(
+        "SELECT a.strArtist FROM discography d"
+        " JOIN artist a ON a.idArtist = d.idArtist"
+    ) == [("The Band",)]
+
+
+def test_music_album_artist_prune_leaves_a_guest_discography_row(
+    api, frozen_music_clock
+):
+    # An ArtistItem that is not an album artist keeps its discography row
+    # (a compilation guest). Prune only the leftover album_artist link;
+    # artist_discography writes the appearance back.
+    api.items_by_id["artist2"] = _guest_artist()
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
+        music.artist(dto(ARTIST))
+        music.artist(_guest_artist())
+        music.album(
+            dto(
+                dict(
+                    ALBUM,
+                    AlbumArtists=[
+                        {"Name": "The Band", "Id": "artist1"},
+                        {"Name": "Guest Star", "Id": "artist2"},
+                    ],
+                    ArtistItems=[
+                        {"Name": "The Band", "Id": "artist1"},
+                        {"Name": "Guest Star", "Id": "artist2"},
+                    ],
+                )
+            )
+        )
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS).album(
+            dto(
+                dict(
+                    ALBUM,
+                    Etag="etag-album1-v2",
+                    AlbumArtists=[{"Name": "The Band", "Id": "artist1"}],
+                    ArtistItems=[
+                        {"Name": "The Band", "Id": "artist1"},
+                        {"Name": "Guest Star", "Id": "artist2"},
+                    ],
+                )
+            )
+        )
+
+    assert music_query(
+        "SELECT a.strArtist FROM album_artist aa"
+        " JOIN artist a ON a.idArtist = aa.idArtist"
+    ) == [("The Band",)]
+    assert music_query(
+        "SELECT a.strArtist FROM discography d"
+        " JOIN artist a ON a.idArtist = d.idArtist ORDER BY a.strArtist"
+    ) == [("Guest Star",), ("The Band",)]
+
+
+def test_music_empty_album_artists_clears_stale_links(api, frozen_music_clock):
+    write_music_tree(api)
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS).album(
+            dto(dict(ALBUM, Etag="etag-album1-v2", AlbumArtists=[], ArtistItems=[]))
+        )
+
+    assert music_query("SELECT COUNT(*) FROM album_artist") == [(0,)]
+    assert music_query("SELECT COUNT(*) FROM discography") == [(0,)]
+
+
+def test_music_album_artist_prune_is_idempotent(api, frozen_music_clock):
+    api.items_by_id["artist2"] = _guest_artist()
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
+        music.artist(dto(ARTIST))
+        music.artist(_guest_artist())
+        music.album(
+            dto(
+                dict(
+                    ALBUM,
+                    AlbumArtists=[
+                        {"Name": "The Band", "Id": "artist1"},
+                        {"Name": "Guest Star", "Id": "artist2"},
+                    ],
+                    ArtistItems=[
+                        {"Name": "The Band", "Id": "artist1"},
+                        {"Name": "Guest Star", "Id": "artist2"},
+                    ],
+                )
+            )
+        )
+
+    pruned = dto(
+        dict(
+            ALBUM,
+            Etag="etag-album1-v2",
+            AlbumArtists=[{"Name": "The Band", "Id": "artist1"}],
+            ArtistItems=[{"Name": "The Band", "Id": "artist1"}],
+        )
+    )
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS).album(pruned)
+    first = music_dump(str(sync_db._path_overrides["music"]))
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS).album(
+            dict(pruned, Etag="etag-album1-v3")
+        )
+    assert music_dump(str(sync_db._path_overrides["music"])) == first
+
+
+def test_music_single_rewrite_drops_a_stale_album_artist(api, frozen_music_clock):
+    # A single's album never passes through artist_link, so the song leg
+    # owns its album_artist rows and has to replace them the same way.
+    api.items_by_id["artist2"] = _guest_artist()
+    register_views({"Id": "lib-music", "Name": "Tunes", "Media": "music"})
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        music = Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS)
+        music.artist(dto(ARTIST))
+        music.artist(_guest_artist())
+        music.song(
+            dto(
+                dict(
+                    SONG,
+                    AlbumId=None,
+                    Album=None,
+                    AlbumArtists=[
+                        {"Name": "The Band", "Id": "artist1"},
+                        {"Name": "Guest Star", "Id": "artist2"},
+                    ],
+                )
+            )
+        )
+
+    assert music_query(
+        "SELECT a.strArtist FROM album_artist aa"
+        " JOIN artist a ON a.idArtist = aa.idArtist ORDER BY a.strArtist"
+    ) == [("Guest Star",), ("The Band",)]
+
+    with sync_db.Database("kofin") as kdb, sync_db.Database("music") as mdb:
+        Music(api, kdb, mdb, library=MUSIC_LIBRARY, hooks=HOOKS).song(
+            dto(
+                dict(
+                    SONG,
+                    Etag="etag-song1-v2",
+                    AlbumId=None,
+                    Album=None,
+                    AlbumArtists=[{"Name": "The Band", "Id": "artist1"}],
+                )
+            )
+        )
+
+    assert music_query(
+        "SELECT a.strArtist FROM album_artist aa"
+        " JOIN artist a ON a.idArtist = aa.idArtist"
+    ) == [("The Band",)]
+
+
 def test_music_late_artist_relinks_its_tracks(api, frozen_music_clock):
     # Issue #188. Jellyfin fills ArtistItems by looking the tag names up
     # against the entities that exist at request time, and creates the
