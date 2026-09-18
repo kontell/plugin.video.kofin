@@ -274,6 +274,21 @@ def join_song_path(str_path: str, str_filename: str) -> str:
     return path + filename
 
 
+def video_playlist_line(str_path: str, str_filename: str) -> str:
+    """The path ``CVideoDatabase::ConstructPath`` would produce for this row.
+
+    Plugin rows store the full plugin URL in ``files.strFilename``. Joining
+    path+filename doubles it (``plugin://…/plugin://…/?id=``), and Kodi's
+    library lookup then misses: the playlist item has no artwork, duration or
+    DBTYPE until playback stamps a ListItem. ``ConstructPath`` returns
+    ``strFileName`` unchanged when ``strPath`` is plugin (or the filename is
+    a stack). Everything else is the folder join.
+    """
+    if str_path.startswith(PLUGIN_PREFIX) or str_filename.startswith("stack://"):
+        return str_filename
+    return join_song_path(str_path, str_filename)
+
+
 def entry_label(entry: Entry) -> str:
     """The ``#EXTINF`` label Kodi writes for a library song: ``NN. Artist - Title``."""
     label = entry.title or ""
@@ -304,6 +319,24 @@ def _unique_stem(name: str, taken: Set[str]) -> str:
         n += 1
     taken.add(candidate.lower())
     return candidate
+
+
+def _m3u8_stems(directory: str, keep: Optional[str] = None) -> Set[str]:
+    """Stems already on disk that :func:`_unique_stem` must not reuse.
+
+    ``keep`` is this playlist's current filename: it is not a collision, it
+    is the name we want to keep. Seeding ``taken`` with it made every
+    membership rewrite pick ``Name (2).m3u8``, delete ``Name.m3u8``, and
+    ping-pong on the next event.
+    """
+    taken: Set[str] = set()
+    for name in _list_files(directory):
+        if not name.endswith(".m3u8"):
+            continue
+        if keep and name == keep:
+            continue
+        taken.add(os.path.splitext(name)[0].lower())
+    return taken
 
 
 def enabled_kinds(views: Iterable[Any], whitelist: Set[str]) -> Set[str]:
@@ -376,7 +409,7 @@ def video_entry(
     if not str_path or not str_filename:
         return None
     return Entry(
-        path=join_song_path(str_path, str_filename),
+        path=video_playlist_line(str_path, str_filename),
         title=path_row[2] or "",
     )
 
@@ -749,9 +782,8 @@ def apply_one(
     if not os.path.isdir(directory):
         os.makedirs(directory)
     write_folder_icon(directory)
-    taken: Set[str] = set()
-    if stored and stored[0] == side:
-        taken.add(os.path.splitext(stored[1])[0].lower())
+    keep = stored[1] if stored and stored[0] == side else None
+    taken = _m3u8_stems(directory, keep=keep)
     filename, written = write_playlist_file(
         directory, playlist.get("Name") or "playlist", entries, taken
     )

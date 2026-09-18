@@ -113,6 +113,15 @@ What remains is kofin's own:
   managed `.m3u8` files are named after the Jellyfin playlist's title, carry no prefix, and every file not in
   the managed set is removed on reconcile. Nothing of the user's may be told to live in
   either music `Kofin/` or as a `.m3u8` under video `Kofin/`.
+- **A video playlist line is `CVideoDatabase::ConstructPath`, not path+filename.** Plugin
+  rows store the full plugin URL in `files.strFilename`; joining it onto `path.strPath`
+  doubles the URL and Kodi will not match the library row — no artwork, duration or DBTYPE
+  until playback stamps a ListItem. `video_playlist_line` returns the filename unchanged
+  when the path is `plugin://` (or the filename is a stack).
+- **`apply_one` must not put this playlist's stored stem in `_unique_stem`'s taken set.**
+  That set is collisions for *other* names. Seeding it with our own name made every
+  membership rewrite pick `Name (2).m3u8`, delete `Name.m3u8`, and ping-pong on the next
+  event.
 - Every show's path row carries `strContent='tvshows'` + `metadata.local` **and**
   `useFolderNames=1`, and the episode object repeats the stamp.
 - **A boxset pass ending with zero linked members must not stamp its reference checksum** —

@@ -53,6 +53,29 @@ class FakeMusic:
         return self._songs.get(song_id)
 
 
+class FakeVideo:
+    def __init__(self, rows):
+        # (media_type, kodi_id) -> (strPath, strFileName, title)
+        self._rows = rows
+
+    def get_playlist_row(self, kodi_id, media_type):
+        return self._rows.get((media_type, kodi_id))
+
+
+class FakeState:
+    def __init__(self):
+        self._rows = {}
+
+    def get_playlist_state(self, jellyfin_id):
+        return self._rows.get(jellyfin_id)
+
+    def add_playlist_state(self, jellyfin_id, media_type, filename, checksum):
+        self._rows[jellyfin_id] = (media_type, filename, checksum)
+
+    def remove_playlist_state(self, jellyfin_id):
+        self._rows.pop(jellyfin_id, None)
+
+
 def test_safe_filename_keeps_unicode_and_strips_slashes():
     assert playlists.safe_filename("Road Trip") == "Road Trip"
     assert playlists.safe_filename("a/b\\c") == "a_b_c"
@@ -360,6 +383,102 @@ def test_song_entry_writes_the_musicdb_line_for_a_direct_row():
         {42: ("https://s/Audio/a1/", "stream.flac?static=true", "T", "A", 1, 90)}
     )
     assert playlists.song_entry(mapping, music, "a1").path == "musicdb://songs/42.flac"
+
+
+PLUGIN_DIR = "plugin://plugin.video.kofin/lib/"
+PLUGIN_FILE = (
+    PLUGIN_DIR + "?filename=Aliens.mkv&id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    "&dbid=1128&mode=play"
+)
+
+
+def test_video_playlist_line_is_constructpath():
+    """Plugin rows store the full URL in strFilename; joining doubles it."""
+    assert playlists.video_playlist_line(PLUGIN_DIR, PLUGIN_FILE) == PLUGIN_FILE
+    assert (
+        playlists.video_playlist_line("/downloads/movies/", "Aliens.mkv")
+        == "/downloads/movies/Aliens.mkv"
+    )
+    assert (
+        playlists.video_playlist_line("/data/", "stack://a.mkv , /data/b.mkv")
+        == "stack://a.mkv , /data/b.mkv"
+    )
+
+
+def test_video_entry_uses_the_stored_plugin_url():
+    mapping = FakeMapping({"m1": SimpleNamespace(media_type="movie", kodi_id=1128)})
+    video = FakeVideo({("movie", 1128): (PLUGIN_DIR, PLUGIN_FILE, "Aliens")})
+    entry = playlists.video_entry(mapping, video, "m1")
+    assert entry.path == PLUGIN_FILE
+    assert entry.title == "Aliens"
+    assert PLUGIN_DIR + PLUGIN_FILE not in entry.path
+
+
+def test_apply_one_keeps_the_filename_when_membership_changes(tmp_path):
+    """A membership rewrite must overwrite Name.m3u8, not mint Name (2).m3u8."""
+    api = FakeApi(
+        items_by_id={
+            "pl1": [{"Id": "m1", "Type": "Movie"}],
+        }
+    )
+    mapping = FakeMapping({"m1": SimpleNamespace(media_type="movie", kodi_id=1)})
+    video = FakeVideo({("movie", 1): (PLUGIN_DIR, PLUGIN_FILE, "Aliens")})
+    state = FakeState()
+    playlist = {
+        "Id": "pl1",
+        "Name": "UHD",
+        "MediaType": "Video",
+        "Etag": "one",
+    }
+    root = str(tmp_path)
+    playlists.apply_one(
+        api, mapping, None, video, state, playlist, {"Video"}, video_root=root
+    )
+    assert os.path.isfile(os.path.join(root, "UHD.m3u8"))
+    assert not os.path.isfile(os.path.join(root, "UHD (2).m3u8"))
+    text = open(os.path.join(root, "UHD.m3u8"), encoding="utf-8").read()
+    assert PLUGIN_FILE in text
+    assert PLUGIN_DIR + PLUGIN_FILE not in text
+
+    playlist["Etag"] = "two"
+    api._items["pl1"] = [
+        {"Id": "m1", "Type": "Movie"},
+        {"Id": "m1", "Type": "Movie"},
+    ]
+    playlists.apply_one(
+        api, mapping, None, video, state, playlist, {"Video"}, video_root=root
+    )
+    assert os.path.isfile(os.path.join(root, "UHD.m3u8"))
+    assert not os.path.isfile(os.path.join(root, "UHD (2).m3u8"))
+    assert state.get_playlist_state("pl1")[1] == "UHD.m3u8"
+
+
+def test_apply_one_does_not_steal_another_playlist_filename(tmp_path):
+    other = tmp_path / "UHD.m3u8"
+    other.write_text("#EXTM3U\n", encoding="utf-8")
+    api = FakeApi(items_by_id={"pl2": [{"Id": "m1", "Type": "Movie"}]})
+    mapping = FakeMapping({"m1": SimpleNamespace(media_type="movie", kodi_id=1)})
+    video = FakeVideo({("movie", 1): (PLUGIN_DIR, PLUGIN_FILE, "Aliens")})
+    state = FakeState()
+    playlist = {
+        "Id": "pl2",
+        "Name": "UHD",
+        "MediaType": "Video",
+        "Etag": "one",
+    }
+    playlists.apply_one(
+        api,
+        mapping,
+        None,
+        video,
+        state,
+        playlist,
+        {"Video"},
+        video_root=str(tmp_path),
+    )
+    assert os.path.isfile(str(other))
+    assert os.path.isfile(str(tmp_path / "UHD (2).m3u8"))
+    assert state.get_playlist_state("pl2")[1] == "UHD (2).m3u8"
 
 
 # --- the managed folder's own icon -------------------------------------------
