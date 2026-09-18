@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<addon id="plugin.video.kofin" name="Kofin" version="0.27.0" provider-name="kontell">
+<addon id="plugin.video.kofin" name="Kofin" version="0.28.0" provider-name="kontell">
   <requires>
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="script.module.requests" version="2.22.0+matrix.1"/>
@@ -100,6 +100,13 @@
       <item library="context_streams.py" args="subtitle">
         <label>30615</label>
         <visible>ListItem.IsPlaying + String.IsEqual(Window(Home).Property(kofin.playing.menu),subtitle)</visible>
+      </item>
+      <item library="context_playlist.py">
+        <label>30841</label>
+        <!-- Basic playlist files in Music/Video → Playlists. Smart playlists
+             (.xsp) are queries, not ordered lists, and are excluded by the
+             extension test. Square brackets for grouping. -->
+        <visible>[String.EndsWith(ListItem.FileNameAndPath,.m3u) | String.EndsWith(ListItem.FileNameAndPath,.m3u8)]</visible>
       </item>
     </menu>
   </extension>

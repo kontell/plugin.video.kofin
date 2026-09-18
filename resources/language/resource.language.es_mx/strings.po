@@ -1405,12 +1405,12 @@ msgid "Hand to a lyrics addon"
 msgstr "Pasar a un complemento de letras"
 
 msgctxt "#30611"
-msgid "Sync music playlists"
-msgstr "Sincronizar las listas de reproducción de música"
+msgid "Sync playlists"
+msgstr "Sincronizar listas de reproducción"
 
 msgctxt "#30612"
-msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
-msgstr "Descarga las listas de reproducción de música de Jellyfin en Kodi como listas nativas en Música → Listas de reproducción → Kofin."
+msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
+msgstr "Copia las listas de Jellyfin a Kodi como listas nativas. Las listas de música aparecen en Música → Listas de reproducción → Kofin si hay una biblioteca de música sincronizada; las de video en Videos → Listas de reproducción → Kofin si hay una de video. Las ediciones locales de esos archivos se sobrescriben al actualizar — usa \"Guardar en Jellyfin\" para enviar una lista local."
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -2175,3 +2175,19 @@ msgstr "Desactívalo si usas varias rutas plugin:// en los widgets de la skin. R
 msgctxt "#30840"
 msgid "Restart Kodi to apply this"
 msgstr "Reinicia Kodi para aplicar esto"
+
+msgctxt "#30841"
+msgid "Save to Jellyfin"
+msgstr "Guardar en Jellyfin"
+
+msgctxt "#30842"
+msgid "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist"
+msgstr "Esta lista mezcla audio y video y no se puede guardar como una sola lista de Jellyfin"
+
+msgctxt "#30843"
+msgid "Playlist saved to Jellyfin"
+msgstr "Lista guardada en Jellyfin"
+
+msgctxt "#30844"
+msgid "No library items in this playlist to save"
+msgstr "No hay elementos de la biblioteca en esta lista para guardar"

@@ -1405,12 +1405,12 @@ msgid "Hand to a lyrics addon"
 msgstr "交给歌词插件"
 
 msgctxt "#30611"
-msgid "Sync music playlists"
-msgstr "同步音乐播放列表"
+msgid "Sync playlists"
+msgstr "同步播放列表"
 
 msgctxt "#30612"
-msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
-msgstr "把 Jellyfin 音乐播放列表下载到 Kodi，作为原生播放列表放在 音乐 → 播放列表 → Kofin 下。"
+msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
+msgstr "将 Jellyfin 播放列表复制为 Kodi 原生播放列表。同步了音乐资料库时，音乐播放列表出现在 音乐 → 播放列表 → Kofin；同步了视频资料库时，视频播放列表出现在 视频 → 播放列表 → Kofin。这些文件的本地编辑会在刷新时被覆盖 — 使用 \"保存到 Jellyfin\" 将本地播放列表发回。"
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -2175,3 +2175,19 @@ msgstr "若皮肤小组件使用了多条 plugin:// 路径，请关闭此项。�
 msgctxt "#30840"
 msgid "Restart Kodi to apply this"
 msgstr "重启 Kodi 以应用此项"
+
+msgctxt "#30841"
+msgid "Save to Jellyfin"
+msgstr "保存到 Jellyfin"
+
+msgctxt "#30842"
+msgid "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist"
+msgstr "此播放列表混合了音频和视频，无法保存为单个 Jellyfin 播放列表"
+
+msgctxt "#30843"
+msgid "Playlist saved to Jellyfin"
+msgstr "播放列表已保存到 Jellyfin"
+
+msgctxt "#30844"
+msgid "No library items in this playlist to save"
+msgstr "此播放列表中没有可保存的资料库项目"

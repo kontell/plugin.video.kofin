@@ -44,7 +44,7 @@ import os
 import re
 import shutil
 import xml.etree.ElementTree as etree
-from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 import xbmcvfs
 
@@ -52,7 +52,9 @@ from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync.db import Database
+from kofin.sync.fields import reference_checksum
 from kofin.sync.kodidb import Music as MusicKodiDb
+from kofin.sync.kodidb import queries as video_queries
 from kofin.sync.nodes import fs
 
 LOG = Logger(__name__)
@@ -99,6 +101,18 @@ DOWNLOADED_MUSIC_XSP = "Downloaded music.xsp"
 # What tells a plugin row from a direct one (writers/music.py writes one or the
 # other into path.strPath, per the musicTranscode setting at sync time).
 PLUGIN_PREFIX = "plugin://"
+
+VIDEO_VIEW_TYPES = frozenset({"movies", "tvshows", "musicvideos"})
+AUDIO_ITEM_TYPES = frozenset({"Audio"})
+VIDEO_ITEM_TYPES = frozenset(
+    {"Movie", "Episode", "MusicVideo", "Video", "Trailer", "TvChannel"}
+)
+VIDEO_MEDIA_TYPES = frozenset({"movie", "episode", "musicvideo"})
+_VIDEO_ROW_QUERY = {
+    "movie": video_queries.get_movie_playlist_row,
+    "episode": video_queries.get_episode_playlist_row,
+    "musicvideo": video_queries.get_musicvideo_playlist_row,
+}
 
 # A stop for a server that over-reports ``TotalRecordCount`` and re-emits
 # earlier rows on later pages (seen live on the playlist *list* query — see
@@ -260,6 +274,21 @@ def join_song_path(str_path: str, str_filename: str) -> str:
     return path + filename
 
 
+def video_playlist_line(str_path: str, str_filename: str) -> str:
+    """The path ``CVideoDatabase::ConstructPath`` would produce for this row.
+
+    Plugin rows store the full plugin URL in ``files.strFilename``. Joining
+    path+filename doubles it (``plugin://…/plugin://…/?id=``), and Kodi's
+    library lookup then misses: the playlist item has no artwork, duration or
+    DBTYPE until playback stamps a ListItem. ``ConstructPath`` returns
+    ``strFileName`` unchanged when ``strPath`` is plugin (or the filename is
+    a stack). Everything else is the folder join.
+    """
+    if str_path.startswith(PLUGIN_PREFIX) or str_filename.startswith("stack://"):
+        return str_filename
+    return join_song_path(str_path, str_filename)
+
+
 def entry_label(entry: Entry) -> str:
     """The ``#EXTINF`` label Kodi writes for a library song: ``NN. Artist - Title``."""
     label = entry.title or ""
@@ -290,6 +319,99 @@ def _unique_stem(name: str, taken: Set[str]) -> str:
         n += 1
     taken.add(candidate.lower())
     return candidate
+
+
+def _m3u8_stems(directory: str, keep: Optional[str] = None) -> Set[str]:
+    """Stems already on disk that :func:`_unique_stem` must not reuse.
+
+    ``keep`` is this playlist's current filename: it is not a collision, it
+    is the name we want to keep. Seeding ``taken`` with it made every
+    membership rewrite pick ``Name (2).m3u8``, delete ``Name.m3u8``, and
+    ping-pong on the next event.
+    """
+    taken: Set[str] = set()
+    for name in _list_files(directory):
+        if not name.endswith(".m3u8"):
+            continue
+        if keep and name == keep:
+            continue
+        taken.add(os.path.splitext(name)[0].lower())
+    return taken
+
+
+def enabled_kinds(views: Iterable[Any], whitelist: Set[str]) -> Set[str]:
+    """Audio/Video sides that should materialize, from synced library kinds."""
+    kinds: Set[str] = set()
+    for view in views:
+        view_id = getattr(view, "view_id", None) or (
+            view.get("Id") if isinstance(view, dict) else None
+        )
+        media = getattr(view, "media_type", None) or (
+            view.get("media_type") if isinstance(view, dict) else None
+        )
+        if not view_id or view_id not in whitelist:
+            continue
+        if media == "music":
+            kinds.add("Audio")
+        elif media in VIDEO_VIEW_TYPES:
+            kinds.add("Video")
+    return kinds
+
+
+def playlist_side(media_type: str, items: Iterable[Dict[str, Any]]) -> Optional[str]:
+    """Audio or Video when the playlist is homogeneous; None to skip (mixed/empty type)."""
+    declared = media_type or ""
+    if declared not in ("Audio", "Video"):
+        return None
+    seen: Set[str] = set()
+    for item in items:
+        item_type = item.get("Type") or ""
+        if not item_type:
+            continue
+        if item_type in AUDIO_ITEM_TYPES:
+            seen.add("Audio")
+        elif item_type in VIDEO_ITEM_TYPES:
+            seen.add("Video")
+        else:
+            seen.add(item_type)
+        if len(seen) > 1:
+            return None
+    if seen and declared not in seen:
+        return None
+    return declared
+
+
+class VideoPlaylistDb:
+    """Path+title rows for mapped movies/episodes/musicvideos."""
+
+    def __init__(self, cursor: Any) -> None:
+        self.cursor = cursor
+
+    def get_playlist_row(self, kodi_id: int, media_type: str) -> Optional[Any]:
+        query = _VIDEO_ROW_QUERY.get(media_type)
+        if not query:
+            return None
+        self.cursor.execute(query, (kodi_id,))
+        return self.cursor.fetchone()
+
+
+def video_entry(
+    mapping: jellyfin_db.JellyfinDatabase, video: Any, jellyfin_id: str
+) -> Optional[Entry]:
+    """The playlist line for a mapped video id, or None if unsynced."""
+    row = mapping.get_item_by_id(jellyfin_id)
+    if row is None or row.media_type not in VIDEO_MEDIA_TYPES:
+        return None
+    path_row = video.get_playlist_row(row.kodi_id, row.media_type)
+    if path_row is None:
+        return None
+    str_path, str_filename = path_row[0], path_row[1]
+    if not str_path or not str_filename:
+        return None
+    return Entry(
+        path=video_playlist_line(str_path, str_filename),
+        title=path_row[2] or "",
+    )
 
 
 def song_entry(
@@ -351,10 +473,8 @@ def _read_text(path: str) -> Optional[str]:
 def _write_text(path: str, content: str) -> bool:
     """Write the file unless it already says this. True when it was written.
 
-    The refresh runs on a poll (see ``LibraryManager.poll_music_playlists``),
-    and a playlist nobody edited must not churn its mtime every time — skins
-    sort playlist folders by date, and a rewrite invalidates Kodi's directory
-    cache for the folder.
+    A playlist nobody edited must not churn its mtime — skins sort playlist
+    folders by date, and a rewrite invalidates Kodi's directory cache.
     """
     if _read_text(path) == content:
         return False
@@ -553,6 +673,343 @@ def refresh_with_databases(api: Any, root: Optional[str] = None) -> Dict[str, in
             mapping = jellyfin_db.JellyfinDatabase(kofindb_conn.cursor)
             music = MusicKodiDb(musicdb.cursor)
             return refresh_music_playlists(api, mapping, music, root=root)
+
+
+def _entries_for(
+    items: List[Dict[str, Any]],
+    side: str,
+    mapping: jellyfin_db.JellyfinDatabase,
+    music: Optional[MusicKodiDb],
+    video: Optional[Any],
+) -> Tuple[List[Entry], int]:
+    entries: List[Entry] = []
+    missing = 0
+    for item in items:
+        item_id = item.get("Id")
+        item_type = item.get("Type") or ""
+        if not item_id:
+            missing += 1
+            continue
+        if side == "Audio":
+            if item_type and item_type != "Audio":
+                missing += 1
+                continue
+            if music is None:
+                missing += 1
+                continue
+            entry = song_entry(mapping, music, item_id)
+        else:
+            if item_type and item_type not in VIDEO_ITEM_TYPES:
+                missing += 1
+                continue
+            if video is None:
+                missing += 1
+                continue
+            entry = video_entry(mapping, video, item_id)
+        if entry is None:
+            missing += 1
+            continue
+        entries.append(entry)
+    return entries, missing
+
+
+def write_playlist_file(
+    directory: str,
+    name: str,
+    entries: Iterable[Entry],
+    taken: Set[str],
+) -> Tuple[str, bool]:
+    """Write one .m3u8. Returns (filename, written)."""
+    stem = _unique_stem(name, taken)
+    filename = stem + ".m3u8"
+    path = os.path.join(directory, filename)
+    return filename, _write_text(path, render_m3u8(entries))
+
+
+def remove_managed_file(directory: str, filename: str) -> bool:
+    path = os.path.join(directory, filename)
+    if not filename or not os.path.isfile(path):
+        return False
+    try:
+        os.remove(path)
+        return True
+    except OSError:
+        LOG.exception("failed to remove managed playlist %s", filename)
+        return False
+
+
+def apply_one(
+    api: Any,
+    mapping: jellyfin_db.JellyfinDatabase,
+    music: Optional[MusicKodiDb],
+    video: Optional[Any],
+    state: jellyfin_db.JellyfinDatabase,
+    playlist: Dict[str, Any],
+    kinds: Set[str],
+    music_root: Optional[str] = None,
+    video_root: Optional[str] = None,
+) -> bool:
+    """Materialize one server playlist. True when a file was written or removed."""
+    playlist_id = playlist.get("Id") or ""
+    if not playlist_id:
+        return False
+    items = _iter_playlist_items(api, playlist_id)
+    side = playlist_side(playlist.get("MediaType") or "", items)
+    stored = state.get_playlist_state(playlist_id)
+    if side is None or side not in kinds:
+        if stored:
+            directory = (
+                managed_dir(music_root)
+                if stored[0] == "Audio"
+                else managed_video_dir() if video_root is None else video_root
+            )
+            remove_managed_file(directory, stored[1])
+            state.remove_playlist_state(playlist_id)
+            return True
+        return False
+
+    etag = playlist.get("Etag") or ""
+    checksum = reference_checksum(etag) if etag else ""
+    if stored and stored[0] == side and stored[2] == checksum:
+        return False
+
+    entries, missing = _entries_for(items, side, mapping, music, video)
+    directory = (
+        managed_dir(music_root)
+        if side == "Audio"
+        else (video_root if video_root is not None else managed_video_dir())
+    )
+    if not os.path.isdir(directory):
+        os.makedirs(directory)
+    write_folder_icon(directory)
+    keep = stored[1] if stored and stored[0] == side else None
+    taken = _m3u8_stems(directory, keep=keep)
+    filename, written = write_playlist_file(
+        directory, playlist.get("Name") or "playlist", entries, taken
+    )
+    if stored and stored[1] != filename:
+        remove_managed_file(directory, stored[1])
+    state.add_playlist_state(playlist_id, side, filename, checksum)
+    if missing:
+        LOG.info(
+            "playlist %s: %d item(s), %d not in the Kodi library",
+            playlist.get("Name"),
+            len(entries),
+            missing,
+        )
+    return written or bool(stored and stored[1] != filename)
+
+
+def remove_one(
+    state: jellyfin_db.JellyfinDatabase,
+    playlist_id: str,
+    music_root: Optional[str] = None,
+    video_root: Optional[str] = None,
+) -> bool:
+    stored = state.get_playlist_state(playlist_id)
+    if not stored:
+        return False
+    directory = (
+        managed_dir(music_root)
+        if stored[0] == "Audio"
+        else (video_root if video_root is not None else managed_video_dir())
+    )
+    removed = remove_managed_file(directory, stored[1])
+    state.remove_playlist_state(playlist_id)
+    return removed
+
+
+def reconcile(
+    api: Any,
+    mapping: jellyfin_db.JellyfinDatabase,
+    music: Optional[MusicKodiDb],
+    video: Optional[Any],
+    state: jellyfin_db.JellyfinDatabase,
+    kinds: Set[str],
+    music_root: Optional[str] = None,
+    video_root: Optional[str] = None,
+) -> Dict[str, int]:
+    """Full list + Etag skip + prune for the enabled sides."""
+    stats = {"playlists": 0, "written": 0, "tracks": 0, "skipped": 0, "pruned": 0}
+    if not kinds:
+        return stats
+
+    listed = api.playlists() if hasattr(api, "playlists") else api.music_playlists()
+    want_audio: Set[str] = set()
+    want_video: Set[str] = set()
+    taken_audio: Set[str] = set()
+    taken_video: Set[str] = set()
+
+    audio_dir = managed_dir(music_root)
+    video_dir = video_root if video_root is not None else managed_video_dir()
+    if "Audio" in kinds and not os.path.isdir(audio_dir):
+        os.makedirs(audio_dir)
+        write_folder_icon(audio_dir)
+    if "Video" in kinds and not os.path.isdir(video_dir):
+        os.makedirs(video_dir)
+        write_folder_icon(video_dir)
+
+    standing_audio = (
+        [name for name in _list_files(audio_dir) if name.endswith(".m3u8")]
+        if os.path.isdir(audio_dir)
+        else []
+    )
+    standing_video = (
+        [name for name in _list_files(video_dir) if name.endswith(".m3u8")]
+        if os.path.isdir(video_dir)
+        else []
+    )
+
+    if not listed:
+        if standing_audio or standing_video:
+            LOG.warning(
+                "playlists: the server listed none while managed "
+                "playlist(s) stand — skipping the prune rather than emptying "
+                "the folder"
+            )
+        return stats
+
+    for playlist in listed:
+        playlist_id = playlist.get("Id") or ""
+        if not playlist_id:
+            continue
+        items = _iter_playlist_items(api, playlist_id)
+        side = playlist_side(playlist.get("MediaType") or "", items)
+        if side is None or side not in kinds:
+            continue
+        etag = playlist.get("Etag") or ""
+        checksum = reference_checksum(etag) if etag else ""
+        stored = state.get_playlist_state(playlist_id)
+        directory = audio_dir if side == "Audio" else video_dir
+        taken = taken_audio if side == "Audio" else taken_video
+        want = want_audio if side == "Audio" else want_video
+        if stored and stored[0] == side and stored[2] == checksum and stored[1]:
+            want.add(stored[1])
+            taken.add(os.path.splitext(stored[1])[0].lower())
+            stats["playlists"] += 1
+            continue
+        entries, missing = _entries_for(items, side, mapping, music, video)
+        stats["tracks"] += len(entries)
+        stats["skipped"] += missing
+        filename, written = write_playlist_file(
+            directory, playlist.get("Name") or "playlist", entries, taken
+        )
+        if stored and stored[1] != filename:
+            remove_managed_file(directory, stored[1])
+            stats["pruned"] += 1
+        state.add_playlist_state(playlist_id, side, filename, checksum)
+        want.add(filename)
+        stats["playlists"] += 1
+        if written:
+            stats["written"] += 1
+        if missing:
+            LOG.info(
+                "playlist %s: %d item(s), %d not in the Kodi library",
+                playlist.get("Name"),
+                len(entries),
+                missing,
+            )
+
+    known = {row[0]: row for row in state.get_playlist_states()}
+    for playlist_id, media_type, filename, _checksum in list(known.values()):
+        if media_type == "Audio" and "Audio" in kinds and filename not in want_audio:
+            remove_managed_file(audio_dir, filename)
+            state.remove_playlist_state(playlist_id)
+            stats["pruned"] += 1
+        elif media_type == "Video" and "Video" in kinds and filename not in want_video:
+            remove_managed_file(video_dir, filename)
+            state.remove_playlist_state(playlist_id)
+            stats["pruned"] += 1
+
+    if "Audio" in kinds:
+        for existing in _list_files(audio_dir):
+            if existing.endswith(".tmp"):
+                try:
+                    os.remove(os.path.join(audio_dir, existing))
+                except OSError:
+                    pass
+                continue
+            if existing in (FOLDER_ICON, DOWNLOADED_MUSIC_XSP):
+                continue
+            if existing.endswith(".m3u8") and existing not in want_audio:
+                try:
+                    os.remove(os.path.join(audio_dir, existing))
+                    stats["pruned"] += 1
+                except OSError:
+                    LOG.exception("failed to prune managed playlist %s", existing)
+    if "Video" in kinds:
+        for existing in _list_files(video_dir):
+            if existing.endswith(".m3u8") and existing not in want_video:
+                try:
+                    os.remove(os.path.join(video_dir, existing))
+                    stats["pruned"] += 1
+                except OSError:
+                    LOG.exception("failed to prune managed playlist %s", existing)
+
+    LOG.info(
+        "playlists: %d playlist(s), %d rewritten, %d track(s), "
+        "%d skipped, %d pruned",
+        stats["playlists"],
+        stats["written"],
+        stats["tracks"],
+        stats["skipped"],
+        stats["pruned"],
+    )
+    return stats
+
+
+def cleanup_video_playlists(root: Optional[str] = None) -> int:
+    """Remove managed Jellyfin video .m3u8 files from the video Kofin folder.
+
+    Library smart playlists (.xsp) and the folder icon stay.
+    """
+    directory = root if root is not None else managed_video_dir()
+    if not os.path.isdir(directory):
+        return 0
+    removed = 0
+    for name in _list_files(directory):
+        if not name.endswith(".m3u8"):
+            continue
+        try:
+            os.remove(os.path.join(directory, name))
+            removed += 1
+        except OSError:
+            LOG.exception("failed to remove managed video playlist %s", name)
+    return removed
+
+
+def parse_m3u_paths(text: str) -> List[str]:
+    """Ordered file lines from an extended m3u, comments skipped."""
+    paths: List[str] = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        paths.append(line)
+    return paths
+
+
+def jellyfin_id_from_path(path: str, mapping: Any) -> Optional[str]:
+    """Jellyfin id encoded in a playlist line, or via kofin.db for musicdb/videodb."""
+    if not path:
+        return None
+    match = re.search(r"[?&]id=([0-9a-fA-F]{32})", path)
+    if match:
+        return match.group(1).lower()
+    match = re.search(r"/(?:Audio|Videos)/([0-9a-fA-F]{32})(?:/|$)", path)
+    if match:
+        return match.group(1).lower()
+    match = re.search(r"musicdb://songs/(\d+)", path)
+    if match and mapping is not None:
+        kodi_id = int(match.group(1))
+        found = mapping.get_item_by_kodi_id(kodi_id, "song")
+        return found if isinstance(found, str) else None
+    match = re.search(r"videodb://movies/titles/(\d+)", path)
+    if match and mapping is not None:
+        kodi_id = int(match.group(1))
+        found = mapping.get_item_by_kodi_id(kodi_id, "movie")
+        return found if isinstance(found, str) else None
+    return None
 
 
 # --- the video smart playlists (P2.1: moved here from views.py) -----------------

@@ -1405,12 +1405,12 @@ msgid "Hand to a lyrics addon"
 msgstr "Välitä sanoituslisäosalle"
 
 msgctxt "#30611"
-msgid "Sync music playlists"
-msgstr "Synkronoi musiikkisoittolistat"
+msgid "Sync playlists"
+msgstr "Synkronoi soittolistat"
 
 msgctxt "#30612"
-msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
-msgstr "Lataa Jellyfinin musiikkisoittolistat Kodiin natiiveiksi soittolistoiksi kohteeseen Musiikki → Soittolistat → Kofin."
+msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
+msgstr "Kopioi Jellyfin-soittolistat Kodiin natiiveina soittolistoina. Musiikkilistat näkyvät kohdassa Musiikki → Soittolistat → Kofin, kun musiikkikirjasto on synkronoitu; videolistat kohdassa Videot → Soittolistat → Kofin, kun videokirjasto on synkronoitu. Näiden tiedostojen paikalliset muokkaukset ylikirjoitetaan päivityksessä — käytä \"Tallenna Jellyfiniin\" paikallisen listan lähettämiseen."
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -2175,3 +2175,19 @@ msgstr "Poista käytöstä, jos skinin widgeteissä on useita plugin://-polkuja.
 msgctxt "#30840"
 msgid "Restart Kodi to apply this"
 msgstr "Käynnistä Kodi uudelleen, jotta tämä tulee voimaan"
+
+msgctxt "#30841"
+msgid "Save to Jellyfin"
+msgstr "Tallenna Jellyfiniin"
+
+msgctxt "#30842"
+msgid "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist"
+msgstr "Tämä soittolista sekoittaa ääntä ja videota eikä sitä voi tallentaa yhtenä Jellyfin-soittolistana"
+
+msgctxt "#30843"
+msgid "Playlist saved to Jellyfin"
+msgstr "Soittolista tallennettu Jellyfiniin"
+
+msgctxt "#30844"
+msgid "No library items in this playlist to save"
+msgstr "Tässä soittolistassa ei ole kirjaston kohteita tallennettavaksi"

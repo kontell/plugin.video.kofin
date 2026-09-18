@@ -73,6 +73,7 @@ ROUTES: Dict[str, Tuple[str, str]] = {
     "repairlibs": ("actions", "repair_libraries"),
     "refreshboxsets": ("actions", "refresh_boxsets"),
     "precacheart": ("actions", "precache_art"),
+    "saveplaylist": ("actions", "save_playlist"),
 }
 
 # The routes that answer a directory fetch themselves: they either build a

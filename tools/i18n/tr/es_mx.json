@@ -279,8 +279,8 @@
   "#30608": "Desactivado",
   "#30609": "Mostrar con Kofin Lyrics",
   "#30610": "Pasar a un complemento de letras",
-  "#30611": "Sincronizar las listas de reproducción de música",
-  "#30612": "Descarga las listas de reproducción de música de Jellyfin en Kodi como listas nativas en Música → Listas de reproducción → Kofin.",
+  "#30611": "Sincronizar listas de reproducción",
+  "#30612": "Copia las listas de Jellyfin a Kodi como listas nativas. Las listas de música aparecen en Música → Listas de reproducción → Kofin si hay una biblioteca de música sincronizada; las de video en Videos → Listas de reproducción → Kofin si hay una de video. Las ediciones locales de esos archivos se sobrescriben al actualizar — usa \"Guardar en Jellyfin\" para enviar una lista local.",
   "#30613": "Pistas de audio y subtítulos",
   "#30614": "Pista de audio",
   "#30615": "Subtítulos",
@@ -484,5 +484,9 @@
   "#30837": "Ver en sincronía con otros clientes de Jellyfin.",
   "#30838": "Reutilizar el invoker de lenguaje",
   "#30839": "Desactívalo si usas varias rutas plugin:// en los widgets de la skin. Requiere reiniciar Kodi.",
-  "#30840": "Reinicia Kodi para aplicar esto"
+  "#30840": "Reinicia Kodi para aplicar esto",
+  "#30841": "Guardar en Jellyfin",
+  "#30842": "Esta lista mezcla audio y video y no se puede guardar como una sola lista de Jellyfin",
+  "#30843": "Lista guardada en Jellyfin",
+  "#30844": "No hay elementos de la biblioteca en esta lista para guardar"
 }

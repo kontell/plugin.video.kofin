@@ -168,6 +168,12 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
     # upgrade migration.
     cursor.execute("""CREATE TABLE IF NOT EXISTS boxset_state(
         jellyfin_id TEXT PRIMARY KEY, linked_count INTEGER NOT NULL)""")
+    # Jellyfin playlists are Kodi files, not MyVideos/MyMusic rows, so they
+    # do not belong in the jellyfin mapping table (no kodi_id). checksum is
+    # the server Etag; filename is the basename under the managed folder.
+    cursor.execute("""CREATE TABLE IF NOT EXISTS playlist_state(
+        jellyfin_id TEXT PRIMARY KEY, media_type TEXT NOT NULL,
+        filename TEXT NOT NULL, checksum TEXT NOT NULL)""")
     # Offline downloads (docs/offline-downloads-plan.md, storage decisions).
     # Rows leave only on remove; ``state`` walks queued|active|done|failed.
     # ``series_id`` is denormalized so the tvshow tag injection is one

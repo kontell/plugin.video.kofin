@@ -272,9 +272,9 @@ class FullSync(object):
 
         elapsed = datetime.datetime.now() - start_time
 
-        # Music playlists are files, not MyMusic rows — refresh after a
+        # Playlists are files, not library rows — refresh after a
         # successful library pass when the setting is on. Soft-fail so a
-        # playlist error never fails the music library sync itself.
+        # playlist error never fails the library sync itself.
         self._maybe_refresh_music_playlists()
 
         if self.update_library:
@@ -290,17 +290,13 @@ class FullSync(object):
             LOG.info("Full sync completed in: %s", str(elapsed).split(".")[0])
 
     def _maybe_refresh_music_playlists(self):
-        """Rewrite ``playlists/music/Kofin/*.m3u8`` from the server (one-way)."""
+        """Rewrite managed playlist files from the server after a library walk."""
         if not settings.get_bool("syncMusicPlaylists"):
             return
         try:
-            from kofin.sync import playlists as music_playlists
-
-            with self.host.music_database_lock:
-                music_playlists.refresh_with_databases(self.server)
-            self.host.defer_playlist_poll()
+            self.host.sync_music_playlists()
         except Exception:
-            LOG.exception("music playlist refresh failed (library sync kept)")
+            LOG.exception("playlist refresh failed (library sync kept)")
 
     def process_libraries(self, libraries, failures):
         """Process libraries in order, recording completion after each.

@@ -18,6 +18,7 @@ class FakeHost:
         self.forced = []
         self.watermark_stamps = 0
         self.playlist_polls_deferred = 0
+        self.playlist_syncs = 0
         self.sync_failure_toasted = set()
 
     def claim(self):
@@ -48,3 +49,6 @@ class FakeHost:
 
     def defer_playlist_poll(self):
         self.playlist_polls_deferred += 1
+
+    def sync_music_playlists(self):
+        self.playlist_syncs += 1

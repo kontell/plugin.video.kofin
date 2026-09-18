@@ -279,8 +279,8 @@
   "#30608": "Av",
   "#30609": "Visa med Kofin Lyrics",
   "#30610": "Lämna till ett låttexttillägg",
-  "#30611": "Synka musikspellistor",
-  "#30612": "Hämta Jellyfins musikspellistor till Kodi som inbyggda spellistor under Musik → Spellistor → Kofin.",
+  "#30611": "Synka spellistor",
+  "#30612": "Kopiera Jellyfin-spellistor till Kodi som inbyggda spellistor. Musiklistor visas under Musik → Spellistor → Kofin när ett musikbibliotek synkas; videolistor under Video → Spellistor → Kofin när ett videobibliotek synkas. Lokala ändringar av de filerna skrivs över vid uppdatering — använd \"Spara till Jellyfin\" för att skicka en lokal lista.",
   "#30613": "Ljud- och undertextspår",
   "#30614": "Ljudspår",
   "#30615": "Undertexter",
@@ -484,5 +484,9 @@
   "#30837": "Titta synkroniserat med andra Jellyfin-klienter.",
   "#30838": "Återanvänd language invoker",
   "#30839": "Stäng av om du använder flera plugin://-sökvägar i skalets widgets. Kräver omstart av Kodi.",
-  "#30840": "Starta om Kodi för att tillämpa detta"
+  "#30840": "Starta om Kodi för att tillämpa detta",
+  "#30841": "Spara till Jellyfin",
+  "#30842": "Den här spellistan blandar ljud och video och kan inte sparas som en Jellyfin-spellista",
+  "#30843": "Spellista sparad till Jellyfin",
+  "#30844": "Inga biblioteksposter i den här spellistan att spara"
 }

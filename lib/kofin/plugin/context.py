@@ -523,6 +523,14 @@ def _offline_menu(item_id: str) -> None:
     xbmc.executebuiltin("RunPlugin(%s)" % plugin_url(params))
 
 
+def save_playlist() -> None:
+    """Context entry: save the focused basic playlist file to Jellyfin."""
+    path = xbmc.getInfoLabel("ListItem.FileNameAndPath")
+    xbmc.executebuiltin(
+        "RunPlugin(%s)" % plugin_url({"mode": "saveplaylist", "path": path})
+    )
+
+
 def manage() -> None:
     """Open the "Jellyfin actions" menu for the focused kofin item."""
     item_id = _focused_item_id()

@@ -46,6 +46,7 @@ ACTION_MODES = {
     "repairlibs",
     "refreshboxsets",
     "precacheart",
+    "saveplaylist",
 }
 
 

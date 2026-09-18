@@ -1405,12 +1405,12 @@ msgid "Hand to a lyrics addon"
 msgstr "Odovzdať doplnku na texty"
 
 msgctxt "#30611"
-msgid "Sync music playlists"
-msgstr "Synchronizovať hudobné zoznamy skladieb"
+msgid "Sync playlists"
+msgstr "Synchronizovať zoznamy skladieb"
 
 msgctxt "#30612"
-msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
-msgstr "Stiahne hudobné zoznamy skladieb z Jellyfinu do Kodi ako natívne zoznamy skladieb v Hudba → Zoznamy skladieb → Kofin."
+msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
+msgstr "Kopírovať zoznamy Jellyfin do Kodi ako natívne zoznamy. Hudobné sa objavia v Hudba → Zoznamy skladieb → Kofin, keď je synchronizovaná hudobná knižnica; video v Video → Zoznamy skladieb → Kofin, keď je synchronizovaná video knižnica. Miestne úpravy týchto súborov sa pri obnovení prepíšu — použite \"Uložiť do Jellyfin\" na odoslanie miestneho zoznamu."
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -2175,3 +2175,19 @@ msgstr "Vypnite, ak vo widgetoch vzhľadu používate viacero ciest plugin://. V
 msgctxt "#30840"
 msgid "Restart Kodi to apply this"
 msgstr "Reštartujte Kodi, aby sa to prejavilo"
+
+msgctxt "#30841"
+msgid "Save to Jellyfin"
+msgstr "Uložiť do Jellyfin"
+
+msgctxt "#30842"
+msgid "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist"
+msgstr "Tento zoznam mieša zvuk a video a nemožno ho uložiť ako jeden zoznam Jellyfin"
+
+msgctxt "#30843"
+msgid "Playlist saved to Jellyfin"
+msgstr "Zoznam uložený do Jellyfin"
+
+msgctxt "#30844"
+msgid "No library items in this playlist to save"
+msgstr "V tomto zozname nie sú položky knižnice na uloženie"

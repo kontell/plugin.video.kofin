@@ -279,8 +279,8 @@
   "#30608": "Pois",
   "#30609": "Näytä Kofin Lyricsillä",
   "#30610": "Välitä sanoituslisäosalle",
-  "#30611": "Synkronoi musiikkisoittolistat",
-  "#30612": "Lataa Jellyfinin musiikkisoittolistat Kodiin natiiveiksi soittolistoiksi kohteeseen Musiikki → Soittolistat → Kofin.",
+  "#30611": "Synkronoi soittolistat",
+  "#30612": "Kopioi Jellyfin-soittolistat Kodiin natiiveina soittolistoina. Musiikkilistat näkyvät kohdassa Musiikki → Soittolistat → Kofin, kun musiikkikirjasto on synkronoitu; videolistat kohdassa Videot → Soittolistat → Kofin, kun videokirjasto on synkronoitu. Näiden tiedostojen paikalliset muokkaukset ylikirjoitetaan päivityksessä — käytä \"Tallenna Jellyfiniin\" paikallisen listan lähettämiseen.",
   "#30613": "Ääni- ja tekstitysraidat",
   "#30614": "Ääniraita",
   "#30615": "Tekstitykset",
@@ -484,5 +484,9 @@
   "#30837": "Katso synkronissa muiden Jellyfin-asiakkaiden kanssa.",
   "#30838": "Käytä language invoker uudelleen",
   "#30839": "Poista käytöstä, jos skinin widgeteissä on useita plugin://-polkuja. Vaatii Kodin uudelleenkäynnistyksen.",
-  "#30840": "Käynnistä Kodi uudelleen, jotta tämä tulee voimaan"
+  "#30840": "Käynnistä Kodi uudelleen, jotta tämä tulee voimaan",
+  "#30841": "Tallenna Jellyfiniin",
+  "#30842": "Tämä soittolista sekoittaa ääntä ja videota eikä sitä voi tallentaa yhtenä Jellyfin-soittolistana",
+  "#30843": "Soittolista tallennettu Jellyfiniin",
+  "#30844": "Tässä soittolistassa ei ole kirjaston kohteita tallennettavaksi"
 }

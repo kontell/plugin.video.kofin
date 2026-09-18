@@ -1405,12 +1405,12 @@ msgid "Hand to a lyrics addon"
 msgstr "Przekaż dodatkowi do tekstów"
 
 msgctxt "#30611"
-msgid "Sync music playlists"
-msgstr "Synchronizuj listy odtwarzania muzyki"
+msgid "Sync playlists"
+msgstr "Synchronizuj listy odtwarzania"
 
 msgctxt "#30612"
-msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
-msgstr "Pobiera listy odtwarzania muzyki z Jellyfin do Kodi jako natywne listy odtwarzania w Muzyka → Listy odtwarzania → Kofin."
+msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
+msgstr "Kopiuj listy Jellyfin do Kodi jako natywne listy. Listy muzyczne pojawiają się w Muzyka → Listy odtwarzania → Kofin, gdy zsynchronizowana jest biblioteka muzyki; listy wideo w Wideo → Listy odtwarzania → Kofin, gdy zsynchronizowana jest biblioteka wideo. Lokalne zmiany tych plików są nadpisywane przy odświeżeniu — użyj \"Zapisz w Jellyfin\", aby wysłać lokalną listę."
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -2175,3 +2175,19 @@ msgstr "Wyłącz, jeśli w widżetach skóry używasz wielu ścieżek plugin://.
 msgctxt "#30840"
 msgid "Restart Kodi to apply this"
 msgstr "Uruchom ponownie Kodi, aby to zastosować"
+
+msgctxt "#30841"
+msgid "Save to Jellyfin"
+msgstr "Zapisz w Jellyfin"
+
+msgctxt "#30842"
+msgid "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist"
+msgstr "Ta lista miesza dźwięk i wideo i nie może być zapisana jako jedna lista Jellyfin"
+
+msgctxt "#30843"
+msgid "Playlist saved to Jellyfin"
+msgstr "Lista zapisana w Jellyfin"
+
+msgctxt "#30844"
+msgid "No library items in this playlist to save"
+msgstr "Brak elementów biblioteki na tej liście do zapisania"

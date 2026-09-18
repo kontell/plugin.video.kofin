@@ -1405,12 +1405,12 @@ msgid "Hand to a lyrics addon"
 msgstr "Doorgeven aan een songtekst-add-on"
 
 msgctxt "#30611"
-msgid "Sync music playlists"
-msgstr "Muziekafspeellijsten synchroniseren"
+msgid "Sync playlists"
+msgstr "Afspeellijsten synchroniseren"
 
 msgctxt "#30612"
-msgid "Download Jellyfin music playlists into Kodi as native playlists under Music → Playlists → Kofin."
-msgstr "Download Jellyfin-muziekafspeellijsten naar Kodi als eigen afspeellijsten onder Muziek → Afspeellijsten → Kofin."
+msgid "Copy Jellyfin playlists into Kodi as native playlists. Music playlists appear under Music → Playlists → Kofin when a music library is synced; video playlists appear under Videos → Playlists → Kofin when a video library is synced. Local edits of those files are overwritten on refresh — use \"Save to Jellyfin\" to push a local playlist the other way."
+msgstr "Kopieer Jellyfin-afspeellijsten naar Kodi als native afspeellijsten. Muzieklijsten verschijnen onder Muziek → Afspeellijsten → Kofin als een muziekbibliotheek is gesynchroniseerd; videolijsten onder Video's → Afspeellijsten → Kofin als een videobibliotheek is gesynchroniseerd. Lokale wijzigingen aan die bestanden worden bij vernieuwen overschreven — gebruik \"Opslaan in Jellyfin\" om een lokale lijst terug te sturen."
 
 msgctxt "#30613"
 msgid "Audio and subtitle streams"
@@ -2175,3 +2175,19 @@ msgstr "Schakel uit als je meerdere plugin://-paden in skinwidgets gebruikt. Ver
 msgctxt "#30840"
 msgid "Restart Kodi to apply this"
 msgstr "Herstart Kodi om dit toe te passen"
+
+msgctxt "#30841"
+msgid "Save to Jellyfin"
+msgstr "Opslaan in Jellyfin"
+
+msgctxt "#30842"
+msgid "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist"
+msgstr "Deze afspeellijst mengt audio en video en kan niet als één Jellyfin-afspeellijst worden opgeslagen"
+
+msgctxt "#30843"
+msgid "Playlist saved to Jellyfin"
+msgstr "Afspeellijst opgeslagen in Jellyfin"
+
+msgctxt "#30844"
+msgid "No library items in this playlist to save"
+msgstr "Geen bibliotheekitems in deze afspeellijst om op te slaan"

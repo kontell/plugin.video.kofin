@@ -279,8 +279,8 @@
   "#30608": "Wyłączone",
   "#30609": "Pokaż w Kofin Lyrics",
   "#30610": "Przekaż dodatkowi do tekstów",
-  "#30611": "Synchronizuj listy odtwarzania muzyki",
-  "#30612": "Pobiera listy odtwarzania muzyki z Jellyfin do Kodi jako natywne listy odtwarzania w Muzyka → Listy odtwarzania → Kofin.",
+  "#30611": "Synchronizuj listy odtwarzania",
+  "#30612": "Kopiuj listy Jellyfin do Kodi jako natywne listy. Listy muzyczne pojawiają się w Muzyka → Listy odtwarzania → Kofin, gdy zsynchronizowana jest biblioteka muzyki; listy wideo w Wideo → Listy odtwarzania → Kofin, gdy zsynchronizowana jest biblioteka wideo. Lokalne zmiany tych plików są nadpisywane przy odświeżeniu — użyj \"Zapisz w Jellyfin\", aby wysłać lokalną listę.",
   "#30613": "Ścieżki dźwiękowe i napisy",
   "#30614": "Ścieżka dźwiękowa",
   "#30615": "Napisy",
@@ -484,5 +484,9 @@
   "#30837": "Oglądaj w synchronizacji z innymi klientami Jellyfin.",
   "#30838": "Ponownie używaj language invokera",
   "#30839": "Wyłącz, jeśli w widżetach skóry używasz wielu ścieżek plugin://. Wymaga ponownego uruchomienia Kodi.",
-  "#30840": "Uruchom ponownie Kodi, aby to zastosować"
+  "#30840": "Uruchom ponownie Kodi, aby to zastosować",
+  "#30841": "Zapisz w Jellyfin",
+  "#30842": "Ta lista miesza dźwięk i wideo i nie może być zapisana jako jedna lista Jellyfin",
+  "#30843": "Lista zapisana w Jellyfin",
+  "#30844": "Brak elementów biblioteki na tej liście do zapisania"
 }

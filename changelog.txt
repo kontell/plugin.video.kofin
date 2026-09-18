@@ -1,3 +1,12 @@
+v0.28.0
+- Changed playlist sync from a poll to use KofinSyncQueue (needs Jellyfin V12)
+- Added syncing of video playlists
+- Added option to disable reuse of language invoker.
+- Added favorite episodes to dynamic library
+- Settings refactor
+- Fix ghost album artist
+- Fixed favorite episodes library node
+
 v0.27.0
 - Artist search added
 - Synced show libraries now have season descriptions (v22 only)

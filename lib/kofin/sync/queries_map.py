@@ -235,6 +235,26 @@ add_boxset_state = """
 INSERT OR REPLACE INTO      boxset_state(jellyfin_id, linked_count)
 VALUES                      (?, ?)
 """
+get_playlist_state = """
+SELECT      media_type, filename, checksum
+FROM        playlist_state
+WHERE       jellyfin_id = ?
+"""
+get_playlist_states = """
+SELECT      jellyfin_id, media_type, filename, checksum
+FROM        playlist_state
+"""
+add_playlist_state = """
+INSERT OR REPLACE INTO      playlist_state(jellyfin_id, media_type, filename, checksum)
+VALUES                      (?, ?, ?, ?)
+"""
+delete_playlist_state = """
+DELETE FROM     playlist_state
+WHERE           jellyfin_id = ?
+"""
+delete_playlist_states = """
+DELETE FROM     playlist_state
+"""
 add_view = """
 INSERT OR REPLACE INTO      view(view_id, view_name, media_type)
 VALUES                      (?, ?, ?)

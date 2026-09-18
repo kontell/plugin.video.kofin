@@ -148,6 +148,89 @@ def refresh_boxsets(request: Request) -> None:
     ipc.notify(ipc.REFRESH_BOXSETS, {})
 
 
+def save_playlist(request: Request) -> None:
+    """Push a local Kodi basic playlist to Jellyfin, then refresh the managed copy."""
+    import os
+
+    import xbmcvfs
+
+    path = request.params.get("path", "") or xbmc.getInfoLabel(
+        "ListItem.FileNameAndPath"
+    )
+    if not path or not path.lower().endswith((".m3u", ".m3u8")):
+        toast.show(settings.localized(30844), toast.WARNING)
+        return
+    from kofin.sync import kofindb as jellyfin_db
+    from kofin.sync import playlists as music_playlists
+    from kofin.sync.db import Database
+
+    translated = xbmcvfs.translatePath(path)
+    try:
+        with open(translated, "r", encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError:
+        LOG.exception("could not read playlist %s", path)
+        toast.show(settings.localized(30507), toast.ERROR)
+        return
+
+    lines = music_playlists.parse_m3u_paths(text)
+    api = _api()
+    ids: List[str] = []
+    sides = set()
+    skipped = 0
+    with Database("kofin") as kofindb:
+        mapping = jellyfin_db.JellyfinDatabase(kofindb.cursor)
+        for line in lines:
+            jellyfin_id = music_playlists.jellyfin_id_from_path(line, mapping)
+            if not jellyfin_id:
+                skipped += 1
+                continue
+            row = mapping.get_item_by_id(jellyfin_id)
+            if row is None:
+                skipped += 1
+                continue
+            if row.media_type == "song":
+                sides.add("Audio")
+            elif row.media_type in music_playlists.VIDEO_MEDIA_TYPES:
+                sides.add("Video")
+            else:
+                skipped += 1
+                continue
+            ids.append(jellyfin_id)
+    if not ids:
+        toast.show(settings.localized(30844), toast.WARNING)
+        return
+    if len(sides) != 1:
+        toast.show(settings.localized(30842), toast.WARNING)
+        return
+    media_type = sides.pop()
+    name = request.params.get("name") or ""
+    if not name:
+        name = os.path.splitext(os.path.basename(path.rstrip("/")))[0]
+    stored_id = ""
+    with Database("kofin") as kofindb:
+        mapping = jellyfin_db.JellyfinDatabase(kofindb.cursor)
+        for row in mapping.get_playlist_states():
+            if row[2] == os.path.basename(path):
+                stored_id = row[0]
+                break
+    try:
+        if stored_id:
+            api.replace_playlist_items(stored_id, ids)
+            playlist_id = stored_id
+        else:
+            created = api.create_playlist(name, ids, media_type)
+            playlist_id = (created or {}).get("Id") or ""
+    except JellyfinError as error:
+        LOG.warning("save playlist failed: %s", error)
+        toast.show(settings.localized(30507), toast.ERROR)
+        return
+    toast.show(settings.localized(30843))
+    if skipped:
+        LOG.info("save playlist %s: %d line(s) not in the Kodi library", name, skipped)
+    ipc.notify(ipc.SYNC_PLAYLISTS, {"Id": playlist_id} if playlist_id else {})
+
+
 def precache_art(request: Request) -> None:
     """Settings button: ask the service to seed the cast-image cache now.
 

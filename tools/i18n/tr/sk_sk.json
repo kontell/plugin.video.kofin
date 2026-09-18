@@ -279,8 +279,8 @@
   "#30608": "Vypnuté",
   "#30609": "Zobraziť pomocou Kofin Lyrics",
   "#30610": "Odovzdať doplnku na texty",
-  "#30611": "Synchronizovať hudobné zoznamy skladieb",
-  "#30612": "Stiahne hudobné zoznamy skladieb z Jellyfinu do Kodi ako natívne zoznamy skladieb v Hudba → Zoznamy skladieb → Kofin.",
+  "#30611": "Synchronizovať zoznamy skladieb",
+  "#30612": "Kopírovať zoznamy Jellyfin do Kodi ako natívne zoznamy. Hudobné sa objavia v Hudba → Zoznamy skladieb → Kofin, keď je synchronizovaná hudobná knižnica; video v Video → Zoznamy skladieb → Kofin, keď je synchronizovaná video knižnica. Miestne úpravy týchto súborov sa pri obnovení prepíšu — použite \"Uložiť do Jellyfin\" na odoslanie miestneho zoznamu.",
   "#30613": "Zvukové stopy a titulky",
   "#30614": "Zvuková stopa",
   "#30615": "Titulky",
@@ -484,5 +484,9 @@
   "#30837": "Sledujte synchronizovane s ostatnými klientmi Jellyfin.",
   "#30838": "Znova použiť language invoker",
   "#30839": "Vypnite, ak vo widgetoch vzhľadu používate viacero ciest plugin://. Vyžaduje reštart Kodi.",
-  "#30840": "Reštartujte Kodi, aby sa to prejavilo"
+  "#30840": "Reštartujte Kodi, aby sa to prejavilo",
+  "#30841": "Uložiť do Jellyfin",
+  "#30842": "Tento zoznam mieša zvuk a video a nemožno ho uložiť ako jeden zoznam Jellyfin",
+  "#30843": "Zoznam uložený do Jellyfin",
+  "#30844": "V tomto zozname nie sú položky knižnice na uloženie"
 }

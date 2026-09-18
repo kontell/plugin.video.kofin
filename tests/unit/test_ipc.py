@@ -209,6 +209,7 @@ def test_download_commands_are_guarded(nonce_file):
         ipc.DOWNLOAD_REMOVE,
         ipc.DOWNLOAD_REMOVE_ALL,
         ipc.ATTACH_SUBTITLE,
+        ipc.SYNC_PLAYLISTS,
     } <= ipc.GUARDED
     secret = ipc.rotate_nonce()
     assert ipc.verify(ipc.ATTACH_SUBTITLE, {}, secret) is False

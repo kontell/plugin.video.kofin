@@ -464,6 +464,7 @@ class GetItemWorker(threading.Thread):
         artwork_ids=None,
         fields=None,
         unapplied=None,
+        on_playlist=None,
         source=None,
     ):
 
@@ -489,6 +490,9 @@ class GetItemWorker(threading.Thread):
         # Callable(item_id, reason) for items downloaded but never handed to a
         # writer, so the library can schedule a recovery prune.
         self.unapplied = unapplied
+        # Playlist DTOs are not library content; the library thread writes
+        # the managed .m3u8 instead of a writer queue.
+        self.on_playlist = on_playlist
         threading.Thread.__init__(self)
 
     def _flag_error(self):
@@ -596,6 +600,8 @@ class GetItemWorker(threading.Thread):
                         if item.get("Id") in self.artwork_ids:
                             item["_artwork_only"] = True
                         self._put(self.output[item["Type"]], item)
+                    elif item["Type"] == "Playlist" and self.on_playlist is not None:
+                        self.on_playlist(item)
                     elif item["Type"] in NON_CONTENT_TYPES:
                         # Routine, not a failure: see NON_CONTENT_TYPES. Kept
                         # visible at debug so the feed stays traceable, but it
