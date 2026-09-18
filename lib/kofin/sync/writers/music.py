@@ -388,7 +388,14 @@ class Music(KodiDb):
     def artist_link(self, obj):
         """Assign main artists to album.
         Artist does not exist in jellyfin database, create the reference.
+
+        Deviation from the fork: replace the album's album_artist rows on
+        every rewrite, matching prune_song_credits. The fork only ever
+        added, so a credit AlbumArtists no longer carries (a MusicBrainz
+        conductor left on the album after the server went back to the
+        file tag) outlived every Etag change.
         """
+        credited = set()
         for artist in obj["AlbumArtists"] or []:
 
             temp_obj = dict(obj)
@@ -405,6 +412,9 @@ class Music(KodiDb):
             self.update_artist_name(*values(temp_obj, QU.update_artist_name_obj))
             self.link(*values(temp_obj, QU.update_link_obj))
             self.item_ids.append(temp_obj["Id"])
+            credited.add(temp_obj["ArtistId"])
+
+        self.prune_album_artists(obj["AlbumId"], credited)
 
     @stop
     @jellyfin_item
@@ -666,6 +676,7 @@ class Music(KodiDb):
         if album_title:
             album_title = self.get_album_title(obj["AlbumId"]) or album_title
 
+        credited = set()
         for artist in obj["AlbumArtists"] or []:
 
             temp_obj = dict(obj)
@@ -683,6 +694,7 @@ class Music(KodiDb):
 
             self.link(*values(temp_obj, QU.update_link_obj))
             self.item_ids.append(temp_obj["Id"])
+            credited.add(temp_obj["ArtistId"])
 
             if album_title:
 
@@ -696,6 +708,11 @@ class Music(KodiDb):
                 self.add_discography_if_absent(
                     *values(temp_obj, QU.update_discography_obj)
                 )
+
+        # A single's album never passes through artist_link, so this leg
+        # owns its album_artist rows and has to replace them the same way.
+        if obj["SongAlbumId"] is None:
+            self.prune_album_artists(obj["AlbumId"], credited)
 
         obj["AlbumArtists"] = artists
 

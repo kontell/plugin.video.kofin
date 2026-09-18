@@ -207,6 +207,21 @@ delete_discography = """
 DELETE FROM                 discography
 WHERE                       idArtist = ? AND strAlbum = ?
 """
+# Title alone is not identity: "Greatest Hits" repeats, and two singles
+# share the empty title. Only drop the row when no remaining album of
+# that title still links the artist.
+delete_discography_if_unlinked = """
+DELETE FROM                 discography
+WHERE                       idArtist = ?
+AND                         strAlbum = ?
+AND                         NOT EXISTS (
+                SELECT      1
+                FROM        album_artist aa
+                JOIN        album al ON al.idAlbum = aa.idAlbum
+                WHERE       aa.idArtist = discography.idArtist
+                AND         al.strAlbum = discography.strAlbum
+)
+"""
 get_discography = """
 SELECT                      1
 FROM                        discography
@@ -337,6 +352,16 @@ AND             idRole = 1
 get_album_artist_link = """
 SELECT          1
 FROM            album_artist
+WHERE           idAlbum = ?
+AND             idArtist = ?
+"""
+get_album_credits = """
+SELECT          idArtist
+FROM            album_artist
+WHERE           idAlbum = ?
+"""
+delete_album_credit = """
+DELETE FROM     album_artist
 WHERE           idAlbum = ?
 AND             idArtist = ?
 """

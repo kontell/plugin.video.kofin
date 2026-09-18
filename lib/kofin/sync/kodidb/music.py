@@ -331,6 +331,34 @@ class Music(Kodi):
 
         return stale
 
+    def prune_album_artists(self, album_id, keep):
+        """Drop the album's album_artist rows to artists outside ``keep``.
+
+        Same shape as prune_song_credits: the fork only ever added
+        (INSERT OR REPLACE keyed on artist and album never removes a row),
+        so a credit AlbumArtists no longer carried outlived every rewrite —
+        a MusicBrainz conductor left on the album after the server went
+        back to the file tag. Also drops that artist's discography row for
+        this album's title when no other album of the same name still
+        links them; otherwise the pruned name still lists the album.
+        Returns the artist ids removed.
+        """
+        self.cursor.execute(QU.get_album_credits, (album_id,))
+        stale = [row[0] for row in self.cursor.fetchall() if row[0] not in keep]
+
+        if not stale:
+            return stale
+
+        title = self.get_album_title(album_id)
+        for artist_id in stale:
+            self.cursor.execute(QU.delete_album_credit, (album_id, artist_id))
+            if title is not None:
+                self.cursor.execute(
+                    QU.delete_discography_if_unlinked, (artist_id, title)
+                )
+
+        return stale
+
     def song_credits_artist(self, song_id, artist_id):
         """True when the song already carries a role-1 credit for the artist."""
         self.cursor.execute(QU.get_song_credit, (song_id, artist_id))

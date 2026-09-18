@@ -199,6 +199,14 @@ What remains is kofin's own:
   `prune_song_credits` is what lets that rewrite drop the fallback credit: the fork only ever
   added to `song_artist`, and the incidental server-side recovery left every such track with
   two credits.
+- **An album's album-artist credits are replaced on every rewrite.** `artist_link` only ever
+  added (`INSERT OR REPLACE` keyed on artist+album never removes a row), so a credit
+  `AlbumArtists` no longer carries — a MusicBrainz conductor left on the album after the
+  server went back to the file tag — outlived every Etag change. `prune_album_artists` drops
+  the stale `album_artist` rows and that artist's discography row for this title when no
+  other album of the same name still links them. The song leg still *adds* album artists from
+  a track's `AlbumArtists` (discography for an album artist absent from `ArtistItems`); it
+  prunes only a single's synthetic album, which never passes through the album writer.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is

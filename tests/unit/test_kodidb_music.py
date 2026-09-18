@@ -392,6 +392,49 @@ def test_heal_missing_artists_skips_a_mapping_with_no_name(musicdb, tmp_path):
     assert 2 not in artists(cur)
 
 
+def test_prune_album_artists_drops_stale_links(musicdb):
+    cur, _conn = musicdb
+    db = Music(cur)
+    album = make_album(cur, "Má Vlast")
+    other = make_album(cur, "Má Vlast")
+    cur.execute("INSERT INTO artist(idArtist, strArtist) VALUES (2, 'Smetana')")
+    cur.execute("INSERT INTO artist(idArtist, strArtist) VALUES (3, 'Kubelik')")
+    for album_id, artist_id, name in (
+        (album, 2, "Smetana"),
+        (album, 3, "Kubelik"),
+        (other, 3, "Kubelik"),
+    ):
+        cur.execute(
+            "INSERT INTO album_artist(idArtist, idAlbum, iOrder, strArtist) "
+            "VALUES (?, ?, 0, ?)",
+            (artist_id, album_id, name),
+        )
+    cur.execute(
+        "INSERT INTO discography(idArtist, strAlbum, strYear) VALUES (2, 'Má Vlast', '1992')"
+    )
+    cur.execute(
+        "INSERT INTO discography(idArtist, strAlbum, strYear) VALUES (3, 'Má Vlast', '1992')"
+    )
+
+    assert db.prune_album_artists(album, {2}) == [3]
+    assert cur.execute(
+        "SELECT idArtist FROM album_artist WHERE idAlbum = ? ORDER BY idArtist",
+        (album,),
+    ).fetchall() == [(2,)]
+    # The other album of the same title still links Kubelik, so the
+    # discography row stays -- title alone is not identity.
+    assert cur.execute(
+        "SELECT idArtist FROM album_artist WHERE idAlbum = ?", (other,)
+    ).fetchall() == [(3,)]
+    assert cur.execute(
+        "SELECT idArtist FROM discography ORDER BY idArtist"
+    ).fetchall() == [(2,), (3,)]
+
+    assert db.prune_album_artists(other, set()) == [3]
+    assert cur.execute("SELECT idArtist FROM discography").fetchall() == [(2,)]
+    assert db.prune_album_artists(album, {2}) == []
+
+
 def test_pruning_spares_a_path_the_mapping_still_names(musicdb, tmp_path):
     """A downloaded song's server row: the repoint moved the song onto the
     album directory, so no song references the row -- but kofin.db does, and
