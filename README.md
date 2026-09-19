@@ -20,9 +20,9 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11 or later.
 - Multi-version movies as Kodi video versions
 - Flexible playback methods, direct play, remux or transcode. Choose supported HDR formats & max resolution
 - Jellyfin chapter images in Kodi's chapter list
+- Sync playlists
 - Transcode music
 - Jellyfin song lyrics via companion add-on
-- Sync music playlists
 - Edit Jellyfin user audio and subtitle preferences
 - Who's watching? - toggle additional users onto the session for multi-user watch state (persistent after restart)
 
