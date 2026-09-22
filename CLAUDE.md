@@ -118,10 +118,12 @@ What remains is kofin's own:
   doubles the URL and Kodi will not match the library row — no artwork, duration or DBTYPE
   until playback stamps a ListItem. `video_playlist_line` returns the filename unchanged
   when the path is `plugin://` (or the filename is a stack).
-- **`apply_one` must not put this playlist's stored stem in `_unique_stem`'s taken set.**
-  That set is collisions for *other* names. Seeding it with our own name made every
-  membership rewrite pick `Name (2).m3u8`, delete `Name.m3u8`, and ping-pong on the next
-  event.
+- **A playlist rewrite keeps the stored filename while the title still matches,**
+  including a disambiguated `Name (2).m3u8`. `_unique_stem`'s taken set is collisions
+  for *other* names. Seeding it with our own stem made every membership rewrite pick
+  `Name (2).m3u8` and ping-pong; recomputing the stem when the base name is not yet
+  reserved renames `Name (2).m3u8` onto whoever owns `Name.m3u8`. `apply_one` and
+  `reconcile` both go through `assign_playlist_filename`.
 - Every show's path row carries `strContent='tvshows'` + `metadata.local` **and**
   `useFolderNames=1`, and the episode object repeats the stamp.
 - **A boxset pass ending with zero linked members must not stamp its reference checksum** —

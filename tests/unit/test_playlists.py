@@ -75,6 +75,12 @@ class FakeState:
     def remove_playlist_state(self, jellyfin_id):
         self._rows.pop(jellyfin_id, None)
 
+    def get_playlist_states(self):
+        return [
+            (jellyfin_id, row[0], row[1], row[2])
+            for jellyfin_id, row in self._rows.items()
+        ]
+
 
 def test_safe_filename_keeps_unicode_and_strips_slashes():
     assert playlists.safe_filename("Road Trip") == "Road Trip"
@@ -479,6 +485,130 @@ def test_apply_one_does_not_steal_another_playlist_filename(tmp_path):
     assert os.path.isfile(str(other))
     assert os.path.isfile(str(tmp_path / "UHD (2).m3u8"))
     assert state.get_playlist_state("pl2")[1] == "UHD (2).m3u8"
+
+
+def _audio_playlist(name, etag, playlist_id="pl1"):
+    return {
+        "Id": playlist_id,
+        "Name": name,
+        "MediaType": "Audio",
+        "Etag": etag,
+    }
+
+
+def _audio_stack():
+    mapping = FakeMapping({"a1": SimpleNamespace(media_type="song", kodi_id=10)})
+    music = FakeMusic(
+        {10: ("http://s/Audio/a1/", "stream.flac?static=true", "Track", "A", 1, 60)}
+    )
+    return mapping, music
+
+
+def test_apply_one_keeps_a_music_filename_when_membership_changes(tmp_path):
+    """Same rule as the video rewrite: a track added must not mint Gym (2).m3u8."""
+    api = FakeApi(items_by_id={"pl1": [{"Id": "a1", "Type": "Audio"}]})
+    mapping, music = _audio_stack()
+    state = FakeState()
+    playlist = _audio_playlist("Gym", "one")
+    root = str(tmp_path)
+    playlists.apply_one(
+        api, mapping, music, None, state, playlist, {"Audio"}, music_root=root
+    )
+    assert os.path.isfile(os.path.join(root, "Gym.m3u8"))
+
+    playlist["Etag"] = "two"
+    api._items["pl1"] = [
+        {"Id": "a1", "Type": "Audio"},
+        {"Id": "a1", "Type": "Audio"},
+    ]
+    playlists.apply_one(
+        api, mapping, music, None, state, playlist, {"Audio"}, music_root=root
+    )
+    assert os.path.isfile(os.path.join(root, "Gym.m3u8"))
+    assert not os.path.isfile(os.path.join(root, "Gym (2).m3u8"))
+    assert state.get_playlist_state("pl1")[1] == "Gym.m3u8"
+
+
+def test_apply_one_keeps_a_disambiguated_music_filename(tmp_path):
+    """``Gym (2).m3u8`` stays put when the base name is free.
+
+    Recomputing the stem would rename it to ``Gym.m3u8`` and, on the next
+    event, bounce it back if ``Gym.m3u8`` reappears.
+    """
+    api = FakeApi(items_by_id={"pl2": [{"Id": "a1", "Type": "Audio"}]})
+    mapping, music = _audio_stack()
+    state = FakeState()
+    state.add_playlist_state(
+        "pl2", "Audio", "Gym (2).m3u8", playlists.reference_checksum("old")
+    )
+    (tmp_path / "Gym (2).m3u8").write_text("#EXTM3U\n", encoding="utf-8")
+    playlist = _audio_playlist("Gym", "new", playlist_id="pl2")
+    playlists.apply_one(
+        api,
+        mapping,
+        music,
+        None,
+        state,
+        playlist,
+        {"Audio"},
+        music_root=str(tmp_path),
+    )
+    assert os.path.isfile(str(tmp_path / "Gym (2).m3u8"))
+    assert not os.path.isfile(str(tmp_path / "Gym.m3u8"))
+    assert state.get_playlist_state("pl2")[1] == "Gym (2).m3u8"
+
+
+def test_reconcile_keeps_a_disambiguated_music_filename_on_update(tmp_path):
+    """The changed playlist is listed first, so the base name is not reserved yet."""
+    (tmp_path / "Gym.m3u8").write_text("#EXTM3U\nowned\n", encoding="utf-8")
+    (tmp_path / "Gym (2).m3u8").write_text("#EXTM3U\n", encoding="utf-8")
+    state = FakeState()
+    state.add_playlist_state(
+        "pl-base", "Audio", "Gym.m3u8", playlists.reference_checksum("same")
+    )
+    state.add_playlist_state(
+        "pl-two", "Audio", "Gym (2).m3u8", playlists.reference_checksum("old")
+    )
+    api = FakeApi(
+        playlist_list=[
+            _audio_playlist("Gym", "new", playlist_id="pl-two"),
+            _audio_playlist("Gym", "same", playlist_id="pl-base"),
+        ],
+        items_by_id={
+            "pl-two": [{"Id": "a1", "Type": "Audio"}],
+            "pl-base": [{"Id": "a1", "Type": "Audio"}],
+        },
+    )
+    mapping, music = _audio_stack()
+    playlists.reconcile(
+        api, mapping, music, None, state, {"Audio"}, music_root=str(tmp_path)
+    )
+    assert state.get_playlist_state("pl-two")[1] == "Gym (2).m3u8"
+    assert state.get_playlist_state("pl-base")[1] == "Gym.m3u8"
+    assert (tmp_path / "Gym.m3u8").read_text(encoding="utf-8") == "#EXTM3U\nowned\n"
+    assert (tmp_path / "Gym (2).m3u8").is_file()
+    rewritten = (tmp_path / "Gym (2).m3u8").read_text(encoding="utf-8")
+    assert "musicdb://songs/10.flac" in rewritten
+    assert "owned" not in rewritten
+
+
+def test_apply_one_renames_a_music_playlist_when_the_title_changes(tmp_path):
+    api = FakeApi(items_by_id={"pl1": [{"Id": "a1", "Type": "Audio"}]})
+    mapping, music = _audio_stack()
+    state = FakeState()
+    playlist = _audio_playlist("Gym", "one")
+    root = str(tmp_path)
+    playlists.apply_one(
+        api, mapping, music, None, state, playlist, {"Audio"}, music_root=root
+    )
+    playlist["Name"] = "Road Trip"
+    playlist["Etag"] = "two"
+    playlists.apply_one(
+        api, mapping, music, None, state, playlist, {"Audio"}, music_root=root
+    )
+    assert not os.path.isfile(os.path.join(root, "Gym.m3u8"))
+    assert os.path.isfile(os.path.join(root, "Road Trip.m3u8"))
+    assert state.get_playlist_state("pl1")[1] == "Road Trip.m3u8"
 
 
 # --- the managed folder's own icon -------------------------------------------

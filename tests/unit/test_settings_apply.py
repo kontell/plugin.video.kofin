@@ -655,14 +655,21 @@ def test_spurious_empty_sync_music_playlists_does_not_cleanup():
 
 
 def test_failed_settings_load_does_not_treat_bool_default_as_disable():
-    """When the settings document fails, booleans fall back to their default
-    (false) rather than "" — that must not fire CleanupMusicPlaylists."""
+    """A settings document that fails to load must not fire CleanupMusicPlaylists.
+
+    The live failure surfaced the boolean's then-default ``false`` rather than
+    ``""``. The default is true now; an unconfirmed false is still the read
+    that would wipe the folder, and the canary is what rejects it.
+    """
     service = FakeService()
     FakeAddon.store["syncMusicPlaylists"] = "true"
     FakeAddon.store["deviceId"] = "dev-1"
     applier = ready_applier(service)
 
-    FakeAddon.store["syncMusicPlaylists"] = "false"  # default, not a real edit
+    # Unconfirmed false, not a real edit. A failed settings load used to
+    # surface the boolean default; that default is now true, but a spurious
+    # false is still the read that would wipe the managed folder.
+    FakeAddon.store["syncMusicPlaylists"] = "false"
     FakeAddon.store["deviceId"] = ""  # canary proves the document did not load
     applier.apply()
     assert service.library.commands == []

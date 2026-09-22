@@ -47,6 +47,8 @@ EXCLUDE_TOP = {
     "tox.ini",
     "pyproject.toml",
     "requirements-dev.txt",
+    "README.md",
+    "CONTRIBUTING.md",
     ".gitignore",
     ".github",
     ".vscode",

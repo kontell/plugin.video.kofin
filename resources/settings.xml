@@ -319,7 +319,7 @@
         </setting>
         <setting id="syncMusicPlaylists" type="boolean" label="30611" help="30612">
           <level>0</level>
-          <default>false</default>
+          <default>true</default>
           <control type="toggle"/>
         </setting>
         <setting id="limitIndex" type="integer" label="30310" help="30311">
@@ -1408,7 +1408,7 @@
         </setting>
         <setting id="downloadsExportMetadata" type="boolean" label="30752" help="30753">
           <level>0</level>
-          <default>false</default>
+          <default>true</default>
           <dependencies>
             <dependency type="visible">
               <condition operator="is" setting="downloadsEnabled">true</condition>

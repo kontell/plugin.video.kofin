@@ -321,6 +321,43 @@ def _unique_stem(name: str, taken: Set[str]) -> str:
     return candidate
 
 
+def _stem_matches_title(name: str, filename: str) -> bool:
+    """True when ``filename`` is this title, or its ``Title (n)`` disambiguation.
+
+    A membership rewrite has to keep that file. Recomputing the stem against
+    a collision set that does not yet hold the base name turns
+    ``Title (2).m3u8`` back into ``Title.m3u8`` and clobbers whoever already
+    owns the base name — the same ping-pong as seeding ``taken`` with our
+    own stem, reached from the reconcile pass instead of ``apply_one``.
+    """
+    stem = os.path.splitext(filename)[0]
+    base = safe_filename(name)
+    if stem == base:
+        return True
+    prefix = base + " ("
+    if not (stem.startswith(prefix) and stem.endswith(")")):
+        return False
+    number = stem[len(prefix) : -1]
+    return number.isdigit() and int(number) >= 2
+
+
+def assign_playlist_filename(
+    name: str, taken: Set[str], stored_filename: Optional[str] = None
+) -> str:
+    """The .m3u8 name to write. Reuses ``stored_filename`` while the title matches.
+
+    ``taken`` is collisions for *other* names. This playlist's own stored
+    stem must not be in it: seeding ``_unique_stem`` with that stem made
+    every membership rewrite mint ``Name (2).m3u8``.
+    """
+    if stored_filename and _stem_matches_title(name, stored_filename):
+        stem = os.path.splitext(stored_filename)[0]
+        if stem.lower() not in taken:
+            taken.add(stem.lower())
+            return stored_filename
+    return _unique_stem(name, taken) + ".m3u8"
+
+
 def _m3u8_stems(directory: str, keep: Optional[str] = None) -> Set[str]:
     """Stems already on disk that :func:`_unique_stem` must not reuse.
 
@@ -718,10 +755,10 @@ def write_playlist_file(
     name: str,
     entries: Iterable[Entry],
     taken: Set[str],
+    stored_filename: Optional[str] = None,
 ) -> Tuple[str, bool]:
     """Write one .m3u8. Returns (filename, written)."""
-    stem = _unique_stem(name, taken)
-    filename = stem + ".m3u8"
+    filename = assign_playlist_filename(name, taken, stored_filename)
     path = os.path.join(directory, filename)
     return filename, _write_text(path, render_m3u8(entries))
 
@@ -785,7 +822,11 @@ def apply_one(
     keep = stored[1] if stored and stored[0] == side else None
     taken = _m3u8_stems(directory, keep=keep)
     filename, written = write_playlist_file(
-        directory, playlist.get("Name") or "playlist", entries, taken
+        directory,
+        playlist.get("Name") or "playlist",
+        entries,
+        taken,
+        stored_filename=keep,
     )
     if stored and stored[1] != filename:
         remove_managed_file(directory, stored[1])
@@ -891,8 +932,15 @@ def reconcile(
         entries, missing = _entries_for(items, side, mapping, music, video)
         stats["tracks"] += len(entries)
         stats["skipped"] += missing
+        # ``taken`` holds other playlists' stems only. Our stored name is not
+        # a collision — see assign_playlist_filename.
+        stored_name = stored[1] if stored and stored[0] == side else None
         filename, written = write_playlist_file(
-            directory, playlist.get("Name") or "playlist", entries, taken
+            directory,
+            playlist.get("Name") or "playlist",
+            entries,
+            taken,
+            stored_filename=stored_name,
         )
         if stored and stored[1] != filename:
             remove_managed_file(directory, stored[1])

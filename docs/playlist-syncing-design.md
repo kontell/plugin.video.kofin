@@ -17,7 +17,7 @@ Jellyfin Video playlists become `special://profile/playlists/video/Kofin/<Name>.
 
 Mixed playlists (members of more than one of Audio/Video, or MediaType not Audio/Video) are ignored.
 
-The setting id stays `syncMusicPlaylists` (retitled Sync playlists). Default false.
+The setting id stays `syncMusicPlaylists` (retitled Sync playlists). Default true.
 
 When it is on, music playlists materialize only if a music library is synced, and video playlists only if a movies/tvshows/musicvideos library is synced.
 

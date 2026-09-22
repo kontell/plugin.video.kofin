@@ -52,6 +52,7 @@ rsync -a --delete \
     --exclude 'docs' --exclude 'tests' --exclude 'tools' \
     --exclude 'mypy.ini' --exclude 'tox.ini' --exclude 'pyproject.toml' \
     --exclude 'requirements-dev.txt' \
+    --exclude 'README.md' --exclude 'CONTRIBUTING.md' \
     "$SRC/" "$DEST/"
 
 rpc() {
