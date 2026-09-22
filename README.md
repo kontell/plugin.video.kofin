@@ -33,10 +33,10 @@ Install via the [Kontell Repository](https://github.com/kontell/repository.konte
 ### Configuration
 
 - After install the addon appears under Add-ons -> Video add-ons -> Kofin.
-- Enter settings and open the Account tab, enter your server address and log in.
+- From settings enter your server address and log in.
 - Libraries can now be browsed in a similar manner to typical Kodi add-ons.
 - To sync libraries into the local Kodi database:
-    - From settings go to the Library tab, choose which server libraries to mirror. The background service syncs them into Kodi's library - the first sync can take a while, later ones are incremental.
+    - From settings go to the Library tab, choose which server libraries to mirror and the background service syncs them into Kodi's library.
 - See [wiki](https://github.com/kontell/plugin.video.kofin/wiki) for further details.
 
 ### Migration from Jellyfin-Kodi
