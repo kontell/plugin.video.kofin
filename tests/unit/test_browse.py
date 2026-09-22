@@ -1,3 +1,5 @@
+from urllib.parse import parse_qs, urlsplit
+
 import pytest
 
 import xbmcplugin
@@ -1041,6 +1043,17 @@ def test_search_with_no_type_is_a_menu_and_asks_nothing(monkeypatch, directory):
     assert len(paths) == len(browse.SEARCH_KINDS)
     for kind in browse.SEARCH_KINDS:
         assert any("type=%s" % kind in path for path in paths), kind
+    # Actors (people) directly under episodes; artists directly under songs.
+    kinds = [parse_qs(urlsplit(path).query)["type"][0] for path in paths]
+    assert kinds == [
+        "movies",
+        "tvshows",
+        "episodes",
+        "people",
+        "albums",
+        "songs",
+        "artists",
+    ]
     assert all(folder for _path, _li, folder in directory["entries"])
     assert directory["succeeded"] is True
 

@@ -180,24 +180,26 @@ TAG_MENU_MAX = 200
 # What search offers, as {type key: (Kodi core string id, IncludeItemTypes,
 # Kodi content type)}. Core string ids throughout — a feature whose every
 # label already exists in Kodi costs nothing in the 27 generated locales.
+# Order is the menu order. Actors (string 344) sit directly under episodes;
+# artists sit directly under songs.
 SEARCH_KINDS: Dict[str, Tuple[int, str, str]] = {
     "movies": (20342, "Movie", "movies"),
     "tvshows": (20343, "Series", "tvshows"),
     "episodes": (20360, "Episode", "episodes"),
-    "artists": (133, "MusicArtist", "artists"),
+    "people": (344, "", ""),
     "albums": (132, "MusicAlbum", "albums"),
     "songs": (134, "Audio", "songs"),
-    "people": (344, "", ""),
+    "artists": (133, "MusicArtist", "artists"),
 }
 
 SEARCH_ICONS = {
     "movies": "DefaultMovies.png",
     "tvshows": "DefaultTVShows.png",
     "episodes": "DefaultTVShows.png",
-    "artists": "DefaultMusicArtists.png",
+    "people": "DefaultActor.png",
     "albums": "DefaultMusicAlbums.png",
     "songs": "DefaultMusicSongs.png",
-    "people": "DefaultActor.png",
+    "artists": "DefaultMusicArtists.png",
 }
 
 # Search results are bounded on purpose: the caller is waiting on this fetch,

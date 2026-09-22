@@ -105,8 +105,11 @@
         <label>30841</label>
         <!-- Basic playlist files in Music/Video → Playlists. Smart playlists
              (.xsp) are queries, not ordered lists, and are excluded by the
-             extension test. Square brackets for grouping. -->
-        <visible>[String.EndsWith(ListItem.FileNameAndPath,.m3u) | String.EndsWith(ListItem.FileNameAndPath,.m3u8)]</visible>
+             extension test. The managed Kofin folders are the server's
+             playlists mirrored down; a local edit there is overwritten on
+             the next refresh, so "Save to Jellyfin" is the wrong direction
+             and stays off those paths. Square brackets for grouping. -->
+        <visible>[String.EndsWith(ListItem.FileNameAndPath,.m3u) | String.EndsWith(ListItem.FileNameAndPath,.m3u8)] + !String.Contains(ListItem.FileNameAndPath,playlists/music/Kofin/) + !String.Contains(ListItem.FileNameAndPath,playlists/video/Kofin/)</visible>
       </item>
     </menu>
   </extension>
