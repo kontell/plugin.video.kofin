@@ -13,7 +13,7 @@ Requires: Kodi 21 "Omega" or Kodi 22 "Piers". Jellyfin 10.11 or later.
 ## Features
 
 - Hands-off, resumable & robust [sync](docs/benchmark-report.md)
-- Downloads
+- Downloads (including transcoding)
 - SyncPlay, watch in sync with other Jellyfin clients
 - Integrated media segment skipping and play next episode prompt
 - Access movie special features/ extras
