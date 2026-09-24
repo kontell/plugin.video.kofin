@@ -240,6 +240,31 @@ def test_the_retired_download_settings_are_gone_from_the_schema():
     assert {"downloadsDeleteAfterWatching", "downloadsDeleteAutomatically"} <= ids
 
 
+def test_library_update_progress_leads_the_sync_tab():
+    """The toggle is first and on by default. The item threshold is visible
+    only while it is on, and the tab is one group — a second drew a separator
+    under Download threads."""
+    import xml.etree.ElementTree as etree
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    category = next(
+        element for element in root.iter("category") if element.get("id") == "sync"
+    )
+    assert len(list(category.iter("group"))) == 1
+    settings_in_tab = list(category.iter("setting"))
+    assert settings_in_tab[0].get("id") == "showLibraryUpdateProgress"
+    assert settings_in_tab[0].findtext("default") == "true"
+    assert settings_in_tab[1].get("id") == "syncProgressThreshold"
+    visible = [
+        condition.get("setting")
+        for dependency in settings_in_tab[1].iter("dependency")
+        if dependency.get("type") == "visible"
+        for condition in dependency.iter("condition")
+        if (condition.text or "").strip() == "true"
+    ]
+    assert visible == ["showLibraryUpdateProgress"]
+
+
 def test_the_downloads_category_stays_a_single_group():
     """Every control there bar the master toggle is gated visible on
     downloadsEnabled, and Kodi does not recompute a *group's* visibility

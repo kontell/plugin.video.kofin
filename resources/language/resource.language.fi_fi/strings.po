@@ -2191,3 +2191,11 @@ msgstr "Soittolista tallennettu Jellyfiniin"
 msgctxt "#30844"
 msgid "No library items in this playlist to save"
 msgstr "Tässä soittolistassa ei ole kirjaston kohteita tallennettavaksi"
+
+msgctxt "#30845"
+msgid "Show library update progress"
+msgstr "Näytä kirjaston päivityksen edistyminen"
+
+msgctxt "#30846"
+msgid "Show Kodi's library-update progress while the library syncs."
+msgstr "Näytä Kodin kirjastopäivityksen edistyminen synkronoinnin aikana."

@@ -141,6 +141,8 @@
   "#30270": "Ce biblioteci se actualizează?",
   "#30300": "Sincronizare",
   "#30301": "Cum sunt descărcate și scrise modificările bibliotecii.",
+  "#30845": "Afișează progresul actualizării bibliotecii",
+  "#30846": "Afișează progresul actualizării bibliotecii Kodi în timpul sincronizării.",
   "#30302": "Ascunde starea actualizării sub (elemente)",
   "#30303": "Ascunde progresul actualizării bibliotecii Kodi pentru sincronizări mai mici de atât. 0 îl afișează întotdeauna.",
   "#30306": "Sincronizează în timpul redării video",

@@ -141,6 +141,8 @@
   "#30270": "Które biblioteki zaktualizować?",
   "#30300": "Synchronizacja",
   "#30301": "Jak zmiany w bibliotece są pobierane i zapisywane.",
+  "#30845": "Pokaż postęp aktualizacji biblioteki",
+  "#30846": "Pokazuje pasek postępu aktualizacji biblioteki Kodi podczas synchronizacji.",
   "#30302": "Ukryj status aktualizacji poniżej (pozycji)",
   "#30303": "Ukrywa pasek postępu aktualizacji biblioteki Kodi dla synchronizacji mniejszych niż podana liczba. 0 pokazuje go zawsze.",
   "#30306": "Synchronizuj podczas odtwarzania wideo",

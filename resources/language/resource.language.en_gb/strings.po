@@ -2338,3 +2338,13 @@ msgstr ""
 msgctxt "#30844"
 msgid "No library items in this playlist to save"
 msgstr ""
+
+# 30845-30846 — Sync-tab toggle for Kodi's library-update progress bar.
+# #30302 (the item threshold) is visible only while this is on.
+msgctxt "#30845"
+msgid "Show library update progress"
+msgstr ""
+
+msgctxt "#30846"
+msgid "Show Kodi's library-update progress while the library syncs."
+msgstr ""

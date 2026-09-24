@@ -542,5 +542,7 @@
   "#30841": "Save to Jellyfin",
   "#30842": "This playlist mixes audio and video, which cannot be saved as one Jellyfin playlist",
   "#30843": "Playlist saved to Jellyfin",
-  "#30844": "No library items in this playlist to save"
+  "#30844": "No library items in this playlist to save",
+  "#30845": "Show library update progress",
+  "#30846": "Show Kodi's library-update progress while the library syncs."
 }

@@ -1024,6 +1024,13 @@ class Library(threading.Thread):
         state.set_sync_active(True)
         if epoch != self._progress_epoch or not self.pending_refresh:
             return
+        # Off takes a bar already up down on this tick. The item threshold
+        # does not: total_updates only grows, so a bar opened for a large
+        # sync stays up.
+        if not settings.get_bool("showLibraryUpdateProgress"):
+            if self.progress_updates is not None:
+                self.close_progress()
+            return
         if self.total_updates <= settings.get_int("syncProgressThreshold"):
             return
         queue_size = self.pending_items()

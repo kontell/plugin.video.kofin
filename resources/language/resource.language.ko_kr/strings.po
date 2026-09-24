@@ -2191,3 +2191,11 @@ msgstr "재생목록을 Jellyfin에 저장했습니다"
 msgctxt "#30844"
 msgid "No library items in this playlist to save"
 msgstr "이 재생목록에 저장할 라이브러리 항목이 없습니다"
+
+msgctxt "#30845"
+msgid "Show library update progress"
+msgstr "라이브러리 업데이트 진행 상황 표시"
+
+msgctxt "#30846"
+msgid "Show Kodi's library-update progress while the library syncs."
+msgstr "동기화하는 동안 Kodi의 라이브러리 업데이트 진행 표시를 보여 줍니다."

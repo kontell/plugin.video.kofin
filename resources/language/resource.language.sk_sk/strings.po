@@ -2191,3 +2191,11 @@ msgstr "Zoznam uložený do Jellyfin"
 msgctxt "#30844"
 msgid "No library items in this playlist to save"
 msgstr "V tomto zozname nie sú položky knižnice na uloženie"
+
+msgctxt "#30845"
+msgid "Show library update progress"
+msgstr "Zobraziť priebeh aktualizácie knižnice"
+
+msgctxt "#30846"
+msgid "Show Kodi's library-update progress while the library syncs."
+msgstr "Zobrazí priebeh aktualizácie knižnice v Kodi počas synchronizácie."

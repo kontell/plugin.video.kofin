@@ -2191,3 +2191,11 @@ msgstr "Lista mentve a Jellyfinbe"
 msgctxt "#30844"
 msgid "No library items in this playlist to save"
 msgstr "Nincs könyvtárelem ebben a listában a mentéshez"
+
+msgctxt "#30845"
+msgid "Show library update progress"
+msgstr "Médiatár-frissítés folyamatának megjelenítése"
+
+msgctxt "#30846"
+msgid "Show Kodi's library-update progress while the library syncs."
+msgstr "A Kodi médiatár-frissítési folyamatjelzőjének megjelenítése szinkronizálás közben."

@@ -141,6 +141,8 @@
   "#30270": "Welke bibliotheken bijwerken?",
   "#30300": "Synchronisatie",
   "#30301": "Hoe bibliotheekwijzigingen worden gedownload en weggeschreven.",
+  "#30845": "Voortgang van bibliotheekupdate tonen",
+  "#30846": "Toon Kodi's voortgangsweergave voor bibliotheekupdates tijdens het synchroniseren.",
   "#30302": "Statusweergave hieronder verbergen (items)",
   "#30303": "Verberg Kodi's voortgangsweergave voor bibliotheekupdates bij synchronisaties kleiner dan dit. 0 toont die altijd.",
   "#30306": "Synchroniseren tijdens het afspelen van video",

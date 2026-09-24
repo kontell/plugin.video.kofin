@@ -141,6 +141,8 @@
   "#30270": "Quines biblioteques voleu actualitzar?",
   "#30300": "Sincronització",
   "#30301": "Com es baixen i s'escriuen els canvis de la biblioteca.",
+  "#30845": "Mostra el progrés d'actualització de la biblioteca",
+  "#30846": "Mostra el progrés d'actualització de la biblioteca del Kodi mentre se sincronitza.",
   "#30302": "Amaga l'estat d'actualització per sota de (elements)",
   "#30303": "Amaga el progrés d'actualització de la biblioteca del Kodi per a sincronitzacions més petites que aquest valor. Amb 0 es mostra sempre.",
   "#30306": "Sincronitza durant la reproducció de vídeo",

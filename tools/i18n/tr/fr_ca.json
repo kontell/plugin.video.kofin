@@ -141,6 +141,8 @@
   "#30270": "Quelles bibliothèques mettre à jour?",
   "#30300": "Synchronisation",
   "#30301": "Comment les modifications de bibliothèque sont téléchargées et écrites.",
+  "#30845": "Afficher la progression de la mise à jour de la bibliothèque",
+  "#30846": "Affiche la progression de la mise à jour de bibliothèque de Kodi pendant la synchronisation.",
   "#30302": "Masquer l'état de mise à jour en dessous de (éléments)",
   "#30303": "Masque la progression de la mise à jour de bibliothèque de Kodi pour les synchronisations plus petites que cette valeur. 0 l'affiche toujours.",
   "#30306": "Synchroniser pendant la lecture vidéo",

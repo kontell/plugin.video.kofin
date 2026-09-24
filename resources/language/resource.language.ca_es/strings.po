@@ -2191,3 +2191,11 @@ msgstr "Llista desada a Jellyfin"
 msgctxt "#30844"
 msgid "No library items in this playlist to save"
 msgstr "No hi ha elements de la biblioteca en aquesta llista per desar"
+
+msgctxt "#30845"
+msgid "Show library update progress"
+msgstr "Mostra el progrés d'actualització de la biblioteca"
+
+msgctxt "#30846"
+msgid "Show Kodi's library-update progress while the library syncs."
+msgstr "Mostra el progrés d'actualització de la biblioteca del Kodi mentre se sincronitza."

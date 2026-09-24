@@ -2191,3 +2191,11 @@ msgstr "Lista guardada no Jellyfin"
 msgctxt "#30844"
 msgid "No library items in this playlist to save"
 msgstr "Não há itens da biblioteca nesta lista para guardar"
+
+msgctxt "#30845"
+msgid "Show library update progress"
+msgstr "Mostrar o progresso da atualização da biblioteca"
+
+msgctxt "#30846"
+msgid "Show Kodi's library-update progress while the library syncs."
+msgstr "Mostra o progresso de atualização da biblioteca do Kodi enquanto a biblioteca sincroniza."

@@ -299,9 +299,15 @@
       </group>
     </category>
 
-    <!-- Sync -->
+    <!-- Sync. One group on purpose: a second group drew a separator under
+         Download threads. -->
     <category id="sync" label="30300" help="30301">
       <group id="1">
+        <setting id="showLibraryUpdateProgress" type="boolean" label="30845" help="30846">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
         <setting id="syncProgressThreshold" type="integer" label="30302" help="30303">
           <level>0</level>
           <default>100</default>
@@ -310,6 +316,11 @@
             <step>20</step>
             <maximum>1000</maximum>
           </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="showLibraryUpdateProgress">true</condition>
+            </dependency>
+          </dependencies>
           <control type="slider" format="integer"/>
         </setting>
         <setting id="syncDuringPlay" type="boolean" label="30306" help="30307">
@@ -342,8 +353,6 @@
           </constraints>
           <control type="slider" format="integer"/>
         </setting>
-      </group>
-      <group id="2">
         <!-- Only offered alongside a resolution cap. Measured against 10.11:
              Quality=90 returns the original bytes for every artwork tested,
              because the server keeps the source when the requested quality is
