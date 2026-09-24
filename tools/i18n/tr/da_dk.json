@@ -141,6 +141,8 @@
   "#30270": "Hvilke biblioteker skal opdateres?",
   "#30300": "Synkronisering",
   "#30301": "Hvordan biblioteksændringer hentes og skrives.",
+  "#30845": "Vis status for biblioteksopdatering",
+  "#30846": "Vis Kodis statusvisning for biblioteksopdateringer, mens biblioteket synkroniseres.",
   "#30302": "Skjul opdateringsstatus under (elementer)",
   "#30303": "Skjul Kodis statusvisning for biblioteksopdateringer ved synkroniseringer, der er mindre end dette. 0 viser den altid.",
   "#30306": "Synkroniser under videoafspilning",

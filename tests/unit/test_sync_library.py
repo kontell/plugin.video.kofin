@@ -2514,6 +2514,54 @@ def test_progress_bar_closes_when_the_thread_raises_unexpectedly():
     assert manager.progress_updates is None
 
 
+class _RecordingProgress(_FakeProgress):
+    def __init__(self):
+        super().__init__()
+        self.created = None
+        self.updates = []
+
+    def create(self, heading, message=None):
+        self.created = (heading, message)
+
+    def update(self, percent, heading=None, message=None):
+        self.updates.append((percent, message))
+
+
+def test_the_progress_toggle_hides_the_bar_and_the_threshold_still_gates_it(
+    monkeypatch,
+):
+    """Off suppresses Kodi's library-update bar, including one already up.
+    On, a sync at or under the item threshold still draws nothing."""
+    manager, _api = make_library()
+    monkeypatch.setattr(library_mod.xbmcgui, "DialogProgressBG", _RecordingProgress)
+    manager.pending_refresh = True
+    manager.total_updates = 500
+    FakeAddon.store["syncProgressThreshold"] = "100"
+    FakeAddon.store["showLibraryUpdateProgress"] = "false"
+
+    manager._paint_progress()
+
+    assert manager.progress_updates is None
+    assert FakeWindow.store.get("kofin.sync.active") == "true"
+
+    FakeAddon.store["showLibraryUpdateProgress"] = "true"
+    manager._paint_progress()
+    bar = manager.progress_updates
+    assert isinstance(bar, _RecordingProgress)
+    assert bar.created is not None
+    assert bar.updates
+
+    FakeAddon.store["showLibraryUpdateProgress"] = "false"
+    manager._paint_progress()
+    assert bar.closed == 1
+    assert manager.progress_updates is None
+
+    FakeAddon.store["showLibraryUpdateProgress"] = "true"
+    manager.total_updates = 100
+    manager._paint_progress()
+    assert manager.progress_updates is None
+
+
 def test_closing_the_progress_bar_twice_is_harmless():
     """The drain block and the thread exit both route through the helper, and
     a failing close must never be what keeps a stopping thread alive."""

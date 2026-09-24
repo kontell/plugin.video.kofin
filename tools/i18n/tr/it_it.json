@@ -141,6 +141,8 @@
   "#30270": "Quali librerie aggiornare?",
   "#30300": "Sincronizzazione",
   "#30301": "Come vengono scaricate e scritte le modifiche alla libreria.",
+  "#30845": "Mostra l'avanzamento dell'aggiornamento della libreria",
+  "#30846": "Mostra l'avanzamento dell'aggiornamento libreria di Kodi durante la sincronizzazione.",
   "#30302": "Nascondi lo stato di aggiornamento sotto (elementi)",
   "#30303": "Nasconde l'avanzamento dell'aggiornamento libreria di Kodi per le sincronizzazioni più piccole di questo valore. 0 lo mostra sempre.",
   "#30306": "Sincronizza durante la riproduzione video",

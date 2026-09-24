@@ -141,6 +141,8 @@
   "#30270": "Mitkä kirjastot päivitetään?",
   "#30300": "Synkronointi",
   "#30301": "Miten kirjaston muutokset ladataan ja kirjoitetaan.",
+  "#30845": "Näytä kirjaston päivityksen edistyminen",
+  "#30846": "Näytä Kodin kirjastopäivityksen edistyminen synkronoinnin aikana.",
   "#30302": "Piilota päivityksen tila alle (kohdetta)",
   "#30303": "Piilota Kodin kirjastopäivityksen edistyminen tätä pienemmiltä synkronoinneilta. 0 näyttää sen aina.",
   "#30306": "Synkronoi videon toiston aikana",

@@ -141,6 +141,8 @@
   "#30270": "Welche Bibliotheken aktualisieren?",
   "#30300": "Synchronisation",
   "#30301": "Wie Bibliotheksänderungen heruntergeladen und geschrieben werden.",
+  "#30845": "Fortschritt der Bibliotheksaktualisierung anzeigen",
+  "#30846": "Kodis Fortschrittsanzeige für Bibliotheksaktualisierungen während der Synchronisation anzeigen.",
   "#30302": "Statusanzeige unten ausblenden (Einträge)",
   "#30303": "Kodis Fortschrittsanzeige für Bibliotheksaktualisierungen bei kleineren Synchronisationen ausblenden. 0 zeigt sie immer.",
   "#30306": "Während der Videowiedergabe synchronisieren",

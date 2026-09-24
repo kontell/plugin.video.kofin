@@ -141,6 +141,8 @@
   "#30270": "Ktoré knižnice aktualizovať?",
   "#30300": "Synchronizácia",
   "#30301": "Ako sa zmeny v knižnici sťahujú a zapisujú.",
+  "#30845": "Zobraziť priebeh aktualizácie knižnice",
+  "#30846": "Zobrazí priebeh aktualizácie knižnice v Kodi počas synchronizácie.",
   "#30302": "Skryť stav aktualizácie pod (položiek)",
   "#30303": "Skryje priebeh aktualizácie knižnice v Kodi pri synchronizáciách menších ako toto. 0 ho zobrazí vždy.",
   "#30306": "Synchronizovať počas prehrávania videa",

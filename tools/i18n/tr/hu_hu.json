@@ -141,6 +141,8 @@
   "#30270": "Mely médiatárakat frissítse?",
   "#30300": "Szinkronizálás",
   "#30301": "Hogyan töltődnek le és íródnak ki a médiatár változásai.",
+  "#30845": "Médiatár-frissítés folyamatának megjelenítése",
+  "#30846": "A Kodi médiatár-frissítési folyamatjelzőjének megjelenítése szinkronizálás közben.",
   "#30302": "Frissítési állapot elrejtése ez alatt (elem)",
   "#30303": "A Kodi médiatár-frissítési folyamatjelzőjének elrejtése az ennél kisebb szinkronizálásoknál. A 0 mindig megjeleníti.",
   "#30306": "Szinkronizálás videolejátszás közben",

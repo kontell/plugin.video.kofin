@@ -2191,3 +2191,11 @@ msgstr "Spellista sparad till Jellyfin"
 msgctxt "#30844"
 msgid "No library items in this playlist to save"
 msgstr "Inga biblioteksposter i den här spellistan att spara"
+
+msgctxt "#30845"
+msgid "Show library update progress"
+msgstr "Visa förlopp för biblioteksuppdatering"
+
+msgctxt "#30846"
+msgid "Show Kodi's library-update progress while the library syncs."
+msgstr "Visa Kodis förlopp för biblioteksuppdatering medan biblioteket synkas."

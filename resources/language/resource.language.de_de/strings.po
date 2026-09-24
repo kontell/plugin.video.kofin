@@ -2191,3 +2191,11 @@ msgstr "Wiedergabeliste in Jellyfin gespeichert"
 msgctxt "#30844"
 msgid "No library items in this playlist to save"
 msgstr "Keine Bibliothekseinträge in dieser Wiedergabeliste zum Speichern"
+
+msgctxt "#30845"
+msgid "Show library update progress"
+msgstr "Fortschritt der Bibliotheksaktualisierung anzeigen"
+
+msgctxt "#30846"
+msgid "Show Kodi's library-update progress while the library syncs."
+msgstr "Kodis Fortschrittsanzeige für Bibliotheksaktualisierungen während der Synchronisation anzeigen."

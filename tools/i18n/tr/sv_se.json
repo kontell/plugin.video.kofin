@@ -141,6 +141,8 @@
   "#30270": "Vilka bibliotek ska uppdateras?",
   "#30300": "Synk",
   "#30301": "Hur biblioteksändringar hämtas och skrivs.",
+  "#30845": "Visa förlopp för biblioteksuppdatering",
+  "#30846": "Visa Kodis förlopp för biblioteksuppdatering medan biblioteket synkas.",
   "#30302": "Dölj uppdateringsstatus under (objekt)",
   "#30303": "Dölj Kodis förlopp för biblioteksuppdatering för synkningar mindre än detta. 0 visar det alltid.",
   "#30306": "Synka under videouppspelning",
