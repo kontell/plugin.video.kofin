@@ -76,6 +76,29 @@ def test_resume_seconds_is_none_for_a_media_type_without_bookmarks(monkeypatch):
     assert kodirpc.resume_seconds(1, "tvshow") is None
 
 
+def test_video_file_reads_exact_library_path(monkeypatch):
+    seen = {}
+
+    def answer(query):
+        seen.update(json.loads(query))
+        return json.dumps(
+            {"result": {"episodedetails": {"file": "plugin://example/episode?dbid=42"}}}
+        )
+
+    monkeypatch.setattr("xbmc.executeJSONRPC", answer)
+    assert kodirpc.video_file(42, "episode") == "plugin://example/episode?dbid=42"
+    assert seen["method"] == "VideoLibrary.GetEpisodeDetails"
+    assert seen["params"] == {"episodeid": 42, "properties": ["file"]}
+
+
+def test_video_file_missing_row(monkeypatch):
+    monkeypatch.setattr(
+        "xbmc.executeJSONRPC",
+        responder({"error": {"code": -32602, "message": "Invalid params."}}),
+    )
+    assert kodirpc.video_file(42, "episode") is None
+
+
 def test_each_query_asks_the_matching_method(monkeypatch):
     for media, (method, id_field, result_field) in kodirpc.RESUME_QUERY.items():
         seen = {}

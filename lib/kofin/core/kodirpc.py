@@ -298,6 +298,20 @@ def resume_seconds(kodi_id: int, media: str) -> Optional[float]:
     return None if point is None else point[0]
 
 
+def video_file(kodi_id: int, media: str) -> Optional[str]:
+    """The playable path of a synced video row, or None if it is gone."""
+    query = RESUME_QUERY.get(media)
+    if query is None:
+        return None
+    method, id_field, result_field = query
+    result = call(method, {id_field: kodi_id, "properties": ["file"]})
+    try:
+        path = result[result_field]["file"]
+        return str(path) if path else None
+    except (KeyError, TypeError):
+        return None
+
+
 def preferred_subtitle_language() -> str:
     """Kodi's configured subtitle language as an ISO 639-2 code, or ''.
 

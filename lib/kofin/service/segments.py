@@ -827,13 +827,18 @@ class SegmentEngine:
         if nxt is None or not nxt.get("Id"):
             return
         from kofin.core.urls import plugin_url
+        from kofin.service.libraryclaim import library_video_path
 
         LOG.info("play next episode %s", nxt.get("Id"))
-        # Play Next always starts the next episode from the beginning — never at
-        # a stale server-side resume point, which would drop the viewer inside
-        # the credits (skipping the outro, not the intro).
-        url = plugin_url({"mode": "play", "id": str(nxt.get("Id")), "fromstart": "1"})
-        xbmc.executebuiltin('PlayMedia("%s")' % url)
+        # Kodi highlights a playing row by exact path. Use the synced row's
+        # current path (including a download repoint) if one exists; otherwise
+        # match kofin's dynamic listing path. The builtin's noresume option
+        # starts at zero without changing either path or asking to resume.
+        item_id = str(nxt["Id"])
+        url = library_video_path(item_id, "episode") or plugin_url(
+            {"mode": "play", "id": item_id}
+        )
+        xbmc.executebuiltin('PlayMedia("%s",noresume)' % url)
 
     def _notify(self, message: str, level: str = toast.INFO) -> None:
         toast.show(message, level, time_ms=3000)

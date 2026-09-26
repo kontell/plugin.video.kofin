@@ -6,6 +6,7 @@ import sys
 import pytest
 
 from kofin.plugin import context
+from kofin.service import libraryclaim
 from kofin.sync import db as sync_db
 from kofin.sync import kofindb
 from tests.unit.fakes import FakeAddon, FakeWindow
@@ -47,6 +48,24 @@ def test_lookup_item_id_unknown_row_is_empty():
     assert context.lookup_item_id(0, "movie") == ""
     assert context.lookup_item_id(-1, "movie") == ""
     assert context.lookup_item_id(12, "") == ""
+
+
+def test_library_video_path_uses_synced_mapping(monkeypatch):
+    seed_reference("episode1", 34, "episode", "Episode")
+    seen = []
+
+    def video_file(kodi_id, media):
+        seen.append((kodi_id, media))
+        return "plugin://plugin.video.kofin/library/?dbid=34&mode=play"
+
+    monkeypatch.setattr(libraryclaim.kodirpc, "video_file", video_file)
+    assert libraryclaim.library_video_path("episode1", "episode") == (
+        "plugin://plugin.video.kofin/library/?dbid=34&mode=play"
+    )
+    assert seen == [(34, "episode")]
+    assert libraryclaim.library_video_path("episode1", "movie") is None
+    assert libraryclaim.library_video_path("missing", "episode") is None
+    assert seen == [(34, "episode")]
 
 
 class FakeTag:
