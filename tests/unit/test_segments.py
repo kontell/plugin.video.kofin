@@ -128,6 +128,9 @@ class Engine:
         monkeypatch.setattr(self.player, "getTotalTime", lambda: self.total)
         monkeypatch.setattr(self.player, "seekTime", self.seeks.append)
         monkeypatch.setattr("xbmc.executebuiltin", self.builtins.append)
+        monkeypatch.setattr(
+            "kofin.service.libraryclaim.library_video_path", lambda *_args: None
+        )
 
         def fake_open_overlay(
             skip_label, skip_duration, next_label, next_info, on_skip, on_play_next
@@ -764,10 +767,19 @@ def test_credits_ask_with_next_episode_offers_all_three(engine):
     assert engine.segments._overlay_end == 1500.0
     overlay.on_play_next()
     # Play Next starts the next episode from the beginning, never a resume point.
-    assert any(
-        "mode=play" in b and "id=ep2" in b and "fromstart=1" in b
-        for b in engine.builtins
+    assert engine.builtins[-1] == (
+        'PlayMedia("plugin://plugin.video.kofin/?mode=play&id=ep2",noresume)'
     )
+
+
+def test_play_next_uses_synced_library_row_path(engine, monkeypatch):
+    path = "plugin://plugin.video.kofin/library/show/?id=ep2&dbid=42&mode=play"
+    monkeypatch.setattr(
+        "kofin.service.libraryclaim.library_video_path", lambda *_args: path
+    )
+    engine.arm([], next_episode=NEXT_EPISODE)
+    engine.segments._start_next_episode()
+    assert engine.builtins == ['PlayMedia("%s",noresume)' % path]
 
 
 def test_the_credits_overlay_hides_on_the_deadline_too(engine):

@@ -18,7 +18,7 @@ from uuid import uuid4
 import xbmc
 import xbmcgui
 
-from kofin.core import settings, state
+from kofin.core import kodirpc, settings, state
 from kofin.core.api import Api
 from kofin.core.log import Logger
 from kofin.core.segments import parse_segments
@@ -37,6 +37,27 @@ JsonDict = Dict[str, Any]
 # G13 gate). Both kinds check the play queue before claiming (see below), so
 # a plugin:// play that claims the normal way is never double-claimed.
 BACKFILL_MEDIA_TYPES = ("song", "movie", "episode")
+
+
+def library_video_path(jellyfin_id: str, media: str) -> Optional[str]:
+    """The exact path Kodi uses for a synced video item, when it has one.
+
+    The mapping supplies Kodi's row id; JSON-RPC supplies its current file
+    path, including a download repoint. A Play Next started with another URL
+    will play, but Kodi's ListItem.IsPlaying will not match the browsing row.
+    """
+    from kofin.sync.db import Database
+    from kofin.sync.kofindb import JellyfinDatabase
+
+    try:
+        with Database("kofin") as opened:
+            row = JellyfinDatabase(opened.cursor).get_item_by_id(jellyfin_id)
+        if row is None or row.media_type != media or not row.kodi_id:
+            return None
+        return kodirpc.video_file(int(row.kodi_id), media)
+    except Exception:
+        LOG.exception("library path unavailable for %s", jellyfin_id)
+        return None
 
 
 # A song played from a saved playlist is a bare ``musicdb://songs/<id><ext>``
