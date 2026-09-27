@@ -20,6 +20,12 @@
   </requires>
   <extension point="xbmc.python.pluginsource" library="default.py">
     <provides>video audio</provides>
+    <!-- Kodi's video-library cleaner asks the plugin whether its synced files
+         and scraper paths still exist. Without these declarations Kodi never
+         calls kodi_action=check_exists and removes the movie rows outright. -->
+    <medialibraryscanpath content="movies">/</medialibraryscanpath>
+    <medialibraryscanpath content="tvshows">/</medialibraryscanpath>
+    <medialibraryscanpath content="musicvideos">/</medialibraryscanpath>
   </extension>
   <extension point="xbmc.service" library="service.py" start="login"/>
   <extension point="kodi.context.item">

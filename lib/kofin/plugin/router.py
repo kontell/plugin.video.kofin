@@ -43,6 +43,7 @@ ROUTES: Dict[str, Tuple[str, str]] = {
     "search": ("browse", "search"),
     "lyrics": ("lyrics", "lyrics"),
     "play": ("play", "play"),
+    "check_exists": ("exists", "check_exists"),
     "syncplay": ("syncplay", "menu"),
     "findservers": ("serverpicker", "find_servers"),
     "login": ("account", "login"),
@@ -103,6 +104,7 @@ LISTING_MODES = frozenset(
         "search",
         "lyrics",
         "play",
+        "check_exists",
     }
 )
 
@@ -151,7 +153,14 @@ def dispatch(argv: List[str]) -> None:
 
     # Already unslashed by the query strip above, which is where a node path's
     # trailing slash is answered for every parameter rather than just this one.
-    mode = params.get("mode", "")
+    # Kodi's cleaner appends kodi_action to the stored play URL. It must win
+    # over mode=play: resolving a stream would start playback-side work and
+    # make a library clean depend on Jellyfin being online.
+    mode = (
+        "check_exists"
+        if params.get("kodi_action") == "check_exists"
+        else params.get("mode", "")
+    )
     handler = _resolve(mode)
     LOG.debug("dispatch mode=%s params=%s handle=%s", mode or "<root>", params, handle)
     builds_listing = mode in LISTING_MODES
