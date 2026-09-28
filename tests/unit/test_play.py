@@ -883,7 +883,7 @@ def test_play_state_carries_what_the_stream_menu_needs(resume_env):
     from kofin.core import state
 
     run_play({"id": "ep1", "dbid": "77"}, resume=False)
-    queued = state.claim_play_item("")
+    queued = state.claim_play_item(resume_env["li"].path)
     published = queued["Streams"]
     # Summarized, not the raw MediaStreams: this rides a window property.
     assert [stream["Index"] for stream in published["MediaStreams"]] == [1, 2]
@@ -951,7 +951,7 @@ def test_the_downloaded_play_claims_the_playback(downloaded_env):
     from kofin.core import state
 
     run_play({"id": "ep1"}, resume=False)
-    queued = state.claim_play_item("")
+    queued = state.claim_play_item(downloaded_env["li"].path)
     assert queued["Id"] == "ep1"
     assert queued["Path"] == "/dl/ep1.mp4"
     assert queued["PlayMethod"] == "DirectPlay"
@@ -970,7 +970,7 @@ def test_the_downloaded_play_starts_where_the_group_is(downloaded_env):
 
     run_play({"id": "ep1", "startticks": str(471 * 10_000_000)}, resume=False)
     assert downloaded_env["built"]["resume_seconds"] == 471.0
-    assert state.claim_play_item("")["CurrentPosition"] == 471.0
+    assert state.claim_play_item(downloaded_env["li"].path)["CurrentPosition"] == 471.0
 
 
 @pytest.mark.parametrize(

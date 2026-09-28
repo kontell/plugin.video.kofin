@@ -142,8 +142,7 @@ def is_offline() -> bool:
 # read-modify-written, which across processes is a race with no lock available
 # (audit finding #12): a claim landing inside the plugin's read/write window
 # resurrects the entry it just took, and a push landing inside the service's
-# loses the new one, whose playback is then never claimed or reported, while
-# claim's oldest-entry fallback attributes the *wrong* item to it.
+# loses the new one, whose playback is then never claimed or reported.
 #
 # One file per entry removes the shared structure: nobody rewrites anybody
 # else's data, and ``os.remove`` is the claim — the filesystem guarantees
@@ -154,8 +153,7 @@ PLAY_QUEUE_DIR = "special://profile/addon_data/plugin.video.kofin/playqueue"
 
 # How long an unclaimed entry survives. A play that resolved but never reached
 # the player (a failed stream, a Kodi that never started it) would otherwise
-# sit there forever and be adopted by an unrelated later playback through the
-# oldest-entry fallback.
+# sit there forever.
 PLAY_QUEUE_TTL_SECONDS = 600
 
 
@@ -211,27 +209,25 @@ def push_play_item(item: Dict[str, Any]) -> None:
 
 
 def claim_play_item(path: str) -> Optional[Dict[str, Any]]:
-    """Take the queued entry for ``path``, or the oldest entry as fallback.
+    """Take only a queued entry for the file Kodi actually started.
 
     The removal is the claim: whoever unlinks the file owns that entry, and
-    a loser simply moves on to the next candidate.
+    a loser simply moves on to the next candidate. An unrelated queued play
+    must not be reported as this one if its stream never started.
     """
     files = _queue_files()
     if not files:
         return None
 
     matching = []
-    fallback = None
     for entry_path in files:
         item = _read_entry(entry_path)
         if item is None:
             continue
         if item.get("Path") == path:
             matching.append((entry_path, item))
-        elif fallback is None:
-            fallback = (entry_path, item)
 
-    for entry_path, item in matching + ([fallback] if fallback else []):
+    for entry_path, item in matching:
         try:
             os.remove(entry_path)
         except OSError:

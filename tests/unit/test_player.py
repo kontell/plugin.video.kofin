@@ -385,6 +385,90 @@ def test_song_playback_is_claimed_via_backfill(monkeypatch):
     assert claimed["MediaSourceId"] == "src-1"
 
 
+def test_delayed_song_announcement_cannot_claim_the_next_song(monkeypatch):
+    """The reporter may handle OnPlay after Kodi has moved to another URL."""
+    from kofin.service import player as player_mod
+
+    old_id = "a" * 32
+    new_id = "b" * 32
+    _map_song(monkeypatch, jellyfin_id=old_id)
+    api = LookupApi()
+    path = "http://s/Audio/%s/stream.flac" % new_id
+    monkeypatch.setattr(
+        "xbmc.Player",
+        lambda: type("P", (), {"getPlayingFile": lambda self: path})(),
+    )
+
+    assert (
+        player_mod.backfill_library_claim(
+            {"item": {"id": 55, "type": "song"}}, api  # type: ignore[arg-type]
+        )
+        is False
+    )
+    assert api.item_requests == []
+    assert state.claim_play_item(path) is None
+
+
+def test_failed_movie_resolve_does_not_report_over_a_song(monkeypatch):
+    """A song starts after a queued movie fails, as observed on the Bravia."""
+    from kofin.service import player as player_mod
+
+    song_id = "a" * 32
+    path = "http://s/Audio/%s/stream.flac" % song_id
+    player, _ = make_player(monkeypatch, url=path)
+    api = LookupApi(
+        item={
+            "Id": song_id,
+            "Type": "Audio",
+            "RunTimeTicks": 1800000000,
+            "MediaSources": [{"Id": "src-1"}],
+        }
+    )
+    player.api = api  # type: ignore[assignment]
+    _map_song(monkeypatch, jellyfin_id=song_id)
+    monkeypatch.setattr("xbmc.Player", lambda: player)
+    state.push_play_item({"Path": "http://s/Videos/movie/stream", "Id": "movie"})
+
+    assert player_mod.backfill_library_claim(
+        {"item": {"id": 55, "type": "song"}}, api  # type: ignore[arg-type]
+    )
+    player.onPlayBackStarted()
+    drain(player)
+
+    assert api.calls[0][0] == "playing"
+    assert api.calls[0][1]["ItemId"] == song_id
+    assert state.play_item_queued("http://s/Videos/movie/stream") is True
+
+
+def test_song_that_changes_during_backfill_is_not_left_queued(monkeypatch):
+    from kofin.service import player as player_mod
+
+    song_id = "a" * 32
+    _map_song(monkeypatch, jellyfin_id=song_id)
+    path = "http://s/Audio/%s/stream.flac" % song_id
+    current = [path]
+    monkeypatch.setattr(
+        "xbmc.Player",
+        lambda: type("P", (), {"getPlayingFile": lambda self: current[0]})(),
+    )
+
+    class SlowApi(LookupApi):
+        def item(self, item_id):
+            result = super().item(item_id)
+            current[0] = "http://s/Audio/%s/stream.flac" % ("b" * 32)
+            return result
+
+    api = SlowApi()
+    assert (
+        player_mod.backfill_library_claim(
+            {"item": {"id": 55, "type": "song"}}, api  # type: ignore[arg-type]
+        )
+        is False
+    )
+    assert api.item_requests == [song_id]
+    assert state.claim_play_item(path) is None
+
+
 def test_plugin_song_is_not_claimed_twice_when_still_queued(monkeypatch):
     """musicTranscode on: the play route queued this playback already, and the
     OnPlay notification must not add a second entry."""
