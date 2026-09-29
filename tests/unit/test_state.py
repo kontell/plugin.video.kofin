@@ -42,11 +42,13 @@ def test_claim_by_path_match():
     assert state.claim_play_item("http://a") is None
 
 
-def test_claim_falls_back_to_oldest():
-    state.push_play_item({"Path": "http://a", "Id": "1"})
-    state.push_play_item({"Path": "http://b", "Id": "2"})
-    claimed = state.claim_play_item("http://other")
-    assert claimed is not None and claimed["Id"] == "1"
+def test_unrelated_play_does_not_claim_a_failed_resolve():
+    """A movie resolve can fail while Kodi starts a song (Bravia, 2026-09-28)."""
+    state.push_play_item({"Path": "http://s/Videos/movie/stream", "Id": "movie"})
+    song = "http://s/Audio/song/stream.flac"
+
+    assert state.claim_play_item(song) is None
+    assert state.play_item_queued("http://s/Videos/movie/stream") is True
 
 
 def test_claim_on_empty_and_garbage(tmp_path, monkeypatch):
@@ -118,9 +120,7 @@ def test_a_push_during_a_claim_is_never_lost():
     assert fresh is not None and fresh["Id"] == "new"
 
 
-def test_stale_entries_expire_rather_than_being_adopted():
-    """An entry whose playback never started would otherwise be handed to an
-    unrelated later play by the oldest-entry fallback."""
+def test_stale_entries_expire_without_disturbing_a_fresh_claim():
     import os
 
     directory = state._queue_dir()
@@ -132,7 +132,7 @@ def test_stale_entries_expire_rather_than_being_adopted():
     state.push_play_item({"Path": "http://fresh", "Id": "fresh"})
 
     assert state.play_item_queued("http://ancient") is False
-    claimed = state.claim_play_item("http://unrelated")
+    claimed = state.claim_play_item("http://fresh")
     assert claimed is not None and claimed["Id"] == "fresh"
 
 

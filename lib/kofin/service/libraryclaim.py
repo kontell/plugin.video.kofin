@@ -308,10 +308,19 @@ def backfill_library_claim(data: JsonDict, api: Api) -> bool:
     if not jellyfin_id:
         return False
 
+    # The announcement names the item at event time, but its network-backed
+    # back-fill runs later on the reporter thread. Kodi may already be playing
+    # the next song. Never attach the old item's id to the new song's path.
+    if media == "song":
+        path_id = _ID_IN_PATH.search(path)
+        if path_id and (path_id.group(1) or path_id.group(2)) != jellyfin_id:
+            return False
+        path_kodi_id = musicdb_song_id(path)
+        if path_kodi_id is not None and path_kodi_id != kodi_id:
+            return False
+
     # With ``musicTranscode`` on, songs are plugin:// rows that claim
-    # themselves through the play route, and a second claim here would be left
-    # in the queue for the next playback to adopt via claim_play_item's
-    # oldest-entry fallback. Both orderings have to be caught: this
+    # themselves through the play route. Both orderings have to be caught: this
     # notification can land before onPlayBackStarted claims (the entry is
     # still queued) or after it (the entry is gone, but the player has
     # published what it is playing). Testing the play state rather than the
@@ -333,6 +342,13 @@ def backfill_library_claim(data: JsonDict, api: Api) -> bool:
             # claims from local state (W4.7).
             claim = _offline_claim(jellyfin_id, media, path)
     if claim is None:
+        return False
+    # The fetch above can outlive a short song or a rapid skip. A claim for
+    # that finished play has no consumer and must not wait for a later one.
+    try:
+        if xbmc.Player().getPlayingFile() != path:
+            return False
+    except RuntimeError:
         return False
     LOG.info("--> library claim %s (%s)", claim["Id"], media)
     _attach_cached_segments(claim)

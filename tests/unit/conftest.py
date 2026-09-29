@@ -14,8 +14,7 @@ def play_queue_dir(tmp_path, monkeypatch):
     The queue is a directory of claimable files rather than a window property
     (core/state.py), so every test that resolves or claims a playback needs a
     real place to put them — and needs it isolated, since claiming is a
-    filesystem operation and entries left by one test would be adopted by the
-    next through the oldest-entry fallback.
+    filesystem operation and entries left by one test would affect the next.
     """
     from kofin.core import state
 
