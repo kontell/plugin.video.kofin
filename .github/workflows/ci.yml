@@ -70,7 +70,7 @@ jobs:
       - name: pytest
         # Full L1/L2 unit suite (Kodistubs + schema fixtures). Live tests need
         # a running Kodi and are not run in CI.
-        run: pytest tests/unit -q
+        run: pytest tests/unit -q -n 2
 
   package:
     name: package

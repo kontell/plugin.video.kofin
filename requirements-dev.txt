@@ -1,5 +1,6 @@
 Kodistubs==21.*
 pytest
+pytest-xdist
 mypy
 types-requests
 black
