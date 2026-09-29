@@ -151,17 +151,24 @@ class JellyfinDatabase:
 
     def remove_playlist_state(self, jellyfin_id):
         self.cursor.execute(QU.delete_playlist_state, (jellyfin_id,))
-        self.cursor.execute("DELETE FROM playlist_item WHERE playlist_id = ?", (jellyfin_id,))
+        self.cursor.execute(
+            "DELETE FROM playlist_item WHERE playlist_id = ?", (jellyfin_id,)
+        )
 
     def remove_playlist_states(self):
         self.cursor.execute(QU.delete_playlist_states)
         self.cursor.execute("DELETE FROM playlist_item")
 
     def replace_playlist_items(self, playlist_id, item_ids):
-        self.cursor.execute("DELETE FROM playlist_item WHERE playlist_id = ?", (playlist_id,))
+        self.cursor.execute(
+            "DELETE FROM playlist_item WHERE playlist_id = ?", (playlist_id,)
+        )
         self.cursor.executemany(
             "INSERT INTO playlist_item(playlist_id, jellyfin_id, position) VALUES (?, ?, ?)",
-            ((playlist_id, item_id, position) for position, item_id in enumerate(item_ids)),
+            (
+                (playlist_id, item_id, position)
+                for position, item_id in enumerate(item_ids)
+            ),
         )
 
     def get_playlist_items(self, playlist_id):

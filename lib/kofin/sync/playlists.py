@@ -853,9 +853,7 @@ def apply_one(
             directory = (
                 managed_dir(music_root)
                 if stored[0] == "Audio"
-                else managed_video_dir()
-                if video_root is None
-                else video_root
+                else managed_video_dir() if video_root is None else video_root
             )
             remove_managed_file(directory, stored[1])
             state.remove_playlist_state(playlist_id)

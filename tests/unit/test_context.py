@@ -90,9 +90,11 @@ def test_generated_music_library_node_resolves_its_jellyfin_id(monkeypatch):
     monkeypatch.setattr(
         context.xbmc,
         "getInfoLabel",
-        lambda label: "library://music/kofin/kofinmusic%s/" % view_id
-        if label == "ListItem.FileNameAndPath"
-        else "",
+        lambda label: (
+            "library://music/kofin/kofinmusic%s/" % view_id
+            if label == "ListItem.FileNameAndPath"
+            else ""
+        ),
     )
     assert context._focused_item_id() == view_id
 

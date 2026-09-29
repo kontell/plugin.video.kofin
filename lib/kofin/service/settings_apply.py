@@ -331,9 +331,9 @@ class SettingsApplier:
                 service._start_downloads()
             from kofin.downloads import subscriptions
 
-            if subscriptions.subscribed(subscriptions.LIBRARY_SETTING) or subscriptions.subscribed(
-                subscriptions.PLAYLIST_SETTING
-            ):
+            if subscriptions.subscribed(
+                subscriptions.LIBRARY_SETTING
+            ) or subscriptions.subscribed(subscriptions.PLAYLIST_SETTING):
                 library = self._library_manager()
                 if library is not None:
                     library.enqueue_command("SyncMusicPlaylists")

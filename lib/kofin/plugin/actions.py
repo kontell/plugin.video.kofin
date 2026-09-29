@@ -1,7 +1,7 @@
 """Small RunPlugin actions: watched/favorite toggles, settings, library
 maintenance buttons (Library tab -> IPC -> service library manager)."""
 
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import xbmc
 import xbmcgui
@@ -334,7 +334,7 @@ def _music_library(item: dict) -> bool:
 
 
 class _DownloadTooLarge(Exception):
-    def __init__(self, minimum_size: int, free: int):
+    def __init__(self, minimum_size: int, free: int) -> None:
         self.minimum_size = minimum_size
         self.free = free
 
@@ -344,12 +344,12 @@ def _paged_items(
     params: dict,
     *,
     free: int = -1,
-    live_ids: set = None,
-    options: tuple = None,
+    live_ids: Optional[Set[str]] = None,
+    options: Optional[tuple] = None,
 ) -> List[dict]:
     children: List[dict] = []
     start = 0
-    seen = set()
+    seen: Set[str] = set()
     progress = None
     estimated = 0
     try:
@@ -410,8 +410,8 @@ def _expand_downloadable(
     item: dict,
     *,
     free: int = -1,
-    live_ids: set = None,
-    options: tuple = None,
+    live_ids: Optional[Set[str]] = None,
+    options: Optional[tuple] = None,
 ) -> List[dict]:
     """The downloadable leaves under an item: itself, or a container's
     episodes/tracks. Client-side expansion, because the server has no folder
@@ -419,7 +419,6 @@ def _expand_downloadable(
     (feasibility V1)."""
     item_type = item.get("Type")
     item_id = item.get("Id", "")
-    sizing = {"free": free, "live_ids": live_ids, "options": options}
     if item_type in DOWNLOAD_LEAF_TYPES:
         return [item]
     if item_type == "Season":
@@ -429,13 +428,17 @@ def _expand_downloadable(
         return _paged_items(
             api,
             {"ParentId": item_id, "IncludeItemTypes": "Episode", "Recursive": True},
-            **sizing,
+            free=free,
+            live_ids=live_ids,
+            options=options,
         )
     if item_type == "MusicAlbum":
         return _paged_items(
             api,
             {"ParentId": item_id, "IncludeItemTypes": "Audio", "Recursive": True},
-            **sizing,
+            free=free,
+            live_ids=live_ids,
+            options=options,
         )
     if item_type == "MusicArtist":
         # ArtistIds, not ParentId: an artist is a link target, not a folder,
@@ -443,17 +446,27 @@ def _expand_downloadable(
         return _paged_items(
             api,
             {"ArtistIds": item_id, "IncludeItemTypes": "Audio", "Recursive": True},
-            **sizing,
+            free=free,
+            live_ids=live_ids,
+            options=options,
         )
     if _music_library(item):
         return _paged_items(
             api,
             {"ParentId": item_id, "IncludeItemTypes": "Audio", "Recursive": True},
-            **sizing,
+            free=free,
+            live_ids=live_ids,
+            options=options,
         )
     if item_type == "Playlist":
         # Playlists mix types; keep the leaves this feature downloads.
-        children = _paged_items(api, {"ParentId": item_id}, **sizing)
+        children = _paged_items(
+            api,
+            {"ParentId": item_id},
+            free=free,
+            live_ids=live_ids,
+            options=options,
+        )
         return [child for child in children if child.get("Type") in DOWNLOAD_LEAF_TYPES]
     return []
 
@@ -473,7 +486,7 @@ def _estimate_options() -> tuple:
     )
 
 
-def _estimated_size(item: dict, options: tuple = None) -> int:
+def _estimated_size(item: dict, options: Optional[tuple] = None) -> int:
     """What this child will actually weigh on disk.
 
     The source size is the honest answer for anything downloading as its

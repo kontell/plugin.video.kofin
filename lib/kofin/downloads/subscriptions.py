@@ -6,7 +6,7 @@ only one origin; claims keep an overlap from being deleted when the first
 subscription drops it. Every removal still goes through the manager.
 """
 
-from typing import Any, Iterable, List
+from typing import Any, Iterable, List, Set, Tuple
 
 from kofin.core import ipc, settings
 from kofin.core.log import Logger
@@ -79,7 +79,9 @@ def reconcile(owner_id: str, item_ids: Iterable[str], cursor: Any = None) -> Non
         )
 
 
-def _reconcile_on(cursor: Any, owner_id: str, wanted: set):
+def _reconcile_on(
+    cursor: Any, owner_id: str, wanted: Set[str]
+) -> Tuple[List[str], List[str]]:
     cursor.execute(
         "SELECT jellyfin_id FROM download_subscription WHERE owner = ?", (owner_id,)
     )

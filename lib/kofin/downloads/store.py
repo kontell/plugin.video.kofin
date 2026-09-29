@@ -234,8 +234,11 @@ def container_states(container_id: str) -> Dict[str, str]:
         opened.cursor.execute(
             "SELECT jellyfin_id, state FROM download WHERE request_id = ? "
             "OR origin IN (?, ?)",
-            (container_id, "auto:playlist:%s" % container_id,
-             "auto:musiclibrary:%s" % container_id),
+            (
+                container_id,
+                "auto:playlist:%s" % container_id,
+                "auto:musiclibrary:%s" % container_id,
+            ),
         )
         states.update(opened.cursor.fetchall())
     return states
