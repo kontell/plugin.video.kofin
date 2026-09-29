@@ -490,5 +490,9 @@
   "#30841": "Mentés a Jellyfinbe",
   "#30842": "Ez a lista hangot és videót kever, és nem menthető egyetlen Jellyfin-listaként",
   "#30843": "Lista mentve a Jellyfinbe",
-  "#30844": "Nincs könyvtárelem ebben a listában a mentéshez"
+  "#30844": "Nincs könyvtárelem ebben a listában a mentéshez",
+  "#30849": "Letöltések szinkronban tartása",
+  "#30850": "Letöltések szinkronizálásának leállítása",
+  "#30851": "Lejátszási listák letöltéseinek kezelése",
+  "#30852": "Zenei könyvtárak letöltéseinek kezelése"
 }

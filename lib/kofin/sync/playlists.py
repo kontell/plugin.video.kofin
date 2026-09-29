@@ -479,6 +479,11 @@ def _iter_playlist_items(api: Any, playlist_id: str) -> List[Dict[str, Any]]:
     while True:
         body = api.playlist_items(playlist_id, start_index=start, limit=PAGE_SIZE)
         page = body.get("Items") or []
+        total = int(body.get("TotalRecordCount") or 0)
+        if total > MAX_PLAYLIST_ITEMS:
+            raise ValueError(
+                "playlist %s exceeds %d items" % (playlist_id, MAX_PLAYLIST_ITEMS)
+            )
         if not page:
             break
         items.extend(page)
@@ -486,16 +491,12 @@ def _iter_playlist_items(api: Any, playlist_id: str) -> List[Dict[str, Any]]:
             # A short page is the end of the playlist, whatever the count says.
             break
         start += len(page)
-        total = int(body.get("TotalRecordCount") or 0)
         if total and start >= total:
             break
         if start >= MAX_PLAYLIST_ITEMS:
-            LOG.warning(
-                "playlist %s still paging at %d items; stopping",
-                playlist_id,
-                start,
+            raise ValueError(
+                "playlist %s exceeds %d items" % (playlist_id, MAX_PLAYLIST_ITEMS)
             )
-            break
     return items
 
 
@@ -750,6 +751,51 @@ def _entries_for(
     return entries, missing
 
 
+def _audio_ids(items: Iterable[Dict[str, Any]]) -> List[str]:
+    """Keep server order and duplicates; a playlist may repeat one track."""
+    return [
+        str(item["Id"])
+        for item in items
+        if item.get("Id") and (not item.get("Type") or item.get("Type") == "Audio")
+    ]
+
+
+def refresh_song_playlists_many(
+    item_ids: Iterable[str], root: Optional[str] = None
+) -> int:
+    """Re-render managed playlists containing a repointed or restored song.
+
+    Membership and the current MyMusic row are local, so this also works
+    offline. The filename comes from playlist_state, preserving collision
+    suffixes assigned on the server poll.
+    """
+    ids = list(dict.fromkeys(item_ids))
+    if not ids:
+        return 0
+    written = 0
+    with Database("kofin") as opened, Database("music") as musicdb:
+        mapping = jellyfin_db.JellyfinDatabase(opened.cursor)
+        music = MusicKodiDb(musicdb.cursor)
+        affected: Set[str] = set()
+        for start in range(0, len(ids), 500):
+            affected.update(mapping.get_playlists_for_items(ids[start : start + 500]))
+        for playlist_id in affected:
+            state = mapping.get_playlist_state(playlist_id)
+            if state is None or state[0] != "Audio":
+                continue
+            entries = [
+                song_entry(mapping, music, song_id)
+                for song_id in mapping.get_playlist_items(playlist_id)
+            ]
+            path = os.path.join(managed_dir(root), state[1])
+            written += int(_write_text(path, render_m3u8(e for e in entries if e)))
+    return written
+
+
+def refresh_song_playlists(item_id: str, root: Optional[str] = None) -> int:
+    return refresh_song_playlists_many([item_id], root=root)
+
+
 def write_playlist_file(
     directory: str,
     name: str,
@@ -795,15 +841,44 @@ def apply_one(
     stored = state.get_playlist_state(playlist_id)
     if side is None or side not in kinds:
         if stored:
+            if stored[0] == "Audio":
+                from kofin.downloads import subscriptions
+
+                if playlist_id in subscriptions.subscribed(
+                    subscriptions.PLAYLIST_SETTING
+                ):
+                    subscriptions.reconcile(
+                        subscriptions.owner("playlist", playlist_id), [], state.cursor
+                    )
             directory = (
                 managed_dir(music_root)
                 if stored[0] == "Audio"
-                else managed_video_dir() if video_root is None else video_root
+                else managed_video_dir()
+                if video_root is None
+                else video_root
             )
             remove_managed_file(directory, stored[1])
             state.remove_playlist_state(playlist_id)
             return True
         return False
+
+    if side == "Audio":
+        audio_ids = _audio_ids(items)
+        state.replace_playlist_items(playlist_id, audio_ids)
+        from kofin.downloads import subscriptions
+
+        if playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING):
+            subscriptions.reconcile(
+                subscriptions.owner("playlist", playlist_id), audio_ids, state.cursor
+            )
+    elif stored and stored[0] == "Audio":
+        state.replace_playlist_items(playlist_id, [])
+        from kofin.downloads import subscriptions
+
+        if playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING):
+            subscriptions.reconcile(
+                subscriptions.owner("playlist", playlist_id), [], state.cursor
+            )
 
     etag = playlist.get("Etag") or ""
     checksum = reference_checksum(etag) if etag else ""
@@ -850,6 +925,13 @@ def remove_one(
     stored = state.get_playlist_state(playlist_id)
     if not stored:
         return False
+    if stored[0] == "Audio":
+        from kofin.downloads import subscriptions
+
+        if playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING):
+            subscriptions.reconcile(
+                subscriptions.owner("playlist", playlist_id), [], state.cursor
+            )
     directory = (
         managed_dir(music_root)
         if stored[0] == "Audio"
@@ -917,10 +999,39 @@ def reconcile(
         items = _iter_playlist_items(api, playlist_id)
         side = playlist_side(playlist.get("MediaType") or "", items)
         if side is None or side not in kinds:
+            prior = state.get_playlist_state(playlist_id)
+            if prior and prior[0] == "Audio":
+                from kofin.downloads import subscriptions
+
+                if playlist_id in subscriptions.subscribed(
+                    subscriptions.PLAYLIST_SETTING
+                ):
+                    subscriptions.reconcile(
+                        subscriptions.owner("playlist", playlist_id), [], state.cursor
+                    )
             continue
+        if side == "Audio":
+            audio_ids = _audio_ids(items)
+            state.replace_playlist_items(playlist_id, audio_ids)
+            from kofin.downloads import subscriptions
+
+            if playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING):
+                subscriptions.reconcile(
+                    subscriptions.owner("playlist", playlist_id),
+                    audio_ids,
+                    state.cursor,
+                )
         etag = playlist.get("Etag") or ""
         checksum = reference_checksum(etag) if etag else ""
         stored = state.get_playlist_state(playlist_id)
+        if side != "Audio" and stored and stored[0] == "Audio":
+            state.replace_playlist_items(playlist_id, [])
+            from kofin.downloads import subscriptions
+
+            if playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING):
+                subscriptions.reconcile(
+                    subscriptions.owner("playlist", playlist_id), [], state.cursor
+                )
         directory = audio_dir if side == "Audio" else video_dir
         taken = taken_audio if side == "Audio" else taken_video
         want = want_audio if side == "Audio" else want_video
@@ -959,6 +1070,15 @@ def reconcile(
             )
 
     known = {row[0]: row for row in state.get_playlist_states()}
+    if "Audio" in kinds:
+        from kofin.downloads import subscriptions
+
+        listed_ids = {p.get("Id") for p in listed}
+        for subscribed_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING):
+            if subscribed_id not in listed_ids:
+                subscriptions.reconcile(
+                    subscriptions.owner("playlist", subscribed_id), [], state.cursor
+                )
     for playlist_id, media_type, filename, _checksum in list(known.values()):
         if media_type == "Audio" and "Audio" in kinds and filename not in want_audio:
             remove_managed_file(audio_dir, filename)

@@ -490,5 +490,9 @@
   "#30841": "Lagre til Jellyfin",
   "#30842": "Denne spillelisten blander lyd og video og kan ikke lagres som én Jellyfin-spilleliste",
   "#30843": "Spilleliste lagret til Jellyfin",
-  "#30844": "Ingen bibliotekselementer i denne spillelisten å lagre"
+  "#30844": "Ingen bibliotekselementer i denne spillelisten å lagre",
+  "#30849": "Hold nedlastinger synkronisert",
+  "#30850": "Slutt å synkronisere nedlastinger",
+  "#30851": "Administrer nedlasting av spillelister",
+  "#30852": "Administrer nedlasting av musikkbiblioteker"
 }

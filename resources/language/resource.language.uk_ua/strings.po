@@ -2199,3 +2199,19 @@ msgstr "Показувати хід оновлення медіатеки"
 msgctxt "#30846"
 msgid "Show Kodi's library-update progress while the library syncs."
 msgstr "Показувати індикатор оновлення медіатеки Kodi під час синхронізації."
+
+msgctxt "#30849"
+msgid "Keep downloads in sync"
+msgstr "Синхронізувати завантаження"
+
+msgctxt "#30850"
+msgid "Stop keeping downloads in sync"
+msgstr "Припинити синхронізацію завантажень"
+
+msgctxt "#30851"
+msgid "Manage playlist downloads"
+msgstr "Керувати завантаженнями плейлистів"
+
+msgctxt "#30852"
+msgid "Manage music library downloads"
+msgstr "Керувати завантаженнями музичних бібліотек"

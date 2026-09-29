@@ -1,10 +1,13 @@
 """Context-menu entry points (invoked with a focused ListItem)."""
 
+import os
+import re
 import sys
 from typing import Dict, List, Optional, Tuple, Union
 
 import xbmc
 import xbmcgui
+import xbmcvfs
 
 from kofin.core import kodirpc, settings, state, toast
 from kofin.core.api import Api
@@ -50,6 +53,12 @@ def _focused_item_id() -> str:
     item_id = _focused_dynamic_id()
     if item_id:
         return item_id
+    node = re.fullmatch(
+        r"library://music/kofin/kofinmusic([0-9a-fA-F]{32})/?",
+        xbmc.getInfoLabel("ListItem.FileNameAndPath"),
+    )
+    if node:
+        return node.group(1).lower()
     # Library items carry no kofin.id property; resolve the Kodi database id
     # through the kofin.db mapping instead.
     listitem = _focused_listitem()
@@ -287,10 +296,20 @@ DOWNLOADABLE_TYPES = frozenset(
         "MusicAlbum",
         "MusicArtist",
         "Playlist",
+        "CollectionFolder",
+        "UserView",
     }
 )
 DOWNLOAD_CONTAINER_TYPES = frozenset(
-    {"Season", "Series", "MusicAlbum", "MusicArtist", "Playlist"}
+    {
+        "Season",
+        "Series",
+        "MusicAlbum",
+        "MusicArtist",
+        "Playlist",
+        "CollectionFolder",
+        "UserView",
+    }
 )
 
 
@@ -341,6 +360,11 @@ def _download_options(item: dict) -> List[Tuple[str, dict]]:
     item_type = item.get("Type")
     if item_type not in DOWNLOADABLE_TYPES:
         return []
+    if (
+        item_type in ("CollectionFolder", "UserView")
+        and item.get("CollectionType") != "music"
+    ):
+        return []
     item_id = item.get("Id", "")
     if item_type in DOWNLOAD_CONTAINER_TYPES:
         entries = _container_download_options(item_id)
@@ -358,6 +382,18 @@ def _download_options(item: dict) -> List[Tuple[str, dict]]:
                         "id": item_id,
                         "name": item.get("Name", ""),
                     },
+                )
+            )
+        if item_type in ("CollectionFolder", "UserView"):
+            from kofin.downloads import subscriptions
+
+            subscribed = item_id in subscriptions.subscribed(
+                subscriptions.LIBRARY_SETTING
+            )
+            entries.append(
+                (
+                    settings.localized(30850 if subscribed else 30849),
+                    {"mode": "downloadmusiclibrary", "id": item_id},
                 )
             )
         return entries
@@ -529,6 +565,65 @@ def save_playlist() -> None:
     xbmc.executebuiltin(
         "RunPlugin(%s)" % plugin_url({"mode": "saveplaylist", "path": path})
     )
+
+
+def manage_download_playlist() -> None:
+    """Download actions for one file in the managed music playlist folder."""
+    from kofin.downloads import store, subscriptions
+    from kofin.sync import playlists
+    from kofin.sync.db import Database
+
+    path = xbmc.getInfoLabel("ListItem.FileNameAndPath")
+    directory = os.path.realpath(playlists.managed_dir())
+    candidate = os.path.realpath(xbmcvfs.translatePath(path))
+    if os.path.dirname(candidate) != directory or not candidate.endswith(".m3u8"):
+        return
+    filename = os.path.basename(candidate)
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "SELECT jellyfin_id FROM playlist_state "
+            "WHERE media_type = 'Audio' AND filename = ?",
+            (filename,),
+        )
+        row = opened.cursor.fetchone()
+        if not row:
+            return
+        playlist_id = row[0]
+        opened.cursor.execute(
+            "SELECT d.state FROM playlist_item p JOIN download d "
+            "ON d.jellyfin_id = p.jellyfin_id WHERE p.playlist_id = ?",
+            (playlist_id,),
+        )
+        states = [state[0] for state in opened.cursor.fetchall()]
+    entries: List[Tuple[str, dict]] = []
+    if not states or any(state != store.DONE for state in states):
+        entries.append(
+            (settings.localized(30708), {"mode": "download", "id": playlist_id})
+        )
+    if store.DONE in states:
+        entries.append(
+            (
+                settings.localized(30710),
+                {"mode": "removedownload", "id": playlist_id, "playlist": "1"},
+            )
+        )
+    if any(state in (store.QUEUED, store.ACTIVE) for state in states):
+        entries.append(
+            (
+                settings.localized(30709),
+                {"mode": "canceldownload", "id": playlist_id, "playlist": "1"},
+            )
+        )
+    enabled = playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING)
+    entries.append(
+        (
+            settings.localized(30850 if enabled else 30849),
+            {"mode": "downloadplaylist", "id": playlist_id},
+        )
+    )
+    index = xbmcgui.Dialog().contextmenu([label for label, _ in entries])
+    if index >= 0:
+        xbmc.executebuiltin("RunPlugin(%s)" % plugin_url(entries[index][1]))
 
 
 def manage() -> None:

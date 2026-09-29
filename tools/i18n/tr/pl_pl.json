@@ -490,5 +490,9 @@
   "#30841": "Zapisz w Jellyfin",
   "#30842": "Ta lista miesza dźwięk i wideo i nie może być zapisana jako jedna lista Jellyfin",
   "#30843": "Lista zapisana w Jellyfin",
-  "#30844": "Brak elementów biblioteki na tej liście do zapisania"
+  "#30844": "Brak elementów biblioteki na tej liście do zapisania",
+  "#30849": "Synchronizuj pobrane pliki",
+  "#30850": "Zatrzymaj synchronizację pobranych plików",
+  "#30851": "Zarządzaj pobieraniem list odtwarzania",
+  "#30852": "Zarządzaj pobieraniem bibliotek muzycznych"
 }

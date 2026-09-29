@@ -544,5 +544,9 @@
   "#30843": "Playlist saved to Jellyfin",
   "#30844": "No library items in this playlist to save",
   "#30845": "Show library update progress",
-  "#30846": "Show Kodi's library-update progress while the library syncs."
+  "#30846": "Show Kodi's library-update progress while the library syncs.",
+  "#30849": "Keep downloads in sync",
+  "#30850": "Stop keeping downloads in sync",
+  "#30851": "Manage playlist downloads",
+  "#30852": "Manage music library downloads"
 }

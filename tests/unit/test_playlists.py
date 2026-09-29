@@ -35,6 +35,18 @@ class FakeApi:
         return {"Items": page, "TotalRecordCount": len(all_items) + 5}
 
 
+def test_oversized_playlist_never_becomes_a_partial_membership_snapshot():
+    class OversizedApi:
+        def playlist_items(self, playlist_id, start_index=0, limit=100):
+            return {
+                "Items": [{"Id": "first", "Type": "Audio"}],
+                "TotalRecordCount": playlists.MAX_PLAYLIST_ITEMS + 1,
+            }
+
+    with pytest.raises(ValueError, match="exceeds"):
+        playlists._iter_playlist_items(OversizedApi(), "large")
+
+
 class FakeMapping:
     def __init__(self, rows):
         # jellyfin_id -> Row-like with media_type, kodi_id
@@ -65,6 +77,7 @@ class FakeVideo:
 class FakeState:
     def __init__(self):
         self._rows = {}
+        self._items = {}
 
     def get_playlist_state(self, jellyfin_id):
         return self._rows.get(jellyfin_id)
@@ -74,6 +87,13 @@ class FakeState:
 
     def remove_playlist_state(self, jellyfin_id):
         self._rows.pop(jellyfin_id, None)
+        self._items.pop(jellyfin_id, None)
+
+    def replace_playlist_items(self, playlist_id, item_ids):
+        self._items[playlist_id] = list(item_ids)
+
+    def get_playlist_items(self, playlist_id):
+        return self._items.get(playlist_id, [])
 
     def get_playlist_states(self):
         return [
@@ -88,6 +108,58 @@ def test_safe_filename_keeps_unicode_and_strips_slashes():
     assert playlists.safe_filename("  ") == "playlist"
     assert playlists.safe_filename("Gym: 2024") == "Gym_ 2024"
     assert playlists.safe_filename("Ångström") == "Ångström"
+
+
+def test_local_membership_rerender_tracks_repoint_and_restore(tmp_path, monkeypatch):
+    """D6b: a changed extension must be reflected before the next server poll."""
+    from kofin.sync import db as sync_db
+    from kofin.sync.kofindb import JellyfinDatabase
+
+    sync_db.reset_overrides()
+    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    sync_db.set_path_override("music", str(tmp_path / "music.db"))
+    root = str(tmp_path / "playlists")
+    rows = {42: ("https://server/Audio/a/", "stream.flac", "A", "Artist", 1, 180)}
+
+    class Music:
+        def __init__(self, cursor):
+            pass
+
+        def get_song_playlist_row(self, song_id):
+            return rows.get(song_id)
+
+    monkeypatch.setattr(playlists, "MusicKodiDb", Music)
+    try:
+        with sync_db.Database("kofin") as opened:
+            opened.cursor.execute(
+                "INSERT INTO jellyfin(jellyfin_id, kodi_id, media_type) VALUES (?, ?, ?)",
+                ("a", 42, "song"),
+            )
+            mapping = JellyfinDatabase(opened.cursor)
+            mapping.add_playlist_state("mix", "Audio", "Mix.m3u8", "etag")
+            mapping.replace_playlist_items("mix", ["a", "a"])
+            assert mapping.get_playlist_items("mix") == ["a", "a"]
+
+        assert playlists.refresh_song_playlists("a", root=root) == 1
+        path = tmp_path / "playlists" / "Mix.m3u8"
+        assert playlists.parse_m3u_paths(path.read_text()) == [
+            "musicdb://songs/42.flac",
+            "musicdb://songs/42.flac",
+        ]
+
+        rows[42] = ("/downloads/Music/", "A.m4a", "A", "Artist", 1, 180)
+        assert playlists.refresh_song_playlists_many(["a", "a"], root=root) == 1
+        assert playlists.parse_m3u_paths(path.read_text()) == [
+            "musicdb://songs/42.m4a",
+            "musicdb://songs/42.m4a",
+        ]
+        rows[42] = ("https://server/Audio/a/", "stream.flac", "A", "Artist", 1, 180)
+        assert playlists.refresh_song_playlists("a", root=root) == 1
+        assert (
+            playlists.parse_m3u_paths(path.read_text())[0] == "musicdb://songs/42.flac"
+        )
+    finally:
+        sync_db.reset_overrides()
 
 
 def test_join_song_path():
@@ -527,6 +599,86 @@ def test_apply_one_keeps_a_music_filename_when_membership_changes(tmp_path):
     assert os.path.isfile(os.path.join(root, "Gym.m3u8"))
     assert not os.path.isfile(os.path.join(root, "Gym (2).m3u8"))
     assert state.get_playlist_state("pl1")[1] == "Gym.m3u8"
+
+
+def test_playlist_poll_mirrors_download_subscription_membership(tmp_path, monkeypatch):
+    from kofin.core import ipc
+    from kofin.downloads import store, subscriptions
+    from kofin.sync import db as sync_db
+    from kofin.sync.kofindb import JellyfinDatabase
+
+    sync_db.reset_overrides()
+    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    monkeypatch.setattr(
+        subscriptions.settings,
+        "get_str",
+        lambda key: "pl1" if key == subscriptions.PLAYLIST_SETTING else "",
+    )
+    monkeypatch.setattr(subscriptions.settings, "get_bool", lambda key: True)
+    sent = []
+    monkeypatch.setattr(
+        subscriptions.ipc, "notify", lambda method, body: sent.append((method, body))
+    )
+    api = FakeApi(items_by_id={"pl1": [{"Id": "a1", "Type": "Audio"}]})
+    mapping = FakeMapping(
+        {
+            "a1": SimpleNamespace(media_type="song", kodi_id=10),
+            "a2": SimpleNamespace(media_type="song", kodi_id=20),
+        }
+    )
+    music = FakeMusic(
+        {
+            10: ("http://s/Audio/a1/", "stream.flac", "A", "Artist", 1, 60),
+            20: ("http://s/Audio/a2/", "stream.flac", "B", "Artist", 2, 60),
+        }
+    )
+    owner = subscriptions.owner("playlist", "pl1")
+    try:
+        with sync_db.Database("kofin") as opened:
+            state = JellyfinDatabase(opened.cursor)
+            playlists.apply_one(
+                api,
+                mapping,
+                music,
+                None,
+                state,
+                _audio_playlist("Gym", "one"),
+                {"Audio"},
+                music_root=str(tmp_path / "playlists"),
+            )
+        assert sent == [
+            (
+                ipc.DOWNLOAD_ADD,
+                {"Ids": ["a1"], "Types": ["Audio"], "Origin": owner},
+            )
+        ]
+        store.queue(store.Download("a1", media_type="song", origin=owner))
+        sent.clear()
+        api._items["pl1"] = [{"Id": "a2", "Type": "Audio"}]
+        with sync_db.Database("kofin") as opened:
+            state = JellyfinDatabase(opened.cursor)
+            playlists.apply_one(
+                api,
+                mapping,
+                music,
+                None,
+                state,
+                _audio_playlist("Gym", "two"),
+                {"Audio"},
+                music_root=str(tmp_path / "playlists"),
+            )
+        assert {method for method, _ in sent} == {
+            ipc.DOWNLOAD_ADD,
+            ipc.DOWNLOAD_REMOVE,
+        }
+        assert next(
+            body["Ids"] for method, body in sent if method == ipc.DOWNLOAD_ADD
+        ) == ["a2"]
+        assert next(
+            body["Ids"] for method, body in sent if method == ipc.DOWNLOAD_REMOVE
+        ) == ["a1"]
+    finally:
+        sync_db.reset_overrides()
 
 
 def test_apply_one_keeps_a_disambiguated_music_filename(tmp_path):

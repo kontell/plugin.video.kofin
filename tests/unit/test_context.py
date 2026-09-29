@@ -84,6 +84,82 @@ def test_manage_options_omits_watched_where_there_is_no_state(monkeypatch):
     assert "watched" not in [params["mode"] for _, params in options]
 
 
+def test_generated_music_library_node_resolves_its_jellyfin_id(monkeypatch):
+    view_id = "7e64e319657a9516ec78490da03edccb"
+    monkeypatch.setattr(context, "_focused_dynamic_id", lambda: "")
+    monkeypatch.setattr(
+        context.xbmc,
+        "getInfoLabel",
+        lambda label: "library://music/kofin/kofinmusic%s/" % view_id
+        if label == "ListItem.FileNameAndPath"
+        else "",
+    )
+    assert context._focused_item_id() == view_id
+
+
+def test_music_view_offers_download_and_subscription_only_for_music(monkeypatch):
+    from kofin.downloads import subscriptions
+
+    monkeypatch.setattr(
+        context,
+        "_container_download_options",
+        lambda item_id: [("Download", {"mode": "download", "id": item_id})],
+    )
+    monkeypatch.setattr(subscriptions, "subscribed", lambda setting: [])
+    monkeypatch.setattr(context.settings, "localized", lambda string_id: str(string_id))
+    root = {"Id": "view", "Type": "CollectionFolder", "CollectionType": "music"}
+    assert [params["mode"] for _, params in context._download_options(root)] == [
+        "download",
+        "downloadmusiclibrary",
+    ]
+    root["CollectionType"] = "movies"
+    assert context._download_options(root) == []
+
+
+def test_managed_playlist_menu_translates_kodis_special_path(monkeypatch, tmp_path):
+    from kofin.downloads import subscriptions
+    from kofin.sync import db, playlists
+
+    managed = tmp_path / "Kofin"
+    managed.mkdir()
+    db.reset_overrides()
+    db.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    try:
+        with db.Database("kofin") as opened:
+            opened.cursor.execute(
+                "INSERT INTO playlist_state VALUES (?, ?, ?, ?)",
+                ("playlist-id", "Audio", "Demo.m3u8", "etag"),
+            )
+        monkeypatch.setattr(playlists, "managed_dir", lambda: str(managed))
+        monkeypatch.setattr(
+            context.xbmc,
+            "getInfoLabel",
+            lambda label: "special://profile/playlists/music/Kofin/Demo.m3u8",
+        )
+        monkeypatch.setattr(
+            context.xbmcvfs,
+            "translatePath",
+            lambda path: str(managed / "Demo.m3u8"),
+        )
+        monkeypatch.setattr(subscriptions, "subscribed", lambda setting: [])
+        monkeypatch.setattr(
+            context.settings, "localized", lambda string_id: str(string_id)
+        )
+        offered = []
+
+        class Dialog:
+            def contextmenu(self, labels):
+                offered.extend(labels)
+                return -1
+
+        monkeypatch.setattr(context.xbmcgui, "Dialog", Dialog)
+        context.manage_download_playlist()
+
+        assert offered == ["30708", "30849"]
+    finally:
+        db.reset_overrides()
+
+
 # --- the resume reset ---------------------------------------------------------
 
 
@@ -388,7 +464,6 @@ def _row(state):
 
 
 def test_download_offered_only_when_the_server_allows(monkeypatch):
-
     movie = {"Id": "i1", "Type": "Movie", "Name": "M", "CanDownload": True}
     offered = _download_entry_options(monkeypatch, movie)
     assert offered == [("L30708", {"mode": "download", "id": "i1"})]

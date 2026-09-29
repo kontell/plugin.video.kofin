@@ -490,5 +490,9 @@
   "#30841": "Guardar en Jellyfin",
   "#30842": "Esta lista mezcla audio y vídeo y no se puede guardar como una sola lista de Jellyfin",
   "#30843": "Lista guardada en Jellyfin",
-  "#30844": "No hay elementos de la biblioteca en esta lista para guardar"
+  "#30844": "No hay elementos de la biblioteca en esta lista para guardar",
+  "#30849": "Mantener las descargas sincronizadas",
+  "#30850": "Dejar de sincronizar las descargas",
+  "#30851": "Gestionar descargas de listas de reproducción",
+  "#30852": "Gestionar descargas de bibliotecas musicales"
 }

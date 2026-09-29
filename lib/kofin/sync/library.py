@@ -366,6 +366,9 @@ class Library(threading.Thread):
 
     def sync_music_playlists(self):
         """Reconcile managed playlist files from the server (one-way)."""
+        from kofin.downloads import subscriptions
+
+        subscriptions.reconcile_music_libraries(self.api)
         kinds = self.playlist_kinds()
         if not kinds:
             LOG.debug("syncMusicPlaylists off or no matching library; skip")
@@ -989,6 +992,11 @@ class Library(threading.Thread):
         # only the video database was refreshed, so newly synced albums
         # never showed up in the music widgets until something else
         # triggered a scan.)
+        if "music" in self.touched_databases:
+            from kofin.downloads import subscriptions
+
+            if subscriptions.subscribed(subscriptions.LIBRARY_SETTING):
+                self.enqueue_command("SyncMusicPlaylists")
         self.refresher.arm(self.touched_databases)
         self.touched_databases = set()
         self.added_databases = set()

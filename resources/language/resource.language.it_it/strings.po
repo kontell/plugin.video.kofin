@@ -2199,3 +2199,19 @@ msgstr "Mostra l'avanzamento dell'aggiornamento della libreria"
 msgctxt "#30846"
 msgid "Show Kodi's library-update progress while the library syncs."
 msgstr "Mostra l'avanzamento dell'aggiornamento libreria di Kodi durante la sincronizzazione."
+
+msgctxt "#30849"
+msgid "Keep downloads in sync"
+msgstr "Mantieni sincronizzati i download"
+
+msgctxt "#30850"
+msgid "Stop keeping downloads in sync"
+msgstr "Interrompi la sincronizzazione dei download"
+
+msgctxt "#30851"
+msgid "Manage playlist downloads"
+msgstr "Gestisci i download delle playlist"
+
+msgctxt "#30852"
+msgid "Manage music library downloads"
+msgstr "Gestisci i download delle librerie musicali"

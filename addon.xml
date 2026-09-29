@@ -48,7 +48,7 @@
              Container.FolderPath would answer empty on Home, where the
              active window is not a media window (GUIInfoHelper's
              GetMediaWindow), so widget rows would have escaped the test. -->
-        <visible>[!String.IsEmpty(ListItem.Property(kofin.id)) | [!String.IsEmpty(ListItem.DBID) + [String.IsEqual(ListItem.DBTYPE,movie) | String.IsEqual(ListItem.DBTYPE,episode) | String.IsEqual(ListItem.DBTYPE,musicvideo) | String.IsEqual(ListItem.DBTYPE,tvshow) | String.IsEqual(ListItem.DBTYPE,season) | String.IsEqual(ListItem.DBTYPE,set) | String.IsEqual(ListItem.DBTYPE,song) | String.IsEqual(ListItem.DBTYPE,album) | String.IsEqual(ListItem.DBTYPE,artist)]]]</visible>
+        <visible>[!String.IsEmpty(ListItem.Property(kofin.id)) | [!String.IsEmpty(ListItem.DBID) + [String.IsEqual(ListItem.DBTYPE,movie) | String.IsEqual(ListItem.DBTYPE,episode) | String.IsEqual(ListItem.DBTYPE,musicvideo) | String.IsEqual(ListItem.DBTYPE,tvshow) | String.IsEqual(ListItem.DBTYPE,season) | String.IsEqual(ListItem.DBTYPE,set) | String.IsEqual(ListItem.DBTYPE,song) | String.IsEqual(ListItem.DBTYPE,album) | String.IsEqual(ListItem.DBTYPE,artist)]] | [String.IsEqual(Container.FolderPath,library://music/kofin/) + String.Contains(ListItem.FileNameAndPath,library://music/kofin/kofinmusic)]]</visible>
       </item>
       <item library="context_play.py">
         <label>30010</label>
@@ -116,6 +116,10 @@
              the next refresh, so "Save to Jellyfin" is the wrong direction
              and stays off those paths. Square brackets for grouping. -->
         <visible>[String.EndsWith(ListItem.FileNameAndPath,.m3u) | String.EndsWith(ListItem.FileNameAndPath,.m3u8)] + !String.Contains(ListItem.FileNameAndPath,playlists/music/Kofin/) + !String.Contains(ListItem.FileNameAndPath,playlists/video/Kofin/)</visible>
+      </item>
+      <item library="context_download_playlist.py">
+        <label>30708</label>
+        <visible>String.EndsWith(ListItem.FileNameAndPath,.m3u8) + String.Contains(ListItem.FileNameAndPath,playlists/music/Kofin/)</visible>
       </item>
     </menu>
   </extension>

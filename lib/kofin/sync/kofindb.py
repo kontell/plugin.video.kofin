@@ -151,9 +151,43 @@ class JellyfinDatabase:
 
     def remove_playlist_state(self, jellyfin_id):
         self.cursor.execute(QU.delete_playlist_state, (jellyfin_id,))
+        self.cursor.execute("DELETE FROM playlist_item WHERE playlist_id = ?", (jellyfin_id,))
 
     def remove_playlist_states(self):
         self.cursor.execute(QU.delete_playlist_states)
+        self.cursor.execute("DELETE FROM playlist_item")
+
+    def replace_playlist_items(self, playlist_id, item_ids):
+        self.cursor.execute("DELETE FROM playlist_item WHERE playlist_id = ?", (playlist_id,))
+        self.cursor.executemany(
+            "INSERT INTO playlist_item(playlist_id, jellyfin_id, position) VALUES (?, ?, ?)",
+            ((playlist_id, item_id, position) for position, item_id in enumerate(item_ids)),
+        )
+
+    def get_playlist_items(self, playlist_id):
+        self.cursor.execute(
+            "SELECT jellyfin_id FROM playlist_item WHERE playlist_id = ? ORDER BY position",
+            (playlist_id,),
+        )
+        return [row[0] for row in self.cursor.fetchall()]
+
+    def get_playlists_for_item(self, item_id):
+        self.cursor.execute(
+            "SELECT DISTINCT playlist_id FROM playlist_item WHERE jellyfin_id = ?",
+            (item_id,),
+        )
+        return [row[0] for row in self.cursor.fetchall()]
+
+    def get_playlists_for_items(self, item_ids):
+        if not item_ids:
+            return []
+        placeholders = ",".join("?" for _ in item_ids)
+        self.cursor.execute(
+            "SELECT DISTINCT playlist_id FROM playlist_item WHERE jellyfin_id IN (%s)"
+            % placeholders,
+            tuple(item_ids),
+        )
+        return [row[0] for row in self.cursor.fetchall()]
 
     def get_item_by_kodi_id(self, *args):
 

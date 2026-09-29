@@ -490,5 +490,9 @@
   "#30841": "Salvar no Jellyfin",
   "#30842": "Esta lista mistura áudio e vídeo e não pode ser salva como uma só lista Jellyfin",
   "#30843": "Lista salva no Jellyfin",
-  "#30844": "Não há itens da biblioteca nesta lista para salvar"
+  "#30844": "Não há itens da biblioteca nesta lista para salvar",
+  "#30849": "Manter os downloads sincronizados",
+  "#30850": "Parar de sincronizar os downloads",
+  "#30851": "Gerenciar downloads de playlists",
+  "#30852": "Gerenciar downloads de bibliotecas de música"
 }

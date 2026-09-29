@@ -184,6 +184,7 @@ class DownloadManager:
         # Which Kodi databases a finished download has made stale, and since
         # when. Coalesced rather than refreshed per item — see _mark_dirty.
         self._dirty: Set[str] = set()
+        self._playlist_dirty: Set[str] = set()
         self._dirty_since = 0.0
         self._dirty_lock = threading.Lock()
         # The Downloaded-music view is written once per generation, not once
@@ -529,7 +530,22 @@ class DownloadManager:
             self._apply_cancel(item_id)
             return
         root = downloads_root()
-        if not repoint.restore(row, root):
+        restored = repoint.restore(row, root)
+        departed_subscription_item = False
+        if not restored and row.origin.startswith(
+            ("auto:playlist:", "auto:musiclibrary:")
+        ):
+            # A mirrored item can leave the server before the manager gets
+            # its removal message. The sync writer may already have removed
+            # the Kodi row, leaving nothing to restore. In that one case the
+            # full remove path can still delete the orphaned local copy.
+            from kofin.sync.db import Database
+
+            with Database("kofin") as opened:
+                departed_subscription_item = (
+                    repoint.mapping_for_on(opened.cursor, row.jellyfin_id) is None
+                )
+        if not restored and not departed_subscription_item:
             # Refused (no captured filename, no usable mapping): deleting
             # the media now would leave the library row pointing at a file
             # that no longer exists. The download stays exactly as it is —
@@ -543,6 +559,8 @@ class DownloadManager:
             return
         self._remove_row(row)
         self._mark_dirty(row.media_type)
+        if row.media_type == "song":
+            self._mark_playlist_dirty(row.jellyfin_id)
         with self._removed_lock:
             self._removed.append(_display_name(row))
         LOG.info("download removed: %s", item_id)
@@ -715,6 +733,8 @@ class DownloadManager:
         # twelve times over. The flusher does it once the pool goes quiet,
         # for the databases that actually moved.
         self._mark_dirty(media_type)
+        if media_type == "song":
+            self._mark_playlist_dirty(item_id)
         self._announce_complete(media_type, group_id, item, finished)
         LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
 
@@ -1171,6 +1191,7 @@ class DownloadManager:
             root = downloads_root()
             touched = False
             songs = False
+            repointed_songs: Set[str] = set()
             for row in store.rows(store.DONE):
                 if self._should_stop():
                     return
@@ -1184,8 +1205,12 @@ class DownloadManager:
                     repoint.stamp_tag(row)  # idempotent; a repair wiped links
                     repoint.stamp_badge(row)
                     touched = True
+                    if row.media_type == "song":
+                        repointed_songs.add(row.jellyfin_id)
             if songs:
                 self._ensure_music_view(force=True)  # heals a hand-deleted .xsp too
+            if repointed_songs:
+                self._refresh_song_playlists(repointed_songs)
             if touched:
                 self._refresh_quietly(["music", "video"] if songs else ["video"])
         except Exception:  # pragma: no cover - never break service start
@@ -1223,6 +1248,8 @@ class DownloadManager:
         self._remove_row(row)
         self._mark_watched(row)
         self._mark_dirty(row.media_type)
+        if row.media_type == "song":
+            self._mark_playlist_dirty(row.jellyfin_id)
 
     def _mark_watched(self, row: "store.Download") -> None:
         """Mark a vanished download watched, here and on the server.
@@ -1479,6 +1506,18 @@ class DownloadManager:
             if not self._dirty_since:
                 self._dirty_since = time.monotonic()
 
+    def _mark_playlist_dirty(self, item_id: str) -> None:
+        with self._dirty_lock:
+            self._playlist_dirty.add(item_id)
+
+    def _refresh_song_playlists(self, item_ids: Set[str]) -> None:
+        try:
+            from kofin.sync import playlists
+
+            playlists.refresh_song_playlists_many(item_ids)
+        except Exception:
+            LOG.exception("managed playlist refresh after song repoint failed")
+
     def _flush_refresh(self, force: bool = False) -> None:
         """Refresh the dirty databases — on ``force`` (the pool went quiet),
         or once the oldest mark has waited out the defer window."""
@@ -1489,8 +1528,12 @@ class DownloadManager:
             if not force and waited < REFRESH_MAX_DEFER_SECONDS:
                 return
             databases = sorted(self._dirty)
+            playlist_ids = self._playlist_dirty
+            self._playlist_dirty = set()
             self._dirty.clear()
             self._dirty_since = 0.0
+        if playlist_ids:
+            self._refresh_song_playlists(playlist_ids)
         self._refresh_quietly(databases)
 
     def _refresh_quietly(self, databases: Optional[List[str]] = None) -> None:

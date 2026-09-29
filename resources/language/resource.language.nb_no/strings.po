@@ -2199,3 +2199,19 @@ msgstr "Vis fremdrift for bibliotekoppdatering"
 msgctxt "#30846"
 msgid "Show Kodi's library-update progress while the library syncs."
 msgstr "Vis Kodis fremdriftsvisning for bibliotekoppdateringer mens biblioteket synkroniseres."
+
+msgctxt "#30849"
+msgid "Keep downloads in sync"
+msgstr "Hold nedlastinger synkronisert"
+
+msgctxt "#30850"
+msgid "Stop keeping downloads in sync"
+msgstr "Slutt å synkronisere nedlastinger"
+
+msgctxt "#30851"
+msgid "Manage playlist downloads"
+msgstr "Administrer nedlasting av spillelister"
+
+msgctxt "#30852"
+msgid "Manage music library downloads"
+msgstr "Administrer nedlasting av musikkbiblioteker"

@@ -490,5 +490,9 @@
   "#30841": "Spara till Jellyfin",
   "#30842": "Den här spellistan blandar ljud och video och kan inte sparas som en Jellyfin-spellista",
   "#30843": "Spellista sparad till Jellyfin",
-  "#30844": "Inga biblioteksposter i den här spellistan att spara"
+  "#30844": "Inga biblioteksposter i den här spellistan att spara",
+  "#30849": "Håll nedladdningar synkroniserade",
+  "#30850": "Sluta synkronisera nedladdningar",
+  "#30851": "Hantera nedladdningar av spellistor",
+  "#30852": "Hantera nedladdningar av musikbibliotek"
 }

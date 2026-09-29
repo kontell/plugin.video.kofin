@@ -1318,6 +1318,28 @@
             <data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadshows)</data>
           </control>
         </setting>
+        <setting id="downloadsPlaylists" type="string">
+          <level>4</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="edit" format="string"/>
+        </setting>
+        <setting id="downloadsManagePlaylists" type="action" label="30851">
+          <level>0</level>
+          <dependencies><dependency type="visible"><condition operator="is" setting="downloadsEnabled">true</condition></dependency></dependencies>
+          <control type="button" format="action"><data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadsubscriptions&amp;kind=playlist)</data></control>
+        </setting>
+        <setting id="downloadsMusicLibraries" type="string">
+          <level>4</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="edit" format="string"/>
+        </setting>
+        <setting id="downloadsManageMusicLibraries" type="action" label="30852">
+          <level>0</level>
+          <dependencies><dependency type="visible"><condition operator="is" setting="downloadsEnabled">true</condition></dependency></dependencies>
+          <control type="button" format="action"><data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadsubscriptions&amp;kind=library)</data></control>
+        </setting>
         <setting id="downloadsAutoAlbums" type="boolean" label="30756" help="30757">
           <level>0</level>
           <default>false</default>

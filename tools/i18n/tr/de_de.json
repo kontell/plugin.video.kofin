@@ -490,5 +490,9 @@
   "#30841": "In Jellyfin speichern",
   "#30842": "Diese Wiedergabeliste mischt Audio und Video und kann nicht als eine Jellyfin-Wiedergabeliste gespeichert werden",
   "#30843": "Wiedergabeliste in Jellyfin gespeichert",
-  "#30844": "Keine Bibliothekseinträge in dieser Wiedergabeliste zum Speichern"
+  "#30844": "Keine Bibliothekseinträge in dieser Wiedergabeliste zum Speichern",
+  "#30849": "Downloads synchron halten",
+  "#30850": "Downloads nicht mehr synchron halten",
+  "#30851": "Playlist-Downloads verwalten",
+  "#30852": "Musikbibliothek-Downloads verwalten"
 }

@@ -2199,3 +2199,19 @@ msgstr "라이브러리 업데이트 진행 상황 표시"
 msgctxt "#30846"
 msgid "Show Kodi's library-update progress while the library syncs."
 msgstr "동기화하는 동안 Kodi의 라이브러리 업데이트 진행 표시를 보여 줍니다."
+
+msgctxt "#30849"
+msgid "Keep downloads in sync"
+msgstr "다운로드 동기화 유지"
+
+msgctxt "#30850"
+msgid "Stop keeping downloads in sync"
+msgstr "다운로드 동기화 중지"
+
+msgctxt "#30851"
+msgid "Manage playlist downloads"
+msgstr "재생목록 다운로드 관리"
+
+msgctxt "#30852"
+msgid "Manage music library downloads"
+msgstr "음악 라이브러리 다운로드 관리"

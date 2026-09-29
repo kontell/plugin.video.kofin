@@ -490,5 +490,9 @@
   "#30841": "Tallenna Jellyfiniin",
   "#30842": "Tämä soittolista sekoittaa ääntä ja videota eikä sitä voi tallentaa yhtenä Jellyfin-soittolistana",
   "#30843": "Soittolista tallennettu Jellyfiniin",
-  "#30844": "Tässä soittolistassa ei ole kirjaston kohteita tallennettavaksi"
+  "#30844": "Tässä soittolistassa ei ole kirjaston kohteita tallennettavaksi",
+  "#30849": "Pidä lataukset synkronoituina",
+  "#30850": "Lopeta latausten synkronointi",
+  "#30851": "Hallinnoi soittolistojen latauksia",
+  "#30852": "Hallinnoi musiikkikirjastojen latauksia"
 }
