@@ -227,6 +227,23 @@ def _dispatch(table, writers, item):
     return None if writer is None else getattr(writer, entry[1])
 
 
+def _already_mapped(writers: Dict[str, Any], item_id: Optional[str]) -> bool:
+    """Whether kofin.db already holds this id.
+
+    The writers on one worker share the database opened for the drain.
+    Call this before the write: the write inserts the reference, so a row
+    this item just created is not evidence it was already in the library.
+    """
+    if not item_id:
+        return False
+
+    writer = next(iter(writers.values()), None)
+    if writer is None:
+        return False
+
+    return writer.jellyfin_db.get_item_by_id(item_id) is not None
+
+
 class UpdateWorker(WriterWorker):
     """Writes downloaded items; announces the additions."""
 
@@ -274,6 +291,14 @@ class UpdateWorker(WriterWorker):
             self._artwork_only(item, writers)
             return
 
+        # Jellyfin reports some metadata saves as ItemAdded — an NFO
+        # rewrite of an album or artist that already exists. The added
+        # writer still updates a mapped id in place. It must not announce
+        # it: this queue also feeds auto-download and the song
+        # subscription. Read the reference first, because the write
+        # inserts it.
+        known = self.notify and _already_mapped(writers, item.get("Id"))
+
         write = _dispatch(UPDATE_DISPATCH, writers, item)
         if write is not None:
             write(item)
@@ -290,8 +315,10 @@ class UpdateWorker(WriterWorker):
         # downloads_auto.queue_new_content, so items the writers
         # had already declined were pushing real ones out of a
         # backlog that overflowed 165 times on a live box.
-        if self.notify and not any(
-            item["Id"] in writer.refused for writer in writers.values()
+        if (
+            self.notify
+            and not known
+            and not any(item["Id"] in writer.refused for writer in writers.values())
         ):
             # newcontent also passes silent songs to the library subscription
             # hook; other non-announced types and watched video return None.

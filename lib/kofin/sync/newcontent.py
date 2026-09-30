@@ -11,9 +11,10 @@ what comes back is the lines to raise.
 Two rules are worth stating out loud, because both are silence and silence is
 hard to notice going missing:
 
-* A watched item is never announced. Kofin only notifies about *additions* in
-  the first place (metadata updates are built without notify), so "watched,
-  new or updated, stays quiet" comes down to dropping anything whose
+* A watched item is never announced. Kofin only notifies about additions:
+  the updated writers are built without notify, and an id already in
+  kofin.db is dropped before it reaches :func:`entry_for`. "Watched, new
+  or updated, stays quiet" then comes down to dropping anything whose
   ``UserData/Played`` is set.
 * Songs are passed to the music-library download subscription after their
   database writes commit, but are not announced. One album is a dozen songs,
