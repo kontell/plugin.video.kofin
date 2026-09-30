@@ -301,7 +301,13 @@ def _library_items(api: Any, library_id: str) -> List[str]:
         if len(seen) > MAX_SUBSCRIPTION_ITEMS:
             raise ValueError("music library %s exceeds item limit" % library_id)
         start += len(rows)
-        if not rows or (total and start >= total):
+        if not rows:
+            if total and start < total:
+                raise ValueError(
+                    "music library %s returned an incomplete page" % library_id
+                )
+            return items
+        if total and start >= total:
             return items
 
 

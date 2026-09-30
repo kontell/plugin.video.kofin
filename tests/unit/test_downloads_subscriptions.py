@@ -107,6 +107,37 @@ def test_incomplete_library_listing_keeps_existing_claims(wired, monkeypatch, bo
         assert opened.cursor.fetchall() == [("song",)]
 
 
+def test_empty_later_library_page_keeps_existing_claims(wired, monkeypatch):
+    owner_id = subscriptions.owner("musiclibrary", "library")
+    subscriptions.reconcile(owner_id, ["song"])
+    store.queue(store.Download("song", media_type="song", origin=owner_id))
+    wired.clear()
+    monkeypatch.setattr(
+        subscriptions.settings,
+        "get_str",
+        lambda key: "library" if key == subscriptions.LIBRARY_SETTING else "",
+    )
+
+    class Api:
+        def items(self, params):
+            rows = (
+                [{"Id": "other-%d" % index} for index in range(200)]
+                if params["StartIndex"] == 0
+                else []
+            )
+            return {"Items": rows, "TotalRecordCount": 401}
+
+    subscriptions.reconcile_music_libraries(Api())
+
+    assert wired == []
+    with sync_db.Database("kofin") as opened:
+        opened.cursor.execute(
+            "SELECT jellyfin_id FROM download_subscription WHERE owner = ?",
+            (owner_id,),
+        )
+        assert opened.cursor.fetchall() == [("song",)]
+
+
 def test_new_song_joins_its_library_subscription_after_writer_commit(
     wired, monkeypatch
 ):
