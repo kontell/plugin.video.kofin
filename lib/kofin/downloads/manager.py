@@ -190,8 +190,7 @@ class DownloadManager:
         # The Downloaded-music view is written once per generation, not once
         # per track (see _ensure_music_view).
         self._music_view_written = False
-        # Albums whose completion has already been announced, so a burst of
-        # tracks is one notification (see _announce_complete).
+        # Requests and albums whose completion has already been announced.
         self._announced: Set[str] = set()
         self._announce_lock = threading.Lock()
         # Downloads deleted since the last announcement (see _flush_removed).
@@ -291,8 +290,8 @@ class DownloadManager:
         before anything has been fetched for it. Unknown is fine and stays
         unknown until ``record_details`` learns it the slow way.
 
-        ``request_id``/``request_name`` name the container the sender
-        expanded, and ride onto every row this call creates so the
+        ``request_id``/``request_name`` name the item the user selected,
+        and ride onto every row this call creates so the
         completion toast can answer the request rather than each item
         (D6, ``_announce_complete``).
         """
@@ -329,7 +328,9 @@ class DownloadManager:
         wanted = [item_id for item_id in item_ids if item_id]
         if not wanted:
             return
-        self._ops.put(_Op("remove", ",".join(wanted), "subscription" if subscription else ""))
+        self._ops.put(
+            _Op("remove", ",".join(wanted), "subscription" if subscription else "")
+        )
         self._wake_all()
 
     def remove_all(self) -> None:
@@ -450,7 +451,8 @@ class DownloadManager:
                     self._apply_cancel(entry.item_id)
                 elif entry.op == "remove":
                     self._apply_remove_batch(
-                        entry.item_id.split(","), subscription=entry.origin == "subscription"
+                        entry.item_id.split(","),
+                        subscription=entry.origin == "subscription",
                     )
                 elif entry.op == "removeall":
                     self._apply_remove_all()
@@ -471,11 +473,20 @@ class DownloadManager:
             )
         ):
             self._attempts.pop(entry.item_id, None)
-            # New work re-arms every announcement: downloading an album or a
-            # playlist, removing it and downloading it again should say so
-            # both times (_announce_complete).
+            # Re-arm only the group this work could complete. An unrelated
+            # queue must not make a late worker repeat an already announced
+            # request; older automatic music still re-arms album grouping.
             with self._announce_lock:
-                self._announced.clear()
+                if entry.request_id:
+                    self._announced.discard("request:%s" % entry.request_id)
+                else:
+                    self._announced.difference_update(
+                        {
+                            key
+                            for key in self._announced
+                            if not key.startswith("request:")
+                        }
+                    )
             LOG.info("download queued: %s", entry.item_id)
             return True
         return False
@@ -504,7 +515,9 @@ class DownloadManager:
         repoint.unstamp_tag(row)
         repoint.clear_badge(row)
 
-    def _apply_remove_batch(self, item_ids: Iterable[str], subscription: bool = False) -> None:
+    def _apply_remove_batch(
+        self, item_ids: Iterable[str], subscription: bool = False
+    ) -> None:
         """One request's worth of removals: every row, then one refresh and
         one toast.
 
@@ -522,7 +535,9 @@ class DownloadManager:
                 row = store.get(item_id)
                 if (
                     row is None
-                    or not row.origin.startswith(("auto:playlist:", "auto:musiclibrary:"))
+                    or not row.origin.startswith(
+                        ("auto:playlist:", "auto:musiclibrary:")
+                    )
                     or store.has_subscription_claim(item_id)
                 ):
                     continue
@@ -635,7 +650,8 @@ class DownloadManager:
             # The server's EnableContentDownloading gate: retrying cannot fix
             # a permission, so the row settles immediately (feasibility V1).
             store.fail(item_id, "download not permitted: %s" % error)
-            self._toast(30713, item_id)
+            if not row.request_id:
+                self._toast(30713, item_id)
         except JellyfinError as error:
             self._retry_or_fail(row, str(error))
         except OSError as error:
@@ -644,6 +660,13 @@ class DownloadManager:
             # Every exit leaves the active set — done, failed, cancelled or
             # requeued — and only a completed item advances the bar.
             self._progress.finish(item_id, store.is_done(item_id))
+            current = store.get(item_id)
+            if (
+                current is not None
+                and current.state == store.FAILED
+                and current.request_id
+            ):
+                self._announce_request_terminal(current)
 
     def _transfer(self, api: Any, row: "store.Download", item: JsonDict) -> None:
         item_id = row.jellyfin_id
@@ -687,7 +710,8 @@ class DownloadManager:
         root = downloads_root()
         if not row.rel_path and not files.free_space_ok(root, size_expected):
             store.fail(item_id, "not enough free space")
-            self._toast(30715, item.get("Name", item_id))
+            if not row.request_id:
+                self._toast(30715, item.get("Name", item_id))
             return
 
         owner_id = group_id or item_id
@@ -1103,14 +1127,19 @@ class DownloadManager:
             # Range resume; only this worker sits out the backoff.
             store.queue(
                 store.Download(
-                    jellyfin_id=item_id, origin=row.origin, quality=row.quality
+                    jellyfin_id=item_id,
+                    origin=row.origin,
+                    quality=row.quality,
+                    request_id=row.request_id,
+                    request_name=row.request_name,
                 )
             )
             self._stopping_aware_sleep(BACKOFF_SECONDS * attempts)
             return
         self._attempts.pop(item_id, None)
         LOG.error("download failed for %s: %s", item_id, error)
-        self._toast(30713, item_id)
+        if not row.request_id:
+            self._toast(30713, item_id)
 
     def _stopping_aware_sleep(self, seconds: float) -> None:
         deadline = time.monotonic() + seconds
@@ -1560,40 +1589,19 @@ class DownloadManager:
         item: JsonDict,
         row: Optional["store.Download"] = None,
     ) -> None:
-        """One "Download complete" per *request*, not one per track.
+        """Announce a user request once, after all of its items settle.
 
-        A track is seconds of work and a batch lands as a burst, so the
-        per-item toast stacked a dozen notifications naming songs nobody
-        had asked for individually — what they asked for was the album, or
-        the playlist. Video keeps its per-item toast: a film or an episode
-        *is* the unit somebody chose, and they finish minutes apart.
-
-        The unit is the request, and that is the fix D6 makes. Grouping
-        used to be by ``group_id`` — the item's own ``SeriesId or AlbumId``
-        — which answers an album download correctly and a *playlist*
-        download not at all: twelve tracks off twelve albums are twelve
-        complete albums, so one request produced twelve toasts. A request
-        that expanded to more than one song is announced once, under its
-        own name; the album grouping stays underneath it for anything
-        queued before this shipped, or by a path that names no request.
-
-        Announced by whichever worker finishes the last of it, claimed
-        under the lock so two tracks landing together cannot both be last.
-        ``_apply_add`` re-arms when anything new is queued, so downloading
-        the same album or playlist again announces again.
+        Older and automatic rows have no request ID. Their music keeps the
+        album grouping and their video keeps the item-level notification.
         """
+        if row is None:
+            row = store.get(str(item.get("Id") or ""))
+        if row is not None and row.request_id:
+            self._announce_request_terminal(row)
+            return
         if media_type != "song":
             self._toast(30712, item.get("Name") or item.get("Id", ""))
             return
-        if row is None:
-            row = store.get(str(item.get("Id") or ""))
-        request_id = row.request_id if row is not None else ""
-        if request_id:
-            counts = store.request_counts(request_id)
-            if counts["total"] > 1:
-                name = (row.request_name if row is not None else "") or request_id
-                self._announce_once(request_id, counts["pending"], name)
-                return
         if not group_id:
             self._toast(30712, item.get("Name") or item.get("Id", ""))
             return
@@ -1603,7 +1611,20 @@ class DownloadManager:
             item.get("Album") or item.get("Name") or group_id,
         )
 
-    def _announce_once(self, key: str, pending: int, name: Any) -> None:
+    def _announce_request_terminal(self, row: "store.Download") -> None:
+        counts = store.request_counts(row.request_id)
+        if not counts["total"]:
+            return
+        self._announce_once(
+            "request:%s" % row.request_id,
+            counts["pending"],
+            row.request_name or row.request_id,
+            30713 if counts["failed"] else 30712,
+        )
+
+    def _announce_once(
+        self, key: str, pending: int, name: Any, string_id: int = 30712
+    ) -> None:
         """Toast for ``key`` when nothing under it is still coming, and only
         for the worker that gets there first."""
         with self._announce_lock:
@@ -1612,7 +1633,7 @@ class DownloadManager:
             if pending:
                 return  # more of this one is still coming
             self._announced.add(key)
-        self._toast(30712, name)
+        self._toast(string_id, name)
 
     def _flush_removed(self) -> None:
         """Announce the batch just deleted: the item by name when it is one,

@@ -48,7 +48,9 @@ def test_manual_download_survives_playlist_departure(wired):
 def test_playlist_remove_scope_excludes_manual_and_claimed_tracks(wired):
     store.queue(store.Download("requested", request_id="mix", origin=store.ORIGIN_USER))
     store.queue(store.Download("manual", origin=store.ORIGIN_USER))
-    store.queue(store.Download("claimed", origin=subscriptions.owner("playlist", "mix")))
+    store.queue(
+        store.Download("claimed", origin=subscriptions.owner("playlist", "mix"))
+    )
     subscriptions.reconcile(subscriptions.owner("musiclibrary", "library"), ["claimed"])
     assert store.playlist_unclaimed_states("mix") == {"requested": store.QUEUED}
     assert store.music_container_unclaimed_states("library", "musiclibrary") == {}
@@ -75,7 +77,11 @@ def test_repeated_library_page_never_becomes_a_deletion_snapshot():
 
 @pytest.mark.parametrize(
     "body",
-    [{}, {"Items": [], "TotalRecordCount": 2}, {"Items": [None], "TotalRecordCount": 1}],
+    [
+        {},
+        {"Items": [], "TotalRecordCount": 2},
+        {"Items": [None], "TotalRecordCount": 1},
+    ],
 )
 def test_incomplete_library_listing_keeps_existing_claims(wired, monkeypatch, body):
     owner = subscriptions.owner("musiclibrary", "library")
@@ -83,7 +89,8 @@ def test_incomplete_library_listing_keeps_existing_claims(wired, monkeypatch, bo
     store.queue(store.Download("song", media_type="song", origin=owner))
     wired.clear()
     monkeypatch.setattr(
-        subscriptions.settings, "get_str",
+        subscriptions.settings,
+        "get_str",
         lambda key: "library" if key == subscriptions.LIBRARY_SETTING else "",
     )
 
@@ -100,9 +107,12 @@ def test_incomplete_library_listing_keeps_existing_claims(wired, monkeypatch, bo
         assert opened.cursor.fetchall() == [("song",)]
 
 
-def test_new_song_joins_its_library_subscription_after_writer_commit(wired, monkeypatch):
+def test_new_song_joins_its_library_subscription_after_writer_commit(
+    wired, monkeypatch
+):
     monkeypatch.setattr(
-        subscriptions.settings, "get_str",
+        subscriptions.settings,
+        "get_str",
         lambda key: "library" if key == subscriptions.LIBRARY_SETTING else "",
     )
     with sync_db.Database("kofin") as opened:
@@ -112,13 +122,16 @@ def test_new_song_joins_its_library_subscription_after_writer_commit(wired, monk
         )
     entry = newcontent.Entry("Audio", "song", "Song")
     subscriptions.claim_new_library_songs([entry])
-    assert wired == [
-        (
-            ipc.DOWNLOAD_ADD,
-            {"Ids": ["song"], "Types": ["Audio"], "Origin": "auto:musiclibrary:library"},
-        )
-    ]
-    store.queue(store.Download("song", media_type="song", origin="auto:musiclibrary:library"))
+    assert len(wired) == 1 and wired[0][0] == ipc.DOWNLOAD_ADD
+    payload = wired[0][1]
+    assert payload["Ids"] == ["song"]
+    assert payload["Types"] == ["Audio"]
+    assert payload["Origin"] == "auto:musiclibrary:library"
+    assert payload["Request"].startswith("auto:musiclibrary:library:")
+    assert payload["RequestName"] == "library"
+    store.queue(
+        store.Download("song", media_type="song", origin="auto:musiclibrary:library")
+    )
     subscriptions.claim_new_library_songs([entry])
     assert len(wired) == 1
     with sync_db.Database("kofin") as opened:
@@ -128,7 +141,8 @@ def test_new_song_joins_its_library_subscription_after_writer_commit(wired, monk
 
 def test_playlist_subscription_runs_without_playlist_file_sync(wired, monkeypatch):
     monkeypatch.setattr(
-        subscriptions.settings, "get_str",
+        subscriptions.settings,
+        "get_str",
         lambda key: "mix" if key == subscriptions.PLAYLIST_SETTING else "",
     )
 
@@ -140,12 +154,30 @@ def test_playlist_subscription_runs_without_playlist_file_sync(wired, monkeypatc
             return {"Items": [{"Id": "song", "Type": "Audio"}], "TotalRecordCount": 1}
 
     subscriptions.reconcile_playlist_direct(Api(), "mix")
-    assert wired == [
-        (
-            ipc.DOWNLOAD_ADD,
-            {"Ids": ["song"], "Types": ["Audio"], "Origin": "auto:playlist:mix"},
+    assert len(wired) == 1 and wired[0][0] == ipc.DOWNLOAD_ADD
+    payload = wired[0][1]
+    assert payload["Ids"] == ["song"]
+    assert payload["Types"] == ["Audio"]
+    assert payload["Origin"] == "auto:playlist:mix"
+    assert payload["Request"].startswith("auto:playlist:mix:")
+    assert payload["RequestName"] == "mix"
+
+
+def test_subscription_batches_share_one_named_download_request(wired):
+    with sync_db.Database("kofin") as opened:
+        opened.cursor.execute(
+            "INSERT INTO view(view_id, view_name, media_type) VALUES (?, ?, ?)",
+            ("library", "My Music", "Audio"),
         )
-    ]
+    subscriptions.reconcile(
+        subscriptions.owner("musiclibrary", "library"),
+        ["song%03d" % index for index in range(201)],
+    )
+
+    adds = [payload for method, payload in wired if method == ipc.DOWNLOAD_ADD]
+    assert [len(payload["Ids"]) for payload in adds] == [200, 1]
+    assert adds[0]["Request"] == adds[1]["Request"]
+    assert adds[0]["RequestName"] == adds[1]["RequestName"] == "My Music"
 
 
 def test_library_pages_continue_when_server_omits_total_count():

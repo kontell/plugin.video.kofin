@@ -85,16 +85,11 @@ class Download:
     # Empty on rows captured before the column existed, or on video rows,
     # whose path rows are shared and never orphaned by a repoint.
     restore_path: str = ""
-    # What the user actually asked for, when it was a container: the
-    # Jellyfin id of the thing the context menu expanded, and its name
-    # (D6). Distinct from ``series_id``, which is the *item's* parent — a
-    # playlist's twelve tracks have twelve different albums and one
-    # request, and grouping the completion toast by the album meant twelve
-    # notifications for one thing somebody chose once. The name is stored
-    # rather than looked up so the toast survives a service restart, which
-    # a long request easily outlives; both are empty for a single item and
-    # for anything queued automatically, and the per-item toast is the
-    # right answer for both of those.
+    # What the user asked to download: its Jellyfin id and name. Distinct
+    # from ``series_id``, which is the *item's* parent — a
+    # playlist's twelve tracks have twelve different albums and one request.
+    # The name is stored so the final toast survives a service restart;
+    # both are empty for anything queued automatically.
     request_id: str = ""
     request_name: str = ""
 
@@ -155,7 +150,8 @@ def queue(download: Download) -> bool:
                 "UPDATE download SET state = ?, queued_at = ?, error = '', "
                 "rel_path = CASE WHEN quality = ? THEN '' ELSE rel_path END, "
                 "bytes_done = CASE WHEN quality = ? THEN 0 ELSE bytes_done END, "
-                "quality = ?, origin = ? WHERE jellyfin_id = ?",
+                "quality = ?, origin = ?, request_id = ?, request_name = ? "
+                "WHERE jellyfin_id = ?",
                 (
                     QUEUED,
                     now,
@@ -163,6 +159,8 @@ def queue(download: Download) -> bool:
                     QUALITY_TRANSCODE,
                     download.quality,
                     download.origin,
+                    download.request_id,
+                    download.request_name,
                     download.jellyfin_id,
                 ),
             )
@@ -245,16 +243,16 @@ def container_states(container_id: str) -> Dict[str, str]:
 
 
 def request_counts(request_id: str) -> Dict[str, int]:
-    """``{"total": n, "pending": n}`` for one queue *request* (D6).
+    """Counts for one queue request, including failures.
 
     A plain query on the request's own column — no mapping join, unlike
     :func:`container_states`, because a request is recorded on every row it
     created rather than inferred from what the items happen to be under.
-    ``total`` is what tells a one-item request from a container's: the
-    completion toast collapses only when there was more than one.
+    The final toast waits for all queued/active rows and reports failure if
+    any member failed.
     """
     if not request_id:
-        return {"total": 0, "pending": 0}
+        return {"total": 0, "pending": 0, "failed": 0}
     with Database("kofin") as opened:
         opened.cursor.execute(
             "SELECT state FROM download WHERE request_id = ?", (request_id,)
@@ -263,6 +261,7 @@ def request_counts(request_id: str) -> Dict[str, int]:
     return {
         "total": len(states),
         "pending": sum(1 for state in states if state in (QUEUED, ACTIVE)),
+        "failed": sum(1 for state in states if state == FAILED),
     }
 
 

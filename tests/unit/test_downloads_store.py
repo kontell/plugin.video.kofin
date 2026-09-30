@@ -69,6 +69,19 @@ def test_a_failed_row_requeues_in_place_keeping_resume_progress():
     assert claimed is not None
 
 
+def test_requeued_failure_belongs_to_the_new_user_request():
+    store.queue(_movie(request_id="old", request_name="Old selection"))
+    store.fail("m1", "boom")
+
+    assert store.queue(
+        _movie(request_id="new", request_name="New selection", queued_at=300)
+    )
+    row = store.get("m1")
+    assert (row.request_id, row.request_name) == ("new", "New selection")
+    assert store.request_counts("new") == {"total": 1, "pending": 1, "failed": 0}
+    assert store.request_counts("old") == {"total": 0, "pending": 0, "failed": 0}
+
+
 def test_claim_is_oldest_first_and_single_flight():
     store.queue(_movie("older", queued_at=10))
     store.queue(_movie("newer", queued_at=20))

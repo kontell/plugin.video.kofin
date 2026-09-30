@@ -6,6 +6,8 @@ only one origin; claims keep an overlap from being deleted when the first
 subscription drops it. Every removal still goes through the manager.
 """
 
+import os
+import uuid
 from typing import Any, Dict, Iterable, List, Set, Tuple
 
 from kofin.core import ipc, settings
@@ -42,7 +44,7 @@ def owner(kind: str, item_id: str) -> str:
     return "auto:%s:%s" % (kind, item_id)
 
 
-def reconcile(owner_id: str, item_ids: Iterable[str]) -> None:
+def reconcile(owner_id: str, item_ids: Iterable[str], request_name: str = "") -> None:
     """Apply a complete membership snapshot, then queue its diff.
 
     The caller must supply a successful *complete* listing. An exception or
@@ -56,23 +58,63 @@ def reconcile(owner_id: str, item_ids: Iterable[str]) -> None:
     with Database("kofin") as opened:
         queue, delete = _reconcile_on(opened.cursor, owner_id, wanted)
     if queue:
-        ordered = sorted(queue)
-        for start in range(0, len(ordered), NOTIFY_BATCH_SIZE):
-            batch = ordered[start : start + NOTIFY_BATCH_SIZE]
-            ipc.notify(
-                ipc.DOWNLOAD_ADD,
-                {"Ids": batch, "Types": ["Audio"] * len(batch), "Origin": owner_id},
-            )
+        _notify_queue(owner_id, queue, request_name)
     if delete:
         ordered = sorted(delete)
         for start in range(0, len(ordered), NOTIFY_BATCH_SIZE):
             ipc.notify(
                 ipc.DOWNLOAD_REMOVE,
-                {"Ids": ordered[start : start + NOTIFY_BATCH_SIZE], "Subscription": True},
+                {
+                    "Ids": ordered[start : start + NOTIFY_BATCH_SIZE],
+                    "Subscription": True,
+                },
             )
     if queue or delete:
         LOG.info(
             "subscription %s: %d queued, %d removed", owner_id, len(queue), len(delete)
+        )
+
+
+def _owner_name(owner_id: str) -> str:
+    """Use the local playlist filename or library title for the final toast."""
+    _, _, suffix = owner_id.partition(":")
+    kind, _, item_id = suffix.partition(":")
+    if not item_id:
+        return owner_id
+    with Database("kofin") as opened:
+        if kind == "playlist":
+            opened.cursor.execute(
+                "SELECT filename FROM playlist_state WHERE jellyfin_id = ?", (item_id,)
+            )
+            row = opened.cursor.fetchone()
+            if row and row[0]:
+                return str(os.path.splitext(row[0])[0])
+        elif kind == "musiclibrary":
+            opened.cursor.execute(
+                "SELECT view_name FROM view WHERE view_id = ?", (item_id,)
+            )
+            row = opened.cursor.fetchone()
+            if row and row[0]:
+                return str(row[0])
+    return item_id
+
+
+def _notify_queue(owner_id: str, item_ids: Iterable[str], name: str = "") -> None:
+    """One request across IPC batches, hence one result toast after all songs."""
+    ordered = sorted(item_ids)
+    request_id = "%s:%s" % (owner_id, uuid.uuid4().hex)
+    request_name = name or _owner_name(owner_id)
+    for start in range(0, len(ordered), NOTIFY_BATCH_SIZE):
+        batch = ordered[start : start + NOTIFY_BATCH_SIZE]
+        ipc.notify(
+            ipc.DOWNLOAD_ADD,
+            {
+                "Ids": batch,
+                "Types": ["Audio"] * len(batch),
+                "Origin": owner_id,
+                "Request": request_id,
+                "RequestName": request_name,
+            },
         )
 
 
@@ -103,22 +145,26 @@ def _reconcile_on(
         )
         downloads = dict(cursor.fetchall())
         queue.extend(
-            item_id for item_id in batch
+            item_id
+            for item_id in batch
             if item_id not in downloads or downloads[item_id] == store.FAILED
         )
     for batch in _batches(removed):
         marks = ",".join("?" for _ in batch)
         cursor.execute(
-            "SELECT jellyfin_id FROM download_subscription WHERE jellyfin_id IN (%s)" % marks,
+            "SELECT jellyfin_id FROM download_subscription WHERE jellyfin_id IN (%s)"
+            % marks,
             batch,
         )
         claimed = {row[0] for row in cursor.fetchall()}
         cursor.execute(
-            "SELECT jellyfin_id, origin FROM download WHERE jellyfin_id IN (%s)" % marks,
+            "SELECT jellyfin_id, origin FROM download WHERE jellyfin_id IN (%s)"
+            % marks,
             batch,
         )
         delete.extend(
-            item_id for item_id, origin in cursor.fetchall()
+            item_id
+            for item_id, origin in cursor.fetchall()
             if item_id not in claimed
             and str(origin).startswith(("auto:playlist:", "auto:musiclibrary:"))
         )
@@ -161,7 +207,11 @@ def reconcile_playlist_direct(api: Any, playlist_id: str) -> None:
         playlist = api.item(playlist_id)
         items = playlists._iter_playlist_items(api, playlist_id)
         if playlists.playlist_side(playlist.get("MediaType") or "", items) == "Audio":
-            reconcile(owner("playlist", playlist_id), playlists._audio_ids(items))
+            reconcile(
+                owner("playlist", playlist_id),
+                playlists._audio_ids(items),
+                str(playlist.get("Name") or ""),
+            )
     except Exception:
         LOG.exception("playlist subscription failed for %s", playlist_id)
 
@@ -183,7 +233,8 @@ def claim_new_library_songs(entries: Iterable[Any]) -> None:
         return
     libraries = set(subscribed(LIBRARY_SETTING))
     songs = {
-        entry.item_id for entry in entries
+        entry.item_id
+        for entry in entries
         if getattr(entry, "type", "") == "Audio" and entry.item_id
     }
     if not libraries or not songs:
@@ -200,7 +251,8 @@ def claim_new_library_songs(entries: Iterable[Any]) -> None:
             owner_id = owner("musiclibrary", row[0])
             opened.cursor.execute(
                 "INSERT OR IGNORE INTO download_subscription(owner, jellyfin_id) "
-                "VALUES (?, ?)", (owner_id, item_id)
+                "VALUES (?, ?)",
+                (owner_id, item_id),
             )
             opened.cursor.execute(
                 "SELECT state FROM download WHERE jellyfin_id = ?", (item_id,)
@@ -209,12 +261,7 @@ def claim_new_library_songs(entries: Iterable[Any]) -> None:
             if download is None or download[0] == store.FAILED:
                 queued.setdefault(owner_id, []).append(item_id)
     for owner_id, item_ids in queued.items():
-        for start in range(0, len(item_ids), NOTIFY_BATCH_SIZE):
-            batch = item_ids[start : start + NOTIFY_BATCH_SIZE]
-            ipc.notify(
-                ipc.DOWNLOAD_ADD,
-                {"Ids": batch, "Types": ["Audio"] * len(batch), "Origin": owner_id},
-            )
+        _notify_queue(owner_id, item_ids)
 
 
 def _library_items(api: Any, library_id: str) -> List[str]:
@@ -241,7 +288,9 @@ def _library_items(api: Any, library_id: str) -> List[str]:
             raise ValueError("music library %s exceeds item limit" % library_id)
         rows = page["Items"]
         if start == 0 and not rows and total > 0:
-            raise ValueError("music library %s returned an incomplete first page" % library_id)
+            raise ValueError(
+                "music library %s returned an incomplete first page" % library_id
+            )
         fresh = [row for row in rows if row.get("Id") and row["Id"] not in seen]
         if rows and not fresh:
             raise ValueError("repeated music-library page for %s" % library_id)

@@ -622,8 +622,6 @@ def download(request: Request) -> None:
         toast.show(settings.localized(30018), toast.ERROR)
         return
 
-    from kofin.plugin.context import DOWNLOAD_CONTAINER_TYPES
-
     wanted = [
         child
         for child in children
@@ -632,7 +630,6 @@ def download(request: Request) -> None:
         and child.get("CanDownload") is not False
     ]
     if not wanted:
-        _download_toast(30711, 0)
         return
 
     if not _confirm_download(item, wanted):
@@ -642,21 +639,16 @@ def download(request: Request) -> None:
     # by media kind, and the kind is not knowable from an id alone without
     # the very server round trip the queue is trying to get ahead of.
     #
-    # So does the request — the container this expanded, and what to call it
-    # (D6). This is the only place that knows it: by the time a row reaches
-    # the manager it holds its item's own parent, which for a playlist's
-    # tracks is a different album each, and the completion toast grouped on
-    # that fired once per track for one thing the user chose once. Sent only
-    # for a real container, so a single item still announces itself.
+    # So does the request — the container this expanded, and what to call it.
+    # Its children can span albums and media types, but the manager announces
+    # the whole request only once, when every child has settled.
     payload: Dict[str, Any] = {
         "Ids": [child["Id"] for child in wanted],
         "Types": [str(child.get("Type") or "") for child in wanted],
     }
-    if item.get("Type") in DOWNLOAD_CONTAINER_TYPES:
-        payload["Request"] = item_id
-        payload["RequestName"] = str(item.get("Name") or "")
+    payload["Request"] = item_id
+    payload["RequestName"] = str(item.get("Name") or item_id)
     ipc.notify(ipc.DOWNLOAD_ADD, payload)
-    _download_toast(30711, len(wanted))
 
 
 def download_show(request: Request) -> None:
@@ -912,20 +904,25 @@ def cancel_download(request: Request) -> None:
     from kofin.downloads import store
 
     music_scope = (
-        "playlist" if request.params.get("playlist") == "1"
+        "playlist"
+        if request.params.get("playlist") == "1"
         else "musiclibrary" if request.params.get("library") == "1" else ""
     )
     if music_scope:
         from kofin.downloads import subscriptions
 
         setting = (
-            subscriptions.PLAYLIST_SETTING if music_scope == "playlist"
+            subscriptions.PLAYLIST_SETTING
+            if music_scope == "playlist"
             else subscriptions.LIBRARY_SETTING
         )
         if item_id in subscriptions.subscribed(setting):
             return
         targets = [
-            song_id for song_id, state in store.music_container_unclaimed_states(item_id, music_scope).items()
+            song_id
+            for song_id, state in store.music_container_unclaimed_states(
+                item_id, music_scope
+            ).items()
             if state in (store.QUEUED, store.ACTIVE)
         ]
     else:
@@ -956,20 +953,25 @@ def remove_download(request: Request) -> None:
     from kofin.downloads import store
 
     music_scope = (
-        "playlist" if request.params.get("playlist") == "1"
+        "playlist"
+        if request.params.get("playlist") == "1"
         else "musiclibrary" if request.params.get("library") == "1" else ""
     )
     if music_scope:
         from kofin.downloads import subscriptions
 
         setting = (
-            subscriptions.PLAYLIST_SETTING if music_scope == "playlist"
+            subscriptions.PLAYLIST_SETTING
+            if music_scope == "playlist"
             else subscriptions.LIBRARY_SETTING
         )
         if item_id in subscriptions.subscribed(setting):
             return
         targets = [
-            song_id for song_id, state in store.music_container_unclaimed_states(item_id, music_scope).items()
+            song_id
+            for song_id, state in store.music_container_unclaimed_states(
+                item_id, music_scope
+            ).items()
             if state == store.DONE
         ]
     elif store.get(item_id) is not None:

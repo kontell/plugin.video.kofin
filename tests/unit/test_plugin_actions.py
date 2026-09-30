@@ -15,8 +15,12 @@ def test_playlist_subscription_requests_its_own_initial_sync(monkeypatch):
 
     monkeypatch.setattr(subscriptions, "toggle", lambda setting, item_id: True)
     sent = []
-    monkeypatch.setattr(actions.ipc, "notify", lambda method, body: sent.append((method, body)))
-    actions.download_playlist(Request("plugin://plugin.video.kofin/", -1, {"id": "mix"}))
+    monkeypatch.setattr(
+        actions.ipc, "notify", lambda method, body: sent.append((method, body))
+    )
+    actions.download_playlist(
+        Request("plugin://plugin.video.kofin/", -1, {"id": "mix"})
+    )
     assert sent == [(ipc.SYNC_PLAYLISTS, {"Id": "mix"})]
 
 
@@ -38,12 +42,16 @@ def test_empty_music_subscription_picker_says_content_not_downloaded(monkeypatch
 
 @pytest.mark.parametrize("scope", ["playlist", "library"])
 @pytest.mark.parametrize("action", [actions.cancel_download, actions.remove_download])
-def test_subscribed_music_container_rejects_stale_remove_menu(monkeypatch, scope, action):
+def test_subscribed_music_container_rejects_stale_remove_menu(
+    monkeypatch, scope, action
+):
     from kofin.downloads import subscriptions
 
     monkeypatch.setattr(subscriptions, "subscribed", lambda setting: ["container"])
     sent = []
-    monkeypatch.setattr(actions.ipc, "notify", lambda method, body: sent.append((method, body)))
+    monkeypatch.setattr(
+        actions.ipc, "notify", lambda method, body: sent.append((method, body))
+    )
     action(Request("plugin://plugin.video.kofin/", -1, {"id": "container", scope: "1"}))
     assert sent == []
 
@@ -265,14 +273,27 @@ def download_wired(monkeypatch):
     return wire
 
 
-def test_download_movie_notifies_without_a_confirm(download_wired):
+def test_download_movie_queues_silently_without_a_confirm(download_wired, monkeypatch):
     movie = {"Id": "m1", "Type": "Movie", "CanDownload": True, "MediaSources": []}
     notified, dialog, Request = download_wired(FakeDownloadApi(movie))
+    shown = []
+    monkeypatch.setattr(actions.toast, "show", lambda *a, **k: shown.append(a))
 
     actions.download(Request("plugin://x", -1, {"id": "m1"}))
 
-    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["m1"], "Types": ["Movie"]})]
+    assert notified == [
+        (
+            ipc.DOWNLOAD_ADD,
+            {
+                "Ids": ["m1"],
+                "Types": ["Movie"],
+                "Request": "m1",
+                "RequestName": "m1",
+            },
+        )
+    ]
     assert dialog.yesnos == []
+    assert shown == []
 
 
 def test_download_season_confirms_then_notifies_the_children(download_wired):
