@@ -1,5 +1,7 @@
 import sys
 
+import pytest
+
 from kofin.plugin import context
 from tests.unit.fakes import FakeApi
 
@@ -105,7 +107,9 @@ def test_music_view_offers_download_and_subscription_only_for_music(monkeypatch)
     monkeypatch.setattr(
         context,
         "_container_download_options",
-        lambda item_id, music_scope="": [("Download", {"mode": "download", "id": item_id})],
+        lambda item_id, music_scope="": [
+            ("Download", {"mode": "download", "id": item_id})
+        ],
     )
     monkeypatch.setattr(subscriptions, "subscribed", lambda setting: [])
     monkeypatch.setattr(context.settings, "localized", lambda string_id: str(string_id))
@@ -165,7 +169,9 @@ def test_managed_playlist_menu_translates_kodis_special_path(monkeypatch, tmp_pa
         from kofin.downloads import store
 
         offered.clear()
-        monkeypatch.setattr(subscriptions, "subscribed", lambda setting: ["playlist-id"])
+        monkeypatch.setattr(
+            subscriptions, "subscribed", lambda setting: ["playlist-id"]
+        )
         monkeypatch.setattr(
             store, "playlist_unclaimed_states", lambda playlist_id: {"song": store.DONE}
         )
@@ -540,6 +546,25 @@ def test_a_downloaded_container_offers_remove_not_just_download(monkeypatch):
         "download",
         "removedownload",
         "canceldownload",
+    ]
+
+
+@pytest.mark.parametrize("scope", ["playlist", "musiclibrary"])
+def test_scoped_music_container_keeps_download_for_failed_song(monkeypatch, scope):
+    from kofin.downloads import store
+
+    monkeypatch.setattr(
+        store,
+        "music_container_unclaimed_states",
+        lambda item_id, music_scope: {"done": store.DONE, "retry": store.FAILED},
+    )
+    monkeypatch.setattr(context.settings, "localized", lambda i: "L%d" % i)
+
+    options = context._container_download_options("container", scope)
+
+    assert [params["mode"] for _, params in options] == [
+        "download",
+        "removedownload",
     ]
 
 

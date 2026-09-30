@@ -447,7 +447,13 @@ class Library(threading.Thread):
                                     )
                             else:
                                 music_playlists.apply_one(
-                                    self.api, mapping, music, None, mapping, item, kinds,
+                                    self.api,
+                                    mapping,
+                                    music,
+                                    None,
+                                    mapping,
+                                    item,
+                                    kinds,
                                     audio_memberships=memberships,
                                 )
                     elif "Video" in kinds:
@@ -472,12 +478,22 @@ class Library(threading.Thread):
                 with Database("video") as videodb:
                     video = music_playlists.VideoPlaylistDb(videodb.cursor)
                     music_playlists.reconcile(
-                        api, mapping, music, video, mapping, kinds,
+                        api,
+                        mapping,
+                        music,
+                        video,
+                        mapping,
+                        kinds,
                         audio_memberships=memberships,
                     )
             else:
                 music_playlists.reconcile(
-                    api, mapping, music, None, mapping, kinds,
+                    api,
+                    mapping,
+                    music,
+                    None,
+                    mapping,
+                    kinds,
                     audio_memberships=memberships,
                 )
         return memberships

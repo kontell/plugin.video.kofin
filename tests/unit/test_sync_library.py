@@ -2166,7 +2166,9 @@ def test_new_song_claim_waits_for_writer_commit(monkeypatch):
     lib, sent = _notify_library(monkeypatch, song)
     claimed = []
     monkeypatch.setattr(
-        subscriptions, "claim_new_library_songs", lambda entries: claimed.extend(entries)
+        subscriptions,
+        "claim_new_library_songs",
+        lambda entries: claimed.extend(entries),
     )
     lib.added_queue.put(["still-writing"])
     lib.notify_new_content()

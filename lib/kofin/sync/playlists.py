@@ -485,7 +485,9 @@ def _iter_playlist_items(api: Any, playlist_id: str) -> List[Dict[str, Any]]:
             raise ValueError("playlist %s returned malformed items" % playlist_id)
         total = int(body.get("TotalRecordCount") or 0)
         if start == 0 and not page and total > 0:
-            raise ValueError("playlist %s returned an incomplete first page" % playlist_id)
+            raise ValueError(
+                "playlist %s returned an incomplete first page" % playlist_id
+            )
         if total > MAX_PLAYLIST_ITEMS:
             raise ValueError(
                 "playlist %s exceeds %d items" % (playlist_id, MAX_PLAYLIST_ITEMS)
@@ -979,7 +981,9 @@ def reconcile(
         try:
             items = _iter_playlist_items(api, playlist_id)
         except Exception:
-            LOG.exception("playlist %s: items listing failed; keeping prior state", playlist_id)
+            LOG.exception(
+                "playlist %s: items listing failed; keeping prior state", playlist_id
+            )
             prior = state.get_playlist_state(playlist_id)
             if prior:
                 if prior[0] == "Audio":

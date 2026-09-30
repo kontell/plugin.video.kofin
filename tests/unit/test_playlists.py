@@ -32,7 +32,10 @@ class FakeApi:
         all_items = self._items.get(playlist_id, [])
         page = all_items[start_index : start_index + limit]
         # Some builds over-report the count; the caller must not trust it.
-        return {"Items": page, "TotalRecordCount": len(all_items) + (5 if all_items else 0)}
+        return {
+            "Items": page,
+            "TotalRecordCount": len(all_items) + (5 if all_items else 0),
+        }
 
 
 def test_oversized_playlist_never_becomes_a_partial_membership_snapshot():
@@ -47,7 +50,9 @@ def test_oversized_playlist_never_becomes_a_partial_membership_snapshot():
         playlists._iter_playlist_items(OversizedApi(), "large")
 
 
-@pytest.mark.parametrize("body", [{}, {"Items": [], "TotalRecordCount": 1}, {"Items": [None]}])
+@pytest.mark.parametrize(
+    "body", [{}, {"Items": [], "TotalRecordCount": 1}, {"Items": [None]}]
+)
 def test_incomplete_playlist_page_is_not_an_empty_membership(body):
     class Api:
         def playlist_items(self, playlist_id, start_index=0, limit=100):
@@ -79,8 +84,14 @@ def test_failed_playlist_page_keeps_its_file_and_does_not_stop_others(tmp_path):
     mapping, music = _audio_stack()
     memberships = {}
     playlists.reconcile(
-        api, mapping, music, None, state, {"Audio"},
-        music_root=str(root), audio_memberships=memberships,
+        api,
+        mapping,
+        music,
+        None,
+        state,
+        {"Audio"},
+        music_root=str(root),
+        audio_memberships=memberships,
     )
     assert (root / "Old.m3u8").is_file()
     assert state.get_playlist_state("bad") is not None
@@ -691,12 +702,12 @@ def test_playlist_poll_mirrors_download_subscription_membership(tmp_path, monkey
             )
             assert sent == []
         subscriptions.reconcile_playlist_memberships(memberships)
-        assert sent == [
-            (
-                ipc.DOWNLOAD_ADD,
-                {"Ids": ["a1"], "Types": ["Audio"], "Origin": owner},
-            )
-        ]
+        assert len(sent) == 1 and sent[0][0] == ipc.DOWNLOAD_ADD
+        assert sent[0][1]["Ids"] == ["a1"]
+        assert sent[0][1]["Types"] == ["Audio"]
+        assert sent[0][1]["Origin"] == owner
+        assert sent[0][1]["Request"].startswith(owner + ":")
+        assert sent[0][1]["RequestName"] == "Gym"
         store.queue(store.Download("a1", media_type="song", origin=owner))
         sent.clear()
         api._items["pl1"] = [{"Id": "a2", "Type": "Audio"}]

@@ -336,15 +336,19 @@ def _container_download_options(
         states = store.music_container_unclaimed_states(item_id, music_scope)
         counts = {
             "done": sum(state == store.DONE for state in states.values()),
-            "pending": sum(state in (store.QUEUED, store.ACTIVE) for state in states.values()),
+            "pending": sum(
+                state in (store.QUEUED, store.ACTIVE) for state in states.values()
+            ),
         }
+        unfinished = any(state != store.DONE for state in states.values())
     else:
         counts = store.container_counts(item_id)
+        unfinished = bool(counts["pending"])
     params = {"id": item_id}
     if music_scope:
         params["playlist" if music_scope == "playlist" else "library"] = "1"
     entries: List[Tuple[str, dict]] = []
-    if counts["pending"] or not counts["done"]:
+    if unfinished or not counts["done"]:
         entries.append((settings.localized(30708), {"mode": "download", "id": item_id}))
     if counts["done"]:
         entries.append(
@@ -382,15 +386,18 @@ def _download_options(item: dict) -> List[Tuple[str, dict]]:
         from kofin.downloads import subscriptions
 
         music_scope = (
-            "playlist" if item_type == "Playlist"
-            else "musiclibrary" if item_type in ("CollectionFolder", "UserView")
-            else ""
+            "playlist"
+            if item_type == "Playlist"
+            else "musiclibrary" if item_type in ("CollectionFolder", "UserView") else ""
         )
         subscribed = bool(music_scope) and item_id in subscriptions.subscribed(
-            subscriptions.PLAYLIST_SETTING if music_scope == "playlist"
+            subscriptions.PLAYLIST_SETTING
+            if music_scope == "playlist"
             else subscriptions.LIBRARY_SETTING
         )
-        entries = [] if subscribed else _container_download_options(item_id, music_scope)
+        entries = (
+            [] if subscribed else _container_download_options(item_id, music_scope)
+        )
         if item_type == "Series":
             # The new-episode subscription toggle (W4.6), labeled by the
             # show's current state.
