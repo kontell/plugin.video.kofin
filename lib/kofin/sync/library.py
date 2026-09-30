@@ -1287,7 +1287,8 @@ class Library(threading.Thread):
         """Update items in the Kodi database.
 
         Added items are always written before metadata-only updates. Only
-        additions notify the user as new content.
+        additions notify, and an id already in kofin.db does not: Jellyfin
+        reports some metadata saves as added.
         """
         output_sets = [("added", self.added_output)]
 

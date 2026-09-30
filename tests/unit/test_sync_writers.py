@@ -2200,6 +2200,92 @@ def test_metadata_writers_cannot_announce_anything(api):
     assert notify.qsize() == 0
 
 
+def _drain(notify):
+    reported = []
+    while not notify.empty():
+        reported.append(notify.get())
+    return reported
+
+
+def test_an_already_mapped_item_on_the_added_path_is_not_announced(api):
+    """Jellyfin fires ItemAdded for a metadata save of an id that already
+    exists. The added writer still updates the row. The id was in kofin.db
+    before this write, so nothing is queued for the toast, the auto-download
+    backlog or a song subscription. A neighbour that really is new still is.
+
+    Played is cleared on the rewrite: a watched item is already silent, and
+    that filter must not be what keeps this one quiet. The etag moves so
+    check_unchanged does not skip the write."""
+    seed_movie_library(api)
+    write_movie(api)
+
+    changed = dto(MOVIE)
+    changed["Etag"] = "etag-movie1-v2"
+    changed["Name"] = "The Example (Remastered)"
+    changed["UserData"] = {"Played": False, "PlayCount": 0, "IsFavorite": False}
+    work = queue.Queue()
+    work.put(changed)
+    work.put(dto(MOVIE_2))
+    notify = queue.Queue()
+
+    UpdateWorker(
+        work, notify, threading.Lock(), "video", api, notify_enabled=True
+    ).run()
+
+    assert video_query("SELECT c00 FROM movie ORDER BY c00") == [
+        ("Second Feature",),
+        ("The Example (Remastered)",),
+    ]
+    assert _drain(notify) == [Entry("Movie", "movie2", "Second Feature")]
+
+
+def test_a_metadata_change_of_a_mapped_album_or_artist_is_not_announced(
+    api, frozen_music_clock
+):
+    """The report: metadata edits toast as new albums and artists. Both, and
+    the song beside them, are already mapped, so a save Jellyfin labels
+    ItemAdded updates the rows and queues nothing. Songs are not toasted,
+    but an Audio entry is what a library subscription and auto-download
+    consume, and a known song must not produce one either."""
+    write_music_tree(api)
+
+    album = dto(ALBUM)
+    album["Etag"] = "etag-album1-v2"
+    album["Name"] = "Greatest Hits (Remastered)"
+    artist = dto(ARTIST)
+    artist["Etag"] = "etag-artist1-v2"
+    artist["Overview"] = "Still a band."
+    song = dto(SONG)
+    song["Etag"] = "etag-song1-v2"
+    song["Name"] = "Opening Track (Remaster)"
+
+    work = queue.Queue()
+    work.put(artist)
+    work.put(album)
+    work.put(song)
+    notify = queue.Queue()
+
+    UpdateWorker(
+        work, notify, threading.Lock(), "music", api, notify_enabled=True
+    ).run()
+
+    assert music_query("SELECT strAlbum FROM album") == [
+        ("Greatest Hits (Remastered)",)
+    ]
+    assert music_query(
+        "SELECT strBiography FROM artist WHERE strArtist='The Band'"
+    ) == [("Still a band.",)]
+    assert music_query("SELECT strTitle FROM song") == [("Opening Track (Remaster)",)]
+    assert kofin_query(
+        "SELECT jellyfin_id, checksum FROM jellyfin ORDER BY jellyfin_id"
+    ) == [
+        ("album1", "etag-album1-v2|plugin"),
+        ("artist1", "etag-artist1-v2|plugin"),
+        ("song1", "etag-song1-v2|plugin"),
+    ]
+    assert notify.qsize() == 0
+
+
 # --- the other three workers (P2.0b) -------------------------------------------
 #
 # Only UpdateWorker was ever constructed by a test before phase 2; the other

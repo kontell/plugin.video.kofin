@@ -52,7 +52,7 @@ Three moving parts, in the order data flows.
 
 ### 1. `UpdateWorker` reports each addition it wrote
 
-`worker_updates` already builds added-writers with `notify_enabled=source == "added"`, so **metadata-only updates cannot notify by construction** — which is half of "watched, either new or updated, gets no notification" for free. The other half is the `Played` filter below.
+`worker_updates` builds added-writers with `notify_enabled=source == "added"`. An id already in kofin.db is dropped before `entry_for`, because Jellyfin reports some metadata saves — an NFO rewrite of an existing album or artist — as `ItemAdded`. A metadata-only update therefore does not notify, whether it arrived on the updated queue or mislabelled on the added queue. The `Played` filter is the other half of "watched, either new or updated, gets no notification".
 
 Change `self.notify = False` to `self.notify = notify_enabled`, and replace the payload:
 
@@ -63,7 +63,7 @@ if self.notify:
         self.notify_output.put(entry)
 ```
 
-`entry_for` returns `None` for a watched item, an unhandled type, or a payload missing a name — so the worker holds no policy and the whole rule set is unit-testable without threads.
+`entry_for` returns `None` for a watched item, an unhandled type, or a payload missing a name. The mapped-id check lives on the worker, beside the refusal check, because it needs kofin.db.
 
 ### 2. `newcontent.py` — the pure part
 
@@ -151,9 +151,9 @@ Why each gate is where it is:
 ## What does *not* notify, and why that is right
 
 - **A first full sync, or a newly selected library.** `FullSync` drives the writers directly and never calls `Library.added()`, so nothing reaches `notify_output`. A user who just added a 4 000-item library does not need "1247 movies added to library".
-- **Metadata-only updates, artwork-only touches, userdata changes, removals.** Only the `added` writers are built with `notify_enabled`.
+- **Metadata-only updates, artwork-only touches, userdata changes, removals.** Only the `added` writers are built with `notify_enabled`, and an added item whose id is already in kofin.db is not announced. The reference is read before the write, which inserts it. A remove-then-add of the same id still announces when the removal has already deleted the reference.
 - **Watched items**, per the `Played` filter.
-- **The recovery paths that *do* notify**: the update-mode prune's `self.library.added(missing_ids)` (`full_sync.py:877`) and websocket `LibraryChanged` `ItemsAdded` (`service/main.py:430`) both route through the added queue, so both toast. That is correct — from Kodi's side those items are new — and aggregation keeps a large repair to one line per type.
+- **The recovery paths that *do* notify**: the update-mode prune's `missing_ids` and websocket `LibraryChanged` `ItemsAdded` both route through the added queue. An id kofin.db does not yet hold is announced; one it already holds is written as an update and stays quiet. Aggregation keeps a large repair to one line per type.
 
 ---
 

@@ -1,3 +1,18 @@
+v0.29.0
+- Music libraries and playlists can be downloaded and kept in sync
+- A transcoded download is sized before it starts
+- A download announces once
+- A short music-library listing is refused, not taken as the whole library
+- Option to hide the library update progress bar
+- Sync playlists and Export NFO files and artwork default on
+- Search lists actors under episodes, and artists under songs
+- Clean library no longer deletes synced videos
+- Play Next highlights the episode that is playing
+- Playback progress is no longer reported against an unrelated item
+- A playlist update keeps its filename
+- Save to Jellyfin is hidden on Kofin's own playlist folders
+- Metadata edits no longer toast as new albums or artists
+
 v0.28.0
 - Changed playlist sync from a poll to use KofinSyncQueue (needs Jellyfin V12)
 - Added syncing of video playlists
