@@ -293,9 +293,8 @@ class UpdateWorker(WriterWorker):
         if self.notify and not any(
             item["Id"] in writer.refused for writer in writers.values()
         ):
-            # What is announceable, and what it is called, is
-            # newcontent's to decide; a watched item comes back
-            # None here and is never reported.
+            # newcontent also passes silent songs to the library subscription
+            # hook; other non-announced types and watched video return None.
             entry = newcontent.entry_for(item)
 
             if entry is not None:

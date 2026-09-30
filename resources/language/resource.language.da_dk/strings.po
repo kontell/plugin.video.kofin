@@ -2199,3 +2199,31 @@ msgstr "Vis status for biblioteksopdatering"
 msgctxt "#30846"
 msgid "Show Kodi's library-update progress while the library syncs."
 msgstr "Vis Kodis statusvisning for biblioteksopdateringer, mens biblioteket synkroniseres."
+
+msgctxt "#30849"
+msgid "Download & keep in sync"
+msgstr "Download og hold synkroniseret"
+
+msgctxt "#30850"
+msgid "Stop keeping downloads in sync"
+msgstr "Stop synkronisering af downloads"
+
+msgctxt "#30851"
+msgid "Manage playlist downloads"
+msgstr "Administrer download af playlister"
+
+msgctxt "#30852"
+msgid "Manage music library downloads"
+msgstr "Administrer download af musikbiblioteker"
+
+msgctxt "#30853"
+msgid "Content not downloaded"
+msgstr "Indhold ikke downloadet"
+
+msgctxt "#30854"
+msgid "Review subscribed playlists; untick to stop syncing downloads."
+msgstr "Gennemgå abonnerede playlister; fjern markeringen for at stoppe synkronisering af downloads."
+
+msgctxt "#30855"
+msgid "Review subscribed music libraries; untick to stop syncing downloads."
+msgstr "Gennemgå abonnerede musikbiblioteker; fjern markeringen for at stoppe synkronisering af downloads."

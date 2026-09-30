@@ -1230,7 +1230,9 @@ class Service(xbmc.Monitor):
         if downloads is not None:
             from kofin.downloads import wire
 
-            downloads.remove(wire.item_ids(payload))
+            downloads.remove(
+                wire.item_ids(payload), subscription=payload.get("Subscription") is True
+            )
 
     def _ipc_download_remove_all(self, name: str, payload: Dict[str, Any]) -> None:
         downloads = self._downloads_for(name)

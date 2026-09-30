@@ -1,7 +1,7 @@
 """Small RunPlugin actions: watched/favorite toggles, settings, library
 maintenance buttons (Library tab -> IPC -> service library manager)."""
 
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import xbmc
 import xbmcgui
@@ -313,30 +313,106 @@ def _report_size(size_bytes: int) -> str:
 
 # What actually downloads: everything else expands to these.
 DOWNLOAD_LEAF_TYPES = ("Movie", "Episode", "Audio")
+MAX_DOWNLOAD_EXPANSION = 50000
 
 
-def _paged_items(api: Api, params: dict) -> List[dict]:
+def _music_library(item: dict) -> bool:
+    if item.get("Type") not in ("CollectionFolder", "UserView"):
+        return False
+    collection = item.get("CollectionType") or ""
+    if collection:
+        return collection == "music"
+    # Some item endpoints omit the collection type supplied by /Views.
+    from kofin.sync.db import Database
+
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "SELECT 1 FROM view WHERE view_id = ? AND media_type = 'music'",
+            (item.get("Id") or "",),
+        )
+        return opened.cursor.fetchone() is not None
+
+
+class _DownloadTooLarge(Exception):
+    def __init__(self, minimum_size: int, free: int) -> None:
+        self.minimum_size = minimum_size
+        self.free = free
+
+
+def _paged_items(
+    api: Api,
+    params: dict,
+    *,
+    free: int = -1,
+    live_ids: Optional[Set[str]] = None,
+    options: Optional[tuple] = None,
+) -> List[dict]:
     children: List[dict] = []
     start = 0
-    while True:
-        page = api.items(
-            dict(
-                params,
-                Fields="MediaSources",
-                StartIndex=start,
-                Limit=200,
-                EnableTotalRecordCount=True,
+    seen: Set[str] = set()
+    progress = None
+    estimated = 0
+    try:
+        while True:
+            page = api.items(
+                dict(
+                    params,
+                    Fields="MediaSources",
+                    StartIndex=start,
+                    Limit=200,
+                    EnableTotalRecordCount=True,
+                )
             )
-        )
-        rows = page.get("Items") or []
-        children.extend(rows)
-        start += len(rows)
-        if not rows or start >= int(page.get("TotalRecordCount") or 0):
-            break
+            rows = page.get("Items") or []
+            fresh = [row for row in rows if row.get("Id") not in seen]
+            seen.update(row.get("Id") for row in fresh)
+            children.extend(fresh)
+            if free >= 0:
+                from kofin.downloads.files import FREE_SPACE_RESERVE
+
+                estimated += sum(
+                    _estimated_size(row, options)
+                    for row in fresh
+                    if row.get("Id")
+                    and row.get("Id") not in (live_ids or ())
+                    and row.get("CanDownload") is not False
+                    and row.get("Type") in DOWNLOAD_LEAF_TYPES
+                )
+                if estimated + FREE_SPACE_RESERVE > free:
+                    raise _DownloadTooLarge(estimated, free)
+            start += len(rows)
+            total = int(page.get("TotalRecordCount") or 0)
+            if total > MAX_DOWNLOAD_EXPANSION:
+                raise JellyfinError(
+                    "download expansion exceeds %d items" % MAX_DOWNLOAD_EXPANSION
+                )
+            if total > 1000 and progress is None:
+                progress = xbmcgui.DialogProgressBG()
+                progress.create("Kofin", settings.localized(30708))
+            if progress is not None and (start % 1000 == 0 or start >= total):
+                progress.update(min(100, int(start * 100 / total)))
+            if len(children) > MAX_DOWNLOAD_EXPANSION:
+                raise JellyfinError(
+                    "download expansion exceeds %d items" % MAX_DOWNLOAD_EXPANSION
+                )
+            if rows and not fresh:
+                raise JellyfinError("download expansion repeated a page")
+            if not rows or (total and start >= total):
+                break
+    finally:
+        if progress is not None:
+            progress.close()
     return children
 
 
-def _expand_downloadable(api: Api, item: dict) -> List[dict]:
+def _expand_downloadable(
+    api: Api,
+    item: dict,
+    *,
+    free: int = -1,
+    live_ids: Optional[Set[str]] = None,
+    options: Optional[tuple] = None,
+) -> List[dict]:
     """The downloadable leaves under an item: itself, or a container's
     episodes/tracks. Client-side expansion, because the server has no folder
     download — CanDownload is false for every folder type by construction
@@ -352,11 +428,17 @@ def _expand_downloadable(api: Api, item: dict) -> List[dict]:
         return _paged_items(
             api,
             {"ParentId": item_id, "IncludeItemTypes": "Episode", "Recursive": True},
+            free=free,
+            live_ids=live_ids,
+            options=options,
         )
     if item_type == "MusicAlbum":
         return _paged_items(
             api,
             {"ParentId": item_id, "IncludeItemTypes": "Audio", "Recursive": True},
+            free=free,
+            live_ids=live_ids,
+            options=options,
         )
     if item_type == "MusicArtist":
         # ArtistIds, not ParentId: an artist is a link target, not a folder,
@@ -364,10 +446,27 @@ def _expand_downloadable(api: Api, item: dict) -> List[dict]:
         return _paged_items(
             api,
             {"ArtistIds": item_id, "IncludeItemTypes": "Audio", "Recursive": True},
+            free=free,
+            live_ids=live_ids,
+            options=options,
+        )
+    if _music_library(item):
+        return _paged_items(
+            api,
+            {"ParentId": item_id, "IncludeItemTypes": "Audio", "Recursive": True},
+            free=free,
+            live_ids=live_ids,
+            options=options,
         )
     if item_type == "Playlist":
         # Playlists mix types; keep the leaves this feature downloads.
-        children = _paged_items(api, {"ParentId": item_id})
+        children = _paged_items(
+            api,
+            {"ParentId": item_id},
+            free=free,
+            live_ids=live_ids,
+            options=options,
+        )
         return [child for child in children if child.get("Type") in DOWNLOAD_LEAF_TYPES]
     return []
 
@@ -377,7 +476,17 @@ def _source_size(item: dict) -> int:
     return int(sources[0].get("Size") or 0)
 
 
-def _estimated_size(item: dict) -> int:
+def _estimate_options() -> tuple:
+    """Read settings once for a large container, not once per track."""
+    return (
+        settings.get_bool("downloadsMusicTranscode"),
+        settings.get_int("downloadsMusicBitrate") or 128,
+        settings.get_bool("downloadsTranscode"),
+        settings.get_float("downloadsMaxBitrate"),
+    )
+
+
+def _estimated_size(item: dict, options: Optional[tuple] = None) -> int:
     """What this child will actually weigh on disk.
 
     The source size is the honest answer for anything downloading as its
@@ -389,15 +498,26 @@ def _estimated_size(item: dict) -> int:
     inside the cap downloads untouched, and the confirmation says "about".
     """
     original = _source_size(item)
-    if item.get("Type") != "Audio":
-        return original
-    if not settings.get_bool("downloadsMusicTranscode"):
+    item_type = item.get("Type")
+    music_transcode, music_kbps, video_transcode, video_mbps = (
+        options if options is not None else _estimate_options()
+    )
+    if item_type == "Audio":
+        if not music_transcode:
+            return original
+        target_bps = music_kbps * 1000
+    elif item_type in ("Movie", "Episode"):
+        if not video_transcode:
+            return original
+        target_bps = int(video_mbps * 1_000_000)
+        if target_bps <= 0:
+            return original
+    else:
         return original
     seconds = int(item.get("RunTimeTicks") or 0) / 10_000_000
-    kbps = settings.get_int("downloadsMusicBitrate") or 128
     if seconds <= 0:
         return original
-    transcoded = int(seconds * kbps * 1000 / 8)
+    transcoded = int(seconds * target_bps / 8)
     return min(original, transcoded) if original else transcoded
 
 
@@ -443,7 +563,8 @@ def _confirm_download(item: dict, wanted: List[dict]) -> bool:
     from kofin.downloads import downloads_root, files
     from kofin.plugin.context import DOWNLOAD_CONTAINER_TYPES
 
-    total = sum(_estimated_size(child) for child in wanted)
+    options = _estimate_options()
+    total = sum(_estimated_size(child, options) for child in wanted)
     free = files.free_bytes(downloads_root())
 
     if free < 0:
@@ -478,16 +599,29 @@ def download(request: Request) -> None:
     try:
         api = _api()
         item = api.item(item_id)
-        children = _expand_downloadable(api, item)
+        from kofin.downloads import downloads_root, files, store
+
+        live = {row.jellyfin_id for row in store.rows() if row.state != store.FAILED}
+        free = files.free_bytes(downloads_root())
+        children = _expand_downloadable(
+            api,
+            item,
+            free=free,
+            live_ids=live,
+            options=_estimate_options() if free >= 0 else None,
+        )
+    except _DownloadTooLarge as error:
+        toast.show(
+            settings.localized(30810)
+            % (_human_size(error.minimum_size), _human_size(error.free)),
+            toast.WARNING,
+        )
+        return
     except JellyfinError as error:
         LOG.warning("download expansion failed for %s: %s", item_id, error)
         toast.show(settings.localized(30018), toast.ERROR)
         return
 
-    from kofin.downloads import store
-    from kofin.plugin.context import DOWNLOAD_CONTAINER_TYPES
-
-    live = {row.jellyfin_id for row in store.rows() if row.state != store.FAILED}
     wanted = [
         child
         for child in children
@@ -496,7 +630,6 @@ def download(request: Request) -> None:
         and child.get("CanDownload") is not False
     ]
     if not wanted:
-        _download_toast(30711, 0)
         return
 
     if not _confirm_download(item, wanted):
@@ -506,21 +639,16 @@ def download(request: Request) -> None:
     # by media kind, and the kind is not knowable from an id alone without
     # the very server round trip the queue is trying to get ahead of.
     #
-    # So does the request — the container this expanded, and what to call it
-    # (D6). This is the only place that knows it: by the time a row reaches
-    # the manager it holds its item's own parent, which for a playlist's
-    # tracks is a different album each, and the completion toast grouped on
-    # that fired once per track for one thing the user chose once. Sent only
-    # for a real container, so a single item still announces itself.
+    # So does the request — the container this expanded, and what to call it.
+    # Its children can span albums and media types, but the manager announces
+    # the whole request only once, when every child has settled.
     payload: Dict[str, Any] = {
         "Ids": [child["Id"] for child in wanted],
         "Types": [str(child.get("Type") or "") for child in wanted],
     }
-    if item.get("Type") in DOWNLOAD_CONTAINER_TYPES:
-        payload["Request"] = item_id
-        payload["RequestName"] = str(item.get("Name") or "")
+    payload["Request"] = item_id
+    payload["RequestName"] = str(item.get("Name") or item_id)
     ipc.notify(ipc.DOWNLOAD_ADD, payload)
-    _download_toast(30711, len(wanted))
 
 
 def download_show(request: Request) -> None:
@@ -533,6 +661,79 @@ def download_show(request: Request) -> None:
     subscribed = downloads_auto.toggle_show(item_id)
     name = request.params.get("name", "") or item_id
     _download_toast(30762 if subscribed else 30763, name)
+
+
+def download_playlist(request: Request) -> None:
+    from kofin.downloads import subscriptions
+
+    item_id = request.params.get("id", "")
+    if not item_id:
+        return
+    enabled = subscriptions.toggle(subscriptions.PLAYLIST_SETTING, item_id)
+    if enabled:
+        ipc.notify(ipc.SYNC_PLAYLISTS, {"Id": item_id})
+    else:
+        subscriptions.release(subscriptions.owner("playlist", item_id))
+
+
+def download_music_library(request: Request) -> None:
+    from kofin.downloads import subscriptions
+
+    item_id = request.params.get("id", "")
+    if not item_id:
+        return
+    enabled = subscriptions.toggle(subscriptions.LIBRARY_SETTING, item_id)
+    if enabled:
+        ipc.notify(ipc.SYNC_PLAYLISTS, {})
+    else:
+        subscriptions.release(subscriptions.owner("musiclibrary", item_id))
+
+
+def manage_download_subscriptions(request: Request) -> None:
+    """Settings picker for either kind of standing music download order."""
+    from kofin.downloads import subscriptions
+    from kofin.sync.db import Database
+
+    kind = request.params.get("kind", "playlist")
+    setting_id = (
+        subscriptions.PLAYLIST_SETTING
+        if kind == "playlist"
+        else subscriptions.LIBRARY_SETTING
+    )
+    ids = subscriptions.subscribed(setting_id)
+    if not ids:
+        toast.show(settings.localized(30853), time_ms=3000)
+        return
+    names = []
+    with Database("kofin") as opened:
+        for item_id in ids:
+            if kind == "playlist":
+                opened.cursor.execute(
+                    "SELECT filename FROM playlist_state WHERE jellyfin_id = ?",
+                    (item_id,),
+                )
+            else:
+                opened.cursor.execute(
+                    "SELECT view_name FROM view WHERE view_id = ?", (item_id,)
+                )
+            row = opened.cursor.fetchone()
+            names.append(row[0] if row else item_id)
+    picked = xbmcgui.Dialog().multiselect(
+        settings.localized(30851 if kind == "playlist" else 30852),
+        names,
+        preselect=list(range(len(ids))),
+    )
+    if picked is None:
+        return
+    kept = {ids[index] for index in picked}
+    subscriptions.save(setting_id, (item_id for item_id in ids if item_id in kept))
+    for item_id in ids:
+        if item_id not in kept:
+            subscriptions.release(
+                subscriptions.owner(
+                    "playlist" if kind == "playlist" else "musiclibrary", item_id
+                )
+            )
 
 
 def manage_download_shows(request: Request) -> None:
@@ -702,7 +903,32 @@ def cancel_download(request: Request) -> None:
         return
     from kofin.downloads import store
 
-    targets = [item_id] if store.get(item_id) else store.container_pending_ids(item_id)
+    music_scope = (
+        "playlist"
+        if request.params.get("playlist") == "1"
+        else "musiclibrary" if request.params.get("library") == "1" else ""
+    )
+    if music_scope:
+        from kofin.downloads import subscriptions
+
+        setting = (
+            subscriptions.PLAYLIST_SETTING
+            if music_scope == "playlist"
+            else subscriptions.LIBRARY_SETTING
+        )
+        if item_id in subscriptions.subscribed(setting):
+            return
+        targets = [
+            song_id
+            for song_id, state in store.music_container_unclaimed_states(
+                item_id, music_scope
+            ).items()
+            if state in (store.QUEUED, store.ACTIVE)
+        ]
+    else:
+        targets = (
+            [item_id] if store.get(item_id) else store.container_pending_ids(item_id)
+        )
     for target in targets:
         ipc.notify(ipc.DOWNLOAD_CANCEL, {"Id": target})
 
@@ -726,7 +952,29 @@ def remove_download(request: Request) -> None:
         return
     from kofin.downloads import store
 
-    if store.get(item_id) is not None:
+    music_scope = (
+        "playlist"
+        if request.params.get("playlist") == "1"
+        else "musiclibrary" if request.params.get("library") == "1" else ""
+    )
+    if music_scope:
+        from kofin.downloads import subscriptions
+
+        setting = (
+            subscriptions.PLAYLIST_SETTING
+            if music_scope == "playlist"
+            else subscriptions.LIBRARY_SETTING
+        )
+        if item_id in subscriptions.subscribed(setting):
+            return
+        targets = [
+            song_id
+            for song_id, state in store.music_container_unclaimed_states(
+                item_id, music_scope
+            ).items()
+            if state == store.DONE
+        ]
+    elif store.get(item_id) is not None:
         targets = [item_id]
     else:
         targets = store.container_done_ids(item_id)

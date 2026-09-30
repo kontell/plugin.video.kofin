@@ -33,8 +33,8 @@ def downloads_root() -> str:
 # toast is the only place it says so. The syncplay notification setting
 # draws the same line (syncplay/manager.py) — an opt-out that swallowed
 # failures would turn "my download did nothing" into an unanswerable
-# question. 30766 is here for the same reason in reverse: it is the only
-# answer the manage-shows button gives when the list is empty.
+# question. 30766 and 30853 are the only answers the manage buttons give
+# when their lists are empty.
 LOUD_STRINGS = frozenset(
     {
         30018,  # server request failed
@@ -43,6 +43,7 @@ LOUD_STRINGS = frozenset(
         30717,  # downloads folder not writable
         30720,  # not available offline
         30766,  # no shows are set to download new episodes
+        30853,  # no playlist or music-library content is set to download
     }
 )
 

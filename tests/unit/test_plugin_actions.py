@@ -10,6 +10,52 @@ from kofin.plugin.router import Request
 from tests.unit.fakes import FakeApi, FakeDialog
 
 
+def test_playlist_subscription_requests_its_own_initial_sync(monkeypatch):
+    from kofin.downloads import subscriptions
+
+    monkeypatch.setattr(subscriptions, "toggle", lambda setting, item_id: True)
+    sent = []
+    monkeypatch.setattr(
+        actions.ipc, "notify", lambda method, body: sent.append((method, body))
+    )
+    actions.download_playlist(
+        Request("plugin://plugin.video.kofin/", -1, {"id": "mix"})
+    )
+    assert sent == [(ipc.SYNC_PLAYLISTS, {"Id": "mix"})]
+
+
+@pytest.mark.parametrize("kind", ["playlist", "library"])
+def test_empty_music_subscription_picker_says_content_not_downloaded(monkeypatch, kind):
+    from kofin.downloads import subscriptions
+
+    monkeypatch.setattr(subscriptions, "subscribed", lambda setting: [])
+    monkeypatch.setattr(actions.settings, "localized", lambda string_id: string_id)
+    shown = []
+    monkeypatch.setattr(
+        actions.toast, "show", lambda message, **kwargs: shown.append(message)
+    )
+    actions.manage_download_subscriptions(
+        Request("plugin://plugin.video.kofin/", -1, {"kind": kind})
+    )
+    assert shown == [30853]
+
+
+@pytest.mark.parametrize("scope", ["playlist", "library"])
+@pytest.mark.parametrize("action", [actions.cancel_download, actions.remove_download])
+def test_subscribed_music_container_rejects_stale_remove_menu(
+    monkeypatch, scope, action
+):
+    from kofin.downloads import subscriptions
+
+    monkeypatch.setattr(subscriptions, "subscribed", lambda setting: ["container"])
+    sent = []
+    monkeypatch.setattr(
+        actions.ipc, "notify", lambda method, body: sent.append((method, body))
+    )
+    action(Request("plugin://plugin.video.kofin/", -1, {"id": "container", scope: "1"}))
+    assert sent == []
+
+
 @pytest.fixture
 def wired(monkeypatch):
     dialog = FakeDialog()
@@ -227,14 +273,27 @@ def download_wired(monkeypatch):
     return wire
 
 
-def test_download_movie_notifies_without_a_confirm(download_wired):
+def test_download_movie_queues_silently_without_a_confirm(download_wired, monkeypatch):
     movie = {"Id": "m1", "Type": "Movie", "CanDownload": True, "MediaSources": []}
     notified, dialog, Request = download_wired(FakeDownloadApi(movie))
+    shown = []
+    monkeypatch.setattr(actions.toast, "show", lambda *a, **k: shown.append(a))
 
     actions.download(Request("plugin://x", -1, {"id": "m1"}))
 
-    assert notified == [(ipc.DOWNLOAD_ADD, {"Ids": ["m1"], "Types": ["Movie"]})]
+    assert notified == [
+        (
+            ipc.DOWNLOAD_ADD,
+            {
+                "Ids": ["m1"],
+                "Types": ["Movie"],
+                "Request": "m1",
+                "RequestName": "m1",
+            },
+        )
+    ]
     assert dialog.yesnos == []
+    assert shown == []
 
 
 def test_download_season_confirms_then_notifies_the_children(download_wired):
@@ -303,6 +362,109 @@ def test_download_skips_rows_the_store_already_holds(download_wired, monkeypatch
             },
         )
     ]
+
+
+def test_music_library_root_expands_paged_audio(download_wired):
+    root = {"Id": "library", "Type": "CollectionFolder", "CollectionType": "music"}
+    songs = [
+        {
+            "Id": "s1",
+            "Type": "Audio",
+            "CanDownload": True,
+            "MediaSources": [{"Size": 100}],
+        },
+        {
+            "Id": "s2",
+            "Type": "Audio",
+            "CanDownload": True,
+            "MediaSources": [{"Size": 100}],
+        },
+    ]
+    api = FakeDownloadApi(root, songs)
+    notified, _dialog, Request = download_wired(api)
+
+    actions.download(Request("plugin://x", -1, {"id": "library"}))
+
+    assert api.item_params[0]["ParentId"] == "library"
+    assert api.item_params[0]["IncludeItemTypes"] == "Audio"
+    assert api.item_params[0]["Recursive"] is True
+    assert notified[0][1]["Ids"] == ["s1", "s2"]
+    assert notified[0][1]["Request"] == "library"
+
+
+def test_video_transcode_estimate_uses_target_bitrate_and_runtime():
+    movie = {
+        "Type": "Movie",
+        "RunTimeTicks": 2 * 3600 * 10_000_000,
+        "MediaSources": [{"Size": 16_000_000_000}],
+    }
+    options = (False, 128, True, 4.0)
+    assert actions._estimated_size(movie, options) == 3_600_000_000
+    assert actions._estimated_size(movie, (False, 128, False, 4.0)) == 16_000_000_000
+
+
+def test_estimate_reads_settings_once_for_a_large_request(download_wired, monkeypatch):
+    reads = []
+    monkeypatch.setattr(
+        actions.settings, "get_bool", lambda key: reads.append(key) or True
+    )
+    monkeypatch.setattr(
+        actions.settings, "get_int", lambda key: reads.append(key) or 128
+    )
+    monkeypatch.setattr(
+        actions.settings, "get_float", lambda key: reads.append(key) or 4.0
+    )
+    monkeypatch.setattr("kofin.downloads.files.free_bytes", lambda root: 10**13)
+    songs = [
+        {
+            "Type": "Audio",
+            "RunTimeTicks": 180 * 10_000_000,
+            "MediaSources": [{"Size": 40_000_000}],
+        }
+        for _ in range(5000)
+    ]
+
+    assert actions._confirm_download({"Type": "MusicArtist"}, songs)
+    assert len(reads) == 4
+
+
+def test_repeated_paged_rows_refuse_partial_download():
+    class RepeatingApi:
+        def items(self, params):
+            return {"Items": [{"Id": "same"}], "TotalRecordCount": 1000}
+
+    with pytest.raises(JellyfinError, match="repeated a page"):
+        actions._paged_items(RepeatingApi(), {"ParentId": "show"})
+
+
+def test_oversized_library_stops_paging_before_queue(download_wired, monkeypatch):
+    from kofin.downloads import files
+
+    root = {"Id": "library", "Type": "CollectionFolder", "CollectionType": "music"}
+    songs = [
+        {
+            "Id": "s%d" % index,
+            "Type": "Audio",
+            "CanDownload": True,
+            "MediaSources": [{"Size": 20 * 1024**2}],
+        }
+        for index in range(1000)
+    ]
+    api = FakeDownloadApi(root, songs)
+    notified, dialog, Request = download_wired(api)
+    monkeypatch.setattr(files, "free_bytes", lambda root: 3 * 1024**3)
+    monkeypatch.setattr(actions.settings, "get_bool", lambda key: False)
+    shown = []
+    monkeypatch.setattr(
+        actions.toast, "show", lambda *args, **kwargs: shown.append(args)
+    )
+
+    actions.download(Request("plugin://x", -1, {"id": "library"}))
+
+    assert len(api.item_params) == 1
+    assert shown and shown[-1][0].startswith("L30810")
+    assert dialog.yesnos == []
+    assert notified == []
 
 
 def _size_report(download_wired, monkeypatch, root, free=8 * 1024**3):

@@ -490,5 +490,12 @@
   "#30841": "Enregistrer dans Jellyfin",
   "#30842": "Cette liste mélange audio et vidéo et ne peut pas être enregistrée comme une seule liste Jellyfin",
   "#30843": "Liste de lecture enregistrée dans Jellyfin",
-  "#30844": "Aucun élément de bibliothèque à enregistrer dans cette liste"
+  "#30844": "Aucun élément de bibliothèque à enregistrer dans cette liste",
+  "#30849": "Télécharger et garder synchronisé",
+  "#30850": "Cesser de synchroniser les téléchargements",
+  "#30851": "Gérer les téléchargements de listes de lecture",
+  "#30852": "Gérer les téléchargements de bibliothèques musicales",
+  "#30853": "Contenu non téléchargé",
+  "#30854": "Passez en revue les listes de lecture suivies; décochez-les pour arrêter la synchronisation des téléchargements.",
+  "#30855": "Passez en revue les bibliothèques musicales suivies; décochez-les pour arrêter la synchronisation des téléchargements."
 }

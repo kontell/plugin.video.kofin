@@ -2199,3 +2199,31 @@ msgstr "Näytä kirjaston päivityksen edistyminen"
 msgctxt "#30846"
 msgid "Show Kodi's library-update progress while the library syncs."
 msgstr "Näytä Kodin kirjastopäivityksen edistyminen synkronoinnin aikana."
+
+msgctxt "#30849"
+msgid "Download & keep in sync"
+msgstr "Lataa ja pidä synkronoituna"
+
+msgctxt "#30850"
+msgid "Stop keeping downloads in sync"
+msgstr "Lopeta latausten synkronointi"
+
+msgctxt "#30851"
+msgid "Manage playlist downloads"
+msgstr "Hallinnoi soittolistojen latauksia"
+
+msgctxt "#30852"
+msgid "Manage music library downloads"
+msgstr "Hallinnoi musiikkikirjastojen latauksia"
+
+msgctxt "#30853"
+msgid "Content not downloaded"
+msgstr "Sisältöä ei ole ladattu"
+
+msgctxt "#30854"
+msgid "Review subscribed playlists; untick to stop syncing downloads."
+msgstr "Tarkastele tilattuja soittolistoja; poista valinta lopettaaksesi latausten synkronoinnin."
+
+msgctxt "#30855"
+msgid "Review subscribed music libraries; untick to stop syncing downloads."
+msgstr "Tarkastele tilattuja musiikkikirjastoja; poista valinta lopettaaksesi latausten synkronoinnin."

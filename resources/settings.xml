@@ -1207,6 +1207,58 @@
           </dependencies>
           <control type="spinner" format="string"/>
         </setting>
+        <setting id="downloadsAutoAlbums" type="boolean" label="30756" help="30757">
+          <level>0</level>
+          <default>false</default>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="downloadsEnabled">true</condition>
+            </dependency>
+          </dependencies>
+          <control type="toggle"/>
+        </setting>
+        <!-- Albums cap by album count, not by track: an album is naturally
+             bounded, a bulk import of albums is not. -->
+        <setting id="downloadsBulkAlbums" type="integer" label="30802" help="30803">
+          <level>0</level>
+          <default>5</default>
+          <constraints>
+            <minimum>1</minimum>
+            <step>1</step>
+            <maximum>50</maximum>
+          </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <and>
+                <condition operator="is" setting="downloadsEnabled">true</condition>
+                <condition operator="is" setting="downloadsAutoAlbums">true</condition>
+              </and>
+            </dependency>
+          </dependencies>
+          <control type="slider" format="integer"/>
+        </setting>
+        <setting id="downloadsPlaylists" type="string">
+          <level>4</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="edit" format="string"/>
+        </setting>
+        <setting id="downloadsManagePlaylists" type="action" label="30851" help="30854">
+          <level>0</level>
+          <dependencies><dependency type="visible"><condition operator="is" setting="downloadsEnabled">true</condition></dependency></dependencies>
+          <control type="button" format="action"><data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadsubscriptions&amp;kind=playlist)</data></control>
+        </setting>
+        <setting id="downloadsMusicLibraries" type="string">
+          <level>4</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+          <control type="edit" format="string"/>
+        </setting>
+        <setting id="downloadsManageMusicLibraries" type="action" label="30852" help="30855">
+          <level>0</level>
+          <dependencies><dependency type="visible"><condition operator="is" setting="downloadsEnabled">true</condition></dependency></dependencies>
+          <control type="button" format="action"><data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadsubscriptions&amp;kind=library)</data></control>
+        </setting>
         <!-- Automatic downloads and lifecycle (plan W4.1/W4.2/W4.4/W4.5) plus
              the metadata export (W4.3). -->
         <setting id="downloadsAutoNext" type="boolean" label="30738" help="30739">
@@ -1317,36 +1369,6 @@
           <control type="button" format="action">
             <data>RunPlugin(plugin://plugin.video.kofin/?mode=downloadshows)</data>
           </control>
-        </setting>
-        <setting id="downloadsAutoAlbums" type="boolean" label="30756" help="30757">
-          <level>0</level>
-          <default>false</default>
-          <dependencies>
-            <dependency type="visible">
-              <condition operator="is" setting="downloadsEnabled">true</condition>
-            </dependency>
-          </dependencies>
-          <control type="toggle"/>
-        </setting>
-        <!-- Albums cap by album count, not by track: an album is naturally
-             bounded, a bulk import of albums is not. -->
-        <setting id="downloadsBulkAlbums" type="integer" label="30802" help="30803">
-          <level>0</level>
-          <default>5</default>
-          <constraints>
-            <minimum>1</minimum>
-            <step>1</step>
-            <maximum>50</maximum>
-          </constraints>
-          <dependencies>
-            <dependency type="visible">
-              <and>
-                <condition operator="is" setting="downloadsEnabled">true</condition>
-                <condition operator="is" setting="downloadsAutoAlbums">true</condition>
-              </and>
-            </dependency>
-          </dependencies>
-          <control type="slider" format="integer"/>
         </setting>
         <!-- One lifecycle answer for every download, whoever queued it: the
              pair below replaced downloadsDeleteAfterPlay (a three-way

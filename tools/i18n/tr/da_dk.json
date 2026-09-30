@@ -490,5 +490,12 @@
   "#30841": "Gem i Jellyfin",
   "#30842": "Denne afspilningsliste blander lyd og video og kan ikke gemmes som én Jellyfin-liste",
   "#30843": "Afspilningsliste gemt i Jellyfin",
-  "#30844": "Ingen bibliotekselementer i denne liste at gemme"
+  "#30844": "Ingen bibliotekselementer i denne liste at gemme",
+  "#30849": "Download og hold synkroniseret",
+  "#30850": "Stop synkronisering af downloads",
+  "#30851": "Administrer download af playlister",
+  "#30852": "Administrer download af musikbiblioteker",
+  "#30853": "Indhold ikke downloadet",
+  "#30854": "Gennemgå abonnerede playlister; fjern markeringen for at stoppe synkronisering af downloads.",
+  "#30855": "Gennemgå abonnerede musikbiblioteker; fjern markeringen for at stoppe synkronisering af downloads."
 }

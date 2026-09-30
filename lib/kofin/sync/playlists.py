@@ -478,7 +478,20 @@ def _iter_playlist_items(api: Any, playlist_id: str) -> List[Dict[str, Any]]:
     start = 0
     while True:
         body = api.playlist_items(playlist_id, start_index=start, limit=PAGE_SIZE)
-        page = body.get("Items") or []
+        if "Items" not in body or not isinstance(body["Items"], list):
+            raise ValueError("playlist %s returned no items list" % playlist_id)
+        page = body["Items"]
+        if any(not isinstance(item, dict) for item in page):
+            raise ValueError("playlist %s returned malformed items" % playlist_id)
+        total = int(body.get("TotalRecordCount") or 0)
+        if start == 0 and not page and total > 0:
+            raise ValueError(
+                "playlist %s returned an incomplete first page" % playlist_id
+            )
+        if total > MAX_PLAYLIST_ITEMS:
+            raise ValueError(
+                "playlist %s exceeds %d items" % (playlist_id, MAX_PLAYLIST_ITEMS)
+            )
         if not page:
             break
         items.extend(page)
@@ -486,16 +499,12 @@ def _iter_playlist_items(api: Any, playlist_id: str) -> List[Dict[str, Any]]:
             # A short page is the end of the playlist, whatever the count says.
             break
         start += len(page)
-        total = int(body.get("TotalRecordCount") or 0)
         if total and start >= total:
             break
         if start >= MAX_PLAYLIST_ITEMS:
-            LOG.warning(
-                "playlist %s still paging at %d items; stopping",
-                playlist_id,
-                start,
+            raise ValueError(
+                "playlist %s exceeds %d items" % (playlist_id, MAX_PLAYLIST_ITEMS)
             )
-            break
     return items
 
 
@@ -750,6 +759,51 @@ def _entries_for(
     return entries, missing
 
 
+def _audio_ids(items: Iterable[Dict[str, Any]]) -> List[str]:
+    """Keep server order and duplicates; a playlist may repeat one track."""
+    return [
+        str(item["Id"])
+        for item in items
+        if item.get("Id") and (not item.get("Type") or item.get("Type") == "Audio")
+    ]
+
+
+def refresh_song_playlists_many(
+    item_ids: Iterable[str], root: Optional[str] = None
+) -> int:
+    """Re-render managed playlists containing a repointed or restored song.
+
+    Membership and the current MyMusic row are local, so this also works
+    offline. The filename comes from playlist_state, preserving collision
+    suffixes assigned on the server poll.
+    """
+    ids = list(dict.fromkeys(item_ids))
+    if not ids:
+        return 0
+    written = 0
+    with Database("kofin") as opened, Database("music") as musicdb:
+        mapping = jellyfin_db.JellyfinDatabase(opened.cursor)
+        music = MusicKodiDb(musicdb.cursor)
+        affected: Set[str] = set()
+        for start in range(0, len(ids), 500):
+            affected.update(mapping.get_playlists_for_items(ids[start : start + 500]))
+        for playlist_id in affected:
+            state = mapping.get_playlist_state(playlist_id)
+            if state is None or state[0] != "Audio":
+                continue
+            entries = [
+                song_entry(mapping, music, song_id)
+                for song_id in mapping.get_playlist_items(playlist_id)
+            ]
+            path = os.path.join(managed_dir(root), state[1])
+            written += int(_write_text(path, render_m3u8(e for e in entries if e)))
+    return written
+
+
+def refresh_song_playlists(item_id: str, root: Optional[str] = None) -> int:
+    return refresh_song_playlists_many([item_id], root=root)
+
+
 def write_playlist_file(
     directory: str,
     name: str,
@@ -785,6 +839,7 @@ def apply_one(
     kinds: Set[str],
     music_root: Optional[str] = None,
     video_root: Optional[str] = None,
+    audio_memberships: Optional[Dict[str, List[str]]] = None,
 ) -> bool:
     """Materialize one server playlist. True when a file was written or removed."""
     playlist_id = playlist.get("Id") or ""
@@ -804,6 +859,14 @@ def apply_one(
             state.remove_playlist_state(playlist_id)
             return True
         return False
+
+    if side == "Audio":
+        audio_ids = _audio_ids(items)
+        state.replace_playlist_items(playlist_id, audio_ids)
+        if audio_memberships is not None:
+            audio_memberships[playlist_id] = audio_ids
+    elif stored and stored[0] == "Audio":
+        state.replace_playlist_items(playlist_id, [])
 
     etag = playlist.get("Etag") or ""
     checksum = reference_checksum(etag) if etag else ""
@@ -869,6 +932,7 @@ def reconcile(
     kinds: Set[str],
     music_root: Optional[str] = None,
     video_root: Optional[str] = None,
+    audio_memberships: Optional[Dict[str, List[str]]] = None,
 ) -> Dict[str, int]:
     """Full list + Etag skip + prune for the enabled sides."""
     stats = {"playlists": 0, "written": 0, "tracks": 0, "skipped": 0, "pruned": 0}
@@ -914,13 +978,32 @@ def reconcile(
         playlist_id = playlist.get("Id") or ""
         if not playlist_id:
             continue
-        items = _iter_playlist_items(api, playlist_id)
+        try:
+            items = _iter_playlist_items(api, playlist_id)
+        except Exception:
+            LOG.exception(
+                "playlist %s: items listing failed; keeping prior state", playlist_id
+            )
+            prior = state.get_playlist_state(playlist_id)
+            if prior:
+                if prior[0] == "Audio":
+                    want_audio.add(prior[1])
+                elif prior[0] == "Video":
+                    want_video.add(prior[1])
+            continue
         side = playlist_side(playlist.get("MediaType") or "", items)
         if side is None or side not in kinds:
             continue
+        if side == "Audio":
+            audio_ids = _audio_ids(items)
+            state.replace_playlist_items(playlist_id, audio_ids)
+            if audio_memberships is not None:
+                audio_memberships[playlist_id] = audio_ids
         etag = playlist.get("Etag") or ""
         checksum = reference_checksum(etag) if etag else ""
         stored = state.get_playlist_state(playlist_id)
+        if side != "Audio" and stored and stored[0] == "Audio":
+            state.replace_playlist_items(playlist_id, [])
         directory = audio_dir if side == "Audio" else video_dir
         taken = taken_audio if side == "Audio" else taken_video
         want = want_audio if side == "Audio" else want_video

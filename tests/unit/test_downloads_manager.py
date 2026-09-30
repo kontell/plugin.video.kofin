@@ -225,6 +225,36 @@ def test_happy_path_downloads_verifies_repoints_and_refreshes(tmp_path, repoints
     assert refreshes == [["video"]]
 
 
+def test_playlist_only_refresh_does_not_refresh_video(repoints, monkeypatch):
+    manager, refreshes = make_manager(repoints)
+    playlists = []
+    monkeypatch.setattr(
+        manager, "_refresh_song_playlists", lambda ids: playlists.append(set(ids))
+    )
+    manager._mark_playlist_dirty("song")
+    manager._flush_refresh(force=True)
+    assert playlists == [{"song"}]
+    assert refreshes == []
+
+
+def test_subscription_remove_rechecks_claim_before_deleting(repoints, monkeypatch):
+    manager, _ = make_manager(repoints)
+    store.queue(store.Download("song", media_type="song", origin="auto:playlist:mix"))
+    with sync_db.Database("kofin") as opened:
+        opened.cursor.execute(
+            "INSERT INTO download_subscription(owner, jellyfin_id) VALUES (?, ?)",
+            ("auto:musiclibrary:library", "song"),
+        )
+    removed = []
+    monkeypatch.setattr(manager, "_apply_remove", removed.append)
+    manager._apply_remove_batch(["song"], subscription=True)
+    assert removed == []
+    with sync_db.Database("kofin") as opened:
+        opened.cursor.execute("DELETE FROM download_subscription")
+    manager._apply_remove_batch(["song"], subscription=True)
+    assert removed == ["song"]
+
+
 def test_resume_appends_from_the_part_watermark(tmp_path, repoints):
     manager, _ = make_manager(repoints)
     rel = "Movies/The Movie (2019)/The Movie (2019).mkv"
@@ -1708,10 +1738,13 @@ def test_a_playlist_announces_once_for_the_whole_request(
 
     assert shown == ["L30712 Road Trip"]
 
+    manager._apply_add(manager_module._Op("add", "other", "auto:show", "movie"))
+    manager._announce_complete("song", "album2", {"Id": "t2", "Album": "Album 2"})
+    assert shown == ["L30712 Road Trip"]
+
 
 def test_a_one_item_request_still_announces_itself(tmp_path, repoints, monkeypatch):
-    """A request that expanded to a single track is that track — collapsing
-    it under a container's name would be a worse answer, not a tidier one."""
+    """A container request gets its own final toast even with one new item."""
     manager, _ = make_manager(repoints)
     shown = []
     monkeypatch.setattr(
@@ -1731,12 +1764,12 @@ def test_a_one_item_request_still_announces_itself(tmp_path, repoints, monkeypat
         "song", "album0", {"Id": "t0", "Name": "One Track", "Album": "Album 0"}
     )
 
-    assert shown == ["L30712 Album 0"]  # the album grouping underneath
+    assert shown == ["L30712 Road Trip"]
 
 
-def test_video_keeps_its_per_item_completion_toast(tmp_path, repoints, monkeypatch):
-    """A film or an episode is itself the thing somebody chose, and they
-    finish minutes apart — nothing to coalesce."""
+def test_mixed_playlist_announces_once_after_every_item(
+    tmp_path, repoints, monkeypatch
+):
     manager, _ = make_manager(repoints)
     shown = []
     monkeypatch.setattr(
@@ -1744,12 +1777,72 @@ def test_video_keeps_its_per_item_completion_toast(tmp_path, repoints, monkeypat
     )
     monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d %%s" % i)
 
-    manager._announce_complete("episode", "show1", {"Id": "e1", "Name": "Blood Test"})
-    manager._announce_complete("movie", "", {"Id": "m1", "Name": "The Movie"})
-    # A stray track with no album is its own unit too.
-    manager._announce_complete("song", "", {"Id": "s1", "Name": "Ringtone"})
+    manager.submit(
+        ["e1", "m1", "s1"],
+        media_types=["Episode", "Movie", "Audio"],
+        request_id="pl1",
+        request_name="Road Trip",
+    )
+    manager._drain_ops()
+    for item_id, media_type in (("e1", "episode"), ("m1", "movie"), ("s1", "song")):
+        store.record_details(item_id, media_type, "", 0, "")
+        store.claim((media_type,))
+        store.finish(item_id, "a/%s.mkv" % item_id, "mkv", 1)
+        manager._announce_complete(media_type, "", {"Id": item_id, "Name": item_id})
 
-    assert shown == ["L30712 Blood Test", "L30712 The Movie", "L30712 Ringtone"]
+    assert shown == ["L30712 Road Trip"]
+
+
+def test_request_with_failure_announces_once_after_last_item(
+    tmp_path, repoints, monkeypatch
+):
+    manager, _ = make_manager(repoints)
+    shown = []
+    monkeypatch.setattr(
+        manager_module.toast, "show", lambda *a, **k: shown.append(a[0])
+    )
+    monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d %%s" % i)
+    manager.submit(
+        ["e1", "e2"],
+        media_types=["Episode", "Episode"],
+        request_id="season1",
+        request_name="Season 1",
+    )
+    manager._drain_ops()
+    store.fail("e1", "server refused")
+    manager._announce_request_terminal(store.get("e1"))
+    assert shown == []
+
+    store.record_details("e2", "episode", "series1", 0, "")
+    store.claim(("episode",))
+    store.finish("e2", "a/e2.mkv", "mkv", 1)
+    manager._announce_complete("episode", "series1", {"Id": "e2", "Name": "e2"})
+    assert shown == ["L30713 Season 1"]
+
+
+def test_failed_request_suppresses_item_toasts_until_the_end(repoints, monkeypatch):
+    manager, _ = make_manager(repoints)
+    shown = []
+    monkeypatch.setattr(
+        manager_module.toast, "show", lambda *a, **k: shown.append(a[0])
+    )
+    monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d %%s" % i)
+
+    class Api403:
+        def item(self, item_id):
+            raise Unauthorized("download denied")
+
+    manager.submit(
+        ["e1", "e2"],
+        media_types=["Episode", "Episode"],
+        request_id="season1",
+        request_name="Season 1",
+    )
+    manager._drain_ops()
+    manager._process(Api403(), store.claim(("episode",)))
+    assert shown == []
+    manager._process(Api403(), store.claim(("episode",)))
+    assert shown == ["L30713 Season 1"]
 
 
 # -- delete every download (the settings button) -------------------------------

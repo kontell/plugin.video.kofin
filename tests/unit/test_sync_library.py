@@ -2159,6 +2159,29 @@ def test_new_content_waits_for_the_cycle_to_finish_adding(monkeypatch):
     assert len(sent) == 1
 
 
+def test_new_song_claim_waits_for_writer_commit(monkeypatch):
+    from kofin.downloads import subscriptions
+
+    song = newcontent.Entry("Audio", "song1", "Song")
+    lib, sent = _notify_library(monkeypatch, song)
+    claimed = []
+    monkeypatch.setattr(
+        subscriptions,
+        "claim_new_library_songs",
+        lambda entries: claimed.extend(entries),
+    )
+    lib.added_queue.put(["still-writing"])
+    lib.notify_new_content()
+    assert claimed == []
+    assert lib.new_song_entries == [song]
+
+    lib.added_queue.get()
+    lib.notify_new_content()
+    assert claimed == [song]
+    assert lib.new_song_entries == []
+    assert sent == []
+
+
 def test_new_content_summarizes_a_whole_cycle_not_each_writer(monkeypatch):
     """Two writers reporting a movie each is one message, which is the whole
     point of collecting them here instead of toasting per item."""

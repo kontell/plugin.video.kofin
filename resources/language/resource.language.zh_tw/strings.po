@@ -2199,3 +2199,31 @@ msgstr "顯示媒體庫更新進度"
 msgctxt "#30846"
 msgid "Show Kodi's library-update progress while the library syncs."
 msgstr "同步媒體庫時顯示 Kodi 的媒體庫更新進度。"
+
+msgctxt "#30849"
+msgid "Download & keep in sync"
+msgstr "下載並保持同步"
+
+msgctxt "#30850"
+msgid "Stop keeping downloads in sync"
+msgstr "停止同步下載"
+
+msgctxt "#30851"
+msgid "Manage playlist downloads"
+msgstr "管理播放清單下載"
+
+msgctxt "#30852"
+msgid "Manage music library downloads"
+msgstr "管理音樂資料庫下載"
+
+msgctxt "#30853"
+msgid "Content not downloaded"
+msgstr "內容尚未下載"
+
+msgctxt "#30854"
+msgid "Review subscribed playlists; untick to stop syncing downloads."
+msgstr "檢視已訂閱的播放清單；取消勾選即可停止同步下載。"
+
+msgctxt "#30855"
+msgid "Review subscribed music libraries; untick to stop syncing downloads."
+msgstr "檢視已訂閱的音樂資料庫；取消勾選即可停止同步下載。"

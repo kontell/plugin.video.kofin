@@ -20,8 +20,8 @@ class Add(NamedTuple):
     ids: List[str]
     origin: str
     media_types: List[str]
-    # The container the sender expanded, and what to call it (D6). Empty
-    # for a single item and for the automatic paths.
+    # The item selected by the user and what to call it. Empty for automatic
+    # paths and older plugin clients.
     request_id: str = ""
     request_name: str = ""
 
@@ -38,10 +38,8 @@ def parse_add(payload: JsonDict) -> Add:
     rest by one; a short or absent list just leaves kinds unknown, which the
     video pool claims.
 
-    Request/RequestName are optional in the same way and for the same
-    reason as everything else here: a plugin process left over from before
-    an add-on update sends neither, and a row without a request simply
-    announces per item, which is what every row did before D6.
+    Request/RequestName are optional for older plugin processes and automatic
+    downloads; a row without a request uses the earlier item/album behavior.
     """
     origin = str(payload.get("Origin") or downloads_store.ORIGIN_USER)
     if origin != downloads_store.ORIGIN_USER and not downloads_store.is_auto_origin(

@@ -184,13 +184,13 @@ class DownloadManager:
         # Which Kodi databases a finished download has made stale, and since
         # when. Coalesced rather than refreshed per item — see _mark_dirty.
         self._dirty: Set[str] = set()
+        self._playlist_dirty: Set[str] = set()
         self._dirty_since = 0.0
         self._dirty_lock = threading.Lock()
         # The Downloaded-music view is written once per generation, not once
         # per track (see _ensure_music_view).
         self._music_view_written = False
-        # Albums whose completion has already been announced, so a burst of
-        # tracks is one notification (see _announce_complete).
+        # Requests and albums whose completion has already been announced.
         self._announced: Set[str] = set()
         self._announce_lock = threading.Lock()
         # Downloads deleted since the last announcement (see _flush_removed).
@@ -290,8 +290,8 @@ class DownloadManager:
         before anything has been fetched for it. Unknown is fine and stays
         unknown until ``record_details`` learns it the slow way.
 
-        ``request_id``/``request_name`` name the container the sender
-        expanded, and ride onto every row this call creates so the
+        ``request_id``/``request_name`` name the item the user selected,
+        and ride onto every row this call creates so the
         completion toast can answer the request rather than each item
         (D6, ``_announce_complete``).
         """
@@ -311,7 +311,7 @@ class DownloadManager:
         self._ops.put(_Op("cancel", item_id))
         self._wake_all()
 
-    def remove(self, item_ids: List[str]) -> None:
+    def remove(self, item_ids: List[str], subscription: bool = False) -> None:
         """Delete finished downloads, restoring their library rows.
 
         A list, and *one* op for the lot, because a container removal is one
@@ -328,7 +328,9 @@ class DownloadManager:
         wanted = [item_id for item_id in item_ids if item_id]
         if not wanted:
             return
-        self._ops.put(_Op("remove", ",".join(wanted)))
+        self._ops.put(
+            _Op("remove", ",".join(wanted), "subscription" if subscription else "")
+        )
         self._wake_all()
 
     def remove_all(self) -> None:
@@ -448,7 +450,10 @@ class DownloadManager:
                 elif entry.op == "cancel":
                     self._apply_cancel(entry.item_id)
                 elif entry.op == "remove":
-                    self._apply_remove_batch(entry.item_id.split(","))
+                    self._apply_remove_batch(
+                        entry.item_id.split(","),
+                        subscription=entry.origin == "subscription",
+                    )
                 elif entry.op == "removeall":
                     self._apply_remove_all()
             except Exception:
@@ -468,11 +473,20 @@ class DownloadManager:
             )
         ):
             self._attempts.pop(entry.item_id, None)
-            # New work re-arms every announcement: downloading an album or a
-            # playlist, removing it and downloading it again should say so
-            # both times (_announce_complete).
+            # Re-arm only the group this work could complete. An unrelated
+            # queue must not make a late worker repeat an already announced
+            # request; older automatic music still re-arms album grouping.
             with self._announce_lock:
-                self._announced.clear()
+                if entry.request_id:
+                    self._announced.discard("request:%s" % entry.request_id)
+                else:
+                    self._announced.difference_update(
+                        {
+                            key
+                            for key in self._announced
+                            if not key.startswith("request:")
+                        }
+                    )
             LOG.info("download queued: %s", entry.item_id)
             return True
         return False
@@ -501,7 +515,9 @@ class DownloadManager:
         repoint.unstamp_tag(row)
         repoint.clear_badge(row)
 
-    def _apply_remove_batch(self, item_ids: Iterable[str]) -> None:
+    def _apply_remove_batch(
+        self, item_ids: Iterable[str], subscription: bool = False
+    ) -> None:
         """One request's worth of removals: every row, then one refresh and
         one toast.
 
@@ -515,6 +531,16 @@ class DownloadManager:
         for item_id in item_ids:
             if self._should_stop():
                 break
+            if subscription:
+                row = store.get(item_id)
+                if (
+                    row is None
+                    or not row.origin.startswith(
+                        ("auto:playlist:", "auto:musiclibrary:")
+                    )
+                    or store.has_subscription_claim(item_id)
+                ):
+                    continue
             self._apply_remove(item_id)
         self._flush_refresh(force=True)
         self._flush_removed()
@@ -529,7 +555,22 @@ class DownloadManager:
             self._apply_cancel(item_id)
             return
         root = downloads_root()
-        if not repoint.restore(row, root):
+        restored = repoint.restore(row, root)
+        departed_subscription_item = False
+        if not restored and row.origin.startswith(
+            ("auto:playlist:", "auto:musiclibrary:")
+        ):
+            # A mirrored item can leave the server before the manager gets
+            # its removal message. The sync writer may already have removed
+            # the Kodi row, leaving nothing to restore. In that one case the
+            # full remove path can still delete the orphaned local copy.
+            from kofin.sync.db import Database
+
+            with Database("kofin") as opened:
+                departed_subscription_item = (
+                    repoint.mapping_for_on(opened.cursor, row.jellyfin_id) is None
+                )
+        if not restored and not departed_subscription_item:
             # Refused (no captured filename, no usable mapping): deleting
             # the media now would leave the library row pointing at a file
             # that no longer exists. The download stays exactly as it is —
@@ -543,6 +584,8 @@ class DownloadManager:
             return
         self._remove_row(row)
         self._mark_dirty(row.media_type)
+        if row.media_type == "song":
+            self._mark_playlist_dirty(row.jellyfin_id)
         with self._removed_lock:
             self._removed.append(_display_name(row))
         LOG.info("download removed: %s", item_id)
@@ -607,7 +650,8 @@ class DownloadManager:
             # The server's EnableContentDownloading gate: retrying cannot fix
             # a permission, so the row settles immediately (feasibility V1).
             store.fail(item_id, "download not permitted: %s" % error)
-            self._toast(30713, item_id)
+            if not row.request_id:
+                self._toast(30713, item_id)
         except JellyfinError as error:
             self._retry_or_fail(row, str(error))
         except OSError as error:
@@ -616,6 +660,13 @@ class DownloadManager:
             # Every exit leaves the active set — done, failed, cancelled or
             # requeued — and only a completed item advances the bar.
             self._progress.finish(item_id, store.is_done(item_id))
+            current = store.get(item_id)
+            if (
+                current is not None
+                and current.state == store.FAILED
+                and current.request_id
+            ):
+                self._announce_request_terminal(current)
 
     def _transfer(self, api: Any, row: "store.Download", item: JsonDict) -> None:
         item_id = row.jellyfin_id
@@ -659,7 +710,8 @@ class DownloadManager:
         root = downloads_root()
         if not row.rel_path and not files.free_space_ok(root, size_expected):
             store.fail(item_id, "not enough free space")
-            self._toast(30715, item.get("Name", item_id))
+            if not row.request_id:
+                self._toast(30715, item.get("Name", item_id))
             return
 
         owner_id = group_id or item_id
@@ -715,6 +767,8 @@ class DownloadManager:
         # twelve times over. The flusher does it once the pool goes quiet,
         # for the databases that actually moved.
         self._mark_dirty(media_type)
+        if media_type == "song":
+            self._mark_playlist_dirty(item_id)
         self._announce_complete(media_type, group_id, item, finished)
         LOG.info("download complete: %s (%d bytes) at %s", item_id, actual, rel_path)
 
@@ -1073,14 +1127,19 @@ class DownloadManager:
             # Range resume; only this worker sits out the backoff.
             store.queue(
                 store.Download(
-                    jellyfin_id=item_id, origin=row.origin, quality=row.quality
+                    jellyfin_id=item_id,
+                    origin=row.origin,
+                    quality=row.quality,
+                    request_id=row.request_id,
+                    request_name=row.request_name,
                 )
             )
             self._stopping_aware_sleep(BACKOFF_SECONDS * attempts)
             return
         self._attempts.pop(item_id, None)
         LOG.error("download failed for %s: %s", item_id, error)
-        self._toast(30713, item_id)
+        if not row.request_id:
+            self._toast(30713, item_id)
 
     def _stopping_aware_sleep(self, seconds: float) -> None:
         deadline = time.monotonic() + seconds
@@ -1171,6 +1230,7 @@ class DownloadManager:
             root = downloads_root()
             touched = False
             songs = False
+            repointed_songs: Set[str] = set()
             for row in store.rows(store.DONE):
                 if self._should_stop():
                     return
@@ -1184,8 +1244,12 @@ class DownloadManager:
                     repoint.stamp_tag(row)  # idempotent; a repair wiped links
                     repoint.stamp_badge(row)
                     touched = True
+                    if row.media_type == "song":
+                        repointed_songs.add(row.jellyfin_id)
             if songs:
                 self._ensure_music_view(force=True)  # heals a hand-deleted .xsp too
+            if repointed_songs:
+                self._refresh_song_playlists(repointed_songs)
             if touched:
                 self._refresh_quietly(["music", "video"] if songs else ["video"])
         except Exception:  # pragma: no cover - never break service start
@@ -1223,6 +1287,8 @@ class DownloadManager:
         self._remove_row(row)
         self._mark_watched(row)
         self._mark_dirty(row.media_type)
+        if row.media_type == "song":
+            self._mark_playlist_dirty(row.jellyfin_id)
 
     def _mark_watched(self, row: "store.Download") -> None:
         """Mark a vanished download watched, here and on the server.
@@ -1479,19 +1545,36 @@ class DownloadManager:
             if not self._dirty_since:
                 self._dirty_since = time.monotonic()
 
+    def _mark_playlist_dirty(self, item_id: str) -> None:
+        with self._dirty_lock:
+            self._playlist_dirty.add(item_id)
+
+    def _refresh_song_playlists(self, item_ids: Set[str]) -> None:
+        try:
+            from kofin.sync import playlists
+
+            playlists.refresh_song_playlists_many(item_ids)
+        except Exception:
+            LOG.exception("managed playlist refresh after song repoint failed")
+
     def _flush_refresh(self, force: bool = False) -> None:
         """Refresh the dirty databases — on ``force`` (the pool went quiet),
         or once the oldest mark has waited out the defer window."""
         with self._dirty_lock:
-            if not self._dirty:
+            if not self._dirty and not self._playlist_dirty:
                 return
             waited = time.monotonic() - self._dirty_since
             if not force and waited < REFRESH_MAX_DEFER_SECONDS:
                 return
             databases = sorted(self._dirty)
+            playlist_ids = self._playlist_dirty
+            self._playlist_dirty = set()
             self._dirty.clear()
             self._dirty_since = 0.0
-        self._refresh_quietly(databases)
+        if playlist_ids:
+            self._refresh_song_playlists(playlist_ids)
+        if databases:
+            self._refresh_quietly(databases)
 
     def _refresh_quietly(self, databases: Optional[List[str]] = None) -> None:
         try:
@@ -1506,40 +1589,19 @@ class DownloadManager:
         item: JsonDict,
         row: Optional["store.Download"] = None,
     ) -> None:
-        """One "Download complete" per *request*, not one per track.
+        """Announce a user request once, after all of its items settle.
 
-        A track is seconds of work and a batch lands as a burst, so the
-        per-item toast stacked a dozen notifications naming songs nobody
-        had asked for individually — what they asked for was the album, or
-        the playlist. Video keeps its per-item toast: a film or an episode
-        *is* the unit somebody chose, and they finish minutes apart.
-
-        The unit is the request, and that is the fix D6 makes. Grouping
-        used to be by ``group_id`` — the item's own ``SeriesId or AlbumId``
-        — which answers an album download correctly and a *playlist*
-        download not at all: twelve tracks off twelve albums are twelve
-        complete albums, so one request produced twelve toasts. A request
-        that expanded to more than one song is announced once, under its
-        own name; the album grouping stays underneath it for anything
-        queued before this shipped, or by a path that names no request.
-
-        Announced by whichever worker finishes the last of it, claimed
-        under the lock so two tracks landing together cannot both be last.
-        ``_apply_add`` re-arms when anything new is queued, so downloading
-        the same album or playlist again announces again.
+        Older and automatic rows have no request ID. Their music keeps the
+        album grouping and their video keeps the item-level notification.
         """
+        if row is None:
+            row = store.get(str(item.get("Id") or ""))
+        if row is not None and row.request_id:
+            self._announce_request_terminal(row)
+            return
         if media_type != "song":
             self._toast(30712, item.get("Name") or item.get("Id", ""))
             return
-        if row is None:
-            row = store.get(str(item.get("Id") or ""))
-        request_id = row.request_id if row is not None else ""
-        if request_id:
-            counts = store.request_counts(request_id)
-            if counts["total"] > 1:
-                name = (row.request_name if row is not None else "") or request_id
-                self._announce_once(request_id, counts["pending"], name)
-                return
         if not group_id:
             self._toast(30712, item.get("Name") or item.get("Id", ""))
             return
@@ -1549,7 +1611,20 @@ class DownloadManager:
             item.get("Album") or item.get("Name") or group_id,
         )
 
-    def _announce_once(self, key: str, pending: int, name: Any) -> None:
+    def _announce_request_terminal(self, row: "store.Download") -> None:
+        counts = store.request_counts(row.request_id)
+        if not counts["total"]:
+            return
+        self._announce_once(
+            "request:%s" % row.request_id,
+            counts["pending"],
+            row.request_name or row.request_id,
+            30713 if counts["failed"] else 30712,
+        )
+
+    def _announce_once(
+        self, key: str, pending: int, name: Any, string_id: int = 30712
+    ) -> None:
         """Toast for ``key`` when nothing under it is still coming, and only
         for the worker that gets there first."""
         with self._announce_lock:
@@ -1558,7 +1633,7 @@ class DownloadManager:
             if pending:
                 return  # more of this one is still coming
             self._announced.add(key)
-        self._toast(30712, name)
+        self._toast(string_id, name)
 
     def _flush_removed(self) -> None:
         """Announce the batch just deleted: the item by name when it is one,

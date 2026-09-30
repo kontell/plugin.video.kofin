@@ -1418,7 +1418,7 @@ class FakeDownloadManager:
     def cancel(self, item_id):
         self.cancelled.append(item_id)
 
-    def remove(self, item_ids):
+    def remove(self, item_ids, subscription=False):
         self.removed.append(list(item_ids))
 
     def remove_all(self):

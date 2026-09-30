@@ -279,6 +279,21 @@ def test_music_playlists_accepts_a_genuinely_empty_account(api):
     assert client.music_playlists() == []
 
 
+@pytest.mark.parametrize("method", ["music_playlists", "playlists"])
+def test_playlist_listings_refuse_a_shapeless_body(api, method):
+    client, transport = api
+
+    class Response:
+        content = b"{}"
+
+        def json(self):
+            return {}
+
+    transport.request = lambda *args, **kwargs: Response()
+    with pytest.raises(Exception, match="no items list"):
+        getattr(client, method)()
+
+
 def test_playback_info_optional_params(api):
     client, transport = api
     client.playback_info("item1", {"Name": "Kodi"})

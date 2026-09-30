@@ -174,6 +174,18 @@ def kofin_tables(cursor: "sqlite3.Cursor") -> None:
     cursor.execute("""CREATE TABLE IF NOT EXISTS playlist_state(
         jellyfin_id TEXT PRIMARY KEY, media_type TEXT NOT NULL,
         filename TEXT NOT NULL, checksum TEXT NOT NULL)""")
+    # Ordered Audio membership lets a download repoint rewrite just the
+    # affected managed playlists without asking Jellyfin while offline.
+    cursor.execute("""CREATE TABLE IF NOT EXISTS playlist_item(
+        playlist_id TEXT NOT NULL, jellyfin_id TEXT NOT NULL,
+        position INTEGER NOT NULL, PRIMARY KEY(playlist_id, position))""")
+    cursor.execute("""CREATE INDEX IF NOT EXISTS playlist_item_song
+        ON playlist_item(jellyfin_id)""")
+    cursor.execute("""CREATE TABLE IF NOT EXISTS download_subscription(
+        owner TEXT NOT NULL, jellyfin_id TEXT NOT NULL,
+        PRIMARY KEY(owner, jellyfin_id))""")
+    cursor.execute("""CREATE INDEX IF NOT EXISTS download_subscription_item
+        ON download_subscription(jellyfin_id)""")
     # Offline downloads (docs/offline-downloads-plan.md, storage decisions).
     # Rows leave only on remove; ``state`` walks queued|active|done|failed.
     # ``series_id`` is denormalized so the tvshow tag injection is one

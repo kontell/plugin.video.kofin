@@ -2199,3 +2199,31 @@ msgstr "Zobraziť priebeh aktualizácie knižnice"
 msgctxt "#30846"
 msgid "Show Kodi's library-update progress while the library syncs."
 msgstr "Zobrazí priebeh aktualizácie knižnice v Kodi počas synchronizácie."
+
+msgctxt "#30849"
+msgid "Download & keep in sync"
+msgstr "Stiahnuť a udržiavať synchronizované"
+
+msgctxt "#30850"
+msgid "Stop keeping downloads in sync"
+msgstr "Prestať synchronizovať sťahovania"
+
+msgctxt "#30851"
+msgid "Manage playlist downloads"
+msgstr "Spravovať sťahovanie playlistov"
+
+msgctxt "#30852"
+msgid "Manage music library downloads"
+msgstr "Spravovať sťahovanie hudobných knižníc"
+
+msgctxt "#30853"
+msgid "Content not downloaded"
+msgstr "Obsah nie je stiahnutý"
+
+msgctxt "#30854"
+msgid "Review subscribed playlists; untick to stop syncing downloads."
+msgstr "Skontrolujte odoberané playlisty; zrušením výberu zastavíte synchronizáciu stiahnutých súborov."
+
+msgctxt "#30855"
+msgid "Review subscribed music libraries; untick to stop syncing downloads."
+msgstr "Skontrolujte odoberané hudobné knižnice; zrušením výberu zastavíte synchronizáciu stiahnutých súborov."

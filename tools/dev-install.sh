@@ -48,6 +48,7 @@ KODI_RPC="http://localhost:${RPC_PORT}/jsonrpc"
 
 rsync -a --delete \
     --exclude '.git' --exclude '.venv' --exclude '.tox' \
+    --exclude '.claude' --exclude '.agents' --exclude '.aws' --exclude '.codex' \
     --exclude '__pycache__' --exclude '.mypy_cache' --exclude '.pytest_cache' \
     --exclude 'docs' --exclude 'tests' --exclude 'tools' \
     --exclude 'mypy.ini' --exclude 'tox.ini' --exclude 'pyproject.toml' \
