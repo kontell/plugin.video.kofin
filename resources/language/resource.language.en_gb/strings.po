@@ -2350,7 +2350,7 @@ msgid "Show Kodi's library-update progress while the library syncs."
 msgstr ""
 
 msgctxt "#30849"
-msgid "Keep downloads in sync"
+msgid "Download & keep in sync"
 msgstr ""
 
 msgctxt "#30850"
@@ -2363,4 +2363,16 @@ msgstr ""
 
 msgctxt "#30852"
 msgid "Manage music library downloads"
+msgstr ""
+
+msgctxt "#30853"
+msgid "Content not downloaded"
+msgstr ""
+
+msgctxt "#30854"
+msgid "Review subscribed playlists; untick to stop syncing downloads."
+msgstr ""
+
+msgctxt "#30855"
+msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr ""

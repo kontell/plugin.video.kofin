@@ -2201,8 +2201,8 @@ msgid "Show Kodi's library-update progress while the library syncs."
 msgstr "동기화하는 동안 Kodi의 라이브러리 업데이트 진행 표시를 보여 줍니다."
 
 msgctxt "#30849"
-msgid "Keep downloads in sync"
-msgstr "다운로드 동기화 유지"
+msgid "Download & keep in sync"
+msgstr "다운로드하고 동기화 유지"
 
 msgctxt "#30850"
 msgid "Stop keeping downloads in sync"
@@ -2215,3 +2215,15 @@ msgstr "재생목록 다운로드 관리"
 msgctxt "#30852"
 msgid "Manage music library downloads"
 msgstr "음악 라이브러리 다운로드 관리"
+
+msgctxt "#30853"
+msgid "Content not downloaded"
+msgstr "콘텐츠가 다운로드되지 않음"
+
+msgctxt "#30854"
+msgid "Review subscribed playlists; untick to stop syncing downloads."
+msgstr "구독한 재생목록을 확인하고 선택을 해제하면 다운로드 동기화가 중지됩니다."
+
+msgctxt "#30855"
+msgid "Review subscribed music libraries; untick to stop syncing downloads."
+msgstr "구독한 음악 라이브러리를 확인하고 선택을 해제하면 다운로드 동기화가 중지됩니다."

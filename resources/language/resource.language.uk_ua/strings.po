@@ -2201,8 +2201,8 @@ msgid "Show Kodi's library-update progress while the library syncs."
 msgstr "Показувати індикатор оновлення медіатеки Kodi під час синхронізації."
 
 msgctxt "#30849"
-msgid "Keep downloads in sync"
-msgstr "Синхронізувати завантаження"
+msgid "Download & keep in sync"
+msgstr "Завантажити й підтримувати синхронізацію"
 
 msgctxt "#30850"
 msgid "Stop keeping downloads in sync"
@@ -2215,3 +2215,15 @@ msgstr "Керувати завантаженнями плейлистів"
 msgctxt "#30852"
 msgid "Manage music library downloads"
 msgstr "Керувати завантаженнями музичних бібліотек"
+
+msgctxt "#30853"
+msgid "Content not downloaded"
+msgstr "Вміст не завантажено"
+
+msgctxt "#30854"
+msgid "Review subscribed playlists; untick to stop syncing downloads."
+msgstr "Перегляньте підписані списки відтворення; зніміть позначку, щоб зупинити синхронізацію завантажень."
+
+msgctxt "#30855"
+msgid "Review subscribed music libraries; untick to stop syncing downloads."
+msgstr "Перегляньте підписані музичні бібліотеки; зніміть позначку, щоб зупинити синхронізацію завантажень."

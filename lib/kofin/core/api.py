@@ -830,7 +830,9 @@ class Api:
                     }
                 ),
             )
-            items = body.get("Items") or []
+            if "Items" not in body or not isinstance(body["Items"], list):
+                raise HttpError(200, "music playlists: response had no items list")
+            items = body["Items"]
             new_on_page = 0
             for item in items:
                 item_id = item.get("Id") or ""
@@ -889,7 +891,9 @@ class Api:
                     }
                 ),
             )
-            items = body.get("Items") or []
+            if "Items" not in body or not isinstance(body["Items"], list):
+                raise HttpError(200, "playlists: response had no items list")
+            items = body["Items"]
             new_on_page = 0
             for item in items:
                 item_id = item.get("Id") or ""

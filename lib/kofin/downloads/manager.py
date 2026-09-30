@@ -312,7 +312,7 @@ class DownloadManager:
         self._ops.put(_Op("cancel", item_id))
         self._wake_all()
 
-    def remove(self, item_ids: List[str]) -> None:
+    def remove(self, item_ids: List[str], subscription: bool = False) -> None:
         """Delete finished downloads, restoring their library rows.
 
         A list, and *one* op for the lot, because a container removal is one
@@ -329,7 +329,7 @@ class DownloadManager:
         wanted = [item_id for item_id in item_ids if item_id]
         if not wanted:
             return
-        self._ops.put(_Op("remove", ",".join(wanted)))
+        self._ops.put(_Op("remove", ",".join(wanted), "subscription" if subscription else ""))
         self._wake_all()
 
     def remove_all(self) -> None:
@@ -449,7 +449,9 @@ class DownloadManager:
                 elif entry.op == "cancel":
                     self._apply_cancel(entry.item_id)
                 elif entry.op == "remove":
-                    self._apply_remove_batch(entry.item_id.split(","))
+                    self._apply_remove_batch(
+                        entry.item_id.split(","), subscription=entry.origin == "subscription"
+                    )
                 elif entry.op == "removeall":
                     self._apply_remove_all()
             except Exception:
@@ -502,7 +504,7 @@ class DownloadManager:
         repoint.unstamp_tag(row)
         repoint.clear_badge(row)
 
-    def _apply_remove_batch(self, item_ids: Iterable[str]) -> None:
+    def _apply_remove_batch(self, item_ids: Iterable[str], subscription: bool = False) -> None:
         """One request's worth of removals: every row, then one refresh and
         one toast.
 
@@ -516,6 +518,14 @@ class DownloadManager:
         for item_id in item_ids:
             if self._should_stop():
                 break
+            if subscription:
+                row = store.get(item_id)
+                if (
+                    row is None
+                    or not row.origin.startswith(("auto:playlist:", "auto:musiclibrary:"))
+                    or store.has_subscription_claim(item_id)
+                ):
+                    continue
             self._apply_remove(item_id)
         self._flush_refresh(force=True)
         self._flush_removed()
@@ -1522,7 +1532,7 @@ class DownloadManager:
         """Refresh the dirty databases — on ``force`` (the pool went quiet),
         or once the oldest mark has waited out the defer window."""
         with self._dirty_lock:
-            if not self._dirty:
+            if not self._dirty and not self._playlist_dirty:
                 return
             waited = time.monotonic() - self._dirty_since
             if not force and waited < REFRESH_MAX_DEFER_SECONDS:
@@ -1534,7 +1544,8 @@ class DownloadManager:
             self._dirty_since = 0.0
         if playlist_ids:
             self._refresh_song_playlists(playlist_ids)
-        self._refresh_quietly(databases)
+        if databases:
+            self._refresh_quietly(databases)
 
     def _refresh_quietly(self, databases: Optional[List[str]] = None) -> None:
         try:

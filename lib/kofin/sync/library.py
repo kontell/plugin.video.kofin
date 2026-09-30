@@ -156,6 +156,7 @@ class Library(threading.Thread):
         self._full_sync_lock = threading.Lock()
         self._full_sync_running = False
         self.commands: "queue.Queue[Any]" = queue.Queue()
+        self._playlist_command_lock = threading.Lock()
         # When the last change-feed pass *began* (monotonic), or None. Begin
         # rather than end: the guarantee a queued FastSync is protecting is
         # that the server was asked after the event that queued it, and the
@@ -182,6 +183,7 @@ class Library(threading.Thread):
         # notify_output by notify_new_content and held until the cycle's
         # additions are all in (and, during playback, until it ends).
         self.new_content = []
+        self.new_song_entries = []
         # Ids the last incremental sync reported as userdata changes; used to
         # tag downloaded items so an Etag-unchanged write applies userdata only
         # when it changed. Empty outside the incremental path (full sync tags
@@ -351,6 +353,18 @@ class Library(threading.Thread):
         if command == "FastSync":
             data.setdefault(FAST_SYNC_REQUESTED_AT, time.monotonic())
 
+        if command in ("SyncMusicPlaylists", "SyncPlaylists") and not data.get("Id"):
+            with self._playlist_command_lock:
+                with self.commands.mutex:
+                    duplicate = any(
+                        queued_name in ("SyncMusicPlaylists", "SyncPlaylists")
+                        and not queued_data.get("Id")
+                        for queued_name, queued_data in self.commands.queue
+                    )
+                if not duplicate:
+                    self.commands.put((command, data))
+            return
+
         self.commands.put((command, data))
 
     def playlist_kinds(self):
@@ -368,14 +382,23 @@ class Library(threading.Thread):
         """Reconcile managed playlist files from the server (one-way)."""
         from kofin.downloads import subscriptions
 
-        subscriptions.reconcile_music_libraries(self.api)
+        try:
+            subscriptions.reconcile_music_libraries(self.api)
+        except Exception:
+            LOG.exception("Music-library subscription sync failed")
         kinds = self.playlist_kinds()
+        if "Audio" not in kinds:
+            try:
+                subscriptions.reconcile_playlists_direct(self.api)
+            except Exception:
+                LOG.exception("Playlist subscription sync failed")
         if not kinds:
             LOG.debug("syncMusicPlaylists off or no matching library; skip")
             return
         try:
             with self.music_database_lock:
-                self._reconcile_playlists(self.api, kinds)
+                memberships = self._reconcile_playlists(self.api, kinds)
+            subscriptions.reconcile_playlist_memberships(memberships)
         except Exception:
             LOG.exception("SyncMusicPlaylists failed")
 
@@ -387,7 +410,11 @@ class Library(threading.Thread):
         playlist_id = (data or {}).get("Id") or ""
         if not playlist_id:
             return
+        from kofin.downloads import subscriptions
+
         kinds = self.playlist_kinds()
+        if "Audio" not in kinds:
+            subscriptions.reconcile_playlist_direct(self.api, playlist_id)
         if not kinds:
             return
         try:
@@ -395,6 +422,7 @@ class Library(threading.Thread):
             from kofin.sync.kodidb import Music as MusicKodiDb
 
             item = self.api.item(playlist_id)
+            memberships: Dict[str, List[str]] = {}
             with self.music_database_lock:
                 with Database("kofin") as kofindb:
                     mapping = jellyfin_db.JellyfinDatabase(kofindb.cursor)
@@ -415,18 +443,20 @@ class Library(threading.Thread):
                                         mapping,
                                         item,
                                         kinds,
+                                        audio_memberships=memberships,
                                     )
-                                    return
-                            music_playlists.apply_one(
-                                self.api, mapping, music, None, mapping, item, kinds
-                            )
-                            return
-                    if "Video" in kinds:
+                            else:
+                                music_playlists.apply_one(
+                                    self.api, mapping, music, None, mapping, item, kinds,
+                                    audio_memberships=memberships,
+                                )
+                    elif "Video" in kinds:
                         with Database("video") as videodb:
                             video = music_playlists.VideoPlaylistDb(videodb.cursor)
                             music_playlists.apply_one(
                                 self.api, mapping, None, video, mapping, item, kinds
                             )
+            subscriptions.reconcile_playlist_memberships(memberships)
         except Exception:
             LOG.exception("ApplyPlaylist failed for %s", playlist_id)
 
@@ -434,16 +464,23 @@ class Library(threading.Thread):
         from kofin.sync import playlists as music_playlists
         from kofin.sync.kodidb import Music as MusicKodiDb
 
+        memberships: Dict[str, List[str]] = {}
         with Database("kofin") as kofindb, Database("music") as musicdb:
             mapping = jellyfin_db.JellyfinDatabase(kofindb.cursor)
             music = MusicKodiDb(musicdb.cursor) if "Audio" in kinds else None
             if "Video" in kinds:
                 with Database("video") as videodb:
                     video = music_playlists.VideoPlaylistDb(videodb.cursor)
-                    return music_playlists.reconcile(
-                        api, mapping, music, video, mapping, kinds
+                    music_playlists.reconcile(
+                        api, mapping, music, video, mapping, kinds,
+                        audio_memberships=memberships,
                     )
-            return music_playlists.reconcile(api, mapping, music, None, mapping, kinds)
+            else:
+                music_playlists.reconcile(
+                    api, mapping, music, None, mapping, kinds,
+                    audio_memberships=memberships,
+                )
+        return memberships
 
     def reassert_music_sources(self):
         """Rewrite the per-library music ``source`` rows after a Kodi scan.
@@ -992,11 +1029,6 @@ class Library(threading.Thread):
         # only the video database was refreshed, so newly synced albums
         # never showed up in the music widgets until something else
         # triggered a scan.)
-        if "music" in self.touched_databases:
-            from kofin.downloads import subscriptions
-
-            if subscriptions.subscribed(subscriptions.LIBRARY_SETTING):
-                self.enqueue_command("SyncMusicPlaylists")
         self.refresher.arm(self.touched_databases)
         self.touched_databases = set()
         self.added_databases = set()
@@ -1401,7 +1433,23 @@ class Library(threading.Thread):
                 downloads_auto.queue_new_content(self.api, drained)
             except Exception:
                 LOG.exception("auto-download hook failed")
-            self.new_content.extend(drained)
+            self.new_song_entries.extend(
+                entry for entry in drained if getattr(entry, "type", "") == "Audio"
+            )
+            self.new_content.extend(
+                entry for entry in drained if getattr(entry, "type", "") != "Audio"
+            )
+
+        # Writers publish before their kofin.db transaction closes. Wait for
+        # that commit before resolving a song's library and recording a claim.
+        if self.new_song_entries and not self.added_pending():
+            try:
+                from kofin.downloads import subscriptions
+
+                subscriptions.claim_new_library_songs(self.new_song_entries)
+                self.new_song_entries = []
+            except Exception:
+                LOG.exception("music-library subscription add failed")
 
         if len(self.new_content) > NEW_CONTENT_LIMIT:
             # Held, not dropped, is the rule below — but a long playback plus
@@ -1692,11 +1740,13 @@ class Library(threading.Thread):
             self.artwork(plan.artwork)
             for playlist_id in plan.playlist_removed:
                 from kofin.sync import playlists as music_playlists
+                from kofin.downloads import subscriptions
 
                 with Database("kofin") as kofindb:
                     music_playlists.remove_one(
                         jellyfin_db.JellyfinDatabase(kofindb.cursor), playlist_id
                     )
+                subscriptions.remove_confirmed_playlist(playlist_id)
             for playlist_id in list(plan.playlist_added) + list(plan.playlist_updated):
                 self.apply_playlist({"Id": playlist_id})
 
@@ -2248,13 +2298,19 @@ class Library(threading.Thread):
         count = 0
 
         from kofin.sync import playlists as music_playlists
+        from kofin.downloads import subscriptions
 
         with Database("kofin") as kofindb:
             mapping = jellyfin_db.JellyfinDatabase(kofindb.cursor)
             known = {row[0] for row in mapping.get_playlist_states()}
+            subscribed = set(subscriptions.subscribed(subscriptions.PLAYLIST_SETTING))
             for item in data:
                 if item in known:
                     music_playlists.remove_one(mapping, item)
+
+        for item in data:
+            if item in subscribed:
+                subscriptions.remove_confirmed_playlist(item)
 
         for item in data:
             if item in known:

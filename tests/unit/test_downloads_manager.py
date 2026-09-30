@@ -225,6 +225,36 @@ def test_happy_path_downloads_verifies_repoints_and_refreshes(tmp_path, repoints
     assert refreshes == [["video"]]
 
 
+def test_playlist_only_refresh_does_not_refresh_video(repoints, monkeypatch):
+    manager, refreshes = make_manager(repoints)
+    playlists = []
+    monkeypatch.setattr(
+        manager, "_refresh_song_playlists", lambda ids: playlists.append(set(ids))
+    )
+    manager._mark_playlist_dirty("song")
+    manager._flush_refresh(force=True)
+    assert playlists == [{"song"}]
+    assert refreshes == []
+
+
+def test_subscription_remove_rechecks_claim_before_deleting(repoints, monkeypatch):
+    manager, _ = make_manager(repoints)
+    store.queue(store.Download("song", media_type="song", origin="auto:playlist:mix"))
+    with sync_db.Database("kofin") as opened:
+        opened.cursor.execute(
+            "INSERT INTO download_subscription(owner, jellyfin_id) VALUES (?, ?)",
+            ("auto:musiclibrary:library", "song"),
+        )
+    removed = []
+    monkeypatch.setattr(manager, "_apply_remove", removed.append)
+    manager._apply_remove_batch(["song"], subscription=True)
+    assert removed == []
+    with sync_db.Database("kofin") as opened:
+        opened.cursor.execute("DELETE FROM download_subscription")
+    manager._apply_remove_batch(["song"], subscription=True)
+    assert removed == ["song"]
+
+
 def test_resume_appends_from_the_part_watermark(tmp_path, repoints):
     manager, _ = make_manager(repoints)
     rel = "Movies/The Movie (2019)/The Movie (2019).mkv"

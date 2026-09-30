@@ -478,8 +478,14 @@ def _iter_playlist_items(api: Any, playlist_id: str) -> List[Dict[str, Any]]:
     start = 0
     while True:
         body = api.playlist_items(playlist_id, start_index=start, limit=PAGE_SIZE)
-        page = body.get("Items") or []
+        if "Items" not in body or not isinstance(body["Items"], list):
+            raise ValueError("playlist %s returned no items list" % playlist_id)
+        page = body["Items"]
+        if any(not isinstance(item, dict) for item in page):
+            raise ValueError("playlist %s returned malformed items" % playlist_id)
         total = int(body.get("TotalRecordCount") or 0)
+        if start == 0 and not page and total > 0:
+            raise ValueError("playlist %s returned an incomplete first page" % playlist_id)
         if total > MAX_PLAYLIST_ITEMS:
             raise ValueError(
                 "playlist %s exceeds %d items" % (playlist_id, MAX_PLAYLIST_ITEMS)
@@ -831,6 +837,7 @@ def apply_one(
     kinds: Set[str],
     music_root: Optional[str] = None,
     video_root: Optional[str] = None,
+    audio_memberships: Optional[Dict[str, List[str]]] = None,
 ) -> bool:
     """Materialize one server playlist. True when a file was written or removed."""
     playlist_id = playlist.get("Id") or ""
@@ -841,15 +848,6 @@ def apply_one(
     stored = state.get_playlist_state(playlist_id)
     if side is None or side not in kinds:
         if stored:
-            if stored[0] == "Audio":
-                from kofin.downloads import subscriptions
-
-                if playlist_id in subscriptions.subscribed(
-                    subscriptions.PLAYLIST_SETTING
-                ):
-                    subscriptions.reconcile(
-                        subscriptions.owner("playlist", playlist_id), [], state.cursor
-                    )
             directory = (
                 managed_dir(music_root)
                 if stored[0] == "Audio"
@@ -863,20 +861,10 @@ def apply_one(
     if side == "Audio":
         audio_ids = _audio_ids(items)
         state.replace_playlist_items(playlist_id, audio_ids)
-        from kofin.downloads import subscriptions
-
-        if playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING):
-            subscriptions.reconcile(
-                subscriptions.owner("playlist", playlist_id), audio_ids, state.cursor
-            )
+        if audio_memberships is not None:
+            audio_memberships[playlist_id] = audio_ids
     elif stored and stored[0] == "Audio":
         state.replace_playlist_items(playlist_id, [])
-        from kofin.downloads import subscriptions
-
-        if playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING):
-            subscriptions.reconcile(
-                subscriptions.owner("playlist", playlist_id), [], state.cursor
-            )
 
     etag = playlist.get("Etag") or ""
     checksum = reference_checksum(etag) if etag else ""
@@ -923,13 +911,6 @@ def remove_one(
     stored = state.get_playlist_state(playlist_id)
     if not stored:
         return False
-    if stored[0] == "Audio":
-        from kofin.downloads import subscriptions
-
-        if playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING):
-            subscriptions.reconcile(
-                subscriptions.owner("playlist", playlist_id), [], state.cursor
-            )
     directory = (
         managed_dir(music_root)
         if stored[0] == "Audio"
@@ -949,6 +930,7 @@ def reconcile(
     kinds: Set[str],
     music_root: Optional[str] = None,
     video_root: Optional[str] = None,
+    audio_memberships: Optional[Dict[str, List[str]]] = None,
 ) -> Dict[str, int]:
     """Full list + Etag skip + prune for the enabled sides."""
     stats = {"playlists": 0, "written": 0, "tracks": 0, "skipped": 0, "pruned": 0}
@@ -994,42 +976,30 @@ def reconcile(
         playlist_id = playlist.get("Id") or ""
         if not playlist_id:
             continue
-        items = _iter_playlist_items(api, playlist_id)
+        try:
+            items = _iter_playlist_items(api, playlist_id)
+        except Exception:
+            LOG.exception("playlist %s: items listing failed; keeping prior state", playlist_id)
+            prior = state.get_playlist_state(playlist_id)
+            if prior:
+                if prior[0] == "Audio":
+                    want_audio.add(prior[1])
+                elif prior[0] == "Video":
+                    want_video.add(prior[1])
+            continue
         side = playlist_side(playlist.get("MediaType") or "", items)
         if side is None or side not in kinds:
-            prior = state.get_playlist_state(playlist_id)
-            if prior and prior[0] == "Audio":
-                from kofin.downloads import subscriptions
-
-                if playlist_id in subscriptions.subscribed(
-                    subscriptions.PLAYLIST_SETTING
-                ):
-                    subscriptions.reconcile(
-                        subscriptions.owner("playlist", playlist_id), [], state.cursor
-                    )
             continue
         if side == "Audio":
             audio_ids = _audio_ids(items)
             state.replace_playlist_items(playlist_id, audio_ids)
-            from kofin.downloads import subscriptions
-
-            if playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING):
-                subscriptions.reconcile(
-                    subscriptions.owner("playlist", playlist_id),
-                    audio_ids,
-                    state.cursor,
-                )
+            if audio_memberships is not None:
+                audio_memberships[playlist_id] = audio_ids
         etag = playlist.get("Etag") or ""
         checksum = reference_checksum(etag) if etag else ""
         stored = state.get_playlist_state(playlist_id)
         if side != "Audio" and stored and stored[0] == "Audio":
             state.replace_playlist_items(playlist_id, [])
-            from kofin.downloads import subscriptions
-
-            if playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING):
-                subscriptions.reconcile(
-                    subscriptions.owner("playlist", playlist_id), [], state.cursor
-                )
         directory = audio_dir if side == "Audio" else video_dir
         taken = taken_audio if side == "Audio" else taken_video
         want = want_audio if side == "Audio" else want_video
@@ -1068,15 +1038,6 @@ def reconcile(
             )
 
     known = {row[0]: row for row in state.get_playlist_states()}
-    if "Audio" in kinds:
-        from kofin.downloads import subscriptions
-
-        listed_ids = {p.get("Id") for p in listed}
-        for subscribed_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING):
-            if subscribed_id not in listed_ids:
-                subscriptions.reconcile(
-                    subscriptions.owner("playlist", subscribed_id), [], state.cursor
-                )
     for playlist_id, media_type, filename, _checksum in list(known.values()):
         if media_type == "Audio" and "Audio" in kinds and filename not in want_audio:
             remove_managed_file(audio_dir, filename)

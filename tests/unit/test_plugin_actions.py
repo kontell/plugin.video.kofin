@@ -10,6 +10,44 @@ from kofin.plugin.router import Request
 from tests.unit.fakes import FakeApi, FakeDialog
 
 
+def test_playlist_subscription_requests_its_own_initial_sync(monkeypatch):
+    from kofin.downloads import subscriptions
+
+    monkeypatch.setattr(subscriptions, "toggle", lambda setting, item_id: True)
+    sent = []
+    monkeypatch.setattr(actions.ipc, "notify", lambda method, body: sent.append((method, body)))
+    actions.download_playlist(Request("plugin://plugin.video.kofin/", -1, {"id": "mix"}))
+    assert sent == [(ipc.SYNC_PLAYLISTS, {"Id": "mix"})]
+
+
+@pytest.mark.parametrize("kind", ["playlist", "library"])
+def test_empty_music_subscription_picker_says_content_not_downloaded(monkeypatch, kind):
+    from kofin.downloads import subscriptions
+
+    monkeypatch.setattr(subscriptions, "subscribed", lambda setting: [])
+    monkeypatch.setattr(actions.settings, "localized", lambda string_id: string_id)
+    shown = []
+    monkeypatch.setattr(
+        actions.toast, "show", lambda message, **kwargs: shown.append(message)
+    )
+    actions.manage_download_subscriptions(
+        Request("plugin://plugin.video.kofin/", -1, {"kind": kind})
+    )
+    assert shown == [30853]
+
+
+@pytest.mark.parametrize("scope", ["playlist", "library"])
+@pytest.mark.parametrize("action", [actions.cancel_download, actions.remove_download])
+def test_subscribed_music_container_rejects_stale_remove_menu(monkeypatch, scope, action):
+    from kofin.downloads import subscriptions
+
+    monkeypatch.setattr(subscriptions, "subscribed", lambda setting: ["container"])
+    sent = []
+    monkeypatch.setattr(actions.ipc, "notify", lambda method, body: sent.append((method, body)))
+    action(Request("plugin://plugin.video.kofin/", -1, {"id": "container", scope: "1"}))
+    assert sent == []
+
+
 @pytest.fixture
 def wired(monkeypatch):
     dialog = FakeDialog()

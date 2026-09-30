@@ -2201,8 +2201,8 @@ msgid "Show Kodi's library-update progress while the library syncs."
 msgstr "Εμφανίζει την πρόοδο ενημέρωσης βιβλιοθήκης του Kodi κατά τον συγχρονισμό."
 
 msgctxt "#30849"
-msgid "Keep downloads in sync"
-msgstr "Διατήρηση συγχρονισμού λήψεων"
+msgid "Download & keep in sync"
+msgstr "Λήψη και διατήρηση συγχρονισμού"
 
 msgctxt "#30850"
 msgid "Stop keeping downloads in sync"
@@ -2215,3 +2215,15 @@ msgstr "Διαχείριση λήψεων λιστών αναπαραγωγής"
 msgctxt "#30852"
 msgid "Manage music library downloads"
 msgstr "Διαχείριση λήψεων μουσικών βιβλιοθηκών"
+
+msgctxt "#30853"
+msgid "Content not downloaded"
+msgstr "Το περιεχόμενο δεν έχει ληφθεί"
+
+msgctxt "#30854"
+msgid "Review subscribed playlists; untick to stop syncing downloads."
+msgstr "Δείτε τις συνδρομημένες λίστες αναπαραγωγής· αποεπιλέξτε για να σταματήσει ο συγχρονισμός λήψεων."
+
+msgctxt "#30855"
+msgid "Review subscribed music libraries; untick to stop syncing downloads."
+msgstr "Δείτε τις συνδρομημένες μουσικές βιβλιοθήκες· αποεπιλέξτε για να σταματήσει ο συγχρονισμός λήψεων."

@@ -15,9 +15,10 @@ hard to notice going missing:
   the first place (metadata updates are built without notify), so "watched,
   new or updated, stays quiet" comes down to dropping anything whose
   ``UserData/Played`` is set.
-* Songs are not announced. One album is a dozen additions, and its own line
-  already says it arrived. ``BoxSet`` and ``Season`` are silent for the same
-  reason -- the movies and episodes they carry speak for them.
+* Songs are passed to the music-library download subscription after their
+  database writes commit, but are not announced. One album is a dozen songs,
+  and its own line already says it arrived. ``BoxSet`` and ``Season`` are
+  silent too.
 """
 
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional
@@ -32,8 +33,8 @@ ARTIST = "MusicArtist"
 ALBUM = "MusicAlbum"
 
 # Jellyfin types that produce a message. Anything else -- Audio, BoxSet,
-# Season -- is dropped when the entry is built, so it never occupies the
-# accumulator the library thread carries between ticks.
+# Season -- is dropped when the entry is built. Audio entries are used only
+# for download subscriptions and are excluded from the announcement backlog.
 ANNOUNCED = (MOVIE, SERIES, EPISODE, MUSICVIDEO, ARTIST, ALBUM)
 
 # Message strings, singular then plural. The singular takes the item's name,
@@ -84,10 +85,10 @@ def entry_for(item: Dict[str, Any]) -> Optional[Entry]:
     """
     item_type = item.get("Type") or ""
 
-    if item_type not in ANNOUNCED:
+    if item_type not in ANNOUNCED and item_type != "Audio":
         return None
 
-    if (item.get("UserData") or {}).get("Played"):
+    if item_type != "Audio" and (item.get("UserData") or {}).get("Played"):
         return None
 
     item_id = item.get("Id") or ""

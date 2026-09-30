@@ -679,7 +679,7 @@ def download_playlist(request: Request) -> None:
         return
     enabled = subscriptions.toggle(subscriptions.PLAYLIST_SETTING, item_id)
     if enabled:
-        ipc.notify(ipc.SYNC_PLAYLISTS, {})
+        ipc.notify(ipc.SYNC_PLAYLISTS, {"Id": item_id})
     else:
         subscriptions.release(subscriptions.owner("playlist", item_id))
 
@@ -710,7 +710,7 @@ def manage_download_subscriptions(request: Request) -> None:
     )
     ids = subscriptions.subscribed(setting_id)
     if not ids:
-        toast.show(settings.localized(30766), time_ms=3000)
+        toast.show(settings.localized(30853), time_ms=3000)
         return
     names = []
     with Database("kofin") as opened:
@@ -911,8 +911,23 @@ def cancel_download(request: Request) -> None:
         return
     from kofin.downloads import store
 
-    if request.params.get("playlist") == "1":
-        targets = _playlist_download_ids(item_id, (store.QUEUED, store.ACTIVE))
+    music_scope = (
+        "playlist" if request.params.get("playlist") == "1"
+        else "musiclibrary" if request.params.get("library") == "1" else ""
+    )
+    if music_scope:
+        from kofin.downloads import subscriptions
+
+        setting = (
+            subscriptions.PLAYLIST_SETTING if music_scope == "playlist"
+            else subscriptions.LIBRARY_SETTING
+        )
+        if item_id in subscriptions.subscribed(setting):
+            return
+        targets = [
+            song_id for song_id, state in store.music_container_unclaimed_states(item_id, music_scope).items()
+            if state in (store.QUEUED, store.ACTIVE)
+        ]
     else:
         targets = (
             [item_id] if store.get(item_id) else store.container_pending_ids(item_id)
@@ -940,25 +955,26 @@ def remove_download(request: Request) -> None:
         return
     from kofin.downloads import store
 
-    if request.params.get("playlist") == "1":
-        targets = _playlist_download_ids(item_id, (store.DONE,))
+    music_scope = (
+        "playlist" if request.params.get("playlist") == "1"
+        else "musiclibrary" if request.params.get("library") == "1" else ""
+    )
+    if music_scope:
+        from kofin.downloads import subscriptions
+
+        setting = (
+            subscriptions.PLAYLIST_SETTING if music_scope == "playlist"
+            else subscriptions.LIBRARY_SETTING
+        )
+        if item_id in subscriptions.subscribed(setting):
+            return
+        targets = [
+            song_id for song_id, state in store.music_container_unclaimed_states(item_id, music_scope).items()
+            if state == store.DONE
+        ]
     elif store.get(item_id) is not None:
         targets = [item_id]
     else:
         targets = store.container_done_ids(item_id)
     if targets:
         ipc.notify(ipc.DOWNLOAD_REMOVE, {"Ids": targets})
-
-
-def _playlist_download_ids(playlist_id: str, states: tuple) -> List[str]:
-    from kofin.sync.db import Database
-
-    with Database("kofin") as opened:
-        placeholders = ",".join("?" for _ in states)
-        opened.cursor.execute(
-            "SELECT DISTINCT d.jellyfin_id FROM playlist_item p "
-            "JOIN download d ON d.jellyfin_id = p.jellyfin_id "
-            "WHERE p.playlist_id = ? AND d.state IN (%s)" % placeholders,
-            (playlist_id,) + states,
-        )
-        return [row[0] for row in opened.cursor.fetchall()]

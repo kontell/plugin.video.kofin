@@ -2201,8 +2201,8 @@ msgid "Show Kodi's library-update progress while the library syncs."
 msgstr "Mostra l'avanzamento dell'aggiornamento libreria di Kodi durante la sincronizzazione."
 
 msgctxt "#30849"
-msgid "Keep downloads in sync"
-msgstr "Mantieni sincronizzati i download"
+msgid "Download & keep in sync"
+msgstr "Scarica e mantieni sincronizzato"
 
 msgctxt "#30850"
 msgid "Stop keeping downloads in sync"
@@ -2215,3 +2215,15 @@ msgstr "Gestisci i download delle playlist"
 msgctxt "#30852"
 msgid "Manage music library downloads"
 msgstr "Gestisci i download delle librerie musicali"
+
+msgctxt "#30853"
+msgid "Content not downloaded"
+msgstr "Contenuto non scaricato"
+
+msgctxt "#30854"
+msgid "Review subscribed playlists; untick to stop syncing downloads."
+msgstr "Controlla le playlist sottoscritte; deselezionale per interrompere la sincronizzazione dei download."
+
+msgctxt "#30855"
+msgid "Review subscribed music libraries; untick to stop syncing downloads."
+msgstr "Controlla le librerie musicali sottoscritte; deselezionale per interrompere la sincronizzazione dei download."

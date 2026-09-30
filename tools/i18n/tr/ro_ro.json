@@ -491,8 +491,11 @@
   "#30842": "Această listă amestecă audio și video și nu poate fi salvată ca o singură listă Jellyfin",
   "#30843": "Listă salvată în Jellyfin",
   "#30844": "Nu există elemente din bibliotecă în această listă de salvat",
-  "#30849": "Menține descărcările sincronizate",
+  "#30849": "Descarcă și menține sincronizat",
   "#30850": "Oprește sincronizarea descărcărilor",
   "#30851": "Gestionează descărcările listelor de redare",
-  "#30852": "Gestionează descărcările bibliotecilor muzicale"
+  "#30852": "Gestionează descărcările bibliotecilor muzicale",
+  "#30853": "Conținut nedescărcat",
+  "#30854": "Verifică listele de redare abonate; debifează-le pentru a opri sincronizarea descărcărilor.",
+  "#30855": "Verifică bibliotecile muzicale abonate; debifează-le pentru a opri sincronizarea descărcărilor."
 }

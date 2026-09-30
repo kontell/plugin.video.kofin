@@ -491,8 +491,11 @@
   "#30842": "Deze afspeellijst mengt audio en video en kan niet als één Jellyfin-afspeellijst worden opgeslagen",
   "#30843": "Afspeellijst opgeslagen in Jellyfin",
   "#30844": "Geen bibliotheekitems in deze afspeellijst om op te slaan",
-  "#30849": "Downloads gesynchroniseerd houden",
+  "#30849": "Downloaden en synchroon houden",
   "#30850": "Downloads niet meer synchroniseren",
   "#30851": "Afspeellijstdownloads beheren",
-  "#30852": "Muziekbibliotheekdownloads beheren"
+  "#30852": "Muziekbibliotheekdownloads beheren",
+  "#30853": "Inhoud niet gedownload",
+  "#30854": "Bekijk gevolgde afspeellijsten; vink ze uit om het synchroniseren van downloads te stoppen.",
+  "#30855": "Bekijk gevolgde muziekbibliotheken; vink ze uit om het synchroniseren van downloads te stoppen."
 }

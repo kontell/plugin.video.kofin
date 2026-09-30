@@ -32,7 +32,7 @@ class FakeApi:
         all_items = self._items.get(playlist_id, [])
         page = all_items[start_index : start_index + limit]
         # Some builds over-report the count; the caller must not trust it.
-        return {"Items": page, "TotalRecordCount": len(all_items) + 5}
+        return {"Items": page, "TotalRecordCount": len(all_items) + (5 if all_items else 0)}
 
 
 def test_oversized_playlist_never_becomes_a_partial_membership_snapshot():
@@ -45,6 +45,47 @@ def test_oversized_playlist_never_becomes_a_partial_membership_snapshot():
 
     with pytest.raises(ValueError, match="exceeds"):
         playlists._iter_playlist_items(OversizedApi(), "large")
+
+
+@pytest.mark.parametrize("body", [{}, {"Items": [], "TotalRecordCount": 1}, {"Items": [None]}])
+def test_incomplete_playlist_page_is_not_an_empty_membership(body):
+    class Api:
+        def playlist_items(self, playlist_id, start_index=0, limit=100):
+            return body
+
+    with pytest.raises(ValueError):
+        playlists._iter_playlist_items(Api(), "mix")
+
+
+def test_failed_playlist_page_keeps_its_file_and_does_not_stop_others(tmp_path):
+    class Api(FakeApi):
+        def playlist_items(self, playlist_id, start_index=0, limit=100):
+            if playlist_id == "bad":
+                return {}
+            return super().playlist_items(playlist_id, start_index, limit)
+
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    (root / "Old.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
+    state = FakeState()
+    state.add_playlist_state("bad", "Audio", "Old.m3u8", "old")
+    api = Api(
+        playlist_list=[
+            _audio_playlist("Old", "new", playlist_id="bad"),
+            _audio_playlist("Gym", "new", playlist_id="good"),
+        ],
+        items_by_id={"good": [{"Id": "a1", "Type": "Audio"}]},
+    )
+    mapping, music = _audio_stack()
+    memberships = {}
+    playlists.reconcile(
+        api, mapping, music, None, state, {"Audio"},
+        music_root=str(root), audio_memberships=memberships,
+    )
+    assert (root / "Old.m3u8").is_file()
+    assert state.get_playlist_state("bad") is not None
+    assert memberships == {"good": ["a1"]}
+    assert (root / "Gym.m3u8").is_file()
 
 
 class FakeMapping:
@@ -634,6 +675,7 @@ def test_playlist_poll_mirrors_download_subscription_membership(tmp_path, monkey
     )
     owner = subscriptions.owner("playlist", "pl1")
     try:
+        memberships = {}
         with sync_db.Database("kofin") as opened:
             state = JellyfinDatabase(opened.cursor)
             playlists.apply_one(
@@ -645,7 +687,10 @@ def test_playlist_poll_mirrors_download_subscription_membership(tmp_path, monkey
                 _audio_playlist("Gym", "one"),
                 {"Audio"},
                 music_root=str(tmp_path / "playlists"),
+                audio_memberships=memberships,
             )
+            assert sent == []
+        subscriptions.reconcile_playlist_memberships(memberships)
         assert sent == [
             (
                 ipc.DOWNLOAD_ADD,
@@ -655,6 +700,7 @@ def test_playlist_poll_mirrors_download_subscription_membership(tmp_path, monkey
         store.queue(store.Download("a1", media_type="song", origin=owner))
         sent.clear()
         api._items["pl1"] = [{"Id": "a2", "Type": "Audio"}]
+        memberships = {}
         with sync_db.Database("kofin") as opened:
             state = JellyfinDatabase(opened.cursor)
             playlists.apply_one(
@@ -666,7 +712,10 @@ def test_playlist_poll_mirrors_download_subscription_membership(tmp_path, monkey
                 _audio_playlist("Gym", "two"),
                 {"Audio"},
                 music_root=str(tmp_path / "playlists"),
+                audio_memberships=memberships,
             )
+            assert sent == []
+        subscriptions.reconcile_playlist_memberships(memberships)
         assert {method for method, _ in sent} == {
             ipc.DOWNLOAD_ADD,
             ipc.DOWNLOAD_REMOVE,

@@ -491,8 +491,11 @@
   "#30842": "Aquesta llista barreja àudio i vídeo i no es pot desar com una sola llista de Jellyfin",
   "#30843": "Llista desada a Jellyfin",
   "#30844": "No hi ha elements de la biblioteca en aquesta llista per desar",
-  "#30849": "Mantén les baixades sincronitzades",
+  "#30849": "Baixa i mantén les descàrregues sincronitzades",
   "#30850": "Deixa de sincronitzar les baixades",
   "#30851": "Gestiona les baixades de llistes de reproducció",
-  "#30852": "Gestiona les baixades de biblioteques musicals"
+  "#30852": "Gestiona les baixades de biblioteques musicals",
+  "#30853": "Contingut no descarregat",
+  "#30854": "Revisa les llistes de reproducció subscrites; desmarca-les per deixar de sincronitzar les descàrregues.",
+  "#30855": "Revisa les biblioteques de música subscrites; desmarca-les per deixar de sincronitzar les descàrregues."
 }

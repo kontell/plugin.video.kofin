@@ -298,6 +298,34 @@ def container_pending_ids(container_id: str) -> List[str]:
     )
 
 
+def has_subscription_claim(item_id: str) -> bool:
+    """Whether any standing music order still needs this local song."""
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "SELECT 1 FROM download_subscription WHERE jellyfin_id = ? LIMIT 1",
+            (item_id,),
+        )
+        return opened.cursor.fetchone() is not None
+
+
+def playlist_unclaimed_states(playlist_id: str) -> Dict[str, str]:
+    """Downloads requested from this playlist that no subscription still claims."""
+    return music_container_unclaimed_states(playlist_id, "playlist")
+
+
+def music_container_unclaimed_states(container_id: str, kind: str) -> Dict[str, str]:
+    """Music request's downloads that remain safe to remove or cancel."""
+    with Database("kofin") as opened:
+        opened.cursor.execute(
+            "SELECT d.jellyfin_id, d.state FROM download d "
+            "WHERE (d.request_id = ? OR d.origin = ?) "
+            "AND NOT EXISTS (SELECT 1 FROM download_subscription s "
+            "WHERE s.jellyfin_id = d.jellyfin_id)",
+            (container_id, "auto:%s:%s" % (kind, container_id)),
+        )
+        return dict(opened.cursor.fetchall())
+
+
 def series_done_on(cursor: Any, series_id: str) -> bool:
     if not series_id:
         return False

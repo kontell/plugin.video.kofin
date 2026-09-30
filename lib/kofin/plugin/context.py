@@ -313,7 +313,9 @@ DOWNLOAD_CONTAINER_TYPES = frozenset(
 )
 
 
-def _container_download_options(item_id: str) -> List[Tuple[str, dict]]:
+def _container_download_options(
+    item_id: str, music_scope: str = ""
+) -> List[Tuple[str, dict]]:
     """What a Season/Series/album/artist/playlist offers, from local state.
 
     Containers used to offer Download and nothing else, on the reasoning
@@ -330,7 +332,17 @@ def _container_download_options(item_id: str) -> List[Tuple[str, dict]]:
     """
     from kofin.downloads import store
 
-    counts = store.container_counts(item_id)
+    if music_scope:
+        states = store.music_container_unclaimed_states(item_id, music_scope)
+        counts = {
+            "done": sum(state == store.DONE for state in states.values()),
+            "pending": sum(state in (store.QUEUED, store.ACTIVE) for state in states.values()),
+        }
+    else:
+        counts = store.container_counts(item_id)
+    params = {"id": item_id}
+    if music_scope:
+        params["playlist" if music_scope == "playlist" else "library"] = "1"
     entries: List[Tuple[str, dict]] = []
     if counts["pending"] or not counts["done"]:
         entries.append((settings.localized(30708), {"mode": "download", "id": item_id}))
@@ -338,12 +350,12 @@ def _container_download_options(item_id: str) -> List[Tuple[str, dict]]:
         entries.append(
             (
                 settings.localized(30710),
-                {"mode": "removedownload", "id": item_id},
+                {"mode": "removedownload", **params},
             )
         )
     if counts["pending"]:
         entries.append(
-            (settings.localized(30709), {"mode": "canceldownload", "id": item_id})
+            (settings.localized(30709), {"mode": "canceldownload", **params})
         )
     return entries
 
@@ -367,7 +379,18 @@ def _download_options(item: dict) -> List[Tuple[str, dict]]:
         return []
     item_id = item.get("Id", "")
     if item_type in DOWNLOAD_CONTAINER_TYPES:
-        entries = _container_download_options(item_id)
+        from kofin.downloads import subscriptions
+
+        music_scope = (
+            "playlist" if item_type == "Playlist"
+            else "musiclibrary" if item_type in ("CollectionFolder", "UserView")
+            else ""
+        )
+        subscribed = bool(music_scope) and item_id in subscriptions.subscribed(
+            subscriptions.PLAYLIST_SETTING if music_scope == "playlist"
+            else subscriptions.LIBRARY_SETTING
+        )
+        entries = [] if subscribed else _container_download_options(item_id, music_scope)
         if item_type == "Series":
             # The new-episode subscription toggle (W4.6), labeled by the
             # show's current state.
@@ -385,11 +408,6 @@ def _download_options(item: dict) -> List[Tuple[str, dict]]:
                 )
             )
         if item_type in ("CollectionFolder", "UserView"):
-            from kofin.downloads import subscriptions
-
-            subscribed = item_id in subscriptions.subscribed(
-                subscriptions.LIBRARY_SETTING
-            )
             entries.append(
                 (
                     settings.localized(30850 if subscribed else 30849),
@@ -589,32 +607,27 @@ def manage_download_playlist() -> None:
         if not row:
             return
         playlist_id = row[0]
-        opened.cursor.execute(
-            "SELECT d.state FROM playlist_item p JOIN download d "
-            "ON d.jellyfin_id = p.jellyfin_id WHERE p.playlist_id = ?",
-            (playlist_id,),
-        )
-        states = [state[0] for state in opened.cursor.fetchall()]
+    enabled = playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING)
+    states = list(store.playlist_unclaimed_states(playlist_id).values())
     entries: List[Tuple[str, dict]] = []
-    if not states or any(state != store.DONE for state in states):
+    if not enabled and (not states or any(state != store.DONE for state in states)):
         entries.append(
             (settings.localized(30708), {"mode": "download", "id": playlist_id})
         )
-    if store.DONE in states:
+    if not enabled and store.DONE in states:
         entries.append(
             (
                 settings.localized(30710),
                 {"mode": "removedownload", "id": playlist_id, "playlist": "1"},
             )
         )
-    if any(state in (store.QUEUED, store.ACTIVE) for state in states):
+    if not enabled and any(state in (store.QUEUED, store.ACTIVE) for state in states):
         entries.append(
             (
                 settings.localized(30709),
                 {"mode": "canceldownload", "id": playlist_id, "playlist": "1"},
             )
         )
-    enabled = playlist_id in subscriptions.subscribed(subscriptions.PLAYLIST_SETTING)
     entries.append(
         (
             settings.localized(30850 if enabled else 30849),

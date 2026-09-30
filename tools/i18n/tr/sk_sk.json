@@ -491,8 +491,11 @@
   "#30842": "Tento zoznam mieša zvuk a video a nemožno ho uložiť ako jeden zoznam Jellyfin",
   "#30843": "Zoznam uložený do Jellyfin",
   "#30844": "V tomto zozname nie sú položky knižnice na uloženie",
-  "#30849": "Udržiavať sťahovania synchronizované",
+  "#30849": "Stiahnuť a udržiavať synchronizované",
   "#30850": "Prestať synchronizovať sťahovania",
   "#30851": "Spravovať sťahovanie playlistov",
-  "#30852": "Spravovať sťahovanie hudobných knižníc"
+  "#30852": "Spravovať sťahovanie hudobných knižníc",
+  "#30853": "Obsah nie je stiahnutý",
+  "#30854": "Skontrolujte odoberané playlisty; zrušením výberu zastavíte synchronizáciu stiahnutých súborov.",
+  "#30855": "Skontrolujte odoberané hudobné knižnice; zrušením výberu zastavíte synchronizáciu stiahnutých súborov."
 }

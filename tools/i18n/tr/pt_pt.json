@@ -491,8 +491,11 @@
   "#30842": "Esta lista mistura áudio e vídeo e não pode ser guardada como uma só lista Jellyfin",
   "#30843": "Lista guardada no Jellyfin",
   "#30844": "Não há itens da biblioteca nesta lista para guardar",
-  "#30849": "Manter as transferências sincronizadas",
+  "#30849": "Descarregar e manter sincronizado",
   "#30850": "Deixar de sincronizar as transferências",
   "#30851": "Gerir transferências de listas de reprodução",
-  "#30852": "Gerir transferências de bibliotecas de música"
+  "#30852": "Gerir transferências de bibliotecas de música",
+  "#30853": "Conteúdo não descarregado",
+  "#30854": "Reveja as listas de reprodução subscritas; desmarque para parar de sincronizar as transferências.",
+  "#30855": "Reveja as bibliotecas de música subscritas; desmarque para parar de sincronizar as transferências."
 }

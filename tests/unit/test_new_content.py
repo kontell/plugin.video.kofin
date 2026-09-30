@@ -242,7 +242,7 @@ def test_watched_items_are_never_announced(builder):
     assert summarize(builder(played=True)) == []
 
 
-@pytest.mark.parametrize("item_type", ["Audio", "BoxSet", "Season", "Folder"])
+@pytest.mark.parametrize("item_type", ["BoxSet", "Season", "Folder"])
 def test_types_without_a_message_yield_no_entry(item_type):
     item = {
         "Type": item_type,
