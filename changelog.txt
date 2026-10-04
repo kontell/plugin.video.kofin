@@ -1,3 +1,7 @@
+v0.90.0
+- Development baseline for the official-repository variant
+- API-backed library sync is under development; this is not a release candidate
+
 v0.29.0
 - Music libraries and playlists can be downloaded and kept in sync
 - A transcoded download is sized before it starts
