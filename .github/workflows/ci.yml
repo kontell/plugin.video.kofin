@@ -4,7 +4,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, kofin-or]
   pull_request:
 
 permissions:
@@ -99,7 +99,8 @@ jobs:
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             dest="dist/${base}-pr${{ github.event.pull_request.number }}-${sha7}.zip"
           else
-            dest="dist/${base}-main-${sha7}.zip"
+            # Branches in the push trigger are fixed and safe as path components.
+            dest="dist/${base}-${GITHUB_REF_NAME}-${sha7}.zip"
           fi
           mv "$src" "$dest"
           echo "zip=$dest" >> "$GITHUB_OUTPUT"
