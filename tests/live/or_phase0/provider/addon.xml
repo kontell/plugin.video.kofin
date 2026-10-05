@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<addon id="plugin.video.kofin.phase0" name="Kofin phase 0 fixture" version="0.0.1" provider-name="kontell">
+  <requires><import addon="xbmc.python" version="3.0.1"/></requires>
+  <extension point="xbmc.python.pluginsource" library="default.py">
+    <provides>video audio</provides>
+    <medialibraryscanpath content="movies">movies/</medialibraryscanpath>
+    <medialibraryscanpath content="tvshows">shows/</medialibraryscanpath>
+    <medialibraryscanpath content="musicvideos">musicvideos/</medialibraryscanpath>
+  </extension>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_GB">Disposable scanner regression fixture</summary>
+    <description lang="en_GB">Synthetic media, failure injection and metadata generations. No server or database access.</description>
+    <platform>all</platform><license>GPL-3.0-only</license>
+  </extension>
+</addon>

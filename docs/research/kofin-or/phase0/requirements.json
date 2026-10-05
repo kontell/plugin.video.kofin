@@ -1,0 +1,201 @@
+{
+  "minimum_kodi_major": 22,
+  "system_addons": {
+    "xbmc.addon": "21.90.802",
+    "xbmc.python": "3.0.1"
+  },
+  "methods": {
+    "VideoLibrary.SetSourceContent": {
+      "path": [],
+      "content": [
+        "movies",
+        "tvshows",
+        "musicvideos",
+        "none"
+      ],
+      "scraperid": [],
+      "containssingleitem": [],
+      "refresh": [],
+      "clearmode": [
+        "clear",
+        "exclude",
+        "remove"
+      ]
+    },
+    "VideoLibrary.Scan": {
+      "directory": [],
+      "showdialogs": []
+    },
+    "AudioLibrary.Scan": {
+      "directory": [],
+      "showdialogs": []
+    },
+    "Files.SetFileDetails": {
+      "file": [],
+      "media": [],
+      "playcount": [],
+      "lastplayed": [],
+      "resume": []
+    },
+    "VideoLibrary.SetMovieDetails": {
+      "movieid": [],
+      "title": [],
+      "plot": [],
+      "playcount": [],
+      "lastplayed": [],
+      "resume": [],
+      "uniqueid": [],
+      "ratings": [],
+      "art": [],
+      "tag": [],
+      "set": [],
+      "dateadded": []
+    },
+    "VideoLibrary.RefreshMovie": {
+      "movieid": []
+    },
+    "VideoLibrary.RemoveMovie": {
+      "movieid": []
+    },
+    "VideoLibrary.SetTVShowDetails": {
+      "tvshowid": [],
+      "title": [],
+      "plot": [],
+      "uniqueid": [],
+      "ratings": [],
+      "art": [],
+      "tag": [],
+      "dateadded": []
+    },
+    "VideoLibrary.RefreshTVShow": {
+      "tvshowid": []
+    },
+    "VideoLibrary.RemoveTVShow": {
+      "tvshowid": []
+    },
+    "VideoLibrary.SetEpisodeDetails": {
+      "episodeid": [],
+      "title": [],
+      "plot": [],
+      "playcount": [],
+      "lastplayed": [],
+      "resume": [],
+      "uniqueid": [],
+      "ratings": [],
+      "art": [],
+      "dateadded": []
+    },
+    "VideoLibrary.RefreshEpisode": {
+      "episodeid": []
+    },
+    "VideoLibrary.RemoveEpisode": {
+      "episodeid": []
+    },
+    "VideoLibrary.SetMusicVideoDetails": {
+      "musicvideoid": [],
+      "title": [],
+      "playcount": [],
+      "lastplayed": [],
+      "resume": [],
+      "art": [],
+      "tag": [],
+      "dateadded": []
+    },
+    "VideoLibrary.RefreshMusicVideo": {
+      "musicvideoid": []
+    },
+    "VideoLibrary.RemoveMusicVideo": {
+      "musicvideoid": []
+    },
+    "AudioLibrary.SetSongDetails": {
+      "songid": [],
+      "playcount": [],
+      "lastplayed": [],
+      "art": []
+    },
+    "AudioLibrary.SetAlbumDetails": {
+      "albumid": [],
+      "title": [],
+      "art": []
+    },
+    "AudioLibrary.SetArtistDetails": {
+      "artistid": [],
+      "artist": [],
+      "art": []
+    },
+    "VideoLibrary.GetMovies": {
+      "properties": [],
+      "limits": []
+    },
+    "VideoLibrary.GetTVShows": {
+      "properties": [],
+      "limits": []
+    },
+    "VideoLibrary.GetEpisodes": {
+      "properties": [],
+      "limits": []
+    },
+    "VideoLibrary.GetSeasons": {
+      "properties": [],
+      "limits": []
+    },
+    "VideoLibrary.GetMusicVideos": {
+      "properties": [],
+      "limits": []
+    },
+    "VideoLibrary.GetMovieSets": {
+      "properties": [],
+      "limits": []
+    },
+    "AudioLibrary.GetSongs": {
+      "properties": [],
+      "limits": []
+    },
+    "AudioLibrary.GetAlbums": {
+      "properties": [],
+      "limits": []
+    },
+    "AudioLibrary.GetArtists": {
+      "properties": [],
+      "limits": []
+    },
+    "VideoLibrary.SetSeasonDetails": {
+      "seasonid": [],
+      "title": [],
+      "art": []
+    },
+    "VideoLibrary.SetMovieSetDetails": {
+      "setid": [],
+      "title": [],
+      "plot": [],
+      "art": []
+    }
+  },
+  "python": {
+    "python_video_methods": [
+      "setUniqueID",
+      "setCast",
+      "addVideoStream",
+      "addSeason",
+      "setSortSeason",
+      "setSortEpisode",
+      "setTags"
+    ],
+    "python_music_methods": [
+      "setTitle",
+      "setArtist",
+      "setAlbum",
+      "setMusicBrainzTrackID",
+      "setPlayCount",
+      "setLastPlayed"
+    ]
+  },
+  "behavioral_gates": [
+    "Re-run probes on an unmodified RC1 binary when binaries become available; a source tag is not this gate.",
+    "Music requires loaded tags, complete published snapshots, metadata rescan policy and post-import userdata.",
+    "Piers deletes tracks on failed/partial plugin listing; native music rollout requires recovery tests and an explicit reliability decision.",
+    "Refresh may change native IDs and overwrite userdata: reconcile and restore before reporting success.",
+    "ScanFinished and immediate OK are insufficient without ownership-checked readback.",
+    "Future v23 builds require new behavioral qualification; version/method presence alone is insufficient."
+  ]
+}

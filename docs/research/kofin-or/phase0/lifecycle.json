@@ -1,0 +1,616 @@
+{
+  "mode": "lifecycle",
+  "started_at": "2026-10-04T13:31:06Z",
+  "result": {
+    "bind_movies/": "OK",
+    "bind_shows/": "OK",
+    "bind_shows/show/": "OK",
+    "bind_musicvideos/": "OK",
+    "scan_movies/": {
+      "accepted": "OK",
+      "seconds": 0.1436,
+      "events": [
+        [
+          "started",
+          "video"
+        ],
+        [
+          "finished",
+          "video"
+        ]
+      ]
+    },
+    "scan_shows/": {
+      "accepted": "OK",
+      "seconds": 0.1449,
+      "events": [
+        [
+          "started",
+          "video"
+        ],
+        [
+          "finished",
+          "video"
+        ]
+      ]
+    },
+    "scan_musicvideos/": {
+      "accepted": "OK",
+      "seconds": 0.1024,
+      "events": [
+        [
+          "started",
+          "video"
+        ],
+        [
+          "finished",
+          "video"
+        ]
+      ]
+    },
+    "video_initial": {
+      "movies": [
+        {
+          "cast": [
+            {
+              "name": "Kofin phase0 Actor",
+              "order": 0,
+              "role": "Fixture"
+            }
+          ],
+          "file": "plugin://plugin.video.kofin.phase0/movies/?id=0",
+          "label": "Kofin phase0 Movie 0",
+          "movieid": 1908,
+          "playcount": 2,
+          "plot": "Phase0 refreshed plot",
+          "resume": {
+            "position": 12.0,
+            "total": 120.0
+          },
+          "streamdetails": {
+            "audio": [],
+            "subtitle": [],
+            "video": [
+              {
+                "aspect": 1.7799999713897705,
+                "codec": "h264",
+                "duration": 120,
+                "hdrdetail": "",
+                "hdrtype": "",
+                "height": 1080,
+                "language": "",
+                "source": 10,
+                "stereomode": "",
+                "version": 3,
+                "width": 1920
+              }
+            ]
+          },
+          "uniqueid": {
+            "kofinphase0": "kofin-phase0-movie-0"
+          }
+        },
+        {
+          "cast": [
+            {
+              "name": "Kofin phase0 Actor",
+              "order": 0,
+              "role": "Fixture"
+            }
+          ],
+          "file": "plugin://plugin.video.kofin.phase0/movies/?id=1",
+          "label": "Kofin phase0 Movie 1",
+          "movieid": 1907,
+          "playcount": 2,
+          "plot": "Phase0 refreshed plot",
+          "resume": {
+            "position": 12.0,
+            "total": 120.0
+          },
+          "streamdetails": {
+            "audio": [],
+            "subtitle": [],
+            "video": [
+              {
+                "aspect": 1.7799999713897705,
+                "codec": "h264",
+                "duration": 120,
+                "hdrdetail": "",
+                "hdrtype": "",
+                "height": 1080,
+                "language": "",
+                "source": 10,
+                "stereomode": "",
+                "version": 3,
+                "width": 1920
+              }
+            ]
+          },
+          "uniqueid": {
+            "kofinphase0": "kofin-phase0-movie-1"
+          }
+        }
+      ],
+      "tvshows": [
+        {
+          "file": "plugin://plugin.video.kofin.phase0/shows/show/",
+          "label": "Kofin phase0 Show",
+          "tvshowid": 81,
+          "uniqueid": {
+            "kofinphase0": "kofin-phase0-show"
+          }
+        }
+      ],
+      "episodes": [
+        {
+          "episode": 1,
+          "episodeid": 4341,
+          "file": "plugin://plugin.video.kofin.phase0/shows/show/?id=episode",
+          "label": "1x01. Kofin phase0 Episode",
+          "season": 1,
+          "showtitle": "Kofin phase0 Show"
+        }
+      ],
+      "musicvideos": [
+        {
+          "file": "plugin://plugin.video.kofin.phase0/musicvideos/?id=clip",
+          "label": "Kofin phase0 Music video",
+          "musicvideoid": 2,
+          "uniqueid": {
+            "kofinphase0": "kofin-phase0-musicvideo"
+          }
+        }
+      ]
+    },
+    "movie_patch": [
+      {
+        "cast": [
+          {
+            "name": "Kofin phase0 Actor",
+            "order": 0,
+            "role": "Fixture"
+          }
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/movies/?id=0",
+        "label": "Kofin phase0 Movie 0",
+        "movieid": 1908,
+        "playcount": 4,
+        "plot": "Phase0 patched plot",
+        "resume": {
+          "position": 25.0,
+          "total": 120.0
+        },
+        "streamdetails": {
+          "audio": [],
+          "subtitle": [],
+          "video": [
+            {
+              "aspect": 1.7799999713897705,
+              "codec": "h264",
+              "duration": 120,
+              "hdrdetail": "",
+              "hdrtype": "",
+              "height": 1080,
+              "language": "",
+              "source": 10,
+              "stereomode": "",
+              "version": 3,
+              "width": 1920
+            }
+          ]
+        },
+        "uniqueid": {
+          "kofinphase0": "kofin-phase0-movie-0"
+        }
+      },
+      {
+        "cast": [
+          {
+            "name": "Kofin phase0 Actor",
+            "order": 0,
+            "role": "Fixture"
+          }
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/movies/?id=1",
+        "label": "Kofin phase0 Movie 1",
+        "movieid": 1907,
+        "playcount": 2,
+        "plot": "Phase0 refreshed plot",
+        "resume": {
+          "position": 12.0,
+          "total": 120.0
+        },
+        "streamdetails": {
+          "audio": [],
+          "subtitle": [],
+          "video": [
+            {
+              "aspect": 1.7799999713897705,
+              "codec": "h264",
+              "duration": 120,
+              "hdrdetail": "",
+              "hdrtype": "",
+              "height": 1080,
+              "language": "",
+              "source": 10,
+              "stereomode": "",
+              "version": 3,
+              "width": 1920
+            }
+          ]
+        },
+        "uniqueid": {
+          "kofinphase0": "kofin-phase0-movie-1"
+        }
+      }
+    ],
+    "movie_refresh": [
+      {
+        "cast": [
+          {
+            "name": "Kofin phase0 Actor",
+            "order": 0,
+            "role": "Fixture"
+          }
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/movies/?id=0",
+        "label": "Kofin phase0 Movie 0",
+        "movieid": 1908,
+        "playcount": 2,
+        "plot": "Phase0 refreshed plot",
+        "resume": {
+          "position": 12.0,
+          "total": 120.0
+        },
+        "streamdetails": {
+          "audio": [],
+          "subtitle": [],
+          "video": [
+            {
+              "aspect": 1.7799999713897705,
+              "codec": "h264",
+              "duration": 120,
+              "hdrdetail": "",
+              "hdrtype": "",
+              "height": 1080,
+              "language": "",
+              "source": 10,
+              "stereomode": "",
+              "version": 3,
+              "width": 1920
+            }
+          ]
+        },
+        "uniqueid": {
+          "kofinphase0": "kofin-phase0-movie-0"
+        }
+      },
+      {
+        "cast": [
+          {
+            "name": "Kofin phase0 Actor",
+            "order": 0,
+            "role": "Fixture"
+          }
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/movies/?id=1",
+        "label": "Kofin phase0 Movie 1",
+        "movieid": 1907,
+        "playcount": 2,
+        "plot": "Phase0 refreshed plot",
+        "resume": {
+          "position": 12.0,
+          "total": 120.0
+        },
+        "streamdetails": {
+          "audio": [],
+          "subtitle": [],
+          "video": [
+            {
+              "aspect": 1.7799999713897705,
+              "codec": "h264",
+              "duration": 120,
+              "hdrdetail": "",
+              "hdrtype": "",
+              "height": 1080,
+              "language": "",
+              "source": 10,
+              "stereomode": "",
+              "version": 3,
+              "width": 1920
+            }
+          ]
+        },
+        "uniqueid": {
+          "kofinphase0": "kofin-phase0-movie-1"
+        }
+      }
+    ],
+    "music_import": {
+      "accepted": "OK",
+      "seconds": 0.4088,
+      "events": [
+        [
+          "started",
+          "music"
+        ],
+        [
+          "finished",
+          "music"
+        ]
+      ]
+    },
+    "music_initial": [
+      {
+        "album": "Kofin phase0 Album",
+        "artist": [
+          "Kofin phase0 Artist"
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/music/track0.mp3",
+        "label": "Kofin phase0 Song 0",
+        "lastplayed": "",
+        "playcount": 0,
+        "songid": 22364,
+        "title": "Kofin phase0 Song 0"
+      },
+      {
+        "album": "Kofin phase0 Album",
+        "artist": [
+          "Kofin phase0 Artist"
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/music/track1.mp3",
+        "label": "Kofin phase0 Song 1",
+        "lastplayed": "",
+        "playcount": 0,
+        "songid": 22365,
+        "title": "Kofin phase0 Song 1"
+      }
+    ],
+    "metadata_only_scan": {
+      "accepted": "OK",
+      "seconds": 0.2174,
+      "events": [
+        [
+          "started",
+          "music"
+        ],
+        [
+          "finished",
+          "music"
+        ]
+      ]
+    },
+    "metadata_only_result": [
+      {
+        "album": "Kofin phase0 Album",
+        "artist": [
+          "Kofin phase0 Artist"
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/music/track0.mp3",
+        "label": "Kofin phase0 Song 0",
+        "lastplayed": "",
+        "playcount": 0,
+        "songid": 22364,
+        "title": "Kofin phase0 Song 0"
+      },
+      {
+        "album": "Kofin phase0 Album",
+        "artist": [
+          "Kofin phase0 Artist"
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/music/track1.mp3",
+        "label": "Kofin phase0 Song 1",
+        "lastplayed": "",
+        "playcount": 0,
+        "songid": 22365,
+        "title": "Kofin phase0 Song 1"
+      }
+    ],
+    "size_changed_scan": {
+      "accepted": "OK",
+      "seconds": 0.3324,
+      "events": [
+        [
+          "started",
+          "music"
+        ],
+        [
+          "finished",
+          "music"
+        ]
+      ]
+    },
+    "size_changed_result": [
+      {
+        "album": "Kofin phase0 Album",
+        "artist": [
+          "Kofin phase0 Artist"
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/music/track0.mp3",
+        "label": "Kofin phase0 Metadata changed 0",
+        "lastplayed": "",
+        "playcount": 0,
+        "songid": 22364,
+        "title": "Kofin phase0 Metadata changed 0"
+      },
+      {
+        "album": "Kofin phase0 Album",
+        "artist": [
+          "Kofin phase0 Artist"
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/music/track1.mp3",
+        "label": "Kofin phase0 Metadata changed 1",
+        "lastplayed": "",
+        "playcount": 0,
+        "songid": 22365,
+        "title": "Kofin phase0 Metadata changed 1"
+      }
+    ],
+    "failed_before_baseline_scan": {
+      "accepted": "OK",
+      "seconds": 0.2231,
+      "events": [
+        [
+          "started",
+          "music"
+        ],
+        [
+          "finished",
+          "music"
+        ]
+      ]
+    },
+    "failed_before_baseline": [
+      {
+        "album": "Kofin phase0 Album",
+        "artist": [
+          "Kofin phase0 Artist"
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/music/track0.mp3",
+        "label": "Kofin phase0 Metadata changed 0",
+        "lastplayed": "",
+        "playcount": 0,
+        "songid": 22364,
+        "title": "Kofin phase0 Metadata changed 0"
+      },
+      {
+        "album": "Kofin phase0 Album",
+        "artist": [
+          "Kofin phase0 Artist"
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/music/track1.mp3",
+        "label": "Kofin phase0 Metadata changed 1",
+        "lastplayed": "",
+        "playcount": 0,
+        "songid": 22365,
+        "title": "Kofin phase0 Metadata changed 1"
+      }
+    ],
+    "failed_before_scan": {
+      "accepted": "OK",
+      "seconds": 0.1228,
+      "events": [
+        [
+          "started",
+          "music"
+        ],
+        [
+          "finished",
+          "music"
+        ]
+      ]
+    },
+    "failed_before_result": [],
+    "failed_partial_baseline_scan": {
+      "accepted": "OK",
+      "seconds": 0.1186,
+      "events": [
+        [
+          "started",
+          "music"
+        ],
+        [
+          "finished",
+          "music"
+        ]
+      ]
+    },
+    "failed_partial_baseline": [
+      {
+        "album": "Kofin phase0 Album",
+        "artist": [
+          "Kofin phase0 Artist"
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/music/track0.mp3",
+        "label": "Kofin phase0 Metadata changed 0",
+        "lastplayed": "",
+        "playcount": 0,
+        "songid": 22364,
+        "title": "Kofin phase0 Metadata changed 0"
+      },
+      {
+        "album": "Kofin phase0 Album",
+        "artist": [
+          "Kofin phase0 Artist"
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/music/track1.mp3",
+        "label": "Kofin phase0 Metadata changed 1",
+        "lastplayed": "",
+        "playcount": 0,
+        "songid": 22365,
+        "title": "Kofin phase0 Metadata changed 1"
+      }
+    ],
+    "failed_partial_scan": {
+      "accepted": "OK",
+      "seconds": 0.6232,
+      "events": [
+        [
+          "started",
+          "music"
+        ],
+        [
+          "finished",
+          "music"
+        ]
+      ]
+    },
+    "failed_partial_result": [
+      {
+        "album": "Kofin phase0 Album",
+        "artist": [
+          "Kofin phase0 Artist"
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/music/track0.mp3",
+        "label": "Kofin phase0 Metadata changed 0",
+        "lastplayed": "",
+        "playcount": 0,
+        "songid": 22364,
+        "title": "Kofin phase0 Metadata changed 0"
+      }
+    ],
+    "remove_one_scan": {
+      "accepted": "OK",
+      "seconds": 0.2228,
+      "events": [
+        [
+          "started",
+          "music"
+        ],
+        [
+          "finished",
+          "music"
+        ]
+      ]
+    },
+    "remove_one_result": [
+      {
+        "album": "Kofin phase0 Album",
+        "artist": [
+          "Kofin phase0 Artist"
+        ],
+        "file": "plugin://plugin.video.kofin.phase0/music/track0.mp3",
+        "label": "Kofin phase0 Metadata changed 0",
+        "lastplayed": "",
+        "playcount": 0,
+        "songid": 22364,
+        "title": "Kofin phase0 Metadata changed 0"
+      }
+    ],
+    "remove_all_scan": {
+      "accepted": "OK",
+      "seconds": 0.1177,
+      "events": [
+        [
+          "started",
+          "music"
+        ],
+        [
+          "finished",
+          "music"
+        ]
+      ]
+    },
+    "remove_all_result": []
+  }
+}

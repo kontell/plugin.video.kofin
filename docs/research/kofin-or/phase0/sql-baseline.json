@@ -1,0 +1,340 @@
+{
+  "started_at": "2026-10-04T13:49:05Z",
+  "installed_version": "0.29.0",
+  "scope": "movie persistence stage; private MyVideos149 + kofin.db; no pipeline hooks, GUI work or artwork downloads",
+  "commit_interval": 50,
+  "samples": {
+    "fixed100": [
+      {
+        "initial": {
+          "seconds": 1.059394,
+          "items": 100,
+          "refused": 0
+        },
+        "after_initial": {
+          "movies": 100,
+          "files": 100,
+          "mappings": 100
+        },
+        "unchanged": {
+          "seconds": 0.454988,
+          "items": 100,
+          "refused": 0
+        },
+        "after_unchanged": {
+          "movies": 100,
+          "files": 100,
+          "mappings": 100
+        },
+        "metadata_delta": {
+          "seconds": 0.100507,
+          "items": 10,
+          "refused": 0
+        },
+        "metadata_verified": true,
+        "userdata_delta": {
+          "seconds": 0.038256,
+          "items": 10,
+          "refused": 0
+        },
+        "userdata_verified": true,
+        "deletion": {
+          "seconds": 0.01119,
+          "items": 10,
+          "refused": 0
+        },
+        "after_delete": {
+          "movies": 90,
+          "files": 90,
+          "mappings": 90
+        },
+        "verified": true
+      },
+      {
+        "initial": {
+          "seconds": 0.992843,
+          "items": 100,
+          "refused": 0
+        },
+        "after_initial": {
+          "movies": 100,
+          "files": 100,
+          "mappings": 100
+        },
+        "unchanged": {
+          "seconds": 0.374148,
+          "items": 100,
+          "refused": 0
+        },
+        "after_unchanged": {
+          "movies": 100,
+          "files": 100,
+          "mappings": 100
+        },
+        "metadata_delta": {
+          "seconds": 0.119349,
+          "items": 10,
+          "refused": 0
+        },
+        "metadata_verified": true,
+        "userdata_delta": {
+          "seconds": 0.069331,
+          "items": 10,
+          "refused": 0
+        },
+        "userdata_verified": true,
+        "deletion": {
+          "seconds": 0.034508,
+          "items": 10,
+          "refused": 0
+        },
+        "after_delete": {
+          "movies": 90,
+          "files": 90,
+          "mappings": 90
+        },
+        "verified": true
+      },
+      {
+        "initial": {
+          "seconds": 1.145548,
+          "items": 100,
+          "refused": 0
+        },
+        "after_initial": {
+          "movies": 100,
+          "files": 100,
+          "mappings": 100
+        },
+        "unchanged": {
+          "seconds": 0.502408,
+          "items": 100,
+          "refused": 0
+        },
+        "after_unchanged": {
+          "movies": 100,
+          "files": 100,
+          "mappings": 100
+        },
+        "metadata_delta": {
+          "seconds": 0.178133,
+          "items": 10,
+          "refused": 0
+        },
+        "metadata_verified": true,
+        "userdata_delta": {
+          "seconds": 0.041544,
+          "items": 10,
+          "refused": 0
+        },
+        "userdata_verified": true,
+        "deletion": {
+          "seconds": 0.010461,
+          "items": 10,
+          "refused": 0
+        },
+        "after_delete": {
+          "movies": 90,
+          "files": 90,
+          "mappings": 90
+        },
+        "verified": true
+      }
+    ],
+    "real_movies": [
+      {
+        "initial": {
+          "seconds": 49.448834,
+          "items": 1791,
+          "refused": 0
+        },
+        "after_initial": {
+          "movies": 1791,
+          "files": 1791,
+          "mappings": 1791
+        },
+        "unchanged": {
+          "seconds": 3.879699,
+          "items": 1791,
+          "refused": 0
+        },
+        "after_unchanged": {
+          "movies": 1791,
+          "files": 1791,
+          "mappings": 1791
+        },
+        "metadata_delta": {
+          "seconds": 0.48577,
+          "items": 10,
+          "refused": 0
+        },
+        "metadata_verified": true,
+        "userdata_delta": {
+          "seconds": 0.051989,
+          "items": 10,
+          "refused": 0
+        },
+        "userdata_verified": true,
+        "deletion": {
+          "seconds": 0.353363,
+          "items": 10,
+          "refused": 0
+        },
+        "after_delete": {
+          "movies": 1781,
+          "files": 1781,
+          "mappings": 1781
+        },
+        "verified": true
+      },
+      {
+        "initial": {
+          "seconds": 52.915373,
+          "items": 1791,
+          "refused": 0
+        },
+        "after_initial": {
+          "movies": 1791,
+          "files": 1791,
+          "mappings": 1791
+        },
+        "unchanged": {
+          "seconds": 4.25163,
+          "items": 1791,
+          "refused": 0
+        },
+        "after_unchanged": {
+          "movies": 1791,
+          "files": 1791,
+          "mappings": 1791
+        },
+        "metadata_delta": {
+          "seconds": 0.553462,
+          "items": 10,
+          "refused": 0
+        },
+        "metadata_verified": true,
+        "userdata_delta": {
+          "seconds": 0.056467,
+          "items": 10,
+          "refused": 0
+        },
+        "userdata_verified": true,
+        "deletion": {
+          "seconds": 0.360716,
+          "items": 10,
+          "refused": 0
+        },
+        "after_delete": {
+          "movies": 1781,
+          "files": 1781,
+          "mappings": 1781
+        },
+        "verified": true
+      },
+      {
+        "initial": {
+          "seconds": 59.154117,
+          "items": 1791,
+          "refused": 0
+        },
+        "after_initial": {
+          "movies": 1791,
+          "files": 1791,
+          "mappings": 1791
+        },
+        "unchanged": {
+          "seconds": 4.836166,
+          "items": 1791,
+          "refused": 0
+        },
+        "after_unchanged": {
+          "movies": 1791,
+          "files": 1791,
+          "mappings": 1791
+        },
+        "metadata_delta": {
+          "seconds": 0.632842,
+          "items": 10,
+          "refused": 0
+        },
+        "metadata_verified": true,
+        "userdata_delta": {
+          "seconds": 0.052278,
+          "items": 10,
+          "refused": 0
+        },
+        "userdata_verified": true,
+        "deletion": {
+          "seconds": 0.366774,
+          "items": 10,
+          "refused": 0
+        },
+        "after_delete": {
+          "movies": 1781,
+          "files": 1781,
+          "mappings": 1781
+        },
+        "verified": true
+      }
+    ]
+  },
+  "source_hashes": {
+    "lib/kofin/sync/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "lib/kofin/sync/boxsets.py": "67a34389228cebe75dc315fea4119bb3b7e79238e9e0b27bd60ce9a81b859f43",
+    "lib/kofin/sync/changefeed.py": "2c3a4867493108c848411ec93e3126f7e5707341bc965b302f11361f5eef6ef7",
+    "lib/kofin/sync/clean.py": "eb61fbba3c5b9b327d40eb662f0f0277a559fc84446c73a1344e53c9e988c874",
+    "lib/kofin/sync/clock.py": "7c5f10cc7c9e544a3e551345dc9f3d32fc0d93714bf72080ff1ce3a51538e622",
+    "lib/kofin/sync/db.py": "d9947f0b2d1a16ea13c1c8fe81a219ca8ee67f751502df6668f220a82d9cc6f9",
+    "lib/kofin/sync/downloader.py": "a75c945fdd28589ea1ff1c7ceb44eed81b7dfc9b84e17431bc01e8efa342b0d0",
+    "lib/kofin/sync/fields.py": "32964aa22c62b0ab41ac071158a0b20005d546df3438092ac4f9ef09a35e3a9d",
+    "lib/kofin/sync/full_sync.py": "5e58862baeaf0107bdc8b1c54155bd6b1908e89658a227d3aa0475b949b16ebf",
+    "lib/kofin/sync/hooks.py": "2d8da84a9e2d9d465bb644e0f76e9280acf06000414781873cb6ab95cd8f4868",
+    "lib/kofin/sync/kodidb/__init__.py": "cd95209ff2b854300b929baad1972571988c1c638254826fb5f83ca901a5f469",
+    "lib/kofin/sync/kodidb/artwork.py": "99d875f04faf66aa7b8dbfc93afeaa6bca63a8d0c81cc857ac6da90d539f5b7c",
+    "lib/kofin/sync/kodidb/downloads.py": "1a9967e1b5da75e386d569663bfac80f6cb1480de58d18ed72018cafad781b7d",
+    "lib/kofin/sync/kodidb/kodi.py": "314dccfed6749c5325078e6833b8be591a895b40ac5a94b004b67984b6da62b9",
+    "lib/kofin/sync/kodidb/movies.py": "23a7ad9dfe15c41f813446095209ac5a5682fa619fc5a85653f7363489724968",
+    "lib/kofin/sync/kodidb/music.py": "371c1cc46aa9e423aff7c5ef2b410f67cd56495847380f6dd7d4ad6f550e3de8",
+    "lib/kofin/sync/kodidb/musicvideos.py": "56402b6702baa27267dbfdc2ec84f89aba9b9335fe1aeb3f2c9559ad12a4ac8c",
+    "lib/kofin/sync/kodidb/queries.py": "38dbf87eb15bc85484206da1743d1b98db147148ae338360937ca850b4b088f9",
+    "lib/kofin/sync/kodidb/queries_music.py": "26f0a9d029686d77e7cc5c2599de3360f08368f3e7e5999f9f8fb6ed4b5b32a3",
+    "lib/kofin/sync/kodidb/queries_texture.py": "862498c6a1ff5c8141e4c3a22ac013a3b0e399475eea4171c55750d83bb9ea9e",
+    "lib/kofin/sync/kodidb/texture.py": "51258301173f70deaeb0eaec0466b837449914a6f605be362a38b9ecd5e1c05e",
+    "lib/kofin/sync/kodidb/tvshows.py": "5f77f822921284803cc9cd8a56b33077a399594c6c1c2bdbff250282d291ad90",
+    "lib/kofin/sync/kodisetup.py": "1982b3f29d655a153763fc108d6a062e8815d0edba7ec62763da77268a57540a",
+    "lib/kofin/sync/kofindb.py": "f23a5f3823f7312d0b472c5daf95cadc3cb61abcda603db6af6f8493c904ead4",
+    "lib/kofin/sync/library.py": "09a5e0d4f2b190497bfc491d1e53e9145edde388834ae2254480796862d129c3",
+    "lib/kofin/sync/musicsources.py": "506b029fde6e49304dc567c0fa6eba375d34b1cfb951f27eba80ccb5c9cfbb5d",
+    "lib/kofin/sync/newcontent.py": "cf3c2eaec5e075b9a003d9520d48690312d05e6bfb501473ca798c67402e4c2f",
+    "lib/kofin/sync/nodes/__init__.py": "31aad8868578b99c28b22e95e9ef36612422a63eeedea8dab069f96dbc0814e2",
+    "lib/kofin/sync/nodes/fs.py": "e94dca403b8c4022daf0d438a0292bc034e8df88876445f95f94c5b08c0f18d9",
+    "lib/kofin/sync/nodes/music.py": "beae4b1d1dee745b543d308a50d65f406726e88c4f4b61b4508cde609ebf2ece",
+    "lib/kofin/sync/nodes/props.py": "f038aea53be845290ae6e9d0cbafb857b18b51b6ca081bac4075513bf50e690d",
+    "lib/kofin/sync/nodes/video.py": "054f70a425f4742e16e3d3f111a866c7955af78ad8ba9958a52289979c9fb3b5",
+    "lib/kofin/sync/obj.py": "1b769d0516df6a85d7557954cbfd07c6473e7784047d8fb89ac59a13bfd4bc8e",
+    "lib/kofin/sync/playlists.py": "48a82b0af673c408f6d9b43d82542ad37fe7c2ca76996511ca3da8f3783e73c1",
+    "lib/kofin/sync/prune.py": "fc4f49078569254b5545824a0a5cd83ca7591b8474571a07f237f0c27de63245",
+    "lib/kofin/sync/queries_map.py": "39ed34e36e2818b44c3992221791ccaf760988fdbb784820269f49e6db8d090f",
+    "lib/kofin/sync/refresh.py": "3883890d4ab6a8747f9bbfbbb27208b2d8e45f8119c86282ad237e9c68d56c76",
+    "lib/kofin/sync/removal.py": "4b431f6fddb17ddca64d7f87125bbfa9f3420d17c57b78e55bfcbc117df87aab",
+    "lib/kofin/sync/restorepoints.py": "e8190c2100bc663cd5e9050b67faceb0b7793d74f5e0081801dce3a71f1c7f43",
+    "lib/kofin/sync/schema.py": "2fd373a82e10eb24fc47ee99890ecc3308bf6eb8185e95316fd845b0d8ec397c",
+    "lib/kofin/sync/shims.py": "8c7f24a2a6af14b0b714aed557eae0a2d3ab1f80aa1c330d54131e599ddf13c7",
+    "lib/kofin/sync/views.py": "7d495e9a7e254dd27402b5e5cb1843193a50f9e97c02fa62d55f01e9b79ff115",
+    "lib/kofin/sync/widgetstate.py": "2eb8b733c44c91bdd710261c2459297318be7cf4af1f39e502a050e536222e59",
+    "lib/kofin/sync/workers.py": "c56e7fcd55132f75e2e001aa3df0e92c2f68fe6c58172a5ecb865e19ef0291f8",
+    "lib/kofin/sync/writers/__init__.py": "e24febb84ffc814f342611094828600fe92a5ada23912690c0ffa58adcaf0078",
+    "lib/kofin/sync/writers/movies.py": "3faf026d7dbbeebbb29b60c140ace17e8f3a59375e4626a7e7baf47d4f985aaa",
+    "lib/kofin/sync/writers/music.py": "43c135016f21a13bf612fd4a8e438b9ee7f6605b2069c2926658b84e8ba38135",
+    "lib/kofin/sync/writers/musicvideos.py": "4e2ad5cc065c9d70242ac64f6a2384b15ca105721dc219482226f15cba40f520",
+    "lib/kofin/sync/writers/tvshows.py": "07ae925d95d542bbbaaa0ad1a606e546d0a8a0f12cb53a89665d4d8df4644485"
+  },
+  "fetch": {
+    "movies": 1791,
+    "seconds": 22.798471,
+    "sha256": "5c62ac7a35f620c3e7a108404665bf8dfebd102ff0dc6eb0337c5cd3f97d8f61"
+  },
+  "child_replies_prefetched": 0,
+  "complete": true
+}

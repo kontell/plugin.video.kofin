@@ -1,0 +1,2175 @@
+{
+  "research_date": "2026-10-03",
+  "target": "P1D, Flatpak Kodi 22.0 beta2, 20260831-e513e0ff-dirty",
+  "note": "Synthetic research only. Home path placeholders replace environment-specific values. Read-only SQL audits are labelled and are not proposed production access.",
+  "probes": {
+    "probe-art-files": [
+      {
+        "method": "VideoLibrary.GetSeasons",
+        "params": {
+          "tvshowid": 81,
+          "properties": [
+            "title",
+            "season",
+            "art",
+            "episode"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 1,
+              "start": 0,
+              "total": 1
+            },
+            "seasons": [
+              {
+                "art": {
+                  "tvshow.poster": "image://DefaultVideo.png/"
+                },
+                "episode": 1,
+                "label": "Research season one",
+                "season": 1,
+                "seasonid": 436,
+                "title": "Research season one"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "method": "VideoLibrary.SetMovieDetails",
+        "params": {
+          "movieid": 1802,
+          "art": {
+            "kofindownloaded": "DefaultVideo.png",
+            "fanart1": null
+          },
+          "ratings": {
+            "community": null
+          },
+          "uniqueid": {
+            "imdb": null
+          }
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.GetMovieDetails",
+        "params": {
+          "movieid": 1802,
+          "properties": [
+            "art",
+            "ratings",
+            "uniqueid"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "moviedetails": {
+              "art": {
+                "icon": "image://DefaultVideo.png/",
+                "kofindownloaded": "image://DefaultVideo.png/",
+                "poster": "image://DefaultVideo.png/"
+              },
+              "label": "Kofin API research Movie 0",
+              "movieid": 1802,
+              "ratings": {
+                "critic": {
+                  "default": true,
+                  "rating": 8.199999809265137,
+                  "votes": 12
+                }
+              },
+              "uniqueid": {
+                "kofinresearch": "kofin-api-research-movie-0"
+              }
+            }
+          }
+        }
+      },
+      {
+        "method": "AudioLibrary.SetSongDetails",
+        "params": {
+          "songid": 22364,
+          "art": {
+            "kofindownloaded": "DefaultVideo.png"
+          }
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "AudioLibrary.GetSongDetails",
+        "params": {
+          "songid": 22364,
+          "properties": [
+            "art"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "songdetails": {
+              "art": {
+                "album.track0": "image://plugin%3a%2f%2fplugin.video.kofin.apiresearch%2fmusic%2ftrack0.mp3/",
+                "album.track1": "image://plugin%3a%2f%2fplugin.video.kofin.apiresearch%2fmusic%2ftrack1.mp3/",
+                "kofindownloaded": "image://DefaultVideo.png/"
+              },
+              "label": "Kofin API research Song 0",
+              "songid": 22364
+            }
+          }
+        }
+      },
+      {
+        "method": "VideoLibrary.SetEpisodeDetails",
+        "params": {
+          "episodeid": 4341,
+          "tag": [
+            "Favorite episodes"
+          ]
+        },
+        "response": {
+          "error": {
+            "code": -32602,
+            "data": {
+              "message": "Too many parameters",
+              "method": "VideoLibrary.SetEpisodeDetails",
+              "stack": {
+                "name": "episodeid",
+                "type": "integer"
+              }
+            },
+            "message": "Invalid params."
+          },
+          "id": 1,
+          "jsonrpc": "2.0"
+        }
+      },
+      {
+        "method": "Files.SetFileDetails",
+        "params": {
+          "file": "plugin://plugin.video.kofin.apiresearch/movies/0.mkv",
+          "media": "video",
+          "resume": {
+            "position": 34.0,
+            "total": 120.0
+          }
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.GetMovieDetails",
+        "params": {
+          "movieid": 1802,
+          "properties": [
+            "resume"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "moviedetails": {
+              "label": "Kofin API research Movie 0",
+              "movieid": 1802,
+              "resume": {
+                "position": 34.0,
+                "total": 120.0
+              }
+            }
+          }
+        }
+      },
+      {
+        "method": "Files.SetFileDetails",
+        "params": {
+          "file": "plugin://plugin.video.kofin.apiresearch/music/track0.mp3",
+          "media": "music",
+          "playcount": 5
+        },
+        "response": {
+          "error": {
+            "code": -32602,
+            "message": "Invalid params."
+          },
+          "id": 1,
+          "jsonrpc": "2.0"
+        }
+      }
+    ],
+    "probe-cleanup": {
+      "music_scans": [
+        {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        },
+        {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      ],
+      "video_removals": {
+        "Movie": {
+          "count": 103,
+          "errors": []
+        },
+        "TVShow": {
+          "count": 1,
+          "errors": []
+        },
+        "MusicVideo": {
+          "count": 0,
+          "errors": []
+        }
+      },
+      "clear_bindings": [
+        {
+          "path": "plugin://plugin.video.kofin.apiresearch/movies/",
+          "response": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "result": "OK"
+          }
+        },
+        {
+          "path": "plugin://plugin.video.kofin.apiresearch/movies/query/",
+          "response": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "result": "OK"
+          }
+        },
+        {
+          "path": "plugin://plugin.video.kofin.apiresearch/shows/show/",
+          "response": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "result": "OK"
+          }
+        },
+        {
+          "path": "plugin://plugin.video.kofin.apiresearch/shows/",
+          "response": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "result": "OK"
+          }
+        },
+        {
+          "path": "plugin://plugin.video.kofin.apiresearch/musicvideos/",
+          "response": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "result": "OK"
+          }
+        },
+        {
+          "path": "plugin://plugin.video.kofin.apiresearch/",
+          "response": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "result": "OK"
+          }
+        },
+        {
+          "path": "special://profile/addon_data/plugin.video.kofin.apiresearch/fixtures/video/",
+          "response": {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "result": "OK"
+          }
+        }
+      ],
+      "textures_removed": [
+        {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      ],
+      "remaining": {
+        "movies": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 0,
+              "start": 0,
+              "total": 0
+            },
+            "movies": []
+          }
+        },
+        "tvshows": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 0,
+              "start": 0,
+              "total": 0
+            },
+            "tvshows": []
+          }
+        },
+        "musicvideos": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 0,
+              "start": 0,
+              "total": 0
+            },
+            "musicvideos": []
+          }
+        },
+        "songs": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 0,
+              "start": 0,
+              "total": 0
+            }
+          }
+        },
+        "albums": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 0,
+              "start": 0,
+              "total": 0
+            }
+          }
+        },
+        "artists": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 0,
+              "start": 0,
+              "total": 0
+            }
+          }
+        }
+      },
+      "extras_preference": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "value": true
+        }
+      },
+      "final_cleanup": {
+        "disable": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        },
+        "movies_total": 1784,
+        "songs_total": 22348,
+        "remaining_synthetic_movie_sets": []
+      }
+    },
+    "probe-image-vfs": {
+      "before": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "textures": []
+        }
+      },
+      "read_bytes": 223,
+      "after": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "textures": [
+            {
+              "cachedurl": "e/e87f71b1.jpg",
+              "sizes": [
+                {
+                  "height": 2,
+                  "lastused": "2026-10-03 13:39:22",
+                  "size": 1,
+                  "usecount": 1,
+                  "width": 2
+                }
+              ],
+              "textureid": 11741,
+              "url": "image://<HOME_URLENCODED>%2f.var%2fapp%2ftv.kodi.Kodi%2fdata%2fuserdata%2faddon_data%2fplugin.video.kofin.apiresearch%2ftexture-probe.png/"
+            }
+          ]
+        }
+      }
+    },
+    "probe-initial": [
+      {
+        "method": "Files.GetDirectory",
+        "params": {
+          "directory": "plugin://plugin.video.kofin.apiresearch/music/",
+          "media": "music",
+          "properties": [
+            "title",
+            "artist",
+            "album"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "files": [
+              {
+                "album": "Kofin Research music Album",
+                "artist": [
+                  "Kofin Research Artist"
+                ],
+                "file": "plugin://plugin.video.kofin.apiresearch/music/track0.mp3",
+                "filetype": "file",
+                "label": "Kofin API research Song 0",
+                "title": "Kofin API research Song 0",
+                "type": "song"
+              },
+              {
+                "album": "Kofin Research music Album",
+                "artist": [
+                  "Kofin Research Artist"
+                ],
+                "file": "plugin://plugin.video.kofin.apiresearch/music/track1.mp3",
+                "filetype": "file",
+                "label": "Kofin API research Song 1",
+                "title": "Kofin API research Song 1",
+                "type": "song"
+              }
+            ],
+            "limits": {
+              "end": 2,
+              "start": 0,
+              "total": 2
+            }
+          }
+        }
+      },
+      {
+        "method": "VideoLibrary.SetSourceContent",
+        "params": {
+          "path": "plugin://plugin.video.kofin.apiresearch/movies/",
+          "content": "movies",
+          "scraperid": "metadata.local",
+          "scanrecursive": false,
+          "refresh": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.Scan",
+        "params": {
+          "directory": "plugin://plugin.video.kofin.apiresearch/movies/",
+          "showdialogs": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "XBMC.GetInfoBooleans",
+        "params": {
+          "booleans": [
+            "Library.IsScanningVideo"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "Library.IsScanningVideo": false
+          }
+        }
+      },
+      {
+        "method": "VideoLibrary.GetMovies",
+        "params": {
+          "filter": {
+            "field": "tag",
+            "operator": "is",
+            "value": "kofin-api-research"
+          },
+          "properties": [
+            "title",
+            "file",
+            "cast",
+            "art",
+            "streamdetails",
+            "uniqueid",
+            "playcount",
+            "resume",
+            "dateadded"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 2,
+              "start": 0,
+              "total": 2
+            },
+            "movies": [
+              {
+                "art": {
+                  "icon": "image://DefaultVideo.png/",
+                  "poster": "image://DefaultVideo.png/"
+                },
+                "cast": [
+                  {
+                    "name": "Research Actor",
+                    "order": 0,
+                    "role": "Synthetic role"
+                  }
+                ],
+                "dateadded": "2020-01-02 03:04:05",
+                "file": "plugin://plugin.video.kofin.apiresearch/movies/0.mkv",
+                "label": "Kofin API research Movie 0",
+                "movieid": 1802,
+                "playcount": 3,
+                "resume": {
+                  "position": 12.0,
+                  "total": 120.0
+                },
+                "streamdetails": {
+                  "audio": [],
+                  "subtitle": [],
+                  "video": [
+                    {
+                      "aspect": 1.7799999713897705,
+                      "codec": "h264",
+                      "duration": 120,
+                      "hdrdetail": "",
+                      "hdrtype": "",
+                      "height": 1080,
+                      "language": "",
+                      "source": 10,
+                      "stereomode": "",
+                      "version": 3,
+                      "width": 1920
+                    }
+                  ]
+                },
+                "title": "Kofin API research Movie 0",
+                "uniqueid": {
+                  "kofinresearch": "kofin-api-research-movie-0"
+                }
+              },
+              {
+                "art": {
+                  "icon": "image://DefaultVideo.png/",
+                  "poster": "image://DefaultVideo.png/"
+                },
+                "cast": [
+                  {
+                    "name": "Research Actor",
+                    "order": 0,
+                    "role": "Synthetic role"
+                  }
+                ],
+                "dateadded": "2020-01-02 03:04:05",
+                "file": "plugin://plugin.video.kofin.apiresearch/movies/1.mkv",
+                "label": "Kofin API research Movie 1",
+                "movieid": 1803,
+                "playcount": 3,
+                "resume": {
+                  "position": 12.0,
+                  "total": 120.0
+                },
+                "streamdetails": {
+                  "audio": [],
+                  "subtitle": [],
+                  "video": [
+                    {
+                      "aspect": 1.7799999713897705,
+                      "codec": "h264",
+                      "duration": 120,
+                      "hdrdetail": "",
+                      "hdrtype": "",
+                      "height": 1080,
+                      "language": "",
+                      "source": 10,
+                      "stereomode": "",
+                      "version": 3,
+                      "width": 1920
+                    }
+                  ]
+                },
+                "title": "Kofin API research Movie 1",
+                "uniqueid": {
+                  "kofinresearch": "kofin-api-research-movie-1"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "probe-inprocess": {
+      "transport": "xbmc.executeJSONRPC inside Kodi",
+      "notifications": [
+        {
+          "sender": "xbmc",
+          "method": "VideoLibrary.OnUpdate",
+          "data": {
+            "item": {
+              "id": 1802,
+              "type": "movie"
+            },
+            "playcount": 9
+          }
+        }
+      ],
+      "userdata": {
+        "before": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "moviedetails": {
+              "label": "Kofin API research Movie 0",
+              "movieid": 1802,
+              "playcount": 3,
+              "resume": {
+                "position": 12.0,
+                "total": 120.0
+              }
+            }
+          }
+        },
+        "set": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        },
+        "after": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "moviedetails": {
+              "label": "Kofin API research Movie 0",
+              "movieid": 1802,
+              "playcount": 9,
+              "resume": {
+                "position": 56.0,
+                "total": 120.0
+              }
+            }
+          }
+        }
+      },
+      "benchmarks": [
+        {
+          "mode": "individual",
+          "items": 100,
+          "samples": [
+            {
+              "seconds": 0.30733678600518033,
+              "errors": 0
+            },
+            {
+              "seconds": 0.29489886201918125,
+              "errors": 0
+            },
+            {
+              "seconds": 0.1907251119846478,
+              "errors": 0
+            }
+          ]
+        },
+        {
+          "mode": "batch25",
+          "items": 100,
+          "samples": [
+            {
+              "seconds": 0.1866748830070719,
+              "errors": 0
+            },
+            {
+              "seconds": 0.24909065099200234,
+              "errors": 0
+            },
+            {
+              "seconds": 0.18129164399579167,
+              "errors": 0
+            }
+          ]
+        },
+        {
+          "mode": "batch100",
+          "items": 100,
+          "samples": [
+            {
+              "seconds": 0.1885150690213777,
+              "errors": 0
+            },
+            {
+              "seconds": 0.256926411006134,
+              "errors": 0
+            },
+            {
+              "seconds": 0.20947992603760213,
+              "errors": 0
+            }
+          ]
+        }
+      ],
+      "partial_batch": {
+        "response": [
+          {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "result": "OK"
+          },
+          {
+            "error": {
+              "code": -32098,
+              "message": "Not found."
+            },
+            "id": 2,
+            "jsonrpc": "2.0"
+          },
+          {
+            "id": 3,
+            "jsonrpc": "2.0",
+            "result": "OK"
+          }
+        ],
+        "readback": [
+          {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "result": {
+              "moviedetails": {
+                "label": "Kofin API research Movie 0",
+                "movieid": 1802,
+                "plot": "Batch preceding failure"
+              }
+            }
+          },
+          {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "result": {
+              "moviedetails": {
+                "label": "Kofin API research Movie 1",
+                "movieid": 1803,
+                "plot": "Batch after failure"
+              }
+            }
+          }
+        ]
+      },
+      "notification_count_all_writes": 1
+    },
+    "probe-media-types": [
+      {
+        "method": "VideoLibrary.SetSourceContent",
+        "params": {
+          "path": "plugin://plugin.video.kofin.apiresearch/shows/",
+          "content": "tvshows",
+          "scraperid": "metadata.local",
+          "scanrecursive": true,
+          "refresh": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.Scan",
+        "params": {
+          "directory": "plugin://plugin.video.kofin.apiresearch/shows/",
+          "showdialogs": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "XBMC.GetInfoBooleans",
+        "params": {
+          "booleans": [
+            "Library.IsScanningVideo"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "Library.IsScanningVideo": false
+          }
+        }
+      },
+      {
+        "method": "VideoLibrary.SetSourceContent",
+        "params": {
+          "path": "plugin://plugin.video.kofin.apiresearch/musicvideos/",
+          "content": "musicvideos",
+          "scraperid": "metadata.local",
+          "scanrecursive": true,
+          "refresh": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.Scan",
+        "params": {
+          "directory": "plugin://plugin.video.kofin.apiresearch/musicvideos/",
+          "showdialogs": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "XBMC.GetInfoBooleans",
+        "params": {
+          "booleans": [
+            "Library.IsScanningVideo"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "Library.IsScanningVideo": false
+          }
+        }
+      },
+      {
+        "method": "AudioLibrary.Scan",
+        "params": {
+          "directory": "plugin://plugin.video.kofin.apiresearch/music/",
+          "showdialogs": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "XBMC.GetInfoBooleans",
+        "params": {
+          "booleans": [
+            "Library.IsScanningMusic"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "Library.IsScanningMusic": true
+          }
+        }
+      },
+      {
+        "method": "XBMC.GetInfoBooleans",
+        "params": {
+          "booleans": [
+            "Library.IsScanningMusic"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "Library.IsScanningMusic": false
+          }
+        }
+      },
+      {
+        "method": "AudioLibrary.Scan",
+        "params": {
+          "directory": "plugin://plugin.video.kofin.apiresearch/music-modern/",
+          "showdialogs": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "XBMC.GetInfoBooleans",
+        "params": {
+          "booleans": [
+            "Library.IsScanningMusic"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "Library.IsScanningMusic": false
+          }
+        }
+      },
+      {
+        "method": "VideoLibrary.GetTVShows",
+        "params": {
+          "filter": {
+            "field": "title",
+            "operator": "startswith",
+            "value": "Kofin API research"
+          },
+          "properties": [
+            "title",
+            "file",
+            "uniqueid",
+            "art",
+            "season",
+            "episode"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 0,
+              "start": 0,
+              "total": 0
+            },
+            "tvshows": []
+          }
+        }
+      },
+      {
+        "method": "VideoLibrary.GetMusicVideos",
+        "params": {
+          "filter": {
+            "field": "title",
+            "operator": "startswith",
+            "value": "Kofin API research"
+          },
+          "properties": [
+            "title",
+            "file",
+            "art"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 1,
+              "start": 0,
+              "total": 1
+            },
+            "musicvideos": [
+              {
+                "art": {
+                  "icon": "image://DefaultVideo.png/",
+                  "poster": "image://DefaultVideo.png/"
+                },
+                "file": "plugin://plugin.video.kofin.apiresearch/musicvideos/song.mkv",
+                "label": "Kofin API research Music video",
+                "musicvideoid": 1,
+                "title": "Kofin API research Music video"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "method": "AudioLibrary.GetSongs",
+        "params": {
+          "filter": {
+            "field": "title",
+            "operator": "startswith",
+            "value": "Kofin API research"
+          },
+          "properties": [
+            "title",
+            "file",
+            "album",
+            "artist",
+            "albumid",
+            "artistid",
+            "playcount",
+            "lastplayed",
+            "dateadded"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 2,
+              "start": 0,
+              "total": 2
+            },
+            "songs": [
+              {
+                "album": "Kofin Research music Album",
+                "albumid": 1558,
+                "artist": [
+                  "Kofin Research Artist"
+                ],
+                "artistid": [
+                  640
+                ],
+                "dateadded": "2026-10-03 11:57:20",
+                "file": "plugin://plugin.video.kofin.apiresearch/music/track0.mp3",
+                "label": "Kofin API research Song 0",
+                "lastplayed": "",
+                "playcount": 0,
+                "songid": 22364,
+                "title": "Kofin API research Song 0"
+              },
+              {
+                "album": "Kofin Research music Album",
+                "albumid": 1558,
+                "artist": [
+                  "Kofin Research Artist"
+                ],
+                "artistid": [
+                  640
+                ],
+                "dateadded": "2026-10-03 11:57:20",
+                "file": "plugin://plugin.video.kofin.apiresearch/music/track1.mp3",
+                "label": "Kofin API research Song 1",
+                "lastplayed": "",
+                "playcount": 0,
+                "songid": 22365,
+                "title": "Kofin API research Song 1"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "probe-music-modern-loaded": {
+      "scan": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": "OK"
+      },
+      "songs": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "limits": {
+            "end": 2,
+            "start": 0,
+            "total": 2
+          },
+          "songs": [
+            {
+              "album": "Kofin Research music-modern Album",
+              "artist": [
+                "Kofin Research Artist"
+              ],
+              "file": "plugin://plugin.video.kofin.apiresearch/music-modern/track0.mp3",
+              "label": "Kofin API research Modern Song 0",
+              "lastplayed": "",
+              "playcount": 0,
+              "songid": 22365
+            },
+            {
+              "album": "Kofin Research music-modern Album",
+              "artist": [
+                "Kofin Research Artist"
+              ],
+              "file": "plugin://plugin.video.kofin.apiresearch/music-modern/track1.mp3",
+              "label": "Kofin API research Modern Song 1",
+              "lastplayed": "",
+              "playcount": 0,
+              "songid": 22366
+            }
+          ]
+        }
+      }
+    },
+    "probe-nfo-assets": {
+      "settings_before": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "value": true
+        }
+      },
+      "enable_extras": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": true
+      },
+      "bind": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": "OK"
+      },
+      "scan": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": "OK"
+      },
+      "movies": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "limits": {
+            "end": 1,
+            "start": 0,
+            "total": 1
+          },
+          "movies": [
+            {
+              "art": {
+                "icon": "image://DefaultPlaylist.png/"
+              },
+              "file": "special://profile/addon_data/plugin.video.kofin.apiresearch/fixtures/video/NfoVersions/Theatrical.strm",
+              "label": "Kofin API research NFO versions",
+              "movieid": 2006,
+              "streamdetails": {
+                "audio": [],
+                "subtitle": [],
+                "video": []
+              },
+              "uniqueid": {
+                "kofinresearch": "kofin-api-research-nfo-versions"
+              }
+            }
+          ]
+        }
+      },
+      "readonly_assets_audit": {
+        "columns": [
+          "idMovie",
+          "c00",
+          "idFile",
+          "idType",
+          "itemType",
+          "name",
+          "strFilename",
+          "strPath"
+        ],
+        "rows": [
+          [
+            2006,
+            "Kofin API research NFO versions",
+            6369,
+            40801,
+            1,
+            "Research Extended",
+            "Extended.strm",
+            "special://profile/addon_data/plugin.video.kofin.apiresearch/fixtures/video/NfoVersions/"
+          ],
+          [
+            2006,
+            "Kofin API research NFO versions",
+            6370,
+            40802,
+            1,
+            "Research Theatrical",
+            "Theatrical.strm",
+            "special://profile/addon_data/plugin.video.kofin.apiresearch/fixtures/video/NfoVersions/"
+          ],
+          [
+            2006,
+            "Kofin API research NFO versions",
+            6371,
+            40803,
+            2,
+            "Research bonus",
+            "Research bonus.strm",
+            "special://profile/addon_data/plugin.video.kofin.apiresearch/fixtures/video/NfoVersions/Extras/"
+          ]
+        ]
+      },
+      "restore_setting": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": true
+      }
+    },
+    "probe-query-paths-final": [
+      {
+        "method": "VideoLibrary.SetSourceContent",
+        "params": {
+          "path": "plugin://plugin.video.kofin.apiresearch/movies/",
+          "content": "movies",
+          "scraperid": "metadata.local",
+          "scanrecursive": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.Scan",
+        "params": {
+          "directory": "plugin://plugin.video.kofin.apiresearch/movies/",
+          "showdialogs": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.GetMovies",
+        "params": {
+          "filter": {
+            "field": "title",
+            "operator": "is",
+            "value": "Kofin API research Movie 1000"
+          },
+          "properties": [
+            "file",
+            "uniqueid",
+            "plot"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 1,
+              "start": 0,
+              "total": 1
+            },
+            "movies": [
+              {
+                "file": "plugin://plugin.video.kofin.apiresearch/movies/?id=0",
+                "label": "Kofin API research Movie 1000",
+                "movieid": 2003,
+                "plot": "Query path refreshed",
+                "uniqueid": {
+                  "kofinresearch": "kofin-api-research-movie-1000"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "method": "VideoLibrary.RefreshMovie",
+        "params": {
+          "movieid": 2003,
+          "ignorenfo": false,
+          "title": ""
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.GetMovies",
+        "params": {
+          "filter": {
+            "field": "title",
+            "operator": "is",
+            "value": "Kofin API research Movie 1000"
+          },
+          "properties": [
+            "file",
+            "uniqueid",
+            "plot"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 1,
+              "start": 0,
+              "total": 1
+            },
+            "movies": [
+              {
+                "file": "plugin://plugin.video.kofin.apiresearch/movies/?id=0",
+                "label": "Kofin API research Movie 1000",
+                "movieid": 2005,
+                "plot": "Query path refreshed",
+                "uniqueid": {
+                  "kofinresearch": "kofin-api-research-movie-1000"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "method": "VideoLibrary.Clean",
+        "params": {
+          "directory": "plugin://plugin.video.kofin.apiresearch/movies/",
+          "content": "movies",
+          "showdialogs": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.GetMovies",
+        "params": {
+          "filter": {
+            "field": "title",
+            "operator": "is",
+            "value": "Kofin API research Movie 1000"
+          },
+          "properties": [
+            "file"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 1,
+              "start": 0,
+              "total": 1
+            },
+            "movies": [
+              {
+                "file": "plugin://plugin.video.kofin.apiresearch/movies/?id=0",
+                "label": "Kofin API research Movie 1000",
+                "movieid": 2005
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "probe-query-paths": [
+      {
+        "method": "VideoLibrary.SetSourceContent",
+        "params": {
+          "path": "plugin://plugin.video.kofin.apiresearch/movies/query/",
+          "content": "movies",
+          "scraperid": "metadata.local",
+          "refresh": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.Scan",
+        "params": {
+          "directory": "plugin://plugin.video.kofin.apiresearch/movies/query/",
+          "showdialogs": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.GetMovies",
+        "params": {
+          "filter": {
+            "field": "title",
+            "operator": "is",
+            "value": "Kofin API research Movie 1000"
+          },
+          "properties": [
+            "file",
+            "uniqueid",
+            "plot"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 0,
+              "start": 0,
+              "total": 0
+            },
+            "movies": []
+          }
+        }
+      }
+    ],
+    "probe-readonly-verification": {
+      "video_schema": "MyVideos149",
+      "seasons": [
+        [
+          435,
+          -1,
+          "",
+          ""
+        ],
+        [
+          436,
+          1,
+          "Research season one",
+          "Research season plot"
+        ],
+        [
+          437,
+          2,
+          "Research empty season",
+          "Research empty plot"
+        ]
+      ],
+      "episode_tags": [],
+      "total_movies": 1884,
+      "music_schema": "MyMusic84",
+      "probe_source_links": [],
+      "total_songs": 22350
+    },
+    "probe-refresh-delete-clean": [
+      {
+        "method": "VideoLibrary.RefreshMovie",
+        "params": {
+          "movieid": 1802,
+          "ignorenfo": false,
+          "title": ""
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.GetMovieDetails",
+        "params": {
+          "movieid": 1802,
+          "properties": [
+            "plot",
+            "uniqueid",
+            "cast",
+            "resume",
+            "playcount"
+          ]
+        },
+        "response": {
+          "error": {
+            "code": -32098,
+            "message": "Not found."
+          },
+          "id": 1,
+          "jsonrpc": "2.0"
+        }
+      },
+      {
+        "method": "AudioLibrary.Scan",
+        "params": {
+          "directory": "plugin://plugin.video.kofin.apiresearch/music/",
+          "showdialogs": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "AudioLibrary.GetSongs",
+        "params": {
+          "filter": {
+            "field": "title",
+            "operator": "startswith",
+            "value": "Kofin API research"
+          },
+          "properties": [
+            "title",
+            "file",
+            "playcount",
+            "lastplayed"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 1,
+              "start": 0,
+              "total": 1
+            },
+            "songs": [
+              {
+                "file": "plugin://plugin.video.kofin.apiresearch/music/track0.mp3",
+                "label": "Kofin API research Song 0",
+                "lastplayed": "2020-02-03 04:05:06",
+                "playcount": 5,
+                "songid": 22364,
+                "title": "Kofin API research Song 0"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "method": "VideoLibrary.SetSeasonDetails",
+        "params": {
+          "seasonid": 436,
+          "plot": "New plot"
+        },
+        "response": {
+          "error": {
+            "code": -32602,
+            "data": {
+              "message": "Too many parameters",
+              "method": "VideoLibrary.SetSeasonDetails",
+              "stack": {
+                "name": "seasonid",
+                "type": "integer"
+              }
+            },
+            "message": "Invalid params."
+          },
+          "id": 1,
+          "jsonrpc": "2.0"
+        }
+      },
+      {
+        "method": "VideoLibrary.Clean",
+        "params": {
+          "directory": "plugin://plugin.video.kofin.apiresearch/movies/",
+          "content": "movies",
+          "showdialogs": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.GetMovies",
+        "params": {
+          "filter": {
+            "field": "tag",
+            "operator": "is",
+            "value": "kofin-api-research"
+          },
+          "limits": {
+            "start": 0,
+            "end": 1
+          }
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 1,
+              "start": 0,
+              "total": 99
+            },
+            "movies": [
+              {
+                "label": "Kofin API research Movie 1",
+                "movieid": 1803
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "probe-root-bind": [
+      {
+        "method": "VideoLibrary.SetSourceContent",
+        "params": {
+          "path": "plugin://plugin.video.kofin.apiresearch/",
+          "content": "movies",
+          "scraperid": "metadata.local",
+          "noupdate": true,
+          "refresh": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.RefreshMovie",
+        "params": {
+          "movieid": 1803,
+          "ignorenfo": false,
+          "title": ""
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.GetMovies",
+        "params": {
+          "filter": {
+            "field": "title",
+            "operator": "is",
+            "value": "Kofin API research Movie 1"
+          },
+          "properties": [
+            "file",
+            "plot",
+            "uniqueid",
+            "playcount",
+            "resume"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 1,
+              "start": 0,
+              "total": 1
+            },
+            "movies": [
+              {
+                "file": "plugin://plugin.video.kofin.apiresearch/movies/1.mkv",
+                "label": "Kofin API research Movie 1",
+                "movieid": 1902,
+                "playcount": 3,
+                "plot": "Refreshed by plugin callback",
+                "resume": {
+                  "position": 12.0,
+                  "total": 120.0
+                },
+                "uniqueid": {
+                  "kofinresearch": "kofin-api-research-movie-1"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "method": "VideoLibrary.Clean",
+        "params": {
+          "directory": "plugin://plugin.video.kofin.apiresearch/",
+          "content": "movies",
+          "showdialogs": false
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.GetMovies",
+        "params": {
+          "filter": {
+            "field": "tag",
+            "operator": "is",
+            "value": "kofin-api-research"
+          },
+          "limits": {
+            "start": 0,
+            "end": 1
+          }
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "limits": {
+              "end": 1,
+              "start": 0,
+              "total": 99
+            },
+            "movies": [
+              {
+                "label": "Kofin API research Movie 1",
+                "movieid": 1902
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "probe-scan-performance": {
+      "scan_response": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": "OK"
+      },
+      "wall_seconds_with_polling": 0.6592020719544962,
+      "total_synthetic_movies": 100,
+      "prior_count": 2
+    },
+    "probe-setters": [
+      {
+        "method": "VideoLibrary.GetSeasons",
+        "params": {
+          "tvshowid": 81,
+          "properties": [
+            "title",
+            "season",
+            "art",
+            "episode",
+            "plot"
+          ]
+        },
+        "response": {
+          "error": {
+            "code": -32602,
+            "data": {
+              "method": "VideoLibrary.GetSeasons",
+              "stack": {
+                "message": "array element at index 4 does not match",
+                "name": "Item.Fields.Base",
+                "property": {
+                  "message": "Received value does not match any of the defined enum values",
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "message": "Invalid params."
+          },
+          "id": 1,
+          "jsonrpc": "2.0"
+        }
+      },
+      {
+        "method": "VideoLibrary.GetEpisodes",
+        "params": {
+          "tvshowid": 81,
+          "properties": [
+            "title",
+            "file",
+            "resume",
+            "playcount",
+            "uniqueid",
+            "art",
+            "cast",
+            "streamdetails"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "episodes": [
+              {
+                "art": {
+                  "icon": "image://DefaultVideo.png/",
+                  "poster": "image://DefaultVideo.png/",
+                  "tvshow.poster": "image://DefaultVideo.png/"
+                },
+                "cast": [
+                  {
+                    "name": "Research Actor",
+                    "order": 0,
+                    "role": "Synthetic role"
+                  }
+                ],
+                "episodeid": 4341,
+                "file": "plugin://plugin.video.kofin.apiresearch/shows/show/s01e01.mkv",
+                "label": "1x01. Kofin API research Episode",
+                "playcount": 3,
+                "resume": {
+                  "position": 12.0,
+                  "total": 120.0
+                },
+                "streamdetails": {
+                  "audio": [],
+                  "subtitle": [],
+                  "video": [
+                    {
+                      "aspect": 1.7799999713897705,
+                      "codec": "h264",
+                      "duration": 120,
+                      "hdrdetail": "",
+                      "hdrtype": "",
+                      "height": 1080,
+                      "language": "",
+                      "source": 10,
+                      "stereomode": "",
+                      "version": 3,
+                      "width": 1920
+                    }
+                  ]
+                },
+                "title": "Kofin API research Episode",
+                "uniqueid": {
+                  "kofinresearch": "kofin-api-research-episode"
+                }
+              }
+            ],
+            "limits": {
+              "end": 1,
+              "start": 0,
+              "total": 1
+            }
+          }
+        }
+      },
+      {
+        "method": "VideoLibrary.AddMovie",
+        "params": {
+          "file": "plugin://plugin.video.kofin.apiresearch/new.mkv"
+        },
+        "response": {
+          "error": {
+            "code": -32601,
+            "message": "Method not found."
+          },
+          "id": 1,
+          "jsonrpc": "2.0"
+        }
+      },
+      {
+        "method": "VideoLibrary.SetMovieDetails",
+        "params": {
+          "movieid": 2147480000,
+          "title": "Missing item"
+        },
+        "response": {
+          "error": {
+            "code": -32098,
+            "message": "Not found."
+          },
+          "id": 1,
+          "jsonrpc": "2.0"
+        }
+      },
+      {
+        "method": "VideoLibrary.SetMovieDetails",
+        "params": {
+          "movieid": 1802,
+          "cast": []
+        },
+        "response": {
+          "error": {
+            "code": -32602,
+            "data": {
+              "message": "Too many parameters",
+              "method": "VideoLibrary.SetMovieDetails",
+              "stack": {
+                "name": "movieid",
+                "type": "integer"
+              }
+            },
+            "message": "Invalid params."
+          },
+          "id": 1,
+          "jsonrpc": "2.0"
+        }
+      },
+      {
+        "method": "VideoLibrary.SetMovieDetails",
+        "params": {
+          "movieid": 1802,
+          "file": "plugin://plugin.video.kofin.apiresearch/moved.mkv"
+        },
+        "response": {
+          "error": {
+            "code": -32602,
+            "data": {
+              "message": "Too many parameters",
+              "method": "VideoLibrary.SetMovieDetails",
+              "stack": {
+                "name": "movieid",
+                "type": "integer"
+              }
+            },
+            "message": "Invalid params."
+          },
+          "id": 1,
+          "jsonrpc": "2.0"
+        }
+      },
+      {
+        "method": "VideoLibrary.SetMovieDetails",
+        "params": {
+          "movieid": 1802,
+          "streamdetails": {
+            "video": []
+          }
+        },
+        "response": {
+          "error": {
+            "code": -32602,
+            "data": {
+              "message": "Too many parameters",
+              "method": "VideoLibrary.SetMovieDetails",
+              "stack": {
+                "name": "movieid",
+                "type": "integer"
+              }
+            },
+            "message": "Invalid params."
+          },
+          "id": 1,
+          "jsonrpc": "2.0"
+        }
+      },
+      {
+        "method": "AudioLibrary.SetSongDetails",
+        "params": {
+          "songid": 22364,
+          "file": "plugin://plugin.video.kofin.apiresearch/moved.mp3"
+        },
+        "response": {
+          "error": {
+            "code": -32602,
+            "data": {
+              "message": "Too many parameters",
+              "method": "AudioLibrary.SetSongDetails",
+              "stack": {
+                "name": "songid",
+                "type": "integer"
+              }
+            },
+            "message": "Invalid params."
+          },
+          "id": 1,
+          "jsonrpc": "2.0"
+        }
+      },
+      {
+        "method": "AudioLibrary.RemoveSong",
+        "params": {
+          "songid": 22364
+        },
+        "response": {
+          "error": {
+            "code": -32601,
+            "message": "Method not found."
+          },
+          "id": 1,
+          "jsonrpc": "2.0"
+        }
+      },
+      {
+        "method": "Textures.AddTexture",
+        "params": {
+          "url": "synthetic"
+        },
+        "response": {
+          "error": {
+            "code": -32601,
+            "message": "Method not found."
+          },
+          "id": 1,
+          "jsonrpc": "2.0"
+        }
+      },
+      {
+        "method": "VideoLibrary.SetMovieDetails",
+        "params": {
+          "movieid": 1802,
+          "set": "Kofin Research Collection",
+          "art": {
+            "kofin.downloaded": "DefaultVideo.png",
+            "fanart1": "DefaultVideo.png"
+          },
+          "ratings": {
+            "community": {
+              "rating": 7.1,
+              "votes": 11,
+              "default": false
+            },
+            "critic": {
+              "rating": 8.2,
+              "votes": 12,
+              "default": true
+            }
+          },
+          "uniqueid": {
+            "kofinresearch": "kofin-api-research-movie-0",
+            "imdb": "tt000000000research"
+          }
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "VideoLibrary.GetMovieDetails",
+        "params": {
+          "movieid": 1802,
+          "properties": [
+            "art",
+            "ratings",
+            "rating",
+            "uniqueid",
+            "set",
+            "setid",
+            "tag"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "moviedetails": {
+              "art": {
+                "fanart1": "image://DefaultVideo.png/",
+                "icon": "image://DefaultVideo.png/",
+                "poster": "image://DefaultVideo.png/"
+              },
+              "label": "Kofin API research Movie 0",
+              "movieid": 1802,
+              "rating": 8.199999809265137,
+              "ratings": {
+                "community": {
+                  "default": false,
+                  "rating": 7.099999904632568,
+                  "votes": 11
+                },
+                "critic": {
+                  "default": true,
+                  "rating": 8.199999809265137,
+                  "votes": 12
+                }
+              },
+              "set": "Kofin Research Collection",
+              "setid": 55,
+              "tag": [
+                "kofin-api-research"
+              ],
+              "uniqueid": {
+                "imdb": "tt000000000research",
+                "kofinresearch": "kofin-api-research-movie-0"
+              }
+            }
+          }
+        }
+      },
+      {
+        "method": "AudioLibrary.SetSongDetails",
+        "params": {
+          "songid": 22364,
+          "playcount": 5,
+          "lastplayed": "2020-02-03 04:05:06",
+          "art": {
+            "kofin.downloaded": "DefaultVideo.png"
+          }
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "OK"
+        }
+      },
+      {
+        "method": "AudioLibrary.GetSongDetails",
+        "params": {
+          "songid": 22364,
+          "properties": [
+            "playcount",
+            "lastplayed",
+            "art"
+          ]
+        },
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": {
+            "songdetails": {
+              "art": {
+                "album.track0": "image://plugin%3a%2f%2fplugin.video.kofin.apiresearch%2fmusic%2ftrack0.mp3/",
+                "album.track1": "image://plugin%3a%2f%2fplugin.video.kofin.apiresearch%2fmusic%2ftrack1.mp3/"
+              },
+              "label": "Kofin API research Song 0",
+              "lastplayed": "2020-02-03 04:05:06",
+              "playcount": 5,
+              "songid": 22364
+            }
+          }
+        }
+      }
+    ],
+    "probe-shows": {
+      "id": 1,
+      "jsonrpc": "2.0",
+      "result": {
+        "limits": {
+          "end": 1,
+          "start": 0,
+          "total": 1
+        },
+        "tvshows": [
+          {
+            "art": {
+              "icon": "image://DefaultFolder.png/",
+              "poster": "image://DefaultVideo.png/"
+            },
+            "episode": 1,
+            "file": "plugin://plugin.video.kofin.apiresearch/shows/show/",
+            "label": "Kofin API research Show",
+            "season": 1,
+            "title": "Kofin API research Show",
+            "tvshowid": 81,
+            "uniqueid": {
+              "kofinresearch": "kofin-api-research-show"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

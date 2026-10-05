@@ -1,0 +1,30 @@
+{
+  "mode": "read-forced",
+  "started_at": "2026-10-04T13:48:25Z",
+  "songs": [
+    {
+      "album": "Kofin phase0 Album",
+      "artist": [
+        "Kofin phase0 Artist"
+      ],
+      "file": "plugin://plugin.video.kofin.phase0/music/track0.mp3",
+      "label": "Kofin phase0 Forced metadata changed 0",
+      "lastplayed": "",
+      "playcount": 0,
+      "songid": 22364,
+      "title": "Kofin phase0 Forced metadata changed 0"
+    },
+    {
+      "album": "Kofin phase0 Album",
+      "artist": [
+        "Kofin phase0 Artist"
+      ],
+      "file": "plugin://plugin.video.kofin.phase0/music/track1.mp3",
+      "label": "Kofin phase0 Forced metadata changed 1",
+      "lastplayed": "",
+      "playcount": 0,
+      "songid": 22365,
+      "title": "Kofin phase0 Forced metadata changed 1"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "version": "12.1.0",
+  "initial_counts": {
+    "Movie": 2,
+    "Episode": 1,
+    "Audio": 2
+  },
+  "final_counts": {
+    "Movie": 2,
+    "Episode": 1,
+    "Audio": 2
+  },
+  "userdata_roundtrip": {
+    "Played": false,
+    "PlayCount": 3,
+    "PlaybackPositionTicks": 120000000,
+    "IsFavorite": true
+  },
+  "userdata_survived_restart": true,
+  "deleted_owned_file": true,
+  "restored_movie": true,
+  "enumeration_interrupted_after_items": 1,
+  "enumeration_total": 2,
+  "offline_request_failed": true,
+  "server_restarted": true,
+  "scope": "fixture server behavior; Kofin sync recovery is a phase 3 gate",
+  "binary_sha256": "c96a55feb5ed10e34d55289dcf268398d6b2ae686c95bfe8603e2de9d7553a50",
+  "captured_at": "2026-10-04T14:00:25Z"
+}

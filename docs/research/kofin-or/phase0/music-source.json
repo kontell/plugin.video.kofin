@@ -1,0 +1,13 @@
+{
+  "source": [
+    {
+      "file": "plugin://plugin.video.kofin.phase0/music/",
+      "label": "Kofin phase0 fixture"
+    }
+  ],
+  "rescan_dialog": {
+    "Control.GetLabel(1)": "Library update",
+    "Control.GetLabel(9)": "Do full tag scan even when music files are unchanged?",
+    "System.CurrentControl": "No"
+  }
+}

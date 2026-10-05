@@ -1,0 +1,14 @@
+{
+  "mode": "cleanup",
+  "started_at": "2026-10-04T13:56:22Z",
+  "result": {
+    "remaining": {
+      "movies": [],
+      "tvshows": [],
+      "episodes": [],
+      "musicvideos": [],
+      "songs": []
+    },
+    "clean": true
+  }
+}
