@@ -1006,7 +1006,7 @@ def test_show_names_come_from_the_id_map_and_kodi_over_jsonrpc(monkeypatch, tmp_
     unanswered calls fall back to the id so the picker still lists them."""
     import json
 
-    from kofin.sync import db as sync_db
+    from kofin.sync import private as sync_db
 
     sync_db.reset_overrides()
     sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))

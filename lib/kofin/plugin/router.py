@@ -5,10 +5,39 @@ from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl
 
 from kofin.core.log import Logger
+from kofin import buildconfig
 
 LOG = Logger(__name__)
 
 Params = Dict[str, str]
+
+LEGACY_MODES = frozenset(
+    {
+        "cleandatabases",
+        "selectlibraries",
+        "updatelibs",
+        "repairlibs",
+        "refreshboxsets",
+        "precacheart",
+        "saveplaylist",
+        "download",
+        "downloadshow",
+        "downloadplaylist",
+        "downloadmusiclibrary",
+        "downloadsubscriptions",
+        "downloadshows",
+        "canceldownload",
+        "removedownload",
+        "deletealldownloads",
+        "downloadsize",
+    }
+)
+
+
+def _unavailable(request: "Request") -> None:
+    from kofin.core import settings, toast
+
+    toast.show(settings.localized(30990), toast.WARNING)
 
 
 class Request:
@@ -114,6 +143,8 @@ LISTING_MODES = frozenset(
 
 def _resolve(mode: str) -> Optional[Callable[[Request], None]]:
     """The handler for ``mode``, imported on demand; None when unregistered."""
+    if not buildconfig.legacy_features() and mode in LEGACY_MODES:
+        return _unavailable
     route = ROUTES.get(mode)
     if route is None:
         return None

@@ -13,7 +13,7 @@ from kofin.sync import kofindb as jellyfin_db
 from kofin.sync import queries_map as QUEM
 from kofin.sync import fields as api
 from kofin.sync.fields import check_unchanged, find_library
-from kofin.sync.hooks import WriterHooks
+from kofin.sync.backends.sql.hooks import WriterHooks
 from kofin.sync.shims import stop, jellyfin_item, values, Local
 
 from kofin.sync.obj import Objects

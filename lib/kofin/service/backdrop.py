@@ -1,5 +1,9 @@
 """The addon backdrop: the server's splashscreen, or the bundled artwork.
 
+The API profile writes content-addressed artwork only in addon_data; dynamic
+listings use that URL. The manifest fanart stays bundled. The remaining notes
+below describe the legacy SQL profile, retained until its feature port.
+
 ``addon.xml`` names ``resources/media/fanart.webp`` as the addon's fanart, and
 Kodi reads that manifest once at install/scan time — there is no runtime API to
 repoint an asset. So the backdrop is changed the only way it can be: by
@@ -52,6 +56,7 @@ import os
 from typing import Optional
 
 from kofin.core import kodirpc, settings
+from kofin import buildconfig
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
@@ -229,9 +234,54 @@ def apply(api: Optional[Api], now: float, force: bool = False) -> None:
     switching the option on acts immediately rather than at the next connect.
     """
     try:
-        _apply(api, now, force)
+        if buildconfig.legacy_features():
+            _apply(api, now, force)
+        else:
+            _apply_profile(api, now, force)
     except Exception:
         LOG.exception("backdrop update failed")
+
+
+def profile_path() -> str:
+    """Current dynamic-listing fanart; the installed manifest asset stays fixed."""
+    if not settings.get_bool("useServerBackdrop"):
+        return ""
+    digest = str(_read_state().get("profile_hash") or "")
+    if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        return ""
+    path = os.path.join(settings.addon_data_path(), "fanart-" + digest + ".webp")
+    return path if os.path.isfile(path) else ""
+
+
+def _apply_profile(api: Optional[Api], now: float, force: bool) -> None:
+    if api is None or not settings.get_bool("useServerBackdrop"):
+        return
+    previous = _read_state()
+    if (
+        not force
+        and profile_path()
+        and now - float(previous.get("fetched") or 0) < REFRESH_INTERVAL_SECONDS
+    ):
+        return
+    if not api.branding_configuration().get("SplashscreenEnabled"):
+        _write_state(SOURCE_DEFAULT, "", now)
+        return
+    data = api.splashscreen()
+    if not data:
+        return
+    # Content-addressed URLs need no texture-cache mutation. Only Kofin's
+    # profile is writable; addon.xml continues to name its bundled image.
+    directory = settings.addon_data_path()
+    os.makedirs(directory, exist_ok=True)
+    digest = _digest(data)
+    target = os.path.join(directory, "fanart-" + digest + ".webp")
+    with open(target + ".part", "wb") as handle:
+        handle.write(data)
+    os.replace(target + ".part", target)
+    state_path = _state_path()
+    with open(state_path + ".part", "w", encoding="utf-8") as handle:
+        json.dump({"profile_hash": digest, "fetched": now}, handle)
+    os.replace(state_path + ".part", state_path)
 
 
 def _apply(api: Optional[Api], now: float, force: bool) -> None:

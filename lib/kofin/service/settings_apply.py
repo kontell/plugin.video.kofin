@@ -37,6 +37,7 @@ from typing import Callable, Dict, List, Optional
 import xbmcgui
 
 from kofin.core import settings, state
+from kofin import buildconfig
 from kofin.core.log import Logger
 from kofin.service.ports import LibraryPort, ServiceHooks, spawn_once
 
@@ -77,6 +78,17 @@ class SettingsApplier:
             "downloadsPath": self._downloads_path_changed,
             "reuseLanguageInvoker": self._reuse_invoker_changed,
         }
+        if not buildconfig.legacy_features():
+            for key in (
+                "librarySelection",
+                "syncMusicPlaylists",
+                "musicTranscode",
+                "preferCriticRating",
+                "downloadsEnabled",
+                "downloadsPath",
+                "reuseLanguageInvoker",
+            ):
+                self.handlers.pop(key, None)
         self.snapshot: Dict[str, str] = self._read_all()
         # The one-shot worker a library removal's confirmation runs on; its
         # slot, so a second save while the dialog is up is refused rather
@@ -195,6 +207,8 @@ class SettingsApplier:
 
     def _reuse_invoker_changed(self, old: str, new: str) -> None:
         """Rewrite addon.xml; Kodi only rereads ExtraInfo on the next start."""
+        if not buildconfig.legacy_features():
+            return
         from kofin.core import addonxml, toast
 
         wrote = addonxml.apply(new == "true")
@@ -205,6 +219,8 @@ class SettingsApplier:
 
     def _reconcile_reuse_invoker(self) -> None:
         """Restore a false setting after an update overwrote addon.xml."""
+        if not buildconfig.legacy_features():
+            return
         from kofin.core import addonxml
 
         wanted = settings.get_bool("reuseLanguageInvoker")
@@ -409,7 +425,7 @@ class SettingsApplier:
 
     def _library_selection_changed(self, old: str, new: str) -> None:
         """The apply-on-save path for the library multiselect."""
-        from kofin.sync import db as sync_db
+        from kofin.sync import private as sync_db
 
         selection = {part for part in new.split(",") if part}
 
@@ -485,7 +501,7 @@ class SettingsApplier:
     ) -> List[str]:
         """Yes/no gate before rows are deleted; declined removals go back
         into librarySelection so the stored intent matches reality."""
-        from kofin.sync import db as sync_db
+        from kofin.sync import private as sync_db
         from kofin.sync import kofindb
 
         names = []

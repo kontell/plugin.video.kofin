@@ -19,6 +19,7 @@ import xbmc
 import xbmcgui
 
 from kofin.core import kodirpc, settings, state
+from kofin import buildconfig
 from kofin.core.api import Api
 from kofin.core.log import Logger
 from kofin.core.segments import parse_segments
@@ -46,7 +47,9 @@ def library_video_path(jellyfin_id: str, media: str) -> Optional[str]:
     path, including a download repoint. A Play Next started with another URL
     will play, but Kodi's ListItem.IsPlaying will not match the browsing row.
     """
-    from kofin.sync.db import Database
+    if not buildconfig.legacy_features():
+        return None
+    from kofin.sync.private import Database
     from kofin.sync.kofindb import JellyfinDatabase
 
     try:
@@ -92,7 +95,9 @@ def musicdb_song_id(path: str) -> Optional[int]:
 def mapped_jellyfin_id(kodi_id: int, media: str) -> Optional[str]:
     """The Jellyfin id kofin synced a Kodi library row from, or None if the row
     is not ours (or the mapping database cannot be read)."""
-    from kofin.sync import db as sync_db
+    if not buildconfig.legacy_features():
+        return None
+    from kofin.sync import private as sync_db
     from kofin.sync import kofindb
 
     try:
@@ -221,6 +226,8 @@ def _local_item_facts(jellyfin_id: str, media: str) -> "Tuple[str, int]":
     """(name, runtime ticks) from Kodi's own rows via the mapping — the
     dialogs name the item and ``watched_to_end`` needs a runtime, and both
     must work with the server unreachable."""
+    if not buildconfig.legacy_features():
+        return ("", 0)
     from kofin.downloads import repoint as downloads_repoint
     from kofin.sync.db import Database
 
@@ -284,6 +291,8 @@ def backfill_library_claim(data: JsonDict, api: Api) -> bool:
     still while Kodi's own keep advancing, and the next userdata sync writes
     the server's stale number back over them.
     """
+    if not buildconfig.legacy_features():
+        return False
     item = data.get("item") or {}
     media = item.get("type") or ""
     kodi_id = item.get("id")

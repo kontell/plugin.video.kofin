@@ -391,8 +391,18 @@ def run_route(name):
     handler(Request("plugin://plugin.video.kofin/", 1, dict(params)))
 
 
+@pytest.mark.parametrize("native_state", ["none", "mixed", "syncing", "failed"])
 @pytest.mark.parametrize("name", sorted(ROUTES))
-def test_route_golden(name, capture):
+def test_route_golden(name, capture, native_state, monkeypatch):
+    from kofin.sync import private
+
+    # Native selection and progress must never filter or redirect live lists.
+    FakeAddon.store["librarySelection"] = "" if native_state == "none" else V_MOVIES
+    FakeWindow.store["kofin.sync.active"] = "true" if native_state == "syncing" else ""
+    FakeWindow.store["kofin.sync.stop"] = "true" if native_state == "failed" else ""
+    monkeypatch.setattr(
+        private, "get_sync", lambda: pytest.fail("live browsing read native sync state")
+    )
     run_route(name)
     actual = digest(capture)
     assert capture["succeeded"] is not None, "%s never closed its handle" % name

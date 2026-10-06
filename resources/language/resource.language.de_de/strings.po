@@ -2227,3 +2227,7 @@ msgstr "Abonnierte Playlists prüfen; Häkchen entfernen, um Downloads nicht meh
 msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Abonnierte Musikbibliotheken prüfen; Häkchen entfernen, um Downloads nicht mehr zu synchronisieren."
+
+msgctxt "#30990"
+msgid "Not available in this preview"
+msgstr "In dieser Vorabversion nicht verfügbar"

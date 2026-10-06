@@ -2227,3 +2227,7 @@ msgstr "Перегляньте підписані списки відтворе�
 msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Перегляньте підписані музичні бібліотеки; зніміть позначку, щоб зупинити синхронізацію завантажень."
+
+msgctxt "#30990"
+msgid "Not available in this preview"
+msgstr "Недоступно в цій тестовій версії"

@@ -14,6 +14,7 @@ import xbmc
 import xbmcgui
 import xbmcplugin
 
+from kofin import buildconfig
 from kofin.core import deviceprofile, kodirpc, settings, state, streams, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
@@ -482,6 +483,8 @@ def downloaded_file(item_id: str) -> Optional[str]:
     all, a download still running or failed, a row that never recorded a
     target, and a row whose file has since gone from under it.
     """
+    if not buildconfig.legacy_features():
+        return None
     from kofin.downloads import downloads_root, files, store
 
     row = store.get(item_id)
