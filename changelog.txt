@@ -1,6 +1,9 @@
 v0.90.0
-- Development baseline for the official-repository variant
-- API-backed library sync is under development; this is not a release candidate
+- Internal API package for Piers development; no public prerelease yet
+- Shared metadata, private state and sync backend contracts
+- Dynamic browsing, streaming and server actions remain available
+- Native library sync, downloads, chapter art and SQL maintenance are disabled pending their API ports
+- API capability report and private-state marker; no legacy-library adoption
 
 v0.29.0
 - Music libraries and playlists can be downloaded and kept in sync

@@ -1,7 +1,7 @@
 """Writer hooks (docs/sync-refactor-phase1-plan.md P1.5): the pipeline's
 additions to a write live outside the writers and are registered on them."""
 
-from kofin.sync.hooks import WriterHooks, pipeline_hooks
+from kofin.sync.backends.sql.hooks import WriterHooks, pipeline_hooks
 
 
 def test_empty_hooks_add_nothing():

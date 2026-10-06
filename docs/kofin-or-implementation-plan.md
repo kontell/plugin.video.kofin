@@ -2,7 +2,7 @@
 
 **Date:** 4 October 2026
 
-**Status:** phase 0 implemented on the explicitly approved existing P1D build; see the [phase 0 record](research/kofin-or/phase0/README.md) and [maintained parity ledger](kofin-or-parity.md). `kofin-or` starts at `0.90.0`; no OR release is published.
+**Status:** phases 0 and 1 implemented, with P1D verification on the explicitly approved existing build. See the [phase 0 record](research/kofin-or/phase0/README.md), [phase 1 contracts and evidence](research/kofin-or/phase1/README.md) and [maintained parity ledger](kofin-or-parity.md). `kofin-or` selects the API package at `0.90.0`; native ingestion remains disabled and no OR release is published.
 
 **Starting point:** baseline Kofin `main` at `db709a28905ca3b697d7135814407e9476d29361` / `0.29.0`; `repository.kontell` main at `b001a80a30987faf211b9a2add0834a10a6f2b90`.
 
@@ -239,6 +239,8 @@ The addon ID is shared and OR's version is higher than main's. Do not assume rep
 **Completed record:** [phase 0 results and reproduction](research/kofin-or/phase0/README.md). The manifest floor is `xbmc.addon >= 21.90.802` plus public/Python capability checks. The initial SQL baseline measures movie persistence on 100 fixed and 1,791 real DTOs in private databases, with three verified samples each. End-to-end mixed-library, GUI and artwork measurements remain later acceptance work. Music failed enumeration deletes old tracks on this build; a manual full tag rescan applies metadata-only changes and preserves song IDs. Phase 5 must resolve the resulting reliability and automatic-rescan policy before general music rollout.
 
 ### Phase 1 — Extract shared policy and establish the backend boundary
+
+Implemented in [shared PR #260](https://github.com/kontell/plugin.video.kofin/pull/260), ported with provenance to OR. The [implementation record](research/kofin-or/phase1/README.md) covers the package/runtime inventory, dynamic-browsing gates and isolated SQL/API Piers evidence. The API selection is a separate OR commit; main stays on SQL.
 
 **Work**
 

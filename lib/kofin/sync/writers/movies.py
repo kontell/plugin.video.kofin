@@ -19,7 +19,7 @@ from kofin.sync.fields import (
     gone_on_fetch,
     streams_and_runtime,
 )
-from kofin.sync.hooks import WriterHooks
+from kofin.sync.backends.sql.hooks import WriterHooks
 from kofin.sync.shims import stop, jellyfin_item, values, Local
 
 from kofin.sync.obj import Objects
@@ -32,10 +32,12 @@ LOG = Logger(__name__)
 
 # Outcome codes boxset() reports back to the walk's summary line
 # (full_sync.boxsets). Strings, not an enum: they are logged as-is.
-BOXSET_UNCHANGED = "unchanged"
-BOXSET_WRITTEN = "written"
-BOXSET_HEALED = "healed"
-BOXSET_GUARDED = "guarded"
+from kofin.sync.model import (
+    BOXSET_UNCHANGED as BOXSET_UNCHANGED,
+    BOXSET_WRITTEN as BOXSET_WRITTEN,
+    BOXSET_HEALED as BOXSET_HEALED,
+    BOXSET_GUARDED as BOXSET_GUARDED,
+)
 
 ##################################################################################################
 

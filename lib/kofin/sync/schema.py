@@ -120,8 +120,7 @@ def extra_type_name(extra_type: Optional[str]) -> str:
 _cache: Dict[str, Tuple[str, int]] = {}
 
 
-class SchemaError(Exception):
-    """Base for schema-gate failures; carries the user-facing reason."""
+from kofin.sync.backend import CompatibilityError as SchemaError
 
 
 class DatabaseMissing(SchemaError):

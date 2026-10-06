@@ -2227,3 +2227,7 @@ msgstr "Verifică listele de redare abonate; debifează-le pentru a opri sincron
 msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Verifică bibliotecile muzicale abonate; debifează-le pentru a opri sincronizarea descărcărilor."
+
+msgctxt "#30990"
+msgid "Not available in this preview"
+msgstr "Indisponibil în această versiune preliminară"

@@ -1,0 +1,39 @@
+{
+  "counts_before": {
+    "Movies": 1787,
+    "TVShows": 79,
+    "Episodes": 4324,
+    "MusicVideos": 0,
+    "Songs": 22360,
+    "Albums": 1557,
+    "Artists": 307
+  },
+  "counts_after": {
+    "Movies": 1787,
+    "TVShows": 79,
+    "Episodes": 4324,
+    "MusicVideos": 0,
+    "Songs": 22360,
+    "Albums": 1557,
+    "Artists": 307
+  },
+  "production_counts_unchanged": true,
+  "row_counts_match": true,
+  "hashes_match": true,
+  "timings": {
+    "baseline": {
+      "initial": 0.277043,
+      "unchanged": 0.12561,
+      "metadata": 2.09922,
+      "userdata": 2.144687,
+      "remove": 2.160764
+    },
+    "shared": {
+      "initial": 0.180292,
+      "unchanged": 0.080639,
+      "metadata": 2.153149,
+      "userdata": 2.133553,
+      "remove": 2.147347
+    }
+  }
+}

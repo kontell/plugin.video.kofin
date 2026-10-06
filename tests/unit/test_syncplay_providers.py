@@ -8,7 +8,7 @@ row — resume bookmark, play count — on the exact URL string (core/urls.py).
 
 import pytest
 
-import kofin.sync.db as database_module
+import kofin.sync.private as database_module
 from kofin.syncplay import providers
 
 ITEM_ID = "696f7d7c6cf19390f1f4911c83f2954a"

@@ -18,7 +18,11 @@ from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials, addon_version
 from kofin.core.ws import WSClient
-from kofin.service import artcache, backdrop, chapters
+from kofin import buildconfig
+from kofin.service import backdrop
+
+if buildconfig.legacy_features():
+    from kofin.service import artcache, chapters
 from kofin.service.kodiuserdata import KodiUserData
 from kofin.service.player import Player
 from kofin.service.remote import RemoteHandler
@@ -215,7 +219,9 @@ class Service(xbmc.Monitor):
         self._post_connect: Optional[threading.Thread] = None
         self._post_connect_pending = threading.Event()
         # Idle-time cast-image seeder, and the settings button's one-shot.
-        self.artcache = artcache.ActorArtCache()
+        self.artcache = (
+            artcache.ActorArtCache() if buildconfig.legacy_features() else None
+        )
         self._precache_art: Optional[threading.Thread] = None
         self._online = False
         # Raised by the websocket's disconnect callback, consumed by the next
@@ -270,6 +276,15 @@ class Service(xbmc.Monitor):
         """Run until abort or restart; returns True when a rebuild is wanted."""
         LOG.info("--->>> kofin service %s", addon_version())
         LOG.info("kodi %s", xbmc.getInfoLabel("System.BuildVersion"))
+        if buildconfig.BACKEND == "api":
+            try:
+                self._prepare_api_backend()
+            except Exception:
+                # Sync setup must not prevent connection, playback reporting or
+                # live browsing, including when the private store is damaged.
+                LOG.exception(
+                    "API backend preparation failed; native sync remains disabled"
+                )
         self._start_chapter_sweep()
         started = time.time()
         try:
@@ -292,6 +307,32 @@ class Service(xbmc.Monitor):
             self._shutdown()
         LOG.info("---<<< kofin service")
         return self._restart_requested and not self.abortRequested()
+
+    def _prepare_api_backend(self) -> None:
+        from kofin.sync.backend import create_backend
+        from kofin.sync.catalogue import BackendMismatch
+        from kofin.sync.private import addon_data_path
+        import os
+
+        backend = create_backend()
+        report = backend.capabilities()
+        try:
+            backend.initialize()
+            report["private_state"] = "ready"
+        except BackendMismatch:
+            report["private_state"] = "fresh library required"
+        directory = addon_data_path()
+        os.makedirs(directory, exist_ok=True)
+        target = os.path.join(directory, "api-capabilities.json")
+        with open(target + ".part", "w", encoding="utf-8") as handle:
+            json.dump(report, handle, indent=2)
+        os.replace(target + ".part", target)
+        LOG.info(
+            "API backend: interfaces=%s private_state=%s; native sync not enabled in this internal build",
+            report["interfaces_passed"],
+            report["private_state"],
+        )
+        settings.set_str("syncStatus", "Internal API build: native sync not enabled")
 
     def _tick(self) -> None:
         self._maybe_announce_lost()
@@ -451,13 +492,21 @@ class Service(xbmc.Monitor):
         self._reap_websocket()
         if self.ws is None:
             self._start_websocket()
+        if not buildconfig.native_sync():
+            try:
+                from kofin.sync.dynamic import publish
+
+                publish(self.api.views().get("Items", []), self.api)
+            except Exception:
+                LOG.exception("dynamic library entries unavailable")
         self._start_library()
         self._start_downloads()
         self._start_backdrop()
         # Cheap to start unconditionally: the worker sleeps until the setting
         # is on *and* the box is idle, so a user who never enables it pays a
         # parked thread and nothing else.
-        self.artcache.start()
+        if self.artcache is not None:
+            self.artcache.start()
 
     def _reap_websocket(self) -> None:
         """Empty the websocket slot when the thread behind it has ended.
@@ -506,13 +555,15 @@ class Service(xbmc.Monitor):
         """Start the sync manager once online, when there is anything to sync
         or resume. Import and failures are contained: playback and remote
         control must survive a broken sync stack (degrade, don't die)."""
+        if not buildconfig.native_sync():
+            return None
         self._reap_library()
 
         if self.library is not None:
             return
 
         try:
-            from kofin.sync import db as sync_db
+            from kofin.sync import private as sync_db
             from kofin.sync import kodisetup
             from kofin.sync.library import Library
 
@@ -536,6 +587,8 @@ class Service(xbmc.Monitor):
         """Build the download manager when enabled. Contained like the library
         manager: playback and sync must survive a broken downloads stack
         (degrade, don't die)."""
+        if not buildconfig.legacy_features():
+            return None
         if self.downloads is not None:
             return
         if not settings.get_bool("downloadsEnabled"):
@@ -695,6 +748,8 @@ class Service(xbmc.Monitor):
         playback left behind (their keys carry this install's deviceId).
         Deferred while a kofin playback is live — its entries are in use; a
         service restart mid-play leaves them to the next quiet start."""
+        if not buildconfig.legacy_features():
+            return None
         if state.get_playing_id():
             LOG.debug("chapter sweep deferred: playback live")
             return
@@ -705,6 +760,8 @@ class Service(xbmc.Monitor):
             self._chapter_sweep = spawned
 
     def _run_chapter_sweep(self) -> None:
+        if not buildconfig.legacy_features():
+            return None
         try:
             chapters.sweep(self.credentials.device_id)
         except Exception:
@@ -1131,6 +1188,8 @@ class Service(xbmc.Monitor):
         # so the Repair that follows would write every cast link
         # against that cache (audit F5). Reset; the next get_person
         # re-primes from the table.
+        if not buildconfig.legacy_features():
+            return None
         from kofin.sync.kodidb.kodi import Kodi
 
         LOG.info("Kodi cleaned its video library; dropping the people cache")
@@ -1184,6 +1243,8 @@ class Service(xbmc.Monitor):
         self._open_who_is_watching()
 
     def _ipc_precache_art(self, name: str, payload: Dict[str, Any]) -> None:
+        if not buildconfig.legacy_features():
+            return None
         self._precache_art_now()
 
     def _ipc_attach_subtitle(self, name: str, payload: Dict[str, Any]) -> None:
@@ -1263,6 +1324,10 @@ class Service(xbmc.Monitor):
         self._precache_art = spawned
 
     def _run_precache_art(self) -> None:
+        if self.artcache is None:
+            return None
+        if not buildconfig.legacy_features():
+            return None
         toast.show(settings.localized(30672), time_ms=4000)
         try:
             # The service's own instance, not a second one: it holds the lock
@@ -1352,7 +1417,8 @@ class Service(xbmc.Monitor):
             library_stuck = not self._join_library()
             self.library = None
         self.player.stop_threads()
-        self.artcache.stop()
+        if self.artcache is not None:
+            self.artcache.stop()
         self.kodi_userdata.stop()
         self._join_workers()
         self.http.close()

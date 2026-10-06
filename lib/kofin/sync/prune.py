@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from kofin.core.log import Logger
 from kofin.sync import changefeed
 from kofin.sync import downloader as server
-from kofin.sync.db import Database
+from kofin.sync.private import Database
 from kofin.sync.fields import find_library, reference_checksum
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync.shims import localized

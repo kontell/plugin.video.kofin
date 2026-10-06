@@ -46,15 +46,12 @@ PY
 )
 KODI_RPC="http://localhost:${RPC_PORT}/jsonrpc"
 
-rsync -a --delete \
-    --exclude '.git' --exclude '.venv' --exclude '.tox' \
-    --exclude '.claude' --exclude '.agents' --exclude '.aws' --exclude '.codex' \
-    --exclude '__pycache__' --exclude '.mypy_cache' --exclude '.pytest_cache' \
-    --exclude 'docs' --exclude 'tests' --exclude 'tools' \
-    --exclude 'mypy.ini' --exclude 'tox.ini' --exclude 'pyproject.toml' \
-    --exclude 'requirements-dev.txt' \
-    --exclude 'README.md' --exclude 'CONTRIBUTING.md' \
-    "$SRC/" "$DEST/"
+# The staged distribution is byte-identical to build.py's ZIP. --delete also
+# removes obsolete SQL modules when a developer changes package profiles.
+KOFIN_STAGE=$(mktemp -d)
+trap 'rm -rf "$KOFIN_STAGE"' EXIT
+python3 "$SRC/tools/build.py" --stage "$KOFIN_STAGE"
+rsync -a --delete "$KOFIN_STAGE/" "$DEST/"
 
 rpc() {
     curl -s -m "${2:-5}" -u "$RPC_USER:$RPC_PASS" -X POST -H 'Content-Type: application/json' \

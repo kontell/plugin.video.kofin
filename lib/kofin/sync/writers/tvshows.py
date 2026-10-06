@@ -19,7 +19,7 @@ from kofin.sync.fields import (
     gone_on_fetch,
     sync_checksum,
 )
-from kofin.sync.hooks import WriterHooks
+from kofin.sync.backends.sql.hooks import WriterHooks
 from kofin.sync.shims import (
     LibraryOrphanException,
     stop,

@@ -2227,3 +2227,7 @@ msgstr "Bekijk gevolgde afspeellijsten; vink ze uit om het synchroniseren van do
 msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Bekijk gevolgde muziekbibliotheken; vink ze uit om het synchroniseren van downloads te stoppen."
+
+msgctxt "#30990"
+msgid "Not available in this preview"
+msgstr "Niet beschikbaar in deze testversie"

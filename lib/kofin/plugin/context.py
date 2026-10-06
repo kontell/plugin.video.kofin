@@ -9,6 +9,7 @@ import xbmc
 import xbmcgui
 import xbmcvfs
 
+from kofin import buildconfig
 from kofin.core import kodirpc, settings, state, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
@@ -78,9 +79,11 @@ def _focused_item_id() -> str:
 
 def lookup_item_id(dbid: int, media_type: str) -> str:
     """The Jellyfin item id for a Kodi library row, '' when not kofin's."""
+    if not buildconfig.native_sync():
+        return ""
     if not dbid or dbid < 0 or not media_type:
         return ""
-    from kofin.sync.db import get_item
+    from kofin.sync.private import get_item
 
     row = get_item(dbid, media_type)
     return row.jellyfin_id if row is not None else ""
@@ -516,7 +519,7 @@ def _manage_options(item: dict, dynamic: bool) -> List[Tuple[str, dict]]:
     if item.get("SpecialFeatureCount"):
         options.append((settings.localized(30501), {"mode": "extras", "id": item_id}))
 
-    if settings.get_bool("downloadsEnabled"):
+    if buildconfig.legacy_features() and settings.get_bool("downloadsEnabled"):
         options.extend(_download_options(item))
 
     # Two gates, and they answer different questions: the setting is whether
@@ -550,7 +553,7 @@ def _offline_menu(item_id: str) -> None:
     queues *playback* events only.
     """
     options: List[Tuple[str, dict]] = []
-    if settings.get_bool("downloadsEnabled"):
+    if buildconfig.legacy_features() and settings.get_bool("downloadsEnabled"):
         from kofin.downloads import store
 
         row = store.get(item_id)
@@ -594,9 +597,11 @@ def save_playlist() -> None:
 
 def manage_download_playlist() -> None:
     """Download actions for one file in the managed music playlist folder."""
+    if not buildconfig.legacy_features():
+        return None
     from kofin.downloads import store, subscriptions
     from kofin.sync import playlists
-    from kofin.sync.db import Database
+    from kofin.sync.private import Database
 
     path = xbmc.getInfoLabel("ListItem.FileNameAndPath")
     directory = os.path.realpath(playlists.managed_dir())

@@ -15,10 +15,16 @@ import hashlib
 from kofin.core import ipc, settings
 from kofin.core.http import Unauthorized
 from kofin.core.log import Logger
-from kofin.sync import playlists
-from kofin.sync.db import Database, get_sync, save_sync
+from kofin import buildconfig
+
+if buildconfig.native_sync():
+    from kofin.sync import playlists
+from kofin.sync.private import Database, get_sync, save_sync
 from kofin.sync import kofindb as jellyfin_db
-from kofin.sync.nodes import music, props, video
+from kofin.sync.nodes import props, video
+
+if buildconfig.native_sync():
+    from kofin.sync.nodes import music
 
 LOG = Logger(__name__)
 
@@ -30,7 +36,16 @@ class Views(object):
     def __init__(self, server=None):
         """``server`` is the kofin Api (may be None for local-only paths
         like remove_library)."""
-        self.sync = get_sync()
+        self.sync = (
+            get_sync()
+            if buildconfig.native_sync()
+            else {
+                "Libraries": [],
+                "Whitelist": [],
+                "SortedViews": [],
+                "RestorePoints": {},
+            }
+        )
         self.server = server
 
     def add_library(self, view):
@@ -45,6 +60,8 @@ class Views(object):
         with Database("kofin") as kofin_db:
             jellyfin_db.JellyfinDatabase(kofin_db.cursor).remove_view(view_id)
 
+        if not buildconfig.native_sync():
+            return
         playlists.remove_video_playlist_for(view_id)
         video.delete_library(view_id)
         # The view set changed shape; force regeneration next pass.
@@ -205,6 +222,8 @@ class Views(object):
         File generation is skipped when nothing feeding it changed (the
         viewsHash guard); window props are session state and always rebuilt.
         """
+        if not buildconfig.native_sync():
+            return self.window_nodes()
         current_hash = self.views_hash()
 
         if settings.get_str("viewsHash") == current_hash:
