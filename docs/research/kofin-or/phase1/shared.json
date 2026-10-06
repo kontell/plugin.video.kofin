@@ -1,0 +1,91 @@
+{
+  "mode": "sql",
+  "label": "shared",
+  "complete": true,
+  "result": {
+    "timings": {
+      "initial": 0.180292,
+      "unchanged": 0.080639,
+      "metadata": 2.153149,
+      "userdata": 2.133553,
+      "remove": 2.147347
+    },
+    "row_counts": {
+      "initial": {
+        "movie": 100,
+        "tvshow": 1,
+        "episode": 1,
+        "musicvideo": 1,
+        "song": 1,
+        "album": 1,
+        "artist": 2
+      },
+      "unchanged": {
+        "movie": 100,
+        "tvshow": 1,
+        "episode": 1,
+        "musicvideo": 1,
+        "song": 1,
+        "album": 1,
+        "artist": 2
+      },
+      "metadata": {
+        "movie": 100,
+        "tvshow": 1,
+        "episode": 1,
+        "musicvideo": 1,
+        "song": 1,
+        "album": 1,
+        "artist": 2
+      },
+      "userdata": {
+        "movie": 100,
+        "tvshow": 1,
+        "episode": 1,
+        "musicvideo": 1,
+        "song": 1,
+        "album": 1,
+        "artist": 2
+      },
+      "remove": {
+        "movie": 99,
+        "tvshow": 0,
+        "episode": 0,
+        "musicvideo": 1,
+        "song": 0,
+        "album": 1,
+        "artist": 2
+      }
+    },
+    "hashes": {
+      "initial": {
+        "video": "e7108643e4f772c62556d94131e4c6584c5d9602895e6ea51d28dbb108af2a32",
+        "music": "032ec1de878d5d471c2b54f22c5b3e61a3c86019b1527b5ef29f1b9e6c778f24",
+        "kofin": "6736ad172aec5893d406d3cf2c7327a42ee929817d48bee78aec489cc4aecd51"
+      },
+      "unchanged": {
+        "video": "98fee9e5e2ffbf8b57e54d369ff75069c3354e235f00ec350b91fa1e652ab116",
+        "music": "032ec1de878d5d471c2b54f22c5b3e61a3c86019b1527b5ef29f1b9e6c778f24",
+        "kofin": "6736ad172aec5893d406d3cf2c7327a42ee929817d48bee78aec489cc4aecd51"
+      },
+      "metadata": {
+        "video": "2c1ca3744970fb3fbb744732982e0aaebcc30578760cdcdd7abb0c89c0f3d2cd",
+        "music": "e10d7c3002d78f7169010bfafefb0758bf440109377fcbabe8eb59a7243767e5",
+        "kofin": "efc43a8db083e4969442247bb439072c97439884d08cad56ce1cdcd3e58df1df"
+      },
+      "userdata": {
+        "video": "d14588826939dac7c981b3ee79757d232bfb9d9a8066dbda3140380c02c43cd6",
+        "music": "95b4b713f9985eec6460ca34fc34171095c24c22d89c761e8ce293e84817aeda",
+        "kofin": "efc43a8db083e4969442247bb439072c97439884d08cad56ce1cdcd3e58df1df"
+      },
+      "remove": {
+        "video": "cad64e2c781e4202742ba7bb2019e9d5bb25b32507be7b299832d591924f5c86",
+        "music": "e96540150257d70e1ed627e26f333e9cd735616907295c253b02f769fa5bd655",
+        "kofin": "b9ce00099caa874f0e0a8961faec9bb085656a4dcb7248999d8b2507646535be"
+      }
+    },
+    "unapplied": 0,
+    "restore_points_cleared": true,
+    "ui_events_recorded": 0
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "mode": "api",
+  "label": "api",
+  "complete": true,
+  "result": {
+    "service_started": true,
+    "private_state": "ready",
+    "native_access": 0,
+    "capabilities": {
+      "interfaces_passed": true,
+      "errors": [],
+      "dirty_build_exception_used": true,
+      "stock_release_qualified": false,
+      "behavioral_gates": [
+        "Re-run probes on an unmodified RC1 binary when binaries become available; a source tag is not this gate.",
+        "Music requires loaded tags, complete published snapshots, metadata rescan policy and post-import userdata.",
+        "Piers deletes tracks on failed/partial plugin listing; native music rollout requires recovery tests and an explicit reliability decision.",
+        "Refresh may change native IDs and overwrite userdata: reconcile and restore before reporting success.",
+        "ScanFinished and immediate OK are insufficient without ownership-checked readback.",
+        "Future v23 builds require new behavioral qualification; version/method presence alone is insufficient."
+      ],
+      "backend": "api",
+      "native_sync_enabled": false,
+      "application": {
+        "name": "Kodi",
+        "version": {
+          "major": 22,
+          "minor": 0,
+          "revision": "20260831-e513e0ff-dirty",
+          "tag": "beta",
+          "tagversion": "2"
+        }
+      }
+    }
+  }
+}
