@@ -42,7 +42,7 @@ def whitelist(monkeypatch):
     state = {"Whitelist": ["lib2"]}
 
     monkeypatch.setattr(
-        "kofin.sync.db.get_sync",
+        "kofin.sync.private.get_sync",
         lambda: {
             "Libraries": [],
             "RestorePoints": {},

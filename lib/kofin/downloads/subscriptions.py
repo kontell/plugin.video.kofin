@@ -13,7 +13,7 @@ from typing import Any, Dict, Iterable, List, Set, Tuple
 from kofin.core import ipc, settings
 from kofin.core.log import Logger
 from kofin.downloads import store
-from kofin.sync.db import Database
+from kofin.sync.private import Database
 
 LOG = Logger(__name__)
 

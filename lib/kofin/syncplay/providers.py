@@ -79,7 +79,7 @@ class JellyfinProvider:
         return {"url": plugin_url(params), "audio": item.get("Type") == "Audio"}
 
     def resolve_kodi_id(self, kodi_id: int, media: str) -> Optional[str]:
-        from kofin.sync import db as database  # deferred: pulls in the DB stack
+        from kofin.sync import private as database  # deferred: pulls in the DB stack
 
         mapped = database.get_item(kodi_id, media)
         return mapped[0] if mapped else None

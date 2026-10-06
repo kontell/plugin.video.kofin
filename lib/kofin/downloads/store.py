@@ -1,9 +1,9 @@
 """The kofin.db ``download`` table: what is downloaded, wanted, or failed.
 
 One row per item, keyed by jellyfin id; rows leave the table only on
-remove-download. The DDL lives in :func:`kofin.sync.db.kofin_tables` so the
+remove-download. The DDL lives in :func:`kofin.sync.private.kofin_tables` so the
 table exists wherever kofin.db exists; every access here goes through the
-same :class:`kofin.sync.db.Database` plumbing the rest of the addon uses,
+same :class:`kofin.sync.private.Database` plumbing the rest of the addon uses,
 which is what lets the sync writers read download state on the connection
 they already hold (plan W1.8).
 
@@ -19,7 +19,7 @@ from dataclasses import dataclass, fields as dataclass_fields
 from typing import Any, Dict, List, Optional, Sequence
 
 from kofin.core.log import Logger
-from kofin.sync.db import Database
+from kofin.sync.private import Database
 
 LOG = Logger(__name__)
 
