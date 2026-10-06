@@ -1,6 +1,6 @@
 """Distribution identity. Changed at build time, never by a user setting."""
 
-BACKEND = "sql"
+BACKEND = "api"
 
 
 def native_sync() -> bool:
