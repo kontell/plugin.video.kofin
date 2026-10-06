@@ -2227,3 +2227,7 @@ msgstr "Revisa les llistes de reproducció subscrites; desmarca-les per deixar d
 msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Revisa les biblioteques de música subscrites; desmarca-les per deixar de sincronitzar les descàrregues."
+
+msgctxt "#30990"
+msgid "Not available in this preview"
+msgstr "No disponible en aquesta versió prèvia"

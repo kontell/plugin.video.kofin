@@ -66,7 +66,7 @@ def _is_audio(item_id: str) -> bool:
     """
     try:
         from kofin.sync import kofindb
-        from kofin.sync.db import Database
+        from kofin.sync.private import Database
 
         with Database("kofin") as kofin_db:
             row = kofindb.JellyfinDatabase(kofin_db.cursor).get_item_by_id(item_id)

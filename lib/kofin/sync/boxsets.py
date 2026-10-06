@@ -16,10 +16,9 @@ from typing import Any, Dict, Set
 
 from kofin.core.log import Logger
 from kofin.sync import downloader as server
-from kofin.sync import kofindb as jellyfin_db
 from kofin.sync.shims import localized
-from kofin.sync.writers import Movies
-from kofin.sync.writers.movies import (
+from kofin.sync.model import (
+    MediaItem,
     BOXSET_GUARDED,
     BOXSET_HEALED,
     BOXSET_UNCHANGED,
@@ -46,8 +45,7 @@ def walk(sync: Any, library: Dict[str, Any], dialog: Any) -> None:
         library,
         "BoxSet",
         restore_key,
-        lambda jellyfindb, videodb: Movies(sync.server, jellyfindb, videodb, library),
-        lambda obj, boxset: obj.boxset(boxset),
+        lambda obj, boxset: obj.apply(MediaItem.from_dto(boxset, "BoxSet")).outcome,
         lambda boxset: boxset["Name"],
         dialog,
         "%s: %s" % ("Kofin", localized(30407)),
@@ -79,8 +77,8 @@ def walk(sync: Any, library: Dict[str, Any], dialog: Any) -> None:
     # so measured state covers exactly the references that survived. It
     # runs on resumed walks too -- it is measurement, not deletion, so
     # the fresh-start gate above does not apply.
-    with sync.video_database_locks() as (videodb, jellyfindb):
-        Movies(sync.server, jellyfindb, videodb).restamp_boxset_states(guarded_ids)
+    with sync.video_database_locks() as batch:
+        batch.restamp_boxsets(guarded_ids)
 
     LOG.info(
         "boxsets: %s checked (%s unchanged, %s written, %s healed, "
@@ -105,9 +103,8 @@ def sweep_stale(sync: Any, walked: Set[str]) -> int:
     failures look exactly like it): skip and warn, mirroring the prune's
     get_existing_ids philosophy.
     """
-    with sync.video_database_locks() as (videodb, jellyfindb):
-        db = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
-        known = [row[0] for row in db.get_items_by_media("set")]
+    with sync.video_database_locks() as batch:
+        known = batch.boxset_ids()
         stale = [item_id for item_id in known if item_id not in walked]
 
         if not walked and known:
@@ -122,10 +119,8 @@ def sweep_stale(sync: Any, walked: Set[str]) -> int:
         if not stale:
             return 0
 
-        obj = Movies(sync.server, jellyfindb, videodb)
-
         for item_id in stale:
-            obj.remove(item_id)
+            batch.remove(MediaItem.from_dto({"Id": item_id, "Type": "BoxSet"}))
 
     LOG.info("swept %s stale boxset(s): %s", len(stale), ", ".join(stale[:5]))
 
@@ -134,11 +129,9 @@ def sweep_stale(sync: Any, walked: Set[str]) -> int:
 
 def refresh(sync: Any, library: Dict[str, Any]) -> None:
     """Delete all existing boxsets and re-add."""
-    with sync.video_database_locks() as (videodb, jellyfindb):
-        db = jellyfin_db.JellyfinDatabase(jellyfindb.cursor)
-        before = len(db.get_items_by_media("set"))
-        obj = Movies(sync.server, jellyfindb, videodb, library)
-        obj.boxsets_reset()
+    with sync.video_database_locks() as batch:
+        before = len(batch.boxset_ids())
+        batch.reset_boxsets()
 
     LOG.info("refresh boxsets: reset %s set(s), re-adding", before)
     sync.boxsets(library)

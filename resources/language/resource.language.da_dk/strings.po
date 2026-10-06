@@ -2227,3 +2227,7 @@ msgstr "Gennemgå abonnerede playlister; fjern markeringen for at stoppe synkron
 msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Gennemgå abonnerede musikbiblioteker; fjern markeringen for at stoppe synkronisering af downloads."
+
+msgctxt "#30990"
+msgid "Not available in this preview"
+msgstr "Ikke tilgængelig i denne prøveversion"

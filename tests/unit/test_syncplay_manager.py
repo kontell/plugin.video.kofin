@@ -7,7 +7,7 @@ kofin-specific kicked-probe, group-flag and Hello-transport tests."""
 
 import pytest
 
-import kofin.sync.db as database_module
+import kofin.sync.private as database_module
 import kofin.syncplay.manager as manager_module
 import kofin.syncplay.playback as playback_module
 from kofin.syncplay import utils

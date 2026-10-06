@@ -24,8 +24,7 @@ def test_package_excludes_repo_docs():
     script = open(
         os.path.join(REPO_ROOT, "tools", "dev-install.sh"), encoding="utf-8"
     ).read()
-    assert "--exclude 'README.md'" in script
-    assert "--exclude 'CONTRIBUTING.md'" in script
+    assert '"$SRC/tools/build.py" --stage "$KOFIN_STAGE"' in script
 
 
 def test_sync_playlists_and_nfo_export_default_on():
