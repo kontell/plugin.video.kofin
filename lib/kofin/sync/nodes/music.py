@@ -22,7 +22,7 @@ import xbmcvfs
 from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import musicsources
-from kofin.sync.db import Database, get_sync
+from kofin.sync.private import Database, get_sync
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync.nodes import fs
 from kofin.sync.nodes.video import (

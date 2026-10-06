@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from kofin.core.log import Logger
-from kofin.sync.db import Database
+from kofin.sync.private import Database
 
 LOG = Logger(__name__)
 
