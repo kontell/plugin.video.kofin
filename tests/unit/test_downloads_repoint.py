@@ -18,7 +18,7 @@ from kofin.sync import db as sync_db
 from kofin.sync import schema
 from kofin.sync.kodidb.kodi import Kodi
 from kofin.sync.writers import Movies, TVShows
-from kofin.sync.hooks import pipeline_hooks
+from kofin.sync.backends.sql.hooks import pipeline_hooks
 
 HOOKS = pipeline_hooks()
 from tests.unit import kodifixtures

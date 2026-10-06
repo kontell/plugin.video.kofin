@@ -31,10 +31,9 @@ from kofin.core.http import HttpError
 from kofin.core.log import Logger
 from kofin.sync import boxsets, prune, removal, restorepoints
 from kofin.sync import downloader as server
-from kofin.sync import musicsources
-from kofin.sync.hooks import pipeline_hooks
-from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
-from kofin.sync.db import Database, get_sync, save_sync
+from kofin.sync.private import Database, get_sync, save_sync
+from kofin.sync.backend import create_backend
+from kofin.sync.model import MediaItem
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync.shims import (
     LibraryException,
@@ -107,9 +106,8 @@ class FullSync(object):
         self._claimed = False
         # Set by begin_walk, stamped onto every point that walk saves.
         self._restore_fingerprint = None
-        # The pipeline's writer hooks (kofin.sync.hooks), one composition per
-        # sync.
-        self.hooks = pipeline_hooks()
+        # The adapter owns native writes and their pipeline callbacks.
+        self.backend = getattr(host, "backend", None) or create_backend()
 
     def __enter__(self):
         """Take the claim and mark the sync active."""
@@ -534,47 +532,21 @@ class FullSync(object):
 
     @contextmanager
     def video_database_locks(self):
-        with self.host.database_lock:
-            # kofin.db outermost, so the Kodi database commits first at block
-            # exit: a failed Kodi commit must not leave the mapping claiming
-            # rows MyVideos never got (audit finding #17) — those short-circuit
-            # every later Etag-gated walk. The periodic in-pass commits already
-            # go Kodi-first.
-            with Database("kofin") as jellyfindb:
-                with Database() as videodb:
-                    yield videodb, jellyfindb
+        """A video operation scope; native transactions belong to the adapter."""
+        with self.host.database_lock, self.backend.batch("video", self.server) as batch:
+            yield batch
+            batch.commit()
 
-    @contextmanager
-    def _held_connections(self):
-        """Connections held across a pass; the writer lock and the commits
-        are per page (phase 5, sync-plan Phase 3): realtime writers
-        interleave exactly as before, only the per-page open/close churn is
-        gone. Yields the per-page scope ``_walk`` enters for each page."""
-        with Database("kofin") as jellyfindb, Database() as videodb:
-
-            @contextmanager
-            def page():
-                with self.host.database_lock:
-                    yield videodb, jellyfindb
-                    # Kodi's database first, the mapping second — the same
-                    # order as workers.py's COMMIT_INTERVAL pair and as the
-                    # ``with`` unwind. A crash between the two leaves Kodi
-                    # rows with no mapping, which the next pass sees as
-                    # unwritten and writes again: a visible duplicate to
-                    # rewrite. The other order leaves a mapping with no rows,
-                    # which check_unchanged would skip forever — silent loss.
-                    # Neither is free; this one is the recoverable one.
-                    videodb.conn.commit()
-                    jellyfindb.conn.commit()
-
-            yield page
+    def _held_connections(self, library=None):
+        return self.backend.pages(
+            "video", self.server, self.host.database_lock, library, full_sync=True
+        )
 
     def _walk(
         self,
         library,
         item_type,
         restore_key,
-        writer,
         apply,
         describe,
         dialog,
@@ -616,8 +588,7 @@ class FullSync(object):
             restore_point or params,
         ):
 
-            with page() as (videodb, jellyfindb):
-                obj = writer(jellyfindb, videodb)
+            with page() as obj:
 
                 self.set_restore_point(restore_key, items["RestorePoint"])
                 start_index = items["RestorePoint"]["params"]["StartIndex"]
@@ -656,15 +627,14 @@ class FullSync(object):
         """Process movies from a single library."""
         restore_key = "%s/movies" % library["Id"]
 
-        with self._held_connections() as page:
+        with self._held_connections(library) as page:
             self._walk(
                 library,
                 "Movie",
                 restore_key,
-                lambda jellyfindb, videodb: Movies(
-                    self.server, jellyfindb, videodb, library, hooks=self.hooks
-                ),
-                lambda obj, movie: obj.movie(movie),
+                lambda obj, movie: obj.apply(
+                    MediaItem.from_dto(movie, "Movie")
+                ).outcome,
                 lambda movie: movie["Name"],
                 dialog,
                 self._heading(library),
@@ -750,34 +720,35 @@ class FullSync(object):
             (
                 "Series",
                 "series",
-                lambda obj, show: obj.tvshow(show),
+                lambda obj, show: obj.apply(MediaItem.from_dto(show, "Series")).outcome,
                 lambda s: s["Name"],
             ),
-            ("Season", "seasons", lambda obj, season: obj.season(season), child_label),
+            (
+                "Season",
+                "seasons",
+                lambda obj, season: obj.apply(
+                    MediaItem.from_dto(season, "Season")
+                ).outcome,
+                child_label,
+            ),
             (
                 "Episode",
                 "episodes",
                 lambda obj, episode: (
-                    obj.episode(episode) if episode.get("Path") else None
+                    obj.apply(MediaItem.from_dto(episode, "Episode")).outcome
+                    if episode.get("Path")
+                    else None
                 ),
                 child_label,
             ),
         )
 
-        with self._held_connections() as page:
+        with self._held_connections(library) as page:
             for item_type, key_suffix, apply, describe in passes:
                 self._walk(
                     library,
                     item_type,
                     "%s/tvshows-%s" % (library["Id"], key_suffix),
-                    lambda jellyfindb, videodb: TVShows(
-                        self.server,
-                        jellyfindb,
-                        videodb,
-                        library,
-                        True,
-                        hooks=self.hooks,
-                    ),
                     apply,
                     describe,
                     dialog,
@@ -795,15 +766,14 @@ class FullSync(object):
         """Process musicvideos from a single library."""
         restore_key = "%s/musicvideos" % library["Id"]
 
-        with self._held_connections() as page:
+        with self._held_connections(library) as page:
             self._walk(
                 library,
                 "MusicVideo",
                 restore_key,
-                lambda jellyfindb, videodb: MusicVideos(
-                    self.server, jellyfindb, videodb, library, hooks=self.hooks
-                ),
-                lambda obj, mvideo: obj.musicvideo(mvideo),
+                lambda obj, mvideo: obj.apply(
+                    MediaItem.from_dto(mvideo, "MusicVideo")
+                ).outcome,
                 lambda mvideo: mvideo["Name"],
                 dialog,
                 self._heading(library),
@@ -816,126 +786,118 @@ class FullSync(object):
     def music(self, library, dialog):
         """Process artists, album, songs from a single library."""
         with self.host.music_database_lock:
-            # kofin.db outermost for the same commit-order reason as
-            # video_database_locks.
-            with Database("kofin") as jellyfindb:
-                with Database("music") as musicdb:
-                    obj = Music(
-                        self.server, jellyfindb, musicdb, library, hooks=self.hooks
-                    )
+            with self.backend.batch(
+                "music", self.server, library, full_sync=True
+            ) as obj:
+                library_id = library["Id"]
 
-                    library_id = library["Id"]
+                # A denominator only: the count asks /Items while the
+                # artists walk /Artists, so the bar can overrun 100 and
+                # the two populations can disagree all the way to zero —
+                # a library whose songs the count's LocationTypes filter
+                # drops while /Artists still answers divided by zero on
+                # the first artist and took the pass down (audit F8).
+                total_items = max(
+                    server.get_item_count(
+                        self.server, library_id, "MusicArtist,MusicAlbum,Audio"
+                    ),
+                    1,
+                )
+                count = 0
 
-                    # A denominator only: the count asks /Items while the
-                    # artists walk /Artists, so the bar can overrun 100 and
-                    # the two populations can disagree all the way to zero —
-                    # a library whose songs the count's LocationTypes filter
-                    # drops while /Artists still answers divided by zero on
-                    # the first artist and took the pass down (audit F8).
-                    total_items = max(
-                        server.get_item_count(
-                            self.server, library_id, "MusicArtist,MusicAlbum,Audio"
-                        ),
-                        1,
-                    )
-                    count = 0
+                """
+                Music database syncing.  Artists must be in the database
+                before albums, albums before songs.  Pulls batches of items
+                in sizes of setting "Paging - Max items".  'artists',
+                'albums', and 'songs' are generators containing a dict of
+                api responses
+                """
+                artists = server.get_artists(self.server, library_id)
+                for batch in artists:
+                    for item in batch["Items"]:
+                        LOG.debug("Artist: {}".format(item.get("Name")))
+                        percent = min(
+                            int((float(count) / float(total_items)) * 100), 100
+                        )
+                        dialog.update(
+                            percent,
+                            heading="%s: %s" % ("Kofin", library["Name"]),
+                            message="Artist: {}".format(item.get("Name")),
+                        )
+                        obj.apply(MediaItem.from_dto(item, "MusicArtist"))
+                        count += 1
 
-                    """
-                    Music database syncing.  Artists must be in the database
-                    before albums, albums before songs.  Pulls batches of items
-                    in sizes of setting "Paging - Max items".  'artists',
-                    'albums', and 'songs' are generators containing a dict of
-                    api responses
-                    """
-                    artists = server.get_artists(self.server, library_id)
-                    for batch in artists:
-                        for item in batch["Items"]:
-                            LOG.debug("Artist: {}".format(item.get("Name")))
-                            percent = min(
-                                int((float(count) / float(total_items)) * 100), 100
-                            )
-                            dialog.update(
-                                percent,
-                                heading="%s: %s" % ("Kofin", library["Name"]),
-                                message="Artist: {}".format(item.get("Name")),
-                            )
-                            obj.artist(item)
-                            count += 1
+                # Sort pairs are spelled in full: get_items' default is
+                # composite, and overriding SortBy alone left a mismatched
+                # SortOrder that Jellyfin 10.11 answers with a 400 (see
+                # downloader.align_sort_order). SortName breaks the tie so
+                # StartIndex paging stays deterministic under equal album
+                # artists, exactly as the video default does.
+                albums = server.get_items(
+                    self.server,
+                    library_id,
+                    item_type="MusicAlbum",
+                    params={
+                        "SortBy": "AlbumArtist,SortName",
+                        "SortOrder": "Ascending,Ascending",
+                        "Fields": server.music_page_info(),
+                    },
+                )
+                for batch in albums:
+                    for item in batch["Items"]:
+                        LOG.debug("Album: {}".format(item.get("Name")))
+                        percent = min(
+                            int((float(count) / float(total_items)) * 100), 100
+                        )
+                        dialog.update(
+                            percent,
+                            heading="%s: %s" % ("Kofin", library["Name"]),
+                            message="Album: {} - {}".format(
+                                item.get("AlbumArtist", ""), item.get("Name")
+                            ),
+                        )
+                        obj.apply(MediaItem.from_dto(item, "MusicAlbum"))
+                        count += 1
 
-                    # Sort pairs are spelled in full: get_items' default is
-                    # composite, and overriding SortBy alone left a mismatched
-                    # SortOrder that Jellyfin 10.11 answers with a 400 (see
-                    # downloader.align_sort_order). SortName breaks the tie so
-                    # StartIndex paging stays deterministic under equal album
-                    # artists, exactly as the video default does.
-                    albums = server.get_items(
-                        self.server,
-                        library_id,
-                        item_type="MusicAlbum",
-                        params={
-                            "SortBy": "AlbumArtist,SortName",
-                            "SortOrder": "Ascending,Ascending",
-                            "Fields": server.music_page_info(),
-                        },
-                    )
-                    for batch in albums:
-                        for item in batch["Items"]:
-                            LOG.debug("Album: {}".format(item.get("Name")))
-                            percent = min(
-                                int((float(count) / float(total_items)) * 100), 100
-                            )
-                            dialog.update(
-                                percent,
-                                heading="%s: %s" % ("Kofin", library["Name"]),
-                                message="Album: {} - {}".format(
-                                    item.get("AlbumArtist", ""), item.get("Name")
-                                ),
-                            )
-                            obj.album(item)
-                            count += 1
+                # Album is in the song key so tracks arrive grouped by
+                # album: songs whose album is somehow not in kodi yet
+                # create it on demand (song_add), and grouping means that
+                # costs one lookup per album instead of one per track.
+                songs = server.get_items(
+                    self.server,
+                    library_id,
+                    item_type="Audio",
+                    params={
+                        "SortBy": "AlbumArtist,Album,SortName",
+                        "SortOrder": "Ascending,Ascending,Ascending",
+                        "Fields": server.music_page_info(),
+                    },
+                )
+                for batch in songs:
+                    for item in batch["Items"]:
+                        LOG.debug("Song: {}".format(item.get("Name")))
+                        percent = min(
+                            int((float(count) / float(total_items)) * 100), 100
+                        )
+                        dialog.update(
+                            percent,
+                            heading="%s: %s" % ("Kofin", library["Name"]),
+                            message="Track: {} - {}".format(
+                                item.get("AlbumArtist", ""), item.get("Name")
+                            ),
+                        )
+                        obj.apply(MediaItem.from_dto(item, "Audio"))
+                        count += 1
 
-                    # Album is in the song key so tracks arrive grouped by
-                    # album: songs whose album is somehow not in kodi yet
-                    # create it on demand (song_add), and grouping means that
-                    # costs one lookup per album instead of one per track.
-                    songs = server.get_items(
-                        self.server,
-                        library_id,
-                        item_type="Audio",
-                        params={
-                            "SortBy": "AlbumArtist,Album,SortName",
-                            "SortOrder": "Ascending,Ascending,Ascending",
-                            "Fields": server.music_page_info(),
-                        },
-                    )
-                    for batch in songs:
-                        for item in batch["Items"]:
-                            LOG.debug("Song: {}".format(item.get("Name")))
-                            percent = min(
-                                int((float(count) / float(total_items)) * 100), 100
-                            )
-                            dialog.update(
-                                percent,
-                                heading="%s: %s" % ("Kofin", library["Name"]),
-                                message="Track: {} - {}".format(
-                                    item.get("AlbumArtist", ""), item.get("Name")
-                                ),
-                            )
-                            obj.song(item)
-                            count += 1
-
-                    # The writers link each album to its library's source as
-                    # they go, but only when they actually rewrite something
-                    # — check_unchanged returns before the hook. This closes
-                    # the walk over what an unchanged pass skipped, and heals
-                    # a source table Kodi's own scanner emptied (it runs
-                    # DELETE FROM source whenever it disagrees with
-                    # sources.xml, which with an empty one it always does).
-                    musicsources.reassert(
-                        jellyfindb.cursor,
-                        musicdb.cursor,
-                        obj.music_views(),
-                    )
+                # The writers link each album to its library's source as
+                # they go, but only when they actually rewrite something
+                # — check_unchanged returns before the hook. This closes
+                # the walk over what an unchanged pass skipped, and heals
+                # a source table Kodi's own scanner emptied (it runs
+                # DELETE FROM source whenever it disagrees with
+                # sources.xml, which with an empty one it always does).
+                obj.finish_music()
+                obj.commit()
 
     @progress()
     def prune(self, library, library_id, dialog):

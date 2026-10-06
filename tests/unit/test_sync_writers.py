@@ -23,7 +23,7 @@ from kofin.sync.workers import UpdateWorker
 from kofin.sync.newcontent import Entry
 from kofin.sync.shims import LibraryOrphanException
 from kofin.sync.writers import Movies, MusicVideos, TVShows, Music
-from kofin.sync.hooks import pipeline_hooks
+from kofin.sync.backends.sql.hooks import pipeline_hooks
 
 HOOKS = pipeline_hooks()
 from kofin.sync.writers.movies import (

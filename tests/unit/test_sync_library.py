@@ -1,3 +1,5 @@
+from kofin.sync.backends.sql import dispatch as sql_dispatch
+
 """L1 units for the sync orchestrator: queue routing, priority rules,
 watermark handling and the ws-event wiring (plan §5 step 3)."""
 
@@ -12,7 +14,6 @@ from kofin.sync import db as sync_db
 from kofin.sync import kofindb
 from kofin.sync import library as library_mod
 from kofin.sync import refresh as refresh_mod
-from kofin.sync import workers as workers_mod
 from kofin.sync import newcontent
 from kofin.sync.workers import GetItemWorker
 from kofin.sync.library import Library
@@ -881,7 +882,9 @@ def test_status_strings_write_only_on_change(monkeypatch):
     load failures (widget-refresh-plan F9). Unchanged values write nothing."""
     seed_views(("lib1", "Movies", "movies"))
     seed_whitelist("lib1")
-    monkeypatch.setattr(library_mod.schema, "gate_status", lambda kinds=None: None)
+    from kofin.sync import schema
+
+    monkeypatch.setattr(schema, "gate_status", lambda kinds=None: None)
 
     manager, _api = make_library()
 
@@ -1380,7 +1383,7 @@ def test_boxset_removal_routes_to_the_movies_writer():
     media, so a set id belongs there."""
     movies, tvshows, music, musicvideos = _writers()
 
-    writer = workers_mod.removal_writer_for(
+    writer = sql_dispatch.removal_writer_for(
         "BoxSet", movies, tvshows, music, musicvideos
     )
 
@@ -1406,7 +1409,7 @@ def test_every_synced_kind_has_a_removal_writer():
         "Audio",
     ):
         assert (
-            workers_mod.removal_writer_for(kind, movies, tvshows, music, musicvideos)
+            sql_dispatch.removal_writer_for(kind, movies, tvshows, music, musicvideos)
             is not None
         ), kind
 
@@ -1417,7 +1420,7 @@ def test_unknown_kind_returns_none_never_a_stale_writer():
     movies, tvshows, music, musicvideos = _writers()
 
     assert (
-        workers_mod.removal_writer_for("Photo", movies, tvshows, music, musicvideos)
+        sql_dispatch.removal_writer_for("Photo", movies, tvshows, music, musicvideos)
         is None
     )
     assert movies.removed == []
@@ -1431,16 +1434,16 @@ def test_dispatch_tolerates_the_unbuilt_writer_family():
     movies, tvshows, _music, musicvideos = _writers()
 
     # Music worker: video writers unbuilt.
-    assert workers_mod.removal_writer_for("Movie", None, None, None, None) is None
-    assert workers_mod.removal_writer_for("BoxSet", None, None, None, None) is None
+    assert sql_dispatch.removal_writer_for("Movie", None, None, None, None) is None
+    assert sql_dispatch.removal_writer_for("BoxSet", None, None, None, None) is None
 
     # Video worker: music writer unbuilt, video kinds still route.
     assert (
-        workers_mod.removal_writer_for("Audio", movies, tvshows, None, musicvideos)
+        sql_dispatch.removal_writer_for("Audio", movies, tvshows, None, musicvideos)
         is None
     )
     assert (
-        workers_mod.removal_writer_for("Movie", movies, tvshows, None, musicvideos)
+        sql_dispatch.removal_writer_for("Movie", movies, tvshows, None, musicvideos)
         is not None
     )
 

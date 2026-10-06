@@ -162,7 +162,7 @@ def save_playlist(request: Request) -> None:
         return
     from kofin.sync import kofindb as jellyfin_db
     from kofin.sync import playlists as music_playlists
-    from kofin.sync.db import Database
+    from kofin.sync.private import Database
 
     translated = xbmcvfs.translatePath(path)
     try:
@@ -272,7 +272,7 @@ def repair_libraries(request: Request) -> None:
 
 def _selection_names(library_ids: List[str]) -> List[str]:
     """View names for the picker; falls back to the raw ids offline."""
-    from kofin.sync import db as sync_db
+    from kofin.sync import private as sync_db
     from kofin.sync import kofindb
 
     names = []
@@ -323,7 +323,7 @@ def _music_library(item: dict) -> bool:
     if collection:
         return collection == "music"
     # Some item endpoints omit the collection type supplied by /Views.
-    from kofin.sync.db import Database
+    from kofin.sync.private import Database
 
     with Database("kofin") as opened:
         opened.cursor.execute(
@@ -692,7 +692,7 @@ def download_music_library(request: Request) -> None:
 def manage_download_subscriptions(request: Request) -> None:
     """Settings picker for either kind of standing music download order."""
     from kofin.downloads import subscriptions
-    from kofin.sync.db import Database
+    from kofin.sync.private import Database
 
     kind = request.params.get("kind", "playlist")
     setting_id = (
@@ -764,7 +764,7 @@ def _show_names(series_ids: List[str]) -> List[str]:
     Kodi names the show. The plugin process opens no Kodi database — the
     title comes over JSON-RPC (kodirpc.tvshow_title). An unmapped or
     unanswerable show falls back to its id, so the picker still lists it."""
-    from kofin.sync.db import Database
+    from kofin.sync.private import Database
 
     names: List[str] = []
     try:

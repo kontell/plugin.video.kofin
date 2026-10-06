@@ -37,42 +37,37 @@ def test_the_music_pass_survives_a_zero_item_count(fullsync, monkeypatch, tmp_pa
     LocationTypes filter dropping every song) with an artist still answering
     divided by zero on the first artist and took the whole library pass
     down (audit F8)."""
-    from kofin.sync import db as sync_db
+    from contextlib import contextmanager
     from kofin.sync import full_sync as module
+    from kofin.sync.backend import ApplyResult
 
-    sync_db.reset_overrides()
-    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
-    sync_db.set_path_override("music", str(tmp_path / "music.db"))
-
-    monkeypatch.setattr(module.server, "get_item_count", lambda api, lib, kinds=None: 0)
+    monkeypatch.setattr(module.server, "get_item_count", lambda *a: 0)
     monkeypatch.setattr(
         module.server,
         "get_artists",
-        lambda api, lib: [{"Items": [{"Id": "artist1", "Name": "The Example"}]}],
+        lambda *a: [{"Items": [{"Id": "artist1", "Name": "Artist"}]}],
     )
-    monkeypatch.setattr(module.server, "get_items", lambda api, lib, **kw: [])
-    monkeypatch.setattr(module.server, "music_page_info", lambda: "")
-    monkeypatch.setattr(module.musicsources, "reassert", lambda *a: None)
-
+    monkeypatch.setattr(module.server, "get_items", lambda *a, **kw: [])
     written = []
 
-    class FakeMusic:
-        def __init__(self, *args, **kwargs):
+    class Batch:
+        def apply(self, item):
+            written.append(item.item_id)
+            return ApplyResult(item, "prepared")
+
+        def finish_music(self):
             pass
 
-        def artist(self, item):
-            written.append(item["Id"])
-
-        def music_views(self):
+        def commit(self):
             return []
 
-    monkeypatch.setattr(module, "Music", FakeMusic)
-    fullsync.host = FakeHost()
-    try:
-        fullsync.music({"Id": "lib-music", "Name": "Music"})
-    finally:
-        sync_db.reset_overrides()
+    @contextmanager
+    def batch(*args, **kwargs):
+        yield Batch()
 
+    monkeypatch.setattr(fullsync.backend, "batch", batch)
+    fullsync.host = FakeHost()
+    fullsync.music({"Id": "lib-music", "Name": "Music"})
     assert written == ["artist1"]
 
 

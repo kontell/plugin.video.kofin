@@ -2227,3 +2227,7 @@ msgstr "Granska prenumererade spellistor; avmarkera för att sluta synkronisera 
 msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Granska prenumererade musikbibliotek; avmarkera för att sluta synkronisera nedladdningar."
+
+msgctxt "#30990"
+msgid "Not available in this preview"
+msgstr "Inte tillgängligt i denna förhandsversion"

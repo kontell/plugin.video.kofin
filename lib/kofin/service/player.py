@@ -41,7 +41,11 @@ from kofin.core.api import Api
 from kofin.downloads import auto as downloads_auto
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
-from kofin.service import chapters, latesubs
+from kofin import buildconfig
+from kofin.service import latesubs
+
+if buildconfig.legacy_features():
+    from kofin.service import chapters
 from kofin.service.libraryclaim import (
     backfill_library_claim,
     downloaded_path,
@@ -160,7 +164,7 @@ class Player(xbmc.Player):
         # W4.1's one-shot: the item id whose 80% crossing already fired,
         # latched before the lookup so a failed resolve never retries.
         self._auto_next_latch = ""
-        self._chapter_thumbs: Optional[chapters.ChapterThumbs] = None
+        self._chapter_thumbs: Optional[Any] = None
         self._late_subs: Optional[latesubs.LateSubtitles] = None
         self._reporter = _Reporter()
         self._reporter.start()
@@ -777,6 +781,8 @@ class Player(xbmc.Player):
             self._ticker = None
 
     def _start_chapter_thumbs(self, item: JsonDict) -> None:
+        if not buildconfig.legacy_features():
+            return None
         if not settings.get_bool("chapterImages"):
             return
         if not chapters.eligible(item):

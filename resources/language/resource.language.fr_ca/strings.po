@@ -2227,3 +2227,7 @@ msgstr "Passez en revue les listes de lecture suivies; décochez-les pour arrêt
 msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Passez en revue les bibliothèques musicales suivies; décochez-les pour arrêter la synchronisation des téléchargements."
+
+msgctxt "#30990"
+msgid "Not available in this preview"
+msgstr "Indisponible dans cette préversion"

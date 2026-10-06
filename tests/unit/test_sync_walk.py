@@ -89,7 +89,6 @@ def test_walk_skips_a_404_and_an_orphan_and_keeps_going(fullsync, monkeypatch):
         LIBRARY,
         "Movie",
         "lib1/movies",
-        lambda jellyfindb, videodb: "writer",
         apply,
         lambda it: it["Name"],
         dialog,
@@ -126,7 +125,6 @@ def test_walk_lets_anything_but_a_404_abort_the_pass(fullsync, monkeypatch):
             LIBRARY,
             "Movie",
             "lib1/movies",
-            lambda j, v: None,
             apply,
             lambda it: it["Name"],
             Dialog(),
@@ -149,7 +147,6 @@ def test_walk_resumes_from_a_matching_restore_point(fullsync, monkeypatch):
         LIBRARY,
         "Movie",
         "lib1/movies",
-        lambda j, v: None,
         lambda obj, it: None,
         lambda it: it["Name"],
         Dialog(),
@@ -162,27 +159,21 @@ def test_walk_resumes_from_a_matching_restore_point(fullsync, monkeypatch):
     assert calls[0][2] == {"StartIndex": 40}
 
 
-def test_walk_constructs_the_writer_per_page_inside_the_page_scope(
-    fullsync, monkeypatch
-):
+def test_walk_applies_items_inside_each_backend_page_scope(fullsync, monkeypatch):
     pages(monkeypatch, [item("a")], [item("b")])
     events = []
 
     @contextmanager
     def page():
         events.append("enter")
-        yield ("v", "j")
+        events.append("batch")
+        yield "operation batch"
         events.append("exit")
-
-    def writer(jellyfindb, videodb):
-        events.append("writer(%s,%s)" % (jellyfindb, videodb))
-        return "w"
 
     fullsync._walk(
         LIBRARY,
         "Movie",
         "k",
-        writer,
         lambda obj, it: events.append("apply"),
         lambda it: it["Name"],
         Dialog(),
@@ -192,11 +183,11 @@ def test_walk_constructs_the_writer_per_page_inside_the_page_scope(
 
     assert events == [
         "enter",
-        "writer(j,v)",
+        "batch",
         "apply",
         "exit",
         "enter",
-        "writer(j,v)",
+        "batch",
         "apply",
         "exit",
     ]
@@ -212,7 +203,6 @@ def recording_walk(fullsync, monkeypatch, results=None):
         library,
         item_type,
         restore_key,
-        writer,
         apply,
         describe,
         dialog,
@@ -238,7 +228,7 @@ def recording_walk(fullsync, monkeypatch, results=None):
 
 
 @contextmanager
-def fake_scope():
+def fake_scope(*args):
     yield fake_page
 
 
@@ -301,11 +291,14 @@ def test_boxsets_walks_with_the_child_count_field_and_tallies_outcomes(
         def __init__(self, *args, **kwargs):
             pass
 
-        def restamp_boxset_states(self, guarded):
+        def restamp_boxsets(self, guarded):
             restamped.append(set(guarded))
 
-    monkeypatch.setattr("kofin.sync.boxsets.Movies", Restamper)
-    monkeypatch.setattr(fullsync, "video_database_locks", fake_page)
+    @contextmanager
+    def boxset_page():
+        yield Restamper()
+
+    monkeypatch.setattr(fullsync, "video_database_locks", boxset_page)
     monkeypatch.setattr("kofin.sync.boxsets.localized", lambda code: "Collections")
 
     fullsync.boxsets({"Id": "cols", "Name": "Collections"})
@@ -314,7 +307,7 @@ def test_boxsets_walks_with_the_child_count_field_and_tallies_outcomes(
     assert calls[0]["key"] == "cols/boxsets"
     assert "ChildCount" in calls[0]["params"]["Fields"]
     # Lock-first, fresh connections per page: the boxsets shape.
-    assert calls[0]["page"] is fake_page
+    assert calls[0]["page"] is boxset_page
     assert swept == [{"set1", "set2"}]
     assert restamped == [{"set2"}]
 
@@ -334,13 +327,24 @@ def test_a_movie_gone_mid_page_no_longer_aborts_the_library(fullsync, monkeypatc
         def __init__(self, *args, **kwargs):
             pass
 
-        def movie(self, movie):
+        def apply(self, media):
+            movie = media.payload
             if movie["Id"] == "gone":
                 raise HttpError(404, "GET /Items/gone/LocalTrailers -> 404")
             written.append(movie["Id"])
+            from kofin.sync.backend import ApplyResult
 
-    monkeypatch.setattr("kofin.sync.full_sync.Movies", FakeMovies)
-    monkeypatch.setattr(fullsync, "_held_connections", fake_scope)
+            return ApplyResult(media, "prepared")
+
+    @contextmanager
+    def page():
+        yield FakeMovies()
+
+    @contextmanager
+    def scope(*args):
+        yield page
+
+    monkeypatch.setattr(fullsync, "_held_connections", scope)
 
     fullsync.movies(LIBRARY)
 
@@ -382,7 +386,6 @@ def test_a_non_404_child_fetch_on_a_gone_item_is_skipped_after_a_probe(
         LIBRARY,
         "BoxSet",
         "k",
-        lambda j, v: None,
         apply,
         lambda it: it["Name"],
         Dialog(),
@@ -408,7 +411,6 @@ def test_a_non_404_child_fetch_on_a_present_item_still_aborts(fullsync, monkeypa
             LIBRARY,
             "BoxSet",
             "k",
-            lambda j, v: None,
             apply,
             lambda it: it["Name"],
             Dialog(),
@@ -430,7 +432,6 @@ def test_a_plain_404_skips_without_probing(fullsync, monkeypatch):
         LIBRARY,
         "Series",
         "k",
-        lambda j, v: None,
         apply,
         lambda it: it["Name"],
         Dialog(),

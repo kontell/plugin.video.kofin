@@ -3,8 +3,18 @@ import sys
 
 import pytest
 
-_LIB = os.path.join(os.path.dirname(__file__), "..", "..", "lib")
+_LIB = os.environ.get("KOFIN_TEST_PACKAGE") or os.path.join(
+    os.path.dirname(__file__), "..", "..", "lib"
+)
 sys.path.insert(0, os.path.abspath(_LIB))
+
+# Several legacy tests import service modules during collection. Select their
+# SQL contract before those conditional imports, on either source branch.
+# The actual API package subprocesses deliberately bypass this override.
+if not os.environ.get("KOFIN_TEST_PACKAGE"):
+    from kofin import buildconfig
+
+    buildconfig.BACKEND = "sql"
 
 
 @pytest.fixture(autouse=True)
@@ -20,3 +30,13 @@ def play_queue_dir(tmp_path, monkeypatch):
 
     queue_dir = tmp_path / "playqueue"
     monkeypatch.setattr(state, "_queue_dir", lambda: str(queue_dir))
+
+
+@pytest.fixture(autouse=True)
+def unit_backend(monkeypatch):
+    """Keep legacy contract tests on SQL on both branches. Package tests run
+    the selected distribution in a separate process without this override."""
+    if not os.environ.get("KOFIN_TEST_PACKAGE"):
+        from kofin import buildconfig
+
+        monkeypatch.setattr(buildconfig, "BACKEND", "sql")

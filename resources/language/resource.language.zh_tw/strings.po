@@ -2227,3 +2227,7 @@ msgstr "檢視已訂閱的播放清單；取消勾選即可停止同步下載。
 msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "檢視已訂閱的音樂資料庫；取消勾選即可停止同步下載。"
+
+msgctxt "#30990"
+msgid "Not available in this preview"
+msgstr "此預覽版暫不支援"

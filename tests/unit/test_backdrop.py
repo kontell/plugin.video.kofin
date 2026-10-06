@@ -354,3 +354,25 @@ def test_reinstalling_identical_bytes_touches_nothing(env):
 
     assert (env["media"] / backdrop.LIVE_NAME).stat().st_mtime_ns == before
     assert env["dropped"] == []
+
+
+def test_api_backdrop_writes_only_profile_and_keeps_install_immutable(env, monkeypatch):
+    from pathlib import Path
+    from kofin import buildconfig
+
+    monkeypatch.setattr(buildconfig, "BACKEND", "api")
+    api = FakeApi()
+    backdrop.apply(api, 1000)
+    first = Path(backdrop.profile_path())
+    assert first.parent == env["data"]
+    assert first.read_bytes() == SPLASH_BYTES
+    api.splash = OTHER_SPLASH
+    backdrop.apply(api, 2000, force=True)
+    second = Path(backdrop.profile_path())
+    assert second != first and second.read_bytes() == OTHER_SPLASH
+    assert live(env) == DEFAULT_BYTES
+    assert not env["dropped"]
+    FakeAddon.store["useServerBackdrop"] = "false"
+    assert backdrop.profile_path() == ""
+    assert live(env) == DEFAULT_BYTES
+    assert not list(env["data"].glob("*.part"))

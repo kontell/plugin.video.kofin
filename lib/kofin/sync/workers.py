@@ -2,8 +2,8 @@
 
 Four drain loops and one pager, beside each other. The three writer
 workers used to be one loop copied three times; ``WriterWorker`` is that
-loop once -- open the lock and both databases, build the writers for the
-database, take an item at a time with a one-second timeout, dispatch it,
+loop once -- open the lock and a backend batch, take an item at a time
+with a one-second timeout, dispatch a typed operation,
 absorb a failure into the unapplied flag, commit every COMMIT_INTERVAL,
 stop when the service says so -- and each subclass supplies only what it
 dispatches. ``db_file`` and ``source`` are constructor arguments; they used
@@ -16,19 +16,18 @@ to be attached from outside after construction and read back with getattr.
 
 import queue
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, List
 
 from kofin.core import state
 from kofin.core.http import JellyfinError, ServerUnreachable
 from kofin.core.log import Logger
 from kofin.sync.downloader import NON_CONTENT_TYPES, info
-from kofin.sync import fields as api
 from kofin.sync import kofindb as jellyfin_db
-from kofin.sync import newcontent
-from kofin.sync.db import Database
-from kofin.sync.hooks import pipeline_hooks
+from kofin.sync.private import Database
+from kofin.sync.backend import create_backend
+from kofin.sync.model import MediaItem
+from kofin.sync.hooks import announce
 from kofin.sync.shims import LibraryException, LibraryExitException
-from kofin.sync.writers import Movies, TVShows, MusicVideos, Music
 
 LOG = Logger(__name__)
 
@@ -92,17 +91,31 @@ class WriterWorker(threading.Thread):
     unapplied_label = ""  # the prefix on an unapplied report
     is_done = False
 
-    def __init__(self, queue, lock, database, server, unapplied=None, source=None):
+    def __init__(
+        self, queue, lock, database, server, unapplied=None, source=None, backend=None
+    ):
         self.queue = queue
         self.lock = lock
         self.db_file = database
-        self.database = Database(database)
+        self.backend = backend or create_backend()
         self.server = server
         # Reports an item that never landed; the library can schedule a
         # recovery prune (see Library.flag_unapplied).
         self.unapplied = unapplied
         self.source = source
         threading.Thread.__init__(self)
+
+    def _committed(self, results):
+        """Only confirmed results may trigger post-commit effects."""
+
+    def _commit(self, batch):
+        try:
+            results = batch.commit()
+        except Exception as error:
+            # A drained queue is not evidence its final transaction landed.
+            self._report_unapplied({}, "batch commit failed: %s" % error)
+            raise
+        self._committed(results)
 
     def _report_unapplied(self, item, error):
         if self.unapplied is not None:
@@ -111,35 +124,17 @@ class WriterWorker(threading.Thread):
                 "%s%s: %s" % (self.unapplied_label, item.get("Type"), error),
             )
 
-    def writers(self, jellyfindb, kodidb) -> Optional[Dict[str, Any]]:
-        """The writers for this database, keyed by kind; None for a database
-        this worker does not know."""
-        default_args = (self.server, jellyfindb, kodidb)
-        hooks = pipeline_hooks()
-        if kodidb.db_file == "video":
-            return {
-                "movies": Movies(*default_args, hooks=hooks),
-                "tvshows": TVShows(*default_args, hooks=hooks),
-                "musicvideos": MusicVideos(*default_args, hooks=hooks),
-            }
-        if kodidb.db_file == "music":
-            return {"music": Music(*default_args, hooks=hooks)}
-        return None
-
-    def handle(self, item, writers) -> None:
+    def handle(self, item, batch) -> None:
         raise NotImplementedError
 
     def run(self):
         try:
-            with self.lock, Database("kofin") as jellyfindb, self.database as kodidb:
-                writers = self.writers(jellyfindb, kodidb)
-
-                if writers is None:
-                    LOG.error(
-                        '"{}" is not a valid Kodi library type.'.format(kodidb.db_file)
-                    )
-                    return
-
+            with (
+                self.lock,
+                self.backend.batch(
+                    self.db_file, self.server, hooks=self.category != "removed"
+                ) as batch,
+            ):
                 processed = 0
 
                 while True:
@@ -149,7 +144,7 @@ class WriterWorker(threading.Thread):
                         break
 
                     try:
-                        self.handle(item, writers)
+                        self.handle(item, batch)
                     except LibraryException as error:
                         # Still swallowed so one bad item cannot stop the drain,
                         # but no longer forgotten: it never landed, and the
@@ -167,81 +162,17 @@ class WriterWorker(threading.Thread):
                     processed += 1
 
                     if not processed % COMMIT_INTERVAL:
-                        # Kodi's database first, the mapping second (the order
-                        # full_sync's per-page pair keeps, and the ``with``
-                        # unwind): a crash between the two leaves rows without a
-                        # mapping — rewritten next pass, visibly — never a
-                        # mapping without rows, which check_unchanged would skip
-                        # forever.
-                        kodidb.conn.commit()
-                        jellyfindb.conn.commit()
+                        self._commit(batch)
 
                     if state.should_stop():
                         break
+                self._commit(batch)
         finally:
             # Drain and spawn treat a missing is_done as "still running".
             # An exception opening the databases used to leave the slot
             # occupied forever.
             LOG.info("--<[ q:%s/%s ]", self.category, id(self))
             self.is_done = True
-
-
-UPDATE_DISPATCH = {
-    "Movie": ("movies", "movie"),
-    "BoxSet": ("movies", "boxset"),
-    "Series": ("tvshows", "tvshow"),
-    "Season": ("tvshows", "season"),
-    "Episode": ("tvshows", "episode"),
-    "MusicVideo": ("musicvideos", "musicvideo"),
-    "MusicAlbum": ("music", "album"),
-    "MusicArtist": ("music", "artist"),
-    "Audio": ("music", "song"),
-}
-
-USERDATA_DISPATCH = {
-    "Movie": ("movies", "userdata"),
-    "Series": ("tvshows", "userdata"),
-    "Season": ("tvshows", "userdata"),
-    "Episode": ("tvshows", "userdata"),
-    "MusicAlbum": ("music", "album"),
-    "MusicArtist": ("music", "artist"),
-    "Audio": ("music", "userdata"),
-}
-
-ARTWORK_WRITERS = {
-    "Movie": "movies",
-    "Series": "tvshows",
-    "Season": "tvshows",
-    "Episode": "tvshows",
-    "MusicVideo": "musicvideos",
-}
-
-
-def _dispatch(table, writers, item):
-    """The bound writer method for an item, or None when nothing handles
-    the kind on this database."""
-    entry = table.get(item["Type"])
-    if entry is None:
-        return None
-    writer = writers.get(entry[0])
-    return None if writer is None else getattr(writer, entry[1])
-
-
-def _already_mapped(writers: Dict[str, Any], item_id: Optional[str]) -> bool:
-    """Whether kofin.db already holds this id.
-
-    The writers on one worker share the database opened for the drain.
-    Call this before the write: the write inserts the reference, so a row
-    this item just created is not evidence it was already in the library.
-    """
-    if not item_id:
-        return False
-
-    writer = next(iter(writers.values()), None)
-    if writer is None:
-        return False
-
-    return writer.jellyfin_db.get_item_by_id(item_id) is not None
 
 
 class UpdateWorker(WriterWorker):
@@ -260,72 +191,36 @@ class UpdateWorker(WriterWorker):
         artwork_fallback=None,
         unapplied=None,
         source=None,
+        backend=None,
     ):
         super().__init__(
-            queue, lock, database, server, unapplied=unapplied, source=source
+            queue,
+            lock,
+            database,
+            server,
+            unapplied=unapplied,
+            source=source,
+            backend=backend,
         )
         self.notify_output = notify
         self.notify = notify_enabled
         self.artwork_fallback = artwork_fallback
 
-    def _artwork_only(self, item, writers):
-        """Apply an image-only item through the artwork-only path; fall back
-        to a full re-download when it cannot be handled (unknown reference,
-        unexpected payload). Returns True when the item is consumed."""
-        name = ARTWORK_WRITERS.get(item["Type"])
-        writer = writers.get(name) if name else None
+    def _committed(self, results):
+        if self.notify:
+            for result in results:
+                announce(result, self.notify_output)
 
-        handled = writer is not None and api.artwork_only(
-            writer, item, writer.jellyfin_db.get_item_by_id(item["Id"])
-        )
-
-        if not handled and self.artwork_fallback is not None:
-            self.artwork_fallback(item["Id"])
-
-        return True
-
-    def handle(self, item, writers):
-        LOG.debug("{} - {}".format(item["Type"], item["Name"]))
-
+    def handle(self, item, batch):
+        media = MediaItem.from_dto(item)
         if item.get("_artwork_only"):
-            self._artwork_only(item, writers)
+            result = batch.artwork(media)
+            if result.status == "unsupported" and self.artwork_fallback is not None:
+                self.artwork_fallback(media.item_id)
             return
-
-        # Jellyfin reports some metadata saves as ItemAdded — an NFO
-        # rewrite of an album or artist that already exists. The added
-        # writer still updates a mapped id in place. It must not announce
-        # it: this queue also feeds auto-download and the song
-        # subscription. Read the reference first, because the write
-        # inserts it.
-        known = self.notify and _already_mapped(writers, item.get("Id"))
-
-        write = _dispatch(UPDATE_DISPATCH, writers, item)
-        if write is not None:
-            write(item)
-
-        # A writer that refused this item wrote no Kodi row and no
-        # kofin.db reference, so there is nothing to announce. It
-        # refuses by returning early, and the return value cannot
-        # carry that news -- tvshow() returns None on unchanged
-        # deliberately, so full sync still walks its episodes --
-        # hence the explicit set. A refusal that *raises*
-        # (LibraryOrphanException) skips this block anyway.
-        #
-        # Not cosmetic: everything announced here also reaches
-        # downloads_auto.queue_new_content, so items the writers
-        # had already declined were pushing real ones out of a
-        # backlog that overflowed 165 times on a live box.
-        if (
-            self.notify
-            and not known
-            and not any(item["Id"] in writer.refused for writer in writers.values())
-        ):
-            # newcontent also passes silent songs to the library subscription
-            # hook; other non-announced types and watched video return None.
-            entry = newcontent.entry_for(item)
-
-            if entry is not None:
-                self.notify_output.put(entry)
+        result = batch.apply(media)
+        if result.status == "unsupported":
+            self._report_unapplied(item, "backend cannot apply this media type")
 
 
 class UserDataWorker(WriterWorker):
@@ -334,35 +229,8 @@ class UserDataWorker(WriterWorker):
     category = "userdata"
     unapplied_label = "userdata "
 
-    def handle(self, item, writers):
-        write = _dispatch(USERDATA_DISPATCH, writers, item)
-        if write is not None:
-            write(item)
-
-
-REMOVAL_WRITERS = {
-    "Movie": "movies",
-    "BoxSet": "movies",
-    "Series": "tvshows",
-    "Season": "tvshows",
-    "Episode": "tvshows",
-    "MusicAlbum": "music",
-    "MusicArtist": "music",
-    "Audio": "music",
-    "MusicVideo": "musicvideos",
-}
-
-
-def removal_writer_for(item_type, movies, tvshows, music, musicvideos):
-    """The bound ``remove`` for this kind, or None when nothing handles it."""
-    writer = {
-        "movies": movies,
-        "tvshows": tvshows,
-        "music": music,
-        "musicvideos": musicvideos,
-    }.get(REMOVAL_WRITERS.get(item_type or "", ""))
-
-    return None if writer is None else writer.remove
+    def handle(self, item, batch):
+        batch.userdata(MediaItem.from_dto(item))
 
 
 class RemovedWorker(WriterWorker):
@@ -371,37 +239,10 @@ class RemovedWorker(WriterWorker):
     category = "removed"
     unapplied_label = "removal "
 
-    def writers(self, jellyfindb, kodidb):
-        # No hooks on removal, as before.
-        default_args = (self.server, jellyfindb, kodidb)
-        if kodidb.db_file == "video":
-            return {
-                "movies": Movies(*default_args),
-                "tvshows": TVShows(*default_args),
-                "musicvideos": MusicVideos(*default_args),
-            }
-        if kodidb.db_file == "music":
-            return {"music": Music(*default_args)}
-        return None
-
-    def handle(self, item, writers):
-        remove = removal_writer_for(
-            item["Type"],
-            writers.get("movies"),
-            writers.get("tvshows"),
-            writers.get("music"),
-            writers.get("musicvideos"),
-        )
-
-        if remove is None:
-            LOG.warning(
-                "no removal writer for type %s; %s left in place",
-                item["Type"],
-                item["Id"],
-            )
-            return
-
-        remove(item["Id"])
+    def handle(self, item, batch):
+        result = batch.remove(MediaItem.from_dto(item))
+        if result.status == "unsupported":
+            self._report_unapplied(item, "backend cannot remove this media type")
 
 
 class SortWorker(threading.Thread):
