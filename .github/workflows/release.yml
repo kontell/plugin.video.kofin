@@ -130,4 +130,7 @@ jobs:
           name: ${{ env.APP_ID }} ${{ steps.meta.outputs.version }}
           body: ${{ steps.meta.outputs.changes }}
           draft: true
+          # This branch only. A published draft is a GitHub pre-release, so
+          # repository.kontell.dev serves it and the stable repository does not.
+          prerelease: true
           files: dist/*.zip
