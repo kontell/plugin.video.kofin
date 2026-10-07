@@ -151,76 +151,34 @@ Keep browser/resolver changes shared between main and OR wherever the difference
 
 Add a dynamic-browsing regression gate to phase 1 and every published preview: no synced libraries, a mix of synced/unsynced libraries, an initial sync in progress, and a paused/failed sync. Cover root/drill-down browsing, filters, search, Next up, Continue watching, music Play all/Shuffle, extras/version selection, context actions, resume, widget/favourite URLs and playback. Measure listing latency during a large scan to catch contention. Existing offline-download behavior is tested separately; this work does not promise a new offline copy of the full dynamic catalogue.
 
-## 4. Development repository and release automation
+## 4. Development repository
 
-### 4.1 Repository layout and behavior
+Phase 2 adds a second Kodi repository. `repository.kontell` keeps serving each addon's newest published release. `repository.kontell.dev` serves each addon's newest published prerelease. Drafts stay out of both. The dev repository does not also carry stable packages, and the stable repository does not also carry prereleases.
 
-Implement this in **`../repository.kontell`** using the existing Pages tree and Worker hostname:
+This is a filter on the publisher that already exists in `../repository.kontell`. `tools/update.py` lists the newest releases and drops anything with `isDraft` or `isPrerelease`. That filter stays for the stable tree. A second pass keeps rows with `isPrerelease` set and `isDraft` clear, and writes them under a `dev/` prefix using the same shared, dual and binary placement. The 30-release window, the newest-match rule, the complete-binary-set guard and the download-before-write guard are unchanged. Jellyfin plugins stay on the stable manifest; a prerelease of one is still ignored.
 
 ```text
-repository.kontell-<version>.zip       existing stable installer
-repository.kontell.dev-<version>.zip   new development installer
-piers/                                existing stable Piers feed
-dev/piers/                            development Piers feed
-dev/kodi23/                           development v23 feed, enabled when validated
+omega/                              newest release (unchanged URLs)
+piers/                              newest release (unchanged URLs)
+dev/omega/                          newest prerelease
+dev/piers/                          newest prerelease
+repository.kontell-<version>.zip    stable installer (unchanged)
+repository.kontell.dev-<version>.zip
 ```
 
-Each enabled development feed has `addons.xml`, `addons.xml.md5`, addon assets and the **development repository's own update package**. Give the new repository its own source manifest, for example `repositories/repository.kontell.dev/addon.xml`, installer ZIP and installation instructions. Keep the stable repository's ID, installer and existing feed URLs intact.
+When an addon has no prerelease, delete its directory under `dev/` and leave the stable directory as it is. Promoting a prerelease to a release then moves it on the next publish: the stable pass picks it up, and the dev pass removes the copy it no longer selects.
 
-Use repository `<dir>` compatibility ranges and addon dependencies that match Kodi's actual `xbmc.addon` API versions. Kodi prerelease API numbers can precede the advertised major version; validate the Piers/v23 boundary against their manifests and a real installation. `xbmc.python` alone does not express the desired Kodi major-version floor. Reject missing essential capabilities before any sync begins.
+`generate_repo.py` writes `addons.xml` and `addons.xml.md5` for `dev/omega` and `dev/piers` the same way it does for `omega` and `piers`. The dev addon is a second source manifest, `repositories/repository.kontell.dev/addon.xml`, id `repository.kontell.dev`, name Kontell Development Repository. Its `<dir>` ranges match the stable addon and point at `https://repository.kontell.workers.dev/dev/omega` and `.../dev/piers`. Stage its zip into those two directories so Kodi can self-update it, and write the installer at the site root. The stable `addon.xml` URLs stay as they are. The Worker already forwards any path to Pages.
 
-The Worker already forwards arbitrary paths, so a second Worker is unnecessary. Update its path classification for nested `dev/<generation>/...` paths and extend publisher convergence checks to all enabled feeds.
+A shared addon is still one zip copied to both channels. Kofin `0.90.0` requires `xbmc.addon` 21.90.802, so Omega refuses it on the dependency. A later Kodi version is another channel and another `<dir>`, added the same way `piers/` was, when that work starts.
 
-### 4.2 Meaning of “all prereleases”
+On `kofin-or` only, `release.yml` creates the draft with `prerelease: true`. Main's workflow does not. A person still publishes the draft. `notify-repo.yml` already listens for `release: published`, which fires when a prerelease is published from a draft, and that dispatch already runs `publish.yml`.
 
-Automatically ingest **every published GitHub prerelease containing supported Kodi packages for the addons registered in `addons.toml`**, including main-branch prereleases and `kofin-or` releases. Apply this uniformly to shared Python, per-Kodi and platform-specific binary release models. The new development service targets Piers and later. Jellyfin server-plugin releases remain in their separate manifest system because they are not installable Kodi addons.
+Installing `repository.kontell.dev` is the opt-in. A profile with only `repository.kontell` is offered releases. A profile with both installed is offered the higher version of the shared addon id, so a `0.90.x` prerelease updates that profile's Kofin. The two builds still cannot be installed side by side (§1). Removing the dev repository stops the prerelease offers. Going back to a main build is the existing fresh-library reset plus an install of the older version.
 
-Release maturity, Kodi compatibility and binary platform are separate selection dimensions:
+**Phase 2 acceptance:** one fixture list containing a release, a prerelease and a draft places the release under `omega/` and `piers/`, the prerelease under `dev/omega/` and `dev/piers/`, and the draft in neither. An addon whose only published item is a release has no `dev/` directory. After that prerelease is marked stable, a second run removes it from `dev/` and places it in the stable tree. On Piers, a profile with the dev repository installed is offered the prerelease, and a profile with only the stable repository is offered the release. Publishing the real `0.90.0` waits for phase 3.
 
-| GitHub release state | Stable feeds | Development feeds |
-|---|---|---|
-| Draft | Excluded | Excluded |
-| Published prerelease | Excluded | Eligible for every compatible enabled Kodi/platform target |
-| Published stable release | Eligible for compatible targets | Available as a stable fallback for addons/dependencies |
-| Deleted, retracted or reclassified release | Reconcile advertised state | Reconcile advertised state |
-
-Retain the validated package history so “all” does not mean “only the last 30 releases” or “only the newest ZIP survives”. Advertise the **highest compatible Kodi addon version** for each addon/platform in a feed; older packages remain available for deliberate installation. Promotion of a prerelease to stable changes eligibility without rebuilding the asset. A withdrawn release must stop being advertised, and an explicit security retraction must also remove the affected downloadable asset.
-
-The development feed includes compatible stable packages where needed, making dependencies available even if they have never had a prerelease. It does not assume the user has separately installed the stable Kontell repository. Repository self-update packages remain associated with their own repository IDs.
-
-Use GitHub's `prerelease` flag as the classification source. Kofin can therefore use numeric `0.90.0` while GitHub marks it prerelease. Tags are labels and versions come from the validated package manifest; do not infer maturity from `rc`, a branch name or the release title. Use paginated release enumeration, not the latest-release endpoint, which omits prereleases. See [GitHub release API documentation](https://docs.github.com/en/rest/releases/releases#list-releases).
-
-### 4.3 Publisher changes
-
-| File/area in `repository.kontell` | Change |
-|---|---|
-| `addons.toml` | Add explicit maturity/compatibility policy; stop treating all Kofin Python releases as automatically compatible with both Omega and Piers. Preserve the existing registered-addon models. |
-| `tools/update.py` | Enumerate paginated releases including prereleases; validate manifests, IDs, versions, dependencies and platform sets; select by compatibility and Kodi version ordering; retain history; reconcile promotions, edits and removals. |
-| `generate_repo.py` | Replace hard-coded channel/repository identity assumptions with feed definitions. Generate stable and development indexes, artwork, checksums and the correct repository self-update packages. |
-| `.github/workflows/publish.yml` | Generate and verify all enabled feeds; reinstate the periodic reconciliation schedule, currently commented out; retain serialized publication and a dry-run path. Publish configuration/self-installer changes even when no upstream addon asset changed. |
-| `worker/src/worker.js` | Recognize the nested development routes for classification; retain existing proxy and error/cache behavior. |
-| `scripts/publish.sh`, related helpers and publishing docs | Use the same feed definitions and release eligibility as automation. Document the development installer, prerelease routing, recovery and rollback. |
-
-Specific correctness requirements:
-
-- Stage a complete valid update before changing an index. A partially uploaded binary platform set, invalid ZIP or failed GitHub request leaves the previous valid advertised release available and reports the failure.
-- Verify the embedded addon ID/version and supported target, not only ZIP integrity and filename. Handle existing binary/tag conventions explicitly; use Kodi-compatible version comparison rather than publication time or a digits-only parser for every project.
-- Track release/asset identity and content hashes so a same-size replacement is detected. Avoid redownloading unchanged historical assets on every reconciliation.
-- Keep indexed assets available while the new Pages/index/checksum generation propagates. Verify each feed's checksum and referenced package URLs after publication.
-- Reject routing that would install a v23-only package on Piers. Retain the last eligible Piers build when later versions raise their minimum dependency.
-- Keep stable users insulated from prereleases. Existing stable Omega packages for other projects can remain served; no new Omega development feed or Kofin Omega support is introduced.
-
-### 4.4 Kofin workflow changes
-
-- Extend `ci.yml` push coverage to `main` and `kofin-or`; label build artifacts with their actual branch/flavor. PR checks must validate the selected backend and resulting ZIP contents.
-- Extend `release.yml` to set the release's prerelease flag from explicit release metadata, defaulting OR development builds to prerelease. Preserve draft creation for final inspection, make its target commit explicit, and verify tag, manifest version, source commit and package flavor agree. Include Ruff alongside the existing checks.
-- Retain `release: published` notification because it covers both stable and prerelease publication, including publication from draft. Ensure the workflow exists in commits used for releases; put the repository-dispatch receiver on the repository's default branch. These triggers have different branch semantics. See [GitHub's event reference](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release).
-- Treat the dispatch payload as a hint to reconcile; re-fetch release state from GitHub. Reconcile release edits, promotion and deletion through events where available and the scheduled sweep as the reliable backstop.
-- Account for GitHub's prevention of most workflow recursion when events are created using `GITHUB_TOKEN`; do not rely solely on a chained publication event. Use the existing approved App dispatch path where appropriate and retain scheduled reconciliation. See [workflow trigger rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
-
-**Phase 2 acceptance:** fixture tests cover all three Kodi package models, pagination beyond 30 releases, draft exclusion, stable/prerelease classification, promotion, version ordering, missing assets, compatibility and interrupted publication. Install the development repository on a clean stock Piers profile and verify installation/update discovery using a test fixture package. At the end of phase 3, repeat with the real `0.90.0` release and its first patch update. Verify stable-only profiles receive neither preview. Recheck this when enabling the v23 feed.
-
-The addon ID is shared and OR's version is higher than main's. Do not assume repository origin will prevent every automatic update: test the actual Kodi repository/update settings. Document opting in before enabling development updates and use the reset gate below. Returning to main is an explicit older-version install plus another rebuild, not an automatic downgrade.
+Unchanged: `addons.toml` models, the Worker, `publish.yml` triggers, the disabled schedule, Kofin CI, and any release-metadata file. The phase does not add a v23 feed, paginate past the current release window, or classify compatibility beyond the channel models already in `addons.toml`.
 
 ## 5. Phase work orders
 
@@ -250,6 +208,16 @@ Implemented in [shared PR #260](https://github.com/kontell/plugin.video.kofin/pu
 - Introduce the package profiles and backend-specific import checks. Inventory native DB access throughout the addon, including playback lookups, cleanup, library claiming, textures and downloads.
 
 **Exit:** shared tests pass on both branches; a Piers main full sync and delta retain baseline semantics. The OR package can start, access private storage and report capabilities with its native SQL modules excluded. No public OR release is needed until a complete vertical slice works.
+
+### Phase 2 — Development repository
+
+**Work**
+
+- In `repository.kontell`, run the existing placement a second time for prereleases and write those zips under `dev/omega` and `dev/piers`. The stable tree keeps today's release filter. An addon with no prerelease loses its `dev/` directory.
+- Add `repositories/repository.kontell.dev/addon.xml` and generate its `addons.xml`, checksum, self-update zip and root installer in the same publish run. Document the installer in the repository README.
+- On `kofin-or`, set `prerelease: true` on the draft `release.yml` creates.
+
+**Exit:** the §4 acceptance check. No OR release is published.
 
 ### Phase 3 — Deliver the movie vertical slice (`0.90.0`)
 
@@ -375,7 +343,7 @@ Tests must demonstrate behavior, especially failure recovery and native playback
 | Dynamic browsing | Live Jellyfin listings and actions work with zero/partial native sync and during a scan; all existing media types remain browsable; unsynced playback, old plugin shortcuts and mixed dynamic/native userdata paths pass §3.4. |
 | Playback/downloads | Native library, widget, playlist, remote-control and plugin starts; direct/transcoded media; track/stream selection; offline video/music; download/remove/re-download; completion and resume. |
 | Presentation | Collection membership, episode ordering, artwork, renamed badges, library selection, counts and ordered playlists checked in Estuary and the supported custom-skin integration. |
-| Distribution | Stable/prerelease isolation, correct target selection, dependencies, self-update, update discovery, incomplete release, promotion, rollback and fresh-profile installation. |
+| Distribution | §4: the stable repository serves releases and `repository.kontell.dev` serves prereleases. Phase 3 repeats the check with the real `0.90.0` and its first patch. |
 | Performance | Fixed initial/delta/refresh/deletion workloads; wall time, API calls, pending backlog, notifications, peak memory and UI responsiveness, on stock Piers and later v23. |
 
 Set explicit performance budgets after phase 0 measurements and record them in the parity ledger before optimizing. The small synthetic research timings are not release targets. Investigate refresh storms, full-catalogue scans for small deltas, repeated full-library readback, unbounded snapshots and GUI stalls specifically. Use bounded patches and coalesced scans, retaining correctness under cancellation.
@@ -387,7 +355,7 @@ The release matrix is the validated stock Piers floor/current build and, once in
 After the relevant upstream work lands:
 
 1. Implement the new capabilities behind the existing API backend contracts. Remove obsolete Piers workarounds from the v23 family once its minimum build guarantees the replacement.
-2. Publish `0.95.x` onward as prereleases in `dev/kodi23`, retain the compatible Piers packages, and rerun the lifecycle/recovery suite against stock v23.
+2. Add a v23 channel and `<dir>` the same way `piers/` exists, publish `0.95.x` onward as prereleases through `repository.kontell.dev`, and rerun the lifecycle/recovery suite against stock v23.
 3. Compare against the **then-current main**, not just the original `0.29.0` baseline. Close every parity ledger entry with native behavior, an explicitly accepted product change, or a documented remaining blocker.
 4. Exercise final reset/install/update/rollback procedures and official-repository packaging. Submit/update the official review with the actual v23 candidate.
 5. Once parity and release gates pass, converge the API implementation onto `main` using reviewed commits, retire the SQL backend and stop the long-lived branch split. Publish the agreed stable version, proposed as `1.0.0`, and retain historical release downloads.
@@ -404,8 +372,8 @@ Keep the first batch concrete and reviewable:
 
 1. **Kofin:** branch/version setup, Piers capability baseline and tracked parity ledger.
 2. **Kofin main → OR:** private database separation, typed shared metadata and backend result contracts, preserving current main behavior.
-3. **Kofin:** package profiles/import boundary, CI coverage and release metadata for OR.
-4. **Repository:** release inventory/compatibility model, development repository manifest, feed generation and scheduled reconciliation, with dry-run fixture evidence.
+3. **Kofin:** package profiles, import boundary and CI coverage for OR.
+4. **Repository:** `repository.kontell.dev`, prerelease placement under `dev/`, and the kofin-or draft marked prerelease.
 5. **Kofin OR:** committed movie catalogue, scanner callbacks, stable resolver, pending operations, identity readback and first-run reset gate; publish `0.90.0` after the vertical slice passes.
 6. **Kodi:** independent song release-date correction and music tag/forced-rescan reproductions with proposed API semantics.
 
