@@ -1,8 +1,8 @@
 # Kofin official-repository variant: implementation plan
 
-**Date:** 4 October 2026
+**Date:** 4 October 2026; phase 4 revised 8 October 2026
 
-**Status:** phases 0 and 1 implemented, with P1D verification on the explicitly approved existing build. See the [phase 0 record](research/kofin-or/phase0/README.md), [phase 1 contracts and evidence](research/kofin-or/phase1/README.md) and [maintained parity ledger](kofin-or-parity.md). `kofin-or` selects the API package at `0.90.0`; native ingestion remains disabled and no OR release is published.
+**Status:** phases 0–3 implemented; `0.90.0` was published as the first OR prerelease on 8 October 2026. See the [phase 0 record](research/kofin-or/phase0/README.md), [phase 1 contracts and evidence](research/kofin-or/phase1/README.md), [phase 3 record](research/kofin-or/phase3/README.md) and [maintained parity ledger](kofin-or-parity.md). Native sync covers movies; phase 4 opens with the store and loop changes its foundation step names, measured on the installed catalogue.
 
 **Starting point:** baseline Kofin `main` at `db709a28905ca3b697d7135814407e9476d29361` / `0.29.0`; `repository.kontell` main at `b001a80a30987faf211b9a2add0834a10a6f2b90`.
 
@@ -38,7 +38,7 @@ Versions below are planned milestones, not one-release-per-phase promises. Use p
 | 0 | Parity checklist, Piers baseline, branch and version policy | Branch starts at `0.90.0` | Current research |
 | 1 | Shared sync contracts, private-state split and package boundaries | Internal builds of both branches | 0 |
 | 2 | Development repository and prerelease automation | Working `repository.kontell.dev` installer | 0; alongside 1 |
-| 3 | Complete movie lifecycle through Piers APIs | First published `0.90.0` prerelease | 1, 2 |
+| 3 | Complete movie lifecycle through Piers APIs | `0.90.0` prerelease, published 8 October 2026 | 1, 2 |
 | 4 | TV, seasons, episodes, music videos and collections | `0.91.x` | 3 |
 | 5 | Safe music ingestion, updates and removal | `0.92.x` | Snapshot foundation from 3 |
 | 6 | Downloads, artwork, nodes, playback integration and policy cleanup | `0.93.x` | 4, 5 |
@@ -176,7 +176,7 @@ On `kofin-or` only, `release.yml` creates the draft with `prerelease: true`. Mai
 
 Installing `repository.kontell.dev` is the opt-in. A profile with only `repository.kontell` is offered releases. A profile with both installed is offered the higher version of the shared addon id, so a `0.90.x` prerelease updates that profile's Kofin. The two builds still cannot be installed side by side (§1). Removing the dev repository stops the prerelease offers. Going back to a main build is the existing fresh-library reset plus an install of the older version.
 
-**Phase 2 acceptance:** one fixture list containing a release, a prerelease and a draft places the release under `omega/` and `piers/`, the prerelease under `dev/omega/` and `dev/piers/`, and the draft in neither. An addon whose only published item is a release has no `dev/` directory. After that prerelease is marked stable, a second run removes it from `dev/` and places it in the stable tree. On Piers, a profile with the dev repository installed is offered the prerelease, and a profile with only the stable repository is offered the release. Publishing the real `0.90.0` waits for phase 3.
+**Phase 2 acceptance:** one fixture list containing a release, a prerelease and a draft places the release under `omega/` and `piers/`, the prerelease under `dev/omega/` and `dev/piers/`, and the draft in neither. An addon whose only published item is a release has no `dev/` directory. After that prerelease is marked stable, a second run removes it from `dev/` and places it in the stable tree. On Piers, a profile with the dev repository installed is offered the prerelease, and a profile with only the stable repository is offered the release. `0.90.0` was published on 8 October 2026; the publisher side of the check passed the same day (`dev/piers` serves `0.90.0`, `piers` serves `0.29.0`), and the device-offer half is still to be recorded.
 
 Unchanged: `addons.toml` models, the Worker, `publish.yml` triggers, the disabled schedule, Kofin CI, and any release-metadata file. The phase does not add a v23 feed, paginate past the current release window, or classify compatibility beyond the channel models already in `addons.toml`.
 
@@ -232,16 +232,27 @@ Implemented in [shared PR #260](https://github.com/kontell/plugin.video.kofin/pu
 
 **Exit:** add → update → play → watched/resume → refresh → remove works on Piers; repeat/restart does not duplicate content; offline and partial server responses do not delete valid content; foreign native items survive owned repair/removal. The dynamic-browsing gate in §3.4 passes independently of native movie sync. Release the first **`0.90.0` GitHub prerelease** through the development repository with the supported native-sync scope stated.
 
+**Completed record:** [phase 3 implementation and installed-use follow-up](research/kofin-or/phase3/README.md). `0.90.0` was published as a GitHub prerelease on 8 October 2026 and `repository.kontell.dev` serves it under `dev/piers` while the stable feed stays on `0.29.0`. The installed-use fixes of 8 October — bulk removal, deselection during enumeration, the idle-time scan wait, no zero resume point on scanner rows and the first-content widget reload — are in the release, and the measurements behind them are the baseline phase 4 budgets against.
+
 ### Phase 4 — Complete the Piers video catalogue (`0.91.x`)
+
+**Foundation first.** The phase 3 store and loop were measured on the installed catalogue on 8 October 2026 (1,792 movies) and do not scale to the phase 0 catalogue of 79 shows and 4,324 episodes: `kofin.db` had reached 235 MB; each `api_snapshot` generation is one 38.7 MB JSON blob that duplicates the per-item payloads and is re-encoded and compared on every publish and parsed on every pin, snapshot and `refresh_info`; the whole selection is re-enumerated with full fields every five minutes; and every readback is a whole-directory `GetMovies`, polled at 100 ms while a refresh converges. Resolve these before the first show is imported:
+
+1. A snapshot is a generation plus ordered item ids per scanner directory. Each payload is stored once, in `api_item` or a content-addressed table. The native mapping is kind-generic with parent ids — the catalogue already carries `kind` — and generation garbage collection reclaims space (`VACUUM` or incremental auto-vacuum).
+2. One scanner root per selected library and content type, with shows as subdirectories under their per-show binding (`containssingleitem=true`, phase 0). `RemoveContentForPath` on the root then removes a deselected library in one call for every type; the shared namespace directory of `0.90.0` allows that only when the whole namespace goes. Movies move to this layout in `0.91.0`. The ownership URL changes, so the profile is fresh again, which the pre-release policy allows and the release notes state.
+3. Enumeration runs on websocket events plus a watermarked catch-up on the SQL branch's contract. A full enumeration is Update library and a daily pass, not a five-minute timer.
+4. Readback is scoped by show, season or path. A refresh is confirmed by id, and a full read runs only when the id has vanished.
 
 **Work**
 
-- Add TV/show/episode hierarchy, season names/plots/art, ordering fields, music videos and collection membership. Reproduce the per-show source-binding behavior from the probe.
-- Define refresh scopes for fields absent from setters, preserve userdata around refresh and re-resolve changed IDs. Apply set/season details after native relationships exist.
+- Add TV/show/episode hierarchy, season names/plots/art, ordering fields, music videos and collection membership. Reproduce the per-show source-binding behavior from the probe: a binding per show directory, created at import and torn down with the library root.
+- Define refresh scopes for fields absent from setters, preserve userdata around refresh and re-resolve changed IDs. A refresh changes the native id and restores the supplied userdata over patched values (phase 0), and `RefreshTVShow` does that to every episode of the show: episode-level cast and stream changes use `RefreshEpisode`; a show-level change refreshes the show and then re-applies userdata to every episode; sort numbering and the season plot join the refresh token as cast and streams did for movies. Measure one real show refresh on the P1D catalogue before accepting the design. Apply set/season details after native relationships exist.
 - Handle duplicate names/identities, shared show relationships, removed episodes/seasons and collection changes without deleting another library's content.
 - Retain Kofin views for episode favorites and empty entities that cannot be expressed or queried natively. Add a Kofin version chooser using the existing media-source resolver, retain the existing extras browser, and use stable asset playback identities. Dynamic views fetch live server metadata; native-sync callbacks use committed snapshots.
+- Every rule from the 8 October fixes holds for the new types from the first line: a scanner row carries a resume point only when the server holds one, because the in-progress rule for episodes is the same bookmark-row test; removals are batched, a whole-directory clear uses `clearmode: "remove"` (`"clear"` only unbinds the scraper) and is followed by one `UpdateLibrary(video)`; a first-content skin reload fires per kind on `Library.HasContent(TVShows)` and `(MusicVideos)` as it does for movies; waits are idle-time, since a TV import at roughly 60 ms an item scans for minutes; the selection is re-read before publication.
+- The episode detail pass is the GUI risk: every setter notifies and the skin's widgets re-fetch per notification (observed: one widget refresh per movie across a 1,788-row pass). Send independent patches as JSON-RPC arrays — 25 per batch measured fastest in the feasibility report §7.4 — measure UI responsiveness during the pass on the P1D catalogue, and pace it if the interface stalls.
 
-**Exit:** all feasible Piers video functionality is represented in the checklist with tested behavior. Native episode tags and full native versions/extras remain identified gaps, not silently counted as parity.
+**Exit:** all feasible Piers video functionality is represented in the checklist with tested behavior. Native episode tags and full native versions/extras remain identified gaps, not silently counted as parity. In addition: deselecting one of two libraries of the same type removes only that library's content, in one call, and a show present in both survives; Kodi's Clean Library with the add-on enabled deletes nothing; the In progress episodes and Next up widgets populate after first content without user action; a whole-namespace clear leaves no dangling native set; and a full TV import of the phase 0 catalogue completes without an error line, with wall time, API calls and GUI responsiveness recorded against the first API-path measurements (8 October 2026, 1,788 movies: scan 105–126 s, detail pass about 2.3 minutes at roughly 175 ms a row, removal 59–100 s).
 
 ### Phase 5 — Music with complete snapshots (`0.92.x`)
 
@@ -343,7 +354,7 @@ Tests must demonstrate behavior, especially failure recovery and native playback
 | Dynamic browsing | Live Jellyfin listings and actions work with zero/partial native sync and during a scan; all existing media types remain browsable; unsynced playback, old plugin shortcuts and mixed dynamic/native userdata paths pass §3.4. |
 | Playback/downloads | Native library, widget, playlist, remote-control and plugin starts; direct/transcoded media; track/stream selection; offline video/music; download/remove/re-download; completion and resume. |
 | Presentation | Collection membership, episode ordering, artwork, renamed badges, library selection, counts and ordered playlists checked in Estuary and the supported custom-skin integration. |
-| Distribution | §4: the stable repository serves releases and `repository.kontell.dev` serves prereleases. Phase 3 repeats the check with the real `0.90.0` and its first patch. |
+| Distribution | §4: the stable repository serves releases and `repository.kontell.dev` serves prereleases. Verified on the publisher side for `0.90.0` on 8 October 2026 (`dev/piers` serves `0.90.0`, `piers` serves `0.29.0`); the device-offer half and the first patch release repeat it. |
 | Performance | Fixed initial/delta/refresh/deletion workloads; wall time, API calls, pending backlog, notifications, peak memory and UI responsiveness, on Piers and later v23. |
 
 Set explicit performance budgets after phase 0 measurements and record them in the parity ledger before optimizing. The small synthetic research timings are not release targets. Investigate refresh storms, full-catalogue scans for small deltas, repeated full-library readback, unbounded snapshots and GUI stalls specifically. Use bounded patches and coalesced scans, retaining correctness under cancellation.
