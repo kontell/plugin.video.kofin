@@ -2,7 +2,7 @@
 
 **Date:** 4 October 2026; phase 4 revised 8 October 2026
 
-**Status:** phases 0–3 implemented; `0.90.0` was published as the first OR prerelease on 8 October 2026. See the [phase 0 record](research/kofin-or/phase0/README.md), [phase 1 contracts and evidence](research/kofin-or/phase1/README.md), [phase 3 record](research/kofin-or/phase3/README.md) and [maintained parity ledger](kofin-or-parity.md). Native sync covers movies; phase 4 opens with the store and loop changes its foundation step names, measured on the installed catalogue.
+**Status:** phases 0–4 implemented; `0.90.0` was published as the first OR prerelease on 8 October 2026 and phase 4 (`0.91.0`) was implemented and verified on the P1D the same day. See the [phase 0 record](research/kofin-or/phase0/README.md), [phase 1 contracts and evidence](research/kofin-or/phase1/README.md), [phase 3 record](research/kofin-or/phase3/README.md) and [maintained parity ledger](kofin-or-parity.md). Native sync covers movies, shows, seasons, episodes, music videos and collections; see the [phase 4 record](research/kofin-or/phase4/README.md).
 
 **Starting point:** baseline Kofin `main` at `db709a28905ca3b697d7135814407e9476d29361` / `0.29.0`; `repository.kontell` main at `b001a80a30987faf211b9a2add0834a10a6f2b90`.
 
@@ -39,7 +39,7 @@ Versions below are planned milestones, not one-release-per-phase promises. Use p
 | 1 | Shared sync contracts, private-state split and package boundaries | Internal builds of both branches | 0 |
 | 2 | Development repository and prerelease automation | Working `repository.kontell.dev` installer | 0; alongside 1 |
 | 3 | Complete movie lifecycle through Piers APIs | `0.90.0` prerelease, published 8 October 2026 | 1, 2 |
-| 4 | TV, seasons, episodes, music videos and collections | `0.91.x` | 3 |
+| 4 | TV, seasons, episodes, music videos and collections | `0.91.0` implemented and verified on the P1D, 8 October 2026 | 3 |
 | 5 | Safe music ingestion, updates and removal | `0.92.x` | Snapshot foundation from 3 |
 | 6 | Downloads, artwork, nodes, playback integration and policy cleanup | `0.93.x` | 4, 5 |
 | 7 | Piers development candidate and official submission preparation | `0.94.x` | 3–6 |
@@ -253,6 +253,8 @@ Implemented in [shared PR #260](https://github.com/kontell/plugin.video.kofin/pu
 - The episode detail pass is the GUI risk: every setter notifies and the skin's widgets re-fetch per notification (observed: one widget refresh per movie across a 1,788-row pass). Send independent patches as JSON-RPC arrays — 25 per batch measured fastest in the feasibility report §7.4 — measure UI responsiveness during the pass on the P1D catalogue, and pace it if the interface stalls.
 
 **Exit:** all feasible Piers video functionality is represented in the checklist with tested behavior. Native episode tags and full native versions/extras remain identified gaps, not silently counted as parity. In addition: deselecting one of two libraries of the same type removes only that library's content, in one call, and a show present in both survives; Kodi's Clean Library with the add-on enabled deletes nothing; the In progress episodes and Next up widgets populate after first content without user action; a whole-namespace clear leaves no dangling native set; and a full TV import of the phase 0 catalogue completes without an error line, with wall time, API calls and GUI responsiveness recorded against the first API-path measurements (8 October 2026, 1,788 movies: scan 105–126 s, detail pass about 2.3 minutes at roughly 175 ms a row, removal 59–100 s).
+
+**Completed record:** [phase 4 implementation and P1D verification](research/kofin-or/phase4/README.md). The foundation landed as planned — payloads stored once with interval membership, one scanner root per library and content type with bound show folders beneath the `tvshows/` root, a daily or Update-library enumeration with the change-feed catch-up between, scoped readback — and the 0.90.0 layout retires itself on first start. The installed catalogue (79 shows, 4,316 importable episodes, 1,788 movies, 54 collections) imported with zero detail patches: show scan 228 s, movie scan 100–132 s, apply passes 36 s, one of two show libraries removed in one call in about 40 s, Kodi's Clean Library with the add-on enabled removing nothing. Three of the exit's gaps stay gaps and are recorded as such in the ledger: empty seasons and unnumbered specials are invisible or unfileable to Kodi, and a show with one title and premiere in two libraries is merged by Kodi and healed rather than kept apart. Music videos are unit-tested only; the Kofin version chooser moves to phase 6.
 
 ### Phase 5 — Music with complete snapshots (`0.92.x`)
 

@@ -229,7 +229,27 @@ What remains is kofin's own:
   until its detail patch cleared it.
 - **`VideoLibrary.SetSourceContent` deletes rows only with `clearmode: "remove"`.** `"clear"`
   unbinds the scraper and leaves every row in place; the API backend's whole-library removal
-  (`backends/api/movies.py::remove`) relies on `"remove"` being `RemoveContentForPath`.
+  (`backends/api/native.py::clear_library`) relies on `"remove"` being `RemoveContentForPath`
+  on the library root, under which every row of that library is filed.
+- **Every show folder under a `tvshows/` root carries its own binding** (`Native.bind_show`,
+  `containssingleitem`). Kodi takes a plugin path's parent to be the plugin *root*
+  (`URIUtils::GetParentPath`), so a folder never inherits the root's binding and the scanner
+  skips it — 79 shows, one listing, nothing imported on the P1D until the bindings existed.
+  The API profile's manifest keeps all three `medialibraryscanpath` content types rewritten to
+  `/native/` (`tools/package_manifest.py`); with only `movies` Kodi refuses tvshows outright.
+- **Three things the API backend applies without a native row, on purpose:** an unnumbered
+  special (season 0, no number — Kodi's scanner cannot file it, `ProcessItemByVideoInfoTag`), a
+  season with no importable episode (`season_view` joins episodes, so `GetSeasons` never
+  returns it) and a collection with no synced member. A show's `dateadded` is never set:
+  `tvshowcounts` derives it from the newest episode file and `SetTVShowDetails` cannot move it.
+- **The API backend writes `lastplayed` and `dateadded` in local time** (`metadata._timestamp`
+  through `shims.convert_to_local`), as Kodi does for its own writes; a UTC string read an
+  hour off and differed from every value a playback set. Calendar dates stay as given.
+- **A scanner row that matches `metadata.details` needs no patch.** The 0.91.0 imports of
+  1,788 movies and 4,316 episodes sent zero `Set*Details` calls; a field that *always* differs
+  after import is a serializer bug, not a reason to patch. Acknowledgements commit by the
+  batch (`Native._commit_acks`): one-row commits were 3,685 database opens for a pass that
+  sent nothing.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is
