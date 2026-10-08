@@ -2,7 +2,9 @@ v0.90.0
 - Internal API package for Piers development; no public prerelease yet
 - Shared metadata, private state and sync backend contracts
 - Dynamic browsing, streaming and server actions remain available
-- Native library sync, downloads, chapter art and SQL maintenance are disabled pending their API ports
+- Native movie sync through Kodi APIs, with metadata refresh and watched/resume reconciliation
+- Durable movie snapshots and retry after interrupted sync; incomplete server listings preserve existing content
+- Native TV/music, downloads, chapter art and SQL maintenance remain disabled pending their API ports
 - API capability report and private-state marker; no legacy-library adoption
 
 v0.29.0

@@ -135,10 +135,13 @@ def contents(root, path, profile):
         return data
     if path.as_posix() == "addon.xml":
         tree = ET.fromstring(data)
-        # No scanner provider is advertised until the phase-3 movie slice.
+        # Only the committed movie provider is scannable in this preview.
         for extension in tree.findall("extension"):
             for entry in extension.findall("medialibraryscanpath"):
-                extension.remove(entry)
+                if entry.get("content") == "movies":
+                    entry.text = "/native/"
+                else:
+                    extension.remove(entry)
         requires = tree.find("requires")
         floor = requires.find("import[@addon='xbmc.addon']")
         if floor is None:
@@ -152,13 +155,6 @@ def contents(root, path, profile):
                     "context_download_playlist.py",
                 ):
                     menu.remove(item)
-                elif item.get("library") in ("context_manage.py", "context_play.py"):
-                    visible = item.find("visible")
-                    visible.text = (
-                        "!String.IsEmpty(ListItem.Property(kofin.id)) + ["
-                        + visible.text
-                        + "]"
-                    )
         return ET.tostring(tree, encoding="utf-8", xml_declaration=True)
     if path.as_posix() == "resources/settings.xml":
         tree = ET.fromstring(data)
@@ -174,10 +170,11 @@ def contents(root, path, profile):
             "syncDuringPlay",
             "limitIndex",
             "limitThreads",
+            "refreshBoxsets",
         }
         for section in tree.findall("section"):
             for category in list(section):
-                if category.get("id") in ("downloads", "library"):
+                if category.get("id") == "downloads":
                     section.remove(category)
         for group in tree.findall(".//group"):
             for setting in list(group):

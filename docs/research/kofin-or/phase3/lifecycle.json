@@ -1,0 +1,37 @@
+{
+  "complete": true,
+  "checks": [
+    "snapshot scanner imported two movies with owned identities",
+    "repeat did not duplicate or change native identities",
+    "scalar patch and watched/resume readback",
+    "refresh replaced ID, updated cast, restored userdata after restart",
+    "removed provider IDs, critic rating, tags and genres cleared",
+    "server echo suppressed and real native watched edit persisted",
+    "offline second page retained complete snapshot and native movies",
+    "owned removal",
+    "native resolver playback, stop and completion reporting"
+  ],
+  "application": {
+    "version": {
+      "major": 22,
+      "minor": 0,
+      "revision": "20260831-e513e0ff-dirty",
+      "tag": "beta",
+      "tagversion": "2"
+    }
+  },
+  "initial_seconds": 0.6504671110305935,
+  "playback": {
+    "native_playback_id": true,
+    "start_stop_reported": true,
+    "completion_reported": true,
+    "report_count": 5,
+    "coordinator_import_101_seconds": 3.9310200799955055,
+    "dynamic_browse_during_scan": {
+      "seconds": 0.055800011032260954,
+      "rows": 101
+    }
+  },
+  "cleanup": true,
+  "foreign_unchanged": true
+}

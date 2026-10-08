@@ -48,7 +48,17 @@ def library_video_path(jellyfin_id: str, media: str) -> Optional[str]:
     will play, but Kodi's ListItem.IsPlaying will not match the browsing row.
     """
     if not buildconfig.legacy_features():
-        return None
+        if media != "movie":
+            return None
+        from kofin.sync.backends.api.movies import current_store
+        from kofin.sync.backends.api.store import playback_url
+
+        store = current_store()
+        return (
+            playback_url(store.namespace, jellyfin_id)
+            if store.mapping(jellyfin_id)
+            else None
+        )
     from kofin.sync.private import Database
     from kofin.sync.kofindb import JellyfinDatabase
 
@@ -96,7 +106,14 @@ def mapped_jellyfin_id(kodi_id: int, media: str) -> Optional[str]:
     """The Jellyfin id kofin synced a Kodi library row from, or None if the row
     is not ours (or the mapping database cannot be read)."""
     if not buildconfig.legacy_features():
-        return None
+        from kofin.sync.backends.api.movies import mapped_item
+
+        try:
+            value = mapped_item(kodi_id, media)
+            return str(value) if value else None
+        except Exception:
+            LOG.exception("API library identity unavailable")
+            return None
     from kofin.sync import private as sync_db
     from kofin.sync import kofindb
 

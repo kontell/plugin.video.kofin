@@ -79,8 +79,10 @@ def _focused_item_id() -> str:
 
 def lookup_item_id(dbid: int, media_type: str) -> str:
     """The Jellyfin item id for a Kodi library row, '' when not kofin's."""
-    if not buildconfig.native_sync():
-        return ""
+    if buildconfig.BACKEND == "api":
+        from kofin.service.libraryclaim import mapped_jellyfin_id
+
+        return mapped_jellyfin_id(dbid, media_type) or ""
     if not dbid or dbid < 0 or not media_type:
         return ""
     from kofin.sync.private import get_item

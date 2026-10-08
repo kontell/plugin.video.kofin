@@ -399,3 +399,16 @@ Record: `tests/live/results/S-D-polish/RESULT.md`, and `tests/live/results/S-D4/
 - [REPRO] Before fix: Frasier S01E01 → Play Next S01E02 opened `?mode=play&id=355c…&fromstart=1`; the synced S01E02 row had a different path with `dbid=1581`. The unhighlighted browsing row is the reported symptom; Kodi's `CFileItem::IsSamePath` explains the mismatch.
 - [PASS] After fix: Play Next opened the exact `VideoLibrary.GetEpisodeDetails(1581).file` path with `noresume`; `Player.GetItem` reported episode 1581 at that path. In `videodb://tvshows/titles/49/1/`, `Container.ListItemAbsolute(2).IsPlaying` was `True` for "02. Space Quest" and `False` for its neighbours. The service claimed the play normally and logged no overlay action failure.
 - [UNIT] The segment engine checks the synced-path and dynamic-listing fallback commands; the mapping and Kodi file lookup have separate tests. A future live regression gate should repeat the same path and `IsPlaying` checks for a downloaded next episode and an unsynced dynamic listing.
+
+## OR phase 3 — public-API native movies (2026-10-07, P1D Piers Flatpak)
+
+- [PASS] Packaged scanner import, repeat without duplicates, scalar patches, cast/stream refresh with native-ID replacement, userdata restoration and owned removal.
+- [PASS] Stale provider IDs, ratings and tags cleared; real native watched edit persisted while matching server echo was suppressed.
+- [PASS] Offline partial enumeration preserved the complete snapshot and native rows.
+- [PASS] Native movie resolver playback with preserved DBID, stop and completion reporting.
+- [PASS] 101-movie coordinator import in 3.931 seconds; dynamic browsing during the scan returned all 101 rows in 0.056 seconds.
+- [PASS] Owned fixture rows removed and foreign movie IDs unchanged; production addon preserved.
+- [PASS] Actual Kodi process restart replayed a pinned pending update, preserved native ID and repeated without duplicates; owned cleanup and foreign identity check passed.
+- [PENDING RELEASE] Complete any outstanding startup/selection checks on a fresh profile using the approved P1D Piers Flatpak, then publish through the development repository. Existing passing Flatpak results count toward release acceptance.
+
+Reproduction, scope and sanitized results: [phase 3 evidence](research/kofin-or/phase3/README.md).

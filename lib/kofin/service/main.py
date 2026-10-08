@@ -314,13 +314,17 @@ class Service(xbmc.Monitor):
         from kofin.sync.private import addon_data_path
         import os
 
+        self._api_interfaces = False
         backend = create_backend()
         report = backend.capabilities()
         try:
             backend.initialize()
             report["private_state"] = "ready"
+            self._api_interfaces = report["interfaces_passed"]
         except BackendMismatch:
             report["private_state"] = "fresh library required"
+            self._api_interfaces = False
+            report["native_sync_enabled"] = False
         directory = addon_data_path()
         os.makedirs(directory, exist_ok=True)
         target = os.path.join(directory, "api-capabilities.json")
@@ -328,11 +332,24 @@ class Service(xbmc.Monitor):
             json.dump(report, handle, indent=2)
         os.replace(target + ".part", target)
         LOG.info(
-            "API backend: interfaces=%s private_state=%s; native sync not enabled in this internal build",
+            "API movie backend: interfaces=%s private_state=%s",
             report["interfaces_passed"],
             report["private_state"],
         )
-        settings.set_str("syncStatus", "Internal API build: native sync not enabled")
+        if report["private_state"] != "ready":
+            settings.set_str(
+                "syncStatus",
+                settings.localized(30420)
+                % "Fresh native library required; see OR migration guide",
+            )
+        elif not self._api_interfaces:
+            settings.set_str(
+                "syncStatus", settings.localized(30420) % "; ".join(report["errors"])
+            )
+        elif self.credentials.is_logged_in:
+            # Published native work is replayable without waiting for Jellyfin
+            # to reconnect after Kodi restarts.
+            self._start_api_library()
 
     def _tick(self) -> None:
         self._maybe_announce_lost()
@@ -555,7 +572,8 @@ class Service(xbmc.Monitor):
         """Start the sync manager once online, when there is anything to sync
         or resume. Import and failures are contained: playback and remote
         control must survive a broken sync stack (degrade, don't die)."""
-        if not buildconfig.native_sync():
+        if buildconfig.BACKEND == "api":
+            self._start_api_library()
             return None
         self._reap_library()
 
@@ -581,6 +599,29 @@ class Service(xbmc.Monitor):
             LOG.info("library sync manager started")
         except Exception:
             LOG.exception("library sync manager failed to start")
+            self.library = None
+
+    def _start_api_library(self) -> None:
+        if not getattr(self, "_api_interfaces", False):
+            return
+        self._reap_library()
+        if self.library is not None:
+            return
+        try:
+            from kofin.sync import private
+            from kofin.sync.backends.api.library import Library as MovieLibrary
+            from kofin.sync.backends.api.movies import current_store
+
+            if not (
+                settings.get_list("librarySelection") or private.get_sync()["Whitelist"]
+            ):
+                store = current_store()
+                if not (store.pending() or store.local_pending()):
+                    return
+            self.library = MovieLibrary(self.api, self.player, self._new_api)
+            self.library.start()
+        except Exception:
+            LOG.exception("API movie sync manager failed to start")
             self.library = None
 
     def _start_downloads(self) -> None:

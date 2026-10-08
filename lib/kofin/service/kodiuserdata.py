@@ -15,8 +15,8 @@ The flat one carries identity and nothing else — Kodi only ever emits it from
 its resume-bookmark delete — so the position is read back out of Kodi rather
 than inferred from the shape.
 
-No loop back from the sync: its writes go into MyVideos through SQLite, which
-bypasses Kodi's announcement system entirely.
+SQL sync bypasses announcements. API movie sync suppresses matching expected
+values for the current operation generation and durably queues real user edits.
 """
 
 import queue
@@ -138,6 +138,11 @@ class KodiUserData:
             LOG.exception("could not park userdata for replay")
 
     def _apply(self, kind: str, kodi_id: int, media: str, playcount: int) -> None:
+        from kofin import buildconfig
+
+        if buildconfig.BACKEND == "api":
+            self._apply_api(kind, kodi_id, media, playcount)
+            return
         from kofin.service.libraryclaim import mapped_jellyfin_id
 
         jellyfin_id = mapped_jellyfin_id(kodi_id, media)
@@ -172,3 +177,27 @@ class KodiUserData:
 
         LOG.info("--> kodi %s %s resume reset", media, kodi_id)
         self.api.set_resume_position(jellyfin_id, 0)
+
+    def _apply_api(self, kind: str, kodi_id: int, media: str, playcount: int) -> None:
+        from kofin.sync.backends.api.movies import current_store, mapped_item
+
+        item_id = mapped_item(kodi_id, media)
+        if not item_id:
+            return
+        store = current_store()
+        if kind == UPDATE_PLAYCOUNT:
+            if store.is_echo(item_id, "playcount", playcount):
+                return
+            store.local(item_id, {"playcount": playcount})
+        else:
+            position = kodirpc.resume_seconds(kodi_id, media)
+            if position is None:
+                return
+            records, _, _ = store.snapshot(pinned=False)
+            total = (
+                float(records.get(item_id, {}).get("item", {}).get("RunTimeTicks") or 0)
+                / 10000000
+            )
+            if store.is_echo(item_id, "resume", {"position": position, "total": total}):
+                return
+            store.local(item_id, {"position": position})

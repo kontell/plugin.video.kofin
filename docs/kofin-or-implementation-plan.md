@@ -10,7 +10,7 @@
 
 ## 1. Agreed direction and scope
 
-Build `kofin-or` from `main`, using **plugin directory scanning for insertion, JSON-RPC for supported updates and reads, and Kofin-owned storage for catalogue state and recovery**. The first implementation must run on unmodified Kodi Piers. A subsequent implementation targets stock Kodi v23 with upstream contributions addressing the remaining gaps.
+Build `kofin-or` from `main`, using **plugin directory scanning for insertion, JSON-RPC for supported updates and reads, and Kofin-owned storage for catalogue state and recovery**. The first implementation targets Kodi Piers, with the P1D Piers Flatpak approved for development and release validation. A subsequent implementation targets stock Kodi v23 with upstream contributions addressing the remaining gaps.
 
 | Decision | Implementation consequence |
 |---|---|
@@ -35,14 +35,14 @@ Versions below are planned milestones, not one-release-per-phase promises. Use p
 
 | Phase | Deliverable | Release milestone | Depends on |
 |---|---|---|---|
-| 0 | Parity checklist, stock Piers baseline, branch and version policy | Branch starts at `0.90.0` | Current research |
+| 0 | Parity checklist, Piers baseline, branch and version policy | Branch starts at `0.90.0` | Current research |
 | 1 | Shared sync contracts, private-state split and package boundaries | Internal builds of both branches | 0 |
 | 2 | Development repository and prerelease automation | Working `repository.kontell.dev` installer | 0; alongside 1 |
-| 3 | Complete movie lifecycle through stock Piers APIs | First published `0.90.0` prerelease | 1, 2 |
+| 3 | Complete movie lifecycle through Piers APIs | First published `0.90.0` prerelease | 1, 2 |
 | 4 | TV, seasons, episodes, music videos and collections | `0.91.x` | 3 |
 | 5 | Safe music ingestion, updates and removal | `0.92.x` | Snapshot foundation from 3 |
 | 6 | Downloads, artwork, nodes, playback integration and policy cleanup | `0.93.x` | 4, 5 |
-| 7 | Stock Piers development candidate and official submission preparation | `0.94.x` | 3–6 |
+| 7 | Piers development candidate and official submission preparation | `0.94.x` | 3–6 |
 | 8 | Scoped Kodi contributions from feasibility report §9 | Independent upstream PRs | Begin after 0; use later phases' evidence |
 | 9 | v23 integration, parity validation and branch convergence | `0.95.x` onward; eventual `1.0.0` | 7 and relevant merged contributions |
 
@@ -61,7 +61,7 @@ The shared code stays in this repository. A separate shared package or third lon
 
 ### Piers and v23 release families
 
-- The Piers family is `0.90.x`–`0.94.x`, with a measured minimum supported stock Piers build. The user explicitly approved the existing dirty P1D Flatpak for phase 0 because RC1 binaries are not distributed yet. Revalidate when stock RC1 **binaries** are available; publication of its source tag does not end this exception. Public-release qualification still requires an unmodified build and passing behavioral gates.
+- The Piers family is `0.90.x`–`0.94.x`, with a measured minimum supported Piers API floor. The P1D Piers Flatpak is approved for development and release validation. Record the exact build and pass the behavioral gates; there is no separate binary-provenance requirement or RC1-upgrade prerequisite. This acceptance policy was confirmed on 8 October 2026.
 - The v23 family begins at `0.95.0`, with its own validated v23 floor. Keep the last compatible Piers release available in the Piers feed. Backport an essential Piers fix using a short-lived release branch if necessary.
 - This avoids maintaining SQL-main, Piers-OR and v23-OR as three permanent feature branches. Supporting v23-only APIs does not silently deliver an incompatible update to Piers.
 - `1.0.0` is the proposed convergence release, after the parity and repository-review gates. Keep both main and OR maintained if the required Kodi changes miss v23.
@@ -188,7 +188,7 @@ Unchanged: `addons.toml` models, the Worker, `publish.yml` triggers, the disable
 
 1. Turn feasibility report §8 into a tracked checklist: current-main behavior, Piers implementation/fallback, v23 requirement, validation scenario and status. Include the callers outside `lib/kofin/sync`.
 2. Create the branch/version arrangement from §2. Record the baseline main release and update the parity checklist as shared features are added during parallel maintenance.
-3. Reproduce the essential probes on Piers, recording build identity, Python capabilities and JSON-RPC methods/parameters. Use the existing dirty P1D Flatpak under the user's phase 0 exception; repeat on unmodified RC1 when binaries become available. Do not label the present evidence as stock qualification.
+3. Reproduce the essential probes on Piers, recording build identity, Python capabilities and JSON-RPC methods/parameters. Use the approved P1D Piers Flatpak; its results count toward the behavioral acceptance gates.
 4. Exercise forced music rescans, failed directory enumeration and metadata-only changes early. Confirm the source setup needed for movies, individual shows and music, and define the user setup needed where registration is not exposed.
 5. Record initial SQL-main timings and behavior on a fixed test catalogue and the intended large library. Create a disposable Jellyfin fixture for deletion, interruption and userdata tests.
 
@@ -230,7 +230,7 @@ Implemented in [shared PR #260](https://github.com/kontell/plugin.video.kofin/pu
 - Reconcile Kodi IDs after refresh and scan. Prevent echoing server-applied userdata back to Jellyfin using expected values and operation generations; continue to accept real user changes.
 - Route playback through the shared resolver and exercise native library playback, stop/completion reporting and restart recovery.
 
-**Exit:** add → update → play → watched/resume → refresh → remove works on stock Piers; repeat/restart does not duplicate content; offline and partial server responses do not delete valid content; foreign native items survive owned repair/removal. The dynamic-browsing gate in §3.4 passes independently of native movie sync. Release the first **`0.90.0` GitHub prerelease** through the development repository with the supported native-sync scope stated.
+**Exit:** add → update → play → watched/resume → refresh → remove works on Piers; repeat/restart does not duplicate content; offline and partial server responses do not delete valid content; foreign native items survive owned repair/removal. The dynamic-browsing gate in §3.4 passes independently of native movie sync. Release the first **`0.90.0` GitHub prerelease** through the development repository with the supported native-sync scope stated.
 
 ### Phase 4 — Complete the Piers video catalogue (`0.91.x`)
 
@@ -256,7 +256,7 @@ Implemented in [shared PR #260](https://github.com/kontell/plugin.video.kofin/pu
 
 **Exit:** normal/forced scan, metadata-only update, two-to-one/one-to-zero deletion, server failure, plugin-listing failure and restart recovery pass. Include compilations, multiple credits, duplicate albums, no MBIDs, singles and multiple selected libraries. Native music-source and empty-entity gaps remain visible in the checklist.
 
-If stock Piers cannot safely handle a required failure/rescan case, ship native music sync disabled for that affected configuration and retain plugin playback while pursuing the scoped Kodi fix. Do not present that configuration as complete Piers native-music support or let a failed listing masquerade as a valid empty album.
+If Piers cannot safely handle a required failure/rescan case, ship native music sync disabled for that affected configuration and retain plugin playback while pursuing the scoped Kodi fix. Do not present that configuration as complete Piers native-music support or let a failed listing masquerade as a valid empty album.
 
 ### Phase 6 — Finish integration and repository compliance (`0.93.x`)
 
@@ -269,15 +269,15 @@ If stock Piers cannot safely handle a required failure/rescan case, ship native 
 - **Whole-addon policy:** replace SQL library claiming and legacy cleanup paths; remove mutation of installed `addon.xml` for language-invoker settings and installed artwork for dynamic backdrops. Store changing content in the addon profile. Audit required/optional dependencies and official availability, including lyrics and inputstream integrations.
 - **Reset/removal:** implement supported owned-content removal for OR, including committed music snapshot deletion. Distinguish removing Kofin content from the separate whole-profile migration reset.
 
-**Exit:** the shipping OR archive has no reachable direct Kodi database access or installed-addon mutation. Native playback/download and UI flows pass on stock Piers. A missing optional addon reduces the corresponding optional feature without preventing core installation or sync.
+**Exit:** the shipping OR archive has no reachable direct Kodi database access or installed-addon mutation. Native playback/download and UI flows pass on Piers. A missing optional addon reduces the corresponding optional feature without preventing core installation or sync.
 
-### Phase 7 — Validate and prepare the stock Piers release (`0.94.x`)
+### Phase 7 — Validate and prepare the Piers release (`0.94.x`)
 
 Run the acceptance suite in §8 on the packaged addon and development repository. Fix correctness, recovery and performance defects before broadening the feature set. Publish the Piers limitations and their v23 tracking issues alongside the release notes.
 
 Prepare the official repository submission with dependency metadata, licensing, translations/assets, profile-only storage and documented outside-profile opt-ins. Run Kodi's applicable addon checks at submission time. Seek maintainer feedback on the concrete Piers package before full parity; keep public distribution in the development feed until the stable cutover described in §2.
 
-**Exit:** a stock-Piers-supported build and an independently reviewable submission candidate. Main remains supported because this milestone does not imply parity.
+**Exit:** a Piers-supported build and an independently reviewable submission candidate. Main remains supported because this milestone does not imply parity.
 
 ## 6. Kodi v23 contribution programme (phase 8)
 
@@ -344,11 +344,11 @@ Tests must demonstrate behavior, especially failure recovery and native playback
 | Playback/downloads | Native library, widget, playlist, remote-control and plugin starts; direct/transcoded media; track/stream selection; offline video/music; download/remove/re-download; completion and resume. |
 | Presentation | Collection membership, episode ordering, artwork, renamed badges, library selection, counts and ordered playlists checked in Estuary and the supported custom-skin integration. |
 | Distribution | §4: the stable repository serves releases and `repository.kontell.dev` serves prereleases. Phase 3 repeats the check with the real `0.90.0` and its first patch. |
-| Performance | Fixed initial/delta/refresh/deletion workloads; wall time, API calls, pending backlog, notifications, peak memory and UI responsiveness, on stock Piers and later v23. |
+| Performance | Fixed initial/delta/refresh/deletion workloads; wall time, API calls, pending backlog, notifications, peak memory and UI responsiveness, on Piers and later v23. |
 
 Set explicit performance budgets after phase 0 measurements and record them in the parity ledger before optimizing. The small synthetic research timings are not release targets. Investigate refresh storms, full-catalogue scans for small deltas, repeated full-library readback, unbounded snapshots and GUI stalls specifically. Use bounded patches and coalesced scans, retaining correctness under cancellation.
 
-The release matrix is the validated stock Piers floor/current build and, once integration begins, the relevant stock v23 builds. Add Windows/Android smoke coverage for path, dependency and packaging behavior before broad release. **No Omega or shared-MySQL qualification is required.** External research scripts may inspect native databases to diagnose a test, but those helpers never enter the addon distribution and shipped behavior cannot depend on their results.
+The release matrix includes the approved P1D Piers Flatpak and, once integration begins, the relevant stock v23 builds. Add Windows/Android smoke coverage for path, dependency and packaging behavior before broad release. **No Omega or shared-MySQL qualification is required.** External research scripts may inspect native databases to diagnose a test, but those helpers never enter the addon distribution and shipped behavior cannot depend on their results.
 
 ## 9. v23 integration and retiring the SQL branch
 
@@ -377,4 +377,4 @@ Keep the first batch concrete and reviewable:
 5. **Kofin OR:** committed movie catalogue, scanner callbacks, stable resolver, pending operations, identity readback and first-run reset gate; publish `0.90.0` after the vertical slice passes.
 6. **Kodi:** independent song release-date correction and music tag/forced-rescan reproductions with proposed API semantics.
 
-This order gets a usable stock Piers preview into an automatically maintained development feed early, while the shared refactor and upstream work support the eventual v23 convergence.
+This order gets a usable Piers preview into an automatically maintained development feed early, while the shared refactor and upstream work support the eventual v23 convergence.

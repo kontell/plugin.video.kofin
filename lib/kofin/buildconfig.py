@@ -4,7 +4,10 @@ BACKEND = "api"
 
 
 def native_sync() -> bool:
-    """The API distribution's first native vertical slice arrives in phase 3."""
+    """Select the legacy multi-media coordinator and native node generators.
+
+    The API movie worker has its own capability and fresh-library gates.
+    """
     return BACKEND == "sql"
 
 
