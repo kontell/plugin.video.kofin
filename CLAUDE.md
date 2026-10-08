@@ -221,6 +221,15 @@ What remains is kofin's own:
   other album of the same name still links them. The song leg still *adds* album artists from
   a track's `AlbumArtists` (discography for an album artist absent from `ArtistItems`); it
   prunes only a single's synthetic album, which never passes through the album writer.
+- **A scanner ListItem never stamps a zero resume point** (`metadata.build` passes
+  `stamp_zero_resume=False` to `listitems.build`). Kodi's scanner persists any *set* point —
+  `CBookmark::IsSet` is `totalTimeInSeconds > 0` — as a type-1 bookmark, and the in-progress
+  smart-playlist rule is that row's existence, so the zero stamp a browse row needs (to mask the
+  bookmark Kodi saved for the plugin path) put every imported movie in the in-progress widget
+  until its detail patch cleared it.
+- **`VideoLibrary.SetSourceContent` deletes rows only with `clearmode: "remove"`.** `"clear"`
+  unbinds the scraper and leaves every row in place; the API backend's whole-library removal
+  (`backends/api/movies.py::remove`) relies on `"remove"` being `RemoveContentForPath`.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is

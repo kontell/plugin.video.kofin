@@ -221,6 +221,17 @@ class MovieStore(Catalogue):
                 (self.namespace,),
             )
 
+    def populated(self):
+        """Whether any owned movie currently has a native row."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            return bool(
+                db.cursor.execute(
+                    "SELECT 1 FROM api_movie WHERE namespace=? AND kodi_id IS NOT NULL LIMIT 1",
+                    (self.namespace,),
+                ).fetchone()
+            )
+
     def mapping(self, item_id):
         with Database() as db:
             self._prepare(db.cursor)

@@ -380,8 +380,19 @@ class Kodi:
             self.rows[row["movieid"]] = row
         if method == "VideoLibrary.SetMovieDetails" and not self.accept_without_apply:
             self.rows[params["movieid"]].update(copy.deepcopy(params))
-        if method == "VideoLibrary.RemoveMovie":
+        if method == "VideoLibrary.RemoveMovie" and not self.accept_without_apply:
             del self.rows[params["movieid"]]
+        if (
+            method == "VideoLibrary.SetSourceContent"
+            and params.get("clearmode") == "remove"
+            and not self.accept_without_apply
+        ):
+            # RemoveContentForPath: every item scraped under the path goes.
+            self.rows = {
+                movieid: row
+                for movieid, row in self.rows.items()
+                if not row["file"].startswith(params["path"])
+            }
         return "OK"
 
 
@@ -721,3 +732,241 @@ def test_local_delivery_is_idempotent_and_newer_edit_survives(store, monkeypatch
     Library(api, None, lambda: api).flush_local()
     assert sent == [{"Played": True, "PlayCount": 3, "PlaybackPositionTicks": 0}]
     assert store.local_pending() == [("a", {"playcount": 0, "position": 0})]
+
+
+def test_scanner_listitem_never_stamps_a_zero_resume_point(monkeypatch):
+    from unittest.mock import Mock
+
+    seen = {}
+
+    def build(item, server, **kwargs):
+        seen.update(kwargs)
+        li = Mock()
+        li.getVideoInfoTag.return_value = Mock()
+        return li
+
+    monkeypatch.setattr(metadata.listitems, "build", build)
+    metadata.build(movie(UserData={}), "http://fixture.invalid", "namespace", "lib")
+    assert seen["stamp_zero_resume"] is False
+
+
+@pytest.mark.parametrize("stale_pin", [False, True])
+def test_whole_library_removal_clears_the_directory_in_one_call(
+    store, native, stale_pin, monkeypatch
+):
+    from kofin.sync.backends.api import movies
+
+    backend, kodi = native
+    builtins = []
+    monkeypatch.setattr(movies.xbmc, "executebuiltin", builtins.append)
+    store.publish([movie(), movie("b"), movie("c")], library="one")
+    backend.reconcile()
+    if stale_pin:
+        # A scan that timed out keeps the full generation pinned; every pinned
+        # record is still being removed, so the directory goes whole.
+        store.pin()
+    store.publish([], library="one")
+    kodi.calls.clear()
+    backend.reconcile()
+    methods = [m for m, _ in kodi.calls]
+    assert not kodi.rows
+    assert not store.pending()
+    assert "VideoLibrary.RemoveMovie" not in methods
+    assert methods.count("VideoLibrary.GetMovies") == 1
+    clears = [p for m, p in kodi.calls if m == "VideoLibrary.SetSourceContent"]
+    assert [c["clearmode"] for c in clears] == ["remove"]
+    assert store.mapping("a")[0] is None
+    # The clear announces nothing; one library event tells the widgets.
+    assert builtins == ["UpdateLibrary(video)"]
+
+
+def test_partial_removal_confirms_every_row_with_one_readback(
+    store, native, monkeypatch
+):
+    from kofin.sync.backends.api import movies
+
+    backend, kodi = native
+    builtins = []
+    monkeypatch.setattr(movies.xbmc, "executebuiltin", builtins.append)
+    store.publish([movie(), movie("b"), movie("c")], library="one")
+    backend.reconcile()
+    store.publish([], removed=["a", "b"])
+    kodi.calls.clear()
+    backend.reconcile()
+    methods = [m for m, _ in kodi.calls]
+    assert methods.count("VideoLibrary.RemoveMovie") == 2
+    assert methods.count("VideoLibrary.GetMovies") == 1
+    assert "VideoLibrary.SetSourceContent" not in methods
+    # RemoveMovie notifies per row itself; no extra library event.
+    assert builtins == []
+    assert {r["uniqueid"]["kofin"] for r in kodi.rows.values()} == {
+        identity(store.namespace, "c")
+    }
+    assert not store.pending()
+
+
+def test_unconfirmed_removal_stays_pending(store, native):
+    backend, kodi = native
+    store.publish([movie(), movie("b")], library="one")
+    backend.reconcile()
+    store.publish([], removed=["a"])
+    kodi.accept_without_apply = True
+    with pytest.raises(RuntimeError, match="removal not confirmed"):
+        backend.reconcile()
+    assert store.state("a").status == "pending"
+    assert store.state("a").operation == "remove"
+    assert len(kodi.rows) == 2
+    kodi.accept_without_apply = False
+    backend.reconcile()
+    assert not store.pending()
+    assert len(kodi.rows) == 1
+
+
+@pytest.mark.parametrize("finishes", [True, False])
+def test_scan_wait_outlasts_a_long_scan_but_not_an_idle_one(
+    store, native, monkeypatch, finishes
+):
+    from kofin.sync.backends.api import movies
+
+    backend, kodi = native
+    clock = [0.0]
+    scanning = [False]
+    remaining = [0]
+    monkeypatch.setattr(movies.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(movies.xbmc, "getCondVisibility", lambda _: scanning[0])
+    original_rpc = kodi.rpc
+
+    def slow_scan(method, params=None):
+        if method == "VideoLibrary.Scan":
+            # Ten ticks of thirty seconds: far past the old fixed cap.
+            scanning[0], remaining[0] = True, 10
+            return "OK"
+        return original_rpc(method, params)
+
+    def tick(_):
+        clock[0] += 30
+        if scanning[0]:
+            remaining[0] -= 1
+            if not remaining[0]:
+                scanning[0] = False
+                if finishes:
+                    original_rpc("VideoLibrary.Scan")
+        return False
+
+    monkeypatch.setattr(movies, "rpc", slow_scan)
+    backend.monitor.waitForAbort = tick
+    store.publish([movie()], library="one")
+    records = store.snapshot()[0]
+    if finishes:
+        backend.scan(records)
+        assert clock[0] >= 300
+        assert len(kodi.rows) == 1
+    else:
+        with pytest.raises(TimeoutError):
+            backend.scan(records)
+        # Sixty seconds of idle after the scanner stopped, not sixty in total.
+        assert 300 + 60 <= clock[0] <= 300 + 60 + 30
+
+
+def enumerating_worker(store, selections, monkeypatch):
+    from kofin.sync.backends.api import library
+
+    worker = library.Library.__new__(library.Library)
+    worker.store = store
+    worker.api = SimpleNamespace(
+        views=lambda: {
+            "Items": [
+                {"Id": "one", "CollectionType": "movies"},
+                {"Id": "two", "CollectionType": "movies"},
+            ]
+        }
+    )
+    worker._stop_event = SimpleNamespace(is_set=lambda: False)
+    worker._repair = False
+    replies = iter(selections)
+    monkeypatch.setattr(library.settings, "get_list", lambda _: next(replies))
+    monkeypatch.setattr(
+        library,
+        "fetch_movies",
+        lambda api, selected, abort: [movie("a" if selected == "one" else "b")],
+    )
+    return worker
+
+
+def test_enumeration_drops_a_library_deselected_meanwhile(store, monkeypatch):
+    # The selection read at entry names both; by publish time "one" is gone.
+    worker = enumerating_worker(store, [["one", "two"], ["two"]], monkeypatch)
+    worker.full_sync()
+    assert set(store.snapshot()[0]) == {"b"}
+    assert worker._repair
+
+
+def test_enumeration_publishes_nothing_when_the_selection_emptied(store, monkeypatch):
+    store.publish([movie()], library="one")
+    before = store.snapshot(), store.pending()
+    worker = enumerating_worker(store, [["one"], []], monkeypatch)
+    worker.full_sync()
+    assert (store.snapshot(), store.pending()) == before
+    assert not worker._repair
+
+
+def test_first_content_reloads_the_skin_once_and_waits_for_playback(
+    store, worker, monkeypatch
+):
+    from kofin.sync.backends.api import library
+
+    builtins = []
+    monkeypatch.setattr(library.xbmc, "executebuiltin", builtins.append)
+    monkeypatch.setattr(library.xbmc, "getCondVisibility", lambda _: True)
+    monkeypatch.setattr(library, "status", lambda value: None)
+    store.publish([movie()], library="one")
+    playing = [True]
+    worker.player = SimpleNamespace(isPlayingVideo=lambda: playing[0])
+    imported = SimpleNamespace(
+        reconcile=lambda repair=False: store.remember("a", 1, 10, movie())
+    )
+    worker.apply(imported)
+    # Held: a reload would rebuild the OSD under the viewer.
+    assert builtins == []
+    playing[0] = False
+    worker.flush_pending_reload()
+    assert builtins == ["ReloadSkin()"]
+    # Already populated: a later apply owes nothing.
+    store.publish([movie(Overview="Changed")], library="one")
+    worker.apply(imported)
+    worker.flush_pending_reload()
+    assert builtins == ["ReloadSkin()"]
+    # Emptied and refilled: the widgets went deaf on the empty fetch.
+    store.publish([], library="one")
+    worker.apply(
+        SimpleNamespace(reconcile=lambda repair=False: store.remember("a", 3, None, {}))
+    )
+    store.publish([movie()], library="one")
+    worker.apply(
+        SimpleNamespace(
+            reconcile=lambda repair=False: store.remember("a", 4, 11, movie())
+        )
+    )
+    assert builtins == ["ReloadSkin()", "ReloadSkin()"]
+
+
+def test_first_content_reload_survives_a_partly_failed_import(
+    store, worker, monkeypatch
+):
+    from kofin.sync.backends.api import library
+
+    builtins = []
+    monkeypatch.setattr(library.xbmc, "executebuiltin", builtins.append)
+    monkeypatch.setattr(library.xbmc, "getCondVisibility", lambda _: True)
+    monkeypatch.setattr(library, "status", lambda value: None)
+    store.publish([movie(), movie("b")], library="one")
+
+    def half(repair=False):
+        store.remember("a", 1, 10, movie())
+        raise RuntimeError("1 movie operations remain pending")
+
+    with pytest.raises(RuntimeError):
+        worker.apply(SimpleNamespace(reconcile=half))
+    assert builtins == []
+    worker.flush_pending_reload()
+    assert builtins == ["ReloadSkin()"]

@@ -156,7 +156,11 @@ def build(item, server, key, library):
     data = details(item, server, key, library)
     # Browsing deliberately sends fewer stream fields. The scanner uses the
     # shared writer conversion, including aspect, stereo, HDR and codec policy.
-    li = listitems.build(dict(item, MediaStreams=[]), server, resume_offset=0)
+    # A zero resume point is never stamped: the scanner would persist it as a
+    # bookmark and the movie would sit in "in progress" until the patch below.
+    li = listitems.build(
+        dict(item, MediaStreams=[]), server, resume_offset=0, stamp_zero_resume=False
+    )
     tag = li.getVideoInfoTag()
     streams, runtime = streams_and_runtime(item)
     for stream in streams["video"]:

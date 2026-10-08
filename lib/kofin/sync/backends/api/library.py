@@ -78,8 +78,10 @@ class Library(threading.Thread):
         creds = Credentials.load()
         self.store = MovieStore(namespace(creds.server_id, creds.user_id))
         self.api = api
+        self.player = player
         self.api_factory = api_factory
         self.startup_done = False
+        self._reload_owed = False
         self.stop_thread = False
         self._stop_event = threading.Event()
         self._queue: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -145,6 +147,7 @@ class Library(threading.Thread):
                     self.commands,
                     self.refresh,
                     lambda: self.apply(movies),
+                    self.flush_pending_reload,
                 ):
                     try:
                         work()
@@ -203,20 +206,25 @@ class Library(threading.Thread):
             for v in views
             if v.get("CollectionType") in ("movies", "mixed", None, "")
         }
-        complete = {}
-        membership: dict[str, str] = {}
-        committed = []
+        fetched = {}
         for library in sorted(selected):
             if library not in supported:
                 # Absence/access loss is not consent to remove a native library.
                 continue
-            items = fetch_movies(self.api, library, self._stop_event.is_set)
-            for item in items:
-                complete[item["Id"]] = item
-                membership.setdefault(item["Id"], library)
-            committed.append(library)
+            fetched[library] = fetch_movies(self.api, library, self._stop_event.is_set)
+        # Enumeration takes minutes on a real catalogue. A library deselected
+        # meanwhile is not published: its RemoveLibrary is already queued, and
+        # publishing it here would import every movie only to remove it again.
+        selected = settings.get_list("librarySelection")
+        committed = [library for library in fetched if library in selected]
         if not committed:
             return
+        complete = {}
+        membership: dict[str, str] = {}
+        for library in committed:
+            for item in fetched[library]:
+                complete[item["Id"]] = item
+                membership.setdefault(item["Id"], library)
         # A later selected library may contain a movie moved out of an earlier
         # one. Publish their union only after every enumeration succeeded.
         self.store.publish(
@@ -289,9 +297,41 @@ class Library(threading.Thread):
     def apply(self, movies):
         if self.store.pending() or self._repair:
             status(settings.localized(30401))
-            movies.reconcile(repair=self._repair)
+            populated = self.store.populated()
+            try:
+                movies.reconcile(repair=self._repair)
+            finally:
+                # A home widget whose last fetch found nothing is deaf to
+                # every later library announcement, and the skin's widget
+                # sections bake their Library.HasContent gate at window load.
+                # Only a skin reload shows content that arrived into an empty
+                # library, so the empty -> populated transition owes one.
+                if not populated and self.store.populated():
+                    self._reload_owed = True
             self._repair = False
             status(xbmc.getLocalizedString(20177))
+            self.flush_pending_reload()
+
+    def flush_pending_reload(self):
+        """Fire the owed first-content skin reload once nothing is playing."""
+        if not self._reload_owed:
+            return
+        if self.player is not None and self.player.isPlayingVideo():
+            # A reload rebuilds the OSD under the viewer; the tick retries.
+            return
+        monitor = xbmc.Monitor()
+        # The scan cycle re-samples Kodi's cached HasContent bool; a reload
+        # against the stale value becomes right only on the next one.
+        for _ in range(40):
+            if xbmc.getCondVisibility("Library.HasContent(Movies)"):
+                break
+            if monitor.waitForAbort(0.25):
+                return
+        else:
+            LOG.warning("Library.HasContent(Movies) did not flip; reloading anyway")
+        self._reload_owed = False
+        LOG.info("first content synced; reloading skin for home widgets")
+        xbmc.executebuiltin("ReloadSkin()")
 
     def flush_local(self):
         for item_id, values in self.store.local_pending():

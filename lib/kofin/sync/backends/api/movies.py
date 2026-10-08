@@ -143,15 +143,27 @@ class Movies:
     def _idle(self):
         return not xbmc.getCondVisibility("Library.IsScanningVideo")
 
-    def wait(self, predicate, timeout=60):
+    def wait(self, predicate, timeout=60, busy=lambda: False):
+        """``timeout`` is idle time: the deadline moves while ``busy`` holds.
+
+        A scan of a real catalogue runs for minutes (~60 ms a movie), so a
+        fixed cap sized for the fixtures timed out on every full import and
+        the retry only recovered through the idle wait that follows.
+        """
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        while True:
             if self.abort() or self.monitor.waitForAbort(0.1):
                 raise InterruptedError("movie operation interrupted")
             value = predicate()
             if value:
                 return value
-        raise TimeoutError("native movie operation did not converge")
+            if busy():
+                deadline = time.monotonic() + timeout
+            elif time.monotonic() >= deadline:
+                raise TimeoutError("native movie operation did not converge")
+
+    def _scanning(self):
+        return not self._idle()
 
     def scan(self, records):
         self.wait(self._idle)
@@ -175,8 +187,90 @@ class Movies:
             {"directory": directory(self.key), "showdialogs": False},
         )
         self._async_pending = True
-        self.wait(lambda: self.monitor.finished > serial and self._idle())
+        self.wait(
+            lambda: self.monitor.finished > serial and self._idle(),
+            busy=self._scanning,
+        )
         self._async_pending = False
+
+    def remove(self, pending, records, native, errors):
+        """Apply tombstones; returns True when the directory was cleared whole.
+
+        One readback confirms every removal. A readback per movie made a
+        library removal quadratic — 1,788 movies took half an hour, one
+        ``RemoveMovie`` and one full ``GetMovies`` at a time.
+        """
+        removals = {i for i, (_, op, _) in pending.items() if op == "remove"}
+        if not removals:
+            return False
+        if not (set(records) - removals):
+            # Nothing owned is meant to survive, so Kodi removes the whole
+            # directory in one call (RemoveContentForPath) instead of one
+            # row at a time. Only clearmode "remove" deletes the scraped
+            # items; "clear" merely unbinds the scraper.
+            try:
+                rpc(
+                    "VideoLibrary.SetSourceContent",
+                    {
+                        "path": directory(self.key),
+                        "content": "none",
+                        "clearmode": "remove",
+                        "refresh": False,
+                    },
+                )
+                if self.read():
+                    raise RuntimeError("native clear left owned movies")
+            except InterruptedError:
+                raise
+            except Exception as error:
+                for item_id in removals:
+                    self.store.failed(
+                        item_id,
+                        pending[item_id][0],
+                        type(error).__name__ + ": " + str(error),
+                    )
+                errors.append(error)
+                return False
+            # SetSourceContent announces nothing, where RemoveMovie notified
+            # per row, so home widgets would keep the rows until something
+            # else moved. The directory has just been unbound, so this scan
+            # walks nothing and only fires the library event.
+            xbmc.executebuiltin("UpdateLibrary(video)")
+            native.clear()
+            for item_id in removals:
+                self.store.remember(item_id, pending[item_id][0], None, {})
+            return True
+        removed = {}
+        for item_id in sorted(removals):
+            generation = pending[item_id][0]
+            row = native.get(item_id)
+            if not row:
+                self.store.remember(item_id, generation, None, {})
+                continue
+            try:
+                if self.abort():
+                    raise InterruptedError("movie sync stopped")
+                self.owned(row["movieid"], item_id)
+                rpc("VideoLibrary.RemoveMovie", {"movieid": row["movieid"]})
+                removed[item_id] = generation
+            except InterruptedError:
+                raise
+            except Exception as error:
+                self.store.failed(
+                    item_id, generation, type(error).__name__ + ": " + str(error)
+                )
+                errors.append(error)
+        if removed:
+            survivors = set(self.read()) & set(removed)
+            for item_id, generation in removed.items():
+                if item_id in survivors:
+                    unconfirmed = RuntimeError("movie removal not confirmed")
+                    self.store.failed(item_id, generation, str(unconfirmed))
+                    errors.append(unconfirmed)
+                else:
+                    native.pop(item_id, None)
+                    self.store.remember(item_id, generation, None, {})
+        return False
 
     def reconcile(self, repair=False):
         """Replay durable operations; an accepted RPC is never a commit."""
@@ -202,21 +296,15 @@ class Movies:
             ):
                 self.scan(records)
                 native = self.read()
-            errors = []
+            errors: list[Exception] = []
+            cleared = self.remove(pending, records, native, errors)
             local = {item_id for item_id, _ in self.store.local_pending()}
             for item_id, (generation, operation, item) in pending.items():
+                if operation == "remove":
+                    continue
                 try:
                     if self.abort():
                         raise InterruptedError("movie sync stopped")
-                    if operation == "remove":
-                        row = native.get(item_id)
-                        if row:
-                            self.owned(row["movieid"], item_id)
-                            rpc("VideoLibrary.RemoveMovie", {"movieid": row["movieid"]})
-                            if item_id in self.read():
-                                raise RuntimeError("movie removal not confirmed")
-                        self.store.remember(item_id, generation, None, {})
-                        continue
                     record = records.get(item_id)
                     if not record:
                         continue
@@ -324,7 +412,7 @@ class Movies:
                                 else None
                             )
 
-                        row = self.wait(refreshed)
+                        row = self.wait(refreshed, busy=self._scanning)
                         self._async_pending = False
                     self.owned(row["movieid"], item_id)
                     # Art updates merge on Kodi; null explicitly clears keys
@@ -355,7 +443,7 @@ class Movies:
                 raise RuntimeError(
                     "%d movie operations remain pending: %s" % (len(errors), errors[0])
                 )
-            if not records and not self.read():
+            if not records and not cleared and not self.read():
                 rpc(
                     "VideoLibrary.SetSourceContent",
                     {
