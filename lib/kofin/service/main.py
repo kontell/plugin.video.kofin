@@ -609,8 +609,8 @@ class Service(xbmc.Monitor):
             return
         try:
             from kofin.sync import private
-            from kofin.sync.backends.api.library import Library as MovieLibrary
-            from kofin.sync.backends.api.movies import current_store
+            from kofin.sync.backends.api.library import Library as VideoLibrary
+            from kofin.sync.backends.api.native import current_store
 
             if not (
                 settings.get_list("librarySelection") or private.get_sync()["Whitelist"]
@@ -618,10 +618,10 @@ class Service(xbmc.Monitor):
                 store = current_store()
                 if not (store.pending() or store.local_pending()):
                     return
-            self.library = MovieLibrary(self.api, self.player, self._new_api)
+            self.library = VideoLibrary(self.api, self.player, self._new_api)
             self.library.start()
         except Exception:
-            LOG.exception("API movie sync manager failed to start")
+            LOG.exception("API video sync manager failed to start")
             self.library = None
 
     def _start_downloads(self) -> None:
