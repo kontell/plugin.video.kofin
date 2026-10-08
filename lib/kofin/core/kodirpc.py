@@ -13,7 +13,7 @@ is reachable through no Python binding.
 """
 
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import xbmc
 
@@ -351,6 +351,42 @@ def call(method: str, params: Optional[Dict[str, Any]] = None) -> Any:
     if "error" in response:
         return None
     return response.get("result")
+
+
+def batch(requests: Sequence[Tuple[str, Optional[Dict[str, Any]]]]) -> List[Any]:
+    """Several calls in one ``executeJSONRPC``, answered in request order.
+
+    Each entry is that call's ``result``, None for a method-level error reply
+    and ``FAILED`` when Kodi could not be asked at all -- the same three
+    answers as :func:`call`. Kodi's dispatcher runs the requests one by one
+    and does not wrap them in a transaction, so a mixed batch is partly
+    applied and the caller reads every entry (feasibility report 7.5).
+    """
+    if not requests:
+        return []
+    body: List[Dict[str, Any]] = []
+    for index, (method, params) in enumerate(requests):
+        request: Dict[str, Any] = {"jsonrpc": "2.0", "id": index + 1, "method": method}
+        if params is not None:
+            request["params"] = params
+        body.append(request)
+    try:
+        response = json.loads(xbmc.executeJSONRPC(json.dumps(body)))
+    except Exception:
+        return [FAILED] * len(requests)
+    if not isinstance(response, list):
+        return [FAILED] * len(requests)
+    by_id = {reply.get("id"): reply for reply in response if isinstance(reply, dict)}
+    results: List[Any] = []
+    for index in range(len(requests)):
+        reply = by_id.get(index + 1)
+        if reply is None:
+            results.append(FAILED)
+        elif "error" in reply:
+            results.append(None)
+        else:
+            results.append(reply.get("result"))
+    return results
 
 
 def _active_players() -> Any:

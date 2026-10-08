@@ -1,0 +1,230 @@
+"""The kind table: what Kodi's public API offers each native kind.
+
+Everything kind-specific that is a *fact about the API* lives here, so the
+reconciler can be driven by lookups rather than ``if kind ==`` branches: which
+methods list, read, set, refresh and remove a kind, which properties its
+readback carries, how a row of it is removed, and which Jellyfin types have a
+native row at all.
+"""
+
+from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Tuple
+
+from kofin.core import kodirpc
+
+# Independent setters travel 25 to a JSON-RPC array: the feasibility report's
+# fastest measured shape (7.4), and small enough that one failed call costs
+# little to retry.
+BATCH = 25
+
+# Application order: a season or episode patch needs its show's row first,
+# a set needs its movies.
+ORDER = ("Series", "Season", "Episode", "Movie", "MusicVideo", "BoxSet")
+
+# Kinds whose rows carry a resolver URL and a namespaced unique id.
+FILED = ("Movie", "Series", "Episode", "MusicVideo")
+
+# Kodi's media type for a playable kind, for playback and userdata lookups.
+MEDIA = {"movie": "Movie", "episode": "Episode", "musicvideo": "MusicVideo"}
+
+# Kinds whose rows carry userdata the server and Kodi both edit.
+PLAYABLE = ("Movie", "Episode", "MusicVideo")
+
+
+class Kind(NamedTuple):
+    listing: str
+    list_key: str
+    id_param: str
+    getter: str
+    result_key: str
+    setter: str
+    refresh: Optional[str]
+    remove: Optional[str]
+    # How a tombstone of this kind leaves Kodi: "row" through its own remove
+    # call, "parent" with the show it belongs to (no call of its own), or
+    # "members" once the movies that filed it have let go and Kodi's clean
+    # has dropped the empty set.
+    removal: str
+
+
+KINDS: Dict[str, Kind] = {
+    "Movie": Kind(
+        "VideoLibrary.GetMovies",
+        "movies",
+        "movieid",
+        "VideoLibrary.GetMovieDetails",
+        "moviedetails",
+        "VideoLibrary.SetMovieDetails",
+        "VideoLibrary.RefreshMovie",
+        "VideoLibrary.RemoveMovie",
+        "row",
+    ),
+    "Series": Kind(
+        "VideoLibrary.GetTVShows",
+        "tvshows",
+        "tvshowid",
+        "VideoLibrary.GetTVShowDetails",
+        "tvshowdetails",
+        "VideoLibrary.SetTVShowDetails",
+        "VideoLibrary.RefreshTVShow",
+        "VideoLibrary.RemoveTVShow",
+        "row",
+    ),
+    "Season": Kind(
+        "VideoLibrary.GetSeasons",
+        "seasons",
+        "seasonid",
+        "VideoLibrary.GetSeasonDetails",
+        "seasondetails",
+        "VideoLibrary.SetSeasonDetails",
+        None,
+        None,
+        "parent",
+    ),
+    "Episode": Kind(
+        "VideoLibrary.GetEpisodes",
+        "episodes",
+        "episodeid",
+        "VideoLibrary.GetEpisodeDetails",
+        "episodedetails",
+        "VideoLibrary.SetEpisodeDetails",
+        "VideoLibrary.RefreshEpisode",
+        "VideoLibrary.RemoveEpisode",
+        "row",
+    ),
+    "MusicVideo": Kind(
+        "VideoLibrary.GetMusicVideos",
+        "musicvideos",
+        "musicvideoid",
+        "VideoLibrary.GetMusicVideoDetails",
+        "musicvideodetails",
+        "VideoLibrary.SetMusicVideoDetails",
+        "VideoLibrary.RefreshMusicVideo",
+        "VideoLibrary.RemoveMusicVideo",
+        "row",
+    ),
+    "BoxSet": Kind(
+        "VideoLibrary.GetMovieSets",
+        "sets",
+        "setid",
+        "VideoLibrary.GetMovieSetDetails",
+        "setdetails",
+        "VideoLibrary.SetMovieSetDetails",
+        None,
+        None,
+        "members",
+    ),
+}
+
+PROPERTIES: Dict[str, List[str]] = {
+    "Movie": [
+        "file",
+        "uniqueid",
+        "title",
+        "plot",
+        "playcount",
+        "lastplayed",
+        "resume",
+        "tag",
+        "art",
+        "ratings",
+        "originaltitle",
+        "sorttitle",
+        "plotoutline",
+        "tagline",
+        "year",
+        "premiered",
+        "mpaa",
+        "runtime",
+        "genre",
+        "studio",
+        "country",
+        "director",
+        "writer",
+        "dateadded",
+        "trailer",
+        "set",
+    ],
+    "Series": [
+        "file",
+        "uniqueid",
+        "title",
+        "originaltitle",
+        "sorttitle",
+        "plot",
+        "premiered",
+        "mpaa",
+        "genre",
+        "studio",
+        "tag",
+        "art",
+        "ratings",
+        "dateadded",
+        "trailer",
+        "status",
+        "runtime",
+    ],
+    "Season": ["season", "title", "art", "tvshowid"],
+    "Episode": [
+        "file",
+        "uniqueid",
+        "title",
+        "originaltitle",
+        "plot",
+        "firstaired",
+        "season",
+        "episode",
+        "runtime",
+        "director",
+        "writer",
+        "art",
+        "ratings",
+        "dateadded",
+        "playcount",
+        "lastplayed",
+        "resume",
+        "tvshowid",
+    ],
+    "MusicVideo": [
+        "file",
+        "uniqueid",
+        "title",
+        "plot",
+        "runtime",
+        "director",
+        "studio",
+        "year",
+        "premiered",
+        "genre",
+        "album",
+        "artist",
+        "track",
+        "tag",
+        "art",
+        "rating",
+        "dateadded",
+        "playcount",
+        "lastplayed",
+        "resume",
+    ],
+    "BoxSet": ["title", "plot", "art"],
+}
+
+
+def rpc(method: str, params: Optional[Dict[str, Any]] = None) -> Any:
+    result = kodirpc.call(method, params or {})
+    if result is None or result is kodirpc.FAILED:
+        raise RuntimeError("Kodi refused " + method)
+    return result
+
+
+def rpc_batch(requests: Sequence[Tuple[str, Optional[Dict[str, Any]]]]) -> List[Any]:
+    """Every reply, as a result or the RuntimeError that ``rpc`` would raise."""
+    results = kodirpc.batch(requests)
+    return [
+        (
+            RuntimeError("Kodi refused " + method)
+            if result is None or result is kodirpc.FAILED
+            else result
+        )
+        for (method, _), result in zip(requests, results)
+    ]

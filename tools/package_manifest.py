@@ -135,10 +135,11 @@ def contents(root, path, profile):
         return data
     if path.as_posix() == "addon.xml":
         tree = ET.fromstring(data)
-        # Only the committed movie provider is scannable in this preview.
+        # Only the committed native tree is scannable in this preview: the
+        # interactive root, search and the user-dependent menus never are.
         for extension in tree.findall("extension"):
             for entry in extension.findall("medialibraryscanpath"):
-                if entry.get("content") == "movies":
+                if entry.get("content") in ("movies", "tvshows", "musicvideos"):
                     entry.text = "/native/"
                 else:
                     extension.remove(entry)

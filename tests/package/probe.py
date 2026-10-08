@@ -89,36 +89,49 @@ assert BACKEND == "api"
 store = Catalogue("fixture-server/fixture-user")
 assert store.stage(MediaItem.from_dto({"Id": "movie", "Type": "Movie"})) == 1
 assert store.state("movie").applied == 0
-from kofin.sync.backends.api.store import MovieStore, namespace, directory
+from kofin.sync.backends.api.store import Store, namespace
+from kofin.sync.backends.api import paths
 from kofin.sync.backends.api.provider import serve
 from kofin.plugin.router import Request
 
-movies = MovieStore(namespace("package-server", "package-user"))
-movies.initialize("http://fixture.invalid")
-movies.publish(
+videos = Store(namespace("package-server", "package-user"))
+videos.initialize("http://fixture.invalid")
+videos.publish(
     [
         {
-            "Id": "movie",
+            "Id": "0123456789abcdef0123456789abcdef",
             "Type": "Movie",
             "Name": "Package fixture",
             "RunTimeTicks": 1200000000,
         }
     ],
-    library="movies",
+    library="fedcba9876543210fedcba9876543210",
 )
-movies.pin()
-serve(Request(directory(movies.namespace), 71, {}))
+videos.bind(
+    paths.library_dir(videos.namespace, "fedcba9876543210fedcba9876543210", "movies"),
+    "movies",
+)
+videos.pin()
+movies_dir = paths.library_dir(
+    videos.namespace, "fedcba9876543210fedcba9876543210", "movies"
+)
+serve(Request(paths.root(videos.namespace), 71, {}))
+serve(Request(movies_dir, 71, {}))
 serve(
     Request(
-        directory(movies.namespace), 71, {"id": "movie", "kodi_action": "refresh_info"}
+        movies_dir,
+        71,
+        {"id": "0123456789abcdef0123456789abcdef", "kodi_action": "refresh_info"},
     )
 )
 serve(
     Request(
-        directory(movies.namespace), 71, {"id": "movie", "kodi_action": "check_exists"}
+        movies_dir,
+        71,
+        {"id": "0123456789abcdef0123456789abcdef", "kodi_action": "check_exists"},
     )
 )
-movies.unpin()
+videos.unpin()
 service = Service()
 service.settings_apply.mark_ready()
 service._start_library()

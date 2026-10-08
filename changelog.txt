@@ -1,3 +1,11 @@
+v0.91.0
+- Native TV shows, seasons, episodes, music videos and collections in the API build: one scanner root per selected library and content type, shows as bound folders beneath it, sets filed at import.
+- Movies move to the per-library layout; a 0.90.0 profile is migrated automatically (its rows are removed and re-imported once) and the pre-release still needs an otherwise empty video library.
+- Store reshaped: payloads stored once, membership as generations, no snapshot blob — kofin.db went from 235 MB to 72 MB with 6,600 items.
+- Enumeration is a daily or Update-library pass; the websocket and the KofinSyncQueue change feed carry the rest, with a MinDateLastSaved catch-up when no companion is installed.
+- Deselecting one library removes only that library in one call; Kodi's Clean Library with the add-on enabled removes nothing; first content reloads the home widgets per kind.
+- Unnumbered specials and empty seasons stay dynamic-only (Kodi cannot file or list them); episode favourites remain a Kofin view.
+
 v0.90.0
 - First pre-release of the API build for Kodi 22 Piers: the native movie library is written through Kodi's public APIs, with no direct database access
 - Needs a fresh Kodi profile with an empty video library; an existing kofin (SQL) library is not adopted and sync stays off until the profile is fresh

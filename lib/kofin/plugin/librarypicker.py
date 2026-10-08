@@ -28,7 +28,11 @@ def syncable_views(views: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     result = []
     from kofin import buildconfig
 
-    supported = ("movies", "mixed") if buildconfig.BACKEND == "api" else SYNCABLE_TYPES
+    supported = (
+        ("movies", "tvshows", "musicvideos", "mixed")
+        if buildconfig.BACKEND == "api"
+        else SYNCABLE_TYPES
+    )
     for view in views:
         collection = view.get("CollectionType") or "mixed"
         if collection in supported:
