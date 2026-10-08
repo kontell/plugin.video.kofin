@@ -12,7 +12,7 @@ Enumeration is a daily or Update-library pass; between passes the websocket even
 
 ## Native operations
 
-`native.py` reads back by scope — one library's movies, one library's shows, one show's episodes or seasons — and confirms a refresh by the id it produces. Independent detail patches travel 25 to a JSON-RPC array, and only when the scanner's row differs from the desired state: the serializer and the setter policy are one function (`metadata.details`), so a fresh import needs no patch at all. Acknowledgements and userdata expectations commit by the batch.
+`native.py` reads back by scope — one library's movies, one library's shows, one show's episodes or seasons — and confirms a refresh by the id it produces. Independent detail patches travel 25 to a JSON-RPC array, and only when the scanner's row differs from the desired state: the serializer and the setter policy are one function (`metadata.details`), so a fresh import needs no patch at all. Batching changes little per row — Kodi's own write and the widget refresh behind each setter dominate — but it keeps the pass's bookkeeping in step. Acknowledgements and userdata expectations commit by the batch.
 
 Shows carry their seasons' names and plots through `addSeason`, their episodes' sort numbering through the InfoTag and a `hash` property Kodi skips an unchanged show by. A show-level change with no setter (cast, a season plot) is `RefreshTVShow(refreshepisodes)`, which deletes and re-creates every episode: the episodes' local watched marks and positions are captured as local edits first, then every episode and season of the show is put back to pending and re-mapped in the same pass. Episode cast and stream changes use `RefreshEpisode`.
 
@@ -45,8 +45,11 @@ All on the installed catalogue (1,788 movies in the Movies library, 79 shows / 4
 | Deselect Documentaries (one of two show libraries) | about 40 s | one clear, the other library re-read, not re-scanned |
 | Deselect Movies (with 54 sets) | 3 min 45 s | one clear; the home screen's set widget refreshed every second behind Kodi's per-row announcements; no set survived |
 | Kodi's Clean Library, add-on enabled | 8 s | 6,000 `check_exists` answers through the reused invoker; nothing removed |
+| Repair all (complete enumeration, every row compared, 4,316 episodes patched for the local-time change) | 11 min 2 s | enumeration 44 s; patches 25 to an array, about 146 ms an episode with the home screen's TV widgets refreshing 8,860 times behind them |
 
-GUI round trips sampled every three seconds from another host during the Movies import stayed between 180 and 400 ms (the transport's own floor is about 150 ms); no sample crossed 500 ms.
+"Zero patches" is read from the passes' cost, not from announcements — this Kodi build logs none: the apply passes after the imports took 36 s for 1,842 and 4,751 items, while the one pass that did write, the repair, took 11 minutes for 4,316 rows. `native.flush` now logs the rows of every batch it sends.
+
+GUI round trips sampled every three seconds from another host stayed between 180 and 400 ms during the Movies import and reached 465 ms at most (median 233 ms, 90th percentile 339 ms) during the repair's patch pass; the transport's own floor is about 150 ms. Nothing stalled, so the pass is not paced.
 
 ## Verification
 

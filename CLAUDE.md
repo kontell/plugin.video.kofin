@@ -246,10 +246,12 @@ What remains is kofin's own:
   through `shims.convert_to_local`), as Kodi does for its own writes; a UTC string read an
   hour off and differed from every value a playback set. Calendar dates stay as given.
 - **A scanner row that matches `metadata.details` needs no patch.** The 0.91.0 imports of
-  1,788 movies and 4,316 episodes sent zero `Set*Details` calls; a field that *always* differs
-  after import is a serializer bug, not a reason to patch. Acknowledgements commit by the
-  batch (`Native._commit_acks`): one-row commits were 3,685 database opens for a pass that
-  sent nothing.
+  1,788 movies and 4,316 episodes applied in 36 s passes that wrote nothing, where a pass that
+  patches costs about 146 ms a row; a field that *always* differs after import is a serializer
+  bug, not a reason to patch. Kodi logs no announcements — `native.flush`'s "patching N rows"
+  line is the only count of what a pass wrote. Acknowledgements commit by the batch
+  (`Native._commit_acks`): one-row commits were 3,685 database opens for a pass that sent
+  nothing.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is
