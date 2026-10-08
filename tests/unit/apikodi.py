@@ -266,6 +266,11 @@ class Kodi:
         id_param, result_key, list_key = METHODS[kind]
         if verb == "Get" and not details:
             rows = list(self.rows[kind].values())
+            if kind == "BoxSet":
+                # GetSetsByWhere groups movie_view by set: a set no movie
+                # links is not listed, even though its row still exists.
+                linked = {r.get("set") for r in self.rows["Movie"].values()}
+                rows = [r for r in rows if r["title"] in linked]
             if kind == "Season":
                 # season_view joins episodes: an empty season is invisible.
                 rows = [

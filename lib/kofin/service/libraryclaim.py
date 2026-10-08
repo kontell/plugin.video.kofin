@@ -50,7 +50,7 @@ def library_video_path(jellyfin_id: str, media: str) -> Optional[str]:
     if not buildconfig.legacy_features():
         if media not in ("movie", "episode", "musicvideo"):
             return None
-        from kofin.sync.backends.api.native import library_url
+        from kofin.sync.backends.api.identity import library_url
 
         try:
             url = library_url(jellyfin_id)
@@ -105,7 +105,7 @@ def mapped_jellyfin_id(kodi_id: int, media: str) -> Optional[str]:
     """The Jellyfin id kofin synced a Kodi library row from, or None if the row
     is not ours (or the mapping database cannot be read)."""
     if not buildconfig.legacy_features():
-        from kofin.sync.backends.api.native import mapped_item
+        from kofin.sync.backends.api.identity import mapped_item
 
         try:
             value = mapped_item(kodi_id, media)

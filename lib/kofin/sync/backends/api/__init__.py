@@ -18,7 +18,7 @@ class APIBackend:
 
     @contextmanager
     def batch(self, kind, server, library=None, **kwargs):
-        from .native import current_store
+        from .identity import current_store
 
         store = current_store()
         store.initialize(server.server)

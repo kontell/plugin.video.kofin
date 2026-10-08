@@ -229,7 +229,7 @@ What remains is kofin's own:
   until its detail patch cleared it.
 - **`VideoLibrary.SetSourceContent` deletes rows only with `clearmode: "remove"`.** `"clear"`
   unbinds the scraper and leaves every row in place; the API backend's whole-library removal
-  (`backends/api/native.py::clear_library`) relies on `"remove"` being `RemoveContentForPath`
+  (`backends/api/removal.py::clear_library`) relies on `"remove"` being `RemoveContentForPath`
   on the library root, under which every row of that library is filed.
 - **Every show folder under a `tvshows/` root carries its own binding** (`Native.bind_show`,
   `containssingleitem`). Kodi takes a plugin path's parent to be the plugin *root*
@@ -248,10 +248,17 @@ What remains is kofin's own:
 - **A scanner row that matches `metadata.details` needs no patch.** The 0.91.0 imports of
   1,788 movies and 4,316 episodes applied in 36 s passes that wrote nothing, where a pass that
   patches costs about 146 ms a row; a field that *always* differs after import is a serializer
-  bug, not a reason to patch. Kodi logs no announcements — `native.flush`'s "patching N rows"
-  line is the only count of what a pass wrote. Acknowledgements commit by the batch
-  (`Native._commit_acks`): one-row commits were 3,685 database opens for a pass that sent
+  bug, not a reason to patch. Kodi logs no announcements — `patch.Applier.flush`'s "patching N
+  rows" line is the only count of what a pass wrote. Acknowledgements commit by the batch
+  (`patch.Applier.commit`): one-row commits were 3,685 database opens for a pass that sent
   nothing.
+- **Nothing in the API backend is forgotten on the strength of an accepted call.** `removal.py`
+  is driven by the kind table (`kinds.KINDS[...].removal`): a row kind is confirmed by one
+  scoped readback, a child of a show that is going is acknowledged only when the show's removal
+  is confirmed, and a set is acknowledged after the apply pass has unfiled its movies and
+  `GetMovieSets` — which lists only sets a movie links (`GetSetsByWhere` groups `movie_view`) —
+  no longer shows it. A collection without a Kodi row (its movies unsynced, or the one a movie
+  in two collections did not take) is applied without a row, never left pending.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is

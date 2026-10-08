@@ -13,7 +13,7 @@ is reachable through no Python binding.
 """
 
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import xbmc
 
@@ -353,7 +353,7 @@ def call(method: str, params: Optional[Dict[str, Any]] = None) -> Any:
     return response.get("result")
 
 
-def batch(requests: List[Tuple[str, Optional[Dict[str, Any]]]]) -> List[Any]:
+def batch(requests: Sequence[Tuple[str, Optional[Dict[str, Any]]]]) -> List[Any]:
     """Several calls in one ``executeJSONRPC``, answered in request order.
 
     Each entry is that call's ``result``, None for a method-level error reply

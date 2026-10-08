@@ -701,7 +701,7 @@ def play(request: Request) -> None:
     try:
         item = api.item(item_id)
         if buildconfig.BACKEND == "api" and item.get("Type") in NATIVE_MEDIA:
-            from kofin.sync.backends.api.native import native_id_for
+            from kofin.sync.backends.api.identity import native_id_for
 
             try:
                 native_id = native_id_for(item_id, NATIVE_MEDIA[item["Type"]])

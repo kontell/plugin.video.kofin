@@ -610,7 +610,7 @@ class Service(xbmc.Monitor):
         try:
             from kofin.sync import private
             from kofin.sync.backends.api.library import Library as VideoLibrary
-            from kofin.sync.backends.api.native import current_store
+            from kofin.sync.backends.api.identity import current_store
 
             if not (
                 settings.get_list("librarySelection") or private.get_sync()["Whitelist"]

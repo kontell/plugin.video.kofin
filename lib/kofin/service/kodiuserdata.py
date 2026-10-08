@@ -179,7 +179,7 @@ class KodiUserData:
         self.api.set_resume_position(jellyfin_id, 0)
 
     def _apply_api(self, kind: str, kodi_id: int, media: str, playcount: int) -> None:
-        from kofin.sync.backends.api.native import current_store, mapped_item
+        from kofin.sync.backends.api.identity import current_store, mapped_item
 
         item_id = mapped_item(kodi_id, media)
         if not item_id:

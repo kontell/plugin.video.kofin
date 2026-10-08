@@ -1,0 +1,238 @@
+"""Applying tombstones: a library whole, or one row at a time, every removal
+confirmed before the store lets go of it.
+
+The kind table says how each kind leaves. A row kind has its own remove call
+and one readback per scope confirms it. A parent kind -- a season, or an
+episode whose show is going too -- leaves with the show, and is acknowledged
+only once the show's removal is confirmed. A members kind -- a set -- leaves
+once the movies that filed it have been patched off it and Kodi's clean has
+dropped the empty row; that happens after the apply pass, in
+``finish_sets``. Nothing is forgotten on the strength of an accepted call.
+"""
+
+from typing import Any, Dict, List, Set, Tuple
+
+import xbmc
+
+from kofin.core.log import Logger
+from . import metadata, paths
+from .kinds import KINDS, rpc
+from .store import Entry
+
+LOG = Logger(__name__)
+
+
+def _fail(store, pending, item_id, error, errors):
+    store.failed(item_id, pending[item_id][0], type(error).__name__ + ": " + str(error))
+    errors.append(error)
+
+
+def clear_library(native, library, kinds):
+    """One call removes every row Kodi filed under the library root."""
+    root = paths.library_root(native.key, library)
+    rpc(
+        "VideoLibrary.SetSourceContent",
+        {"path": root, "content": "none", "clearmode": "remove", "refresh": False},
+    )
+    native.readback.clear()
+    left = []
+    if "Movie" in kinds:
+        left += list(native.readback.scope("Movie", library))
+    if "MusicVideo" in kinds:
+        left += list(native.readback.scope("MusicVideo", library))
+    if kinds & {"Series", "Season", "Episode"}:
+        left += list(native.readback.scope("Series", library))
+    if left:
+        raise RuntimeError("native clear left %d owned rows" % len(left))
+    native.store.unbind(root)
+
+
+def remove(native, pending, entries, tombstones, errors) -> Set[str]:
+    """Apply every tombstone but the sets'; returns the libraries cleared whole."""
+    store = native.store
+    removals = {i for i, (_, op, _) in pending.items() if op == "remove"}
+    if not removals:
+        return set()
+    placement: Dict[str, Entry] = dict(entries)
+    placement.update(tombstones)
+    by_library: Dict[str, Set[str]] = {}
+    for item_id, entry in placement.items():
+        by_library.setdefault(entry.library, set()).add(item_id)
+
+    # 1. Whole libraries. A library none of whose members survive goes in
+    #    one call; Kodi's RemoveContentForPath deletes every row filed
+    #    beneath its root.
+    cleared: Set[str] = set()
+    for library, members in sorted(by_library.items()):
+        if not library or not members <= removals:
+            continue
+        kinds = {placement[i].kind for i in members}
+        try:
+            clear_library(native, library, kinds)
+            # SetSourceContent announces nothing where the row removers
+            # notify per row; the root is unbound, so this scan walks nothing
+            # and only fires the library event the home widgets listen for.
+            xbmc.executebuiltin("UpdateLibrary(video)")
+            if "Movie" in kinds:
+                # No public call removes a set and no mapping can be trusted
+                # to say which movie had one. Kodi's own clean drops the
+                # empty sets; scoped to a root with no files left, it is
+                # cheap next to a dangling set.
+                rpc(
+                    "VideoLibrary.Clean",
+                    {
+                        "showdialogs": False,
+                        "directory": paths.library_root(native.key, library),
+                    },
+                )
+        except InterruptedError:
+            raise
+        except Exception as error:
+            for item_id in members:
+                _fail(store, pending, item_id, error, errors)
+            continue
+        for item_id in members:
+            store.forget(item_id, pending[item_id][0])
+        cleared.add(library)
+        if kinds & {"Series", "Episode"}:
+            # Kodi merges shows with one title and premiere across libraries
+            # (GetMatchingTvShow), so another library's copy may have gone
+            # with this one: have the others re-read.
+            store.invalidate_where(
+                ("Series", "Season", "Episode"), except_library=library
+            )
+
+    # 2. Rows. Children of a show that is going leave with it and are
+    #    acknowledged only when the show's removal is confirmed.
+    attempted: List[Tuple[str, Entry]] = []
+    children: Dict[str, List[str]] = {}
+    for item_id in sorted(removals):
+        placed = placement.get(item_id)
+        if placed is None or placed.library in cleared:
+            store.forget(item_id, pending[item_id][0])
+            continue
+        table = KINDS[placed.kind]
+        if table.removal == "members":
+            # Sets wait for the apply pass: finish_sets below.
+            continue
+        if placed.parent_id in removals:
+            children.setdefault(placed.parent_id, []).append(item_id)
+            continue
+        if table.removal == "parent" or table.remove is None:
+            # A season of a surviving show has no removal call; its row leaves
+            # with its episodes, or stays as Kodi's own empty season.
+            store.forget(item_id, pending[item_id][0])
+            continue
+        mapping = store.mapping(item_id)
+        if mapping is None or mapping.kodi_id is None:
+            store.forget(item_id, pending[item_id][0])
+            continue
+        try:
+            if native.abort():
+                raise InterruptedError("native sync stopped")
+            native.readback.owned(
+                placed.kind, mapping.kodi_id, item_id, placed.library, placed.parent_id
+            )
+            rpc(table.remove, {table.id_param: mapping.kodi_id})
+            if placed.kind == "Series":
+                native.unbind_show(placed.library, item_id)
+            attempted.append((item_id, placed))
+        except InterruptedError:
+            raise
+        except Exception as error:
+            _fail(store, pending, item_id, error, errors)
+            for child in children.pop(item_id, []):
+                _fail(store, pending, child, error, errors)
+
+    # 3. Confirm: one readback per scope. Anything still there stays pending,
+    #    children included.
+    if attempted:
+        native.readback.clear()
+    removed_shows = {i for i, p in attempted if p.kind == "Series"}
+    for item_id, placed in attempted:
+        if placed.kind == "Episode" and placed.parent_id in removed_shows:
+            survivors: Dict[Any, Any] = {}
+        else:
+            survivors = native.readback.scope(
+                placed.kind, placed.library, placed.parent_id
+            )
+        if item_id in survivors:
+            unconfirmed = RuntimeError("%s removal not confirmed" % placed.kind)
+            _fail(store, pending, item_id, unconfirmed, errors)
+            for child in children.pop(item_id, []):
+                _fail(store, pending, child, unconfirmed, errors)
+            continue
+        store.forget(item_id, pending[item_id][0])
+        for child in children.pop(item_id, []):
+            store.forget(child, pending[child][0])
+    for orphans in children.values():
+        # The parent's own removal never got as far as a call this pass.
+        for child in orphans:
+            if (
+                store.state(child) is not None
+                and store.state(child).status == "pending"
+            ):
+                _fail(
+                    store,
+                    pending,
+                    child,
+                    RuntimeError("show removal not confirmed"),
+                    errors,
+                )
+    return cleared
+
+
+def set_members(pending) -> Set[str]:
+    """Movies that filed a set now being removed; they need re-patching."""
+    members: Set[str] = set()
+    for _, operation, payload in pending.values():
+        if operation == "remove" and payload.get("Type") == "BoxSet":
+            members.update(payload.get("KofinMembers") or [])
+    return members
+
+
+def finish_sets(native, pending, live_boxsets, errors):
+    """Acknowledge set removals once no owned movie files them any more.
+
+    Runs after the apply pass, which re-patched the former members. A title
+    still listed by Kodi while no live collection of ours carries it means a
+    member has not let go yet, so the removal stays pending. Once the title
+    is gone from the listing, one clean of the namespace root drops the
+    empty set row Kodi keeps, and only then is the store told.
+    """
+    store = native.store
+    waiting = [
+        (item_id, payload)
+        for item_id, (_, operation, payload) in pending.items()
+        if operation == "remove" and payload.get("Type") == "BoxSet"
+    ]
+    if not waiting:
+        return
+    native.readback.forget("BoxSet")
+    listed = native.readback.scope("BoxSet")
+    kept = {(b.get("Name") or "").strip(metadata.ASCII_SPACE) for b in live_boxsets}
+    cleaned = False
+    for item_id, payload in waiting:
+        title = (payload.get("Name") or "").strip(metadata.ASCII_SPACE)
+        if title in listed and title not in kept:
+            _fail(
+                store,
+                pending,
+                item_id,
+                RuntimeError("collection still has a member filed"),
+                errors,
+            )
+            continue
+        try:
+            if not cleaned and title not in kept:
+                rpc(
+                    "VideoLibrary.Clean",
+                    {"showdialogs": False, "directory": paths.root(native.key)},
+                )
+                cleaned = True
+        except InterruptedError:
+            raise
+        except Exception as error:
+            _fail(store, pending, item_id, error, errors)
+            continue
+        store.forget(item_id, pending[item_id][0])

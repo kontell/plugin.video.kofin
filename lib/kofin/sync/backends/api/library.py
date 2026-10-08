@@ -163,6 +163,10 @@ class Library(threading.Thread):
         self._full_due = False
         self._repair = False
         self.changefeed: Any = None
+        # Libraries selected while no worker ran, enumerated once each: a
+        # library the server no longer lists never reaches the whitelist and
+        # must not be retried on every tick ahead of the catch-up.
+        self._unsynced_tried: Set[str] = set()
 
     def stop_client(self):
         self.stop_thread = True
@@ -271,9 +275,11 @@ class Library(threading.Thread):
         unsynced = sorted(
             set(settings.get_list("librarySelection"))
             - set(private.get_sync()["Whitelist"])
+            - self._unsynced_tried
         )
         if unsynced and enumerated and watermark and not self._full_due:
             # Selected while no worker was running to hear the setting change.
+            self._unsynced_tried.update(unsynced)
             self._catchup_due = time.monotonic() + 30
             self.full_sync(unsynced)
             return
@@ -423,6 +429,14 @@ class Library(threading.Thread):
                     affected |= members
         return affected
 
+    def _removed_collection_members(self, ids):
+        """Movies filed under a collection that is going: their one set changes."""
+        boxsets = self.store.records(kind="BoxSet", item_ids=list(ids), pinned=False)
+        members: Set[str] = set()
+        for record in boxsets.values():
+            members.update(record.item.get("KofinMembers") or [])
+        return members
+
     def catch_up(self):
         """Changes since the watermark, on the shared change-feed contract."""
         watermark, _ = self.store.watermark()
@@ -443,6 +457,7 @@ class Library(threading.Thread):
             LOG.warning("sync queue retention exceeded; scheduling a full enumeration")
             self._full_due = True
         removed = [r.id for r in change_set.records if r.status == "Removed"]
+        self.store.invalidate(self._removed_collection_members(removed))
         wanted = {}
         for record in change_set.records:
             if record.status == "Removed":
@@ -602,6 +617,7 @@ class Library(threading.Thread):
             self.update_selection_label()
             return
         if command == "removed":
+            self.store.invalidate(self._removed_collection_members(data))
             self.store.publish([], removed=data)
             return
         if command == "userdata":
