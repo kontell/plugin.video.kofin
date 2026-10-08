@@ -350,6 +350,8 @@ class Api:
         return self.get("/UserViews", self._as_user())
 
     def item(self, item_id: str) -> JsonDict:
+        # UserLibraryController.GetItem uses DtoOptions(allFields=True), unlike
+        # the list endpoint. It has no Fields parameter (Jellyfin 10.11+).
         return self.get("/Items/%s" % item_id, self._as_user())
 
     def items(self, params: JsonDict) -> JsonDict:

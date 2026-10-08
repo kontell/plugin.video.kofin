@@ -44,8 +44,8 @@ def fetch_movies(api, library, abort=lambda: False):
                 "Fields": info() + ",MediaStreams",
                 "StartIndex": len(result),
                 "Limit": 200,
-                "SortBy": "Id",
-                "SortOrder": "Ascending",
+                "SortBy": "DateCreated,SortName",
+                "SortOrder": "Ascending,Ascending",
                 "EnableTotalRecordCount": True,
             }
         )
@@ -137,31 +137,26 @@ class Library(threading.Thread):
                     # from replacing its payload, or poison jobs never heal.
                     LOG.exception("API native movie work remains pending")
                     failed = True
-                try:
-                    self.flush_local()
-                    for _ in range(100):
-                        try:
-                            command, data = self._queue.get_nowait()
-                        except queue.Empty:
-                            break
-                        try:
-                            self.command(command, data)
-                        except Exception:
-                            self._queue.put((command, data))
-                            raise
-                    if time.monotonic() >= self._refresh_due:
-                        self.full_sync()
-                        self._refresh_due = time.monotonic() + 300
-                    self.apply(movies)
-                except InterruptedError:
-                    break
-                except Exception:
-                    LOG.exception("API movie sync will retry")
-                    status(settings.localized(30403))
-                    # Replay errors leave durable desired state intact. Network
-                    # failures schedule a complete enumeration after backoff.
-                    self._refresh_due = time.monotonic() + 30
-                    failed = True
+                # Local delivery and individual events can fail permanently
+                # (e.g. an item deleted before its update event is processed).
+                # Neither may prevent enumeration from repairing the snapshot.
+                for work in (
+                    self.flush_local,
+                    self.commands,
+                    self.refresh,
+                    lambda: self.apply(movies),
+                ):
+                    try:
+                        work()
+                    except InterruptedError:
+                        return
+                    except Exception:
+                        LOG.exception("API movie sync will retry")
+                        status(settings.localized(30403))
+                        self._refresh_due = min(
+                            self._refresh_due, time.monotonic() + 30
+                        )
+                        failed = True
                 if failed and self._stop_event.wait(5):
                     break
                 if monitor.waitForAbort(0.5):
@@ -173,6 +168,30 @@ class Library(threading.Thread):
             LOG.exception("API movie worker stopped")
         finally:
             self.stop_thread = True
+
+    def commands(self):
+        failed = False
+        # Only visit each queued command once per tick, including failures.
+        for _ in range(min(100, self._queue.qsize())):
+            command, data = self._queue.get_nowait()
+            try:
+                self.command(command, data)
+            except InterruptedError:
+                raise
+            except Exception:
+                LOG.exception("API movie command will retry: %s", command)
+                self._queue.put((command, data))
+                failed = True
+        if failed:
+            raise RuntimeError("API movie commands remain pending")
+
+    def refresh(self):
+        if time.monotonic() >= self._refresh_due:
+            # Advance before the call so failure gets a bounded retry rather
+            # than keeping the already-expired deadline on every tick.
+            self._refresh_due = time.monotonic() + 30
+            self.full_sync()
+            self._refresh_due = time.monotonic() + 300
 
     def full_sync(self):
         selected = settings.get_list("librarySelection")

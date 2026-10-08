@@ -53,12 +53,17 @@ def library_video_path(jellyfin_id: str, media: str) -> Optional[str]:
         from kofin.sync.backends.api.movies import current_store
         from kofin.sync.backends.api.store import playback_url
 
-        store = current_store()
-        return (
-            playback_url(store.namespace, jellyfin_id)
-            if store.mapping(jellyfin_id)
-            else None
-        )
+        try:
+            store = current_store()
+            mapping = store.mapping(jellyfin_id)
+            return (
+                playback_url(store.namespace, jellyfin_id)
+                if mapping and mapping[0] is not None
+                else None
+            )
+        except Exception:
+            LOG.exception("API library path unavailable for %s", jellyfin_id)
+            return None
     from kofin.sync.private import Database
     from kofin.sync.kofindb import JellyfinDatabase
 

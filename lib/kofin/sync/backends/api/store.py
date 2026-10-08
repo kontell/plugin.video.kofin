@@ -270,7 +270,16 @@ class MovieStore(Catalogue):
                 AND e.generation=i.desired""",
                 (self.namespace, item_id, time.time()),
             ).fetchone()
-        return bool(row and json.loads(row[0]).get(field) == value)
+        if not row:
+            return False
+        expected = json.loads(row[0]).get(field)
+        if field == "resume":
+            # Match native readback's precision; runtime is not a local edit.
+            return bool(
+                expected is not None
+                and abs(expected.get("position", 0) - value["position"]) < 1
+            )
+        return bool(expected == value)
 
     def local(self, item_id, values):
         with Database() as db:

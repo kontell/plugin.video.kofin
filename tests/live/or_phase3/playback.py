@@ -162,7 +162,6 @@ def exercise(store, backend, item, addon_path):
         transport = Http(False)
         api = Api.from_credentials(transport, Credentials.load())
         player = Player(api)
-        monitor = xbmc.Monitor()
 
         def wait(predicate, timeout=30):
             deadline = time.monotonic() + timeout

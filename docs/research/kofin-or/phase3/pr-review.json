@@ -1,0 +1,20 @@
+{
+  "server_version": "12.2.0",
+  "single_item_without_fields": [
+    {
+      "all_requested_keys_present": true,
+      "values_match_full_listing": true
+    },
+    {
+      "all_requested_keys_present": true,
+      "values_match_full_listing": true
+    },
+    {
+      "all_requested_keys_present": true,
+      "values_match_full_listing": true
+    }
+  ],
+  "sort_page_repeat_stable": true,
+  "sort_adjacent_pages_disjoint": true,
+  "sort_pages_full": true
+}

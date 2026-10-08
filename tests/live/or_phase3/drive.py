@@ -169,6 +169,7 @@ try:
             ],
             check=True,
             capture_output=True,
+            timeout=120,
         )
         payload["fixture.mp4"] = base64.b64encode(clip.read_bytes()).decode()
         payload["probe.py"] = base64.b64encode(

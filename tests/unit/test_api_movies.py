@@ -223,6 +223,106 @@ def test_failed_second_page_preserves_native_desired_state(store):
     assert set(store.snapshot()[0]) == {"a"}
 
 
+def test_movie_pagination_uses_supported_sort_keys():
+    seen = []
+
+    def page(params):
+        seen.append(params)
+        return {"Items": [movie()], "TotalRecordCount": 1}
+
+    assert fetch_movies(SimpleNamespace(user_id="u", items=page), "one") == [movie()]
+    assert seen[0]["SortBy"] == "DateCreated,SortName"
+    assert seen[0]["SortOrder"] == "Ascending,Ascending"
+
+
+@pytest.fixture
+def worker(store, monkeypatch):
+    from kofin.core.settings import Credentials
+    from kofin.sync.backends.api.library import Library
+    from tests.unit.fakes import FakeApi
+
+    monkeypatch.setattr(
+        Credentials, "load", lambda: Credentials(server_id="server", user_id="user")
+    )
+    api = FakeApi(server="http://fixture.invalid", update_user_data={})
+    return Library(api, None, lambda: api)
+
+
+@pytest.mark.parametrize("failure", ["deleted_item", "no_snapshot", "local_delivery"])
+def test_failed_event_or_local_delivery_cannot_starve_enumeration(
+    store, worker, monkeypatch, failure
+):
+    from kofin.sync.backends.api import library
+
+    clock = [0.0]
+    scans = []
+    if failure != "no_snapshot":
+        store.publish([movie(), movie("b")], library="one")
+    worker._refresh_due = 300
+    worker.updated(["a"])
+    worker.removed(["b"])
+
+    def missing(*args):
+        raise OSError("item no longer available")
+
+    worker.api.item = missing
+    if failure == "local_delivery":
+        monkeypatch.setattr(worker, "flush_local", missing)
+
+    def enumerate_movies():
+        scans.append(clock[0])
+        # The later removal command still ran despite the failed update.
+        if failure != "no_snapshot":
+            assert store.state("b").operation == "remove"
+        store.publish([movie("c")], library="one")
+
+    monkeypatch.setattr(worker, "full_sync", enumerate_movies)
+    monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        library, "Movies", lambda *args: SimpleNamespace(setup=lambda: None)
+    )
+    monkeypatch.setattr(worker, "apply", lambda movies: None)
+    monkeypatch.setattr(library, "status", lambda value: None)
+
+    def wait(seconds):
+        clock[0] += seconds
+        assert clock[0] < 60, "worker failed to reach recovery"
+        return bool(scans)
+
+    worker._stop_event = SimpleNamespace(is_set=lambda: False, wait=wait)
+    monkeypatch.setattr(
+        library.xbmc,
+        "Monitor",
+        lambda: SimpleNamespace(abortRequested=lambda: False, waitForAbort=wait),
+    )
+    worker.run()
+    assert len(scans) == 1
+    assert scans[0] < 36
+    if failure != "no_snapshot":
+        assert scans[0] >= 30
+    assert set(store.snapshot()[0]) == {"c"}
+
+
+def test_incremental_single_item_preserves_rich_metadata(store, worker):
+    original = movie(
+        ProviderIds={"Imdb": "tt123"},
+        Genres=["Drama"],
+        Studios=[{"Name": "Studio"}],
+        Tags=["Tag"],
+        MediaSources=[{"Id": "source"}],
+    )
+    store.publish([original], library="one")
+    updated = dict(original, Overview="Changed", UserData={"Played": True})
+    # GET /Items/{id} returns the full DTO without a Fields query parameter.
+    worker.api.item = lambda item_id: updated
+    worker.command("changed", ["a"])
+    assert store.snapshot()[0]["a"]["item"] == updated
+    store.local("a", {"playcount": 1})
+    worker.flush_local()
+    assert store.snapshot()[0]["a"]["item"] == updated
+    assert not store.local_pending()
+
+
 class Kodi:
     def __init__(self, store):
         self.store = store
@@ -424,6 +524,61 @@ def test_local_userdata_ack_cannot_lose_newer_edit(store):
     store.local("a", {"playcount": 0, "position": 0})
     store.local_done("a", sent)
     assert store.local_pending() == [("a", {"playcount": 0, "position": 0})]
+
+
+def test_resume_echo_tolerance_retains_generation_and_expiry_guards(store, monkeypatch):
+    from kofin.service import kodiuserdata
+    from kofin.sync.backends.api import movies
+
+    store.publish([movie()], library="one")
+    store.expect("a", 1, {"resume": {"position": 12.75, "total": 999}})
+    monkeypatch.setattr(movies, "current_store", lambda: store)
+    monkeypatch.setattr(movies, "mapped_item", lambda *args: "a")
+    monkeypatch.setattr(kodiuserdata.kodirpc, "resume_seconds", lambda *args: 12.0)
+    watcher = kodiuserdata.KodiUserData(SimpleNamespace())
+    watcher._apply_api(kodiuserdata.UPDATE_RESUME, 1, "movie", 0)
+    assert not store.local_pending()
+    assert not store.is_echo("a", "resume", {"position": 11.75})
+    monkeypatch.setattr(kodiuserdata.kodirpc, "resume_seconds", lambda *args: 0)
+    watcher._apply_api(kodiuserdata.UPDATE_RESUME, 1, "movie", 0)
+    assert store.local_pending() == [("a", {"position": 0})]
+    store.publish([movie(Overview="new generation")])
+    assert not store.is_echo("a", "resume", {"position": 12.75})
+    store.expect("a", 2, {"resume": {"position": 12.75}})
+    monkeypatch.setattr("kofin.sync.backends.api.store.time.time", lambda: 10**12)
+    assert not store.is_echo("a", "resume", {"position": 12.75})
+
+
+def test_library_path_requires_imported_mapping(store, monkeypatch):
+    from kofin.service import libraryclaim
+    from kofin.sync.backends.api import movies
+
+    monkeypatch.setattr(libraryclaim.buildconfig, "BACKEND", "api")
+    monkeypatch.setattr(movies, "current_store", lambda: store)
+    assert libraryclaim.library_video_path("a", "movie") is None
+    store.publish([movie()], library="one")
+    assert libraryclaim.library_video_path("a", "movie") is None
+    store.remember("a", 1, 10, movie())
+    assert libraryclaim.library_video_path("a", "movie") == playback_url(
+        store.namespace, "a"
+    )
+    assert libraryclaim.library_video_path("a", "episode") is None
+    store.publish([], library="one")
+    store.remember("a", 2, None, {})
+    assert libraryclaim.library_video_path("a", "movie") is None
+
+
+@pytest.mark.parametrize("error", [OSError("locked"), BackendMismatch("wrong backend")])
+def test_library_path_lookup_failure_does_not_break_play_next(monkeypatch, error):
+    from kofin.service import libraryclaim
+    from kofin.sync.backends.api import movies
+
+    def unavailable():
+        raise error
+
+    monkeypatch.setattr(libraryclaim.buildconfig, "BACKEND", "api")
+    monkeypatch.setattr(movies, "current_store", unavailable)
+    assert libraryclaim.library_video_path("a", "movie") is None
 
 
 def test_provider_refresh_and_existence_are_offline(store, monkeypatch):

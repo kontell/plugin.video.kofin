@@ -193,11 +193,6 @@ class KodiUserData:
             position = kodirpc.resume_seconds(kodi_id, media)
             if position is None:
                 return
-            records, _, _ = store.snapshot(pinned=False)
-            total = (
-                float(records.get(item_id, {}).get("item", {}).get("RunTimeTicks") or 0)
-                / 10000000
-            )
-            if store.is_echo(item_id, "resume", {"position": position, "total": total}):
+            if store.is_echo(item_id, "resume", {"position": position}):
                 return
             store.local(item_id, {"position": position})
