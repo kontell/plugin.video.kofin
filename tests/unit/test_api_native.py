@@ -455,7 +455,17 @@ def test_show_import_files_seasons_and_episodes_under_the_show(store, backend, k
     backend.reconcile()
     assert not store.pending()
     assert kodi.bindings == {
-        paths.library_dir(store.namespace, LIB, "tvshows"): "tvshows"
+        paths.library_dir(store.namespace, LIB, "tvshows"): "tvshows",
+        paths.show_dir(store.namespace, LIB, SHOW): "tvshows",
+    }
+    # Kodi finds a plugin folder's scraper only through the folder's own
+    # binding, so every show is bound before the root is scanned.
+    assert [p for m, p in kodi.calls if m == "VideoLibrary.SetSourceContent"][1] == {
+        "path": paths.show_dir(store.namespace, LIB, SHOW),
+        "content": "tvshows",
+        "scraperid": "metadata.local",
+        "containssingleitem": True,
+        "refresh": False,
     }
     assert kodi.scanned == [paths.library_dir(store.namespace, LIB, "tvshows")]
     show = kodi.owned("Series")[SHOW]
@@ -605,6 +615,8 @@ def test_episode_and_show_removals_confirm_with_scoped_readbacks(store, backend,
     assert len(methods(kodi, "VideoLibrary.RemoveTVShow")) == 1
     assert not methods(kodi, "VideoLibrary.RemoveEpisode")
     assert set(kodi.owned("Series")) == {SHOW}
+    assert paths.show_dir(store.namespace, LIB, SHOW2) not in kodi.bindings
+    assert paths.show_dir(store.namespace, LIB, SHOW2) not in store.bindings()
     assert not kodi.rows["Season"] or all(
         r["tvshowid"] == kodi.owned("Series")[SHOW]["tvshowid"]
         for r in kodi.rows["Season"].values()

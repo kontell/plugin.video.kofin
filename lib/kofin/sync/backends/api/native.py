@@ -458,6 +458,42 @@ class Native:
         )
         self.store.bind(path, content)
 
+    def bind_show(self, library, series_id):
+        """A show folder needs its own binding: Kodi derives a plugin path's
+        parent as the plugin root, so the library binding is never found
+        from beneath it (URIUtils::GetParentPath), and a folder without one
+        is skipped by the scanner."""
+        path = paths.show_dir(self.key, library, series_id)
+        if path in self.store.bindings():
+            return
+        rpc(
+            "VideoLibrary.SetSourceContent",
+            {
+                "path": path,
+                "content": "tvshows",
+                "scraperid": "metadata.local",
+                "containssingleitem": True,
+                "refresh": False,
+            },
+        )
+        self.store.bind(path, "tvshows")
+
+    def unbind_show(self, library, series_id):
+        path = paths.show_dir(self.key, library, series_id)
+        try:
+            rpc(
+                "VideoLibrary.SetSourceContent",
+                {
+                    "path": path,
+                    "content": "none",
+                    "clearmode": "clear",
+                    "refresh": False,
+                },
+            )
+        except RuntimeError as error:
+            LOG.warning("show binding not cleared: %s", error)
+        self.store.unbind(path)
+
     def scan(self, directories: List[str]):
         """Queue one scan per directory and wait for the scanner to go idle."""
         if not directories:
@@ -588,6 +624,8 @@ class Native:
                     placed.parent_id,
                 )
                 rpc(METHODS[placed.kind][7], {METHODS[placed.kind][2]: mapping.kodi_id})
+                if placed.kind == "Series":
+                    self.unbind_show(placed.library, item_id)
                 removed_rows.append(
                     (item_id, generation, placed.kind, placed.library, placed.parent_id)
                 )
@@ -709,6 +747,9 @@ class Native:
                     continue
                 if content == "tvshows":
                     missing = self._missing_tv(upserts, library)
+                    for record in missing:
+                        if record.kind == "Series":
+                            self.bind_show(library, record.item_id)
                 else:
                     kind = "Movie" if content == "movies" else "MusicVideo"
                     present = self.scope(kind, library)

@@ -145,7 +145,17 @@ class Kodi:
             for series_id, record in sorted(
                 self.store.records(kind="Series", library=library).items()
             ):
-                row = shows.get(series_id) or self._import_show(record)
+                row = shows.get(series_id)
+                if row is None:
+                    # Kodi finds a plugin folder's scraper only through the
+                    # folder's own binding: the parent of a plugin path is
+                    # the plugin root (URIUtils::GetParentPath).
+                    if (
+                        paths.show_dir(self.key, library, series_id)
+                        not in self.bindings
+                    ):
+                        continue
+                    row = self._import_show(record)
                 self._import_episodes(row, library, series_id)
         else:
             # Kodi lists a directly scanned show folder itself, with no tag:
