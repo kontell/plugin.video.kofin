@@ -14,9 +14,6 @@ Params = Dict[str, str]
 LEGACY_MODES = frozenset(
     {
         "cleandatabases",
-        "selectlibraries",
-        "updatelibs",
-        "repairlibs",
         "refreshboxsets",
         "precacheart",
         "saveplaylist",
@@ -184,6 +181,22 @@ def dispatch(argv: List[str]) -> None:
     # resume prompt's outcome).
     resume = len(argv) > 3 and argv[3].split(":", 1)[-1] == "true"
     request = Request(base_url, handle, params, resume)
+
+    if buildconfig.BACKEND == "api":
+        from kofin.sync.backends.api.provider import key_from_url, serve
+
+        native = key_from_url(base_url)
+        if base_url.endswith("/native/") or (
+            native and (params.get("kodi_action") or params.get("mode") != "play")
+        ):
+            try:
+                serve(request)
+            except BaseException:
+                import xbmcplugin
+
+                xbmcplugin.endOfDirectory(handle, succeeded=False, cacheToDisc=False)
+                raise
+            return
 
     # Already unslashed by the query strip above, which is where a node path's
     # trailing slash is answered for every parameter rather than just this one.

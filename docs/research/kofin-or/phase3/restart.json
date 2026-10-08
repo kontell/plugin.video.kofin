@@ -1,0 +1,10 @@
+{
+  "complete": true,
+  "process_restarted": true,
+  "pending_replayed": true,
+  "stable_native_id": true,
+  "repeat_without_duplicates": true,
+  "cleanup": true,
+  "foreign_unchanged": true,
+  "restart_method": "Flatpak termination and relaunch after RestartApp stalled during shutdown"
+}

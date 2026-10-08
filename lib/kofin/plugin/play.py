@@ -662,6 +662,15 @@ def play(request: Request) -> None:
         _fail(request)
         return
 
+    if buildconfig.BACKEND == "api":
+        from kofin.sync.backends.api.provider import key_from_url
+        from kofin.sync.backends.api.store import namespace
+
+        key = key_from_url(request.base_url)
+        if key and key != namespace(creds.server_id, creds.user_id):
+            _fail(request)
+            return
+
     # Before any transport is built: offline, everything below is a wait
     # with a known answer.
     if offline_answer(request, item_id):
@@ -688,6 +697,20 @@ def play(request: Request) -> None:
     segments_thread: Optional[threading.Thread] = None
     try:
         item = api.item(item_id)
+        if buildconfig.BACKEND == "api" and item.get("Type") == "Movie":
+            from kofin.sync.backends.api.movies import native_id_for
+
+            try:
+                native_id = native_id_for(item_id)
+            except Exception:
+                LOG.warning(
+                    "native identity unavailable; resolving by Jellyfin identity"
+                )
+                native_id = None
+            if native_id is not None:
+                request.params["dbid"] = str(native_id)
+            else:
+                request.params.pop("dbid", None)
         segments_thread = threading.Thread(
             target=lambda: segments_box.append(prefetch_segments(api, item)),
             name="kofin-segments-prefetch",

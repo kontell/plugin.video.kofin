@@ -26,12 +26,19 @@ def capture():
     return json.loads((EVIDENCE / "capabilities.json").read_text())["result"]
 
 
-def test_dirty_capture_needs_explicit_research_exception(capture, contract):
-    assert not module.check(capture, contract)["interfaces_passed"]
-    accepted = module.check(capture, contract, allow_dirty=True)
-    assert accepted["interfaces_passed"]
-    assert accepted["dirty_build_exception_used"]
-    assert not accepted["stock_release_qualified"]
+@pytest.mark.parametrize("dirty", [False, True])
+def test_build_provenance_does_not_block_capable_piers(capture, contract, dirty):
+    from kofin.sync.backends.api.contract import check
+
+    capture["application"]["version"]["revision"] = (
+        "fixture-dirty" if dirty else "fixture"
+    )
+    for checker in (module.check, check):
+        accepted = checker(capture, contract)
+        assert accepted["interfaces_passed"]
+        assert accepted["build_is_dirty"] is dirty
+        assert accepted["behavioral_qualification_required"]
+        assert accepted == checker(capture, contract, allow_dirty=True)
 
 
 @pytest.mark.parametrize(
@@ -64,12 +71,15 @@ def test_incompatible_capture_is_rejected(capture, contract, mutation):
         )
     else:
         changed["python_video_methods"]["setUniqueID"] = False
-    assert not module.check(changed, contract, allow_dirty=True)["interfaces_passed"]
+    from kofin.sync.backends.api.contract import check
+
+    assert not module.check(changed, contract)["interfaces_passed"]
+    assert not check(changed, contract)["interfaces_passed"]
 
 
 def test_newer_clean_kodi_still_needs_behavioral_qualification(capture, contract):
     capture["application"]["version"].update(major=23, revision="upstream")
     result = module.check(capture, contract)
     assert result["interfaces_passed"]
-    assert not result["stock_release_qualified"]
+    assert result["behavioral_qualification_required"]
     assert result["behavioral_gates"]

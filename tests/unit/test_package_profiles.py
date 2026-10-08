@@ -68,6 +68,7 @@ def test_api_package_preserves_live_browser_contracts(tmp_path):
             "-m",
             "pytest",
             "tests/unit/test_browse.py",
+            "tests/unit/test_api_movies.py",
             "tests/unit/test_browse_golden.py",
             "tests/unit/test_listitems.py",
             "tests/unit/test_playall.py",

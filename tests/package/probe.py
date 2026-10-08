@@ -89,6 +89,36 @@ assert BACKEND == "api"
 store = Catalogue("fixture-server/fixture-user")
 assert store.stage(MediaItem.from_dto({"Id": "movie", "Type": "Movie"})) == 1
 assert store.state("movie").applied == 0
+from kofin.sync.backends.api.store import MovieStore, namespace, directory
+from kofin.sync.backends.api.provider import serve
+from kofin.plugin.router import Request
+
+movies = MovieStore(namespace("package-server", "package-user"))
+movies.initialize("http://fixture.invalid")
+movies.publish(
+    [
+        {
+            "Id": "movie",
+            "Type": "Movie",
+            "Name": "Package fixture",
+            "RunTimeTicks": 1200000000,
+        }
+    ],
+    library="movies",
+)
+movies.pin()
+serve(Request(directory(movies.namespace), 71, {}))
+serve(
+    Request(
+        directory(movies.namespace), 71, {"id": "movie", "kodi_action": "refresh_info"}
+    )
+)
+serve(
+    Request(
+        directory(movies.namespace), 71, {"id": "movie", "kodi_action": "check_exists"}
+    )
+)
+movies.unpin()
 service = Service()
 service.settings_apply.mark_ready()
 service._start_library()

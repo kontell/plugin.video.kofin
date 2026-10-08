@@ -8,9 +8,9 @@ objects flow in: ``Library``/``DownloadManager``/``SyncPlayManager`` at
 their construction sites in ``main.py``, and ``Service`` itself where it
 hands ``self`` to ``SettingsApplier``.
 
-``LibraryPort`` also restates the port a full sync speaks (the note above
-``Library.claim``; ``tests/unit/synchost.py`` is its one fake), so the
-whole consumed surface of ``Library`` is written down in one place.
+``LibraryPort`` covers either coordinator. ``FullSyncPort`` additionally
+describes the legacy FullSync host; the API coordinator does not pretend to
+provide SQL locks or the legacy worker queue.
 """
 
 import threading
@@ -47,16 +47,6 @@ class LibraryPort(Protocol):
 
     def userdata(self, data: List[Dict[str, Any]]) -> None: ...
 
-    # -- what a full sync needs (see the note above Library.claim) ----------
-
-    database_lock: threading.Lock
-    music_database_lock: threading.Lock
-    sync_failure_toasted: Set[str]
-
-    def claim(self) -> bool: ...
-
-    def release(self) -> None: ...
-
     def added(self, ids: Iterable[str]) -> None: ...
 
     def updated(self, ids: Iterable[str]) -> None: ...
@@ -66,6 +56,18 @@ class LibraryPort(Protocol):
     def refresh_libraries(
         self, databases: Iterable[str], force_reload: bool = ...
     ) -> None: ...
+
+
+class FullSyncPort(LibraryPort, Protocol):
+    """Additional operations consumed by the legacy FullSync worker."""
+
+    database_lock: threading.Lock
+    music_database_lock: threading.Lock
+    sync_failure_toasted: Set[str]
+
+    def claim(self) -> bool: ...
+
+    def release(self) -> None: ...
 
     def stamp_watermark_if_empty(self) -> None: ...
 

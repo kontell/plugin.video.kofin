@@ -191,7 +191,7 @@
     ]
   },
   "behavioral_gates": [
-    "Re-run probes on an unmodified RC1 binary when binaries become available; a source tag is not this gate.",
+    "Run the required behavioral probes on the approved P1D Piers Flatpak and record its exact build identity.",
     "Music requires loaded tags, complete published snapshots, metadata rescan policy and post-import userdata.",
     "Piers deletes tracks on failed/partial plugin listing; native music rollout requires recovery tests and an explicit reliability decision.",
     "Refresh may change native IDs and overwrite userdata: reconcile and restore before reporting success.",

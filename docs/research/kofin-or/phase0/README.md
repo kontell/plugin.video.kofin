@@ -6,7 +6,7 @@
 
 Phase 0 establishes the branch, compatibility contract, acceptance ledger, reproducible probes and initial SQL baseline. **It does not implement or publish the API backend.** The development manifest is `0.90.0`, but current internal packages still contain the legacy SQL backend. The first public OR prerelease remains phase 3, after package isolation and a complete movie lifecycle.
 
-The user approved the existing dirty P1D Flatpak because Piers RC1 binaries are not yet distributed. Re-run on unmodified RC1 **binaries** when available. A published source tag is not the trigger. No upgrade or full-library reset was performed. Dynamic browser/resolver runtime code was unchanged; its independent regression gate is recorded in the ledger.
+The P1D Piers Flatpak is approved for development and release validation, as confirmed on 8 October 2026. Its behavioral results count toward acceptance without a separate binary-provenance gate. No upgrade or full-library reset was performed. Dynamic browser/resolver runtime code was unchanged; its independent regression gate is recorded in the ledger.
 
 ### Recorded environment
 
@@ -33,10 +33,10 @@ The production Jellyfin movie enumeration returned **1,791** accessible movies. 
 Run from the repository root:
 
 ```sh
-python3 tools/check_or_capabilities.py docs/research/kofin-or/phase0/capabilities.json --allow-dirty
+python3 tools/check_or_capabilities.py docs/research/kofin-or/phase0/capabilities.json
 ```
 
-Without the explicit research exception, the checked-in dirty capture is rejected. Even a passing clean/newer capture returns `stock_release_qualified: false`: this tool checks interface presence, not behavioral safety or every release gate. Phase 1 will connect capability detection to startup without importing native SQL discovery. The contract should grow with enabled features; optional native assets are not a movie-preview prerequisite.
+The current checker accepts the approved Flatpak without a build-provenance exception, while continuing to reject missing required interfaces. It reports that behavioral qualification is required because interface presence alone does not prove lifecycle safety. Historical captures retain the policy at capture time; the current plan accepts the P1D Flatpak. Phase 1 will connect capability detection to startup without importing native SQL discovery. The contract should grow with enabled features; optional native assets are not a movie-preview prerequisite.
 
 The captured Python music tag lacks `setLoaded`. The working Piers bridge is modern music tags plus `ListItem.setInfo("music", {"size": actual_size})`. Do not invent sizes or encode a generation into a fabricated size to force a scan. Initial supplied playcount/lastplayed was discarded; apply userdata after import.
 

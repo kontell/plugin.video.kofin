@@ -40,7 +40,8 @@ def inspect(allow_dirty=False):
     report.update(
         {
             "backend": "api",
-            "native_sync_enabled": False,
+            "native_sync_enabled": report["interfaces_passed"],
+            "native_sync_scope": ["Movie"] if report["interfaces_passed"] else [],
             "application": capture["application"],
         }
     )

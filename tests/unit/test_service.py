@@ -71,6 +71,78 @@ def test_backoff_due_and_reset():
     assert backoff.failed(now=0) == 5
 
 
+def test_api_service_starts_selected_movies_on_approved_piers_flatpak(
+    tmp_path, monkeypatch
+):
+    """Use the real capability probe; scanner-only fixtures missed this gate."""
+    import json
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from kofin import buildconfig
+    from kofin.sync import private
+    from kofin.sync.backends.api import capabilities
+    from kofin.sync.backends.api.library import Library
+
+    capture = json.loads(
+        (
+            Path(__file__).parents[2]
+            / "docs/research/kofin-or/phase0/capabilities.json"
+        ).read_text()
+    )["result"]
+    assert "dirty" in capture["application"]["version"]["revision"]
+    FakeAddon.store.update(
+        serverAddress="http://fixture.invalid",
+        serverId="server",
+        userId="user",
+        accessToken="fixture",
+        librarySelection="movies",
+        isLoggedIn="true",
+    )
+    monkeypatch.setattr(buildconfig, "BACKEND", "api")
+    monkeypatch.setattr(private, "addon_data_path", lambda: str(tmp_path))
+    private.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    monkeypatch.setattr(
+        capabilities.kodirpc,
+        "call",
+        lambda method, params: (
+            {"methods": capture["methods"]}
+            if method == "JSONRPC.Introspect"
+            else capture["application"]
+        ),
+    )
+
+    def addon(name="plugin.video.kofin"):
+        if name in capture["system_addons"]:
+            return SimpleNamespace(
+                getAddonInfo=lambda _: capture["system_addons"][name]
+            )
+        return FakeAddon()
+
+    monkeypatch.setattr(capabilities.xbmcaddon, "Addon", addon)
+    monkeypatch.setattr(
+        capabilities.xbmcgui,
+        "ListItem",
+        lambda **kw: SimpleNamespace(
+            getVideoInfoTag=lambda: SimpleNamespace(**capture["python_video_methods"]),
+            getMusicInfoTag=lambda: SimpleNamespace(**capture["python_music_methods"]),
+        ),
+    )
+    started = []
+    monkeypatch.setattr(Library, "start", lambda worker: started.append(worker))
+    try:
+        service = Service()
+        service._prepare_api_backend()
+        assert service._api_interfaces
+        assert started == [service.library]
+        assert isinstance(service.library, Library)
+        report = json.loads((tmp_path / "api-capabilities.json").read_text())
+        assert report["native_sync_enabled"]
+        assert report["build_is_dirty"]
+    finally:
+        private.reset_overrides()
+
+
 # --- pacing rebuilds of a sync manager that keeps dying -----------------------
 
 

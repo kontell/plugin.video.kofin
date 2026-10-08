@@ -335,3 +335,14 @@ def test_build_passes_hdr_type_to_the_video_stream(recorded, monkeypatch):
             "hdrtype": "dolbyvision",
         }
     ]
+
+
+def test_build_for_a_scanner_row_stamps_only_a_real_resume_point(recorded):
+    # A scanner persists any set point as a type-1 bookmark and Kodi's
+    # in-progress rule is that row's existence, so a zero stamp would put the
+    # movie in the in-progress widget until a detail patch cleared it.
+    fresh = dict(EPISODE, UserData={})
+    listitems.build(fresh, SERVER, resume_offset=0, stamp_zero_resume=False)
+    assert recorded[-1].tag.resume_calls == []
+    listitems.build(EPISODE, SERVER, resume_offset=0, stamp_zero_resume=False)
+    assert recorded[-1].tag.resume_calls == [(300.0, 600.0)]

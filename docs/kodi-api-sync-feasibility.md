@@ -6,9 +6,9 @@ Kofin examined: **0.29.0**, commit `db709a28905ca3b697d7135814407e9476d29361`
 
 Scope: all **49 Python modules, 19,885 Python lines**, and `obj_map.json` under `lib/kofin/sync`, plus the callers that could defeat a database-free migration.
 
-**4 October phase 0 follow-up:** [results and reproducible rig](research/kofin-or/phase0/README.md), [parity ledger](kofin-or-parity.md). Failed empty/partial music enumeration removed existing songs on the tested Piers build. A user-source full tag rescan preserved tracks and imported metadata changes ignored by a normal scan. These strengthen the music reliability gate and §9.1 contribution scope. The existing dirty Flatpak is explicitly accepted for phase 0 until RC1 binaries are distributed; it is not stock qualification.
+**4 October phase 0 follow-up:** [results and reproducible rig](research/kofin-or/phase0/README.md), [parity ledger](kofin-or-parity.md). Failed empty/partial music enumeration removed existing songs on the tested Piers build. A user-source full tag rescan preserved tracks and imported metadata changes ignored by a normal scan. These strengthen the music reliability gate and §9.1 contribution scope. The P1D Piers Flatpak is accepted for development and release validation, as confirmed on 8 October 2026.
 
-**Implementation direction agreed on 4 October:** plugin scanning plus JSON-RPC, initially on stock Piers, followed by Kodi v23 with upstream contributions. No NFO/STRM catalogue, Omega support, shared-MySQL requirement or adoption of the existing SQL library. The transition is a fresh-library rebuild. The [phased implementation plan](kofin-or-implementation-plan.md) defines `kofin-or`, development releases from `0.90.0`, the development repository and parallel maintenance; it supersedes this report's earlier implementation choices and phase sketch in §10.
+**Implementation direction agreed on 4 October:** plugin scanning plus JSON-RPC, initially on Piers, followed by Kodi v23 with upstream contributions. No NFO/STRM catalogue, Omega support, shared-MySQL requirement or adoption of the existing SQL library. The transition is a fresh-library rebuild. The [phased implementation plan](kofin-or-implementation-plan.md) defines `kofin-or`, development releases from `0.90.0`, the development repository and parallel maintenance; it supersedes this report's earlier implementation choices and phase sketch in §10.
 
 ## 1. Conclusions
 
@@ -29,7 +29,7 @@ Live tests on P1D established more than the absence or presence of method names:
 
 ### Recommended decision
 
-Proceed with a **separate API-backed persistence implementation**, initially targeting stock Piers. Retain the server sync engine and replace its Kodi-facing backend. Use plugin scanning for video and music, retain extras browsing and provide an addon version chooser using the existing media-source resolver. Close the relevant ingestion gaps through Kodi contributions rather than an NFO/STRM catalogue. Robust music ingestion is a Piers acceptance gate; full native asset functionality is tracked for the later parity decision. See the [implementation plan](kofin-or-implementation-plan.md).
+Proceed with a **separate API-backed persistence implementation**, initially targeting Piers. Retain the server sync engine and replace its Kodi-facing backend. Use plugin scanning for video and music, retain extras browsing and provide an addon version chooser using the existing media-source resolver. Close the relevant ingestion gaps through Kodi contributions rather than an NFO/STRM catalogue. Robust music ingestion is a Piers acceptance gate; full native asset functionality is tracked for the later parity decision. See the [implementation plan](kofin-or-implementation-plan.md).
 
 Pursue small Kodi fixes alongside that work, and discuss a larger provider/import API with Kodi maintainers before implementing it. Repository acceptance remains a separate review; no Kodi or Kofin PR was opened during this research.
 
@@ -67,7 +67,7 @@ The [evidence directory](research/kodi-api-sync/README.md) contains the syntheti
 |---|---|---|
 | Kofin | `db709a28905ca3b697d7135814407e9476d29361` | Findings describe this code, not every future branch. |
 | Local Kodi reference, `../../ref/xbmc` | `d2a58647e5bbe809e7a3db9cf4c90439171a33c1`, branch `test/jobqueue-fix-on-psf` | Useful source reference with local changes; not assumed to equal upstream or the running binary. |
-| P1D Flatpak | Kodi **22.0 beta2**, revision **`20260831-e513e0ff-dirty`** | Real execution evidence, but the `dirty` build is not proof of an unmodified release binary. |
+| P1D Flatpak | Kodi **22.0 beta2**, revision **`20260831-e513e0ff-dirty`** | Approved execution target for development and release validation; acceptance depends on the required behavioral tests. |
 | P1D JSON-RPC | **13.200.0** | HTTP introspection exposed 181 methods. |
 | Current upstream Piers | `157730c04e5f49aa0607a4afc58373bbd8987571` | Source and schema cross-check for conclusions about upstream. |
 | Current upstream master | `d34e66e5c70eed1530fd8a3d26a1873dcbc8125a` | Compared the relevant library method signatures. |
@@ -171,7 +171,7 @@ This is a viable bridge, not a claim that every asset operation is now covered. 
 | Builtins or simulated GUI actions | Can invoke scans/cleaning or user-facing workflows. They do not add typed CRUD operations, reliable IDs, atomicity, or unattended error reporting. |
 | JSON-RPC batches | Reduce invocation/serialization overhead. They execute separate methods and do not create a database transaction. |
 | Binary VFS, inputstream, or PVR addon | Provides a different supported interface for files, playback, or live television. None is a general public video/music library writer. Calling Kodi's private C++ database classes would not make this a stock supported integration. |
-| MediaImport work | Relevant architectural precedent: provider identity and imported media are a better abstraction than exposing SQL. The inspected [Montellese fork][k-mediaimport] has MediaImport branches; that interface is not present in the inspected stock Piers/master public API. It cannot be assumed as a deployment dependency. |
+| MediaImport work | Relevant architectural precedent: provider identity and imported media are a better abstraction than exposing SQL. The inspected [Montellese fork][k-mediaimport] has MediaImport branches; that interface is not present in the inspected Piers/master public API. It cannot be assumed as a deployment dependency. |
 | Read-only SQL, a helper service, or a patched local Kodi | Useful research tools or a separate experimental distribution. They do not establish an official variant that works through stock supported interfaces. |
 
 The XML/builtin assessment is based on the [video importer][k-vdb], [music importer][k-mdb], and [library builtins][k-builtins]. Export support must not be mistaken for import support.
@@ -684,7 +684,7 @@ Implement an owned-content reset and a narrow node/file uninstall. Finish the ou
 
 The essential database-free creation/update mechanisms are demonstrated. The remaining work is to prove a production implementation under real playback, real catalogue diversity, large scale, failures and all supported Kodi builds. Specifically unproven here are:
 
-- Unmodified Piers release behavior and cross-platform performance.
+- Piers behavior on the approved Flatpak and cross-platform performance.
 - Omega fallback setup and all older-version feature combinations.
 - Full continuous lifecycle of NFO-backed versions/extras.
 - Forced music tag rescans, all album/artist identity edge cases, and user-registered plugin music sources.

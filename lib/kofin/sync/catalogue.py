@@ -65,32 +65,36 @@ class Catalogue:
             PRIMARY KEY(namespace, item_id))""")
 
     def stage(self, item: MediaItem, operation: str = "upsert") -> int:
+        with Database() as db:
+            self._prepare(db.cursor)
+            return self.stage_in(db.cursor, item, operation)
+
+    def stage_in(self, cursor, item: MediaItem, operation: str = "upsert") -> int:
+        """Stage within the publisher's transaction, including its snapshot."""
         if operation not in ("upsert", "remove"):
             raise ValueError("unknown operation")
         payload = json.dumps(item.payload, sort_keys=True, separators=(",", ":"))
-        with Database() as db:
-            self._prepare(db.cursor)
-            row = db.cursor.execute(
-                "SELECT payload, desired, applied, operation FROM api_item WHERE namespace=? AND item_id=?",
-                (self.namespace, item.item_id),
-            ).fetchone()
-            if row and row[0] == payload and row[3] == operation:
-                return int(row[1])
-            generation = int(row[1]) + 1 if row else 1
-            applied = int(row[2]) if row else 0
-            db.cursor.execute(
-                """INSERT OR REPLACE INTO api_item VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', '')""",
-                (
-                    self.namespace,
-                    item.item_id,
-                    item.kind,
-                    payload,
-                    generation,
-                    applied,
-                    operation,
-                ),
-            )
-            return generation
+        row = cursor.execute(
+            "SELECT payload, desired, applied, operation FROM api_item WHERE namespace=? AND item_id=?",
+            (self.namespace, item.item_id),
+        ).fetchone()
+        if row and row[0] == payload and row[3] == operation:
+            return int(row[1])
+        generation = int(row[1]) + 1 if row else 1
+        applied = int(row[2]) if row else 0
+        cursor.execute(
+            """INSERT OR REPLACE INTO api_item VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', '')""",
+            (
+                self.namespace,
+                item.item_id,
+                item.kind,
+                payload,
+                generation,
+                applied,
+                operation,
+            ),
+        )
+        return generation
 
     def state(self, item_id: str) -> Optional[ItemState]:
         with Database() as db:

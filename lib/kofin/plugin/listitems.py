@@ -207,6 +207,7 @@ def build(
     server: str,
     resume_seconds: Optional[float] = None,
     resume_offset: Optional[float] = None,
+    stamp_zero_resume: bool = True,
 ) -> xbmcgui.ListItem:
     """A fully populated ListItem for a Jellyfin DTO.
 
@@ -218,6 +219,10 @@ def build(
 
     ``resume_offset`` is a precomputed ``settings.resume_offset()`` for
     listings that build many rows (see :func:`resume_of`).
+
+    ``stamp_zero_resume`` is for a row Kodi's scanner will persist rather than
+    display: there a zero point becomes a bookmark row, which is what the
+    in-progress rule tests for (see ``_fill_video``).
     """
     li = xbmcgui.ListItem(item.get("Name", ""), offscreen=True)
     li.setArt(art_for(item, server))
@@ -226,7 +231,7 @@ def build(
     if item.get("Type") in MUSIC_TYPES:
         _fill_music(li, item)
     elif item.get("Type") not in ("Photo", "PhotoAlbum", "Genre"):
-        _fill_video(li, item, server, resume_seconds, resume_offset)
+        _fill_video(li, item, server, resume_seconds, resume_offset, stamp_zero_resume)
 
     if not is_folder(item) and item.get("Type") != "Photo":
         li.setProperty("IsPlayable", "true")
@@ -244,6 +249,7 @@ def _fill_video(
     server: str,
     resume_seconds: Optional[float] = None,
     resume_offset: Optional[float] = None,
+    stamp_zero_resume: bool = True,
 ) -> None:
     tag = li.getVideoInfoTag()
     item_type = item.get("Type", "")
@@ -315,7 +321,7 @@ def _fill_video(
         # called (plugin.play says why).
         if resume_seconds > 0 and total > 0:
             tag.setResumePoint(resume_seconds, total)
-    elif total > 0:
+    elif total > 0 and (position > 0 or stamp_zero_resume):
         # A listing row: stamped either way. Kodi reads a zero point with a
         # total as "set, and nothing to resume", which is not resumable and —
         # the reason it is stamped — keeps Kodi from consulting the bookmark it
@@ -324,6 +330,14 @@ def _fill_video(
         # MyVideos only for an unset point). Without it a row the server calls
         # finished still advertised the stale local time, and no reset could
         # make it stop (docs/dynamic-libraries-plan.md §1).
+        #
+        # A scanner row is the one exception. CVideoInfoScanner::AddVideo
+        # persists any *set* point as a type-1 bookmark, time included, and
+        # Kodi's in-progress rule is that row's existence, not its time
+        # (SmartPlayList.cpp FieldInProgress) — so the same zero stamp put
+        # every imported movie in the in-progress widget until the detail
+        # patch cleared it. A native row reads its resume from the bookmark
+        # table itself and needs no mask.
         tag.setResumePoint(position, total)
 
     people = item.get("People") or []

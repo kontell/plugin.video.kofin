@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-08",
+  "target": "P1D Piers Flatpak",
+  "application_revision": "20260831-e513e0ff-dirty",
+  "normal_installed_service": true,
+  "selected_library_preserved": true,
+  "capability_override_required": false,
+  "interfaces_passed": true,
+  "native_sync_enabled": true,
+  "native_sync_scope": [
+    "Movie"
+  ],
+  "all_published_operations_applied": true,
+  "pending_operations": 0,
+  "sync_status": "Done",
+  "sorttitle_ascii_whitespace_normalized": true,
+  "tag_ascii_whitespace_normalized": true,
+  "configured_studio_separator_normalized": true,
+  "public_year_matches_premiere": true,
+  "larger_catalogue_completed": true,
+  "bounded_scan_wait_recovered": true
+}
