@@ -103,9 +103,10 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
             )
 
     # 2. Rows. Children of a show that is going leave with it and are
-    #    acknowledged only when the show's removal is confirmed.
-    attempted: List[Tuple[str, Entry]] = []
+    #    acknowledged only when the show's removal is confirmed, so they are
+    #    gathered first, whatever order the ids sort in.
     children: Dict[str, List[str]] = {}
+    rows: List[Tuple[str, Entry]] = []
     for item_id in sorted(removals):
         placed = placement.get(item_id)
         if placed is None or placed.library in cleared:
@@ -123,26 +124,47 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
             # with its episodes, or stays as Kodi's own empty season.
             store.forget(item_id, pending[item_id][0])
             continue
-        mapping = store.mapping(item_id)
-        if mapping is None or mapping.kodi_id is None:
-            store.forget(item_id, pending[item_id][0])
+        rows.append((item_id, placed))
+
+    def forget_with_children(item_id):
+        store.forget(item_id, pending[item_id][0])
+        for child in children.pop(item_id, []):
+            store.forget(child, pending[child][0])
+
+    def fail_with_children(item_id, error):
+        _fail(store, pending, item_id, error, errors)
+        for child in children.pop(item_id, []):
+            _fail(store, pending, child, error, errors)
+
+    attempted: List[Tuple[str, Entry]] = []
+    for item_id, placed in rows:
+        table = KINDS[placed.kind]
+        if table.remove is None:
             continue
         try:
             if native.abort():
                 raise InterruptedError("native sync stopped")
-            native.readback.owned(
-                placed.kind, mapping.kodi_id, item_id, placed.library, placed.parent_id
-            )
-            rpc(table.remove, {table.id_param: mapping.kodi_id})
+            # The scoped readback is the source of truth, not the stored
+            # mapping: Kodi may have deleted that row already -- a Clean
+            # answered False for this very tombstone -- or reissued its id
+            # to a foreign row, since the video tables' ids are plain
+            # INTEGER PRIMARY KEYs. A row the scope owns is removed by the
+            # id it has now; an item absent from the scope is already gone,
+            # and so are a vanished show's episodes.
+            row = native.readback.scope(
+                placed.kind, placed.library, placed.parent_id
+            ).get(item_id)
+            if row is None:
+                forget_with_children(item_id)
+                continue
+            rpc(table.remove, {table.id_param: row[table.id_param]})
             if placed.kind == "Series":
                 native.unbind_show(placed.library, item_id)
             attempted.append((item_id, placed))
         except InterruptedError:
             raise
         except Exception as error:
-            _fail(store, pending, item_id, error, errors)
-            for child in children.pop(item_id, []):
-                _fail(store, pending, child, error, errors)
+            fail_with_children(item_id, error)
 
     # 3. Confirm: one readback per scope. Anything still there stays pending,
     #    children included.
@@ -157,21 +179,24 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
                 placed.kind, placed.library, placed.parent_id
             )
         if item_id in survivors:
-            unconfirmed = RuntimeError("%s removal not confirmed" % placed.kind)
-            _fail(store, pending, item_id, unconfirmed, errors)
-            for child in children.pop(item_id, []):
-                _fail(store, pending, child, unconfirmed, errors)
+            fail_with_children(
+                item_id, RuntimeError("%s removal not confirmed" % placed.kind)
+            )
             continue
-        store.forget(item_id, pending[item_id][0])
-        for child in children.pop(item_id, []):
-            store.forget(child, pending[child][0])
-    for orphans in children.values():
-        # The parent's own removal never got as far as a call this pass.
+        forget_with_children(item_id)
+    for parent, orphans in children.items():
+        # The parent was settled before its children were gathered, or its
+        # removal never got as far as a call this pass.
+        state = store.state(parent)
+        gone = (
+            state is not None
+            and state.operation == "remove"
+            and state.status == "applied"
+        )
         for child in orphans:
-            if (
-                store.state(child) is not None
-                and store.state(child).status == "pending"
-            ):
+            if gone:
+                store.forget(child, pending[child][0])
+            else:
                 _fail(
                     store,
                     pending,

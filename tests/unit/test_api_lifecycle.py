@@ -233,7 +233,10 @@ def test_episode_and_show_removals_confirm_with_scoped_readbacks(store, backend,
     store.publish([], removed=["ea13"])
     backend.reconcile()
     assert len(methods(kodi, "VideoLibrary.RemoveEpisode")) == 1
-    assert len(methods(kodi, "VideoLibrary.GetEpisodes")) == 1
+    # One scoped listing finds the row by the id it has now, one confirms
+    # the removal; no details read by a stored id.
+    assert len(methods(kodi, "VideoLibrary.GetEpisodes")) == 2
+    assert not methods(kodi, "VideoLibrary.GetEpisodeDetails")
     assert set(kodi.owned("Episode")) == {"ea11", "ea12", "fb21"}
     kodi.calls.clear()
     store.publish([], removed=[SHOW2, "fb21", SHOW2[:4] + "s1"])
@@ -379,10 +382,12 @@ def test_stale_native_id_never_removes_foreign_content(store, backend, kodi):
     native_id = store.mapping("a").kodi_id
     kodi.rows["Movie"][native_id].update(file="/foreign.mkv", uniqueid={})
     store.publish([], removed=["a"])
-    with pytest.raises(RuntimeError, match="ownership"):
-        backend.reconcile()
+    # The id now names someone else's row: our item is gone from the scope,
+    # so the removal is acknowledged and the foreign row is never touched.
+    backend.reconcile()
     assert native_id in kodi.rows["Movie"]
     assert not methods(kodi, "VideoLibrary.RemoveMovie")
+    assert not store.pending()
 
 
 def test_unconfirmed_removal_stays_pending(store, backend, kodi):
@@ -709,3 +714,45 @@ def test_refresh_confirmation_relists_the_scope_at_most_once_a_second(
     assert not store.pending()
     # Thirty polls of 100 ms; the scope was listed a handful of times, not thirty.
     assert len(lists) <= 6
+
+
+def test_a_tombstone_whose_row_kodi_already_deleted_is_forgotten(store, backend, kodi):
+    """A Clean that answered False for the tombstone, or a reissued id, must
+    not keep the removal pending on a details read that can never succeed."""
+    store.publish([movie(), movie("b"), movie("c")], library=LIB)
+    backend.reconcile()
+    gone = store.mapping("a").kodi_id
+    reissued = store.mapping("b").kodi_id
+    store.publish([], removed=["a", "b"])
+    del kodi.rows["Movie"][gone]
+    kodi.rows["Movie"][reissued] = {
+        "movieid": reissued,
+        "file": "/foreign/other.mkv",
+        "uniqueid": {"imdb": "foreign"},
+        "set": "",
+    }
+    kodi.calls.clear()
+    backend.reconcile()
+    assert not store.pending()
+    assert not methods(kodi, "VideoLibrary.RemoveMovie")
+    assert not methods(kodi, "VideoLibrary.GetMovieDetails")
+    assert reissued in kodi.rows["Movie"]
+    assert set(kodi.owned("Movie")) == {"c"}
+
+
+def test_a_vanished_show_takes_its_pending_episodes_with_it(store, backend, kodi):
+    store.publish(
+        show_bundle(episodes=3) + show_bundle(SHOW2, episodes=1, prefix="f"),
+        library=LIB,
+    )
+    backend.reconcile()
+    store.publish([], removed=[SHOW, "ea11", "ea12", "ea13", SHOW[:4] + "s1"])
+    # Kodi already dropped the show and, with it, every episode row.
+    kodi._remove_show(store.mapping(SHOW).kodi_id)
+    kodi.calls.clear()
+    backend.reconcile()
+    assert not store.pending()
+    assert not methods(kodi, "VideoLibrary.RemoveTVShow")
+    assert not methods(kodi, "VideoLibrary.RemoveEpisode")
+    assert set(kodi.owned("Series")) == {SHOW2}
+    assert set(kodi.owned("Episode")) == {"fb21"}
