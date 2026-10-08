@@ -269,6 +269,7 @@ class Library(threading.Thread):
 
     def apply(self, movies):
         if self.store.pending() or self._repair:
+            status(settings.localized(30401))
             movies.reconcile(repair=self._repair)
             self._repair = False
             status(xbmc.getLocalizedString(20177))

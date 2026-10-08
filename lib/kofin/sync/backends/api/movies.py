@@ -63,6 +63,7 @@ class Movies:
         self.key = store.namespace
         self.abort = abort
         self.monitor = Monitor()
+        self.separator = metadata.item_separator()
         self._async_pending = False
 
     def setup(self):
@@ -227,7 +228,7 @@ class Movies:
                     if not row:
                         raise RuntimeError("scanner did not import movie")
                     desired = metadata.details(
-                        item, server, self.key, record["library"]
+                        item, server, self.key, record["library"], self.separator
                     )
                     if item_id in local:
                         # Deliver the real user edit first. Never overwrite it
@@ -242,6 +243,7 @@ class Movies:
                         server,
                         self.key,
                         record["library"],
+                        self.separator,
                     )
                     old_tags = set(previous_details["tag"]) | {
                         tag

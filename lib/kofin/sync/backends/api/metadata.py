@@ -3,10 +3,21 @@
 import hashlib
 
 import xbmc
+import xbmcgui
 
 from kofin.plugin import listitems
 from kofin.sync.model import ratings as shared_ratings, streams_and_runtime
 from .store import encode, identity, playback_url
+
+ASCII_SPACE = " \t\n\r\v\f"
+
+
+def item_separator():
+    """Read Kodi's configured video-array separator through its public tag API."""
+    tag = xbmcgui.ListItem(offscreen=True).getVideoInfoTag()
+    tag.setGenres(["kofin_left", "kofin_right"])
+    joined = tag.getGenre()
+    return joined[len("kofin_left") : -len("kofin_right")] if joined else " / "
 
 
 def refresh_token(item):
@@ -52,11 +63,11 @@ def unique_ids(item, key):
 
 
 def tags(item, library):
-    values = list(item.get("Tags") or [])
+    values = [value.strip(ASCII_SPACE) for value in item.get("Tags") or []]
     values.append("kofin.library." + library)
     if (item.get("UserData") or {}).get("IsFavorite"):
         values.append("Favorite movies")
-    return sorted(set(values))
+    return sorted(set(value for value in values if value))
 
 
 def ratings(item):
@@ -78,7 +89,7 @@ def ratings(item):
     return result
 
 
-def details(item, server, key, library):
+def details(item, server, key, library, separator=" / "):
     """Explicit empty values clear metadata removed by the server."""
     data = {
         "title": item.get("Name", ""),
@@ -109,6 +120,32 @@ def details(item, server, key, library):
             (t["Url"] for t in item.get("RemoteTrailers") or [] if t.get("Url")), ""
         ),
     }
+    # InfoTag setters trim ASCII whitespace. String-array fields round-trip
+    # through Kodi's configured separator; tags use separate native links.
+    for field in (
+        "title",
+        "originaltitle",
+        "sorttitle",
+        "plot",
+        "plotoutline",
+        "tagline",
+        "mpaa",
+        "trailer",
+    ):
+        data[field] = data[field].strip(ASCII_SPACE)
+    for field in ("genre", "studio", "country", "director", "writer"):
+        data[field] = list(
+            dict.fromkeys(
+                part.strip(ASCII_SPACE)
+                for value in data[field]
+                for part in (value.split(separator) if separator else [value])
+                if part.strip(ASCII_SPACE)
+            )
+        )
+    # Kodi stores one movie release date. Its public year is derived from a
+    # full premiere date, even when Jellyfin's ProductionYear differs.
+    if data["premiered"]:
+        data["year"] = int(data["premiered"][:4])
     data.update(userdata(item))
     if not data["dateadded"]:
         data.pop("dateadded")

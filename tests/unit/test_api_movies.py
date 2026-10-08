@@ -72,6 +72,63 @@ def test_invalid_publication_is_atomic(store):
     assert store.state("b") is None
 
 
+def test_sorttitle_whitespace_does_not_keep_native_work_pending(
+    store, native, monkeypatch
+):
+    backend, kodi = native
+    original_rpc = kodi.rpc
+
+    def trimming_setter(method, params=None):
+        if method == "VideoLibrary.SetMovieDetails":
+            params = dict(params, sorttitle=params["sorttitle"].strip(" \t\n\r\v\f"))
+        return original_rpc(method, params)
+
+    from kofin.sync.backends.api import movies
+
+    monkeypatch.setattr(movies, "rpc", trimming_setter)
+    store.publish([movie(SortName="  Fixture sort title \t")], library="one")
+    backend.reconcile()
+    assert not store.pending()
+    row = kodi.rows[store.mapping("a")[0]]
+    assert row["sorttitle"] == "Fixture sort title"
+    backend.reconcile(repair=True)
+    assert not store.pending()
+
+
+def test_native_metadata_normalizes_tags_studios_and_release_year():
+    item = movie(
+        Name=" Fixture title ",
+        SortName=" Fixture sort \t",
+        Tags=[" Tag ", "Tag", " "],
+        Studios=[{"Name": " Studio one / Studio two "}],
+        ProductionYear=1999,
+        PremiereDate="2000-01-02T00:00:00Z",
+    )
+    result = metadata.details(item, "", "key", "library")
+    assert result["title"] == "Fixture title"
+    assert result["sorttitle"] == "Fixture sort"
+    assert result["tag"] == ["Tag", "kofin.library.library"]
+    assert result["studio"] == ["Studio one", "Studio two"]
+    assert result["year"] == 2000
+    assert item["ProductionYear"] == 1999
+    result = metadata.details(item, "", "key", "library", separator=" | ")
+    assert result["studio"] == ["Studio one / Studio two"]
+
+
+def test_native_array_separator_uses_public_tag_api(monkeypatch):
+    values = []
+    tag = SimpleNamespace(
+        setGenres=lambda genres: values.extend(genres),
+        getGenre=lambda: " | ".join(values),
+    )
+    monkeypatch.setattr(
+        metadata.xbmcgui,
+        "ListItem",
+        lambda **kw: SimpleNamespace(getVideoInfoTag=lambda: tag),
+    )
+    assert metadata.item_separator() == " | "
+
+
 def test_selected_libraries_publish_only_after_all_fetches_succeed(store, monkeypatch):
     from kofin.sync.backends.api import library
 

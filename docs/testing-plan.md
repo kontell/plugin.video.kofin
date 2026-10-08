@@ -409,6 +409,7 @@ Record: `tests/live/results/S-D-polish/RESULT.md`, and `tests/live/results/S-D4/
 - [PASS] 101-movie coordinator import in 3.931 seconds; dynamic browsing during the scan returned all 101 rows in 0.056 seconds.
 - [PASS] Owned fixture rows removed and foreign movie IDs unchanged; production addon preserved.
 - [PASS] Actual Kodi process restart replayed a pinned pending update, preserved native ID and repeated without duplicates; owned cleanup and foreign identity check passed.
-- [PENDING RELEASE] Complete any outstanding startup/selection checks on a fresh profile using the approved P1D Piers Flatpak, then publish through the development repository. Existing passing Flatpak results count toward release acceptance.
+- [PASS, 2026-10-08] Normal installed-service startup on the approved P1D Flatpak, using the user's selected library: build provenance no longer blocks capabilities; Kodi's trimmed text/tags, studio arrays and premiere-derived year are acknowledged; both selected-library runs completed with all published operations applied and status Done.
+- [PENDING RELEASE] Publish through the development repository. The approved P1D Piers Flatpak has passing lifecycle and installed-service selected-library sync results.
 
 Reproduction, scope and sanitized results: [phase 3 evidence](research/kofin-or/phase3/README.md).

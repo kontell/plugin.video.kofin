@@ -34,6 +34,6 @@ Use an isolated, fresh Kodi profile for development. Both variants have the same
 
 After installation, configure the server and log in from Kofin's Account settings, then choose movie libraries in Library settings. Native sync requires the public API capability gate and an initially empty native video/music library; incompatible private state is refused. A different server/user namespace requires a fresh prepared profile. The service writes `api-capabilities.json` and reports setup failures in sync status. Dynamic browsing works independently of these native-sync gates.
 
-The P1D fixture explicitly prepares its own namespace and exercises the shipped backend directly; it does not enable native sync in the production addon. Its passing behavioral checks count toward release acceptance. The current runtime capability checker still requires its explicit dirty-build override; that implementation detail does not require replacing the approved Flatpak.
+The P1D fixture explicitly prepares its own namespace and exercises the shipped backend directly; it does not enable native sync in the production addon. Its passing behavioral checks count toward release acceptance. Runtime capability checks accept the approved Flatpak without an override; the revision label is diagnostic only. Required Kodi interfaces and private-state/empty-library checks remain enforced.
 
 For Jellyfin Live TV, see [Kofin PVR](https://github.com/kontell/pvr.kofin). The optional lyrics and SyncPlay companion integrations retain their separate installation requirements.

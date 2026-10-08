@@ -33,10 +33,10 @@ The production Jellyfin movie enumeration returned **1,791** accessible movies. 
 Run from the repository root:
 
 ```sh
-python3 tools/check_or_capabilities.py docs/research/kofin-or/phase0/capabilities.json --allow-dirty
+python3 tools/check_or_capabilities.py docs/research/kofin-or/phase0/capabilities.json
 ```
 
-Without the explicit research exception, the checked-in dirty capture is rejected. The captured qualification field remains false because the tool checks interface presence, not behavioral safety or every release gate. Historical captures retain the policy at capture time; the current plan accepts the P1D Flatpak. Phase 1 will connect capability detection to startup without importing native SQL discovery. The contract should grow with enabled features; optional native assets are not a movie-preview prerequisite.
+The current checker accepts the approved Flatpak without a build-provenance exception, while continuing to reject missing required interfaces. It reports that behavioral qualification is required because interface presence alone does not prove lifecycle safety. Historical captures retain the policy at capture time; the current plan accepts the P1D Flatpak. Phase 1 will connect capability detection to startup without importing native SQL discovery. The contract should grow with enabled features; optional native assets are not a movie-preview prerequisite.
 
 The captured Python music tag lacks `setLoaded`. The working Piers bridge is modern music tags plus `ListItem.setInfo("music", {"size": actual_size})`. Do not invent sizes or encode a generation into a fabricated size to force a scan. Initial supplied playcount/lastplayed was discarded; apply userdata after import.
 
