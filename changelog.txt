@@ -1,11 +1,13 @@
 v0.90.0
-- Internal API package for Piers development; no public prerelease yet
-- Shared metadata, private state and sync backend contracts
-- Dynamic browsing, streaming and server actions remain available
-- Native movie sync through Kodi APIs, with metadata refresh and watched/resume reconciliation
+- First pre-release of the API build for Kodi 22 Piers: the native movie library is written through Kodi's public APIs, with no direct database access
+- Needs a fresh Kodi profile with an empty video library; an existing kofin (SQL) library is not adopted and sync stays off until the profile is fresh
+- Native movie sync with metadata refresh, watched/resume reconciliation, repair and removal; deselecting a library removes it in one call
 - Durable movie snapshots and retry after interrupted sync; incomplete server listings preserve existing content
+- Imported movies no longer show as in progress before their first detail patch, and the home widgets reload when the library fills from empty
+- Large libraries import without a scan timeout
+- Dynamic browsing, streaming and server actions remain available
 - Native TV/music, downloads, chapter art and SQL maintenance remain disabled pending their API ports
-- API capability report and private-state marker; no legacy-library adoption
+- Kodi's own Clean Library run with the add-on disabled removes every synced movie; the next service start imports them again
 
 v0.29.0
 - Music libraries and playlists can be downloaded and kept in sync
