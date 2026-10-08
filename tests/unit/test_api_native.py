@@ -1489,3 +1489,28 @@ def test_acknowledgements_and_expectations_are_written_in_batches(
     # Well under one open per item: the pass reads the catalogue a few
     # times and commits acknowledgements by the batch.
     assert len(opens) < 40
+
+
+def test_timestamps_are_written_in_kodi_local_time():
+    from kofin.sync.shims import convert_to_local
+
+    item = movie(
+        DateCreated="2026-10-08T18:33:36.5788691Z",
+        UserData={
+            "Played": True,
+            "PlayCount": 1,
+            "LastPlayedDate": "2026-10-08T18:36:22.5959355Z",
+        },
+        PremiereDate="2001-02-03T00:00:00.0000000Z",
+    )
+    data = metadata.details(item, SERVER, "key", LIB)
+    assert data["dateadded"] == convert_to_local("2026-10-08T18:33:36Z")[:19].replace(
+        "T", " "
+    )
+    assert data["lastplayed"] == convert_to_local("2026-10-08T18:36:22Z")[:19].replace(
+        "T", " "
+    )
+    assert len(data["dateadded"]) == 19 and " " in data["dateadded"]
+    # Calendar dates are not shifted by the zone.
+    assert data["premiered"] == "2001-02-03"
+    assert metadata.userdata(movie(UserData={"Played": False}))["lastplayed"] == ""

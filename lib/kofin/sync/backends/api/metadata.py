@@ -16,6 +16,7 @@ import xbmcgui
 
 from kofin.plugin import listitems
 from kofin.sync.model import ratings as shared_ratings, streams_and_runtime
+from kofin.sync.shims import convert_to_local
 from . import paths
 from .store import encode
 
@@ -127,9 +128,7 @@ def userdata(item):
     # Preserve that supported behavior for old server records without a date;
     # explicit server dates and unwatched clears still round-trip exactly.
     if data.get("LastPlayedDate") or not result["playcount"]:
-        result["lastplayed"] = str(data.get("LastPlayedDate") or "")[:19].replace(
-            "T", " "
-        )
+        result["lastplayed"] = _timestamp(data.get("LastPlayedDate"))
     return result
 
 
@@ -247,6 +246,19 @@ def _date(value, length=10):
     return str(value or "")[:length].replace("T", " ")
 
 
+def _timestamp(value):
+    """A server UTC instant as the local-time text Kodi stores and shows.
+
+    Kodi writes its own lastplayed and dateadded in local time, so a UTC
+    string would read an hour or more off in the UI and differ from every
+    value Kodi sets itself. Dates (premiered, first aired) stay as given:
+    shifting a calendar date by the zone would move it a day.
+    """
+    if not value:
+        return ""
+    return convert_to_local(value)[:19].replace("T", " ")
+
+
 def details(
     item,
     server,
@@ -265,7 +277,7 @@ def details(
         "title": item.get("Name", ""),
         "plot": item.get("Overview") or "",
         "art": listitems.art_for(item, server),
-        "dateadded": _date(item.get("DateCreated"), 19),
+        "dateadded": _timestamp(item.get("DateCreated")),
     }
     if kind == "BoxSet":
         _clean_strings(data, ("title", "plot"))
