@@ -244,6 +244,13 @@ class Native:
         self._async_pending = False
         self._scopes: Dict[Tuple[Any, ...], Dict[Any, Dict[str, Any]]] = {}
         self._server = ""
+        # Per-pass write batches: thousands of one-row commits cost more than
+        # the pass itself (measured: 3,685 database opens for a 1,788-movie
+        # pass that sent no patch at all).
+        self._acks: List[Tuple[str, int, Optional[int], Dict[str, Any], str]] = []
+        self._expectations: List[Tuple[str, int, Dict[str, Any]]] = []
+        self._mappings: Dict[str, Any] = {}
+        self._mappings_loaded = False
 
     # -- gates ---------------------------------------------------------------
 
@@ -679,6 +686,7 @@ class Native:
                 )
             completed = True
         finally:
+            self._commit_acks()
             # A timed-out scan must retain its snapshot until Kodi is idle.
             if (completed or not self._async_pending) and self._idle():
                 self.store.unpin()
@@ -744,8 +752,30 @@ class Native:
                 missing.append(record)
         return missing
 
+    def _ack(self, item_id, generation, kodi_id, applied, kind):
+        self._acks.append((item_id, generation, kodi_id, applied, kind))
+        if len(self._acks) >= 200:
+            self._commit_acks()
+
+    def _commit_acks(self):
+        if self._expectations:
+            self.store.expect_many(self._expectations)
+            self._expectations = []
+        if self._acks:
+            acks, self._acks = self._acks, []
+            self.store.remember_many(acks)
+            if self._mappings_loaded:
+                self._mappings = self.store.mappings()
+
+    def _mapping(self, item_id):
+        if self._mappings_loaded:
+            return self._mappings.get(item_id)
+        return self.store.mapping(item_id)
+
     def apply(self, upserts: Dict[str, Record], collections, repair, errors):
         local = {item_id for item_id, _ in self.store.local_pending()}
+        self._mappings = self.store.mappings()
+        self._mappings_loaded = True
         queue: List[_Patch] = []
         for kind in ORDER:
             for item_id in sorted(i for i, r in upserts.items() if r.kind == kind):
@@ -768,6 +798,7 @@ class Native:
                     )
                     errors.append(error)
             self.flush(queue, errors)
+            self._commit_acks()
 
     def _row_for(self, record: Record):
         kind = record.kind
@@ -798,9 +829,7 @@ class Native:
                 if kind == "BoxSet" and not any(
                     m in collections for m in record.item.get("KofinMembers") or []
                 ):
-                    self.store.remember(
-                        record.item_id, record.generation, None, {}, kind
-                    )
+                    self._ack(record.item_id, record.generation, None, {}, kind)
                     return None
                 raise RuntimeError("%s has no native row yet" % kind)
             raise RuntimeError("scanner did not import %s" % kind)
@@ -824,7 +853,7 @@ class Native:
             seasons,
             set_name,
         )
-        mapping = self.store.mapping(record.item_id)
+        mapping = self._mapping(record.item_id)
         previous = mapping.applied if mapping else {}
         if record.item_id in local:
             # Deliver the real user edit first. Never overwrite it with an
@@ -848,7 +877,9 @@ class Native:
         compare = self._merge(kind, desired, row, previous.get("owned", {}))
         if kind in ("Movie", "Episode", "MusicVideo"):
             applied["userdata"] = metadata.userdata(record.item)
-            self.store.expect(record.item_id, record.generation, applied["userdata"])
+            self._expectations.append(
+                (record.item_id, record.generation, applied["userdata"])
+            )
         # A withdrawn season name is a clear the readback cannot show.
         clearing = kind == "Season" and desired.get("title") == ""
         if (
@@ -856,9 +887,7 @@ class Native:
             and self.matches(row, compare)
             and (not repair or previous.get("hash") == applied["hash"])
         ):
-            self.store.remember(
-                record.item_id, record.generation, kodi_id, applied, kind
-            )
+            self._ack(record.item_id, record.generation, kodi_id, applied, kind)
             return None
         return _Patch(record, kodi_id, desired, compare, applied)
 
@@ -980,6 +1009,10 @@ class Native:
         if not queue:
             return
         patches, queue[:] = list(queue), []
+        # Expectations go in ahead of the setters they cover.
+        if self._expectations:
+            self.store.expect_many(self._expectations)
+            self._expectations = []
         setters = []
         for patch in patches:
             kind = patch.record.kind
@@ -1029,7 +1062,7 @@ class Native:
                         "%s detail readback differs: %s"
                         % (record.kind, ", ".join(fields))
                     )
-                self.store.remember(
+                self._ack(
                     record.item_id,
                     record.generation,
                     patch.kodi_id,

@@ -1421,3 +1421,41 @@ def test_namespace_and_urls_are_server_user_and_library_scoped():
     assert paths.parse("plugin://plugin.video.kofin/?mode=play") is None
     assert paths.parse(paths.library_dir(key, LIB, "movies") + SHOW + "/") is None
     assert paths.key_from_url(url) == key
+
+
+def test_libraries_selected_while_the_worker_was_off_are_enumerated(store, monkeypatch):
+    from kofin.sync.backends.api import library
+
+    server = Server({LIB: [movie()], LIB2: show_bundle()})
+    store.set_watermark(watermark="2026-10-08T00:00:00Z", enumerated=time.time())
+    w = worker(store, server, [LIB, LIB2], monkeypatch)
+    monkeypatch.setattr(library.private, "get_sync", lambda: {"Whitelist": [LIB]})
+    caught = []
+    monkeypatch.setattr(w, "catch_up", lambda: caught.append(True))
+    w.refresh()
+    assert set(store.records(pinned=False)) == {SHOW, SHOW[:4] + "s1", "ea11", "ea12"}
+    assert not caught
+    monkeypatch.setattr(library.private, "get_sync", lambda: {"Whitelist": [LIB, LIB2]})
+    w._catchup_due = 0
+    w.refresh()
+    assert caught == [True]
+
+
+def test_acknowledgements_and_expectations_are_written_in_batches(
+    store, backend, kodi, monkeypatch
+):
+    opens = []
+    original = private.Database.__enter__
+
+    def counting(self):
+        opens.append(1)
+        return original(self)
+
+    monkeypatch.setattr(private.Database, "__enter__", counting)
+    store.publish([movie("m%03d" % i) for i in range(120)], library=LIB)
+    opens.clear()
+    backend.reconcile()
+    assert not store.pending()
+    # Well under one open per item: the pass reads the catalogue a few
+    # times and commits acknowledgements by the batch.
+    assert len(opens) < 40

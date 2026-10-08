@@ -510,28 +510,37 @@ class Store(Catalogue):
 
     def remember(self, item_id, generation, kodi_id, applied, kind=None):
         """Acknowledge readback of exactly the desired generation."""
+        return self.remember_many([(item_id, generation, kodi_id, applied, kind)]) == 1
+
+    def remember_many(self, rows):
+        """One transaction for a batch of acknowledgements; returns how many
+        matched their desired generation. A pass over a real catalogue is
+        thousands of these, and one commit each cost more than the pass."""
+        count = 0
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute("BEGIN IMMEDIATE")
-            db.cursor.execute(
-                """UPDATE api_item SET applied=desired,status='applied',error=''
-                WHERE namespace=? AND item_id=? AND desired=? AND operation='upsert'""",
-                (self.namespace, item_id, generation),
-            )
-            if not db.cursor.rowcount:
-                return False
-            if kind is None:
-                kind = db.cursor.execute(
-                    "SELECT kind FROM api_item WHERE namespace=? AND item_id=?",
-                    (self.namespace, item_id),
-                ).fetchone()[0]
-            db.cursor.execute(
-                """INSERT INTO api_native(namespace,item_id,kind,kodi_id,applied) VALUES (?,?,?,?,?)
-                ON CONFLICT(namespace,item_id) DO UPDATE SET kind=excluded.kind,
-                kodi_id=excluded.kodi_id, applied=excluded.applied""",
-                (self.namespace, item_id, kind, kodi_id, encode(applied or {})),
-            )
-            return True
+            for item_id, generation, kodi_id, applied, kind in rows:
+                db.cursor.execute(
+                    """UPDATE api_item SET applied=desired,status='applied',error=''
+                    WHERE namespace=? AND item_id=? AND desired=? AND operation='upsert'""",
+                    (self.namespace, item_id, generation),
+                )
+                if not db.cursor.rowcount:
+                    continue
+                count += 1
+                if kind is None:
+                    kind = db.cursor.execute(
+                        "SELECT kind FROM api_item WHERE namespace=? AND item_id=?",
+                        (self.namespace, item_id),
+                    ).fetchone()[0]
+                db.cursor.execute(
+                    """INSERT INTO api_native(namespace,item_id,kind,kodi_id,applied) VALUES (?,?,?,?,?)
+                    ON CONFLICT(namespace,item_id) DO UPDATE SET kind=excluded.kind,
+                    kodi_id=excluded.kodi_id, applied=excluded.applied""",
+                    (self.namespace, item_id, kind, kodi_id, encode(applied or {})),
+                )
+        return count
 
     def forget(self, item_id, generation):
         """Acknowledge a removal: the native identity goes, the payload shrinks."""

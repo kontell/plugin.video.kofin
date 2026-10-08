@@ -268,6 +268,15 @@ class Library(threading.Thread):
 
     def refresh(self):
         watermark, enumerated = self.store.watermark()
+        unsynced = sorted(
+            set(settings.get_list("librarySelection"))
+            - set(private.get_sync()["Whitelist"])
+        )
+        if unsynced and enumerated and watermark and not self._full_due:
+            # Selected while no worker was running to hear the setting change.
+            self._catchup_due = time.monotonic() + 30
+            self.full_sync(unsynced)
+            return
         if (
             self._full_due
             or not enumerated
