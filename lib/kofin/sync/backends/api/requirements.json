@@ -65,10 +65,16 @@
       "ratings": [],
       "art": [],
       "tag": [],
-      "dateadded": []
+      "dateadded": [],
+      "status": [],
+      "premiered": [],
+      "genre": [],
+      "studio": [],
+      "runtime": []
     },
     "VideoLibrary.RefreshTVShow": {
-      "tvshowid": []
+      "tvshowid": [],
+      "refreshepisodes": []
     },
     "VideoLibrary.RemoveTVShow": {
       "tvshowid": []
@@ -83,7 +89,13 @@
       "uniqueid": [],
       "ratings": [],
       "art": [],
-      "dateadded": []
+      "dateadded": [],
+      "season": [],
+      "episode": [],
+      "firstaired": [],
+      "director": [],
+      "writer": [],
+      "runtime": []
     },
     "VideoLibrary.RefreshEpisode": {
       "episodeid": []
@@ -99,7 +111,15 @@
       "resume": [],
       "art": [],
       "tag": [],
-      "dateadded": []
+      "dateadded": [],
+      "artist": [],
+      "album": [],
+      "track": [],
+      "genre": [],
+      "studio": [],
+      "director": [],
+      "premiered": [],
+      "uniqueid": []
     },
     "VideoLibrary.RefreshMusicVideo": {
       "musicvideoid": []
@@ -132,10 +152,12 @@
       "limits": []
     },
     "VideoLibrary.GetEpisodes": {
+      "tvshowid": [],
       "properties": [],
       "limits": []
     },
     "VideoLibrary.GetSeasons": {
+      "tvshowid": [],
       "properties": [],
       "limits": []
     },
@@ -169,6 +191,14 @@
       "title": [],
       "plot": [],
       "art": []
+    },
+    "VideoLibrary.GetMovieSetDetails": {
+      "setid": [],
+      "properties": []
+    },
+    "VideoLibrary.Clean": {
+      "showdialogs": [],
+      "directory": []
     }
   },
   "python": {

@@ -34,6 +34,9 @@ from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
 
+# Jellyfin types with a native row in the API build, and Kodi's name for it.
+NATIVE_MEDIA = {"Movie": "movie", "Episode": "episode", "MusicVideo": "musicvideo"}
+
 JsonDict = Dict[str, Any]
 
 MIME_BY_CONTAINER = {
@@ -697,11 +700,11 @@ def play(request: Request) -> None:
     segments_thread: Optional[threading.Thread] = None
     try:
         item = api.item(item_id)
-        if buildconfig.BACKEND == "api" and item.get("Type") == "Movie":
-            from kofin.sync.backends.api.movies import native_id_for
+        if buildconfig.BACKEND == "api" and item.get("Type") in NATIVE_MEDIA:
+            from kofin.sync.backends.api.identity import native_id_for
 
             try:
-                native_id = native_id_for(item_id)
+                native_id = native_id_for(item_id, NATIVE_MEDIA[item["Type"]])
             except Exception:
                 LOG.warning(
                     "native identity unavailable; resolving by Jellyfin identity"

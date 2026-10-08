@@ -68,7 +68,11 @@ def test_api_package_preserves_live_browser_contracts(tmp_path):
             "-m",
             "pytest",
             "tests/unit/test_browse.py",
-            "tests/unit/test_api_movies.py",
+            "tests/unit/test_api_store.py",
+            "tests/unit/test_api_metadata.py",
+            "tests/unit/test_api_lifecycle.py",
+            "tests/unit/test_api_coordinator.py",
+            "tests/unit/test_api_provider.py",
             "tests/unit/test_browse_golden.py",
             "tests/unit/test_listitems.py",
             "tests/unit/test_playall.py",
@@ -91,3 +95,21 @@ def test_api_package_preserves_live_browser_contracts(tmp_path):
         timeout=60,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_api_manifest_keeps_every_native_content_type_under_the_native_tree(tmp_path):
+    import xml.etree.ElementTree as ET
+
+    build = _build_module()
+    stage = tmp_path / "addon"
+    build.stage(stage, "api")
+    addon = ET.parse(stage / "addon.xml").getroot()
+    plugin = next(
+        ext
+        for ext in addon.findall("extension")
+        if ext.get("point") == "xbmc.python.pluginsource"
+    )
+    assert {
+        (path.get("content"), path.text)
+        for path in plugin.findall("medialibraryscanpath")
+    } == {("movies", "/native/"), ("tvshows", "/native/"), ("musicvideos", "/native/")}
