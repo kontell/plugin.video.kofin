@@ -304,6 +304,9 @@ def details(
             data["set"] = set_name.strip(ASCII_SPACE)
     elif kind == "Series":
         data["status"] = item.get("Status") or ""
+        # A show's date added is derived: tvshowcounts takes the newest of
+        # its episode files, and SetTVShowDetails cannot move it.
+        data.pop("dateadded")
     elif kind == "Episode":
         numbers = episode_numbers(item) or {}
         data.update(

@@ -349,6 +349,8 @@ def test_show_and_episode_details_speak_their_setters():
     assert show["status"] == "Ended" and show["premiered"] == "2001-02-03"
     assert "Favorite tvshows" in show["tag"]
     assert "set" not in show and "playcount" not in show
+    # tvshowcounts derives a show's date added from its episode files.
+    assert "dateadded" not in show
     changed = metadata.details(
         series(),
         SERVER,
@@ -481,7 +483,8 @@ def test_show_import_files_seasons_and_episodes_under_the_show(store, backend, k
     assert seasons[1]["title"] == "Book One"
     assert seasons[2]["title"] == "Season 2"
     assert store.mapping(SHOW[:4] + "s1").kodi_id == seasons[1]["seasonid"]
-    assert store.mapping(SHOW[:4] + "s0").kodi_id == seasons[0]["seasonid"]
+    # An empty specials season is invisible to GetSeasons: applied, no row.
+    assert store.mapping(SHOW[:4] + "s0").kodi_id is None
     # addSeason named it at import; the defaults are Kodi's own labels.
     assert not methods(kodi, "VideoLibrary.SetSeasonDetails")
     assert not methods(kodi, "VideoLibrary.SetEpisodeDetails")
@@ -590,8 +593,10 @@ def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
     assert not store.pending()
     assert set(kodi.bindings) == {
         paths.library_dir(store.namespace, LIB2, "tvshows"),
+        paths.show_dir(store.namespace, LIB2, SHOW2),
         paths.library_dir(store.namespace, LIB2, "movies"),
     }
+    assert set(store.bindings()) == set(kodi.bindings)
     # The survivor was re-read, not re-imported.
     assert store.mapping(SHOW2).kodi_id in kodi.rows["Series"]
     assert not any(m == "VideoLibrary.Scan" for m, _ in kodi.calls)
@@ -624,14 +629,27 @@ def test_episode_and_show_removals_confirm_with_scoped_readbacks(store, backend,
     assert not store.pending()
 
 
-def test_unnumbered_special_stays_dynamic_only(store, backend, kodi):
-    items = show_bundle() + [episode("ea19", season_number=0, number=0)]
+def test_unnumbered_special_and_empty_season_apply_without_a_row(store, backend, kodi):
+    items = show_bundle() + [
+        episode("ea19", season_number=0, number=0),
+        season(SHOW[:4] + "s0", SHOW, 0, Name="Specials"),
+        season(SHOW[:4] + "s7", SHOW, 7, Name="Unaired"),
+    ]
     store.publish(items, library=LIB)
-    with pytest.raises(RuntimeError, match="scanner did not import"):
-        backend.reconcile()
+    backend.reconcile()
     assert "ea19" not in kodi.owned("Episode")
-    assert {i.item_id for i, _, _ in store.pending()} == {"ea19"}
-    assert store.state("ea11").applied == 1
+    assert not store.pending()
+    assert store.mapping("ea19").kodi_id is None
+    # Nor is the unnumbered special a reason to scan again.
+    kodi.scanned.clear()
+    store.publish([episode("ea19", season_number=0, number=0, Overview="edit")])
+    backend.reconcile()
+    assert kodi.scanned == [] and not store.pending()
+    # The specials season holds only the unnumbered episode; season 7
+    # holds nothing. Neither is visible to GetSeasons, so neither is a row.
+    assert store.mapping(SHOW[:4] + "s0").kodi_id is None
+    assert store.mapping(SHOW[:4] + "s7").kodi_id is None
+    assert store.mapping(SHOW[:4] + "s1").kodi_id is not None
 
 
 def test_collections_file_sets_at_import_and_patch_set_details(store, backend, kodi):

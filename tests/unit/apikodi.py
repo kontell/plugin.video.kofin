@@ -266,6 +266,17 @@ class Kodi:
         id_param, result_key, list_key = METHODS[kind]
         if verb == "Get" and not details:
             rows = list(self.rows[kind].values())
+            if kind == "Season":
+                # season_view joins episodes: an empty season is invisible.
+                rows = [
+                    r
+                    for r in rows
+                    if any(
+                        e.get("tvshowid") == r["tvshowid"]
+                        and e.get("season") == r["season"]
+                        for e in self.rows["Episode"].values()
+                    )
+                ]
             if "filter" in params:
                 prefix = params["filter"]["value"]
                 rows = [r for r in rows if r["file"].startswith(prefix)]

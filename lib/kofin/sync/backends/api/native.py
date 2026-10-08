@@ -786,6 +786,9 @@ class Native:
         for record in upserts.values():
             if record.kind != "Episode" or record.library != library:
                 continue
+            if metadata.episode_numbers(record.item) is None:
+                # Never listed, never imported: not a reason to scan.
+                continue
             if record.parent_id not in shows:
                 missing.append(record)
                 continue
@@ -862,14 +865,25 @@ class Native:
         self, record: Record, collections, repair, local, upserts
     ) -> Optional[_Patch]:
         kind = record.kind
+        if kind == "Episode" and metadata.episode_numbers(record.item) is None:
+            # Kodi cannot file an unnumbered special; the provider never
+            # lists it and it stays dynamic-only. Applied, with no row.
+            self._ack(record.item_id, record.generation, None, {}, kind)
+            return None
         row = self._row_for(record)
         if row is None:
             if kind in ("Season", "BoxSet"):
-                # A season or a set exists only through its episodes or movies.
-                # Nothing native to confirm yet; the next pass finds it.
+                # A season or a set exists only through its episodes or
+                # movies: GetSeasons joins episodes and an empty season is
+                # invisible to readback, a set without members never
+                # exists. Applied, with no row; the next listing that gives
+                # them members re-reads them.
                 if kind == "BoxSet" and not any(
                     m in collections for m in record.item.get("KofinMembers") or []
                 ):
+                    self._ack(record.item_id, record.generation, None, {}, kind)
+                    return None
+                if kind == "Season" and not self._season_has_episodes(record):
                     self._ack(record.item_id, record.generation, None, {}, kind)
                     return None
                 raise RuntimeError("%s has no native row yet" % kind)
@@ -931,6 +945,18 @@ class Native:
             self._ack(record.item_id, record.generation, kodi_id, applied, kind)
             return None
         return _Patch(record, kodi_id, desired, compare, applied)
+
+    def _season_has_episodes(self, season: Record) -> bool:
+        number = season.item.get("IndexNumber")
+        if number is None:
+            return False
+        for episode in self.store.records(
+            kind="Episode", parent_id=season.parent_id
+        ).values():
+            numbers = metadata.episode_numbers(episode.item)
+            if numbers is not None and numbers["season"] == int(number):
+                return True
+        return False
 
     def _local_edits(self, row, previous, desired):
         edits = {}
