@@ -1080,6 +1080,9 @@ class Native:
         if self._expectations:
             self.store.expect_many(self._expectations)
             self._expectations = []
+        # Kodi logs no announcements, so this line is the only count of
+        # what a pass actually wrote (an import whose rows match sends none).
+        LOG.info("patching %d %s rows", len(patches), patches[0].record.kind.lower())
         setters = []
         for patch in patches:
             kind = patch.record.kind
