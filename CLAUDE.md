@@ -278,11 +278,32 @@ What remains is kofin's own:
   every directory that still has songs to shed (`store.tombstones`) until the scan has
   emptied it. `removal.remove_music` confirms by reading the directory back; albums and
   artists are let go with their songs.
-- **The music provider cannot fail halfway.** Kodi scans whatever rows reached it before a
-  listing failed, however it failed, so a song directory is built in full and handed over in
-  one `addDirectoryItems`, never ends with `succeeded=False`, reduces a malformed song to its
-  title rather than dropping it, and lists Kodi's own rows back (`provider._known_entries`)
-  when the store cannot be read.
+- **The music provider hands over a complete listing or none, and never fails.** Kodi scans
+  whatever rows reached it before a listing failed, however it failed, and `RetrieveMusicInfo`
+  removes every song on the path first: a failed listing, an exception reaching `dispatch`
+  (`endOfDirectory(succeeded=False)` with nothing added) or a partial one is the directory
+  deleted. So a song directory is built in full and handed over in one `addDirectoryItems`,
+  a malformed song is reduced to its title rather than dropped, and when the store cannot be
+  read the fallback is Kodi's own rows read back *in full*, the paged `limits.total` proving
+  the count (`provider._known_entries`); until the store or that readback answers,
+  `_music_folder` waits (`RETRY_DELAY`) and leaves only at shutdown.
+- **The pass finds applied songs Kodi lost.** Nothing pending names a song a half-failed
+  listing, a stopped scan or a user's interrupted rescan removed, so `_music_directories`
+  compares every acknowledged song with the readback, puts the missing ones back to pending
+  and into the pass, and scans their directory. Songs whose album's payload moved join the
+  same comparison, because `song_tags` takes the album's artists and MusicBrainz ids.
+- **`song_tags` is total.** It is both the listing and the hash the pass compares; a track
+  number that does not parse is the missing-field zero (`metadata._int`), never an error, or
+  one song skips the scan of every directory in its library on every pass.
+- **A played song with no server date is last played on its `DateCreated`.** Kodi's
+  `UpdateSong` stamps the current time on a played song with no date, which put sixteen
+  songs marked played years ago at the top of a tablet's recently played albums on import
+  day. The video setters leave a missing date alone and are unchanged.
+- **Kodi orders recently added albums by `album.dateAdded`, which is scan time for a plugin
+  source** (`song.dateAdded` comes from the file's timestamp, which a plugin path has not;
+  no setter and no music ListItem key carries it). A first import in `folder_label` order
+  (the server's `DateCreated`) lands the right order; every re-listing of a directory moves
+  its album to the top. A user-accepted "rescan tags from files" re-stamps the whole library.
 - **The pass holds the music scanner while it writes** (`native.hold`, `provider._hold`, the
   `kofin.native.hold.*` window property). Announcements made while the scanner is busy carry
   `transaction`, which the skin's music widgets skip; without the hold every song written
@@ -355,9 +376,19 @@ What remains is kofin's own:
   (and 25 rows) is about to be compared, as after a first import.
 - **A mapping that carries the payload hash and `inputs` token is acknowledged without a
   compare** (`metadata.inputs_token`: server, library, separator, set name, the seasons'
-  hashes). It fires for a retried pass and a re-published item, never under Repair, whose
-  point is the compare. Anything new that `details` reads must join the token or the
-  short-circuit will keep a stale state.
+  hashes, the artwork cap and encoding, the local zone). It fires for a retried pass and a
+  re-published item, never under Repair, whose point is the compare. Anything new that
+  `details` reads must join the token or the short-circuit will keep a stale state: the
+  art query was missing from it, so a moved cap would have frozen every old art URL.
+- **A first import is not a repair write.** The pass after every complete enumeration runs
+  as a repair, and repair re-sends a row whose acknowledged hash moved; a row with no
+  acknowledgement was just filed by the scanner from this very listing, so a matching one
+  is acknowledged (`patch.Applier.plan`). Without that a tablet re-wrote all 6,200 rows of
+  its first import.
+- **A pooled private connection leaves every block idle.** `Database.__exit__` reads
+  `total_changes` as a delta from `__enter__` and commits a block that opened a transaction
+  without changing a row, or the next listing on that interpreter ran inside it and a
+  failure rolled both back while the write lock stayed held (`private.pool_connections`).
 - **Listed artwork is capped and JPEG-encoded by default** (`listitems.art_query`,
   `maxArtResolution` 1080, `compressArt` on). Kodi decodes and re-encodes every image it
   caches whatever the source and caps the result itself, so only the server resizing first

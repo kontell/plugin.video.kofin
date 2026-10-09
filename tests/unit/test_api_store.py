@@ -109,7 +109,7 @@ def test_pending_work_carries_payloads_only_for_removals(store):
 
 
 def test_payload_window_holds_a_bounded_number_of_payloads(store):
-    from kofin.sync.backends.api.store import PayloadWindow, Record
+    from kofin.sync.backends.api.records import PayloadWindow, Record
 
     store.publish([movie("m%03d" % i) for i in range(30)], library=LIB)
     window = PayloadWindow(store, size=8)

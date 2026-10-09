@@ -781,3 +781,18 @@ def test_scans_are_issued_one_at_a_time(store, backend, kodi, monkeypatch):
     backend.scan(["plugin://a/", "plugin://b/", "plugin://c/"])
     assert issued == ["plugin://a/", "plugin://b/", "plugin://c/"]
     assert backend.monitor.finished == 3
+
+
+def test_a_first_import_under_repair_acknowledges_without_a_write(store, backend, kodi):
+    """The pass after every complete enumeration runs as a repair; a row the
+    scanner just filed from this listing has nothing stale behind it. A
+    tablet re-wrote all 6,200 rows of its first import before this."""
+    store.publish([movie()], library=LIB)
+    backend.reconcile(repair=True)
+    assert store.mapping("a") is not None
+    assert not any(method == "VideoLibrary.SetMovieDetails" for method, _ in kodi.calls)
+    # A later repair of a row whose acknowledged hash moved still writes.
+    store.publish([movie(Overview="Changed")])
+    kodi.rows["Movie"][store.mapping("a").kodi_id]["plot"] = "Changed"
+    backend.reconcile(repair=True)
+    assert any(method == "VideoLibrary.SetMovieDetails" for method, _ in kodi.calls)

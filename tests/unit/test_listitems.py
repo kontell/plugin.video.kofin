@@ -371,3 +371,14 @@ def test_art_query_is_memoised_for_a_moment(monkeypatch):
     monkeypatch.setattr(listitems.settings, "get_int", lambda key: 0)
     assert listitems.art_query() == ""
     listitems.forget_art_query()
+
+
+def test_person_thumb_obeys_the_artwork_cap(monkeypatch):
+    """The video scanner caches a row's actor thumbs at import; uncapped they
+    were 3,615 full-size decodes beside 3,239 capped posters on a tablet."""
+    monkeypatch.setattr(listitems, "art_query", lambda: "&MaxHeight=720&Quality=90")
+    assert (
+        listitems.person_thumb("http://s", {"Id": "p1", "PrimaryImageTag": "t1"})
+        == "http://s/Items/p1/Images/Primary?tag=t1&MaxHeight=720&Quality=90"
+    )
+    assert listitems.person_thumb("http://s", {"Id": "p1"}) == ""

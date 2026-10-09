@@ -154,13 +154,23 @@ def song_folder(item) -> str:
 
 
 def container_of(item) -> str:
-    """The file extension a song is named by, from its container."""
+    """The file extension a song is named by, from its container.
+
+    The server names a container family as a list ("mov,mp4,m4a,3gp,3g2,mj2"
+    for an AAC file); the first name Kodi knows is the extension. Kodi
+    imports the row whatever the extension says -- a loaded music tag is
+    audio to the scanner (MusicFileItemClassify.cpp) -- so the fallback
+    only ever shows in a file name.
+    """
     container = str(item.get("Container") or "")
     sources = item.get("MediaSources") or []
     if not container and sources and isinstance(sources[0], dict):
         container = str(sources[0].get("Container") or "")
-    container = container.split(",")[0].strip().lower()
-    return container if container in CONTAINERS else FALLBACK_CONTAINER
+    for name in container.split(","):
+        name = name.strip().lower()
+        if name in CONTAINERS:
+            return name
+    return FALLBACK_CONTAINER
 
 
 def song_url(key, library, folder, item_id, container):

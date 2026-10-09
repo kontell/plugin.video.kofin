@@ -231,7 +231,11 @@ def test_a_directory_that_lost_songs_heals_on_the_next_pass(store, backend, kodi
     kodi.music_scan(directory)
     assert len(kodi.songs) == 1
     del kodi.listings[directory]
-    store.invalidate(["tc31", "tc32", "tc33"])
+    # Nothing pending names the two lost songs: the next pass that touches
+    # the library's music finds them by comparing what it acknowledged with
+    # what Kodi holds.
+    assert not store.pending()
+    store.publish([song("tc31", number=1, Name="Renamed")])
     kodi.music_scanned.clear()
     backend.reconcile()
     assert kodi.music_scanned == [paths.library_dir(store.namespace, LIB, "music")]
@@ -466,8 +470,13 @@ def test_song_tags_hash_moves_for_tags_only_and_the_row_is_marked_loaded(
     assert metadata.hash_time(base) != metadata.hash_time(
         metadata.tag_hash(song("t1", Name="Other"), album())
     )
-    # No date with a count: Kodi stamps its own, as the video kinds let it.
-    assert metadata.details(item, "http://s", "k", LIB) == {"playcount": 3}
+    # Played with no date: the day the server first saw the song stands in,
+    # or Kodi's UpdateSong stamps the import time and the album tops
+    # "recently played" (sixteen such songs did, on a tablet).
+    assert metadata.details(item, "http://s", "k", LIB) == {
+        "playcount": 3,
+        "lastplayed": metadata._timestamp("2023-11-15T19:18:34.08Z"),
+    }
     assert metadata.details(song("t1"), "http://s", "k", LIB) == {
         "playcount": 0,
         "lastplayed": "",
@@ -642,3 +651,118 @@ def test_a_directory_the_scanner_skips_is_salted_until_it_imports(
     backend.reconcile()
     assert not store.pending()
     assert store.salt(folder) == 1
+
+
+def test_applied_songs_a_half_failed_relisting_removed_are_found_after_the_scan(
+    store, backend, kodi
+):
+    """One song's tags move, the re-listing fails after its row, and Kodi,
+    which removes every song on the path first, keeps that one. The other
+    two were acknowledged long ago and nothing pending names them: the pass
+    compares what it acknowledged with what the scan left and puts them
+    back, and the next pass re-lists the directory."""
+    store.publish(album_bundle(songs=3), library=LIB)
+    backend.reconcile()
+    directory = paths.music_dir(store.namespace, LIB, ALBUM)
+    store.publish([song("tc31", number=1, Name="Renamed")])
+    kodi.listings[directory] = kodi._listing(LIB, ALBUM)[:1]
+    backend.reconcile()
+    assert set(owned_songs(kodi)) == {"tc31"}
+    assert len(store.pending()) == 2
+    del kodi.listings[directory]
+    kodi.music_scanned.clear()
+    backend.reconcile()
+    assert kodi.music_scanned == [paths.library_dir(store.namespace, LIB, "music")]
+    assert set(owned_songs(kodi)) == {"tc31", "tc32", "tc33"}
+    assert not store.pending()
+
+
+def test_an_album_change_retags_its_songs_without_a_song_payload_change(
+    store, backend, kodi
+):
+    """A song's tags take the album's artists and MusicBrainz ids, which its
+    own payload hash never sees; the album's change has to reach them."""
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    before = store.mapping("tc31").applied["tag"]
+    kodi.music_scanned.clear()
+    store.publish([album(ProviderIds={"MusicBrainzAlbum": "mb-album-moved"})])
+    backend.reconcile()
+    # One directory of one: the root is walked (ROOT_SCAN_SHARE).
+    assert kodi.music_scanned == [paths.library_dir(store.namespace, LIB, "music")]
+    assert store.mapping("tc31").applied["tag"] != before
+    assert store.mapping("tc31").applied["tag"] == metadata.tag_hash(
+        store.records(item_ids=["tc31"])["tc31"].item,
+        store.records(item_ids=[ALBUM])[ALBUM].item,
+    )
+    assert not store.pending()
+    # An album change that moves no tag scans nothing.
+    kodi.music_scanned.clear()
+    store.publish(
+        [album(ProviderIds={"MusicBrainzAlbum": "mb-album-moved"}, Overview="x")]
+    )
+    backend.reconcile()
+    assert kodi.music_scanned == [] and not store.pending()
+
+
+def test_music_folder_waits_for_a_proven_listing(store, monkeypatch):
+    """A failed or partial fallback is the directory deleted, so the listing
+    waits until the store or a complete readback answers, and at shutdown
+    hands Kodi nothing at all."""
+    from kofin.core import kodirpc
+    from kofin.plugin.router import Request
+    from kofin.sync.backends.api import provider
+
+    store.publish(album_bundle(songs=2), library=LIB)
+    rendered, ended, waits = [], [], []
+    monkeypatch.setattr(
+        provider.xbmcplugin,
+        "addDirectoryItems",
+        lambda h, entries, n: rendered.append(list(entries)),
+    )
+    monkeypatch.setattr(provider.xbmcplugin, "setContent", lambda h, c: None)
+    monkeypatch.setattr(
+        provider.xbmcplugin, "endOfDirectory", lambda h, **k: ended.append(k)
+    )
+    monkeypatch.setattr(
+        provider.Store,
+        "records",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("locked")),
+    )
+    kept = {
+        "file": paths.playback_url(
+            store.namespace, "Audio", LIB, "tc31", ALBUM, "flac"
+        ),
+        "title": "Kept",
+    }
+    replies = [
+        kodirpc.FAILED,
+        # A partial readback: a total of one with no row in the page.
+        {"songs": [], "limits": {"total": 1}},
+        {"songs": [kept], "limits": {"total": 1}},
+    ]
+    monkeypatch.setattr(provider.kodirpc, "call", lambda m, p=None: replies.pop(0))
+
+    def wait(seconds):
+        waits.append(seconds)
+        assert len(waits) < 10, "the listing never settled"
+        return False
+
+    monkeypatch.setattr(provider, "_wait", wait)
+    provider.serve(Request(paths.music_dir(store.namespace, LIB, ALBUM), 1, {}))
+    assert len(waits) == 2
+    assert [e[0] for e in rendered[-1]] == [kept["file"]]
+    assert ended[-1]["succeeded"] is True
+    # Shutdown while nothing has answered: no listing, not an empty one.
+    rendered.clear()
+    ended.clear()
+    monkeypatch.setattr(provider.kodirpc, "call", lambda m, p=None: None)
+    monkeypatch.setattr(provider, "_wait", lambda s: True)
+    provider.serve(Request(paths.music_dir(store.namespace, LIB, ALBUM), 1, {}))
+    assert rendered == [] and ended == []
+
+
+def test_container_of_takes_the_first_name_kodi_knows():
+    assert paths.container_of({"Container": "mov,mp4,m4a,3gp,3g2,mj2"}) == "mp4"
+    assert paths.container_of({"MediaSources": [{"Container": "FLAC"}]}) == "flac"
+    assert paths.container_of({"Container": "ra"}) == paths.FALLBACK_CONTAINER

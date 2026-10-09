@@ -141,13 +141,16 @@ def person_thumb(server: str, person: JsonDict) -> str:
     cast, and only then, so a listing carrying fifty of these costs nothing
     until one is looked at. (The sync path pre-caches the same images for
     library rows — service/artcache.py — because there Kodi's own dialog
-    draws them all at once.)
+    draws them all at once.) Capped and encoded like every other image: the
+    video scanner caches a row's actor thumbs at import
+    (``videolibrary.actorthumbs``, on by default), and a tablet decoded
+    3,615 full-size portraits beside 3,239 capped posters.
     """
     tag = person.get("PrimaryImageTag")
     person_id = person.get("Id")
     if not tag or not person_id:
         return ""
-    return "%s/Items/%s/Images/Primary?tag=%s" % (server, person_id, tag)
+    return "%s/Items/%s/Images/Primary?tag=%s%s" % (server, person_id, tag, art_query())
 
 
 # The art query, memoised for a moment. Module state on purpose: a settings

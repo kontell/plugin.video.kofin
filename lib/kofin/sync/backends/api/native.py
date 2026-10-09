@@ -26,7 +26,8 @@ from . import metadata, paths, progress, removal
 from .kinds import rpc, rpc_batch
 from .patch import Applier
 from .readback import Readback
-from .store import Entry, PayloadWindow, Record, Store
+from .records import PayloadWindow, Record
+from .store import Entry, Store
 
 LOG = Logger(__name__)
 
@@ -524,6 +525,14 @@ class Native:
                             and r.parent_id in folders
                         )
                         self.scan_music(library, folders, expected=songs_expected)
+                        lost = self._lost_songs(library, folders, entries)
+                        if lost:
+                            self.store.invalidate(lost)
+                            LOG.warning(
+                                "music: %d acknowledged songs missing after the"
+                                " scan; pending again",
+                                len(lost),
+                            )
                     except InterruptedError:
                         raise
                     except Exception as error:
@@ -619,6 +628,30 @@ class Native:
                 missing.append(record)
         return missing
 
+    def _lost_songs(self, library, folders: Set[str], entries) -> List[str]:
+        """Acknowledged songs the scan just run should have re-filed and did
+        not: a listing that failed half way, or a scan stopped between its
+        delete and its re-add. Nothing pending names them, so they are found
+        by comparing what was acknowledged with what Kodi holds, and go back
+        to pending for the next pass to re-list their directory (salted, if
+        Kodi kept the hash of the listing that lost them)."""
+        everywhere = (library, "*") in self.rescanned
+        held = self.readback.folders(library)
+        lost: List[str] = []
+        for item_id, known in self.store.mappings(
+            kind="Audio", library=library
+        ).items():
+            if known.kodi_id is None:
+                continue
+            placed = entries.get(item_id)
+            if placed is None or placed.kind != "Audio" or placed.library != library:
+                continue
+            if not everywhere and placed.parent_id not in folders:
+                continue
+            if item_id not in held.get(placed.parent_id, {}):
+                lost.append(item_id)
+        return lost
+
     def _music_directories(
         self, upserts: Dict[str, Record], library, entries: Dict[str, Entry]
     ) -> Set[str]:
@@ -631,6 +664,15 @@ class Native:
         it. And a directory holding rows no live song of ours claims -- the
         old half of a move, or a listing that failed half way -- is settled
         by its complete listing too.
+
+        Two kinds of applied song join the comparison uninvited. One Kodi
+        no longer holds -- a listing that failed half way, a scan stopped
+        between its delete and its re-add, a user's rescan interrupted:
+        nothing pending names it, so it is found by comparing what was
+        acknowledged with what Kodi has. And one whose album's payload moved:
+        its tags take the album's artists and MusicBrainz ids, which its own
+        payload hash never sees. Either goes back to pending and into this
+        pass, so the scan re-files it and the applier acknowledges it again.
         """
         songs = {
             r.item_id: r
@@ -638,6 +680,32 @@ class Native:
             if r.kind == "Audio" and r.library == library
         }
         folders: Set[str] = set()
+        mappings = self.store.mappings(kind="Audio", library=library)
+        held = self.readback.folders(library)
+        changed_albums = {
+            r.item_id
+            for r in upserts.values()
+            if r.kind == "MusicAlbum" and r.library == library
+        }
+        uninvited: List[str] = []
+        for item_id, known in mappings.items():
+            if item_id in songs or known.kodi_id is None:
+                continue
+            placed = entries.get(item_id)
+            if placed is None or placed.kind != "Audio" or placed.library != library:
+                continue
+            if (
+                item_id not in held.get(placed.parent_id, {})
+                or placed.parent_id in changed_albums
+            ):
+                uninvited.append(item_id)
+        if uninvited:
+            songs.update(
+                self.store.records(
+                    kind="Audio", library=library, item_ids=uninvited, payloads=False
+                )
+            )
+        revived: Dict[str, Record] = {}
         if songs:
             # Six minutes on a Raspberry Pi for 22,000 songs (a payload parse
             # and a tag hash each): the bar names the phase and the log times it.
@@ -649,33 +717,41 @@ class Native:
                     kind="MusicAlbum", library=library
                 ).items()
             }
-            mappings = self.store.mappings(kind="Audio", library=library)
             for record in self.payloads.walk(songs.values()):
                 item_id = record.item_id
                 folder = record.parent_id
                 row = self.readback.scope("Audio", library, folder).get(item_id)
                 mapping = mappings.get(item_id)
                 applied = mapping.applied if mapping else {}
+                changed = False
                 if row is None:
-                    folders.add(folder)
+                    changed = True
                 elif mapping is None:
                     # Imported but never acknowledged (a userdata patch
                     # failed): the row has the tags of the listing that made
                     # it unless the payload has moved since.
-                    if record.generation > 1:
-                        folders.add(folder)
+                    changed = record.generation > 1
                 elif applied.get("tag") != metadata.tag_hash(
                     record.item, albums.get(folder)
                 ):
+                    changed = True
+                if changed:
                     folders.add(folder)
+                    if item_id not in upserts:
+                        revived[item_id] = record
                 previous = applied.get("dir")
                 if previous and previous != folder:
                     folders.add(previous)
+            if revived:
+                self.store.invalidate(revived)
+                upserts.update(revived)
             LOG.info(
-                "music: %d songs compared in %.1f s; %d directories to scan",
+                "music: %d songs compared in %.1f s; %d directories to scan,"
+                " %d applied songs put back",
                 len(songs),
                 time.monotonic() - began,
                 len(folders),
+                len(revived),
             )
         for folder, rows in self.readback.folders(library).items():
             for item_id in rows:

@@ -98,6 +98,7 @@ class Database(object):
         if pooled is not None:
             self.conn = pooled
             self.cursor = self.conn.cursor()
+            self._changes_at_enter = self.conn.total_changes
             return self
         self.conn = sqlite3.connect(self.path, timeout=self.timeout)
         try:
@@ -111,6 +112,7 @@ class Database(object):
             raise
         if _pooling:
             _pool[key] = self.conn
+        self._changes_at_enter = self.conn.total_changes
 
         return self
 
@@ -135,14 +137,21 @@ class Database(object):
         per COMMIT_INTERVAL and their restore points name the page being
         processed, so a rollback re-runs at most one page of idempotent
         writes on resume.
+
+        A block leaves the connection idle whether or not it changed a row.
+        ``total_changes`` counts since the connection opened, so on a
+        pooled connection it is read as a delta from ``__enter__``; and a
+        block that began a transaction without changing a row still ends
+        it, or the next block on this interpreter would run inside it and a
+        failure there would roll both back while the write lock stayed held.
         """
         try:
-            changes = self.conn.total_changes
+            changes = self.conn.total_changes - getattr(self, "_changes_at_enter", 0)
 
             if exc_type is not None:  # errors raised
                 LOG.error("type: %s value: %s", exc_type, exc_val)
                 self.conn.rollback()
-            elif self.commit_close and changes:
+            elif self.commit_close and (changes or self.conn.in_transaction):
 
                 LOG.debug("[%s] %s rows updated.", self.db_file, changes)
                 self.conn.commit()

@@ -9,6 +9,7 @@ full premiere date -- and ``details`` speaks that representation.
 """
 
 import hashlib
+import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import xbmc
@@ -153,6 +154,15 @@ def userdata(item) -> Dict[str, Any]:
     # explicit server dates and unwatched clears still round-trip exactly.
     if data.get("LastPlayedDate") or not result["playcount"]:
         result["lastplayed"] = _timestamp(data.get("LastPlayedDate"))
+    elif item.get("Type") == "Audio":
+        # Played, but the server never recorded when. Kodi's UpdateSong
+        # stamps the current time on a played song with no date
+        # (MusicDatabase.cpp), which put sixteen songs marked played years
+        # ago at the top of a tablet's recently played albums on the day of
+        # its import. The date the server first saw the song is the latest
+        # moment certainly no later than the play, and it never reads as
+        # recent. The video setters leave a missing date alone.
+        result["lastplayed"] = _timestamp(item.get("DateCreated"))
     return result
 
 
@@ -268,6 +278,22 @@ def _people(item, role):
 
 def _date(value, length=10):
     return str(value or "")[:length].replace("T", " ")
+
+
+def _int(value) -> int:
+    """A number the server sent, or the missing-field zero.
+
+    ``song_tags`` is both the directory listing and the hash the pass
+    compares, so it has to be total: a track number of "x" raised out of
+    ``int`` and skipped the scan of every directory in its library on every
+    pass. A value that does not parse is treated as absent, which is what
+    the listing, the hash and the directory picker already agree on for a
+    field that is not there.
+    """
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _timestamp(value):
@@ -467,7 +493,7 @@ def names(credits) -> List[str]:
 
 
 def song_year(item) -> int:
-    year = int(item.get("ProductionYear") or 0)
+    year = _int(item.get("ProductionYear"))
     return year if year > NO_YEAR else 0
 
 
@@ -478,13 +504,14 @@ def song_tags(item, album=None) -> Dict[str, Any]:
     The album's MusicBrainz ids come from the album's own record so every
     song in the directory carries the same ones; a Jellyfin id is never
     dressed as an MBID. Userdata is deliberately absent: a play on the
-    server must not re-import the album.
+    server must not re-import the album. Every number goes through ``_int``:
+    the function is total, so one malformed song cannot stall its library.
     """
     album = album or {}
     sources = item.get("MediaSources") or []
     size = 0
     if sources and isinstance(sources[0], dict):
-        size = int(sources[0].get("Size") or 0)
+        size = _int(sources[0].get("Size"))
     providers = item.get("ProviderIds") or {}
     album_providers = album.get("ProviderIds") or {}
     year = song_year(item)
@@ -495,9 +522,9 @@ def song_tags(item, album=None) -> Dict[str, Any]:
         "albumartist": names(item.get("AlbumArtists") or album.get("AlbumArtists")),
         "artist": names(item.get("ArtistItems")) or names(item.get("Artists")),
         "genre": [g.strip(ASCII_SPACE) for g in item.get("Genres") or [] if g],
-        "track": int(item.get("IndexNumber") or 0),
-        "disc": int(item.get("ParentIndexNumber") or 0),
-        "duration": int(item.get("RunTimeTicks") or 0) // 10000000,
+        "track": _int(item.get("IndexNumber")),
+        "disc": _int(item.get("ParentIndexNumber")),
+        "duration": _int(item.get("RunTimeTicks")) // 10000000,
         "year": year,
         "releasedate": release,
         "musicbrainztrackid": str(providers.get("MusicBrainzTrack") or ""),
@@ -677,7 +704,13 @@ def inputs_token(server, key, library, separator, seasons=(), set_name=None) -> 
 
     A mapping that carries the payload hash and this token was acknowledged
     for exactly the desired state the same inputs would produce again, so a
-    pass can skip building and comparing it (``patch.Applier.plan``).
+    pass can skip building and comparing it (``patch.Applier.plan``). The
+    token is that contract: an input missing from it freezes the state the
+    next change of that input should have moved. Besides the caller's
+    arguments ``details`` reads the artwork cap and encoding
+    (``listitems.art_query``) and renders its timestamps in the local zone
+    (``shims.convert_to_local``); both are here, and anything new that
+    ``details`` reads joins them.
     """
     return _token(
         [
@@ -687,6 +720,12 @@ def inputs_token(server, key, library, separator, seasons=(), set_name=None) -> 
             separator,
             set_name or "",
             sorted(payload_hash(season) for season in seasons),
+            listitems.art_query(),
+            # The zone, not the current offset: the names list both halves
+            # of a zone with daylight saving, so a token does not flip twice
+            # a year for a change that convert_to_local already renders
+            # correctly per instant.
+            [time.timezone, list(time.tzname)],
         ]
     )
 

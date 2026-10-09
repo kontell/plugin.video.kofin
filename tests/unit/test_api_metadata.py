@@ -287,3 +287,64 @@ def test_merge_never_clears_inherited_art_an_old_acknowledgement_owned():
     compare = merge("Episode", desired, row, {"art": ["thumb", "tvshow.poster"]})
     assert "tvshow.poster" not in compare["art"]
     assert "tvshow.poster" not in desired["art"]
+
+
+def test_song_tags_are_total_for_numbers_that_do_not_parse():
+    """song_tags is the listing and the hash: a value that does not parse is
+    the missing-field zero, so one song cannot stall its library's scans."""
+    from tests.unit.apifixtures import album, song
+
+    bad = song(
+        "t1",
+        IndexNumber="x",
+        ParentIndexNumber=None,
+        RunTimeTicks="n/a",
+        ProductionYear="abc",
+        MediaSources=[{"Size": "big", "Container": "flac"}],
+    )
+    tags = metadata.song_tags(bad, album())
+    assert (tags["track"], tags["disc"], tags["duration"], tags["year"]) == (0, 0, 0, 0)
+    assert tags["size"] == 0 and tags["releasedate"] == ""
+    absent = song("t1", MediaSources=[{"Container": "flac"}])
+    for key in ("IndexNumber", "ParentIndexNumber", "RunTimeTicks", "ProductionYear"):
+        absent.pop(key)
+    assert metadata.tag_hash(bad, album()) == metadata.tag_hash(absent, album())
+
+
+def test_a_played_song_without_a_server_date_is_last_played_when_it_was_added():
+    """Kodi's UpdateSong stamps the current time on a played song with no
+    date, which put songs marked played years ago at the top of a tablet's
+    recently played albums on import day."""
+    from tests.unit.apifixtures import song
+
+    played = song("t1", UserData={"Played": True, "PlayCount": 2})
+    assert metadata.userdata(played)["lastplayed"] == metadata._timestamp(
+        "2023-11-15T19:18:34.08Z"
+    )
+    dated = song(
+        "t1",
+        UserData={
+            "Played": True,
+            "PlayCount": 2,
+            "LastPlayedDate": "2026-01-02T03:04:05Z",
+        },
+    )
+    assert metadata.userdata(dated)["lastplayed"] == metadata._timestamp(
+        "2026-01-02T03:04:05Z"
+    )
+    assert metadata.userdata(song("t1"))["lastplayed"] == ""
+    # The video setters leave a missing date alone: unchanged.
+    assert "lastplayed" not in metadata.userdata(movie(UserData={"Played": True}))
+
+
+def test_inputs_token_moves_with_the_art_query_and_the_zone(monkeypatch):
+    """Everything details reads besides the payload is in the token, or the
+    short-circuit freezes the state the next change should have moved."""
+    from kofin.plugin import listitems
+
+    base = metadata.inputs_token("http://s", "k", LIB, " / ")
+    monkeypatch.setattr(listitems, "art_query", lambda: "&MaxHeight=720&Quality=90")
+    capped = metadata.inputs_token("http://s", "k", LIB, " / ")
+    assert capped != base
+    monkeypatch.setattr(metadata.time, "timezone", 12345)
+    assert metadata.inputs_token("http://s", "k", LIB, " / ") != capped

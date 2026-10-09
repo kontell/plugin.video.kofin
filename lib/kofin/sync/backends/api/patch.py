@@ -33,7 +33,8 @@ from .kinds import (
     rpc_batch,
 )
 from .readback import artist_key
-from .store import Mapping, Record, payload_hash
+from .records import Record
+from .store import Mapping, payload_hash
 
 LOG = Logger(__name__)
 
@@ -434,7 +435,16 @@ class Applier:
         if (
             not clearing
             and matches(row, compare)
-            and (not repair or previous.get("hash") == applied["hash"])
+            # Repair re-sends a row whose acknowledged hash moved, for the
+            # fields a readback cannot show. A row with no acknowledgement
+            # yet was just filed by the scanner from this very listing:
+            # there is nothing stale behind it, and the pass that follows
+            # every complete enumeration runs as a repair, so without this
+            # a first import re-wrote all 6,200 of its rows (a tablet spent
+            # an hour on it).
+            and (
+                not repair or mapping is None or previous.get("hash") == applied["hash"]
+            )
         ):
             self.ack(record.item_id, record.generation, kodi_id, applied, kind)
             return None

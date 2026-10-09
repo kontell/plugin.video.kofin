@@ -24,7 +24,8 @@ from kofin.core import kodirpc, state
 from kofin.sync import private
 from kofin.core.log import Logger
 from . import metadata, paths
-from .store import PayloadWindow, Store
+from .records import PayloadWindow
+from .store import Store
 
 LOG = Logger(__name__)
 
@@ -304,18 +305,48 @@ def _music_root(request, store, key, library):
     _listing(request, entries, "")
 
 
+RETRY_DELAY = 5.0
+KNOWN_PAGE = 500
+
+
+def _wait(seconds) -> bool:
+    """Pause inside a listing; True when Kodi is shutting down."""
+    return xbmc.Monitor().waitForAbort(seconds)
+
+
 def _music_folder(request, store, key, library, folder):
-    """One album's complete listing, in one call, or Kodi's own rows back."""
+    """One album's complete listing, in one call, however long it takes.
+
+    The scanner never reads the succeeded flag: RetrieveMusicInfo removes
+    every song on the path and re-adds what was listed, so a listing that
+    failed before any row, raised past dispatch (which ends the directory
+    with nothing added) or stopped half way is the directory deleted and
+    nothing in the pass putting it back. Nothing short of a complete listing
+    is handed over: the store's, or Kodi's own rows read back in full with
+    the paged total proving the count. Until one of them answers the listing
+    waits, and leaves only with Kodi.
+    """
     directory = paths.music_dir(key, library, folder)
     began = time.monotonic()
-    try:
-        entries = _song_entries(store, key, library, folder)
-    except Exception:
-        LOG.exception(
-            "music listing unavailable; re-listing the rows Kodi holds for %s",
-            directory,
-        )
-        entries = _known_entries(directory)
+    while True:
+        try:
+            entries = _song_entries(store, key, library, folder)
+            break
+        except Exception:
+            LOG.exception("music listing unavailable for %s", directory)
+        try:
+            entries = _known_entries(directory)
+            LOG.warning(
+                "re-listing the %d rows Kodi holds for %s", len(entries), directory
+            )
+            break
+        except Exception:
+            LOG.exception("rows Kodi holds for %s could not be proven", directory)
+        if _wait(RETRY_DELAY):
+            # Shutting down: the scanner is being stopped, and a directory
+            # it never hears about is a directory it never touches.
+            LOG.warning("abandoning the listing of %s at shutdown", directory)
+            return
     built = time.monotonic()
     _listing(request, entries, "songs")
     LOG.debug(
@@ -357,33 +388,57 @@ def _song_entries(store, key, library, folder):
 
 
 def _known_entries(directory):
-    """What Kodi already holds for the directory, as a listing it will keep.
-
-    The tags are Kodi's own readback, the ids and play counts survive by
-    file name, and the next pass finds the directory's hash moved and lists
-    it properly. Only a store and an RPC failing together lose a song.
+    """Kodi's own rows for the directory, proven complete, as a listing it
+    will keep: the tags are Kodi's readback, the ids and play counts survive
+    by file name, and the next pass finds the hash moved and lists the
+    directory properly. The paged total must equal the rows read, as
+    ``Readback._paged`` demands -- a partial array is a deletion with a
+    row left -- and anything else raises for the caller to wait on.
     """
-    reply = kodirpc.call(
-        "AudioLibrary.GetSongs",
-        {
-            "properties": [
-                "file",
-                "title",
-                "artist",
-                "albumartist",
-                "album",
-                "genre",
-                "track",
-                "disc",
-                "duration",
-                "year",
-                "musicbrainztrackid",
-                "musicbrainzalbumid",
-            ],
-            "filter": {"field": "path", "operator": "startswith", "value": directory},
-        },
-    )
-    rows = reply.get("songs", []) if isinstance(reply, dict) else []
+    rows: List[Dict[str, Any]] = []
+    total = None
+    while True:
+        reply = kodirpc.call(
+            "AudioLibrary.GetSongs",
+            {
+                "properties": [
+                    "file",
+                    "title",
+                    "artist",
+                    "albumartist",
+                    "album",
+                    "genre",
+                    "track",
+                    "disc",
+                    "duration",
+                    "year",
+                    "musicbrainztrackid",
+                    "musicbrainzalbumid",
+                ],
+                "filter": {
+                    "field": "path",
+                    "operator": "startswith",
+                    "value": directory,
+                },
+                "limits": {"start": len(rows), "end": len(rows) + KNOWN_PAGE},
+            },
+        )
+        if not isinstance(reply, dict) or not isinstance(
+            reply.get("limits", {}).get("total"), int
+        ):
+            raise RuntimeError("Kodi did not answer for " + directory)
+        count = reply["limits"]["total"]
+        if total is not None and count != total:
+            raise RuntimeError("Kodi's rows changed while being read")
+        total = count
+        chunk = reply.get("songs") or []
+        rows.extend(chunk)
+        if len(rows) >= total:
+            break
+        if not chunk:
+            raise RuntimeError("partial readback of " + directory)
+    if len(rows) != total:
+        raise RuntimeError("partial readback of " + directory)
     entries = []
     for row in rows:
         if not row.get("file", "").startswith(directory):
