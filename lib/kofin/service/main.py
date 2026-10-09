@@ -616,7 +616,7 @@ class Service(xbmc.Monitor):
                 settings.get_list("librarySelection") or private.get_sync()["Whitelist"]
             ):
                 store = current_store()
-                if not (store.pending() or store.local_pending()):
+                if not (store.has_pending() or store.local_pending()):
                     return
             self.library = VideoLibrary(self.api, self.player, self._new_api)
             self.library.start()

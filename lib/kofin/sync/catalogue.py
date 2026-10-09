@@ -63,6 +63,9 @@ class Catalogue:
             payload TEXT NOT NULL, desired INTEGER NOT NULL, applied INTEGER NOT NULL,
             operation TEXT NOT NULL, status TEXT NOT NULL, error TEXT NOT NULL,
             PRIMARY KEY(namespace, item_id))""")
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS api_item_status ON api_item(namespace, status)"
+        )
 
     def stage(self, item: MediaItem, operation: str = "upsert") -> int:
         with Database() as db:
@@ -123,6 +126,19 @@ class Catalogue:
                 """UPDATE api_item SET status='pending', error=?
                 WHERE namespace=? AND item_id=? AND desired=?""",
                 (reason, self.namespace, item_id, generation),
+            )
+
+    def has_pending(self) -> bool:
+        """Whether any work is pending, without loading a payload: the tick
+        asks this twice a second, and a scan of 31,000 payload rows each
+        time kept the idle service at a third of a core."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            return bool(
+                db.cursor.execute(
+                    "SELECT 1 FROM api_item WHERE namespace=? AND status='pending' LIMIT 1",
+                    (self.namespace,),
+                ).fetchone()
             )
 
     def pending(self):

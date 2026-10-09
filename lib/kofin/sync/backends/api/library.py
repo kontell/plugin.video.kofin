@@ -690,7 +690,7 @@ class Library(threading.Thread):
     # -- native application -----------------------------------------------------------
 
     def apply(self, native):
-        if self.store.pending() or self._repair:
+        if self.store.has_pending() or self._repair:
             status(settings.localized(30401))
             populated = {kind: self.store.populated(kind) for kind in HAS_CONTENT}
             began = time.monotonic()
