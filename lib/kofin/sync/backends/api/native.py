@@ -29,10 +29,13 @@ from .store import Entry, Record, Store
 
 LOG = Logger(__name__)
 
-# Above this many changed album directories a pass scans the library's music
-# root once: each directory scan is a job of its own with a start, a finish
-# and the home widgets' refresh behind both.
-ROOT_SCAN_ABOVE = 25
+# A pass walks the library's music root once instead of scanning changed
+# album directories by name when at least this share of the directories
+# changed. Measured on the P1D: a directory scan is 60-80 ms, and a root walk
+# re-lists every unchanged directory at about 100 ms each because Kodi
+# re-creates the Python interpreter when it has no database work between two
+# listings -- so the walk pays only when most directories have work.
+ROOT_SCAN_SHARE = 0.5
 
 
 class Monitor(xbmc.Monitor):
@@ -269,16 +272,20 @@ class Native:
 
     def scan_music(self, library, folders: Set[str]):
         """List the changed album directories again: each by name, or the
-        library's music root once when there are many."""
+        library's music root once when most of them changed."""
         if not folders:
             return
-        if len(folders) > ROOT_SCAN_ABOVE:
+        total = len(set(self.store.folders("Audio", library)) | folders)
+        if len(folders) > total * ROOT_SCAN_SHARE:
             LOG.info(
-                "music: %d directories changed; walking the library root", len(folders)
+                "music: %d of %d directories changed; walking the library root",
+                len(folders),
+                total,
             )
             self.scan([paths.library_dir(self.key, library, "music")], "music")
             self.rescanned.add((library, "*"))
             return
+        LOG.info("music: scanning %d of %d directories by name", len(folders), total)
         self.scan(
             [paths.music_dir(self.key, library, folder) for folder in sorted(folders)],
             "music",
@@ -290,9 +297,10 @@ class Native:
     def reconcile(self, repair=False):
         """Replay durable operations; an accepted RPC is never a commit."""
         self.setup()
-        # A prior process may have died with its pin held. Wait for Kodi to
-        # finish using it before publishing the newer desired view to a scan.
-        self.wait(lambda: self._idle("any"))
+        # A prior process may have died with its pin held, or left a scan
+        # running that outlives it. Wait for Kodi to finish using it before
+        # publishing the newer desired view to a scan, however long it runs.
+        self.wait(lambda: self._idle("any"), busy=lambda: not self._idle("any"))
         self.store.pin()
         self.readback.clear()
         self.rescanned = set()

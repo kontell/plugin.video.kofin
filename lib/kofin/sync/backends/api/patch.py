@@ -79,6 +79,7 @@ class Applier:
         self._album_owners: Optional[Dict[int, str]] = None
         self._artist_owners: Optional[Dict[str, str]] = None
         self._deferred: List[Patch] = []
+        self._rpc_seconds = 0.0
 
     # -- batches -------------------------------------------------------------
 
@@ -116,7 +117,12 @@ class Applier:
         self._mappings_loaded = True
         queue: List[Patch] = []
         for kind in ORDER:
-            for item_id in sorted(i for i, r in upserts.items() if r.kind == kind):
+            ids = sorted(i for i, r in upserts.items() if r.kind == kind)
+            if not ids:
+                continue
+            began = time.monotonic()
+            self._rpc_seconds = 0.0
+            for item_id in ids:
                 record = upserts[item_id]
                 try:
                     if self.native.abort():
@@ -139,6 +145,13 @@ class Applier:
             if KINDS[kind].removal == "rescan":
                 self.confirm_by_scope(kind, errors)
             self.commit()
+            LOG.info(
+                "%s: %d planned in %.1f s, %.1f s of it in Kodi calls",
+                kind.lower(),
+                len(ids),
+                time.monotonic() - began,
+                self._rpc_seconds,
+            )
 
     # -- music lookups -------------------------------------------------------
 
@@ -537,7 +550,9 @@ class Applier:
             params = dict(patch.desired)
             params[table.id_param] = patch.kodi_id
             setters.append((table.setter, params))
+        began = time.monotonic()
         replies = rpc_batch(setters)
+        self._rpc_seconds += time.monotonic() - began
         confirmations: List[Tuple[str, Optional[Dict[str, Any]]]] = []
         confirming = []
         for patch, reply in zip(patches, replies):
