@@ -80,20 +80,38 @@ SEASON_HAS_PLOT: Dict[int, bool] = {
     149: True,
 }
 
-# Rows Kodi itself writes at music-database creation: the "Default role" from
-# MusicDatabase::CreateTables and the BLANKARTIST_* "[Missing Tag]" artist —
-# the same statements as tests/fixtures/mymusic8*_seed.sql. The cleaner
-# re-inserts them after its wipe: a bare DELETE of every table lands *below*
-# pristine, which is the jellyfin-kodi reset bug the cleaner exists to not
-# repeat (docs/clean-databases-plan.md G2). Keyed per version like
-# EXTRA_ITEM_TYPE; a new music version must state its seeds here
-# (test_sync_schema refuses a SUPPORTED entry without them).
+# Rows Kodi itself writes at music-database creation (MusicDatabase::
+# CreateTables): the "Default role", the BLANKARTIST_* "[Missing Tag]" artist
+# and the one versiontagscan row, stamped with the schema version — the same
+# statements as tests/fixtures/mymusic8*_seed.sql. The cleaner re-inserts them
+# after its wipe: a bare DELETE of every table lands *below* pristine, which is
+# the jellyfin-kodi reset bug the cleaner exists to not repeat
+# (docs/clean-databases-plan.md G2). The versiontagscan row is load-bearing:
+# CMusicDatabase::GetMusicNeedsTagScan returns -1 for any row count but one,
+# and the music window then asks to "rescan tags from files" on every visit;
+# accepting is a SCAN_RESCAN of every music path, which re-reads every
+# directory a plugin source has (a Tab spent hours on 1,557 album folders).
+# Kodi's own stamp after the rescan is an UPDATE, so an empty table never
+# heals itself. Keyed per version like EXTRA_ITEM_TYPE; a new music version
+# must state its seeds here (test_sync_schema refuses a SUPPORTED entry
+# without them, and one whose versiontagscan row names another version).
 _MUSIC_SEEDS: Tuple[str, ...] = (
     "INSERT INTO role (idRole, strRole) VALUES (1, 'Artist')",
     "INSERT INTO artist (idArtist, strArtist, strSortName, strMusicBrainzArtistID) "
     "VALUES (1, '[Missing Tag]', '[Missing Tag]', 'Artist Tag Missing')",
 )
-MUSIC_SEED_SQL: Dict[int, Tuple[str, ...]] = {83: _MUSIC_SEEDS, 84: _MUSIC_SEEDS}
+
+
+def _music_seeds(version: int) -> Tuple[str, ...]:
+    return _MUSIC_SEEDS + (
+        "INSERT INTO versiontagscan (idVersion, iNeedsScan) VALUES (%d, 0)" % version,
+    )
+
+
+MUSIC_SEED_SQL: Dict[int, Tuple[str, ...]] = {
+    83: _music_seeds(83),
+    84: _music_seeds(84),
+}
 
 # Jellyfin ExtraType -> the named videoversiontype for the asset row.
 EXTRA_TYPE_NAMES: Dict[str, str] = {
