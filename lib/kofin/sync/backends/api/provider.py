@@ -313,11 +313,18 @@ def _music_folder(request, store, key, library, folder):
 
 
 def _song_entries(store, key, library, folder):
+    began = time.monotonic()
     songs = store.records(kind="Audio", library=library, parent_id=folder)
     album = None
     if not folder.startswith(paths.SINGLES):
         found = store.records(kind="MusicAlbum", item_ids=[folder])
         album = found[folder].item if folder in found else None
+    LOG.debug(
+        "music folder %s: %d songs read in %.2f s",
+        folder[-8:],
+        len(songs),
+        time.monotonic() - began,
+    )
     entries = []
     for item_id, record in sorted(songs.items()):
         url = paths.song_url(

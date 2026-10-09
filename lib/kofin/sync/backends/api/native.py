@@ -19,7 +19,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import xbmc
 
-from kofin.core import state
+from kofin.core import memory, state
 from kofin.core.log import Logger
 from kofin.sync.catalogue import BackendMismatch
 from . import metadata, paths, progress, removal
@@ -388,6 +388,11 @@ class Native:
             applier.commit()
             self.progress.close()
             self.payloads = PayloadWindow(self.store)
+            # The pass's tables are the largest Python objects in the
+            # process; hand the heap back before Kodi's scanner needs the
+            # page cache (core/memory.py).
+            del applier
+            memory.release()
             try:
                 self.release_all()
             except Exception:

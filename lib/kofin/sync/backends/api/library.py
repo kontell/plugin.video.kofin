@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Set
 
 import xbmc
 
-from kofin.core import settings
+from kofin.core import memory, settings
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.sync import changefeed, private
@@ -445,6 +445,8 @@ class Library(threading.Thread):
             len(items) + len(boxsets),
             time.monotonic() - began,
         )
+        del items, fetched
+        memory.release()
         self.store.invalidate(invalidate)
         if complete:
             self.store.set_watermark(
