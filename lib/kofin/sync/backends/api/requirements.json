@@ -136,12 +136,14 @@
     "AudioLibrary.SetAlbumDetails": {
       "albumid": [],
       "title": [],
-      "art": []
+      "art": [],
+      "description": []
     },
     "AudioLibrary.SetArtistDetails": {
       "artistid": [],
       "artist": [],
-      "art": []
+      "art": [],
+      "description": []
     },
     "VideoLibrary.GetMovies": {
       "properties": [],
@@ -171,15 +173,20 @@
     },
     "AudioLibrary.GetSongs": {
       "properties": [],
-      "limits": []
+      "limits": [],
+      "filter": [],
+      "sort": []
     },
     "AudioLibrary.GetAlbums": {
       "properties": [],
-      "limits": []
+      "limits": [],
+      "filter": []
     },
     "AudioLibrary.GetArtists": {
       "properties": [],
-      "limits": []
+      "limits": [],
+      "filter": [],
+      "albumartistsonly": []
     },
     "VideoLibrary.SetSeasonDetails": {
       "seasonid": [],
@@ -199,6 +206,18 @@
     "VideoLibrary.Clean": {
       "showdialogs": [],
       "directory": []
+    },
+    "AudioLibrary.GetSongDetails": {
+      "songid": [],
+      "properties": []
+    },
+    "AudioLibrary.GetAlbumDetails": {
+      "albumid": [],
+      "properties": []
+    },
+    "AudioLibrary.GetArtistDetails": {
+      "artistid": [],
+      "properties": []
     }
   },
   "python": {

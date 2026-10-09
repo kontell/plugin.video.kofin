@@ -42,7 +42,17 @@ def inspect(allow_dirty=False):
             "backend": "api",
             "native_sync_enabled": report["interfaces_passed"],
             "native_sync_scope": (
-                ["Movie", "Series", "Season", "Episode", "MusicVideo", "BoxSet"]
+                [
+                    "Movie",
+                    "Series",
+                    "Season",
+                    "Episode",
+                    "MusicVideo",
+                    "BoxSet",
+                    "Audio",
+                    "MusicAlbum",
+                    "MusicArtist",
+                ]
                 if report["interfaces_passed"]
                 else []
             ),

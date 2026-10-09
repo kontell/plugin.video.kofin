@@ -7,7 +7,12 @@ episode whose show is going too -- leaves with the show, and is acknowledged
 only once the show's removal is confirmed. A members kind -- a set -- leaves
 once the movies that filed it have been patched off it and Kodi's clean has
 dropped the empty row; that happens after the apply pass, in
-``finish_sets``. Nothing is forgotten on the strength of an accepted call.
+``finish_sets``. A rescan kind -- a song, and the album and artist Kodi
+derives from it -- leaves through the complete listing of its directory: the
+audio API has no remove call, so the directory is scanned without the song
+and one readback of the directory confirms it; the derived kinds are let go
+with their songs, since Kodi's own cleanup drops their empty rows. Nothing is
+forgotten on the strength of an accepted call.
 """
 
 from typing import Any, Dict, List, Set, Tuple
@@ -59,12 +64,13 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
     for item_id, entry in placement.items():
         by_library.setdefault(entry.library, set()).add(item_id)
 
-    # 1. Whole libraries. A library none of whose members survive goes in
-    #    one call; Kodi's RemoveContentForPath deletes every row filed
-    #    beneath its root.
+    # 1. Whole video libraries. A library none of whose members survive goes
+    #    in one call; Kodi's RemoveContentForPath deletes every row filed
+    #    beneath its root. Music has no such call and is handled below.
     cleared: Set[str] = set()
     for library, members in sorted(by_library.items()):
-        if not library or not members <= removals:
+        members = {i for i in members if KINDS[placement[i].kind].removal != "rescan"}
+        if not library or not members or not members <= removals:
             continue
         kinds = {placement[i].kind for i in members}
         try:
@@ -102,7 +108,13 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
                 ("Series", "Season", "Episode"), except_library=library
             )
 
-    # 2. Rows. Children of a show that is going leave with it and are
+    # 2. Music: every song tombstone is its album directory listed without
+    #    it. The directories are scanned (the root once, when there are
+    #    many) and one readback per directory confirms the songs are gone;
+    #    albums and artists are derived and leave with their songs.
+    remove_music(native, pending, placement, removals, errors)
+
+    # 3. Rows. Children of a show that is going leave with it and are
     #    acknowledged only when the show's removal is confirmed, so they are
     #    gathered first, whatever order the ids sort in.
     children: Dict[str, List[str]] = {}
@@ -113,8 +125,9 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
             store.forget(item_id, pending[item_id][0])
             continue
         table = KINDS[placed.kind]
-        if table.removal == "members":
-            # Sets wait for the apply pass: finish_sets below.
+        if table.removal in ("members", "rescan"):
+            # Sets wait for the apply pass (finish_sets below); music was
+            # settled above.
             continue
         if placed.parent_id in removals:
             children.setdefault(placed.parent_id, []).append(item_id)
@@ -166,7 +179,7 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
         except Exception as error:
             fail_with_children(item_id, error)
 
-    # 3. Confirm: one readback per scope. Anything still there stays pending,
+    # 4. Confirm: one readback per scope. Anything still there stays pending,
     #    children included.
     if attempted:
         native.readback.clear()
@@ -205,6 +218,50 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
                     errors,
                 )
     return cleared
+
+
+def remove_music(native, pending, placement, removals, errors):
+    store = native.store
+    by_library: Dict[str, List[Tuple[str, Entry]]] = {}
+    for item_id in sorted(removals):
+        placed = placement.get(item_id)
+        if placed is None or KINDS[placed.kind].removal != "rescan":
+            continue
+        by_library.setdefault(placed.library, []).append((item_id, placed))
+    for library, members in sorted(by_library.items()):
+        folders = {p.parent_id for _, p in members if p.kind == "Audio" and p.parent_id}
+        try:
+            if native.abort():
+                raise InterruptedError("native sync stopped")
+            native.scan_music(library, folders)
+            if (library, "*") in native.rescanned:
+                survivors = native.readback.folders(library)
+            else:
+                survivors = {
+                    folder: native.readback.directory(library, folder)
+                    for folder in folders
+                }
+        except InterruptedError:
+            raise
+        except Exception as error:
+            for item_id, _ in members:
+                _fail(store, pending, item_id, error, errors)
+            continue
+        confirmed = []
+        for item_id, placed in members:
+            if placed.kind == "Audio" and item_id in survivors.get(
+                placed.parent_id, {}
+            ):
+                _fail(
+                    store,
+                    pending,
+                    item_id,
+                    RuntimeError("song removal not confirmed"),
+                    errors,
+                )
+                continue
+            confirmed.append((item_id, pending[item_id][0]))
+        store.forget_many(confirmed)
 
 
 def set_members(pending) -> Set[str]:

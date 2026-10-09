@@ -22,10 +22,22 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from kofin.sync.catalogue import Catalogue
 from kofin.sync.model import MediaItem
 from kofin.sync.private import Database
+from . import paths
 
-KINDS = ("Movie", "Series", "Season", "Episode", "MusicVideo", "BoxSet")
-# A season or episode is filed under its show; nothing else has a parent.
-PARENTED = ("Season", "Episode")
+KINDS = (
+    "Movie",
+    "Series",
+    "Season",
+    "Episode",
+    "MusicVideo",
+    "BoxSet",
+    "Audio",
+    "MusicAlbum",
+    "MusicArtist",
+)
+# A season or episode is filed under its show; a song under its album (or
+# the singles folder of its artist); nothing else has a parent.
+PARENTED = ("Season", "Episode", "Audio")
 LEGACY_TABLES = ("api_snapshot", "api_movie", "api_directory")
 
 
@@ -46,6 +58,17 @@ def payload_hash(payload):
 def tombstone(kind, item_id):
     """The payload kept for an applied removal: enough to replay, no more."""
     return {"Id": item_id, "Type": kind}
+
+
+def parent_of(kind, payload) -> str:
+    """The directory key an item is filed under, '' for a kind with none."""
+    if kind in ("Season", "Episode"):
+        if not payload.get("SeriesId"):
+            raise ValueError("%s %s has no series" % (kind, payload.get("Id")))
+        return str(payload["SeriesId"])
+    if kind == "Audio":
+        return paths.song_folder(payload)
+    return ""
 
 
 @dataclass(frozen=True)
@@ -87,6 +110,7 @@ class Store(Catalogue):
                 kind TEXT NOT NULL, library TEXT NOT NULL, parent_id TEXT NOT NULL,
                 PRIMARY KEY(namespace,item_id,added));
             CREATE INDEX IF NOT EXISTS api_entry_live ON api_entry(namespace, removed);
+            CREATE INDEX IF NOT EXISTS api_entry_parent ON api_entry(namespace, kind, parent_id);
             CREATE TABLE IF NOT EXISTS api_native(
                 namespace TEXT NOT NULL, item_id TEXT NOT NULL, kind TEXT NOT NULL,
                 kodi_id INTEGER, applied TEXT NOT NULL DEFAULT '{}',
@@ -193,11 +217,11 @@ class Store(Catalogue):
         says every collection is present. Nothing else implies deletion.
         """
         media = [MediaItem.from_dto(item) for item in items]
+        parents = {}
         for medium in media:
             if medium.kind not in KINDS or not medium.payload.get("Name"):
                 raise ValueError("complete %s metadata required" % medium.kind)
-            if medium.kind in PARENTED and not medium.payload.get("SeriesId"):
-                raise ValueError("%s %s has no series" % (medium.kind, medium.item_id))
+            parents[medium.item_id] = parent_of(medium.kind, medium.payload)
         if len({m.item_id for m in media}) != len(media):
             raise ValueError("duplicate identities")
         with Database() as db:
@@ -246,7 +270,7 @@ class Store(Catalogue):
                             "new %s %s requires a selected library"
                             % (medium.kind, medium.item_id)
                         )
-                parent = medium.payload["SeriesId"] if medium.kind in PARENTED else ""
+                parent = parents[medium.item_id]
                 before = cursor.execute(
                     "SELECT desired FROM api_item WHERE namespace=? AND item_id=?",
                     (self.namespace, medium.item_id),
@@ -420,6 +444,30 @@ class Store(Catalogue):
             for row in rows
         }
 
+    def folders(self, kind, library, pinned=True) -> List[str]:
+        """The directory keys live items of ``kind`` file under, without
+        loading a payload: a root listing of 22,000 songs needs their
+        1,500 albums, not their text."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            generation = self._generation(db.cursor, pinned)
+            rows = db.cursor.execute(
+                """SELECT DISTINCT parent_id FROM api_entry WHERE namespace=? AND kind=?
+                AND library=? AND added<=? AND (removed IS NULL OR removed>?)""",
+                (self.namespace, kind, library, generation, generation),
+            ).fetchall()
+        return [row[0] for row in rows if row[0]]
+
+    def libraries(self, kind) -> List[str]:
+        """The libraries with a live item of ``kind``."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                "SELECT DISTINCT library FROM api_entry WHERE namespace=? AND kind=? AND removed IS NULL",
+                (self.namespace, kind),
+            ).fetchall()
+        return sorted(row[0] for row in rows if row[0])
+
     def item(self, item_id) -> Optional[Dict[str, Any]]:
         with Database() as db:
             self._prepare(db.cursor)
@@ -544,37 +592,45 @@ class Store(Catalogue):
 
     def forget(self, item_id, generation):
         """Acknowledge a removal: the native identity goes, the payload shrinks."""
+        return self.forget_many([(item_id, generation)]) == 1
+
+    def forget_many(self, rows):
+        """One transaction for a batch of removal acknowledgements; returns
+        how many matched their desired generation."""
+        count = 0
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute("BEGIN IMMEDIATE")
-            row = db.cursor.execute(
-                "SELECT kind FROM api_item WHERE namespace=? AND item_id=? AND desired=? AND operation='remove'",
-                (self.namespace, item_id, generation),
-            ).fetchone()
-            if not row:
-                return False
-            db.cursor.execute(
-                """UPDATE api_item SET applied=desired,status='applied',error='',payload=?
-                WHERE namespace=? AND item_id=?""",
-                (encode(tombstone(row[0], item_id)), self.namespace, item_id),
-            )
-            db.cursor.execute(
-                "DELETE FROM api_native WHERE namespace=? AND item_id=?",
-                (self.namespace, item_id),
-            )
-            db.cursor.execute(
-                "DELETE FROM api_expected WHERE namespace=? AND item_id=?",
-                (self.namespace, item_id),
-            )
             root = db.cursor.execute(
                 "SELECT current, pinned FROM api_root WHERE namespace=?",
                 (self.namespace,),
             ).fetchone()
-            if root:
-                self._collect(
-                    db.cursor, root[1] if root[1] is not None else root[0], item_id
+            for item_id, generation in rows:
+                row = db.cursor.execute(
+                    "SELECT kind FROM api_item WHERE namespace=? AND item_id=? AND desired=? AND operation='remove'",
+                    (self.namespace, item_id, generation),
+                ).fetchone()
+                if not row:
+                    continue
+                count += 1
+                db.cursor.execute(
+                    """UPDATE api_item SET applied=desired,status='applied',error='',payload=?
+                    WHERE namespace=? AND item_id=?""",
+                    (encode(tombstone(row[0], item_id)), self.namespace, item_id),
                 )
-            return True
+                db.cursor.execute(
+                    "DELETE FROM api_native WHERE namespace=? AND item_id=?",
+                    (self.namespace, item_id),
+                )
+                db.cursor.execute(
+                    "DELETE FROM api_expected WHERE namespace=? AND item_id=?",
+                    (self.namespace, item_id),
+                )
+                if root:
+                    self._collect(
+                        db.cursor, root[1] if root[1] is not None else root[0], item_id
+                    )
+        return count
 
     def invalidate(self, item_ids: Iterable[str]):
         """Put applied upserts back to pending; their desired state is unchanged.

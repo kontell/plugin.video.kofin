@@ -1,15 +1,21 @@
-"""Confirmed native operations for every video kind through stock Piers
-public interfaces.
+"""Confirmed native operations for every kind through stock Piers public
+interfaces.
 
 An accepted RPC is never a commit: every write is confirmed by reading the
 owned row back (``readback``), removals wait for that confirmation
 (``removal``) and patches go only where the scanner's row differs
 (``patch``). This module owns the gates, the waits, the bindings and the
 scans, and runs one pass in ``reconcile``.
+
+Music is scanned by directory. A song is missing, or its tags have moved,
+or it has moved album: each means its album directory is listed again, and
+a pass with many such directories walks the library's music root once
+instead -- Kodi lists every album folder either way, and one scan job costs
+less than hundreds.
 """
 
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import xbmc
 
@@ -19,19 +25,27 @@ from . import metadata, paths, removal
 from .kinds import rpc
 from .patch import Applier
 from .readback import Readback
-from .store import Record, Store
+from .store import Entry, Record, Store
 
 LOG = Logger(__name__)
+
+# Above this many changed album directories a pass scans the library's music
+# root once: each directory scan is a job of its own with a start, a finish
+# and the home widgets' refresh behind both.
+ROOT_SCAN_ABOVE = 25
 
 
 class Monitor(xbmc.Monitor):
     def __init__(self):
         super().__init__()
         self.finished = 0
+        self.music_finished = 0
 
     def onScanFinished(self, library):
         if library.lower() == "video":
             self.finished += 1
+        elif library.lower() == "music":
+            self.music_finished += 1
 
 
 class Native:
@@ -44,6 +58,9 @@ class Native:
         self.readback = Readback(self.key)
         self._async_pending = False
         self._server = ""
+        # (library, folder) pairs whose directory this pass has re-listed,
+        # or (library, "*") when the music root was walked.
+        self.rescanned: Set[Tuple[str, str]] = set()
 
     # -- gates ---------------------------------------------------------------
 
@@ -118,11 +135,15 @@ class Native:
 
     # -- waits ---------------------------------------------------------------
 
-    def _idle(self):
+    def _idle(self, scanner="video"):
+        if scanner == "music":
+            return not xbmc.getCondVisibility("Library.IsScanningMusic")
+        if scanner == "any":
+            return self._idle("video") and self._idle("music")
         return not xbmc.getCondVisibility("Library.IsScanningVideo")
 
-    def _scanning(self):
-        return not self._idle()
+    def _scanning(self, scanner="video"):
+        return not self._idle(scanner)
 
     def wait(self, predicate, timeout=60, busy=lambda: False):
         """``timeout`` is idle time: the deadline moves while ``busy`` holds."""
@@ -197,32 +218,72 @@ class Native:
             LOG.warning("show binding not cleared: %s", error)
         self.store.unbind(path)
 
-    def scan(self, directories: List[str]):
+    def scan(self, directories: List[str], scanner="video"):
         """Queue one scan per directory and wait for the scanner to go idle."""
         if not directories:
             return
-        self.wait(self._idle)
-        serial = self.monitor.finished
+        self.wait(lambda: self._idle(scanner))
+
+        def finished():
+            return (
+                self.monitor.music_finished
+                if scanner == "music"
+                else self.monitor.finished
+            )
+
+        serial = finished()
+        method = "AudioLibrary.Scan" if scanner == "music" else "VideoLibrary.Scan"
+        began = time.monotonic()
         for directory in directories:
-            rpc("VideoLibrary.Scan", {"directory": directory, "showdialogs": False})
+            rpc(method, {"directory": directory, "showdialogs": False})
         self._async_pending = True
         try:
             self.wait(
-                lambda: self.monitor.finished >= serial + len(directories)
-                and self._idle(),
-                busy=self._scanning,
+                lambda: finished() >= serial + len(directories) and self._idle(scanner),
+                busy=lambda: self._scanning(scanner),
+            )
+            LOG.info(
+                "%s scan of %d director%s took %.1f s",
+                scanner,
+                len(directories),
+                "y" if len(directories) == 1 else "ies",
+                time.monotonic() - began,
             )
         except TimeoutError:
-            if self.monitor.finished == serial:
+            if finished() == serial:
                 raise
             LOG.warning(
                 "%d of %d scans reported finished; reading back anyway",
-                self.monitor.finished - serial,
+                finished() - serial,
                 len(directories),
             )
         finally:
-            self._async_pending = not self._idle()
-        self.readback.clear()
+            self._async_pending = not self._idle(scanner)
+        if scanner == "music":
+            for directory in directories:
+                location = paths.parse(directory)
+                if location is not None and location.library:
+                    self.readback.forget_music(location.library)
+        else:
+            self.readback.clear()
+
+    def scan_music(self, library, folders: Set[str]):
+        """List the changed album directories again: each by name, or the
+        library's music root once when there are many."""
+        if not folders:
+            return
+        if len(folders) > ROOT_SCAN_ABOVE:
+            LOG.info(
+                "music: %d directories changed; walking the library root", len(folders)
+            )
+            self.scan([paths.library_dir(self.key, library, "music")], "music")
+            self.rescanned.add((library, "*"))
+            return
+        self.scan(
+            [paths.music_dir(self.key, library, folder) for folder in sorted(folders)],
+            "music",
+        )
+        self.rescanned.update((library, folder) for folder in folders)
 
     # -- the pass ------------------------------------------------------------
 
@@ -231,9 +292,10 @@ class Native:
         self.setup()
         # A prior process may have died with its pin held. Wait for Kodi to
         # finish using it before publishing the newer desired view to a scan.
-        self.wait(self._idle)
+        self.wait(lambda: self._idle("any"))
         self.store.pin()
         self.readback.clear()
+        self.rescanned = set()
         applier = Applier(self)
         completed = False
         try:
@@ -270,7 +332,7 @@ class Native:
                     payload,
                     generation,
                 )
-            self.import_missing(upserts, errors)
+            self.import_missing(upserts, errors, entries)
             boxsets = [r.item for r in self.store.records(kind="BoxSet").values()]
             collections = metadata.collections_of(boxsets)
             movies = {i for i, e in entries.items() if e.kind == "Movie"}
@@ -284,10 +346,12 @@ class Native:
         finally:
             applier.commit()
             # A timed-out scan must retain its snapshot until Kodi is idle.
-            if (completed or not self._async_pending) and self._idle():
+            if (completed or not self._async_pending) and self._idle("any"):
                 self.store.unpin()
 
-    def import_missing(self, upserts: Dict[str, Record], errors):
+    def import_missing(
+        self, upserts: Dict[str, Record], errors, entries: Optional[Dict] = None
+    ):
         """Bind and scan whatever the readback shows the scanner has not filed."""
         directories: List[str] = []
         expectations = []
@@ -295,6 +359,17 @@ class Native:
             kinds = {r.kind for r in upserts.values() if r.library == library}
             for content in paths.CONTENTS:
                 if not any(paths.CONTENT.get(k) == content for k in kinds):
+                    continue
+                if content == "music":
+                    try:
+                        if entries is None:
+                            entries = self.store.entries()
+                        folders = self._music_directories(upserts, library, entries)
+                        self.scan_music(library, folders)
+                    except InterruptedError:
+                        raise
+                    except Exception as error:
+                        errors.append(error)
                     continue
                 try:
                     self.bind(library, content)
@@ -355,3 +430,63 @@ class Native:
             ):
                 missing.append(record)
         return missing
+
+    def _music_directories(
+        self, upserts: Dict[str, Record], library, entries: Dict[str, Entry]
+    ) -> Set[str]:
+        """The album directories whose listing Kodi must read again.
+
+        A song with no row is missing; one whose tag hash moved since its
+        row was acknowledged needs its tags re-read, which the scanner does
+        only for a directory whose listing changed; one that moved album
+        leaves its old directory only when that directory is listed without
+        it. And a directory holding rows no live song of ours claims -- the
+        old half of a move, or a listing that failed half way -- is settled
+        by its complete listing too.
+        """
+        songs = {
+            r.item_id: r
+            for r in upserts.values()
+            if r.kind == "Audio" and r.library == library
+        }
+        folders: Set[str] = set()
+        if songs:
+            albums = {
+                i: r.item
+                for i, r in self.store.records(
+                    kind="MusicAlbum", library=library
+                ).items()
+            }
+            mappings = self.store.mappings(kind="Audio", library=library)
+            for item_id, record in songs.items():
+                folder = record.parent_id
+                row = self.readback.scope("Audio", library, folder).get(item_id)
+                mapping = mappings.get(item_id)
+                applied = mapping.applied if mapping else {}
+                if row is None:
+                    folders.add(folder)
+                elif mapping is None:
+                    # Imported but never acknowledged (a userdata patch
+                    # failed): the row has the tags of the listing that made
+                    # it unless the payload has moved since.
+                    if record.generation > 1:
+                        folders.add(folder)
+                elif applied.get("tag") != metadata.tag_hash(
+                    record.item, albums.get(folder)
+                ):
+                    folders.add(folder)
+                previous = applied.get("dir")
+                if previous and previous != folder:
+                    folders.add(previous)
+        for folder, rows in self.readback.folders(library).items():
+            for item_id in rows:
+                placed = entries.get(item_id)
+                if (
+                    placed is None
+                    or placed.kind != "Audio"
+                    or placed.library != library
+                    or placed.parent_id != folder
+                ):
+                    folders.add(folder)
+                    break
+        return folders

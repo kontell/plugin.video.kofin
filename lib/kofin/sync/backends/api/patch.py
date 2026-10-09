@@ -6,15 +6,33 @@ owned last time and keeps what Kodi or the user added. A refresh is the one
 operation that replaces a row -- cast and streams have no setter -- and a show
 refresh replaces every episode with it, so their local edits are captured
 first and all of them rejoin the pass.
+
+Music is confirmed by the scope, not the row. A song's patch is its play
+count and last played; thousands of them on a first import would cost a
+details call each to confirm, so the kinds the scanner derives are patched
+in batches and then read back in one listing per library.
 """
 
+import collections
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import unquote
 
 from kofin.core.log import Logger
 from . import metadata
-from .kinds import BATCH, FILED, KINDS, ORDER, PLAYABLE, PROPERTIES, rpc, rpc_batch
+from .kinds import (
+    BATCH,
+    DERIVED,
+    EXPECTED,
+    FILED,
+    KINDS,
+    ORDER,
+    PLAYABLE,
+    PROPERTIES,
+    rpc,
+    rpc_batch,
+)
+from .readback import artist_key
 from .store import Record, payload_hash
 
 LOG = Logger(__name__)
@@ -49,6 +67,18 @@ class Applier:
         self.collections: Dict[str, str] = {}
         self.movies: Set[str] = set()
         self.local: Set[str] = set()
+        # Music, per library: the album directories with a live song, the
+        # artists a live album credits, and the Kodi album id each album's
+        # songs were filed under -- read once a pass, not once a row.
+        self._song_folders: Dict[str, Set[str]] = {}
+        self._albums: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self._credited: Dict[str, Set[str]] = {}
+        self._album_ids: Dict[str, Dict[str, Optional[int]]] = {}
+        # Kodi's album and artist rows are not per library: two libraries
+        # (or two albums of one) may share a row, and one of ours owns it.
+        self._album_owners: Optional[Dict[int, str]] = None
+        self._artist_owners: Optional[Dict[str, str]] = None
+        self._deferred: List[Patch] = []
 
     # -- batches -------------------------------------------------------------
 
@@ -102,10 +132,102 @@ class Applier:
                     )
                     errors.append(error)
             self.flush(queue, errors)
+            if KINDS[kind].removal == "rescan":
+                self.confirm_by_scope(kind, errors)
             self.commit()
+
+    # -- music lookups -------------------------------------------------------
+
+    def song_folders(self, library) -> Set[str]:
+        if library not in self._song_folders:
+            self._song_folders[library] = set(self.store.folders("Audio", library))
+        return self._song_folders[library]
+
+    def albums(self, library) -> Dict[str, Dict[str, Any]]:
+        """The library's album payloads, read once a pass: a song's tag hash
+        takes its album's MusicBrainz ids, and 22,000 songs must not read
+        their album 22,000 times."""
+        if library not in self._albums:
+            self._albums[library] = {
+                i: r.item
+                for i, r in self.store.records(
+                    kind="MusicAlbum", library=library
+                ).items()
+            }
+        return self._albums[library]
+
+    def credited(self, library) -> Set[str]:
+        """The artist ids the library's live albums credit."""
+        if library not in self._credited:
+            artists: Set[str] = set()
+            for item in self.albums(library).values():
+                for credits in (item.get("AlbumArtists"), item.get("ArtistItems")):
+                    for credit in credits or []:
+                        if isinstance(credit, dict) and credit.get("Id"):
+                            artists.add(str(credit["Id"]))
+            self._credited[library] = artists
+        return self._credited[library]
+
+    def artist_owner(self, record: Record) -> str:
+        """Kodi keeps one artist per name; of our artists sharing a name the
+        first by id owns the row's art and description."""
+        if self._artist_owners is None:
+            owners: Dict[str, str] = {}
+            for item_id, found in sorted(
+                self.store.records(kind="MusicArtist").items()
+            ):
+                owners.setdefault(artist_key(found.item.get("Name")), item_id)
+            self._artist_owners = owners
+        return self._artist_owners.get(
+            artist_key(record.item.get("Name")), record.item_id
+        )
+
+    def album_ids(self, library) -> Dict[str, Optional[int]]:
+        if library not in self._album_ids:
+            ids: Dict[str, Optional[int]] = {}
+            for folder, rows in sorted(self.readback.folders(library).items()):
+                counted = collections.Counter(
+                    row.get("albumid") for row in rows.values() if row.get("albumid")
+                )
+                if counted:
+                    ids[folder] = counted.most_common(1)[0][0]
+            self._album_ids[library] = ids
+        return self._album_ids[library]
+
+    def album_id(self, record: Record) -> Optional[int]:
+        """Kodi's id for the album the record's songs were filed under: the
+        one most of them share."""
+        return self.album_ids(record.library).get(record.item_id)
+
+    def album_owner(self, albumid) -> Optional[str]:
+        """Of our albums Kodi merged into one row, the first by id owns the
+        row's art and description; the others are mapped and left."""
+        if self._album_owners is None:
+            owners: Dict[int, str] = {}
+            for library in self.store.libraries("Audio"):
+                for folder, found in sorted(self.album_ids(library).items()):
+                    if found is not None and (
+                        found not in owners or folder < owners[found]
+                    ):
+                        owners[found] = folder
+            self._album_owners = owners
+        return self._album_owners.get(albumid)
 
     def row_for(self, record: Record):
         kind = record.kind
+        if kind == "Audio":
+            return self.readback.scope("Audio", record.library, record.parent_id).get(
+                record.item_id
+            )
+        if kind == "MusicAlbum":
+            albumid = self.album_id(record)
+            if albumid is None:
+                return None
+            return self.readback.scope("MusicAlbum", record.library).get(albumid)
+        if kind == "MusicArtist":
+            return self.readback.scope("MusicArtist", record.library).get(
+                artist_key(record.item.get("Name"))
+            )
         if kind == "Season":
             number = record.item.get("IndexNumber")
             if number is None:
@@ -134,6 +256,17 @@ class Applier:
             return metadata.episode_numbers(record.item) is None
         if kind == "Season":
             return not self.season_has_episodes(record)
+        if kind == "MusicAlbum":
+            # An album Kodi derives exists only through songs of ours in it.
+            return record.item_id not in self.song_folders(record.library)
+        if kind == "MusicArtist":
+            # An artist no live album credits -- a guest on a track, or one
+            # whose albums are outside the selection -- has no row of ours to
+            # find by name; one whose albums have rows but whose name Kodi
+            # spells otherwise has none either.
+            if record.item_id not in self.credited(record.library):
+                return True
+            return self.row_for(record) is None
         if kind == "BoxSet":
             name = (record.item.get("Name") or "").strip(metadata.ASCII_SPACE)
             return not any(
@@ -149,11 +282,13 @@ class Applier:
             return None
         row = self.row_for(record)
         if row is None:
-            if kind in ("Season", "BoxSet"):
-                # Its episodes or movies are being imported this pass or the
-                # next; nothing native to confirm yet.
+            if kind in ("Season", "BoxSet", "MusicAlbum"):
+                # Its episodes, movies or songs are being imported this pass
+                # or the next; nothing native to confirm yet.
                 raise RuntimeError("%s has no native row yet" % kind)
             raise RuntimeError("scanner did not import %s" % kind)
+        if kind in DERIVED or kind == "Audio":
+            return self.plan_music(record, row, repair)
         seasons = (
             [
                 r.item
@@ -198,6 +333,7 @@ class Applier:
         compare = merge(kind, desired, row, previous.get("owned", {}))
         if kind in PLAYABLE:
             applied["userdata"] = metadata.userdata(record.item)
+        if kind in EXPECTED:
             self._expectations.append(
                 (record.item_id, record.generation, applied["userdata"])
             )
@@ -207,6 +343,55 @@ class Applier:
             not clearing
             and matches(row, compare)
             and (not repair or previous.get("hash") == applied["hash"])
+        ):
+            self.ack(record.item_id, record.generation, kodi_id, applied, kind)
+            return None
+        return Patch(record, kodi_id, desired, compare, applied)
+
+    def plan_music(self, record: Record, row, repair) -> Optional[Patch]:
+        kind = record.kind
+        table = KINDS[kind]
+        kodi_id = row[table.id_param]
+        mapping = self.mapping(record.item_id)
+        previous = mapping.applied if mapping else {}
+        desired = metadata.details(record.item, self.native.server_url(), self.key, "")
+        applied: Dict[str, Any] = {
+            "hash": payload_hash(record.item),
+            "owned": metadata.owned(desired),
+        }
+        if kind == "Audio":
+            if record.item_id in self.local:
+                return None
+            if previous.get("userdata"):
+                edits = local_edits(row, previous["userdata"], desired)
+                if edits:
+                    self.store.local(record.item_id, edits)
+                    return None
+            album = self.albums(record.library).get(record.parent_id)
+            applied["tag"] = metadata.tag_hash(record.item, album)
+            applied["dir"] = record.parent_id
+            applied["userdata"] = metadata.userdata(record.item)
+            if previous.get("tag") not in (None, applied["tag"]) and not (
+                (record.library, record.parent_id) in self.native.rescanned
+                or (record.library, "*") in self.native.rescanned
+            ):
+                # The tags moved and the directory was not re-listed this
+                # pass: the row still carries the old ones.
+                raise RuntimeError("song awaits its directory's rescan")
+        elif kind == "MusicAlbum":
+            owner = self.album_owner(kodi_id)
+            if owner is not None and owner != record.item_id:
+                # Kodi merged two of our albums into one row; the first owns
+                # its art and description, the other is mapped and left.
+                self.ack(record.item_id, record.generation, kodi_id, {}, kind)
+                return None
+        elif kind == "MusicArtist":
+            if self.artist_owner(record) != record.item_id:
+                self.ack(record.item_id, record.generation, kodi_id, {}, kind)
+                return None
+        compare = merge(kind, desired, row, previous.get("owned", {}))
+        if matches(row, compare) and (
+            not repair or previous.get("hash") == applied["hash"]
         ):
             self.ack(record.item_id, record.generation, kodi_id, applied, kind)
             return None
@@ -291,6 +476,46 @@ class Applier:
 
     # -- patches -------------------------------------------------------------
 
+    def confirm_by_scope(self, kind, errors):
+        """Read the kind's rows back in one listing per library and settle
+        every deferred patch against it."""
+        if not self._deferred:
+            return
+        patches, self._deferred = self._deferred, []
+        for library in sorted({p.record.library for p in patches}):
+            self.readback.forget(kind, library)
+        for patch in patches:
+            record = patch.record
+            try:
+                row = self.row_for(record)
+                if row is None:
+                    raise RuntimeError("%s row vanished after its patch" % kind)
+                if not matches(row, patch.compare):
+                    fields = [
+                        key
+                        for key, value in patch.compare.items()
+                        if not matches(row, {key: value})
+                    ]
+                    raise RuntimeError(
+                        "%s detail readback differs: %s" % (kind, ", ".join(fields))
+                    )
+                self.ack(
+                    record.item_id,
+                    record.generation,
+                    patch.kodi_id,
+                    patch.applied,
+                    kind,
+                )
+            except InterruptedError:
+                raise
+            except Exception as error:
+                self.store.failed(
+                    record.item_id,
+                    record.generation,
+                    type(error).__name__ + ": " + str(error),
+                )
+                errors.append(error)
+
     def flush(self, queue: List[Patch], errors):
         if not queue:
             return
@@ -319,6 +544,10 @@ class Applier:
                 errors.append(reply)
                 continue
             table = KINDS[patch.record.kind]
+            if table.removal == "rescan":
+                # Confirmed by the scope once the kind's patches are all sent.
+                self._deferred.append(patch)
+                continue
             confirmations.append(
                 (
                     table.getter,
@@ -389,6 +618,9 @@ def local_edits(row, previous, desired):
     playcount = row.get("playcount", 0) or 0
     if playcount != previous.get("playcount") and playcount != desired["playcount"]:
         edits["playcount"] = playcount
+    if "resume" not in desired:
+        # A song: Kodi's music library keeps no resume point.
+        return edits
     position = (row.get("resume") or {}).get("position", 0) or 0
     if (
         abs(position - previous.get("resume", {}).get("position", 0)) >= 1

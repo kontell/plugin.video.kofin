@@ -7,7 +7,7 @@ cache hit still needs ownership verification, and browsing needs no hit.
 from kofin.core.settings import Credentials
 
 from . import paths
-from .kinds import KINDS, MEDIA, rpc
+from .kinds import FILED, KINDS, MEDIA, rpc
 from .readback import Readback
 from .store import Store, namespace
 
@@ -24,18 +24,25 @@ def mapped_item(kodi_id, media):
         return None
     store = current_store()
     table = KINDS[kind]
+    properties = ["file", "uniqueid"] if kind in FILED else ["file"]
     try:
         row = rpc(
-            table.getter, {table.id_param: kodi_id, "properties": ["file", "uniqueid"]}
+            table.getter, {table.id_param: kodi_id, "properties": properties}
         ).get(table.result_key, {})
     except RuntimeError:
         # No such row for that media type: not ours, whatever it is.
         return None
-    uid = (row.get("uniqueid") or {}).get("kofin", "")
-    prefix = store.namespace + ":"
-    if not uid.startswith(prefix):
-        return None
-    item_id = uid[len(prefix) :]
+    if kind == "Audio":
+        # A song has no unique id; the URL it is filed under is its identity.
+        location, item_id = paths.parse_item(row.get("file") or "")
+        if location is None or location.key != store.namespace or not item_id:
+            return None
+    else:
+        uid = (row.get("uniqueid") or {}).get("kofin", "")
+        prefix = store.namespace + ":"
+        if not uid.startswith(prefix):
+            return None
+        item_id = uid[len(prefix) :]
     placed = store.entry(item_id)
     if placed is None or store.mapping(item_id) is None:
         return None
@@ -61,7 +68,12 @@ def native_id_for(item_id, media="movie"):
     kind = MEDIA.get(media)
     if placed is None or kind is None:
         return None
-    found = Readback(store.namespace).scope(kind, placed.library, placed.parent_id)
+    readback = Readback(store.namespace)
+    if kind == "Audio":
+        # One directory, not the library: a lookup must not page 22,000 rows.
+        found = readback.directory(placed.library, placed.parent_id)
+    else:
+        found = readback.scope(kind, placed.library, placed.parent_id)
     row = found.get(item_id)
     return row[KINDS[kind].id_param] if row else None
 
@@ -72,6 +84,8 @@ def library_url(item_id):
     mapping = store.mapping(item_id)
     placed = store.entry(item_id)
     if not mapping or mapping.kodi_id is None or placed is None:
+        return None
+    if placed.kind in ("MusicAlbum", "MusicArtist"):
         return None
     return paths.playback_url(
         store.namespace, placed.kind, placed.library, item_id, placed.parent_id

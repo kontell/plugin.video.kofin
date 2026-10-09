@@ -3,6 +3,13 @@
 Every listing comes from the pinned committed generation, so a scan that
 spans minutes sees one complete membership throughout, and nothing here can
 turn a server outage into an empty directory.
+
+A music listing cannot fail halfway. Kodi scans whatever rows reached it
+before a listing failed, however it failed, and the music scanner replaces a
+directory's songs with what it was given -- so a song directory is built in
+full before anything is handed over, goes out in one call, never ends with
+``succeeded=False``, and when the store itself cannot be read the rows Kodi
+already holds are listed back to it rather than nothing.
 """
 
 from typing import Any, Dict, List
@@ -10,24 +17,35 @@ from typing import Any, Dict, List
 import xbmcgui
 import xbmcplugin
 
+from kofin.core import kodirpc
+from kofin.core.log import Logger
 from . import metadata, paths
 from .store import Store
+
+LOG = Logger(__name__)
 
 key_from_url = paths.key_from_url
 
 
 def _roots():
-    """Every bound scanner root, for Kodi's own walk of the plugin."""
+    """Every scanner root, for Kodi's own walk of the plugin: the bound video
+    roots, and the music root of every library with a song."""
     from kofin.sync.private import Database
 
     with Database() as db:
         Store("provider")._prepare(db.cursor)
-        return [
+        roots = [
             row[0]
             for row in db.cursor.execute(
                 "SELECT path FROM api_binding ORDER BY path"
             ).fetchall()
         ]
+        for namespace, library in db.cursor.execute(
+            "SELECT DISTINCT namespace, library FROM api_entry"
+            " WHERE kind='Audio' AND removed IS NULL"
+        ).fetchall():
+            roots.append(paths.library_dir(namespace, library, "music"))
+    return sorted(set(roots))
 
 
 def _listing(request, entries, content):
@@ -51,6 +69,8 @@ def exists(store, location, item_id):
     if item_id:
         state = store.state(item_id)
         return not state or state.operation != "remove"
+    if location.folder:
+        return True
     if location.series:
         state = store.state(location.series)
         return not state or state.operation != "remove"
@@ -87,15 +107,23 @@ def serve(request):
             if location.library
             else paths.root(key)
         )
-        _folders(
-            request,
-            sorted(p for p in store.bindings() if p.startswith(prefix)),
-            "Kofin",
+        roots = {p for p in store.bindings() if p.startswith(prefix)}
+        roots.update(
+            paths.library_dir(key, library, "music")
+            for library in store.libraries("Audio")
+            if paths.library_dir(key, library, "music").startswith(prefix)
         )
+        _folders(request, sorted(roots), "Kofin")
+        return
+    library = location.library
+    if location.content == "music":
+        if location.folder is None:
+            _music_root(request, store, key, library)
+        else:
+            _music_folder(request, store, key, library, location.folder)
         return
     server = store.server()
     separator = metadata.item_separator()
-    library = location.library
     if location.content == "tvshows":
         if location.series is None:
             shows = store.records(kind="Series", library=library)
@@ -200,3 +228,126 @@ def serve(request):
             )
         )
     _listing(request, entries, content)
+
+
+# -- music ---------------------------------------------------------------------
+
+
+def _music_root(request, store, key, library):
+    """The library's album directories: every live one, and every one that
+    still has songs to shed. A tombstone leaves Kodi only through the
+    complete listing of its directory, so a directory whose songs are all
+    gone stays listed, empty, until the scan has confirmed it."""
+    folders = set(store.folders("Audio", library))
+    folders.update(
+        placed.parent_id
+        for placed in store.tombstones().values()
+        if placed.kind == "Audio" and placed.library == library and placed.parent_id
+    )
+    albums = store.records(kind="MusicAlbum", library=library) if folders else {}
+    entries = []
+    for folder in sorted(folders):
+        album = albums.get(folder)
+        label = metadata.folder_label(album.item if album else None, folder)
+        entries.append(
+            (
+                paths.music_dir(key, library, folder),
+                xbmcgui.ListItem(label, offscreen=True),
+                True,
+            )
+        )
+    _listing(request, entries, "")
+
+
+def _music_folder(request, store, key, library, folder):
+    """One album's complete listing, in one call, or Kodi's own rows back."""
+    directory = paths.music_dir(key, library, folder)
+    try:
+        entries = _song_entries(store, key, library, folder)
+    except Exception:
+        LOG.exception(
+            "music listing unavailable; re-listing the rows Kodi holds for %s",
+            directory,
+        )
+        entries = _known_entries(directory)
+    _listing(request, entries, "songs")
+
+
+def _song_entries(store, key, library, folder):
+    songs = store.records(kind="Audio", library=library, parent_id=folder)
+    album = None
+    if not folder.startswith(paths.SINGLES):
+        found = store.records(kind="MusicAlbum", item_ids=[folder])
+        album = found[folder].item if folder in found else None
+    entries = []
+    for item_id, record in sorted(songs.items()):
+        url = paths.playback_url(key, "Audio", library, item_id, folder)
+        try:
+            li = metadata.song_listitem(record.item, album)
+        except Exception:
+            # One malformed payload must not cost the directory a song.
+            LOG.exception("song row reduced to its title: %s", item_id)
+            li = metadata.fallback_song_listitem(record.item)
+        entries.append((url, li, False))
+    return entries
+
+
+def _known_entries(directory):
+    """What Kodi already holds for the directory, as a listing it will keep.
+
+    The tags are Kodi's own readback, the ids and play counts survive by
+    file name, and the next pass finds the directory's hash moved and lists
+    it properly. Only a store and an RPC failing together lose a song.
+    """
+    reply = kodirpc.call(
+        "AudioLibrary.GetSongs",
+        {
+            "properties": [
+                "file",
+                "title",
+                "artist",
+                "albumartist",
+                "album",
+                "genre",
+                "track",
+                "disc",
+                "duration",
+                "year",
+                "musicbrainztrackid",
+                "musicbrainzalbumid",
+            ],
+            "filter": {"field": "path", "operator": "startswith", "value": directory},
+        },
+    )
+    rows = reply.get("songs", []) if isinstance(reply, dict) else []
+    entries = []
+    for row in rows:
+        if not row.get("file", "").startswith(directory):
+            continue
+        li = xbmcgui.ListItem(row.get("title") or row.get("label", ""), offscreen=True)
+        tag = li.getMusicInfoTag()
+        tag.setMediaType("song")
+        tag.setTitle(row.get("title") or row.get("label", ""))
+        if row.get("album"):
+            tag.setAlbum(row["album"])
+        if row.get("albumartist"):
+            tag.setAlbumArtist(" / ".join(row["albumartist"]))
+        if row.get("artist"):
+            tag.setArtist(" / ".join(row["artist"]))
+        if row.get("genre"):
+            tag.setGenres(list(row["genre"]))
+        if row.get("track"):
+            tag.setTrack(int(row["track"]))
+        if row.get("disc"):
+            tag.setDisc(int(row["disc"]))
+        if row.get("duration"):
+            tag.setDuration(int(row["duration"]))
+        if row.get("year"):
+            tag.setYear(int(row["year"]))
+        if row.get("musicbrainztrackid"):
+            tag.setMusicBrainzTrackID(row["musicbrainztrackid"])
+        if row.get("musicbrainzalbumid"):
+            tag.setMusicBrainzAlbumID(row["musicbrainzalbumid"])
+        metadata.mark_loaded(li, 0)
+        entries.append((row["file"], li, False))
+    return entries

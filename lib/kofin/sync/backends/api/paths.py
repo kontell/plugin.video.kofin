@@ -6,31 +6,50 @@ directory its row belongs to, and ``RemoveContentForPath`` on a library root
 removes every row filed beneath it in one call. Shows are folders under the
 library's ``tvshows/`` root and their episodes are filed under the show
 folder, which is where Kodi's scanner looks a plugin episode's show up.
+
+Music has one directory per album under the library's ``music/`` root, with
+every song filed beneath its album, and ``music/singles/<artist>/`` for the
+songs Jellyfin gives no album. A music scan replaces a directory's songs with
+whatever its listing returns, so the album is the unit a song leaves by: its
+removal is the album directory listed without it.
 """
 
 import re
 from dataclasses import dataclass
-from typing import Optional
-from urllib.parse import urlencode, urlsplit
+from typing import Optional, Tuple
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 BASE = "plugin://plugin.video.kofin/native/"
 
 # Scanner content type per catalogue kind. Seasons have no scanner directory
-# of their own: they are rows of the show the scanner creates from its tag.
+# of their own: they are rows of the show the scanner creates from its tag;
+# albums and artists likewise are rows the music scanner derives from songs.
 CONTENT = {
     "Movie": "movies",
     "Series": "tvshows",
     "Season": "tvshows",
     "Episode": "tvshows",
     "MusicVideo": "musicvideos",
+    "Audio": "music",
+    "MusicAlbum": "music",
+    "MusicArtist": "music",
 }
-CONTENTS = ("movies", "tvshows", "musicvideos")
+CONTENTS = ("movies", "tvshows", "musicvideos", "music")
+# Which of Kodi's two scanners walks a content type.
+SCANNER = {
+    "movies": "video",
+    "tvshows": "video",
+    "musicvideos": "video",
+    "music": "music",
+}
+SINGLES = "singles/"
+NO_ARTIST = "0" * 32
 
 _PATH = re.compile(
     r"^/native/([0-9a-f]{32})/"
     r"(?:([0-9a-f]{32})/"
-    r"(?:(movies|tvshows|musicvideos)/"
-    r"(?:([0-9a-f]{32})/)?)?)?$"
+    r"(?:(movies|tvshows|musicvideos|music)/"
+    r"(?:(singles/)?([0-9a-f]{32})/)?)?)?$"
 )
 
 
@@ -39,7 +58,10 @@ class Location:
     key: str
     library: Optional[str] = None
     content: Optional[str] = None
+    # A show folder under a tvshows root.
     series: Optional[str] = None
+    # A music directory's key: an album id, or ``singles/<artist id>``.
+    folder: Optional[str] = None
 
 
 def root(key):
@@ -60,6 +82,25 @@ def show_dir(key, library, series_id):
     return library_dir(key, library, "tvshows") + series_id + "/"
 
 
+def music_dir(key, library, folder):
+    if not folder:
+        raise ValueError("a song directory needs its album or singles folder")
+    return library_dir(key, library, "music") + folder + "/"
+
+
+def song_folder(item) -> str:
+    """The directory key a song files under: its album, or the singles
+    folder of its first credited artist when Jellyfin gives it no album."""
+    album = item.get("AlbumId")
+    if album:
+        return str(album)
+    for credits in (item.get("ArtistItems"), item.get("AlbumArtists")):
+        for artist in credits or []:
+            if isinstance(artist, dict) and artist.get("Id"):
+                return SINGLES + str(artist["Id"])
+    return SINGLES + NO_ARTIST
+
+
 def item_dir(key, kind, library, item_id, parent_id=""):
     """The directory Kodi files an item of ``kind`` under."""
     if kind == "Series":
@@ -68,6 +109,12 @@ def item_dir(key, kind, library, item_id, parent_id=""):
         if not parent_id:
             raise ValueError("episodes and seasons need their series")
         return show_dir(key, library, parent_id)
+    if kind == "Audio":
+        return music_dir(key, library, parent_id)
+    if kind == "MusicAlbum":
+        return music_dir(key, library, item_id)
+    if kind == "MusicArtist":
+        raise ValueError("an artist has no directory of its own")
     return library_dir(key, library, CONTENT[kind])
 
 
@@ -87,10 +134,23 @@ def parse(url) -> Optional[Location]:
     match = _PATH.match(parsed.path)
     if not match:
         return None
-    key, library, content, series = match.groups()
-    if series and content != "tvshows":
-        return None
-    return Location(key, library, content, series)
+    key, library, content, singles, folder = match.groups()
+    if folder is None:
+        return Location(key, library, content)
+    if content == "tvshows" and not singles:
+        return Location(key, library, content, series=folder)
+    if content == "music":
+        return Location(key, library, content, folder=(singles or "") + folder)
+    return None
+
+
+def parse_item(url) -> Tuple[Optional[Location], str]:
+    """The directory an item URL is filed under and the item id it carries."""
+    location = parse(url)
+    if location is None:
+        return None, ""
+    query = parse_qs(urlsplit(url).query)
+    return location, (query.get("id") or [""])[0]
 
 
 def key_from_url(url):
