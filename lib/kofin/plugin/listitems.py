@@ -5,6 +5,7 @@ tag-setter glue so they can be unit tested; the setters are validated by the
 Kodistubs type check and exercised live.
 """
 
+import time
 from typing import Any, Dict, Optional, Tuple
 
 import xbmc
@@ -149,6 +150,16 @@ def person_thumb(server: str, person: JsonDict) -> str:
     return "%s/Items/%s/Images/Primary?tag=%s" % (server, person_id, tag)
 
 
+# The art query, memoised for a moment. Module state on purpose: a settings
+# read constructs a fresh Addon each time (settings.get_addon), which is
+# 20 ms on a Raspberry Pi, and art_for runs once per item -- two reads an
+# item turned a 14 s listing of 1,788 movies into 80 s. Two seconds of
+# memory survives any restart (it is time, not a handle) and a settings
+# change shows within them.
+_ART_QUERY: Tuple[float, str] = (0.0, "")
+ART_QUERY_TTL = 2.0
+
+
 def art_query() -> str:
     """The size cap and encoding the server applies to listed artwork.
 
@@ -158,15 +169,27 @@ def art_query() -> str:
     for a 1080-high cache file. ``maxArtResolution`` asks the server for the
     capped height (its own resize, cached server-side) and ``compressArt`` for
     JPEG at quality 90, which only changes bytes once a resize happens
-    (``sync/fields.py`` has the measurement). Both are read per listing.
+    (``sync/fields.py`` has the measurement).
     """
+    global _ART_QUERY
+    now = time.monotonic()
+    stamp, cached = _ART_QUERY
+    if now - stamp < ART_QUERY_TTL:
+        return cached
     maxheight = settings.get_int("maxArtResolution")
-    if not maxheight:
-        return ""
-    query = "&MaxHeight=%d" % maxheight
-    if settings.get_bool("compressArt"):
-        query += "&Quality=90"
+    query = ""
+    if maxheight:
+        query = "&MaxHeight=%d" % maxheight
+        if settings.get_bool("compressArt"):
+            query += "&Quality=90"
+    _ART_QUERY = (now, query)
     return query
+
+
+def forget_art_query() -> None:
+    """Drop the memo (tests, and anything that changes the settings itself)."""
+    global _ART_QUERY
+    _ART_QUERY = (0.0, "")
 
 
 def art_for(item: JsonDict, server: str) -> Dict[str, str]:

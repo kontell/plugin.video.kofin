@@ -346,3 +346,28 @@ def test_build_for_a_scanner_row_stamps_only_a_real_resume_point(recorded):
     assert recorded[-1].tag.resume_calls == []
     listitems.build(EPISODE, SERVER, resume_offset=0, stamp_zero_resume=False)
     assert recorded[-1].tag.resume_calls == [(300.0, 600.0)]
+
+
+def test_art_query_is_memoised_for_a_moment(monkeypatch):
+    """Two settings reads an item, each a fresh Addon, made a 1,788-movie
+    listing 80 s on a Raspberry Pi; the query is read once per two seconds."""
+    from kofin.plugin import listitems
+
+    reads = []
+
+    def get_int(key):
+        reads.append(key)
+        return 1080
+
+    monkeypatch.setattr(listitems.settings, "get_int", get_int)
+    monkeypatch.setattr(listitems.settings, "get_bool", lambda key: True)
+    listitems.forget_art_query()
+    first = listitems.art_query()
+    for _ in range(50):
+        assert listitems.art_query() == first
+    assert first == "&MaxHeight=1080&Quality=90"
+    assert reads == ["maxArtResolution"]
+    listitems.forget_art_query()
+    monkeypatch.setattr(listitems.settings, "get_int", lambda key: 0)
+    assert listitems.art_query() == ""
+    listitems.forget_art_query()
