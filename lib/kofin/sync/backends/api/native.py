@@ -26,7 +26,7 @@ from . import metadata, paths, removal
 from .kinds import rpc
 from .patch import Applier
 from .readback import Readback
-from .store import Entry, Record, Store
+from .store import Entry, PayloadWindow, Record, Store
 
 LOG = Logger(__name__)
 
@@ -63,6 +63,7 @@ class Native:
         self.separator = metadata.item_separator()
         self.readback = Readback(self.key)
         self._async_pending = False
+        self.payloads = PayloadWindow(self.store)
         self._server = ""
         # (library, folder) pairs whose directory this pass has re-listed,
         # or (library, "*") when the music root was walked.
@@ -353,14 +354,17 @@ class Native:
         completed = False
         try:
             entries = self.store.entries()
+            # Payloads are read on demand, a chunk at a time: every pending
+            # payload at once was 200 MB of Python for one video catalogue.
+            self.payloads = PayloadWindow(self.store)
             pending: Dict[str, Tuple[int, str, Dict]] = {
-                item.item_id: (generation, operation, item.payload)
-                for item, generation, operation in self.store.pending()
+                item_id: (generation, operation, payload)
+                for item_id, generation, operation, payload in self.store.pending_work()
             }
             if repair:
-                for item_id, record in self.store.records().items():
+                for item_id, record in self.store.records(payloads=False).items():
                     if item_id not in pending:
-                        pending[item_id] = (record.generation, "upsert", record.item)
+                        pending[item_id] = (record.generation, "upsert", {})
             errors: List[Exception] = []
             # A removed collection's movies must let go of its set before the
             # set can; they rejoin this pass as upserts.
@@ -369,11 +373,11 @@ class Native:
             # A whole-library clear puts other libraries' shows back to
             # pending, and the set members above are pending now too; both
             # join this pass rather than wait for the next.
-            for item, generation, operation in self.store.pending():
-                if operation == "upsert" and item.item_id not in pending:
-                    pending[item.item_id] = (generation, operation, item.payload)
+            for item_id, generation, operation, _ in self.store.pending_work():
+                if operation == "upsert" and item_id not in pending:
+                    pending[item_id] = (generation, operation, {})
             upserts: Dict[str, Record] = {}
-            for item_id, (generation, operation, payload) in pending.items():
+            for item_id, (generation, operation, _payload) in pending.items():
                 entry = entries.get(item_id)
                 if operation != "upsert" or entry is None:
                     continue
@@ -382,8 +386,9 @@ class Native:
                     entry.kind,
                     entry.library,
                     entry.parent_id,
-                    payload,
+                    None,
                     generation,
+                    loader=self.payloads,
                 )
             self.import_missing(upserts, errors, entries)
             boxsets = [r.item for r in self.store.records(kind="BoxSet").values()]
@@ -398,6 +403,7 @@ class Native:
             completed = True
         finally:
             applier.commit()
+            self.payloads = PayloadWindow(self.store)
             try:
                 self.release_all()
             except Exception:
@@ -454,7 +460,7 @@ class Native:
                 if not missing:
                     continue
                 directories.append(paths.library_dir(self.key, library, content))
-                for record in missing:
+                for record in self.payloads.walk(missing):
                     if record.kind in ("Movie", "Episode", "MusicVideo"):
                         expectations.append(
                             (
@@ -474,9 +480,10 @@ class Native:
             for r in upserts.values()
             if r.kind == "Series" and r.library == library and r.item_id not in shows
         ]
-        for record in upserts.values():
-            if record.kind != "Episode" or record.library != library:
-                continue
+        episodes = [
+            r for r in upserts.values() if r.kind == "Episode" and r.library == library
+        ]
+        for record in self.payloads.walk(episodes):
             if metadata.episode_numbers(record.item) is None:
                 # Never listed, never imported: not a reason to scan.
                 continue
@@ -516,7 +523,8 @@ class Native:
                 ).items()
             }
             mappings = self.store.mappings(kind="Audio", library=library)
-            for item_id, record in songs.items():
+            for record in self.payloads.walk(songs.values()):
+                item_id = record.item_id
                 folder = record.parent_id
                 row = self.readback.scope("Audio", library, folder).get(item_id)
                 mapping = mappings.get(item_id)

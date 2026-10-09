@@ -139,8 +139,7 @@ class Applier:
                 continue
             began = time.monotonic()
             self._rpc_seconds = 0.0
-            for item_id in ids:
-                record = upserts[item_id]
+            for record in self.native.payloads.walk(upserts[i] for i in ids):
                 try:
                     if self.native.abort():
                         raise InterruptedError("native sync stopped")

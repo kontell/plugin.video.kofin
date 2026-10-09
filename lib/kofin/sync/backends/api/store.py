@@ -16,8 +16,9 @@ payloads it duplicated; `kofin.db` reached 235 MB on 1,792 movies.
 import hashlib
 import json
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from kofin.sync.catalogue import Catalogue
 from kofin.sync.model import MediaItem
@@ -79,14 +80,120 @@ class Entry:
     parent_id: str
 
 
-@dataclass(frozen=True)
 class Record:
-    item_id: str
-    kind: str
-    library: str
-    parent_id: str
-    item: Dict[str, Any]
-    generation: int
+    """One member of the desired view.
+
+    ``item`` is the payload, read on first use when the record was built
+    without one. A pass over a whole catalogue holds a record for every
+    pending item, and their payloads together weigh 3.5 times their JSON
+    (200 MB for 6,600 video items): held all at once they wedged a 1 GB
+    device. The pass reads them through a ``PayloadWindow`` instead.
+    """
+
+    __slots__ = (
+        "item_id",
+        "kind",
+        "library",
+        "parent_id",
+        "generation",
+        "_item",
+        "_loader",
+    )
+
+    def __init__(
+        self,
+        item_id: str,
+        kind: str,
+        library: str,
+        parent_id: str,
+        item: Optional[Dict[str, Any]],
+        generation: int,
+        loader: Optional[Callable[[str], Dict[str, Any]]] = None,
+    ):
+        self.item_id = item_id
+        self.kind = kind
+        self.library = library
+        self.parent_id = parent_id
+        self.generation = generation
+        self._item = item
+        self._loader = loader
+
+    @property
+    def item(self) -> Dict[str, Any]:
+        if self._item is not None:
+            return self._item
+        if self._loader is None:
+            return {}
+        return self._loader(self.item_id)
+
+    @property
+    def loaded(self) -> bool:
+        return self._item is not None
+
+    def _key(self):
+        return (self.item_id, self.kind, self.library, self.parent_id, self.generation)
+
+    def __eq__(self, other):
+        if not isinstance(other, Record):
+            return NotImplemented
+        return self._key() == other._key() and self.item == other.item
+
+    def __hash__(self):
+        return hash(self._key())
+
+    def __repr__(self):
+        return "Record(%r, %r, generation=%r)" % (
+            self.item_id,
+            self.kind,
+            self.generation,
+        )
+
+
+class PayloadWindow:
+    """Payloads read on demand, a bounded number held at a time.
+
+    ``walk`` yields records in order and reads each chunk's payloads with
+    one query ahead of it, so a pass over thousands of records holds a few
+    hundred payloads, never the catalogue.
+    """
+
+    CHUNK = 200
+
+    def __init__(self, store: "Store", size: int = 512):
+        self.store = store
+        self.size = size
+        self._held: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+        self.reads = 0
+
+    def __call__(self, item_id: str) -> Dict[str, Any]:
+        payload = self._held.get(item_id)
+        if payload is None:
+            self.reads += 1
+            payload = self.store.payload(item_id)
+            self._keep(item_id, payload)
+        else:
+            self._held.move_to_end(item_id)
+        return payload
+
+    def _keep(self, item_id: str, payload: Dict[str, Any]):
+        self._held[item_id] = payload
+        while len(self._held) > self.size:
+            self._held.popitem(last=False)
+
+    def prefetch(self, item_ids: Iterable[str]):
+        wanted = [i for i in item_ids if i not in self._held]
+        if wanted:
+            self.reads += 1
+            for item_id, payload in self.store.payloads(wanted).items():
+                self._keep(item_id, payload)
+
+    def walk(self, records: Iterable[Record]) -> Iterator[Record]:
+        pending = list(records)
+        for start in range(0, len(pending), self.CHUNK):
+            chunk = pending[start : start + self.CHUNK]
+            self.prefetch(r.item_id for r in chunk if not r.loaded)
+            for record in chunk:
+                yield record
 
 
 @dataclass(frozen=True)
@@ -402,6 +509,56 @@ class Store(Catalogue):
             ).fetchall()
             return {row[0]: Entry(*row) for row in rows}
 
+    def payload(self, item_id: str) -> Dict[str, Any]:
+        """One item's desired payload."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            row = db.cursor.execute(
+                "SELECT payload FROM api_item WHERE namespace=? AND item_id=?",
+                (self.namespace, item_id),
+            ).fetchone()
+        return json.loads(row[0]) if row else {}
+
+    def payloads(self, item_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+        """The desired payloads of ``item_ids``, a few hundred to a query."""
+        ids = list(item_ids)
+        result: Dict[str, Dict[str, Any]] = {}
+        if not ids:
+            return result
+        with Database() as db:
+            self._prepare(db.cursor)
+            for start in range(0, len(ids), 500):
+                chunk = ids[start : start + 500]
+                rows = db.cursor.execute(
+                    "SELECT item_id, payload FROM api_item WHERE namespace=? AND item_id IN (%s)"
+                    % ",".join("?" * len(chunk)),
+                    [self.namespace] + chunk,
+                ).fetchall()
+                for item_id, payload in rows:
+                    result[item_id] = json.loads(payload)
+        return result
+
+    def pending_work(self) -> List[Tuple[str, int, str, Dict[str, Any]]]:
+        """Every pending item with its generation and operation, in id order.
+
+        A removal carries its tombstone (it names what it removes); an
+        upsert carries ``{}``, its payload read on demand through a
+        ``PayloadWindow``, so a first import or a repair never holds the
+        catalogue in memory.
+        """
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                """SELECT item_id, desired, operation,
+                CASE WHEN operation='remove' THEN payload END
+                FROM api_item WHERE namespace=? AND status='pending' ORDER BY item_id""",
+                (self.namespace,),
+            ).fetchall()
+        return [
+            (item_id, generation, operation, json.loads(payload) if payload else {})
+            for item_id, generation, operation, payload in rows
+        ]
+
     def records(
         self,
         kind=None,
@@ -409,8 +566,13 @@ class Store(Catalogue):
         parent_id=None,
         item_ids=None,
         pinned=True,
+        payloads=True,
     ) -> Dict[str, Record]:
-        """Payloads of the members a scanner callback or a repair pass needs."""
+        """Payloads of the members a scanner callback or a repair pass needs.
+
+        With ``payloads=False`` the records come without their payloads and
+        read them on first use, one at a time.
+        """
         where = ["e.added<=?", "(e.removed IS NULL OR e.removed>?)"]
         with Database() as db:
             self._prepare(db.cursor)
@@ -433,14 +595,22 @@ class Store(Catalogue):
                 where.append("e.item_id IN (%s)" % ",".join("?" * len(ids)))
                 params.extend(ids)
             rows = db.cursor.execute(
-                """SELECT e.item_id, e.kind, e.library, e.parent_id, i.payload, i.desired
+                """SELECT e.item_id, e.kind, e.library, e.parent_id, %s, i.desired
                 FROM api_entry e JOIN api_item i ON i.namespace=e.namespace AND i.item_id=e.item_id
-                WHERE e.namespace=? AND """
+                WHERE e.namespace=? AND """ % ("i.payload" if payloads else "NULL")
                 + " AND ".join(where),
                 [self.namespace] + params,
             ).fetchall()
         return {
-            row[0]: Record(row[0], row[1], row[2], row[3], json.loads(row[4]), row[5])
+            row[0]: Record(
+                row[0],
+                row[1],
+                row[2],
+                row[3],
+                json.loads(row[4]) if row[4] is not None else None,
+                row[5],
+                loader=None if row[4] is not None else self.payload,
+            )
             for row in rows
         }
 
