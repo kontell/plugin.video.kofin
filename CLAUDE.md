@@ -259,6 +259,37 @@ What remains is kofin's own:
   `GetMovieSets` — which lists only sets a movie links (`GetSetsByWhere` groups `movie_view`) —
   no longer shows it. A collection without a Kodi row (its movies unsynced, or the one a movie
   in two collections did not take) is applied without a row, never left pending.
+- **A native song's URL is a file in its album directory, never a query.** Kodi's music
+  database splits a URL into path and file name with the options dropped (`URIUtils::Split`
+  via `CMusicDatabase::SplitPath`), where the video database keeps a plugin URL whole; the
+  first live import stored every song as its bare directory — unplayable, and matched by
+  nothing on a rescan. `paths.song_url` builds `<album dir>/<item id>.<container>`, the
+  router routes it to the play route, and `paths.parse_item` reads the id back out.
+- **Music leaves Kodi only through a complete listing.** The audio API has no remove call and
+  a music scan replaces exactly one directory (`RemoveSongsFromPath` is exact), so a song's
+  tombstone is its album directory listed without it, and the provider's root listing names
+  every directory that still has songs to shed (`store.tombstones`) until the scan has
+  emptied it. `removal.remove_music` confirms by reading the directory back; albums and
+  artists are let go with their songs.
+- **The music provider cannot fail halfway.** Kodi scans whatever rows reached it before a
+  listing failed, however it failed, so a song directory is built in full and handed over in
+  one `addDirectoryItems`, never ends with `succeeded=False`, reduces a malformed song to its
+  title rather than dropping it, and lists Kodi's own rows back (`provider._known_entries`)
+  when the store cannot be read.
+- **The pass holds the music scanner while it writes** (`native.hold`, `provider._hold`, the
+  `kofin.native.hold.*` window property). Announcements made while the scanner is busy carry
+  `transaction`, which the skin's music widgets skip; without the hold every song written
+  re-ran four whole-library widget queries. It does not change Kodi's per-setter cost (nine
+  autocommit statements, 46 ms a song on the P1D) and the video database has no such flag.
+- **Walk a music root only when most of its directories changed** (`native.ROOT_SCAN_SHARE`).
+  A directory scan is 60–80 ms; a root walk re-lists every unchanged directory at about
+  100 ms each because Kodi re-creates the Python interpreter when it has no work between two
+  listings. A first import and a whole-library removal walk; everything else scans by name.
+- **The tick asks `has_pending`, never `pending()`, to test for work.** Loading every pending
+  payload twice a second kept the idle service at a third of a core on 31,000 rows.
+- **`forget_many` collects closed intervals once per batch.** Once per item, the "still
+  pending" subquery scanned the item table: a whole-library music removal spent ten minutes in
+  SQLite and held the store's write lock across a service restart.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is

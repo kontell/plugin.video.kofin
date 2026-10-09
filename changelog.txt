@@ -1,3 +1,9 @@
+v0.92.0
+- Native music in the API build: songs, albums and artists of a selected music library go into Kodi's music library through the scanner, one directory per album (singles under their artist), with play counts and last-played patched after import and album and artist art and descriptions set through the public setters.
+- A song is a file in its album directory; a change to its tags re-imports only that directory, a server play patches only its row, and a song, album or library leaves through the complete listing of its directories — the audio API has no remove call.
+- The pass scans changed directories by name and walks the library root only when most changed; it holds the music scanner while it writes so the home widgets stay quiet; the provider never hands Kodi a short listing.
+- Faster everywhere the catalogue grew: a repair of 31,000 items compares in 27 s, a pass with nothing to write plans 22,000 songs in 4 s, the idle service no longer scans the catalogue twice a second, and a whole-library removal acknowledges in one transaction.
+
 v0.91.0
 - Native TV shows, seasons, episodes, music videos and collections in the API build: one scanner root per selected library and content type, shows as bound folders beneath it, sets filed at import.
 - Movies move to the per-library layout; a 0.90.0 profile is migrated automatically (its rows are removed and re-imported once) and the pre-release still needs an otherwise empty video library.

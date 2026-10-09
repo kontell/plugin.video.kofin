@@ -1,6 +1,6 @@
 # Kofin official-repository variant: implementation plan
 
-**Date:** 4 October 2026; phases 4 and 5 revised 8 October 2026
+**Date:** 4 October 2026; phases 4 and 5 revised 8 October 2026; phase 5 completed 9 October 2026
 
 **Status:** phases 0–4 implemented; `0.90.0` was published as the first OR prerelease on 8 October 2026 and phase 4 (`0.91.0`) was implemented and verified on the P1D the same day. See the [phase 0 record](research/kofin-or/phase0/README.md), [phase 1 contracts and evidence](research/kofin-or/phase1/README.md), [phase 3 record](research/kofin-or/phase3/README.md) and [maintained parity ledger](kofin-or-parity.md). Native sync covers movies, shows, seasons, episodes, music videos and collections; see the [phase 4 record](research/kofin-or/phase4/README.md).
 
@@ -40,7 +40,7 @@ Versions below are planned milestones, not one-release-per-phase promises. Use p
 | 2 | Development repository and prerelease automation | Working `repository.kontell.dev` installer | 0; alongside 1 |
 | 3 | Complete movie lifecycle through Piers APIs | `0.90.0` prerelease, published 8 October 2026 | 1, 2 |
 | 4 | TV, seasons, episodes, music videos and collections | `0.91.0` implemented and verified on the P1D, 8 October 2026 | 3 |
-| 5 | Safe music ingestion, updates and removal | `0.92.x` | Snapshot foundation from 3 |
+| 5 | Music with complete snapshots: album directories, post-import userdata, never-failing provider | `0.92.0` implemented and verified on the P1D, 9 October 2026 | 4 |
 | 6 | Downloads, artwork, nodes, playback integration and policy cleanup | `0.93.x` | 4, 5 |
 | 7 | Piers development candidate and official submission preparation | `0.94.x` | 3–6 |
 | 8 | Scoped Kodi contributions from feasibility report §9 | Independent upstream PRs | Begin after 0; use later phases' evidence |
@@ -278,6 +278,8 @@ Implemented in [shared PR #260](https://github.com/kontell/plugin.video.kofin/pu
 - Measure on the P1D music library (22,381 songs, 1,557 albums, 634 artists on the installed server) before accepting the design: enumeration, scan, post-import userdata pass, one song's removal, one album's removal, a whole-library removal, and GUI round-trip latency during the scan, against the phase 4 figures (video scans 53–74 ms an item, apply passes with no patch 36 s, repair patches 146 ms a row). Set the budgets in the ledger from those numbers.
 
 **Exit:** normal and forced scan, a metadata-only update, two-to-one and one-to-zero deletion of an album's songs, server failure during enumeration, a provider listing failure during a scan, and restart recovery all pass without losing a song permanently; compilations, multiple credits, duplicate albums, missing MBIDs, singles and two selected music libraries are covered; song userdata survives import, a server change reaches Kodi through the change feed within a tick, and a local play reaches the server without an echo. The full P1D music import is recorded with wall time, API calls and GUI responsiveness. Native music-source membership and empty-entity gaps remain visible in the checklist; a failed listing never masquerades as a valid empty album.
+
+**Completed record:** [phase 5 implementation and P1D verification](research/kofin-or/phase5/README.md). The foundation landed as planned — the three kinds with a `rescan` removal policy, one directory per album with `singles/<artist>` beside them, the size bridge on the real file size, a tag-hash date that re-imports only a changed directory, post-import userdata patches confirmed by one scope readback per kind — with one correction the first live import forced: a song's URL is a file in its album directory, not a query, because the music database keeps no query string on a file name. The probe in step 2 answered itself from the source: a scan replaces exactly one directory, so a deselection lists every tombstone directory at the root and walks it once (64 s for the installed library). Measured on the P1D against the phase 4 figures: a first import of 22,381 songs takes 10.7–11.1 minutes end to end, of which 5.6 minutes are 7,380 song userdata setters at 46 ms each — Kodi runs nine autocommit statements per `SetSongDetails` — and 2.3–2.6 minutes are Kodi's own post-scan art listings; a pass with nothing to write plans the 22,381 songs in 4.2 s, and a repair of everything compares 31,165 items in 27 s where phase 4's repair took 11 minutes; the incremental path is one 60–80 ms directory scan per changed album. The provider cannot fail halfway and the hold on the music scanner keeps the skin's widgets quiet while the pass writes. GUI round trips stayed between 20 and 43 ms throughout.
 
 ### Phase 6 — Finish integration and repository compliance (`0.93.x`)
 
