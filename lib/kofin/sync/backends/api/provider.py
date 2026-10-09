@@ -211,6 +211,7 @@ def serve(request):
             kind="Episode",
             parent_id=series_id,
             item_ids=[item_id] if action == "refresh_info" else None,
+            payloads=False,
         )
         kind, content = "Episode", "episodes"
     else:
@@ -220,6 +221,7 @@ def serve(request):
             kind=kind,
             library=library,
             item_ids=[item_id] if action == "refresh_info" else None,
+            payloads=False,
         )
     if action == "refresh_info" and not records:
         xbmcplugin.endOfDirectory(request.handle, succeeded=False, cacheToDisc=False)
@@ -229,8 +231,14 @@ def serve(request):
         if kind == "Movie"
         else {}
     )
+    # Payloads are read a chunk at a time and let go once their ListItem is
+    # built: one library's movies held together were about 100 MB in the
+    # listing's interpreter, which a 1 GB device did not have (its first
+    # movies listing under the scanner left it unable to answer ssh).
     entries = []
-    for record_id, record in sorted(records.items()):
+    window = PayloadWindow(store)
+    for record in window.walk(records[i] for i in sorted(records)):
+        record_id = record.item_id
         if kind == "Episode" and metadata.episode_numbers(record.item) is None:
             # Kodi cannot file an unnumbered special; it stays dynamic-only.
             continue
