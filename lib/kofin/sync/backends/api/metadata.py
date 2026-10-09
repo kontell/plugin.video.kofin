@@ -653,19 +653,30 @@ def _streams(tag, item):
         tag.addSubtitleStream(xbmc.SubtitleStreamDetail(language=language or ""))
 
 
-def show_hash(episodes: Iterable[Dict[str, Any]]) -> str:
+def episode_row(item) -> Optional[Tuple[str, int, int]]:
+    """All the show hash takes from an episode: its id and numbering, or
+    None for one Kodi cannot file. A listing reduces each payload to this
+    and lets the payload go."""
+    numbers = episode_numbers(item)
+    if numbers is None:
+        return None
+    return (str(item["Id"]), numbers["season"], numbers["episode"])
+
+
+def show_hash(episodes: Iterable[Any]) -> str:
     """What the scanner may skip a show for: its importable episode set.
 
     Kodi compares the folder's ``hash`` property with the one it stored after
     the last import and skips the listing when they match, so the hash must
     move when an episode arrives, leaves or is renumbered -- and must not move
-    for a plot edit, which the detail patch carries.
+    for a plot edit, which the detail patch carries. Takes payloads or the
+    rows ``episode_row`` reduces them to.
     """
     rows = []
     for episode in episodes:
-        numbers = episode_numbers(episode)
-        if numbers is not None:
-            rows.append((episode["Id"], numbers["season"], numbers["episode"]))
+        row = episode if isinstance(episode, tuple) else episode_row(episode)
+        if row is not None:
+            rows.append(row)
     return _token(sorted(rows))
 
 

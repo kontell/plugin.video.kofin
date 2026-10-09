@@ -24,7 +24,7 @@ import xbmc
 from kofin.core import kodirpc, state
 from kofin.core.log import Logger
 from . import metadata, paths
-from .store import Store
+from .store import PayloadWindow, Store
 
 LOG = Logger(__name__)
 
@@ -146,9 +146,16 @@ def serve(request):
             seasons: Dict[str, List[Dict[str, Any]]] = {}
             for record in store.records(kind="Season", library=library).values():
                 seasons.setdefault(record.parent_id, []).append(record.item)
-            episodes: Dict[str, List[Dict[str, Any]]] = {}
-            for record in store.records(kind="Episode", library=library).values():
-                episodes.setdefault(record.parent_id, []).append(record.item)
+            # Only the numbering reaches the show hash; the payloads are read
+            # a chunk at a time and let go. Held together, one library's
+            # episodes were over 100 MB in the listing's interpreter.
+            episodes: Dict[str, List[Any]] = {}
+            window = PayloadWindow(store)
+            lazy = store.records(kind="Episode", library=library, payloads=False)
+            for record in window.walk(lazy.values()):
+                row = metadata.episode_row(record.item)
+                if row is not None:
+                    episodes.setdefault(record.parent_id, []).append(row)
             entries = [
                 (
                     paths.show_dir(key, library, series_id),

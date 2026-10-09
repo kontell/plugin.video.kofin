@@ -191,7 +191,12 @@ class PayloadWindow:
         pending = list(records)
         for start in range(0, len(pending), self.CHUNK):
             chunk = pending[start : start + self.CHUNK]
-            self.prefetch(r.item_id for r in chunk if not r.loaded)
+            unloaded = [r for r in chunk if not r.loaded]
+            for record in unloaded:
+                # A lazy record from ``records(payloads=False)`` reads one
+                # row at a time; walked, it reads through this window.
+                record._loader = self
+            self.prefetch(r.item_id for r in unloaded)
             for record in chunk:
                 yield record
 

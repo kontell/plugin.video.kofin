@@ -219,3 +219,20 @@ def test_no_tag_is_taken_from_a_temporary_listitem():
         if pattern.search(path.read_text())
     ]
     assert offenders == []
+
+
+def test_show_hash_is_the_same_from_payloads_and_their_rows():
+    """The root listing reduces each episode payload to its row as it reads
+    it, so a library's episodes are never held together; the hash it hands
+    the scanner must not move for that."""
+    from kofin.sync.backends.api import metadata
+
+    episodes = [
+        {"Id": "e1", "ParentIndexNumber": 1, "IndexNumber": 2, "Overview": "x"},
+        {"Id": "e2", "ParentIndexNumber": 0, "IndexNumber": None},  # unfiled
+        {"Id": "e3", "AbsoluteEpisodeNumber": 7},
+    ]
+    rows = [metadata.episode_row(e) for e in episodes]
+    assert rows[1] is None
+    assert metadata.show_hash(episodes) == metadata.show_hash(r for r in rows if r)
+    assert metadata.show_hash(episodes) != metadata.show_hash(episodes[:1])
