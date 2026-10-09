@@ -217,21 +217,13 @@ def serve(request):
             payloads=False,
         )
         kind, content = "Episode", "episodes"
-    elif location.content == "movies" and location.movie is None and not item_id:
-        # One folder per movie: the root is folders only, each bound and
-        # scanned on its own, so a change lists one movie, not the library.
-        _folders(
-            request,
-            [
-                paths.movie_dir(key, library, movie_id)
-                for movie_id in sorted(
-                    store.records(kind="Movie", library=library, payloads=False)
-                )
-            ],
-            "Kofin",
-        )
-        return
     else:
+        # A movie's URL sits in a folder of its own (paths.movie_dir), so the
+        # root lists every movie as a file -- never as folders: Kodi turns a
+        # plugin folder in a movies listing into a phantom VIDEO_TS.IFO,
+        # because CPluginFile::Exists is unconditionally true
+        # (FileItemList.cpp ConvertDiscFoldersToFiles) -- and a folder, bound
+        # on demand, lists its one movie for a scan by name.
         kind = "Movie" if location.content == "movies" else "MusicVideo"
         content = location.content
         wanted = [item_id] if action == "refresh_info" else None

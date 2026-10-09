@@ -168,8 +168,10 @@ class Native:
         """A folder under a root needs its own binding: Kodi derives a plugin
         path's parent as the plugin root, so the library binding is never
         found from beneath it (URIUtils::GetParentPath), and a folder without
-        one is skipped by the scanner. Shows and movies both have one; the
-        calls go 25 to a batch and the store learns them in one transaction."""
+        one is skipped by the scanner. A show folder is bound before the
+        root scan that lists it; a movie folder only before a scan by name
+        (``containssingleitem`` would make the folder the movie). The calls
+        go 25 to a batch and the store learns them in one transaction."""
         bound = self.store.bindings()
         wanted = [path for path in folders if path not in bound]
         for start in range(0, len(wanted), 25):
@@ -182,7 +184,7 @@ class Native:
                             "path": path,
                             "content": content,
                             "scraperid": "metadata.local",
-                            "containssingleitem": True,
+                            "containssingleitem": content == "tvshows",
                             "refresh": False,
                         },
                     )
@@ -201,23 +203,6 @@ class Native:
 
     def bind_show(self, library, series_id):
         self.bind_folders("tvshows", [paths.show_dir(self.key, library, series_id)])
-
-    def set_recursive(self, library, content, recursive):
-        """Whether a root's scan descends into its folders. Off except around
-        a root walk: Kodi lists every sub-folder of a recursive plugin root
-        on every scan of it (plugin folders never carry the mtime the fast
-        hash wants), so a manual Update library would list 1,788 movie
-        folders; a walk is for a first import or a mostly-changed library."""
-        rpc(
-            "VideoLibrary.SetSourceContent",
-            {
-                "path": paths.library_dir(self.key, library, content),
-                "content": content,
-                "scraperid": "metadata.local",
-                "scanrecursive": bool(recursive),
-                "refresh": False,
-            },
-        )
 
     def unbind_show(self, library, series_id):
         self.unbind_folder(paths.show_dir(self.key, library, series_id))
@@ -520,7 +505,6 @@ class Native:
         """Bind and scan whatever the readback shows the scanner has not filed."""
         directories: List[str] = []
         expected: Dict[str, int] = {}
-        recursive_roots: List[Tuple[str, str]] = []
         expectations = []
         for library in sorted({r.library for r in upserts.values() if r.library}):
             kinds = {r.kind for r in upserts.values() if r.library == library}
@@ -576,20 +560,22 @@ class Native:
                     continue
                 root = paths.library_dir(self.key, library, content)
                 if content == "movies":
-                    # One folder per movie, bound like a show. A few new
-                    # movies are scanned by folder; a first import, or a
-                    # library mostly missing, walks the root once with
-                    # recursion switched on for the walk.
-                    movie_folders = [
-                        paths.movie_dir(self.key, library, r.item_id) for r in missing
-                    ]
-                    self.bind_folders("movies", movie_folders)
+                    # A movie's URL sits in a folder of its own. A few new
+                    # movies are scanned by folder, each bound first (Kodi
+                    # finds a plugin folder's scraper only through the
+                    # folder's own binding); a first import, or a library
+                    # mostly missing, scans the root once, which lists every
+                    # movie as a file under its folder's URL.
                     total = len(present) + len(missing)
                     if len(missing) > total * ROOT_SCAN_SHARE:
-                        recursive_roots.append((library, content))
                         directories.append(root)
                         expected[root] = len(missing)
                     else:
+                        movie_folders = [
+                            paths.movie_dir(self.key, library, r.item_id)
+                            for r in missing
+                        ]
+                        self.bind_folders("movies", movie_folders)
                         directories.extend(movie_folders)
                         expected.update((folder, 1) for folder in movie_folders)
                 else:
@@ -608,18 +594,7 @@ class Native:
                         )
         if directories:
             self.store.expect_many(expectations)
-            for library, content in recursive_roots:
-                self.set_recursive(library, content, True)
-            try:
-                self.scan(directories, expected=expected)
-            finally:
-                for library, content in recursive_roots:
-                    try:
-                        self.set_recursive(library, content, False)
-                    except InterruptedError:
-                        raise
-                    except Exception as error:
-                        LOG.warning("root recursion not reset: %s", error)
+            self.scan(directories, expected=expected)
 
     def _missing_tv(self, upserts, library) -> List[Record]:
         shows = self.readback.scope("Series", library)

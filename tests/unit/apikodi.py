@@ -153,27 +153,16 @@ class Kodi:
             present = self.owned(kind)
             collections = self._collections() if kind == "Movie" else {}
             wanted = None
-            if kind == "Movie":
-                if location.movie:
-                    # A movie folder scanned by name imports its one movie,
-                    # if the folder carries a binding of its own.
-                    wanted = (
-                        [location.movie]
-                        if paths.movie_dir(self.key, library, location.movie)
-                        in self.bindings
-                        else []
-                    )
-                elif not self.recursive.get(directory):
-                    # A non-recursive root lists folders and imports nothing.
-                    wanted = []
-                else:
-                    wanted = [
-                        item_id
-                        for item_id in self.store.records(
-                            kind="Movie", library=library, payloads=False
-                        )
-                        if paths.movie_dir(self.key, library, item_id) in self.bindings
-                    ]
+            if kind == "Movie" and location.movie:
+                # A movie folder scanned by name imports its one movie, if
+                # the folder carries a binding of its own (the root lists
+                # every movie as a file, so a root scan needs none).
+                wanted = (
+                    [location.movie]
+                    if paths.movie_dir(self.key, library, location.movie)
+                    in self.bindings
+                    else []
+                )
             for item_id, record in sorted(
                 self.store.records(kind=kind, library=library).items()
             ):

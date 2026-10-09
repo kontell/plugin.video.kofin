@@ -32,20 +32,15 @@ def test_complete_movie_lifecycle_and_foreign_item_survives(store, backend, kodi
     backend.reconcile()
     first = store.mapping("a").kodi_id
     assert store.state("a").applied == 1
-    # The root and the movie's own folder, bound like a show's; a first
-    # import walks the root once, with recursion on for the walk only.
+    # A first import scans the root, which lists every movie as a file under
+    # its own folder's URL; no folder is bound until one is scanned by name.
     assert kodi.bindings == {
-        paths.library_dir(store.namespace, LIB, "movies"): "movies",
-        paths.movie_dir(store.namespace, LIB, "a"): "movies",
+        paths.library_dir(store.namespace, LIB, "movies"): "movies"
     }
     assert kodi.scanned == [paths.library_dir(store.namespace, LIB, "movies")]
-    recursion = [
-        p.get("scanrecursive")
-        for p in methods(kodi, "VideoLibrary.SetSourceContent")
-        if p["path"] == paths.library_dir(store.namespace, LIB, "movies")
-    ]
-    assert recursion == [False, True, False]
-    assert not kodi.recursive[paths.library_dir(store.namespace, LIB, "movies")]
+    assert kodi.rows["Movie"][first]["file"].startswith(
+        paths.movie_dir(store.namespace, LIB, "a")
+    )
     # A scanner row built from the same policy needs no patch at all.
     assert not methods(kodi, "VideoLibrary.SetMovieDetails")
     store.publish(
@@ -226,7 +221,6 @@ def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
         paths.library_dir(store.namespace, LIB2, "tvshows"),
         paths.show_dir(store.namespace, LIB2, SHOW2),
         paths.library_dir(store.namespace, LIB2, "movies"),
-        paths.movie_dir(store.namespace, LIB2, "m2"),
     }
     assert set(store.bindings()) == set(kodi.bindings)
     # The survivor was re-read, not re-imported.
@@ -518,10 +512,6 @@ def test_scan_wait_outlasts_a_long_scan_but_not_an_idle_one(
     backend.monitor.waitForAbort = tick
     store.publish([movie()], library=LIB)
     directory = paths.library_dir(store.namespace, LIB, "movies")
-    # The scan is driven by hand here: give the root the recursion and the
-    # movie the folder binding that import_missing would have given them.
-    kodi.bindings[paths.movie_dir(store.namespace, LIB, "a")] = "movies"
-    kodi.recursive[directory] = True
     if finishes:
         backend.scan([directory])
         assert clock[0] >= 300

@@ -72,13 +72,14 @@ def test_provider_lists_the_layout_and_answers_existence_offline(store, monkeypa
     )
     assert [e[1] for e in rendered[-1]] == ["ea12"]
     provider.serve(Request(paths.library_dir(store.namespace, LIB, "movies"), 1, {}))
-    # The movies root is folders only; the movie's folder lists the movie.
-    assert [(e[0], e[2]) for e in rendered[-1]] == [
-        (paths.movie_dir(store.namespace, LIB, "a"), True)
-    ]
+    # The root lists every movie as a file under its own folder's URL, never
+    # as folders (Kodi would turn them into phantom discs); the folder lists
+    # its one movie.
+    assert [e[1] for e in rendered[-1]] == ["a"]
+    assert rendered[-1][0][0].startswith(paths.movie_dir(store.namespace, LIB, "a"))
     provider.serve(Request(paths.movie_dir(store.namespace, LIB, "a"), 1, {}))
     assert [e[1] for e in rendered[-1]] == ["a"]
-    assert content[-3:] == ["tvshows", "episodes", "movies"]
+    assert content[-4:] == ["tvshows", "episodes", "movies", "movies"]
     for params in ({"id": "ea11"}, {}):
         provider.serve(
             Request(
