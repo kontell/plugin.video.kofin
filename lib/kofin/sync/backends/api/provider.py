@@ -77,7 +77,7 @@ def exists(store, location, item_id):
     if item_id:
         state = store.state(item_id)
         return not state or state.operation != "remove"
-    if location.folder:
+    if location.folder or location.movie:
         return True
     if location.series:
         state = store.state(location.series)
@@ -217,13 +217,30 @@ def serve(request):
             payloads=False,
         )
         kind, content = "Episode", "episodes"
+    elif location.content == "movies" and location.movie is None and not item_id:
+        # One folder per movie: the root is folders only, each bound and
+        # scanned on its own, so a change lists one movie, not the library.
+        _folders(
+            request,
+            [
+                paths.movie_dir(key, library, movie_id)
+                for movie_id in sorted(
+                    store.records(kind="Movie", library=library, payloads=False)
+                )
+            ],
+            "Kofin",
+        )
+        return
     else:
         kind = "Movie" if location.content == "movies" else "MusicVideo"
         content = location.content
+        wanted = [item_id] if action == "refresh_info" else None
+        if kind == "Movie" and location.movie:
+            wanted = [location.movie]
         records = store.records(
             kind=kind,
             library=library,
-            item_ids=[item_id] if action == "refresh_info" else None,
+            item_ids=wanted,
             payloads=False,
         )
     if action == "refresh_info" and not records:

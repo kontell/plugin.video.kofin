@@ -361,7 +361,7 @@
              1400x2100 poster at 480p), and nil without one. -->
         <setting id="compressArt" type="boolean" label="30318" help="30319">
           <level>0</level>
-          <default>false</default>
+          <default>true</default>
           <dependencies>
             <dependency type="visible">
               <condition operator="!is" setting="maxArtResolution">0</condition>
@@ -371,7 +371,7 @@
         </setting>
         <setting id="maxArtResolution" type="integer" label="30320" help="30321">
           <level>0</level>
-          <default>0</default>
+          <default>1080</default>
           <constraints>
             <options>
               <option label="30322">0</option>

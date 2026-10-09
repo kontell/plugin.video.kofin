@@ -22,8 +22,11 @@ from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tupl
 
 from kofin.sync.catalogue import Catalogue
 from kofin.sync.model import MediaItem
+from kofin.core.log import Logger
 from kofin.sync.private import Database
 from . import paths
+
+LOG = Logger(__name__)
 
 KINDS = (
     "Movie",
@@ -548,9 +551,13 @@ class Store(Catalogue):
         read them on first use, one at a time.
         """
         where = ["e.added<=?", "(e.removed IS NULL OR e.removed>?)"]
+        t0 = time.monotonic()
         with Database() as db:
+            t1 = time.monotonic()
             self._prepare(db.cursor)
+            t2 = time.monotonic()
             generation = self._generation(db.cursor, pinned)
+            t3 = time.monotonic()
             params: List[Any] = [generation, generation]
             if kind is not None:
                 kinds = (kind,) if isinstance(kind, str) else tuple(kind)
@@ -575,6 +582,16 @@ class Store(Catalogue):
                 + " AND ".join(where),
                 [self.namespace] + params,
             ).fetchall()
+        t4 = time.monotonic()
+        if t4 - t0 > 1.0:
+            LOG.debug(
+                "slow records(%s): open %.2f prepare %.2f generation %.2f query %.2f s",
+                kind,
+                t1 - t0,
+                t2 - t1,
+                t3 - t2,
+                t4 - t3,
+            )
         return {
             row[0]: Record(
                 row[0],
@@ -829,6 +846,18 @@ class Store(Catalogue):
             db.cursor.execute(
                 "INSERT OR REPLACE INTO api_binding VALUES (?,?,?)",
                 (self.namespace, path, content),
+            )
+
+    def bind_many(self, pairs):
+        """``bind`` for a batch of (path, content), one transaction."""
+        pairs = list(pairs)
+        if not pairs:
+            return
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.executemany(
+                "INSERT OR REPLACE INTO api_binding VALUES (?,?,?)",
+                [(self.namespace, path, content) for path, content in pairs],
             )
 
     def unbind(self, prefix):

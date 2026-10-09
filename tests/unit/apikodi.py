@@ -30,6 +30,7 @@ class Kodi:
         self.key = store.namespace
         self.rows = {kind: {} for kind in metadata.MEDIATYPE}
         self.bindings = {}
+        self.recursive = {}
         self.next_id = 1
         self.calls = []
         self.fail = ""
@@ -151,9 +152,33 @@ class Kodi:
             kind = "Movie" if location.content == "movies" else "MusicVideo"
             present = self.owned(kind)
             collections = self._collections() if kind == "Movie" else {}
+            wanted = None
+            if kind == "Movie":
+                if location.movie:
+                    # A movie folder scanned by name imports its one movie,
+                    # if the folder carries a binding of its own.
+                    wanted = (
+                        [location.movie]
+                        if paths.movie_dir(self.key, library, location.movie)
+                        in self.bindings
+                        else []
+                    )
+                elif not self.recursive.get(directory):
+                    # A non-recursive root lists folders and imports nothing.
+                    wanted = []
+                else:
+                    wanted = [
+                        item_id
+                        for item_id in self.store.records(
+                            kind="Movie", library=library, payloads=False
+                        )
+                        if paths.movie_dir(self.key, library, item_id) in self.bindings
+                    ]
             for item_id, record in sorted(
                 self.store.records(kind=kind, library=library).items()
             ):
+                if wanted is not None and item_id not in wanted:
+                    continue
                 if item_id not in present:
                     row = self.imported(record, set_name=collections.get(item_id))
                     self.rows[kind][row[METHODS[kind][0]]] = row
@@ -487,6 +512,8 @@ class Kodi:
             r"(Video|Audio)Library\.(Get|Set|Refresh|Remove)(\w+?)(Details)?", method
         )
         if method == "VideoLibrary.SetSourceContent":
+            if params["content"] != "none":
+                self.recursive[params["path"]] = bool(params.get("scanrecursive"))
             if params["content"] == "none":
                 if (
                     params.get("clearmode") == "remove"

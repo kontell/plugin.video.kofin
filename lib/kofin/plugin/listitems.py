@@ -149,8 +149,29 @@ def person_thumb(server: str, person: JsonDict) -> str:
     return "%s/Items/%s/Images/Primary?tag=%s" % (server, person_id, tag)
 
 
+def art_query() -> str:
+    """The size cap and encoding the server applies to listed artwork.
+
+    Kodi decodes and re-encodes every image it caches and caps the result at
+    its own fanart and thumb heights, so anything the server sends above the
+    cap is work for nothing -- a 4000x6000 poster decoded on a Raspberry Pi
+    for a 1080-high cache file. ``maxArtResolution`` asks the server for the
+    capped height (its own resize, cached server-side) and ``compressArt`` for
+    JPEG at quality 90, which only changes bytes once a resize happens
+    (``sync/fields.py`` has the measurement). Both are read per listing.
+    """
+    maxheight = settings.get_int("maxArtResolution")
+    if not maxheight:
+        return ""
+    query = "&MaxHeight=%d" % maxheight
+    if settings.get_bool("compressArt"):
+        query += "&Quality=90"
+    return query
+
+
 def art_for(item: JsonDict, server: str) -> Dict[str, str]:
     """Art dict with parent fallbacks (series poster on episodes, etc.)."""
+    query = art_query()
 
     def image(
         item_id: str, image_type: str, tag: str, index: Optional[int] = None
@@ -158,7 +179,7 @@ def art_for(item: JsonDict, server: str) -> Dict[str, str]:
         path = "%s/Items/%s/Images/%s" % (server, item_id, image_type)
         if index is not None:
             path += "/%d" % index
-        return path + "?tag=%s" % tag
+        return path + "?tag=%s" % tag + query
 
     art: Dict[str, str] = {}
     item_id = item.get("Id", "")

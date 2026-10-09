@@ -84,7 +84,7 @@ _PATH = re.compile(
     r"^/native/([0-9a-f]{32})/"
     r"(?:([0-9a-f]{32})/"
     r"(?:(movies|tvshows|musicvideos|music)/"
-    r"(?:(singles/)?([0-9a-f]{32})/"
+    r"(?:(singles/)?([0-9a-z]{1,64})/"
     r"(?:([0-9a-z]{1,64})\.([a-z0-9]{1,8}))?)?)?)?$"
 )
 

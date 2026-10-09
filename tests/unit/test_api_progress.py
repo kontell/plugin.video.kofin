@@ -39,8 +39,12 @@ def bar(monkeypatch):
     SETTINGS.clear()
     SETTINGS.update({"showLibraryUpdateProgress": True, "syncProgressThreshold": 0})
     monkeypatch.setattr(progress_module.xbmcgui, "DialogProgressBG", Bar)
-    monkeypatch.setattr(progress_module.settings, "get_bool", lambda k: SETTINGS[k])
-    monkeypatch.setattr(progress_module.settings, "get_int", lambda k: SETTINGS[k])
+    monkeypatch.setattr(
+        progress_module.settings, "get_bool", lambda k: SETTINGS.get(k, False)
+    )
+    monkeypatch.setattr(
+        progress_module.settings, "get_int", lambda k: SETTINGS.get(k, 0)
+    )
     monkeypatch.setattr(progress_module.Progress, "INTERVAL", 0.0)
     return Bar
 

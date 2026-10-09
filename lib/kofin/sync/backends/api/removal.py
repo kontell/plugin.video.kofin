@@ -173,6 +173,8 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
             rpc(table.remove, {table.id_param: row[table.id_param]})
             if placed.kind == "Series":
                 native.unbind_show(placed.library, item_id)
+            elif placed.kind == "Movie":
+                native.unbind_movie(placed.library, item_id)
             attempted.append((item_id, placed))
         except InterruptedError:
             raise
