@@ -183,10 +183,18 @@ def dispatch(argv: List[str]) -> None:
     request = Request(base_url, handle, params, resume)
 
     if buildconfig.BACKEND == "api":
+        import time
+
+        imports_began = time.monotonic()
         from kofin.sync.backends.api import paths
         from kofin.sync.backends.api.provider import serve
 
         location = paths.parse(base_url)
+        LOG.debug(
+            "native dispatch handle=%s after %.2f s of imports",
+            handle,
+            time.monotonic() - imports_began,
+        )
         native = location.key if location else None
         if (
             native

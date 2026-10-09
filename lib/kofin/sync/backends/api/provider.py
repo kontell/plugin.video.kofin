@@ -12,12 +12,11 @@ full before anything is handed over, goes out in one call, never ends with
 already holds are listed back to it rather than nothing.
 """
 
+import time
 from typing import Any, Dict, List
 
 import xbmcgui
 import xbmcplugin
-
-import time
 
 import xbmc
 
@@ -293,6 +292,7 @@ def _music_root(request, store, key, library):
 def _music_folder(request, store, key, library, folder):
     """One album's complete listing, in one call, or Kodi's own rows back."""
     directory = paths.music_dir(key, library, folder)
+    began = time.monotonic()
     try:
         entries = _song_entries(store, key, library, folder)
     except Exception:
@@ -301,7 +301,15 @@ def _music_folder(request, store, key, library, folder):
             directory,
         )
         entries = _known_entries(directory)
+    built = time.monotonic()
     _listing(request, entries, "songs")
+    LOG.debug(
+        "music folder %s: %d songs, built in %.2f s, handed over in %.2f s",
+        folder[-8:],
+        len(entries),
+        built - began,
+        time.monotonic() - built,
+    )
 
 
 def _song_entries(store, key, library, folder):

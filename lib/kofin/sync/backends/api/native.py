@@ -212,8 +212,12 @@ class Native:
 
         method = "AudioLibrary.Scan" if scanner == "music" else "VideoLibrary.Scan"
         # Kodi's own scanning dialog shows the import item by item; the bar
-        # above it names the phase.
-        dialogs = progress.show_dialogs()
+        # above it names the phase. Never for music: with a dialog the music
+        # scanner starts its MusicFileCounter thread, which lists every
+        # directory a second time, concurrently, to size the bar
+        # (MusicInfoScanner.cpp; two root listings of 62 s each on the
+        # LibreELEC box). The video scanner has no such thread.
+        dialogs = progress.show_dialogs() and scanner != "music"
         for directory in directories:
             self.wait(lambda: self._idle(scanner), busy=lambda: self._scanning(scanner))
             serial = finished()

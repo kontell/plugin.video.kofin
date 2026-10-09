@@ -106,6 +106,17 @@ def test_pass_shows_the_bar_and_lets_kodi_show_its_scan(store, backend, kodi, ba
     assert scans and all(p["showdialogs"] is True for p in scans)
 
 
+def test_music_scans_never_show_kodi_dialogs(store, backend, kodi, bar):
+    """With a dialog the music scanner starts its file-counter thread, which
+    lists every directory a second time, concurrently."""
+    from tests.unit.apifixtures import song
+
+    store.publish([song("s%02d" % i) for i in range(3)], library=LIB)
+    backend.reconcile()
+    scans = methods(kodi, "AudioLibrary.Scan")
+    assert scans and all(p["showdialogs"] is False for p in scans)
+
+
 def test_pass_keeps_kodi_quiet_when_the_setting_is_off(store, backend, kodi, bar):
     SETTINGS["showLibraryUpdateProgress"] = False
     store.publish([movie("m%02d" % i) for i in range(3)], library=LIB)
