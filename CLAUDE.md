@@ -137,6 +137,13 @@ What remains is kofin's own:
   (`service/backdrop.py`, `core/api.py::splashscreen`, `plugin/browse.py`).
 - Extras/videoversion writes read the VERSION itemType from the seeded 40400 row and the EXTRA
   value from `schema.EXTRA_ITEM_TYPE` — both differ across gated schemas.
+- **MyMusic's `versiontagscan` holds exactly one row, and the wipe puts it back.** Kodi's
+  `GetMusicNeedsTagScan` returns -1 for any other count, and the music window then asks to
+  "rescan tags from files" on every visit; accepting is a `SCAN_RESCAN` of every music path,
+  which re-reads every directory a plugin source has (hours for 1,557 album folders on a
+  tablet). Kodi's own stamp after that rescan is an UPDATE, so an empty table never heals.
+  `schema.MUSIC_SEED_SQL` carries the row per version and `test_sync_schema` refuses a seed
+  set that names another.
 - **A single-file movie's `MediaSource.Name` is its file stem, not a label.** Jellyfin's
   `GetMediaSourceName` returns the file name without extension unless local alternate versions
   exist (then the folder prefix is stripped and a suffix label remains). `resolve_version_type`

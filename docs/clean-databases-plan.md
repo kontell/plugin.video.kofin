@@ -71,6 +71,7 @@ The sweeps live standalone in `sync/clean.py` rather than calling `views.delete_
 `syncStatus` joined the cleared settings — a stale "N synced" status line would otherwise survive the wipe.
 
 The music seed constants live in `schema.MUSIC_SEED_SQL` and `test_sync_schema` refuses a SUPPORTED music version without them, as planned. `wipe_music` reads the version off the database's own `version` row rather than re-running discovery, so the L2 suite exercises it through path overrides exactly like the writers, and a version without stated seeds fails loudly before any deletion.
+The seed set has three rows, not two: the one `versiontagscan` row Kodi creates with the schema version. `CMusicDatabase::GetMusicNeedsTagScan` returns -1 for any row count but one, and the music window then asks "Music library needs to rescan tags from files" on every visit; accepting is a `SCAN_RESCAN` of every music path, which re-reads every directory a plugin source has (observed on 2026-10-09: an Android tablet whose MyMusic had been wiped by 0.29.0 re-read 1,557 album folders for hours). Kodi's own stamp after that rescan is an UPDATE, so the empty table never heals itself; the wipe has to put the row back.
 
 ## Non-goals
 
