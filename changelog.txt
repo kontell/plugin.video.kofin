@@ -14,6 +14,7 @@ v0.92.0
 - Items acknowledged before are acknowledged again without a compare.
 - Listed artwork asks the server for 1080-high JPEG by default (existing settings, now on); existing art re-caches once.
 - No state migrates between development builds; a profile from an earlier build needs a fresh native library.
+- A music directory Kodi skips after a stopped scan is salted so the next scan imports it.
 
 v0.91.0
 - Native TV shows, seasons, episodes, music videos and collections in the API build: one scanner root per selected library and content type, shows as bound folders beneath it, sets filed at import.
