@@ -1,4 +1,4 @@
-"""A Kodi video library stand-in for the public-API backend's unit tests.
+"""A Kodi library stand-in for the public-API backend's unit tests.
 
 It answers the JSON-RPC methods the backend uses, imports rows from the
 store the way the scanner would -- from the pinned committed generation, per
@@ -6,10 +6,18 @@ scanner directory -- and keeps the few rules the backend relies on: a direct
 scan of a show folder only adds episodes to a show that already exists,
 ``clearmode: "remove"`` deletes everything filed under the path, a refresh
 replaces the row and its id, and ``Clean`` drops sets no movie links.
+
+The music side keeps the music scanner's rules: a scan of a directory
+replaces that directory's songs with the listing, a song already on the path
+keeps its id, play count and last played, a new song's play count is zero
+whatever its tag says, albums and artists are derived from the songs' tags
+and vanish with their last song, no art is taken from a plugin listing, and
+a scan of a root walks every folder the root lists.
 """
 
 import copy
 import re
+
 
 from kofin.sync.backends.api import metadata, paths
 
@@ -22,12 +30,22 @@ class Kodi:
         self.key = store.namespace
         self.rows = {kind: {} for kind in metadata.MEDIATYPE}
         self.bindings = {}
+        self.recursive = {}
         self.next_id = 1
         self.calls = []
         self.fail = ""
         self.accept_without_apply = False
         self.monitor = None
         self.scanned = []
+        # Music: songs by Kodi id; albums and artists derived from them.
+        self.songs = {}
+        self.albums = {}
+        self.artists = {}
+        self.music_scanned = []
+        self.holding = False
+        # A directory whose listing the fake should take from here instead
+        # of the store (a failed or foreign listing), or drop entirely.
+        self.listings = {}
 
     # -- helpers ---------------------------------------------------------------
 
@@ -134,9 +152,22 @@ class Kodi:
             kind = "Movie" if location.content == "movies" else "MusicVideo"
             present = self.owned(kind)
             collections = self._collections() if kind == "Movie" else {}
+            wanted = None
+            if kind == "Movie" and location.movie:
+                # A movie folder scanned by name imports its one movie, if
+                # the folder carries a binding of its own (the root lists
+                # every movie as a file, so a root scan needs none).
+                wanted = (
+                    [location.movie]
+                    if paths.movie_dir(self.key, library, location.movie)
+                    in self.bindings
+                    else []
+                )
             for item_id, record in sorted(
                 self.store.records(kind=kind, library=library).items()
             ):
+                if wanted is not None and item_id not in wanted:
+                    continue
                 if item_id not in present:
                     row = self.imported(record, set_name=collections.get(item_id))
                     self.rows[kind][row[METHODS[kind][0]]] = row
@@ -216,6 +247,240 @@ class Kodi:
             row["seasonid"] = old["seasonid"]
         self.rows[kind][row[METHODS[kind][0]]] = row
 
+    # -- music -----------------------------------------------------------------
+
+    def music_scan(self, directory):
+        location = paths.parse(directory)
+        if location is not None and location.hold:
+            # The hold listing stays open until the pass releases it.
+            self.holding = True
+            return
+        self.music_scanned.append(directory)
+        assert location is not None and location.content == "music", directory
+        if location.folder is None:
+            for folder in self._root_folders(location.library):
+                self._scan_folder(location.library, folder)
+        else:
+            self._scan_folder(location.library, location.folder)
+        self._cleanup_music()
+        self.monitor.music_finished += 1
+
+    def _root_folders(self, library):
+        """What the provider's root listing shows: live folders and the
+        folders of songs with a pending removal."""
+        folders = set(self.store.folders("Audio", library))
+        folders.update(
+            e.parent_id
+            for e in self.store.tombstones().values()
+            if e.kind == "Audio" and e.library == library
+        )
+        return sorted(folders)
+
+    def _listing(self, library, folder):
+        """(url, tags) pairs the provider would hand the scanner."""
+        directory = paths.music_dir(self.key, library, folder)
+        if directory in self.listings:
+            return self.listings[directory]
+        album = None
+        if not folder.startswith(paths.SINGLES):
+            found = self.store.records(kind="MusicAlbum", item_ids=[folder])
+            album = found[folder].item if folder in found else None
+        rows = []
+        for item_id, record in sorted(
+            self.store.records(kind="Audio", library=library, parent_id=folder).items()
+        ):
+            rows.append(
+                (
+                    paths.song_url(
+                        self.key,
+                        library,
+                        folder,
+                        item_id,
+                        paths.container_of(record.item),
+                    ),
+                    metadata.song_tags(record.item, album),
+                )
+            )
+        return rows
+
+    def _scan_folder(self, library, folder):
+        directory = paths.music_dir(self.key, library, folder)
+        listed = self._listing(library, folder)
+        # RemoveSongsFromPath, exact: this directory's songs go, remembered
+        # by file name for id and userdata reuse.
+        previous = {
+            row["file"]: row
+            for row in self.songs.values()
+            if row["file"].startswith(directory)
+        }
+        for row in list(previous.values()):
+            del self.songs[row["songid"]]
+        for url, tags in listed:
+            old = previous.get(url)
+            album = self._album_row(tags, directory)
+            row = {
+                "songid": old["songid"] if old else self._id(),
+                "file": url,
+                "label": tags["title"],
+                "title": tags["title"],
+                "albumid": album["albumid"],
+                "album": tags["album"],
+                "artist": list(tags["artist"]),
+                "albumartist": list(tags["albumartist"]),
+                "genre": list(tags["genre"]),
+                "track": tags["track"],
+                "disc": tags["disc"],
+                "duration": tags["duration"],
+                "year": tags["year"],
+                "musicbrainztrackid": tags["musicbrainztrackid"],
+                # CSong zeroes a new song's play count; a rescan keeps the
+                # database's.
+                "playcount": old["playcount"] if old else 0,
+                "lastplayed": old["lastplayed"] if old else "",
+                "userrating": 0,
+            }
+            self.songs[row["songid"]] = row
+            for name in tags["artist"] or tags["albumartist"]:
+                self._artist_row(name)
+            for name in tags["albumartist"]:
+                self._artist_row(name)
+
+    def _album_row(self, tags, directory):
+        """Kodi matches an album by MusicBrainz id, else title and album
+        artist; the first directory to add it sets its path."""
+        key = (
+            tags["musicbrainzalbumid"] or None,
+            tags["album"].casefold(),
+            tuple(n.casefold() for n in tags["albumartist"]),
+        )
+        for row in self.albums.values():
+            if row["_key"] == key or (key[0] and row["_key"][0] == key[0]):
+                return row
+        row = {
+            "albumid": self._id(),
+            "label": tags["album"],
+            "title": tags["album"],
+            "artist": list(tags["albumartist"]),
+            "art": {},
+            "description": "",
+            "_key": key,
+            "_path": directory,
+        }
+        self.albums[row["albumid"]] = row
+        return row
+
+    def _artist_row(self, name):
+        key = name.casefold()
+        for row in self.artists.values():
+            if row["artist"].casefold() == key:
+                return row
+        row = {
+            "artistid": self._id(),
+            "artist": name,
+            "label": name,
+            "art": {},
+            "description": "",
+        }
+        self.artists[row["artistid"]] = row
+        return row
+
+    def _cleanup_music(self):
+        """CleanupOrphanedItems: albums without songs, artists without either."""
+        used_albums = {row["albumid"] for row in self.songs.values()}
+        self.albums = {k: r for k, r in self.albums.items() if k in used_albums}
+        credited = set()
+        for row in self.songs.values():
+            credited.update(n.casefold() for n in row["artist"])
+            credited.update(n.casefold() for n in row["albumartist"])
+        self.artists = {
+            k: r for k, r in self.artists.items() if r["artist"].casefold() in credited
+        }
+
+    def _music_rows(self, kind, params):
+        rows = {
+            "Audio": list(self.songs.values()),
+            "MusicAlbum": list(self.albums.values()),
+            "MusicArtist": list(self.artists.values()),
+        }[kind]
+        if "filter" in params:
+            prefix = params["filter"]["value"]
+            if kind == "Audio":
+                rows = [r for r in rows if r["file"].startswith(prefix)]
+            else:
+                albums = {
+                    r["albumid"]
+                    for r in self.songs.values()
+                    if r["file"].startswith(prefix)
+                }
+                if kind == "MusicAlbum":
+                    rows = [r for r in rows if r["albumid"] in albums]
+                else:
+                    names = set()
+                    for song in self.songs.values():
+                        if song["file"].startswith(prefix):
+                            names.update(n.casefold() for n in song["artist"])
+                            names.update(n.casefold() for n in song["albumartist"])
+                    rows = [r for r in rows if r["artist"].casefold() in names]
+        if (params.get("sort") or {}).get("method") == "file":
+            rows = sorted(rows, key=lambda r: r["file"])
+        limits = params.get("limits") or {}
+        start = limits.get("start", 0)
+        end = limits.get("end", len(rows))
+        page = rows[start:end] if end >= 0 else rows[start:]
+        return page, len(rows)
+
+    def _music_properties(self, row, params):
+        wanted = set(params.get("properties") or []) | {"label"}
+        return {
+            k: copy.deepcopy(v)
+            for k, v in row.items()
+            if k in wanted or k.endswith("id") and not k.startswith("_")
+        }
+
+    def music_rpc(self, method, params):
+        if method == "AudioLibrary.Scan":
+            self.music_scan(params["directory"])
+            return "OK"
+        match = re.fullmatch(
+            r"AudioLibrary\.(Get|Set)(Songs?|Albums?|Artists?)(Details)?", method
+        )
+        if not match:
+            raise RuntimeError("Kodi refused " + method)
+        verb, noun, details = match.groups()
+        kind = {"Song": "Audio", "Album": "MusicAlbum", "Artist": "MusicArtist"}[
+            noun.rstrip("s")
+        ]
+        id_param, result_key, list_key = METHODS[kind]
+        if verb == "Get" and not details:
+            page, total = self._music_rows(kind, params)
+            return {
+                list_key: [self._music_properties(r, params) for r in page],
+                "limits": {"start": 0, "end": len(page), "total": total},
+            }
+        table = {
+            "Audio": self.songs,
+            "MusicAlbum": self.albums,
+            "MusicArtist": self.artists,
+        }[kind]
+        kodi_id = params[id_param]
+        if kodi_id not in table:
+            raise RuntimeError("Kodi refused " + method)
+        if verb == "Get":
+            return {result_key: self._music_properties(table[kodi_id], params)}
+        if not self.accept_without_apply:
+            row = table[kodi_id]
+            values = {k: v for k, v in params.items() if k != id_param}
+            if isinstance(values.get("art"), dict):
+                merged = dict(row.get("art") or {})
+                for name, value in values["art"].items():
+                    if value is None:
+                        merged.pop(name, None)
+                    else:
+                        merged[name] = value
+                values["art"] = merged
+            row.update(copy.deepcopy(values))
+        return "OK"
+
     # -- the JSON-RPC surface ------------------------------------------------------------
 
     def batch(self, requests):
@@ -236,6 +501,8 @@ class Kodi:
             r"(Video|Audio)Library\.(Get|Set|Refresh|Remove)(\w+?)(Details)?", method
         )
         if method == "VideoLibrary.SetSourceContent":
+            if params["content"] != "none":
+                self.recursive[params["path"]] = bool(params.get("scanrecursive"))
             if params["content"] == "none":
                 if (
                     params.get("clearmode") == "remove"
@@ -249,6 +516,8 @@ class Kodi:
         if method == "VideoLibrary.Scan":
             self.scan(params["directory"])
             return "OK"
+        if method == "AudioLibrary.Scan":
+            return self.music_rpc(method, params)
         if method == "VideoLibrary.Clean":
             linked = {r.get("set") for r in self.rows["Movie"].values()}
             self.rows["BoxSet"] = {
@@ -259,7 +528,7 @@ class Kodi:
             raise RuntimeError("Kodi refused " + method)
         library, verb, noun, details = match.groups()
         if library == "Audio":
-            return {"limits": {"total": 0}}
+            return self.music_rpc(method, params)
         kind = KIND_BY_NOUN.get(noun)
         if kind is None:
             raise RuntimeError("Kodi refused " + method)
@@ -347,4 +616,12 @@ METHODS = {
     "Episode": ("episodeid", "episodedetails", "episodes"),
     "MusicVideo": ("musicvideoid", "musicvideodetails", "musicvideos"),
     "BoxSet": ("setid", "setdetails", "sets"),
+    "Audio": ("songid", "songdetails", "songs"),
+    "MusicAlbum": ("albumid", "albumdetails", "albums"),
+    "MusicArtist": ("artistid", "artistdetails", "artists"),
 }
+
+
+def song_id_of(url):
+    """The Jellyfin id a fake song row's URL carries."""
+    return paths.parse_item(url)[1]

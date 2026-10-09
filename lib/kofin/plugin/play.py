@@ -35,7 +35,12 @@ from kofin.plugin.router import Request
 LOG = Logger(__name__)
 
 # Jellyfin types with a native row in the API build, and Kodi's name for it.
-NATIVE_MEDIA = {"Movie": "movie", "Episode": "episode", "MusicVideo": "musicvideo"}
+NATIVE_MEDIA = {
+    "Movie": "movie",
+    "Episode": "episode",
+    "MusicVideo": "musicvideo",
+    "Audio": "song",
+}
 
 JsonDict = Dict[str, Any]
 

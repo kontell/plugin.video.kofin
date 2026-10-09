@@ -73,6 +73,8 @@ def test_api_package_preserves_live_browser_contracts(tmp_path):
             "tests/unit/test_api_lifecycle.py",
             "tests/unit/test_api_coordinator.py",
             "tests/unit/test_api_provider.py",
+            "tests/unit/test_api_music.py",
+            "tests/unit/test_api_progress.py",
             "tests/unit/test_browse_golden.py",
             "tests/unit/test_listitems.py",
             "tests/unit/test_playall.py",

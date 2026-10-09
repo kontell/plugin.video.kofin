@@ -165,7 +165,13 @@ def test_catch_up_applies_feed_records_and_advances_the_watermark(store, monkeyp
     assert records["ea11"].library == LIB2 and records[SHOW].library == LIB2
     assert "zz" not in records
     assert store.watermark()[0] == unix_to_watermark(1200)
-    assert feed.asked[0][1] == ("movies", "tvshows", "boxsets", "musicvideos")
+    assert feed.asked[0][1] == (
+        "movies",
+        "tvshows",
+        "boxsets",
+        "musicvideos",
+        "music",
+    )
     assert set(feed.asked[0][2]) == {LIB, LIB2}
 
 

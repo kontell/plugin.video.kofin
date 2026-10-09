@@ -1,3 +1,28 @@
+v0.92.0
+- Native music in the API build: songs, albums and artists of a selected music library, one directory per album.
+- Songs are files in their album directory; a tag change re-imports one directory; a song leaves through its directory's listing.
+- Changed directories are scanned by name; the root is walked only when most changed.
+- The music scanner is held while the pass writes, so home widgets stay quiet.
+- Faster repair, pass and idle service on large catalogues; whole-library removal in one transaction.
+- Scans run one at a time (Kodi stops a running scan on the next request).
+- Fixed a freed InfoTag written on every listing (segfault in setGenres on 32-bit ARM).
+- Payloads are read on demand; listings and the pass no longer hold a library in memory.
+- An empty premiere or aired date is left out of the desired state.
+- Library update progress in the API build: a bar for enumeration, scans and the pass; Kodi's own scanning dialog for video.
+- Every movie's URL sits in a folder of its own; a change scans that folder alone. Deselect and reselect the Movies library after upgrading.
+- A music directory is never handed to Kodi incomplete: a store that cannot be read is answered by Kodi's own rows read back in full, or by waiting.
+- The pass finds songs Kodi lost (a stopped scan, an interrupted rescan) and re-imports their directory; an album change re-tags its songs.
+- A song played with no server date is last played on the day it was added, so recently played albums stay the server's.
+- A first import no longer re-writes every row it just imported.
+- Actor thumbnails obey the artwork cap; changing the cap now re-patches art.
+- Clean databases puts back the row Kodi needs, or the music window asked to rescan tags on every visit.
+- The pass reads back only what finds a row; the full row only for items whose state moved.
+- Items acknowledged before are acknowledged again without a compare.
+- Listed artwork asks the server for 1080-high JPEG by default (existing settings, now on); existing art re-caches once.
+- No state migrates between development builds; a profile from an earlier build needs a fresh native library.
+- A music directory Kodi skips after a stopped scan is salted so the next scan imports it.
+- An episode's art no longer carries the show's and season's keys, which Kodi derives itself.
+
 v0.91.0
 - Native TV shows, seasons, episodes, music videos and collections in the API build: one scanner root per selected library and content type, shows as bound folders beneath it, sets filed at import.
 - Movies move to the per-library layout; a 0.90.0 profile is migrated automatically (its rows are removed and re-imported once) and the pre-release still needs an otherwise empty video library.

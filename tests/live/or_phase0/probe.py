@@ -145,8 +145,11 @@ def capture():
         if name.startswith(("VideoLibrary.", "AudioLibrary.", "Textures."))
         or name in ("Files.SetFileDetails", "Files.GetDirectory")
     }
-    tag_video = xbmcgui.ListItem(offscreen=True).getVideoInfoTag()
-    tag_music = xbmcgui.ListItem(offscreen=True).getMusicInfoTag()
+    # The items must outlive their tags: a tag is a pointer into its item.
+    item_video = xbmcgui.ListItem(offscreen=True)
+    item_music = xbmcgui.ListItem(offscreen=True)
+    tag_video = item_video.getVideoInfoTag()
+    tag_music = item_music.getMusicInfoTag()
     return {
         "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "application": rpc(

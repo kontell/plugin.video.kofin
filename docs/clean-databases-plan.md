@@ -66,11 +66,12 @@ Migration section becomes: 1. Disable or uninstall jellyfin-kodi. 2. Install Kof
 
 ## Implementation notes (2026-08-05)
 
-The sweeps live standalone in `sync/clean.py` rather than calling `views.delete_nodes`/`migrate_flat_nodes`/`delete_playlists`: one prefix-gated, root-parameterized pass covers all three (the `kofin`/`jellyfin` prefixes subsume the NODE_ROOT tree, the legacy flat layout and the favourites files), avoids `Views()`'s sync.json read entirely, and unit-tests against plain temp dirs. The managed playlist folders are deleted whole (`playlists.FOLDER_NAME`, under both `playlists/music/` and `playlists/video/`) instead of via `cleanup_managed_playlists`, which only prunes *within* the folder. They have to be named rather than swept: `_sweep_prefixed` matches case-sensitively and the folder is `Kofin`, so a prefix pass walks straight past it.
+The sweeps live standalone in `sync/clean.py` rather than calling `views.delete_nodes`/`delete_playlists`: one prefix-gated, root-parameterized pass covers all three (the `kofin`/`jellyfin` prefixes subsume the NODE_ROOT tree, the legacy flat layout and the favourites files), avoids `Views()`'s sync.json read entirely, and unit-tests against plain temp dirs. The managed playlist folders are deleted whole (`playlists.FOLDER_NAME`, under both `playlists/music/` and `playlists/video/`) instead of via `cleanup_managed_playlists`, which only prunes *within* the folder. They have to be named rather than swept: `_sweep_prefixed` matches case-sensitively and the folder is `Kofin`, so a prefix pass walks straight past it.
 
 `syncStatus` joined the cleared settings — a stale "N synced" status line would otherwise survive the wipe.
 
 The music seed constants live in `schema.MUSIC_SEED_SQL` and `test_sync_schema` refuses a SUPPORTED music version without them, as planned. `wipe_music` reads the version off the database's own `version` row rather than re-running discovery, so the L2 suite exercises it through path overrides exactly like the writers, and a version without stated seeds fails loudly before any deletion.
+The seed set has three rows, not two: the one `versiontagscan` row Kodi creates with the schema version. `CMusicDatabase::GetMusicNeedsTagScan` returns -1 for any row count but one, and the music window then asks "Music library needs to rescan tags from files" on every visit; accepting is a `SCAN_RESCAN` of every music path, which re-reads every directory a plugin source has (observed on 2026-10-09: an Android tablet whose MyMusic had been wiped by 0.29.0 re-read 1,557 album folders for hours). Kodi's own stamp after that rescan is an UPDATE, so the empty table never heals itself; the wipe has to put the row back.
 
 ## Non-goals
 

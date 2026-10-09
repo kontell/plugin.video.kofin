@@ -237,13 +237,6 @@ class Views(object):
         # its own removal path for the nothing-wanted case.
         music.write_music_nodes()
 
-        # Anything left where the pre-NODE_ROOT layout put it (loose folders
-        # and kofin_*.xml in the video library root, loose kofin*.xsp among the
-        # user's playlists) belongs to no library any more; the tree below
-        # replaces it.
-        video.migrate_flat_nodes()
-        playlists.migrate_flat_video_playlists()
-
         if not self.sync["Whitelist"]:
             # Nothing is synced: the whole tree goes, favourites included.
             video.delete_tree()

@@ -137,6 +137,13 @@ What remains is kofin's own:
   (`service/backdrop.py`, `core/api.py::splashscreen`, `plugin/browse.py`).
 - Extras/videoversion writes read the VERSION itemType from the seeded 40400 row and the EXTRA
   value from `schema.EXTRA_ITEM_TYPE` — both differ across gated schemas.
+- **MyMusic's `versiontagscan` holds exactly one row, and the wipe puts it back.** Kodi's
+  `GetMusicNeedsTagScan` returns -1 for any other count, and the music window then asks to
+  "rescan tags from files" on every visit; accepting is a `SCAN_RESCAN` of every music path,
+  which re-reads every directory a plugin source has (hours for 1,557 album folders on a
+  tablet). Kodi's own stamp after that rescan is an UPDATE, so an empty table never heals.
+  `schema.MUSIC_SEED_SQL` carries the row per version and `test_sync_schema` refuses a seed
+  set that names another.
 - **A single-file movie's `MediaSource.Name` is its file stem, not a label.** Jellyfin's
   `GetMediaSourceName` returns the file name without extension unless local alternate versions
   exist (then the folder prefix is stripped and a suffix label remains). `resolve_version_type`
@@ -259,6 +266,143 @@ What remains is kofin's own:
   `GetMovieSets` — which lists only sets a movie links (`GetSetsByWhere` groups `movie_view`) —
   no longer shows it. A collection without a Kodi row (its movies unsynced, or the one a movie
   in two collections did not take) is applied without a row, never left pending.
+- **A native song's URL is a file in its album directory, never a query.** Kodi's music
+  database splits a URL into path and file name with the options dropped (`URIUtils::Split`
+  via `CMusicDatabase::SplitPath`), where the video database keeps a plugin URL whole; the
+  first live import stored every song as its bare directory — unplayable, and matched by
+  nothing on a rescan. `paths.song_url` builds `<album dir>/<item id>.<container>`, the
+  router routes it to the play route, and `paths.parse_item` reads the id back out.
+- **Music leaves Kodi only through a complete listing.** The audio API has no remove call and
+  a music scan replaces exactly one directory (`RemoveSongsFromPath` is exact), so a song's
+  tombstone is its album directory listed without it, and the provider's root listing names
+  every directory that still has songs to shed (`store.tombstones`) until the scan has
+  emptied it. `removal.remove_music` confirms by reading the directory back; albums and
+  artists are let go with their songs.
+- **The music provider hands over a complete listing or none, and never fails.** Kodi scans
+  whatever rows reached it before a listing failed, however it failed, and `RetrieveMusicInfo`
+  removes every song on the path first: a failed listing, an exception reaching `dispatch`
+  (`endOfDirectory(succeeded=False)` with nothing added) or a partial one is the directory
+  deleted. So a song directory is built in full and handed over in one `addDirectoryItems`,
+  a malformed song is reduced to its title rather than dropped, and when the store cannot be
+  read the fallback is Kodi's own rows read back *in full*, the paged `limits.total` proving
+  the count (`provider._known_entries`); until the store or that readback answers,
+  `_music_folder` waits (`RETRY_DELAY`) and leaves only at shutdown.
+- **The pass finds applied songs Kodi lost.** Nothing pending names a song a half-failed
+  listing, a stopped scan or a user's interrupted rescan removed, so `_music_directories`
+  compares every acknowledged song with the readback, puts the missing ones back to pending
+  and into the pass, and scans their directory. Songs whose album's payload moved join the
+  same comparison, because `song_tags` takes the album's artists and MusicBrainz ids.
+- **`song_tags` is total.** It is both the listing and the hash the pass compares; a track
+  number that does not parse is the missing-field zero (`metadata._int`), never an error, or
+  one song skips the scan of every directory in its library on every pass.
+- **A played song with no server date is last played on its `DateCreated`.** Kodi's
+  `UpdateSong` stamps the current time on a played song with no date, which put sixteen
+  songs marked played years ago at the top of a tablet's recently played albums on import
+  day. The video setters leave a missing date alone and are unchanged.
+- **Kodi orders recently added albums by `album.dateAdded`, which is scan time for a plugin
+  source** (`song.dateAdded` comes from the file's timestamp, which a plugin path has not;
+  no setter and no music ListItem key carries it). A first import in `folder_label` order
+  (the server's `DateCreated`) lands the right order; every re-listing of a directory moves
+  its album to the top. A user-accepted "rescan tags from files" re-stamps the whole library.
+- **The pass holds the music scanner while it writes** (`native.hold`, `provider._hold`, the
+  `kofin.native.hold.*` window property). Announcements made while the scanner is busy carry
+  `transaction`, which the skin's music widgets skip; without the hold every song written
+  re-ran four whole-library widget queries. It does not change Kodi's per-setter cost (nine
+  autocommit statements, 46 ms a song on the P1D) and the video database has no such flag.
+- **Walk a music root only when most of its directories changed** (`native.ROOT_SCAN_SHARE`).
+  A directory scan is 60–80 ms; a root walk re-lists every unchanged directory at about
+  100 ms each because Kodi re-creates the Python interpreter when it has no work between two
+  listings. A first import and a whole-library removal walk; everything else scans by name.
+- **The tick asks `has_pending`, never `pending()`, to test for work.** Loading every pending
+  payload twice a second kept the idle service at a third of a core on 31,000 rows.
+- **`forget_many` collects closed intervals once per batch.** Once per item, the "still
+  pending" subquery scanned the item table: a whole-library music removal spent ten minutes in
+  SQLite and held the store's write lock across a service restart.
+- **The pass issues one scan at a time.** Kodi's `UpdateLibrary` builtin, which both
+  `VideoLibrary.Scan` and `AudioLibrary.Scan` execute, *stops* a running scan instead of
+  queuing the request. Two roots selected together on the LibreELEC box cancelled each other
+  on every pass for twelve hours (`Finished scan … 17 ms`, no listing); `native.scan` waits
+  for each scan before issuing the next.
+- **A ListItem must outlive its InfoTag.** `getVideoInfoTag()` hands out a pointer into the
+  item (`owned=false`) and the item's destructor deletes it, so a tag taken from a temporary
+  (`xbmcgui.ListItem().getVideoInfoTag()`) writes freed memory on its first setter. The
+  separator probe did exactly that on every API-build listing; x86_64 tolerated it, a 32-bit
+  ARM Kodi segfaulted in `setGenres` twice. `test_api_metadata.py` refuses the pattern.
+- **Neither a listing nor the pass holds a library's payloads.** 6,616 video payloads are
+  58 MB of JSON and 200 MB of Python objects. The movies root listing, which loaded its
+  1,788 before building a ListItem, grew Kodi by 100 MB in a minute on the 1 GB LibreELEC
+  box and left it unable to answer ssh until it was power-cycled; the pass that followed
+  would have loaded all 6,616 for planning. `store.pending_work` carries a payload only for
+  a tombstone, records read theirs through `PayloadWindow` (200 ids a query, at most 512
+  held), listings walk their scope through one, and the tvshows root reduces each episode to
+  `metadata.episode_row` as it reads it. `store.records()` is still eager for the callers
+  that need every row.
+- **An empty premiere or aired date is no opinion, never a patch.** Kodi fills a missing date
+  itself (its zero date on the P1D, which reads back empty; a sibling's date on the LibreELEC
+  box, which does not) and `SetEpisodeDetails`/`SetTVShowDetails` ignore an empty string, so a
+  desired `""` never matches the row: 187 items re-patched on every pass. `metadata.details`
+  drops an empty `dateadded`, `premiered` or `firstaired` key.
+- **The API build's progress bar paints once a second at most and never per item**
+  (`backends/api/progress.py`). `DialogProgressBG.update` waits on Kodi's app thread; the
+  applier calls `step` per item and the bar decides whether to paint. The same setting passes
+  `showdialogs` to the scan calls. Both settings must stay in the API profile's
+  `settings.xml` (`tools/package_manifest.py`): `getSettingBool` on a setting the build does
+  not define raises `TypeError`, and that failed every pass on the box once.
+- **A music scan never shows Kodi's dialog.** With `showdialogs` the music scanner starts its
+  `MusicFileCounter` thread, which lists every directory a second time, concurrently, to size
+  Kodi's bar: two root listings of 62 s side by side on the LibreELEC box, and every album
+  listed twice for the rest of the scan. `native.scan` passes `showdialogs` for video only;
+  the kofin bar covers music.
+- **A listing's cost on a small device is the interpreter and the page cache, not the
+  query.** On the box one album listing took 45–67 s doubled and thrashing, 0.25 s alone with
+  the interpreter reused; the store's two queries were 0.01 s in isolation while a fresh
+  connection's first statement waited 15 s behind the card re-reading evicted pages.
+  `core/memory.py::release` hands the heap back after a publish and after a pass
+  (`malloc_trim`); the provider and router log their timings at debug level
+  (`native dispatch … after N s of imports`, `music folder …: N songs read in … built in …`).
+- **A movie's URL sits in a folder of its own; the root never lists folders.** Kodi turns a
+  plugin folder in a movies listing into a phantom `VIDEO_TS.IFO` (`ConvertDiscFoldersToFiles`
+  via `CPluginFile::Exists`, unconditionally true), so the movies root lists every movie as a
+  file under `paths.movie_dir`; Kodi files it on that directory's path row. A few new movies
+  are scanned by folder name after `native.bind_folders` binds each folder — without
+  `containssingleitem`, which would make the folder the movie — and a first import or a
+  mostly-missing library scans the root once, as before. A profile from the one-directory
+  layout needs the Movies library deselected and reselected: the old rows' URLs are not
+  owned, and importing beside them would double the library.
+- **A scope readback is minimal; the full row is read for an item whose state moved**
+  (`kinds.MINIMAL`, `Readback.full`, `Readback.prefetch_full`). The scope carries what
+  finds and owns a row and the userdata a viewer may have edited, nothing else; the plan
+  reads the full row by id, or from one paged listing when at least a tenth of the scope
+  (and 25 rows) is about to be compared, as after a first import.
+- **A mapping that carries the payload hash and `inputs` token is acknowledged without a
+  compare** (`metadata.inputs_token`: server, library, separator, set name, the seasons'
+  hashes, the artwork cap and encoding, the local zone). It fires for a retried pass and a
+  re-published item, never under Repair, whose point is the compare. Anything new that
+  `details` reads must join the token or the short-circuit will keep a stale state: the
+  art query was missing from it, so a moved cap would have frozen every old art URL.
+- **A first import is not a repair write.** The pass after every complete enumeration runs
+  as a repair, and repair re-sends a row whose acknowledged hash moved; a row with no
+  acknowledgement was just filed by the scanner from this very listing, so a matching one
+  is acknowledged (`patch.Applier.plan`). Without that a tablet re-wrote all 6,200 rows of
+  its first import.
+- **A pooled private connection leaves every block idle.** `Database.__exit__` reads
+  `total_changes` as a delta from `__enter__` and commits a block that opened a transaction
+  without changing a row, or the next listing on that interpreter ran inside it and a
+  failure rolled both back while the write lock stayed held (`private.pool_connections`).
+- **Listed artwork is capped and JPEG-encoded by default** (`listitems.art_query`,
+  `maxArtResolution` 1080, `compressArt` on). Kodi decodes and re-encodes every image it
+  caches whatever the source and caps the result itself, so only the server resizing first
+  saves anything. Changing either setting changes every art URL, which re-caches the art and
+  patches every row once.
+- **An episode's desired art never carries `tvshow.*` or `season.*`.** Kodi reads those off
+  the show and season rows and `SetEpisodeDetails` cannot make them true; `metadata.details`
+  drops dotted keys and `patch.merge` neither sends, compares nor clears them, even when an
+  older acknowledgement listed one as owned. Two episodes on the box looped on
+  "readback differs: art" every 35 s after the artwork cap moved every URL but their show's.
+- **A music directory Kodi skips after a stopped scan is salted** (`store.bump_salt`, once
+  per directory and pass, folded into every listed song's date and the folder's root label).
+  `CMusicInfoScanner::DoScan` stores the directory hash whatever `RetrieveMusicInfo` wrote,
+  so a scan stopped mid-directory leaves a hash every later scan skips on.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is

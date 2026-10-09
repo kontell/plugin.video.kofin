@@ -1,4 +1,4 @@
-"""Video API coordinator. Network enumeration precedes publication.
+"""API coordinator. Network enumeration precedes publication.
 
 One worker serializes publication and native jobs. Callbacks enqueue intent
 and never wait on Kodi scans. A complete enumeration -- startup without a
@@ -15,13 +15,13 @@ from typing import Any, Dict, List, Set
 
 import xbmc
 
-from kofin.core import settings
+from kofin.core import memory, settings
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.sync import changefeed, private
 from kofin.sync.catalogue import BackendMismatch
 from kofin.sync.downloader import info, library_filter
-from . import metadata
+from . import metadata, progress
 from .native import Native
 from .store import Store, namespace
 
@@ -32,16 +32,33 @@ KINDS_BY_COLLECTION = {
     "tvshows": ("Series", "Season", "Episode"),
     "musicvideos": ("MusicVideo",),
     "mixed": ("Movie", "Series", "Season", "Episode", "MusicVideo"),
+    "music": ("MusicArtist", "MusicAlbum", "Audio"),
 }
-SUPPORTED = ("movies", "tvshows", "musicvideos", "mixed")
+SUPPORTED = ("movies", "tvshows", "musicvideos", "mixed", "music")
 FIELDS = info() + ",MediaStreams"
-CHANGEFEED_TYPES = ("movies", "tvshows", "boxsets", "musicvideos")
+# Music asks for what its tags and art need and nothing the server has to
+# count: RecursiveItemCount alone made an album page twelve times slower on
+# the SQL branch, and People, trailers and streams have no music setter.
+MUSIC_FIELDS = (
+    "DateCreated,Genres,ProviderIds,MediaSources,Overview,SortName,Etag,"
+    "ParentId,PremiereDate,Tags"
+)
+MUSIC_KINDS = ("MusicArtist", "MusicAlbum", "Audio")
+CHANGEFEED_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music")
 # Between the websocket and the companion feed the catch-up is a safety net;
 # a full enumeration is a daily event, not a timer.
 CATCHUP_INTERVAL = 1800
 FULL_INTERVAL = 86400
 PAGE = 200
-HAS_CONTENT = {"Movie": "Movies", "Series": "TVShows", "MusicVideo": "MusicVideos"}
+# A song's DTO is a tenth of a movie's; 22,000 of them in pages of 200 is
+# 112 round trips for what 45 can carry.
+MUSIC_PAGE = 500
+HAS_CONTENT = {
+    "Movie": "Movies",
+    "Series": "TVShows",
+    "MusicVideo": "MusicVideos",
+    "Audio": "Music",
+}
 
 
 def status(value):
@@ -55,8 +72,11 @@ def collection_kinds(view):
     return KINDS_BY_COLLECTION.get(collection, ())
 
 
-def fetch_kind(api, library, kind, abort=lambda: False, extra=None):
-    """Only a complete, stable, duplicate-free pagination can imply deletion."""
+def fetch_kind(api, library, kind, abort=lambda: False, extra=None, on_page=None):
+    """Only a complete, stable, duplicate-free pagination can imply deletion.
+
+    ``on_page(fetched, total)`` is told after every page, for the bar.
+    """
     result: List[dict] = []
     seen = set()
     total = None
@@ -65,9 +85,9 @@ def fetch_kind(api, library, kind, abort=lambda: False, extra=None):
             raise InterruptedError("enumeration stopped")
         params = {
             **library_filter(api, library, kind),
-            "Fields": FIELDS,
+            "Fields": MUSIC_FIELDS if kind in MUSIC_KINDS else FIELDS,
             "StartIndex": len(result),
-            "Limit": PAGE,
+            "Limit": MUSIC_PAGE if kind in MUSIC_KINDS else PAGE,
             "SortBy": "DateCreated,SortName",
             "SortOrder": "Ascending,Ascending",
             "EnableTotalRecordCount": True,
@@ -95,6 +115,8 @@ def fetch_kind(api, library, kind, abort=lambda: False, extra=None):
             result.append(metadata.compact(item))
         if len(result) > total or (not rows and len(result) < total):
             raise ValueError("short %s page" % kind)
+        if on_page is not None:
+            on_page(len(result), total)
     return result
 
 
@@ -148,9 +170,10 @@ def fetch_boxsets(api, abort=lambda: False, ids=None):
 
 class Library(threading.Thread):
     def __init__(self, api, player, api_factory):
-        super().__init__(name="kofin-api-video", daemon=True)
+        super().__init__(name="kofin-api", daemon=True)
         creds = Credentials.load()
         self.store = Store(namespace(creds.server_id, creds.user_id))
+        self.progress = progress.Progress()
         self.api = api
         self.player = player
         self.api_factory = api_factory
@@ -333,6 +356,13 @@ class Library(threading.Thread):
         # local clock; a few minutes of overlap costs nothing but re-fetches.
         return int(time.time()) - 300
 
+    def _bar(self) -> "progress.Progress":
+        """The enumeration's progress bar, made on first use."""
+        bar = getattr(self, "progress", None)
+        if bar is None:
+            bar = self.progress = progress.Progress()
+        return bar
+
     def full_sync(self, libraries=None):
         """Enumerate the selected libraries (or the named ones) completely."""
         selected = settings.get_list("librarySelection")
@@ -345,13 +375,31 @@ class Library(threading.Thread):
         complete = libraries is None
         started = self._server_now()
         fetched: Dict[str, List[dict]] = {}
-        for library in targets:
-            rows: List[dict] = []
-            for kind in collection_kinds(supported[library]):
-                rows.extend(
-                    fetch_kind(self.api, library, kind, self._stop_event.is_set)
-                )
-            fetched[library] = rows
+        bar = self._bar()
+        try:
+            for library in targets:
+                rows: List[dict] = []
+                for kind in collection_kinds(supported[library]):
+                    began = time.monotonic()
+                    found = fetch_kind(
+                        self.api,
+                        library,
+                        kind,
+                        self._stop_event.is_set,
+                        on_page=lambda done, total, kind=kind: bar.track(
+                            kind, done, total
+                        ),
+                    )
+                    LOG.info(
+                        "enumerated %d %s in %.1f s",
+                        len(found),
+                        kind,
+                        time.monotonic() - began,
+                    )
+                    rows.extend(found)
+                fetched[library] = rows
+        finally:
+            bar.close()
         movies_selected = any(
             "Movie" in collection_kinds(supported[library])
             for library in selected
@@ -385,12 +433,20 @@ class Library(threading.Thread):
                 membership[item["Id"]] = library
                 items.append(item)
         invalidate = self._collection_changes(boxsets, complete)
+        began = time.monotonic()
         self.store.publish(
             items + boxsets,
             membership=membership,
             complete_libraries=committed,
             complete_boxsets=complete and movies_selected,
         )
+        LOG.info(
+            "published %d items in %.1f s",
+            len(items) + len(boxsets),
+            time.monotonic() - began,
+        )
+        del items, fetched
+        memory.release()
         self.store.invalidate(invalidate)
         if complete:
             self.store.set_watermark(
@@ -545,6 +601,10 @@ class Library(threading.Thread):
             parent = self.store.entry(item["SeriesId"])
             if parent is not None and parent.library in selected:
                 return parent.library
+        if item.get("AlbumId"):
+            parent = self.store.entry(item["AlbumId"])
+            if parent is not None and parent.library in selected:
+                return parent.library
         for ancestor in self.api.ancestors(item["Id"]):
             if isinstance(ancestor, dict) and ancestor.get("Id") in selected:
                 return ancestor["Id"]
@@ -560,7 +620,16 @@ class Library(threading.Thread):
             if kind == "BoxSet":
                 boxsets.append(item["Id"])
                 continue
-            if kind not in ("Movie", "Series", "Season", "Episode", "MusicVideo"):
+            if kind not in (
+                "Movie",
+                "Series",
+                "Season",
+                "Episode",
+                "MusicVideo",
+                "MusicArtist",
+                "MusicAlbum",
+                "Audio",
+            ):
                 continue
             hint = hints.get(item["Id"]) if hints else None
             library = self._library_of(
@@ -648,11 +717,13 @@ class Library(threading.Thread):
     # -- native application -----------------------------------------------------------
 
     def apply(self, native):
-        if self.store.pending() or self._repair:
+        if self.store.has_pending() or self._repair:
             status(settings.localized(30401))
             populated = {kind: self.store.populated(kind) for kind in HAS_CONTENT}
+            began = time.monotonic()
             try:
                 native.reconcile(repair=self._repair)
+                LOG.info("native pass done in %.1f s", time.monotonic() - began)
             finally:
                 # A home widget whose last fetch found nothing is deaf to
                 # every later library announcement, and the skin's widget

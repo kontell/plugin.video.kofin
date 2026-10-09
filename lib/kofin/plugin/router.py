@@ -183,9 +183,29 @@ def dispatch(argv: List[str]) -> None:
     request = Request(base_url, handle, params, resume)
 
     if buildconfig.BACKEND == "api":
-        from kofin.sync.backends.api.provider import key_from_url, serve
+        import time
 
-        native = key_from_url(base_url)
+        imports_began = time.monotonic()
+        from kofin.sync.backends.api import paths
+        from kofin.sync.backends.api.provider import serve
+
+        location = paths.parse(base_url)
+        LOG.debug(
+            "native dispatch handle=%s after %.2f s of imports",
+            handle,
+            time.monotonic() - imports_began,
+        )
+        native = location.key if location else None
+        if (
+            native
+            and location is not None
+            and location.song
+            and not params.get("kodi_action")
+        ):
+            # A native song is a file in its album directory, not a query:
+            # Kodi's music database keeps no query string on a file name.
+            params.setdefault("mode", "play")
+            params["id"] = location.song
         if base_url.endswith("/native/") or (
             native and (params.get("kodi_action") or params.get("mode") != "play")
         ):

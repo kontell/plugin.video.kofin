@@ -72,8 +72,14 @@ def test_provider_lists_the_layout_and_answers_existence_offline(store, monkeypa
     )
     assert [e[1] for e in rendered[-1]] == ["ea12"]
     provider.serve(Request(paths.library_dir(store.namespace, LIB, "movies"), 1, {}))
+    # The root lists every movie as a file under its own folder's URL, never
+    # as folders (Kodi would turn them into phantom discs); the folder lists
+    # its one movie.
     assert [e[1] for e in rendered[-1]] == ["a"]
-    assert content[-3:] == ["tvshows", "episodes", "movies"]
+    assert rendered[-1][0][0].startswith(paths.movie_dir(store.namespace, LIB, "a"))
+    provider.serve(Request(paths.movie_dir(store.namespace, LIB, "a"), 1, {}))
+    assert [e[1] for e in rendered[-1]] == ["a"]
+    assert content[-4:] == ["tvshows", "episodes", "movies", "movies"]
     for params in ({"id": "ea11"}, {}):
         provider.serve(
             Request(
@@ -137,5 +143,9 @@ def test_namespace_and_urls_are_server_user_and_library_scoped():
     )
     assert paths.parse(paths.root(key)) == Location(key)
     assert paths.parse("plugin://plugin.video.kofin/?mode=play") is None
-    assert paths.parse(paths.library_dir(key, LIB, "movies") + SHOW + "/") is None
+    # A movie folder under a movies root is a location of its own.
+    assert paths.parse(paths.library_dir(key, LIB, "movies") + SHOW + "/") == Location(
+        key, LIB, "movies", movie=SHOW
+    )
+    assert paths.parse(paths.library_dir(key, LIB, "musicvideos") + SHOW + "/") is None
     assert paths.key_from_url(url) == key

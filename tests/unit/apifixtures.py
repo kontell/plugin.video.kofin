@@ -18,6 +18,10 @@ LIB = "1" * 32
 LIB2 = "2" * 32
 SHOW = "a1" * 16
 SHOW2 = "b2" * 16
+ALBUM = "c3" * 16
+ALBUM2 = "d4" * 16
+ARTIST = "e5" * 16
+ARTIST2 = "f6" * 16
 
 
 def movie(item_id="a", **values):
@@ -103,6 +107,91 @@ def musicvideo(item_id="m", **values):
     return item
 
 
+def artist(item_id=ARTIST, name="Band", **values):
+    item = dict(
+        Id=item_id,
+        Type="MusicArtist",
+        Name=name,
+        Overview="About the band",
+        ImageTags={"Primary": "ap"},
+        BackdropImageTags=["ab"],
+        ProviderIds={"MusicBrainzArtist": "mb-artist-" + item_id[:2]},
+    )
+    item.update(values)
+    return item
+
+
+def album(item_id=ALBUM, artist_id=ARTIST, name="Record", **values):
+    item = dict(
+        Id=item_id,
+        Type="MusicAlbum",
+        Name=name,
+        AlbumArtists=[{"Name": "Band", "Id": artist_id}],
+        ArtistItems=[{"Name": "Band", "Id": artist_id}],
+        ProductionYear=1999,
+        PremiereDate="1999-05-01T00:00:00Z",
+        Overview="Liner notes",
+        ImageTags={"Primary": "cover"},
+        BackdropImageTags=[],
+        ProviderIds={"MusicBrainzAlbum": "mb-album-" + item_id[:2]},
+        DateCreated="2023-11-15T19:17:57.88Z",
+    )
+    item.update(values)
+    return item
+
+
+def song(item_id, album_id=ALBUM, number=1, artist_id=ARTIST, **values):
+    item = dict(
+        Id=item_id,
+        Type="Audio",
+        Name="Track %d" % number,
+        Album="Record",
+        AlbumId=album_id,
+        AlbumArtists=[{"Name": "Band", "Id": artist_id}],
+        ArtistItems=[{"Name": "Band", "Id": artist_id}],
+        Artists=["Band"],
+        Genres=["Rock"],
+        IndexNumber=number,
+        ParentIndexNumber=1,
+        RunTimeTicks=2000000000,
+        ProductionYear=1999,
+        PremiereDate="1999-05-01T00:00:00Z",
+        ProviderIds={"MusicBrainzTrack": "mb-track-" + item_id},
+        MediaSources=[{"Size": 1000 + number, "Container": "flac"}],
+        UserData={"Played": False, "PlayCount": 0, "PlaybackPositionTicks": 0},
+        DateCreated="2023-11-15T19:18:34.08Z",
+    )
+    if album_id is None:
+        item.pop("AlbumId")
+        item.pop("Album")
+    item.update(values)
+    return item
+
+
+def album_bundle(album_id=ALBUM, artist_id=ARTIST, songs=3, prefix="t", **values):
+    """An artist, an album and its songs, as an enumeration lists them. A
+    second artist gets its own name: Kodi keeps one artist row per name."""
+    name = "Band" if artist_id == ARTIST else "Act " + artist_id[:2]
+    credit = [{"Name": name, "Id": artist_id}]
+    items = [
+        artist(artist_id, name),
+        album(album_id, artist_id, AlbumArtists=credit, ArtistItems=credit, **values),
+    ]
+    for number in range(1, songs + 1):
+        items.append(
+            song(
+                "%s%s%d" % (prefix, album_id[:2], number),
+                album_id,
+                number,
+                artist_id,
+                AlbumArtists=credit,
+                ArtistItems=credit,
+                Artists=[name],
+            )
+        )
+    return items
+
+
 def boxset(item_id, name, members, **values):
     item = dict(Id=item_id, Type="BoxSet", Name=name, KofinMembers=sorted(members))
     item.update(values)
@@ -152,11 +241,31 @@ def kodi(store, monkeypatch):
 
     monkeypatch.setattr(kodirpc, "call", call)
     monkeypatch.setattr(kodirpc, "batch", batch)
-    monkeypatch.setattr(native.xbmc, "getCondVisibility", lambda _: False)
+    # The music scanner is "busy" exactly while the pass holds it.
+    monkeypatch.setattr(
+        native.xbmc,
+        "getCondVisibility",
+        lambda flag: flag == "Library.IsScanningMusic" and fake.holding,
+    )
+    fake.hold_tokens = []
+
+    def set_hold(scanner):
+        fake.hold_tokens.append(scanner)
+        return "token"
+
+    def clear_hold(scanner):
+        if fake.holding:
+            fake.holding = False
+            fake.monitor.music_finished += 1
+
+    monkeypatch.setattr(native.state, "set_native_hold", set_hold)
+    monkeypatch.setattr(native.state, "clear_native_hold", clear_hold)
     monkeypatch.setattr(
         native,
         "Monitor",
-        lambda: SimpleNamespace(finished=0, waitForAbort=lambda _: False),
+        lambda: SimpleNamespace(
+            finished=0, music_finished=0, waitForAbort=lambda _: False
+        ),
     )
     fake.builtins = []
     monkeypatch.setattr(native.xbmc, "executebuiltin", fake.builtins.append)
@@ -190,6 +299,7 @@ class Server:
                 (LIB2, "tvshows"),
             )
         ]
+        self.music = None
         self.updated = []
         self.deleted = set()
 

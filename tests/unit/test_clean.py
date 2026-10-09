@@ -183,6 +183,28 @@ def test_clean_repairs_subpristine_music(sync_env):
     assert music_dump(_music_path()) == pristine
 
 
+def test_clean_leaves_one_versiontagscan_row(sync_env):
+    """Kodi's GetMusicNeedsTagScan returns -1 for any count of versiontagscan
+    rows but one, and the music window then asks to rescan tags from files
+    on every visit -- a SCAN_RESCAN of every music path when accepted. The
+    wipe must leave the row Kodi created, stamped with the file's version,
+    and put it back when something else already deleted it."""
+    conn = sqlite3.connect(_music_path())
+    version = conn.execute("SELECT idVersion FROM version").fetchone()[0]
+    conn.execute("DELETE FROM versiontagscan")
+    conn.commit()
+    conn.close()
+    clean.clean_music_database()
+    conn = sqlite3.connect(_music_path())
+    try:
+        rows = conn.execute(
+            "SELECT idVersion, iNeedsScan FROM versiontagscan"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert rows == [(version, 0)]
+
+
 def test_clean_removes_user_videoversiontype_rows(sync_env):
     """Seed types (owner 0) survive; user-created types are wiped-era data."""
     pristine = dump(_video_path())

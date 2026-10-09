@@ -5,6 +5,7 @@ tag-setter glue so they can be unit tested; the setters are validated by the
 Kodistubs type check and exercised live.
 """
 
+import time
 from typing import Any, Dict, Optional, Tuple
 
 import xbmc
@@ -140,17 +141,63 @@ def person_thumb(server: str, person: JsonDict) -> str:
     cast, and only then, so a listing carrying fifty of these costs nothing
     until one is looked at. (The sync path pre-caches the same images for
     library rows — service/artcache.py — because there Kodi's own dialog
-    draws them all at once.)
+    draws them all at once.) Capped and encoded like every other image: the
+    video scanner caches a row's actor thumbs at import
+    (``videolibrary.actorthumbs``, on by default), and a tablet decoded
+    3,615 full-size portraits beside 3,239 capped posters.
     """
     tag = person.get("PrimaryImageTag")
     person_id = person.get("Id")
     if not tag or not person_id:
         return ""
-    return "%s/Items/%s/Images/Primary?tag=%s" % (server, person_id, tag)
+    return "%s/Items/%s/Images/Primary?tag=%s%s" % (server, person_id, tag, art_query())
+
+
+# The art query, memoised for a moment. Module state on purpose: a settings
+# read constructs a fresh Addon each time (settings.get_addon), which is
+# 20 ms on a Raspberry Pi, and art_for runs once per item -- two reads an
+# item turned a 14 s listing of 1,788 movies into 80 s. Two seconds of
+# memory survives any restart (it is time, not a handle) and a settings
+# change shows within them.
+_ART_QUERY: Tuple[float, str] = (0.0, "")
+ART_QUERY_TTL = 2.0
+
+
+def art_query() -> str:
+    """The size cap and encoding the server applies to listed artwork.
+
+    Kodi decodes and re-encodes every image it caches and caps the result at
+    its own fanart and thumb heights, so anything the server sends above the
+    cap is work for nothing -- a 4000x6000 poster decoded on a Raspberry Pi
+    for a 1080-high cache file. ``maxArtResolution`` asks the server for the
+    capped height (its own resize, cached server-side) and ``compressArt`` for
+    JPEG at quality 90, which only changes bytes once a resize happens
+    (``sync/fields.py`` has the measurement).
+    """
+    global _ART_QUERY
+    now = time.monotonic()
+    stamp, cached = _ART_QUERY
+    if now - stamp < ART_QUERY_TTL:
+        return cached
+    maxheight = settings.get_int("maxArtResolution")
+    query = ""
+    if maxheight:
+        query = "&MaxHeight=%d" % maxheight
+        if settings.get_bool("compressArt"):
+            query += "&Quality=90"
+    _ART_QUERY = (now, query)
+    return query
+
+
+def forget_art_query() -> None:
+    """Drop the memo (tests, and anything that changes the settings itself)."""
+    global _ART_QUERY
+    _ART_QUERY = (0.0, "")
 
 
 def art_for(item: JsonDict, server: str) -> Dict[str, str]:
     """Art dict with parent fallbacks (series poster on episodes, etc.)."""
+    query = art_query()
 
     def image(
         item_id: str, image_type: str, tag: str, index: Optional[int] = None
@@ -158,7 +205,7 @@ def art_for(item: JsonDict, server: str) -> Dict[str, str]:
         path = "%s/Items/%s/Images/%s" % (server, item_id, image_type)
         if index is not None:
             path += "/%d" % index
-        return path + "?tag=%s" % tag
+        return path + "?tag=%s" % tag + query
 
     art: Dict[str, str] = {}
     item_id = item.get("Id", "")

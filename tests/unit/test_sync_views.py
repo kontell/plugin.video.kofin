@@ -248,26 +248,6 @@ def test_addon_string_node_labels_are_written_as_text(views_env):
     assert "<label>20434</label>" in (node_dir / "sets.xml").read_text()
 
 
-def test_get_nodes_migrates_the_old_flat_layout(views_env):
-    seed([("lib1", "Movies", "movies")], ["lib1"])
-
-    # Seed the pre-NODE_ROOT layout plus a hand-made node of the user's.
-    old_dir = video_root(views_env) / "kofinmovieslib1"
-    old_dir.mkdir()
-    (old_dir / "index.xml").write_text("<node/>")
-    (video_root(views_env) / "kofin_Favoritemovies.xml").write_text("<node/>")
-    (video_root(views_env) / "movies").mkdir()
-    (video_root(views_env) / "movies" / "syncplay.xml").write_text("<node/>")
-
-    Views(FakeApi()).get_nodes()
-
-    assert not old_dir.exists()
-    assert not (video_root(views_env) / "kofin_Favoritemovies.xml").exists()
-    assert (kofin_root(views_env) / "kofinmovieslib1" / "index.xml").is_file()
-    # Never ours to delete.
-    assert (video_root(views_env) / "movies" / "syncplay.xml").is_file()
-
-
 def test_get_nodes_prunes_libraries_that_left_the_whitelist(views_env):
     seed([("lib1", "Movies", "movies"), ("lib2", "Shows", "tvshows")], ["lib1", "lib2"])
     Views(FakeApi()).get_nodes()
@@ -457,23 +437,6 @@ def test_playlist_folder_carries_the_addon_icon(views_env, monkeypatch):
     assert icon.read_bytes()[:4] == b"\x89PNG"  # named .jpg, PNG inside
 
 
-def test_flat_playlists_are_migrated_into_the_folder(views_env):
-    """The old copies would otherwise stay: same tag rule, second name, two
-    identical entries in the playlists window."""
-    seed([("lib1", "Movies", "movies")], ["lib1"])
-    (playlists_root(views_env) / "kofinmovieslib1.xsp").write_text("<smartplaylist/>")
-    (playlists_root(views_env) / "kofintvshowsgone.xsp").write_text("<smartplaylist/>")
-    (playlists_root(views_env) / "mylist.xsp").write_text("<smartplaylist/>")
-
-    Views(FakeApi()).get_nodes()
-
-    assert sorted(p.name for p in playlists_root(views_env).iterdir()) == [
-        PLAYLIST_FOLDER,
-        "mylist.xsp",  # the user's, and never ours to remove
-    ]
-    assert (playlist_root(views_env) / "kofinmovieslib1.xsp").is_file()
-
-
 def test_delete_playlists_spares_what_is_not_ours(views_env):
     seed([("lib1", "Movies", "movies")], ["lib1"])
     Views(FakeApi()).get_nodes()
@@ -487,17 +450,6 @@ def test_delete_playlists_spares_what_is_not_ours(views_env):
     # The folder stays for the file that is not ours; ours are gone from it.
     assert not list(playlist_root(views_env).glob("kofin*.xsp"))
     assert (playlist_root(views_env) / "mine.xsp").is_file()
-
-
-def test_remove_library_finds_a_playlist_in_either_home(views_env):
-    """A library dropped between the upgrade and the next generation still has
-    its playlist out in the old flat layout."""
-    seed([("lib1", "Movies", "movies")], ["lib1"])
-    (playlists_root(views_env) / "kofinmovieslib1.xsp").write_text("<smartplaylist/>")
-
-    Views().remove_library("lib1")
-
-    assert not (playlists_root(views_env) / "kofinmovieslib1.xsp").exists()
 
 
 # --- node ordering resilience (healing-loops-plan F5) ------------------------

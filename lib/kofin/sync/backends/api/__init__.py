@@ -6,7 +6,17 @@ from kofin.sync.backend import ApplyResult
 from kofin.sync.catalogue import claim_backend
 from kofin.sync.private import Database
 
-SUPPORTED = ("Movie", "Series", "Season", "Episode", "MusicVideo", "BoxSet")
+SUPPORTED = (
+    "Movie",
+    "Series",
+    "Season",
+    "Episode",
+    "MusicVideo",
+    "BoxSet",
+    "Audio",
+    "MusicAlbum",
+    "MusicArtist",
+)
 
 
 class APIBackend:

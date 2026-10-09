@@ -9,6 +9,7 @@ full premiere date -- and ``details`` speaks that representation.
 """
 
 import hashlib
+import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import xbmc
@@ -18,7 +19,7 @@ from kofin.plugin import listitems
 from kofin.sync.model import ratings as shared_ratings, streams_and_runtime
 from kofin.sync.shims import convert_to_local
 from . import paths
-from .store import encode
+from .store import encode, payload_hash
 
 ASCII_SPACE = " \t\n\r\v\f"
 
@@ -29,7 +30,13 @@ MEDIATYPE = {
     "Episode": "episode",
     "MusicVideo": "musicvideo",
     "BoxSet": "set",
+    "Audio": "song",
+    "MusicAlbum": "album",
+    "MusicArtist": "artist",
 }
+MUSIC = ("Audio", "MusicAlbum", "MusicArtist")
+# Jellyfin's "no date" for music: year 1, 0001-01-01.
+NO_YEAR = 1
 FAVORITE_TAG = {
     "Movie": "Favorite movies",
     "Series": "Favorite tvshows",
@@ -45,11 +52,18 @@ _DROP = ("ImageBlurHashes", "Chapters", "Trickplay", "MediaAttachments")
 
 
 def compact(item):
-    """The DTO minus what nothing reads; applied before hashing or storing."""
+    """The DTO minus what nothing reads; applied before hashing or storing.
+
+    A song keeps its sources (the file size is the scanner's hash input)
+    and drops its streams: no music setter reads them, and 22,000 of them
+    would be the catalogue's largest field.
+    """
     result = {k: v for k, v in item.items() if k not in _DROP}
     sources = item.get("MediaSources")
+    if item.get("Type") == "Audio":
+        result.pop("MediaStreams", None)
     if isinstance(sources, list):
-        if not result.get("MediaStreams"):
+        if not result.get("MediaStreams") and item.get("Type") != "Audio":
             for source in sources:
                 if isinstance(source, dict) and source.get("MediaStreams"):
                     result["MediaStreams"] = source["MediaStreams"]
@@ -76,10 +90,20 @@ def compact(item):
 
 
 def item_separator():
-    """Read Kodi's configured video-array separator through its public tag API."""
-    tag = xbmcgui.ListItem(offscreen=True).getVideoInfoTag()
+    """Read Kodi's configured video-array separator through its public tag API.
+
+    The ListItem must outlive the tag: ``getVideoInfoTag`` hands out a
+    pointer into the item (``InfoTagVideo(tag, offscreen)``, owned=false),
+    and the item's destructor deletes it. Taken from a temporary, the tag
+    dangles and the first setter writes freed memory; a 32-bit ARM Kodi
+    segfaulted in ``setGenres`` on it (LibreELEC 22.0b2, 9 October 2026).
+    """
+    probe = xbmcgui.ListItem(offscreen=True)
+    tag = probe.getVideoInfoTag()
     tag.setGenres(["kofin_left", "kofin_right"])
     joined = tag.getGenre()
+    del tag
+    del probe
     return joined[len("kofin_left") : -len("kofin_right")] if joined else " / "
 
 
@@ -115,20 +139,30 @@ def refresh_token(item, seasons=()):
     return _token(value)
 
 
-def userdata(item):
+def userdata(item) -> Dict[str, Any]:
+    """The userdata Kodi keeps for a playable row. A song has no resume point
+    in Kodi's music library, so a song's is its playcount and last played."""
     data = item.get("UserData") or {}
-    result = {
-        "playcount": listitems.playcount_of(item),
-        "resume": {
+    result: Dict[str, Any] = {"playcount": listitems.playcount_of(item)}
+    if item.get("Type") != "Audio":
+        result["resume"] = {
             "position": float(data.get("PlaybackPositionTicks") or 0) / 10000000,
             "total": float(item.get("RunTimeTicks") or 0) / 10000000,
-        },
-    }
+        }
     # Kodi's watched setter generates a timestamp when none is supplied.
     # Preserve that supported behavior for old server records without a date;
     # explicit server dates and unwatched clears still round-trip exactly.
     if data.get("LastPlayedDate") or not result["playcount"]:
         result["lastplayed"] = _timestamp(data.get("LastPlayedDate"))
+    elif item.get("Type") == "Audio":
+        # Played, but the server never recorded when. Kodi's UpdateSong
+        # stamps the current time on a played song with no date
+        # (MusicDatabase.cpp), which put sixteen songs marked played years
+        # ago at the top of a tablet's recently played albums on the day of
+        # its import. The date the server first saw the song is the latest
+        # moment certainly no later than the play, and it never reads as
+        # recent. The video setters leave a missing date alone.
+        result["lastplayed"] = _timestamp(item.get("DateCreated"))
     return result
 
 
@@ -246,6 +280,22 @@ def _date(value, length=10):
     return str(value or "")[:length].replace("T", " ")
 
 
+def _int(value) -> int:
+    """A number the server sent, or the missing-field zero.
+
+    ``song_tags`` is both the directory listing and the hash the pass
+    compares, so it has to be total: a track number of "x" raised out of
+    ``int`` and skipped the scan of every directory in its library on every
+    pass. A value that does not parse is treated as absent, which is what
+    the listing, the hash and the directory picker already agree on for a
+    field that is not there.
+    """
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _timestamp(value):
     """A server UTC instant as the local-time text Kodi stores and shows.
 
@@ -273,10 +323,21 @@ def details(
     Explicit empty values clear metadata the server removed.
     """
     kind = item.get("Type", "Movie")
+    if kind in MUSIC:
+        return music_details(item, server)
     data: Dict[str, Any] = {
         "title": item.get("Name", ""),
         "plot": item.get("Overview") or "",
-        "art": listitems.art_for(item, server),
+        # An episode's tvshow.* and season.* art is Kodi's own, read off the
+        # show and season rows: the episode setter cannot make such a key
+        # true, and a show whose art URL changed after its episodes were
+        # acknowledged (the artwork cap) left two episodes on the LibreELEC
+        # box failing "readback differs: art" on every pass.
+        "art": {
+            key: value
+            for key, value in listitems.art_for(item, server).items()
+            if "." not in key
+        },
         "dateadded": _timestamp(item.get("DateCreated")),
     }
     if kind == "BoxSet":
@@ -382,9 +443,196 @@ def details(
         data["year"] = int(data["premiered"][:4])
     if kind in ("Movie", "Episode", "MusicVideo"):
         data.update(userdata(item))
-    if not data.get("dateadded"):
-        data.pop("dateadded", None)
+    # No opinion on a date the server does not have. Kodi fills a missing
+    # premiere or aired date itself (its zero date on the P1D, a sibling's
+    # date on the LibreELEC box) and its setters ignore an empty one, so an
+    # empty desired value would differ from the row on every readback and
+    # keep the item pending for ever (187 rows on the box, re-patched by
+    # every pass).
+    for key in ("dateadded", "premiered", "firstaired"):
+        if key in data and not data.get(key):
+            data.pop(key)
     return data
+
+
+# -- music ---------------------------------------------------------------------
+
+
+def music_art(item, server) -> Dict[str, str]:
+    """The two art types Kodi's music library shows for albums and artists."""
+    art = listitems.art_for(item, server)
+    return {key: art[key] for key in ("thumb", "fanart") if art.get(key)}
+
+
+def music_details(item, server) -> Dict[str, Any]:
+    """The desired native state of a music kind.
+
+    A song's tags are the scanner's to write: the only public setter a song
+    needs after import is for the userdata the scanner discards (phase 0:
+    ``CSong`` zeroes the play count of every new row). An album or artist
+    is derived from its songs, and what it cannot derive -- its art and its
+    description -- is the whole of its desired state.
+    """
+    kind = item.get("Type")
+    if kind == "Audio":
+        return userdata(item)
+    return {
+        "art": music_art(item, server),
+        "description": (item.get("Overview") or "").strip(ASCII_SPACE),
+    }
+
+
+def names(credits) -> List[str]:
+    result = []
+    for credit in credits or []:
+        name = credit.get("Name", "") if isinstance(credit, dict) else str(credit)
+        name = name.strip(ASCII_SPACE)
+        if name and name not in result:
+            result.append(name)
+    return result
+
+
+def song_year(item) -> int:
+    year = _int(item.get("ProductionYear"))
+    return year if year > NO_YEAR else 0
+
+
+def song_tags(item, album=None) -> Dict[str, Any]:
+    """Every tag the song's ListItem sets, as plain values: the scanner's
+    input, and the hash a metadata change moves the directory by.
+
+    The album's MusicBrainz ids come from the album's own record so every
+    song in the directory carries the same ones; a Jellyfin id is never
+    dressed as an MBID. Userdata is deliberately absent: a play on the
+    server must not re-import the album. Every number goes through ``_int``:
+    the function is total, so one malformed song cannot stall its library.
+    """
+    album = album or {}
+    sources = item.get("MediaSources") or []
+    size = 0
+    if sources and isinstance(sources[0], dict):
+        size = _int(sources[0].get("Size"))
+    providers = item.get("ProviderIds") or {}
+    album_providers = album.get("ProviderIds") or {}
+    year = song_year(item)
+    release = _date(item.get("PremiereDate")) if year else ""
+    return {
+        "title": (item.get("Name") or "").strip(ASCII_SPACE),
+        "album": (item.get("Album") or album.get("Name") or "").strip(ASCII_SPACE),
+        "albumartist": names(item.get("AlbumArtists") or album.get("AlbumArtists")),
+        "artist": names(item.get("ArtistItems")) or names(item.get("Artists")),
+        "genre": [g.strip(ASCII_SPACE) for g in item.get("Genres") or [] if g],
+        "track": _int(item.get("IndexNumber")),
+        "disc": _int(item.get("ParentIndexNumber")),
+        "duration": _int(item.get("RunTimeTicks")) // 10000000,
+        "year": year,
+        "releasedate": release,
+        "musicbrainztrackid": str(providers.get("MusicBrainzTrack") or ""),
+        "musicbrainzalbumid": str(album_providers.get("MusicBrainzAlbum") or ""),
+        "musicbrainzreleasegroupid": str(
+            album_providers.get("MusicBrainzReleaseGroup") or ""
+        ),
+        "size": size,
+    }
+
+
+def tag_hash(item, album=None) -> str:
+    return _token(song_tags(item, album))
+
+
+def hash_time(digest: str) -> str:
+    """A timestamp derived from a hash, for the directory's own hash.
+
+    The music scanner hashes a directory by each item's path, size and
+    full date, and skips a directory whose hash it already holds; a song
+    whose tags changed therefore has to present a different date, or the
+    rescan never happens. Twenty-five years of seconds is the range.
+    """
+    import datetime
+
+    seconds = int(digest[:12], 16) % (25 * 365 * 86400)
+    moment = datetime.datetime(2000, 1, 1) + datetime.timedelta(seconds=seconds)
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def mark_loaded(li, size):
+    """Tell the scanner the tag is complete so it reads no file.
+
+    ``InfoTagMusic`` has no ``setLoaded``; the legacy ``setInfo`` sets the
+    flag, and its ``size`` key is the one that does so without the
+    per-row deprecation warning (checked on 22.0b2: ``size`` takes the
+    non-deprecated branch). The real file size is the scanner's hash
+    input, never an invented one. An upstream ``setLoaded`` replaces this
+    here and nowhere else.
+    """
+    li.setInfo("music", {"size": str(size)})
+    tag = li.getMusicInfoTag()
+    if hasattr(tag, "setLoaded"):
+        tag.setLoaded(True)
+
+
+def song_listitem(item, album=None, salt: int = 0):
+    """A scanner row for a song: its tags, its size, and a date that moves
+    with its tags so a change re-imports the directory."""
+    tags = song_tags(item, album)
+    li = xbmcgui.ListItem(tags["title"] or item.get("Name", ""), offscreen=True)
+    tag = li.getMusicInfoTag()
+    tag.setMediaType("song")
+    tag.setTitle(tags["title"])
+    if tags["album"]:
+        tag.setAlbum(tags["album"])
+    if tags["albumartist"]:
+        tag.setAlbumArtist(" / ".join(tags["albumartist"]))
+    if tags["artist"]:
+        tag.setArtist(" / ".join(tags["artist"]))
+    if tags["genre"]:
+        tag.setGenres(tags["genre"])
+    if tags["track"]:
+        tag.setTrack(tags["track"])
+    if tags["disc"]:
+        tag.setDisc(tags["disc"])
+    if tags["duration"]:
+        tag.setDuration(tags["duration"])
+    if tags["year"]:
+        tag.setYear(tags["year"])
+    if tags["releasedate"]:
+        tag.setReleaseDate(tags["releasedate"])
+    if tags["musicbrainztrackid"]:
+        tag.setMusicBrainzTrackID(tags["musicbrainztrackid"])
+    if tags["musicbrainzalbumid"]:
+        tag.setMusicBrainzAlbumID(tags["musicbrainzalbumid"])
+    if tags["musicbrainzreleasegroupid"]:
+        tag.setMusicBrainzReleaseGroupID(tags["musicbrainzreleasegroupid"])
+    # The date is what the scanner hashes a listing by; a salt moves it
+    # without touching a tag (store.bump_salt).
+    li.setDateTime(hash_time(_token([tags, salt]) if salt else _token(tags)))
+    mark_loaded(li, tags["size"])
+    return li
+
+
+def fallback_song_listitem(item):
+    """The least a song row needs to survive a serializer fault: a title,
+    its size and a loaded tag. Better one plain row than a deleted song."""
+    sources = item.get("MediaSources") or []
+    size = sources[0].get("Size") if sources and isinstance(sources[0], dict) else 0
+    li = xbmcgui.ListItem(str(item.get("Name") or item.get("Id") or ""), offscreen=True)
+    tag = li.getMusicInfoTag()
+    tag.setMediaType("song")
+    tag.setTitle(str(item.get("Name") or item.get("Id") or ""))
+    if item.get("Album"):
+        tag.setAlbum(str(item["Album"]))
+    mark_loaded(li, int(size or 0))
+    return li
+
+
+def folder_label(album, folder: str, salt: int = 0) -> str:
+    """The root listing's label for an album directory: Kodi walks a
+    directory's folders in label order and numbers albums as it adds
+    them, so oldest-first on the server's creation date puts the
+    server's newest album at the top of Kodi's recently added. A salted
+    directory carries its salt so a root walk sees it changed too."""
+    created = str((album or {}).get("DateCreated") or "0000-00-00T00:00:00")[:19]
+    return created + " " + folder + (" %d" % salt if salt else "")
 
 
 def collections_of(boxsets: Iterable[Dict[str, Any]]) -> Dict[str, str]:
@@ -451,19 +699,61 @@ def _streams(tag, item):
         tag.addSubtitleStream(xbmc.SubtitleStreamDetail(language=language or ""))
 
 
-def show_hash(episodes: Iterable[Dict[str, Any]]) -> str:
+def inputs_token(server, key, library, separator, seasons=(), set_name=None) -> str:
+    """Everything ``details`` reads besides the payload, as one token.
+
+    A mapping that carries the payload hash and this token was acknowledged
+    for exactly the desired state the same inputs would produce again, so a
+    pass can skip building and comparing it (``patch.Applier.plan``). The
+    token is that contract: an input missing from it freezes the state the
+    next change of that input should have moved. Besides the caller's
+    arguments ``details`` reads the artwork cap and encoding
+    (``listitems.art_query``) and renders its timestamps in the local zone
+    (``shims.convert_to_local``); both are here, and anything new that
+    ``details`` reads joins them.
+    """
+    return _token(
+        [
+            server or "",
+            key,
+            library or "",
+            separator,
+            set_name or "",
+            sorted(payload_hash(season) for season in seasons),
+            listitems.art_query(),
+            # The zone, not the current offset: the names list both halves
+            # of a zone with daylight saving, so a token does not flip twice
+            # a year for a change that convert_to_local already renders
+            # correctly per instant.
+            [time.timezone, list(time.tzname)],
+        ]
+    )
+
+
+def episode_row(item) -> Optional[Tuple[str, int, int]]:
+    """All the show hash takes from an episode: its id and numbering, or
+    None for one Kodi cannot file. A listing reduces each payload to this
+    and lets the payload go."""
+    numbers = episode_numbers(item)
+    if numbers is None:
+        return None
+    return (str(item["Id"]), numbers["season"], numbers["episode"])
+
+
+def show_hash(episodes: Iterable[Any]) -> str:
     """What the scanner may skip a show for: its importable episode set.
 
     Kodi compares the folder's ``hash`` property with the one it stored after
     the last import and skips the listing when they match, so the hash must
     move when an episode arrives, leaves or is renumbered -- and must not move
-    for a plot edit, which the detail patch carries.
+    for a plot edit, which the detail patch carries. Takes payloads or the
+    rows ``episode_row`` reduces them to.
     """
     rows = []
     for episode in episodes:
-        numbers = episode_numbers(episode)
-        if numbers is not None:
-            rows.append((episode["Id"], numbers["season"], numbers["episode"]))
+        row = episode if isinstance(episode, tuple) else episode_row(episode)
+        if row is not None:
+            rows.append(row)
     return _token(sorted(rows))
 
 
@@ -498,6 +788,8 @@ def listitem(
     alike is that row's existence.
     """
     kind = item.get("Type", "Movie")
+    if kind == "Audio":
+        return song_listitem(item)
     data = details(item, server, key, library, separator, seasons, set_name)
     li = xbmcgui.ListItem(data.get("title", item.get("Name", "")), offscreen=True)
     li.setArt(data["art"])

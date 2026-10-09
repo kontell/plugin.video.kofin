@@ -32,10 +32,15 @@ def test_complete_movie_lifecycle_and_foreign_item_survives(store, backend, kodi
     backend.reconcile()
     first = store.mapping("a").kodi_id
     assert store.state("a").applied == 1
+    # A first import scans the root, which lists every movie as a file under
+    # its own folder's URL; no folder is bound until one is scanned by name.
     assert kodi.bindings == {
         paths.library_dir(store.namespace, LIB, "movies"): "movies"
     }
     assert kodi.scanned == [paths.library_dir(store.namespace, LIB, "movies")]
+    assert kodi.rows["Movie"][first]["file"].startswith(
+        paths.movie_dir(store.namespace, LIB, "a")
+    )
     # A scanner row built from the same policy needs no patch at all.
     assert not methods(kodi, "VideoLibrary.SetMovieDetails")
     store.publish(
@@ -418,25 +423,6 @@ def test_first_run_gate_refuses_existing_library_and_other_namespace(
         other.setup()
 
 
-def test_legacy_rows_are_cleared_before_the_old_tables_go(store, backend, kodi):
-    backend.setup()
-    with private.Database() as db:
-        db.cursor.execute("CREATE TABLE api_movie(namespace TEXT, item_id TEXT)")
-    kodi.rows["Movie"][5] = {
-        "movieid": 5,
-        "file": paths.root(store.namespace) + "?mode=play&id=old",
-        "uniqueid": {"kofin": store.namespace + ":old"},
-    }
-    backend.setup()
-    assert kodi.rows["Movie"] == {}
-    assert methods(kodi, "VideoLibrary.SetSourceContent")[0]["path"] == paths.root(
-        store.namespace
-    )
-    assert kodi.builtins == ["UpdateLibrary(video)"]
-    assert not store.legacy_present()
-    assert store.prepared() == store.namespace
-
-
 def test_expected_userdata_scoped_by_generation_and_expiry(store, monkeypatch):
     store.publish([movie()], library=LIB)
     store.expect("a", 1, {"playcount": 3})
@@ -465,7 +451,7 @@ def test_snapshot_pin_survives_interrupted_scan(store, backend, kodi, monkeypatc
     store.publish([movie()], library=LIB)
     scan = backend.scan
 
-    def interrupted(directories):
+    def interrupted(directories, **_):
         backend._async_pending = True
         raise InterruptedError("restart")
 
@@ -756,3 +742,57 @@ def test_a_vanished_show_takes_its_pending_episodes_with_it(store, backend, kodi
     assert not methods(kodi, "VideoLibrary.RemoveEpisode")
     assert set(kodi.owned("Series")) == {SHOW2}
     assert set(kodi.owned("Episode")) == {"fb21"}
+
+
+def test_scans_are_issued_one_at_a_time(store, backend, kodi, monkeypatch):
+    """Kodi's UpdateLibrary builtin, which VideoLibrary.Scan and
+    AudioLibrary.Scan both go through, stops a running scan instead of
+    queuing a second one; a pass that selected two libraries at once lost
+    one scan on every retry on 22.0b2. Each scan waits for the one before."""
+    from kofin.sync.backends.api import native as native_module
+
+    issued = []
+    scanning = {"on": False}
+    original = kodi.rpc
+
+    def rpc(method, params=None):
+        if method == "VideoLibrary.Scan":
+            assert not scanning["on"], "a scan was issued while another was running"
+            issued.append(params["directory"])
+            scanning["on"] = True
+            return "OK"
+        return original(method, params)
+
+    polls = {"n": 0}
+
+    def visible(flag):
+        if flag == "Library.IsScanningVideo" and scanning["on"]:
+            # The scan "finishes" on the third poll.
+            polls["n"] += 1
+            if polls["n"] >= 3:
+                polls["n"] = 0
+                scanning["on"] = False
+                backend.monitor.finished += 1
+            return True
+        return False
+
+    monkeypatch.setattr(native_module, "rpc", rpc)
+    monkeypatch.setattr(native_module.xbmc, "getCondVisibility", visible)
+    backend.scan(["plugin://a/", "plugin://b/", "plugin://c/"])
+    assert issued == ["plugin://a/", "plugin://b/", "plugin://c/"]
+    assert backend.monitor.finished == 3
+
+
+def test_a_first_import_under_repair_acknowledges_without_a_write(store, backend, kodi):
+    """The pass after every complete enumeration runs as a repair; a row the
+    scanner just filed from this listing has nothing stale behind it. A
+    tablet re-wrote all 6,200 rows of its first import before this."""
+    store.publish([movie()], library=LIB)
+    backend.reconcile(repair=True)
+    assert store.mapping("a") is not None
+    assert not any(method == "VideoLibrary.SetMovieDetails" for method, _ in kodi.calls)
+    # A later repair of a row whose acknowledged hash moved still writes.
+    store.publish([movie(Overview="Changed")])
+    kodi.rows["Movie"][store.mapping("a").kodi_id]["plot"] = "Changed"
+    backend.reconcile(repair=True)
+    assert any(method == "VideoLibrary.SetMovieDetails" for method, _ in kodi.calls)

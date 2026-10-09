@@ -17,17 +17,45 @@ from kofin.core import kodirpc
 BATCH = 25
 
 # Application order: a season or episode patch needs its show's row first,
-# a set needs its movies.
-ORDER = ("Series", "Season", "Episode", "Movie", "MusicVideo", "BoxSet")
+# a set needs its movies, an album or artist is found through its songs.
+ORDER = (
+    "Series",
+    "Season",
+    "Episode",
+    "Movie",
+    "MusicVideo",
+    "BoxSet",
+    "Audio",
+    "MusicAlbum",
+    "MusicArtist",
+)
 
-# Kinds whose rows carry a resolver URL and a namespaced unique id.
+# Kinds whose rows carry a resolver URL and a namespaced unique id. A song
+# has the URL but no unique id: Kodi keeps none for music, so its ownership
+# is the URL alone.
 FILED = ("Movie", "Series", "Episode", "MusicVideo")
 
 # Kodi's media type for a playable kind, for playback and userdata lookups.
-MEDIA = {"movie": "Movie", "episode": "Episode", "musicvideo": "MusicVideo"}
+MEDIA = {
+    "movie": "Movie",
+    "episode": "Episode",
+    "musicvideo": "MusicVideo",
+    "song": "Audio",
+}
 
 # Kinds whose rows carry userdata the server and Kodi both edit.
-PLAYABLE = ("Movie", "Episode", "MusicVideo")
+PLAYABLE = ("Movie", "Episode", "MusicVideo", "Audio")
+
+# Playable kinds with a watcher behind Kodi's announcements: their userdata
+# writes are recorded as expectations so the echo is not read as a local
+# edit. Nothing listens for songs (AudioLibrary.OnUpdate is not watched and
+# Kodi has no watched UI for songs), so a song expectation would be a write
+# for nothing.
+EXPECTED = ("Movie", "Episode", "MusicVideo")
+
+# Kinds the music scanner derives from song tags rather than files: they
+# have no directory, no listing of their own and leave when their songs do.
+DERIVED = ("MusicAlbum", "MusicArtist")
 
 
 class Kind(NamedTuple):
@@ -40,9 +68,11 @@ class Kind(NamedTuple):
     refresh: Optional[str]
     remove: Optional[str]
     # How a tombstone of this kind leaves Kodi: "row" through its own remove
-    # call, "parent" with the show it belongs to (no call of its own), or
+    # call, "parent" with the show it belongs to (no call of its own),
     # "members" once the movies that filed it have let go and Kodi's clean
-    # has dropped the empty set.
+    # has dropped the empty set, or "rescan" through the complete listing
+    # of its directory -- the audio API has no remove call at all, and a
+    # music scan replaces a directory's songs with whatever is listed.
     removal: str
 
 
@@ -113,6 +143,56 @@ KINDS: Dict[str, Kind] = {
         None,
         "members",
     ),
+    "Audio": Kind(
+        "AudioLibrary.GetSongs",
+        "songs",
+        "songid",
+        "AudioLibrary.GetSongDetails",
+        "songdetails",
+        "AudioLibrary.SetSongDetails",
+        None,
+        None,
+        "rescan",
+    ),
+    "MusicAlbum": Kind(
+        "AudioLibrary.GetAlbums",
+        "albums",
+        "albumid",
+        "AudioLibrary.GetAlbumDetails",
+        "albumdetails",
+        "AudioLibrary.SetAlbumDetails",
+        None,
+        None,
+        "rescan",
+    ),
+    "MusicArtist": Kind(
+        "AudioLibrary.GetArtists",
+        "artists",
+        "artistid",
+        "AudioLibrary.GetArtistDetails",
+        "artistdetails",
+        "AudioLibrary.SetArtistDetails",
+        None,
+        None,
+        "rescan",
+    ),
+}
+
+# The scanner a kind's content belongs to, for the scan call and the waits.
+SCANNER = {"Audio": "music", "MusicAlbum": "music", "MusicArtist": "music"}
+
+# What a scope readback carries: enough to find a row, own it and see the
+# userdata a viewer may have changed, never the whole row. The full row is
+# read by id (or as one listing when most of a scope needs it) only for the
+# items whose desired state moved. A full readback of 1,788 movies with 27
+# properties was the largest reply Kodi built for a pass that patched one.
+MINIMAL: Dict[str, List[str]] = {
+    "Movie": ["file", "uniqueid", "playcount", "lastplayed", "resume"],
+    "Series": ["file", "uniqueid"],
+    "Season": ["season", "tvshowid"],
+    "Episode": ["file", "uniqueid", "playcount", "lastplayed", "resume", "tvshowid"],
+    "MusicVideo": ["file", "uniqueid", "playcount", "lastplayed", "resume"],
+    "BoxSet": ["title"],
 }
 
 PROPERTIES: Dict[str, List[str]] = {
@@ -207,6 +287,13 @@ PROPERTIES: Dict[str, List[str]] = {
         "resume",
     ],
     "BoxSet": ["title", "plot", "art"],
+    # A song's readback is one call for a whole library, so it carries only
+    # what the pass compares -- its userdata -- and what maps its album.
+    # Every property that joins another table (artistid, genreid) costs the
+    # whole listing dear, as the schema itself warns.
+    "Audio": ["file", "albumid", "playcount", "lastplayed"],
+    "MusicAlbum": ["art", "description"],
+    "MusicArtist": ["art", "description"],
 }
 
 

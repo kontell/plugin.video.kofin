@@ -21,12 +21,27 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from kofin.sync.catalogue import Catalogue
 from kofin.sync.model import MediaItem
+from kofin.core.log import Logger
 from kofin.sync.private import Database
+from . import paths
+from .records import Record
 
-KINDS = ("Movie", "Series", "Season", "Episode", "MusicVideo", "BoxSet")
-# A season or episode is filed under its show; nothing else has a parent.
-PARENTED = ("Season", "Episode")
-LEGACY_TABLES = ("api_snapshot", "api_movie", "api_directory")
+LOG = Logger(__name__)
+
+KINDS = (
+    "Movie",
+    "Series",
+    "Season",
+    "Episode",
+    "MusicVideo",
+    "BoxSet",
+    "Audio",
+    "MusicAlbum",
+    "MusicArtist",
+)
+# A season or episode is filed under its show; a song under its album (or
+# the singles folder of its artist); nothing else has a parent.
+PARENTED = ("Season", "Episode", "Audio")
 
 
 def namespace(server_id, user_id):
@@ -48,22 +63,23 @@ def tombstone(kind, item_id):
     return {"Id": item_id, "Type": kind}
 
 
+def parent_of(kind, payload) -> str:
+    """The directory key an item is filed under, '' for a kind with none."""
+    if kind in ("Season", "Episode"):
+        if not payload.get("SeriesId"):
+            raise ValueError("%s %s has no series" % (kind, payload.get("Id")))
+        return str(payload["SeriesId"])
+    if kind == "Audio":
+        return paths.song_folder(payload)
+    return ""
+
+
 @dataclass(frozen=True)
 class Entry:
     item_id: str
     kind: str
     library: str
     parent_id: str
-
-
-@dataclass(frozen=True)
-class Record:
-    item_id: str
-    kind: str
-    library: str
-    parent_id: str
-    item: Dict[str, Any]
-    generation: int
 
 
 @dataclass(frozen=True)
@@ -87,6 +103,7 @@ class Store(Catalogue):
                 kind TEXT NOT NULL, library TEXT NOT NULL, parent_id TEXT NOT NULL,
                 PRIMARY KEY(namespace,item_id,added));
             CREATE INDEX IF NOT EXISTS api_entry_live ON api_entry(namespace, removed);
+            CREATE INDEX IF NOT EXISTS api_entry_parent ON api_entry(namespace, kind, parent_id);
             CREATE TABLE IF NOT EXISTS api_native(
                 namespace TEXT NOT NULL, item_id TEXT NOT NULL, kind TEXT NOT NULL,
                 kodi_id INTEGER, applied TEXT NOT NULL DEFAULT '{}',
@@ -94,6 +111,9 @@ class Store(Catalogue):
             CREATE TABLE IF NOT EXISTS api_binding(
                 namespace TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL,
                 PRIMARY KEY(namespace,path));
+            CREATE TABLE IF NOT EXISTS api_salt(
+                namespace TEXT NOT NULL, folder TEXT NOT NULL, salt INTEGER NOT NULL,
+                PRIMARY KEY(namespace,folder));
             CREATE TABLE IF NOT EXISTS api_expected(
                 namespace TEXT NOT NULL, item_id TEXT NOT NULL, generation INTEGER NOT NULL,
                 expires REAL NOT NULL, payload TEXT NOT NULL,
@@ -126,36 +146,6 @@ class Store(Catalogue):
             mode = db.conn.execute("PRAGMA auto_vacuum").fetchone()[0]
             if mode == 2:
                 return
-            db.conn.commit()
-            db.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
-            db.conn.execute("VACUUM")
-
-    def legacy_present(self):
-        """Whether the 0.90.0 movie store is still in this profile."""
-        with Database() as db:
-            self._prepare(db.cursor)
-            return bool(
-                db.cursor.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='api_movie'"
-                ).fetchone()
-            )
-
-    def retire_legacy(self):
-        """Drop the 0.90.0 tables once their native rows are gone.
-
-        Desired state from that layout is meaningless under the new URLs, so
-        the catalogue rows go too and the next enumeration starts clean; the
-        local userdata outbox and the setup marker survive.
-        """
-        with Database() as db:
-            self._prepare(db.cursor)
-            for table in LEGACY_TABLES:
-                db.cursor.execute("DROP TABLE IF EXISTS " + table)
-            for table in ("api_item", "api_expected", "api_entry", "api_native"):
-                db.cursor.execute(
-                    "DELETE FROM %s WHERE namespace=?" % table, (self.namespace,)
-                )
-        with Database() as db:
             db.conn.commit()
             db.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
             db.conn.execute("VACUUM")
@@ -193,11 +183,11 @@ class Store(Catalogue):
         says every collection is present. Nothing else implies deletion.
         """
         media = [MediaItem.from_dto(item) for item in items]
+        parents = {}
         for medium in media:
             if medium.kind not in KINDS or not medium.payload.get("Name"):
                 raise ValueError("complete %s metadata required" % medium.kind)
-            if medium.kind in PARENTED and not medium.payload.get("SeriesId"):
-                raise ValueError("%s %s has no series" % (medium.kind, medium.item_id))
+            parents[medium.item_id] = parent_of(medium.kind, medium.payload)
         if len({m.item_id for m in media}) != len(media):
             raise ValueError("duplicate identities")
         with Database() as db:
@@ -246,7 +236,7 @@ class Store(Catalogue):
                             "new %s %s requires a selected library"
                             % (medium.kind, medium.item_id)
                         )
-                parent = medium.payload["SeriesId"] if medium.kind in PARENTED else ""
+                parent = parents[medium.item_id]
                 before = cursor.execute(
                     "SELECT desired FROM api_item WHERE namespace=? AND item_id=?",
                     (self.namespace, medium.item_id),
@@ -378,6 +368,56 @@ class Store(Catalogue):
             ).fetchall()
             return {row[0]: Entry(*row) for row in rows}
 
+    def payload(self, item_id: str) -> Dict[str, Any]:
+        """One item's desired payload."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            row = db.cursor.execute(
+                "SELECT payload FROM api_item WHERE namespace=? AND item_id=?",
+                (self.namespace, item_id),
+            ).fetchone()
+        return json.loads(row[0]) if row else {}
+
+    def payloads(self, item_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+        """The desired payloads of ``item_ids``, a few hundred to a query."""
+        ids = list(item_ids)
+        result: Dict[str, Dict[str, Any]] = {}
+        if not ids:
+            return result
+        with Database() as db:
+            self._prepare(db.cursor)
+            for start in range(0, len(ids), 500):
+                chunk = ids[start : start + 500]
+                rows = db.cursor.execute(
+                    "SELECT item_id, payload FROM api_item WHERE namespace=? AND item_id IN (%s)"
+                    % ",".join("?" * len(chunk)),
+                    [self.namespace] + chunk,
+                ).fetchall()
+                for item_id, payload in rows:
+                    result[item_id] = json.loads(payload)
+        return result
+
+    def pending_work(self) -> List[Tuple[str, int, str, Dict[str, Any]]]:
+        """Every pending item with its generation and operation, in id order.
+
+        A removal carries its tombstone (it names what it removes); an
+        upsert carries ``{}``, its payload read on demand through a
+        ``PayloadWindow``, so a first import or a repair never holds the
+        catalogue in memory.
+        """
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                """SELECT item_id, desired, operation,
+                CASE WHEN operation='remove' THEN payload END
+                FROM api_item WHERE namespace=? AND status='pending' ORDER BY item_id""",
+                (self.namespace,),
+            ).fetchall()
+        return [
+            (item_id, generation, operation, json.loads(payload) if payload else {})
+            for item_id, generation, operation, payload in rows
+        ]
+
     def records(
         self,
         kind=None,
@@ -385,12 +425,21 @@ class Store(Catalogue):
         parent_id=None,
         item_ids=None,
         pinned=True,
+        payloads=True,
     ) -> Dict[str, Record]:
-        """Payloads of the members a scanner callback or a repair pass needs."""
+        """Payloads of the members a scanner callback or a repair pass needs.
+
+        With ``payloads=False`` the records come without their payloads and
+        read them on first use, one at a time.
+        """
         where = ["e.added<=?", "(e.removed IS NULL OR e.removed>?)"]
+        t0 = time.monotonic()
         with Database() as db:
+            t1 = time.monotonic()
             self._prepare(db.cursor)
+            t2 = time.monotonic()
             generation = self._generation(db.cursor, pinned)
+            t3 = time.monotonic()
             params: List[Any] = [generation, generation]
             if kind is not None:
                 kinds = (kind,) if isinstance(kind, str) else tuple(kind)
@@ -409,16 +458,58 @@ class Store(Catalogue):
                 where.append("e.item_id IN (%s)" % ",".join("?" * len(ids)))
                 params.extend(ids)
             rows = db.cursor.execute(
-                """SELECT e.item_id, e.kind, e.library, e.parent_id, i.payload, i.desired
+                """SELECT e.item_id, e.kind, e.library, e.parent_id, %s, i.desired
                 FROM api_entry e JOIN api_item i ON i.namespace=e.namespace AND i.item_id=e.item_id
-                WHERE e.namespace=? AND """
+                WHERE e.namespace=? AND """ % ("i.payload" if payloads else "NULL")
                 + " AND ".join(where),
                 [self.namespace] + params,
             ).fetchall()
+        t4 = time.monotonic()
+        if t4 - t0 > 1.0:
+            LOG.debug(
+                "slow records(%s): open %.2f prepare %.2f generation %.2f query %.2f s",
+                kind,
+                t1 - t0,
+                t2 - t1,
+                t3 - t2,
+                t4 - t3,
+            )
         return {
-            row[0]: Record(row[0], row[1], row[2], row[3], json.loads(row[4]), row[5])
+            row[0]: Record(
+                row[0],
+                row[1],
+                row[2],
+                row[3],
+                json.loads(row[4]) if row[4] is not None else None,
+                row[5],
+                loader=None if row[4] is not None else self.payload,
+            )
             for row in rows
         }
+
+    def folders(self, kind, library, pinned=True) -> List[str]:
+        """The directory keys live items of ``kind`` file under, without
+        loading a payload: a root listing of 22,000 songs needs their
+        1,500 albums, not their text."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            generation = self._generation(db.cursor, pinned)
+            rows = db.cursor.execute(
+                """SELECT DISTINCT parent_id FROM api_entry WHERE namespace=? AND kind=?
+                AND library=? AND added<=? AND (removed IS NULL OR removed>?)""",
+                (self.namespace, kind, library, generation, generation),
+            ).fetchall()
+        return [row[0] for row in rows if row[0]]
+
+    def libraries(self, kind) -> List[str]:
+        """The libraries with a live item of ``kind``."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                "SELECT DISTINCT library FROM api_entry WHERE namespace=? AND kind=? AND removed IS NULL",
+                (self.namespace, kind),
+            ).fetchall()
+        return sorted(row[0] for row in rows if row[0])
 
     def item(self, item_id) -> Optional[Dict[str, Any]]:
         with Database() as db:
@@ -544,37 +635,46 @@ class Store(Catalogue):
 
     def forget(self, item_id, generation):
         """Acknowledge a removal: the native identity goes, the payload shrinks."""
+        return self.forget_many([(item_id, generation)]) == 1
+
+    def forget_many(self, rows):
+        """One transaction for a batch of removal acknowledgements; returns
+        how many matched their desired generation."""
+        count = 0
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute("BEGIN IMMEDIATE")
-            row = db.cursor.execute(
-                "SELECT kind FROM api_item WHERE namespace=? AND item_id=? AND desired=? AND operation='remove'",
-                (self.namespace, item_id, generation),
-            ).fetchone()
-            if not row:
-                return False
-            db.cursor.execute(
-                """UPDATE api_item SET applied=desired,status='applied',error='',payload=?
-                WHERE namespace=? AND item_id=?""",
-                (encode(tombstone(row[0], item_id)), self.namespace, item_id),
-            )
-            db.cursor.execute(
-                "DELETE FROM api_native WHERE namespace=? AND item_id=?",
-                (self.namespace, item_id),
-            )
-            db.cursor.execute(
-                "DELETE FROM api_expected WHERE namespace=? AND item_id=?",
-                (self.namespace, item_id),
-            )
             root = db.cursor.execute(
                 "SELECT current, pinned FROM api_root WHERE namespace=?",
                 (self.namespace,),
             ).fetchone()
-            if root:
-                self._collect(
-                    db.cursor, root[1] if root[1] is not None else root[0], item_id
+            for item_id, generation in rows:
+                row = db.cursor.execute(
+                    "SELECT kind FROM api_item WHERE namespace=? AND item_id=? AND desired=? AND operation='remove'",
+                    (self.namespace, item_id, generation),
+                ).fetchone()
+                if not row:
+                    continue
+                count += 1
+                db.cursor.execute(
+                    """UPDATE api_item SET applied=desired,status='applied',error='',payload=?
+                    WHERE namespace=? AND item_id=?""",
+                    (encode(tombstone(row[0], item_id)), self.namespace, item_id),
                 )
-            return True
+                db.cursor.execute(
+                    "DELETE FROM api_native WHERE namespace=? AND item_id=?",
+                    (self.namespace, item_id),
+                )
+                db.cursor.execute(
+                    "DELETE FROM api_expected WHERE namespace=? AND item_id=?",
+                    (self.namespace, item_id),
+                )
+            if count and root:
+                # One collection for the batch: the query's "still pending"
+                # subquery scans the item table, and once per item it turned
+                # a whole-library removal into minutes of SQLite.
+                self._collect(db.cursor, root[1] if root[1] is not None else root[0])
+        return count
 
     def invalidate(self, item_ids: Iterable[str]):
         """Put applied upserts back to pending; their desired state is unchanged.
@@ -628,6 +728,41 @@ class Store(Catalogue):
             db.cursor.execute(
                 "INSERT OR REPLACE INTO api_binding VALUES (?,?,?)",
                 (self.namespace, path, content),
+            )
+
+    def salt(self, folder) -> int:
+        """How many times a music directory's listing has been salted: a
+        directory whose by-name scan left its songs missing is one Kodi
+        skips "due to no change" (its hash was stored by a scan stopped
+        before the songs were written); salting the dates moves the hash."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            row = db.cursor.execute(
+                "SELECT salt FROM api_salt WHERE namespace=? AND folder=?",
+                (self.namespace, folder),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def bump_salt(self, folder) -> int:
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute(
+                """INSERT INTO api_salt VALUES (?,?,1)
+                ON CONFLICT(namespace, folder) DO UPDATE SET salt=salt+1""",
+                (self.namespace, folder),
+            )
+        return self.salt(folder)
+
+    def bind_many(self, pairs):
+        """``bind`` for a batch of (path, content), one transaction."""
+        pairs = list(pairs)
+        if not pairs:
+            return
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.executemany(
+                "INSERT OR REPLACE INTO api_binding VALUES (?,?,?)",
+                [(self.namespace, path, content) for path, content in pairs],
             )
 
     def unbind(self, prefix):

@@ -201,3 +201,150 @@ def test_timestamps_are_written_in_kodi_local_time():
     # Calendar dates are not shifted by the zone.
     assert data["premiered"] == "2001-02-03"
     assert metadata.userdata(movie(UserData={"Played": False}))["lastplayed"] == ""
+
+
+def test_no_tag_is_taken_from_a_temporary_listitem():
+    """An InfoTag is a pointer into its ListItem (InfoTagVideo(tag, offscreen),
+    owned=false; CFileItem's destructor deletes the tag). Taken from a temporary
+    the item is freed at once and the first setter writes freed memory; it
+    segfaulted a 32-bit ARM Kodi in setGenres."""
+    import re
+    from pathlib import Path
+
+    pattern = re.compile(r"ListItem\([^)]*\)\.get\w*InfoTag\(\)")
+    root = Path(__file__).resolve().parents[2] / "lib"
+    offenders = [
+        str(path.relative_to(root))
+        for path in root.rglob("*.py")
+        if pattern.search(path.read_text())
+    ]
+    assert offenders == []
+
+
+def test_show_hash_is_the_same_from_payloads_and_their_rows():
+    """The root listing reduces each episode payload to its row as it reads
+    it, so a library's episodes are never held together; the hash it hands
+    the scanner must not move for that."""
+    from kofin.sync.backends.api import metadata
+
+    episodes = [
+        {"Id": "e1", "ParentIndexNumber": 1, "IndexNumber": 2, "Overview": "x"},
+        {"Id": "e2", "ParentIndexNumber": 0, "IndexNumber": None},  # unfiled
+        {"Id": "e3", "AbsoluteEpisodeNumber": 7},
+    ]
+    rows = [metadata.episode_row(e) for e in episodes]
+    assert rows[1] is None
+    assert metadata.show_hash(episodes) == metadata.show_hash(r for r in rows if r)
+    assert metadata.show_hash(episodes) != metadata.show_hash(episodes[:1])
+
+
+def test_details_have_no_opinion_on_a_date_the_server_lacks():
+    """Kodi fills a missing premiere or aired date itself and its setters
+    ignore an empty one, so an empty desired date never matches the row:
+    187 episodes and a show stayed pending on the LibreELEC box, re-patched
+    by every pass. The key is absent instead, as for dateadded."""
+    from kofin.sync.backends.api import metadata
+    from tests.unit.apifixtures import LIB, SERVER, episode, movie, series
+
+    show = series(PremiereDate=None, ProductionYear=1993)
+    data = metadata.details(show, SERVER, "ns", LIB)
+    assert "premiered" not in data
+    data = metadata.details(episode("e1", PremiereDate=None), SERVER, "ns", LIB)
+    assert "firstaired" not in data
+    dated = metadata.details(
+        movie(PremiereDate="2009-04-22T00:00:00Z"), SERVER, "ns", LIB
+    )
+    assert dated["premiered"] == "2009-04-22" and dated["year"] == 2009
+
+
+def test_episode_details_leave_inherited_art_to_the_show():
+    """tvshow.* and season.* art is read off the show and season rows; an
+    episode setter cannot make it true, so it never belongs in the desired
+    state (two episodes looped on the LibreELEC box after the art cap moved
+    every URL but the show's, acknowledged earlier)."""
+    from kofin.sync.backends.api import metadata
+    from tests.unit.apifixtures import LIB, SERVER, episode
+
+    item = episode("e1", SeriesPrimaryImageTag="t1", ImageTags={"Primary": "p1"})
+    data = metadata.details(item, SERVER, "ns", LIB)
+    assert data["art"] and all("." not in key for key in data["art"])
+    assert "thumb" in data["art"]
+
+
+def test_merge_never_clears_inherited_art_an_old_acknowledgement_owned():
+    """A mapping acknowledged before tvshow.* left the desired state lists
+    it as owned; clearing it is impossible for an episode row, so the
+    compare must leave it alone."""
+    from kofin.sync.backends.api.patch import merge
+
+    desired = {"art": {"thumb": "http://s/ep.jpg"}}
+    row = {
+        "art": {
+            "thumb": "image://http%3a%2f%2fs%2fep.jpg/",
+            "tvshow.poster": "image://x/",
+        }
+    }
+    compare = merge("Episode", desired, row, {"art": ["thumb", "tvshow.poster"]})
+    assert "tvshow.poster" not in compare["art"]
+    assert "tvshow.poster" not in desired["art"]
+
+
+def test_song_tags_are_total_for_numbers_that_do_not_parse():
+    """song_tags is the listing and the hash: a value that does not parse is
+    the missing-field zero, so one song cannot stall its library's scans."""
+    from tests.unit.apifixtures import album, song
+
+    bad = song(
+        "t1",
+        IndexNumber="x",
+        ParentIndexNumber=None,
+        RunTimeTicks="n/a",
+        ProductionYear="abc",
+        MediaSources=[{"Size": "big", "Container": "flac"}],
+    )
+    tags = metadata.song_tags(bad, album())
+    assert (tags["track"], tags["disc"], tags["duration"], tags["year"]) == (0, 0, 0, 0)
+    assert tags["size"] == 0 and tags["releasedate"] == ""
+    absent = song("t1", MediaSources=[{"Container": "flac"}])
+    for key in ("IndexNumber", "ParentIndexNumber", "RunTimeTicks", "ProductionYear"):
+        absent.pop(key)
+    assert metadata.tag_hash(bad, album()) == metadata.tag_hash(absent, album())
+
+
+def test_a_played_song_without_a_server_date_is_last_played_when_it_was_added():
+    """Kodi's UpdateSong stamps the current time on a played song with no
+    date, which put songs marked played years ago at the top of a tablet's
+    recently played albums on import day."""
+    from tests.unit.apifixtures import song
+
+    played = song("t1", UserData={"Played": True, "PlayCount": 2})
+    assert metadata.userdata(played)["lastplayed"] == metadata._timestamp(
+        "2023-11-15T19:18:34.08Z"
+    )
+    dated = song(
+        "t1",
+        UserData={
+            "Played": True,
+            "PlayCount": 2,
+            "LastPlayedDate": "2026-01-02T03:04:05Z",
+        },
+    )
+    assert metadata.userdata(dated)["lastplayed"] == metadata._timestamp(
+        "2026-01-02T03:04:05Z"
+    )
+    assert metadata.userdata(song("t1"))["lastplayed"] == ""
+    # The video setters leave a missing date alone: unchanged.
+    assert "lastplayed" not in metadata.userdata(movie(UserData={"Played": True}))
+
+
+def test_inputs_token_moves_with_the_art_query_and_the_zone(monkeypatch):
+    """Everything details reads besides the payload is in the token, or the
+    short-circuit freezes the state the next change should have moved."""
+    from kofin.plugin import listitems
+
+    base = metadata.inputs_token("http://s", "k", LIB, " / ")
+    monkeypatch.setattr(listitems, "art_query", lambda: "&MaxHeight=720&Quality=90")
+    capped = metadata.inputs_token("http://s", "k", LIB, " / ")
+    assert capped != base
+    monkeypatch.setattr(metadata.time, "timezone", 12345)
+    assert metadata.inputs_token("http://s", "k", LIB, " / ") != capped

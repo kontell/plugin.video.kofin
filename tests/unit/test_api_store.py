@@ -92,13 +92,36 @@ def test_library_move_is_pending_without_metadata_change(store):
     assert store.publish([movie()], library=LIB2) == store.generation()
 
 
-def test_legacy_store_is_detected_and_retired(store):
-    with private.Database() as db:
-        db.cursor.execute("CREATE TABLE api_movie(namespace TEXT, item_id TEXT)")
-        db.cursor.execute("CREATE TABLE api_snapshot(namespace TEXT, payload TEXT)")
-    assert store.legacy_present()
-    store.publish([movie()], library=LIB)
-    store.retire_legacy()
-    assert not store.legacy_present()
-    assert store.records(pinned=False) == {}
-    assert store.state("a") is None
+def test_pending_work_carries_payloads_only_for_removals(store):
+    """A pass holds one record per pending item; loading every payload with
+    them was 200 MB of Python for 6,600 video items and wedged a 1 GB
+    device. Only a tombstone, which names what it removes, travels with
+    the work; an upsert's payload is read on demand."""
+    store.publish([movie(), movie("b")], library=LIB)
+    store.publish([movie("b")], library=LIB)
+    work = {item_id: rest for item_id, *rest in store.pending_work()}
+    assert work["b"][1] == "upsert" and work["b"][2] == {}
+    assert work["a"][1] == "remove" and work["a"][2].get("Type") == "Movie"
+    lazy = store.records(payloads=False)["b"]
+    assert not lazy.loaded
+    assert lazy.item["Id"] == "b"
+    assert lazy == store.records()["b"]
+
+
+def test_payload_window_holds_a_bounded_number_of_payloads(store):
+    from kofin.sync.backends.api.records import PayloadWindow, Record
+
+    store.publish([movie("m%03d" % i) for i in range(30)], library=LIB)
+    window = PayloadWindow(store, size=8)
+    records = [
+        Record(e.item_id, e.kind, e.library, e.parent_id, None, 1, loader=window)
+        for e in store.entries().values()
+    ]
+    window.CHUNK = 5
+    seen = [r.item["Id"] for r in window.walk(records)]
+    assert sorted(seen) == sorted(r.item_id for r in records)
+    assert len(window._held) <= 8
+    # Six chunks of five: one query each, and no single-row read behind them.
+    assert window.reads == 6
+    assert window("m000")["Id"] == "m000"
+    assert window.reads == 7

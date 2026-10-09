@@ -10,7 +10,8 @@ import datetime
 import json
 import os
 import sqlite3
-from typing import Any, Dict, Optional
+import threading
+from typing import Any, Dict, Optional, Tuple
 
 import xbmcvfs
 
@@ -21,6 +22,29 @@ LOG = Logger(__name__)
 ADDON_DATA = "special://profile/addon_data/plugin.video.kofin/"
 _path_overrides: Dict[str, str] = {}
 _tables_ensured: set = set()
+
+# Connections kept open for the plugin process, per path and thread. Module
+# state, deliberately: it lives in a plugin interpreter Kodi recycles, never
+# in the service (``pool_connections`` is called from the provider only). A
+# scanner that reuses the interpreter between two listings then reuses the
+# connection too, and the first statement of a fresh connection -- which
+# read the schema and the WAL index off a thrashing SD card for 12-24 s per
+# album listing on the LibreELEC box -- is paid once per interpreter.
+_pooling = False
+_pool: Dict[Tuple[str, int], "sqlite3.Connection"] = {}
+
+
+def pool_connections(enabled: bool) -> None:
+    """Keep this process's private-database connections open between uses."""
+    global _pooling
+    _pooling = enabled
+    if not enabled:
+        for conn in _pool.values():
+            try:
+                conn.close()
+            except Exception:
+                pass
+        _pool.clear()
 
 
 def set_path_override(kind: str, path: str) -> None:
@@ -68,6 +92,14 @@ class Database(object):
         This is to allow for the cursor, conn and others to be accessible.
         """
         self.path = self._resolve_path()
+        key = (self.path, threading.get_ident())
+        self._pooled = _pooling
+        pooled = _pool.get(key) if _pooling else None
+        if pooled is not None:
+            self.conn = pooled
+            self.cursor = self.conn.cursor()
+            self._changes_at_enter = self.conn.total_changes
+            return self
         self.conn = sqlite3.connect(self.path, timeout=self.timeout)
         try:
             self.cursor = self.conn.cursor()
@@ -78,6 +110,9 @@ class Database(object):
             # leak with the WAL lock held for the rest of the process.
             self.conn.close()
             raise
+        if _pooling:
+            _pool[key] = self.conn
+        self._changes_at_enter = self.conn.total_changes
 
         return self
 
@@ -102,21 +137,29 @@ class Database(object):
         per COMMIT_INTERVAL and their restore points name the page being
         processed, so a rollback re-runs at most one page of idempotent
         writes on resume.
+
+        A block leaves the connection idle whether or not it changed a row.
+        ``total_changes`` counts since the connection opened, so on a
+        pooled connection it is read as a delta from ``__enter__``; and a
+        block that began a transaction without changing a row still ends
+        it, or the next block on this interpreter would run inside it and a
+        failure there would roll both back while the write lock stayed held.
         """
         try:
-            changes = self.conn.total_changes
+            changes = self.conn.total_changes - getattr(self, "_changes_at_enter", 0)
 
             if exc_type is not None:  # errors raised
                 LOG.error("type: %s value: %s", exc_type, exc_val)
                 self.conn.rollback()
-            elif self.commit_close and changes:
+            elif self.commit_close and (changes or self.conn.in_transaction):
 
                 LOG.debug("[%s] %s rows updated.", self.db_file, changes)
                 self.conn.commit()
         finally:
             LOG.debug("---<[ database: %s ] %s", self.db_file, id(self.conn))
             self.cursor.close()
-            self.conn.close()
+            if not getattr(self, "_pooled", False):
+                self.conn.close()
 
 
 def kofin_tables(cursor: "sqlite3.Cursor") -> None:
