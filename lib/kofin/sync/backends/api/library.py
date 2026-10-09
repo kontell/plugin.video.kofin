@@ -21,7 +21,7 @@ from kofin.core.settings import Credentials
 from kofin.sync import changefeed, private
 from kofin.sync.catalogue import BackendMismatch
 from kofin.sync.downloader import info, library_filter
-from . import metadata
+from . import metadata, progress
 from .native import Native
 from .store import Store, namespace
 
@@ -72,8 +72,11 @@ def collection_kinds(view):
     return KINDS_BY_COLLECTION.get(collection, ())
 
 
-def fetch_kind(api, library, kind, abort=lambda: False, extra=None):
-    """Only a complete, stable, duplicate-free pagination can imply deletion."""
+def fetch_kind(api, library, kind, abort=lambda: False, extra=None, on_page=None):
+    """Only a complete, stable, duplicate-free pagination can imply deletion.
+
+    ``on_page(fetched, total)`` is told after every page, for the bar.
+    """
     result: List[dict] = []
     seen = set()
     total = None
@@ -112,6 +115,8 @@ def fetch_kind(api, library, kind, abort=lambda: False, extra=None):
             result.append(metadata.compact(item))
         if len(result) > total or (not rows and len(result) < total):
             raise ValueError("short %s page" % kind)
+        if on_page is not None:
+            on_page(len(result), total)
     return result
 
 
@@ -168,6 +173,7 @@ class Library(threading.Thread):
         super().__init__(name="kofin-api", daemon=True)
         creds = Credentials.load()
         self.store = Store(namespace(creds.server_id, creds.user_id))
+        self.progress = progress.Progress()
         self.api = api
         self.player = player
         self.api_factory = api_factory
@@ -350,6 +356,13 @@ class Library(threading.Thread):
         # local clock; a few minutes of overlap costs nothing but re-fetches.
         return int(time.time()) - 300
 
+    def _bar(self) -> "progress.Progress":
+        """The enumeration's progress bar, made on first use."""
+        bar = getattr(self, "progress", None)
+        if bar is None:
+            bar = self.progress = progress.Progress()
+        return bar
+
     def full_sync(self, libraries=None):
         """Enumerate the selected libraries (or the named ones) completely."""
         selected = settings.get_list("librarySelection")
@@ -362,19 +375,31 @@ class Library(threading.Thread):
         complete = libraries is None
         started = self._server_now()
         fetched: Dict[str, List[dict]] = {}
-        for library in targets:
-            rows: List[dict] = []
-            for kind in collection_kinds(supported[library]):
-                began = time.monotonic()
-                found = fetch_kind(self.api, library, kind, self._stop_event.is_set)
-                LOG.info(
-                    "enumerated %d %s in %.1f s",
-                    len(found),
-                    kind,
-                    time.monotonic() - began,
-                )
-                rows.extend(found)
-            fetched[library] = rows
+        bar = self._bar()
+        try:
+            for library in targets:
+                rows: List[dict] = []
+                for kind in collection_kinds(supported[library]):
+                    began = time.monotonic()
+                    found = fetch_kind(
+                        self.api,
+                        library,
+                        kind,
+                        self._stop_event.is_set,
+                        on_page=lambda done, total, kind=kind: bar.track(
+                            kind, done, total
+                        ),
+                    )
+                    LOG.info(
+                        "enumerated %d %s in %.1f s",
+                        len(found),
+                        kind,
+                        time.monotonic() - began,
+                    )
+                    rows.extend(found)
+                fetched[library] = rows
+        finally:
+            bar.close()
         movies_selected = any(
             "Movie" in collection_kinds(supported[library])
             for library in selected

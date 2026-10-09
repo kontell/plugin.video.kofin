@@ -143,6 +143,7 @@ class Applier:
                 try:
                     if self.native.abort():
                         raise InterruptedError("native sync stopped")
+                    self.native.progress.step(kind)
                     patch = self.plan(record, repair, upserts)
                     if patch is not None:
                         queue.append(patch)

@@ -22,7 +22,7 @@ import xbmc
 from kofin.core import state
 from kofin.core.log import Logger
 from kofin.sync.catalogue import BackendMismatch
-from . import metadata, paths, removal
+from . import metadata, paths, progress, removal
 from .kinds import rpc
 from .patch import Applier
 from .readback import Readback
@@ -64,6 +64,7 @@ class Native:
         self.readback = Readback(self.key)
         self._async_pending = False
         self.payloads = PayloadWindow(self.store)
+        self.progress = progress.Progress()
         self._server = ""
         # (library, folder) pairs whose directory this pass has re-listed,
         # or (library, "*") when the music root was walked.
@@ -210,11 +211,24 @@ class Native:
             )
 
         method = "AudioLibrary.Scan" if scanner == "music" else "VideoLibrary.Scan"
+        # Kodi's own scanning dialog shows the import item by item; the bar
+        # above it names the phase.
+        dialogs = progress.show_dialogs()
         for directory in directories:
             self.wait(lambda: self._idle(scanner), busy=lambda: self._scanning(scanner))
             serial = finished()
             began = time.monotonic()
-            rpc(method, {"directory": directory, "showdialogs": False})
+            location = paths.parse(directory)
+            self.progress.note(
+                "%s: %s"
+                % (
+                    xbmc.getLocalizedString(progress.SCANNING),
+                    progress.label(
+                        location.content if location and location.content else scanner
+                    ),
+                )
+            )
+            rpc(method, {"directory": directory, "showdialogs": dialogs})
             self._async_pending = True
             try:
                 self.wait(
@@ -354,6 +368,7 @@ class Native:
                     generation,
                     loader=self.payloads,
                 )
+            self.progress.begin(len(upserts))
             self.import_missing(upserts, errors, entries)
             boxsets = [r.item for r in self.store.records(kind="BoxSet").values()]
             collections = metadata.collections_of(boxsets)
@@ -367,6 +382,7 @@ class Native:
             completed = True
         finally:
             applier.commit()
+            self.progress.close()
             self.payloads = PayloadWindow(self.store)
             try:
                 self.release_all()

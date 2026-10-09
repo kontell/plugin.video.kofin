@@ -7,6 +7,7 @@ v0.92.0
 - A listing no longer writes a freed InfoTag (segfault in setGenres on 32-bit ARM).
 - The pass reads payloads on demand instead of holding the whole catalogue in memory.
 - No state migrates between development builds: the 0.90.0 layout retirement, the flat node and playlist sweeps and the path-row rewrites are gone; a profile from an earlier build needs a fresh native library.
+- Library update progress is back in the API build: one background bar for the enumeration, the scans and the pass (gated on the existing progress setting and threshold), and Kodi's own scanning dialog is shown while it imports.
 
 v0.91.0
 - Native TV shows, seasons, episodes, music videos and collections in the API build: one scanner root per selected library and content type, shows as bound folders beneath it, sets filed at import.
