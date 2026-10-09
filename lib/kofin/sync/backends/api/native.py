@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import xbmc
 
+from kofin.core import state
 from kofin.core.log import Logger
 from kofin.sync.catalogue import BackendMismatch
 from . import metadata, paths, removal
@@ -36,6 +37,8 @@ LOG = Logger(__name__)
 # re-creates the Python interpreter when it has no database work between two
 # listings -- so the walk pays only when most directories have work.
 ROOT_SCAN_SHARE = 0.5
+# A hold is renewed before the provider's own limit on it runs out.
+HOLD_RENEW = 480.0
 
 
 class Monitor(xbmc.Monitor):
@@ -64,6 +67,8 @@ class Native:
         # (library, folder) pairs whose directory this pass has re-listed,
         # or (library, "*") when the music root was walked.
         self.rescanned: Set[Tuple[str, str]] = set()
+        # scanner -> when the hold on it was taken.
+        self._held: Dict[str, float] = {}
 
     # -- gates ---------------------------------------------------------------
 
@@ -270,6 +275,46 @@ class Native:
         else:
             self.readback.clear()
 
+    # -- the scanner hold ----------------------------------------------------
+
+    def hold(self, scanner="music"):
+        """Keep Kodi's scanner busy while the pass writes, so the writes are
+        announced as a transaction and the home widgets stay quiet.
+
+        The scanner lists the hold directory; the provider keeps that
+        listing open until ``release`` clears the token (``provider._hold``).
+        Only the music scanner marks its announcements this way -- the
+        video database's ``AnnounceUpdate`` carries no flag.
+        """
+        since = self._held.get(scanner)
+        if since is not None and time.monotonic() - since < HOLD_RENEW:
+            return
+        if since is not None:
+            self.release(scanner)
+        self.wait(lambda: self._idle(scanner), busy=lambda: self._scanning(scanner))
+        state.set_native_hold(scanner)
+        method = "AudioLibrary.Scan" if scanner == "music" else "VideoLibrary.Scan"
+        rpc(
+            method,
+            {"directory": paths.hold_dir(self.key, scanner), "showdialogs": False},
+        )
+        try:
+            self.wait(lambda: self._scanning(scanner), timeout=10)
+        except TimeoutError:
+            LOG.warning("%s scanner did not take the hold; writing without it", scanner)
+        self._held[scanner] = time.monotonic()
+
+    def release(self, scanner="music"):
+        if scanner not in self._held:
+            return
+        state.clear_native_hold(scanner)
+        self._held.pop(scanner, None)
+        self.wait(lambda: self._idle(scanner), busy=lambda: self._scanning(scanner))
+
+    def release_all(self):
+        for scanner in list(self._held):
+            self.release(scanner)
+
     def scan_music(self, library, folders: Set[str]):
         """List the changed album directories again: each by name, or the
         library's music root once when most of them changed."""
@@ -353,6 +398,11 @@ class Native:
             completed = True
         finally:
             applier.commit()
+            try:
+                self.release_all()
+            except Exception:
+                LOG.exception("scanner hold not released")
+                state.clear_native_hold("music")
             # A timed-out scan must retain its snapshot until Kodi is idle.
             if (completed or not self._async_pending) and self._idle("any"):
                 self.store.unpin()

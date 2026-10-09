@@ -545,3 +545,63 @@ def test_music_enumeration_lists_three_kinds_with_light_fields(store, monkeypatc
     store.set_watermark(watermark="x", enumerated=1.0)
     w.command("changed", ["tc31"])
     assert store.records(pinned=False)["tc31"].item["Name"] == "Fresh"
+
+
+def test_music_patches_run_under_a_held_scanner(store, backend, kodi):
+    """Every song written is announced, and the home widgets re-query the
+    library on each announcement unless the music scanner is busy; so the
+    pass holds the scanner for the burst and lets go at the end."""
+    items = album_bundle(songs=3)
+    for item in items[2:]:
+        item["UserData"] = {"Played": True, "PlayCount": 2}
+    store.publish(items, library=LIB)
+    backend.reconcile()
+    calls = [(m, p) for m, p in kodi.calls if m.startswith("AudioLibrary.S")]
+    hold = paths.hold_dir(store.namespace, "music")
+    first_patch = next(i for i, (m, _) in enumerate(calls) if m.endswith("SongDetails"))
+    taken = [i for i, (m, p) in enumerate(calls) if p.get("directory") == hold]
+    assert taken and taken[0] < first_patch
+    assert kodi.hold_tokens == ["music"]
+    assert not kodi.holding
+    assert not store.pending()
+    # A pass with nothing to write takes no hold.
+    kodi.calls.clear()
+    kodi.hold_tokens.clear()
+    store.invalidate(["tc31"])
+    backend.reconcile()
+    assert not kodi.hold_tokens
+
+
+def test_provider_hold_listing_waits_for_the_token_and_lists_nothing(
+    store, monkeypatch
+):
+    from kofin.plugin.router import Request
+    from kofin.sync.backends.api import provider
+
+    rendered = []
+    ended = []
+    monkeypatch.setattr(
+        provider.xbmcplugin,
+        "addDirectoryItems",
+        lambda h, entries, n: rendered.append(list(entries)),
+    )
+    monkeypatch.setattr(provider.xbmcplugin, "setContent", lambda h, c: None)
+    monkeypatch.setattr(
+        provider.xbmcplugin, "endOfDirectory", lambda h, **k: ended.append(k)
+    )
+    polls = {"n": 0}
+
+    def token(scanner):
+        polls["n"] += 1
+        return "music:abc" if polls["n"] < 4 else ""
+
+    monkeypatch.setattr(provider.state, "native_hold", token)
+    monkeypatch.setattr(
+        provider.xbmc,
+        "Monitor",
+        lambda: type("M", (), {"waitForAbort": lambda s, t: False})(),
+    )
+    provider.serve(Request(paths.hold_dir(store.namespace, "music"), 1, {}))
+    assert polls["n"] == 4
+    assert rendered[-1] == [] and ended[-1]["succeeded"] is True
+    assert paths.parse(paths.hold_dir(store.namespace, "music")).hold == "music"

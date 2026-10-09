@@ -77,6 +77,9 @@ CONTAINERS = (
 )
 FALLBACK_CONTAINER = "audio"
 
+# The directory the pass asks the music scanner to hold open while it writes.
+_HOLD = re.compile(r"^/native/([0-9a-f]{32})/hold/(music|video)/$")
+
 _PATH = re.compile(
     r"^/native/([0-9a-f]{32})/"
     r"(?:([0-9a-f]{32})/"
@@ -97,6 +100,8 @@ class Location:
     folder: Optional[str] = None
     # The song a file-style music URL names.
     song: Optional[str] = None
+    # The scanner a hold directory belongs to.
+    hold: Optional[str] = None
 
 
 def root(key):
@@ -115,6 +120,10 @@ def library_dir(key, library, content):
 
 def show_dir(key, library, series_id):
     return library_dir(key, library, "tvshows") + series_id + "/"
+
+
+def hold_dir(key, scanner="music"):
+    return root(key) + "hold/" + scanner + "/"
 
 
 def music_dir(key, library, folder):
@@ -182,6 +191,9 @@ def parse(url) -> Optional[Location]:
     parsed = urlsplit(url or "")
     if parsed.scheme != "plugin" or parsed.netloc != "plugin.video.kofin":
         return None
+    held = _HOLD.match(parsed.path)
+    if held:
+        return Location(held.group(1), hold=held.group(2))
     match = _PATH.match(parsed.path)
     if not match:
         return None

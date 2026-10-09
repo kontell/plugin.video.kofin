@@ -95,6 +95,18 @@ PROP_SYNCSESSION = "syncsession.state"
 # lines as list items, and it carries the song id so that it *changes* per
 # song -- a list bound to it re-reads the directory on the change, which
 # Container.Refresh cannot do for a window that is not a media window.
+# The native music pass's hold on Kodi's music scanner. Every song or album
+# written through the public API is announced, and Estuary's music home
+# widgets re-query the whole library on each announcement -- unless the
+# announcement is marked a transaction, which Kodi does while its music
+# scanner is busy. So the pass asks the scanner to list a hold directory and
+# the *plugin* process, which serves that listing inside Kodi's scanner
+# thread, keeps it open until the service lets go. Earns its place because
+# the holder and the releaser are different processes and a window property
+# is the one channel both share live; the value is a nonce so a listing that
+# outlived its pass never waits on the next one.
+PROP_NATIVE_HOLD = "kofin.native.hold"
+
 PROP_LYRIC_HAS = "kofin.lyric.has"
 PROP_LYRIC_JSON = "kofin.lyric.json"
 PROP_LYRIC_PATH = "kofin.lyric.path"
@@ -301,6 +313,22 @@ def set_sync_active(active: bool) -> None:
 
 def is_sync_active() -> bool:
     return _window().getProperty(PROP_SYNC_ACTIVE) == "true"
+
+
+def set_native_hold(scanner: str) -> str:
+    """Start a hold on the named scanner; returns the token to release it by."""
+    token = scanner + ":" + uuid.uuid4().hex
+    _window().setProperty(PROP_NATIVE_HOLD + "." + scanner, token)
+    return token
+
+
+def native_hold(scanner: str) -> str:
+    """The current hold token for the scanner, '' when none is held."""
+    return _window().getProperty(PROP_NATIVE_HOLD + "." + scanner)
+
+
+def clear_native_hold(scanner: str) -> None:
+    _window().clearProperty(PROP_NATIVE_HOLD + "." + scanner)
 
 
 def set_context_bitrates(bitrates: str) -> None:

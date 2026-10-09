@@ -41,6 +41,7 @@ class Kodi:
         self.albums = {}
         self.artists = {}
         self.music_scanned = []
+        self.holding = False
         # A directory whose listing the fake should take from here instead
         # of the store (a failed or foreign listing), or drop entirely.
         self.listings = {}
@@ -235,8 +236,12 @@ class Kodi:
     # -- music -----------------------------------------------------------------
 
     def music_scan(self, directory):
-        self.music_scanned.append(directory)
         location = paths.parse(directory)
+        if location is not None and location.hold:
+            # The hold listing stays open until the pass releases it.
+            self.holding = True
+            return
+        self.music_scanned.append(directory)
         assert location is not None and location.content == "music", directory
         if location.folder is None:
             for folder in self._root_folders(location.library):

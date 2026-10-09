@@ -145,6 +145,8 @@ class Applier:
             if KINDS[kind].removal == "rescan":
                 self.confirm_by_scope(kind, errors)
             self.commit()
+            if kind == ORDER[-1] or KINDS[kind].removal != "rescan":
+                self.native.release_all()
             LOG.info(
                 "%s: %d planned in %.1f s, %.1f s of it in Kodi calls",
                 kind.lower(),
@@ -544,6 +546,10 @@ class Applier:
         # Kodi logs no announcements, so this line is the only count of
         # what a pass actually wrote (an import whose rows match sends none).
         LOG.info("patching %d %s rows", len(patches), patches[0].record.kind.lower())
+        if KINDS[patches[0].record.kind].removal == "rescan":
+            # Writes announced during a music scan are a transaction to the
+            # home widgets: hold the scanner for the burst (native.hold).
+            self.native.hold("music")
         setters: List[Tuple[str, Optional[Dict[str, Any]]]] = []
         for patch in patches:
             table = KINDS[patch.record.kind]

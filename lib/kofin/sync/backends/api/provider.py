@@ -17,12 +17,20 @@ from typing import Any, Dict, List
 import xbmcgui
 import xbmcplugin
 
-from kofin.core import kodirpc
+import time
+
+import xbmc
+
+from kofin.core import kodirpc, state
 from kofin.core.log import Logger
 from . import metadata, paths
 from .store import Store
 
 LOG = Logger(__name__)
+
+# The longest a hold listing stays open on its own: the pass releases it,
+# and a pass that died takes at most this long to let the scanner go.
+HOLD_LIMIT = 600.0
 
 key_from_url = paths.key_from_url
 
@@ -90,6 +98,14 @@ def serve(request):
             _folders(request, _roots(), "Kofin")
             return
         xbmcplugin.endOfDirectory(request.handle, succeeded=False, cacheToDisc=False)
+        return
+    if location.hold:
+        if action == "check_exists":
+            xbmcplugin.setResolvedUrl(
+                request.handle, True, xbmcgui.ListItem(path=request.base_url)
+            )
+            return
+        _hold(request, location.hold)
         return
     store = Store(location.key)
     item_id = request.params.get("id") or location.song
@@ -353,3 +369,26 @@ def _known_entries(directory):
         metadata.mark_loaded(li, 0)
         entries.append((row["file"], li, False))
     return entries
+
+
+# -- the scanner hold ----------------------------------------------------------
+
+
+def _hold(request, scanner):
+    """Keep the scanner's listing of the hold directory open while the pass
+    writes, then list it empty.
+
+    Kodi marks every library announcement made while its scanner is busy as
+    a transaction, and the home widgets skip those; without the hold each
+    song written re-ran four whole-library widget queries and the next
+    write waited behind them (measured: 46 ms a song against 0.4 ms). The
+    token the service set is the one this listing waits on; a different or
+    cleared token ends it, and so does the limit.
+    """
+    token = state.native_hold(scanner)
+    monitor = xbmc.Monitor()
+    deadline = time.monotonic() + HOLD_LIMIT
+    while token and state.native_hold(scanner) == token:
+        if time.monotonic() >= deadline or monitor.waitForAbort(0.25):
+            break
+    _listing(request, [], "")

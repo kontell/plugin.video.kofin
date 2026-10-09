@@ -241,7 +241,25 @@ def kodi(store, monkeypatch):
 
     monkeypatch.setattr(kodirpc, "call", call)
     monkeypatch.setattr(kodirpc, "batch", batch)
-    monkeypatch.setattr(native.xbmc, "getCondVisibility", lambda _: False)
+    # The music scanner is "busy" exactly while the pass holds it.
+    monkeypatch.setattr(
+        native.xbmc,
+        "getCondVisibility",
+        lambda flag: flag == "Library.IsScanningMusic" and fake.holding,
+    )
+    fake.hold_tokens = []
+
+    def set_hold(scanner):
+        fake.hold_tokens.append(scanner)
+        return "token"
+
+    def clear_hold(scanner):
+        if fake.holding:
+            fake.holding = False
+            fake.monitor.music_finished += 1
+
+    monkeypatch.setattr(native.state, "set_native_hold", set_hold)
+    monkeypatch.setattr(native.state, "clear_native_hold", clear_hold)
     monkeypatch.setattr(
         native,
         "Monitor",
