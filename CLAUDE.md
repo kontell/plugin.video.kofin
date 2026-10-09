@@ -332,13 +332,13 @@ What remains is kofin's own:
   `core/memory.py::release` hands the heap back after a publish and after a pass
   (`malloc_trim`); the provider and router log their timings at debug level
   (`native dispatch … after N s of imports`, `music folder …: N songs read in … built in …`).
-- **Every movie has a folder of its own under the movies root, bound like a show's**
-  (`native.bind_folders`, `paths.movie_dir`). A change scans one folder by name; a first
-  import or a mostly-missing library walks the root once with `scanrecursive` switched on
-  for the walk only (`native.set_recursive`): Kodi lists every sub-folder of a recursive
-  plugin root on every scan of it, because a plugin folder never carries the mtime the fast
-  hash wants (`VideoInfoScanner.cpp`, `DoScan`), so a manual Update library against a
-  recursive root would list 1,788 folders. A profile from a build with the one-directory
+- **A movie's URL sits in a folder of its own; the root never lists folders.** Kodi turns a
+  plugin folder in a movies listing into a phantom `VIDEO_TS.IFO` (`ConvertDiscFoldersToFiles`
+  via `CPluginFile::Exists`, unconditionally true), so the movies root lists every movie as a
+  file under `paths.movie_dir`; Kodi files it on that directory's path row. A few new movies
+  are scanned by folder name after `native.bind_folders` binds each folder — without
+  `containssingleitem`, which would make the folder the movie — and a first import or a
+  mostly-missing library scans the root once, as before. A profile from the one-directory
   layout needs the Movies library deselected and reselected: the old rows' URLs are not
   owned, and importing beside them would double the library.
 - **A scope readback is minimal; the full row is read for an item whose state moved**
