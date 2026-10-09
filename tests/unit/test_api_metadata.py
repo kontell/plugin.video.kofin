@@ -255,3 +255,35 @@ def test_details_have_no_opinion_on_a_date_the_server_lacks():
         movie(PremiereDate="2009-04-22T00:00:00Z"), SERVER, "ns", LIB
     )
     assert dated["premiered"] == "2009-04-22" and dated["year"] == 2009
+
+
+def test_episode_details_leave_inherited_art_to_the_show():
+    """tvshow.* and season.* art is read off the show and season rows; an
+    episode setter cannot make it true, so it never belongs in the desired
+    state (two episodes looped on the LibreELEC box after the art cap moved
+    every URL but the show's, acknowledged earlier)."""
+    from kofin.sync.backends.api import metadata
+    from tests.unit.apifixtures import LIB, SERVER, episode
+
+    item = episode("e1", SeriesPrimaryImageTag="t1", ImageTags={"Primary": "p1"})
+    data = metadata.details(item, SERVER, "ns", LIB)
+    assert data["art"] and all("." not in key for key in data["art"])
+    assert "thumb" in data["art"]
+
+
+def test_merge_never_clears_inherited_art_an_old_acknowledgement_owned():
+    """A mapping acknowledged before tvshow.* left the desired state lists
+    it as owned; clearing it is impossible for an episode row, so the
+    compare must leave it alone."""
+    from kofin.sync.backends.api.patch import merge
+
+    desired = {"art": {"thumb": "http://s/ep.jpg"}}
+    row = {
+        "art": {
+            "thumb": "image://http%3a%2f%2fs%2fep.jpg/",
+            "tvshow.poster": "image://x/",
+        }
+    }
+    compare = merge("Episode", desired, row, {"art": ["thumb", "tvshow.poster"]})
+    assert "tvshow.poster" not in compare["art"]
+    assert "tvshow.poster" not in desired["art"]

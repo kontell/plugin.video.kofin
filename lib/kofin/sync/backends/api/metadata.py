@@ -302,7 +302,16 @@ def details(
     data: Dict[str, Any] = {
         "title": item.get("Name", ""),
         "plot": item.get("Overview") or "",
-        "art": listitems.art_for(item, server),
+        # An episode's tvshow.* and season.* art is Kodi's own, read off the
+        # show and season rows: the episode setter cannot make such a key
+        # true, and a show whose art URL changed after its episodes were
+        # acknowledged (the artwork cap) left two episodes on the LibreELEC
+        # box failing "readback differs: art" on every pass.
+        "art": {
+            key: value
+            for key, value in listitems.art_for(item, server).items()
+            if "." not in key
+        },
         "dateadded": _timestamp(item.get("DateCreated")),
     }
     if kind == "BoxSet":

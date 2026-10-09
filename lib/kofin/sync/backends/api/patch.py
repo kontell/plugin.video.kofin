@@ -732,6 +732,12 @@ def merge(kind, desired, row, owned_before):
         if field not in compare:
             continue
         owned = set(owned_before.get(field, []))
+        if field == "art":
+            # tvshow.* and season.* art is Kodi's own, read off the show and
+            # season rows; an acknowledgement that listed such a key (before
+            # metadata.details stopped carrying them) must not try to clear
+            # it, which no episode setter can do.
+            owned = {key for key in owned if "." not in key}
         merged = dict(compare[field])
         merged.update({key: None for key in owned if key not in merged})
         merged.update(
@@ -749,6 +755,11 @@ def merge(kind, desired, row, owned_before):
                     else value
                 )
                 for key, value in merged.items()
+                # Inherited keys are neither sent nor compared: Kodi reads
+                # them off the show and season rows, and setting one on an
+                # episode only pins a copy that goes stale when the show's
+                # art moves.
+                if "." not in key
             }
         desired[field] = merged
         compare[field] = merged
