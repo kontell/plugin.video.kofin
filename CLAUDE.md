@@ -320,6 +320,18 @@ What remains is kofin's own:
   `showdialogs` to the scan calls. Both settings must stay in the API profile's
   `settings.xml` (`tools/package_manifest.py`): `getSettingBool` on a setting the build does
   not define raises `TypeError`, and that failed every pass on the box once.
+- **A music scan never shows Kodi's dialog.** With `showdialogs` the music scanner starts its
+  `MusicFileCounter` thread, which lists every directory a second time, concurrently, to size
+  Kodi's bar: two root listings of 62 s side by side on the LibreELEC box, and every album
+  listed twice for the rest of the scan. `native.scan` passes `showdialogs` for video only;
+  the kofin bar covers music.
+- **A listing's cost on a small device is the interpreter and the page cache, not the
+  query.** On the box one album listing took 45–67 s doubled and thrashing, 0.25 s alone with
+  the interpreter reused; the store's two queries were 0.01 s in isolation while a fresh
+  connection's first statement waited 15 s behind the card re-reading evicted pages.
+  `core/memory.py::release` hands the heap back after a publish and after a pass
+  (`malloc_trim`); the provider and router log their timings at debug level
+  (`native dispatch … after N s of imports`, `music folder …: N songs read in … built in …`).
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is
