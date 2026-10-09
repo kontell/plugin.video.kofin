@@ -610,3 +610,33 @@ def test_provider_hold_listing_waits_for_the_token_and_lists_nothing(
     assert polls["n"] == 4
     assert rendered[-1] == [] and ended[-1]["succeeded"] is True
     assert paths.parse(paths.hold_dir(store.namespace, "music")).hold == "music"
+
+
+def test_a_directory_the_scanner_skips_is_salted_until_it_imports(
+    store, backend, kodi, monkeypatch
+):
+    """A scan stopped before its songs were written leaves Kodi a directory
+    hash with no rows, and every later scan skips the directory "due to no
+    change": two albums on the LibreELEC box. A by-name scan that leaves the
+    songs missing bumps the directory's salt, which moves every listed date
+    and the folder's label, so the next scan sees a change."""
+    from kofin.sync.backends.api import metadata
+
+    items = album_bundle(songs=2)
+    store.publish(items, library=LIB)
+    folder = items[0]["Id"]
+    skipped = kodi._scan_folder
+    monkeypatch.setattr(kodi, "_scan_folder", lambda library, folder: None)
+    with pytest.raises(RuntimeError, match="directory salted \\(1\\)"):
+        backend.reconcile()
+    assert store.salt(folder) == 1
+    assert metadata.folder_label(items[0], folder, 1).endswith(" 1")
+    assert metadata.folder_label(items[0], folder, 0).endswith(folder)
+    tags = metadata.song_tags(items[2], items[0])
+    assert metadata.hash_time(metadata._token([tags, 1])) != metadata.hash_time(
+        metadata._token(tags)
+    )
+    monkeypatch.setattr(kodi, "_scan_folder", skipped)
+    backend.reconcile()
+    assert not store.pending()
+    assert store.salt(folder) == 1

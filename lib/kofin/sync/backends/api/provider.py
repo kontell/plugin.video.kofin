@@ -291,7 +291,9 @@ def _music_root(request, store, key, library):
     entries = []
     for folder in sorted(folders):
         album = albums.get(folder)
-        label = metadata.folder_label(album.item if album else None, folder)
+        label = metadata.folder_label(
+            album.item if album else None, folder, store.salt(folder)
+        )
         entries.append(
             (
                 paths.music_dir(key, library, folder),
@@ -338,13 +340,14 @@ def _song_entries(store, key, library, folder):
         len(songs),
         time.monotonic() - began,
     )
+    salt = store.salt(folder)
     entries = []
     for item_id, record in sorted(songs.items()):
         url = paths.song_url(
             key, library, folder, item_id, paths.container_of(record.item)
         )
         try:
-            li = metadata.song_listitem(record.item, album)
+            li = metadata.song_listitem(record.item, album, salt)
         except Exception:
             # One malformed payload must not cost the directory a song.
             LOG.exception("song row reduced to its title: %s", item_id)

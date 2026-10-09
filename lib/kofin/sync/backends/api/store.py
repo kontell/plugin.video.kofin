@@ -232,6 +232,9 @@ class Store(Catalogue):
             CREATE TABLE IF NOT EXISTS api_binding(
                 namespace TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL,
                 PRIMARY KEY(namespace,path));
+            CREATE TABLE IF NOT EXISTS api_salt(
+                namespace TEXT NOT NULL, folder TEXT NOT NULL, salt INTEGER NOT NULL,
+                PRIMARY KEY(namespace,folder));
             CREATE TABLE IF NOT EXISTS api_expected(
                 namespace TEXT NOT NULL, item_id TEXT NOT NULL, generation INTEGER NOT NULL,
                 expires REAL NOT NULL, payload TEXT NOT NULL,
@@ -847,6 +850,29 @@ class Store(Catalogue):
                 "INSERT OR REPLACE INTO api_binding VALUES (?,?,?)",
                 (self.namespace, path, content),
             )
+
+    def salt(self, folder) -> int:
+        """How many times a music directory's listing has been salted: a
+        directory whose by-name scan left its songs missing is one Kodi
+        skips "due to no change" (its hash was stored by a scan stopped
+        before the songs were written); salting the dates moves the hash."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            row = db.cursor.execute(
+                "SELECT salt FROM api_salt WHERE namespace=? AND folder=?",
+                (self.namespace, folder),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def bump_salt(self, folder) -> int:
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute(
+                """INSERT INTO api_salt VALUES (?,?,1)
+                ON CONFLICT(namespace, folder) DO UPDATE SET salt=salt+1""",
+                (self.namespace, folder),
+            )
+        return self.salt(folder)
 
     def bind_many(self, pairs):
         """``bind`` for a batch of (path, content), one transaction."""

@@ -535,7 +535,7 @@ def mark_loaded(li, size):
         tag.setLoaded(True)
 
 
-def song_listitem(item, album=None):
+def song_listitem(item, album=None, salt: int = 0):
     """A scanner row for a song: its tags, its size, and a date that moves
     with its tags so a change re-imports the directory."""
     tags = song_tags(item, album)
@@ -567,7 +567,9 @@ def song_listitem(item, album=None):
         tag.setMusicBrainzAlbumID(tags["musicbrainzalbumid"])
     if tags["musicbrainzreleasegroupid"]:
         tag.setMusicBrainzReleaseGroupID(tags["musicbrainzreleasegroupid"])
-    li.setDateTime(hash_time(_token(tags)))
+    # The date is what the scanner hashes a listing by; a salt moves it
+    # without touching a tag (store.bump_salt).
+    li.setDateTime(hash_time(_token([tags, salt]) if salt else _token(tags)))
     mark_loaded(li, tags["size"])
     return li
 
@@ -587,13 +589,14 @@ def fallback_song_listitem(item):
     return li
 
 
-def folder_label(album, folder: str) -> str:
+def folder_label(album, folder: str, salt: int = 0) -> str:
     """The root listing's label for an album directory: Kodi walks a
     directory's folders in label order and numbers albums as it adds
     them, so oldest-first on the server's creation date puts the
-    server's newest album at the top of Kodi's recently added."""
+    server's newest album at the top of Kodi's recently added. A salted
+    directory carries its salt so a root walk sees it changed too."""
     created = str((album or {}).get("DateCreated") or "0000-00-00T00:00:00")[:19]
-    return created + " " + folder
+    return created + " " + folder + (" %d" % salt if salt else "")
 
 
 def collections_of(boxsets: Iterable[Dict[str, Any]]) -> Dict[str, str]:

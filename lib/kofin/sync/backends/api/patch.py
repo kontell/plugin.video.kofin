@@ -333,6 +333,18 @@ class Applier:
                 # Its episodes, movies or songs are being imported this pass
                 # or the next; nothing native to confirm yet.
                 raise RuntimeError("%s has no native row yet" % kind)
+            if (
+                kind == "Audio"
+                and (record.library, record.parent_id) in self.native.rescanned
+            ):
+                # Listed and scanned this pass and still absent: Kodi skipped
+                # the directory "due to no change" -- a scan stopped before
+                # its songs were written left their hash behind. Salt the
+                # listing so the next scan sees a change (store.salt).
+                salt = self.store.bump_salt(record.parent_id)
+                raise RuntimeError(
+                    "scanner did not import Audio; directory salted (%d)" % salt
+                )
             raise RuntimeError("scanner did not import %s" % kind)
         if kind in DERIVED or kind == "Audio":
             return self.plan_music(record, row, repair)
