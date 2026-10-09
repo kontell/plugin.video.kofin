@@ -496,6 +496,10 @@ class Native:
         }
         folders: Set[str] = set()
         if songs:
+            # Six minutes on a Raspberry Pi for 22,000 songs (a payload parse
+            # and a tag hash each): the bar names the phase and the log times it.
+            began = time.monotonic()
+            self.progress.note(progress.label("Audio"))
             albums = {
                 i: r.item
                 for i, r in self.store.records(
@@ -524,6 +528,12 @@ class Native:
                 previous = applied.get("dir")
                 if previous and previous != folder:
                     folders.add(previous)
+            LOG.info(
+                "music: %d songs compared in %.1f s; %d directories to scan",
+                len(songs),
+                time.monotonic() - began,
+                len(folders),
+            )
         for folder, rows in self.readback.folders(library).items():
             for item_id in rows:
                 placed = entries.get(item_id)
