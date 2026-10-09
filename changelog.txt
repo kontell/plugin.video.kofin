@@ -8,6 +8,8 @@ v0.92.0
 - The pass reads payloads on demand instead of holding the whole catalogue in memory.
 - No state migrates between development builds: the 0.90.0 layout retirement, the flat node and playlist sweeps and the path-row rewrites are gone; a profile from an earlier build needs a fresh native library.
 - Library update progress is back in the API build: one background bar for the enumeration, the scans and the pass (gated on the existing progress setting and threshold), and Kodi's own scanning dialog is shown while it imports.
+- Movies and shows take three lessons from the music pass: every movie has a bound folder of its own and a change scans that folder alone; a pass reads back only what finds a row and the full row only for items whose state moved; an item whose payload and inputs were acknowledged before is acknowledged again without a compare. A profile from an earlier build needs the Movies library deselected and reselected.
+- Listed artwork asks the server for a 1080-high JPEG by default (the existing maximum-resolution and compression settings, now on): Kodi re-encodes every image it caches, so the server resizing first is the only saving, and it is most of the import time on a small device. Existing art re-caches once.
 
 v0.91.0
 - Native TV shows, seasons, episodes, music videos and collections in the API build: one scanner root per selected library and content type, shows as bound folders beneath it, sets filed at import.

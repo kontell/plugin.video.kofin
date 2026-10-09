@@ -332,6 +332,30 @@ What remains is kofin's own:
   `core/memory.py::release` hands the heap back after a publish and after a pass
   (`malloc_trim`); the provider and router log their timings at debug level
   (`native dispatch … after N s of imports`, `music folder …: N songs read in … built in …`).
+- **Every movie has a folder of its own under the movies root, bound like a show's**
+  (`native.bind_folders`, `paths.movie_dir`). A change scans one folder by name; a first
+  import or a mostly-missing library walks the root once with `scanrecursive` switched on
+  for the walk only (`native.set_recursive`): Kodi lists every sub-folder of a recursive
+  plugin root on every scan of it, because a plugin folder never carries the mtime the fast
+  hash wants (`VideoInfoScanner.cpp`, `DoScan`), so a manual Update library against a
+  recursive root would list 1,788 folders. A profile from a build with the one-directory
+  layout needs the Movies library deselected and reselected: the old rows' URLs are not
+  owned, and importing beside them would double the library.
+- **A scope readback is minimal; the full row is read for an item whose state moved**
+  (`kinds.MINIMAL`, `Readback.full`, `Readback.prefetch_full`). The scope carries what
+  finds and owns a row and the userdata a viewer may have edited, nothing else; the plan
+  reads the full row by id, or from one paged listing when at least a tenth of the scope
+  (and 25 rows) is about to be compared, as after a first import.
+- **A mapping that carries the payload hash and `inputs` token is acknowledged without a
+  compare** (`metadata.inputs_token`: server, library, separator, set name, the seasons'
+  hashes). It fires for a retried pass and a re-published item, never under Repair, whose
+  point is the compare. Anything new that `details` reads must join the token or the
+  short-circuit will keep a stale state.
+- **Listed artwork is capped and JPEG-encoded by default** (`listitems.art_query`,
+  `maxArtResolution` 1080, `compressArt` on). Kodi decodes and re-encodes every image it
+  caches whatever the source and caps the result itself, so only the server resizing first
+  saves anything. Changing either setting changes every art URL, which re-caches the art and
+  patches every row once.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is
