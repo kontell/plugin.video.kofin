@@ -18,7 +18,7 @@ from kofin.plugin import listitems
 from kofin.sync.model import ratings as shared_ratings, streams_and_runtime
 from kofin.sync.shims import convert_to_local
 from . import paths
-from .store import encode
+from .store import encode, payload_hash
 
 ASCII_SPACE = " \t\n\r\v\f"
 
@@ -658,6 +658,25 @@ def _streams(tag, item):
         )
     for language in streams["subtitle"]:
         tag.addSubtitleStream(xbmc.SubtitleStreamDetail(language=language or ""))
+
+
+def inputs_token(server, key, library, separator, seasons=(), set_name=None) -> str:
+    """Everything ``details`` reads besides the payload, as one token.
+
+    A mapping that carries the payload hash and this token was acknowledged
+    for exactly the desired state the same inputs would produce again, so a
+    pass can skip building and comparing it (``patch.Applier.plan``).
+    """
+    return _token(
+        [
+            server or "",
+            key,
+            library or "",
+            separator,
+            set_name or "",
+            sorted(payload_hash(season) for season in seasons),
+        ]
+    )
 
 
 def episode_row(item) -> Optional[Tuple[str, int, int]]:

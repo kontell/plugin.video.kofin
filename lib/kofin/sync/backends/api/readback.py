@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from kofin.core.log import Logger
 from . import paths
-from .kinds import KINDS, PROPERTIES, rpc
+from .kinds import KINDS, MINIMAL, PROPERTIES, rpc
 
 LOG = Logger(__name__)
 
@@ -34,10 +34,13 @@ class Readback:
         self._scopes: Dict[Tuple[Any, ...], Dict[Any, Dict[str, Any]]] = {}
         # library -> directory key -> item id -> row
         self._folders: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]] = {}
+        # scope key -> Kodi id -> full row, for scopes mostly being compared
+        self._full: Dict[Tuple[Any, ...], Dict[Any, Dict[str, Any]]] = {}
 
     def clear(self):
         self._scopes.clear()
         self._folders.clear()
+        self._full.clear()
 
     @staticmethod
     def complete(reply, key):
@@ -137,7 +140,7 @@ class Readback:
         if cache_key in self._scopes:
             return self._scopes[cache_key]
         table = KINDS[kind]
-        params: Dict[str, Any] = {"properties": PROPERTIES[kind]}
+        params: Dict[str, Any] = {"properties": MINIMAL.get(kind, PROPERTIES[kind])}
         if kind in ("Movie", "MusicVideo"):
             params["filter"] = self._path_filter(
                 paths.library_dir(self.key, library, paths.CONTENT[kind])
@@ -172,7 +175,7 @@ class Readback:
                 result[name] = None if name in result else row
             self._scopes[cache_key] = result
             return result
-        rows = self.complete(rpc(table.listing, params), table.list_key)
+        rows = self._paged(table, params)
         result = {}
         for row in rows:
             if kind == "Season":
@@ -259,10 +262,72 @@ class Readback:
             self._folders.pop(library, None)
             return
         self._scopes.pop((kind, library, parent_id), None)
+        self._full.pop((kind, library, parent_id), None)
         if kind == "Series":
             # A show's episodes and seasons are read through its row.
             for key in [k for k in self._scopes if k[0] in ("Episode", "Season")]:
                 self._scopes.pop(key, None)
+            for key in [k for k in self._full if k[0] in ("Episode", "Season")]:
+                self._full.pop(key, None)
+
+    # -- the full row, for an item whose desired state moved ------------------
+
+    FULL_SHARE = 0.1
+    FULL_FLOOR = 25
+
+    def _scope_params(self, kind, library, parent_id):
+        table = KINDS[kind]
+        params: Dict[str, Any] = {"properties": PROPERTIES[kind]}
+        if kind in ("Movie", "MusicVideo"):
+            params["filter"] = self._path_filter(
+                paths.library_dir(self.key, library, paths.CONTENT[kind])
+            )
+        elif kind == "Series":
+            params["filter"] = self._path_filter(
+                paths.library_dir(self.key, library, "tvshows")
+            )
+        elif kind in ("Episode", "Season"):
+            show = self.scope("Series", library).get(parent_id)
+            if not show:
+                return None
+            params["tvshowid"] = show["tvshowid"]
+        return table, params
+
+    def prefetch_full(self, kind, library, parent_id, count):
+        """Read a scope's full rows in one listing when most of it is about
+        to be compared (a first import acknowledges every row); otherwise a
+        row is read by id when its turn comes."""
+        key = (kind, library, parent_id)
+        if key in self._full or kind in ("Audio", "MusicAlbum", "MusicArtist"):
+            return
+        known = len(self.scope(kind, library, parent_id))
+        if count < self.FULL_FLOOR or count < known * self.FULL_SHARE:
+            return
+        found = self._scope_params(kind, library, parent_id)
+        if found is None:
+            return
+        table, params = found
+        self._full[key] = {
+            row[table.id_param]: row
+            for row in self._paged(table, params)
+            if table.id_param in row
+        }
+
+    def full(self, kind, library, parent_id, row) -> Dict[str, Any]:
+        """The full row behind a scope row: from the prefetched listing when
+        there is one, else by id."""
+        table = KINDS[kind]
+        kodi_id = row[table.id_param]
+        cached = self._full.get((kind, library, parent_id), {}).get(kodi_id)
+        if cached is not None:
+            return cached
+        reply = rpc(
+            table.getter, {table.id_param: kodi_id, "properties": PROPERTIES[kind]}
+        )
+        detail = reply.get(table.result_key) if isinstance(reply, dict) else None
+        if not isinstance(detail, dict) or not detail:
+            raise RuntimeError("%s row vanished during the pass" % kind)
+        return detail
 
     def remember(self, kind, library, parent_id, cache_key, row):
         """Put a freshly confirmed row into an existing cached scope."""

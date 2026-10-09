@@ -139,6 +139,22 @@ class Applier:
                 continue
             began = time.monotonic()
             self._rpc_seconds = 0.0
+            if KINDS[kind].removal != "rescan":
+                # A scope mostly about to be compared is read in full once.
+                per_scope: Dict[Tuple[str, str], int] = {}
+                for item_id in ids:
+                    record = upserts[item_id]
+                    scope = (record.library, record.parent_id)
+                    if kind == "BoxSet":
+                        scope = ("", "")
+                    per_scope[scope] = per_scope.get(scope, 0) + 1
+                for (library, parent_id), count in per_scope.items():
+                    try:
+                        self.readback.prefetch_full(kind, library, parent_id, count)
+                    except InterruptedError:
+                        raise
+                    except Exception as error:
+                        LOG.debug("full readback not prefetched: %s", error)
             for record in self.native.payloads.walk(upserts[i] for i in ids):
                 try:
                     if self.native.abort():
@@ -331,6 +347,43 @@ class Applier:
             else ()
         )
         set_name = self.collections.get(record.item_id, "") if kind == "Movie" else None
+        mapping = self.mapping(record.item_id)
+        previous = mapping.applied if mapping else {}
+        if record.item_id in self.local:
+            # Deliver the real user edit first. Never overwrite it with an
+            # older server snapshot during a retry or a refresh.
+            return None
+        if kind in PLAYABLE and previous.get("userdata"):
+            # The scope row carries the userdata, so a viewer's edit is seen
+            # before anything else is read or built.
+            edits = local_edits(
+                row, previous["userdata"], metadata.userdata(record.item)
+            )
+            if edits:
+                self.store.local(record.item_id, edits)
+                return None
+        kodi_id = row[KINDS[kind].id_param]
+        payload = payload_hash(record.item)
+        inputs = metadata.inputs_token(
+            self.native.server_url(),
+            self.key,
+            record.library,
+            self.native.separator,
+            seasons,
+            set_name,
+        )
+        if (
+            not repair
+            and mapping is not None
+            and mapping.kodi_id == kodi_id
+            and previous.get("hash") == payload
+            and previous.get("inputs") == inputs
+        ):
+            # The desired state this payload and these inputs produce was
+            # acknowledged against this very row: nothing to build, read or
+            # compare. A retried pass and a re-published item take this path.
+            self.ack(record.item_id, record.generation, kodi_id, previous, kind)
+            return None
         desired = metadata.details(
             record.item,
             self.native.server_url(),
@@ -340,25 +393,16 @@ class Applier:
             seasons,
             set_name,
         )
-        mapping = self.mapping(record.item_id)
-        previous = mapping.applied if mapping else {}
-        if record.item_id in self.local:
-            # Deliver the real user edit first. Never overwrite it with an
-            # older server snapshot during a retry or a refresh.
-            return None
-        if kind in PLAYABLE and previous.get("userdata"):
-            edits = local_edits(row, previous["userdata"], desired)
-            if edits:
-                self.store.local(record.item_id, edits)
-                return None
-        kodi_id = row[KINDS[kind].id_param]
         if kind in FILED:
             token = desired["uniqueid"]["kofinrefresh"]
             if (row.get("uniqueid") or {}).get("kofinrefresh") != token:
                 row = self.refresh(record, kodi_id, token, upserts)
                 kodi_id = row[KINDS[kind].id_param]
+        # Only now the full row: the scope carries what finds and owns it.
+        row = self.readback.full(kind, record.library, record.parent_id, row)
         applied = {
-            "hash": payload_hash(record.item),
+            "hash": payload,
+            "inputs": inputs,
             "owned": metadata.owned(desired),
         }
         compare = merge(kind, desired, row, previous.get("owned", {}))

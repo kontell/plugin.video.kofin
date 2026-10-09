@@ -181,6 +181,20 @@ KINDS: Dict[str, Kind] = {
 # The scanner a kind's content belongs to, for the scan call and the waits.
 SCANNER = {"Audio": "music", "MusicAlbum": "music", "MusicArtist": "music"}
 
+# What a scope readback carries: enough to find a row, own it and see the
+# userdata a viewer may have changed, never the whole row. The full row is
+# read by id (or as one listing when most of a scope needs it) only for the
+# items whose desired state moved. A full readback of 1,788 movies with 27
+# properties was the largest reply Kodi built for a pass that patched one.
+MINIMAL: Dict[str, List[str]] = {
+    "Movie": ["file", "uniqueid", "playcount", "lastplayed", "resume"],
+    "Series": ["file", "uniqueid"],
+    "Season": ["season", "tvshowid"],
+    "Episode": ["file", "uniqueid", "playcount", "lastplayed", "resume", "tvshowid"],
+    "MusicVideo": ["file", "uniqueid", "playcount", "lastplayed", "resume"],
+    "BoxSet": ["title"],
+}
+
 PROPERTIES: Dict[str, List[str]] = {
     "Movie": [
         "file",

@@ -21,6 +21,7 @@ import xbmcplugin
 import xbmc
 
 from kofin.core import kodirpc, state
+from kofin.sync import private
 from kofin.core.log import Logger
 from . import metadata, paths
 from .store import PayloadWindow, Store
@@ -90,6 +91,9 @@ def exists(store, location, item_id):
 
 
 def serve(request):
+    # One database connection for the life of this interpreter: a scanner
+    # that reuses it between listings then pays the open once.
+    private.pool_connections(True)
     location = paths.parse(request.base_url)
     action = request.params.get("kodi_action", "")
     if location is None:

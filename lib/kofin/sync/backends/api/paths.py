@@ -96,6 +96,8 @@ class Location:
     content: Optional[str] = None
     # A show folder under a tvshows root.
     series: Optional[str] = None
+    # A movie folder under a movies root (one movie, bound like a show).
+    movie: Optional[str] = None
     # A music directory's key: an album id, or ``singles/<artist id>``.
     folder: Optional[str] = None
     # The song a file-style music URL names.
@@ -120,6 +122,12 @@ def library_dir(key, library, content):
 
 def show_dir(key, library, series_id):
     return library_dir(key, library, "tvshows") + series_id + "/"
+
+
+def movie_dir(key, library, item_id):
+    """One folder per movie, so a change re-scans one folder and the extras
+    Kodi looks for beside a movie have somewhere to live."""
+    return library_dir(key, library, "movies") + item_id + "/"
 
 
 def hold_dir(key, scanner="music"):
@@ -163,6 +171,8 @@ def item_dir(key, kind, library, item_id, parent_id=""):
     """The directory Kodi files an item of ``kind`` under."""
     if kind == "Series":
         return show_dir(key, library, item_id)
+    if kind == "Movie":
+        return movie_dir(key, library, item_id)
     if kind in ("Season", "Episode"):
         if not parent_id:
             raise ValueError("episodes and seasons need their series")
@@ -202,6 +212,8 @@ def parse(url) -> Optional[Location]:
         return Location(key, library, content)
     if content == "tvshows" and not singles and song is None:
         return Location(key, library, content, series=folder)
+    if content == "movies" and not singles and song is None:
+        return Location(key, library, content, movie=folder)
     if content == "music":
         return Location(
             key, library, content, folder=(singles or "") + folder, song=song
@@ -229,6 +241,8 @@ def describe(url) -> str:
     parts = [location.content or "root"]
     if location.series:
         parts.append("show " + location.series[:8])
+    if location.movie:
+        parts.append("movie " + location.movie[:8])
     if location.folder:
         parts.append("folder " + location.folder[-8:])
     if location.hold:

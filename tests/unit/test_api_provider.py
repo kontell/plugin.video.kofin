@@ -137,5 +137,9 @@ def test_namespace_and_urls_are_server_user_and_library_scoped():
     )
     assert paths.parse(paths.root(key)) == Location(key)
     assert paths.parse("plugin://plugin.video.kofin/?mode=play") is None
-    assert paths.parse(paths.library_dir(key, LIB, "movies") + SHOW + "/") is None
+    # A movie folder under a movies root is a location of its own.
+    assert paths.parse(paths.library_dir(key, LIB, "movies") + SHOW + "/") == Location(
+        key, LIB, "movies", movie=SHOW
+    )
+    assert paths.parse(paths.library_dir(key, LIB, "musicvideos") + SHOW + "/") is None
     assert paths.key_from_url(url) == key
