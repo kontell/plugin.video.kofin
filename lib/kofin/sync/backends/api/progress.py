@@ -111,6 +111,22 @@ class Progress:
         """A phase change: painted now, whatever the last paint was."""
         self._paint(message, True)
 
+    def phase(self, total: int, message: str):
+        """A sub-phase with its own count, painted now; ``restore`` undoes it."""
+        saved = (self.total, self.done)
+        self.total = max(0, int(total))
+        self.done = 0
+        self._paint(message, True)
+        return saved
+
+    def restore(self, saved):
+        self.total, self.done = saved
+
+    def at(self, done: int, message: str):
+        """Progress measured elsewhere (Kodi's own row count during a scan)."""
+        self.done = max(0, min(int(done), self.total))
+        self._paint(message, False)
+
     def counted(self, kind: str) -> str:
         return "%s %d / %d" % (label(kind), min(self.done, self.total), self.total)
 

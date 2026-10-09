@@ -446,7 +446,7 @@ def test_snapshot_pin_survives_interrupted_scan(store, backend, kodi, monkeypatc
     store.publish([movie()], library=LIB)
     scan = backend.scan
 
-    def interrupted(directories):
+    def interrupted(directories, **_):
         backend._async_pending = True
         raise InterruptedError("restart")
 

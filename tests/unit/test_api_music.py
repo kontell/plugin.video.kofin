@@ -308,8 +308,13 @@ def test_music_readback_pages_and_acknowledges_in_batches(
     backend.reconcile()
     assert not store.pending()
     assert len(methods(kodi, "AudioLibrary.SetSongDetails")) == 30
-    listings = [p for p in methods(kodi, "AudioLibrary.GetSongs") if "filter" in p]
-    # Paged seven at a time, read whole a few times a pass, never per row.
+    listings = [
+        p
+        for p in methods(kodi, "AudioLibrary.GetSongs")
+        if "filter" in p and p["limits"]["end"] > p["limits"]["start"]
+    ]
+    # Paged seven at a time, read whole a few times a pass, never per row
+    # (a zero-width page is the bar reading Kodi's count during a scan).
     assert all(p["limits"]["end"] - p["limits"]["start"] == 7 for p in listings)
     assert len(listings) < 30
     assert len(opens) < 40

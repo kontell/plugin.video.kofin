@@ -141,3 +141,50 @@ def test_an_unreadable_setting_means_no_bar_and_no_failure(bar, monkeypatch):
     bar_.close()
     assert bar.instances == []
     assert progress_module.show_dialogs() is False
+
+
+def test_a_scan_moves_the_bar_by_kodis_own_count(
+    store, backend, kodi, bar, monkeypatch
+):
+    """The scan is the longest phase and the pass counts nothing of its own
+    until it ends; the bar reads Kodi's row count under the library instead."""
+    from kofin.sync.backends.api import native as native_module
+    from kofin.sync.backends.api import paths
+
+    root = paths.library_dir(store.namespace, LIB, "music")
+    state = {"scanning": False, "polls": 0, "count": 10}
+    original = kodi.rpc
+
+    def rpc(method, params=None):
+        if method == "AudioLibrary.Scan":
+            state["scanning"] = True
+            return "OK"
+        if (
+            method == "AudioLibrary.GetSongs"
+            and params.get("limits", {}).get("end") == 0
+        ):
+            return {
+                "songs": [],
+                "limits": {"start": 0, "end": 0, "total": state["count"]},
+            }
+        return original(method, params)
+
+    def visible(flag):
+        if flag == "Library.IsScanningMusic" and state["scanning"]:
+            state["polls"] += 1
+            state["count"] = 10 + min(state["polls"], 4)
+            if state["polls"] >= 6:
+                state["scanning"] = False
+                backend.monitor.music_finished += 1
+            return True
+        return False
+
+    monkeypatch.setattr(native_module, "rpc", rpc)
+    monkeypatch.setattr(native_module.xbmc, "getCondVisibility", visible)
+    monkeypatch.setattr(backend, "SCAN_POLL", 0.0)
+    backend.progress.begin(100)
+    backend.scan([root], "music", expected={root: 4})
+    (dialog,) = bar.instances
+    messages = [e[2] for e in dialog.events if e[0] == "update"]
+    assert any(m.endswith("4 / 4") for m in messages)
+    assert backend.progress.total == 100 and backend.progress.done == 0

@@ -39,6 +39,7 @@ LOG = Logger(__name__)
 ROOT_SCAN_SHARE = 0.5
 # A hold is renewed before the provider's own limit on it runs out.
 HOLD_RENEW = 480.0
+SCAN_POLL = 3.0  # seconds between reads of Kodi's row count during a scan
 
 
 class Monitor(xbmc.Monitor):
@@ -55,6 +56,8 @@ class Monitor(xbmc.Monitor):
 
 
 class Native:
+    SCAN_POLL = SCAN_POLL
+
     def __init__(self, store: Store, abort=lambda: False):
         self.store = store
         self.key = store.namespace
@@ -119,8 +122,11 @@ class Native:
     def _scanning(self, scanner="video"):
         return not self._idle(scanner)
 
-    def wait(self, predicate, timeout=60, busy=lambda: False):
-        """``timeout`` is idle time: the deadline moves while ``busy`` holds."""
+    def wait(self, predicate, timeout=60, busy=lambda: False, on_poll=None):
+        """``timeout`` is idle time: the deadline moves while ``busy`` holds.
+
+        ``on_poll`` runs once a loop, for a bar that reads progress off Kodi.
+        """
         deadline = time.monotonic() + timeout
         while True:
             if self.abort() or self.monitor.waitForAbort(0.1):
@@ -128,6 +134,8 @@ class Native:
             value = predicate()
             if value:
                 return value
+            if on_poll is not None:
+                on_poll()
             if busy():
                 deadline = time.monotonic() + timeout
             elif time.monotonic() >= deadline:
@@ -192,8 +200,65 @@ class Native:
             LOG.warning("show binding not cleared: %s", error)
         self.store.unbind(path)
 
-    def scan(self, directories: List[str], scanner="video"):
+    def _count(self, location) -> Optional[int]:
+        """Kodi's row count under a scanner directory's library, or None."""
+        if location is None or not location.library or not location.content:
+            return None
+        library_dir = paths.library_dir(self.key, location.library, location.content)
+        method, key = {
+            "music": ("AudioLibrary.GetSongs", "songs"),
+            "movies": ("VideoLibrary.GetMovies", "movies"),
+            "tvshows": ("VideoLibrary.GetEpisodes", "episodes"),
+            "musicvideos": ("VideoLibrary.GetMusicVideos", "musicvideos"),
+        }[location.content]
+        reply = rpc(
+            method,
+            {
+                "filter": {
+                    "field": "path",
+                    "operator": "startswith",
+                    "value": library_dir,
+                },
+                "limits": {"start": 0, "end": 0},
+            },
+        )
+        total = (reply or {}).get("limits", {}).get("total")
+        return total if isinstance(total, int) else None
+
+    def _scan_watch(self, location, heading, goal):
+        """A poll callback that reads Kodi's row count under the scan's
+        library every few seconds and moves the bar towards ``goal``."""
+        if not self.progress.open:
+            return None
+        try:
+            baseline = self._count(location)
+        except Exception:
+            return None
+        if baseline is None:
+            return None
+        polled = [time.monotonic()]
+
+        def on_poll():
+            if time.monotonic() - polled[0] < self.SCAN_POLL:
+                return
+            polled[0] = time.monotonic()
+            try:
+                now = self._count(location)
+            except Exception:
+                return
+            if now is not None:
+                done = max(0, now - baseline)
+                self.progress.at(done, "%s %d / %d" % (heading, done, goal))
+
+        return on_poll
+
+    def scan(self, directories: List[str], scanner="video", expected=None):
         """Scan each directory in turn and wait for the scanner to go idle.
+
+        ``expected`` maps a directory to the rows its scan should add; while
+        it runs the bar shows Kodi's own count climbing towards it, read every
+        few seconds, since a scan is the longest phase and the pass counts
+        nothing of its own until it ends (20 minutes at "0 %" on the box).
 
         One scan at a time: a second ``VideoLibrary.Scan`` queued while the
         first runs never starts (observed on 22.0b2: of two scans issued
@@ -218,26 +283,29 @@ class Native:
         # (MusicInfoScanner.cpp; two root listings of 62 s each on the
         # LibreELEC box). The video scanner has no such thread.
         dialogs = progress.show_dialogs() and scanner != "music"
+        expected = expected or {}
         for directory in directories:
             self.wait(lambda: self._idle(scanner), busy=lambda: self._scanning(scanner))
             serial = finished()
             began = time.monotonic()
             location = paths.parse(directory)
-            self.progress.note(
-                "%s: %s"
-                % (
-                    xbmc.getLocalizedString(progress.SCANNING),
-                    progress.label(
-                        location.content if location and location.content else scanner
-                    ),
-                )
+            heading = "%s: %s" % (
+                xbmc.getLocalizedString(progress.SCANNING),
+                progress.label(
+                    location.content if location and location.content else scanner
+                ),
             )
+            goal = int(expected.get(directory) or 0)
+            saved = self.progress.phase(goal, heading) if goal else None
+            on_poll = self._scan_watch(location, heading, goal) if saved else None
+
             rpc(method, {"directory": directory, "showdialogs": dialogs})
             self._async_pending = True
             try:
                 self.wait(
                     lambda serial=serial: finished() > serial and self._idle(scanner),
                     busy=lambda: self._scanning(scanner),
+                    on_poll=on_poll,
                 )
                 LOG.info(
                     "%s scan of %s took %.1f s",
@@ -250,6 +318,8 @@ class Native:
                     raise
             finally:
                 self._async_pending = not self._idle(scanner)
+                if saved is not None:
+                    self.progress.restore(saved)
         if scanner == "music":
             for directory in directories:
                 location = paths.parse(directory)
@@ -298,9 +368,10 @@ class Native:
         for scanner in list(self._held):
             self.release(scanner)
 
-    def scan_music(self, library, folders: Set[str]):
+    def scan_music(self, library, folders: Set[str], expected=0):
         """List the changed album directories again: each by name, or the
-        library's music root once when most of them changed."""
+        library's music root once when most of them changed. ``expected`` is
+        the number of songs the scan should add, for the bar."""
         if not folders:
             return
         total = len(set(self.store.folders("Audio", library)) | folders)
@@ -310,7 +381,8 @@ class Native:
                 len(folders),
                 total,
             )
-            self.scan([paths.library_dir(self.key, library, "music")], "music")
+            root = paths.library_dir(self.key, library, "music")
+            self.scan([root], "music", expected={root: expected})
             self.rescanned.add((library, "*"))
             return
         LOG.info("music: scanning %d of %d directories by name", len(folders), total)
@@ -407,6 +479,7 @@ class Native:
     ):
         """Bind and scan whatever the readback shows the scanner has not filed."""
         directories: List[str] = []
+        expected: Dict[str, int] = {}
         expectations = []
         for library in sorted({r.library for r in upserts.values() if r.library}):
             kinds = {r.kind for r in upserts.values() if r.library == library}
@@ -418,7 +491,14 @@ class Native:
                         if entries is None:
                             entries = self.store.entries()
                         folders = self._music_directories(upserts, library, entries)
-                        self.scan_music(library, folders)
+                        songs_expected = sum(
+                            1
+                            for r in upserts.values()
+                            if r.kind == "Audio"
+                            and r.library == library
+                            and r.parent_id in folders
+                        )
+                        self.scan_music(library, folders, expected=songs_expected)
                     except InterruptedError:
                         raise
                     except Exception as error:
@@ -448,7 +528,11 @@ class Native:
                     ]
                 if not missing:
                     continue
-                directories.append(paths.library_dir(self.key, library, content))
+                root = paths.library_dir(self.key, library, content)
+                directories.append(root)
+                expected[root] = sum(
+                    1 for r in missing if r.kind in ("Movie", "Episode", "MusicVideo")
+                )
                 for record in self.payloads.walk(missing):
                     if record.kind in ("Movie", "Episode", "MusicVideo"):
                         expectations.append(
@@ -460,7 +544,7 @@ class Native:
                         )
         if directories:
             self.store.expect_many(expectations)
-            self.scan(directories)
+            self.scan(directories, expected=expected)
 
     def _missing_tv(self, upserts, library) -> List[Record]:
         shows = self.readback.scope("Series", library)
