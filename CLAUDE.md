@@ -356,6 +356,15 @@ What remains is kofin's own:
   caches whatever the source and caps the result itself, so only the server resizing first
   saves anything. Changing either setting changes every art URL, which re-caches the art and
   patches every row once.
+- **An episode's desired art never carries `tvshow.*` or `season.*`.** Kodi reads those off
+  the show and season rows and `SetEpisodeDetails` cannot make them true; `metadata.details`
+  drops dotted keys and `patch.merge` neither sends, compares nor clears them, even when an
+  older acknowledgement listed one as owned. Two episodes on the box looped on
+  "readback differs: art" every 35 s after the artwork cap moved every URL but their show's.
+- **A music directory Kodi skips after a stopped scan is salted** (`store.bump_salt`, once
+  per directory and pass, folded into every listed song's date and the folder's root label).
+  `CMusicInfoScanner::DoScan` stores the directory hash whatever `RetrieveMusicInfo` wrote,
+  so a scan stopped mid-directory leaves a hash every later scan skips on.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is
