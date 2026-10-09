@@ -624,15 +624,17 @@ def test_a_directory_the_scanner_skips_is_salted_until_it_imports(
 
     items = album_bundle(songs=2)
     store.publish(items, library=LIB)
-    folder = items[0]["Id"]
+    album = next(i for i in items if i["Type"] == "MusicAlbum")
+    folder = album["Id"]
     skipped = kodi._scan_folder
     monkeypatch.setattr(kodi, "_scan_folder", lambda library, folder: None)
     with pytest.raises(RuntimeError, match="directory salted \\(1\\)"):
         backend.reconcile()
     assert store.salt(folder) == 1
-    assert metadata.folder_label(items[0], folder, 1).endswith(" 1")
-    assert metadata.folder_label(items[0], folder, 0).endswith(folder)
-    tags = metadata.song_tags(items[2], items[0])
+    assert metadata.folder_label(album, folder, 1).endswith(" 1")
+    assert metadata.folder_label(album, folder, 0).endswith(folder)
+    song = next(i for i in items if i["Type"] == "Audio")
+    tags = metadata.song_tags(song, album)
     assert metadata.hash_time(metadata._token([tags, 1])) != metadata.hash_time(
         metadata._token(tags)
     )

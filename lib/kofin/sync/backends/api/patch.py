@@ -81,6 +81,7 @@ class Applier:
         self._deferred: List[Patch] = []
         self._rpc_seconds = 0.0
         self._failures: List[Tuple[str, int, str]] = []
+        self._salted: Set[str] = set()
 
     # -- batches -------------------------------------------------------------
 
@@ -333,17 +334,21 @@ class Applier:
                 # Its episodes, movies or songs are being imported this pass
                 # or the next; nothing native to confirm yet.
                 raise RuntimeError("%s has no native row yet" % kind)
-            if (
-                kind == "Audio"
-                and (record.library, record.parent_id) in self.native.rescanned
+            if kind == "Audio" and (
+                (record.library, record.parent_id) in self.native.rescanned
+                or (record.library, "*") in self.native.rescanned
             ):
                 # Listed and scanned this pass and still absent: Kodi skipped
                 # the directory "due to no change" -- a scan stopped before
                 # its songs were written left their hash behind. Salt the
-                # listing so the next scan sees a change (store.salt).
-                salt = self.store.bump_salt(record.parent_id)
+                # listing, once per directory and pass, so the next scan
+                # sees a change (store.salt).
+                if record.parent_id not in self._salted:
+                    self._salted.add(record.parent_id)
+                    self.store.bump_salt(record.parent_id)
                 raise RuntimeError(
-                    "scanner did not import Audio; directory salted (%d)" % salt
+                    "scanner did not import Audio; directory salted (%d)"
+                    % self.store.salt(record.parent_id)
                 )
             raise RuntimeError("scanner did not import %s" % kind)
         if kind in DERIVED or kind == "Audio":
