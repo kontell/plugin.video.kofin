@@ -408,8 +408,15 @@ def details(
         data["year"] = int(data["premiered"][:4])
     if kind in ("Movie", "Episode", "MusicVideo"):
         data.update(userdata(item))
-    if not data.get("dateadded"):
-        data.pop("dateadded", None)
+    # No opinion on a date the server does not have. Kodi fills a missing
+    # premiere or aired date itself (its zero date on the P1D, a sibling's
+    # date on the LibreELEC box) and its setters ignore an empty one, so an
+    # empty desired value would differ from the row on every readback and
+    # keep the item pending for ever (187 rows on the box, re-patched by
+    # every pass).
+    for key in ("dateadded", "premiered", "firstaired"):
+        if key in data and not data.get(key):
+            data.pop(key)
     return data
 
 

@@ -236,3 +236,22 @@ def test_show_hash_is_the_same_from_payloads_and_their_rows():
     assert rows[1] is None
     assert metadata.show_hash(episodes) == metadata.show_hash(r for r in rows if r)
     assert metadata.show_hash(episodes) != metadata.show_hash(episodes[:1])
+
+
+def test_details_have_no_opinion_on_a_date_the_server_lacks():
+    """Kodi fills a missing premiere or aired date itself and its setters
+    ignore an empty one, so an empty desired date never matches the row:
+    187 episodes and a show stayed pending on the LibreELEC box, re-patched
+    by every pass. The key is absent instead, as for dateadded."""
+    from kofin.sync.backends.api import metadata
+    from tests.unit.apifixtures import LIB, SERVER, episode, movie, series
+
+    show = series(PremiereDate=None, ProductionYear=1993)
+    data = metadata.details(show, SERVER, "ns", LIB)
+    assert "premiered" not in data
+    data = metadata.details(episode("e1", PremiereDate=None), SERVER, "ns", LIB)
+    assert "firstaired" not in data
+    dated = metadata.details(
+        movie(PremiereDate="2009-04-22T00:00:00Z"), SERVER, "ns", LIB
+    )
+    assert dated["premiered"] == "2009-04-22" and dated["year"] == 2009
