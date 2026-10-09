@@ -1217,32 +1217,12 @@ def remove_video_playlists() -> None:
     directory = managed_video_dir()
     fs.remove_managed_entries(directory, also=(FOLDER_ICON,), label="playlist")
     fs.remove_empty(directory)
-    migrate_flat_video_playlists()
 
 
 def remove_video_playlist_for(view_id: str) -> None:
-    """Remove one library's playlist from either home: a library removed
-    between the upgrade and the next generation still has its playlist out
-    in the old flat layout."""
-    for directory in (managed_video_dir(), video_playlists_dir()):
-        _, files = fs.listdir(directory)
-        for name in files:
-            if fs.is_managed(name) and name.endswith("%s.xsp" % view_id):
-                fs.delete_file(os.path.join(directory, name), "playlist")
-
-
-def migrate_flat_video_playlists() -> None:
-    """Clear out the pre-folder layout.
-
-    The generated smart playlists used to sit directly in the user's
-    ``playlists/video/``. They are regenerated inside the managed folder, so
-    the old copies are dead weight -- and, being smart playlists over the
-    same tag, would show up twice under two names. This sweeps the user's
-    directory, so only a generated ``kofin*.xsp`` qualifies; the managed
-    folder is a directory and is never touched here.
-    """
-    directory = video_playlists_dir()
+    """Remove one library's generated playlist from the managed folder."""
+    directory = managed_video_dir()
     _, files = fs.listdir(directory)
     for name in files:
-        if fs.is_managed(name) and name.endswith(".xsp"):
+        if fs.is_managed(name) and name.endswith("%s.xsp" % view_id):
             fs.delete_file(os.path.join(directory, name), "playlist")

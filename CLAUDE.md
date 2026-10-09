@@ -290,6 +290,25 @@ What remains is kofin's own:
 - **`forget_many` collects closed intervals once per batch.** Once per item, the "still
   pending" subquery scanned the item table: a whole-library music removal spent ten minutes in
   SQLite and held the store's write lock across a service restart.
+- **The pass issues one scan at a time.** Kodi's `UpdateLibrary` builtin, which both
+  `VideoLibrary.Scan` and `AudioLibrary.Scan` execute, *stops* a running scan instead of
+  queuing the request. Two roots selected together on the LibreELEC box cancelled each other
+  on every pass for twelve hours (`Finished scan … 17 ms`, no listing); `native.scan` waits
+  for each scan before issuing the next.
+- **A ListItem must outlive its InfoTag.** `getVideoInfoTag()` hands out a pointer into the
+  item (`owned=false`) and the item's destructor deletes it, so a tag taken from a temporary
+  (`xbmcgui.ListItem().getVideoInfoTag()`) writes freed memory on its first setter. The
+  separator probe did exactly that on every API-build listing; x86_64 tolerated it, a 32-bit
+  ARM Kodi segfaulted in `setGenres` twice. `test_api_metadata.py` refuses the pattern.
+- **Neither a listing nor the pass holds a library's payloads.** 6,616 video payloads are
+  58 MB of JSON and 200 MB of Python objects. The movies root listing, which loaded its
+  1,788 before building a ListItem, grew Kodi by 100 MB in a minute on the 1 GB LibreELEC
+  box and left it unable to answer ssh until it was power-cycled; the pass that followed
+  would have loaded all 6,616 for planning. `store.pending_work` carries a payload only for
+  a tombstone, records read theirs through `PayloadWindow` (200 ids a query, at most 512
+  held), listings walk their scope through one, and the tvshows root reduces each episode to
+  `metadata.episode_row` as it reads it. `store.records()` is still eager for the callers
+  that need every row.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is

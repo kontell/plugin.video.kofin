@@ -66,7 +66,7 @@ Migration section becomes: 1. Disable or uninstall jellyfin-kodi. 2. Install Kof
 
 ## Implementation notes (2026-08-05)
 
-The sweeps live standalone in `sync/clean.py` rather than calling `views.delete_nodes`/`migrate_flat_nodes`/`delete_playlists`: one prefix-gated, root-parameterized pass covers all three (the `kofin`/`jellyfin` prefixes subsume the NODE_ROOT tree, the legacy flat layout and the favourites files), avoids `Views()`'s sync.json read entirely, and unit-tests against plain temp dirs. The managed playlist folders are deleted whole (`playlists.FOLDER_NAME`, under both `playlists/music/` and `playlists/video/`) instead of via `cleanup_managed_playlists`, which only prunes *within* the folder. They have to be named rather than swept: `_sweep_prefixed` matches case-sensitively and the folder is `Kofin`, so a prefix pass walks straight past it.
+The sweeps live standalone in `sync/clean.py` rather than calling `views.delete_nodes`/`delete_playlists`: one prefix-gated, root-parameterized pass covers all three (the `kofin`/`jellyfin` prefixes subsume the NODE_ROOT tree, the legacy flat layout and the favourites files), avoids `Views()`'s sync.json read entirely, and unit-tests against plain temp dirs. The managed playlist folders are deleted whole (`playlists.FOLDER_NAME`, under both `playlists/music/` and `playlists/video/`) instead of via `cleanup_managed_playlists`, which only prunes *within* the folder. They have to be named rather than swept: `_sweep_prefixed` matches case-sensitively and the folder is `Kofin`, so a prefix pass walks straight past it.
 
 `syncStatus` joined the cleared settings — a stale "N synced" status line would otherwise survive the wipe.
 

@@ -79,8 +79,6 @@ class Native:
             raise BackendMismatch(
                 "native library belongs to another server/user; use a fresh profile"
             )
-        if self.store.legacy_present():
-            self.retire_legacy()
         if owner == self.key:
             return
         for kind in (
@@ -107,40 +105,6 @@ class Native:
                     "fresh native library required; choose a clean profile or reset before switching to OR"
                 )
         self.store.prepare_empty()
-
-    def retire_legacy(self):
-        """Take the 0.90.0 movie rows out of Kodi and the old tables with them.
-
-        The ownership URL changed with the per-library layout, so the old
-        rows can never be matched again; the next enumeration re-imports
-        every selected library under the new one.
-        """
-        LOG.info("retiring the 0.90.0 movie layout; selected libraries re-import")
-        self.wait(self._idle)
-        rpc(
-            "VideoLibrary.SetSourceContent",
-            {
-                "path": paths.root(self.key),
-                "content": "none",
-                "clearmode": "remove",
-                "refresh": False,
-            },
-        )
-        rows = rpc(
-            "VideoLibrary.GetMovies",
-            {
-                "properties": ["uniqueid"],
-                "filter": {
-                    "field": "path",
-                    "operator": "startswith",
-                    "value": paths.root(self.key),
-                },
-            },
-        ).get("movies", [])
-        if rows:
-            raise RuntimeError("legacy clear left %d owned movies" % len(rows))
-        xbmc.executebuiltin("UpdateLibrary(video)")
-        self.store.retire_legacy()
 
     # -- waits ---------------------------------------------------------------
 

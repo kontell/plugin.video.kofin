@@ -39,7 +39,6 @@ KINDS = (
 # A season or episode is filed under its show; a song under its album (or
 # the singles folder of its artist); nothing else has a parent.
 PARENTED = ("Season", "Episode", "Audio")
-LEGACY_TABLES = ("api_snapshot", "api_movie", "api_directory")
 
 
 def namespace(server_id, user_id):
@@ -262,36 +261,6 @@ class Store(Catalogue):
             mode = db.conn.execute("PRAGMA auto_vacuum").fetchone()[0]
             if mode == 2:
                 return
-            db.conn.commit()
-            db.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
-            db.conn.execute("VACUUM")
-
-    def legacy_present(self):
-        """Whether the 0.90.0 movie store is still in this profile."""
-        with Database() as db:
-            self._prepare(db.cursor)
-            return bool(
-                db.cursor.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='api_movie'"
-                ).fetchone()
-            )
-
-    def retire_legacy(self):
-        """Drop the 0.90.0 tables once their native rows are gone.
-
-        Desired state from that layout is meaningless under the new URLs, so
-        the catalogue rows go too and the next enumeration starts clean; the
-        local userdata outbox and the setup marker survive.
-        """
-        with Database() as db:
-            self._prepare(db.cursor)
-            for table in LEGACY_TABLES:
-                db.cursor.execute("DROP TABLE IF EXISTS " + table)
-            for table in ("api_item", "api_expected", "api_entry", "api_native"):
-                db.cursor.execute(
-                    "DELETE FROM %s WHERE namespace=?" % table, (self.namespace,)
-                )
-        with Database() as db:
             db.conn.commit()
             db.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
             db.conn.execute("VACUUM")

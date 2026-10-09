@@ -3,6 +3,10 @@ v0.92.0
 - A song is a file in its album directory; a change to its tags re-imports only that directory, a server play patches only its row, and a song, album or library leaves through the complete listing of its directories — the audio API has no remove call.
 - The pass scans changed directories by name and walks the library root only when most changed; it holds the music scanner while it writes so the home widgets stay quiet; the provider never hands Kodi a short listing.
 - Faster everywhere the catalogue grew: a repair of 31,000 items compares in 27 s, a pass with nothing to write plans 22,000 songs in 4 s, the idle service no longer scans the catalogue twice a second, and a whole-library removal acknowledges in one transaction.
+- Scans run one directory at a time: Kodi stops a running scan when another is requested, so two libraries selected together never imported.
+- A listing no longer writes a freed InfoTag (segfault in setGenres on 32-bit ARM).
+- The pass reads payloads on demand instead of holding the whole catalogue in memory.
+- No state migrates between development builds: the 0.90.0 layout retirement, the flat node and playlist sweeps and the path-row rewrites are gone; a profile from an earlier build needs a fresh native library.
 
 v0.91.0
 - Native TV shows, seasons, episodes, music videos and collections in the API build: one scanner root per selected library and content type, shows as bound folders beneath it, sets filed at import.

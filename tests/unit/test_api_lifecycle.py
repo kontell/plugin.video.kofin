@@ -418,25 +418,6 @@ def test_first_run_gate_refuses_existing_library_and_other_namespace(
         other.setup()
 
 
-def test_legacy_rows_are_cleared_before_the_old_tables_go(store, backend, kodi):
-    backend.setup()
-    with private.Database() as db:
-        db.cursor.execute("CREATE TABLE api_movie(namespace TEXT, item_id TEXT)")
-    kodi.rows["Movie"][5] = {
-        "movieid": 5,
-        "file": paths.root(store.namespace) + "?mode=play&id=old",
-        "uniqueid": {"kofin": store.namespace + ":old"},
-    }
-    backend.setup()
-    assert kodi.rows["Movie"] == {}
-    assert methods(kodi, "VideoLibrary.SetSourceContent")[0]["path"] == paths.root(
-        store.namespace
-    )
-    assert kodi.builtins == ["UpdateLibrary(video)"]
-    assert not store.legacy_present()
-    assert store.prepared() == store.namespace
-
-
 def test_expected_userdata_scoped_by_generation_and_expiry(store, monkeypatch):
     store.publish([movie()], library=LIB)
     store.expect("a", 1, {"playcount": 3})

@@ -537,15 +537,3 @@ def delete_library(view_id):
     for name in dirs:
         if fs.is_managed(name) and name.endswith(view_id):
             fs.remove_folder(os.path.join(root, name))
-
-
-def migrate_flat_nodes():
-    """Clear out the pre-:data:`NODE_ROOT` layout.
-
-    Before the ``kofin`` parent, every library node folder and the three
-    ``kofin_Favorite*.xml`` sat directly in the video library root. They are
-    regenerated under the parent, so the old copies are dead weight that
-    would also show up twice in the library. NODE_ROOT itself is the new
-    home, not a leftover.
-    """
-    fs.remove_managed_entries(video_library_path(), keep=(NODE_ROOT,))

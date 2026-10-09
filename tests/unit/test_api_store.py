@@ -92,18 +92,6 @@ def test_library_move_is_pending_without_metadata_change(store):
     assert store.publish([movie()], library=LIB2) == store.generation()
 
 
-def test_legacy_store_is_detected_and_retired(store):
-    with private.Database() as db:
-        db.cursor.execute("CREATE TABLE api_movie(namespace TEXT, item_id TEXT)")
-        db.cursor.execute("CREATE TABLE api_snapshot(namespace TEXT, payload TEXT)")
-    assert store.legacy_present()
-    store.publish([movie()], library=LIB)
-    store.retire_legacy()
-    assert not store.legacy_present()
-    assert store.records(pinned=False) == {}
-    assert store.state("a") is None
-
-
 def test_pending_work_carries_payloads_only_for_removals(store):
     """A pass holds one record per pending item; loading every payload with
     them was 200 MB of Python for 6,600 video items and wedged a 1 GB

@@ -6,7 +6,7 @@ Implemented 2026-10-08 on `feat/or-phase4-video` against `kofin-or`, verified on
 
 `store.py` keeps each payload once in the shared `api_item` table and membership as intervals in `api_entry` (`added`/`removed` generations), so a scanner listing at the pinned generation is a WHERE clause and a publish writes one row per changed item. `api_native` maps every kind to its Kodi id with a small applied summary — the keys Kofin owns, the userdata it last wrote, a payload hash — instead of a second copy of the payload. Closed intervals are collected once no retained generation can reach them, a pending removal keeps its last placement until applied, and the database runs with incremental auto-vacuum. On the P1D, `kofin.db` went from 235 MB (1,792 movies, 45 snapshot generations of 38.7 MB each) to 72 MB holding 6,616 items.
 
-`paths.py` gives each selected library one scanner root per content type — `plugin://plugin.video.kofin/native/<namespace>/<library>/{movies,tvshows,musicvideos}/` — with shows as folders under the `tvshows/` root and episodes filed under their show. `RemoveContentForPath` on the library root removes one library in one call. A 0.90.0 profile is retired automatically on first start: its rows are removed through the same call on the old namespace directory, the old tables are dropped, the file is vacuumed and the selected libraries re-import.
+`paths.py` gives each selected library one scanner root per content type — `plugin://plugin.video.kofin/native/<namespace>/<library>/{movies,tvshows,musicvideos}/` — with shows as folders under the `tvshows/` root and episodes filed under their show. `RemoveContentForPath` on the library root removes one library in one call.
 
 Enumeration is a daily or Update-library pass; between passes the websocket events and the shared change-feed contract (`sync/changefeed.py`, KofinSyncQueue on this server) carry the changes, with a `MinDateLastSaved` catch-up when no companion is installed. A library selected while no worker was running is enumerated at the next tick.
 
@@ -36,7 +36,6 @@ All on the installed catalogue (1,788 movies in the Movies library, 79 shows / 4
 
 | Step | Wall time | Notes |
 |---|---:|---|
-| Retire the 0.90.0 layout (1,788 movies) | 55 s | one `RemoveContentForPath`, VACUUM 235 → 25 MB |
 | Movies: enumerate and publish | 22 s | 9 pages, 54 collection member listings |
 | Movies: scan | 100 s / 132 s | two imports; 56 / 74 ms a movie |
 | Movies: apply pass | 36 s before batching, seconds after | zero `SetMovieDetails`; the first pass was 3,685 one-row commits |
@@ -58,6 +57,16 @@ GUI round trips sampled every three seconds from another host stayed between 180
 Unit: the backend's fake Kodi (`tests/unit/apikodi.py`) imports from the pinned listing per scanner directory and keeps the rules above — a show folder imports only through its own binding, `clearmode: "remove"` deletes everything under a path, a refresh replaces the row and its id, `GetSeasons` hides an empty season, `Clean` drops empty sets. The lifecycle suite covers every kind, the one-call removal of one of two libraries of the same type, the show refresh with captured local edits, collections, batching, the change-feed catch-up with and without a companion, websocket events and the first-content reload per kind. black, ruff, mypy and the full suite pass.
 
 Live, on the P1D: a native episode played from the library through the resolver (`DirectStream`), a seek and stop wrote the resume point to Kodi and the server (869 s both sides) and the server's `UserDataChanged` echo left no local edit behind; an episode marked played on the server reached its Kodi row within a second; the in-progress rule returned exactly the episodes and movies with a server position (1 and 5); dynamic browsing listed the root and the Shows library beside the native rows. Screenshots are under `tests/live/results/or-phase4/` (gitignored).
+
+## On a 1 GB device
+
+Verified on 9 October 2026 on a LibreELEC 13 nightly (Kodi 22.0b2, armv7, 918 MB, no swap) with the Movies library and both show libraries selected together — the configuration the Flatpak runs never had, because its libraries were selected one at a time. Three defects, none visible on the P1D, and the pass that reaches this section's measurements is the one that carries their fixes.
+
+**Two scans issued together cancel each other.** 0.91.0 had imported nothing there in twelve hours: every pass issued one `VideoLibrary.Scan` per root, back to back, and Kodi's `UpdateLibrary` builtin, which the JSON-RPC method executes, stops a running scan when another is requested instead of queuing it (`LibraryBuiltins.cpp`). Each pass logged one `Starting scan … Finished scan` of 17 ms with no listing, then recorded 6,515 failures one database open at a time (an episode pass of 266 s with no Kodi call). `native.scan` now issues one scan and waits for it; the applier records failures by the batch.
+
+**A tag taken from a temporary ListItem dangles.** A full scan started by hand did list and import, at about two items a second (1,287 movies in 12 min, 3,188 episodes in 26 min), until Kodi segfaulted in `InfoTagVideo::setGenres`, and did so again under the fixed scans. `metadata.item_separator` took a video tag from `xbmcgui.ListItem(offscreen=True).getVideoInfoTag()`; the tag is a pointer into an item the interpreter had freed by the next line, and every API-build listing on every platform had written that freed memory. The x86_64 Flatpak never showed it.
+
+**A listing held the library.** With both fixed, the two show roots imported their remaining shows in 216 s and the pass issued the movies scan. Kodi had 540 MB; the movies root listing loaded its 1,788 payloads before building a ListItem and the process grew by 100 MB in a minute (RSS 544 → 624 MB, 150 MB available at the last sample), the listing never finished, and the device stopped answering ssh and the webserver until it was power-cycled twenty minutes later. The pass behind it would have done the same at twice the size: it built a record with its payload for every pending item, 6,616 of them — 58 MB of JSON and 200 MB of Python objects, measured on the P1D's store. Listings and the pass now read payloads on demand through `PayloadWindow` (200 ids a query, at most 512 held) and let each go once its ListItem or patch is built; the tvshows root reduces each episode to its numbering as it reads it.
 
 ## Known limits
 
