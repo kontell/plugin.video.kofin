@@ -309,6 +309,17 @@ What remains is kofin's own:
   held), listings walk their scope through one, and the tvshows root reduces each episode to
   `metadata.episode_row` as it reads it. `store.records()` is still eager for the callers
   that need every row.
+- **An empty premiere or aired date is no opinion, never a patch.** Kodi fills a missing date
+  itself (its zero date on the P1D, which reads back empty; a sibling's date on the LibreELEC
+  box, which does not) and `SetEpisodeDetails`/`SetTVShowDetails` ignore an empty string, so a
+  desired `""` never matches the row: 187 items re-patched on every pass. `metadata.details`
+  drops an empty `dateadded`, `premiered` or `firstaired` key.
+- **The API build's progress bar paints once a second at most and never per item**
+  (`backends/api/progress.py`). `DialogProgressBG.update` waits on Kodi's app thread; the
+  applier calls `step` per item and the bar decides whether to paint. The same setting passes
+  `showdialogs` to the scan calls. Both settings must stay in the API profile's
+  `settings.xml` (`tools/package_manifest.py`): `getSettingBool` on a setting the build does
+  not define raises `TypeError`, and that failed every pass on the box once.
 - Widget refreshes are fingerprint-gated and command paths own their own
   (`sync/widgetstate.py`, `docs/widget-refresh-plan.md`).
 - The wake-time FastSync on `GUI.OnScreensaverDeactivated` is **unconditional on purpose**: it is
