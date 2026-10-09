@@ -166,8 +166,6 @@ def contents(root, path, profile):
             "precacheActorArt",
             "precacheActorArtNow",
             "syncMusicPlaylists",
-            "showLibraryUpdateProgress",
-            "syncProgressThreshold",
             "syncDuringPlay",
             "limitIndex",
             "limitThreads",

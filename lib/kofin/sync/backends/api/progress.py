@@ -42,8 +42,24 @@ def label(kind_or_content: str) -> str:
 
 
 def show_dialogs() -> bool:
-    """Whether Kodi's own scanning dialog accompanies a scan."""
-    return settings.get_bool("showLibraryUpdateProgress")
+    """Whether Kodi's own scanning dialog accompanies a scan.
+
+    A build whose settings.xml lacks the setting raises ``TypeError:
+    Invalid setting type`` from ``getSettingBool``; a bar is never a reason
+    to fail a pass, so that reads as off.
+    """
+    try:
+        return bool(settings.get_bool("showLibraryUpdateProgress"))
+    except Exception as error:
+        LOG.debug("progress setting unreadable (%s); bar off", error)
+        return False
+
+
+def threshold() -> int:
+    try:
+        return int(settings.get_int("syncProgressThreshold"))
+    except Exception:
+        return 0
 
 
 class Progress:
@@ -67,9 +83,7 @@ class Progress:
         self.done = 0
         if self._dialog is not None:
             return
-        if not show_dialogs() or self.total <= settings.get_int(
-            "syncProgressThreshold"
-        ):
+        if not show_dialogs() or self.total <= threshold():
             return
         try:
             dialog = xbmcgui.DialogProgressBG()

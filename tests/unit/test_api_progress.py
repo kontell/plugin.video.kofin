@@ -113,3 +113,20 @@ def test_pass_keeps_kodi_quiet_when_the_setting_is_off(store, backend, kodi, bar
     assert bar.instances == []
     scans = methods(kodi, "VideoLibrary.Scan")
     assert scans and all(p["showdialogs"] is False for p in scans)
+
+
+def test_an_unreadable_setting_means_no_bar_and_no_failure(bar, monkeypatch):
+    """The API profile once shipped without the progress settings; Kodi then
+    raises TypeError from getSettingBool, and a pass must not fail on it."""
+
+    def broken(_):
+        raise TypeError("Invalid setting type")
+
+    monkeypatch.setattr(progress_module.settings, "get_bool", broken)
+    monkeypatch.setattr(progress_module.settings, "get_int", broken)
+    bar_ = progress_module.Progress()
+    bar_.begin(500)
+    bar_.step("Movie")
+    bar_.close()
+    assert bar.instances == []
+    assert progress_module.show_dialogs() is False
