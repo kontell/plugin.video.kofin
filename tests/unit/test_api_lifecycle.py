@@ -756,3 +756,42 @@ def test_a_vanished_show_takes_its_pending_episodes_with_it(store, backend, kodi
     assert not methods(kodi, "VideoLibrary.RemoveEpisode")
     assert set(kodi.owned("Series")) == {SHOW2}
     assert set(kodi.owned("Episode")) == {"fb21"}
+
+
+def test_scans_are_issued_one_at_a_time(store, backend, kodi, monkeypatch):
+    """Kodi's UpdateLibrary builtin, which VideoLibrary.Scan and
+    AudioLibrary.Scan both go through, stops a running scan instead of
+    queuing a second one; a pass that selected two libraries at once lost
+    one scan on every retry on 22.0b2. Each scan waits for the one before."""
+    from kofin.sync.backends.api import native as native_module
+
+    issued = []
+    scanning = {"on": False}
+    original = kodi.rpc
+
+    def rpc(method, params=None):
+        if method == "VideoLibrary.Scan":
+            assert not scanning["on"], "a scan was issued while another was running"
+            issued.append(params["directory"])
+            scanning["on"] = True
+            return "OK"
+        return original(method, params)
+
+    polls = {"n": 0}
+
+    def visible(flag):
+        if flag == "Library.IsScanningVideo" and scanning["on"]:
+            # The scan "finishes" on the third poll.
+            polls["n"] += 1
+            if polls["n"] >= 3:
+                polls["n"] = 0
+                scanning["on"] = False
+                backend.monitor.finished += 1
+            return True
+        return False
+
+    monkeypatch.setattr(native_module, "rpc", rpc)
+    monkeypatch.setattr(native_module.xbmc, "getCondVisibility", visible)
+    backend.scan(["plugin://a/", "plugin://b/", "plugin://c/"])
+    assert issued == ["plugin://a/", "plugin://b/", "plugin://c/"]
+    assert backend.monitor.finished == 3

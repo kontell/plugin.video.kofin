@@ -221,6 +221,21 @@ def parse_item(url) -> Tuple[Optional[Location], str]:
     return location, (query.get("id") or [""])[0]
 
 
+def describe(url) -> str:
+    """A log-safe name for a scanner directory: its content and folder."""
+    location = parse(url)
+    if location is None:
+        return "directory"
+    parts = [location.content or "root"]
+    if location.series:
+        parts.append("show " + location.series[:8])
+    if location.folder:
+        parts.append("folder " + location.folder[-8:])
+    if location.hold:
+        parts.append("hold")
+    return " ".join(parts)
+
+
 def key_from_url(url):
     location = parse(url)
     return location.key if location else None

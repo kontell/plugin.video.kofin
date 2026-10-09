@@ -120,12 +120,24 @@ class Catalogue:
             return bool(db.cursor.rowcount)
 
     def failed(self, item_id: str, generation: int, reason: str) -> None:
+        self.failed_many([(item_id, generation, reason)])
+
+    def failed_many(self, rows) -> None:
+        """One transaction for a batch of failures: a pass whose scanner
+        imported nothing fails every row, and one open per row cost a
+        Raspberry Pi four minutes for four thousand episodes."""
+        rows = list(rows)
+        if not rows:
+            return
         with Database() as db:
             self._prepare(db.cursor)
-            db.cursor.execute(
+            db.cursor.executemany(
                 """UPDATE api_item SET status='pending', error=?
                 WHERE namespace=? AND item_id=? AND desired=?""",
-                (reason, self.namespace, item_id, generation),
+                [
+                    (reason, self.namespace, item_id, generation)
+                    for item_id, generation, reason in rows
+                ],
             )
 
     def has_pending(self) -> bool:

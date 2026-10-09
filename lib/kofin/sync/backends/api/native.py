@@ -227,10 +227,15 @@ class Native:
         self.store.unbind(path)
 
     def scan(self, directories: List[str], scanner="video"):
-        """Queue one scan per directory and wait for the scanner to go idle."""
+        """Scan each directory in turn and wait for the scanner to go idle.
+
+        One scan at a time: a second ``VideoLibrary.Scan`` queued while the
+        first runs never starts (observed on 22.0b2: of two scans issued
+        together only the first ran, every time, and a pass that selected
+        two video libraries at once lost one of them on every retry).
+        """
         if not directories:
             return
-        self.wait(lambda: self._idle(scanner))
 
         def finished():
             return (
@@ -239,34 +244,29 @@ class Native:
                 else self.monitor.finished
             )
 
-        serial = finished()
         method = "AudioLibrary.Scan" if scanner == "music" else "VideoLibrary.Scan"
-        began = time.monotonic()
         for directory in directories:
+            self.wait(lambda: self._idle(scanner), busy=lambda: self._scanning(scanner))
+            serial = finished()
+            began = time.monotonic()
             rpc(method, {"directory": directory, "showdialogs": False})
-        self._async_pending = True
-        try:
-            self.wait(
-                lambda: finished() >= serial + len(directories) and self._idle(scanner),
-                busy=lambda: self._scanning(scanner),
-            )
-            LOG.info(
-                "%s scan of %d director%s took %.1f s",
-                scanner,
-                len(directories),
-                "y" if len(directories) == 1 else "ies",
-                time.monotonic() - began,
-            )
-        except TimeoutError:
-            if finished() == serial:
-                raise
-            LOG.warning(
-                "%d of %d scans reported finished; reading back anyway",
-                finished() - serial,
-                len(directories),
-            )
-        finally:
-            self._async_pending = not self._idle(scanner)
+            self._async_pending = True
+            try:
+                self.wait(
+                    lambda serial=serial: finished() > serial and self._idle(scanner),
+                    busy=lambda: self._scanning(scanner),
+                )
+                LOG.info(
+                    "%s scan of %s took %.1f s",
+                    scanner,
+                    paths.describe(directory),
+                    time.monotonic() - began,
+                )
+            except TimeoutError:
+                if finished() == serial:
+                    raise
+            finally:
+                self._async_pending = not self._idle(scanner)
         if scanner == "music":
             for directory in directories:
                 location = paths.parse(directory)

@@ -80,6 +80,7 @@ class Applier:
         self._artist_owners: Optional[Dict[str, str]] = None
         self._deferred: List[Patch] = []
         self._rpc_seconds = 0.0
+        self._failures: List[Tuple[str, int, str]] = []
 
     # -- batches -------------------------------------------------------------
 
@@ -88,7 +89,23 @@ class Applier:
         if len(self._acks) >= 200:
             self.commit()
 
+    def fail(self, record, error, errors):
+        """Record a failure for the batch and keep the error for the pass."""
+        self._failures.append(
+            (
+                record.item_id,
+                record.generation,
+                type(error).__name__ + ": " + str(error),
+            )
+        )
+        errors.append(error)
+        if len(self._failures) >= 200:
+            self.commit()
+
     def commit(self):
+        if self._failures:
+            failures, self._failures = self._failures, []
+            self.store.failed_many(failures)
         if self._expectations:
             self.store.expect_many(self._expectations)
             self._expectations = []
@@ -135,12 +152,7 @@ class Applier:
                 except InterruptedError:
                     raise
                 except Exception as error:
-                    self.store.failed(
-                        record.item_id,
-                        record.generation,
-                        type(error).__name__ + ": " + str(error),
-                    )
-                    errors.append(error)
+                    self.fail(record, error, errors)
             self.flush(queue, errors)
             if KINDS[kind].removal == "rescan":
                 self.confirm_by_scope(kind, errors)
@@ -528,12 +540,7 @@ class Applier:
             except InterruptedError:
                 raise
             except Exception as error:
-                self.store.failed(
-                    record.item_id,
-                    record.generation,
-                    type(error).__name__ + ": " + str(error),
-                )
-                errors.append(error)
+                self.fail(record, error, errors)
 
     def flush(self, queue: List[Patch], errors):
         if not queue:
@@ -563,10 +570,7 @@ class Applier:
         confirming = []
         for patch, reply in zip(patches, replies):
             if isinstance(reply, Exception):
-                self.store.failed(
-                    patch.record.item_id, patch.record.generation, str(reply)
-                )
-                errors.append(reply)
+                self.fail(patch.record, reply, errors)
                 continue
             table = KINDS[patch.record.kind]
             if table.removal == "rescan":
@@ -629,12 +633,7 @@ class Applier:
             except InterruptedError:
                 raise
             except Exception as error:
-                self.store.failed(
-                    record.item_id,
-                    record.generation,
-                    type(error).__name__ + ": " + str(error),
-                )
-                errors.append(error)
+                self.fail(record, error, errors)
 
 
 def local_edits(row, previous, desired):
