@@ -12,6 +12,12 @@ every song filed beneath its album, and ``music/singles/<artist>/`` for the
 songs Jellyfin gives no album. A music scan replaces a directory's songs with
 whatever its listing returns, so the album is the unit a song leaves by: its
 removal is the album directory listed without it.
+
+A song's URL is a file, ``<album dir>/<item id>.<container>``, not a query:
+the music database splits a URL into path and file name with the options
+dropped (``URIUtils::Split``), where the video database keeps a plugin URL
+whole, so a query-style song came back from Kodi as its bare directory --
+unplayable, and matched by nothing on a rescan.
 """
 
 import re
@@ -44,12 +50,39 @@ SCANNER = {
 }
 SINGLES = "singles/"
 NO_ARTIST = "0" * 32
+# Containers a song file may be named by; anything else is named "audio".
+# The resolved stream carries the real format, so the name is a label, but
+# it must never read as a playlist, a picture or lyrics to Kodi's classifiers.
+CONTAINERS = (
+    "mp3",
+    "flac",
+    "m4a",
+    "ogg",
+    "oga",
+    "opus",
+    "wav",
+    "wma",
+    "aac",
+    "aiff",
+    "aif",
+    "ape",
+    "mpc",
+    "wv",
+    "dsf",
+    "dff",
+    "alac",
+    "mka",
+    "mp4",
+    "webm",
+)
+FALLBACK_CONTAINER = "audio"
 
 _PATH = re.compile(
     r"^/native/([0-9a-f]{32})/"
     r"(?:([0-9a-f]{32})/"
     r"(?:(movies|tvshows|musicvideos|music)/"
-    r"(?:(singles/)?([0-9a-f]{32})/)?)?)?$"
+    r"(?:(singles/)?([0-9a-f]{32})/"
+    r"(?:([0-9a-z]{1,64})\.([a-z0-9]{1,8}))?)?)?)?$"
 )
 
 
@@ -62,6 +95,8 @@ class Location:
     series: Optional[str] = None
     # A music directory's key: an album id, or ``singles/<artist id>``.
     folder: Optional[str] = None
+    # The song a file-style music URL names.
+    song: Optional[str] = None
 
 
 def root(key):
@@ -101,6 +136,20 @@ def song_folder(item) -> str:
     return SINGLES + NO_ARTIST
 
 
+def container_of(item) -> str:
+    """The file extension a song is named by, from its container."""
+    container = str(item.get("Container") or "")
+    sources = item.get("MediaSources") or []
+    if not container and sources and isinstance(sources[0], dict):
+        container = str(sources[0].get("Container") or "")
+    container = container.split(",")[0].strip().lower()
+    return container if container in CONTAINERS else FALLBACK_CONTAINER
+
+
+def song_url(key, library, folder, item_id, container):
+    return music_dir(key, library, folder) + item_id + "." + container
+
+
 def item_dir(key, kind, library, item_id, parent_id=""):
     """The directory Kodi files an item of ``kind`` under."""
     if kind == "Series":
@@ -118,8 +167,10 @@ def item_dir(key, kind, library, item_id, parent_id=""):
     return library_dir(key, library, CONTENT[kind])
 
 
-def playback_url(key, kind, library, item_id, parent_id=""):
+def playback_url(key, kind, library, item_id, parent_id="", container=""):
     directory = item_dir(key, kind, library, item_id, parent_id)
+    if kind == "Audio":
+        return directory + item_id + "." + (container or FALLBACK_CONTAINER)
     return directory + "?" + urlencode({"mode": "play", "id": item_id})
 
 
@@ -134,21 +185,26 @@ def parse(url) -> Optional[Location]:
     match = _PATH.match(parsed.path)
     if not match:
         return None
-    key, library, content, singles, folder = match.groups()
+    key, library, content, singles, folder, song, _ = match.groups()
     if folder is None:
         return Location(key, library, content)
-    if content == "tvshows" and not singles:
+    if content == "tvshows" and not singles and song is None:
         return Location(key, library, content, series=folder)
     if content == "music":
-        return Location(key, library, content, folder=(singles or "") + folder)
+        return Location(
+            key, library, content, folder=(singles or "") + folder, song=song
+        )
     return None
 
 
 def parse_item(url) -> Tuple[Optional[Location], str]:
-    """The directory an item URL is filed under and the item id it carries."""
+    """The directory an item URL is filed under and the item id it carries:
+    the file name for a song, the query for everything else."""
     location = parse(url)
     if location is None:
         return None, ""
+    if location.song:
+        return location, location.song
     query = parse_qs(urlsplit(url).query)
     return location, (query.get("id") or [""])[0]
 

@@ -133,7 +133,10 @@ def mapped_jellyfin_id(kodi_id: int, media: str) -> Optional[str]:
 # plugin:// rows musicTranscode writes. Only used when the item carries no
 # Kodi database id (playback started from kofin's own browse listing rather
 # than the synced library).
-_ID_IN_PATH = re.compile(r"/Audio/([0-9a-f]{32})/|[?&]id=([0-9a-f]{32})\b")
+_ID_IN_PATH = re.compile(
+    r"/Audio/([0-9a-f]{32})/|[?&]id=([0-9a-f]{32})\b"
+    r"|/music/(?:singles/)?[0-9a-f]{32}/([0-9a-f]{32})\."
+)
 
 
 def playing_jellyfin_id(item: xbmcgui.ListItem, path: str) -> Optional[str]:
@@ -162,7 +165,7 @@ def playing_jellyfin_id(item: xbmcgui.ListItem, path: str) -> Optional[str]:
 
     match = _ID_IN_PATH.search(path or "")
     if match:
-        return match.group(1) or match.group(2)
+        return match.group(1) or match.group(2) or match.group(3)
     return None
 
 

@@ -92,7 +92,7 @@ def serve(request):
         xbmcplugin.endOfDirectory(request.handle, succeeded=False, cacheToDisc=False)
         return
     store = Store(location.key)
-    item_id = request.params.get("id")
+    item_id = request.params.get("id") or location.song
     if action == "check_exists":
         xbmcplugin.setResolvedUrl(
             request.handle,
@@ -281,7 +281,9 @@ def _song_entries(store, key, library, folder):
         album = found[folder].item if folder in found else None
     entries = []
     for item_id, record in sorted(songs.items()):
-        url = paths.playback_url(key, "Audio", library, item_id, folder)
+        url = paths.song_url(
+            key, library, folder, item_id, paths.container_of(record.item)
+        )
         try:
             li = metadata.song_listitem(record.item, album)
         except Exception:

@@ -37,12 +37,17 @@ def mapped_item(kodi_id, media):
         location, item_id = paths.parse_item(row.get("file") or "")
         if location is None or location.key != store.namespace or not item_id:
             return None
-    else:
-        uid = (row.get("uniqueid") or {}).get("kofin", "")
-        prefix = store.namespace + ":"
-        if not uid.startswith(prefix):
+        placed = store.entry(item_id)
+        if placed is None or store.mapping(item_id) is None:
             return None
-        item_id = uid[len(prefix) :]
+        if location.library != placed.library or location.folder != placed.parent_id:
+            return None
+        return item_id
+    uid = (row.get("uniqueid") or {}).get("kofin", "")
+    prefix = store.namespace + ":"
+    if not uid.startswith(prefix):
+        return None
+    item_id = uid[len(prefix) :]
     placed = store.entry(item_id)
     if placed is None or store.mapping(item_id) is None:
         return None
@@ -87,6 +92,14 @@ def library_url(item_id):
         return None
     if placed.kind in ("MusicAlbum", "MusicArtist"):
         return None
+    container = ""
+    if placed.kind == "Audio":
+        container = paths.container_of(store.item(item_id) or {})
     return paths.playback_url(
-        store.namespace, placed.kind, placed.library, item_id, placed.parent_id
+        store.namespace,
+        placed.kind,
+        placed.library,
+        item_id,
+        placed.parent_id,
+        container,
     )

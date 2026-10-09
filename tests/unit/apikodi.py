@@ -17,7 +17,7 @@ a scan of a root walks every folder the root lists.
 
 import copy
 import re
-from urllib.parse import parse_qs, urlsplit
+
 
 from kofin.sync.backends.api import metadata, paths
 
@@ -272,7 +272,13 @@ class Kodi:
         ):
             rows.append(
                 (
-                    paths.playback_url(self.key, "Audio", library, item_id, folder),
+                    paths.song_url(
+                        self.key,
+                        library,
+                        folder,
+                        item_id,
+                        paths.container_of(record.item),
+                    ),
                     metadata.song_tags(record.item, album),
                 )
             )
@@ -597,4 +603,4 @@ METHODS = {
 
 def song_id_of(url):
     """The Jellyfin id a fake song row's URL carries."""
-    return (parse_qs(urlsplit(url).query).get("id") or [""])[0]
+    return paths.parse_item(url)[1]

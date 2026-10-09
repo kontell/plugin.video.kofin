@@ -48,7 +48,7 @@ def test_music_import_files_songs_under_album_directories(store, backend, kodi):
     songs = owned_songs(kodi)
     assert set(songs) == {"tc31", "tc32", "tc33", "ud41", "ud42"}
     assert songs["tc31"]["file"] == paths.playback_url(
-        store.namespace, "Audio", LIB, "tc31", ALBUM
+        store.namespace, "Audio", LIB, "tc31", ALBUM, "flac"
     )
     assert songs["tc31"]["musicbrainztrackid"] == "mb-track-tc31"
     # The scanner zeroes a new song's play count: one patch, for the one
@@ -217,7 +217,7 @@ def test_a_song_moved_between_albums_rescans_both_directories(store, backend, ko
     }
     songs = owned_songs(kodi)
     assert songs["tc32"]["file"] == paths.playback_url(
-        store.namespace, "Audio", LIB, "tc32", ALBUM2
+        store.namespace, "Audio", LIB, "tc32", ALBUM2, "flac"
     )
     assert songs["tc32"]["songid"] != old_row["songid"]
     assert len([r for r in kodi.songs.values() if song_id_of(r["file"]) == "tc32"]) == 1
@@ -250,7 +250,7 @@ def test_songs_without_an_album_file_under_their_artists_singles(store, backend,
     assert store.entry("s1").parent_id == folder
     songs = owned_songs(kodi)
     assert songs["s1"]["file"] == paths.playback_url(
-        store.namespace, "Audio", LIB, "s1", folder
+        store.namespace, "Audio", LIB, "s1", folder, "flac"
     )
     assert not store.pending()
     # The artist is credited by no album of ours: mapped by name if Kodi has
@@ -377,8 +377,8 @@ def test_music_provider_lists_folders_with_tombstones_and_never_fails(
     ]
     provider.serve(Request(paths.music_dir(store.namespace, LIB, ALBUM), 1, {}))
     assert [e[0] for e in rendered[-1]] == [
-        paths.playback_url(store.namespace, "Audio", LIB, "tc31", ALBUM),
-        paths.playback_url(store.namespace, "Audio", LIB, "tc32", ALBUM),
+        paths.playback_url(store.namespace, "Audio", LIB, "tc31", ALBUM, "flac"),
+        paths.playback_url(store.namespace, "Audio", LIB, "tc32", ALBUM, "flac"),
     ]
     assert all(k.get("succeeded") is True for k in ended)
     # Every song of the second album is removed: its directory stays listed
@@ -407,7 +407,7 @@ def test_music_provider_lists_folders_with_tombstones_and_never_fails(
             "songs": [
                 {
                     "file": paths.playback_url(
-                        store.namespace, "Audio", LIB, "tc31", ALBUM
+                        store.namespace, "Audio", LIB, "tc31", ALBUM, "flac"
                     ),
                     "title": "Kept",
                     "artist": ["Band"],
@@ -507,7 +507,7 @@ def test_song_identity_lookups_use_the_url(store, backend, kodi, monkeypatch):
     assert identity.mapped_item(songid, "song") is None
     # The fallback finds the row through its directory, not the library.
     kodi.songs[songid]["file"] = paths.playback_url(
-        store.namespace, "Audio", LIB, "tc31", ALBUM
+        store.namespace, "Audio", LIB, "tc31", ALBUM, "flac"
     )
     kodi.calls.clear()
     assert identity.native_id_for("tc31", "song") == songid

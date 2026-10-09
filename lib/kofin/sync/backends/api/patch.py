@@ -33,7 +33,7 @@ from .kinds import (
     rpc_batch,
 )
 from .readback import artist_key
-from .store import Record, payload_hash
+from .store import Mapping, Record, payload_hash
 
 LOG = Logger(__name__)
 
@@ -95,7 +95,11 @@ class Applier:
             acks, self._acks = self._acks, []
             self.store.remember_many(acks)
             if self._mappings_loaded:
-                self._mappings = self.store.mappings()
+                # Keep the preloaded mappings current without re-reading
+                # them: a 24,000-row reload every 200 acknowledgements was
+                # the pass's own largest cost.
+                for item_id, _, kodi_id, applied, kind in acks:
+                    self._mappings[item_id] = Mapping(kodi_id, applied or {}, kind)
 
     def mapping(self, item_id):
         if self._mappings_loaded:
