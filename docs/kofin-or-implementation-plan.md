@@ -40,7 +40,7 @@ Versions below are planned milestones, not one-release-per-phase promises. Use p
 | 2 | Development repository and prerelease automation | Working `repository.kontell.dev` installer | 0; alongside 1 |
 | 3 | Complete movie lifecycle through Piers APIs | `0.90.0` prerelease, published 8 October 2026 | 1, 2 |
 | 4 | TV, seasons, episodes, music videos and collections | `0.91.0` implemented and verified on the P1D, 8 October 2026 | 3 |
-| 5 | Music with complete snapshots: album directories, post-import userdata, never-failing provider | `0.92.0` implemented and verified on the P1D, 9 October 2026 | 4 |
+| 5 | Music with complete snapshots: album directories, post-import userdata, never-failing provider | `0.92.0` implemented and verified on the P1D and on a 1 GB LibreELEC box, 9 October 2026 | 4 |
 | 6 | Downloads, artwork, nodes, playback integration and policy cleanup | `0.93.x` | 4, 5 |
 | 7 | Piers development candidate and official submission preparation | `0.94.x` | 3–6 |
 | 8 | Scoped Kodi contributions from feasibility report §9 | Independent upstream PRs | Begin after 0; use later phases' evidence |
