@@ -626,10 +626,11 @@ class Store(Catalogue):
                     "DELETE FROM api_expected WHERE namespace=? AND item_id=?",
                     (self.namespace, item_id),
                 )
-                if root:
-                    self._collect(
-                        db.cursor, root[1] if root[1] is not None else root[0], item_id
-                    )
+            if count and root:
+                # One collection for the batch: the query's "still pending"
+                # subquery scans the item table, and once per item it turned
+                # a whole-library removal into minutes of SQLite.
+                self._collect(db.cursor, root[1] if root[1] is not None else root[0])
         return count
 
     def invalidate(self, item_ids: Iterable[str]):
