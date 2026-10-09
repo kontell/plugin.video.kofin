@@ -89,10 +89,20 @@ def compact(item):
 
 
 def item_separator():
-    """Read Kodi's configured video-array separator through its public tag API."""
-    tag = xbmcgui.ListItem(offscreen=True).getVideoInfoTag()
+    """Read Kodi's configured video-array separator through its public tag API.
+
+    The ListItem must outlive the tag: ``getVideoInfoTag`` hands out a
+    pointer into the item (``InfoTagVideo(tag, offscreen)``, owned=false),
+    and the item's destructor deletes it. Taken from a temporary, the tag
+    dangles and the first setter writes freed memory; a 32-bit ARM Kodi
+    segfaulted in ``setGenres`` on it (LibreELEC 22.0b2, 9 October 2026).
+    """
+    probe = xbmcgui.ListItem(offscreen=True)
+    tag = probe.getVideoInfoTag()
     tag.setGenres(["kofin_left", "kofin_right"])
     joined = tag.getGenre()
+    del tag
+    del probe
     return joined[len("kofin_left") : -len("kofin_right")] if joined else " / "
 
 

@@ -201,3 +201,21 @@ def test_timestamps_are_written_in_kodi_local_time():
     # Calendar dates are not shifted by the zone.
     assert data["premiered"] == "2001-02-03"
     assert metadata.userdata(movie(UserData={"Played": False}))["lastplayed"] == ""
+
+
+def test_no_tag_is_taken_from_a_temporary_listitem():
+    """An InfoTag is a pointer into its ListItem (InfoTagVideo(tag, offscreen),
+    owned=false; CFileItem's destructor deletes the tag). Taken from a temporary
+    the item is freed at once and the first setter writes freed memory; it
+    segfaulted a 32-bit ARM Kodi in setGenres."""
+    import re
+    from pathlib import Path
+
+    pattern = re.compile(r"ListItem\([^)]*\)\.get\w*InfoTag\(\)")
+    root = Path(__file__).resolve().parents[2] / "lib"
+    offenders = [
+        str(path.relative_to(root))
+        for path in root.rglob("*.py")
+        if pattern.search(path.read_text())
+    ]
+    assert offenders == []
