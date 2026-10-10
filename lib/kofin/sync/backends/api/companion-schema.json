@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "The companion contract: the request document Kofin writes and the status document the companion writes back",
+  "type": "object",
+  "required": ["v", "generation", "requests"],
+  "properties": {
+    "v": {"type": "integer", "enum": [1, 2]},
+    "generation": {"type": "integer"},
+    "namespace": {"type": "string"},
+    "device": {"type": "string"},
+    "kinds": {"type": "array", "items": {"type": "string"}},
+    "requests": {"type": "array", "items": {"$ref": "#/definitions/request"}}
+  },
+  "x-kinds": {
+    "group_versions": {"$ref": "#/definitions/group_versions"}
+  },
+  "x-status": {"$ref": "#/definitions/status"},
+  "definitions": {
+    "request": {
+      "type": "object",
+      "required": ["id", "kind", "library", "item"],
+      "properties": {
+        "id": {"type": "string"},
+        "kind": {"type": "string"},
+        "library": {"type": "string"},
+        "item": {"type": "string"}
+      }
+    },
+    "group_versions": {
+      "type": "object",
+      "required": ["owner", "versions"],
+      "properties": {
+        "owner": {
+          "type": "object",
+          "required": ["movieid"],
+          "properties": {"movieid": {"type": "integer"}, "file": {"type": ["string", "null"]}}
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["movieid", "mediasourceid"],
+            "properties": {
+              "movieid": {"type": "integer"},
+              "file": {"type": ["string", "null"]},
+              "mediasourceid": {"type": "string"},
+              "name": {"type": "string"}
+            }
+          }
+        },
+        "default": {"type": "string"}
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "required": ["state", "reason", "hash"],
+      "properties": {
+        "state": {"type": "string", "enum": ["done", "waiting", "refused"]},
+        "reason": {"type": "string"},
+        "hash": {"type": "string"},
+        "at": {"type": "string"}
+      }
+    },
+    "status": {
+      "type": "object",
+      "required": ["v", "companion", "contract", "kinds", "updated", "requests"],
+      "properties": {
+        "v": {"type": "integer", "enum": [1]},
+        "companion": {"type": "string"},
+        "contract": {"type": "array", "items": {"type": "integer"}},
+        "kinds": {"type": "array", "items": {"type": "string"}},
+        "trigger": {"type": "string"},
+        "updated": {"type": "string"},
+        "generation": {"type": ["integer", "null"]},
+        "idle": {"type": "string"},
+        "busy": {"type": "boolean"},
+        "gate": {"type": "object"},
+        "requests": {"type": "object", "additionalProperties": {"$ref": "#/definitions/outcome"}},
+        "summary": {"type": "object"}
+      }
+    }
+  }
+}

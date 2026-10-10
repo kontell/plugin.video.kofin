@@ -513,13 +513,20 @@ def test_ungrouped_versions_are_published_for_the_companion_and_closed_by_readba
     from kofin.core import contract
     from kofin.sync.backends.api import companion
 
+    from kofin.core import settings
+    from tests.unit import contractschema
+
+    settings.set_str("deviceId", "device-1")
     backend.setup()
     store.publish([assets_movie()], library=LIB)
     backend.reconcile()
     owner, version = movie_rows(kodi)
     document = _requests(store)
-    assert document["v"] == 1 and document["generation"] == 1
+    assert document["v"] == 2 and document["generation"] == 1
     assert document["namespace"] == store.namespace
+    assert document["device"] == "device-1"
+    assert document["kinds"] == [companion.GROUP_VERSIONS]
+    contractschema.check_document(document, contractschema.load(companion.SCHEMA_PATH))
     (request,) = document["requests"]
     assert request["kind"] == companion.GROUP_VERSIONS
     assert (request["library"], request["item"]) == (LIB, "a")
@@ -535,6 +542,7 @@ def test_ungrouped_versions_are_published_for_the_companion_and_closed_by_readba
     (ping,) = kodi.notified
     assert ping["message"] == contract.COMPANION_REQUESTS
     assert ping["sender"] == "plugin.video.kofin"
+    assert ping["data"]["v"] == 2
     assert ping["data"]["generation"] == 1 and ping["data"]["count"] == 1
     assert ping["data"]["path"].endswith("companion/requests.json")
     # The same set again is not rewritten and not announced.
@@ -549,7 +557,7 @@ def test_ungrouped_versions_are_published_for_the_companion_and_closed_by_readba
     document = _requests(store)
     assert document["requests"] == [] and document["generation"] == 2
     assert kodi.notified[-1]["data"] == {
-        "v": 1,
+        "v": 2,
         "generation": 2,
         "count": 0,
         "path": kodi.notified[-1]["data"]["path"],

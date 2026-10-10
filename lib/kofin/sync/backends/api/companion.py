@@ -18,30 +18,52 @@ whole whenever the set changes, and ``Companion.Requests`` goes out over
 generation, so a running companion wakes and one started later finds the
 file. A request leaves the document when the readback no longer shows the
 rows it named; there is no acknowledgement message to forge or to lose.
+
+The document is version 2 (``companion-schema.json`` beside this module is
+the contract both sides test against): version 1 carried the requests,
+version 2 adds the device id every chapter key will carry and the kinds this
+build publishes, so the companion's status can say which it cannot serve.
+The companion writes its own status document and pings ``Companion.Status``
+(docs/companion-addon-plan.md, section 3.3); kofin-or folds it into the
+capability report and logs each refusal once.
 """
 
 import hashlib
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
-from kofin.core import contract, kodirpc
+from kofin.core import contract, kodirpc, settings
 from kofin.core.log import Logger
 from kofin.sync import private
 from . import paths
 
 LOG = Logger(__name__)
 
-# The companion's identity is decided with the user before it exists; until
-# then this is where kofin-or looks for it.
 ADDON_ID = "service.kofin.companion"
-VERSION = 1
+VERSION = 2
 DOCUMENT = os.path.join("companion", "requests.json")
+REPORT = "api-capabilities.json"
+STATUS = "status.json"
+SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "companion-schema.json")
 GROUP_VERSIONS = "group_versions"
+# The kinds this build publishes, in the document for the companion's status.
+KINDS = (GROUP_VERSIONS,)
 
 
 def requests_path() -> str:
     return os.path.join(private.addon_data_path(), DOCUMENT)
+
+
+def report_path() -> str:
+    return os.path.join(private.addon_data_path(), REPORT)
+
+
+def status_path() -> str:
+    """The companion's status document, beside kofin's profile data."""
+    return os.path.join(
+        os.path.dirname(private.addon_data_path().rstrip("/")), ADDON_ID, STATUS
+    )
 
 
 def present() -> Optional[str]:
@@ -124,7 +146,7 @@ def publish(native) -> int:
     Returns how many requests are open."""
     requests = collect(native)
     current = read()
-    if [r["id"] for r in requests] == [
+    if current.get("v") == VERSION and [r["id"] for r in requests] == [
         r.get("id") for r in current["requests"] if isinstance(r, dict)
     ]:
         if requests:
@@ -135,6 +157,8 @@ def publish(native) -> int:
         "v": VERSION,
         "generation": generation,
         "namespace": native.key,
+        "device": settings.get_str("deviceId"),
+        "kinds": list(KINDS),
         "requests": requests,
     }
     target = requests_path()
@@ -177,3 +201,104 @@ def _log_open(requests: List[Dict[str, Any]]) -> None:
         LOG.info(
             "companion: %d request(s) open for %s %s", len(requests), ADDON_ID, version
         )
+
+
+# -- the companion's status ------------------------------------------------------
+
+
+def status() -> Optional[Dict[str, Any]]:
+    """The companion's last status document, or None when it never wrote one."""
+    try:
+        with open(status_path(), "r", encoding="utf-8") as handle:
+            document = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def status_summary(document: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """What the capability report keeps of a status: the generation it
+    answered, the kinds it serves, the gate it found, the counts, and every
+    request it refused or is still waiting on, by reason."""
+    if not document:
+        return {}
+    outcomes = document.get("requests")
+    if not isinstance(outcomes, dict):
+        outcomes = {}
+    by_state: Dict[str, Dict[str, str]] = {"refused": {}, "waiting": {}}
+    for request_id, outcome in outcomes.items():
+        if not isinstance(outcome, dict):
+            continue
+        state = str(outcome.get("state") or "")
+        if state in by_state:
+            by_state[state][str(request_id)] = str(outcome.get("reason") or "")
+    gate = document.get("gate")
+    return {
+        "generation": document.get("generation"),
+        "updated": document.get("updated"),
+        "idle": document.get("idle"),
+        "kinds": list(document.get("kinds") or []),
+        "gate": (
+            {
+                kind: {"version": entry.get("version"), "ok": bool(entry.get("ok"))}
+                for kind, entry in gate.items()
+                if isinstance(entry, dict)
+            }
+            if isinstance(gate, dict)
+            else {}
+        ),
+        "summary": dict(document.get("summary") or {}),
+        "refused": by_state["refused"],
+        "waiting": by_state["waiting"],
+    }
+
+
+def status_block() -> Dict[str, Any]:
+    """The capability report's companion entry: presence and the last status."""
+    return {
+        "addon": ADDON_ID,
+        "version": present(),
+        "status": status_summary(status()),
+    }
+
+
+def absorb_status(seen: Set[str]) -> Dict[str, Any]:
+    """A ``Companion.Status`` ping: fold the status into the capability
+    report and log what it says, each refusal once (``seen`` is the
+    service's memory of the refusals already logged)."""
+    block = status_block()
+    summary = block["status"]
+    try:
+        with open(report_path(), "r", encoding="utf-8") as handle:
+            report = json.load(handle)
+    except (OSError, ValueError):
+        report = None
+    if isinstance(report, dict):
+        report["companion"] = block
+        target = report_path()
+        with open(target + ".part", "w", encoding="utf-8") as handle:
+            json.dump(report, handle, indent=2)
+        os.replace(target + ".part", target)
+    if not summary:
+        return block
+    if summary.get("idle"):
+        key = "idle:%s" % summary["idle"]
+        if key not in seen:
+            seen.add(key)
+            LOG.info("companion idle: %s", summary["idle"])
+        return block
+    counts = summary.get("summary") or {}
+    LOG.info(
+        "companion status: generation %s, %d done, %d waiting, %d refused",
+        summary.get("generation"),
+        int(counts.get("done") or 0),
+        int(counts.get("waiting") or 0),
+        int(counts.get("refused") or 0),
+    )
+    for request_id, reason in sorted(summary.get("refused", {}).items()):
+        key = "%s:%s" % (request_id, reason)
+        if key in seen:
+            continue
+        seen.add(key)
+        LOG.info("companion refused request %s: %s", request_id, reason)
+    return block
