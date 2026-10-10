@@ -593,6 +593,50 @@ def test_sync_music_playlists_enable_disable():
     assert service.library.commands == [("CleanupMusicPlaylists", None)]
 
 
+def test_library_nodes_enable_disable():
+    """The API build's switch: on rewrites the tree now and the playlists at
+    the next pass; off cleans the playlists up and republishes the tree."""
+    service = FakeService()
+    FakeAddon.store["libraryNodes"] = "false"
+    FakeAddon.store["deviceId"] = "dev-1"
+    applier = ready_applier(service)
+    regenerated = []
+    applier._regenerate_nodes = lambda: regenerated.append(True)
+
+    FakeAddon.store["libraryNodes"] = "true"
+    applier.apply()
+    assert service.library.commands == [("SyncMusicPlaylists", None)]
+    assert regenerated == [True]
+
+    service.library.commands.clear()
+    FakeAddon.store["libraryNodes"] = "false"
+    applier.apply()
+    assert service.library.commands == [("CleanupMusicPlaylists", None)]
+    assert regenerated == [True, True]
+
+
+def test_unconfirmed_library_nodes_off_removes_nothing():
+    """The off direction deletes files, so a false read while the settings
+    document is mid-rewrite (canary empty) is ignored and the snapshot stays
+    on; the real off that follows recovery still applies."""
+    service = FakeService()
+    FakeAddon.store["libraryNodes"] = "true"
+    FakeAddon.store["deviceId"] = "dev-1"
+    applier = ready_applier(service)
+    regenerated = []
+    applier._regenerate_nodes = lambda: regenerated.append(True)
+
+    FakeAddon.store["libraryNodes"] = "false"
+    FakeAddon.store["deviceId"] = ""
+    applier.apply()
+    assert service.library.commands == [] and regenerated == []
+    FakeAddon.store["deviceId"] = "dev-1"
+    FakeAddon.store["libraryNodes"] = "false"
+    applier.apply()
+    assert service.library.commands == [("CleanupMusicPlaylists", None)]
+    assert regenerated == [True]
+
+
 def test_music_transcode_rematerializes_when_playlists_on():
     service = FakeService()
     FakeAddon.store["syncMusicPlaylists"] = "true"

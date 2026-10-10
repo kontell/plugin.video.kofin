@@ -499,5 +499,7 @@
   "#30854": "Verifică listele de redare abonate; debifează-le pentru a opri sincronizarea descărcărilor.",
   "#30855": "Verifică bibliotecile muzicale abonate; debifează-le pentru a opri sincronizarea descărcărilor.",
   "#30990": "Indisponibil în această versiune preliminară",
+  "#30856": "Noduri de bibliotecă și liste de redare",
+  "#30857": "Creează noduri de bibliotecă Kodi și liste inteligente pentru bibliotecile video sincronizate și copiază listele Jellyfin în Kodi la Video → Liste de redare → Kofin și Muzică → Liste de redare → Kofin. Dezactivat, elimină toate nodurile și listele create de Kofin, lasă fișierele făcute manual neatinse și afișează bibliotecile sincronizate prin intrările de navigare proprii Kofin.",
   "#30858": "Setarea Kodi „Ignoră extrasurile video la scanare” este acum dezactivată pentru ca extrasurile filmelor să poată fi importate"
 }

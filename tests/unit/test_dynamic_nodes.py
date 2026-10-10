@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 
 from kofin.sync import dynamic, private
 from kofin.sync.nodes.video import NODE_ROOT
-from tests.unit.fakes import FakeWindow
+from tests.unit.fakes import FakeAddon, FakeWindow
 from tests.unit.test_sync_views import FakeApi, views_env  # noqa: F401
 
 MOVIES = "1" * 32
@@ -120,6 +120,63 @@ def test_tree_order_is_movies_then_shows_within_the_servers_order(views_env):
         ("tvshows", "2", False),
         ("tvshows", "4", True),
     ]
+
+
+def test_the_switch_takes_the_tree_and_playlists_down_and_publishes_browse_entries(
+    views_env,
+):
+    """libraryNodes off: the files Kofin wrote go, a hand-made node stays, a
+    synced video library is a browse entry and a synced music library keeps
+    Kodi's music root; on again, the tree and the playlists come back."""
+    whitelist(MOVIES, MUSIC)
+    dynamic.publish(ITEMS, FakeApi())
+    root = views_env["profile"] / "library" / "video" / NODE_ROOT
+    xsp = (
+        views_env["profile"]
+        / "playlists"
+        / "video"
+        / "Kofin"
+        / ("kofinmovies%s.xsp" % MOVIES)
+    )
+    assert (root / ("kofinmovies" + MOVIES) / "all.xml").is_file() and xsp.is_file()
+    (root / "mine.xml").write_text("<node/>")
+    FakeAddon.store[dynamic.SETTING] = "false"
+    assert dynamic.wanted() is False
+    dynamic.publish(ITEMS, FakeApi())
+    assert [p.name for p in root.iterdir()] == ["mine.xml"]
+    assert not xsp.exists()
+    window = props()
+    assert window["Kofin.nodes.1.title"] == "Movies"
+    assert window["Kofin.nodes.1.path"].startswith("plugin://plugin.video.kofin/?")
+    assert "Kofin.nodes.1.content" not in window
+    assert (
+        window["Kofin.nodes.2.path"] == "ActivateWindow(Music,library://music/,return)"
+    )
+    FakeAddon.store[dynamic.SETTING] = "true"
+    dynamic.publish(ITEMS, FakeApi())
+    assert (root / ("kofinmovies" + MOVIES) / "all.xml").is_file() and xsp.is_file()
+    assert (root / "mine.xml").is_file()
+    assert props()["Kofin.nodes.1.content"].endswith("/all.xml")
+
+
+def test_only_an_explicit_off_switches_the_presentation_off(monkeypatch):
+    """Off deletes files: an empty read (a settings document that did not
+    load) and a build without the setting both read as on."""
+    from kofin.core import settings
+
+    FakeAddon.store = {}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    assert dynamic.wanted() is True
+    FakeAddon.store[dynamic.SETTING] = "false"
+    assert dynamic.wanted() is False
+    FakeAddon.store[dynamic.SETTING] = "true"
+    assert dynamic.wanted() is True
+
+    def missing(_setting):
+        raise TypeError("no such setting")
+
+    monkeypatch.setattr(settings, "get_str", missing)
+    assert dynamic.wanted() is True
 
 
 def test_the_shipped_video_nodes_are_seeded_before_the_tree_is_written(

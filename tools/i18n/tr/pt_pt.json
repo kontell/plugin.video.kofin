@@ -499,5 +499,7 @@
   "#30854": "Reveja as listas de reprodução subscritas; desmarque para parar de sincronizar as transferências.",
   "#30855": "Reveja as bibliotecas de música subscritas; desmarque para parar de sincronizar as transferências.",
   "#30990": "Indisponível nesta versão de pré-visualização",
+  "#30856": "Nós da biblioteca e listas de reprodução",
+  "#30857": "Criar nós da biblioteca do Kodi e listas inteligentes para as bibliotecas de vídeo sincronizadas e copiar as listas Jellyfin para o Kodi em Vídeos → Listas de reprodução → Kofin e Música → Listas de reprodução → Kofin. Desativado, remove todos os nós e listas que o Kofin criou, deixa os ficheiros feitos à mão intactos e mostra as bibliotecas sincronizadas pelas entradas de navegação do próprio Kofin.",
   "#30858": "A opção do Kodi 'Ignorar extras de vídeo ao analisar' está agora desativada para que os extras dos filmes possam ser importados"
 }

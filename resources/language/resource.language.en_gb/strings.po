@@ -2377,6 +2377,15 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr ""
 
+# 30856-30857 — the API build's presentation toggle (settings.xml libraryNodes).
+msgctxt "#30856"
+msgid "Library nodes and playlists"
+msgstr ""
+
+msgctxt "#30857"
+msgid "Create Kodi library nodes and smart playlists for the synced video libraries, and copy Jellyfin playlists into Kodi under Videos → Playlists → Kofin and Music → Playlists → Kofin. Turning this off removes every node and playlist Kofin created, leaves hand-made files alone, and lists the synced libraries through Kofin's own browse entries instead."
+msgstr ""
+
 # 30858 — the toast the API build shows once when it turns Kodi's own
 # "Ignore video extras on scan" setting off for the extras import.
 msgctxt "#30858"

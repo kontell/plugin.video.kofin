@@ -338,6 +338,16 @@
           <default>true</default>
           <control type="toggle"/>
         </setting>
+        <!-- The API build's one presentation toggle (sync/dynamic.py): the
+             node tree, the smart playlists and the Jellyfin playlists
+             together. Each profile ships one of the two: the API profile
+             drops syncMusicPlaylists and the SQL profile drops this one
+             (tools/package_manifest.py). -->
+        <setting id="libraryNodes" type="boolean" label="30856" help="30857">
+          <level>0</level>
+          <default>true</default>
+          <control type="toggle"/>
+        </setting>
         <setting id="limitIndex" type="integer" label="30310" help="30311">
           <level>1</level>
           <default>50</default>

@@ -499,5 +499,7 @@
   "#30854": "Controlla le playlist sottoscritte; deselezionale per interrompere la sincronizzazione dei download.",
   "#30855": "Controlla le librerie musicali sottoscritte; deselezionale per interrompere la sincronizzazione dei download.",
   "#30990": "Non disponibile in questa anteprima",
+  "#30856": "Nodi della libreria e playlist",
+  "#30857": "Crea nodi della libreria Kodi e playlist intelligenti per le librerie video sincronizzate e copia le playlist Jellyfin in Kodi sotto Video → Playlist → Kofin e Musica → Playlist → Kofin. Se disattivato, rimuove tutti i nodi e le playlist creati da Kofin, lascia intatti i file fatti a mano e mostra le librerie sincronizzate tramite le voci di esplorazione di Kofin.",
   "#30858": "L'impostazione di Kodi « Ignora gli extra video durante la scansione » è ora disattivata così gli extra dei film possono essere importati"
 }

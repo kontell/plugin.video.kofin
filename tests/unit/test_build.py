@@ -34,6 +34,7 @@ def test_sync_playlists_and_nfo_export_default_on():
         for setting in root.iter("setting")
     }
     assert defaults["syncMusicPlaylists"] == "true"
+    assert defaults["libraryNodes"] == "true"
     assert defaults["downloadsExportMetadata"] == "true"
 
 
