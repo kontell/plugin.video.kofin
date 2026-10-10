@@ -2228,6 +2228,10 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "查看已订阅的音乐库；取消勾选即可停止同步下载。"
 
+msgctxt "#30858"
+msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
+msgstr "已关闭 Kodi 的“扫描时忽略视频花絮”设置，以便导入电影花絮"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "此预览版暂不支持"

@@ -498,5 +498,6 @@
   "#30853": "Contenido no descargado",
   "#30854": "Revisa las listas de reproducción suscritas; desmárcalas para dejar de sincronizar las descargas.",
   "#30855": "Revisa las bibliotecas de música suscritas; desmárcalas para dejar de sincronizar las descargas.",
-  "#30990": "No disponible en esta versión preliminar"
+  "#30990": "No disponible en esta versión preliminar",
+  "#30858": "La opción de Kodi «Ignorar extras de video al escanear» ahora está desactivada para poder importar los extras de las películas"
 }

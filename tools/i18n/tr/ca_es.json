@@ -498,5 +498,6 @@
   "#30853": "Contingut no descarregat",
   "#30854": "Revisa les llistes de reproducció subscrites; desmarca-les per deixar de sincronitzar les descàrregues.",
   "#30855": "Revisa les biblioteques de música subscrites; desmarca-les per deixar de sincronitzar les descàrregues.",
-  "#30990": "No disponible en aquesta versió prèvia"
+  "#30990": "No disponible en aquesta versió prèvia",
+  "#30858": "L'opció de Kodi «Ignora els extres de vídeo en escanejar» s'ha desactivat perquè es puguin importar els extres de les pel·lícules"
 }

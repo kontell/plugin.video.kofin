@@ -498,5 +498,6 @@
   "#30853": "Obsah není stažen",
   "#30854": "Zkontrolujte odebírané playlisty; zrušením výběru zastavíte synchronizaci stahování.",
   "#30855": "Zkontrolujte odebírané hudební knihovny; zrušením výběru zastavíte synchronizaci stahování.",
-  "#30990": "V této zkušební verzi není dostupné"
+  "#30990": "V této zkušební verzi není dostupné",
+  "#30858": "Nastavení Kodi „Ignorovat video bonusy při skenování“ je nyní vypnuto, aby se daly importovat bonusy filmů"
 }

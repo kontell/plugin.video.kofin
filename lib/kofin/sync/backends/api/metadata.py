@@ -161,8 +161,8 @@ def assets_token(item) -> str:
         {
             "versions": [[s["Id"], s.get("Name") or ""] for s in sources],
             "extras": [
-                [f["Id"], paths.extra_name(f), paths.video_container_of(f)]
-                for f in features
+                [f["Id"], stem, paths.video_container_of(f)]
+                for stem, f in paths.extra_stems(features)
             ],
         }
     )

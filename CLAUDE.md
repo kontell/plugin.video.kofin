@@ -370,31 +370,35 @@ What remains is kofin's own:
   layout needs the Movies library deselected and reselected: the old rows' URLs are not
   owned, and importing beside them would double the library.
 - **A movie's version files and extras live in its folder, and only a scan of the folder by
-  name lists them.** The root walk lists the movie's own file alone (a folder in a movies
-  listing is a phantom disc). `metadata.assets_token` names what the folder lists beyond that
-  file; the pass scans the folder when the token acknowledged for the movie differs
-  (`native._asset_folders`), binding it with `usedirectorynames`, because `AddVideoExtras`
-  reads an extras folder only from a directory whose settings use folder names. A version
-  file is the movie's URL with `mediasourceid`. Kodi imports it as a movie of its own: a
-  plugin item's tag takes the NFO branch of `RetrieveInfoForMovie`, which never reaches the
-  similar-video grouping, so the user groups it in the Versions Manager and a later scan keeps
-  the grouping (`GetMovieId` resolves a version's file through `videoversion`).
-  `Readback.owns` accepts the movie's URL with or without the source, since the user may make
-  a version the default; `Readback._prefer` lets the movie's own file win over ungrouped
-  version rows and keeps them as `version_rows`, which leave with the movie on removal. Two
-  rows by the movie's own file are still a duplicate identity.
-- **An extras folder survives Kodi's disc probe only while the directory cache knows it.**
-  `ConvertDiscFoldersToFiles` asks `CFileUtils::Exists(<folder>/VIDEO_TS.IFO)` and
-  `CPluginFile::Exists` says yes to anything, but `CFile::Exists` asks the directory cache
-  first, so `native._prepare_scan` lists the folder and its `VIDEO_TS/` and `BDMV/` through
-  `Files.GetDirectory` right before the folder's scan (the cache holds fifty directories) and
-  the provider answers those two with empty listings. The pass turns
-  `videolibrary.ignorevideoextras` off once (`allow_extras`): while it is on Kodi drops the
-  folder before looking at it. An extra is `extras/<title>.<container>`: Kodi names the extra
-  by the path below the folder minus the extension, and its listing mask needs a video
-  extension, so the id is looked back up from the title (`provider.resolve_extra`). The
-  special features travel in the movie's payload (`library.attach_extras`), with
-  `SpecialFeatureCount` kept only when it is non-zero so no other payload hash moved.
+  name lists them.** The root walk lists the movie's own file alone; the Kodi side of this (the
+  phantom-disc probe, the NFO branch that never groups a plugin item, `AddVideoExtras`, the
+  directory cache) is in `kodi-library-data`'s plugin-sources page, not here.
+  `metadata.assets_token` names what the folder lists beyond that file, and the pass scans the
+  folder when the token acknowledged for the movie differs (`native._asset_folders`) — a token
+  that went empty included, so the token the apply pass acknowledges is always one a scan
+  presented. The scan adds and never removes: a row the listing no longer names leaves through
+  Clean, whose per-file `check_exists` is `provider.exists` (a version file exists while the
+  movie still lists its source, an extra while the movie's payload still names its stem). A
+  version file is the movie's URL with `mediasourceid`; Kodi imports it as a movie of its own
+  and the user groups it in the Versions Manager. `Readback.owns` accepts the movie's URL with
+  or without the source, since the user may make a version the default; `Readback._prefer`
+  lets the movie's own file win over ungrouped version rows and keeps them as `version_rows`,
+  which leave with the movie on removal. Two rows by the movie's own file are still a
+  duplicate identity.
+- **An extra is `extras/<stem>.<container>`, and the stem is its whole identity.** Kodi names
+  the extra by the path below the folder minus the extension, so the id cannot travel in the
+  URL; `paths.extra_stems` gives each feature a stem unique within the movie (`Trailer`,
+  `Trailer (2)`, in id order) and the listing, the token, `exists` and `resolve_extra` read
+  that list and nothing else. The features travel in the movie's payload, and **every publish
+  path attaches them** (`library.attach_extras`: inside `fetch_kind` for movies, and after the
+  single re-fetches of `fetch_items` and `flush_local`), because a payload without them reads
+  as a movie without extras and Clean would drop rows the server still has. `paths.parse`
+  tells the extras directory, a file in it and a disc-probe folder below it apart: the
+  directory is listed, a probe answers empty (`native._prepare_scan` lists the folder and its
+  `VIDEO_TS/` and `BDMV/` through `Files.GetDirectory` right before the scan, so the directory
+  cache answers Kodi's probe), and a file goes to the play route or fails as a play. The pass
+  turns `videolibrary.ignorevideoextras` off once (`allow_extras`), with a toast, since Kodi
+  drops the folder before looking at it while that is on.
 - **What stock Piers interfaces cannot do is published for the companion add-on, never done
   through SQL.** `sync/backends/api/companion.py` writes the open requests to
   `companion/requests.json` in the profile and sends `Companion.Requests` over
