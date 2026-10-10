@@ -72,9 +72,16 @@ def compact(item):
                 if isinstance(source, dict) and source.get("MediaStreams"):
                     result["MediaStreams"] = source["MediaStreams"]
                     break
+        # A movie with several sources lists a file per source, each with
+        # the source's own streams; a single source's are the item's.
+        strip = (
+            _DROP
+            if len(sources) > 1 and item.get("Type") == "Movie"
+            else _DROP + ("MediaStreams",)
+        )
         result["MediaSources"] = [
             (
-                {k: v for k, v in s.items() if k not in _DROP + ("MediaStreams",)}
+                {k: v for k, v in s.items() if k not in strip}
                 if isinstance(s, dict)
                 else s
             )

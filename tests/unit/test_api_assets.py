@@ -366,3 +366,128 @@ def test_two_rows_by_the_movie_s_own_file_are_still_a_duplicate(store, backend, 
         assert "duplicate owned Movie identity" in str(error)
     else:
         raise AssertionError("two rows by the movie's own file were accepted")
+
+
+# -- the companion contract -------------------------------------------------------
+
+
+def _requests(store):
+    import json
+    import os
+
+    from kofin.sync import private
+
+    path = os.path.join(private.addon_data_path(), "companion", "requests.json")
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def test_ungrouped_versions_are_published_for_the_companion_and_closed_by_readback(
+    store, backend, kodi
+):
+    from kofin.core import contract
+    from kofin.sync.backends.api import companion
+
+    backend.setup()
+    store.publish([assets_movie()], library=LIB)
+    backend.reconcile()
+    owner, version = movie_rows(kodi)
+    document = _requests(store)
+    assert document["v"] == 1 and document["generation"] == 1
+    assert document["namespace"] == store.namespace
+    (request,) = document["requests"]
+    assert request["kind"] == companion.GROUP_VERSIONS
+    assert (request["library"], request["item"]) == (LIB, "a")
+    assert request["owner"] == {"movieid": owner["movieid"], "file": owner["file"]}
+    assert request["versions"] == [
+        {
+            "movieid": version["movieid"],
+            "file": version["file"],
+            "mediasourceid": "s2",
+            "name": "Theatrical Cut",
+        }
+    ]
+    (ping,) = kodi.notified
+    assert ping["message"] == contract.COMPANION_REQUESTS
+    assert ping["sender"] == "plugin.video.kofin"
+    assert ping["data"]["generation"] == 1 and ping["data"]["count"] == 1
+    assert ping["data"]["path"].endswith("companion/requests.json")
+    # The same set again is not rewritten and not announced.
+    store.publish([assets_movie(Overview="Changed")], library=LIB)
+    backend.reconcile()
+    assert len(kodi.notified) == 1 and _requests(store)["generation"] == 1
+    # The companion (or the user) grouped the two: the request leaves the
+    # document when the readback no longer shows the version's row.
+    del kodi.rows["Movie"][version["movieid"]]
+    store.publish([assets_movie(Overview="Changed again")], library=LIB)
+    backend.reconcile()
+    document = _requests(store)
+    assert document["requests"] == [] and document["generation"] == 2
+    assert kodi.notified[-1]["data"] == {
+        "v": 1,
+        "generation": 2,
+        "count": 0,
+        "path": kodi.notified[-1]["data"]["path"],
+    }
+
+
+def test_the_companion_is_detected_and_reported_as_optional(store, kodi):
+    from kofin.sync.backends.api import companion
+
+    assert companion.present() is None
+    kodi.addons[companion.ADDON_ID] = "0.1.0"
+    assert companion.present() == "0.1.0"
+
+
+def test_a_plain_movie_publishes_no_companion_request(store, backend, kodi):
+    import os
+
+    from kofin.sync import private
+
+    backend.setup()
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    assert kodi.notified == []
+    assert not os.path.exists(
+        os.path.join(private.addon_data_path(), "companion", "requests.json")
+    )
+
+
+def test_a_version_file_lists_its_own_streams_and_runtime(store, monkeypatch):
+    from kofin.plugin.router import Request
+    from kofin.sync.backends.api import metadata, provider
+
+    item = assets_movie()
+    item["MediaSources"][1].update(
+        RunTimeTicks=720000000,
+        MediaStreams=[
+            {"Type": "Video", "Codec": "hevc", "Width": 3840, "Height": 2160}
+        ],
+    )
+    store.publish([item], library=LIB)
+    shown = []
+
+    class Item:
+        def getVideoInfoTag(self):
+            return type("Tag", (), {"setVideoAssetTitle": lambda s, n: None})()
+
+    monkeypatch.setattr(
+        provider.metadata, "listitem", lambda it, *a, **k: shown.append(it) or Item()
+    )
+    monkeypatch.setattr(provider.xbmcplugin, "addDirectoryItems", lambda *a: None)
+    monkeypatch.setattr(provider.xbmcplugin, "setContent", lambda *a: None)
+    monkeypatch.setattr(provider.xbmcplugin, "endOfDirectory", lambda *a, **k: None)
+    provider.serve(Request(folder_of(store), 1, {}))
+    canonical, version = shown
+    assert canonical["RunTimeTicks"] == 1200000000
+    assert version["RunTimeTicks"] == 720000000
+    assert version["MediaStreams"][0]["Codec"] == "hevc"
+    assert [s["Id"] for s in version["MediaSources"]] == ["s2"]
+    # The payload keeps each source's streams only for a movie with several.
+    assert "MediaStreams" in metadata.compact(item)["MediaSources"][1]
+    assert (
+        "MediaStreams"
+        not in metadata.compact(
+            movie(MediaSources=[{"Id": "s1", "MediaStreams": [{"Type": "Video"}]}])
+        )["MediaSources"][0]
+    )

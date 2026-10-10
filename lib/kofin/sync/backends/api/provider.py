@@ -324,8 +324,18 @@ def _movie_entries(record, server, key, library, separator, set_name, assets):
     url = paths.playback_url(key, "Movie", library, record.item_id)
     sources = metadata.version_sources(item)
 
-    def row(name=""):
-        li = metadata.listitem(item, server, key, library, separator, set_name=set_name)
+    def row(name="", source=None):
+        shown = item
+        if source is not None:
+            # The version's own streams and runtime, where the source has them.
+            shown = dict(item, MediaSources=[source])
+            if source.get("MediaStreams"):
+                shown["MediaStreams"] = source["MediaStreams"]
+            if source.get("RunTimeTicks"):
+                shown["RunTimeTicks"] = source["RunTimeTicks"]
+        li = metadata.listitem(
+            shown, server, key, library, separator, set_name=set_name
+        )
         if name:
             li.getVideoInfoTag().setVideoAssetTitle(name)
         return li
@@ -337,7 +347,7 @@ def _movie_entries(record, server, key, library, separator, set_name, assets):
         entries.append(
             (
                 paths.version_url(key, library, record.item_id, source["Id"]),
-                row(source.get("Name") or ""),
+                row(source.get("Name") or "", source),
                 False,
             )
         )

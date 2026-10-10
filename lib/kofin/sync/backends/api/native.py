@@ -22,7 +22,7 @@ import xbmc
 from kofin.core import memory, state
 from kofin.core.log import Logger
 from kofin.sync.catalogue import BackendMismatch
-from . import metadata, paths, progress, removal
+from . import companion, metadata, paths, progress, removal
 from .kinds import rpc, rpc_batch
 from .patch import Applier
 from .readback import Readback
@@ -556,6 +556,12 @@ class Native:
             movies = {i for i, e in entries.items() if e.kind == "Movie"}
             applier.run(upserts, collections, movies, repair, errors)
             removal.finish_sets(self, pending, boxsets, errors)
+            try:
+                # What this pass could not do and the companion add-on can:
+                # published for it, confirmed by the next readback.
+                companion.publish(self)
+            except Exception:
+                LOG.exception("companion requests not published")
             if errors:
                 raise RuntimeError(
                     "%d native operations remain pending: %s" % (len(errors), errors[0])

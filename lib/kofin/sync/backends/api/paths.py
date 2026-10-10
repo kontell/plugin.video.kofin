@@ -243,6 +243,11 @@ def is_version_url(url) -> bool:
     return PARAM_MEDIA_SOURCE in parse_qs(urlsplit(url or "").query)
 
 
+def source_of(url) -> str:
+    """The media source a version file's URL names, or empty."""
+    return (parse_qs(urlsplit(url or "").query).get(PARAM_MEDIA_SOURCE) or [""])[0]
+
+
 def hold_dir(key, scanner="music"):
     return root(key) + "hold/" + scanner + "/"
 

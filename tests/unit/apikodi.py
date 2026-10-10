@@ -51,6 +51,9 @@ class Kodi:
         # flag, the extras filed on a movie row, and the extras folders a
         # scan turned into phantom discs instead.
         self.settings = {"videolibrary.ignorevideoextras": True}
+        # Installed add-ons the service may ask about, and NotifyAll sends.
+        self.addons = {}
+        self.notified = []
         self.listed = []
         self.dirnames = {}
         self.extras = {}
@@ -575,6 +578,20 @@ class Kodi:
         if method == "Files.GetDirectory":
             self.listed.append(params["directory"])
             return {"files": [], "limits": {"total": 0}}
+        if method == "Addons.GetAddonDetails":
+            version = self.addons.get(params["addonid"])
+            if version is None:
+                raise RuntimeError("Kodi refused " + method)
+            return {
+                "addon": {
+                    "addonid": params["addonid"],
+                    "enabled": True,
+                    "version": version,
+                }
+            }
+        if method == "JSONRPC.NotifyAll":
+            self.notified.append(params)
+            return "OK"
         if method == "VideoLibrary.Scan":
             self.scan(params["directory"])
             return "OK"
