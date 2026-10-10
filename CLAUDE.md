@@ -395,6 +395,42 @@ What remains is kofin's own:
   extension, so the id is looked back up from the title (`provider.resolve_extra`). The
   special features travel in the movie's payload (`library.attach_extras`), with
   `SpecialFeatureCount` kept only when it is non-zero so no other payload hash moved.
+- **What stock Piers interfaces cannot do is published for the companion add-on, never done
+  through SQL.** `sync/backends/api/companion.py` writes the open requests to
+  `companion/requests.json` in the profile and sends `Companion.Requests` over
+  `JSONRPC.NotifyAll` (`core/contract.py`) whenever the set changes; the first request is a
+  movie's ungrouped version rows (`Readback.versions_in`). A request leaves the document when
+  the readback no longer shows the rows it named, so there is no acknowledgement to forge or
+  lose; the companion's presence is read from `Addons` into `api-capabilities.json`, and its
+  absence is logged as the gap it leaves. The companion's id (`companion.ADDON_ID`) is a
+  placeholder until the add-on exists.
+- **The API build's presentation is built from the catalogue, never from Kodi's tables.**
+  `sync/dynamic.py` writes the node tree for whitelisted video libraries with filter rules on
+  the library tag (`dynamic.library_tag`, the tag `metadata.tags` puts on every row) and the
+  smart playlists beside it, publishes `library://` paths for them and `browse` paths for
+  every other view, and takes the tree down by the `kofin` prefix when nothing is synced; a
+  whitelisted music library publishes Kodi's music root, because the SQL music tree filters on
+  Kodi music sources this build never writes. `sync/playlists.py` ships in both builds: its
+  native database imports are deferred to the SQL refresh functions, and `apply_one` and
+  `reconcile` take a `resolver`; the API one (`backends/api/playlists.py`) gives a line for an
+  item the pass has acknowledged, the resolver URL Kodi filed the row under, and the label
+  from the server's listing. Widget refresh is Kodi's own: every setter announces, the music
+  hold hides a pass's, and the first-content reload is the one builtin the pass fires.
+- **The API build asks Kodi to cache cast images; it writes no texture row.** Opening
+  `image://<url>/` through `xbmcvfs.File` runs `CTextureCache::CacheImage`
+  (`CImageFile::Open`); `service/castart.py` does that for every portrait the catalogue's
+  People carry that `Textures.GetTextures` does not list, at idle, a batch at a time, with the
+  SQL seeder's interface so the service drives either.
+- **A download moves nothing of Kodi's in the API build.** `downloads/nativeport.py` is the
+  manager's view of the library per build: the SQL port is the relocation and the stamps; the
+  API port leaves the row's plugin URL alone (the resolver plays the local file however the
+  item is reached), hands the badge and the "Kofin Downloads" tag to the pass by invalidating
+  the item and its show (`backends/api/downloaded.py`, the download state is an input of the
+  desired state and joins `inputs_token`), reads Kodi's play state back by the mapped id, and
+  leaves the local watched mark of a vanished download to the server round-trip that already
+  follows it, since a setter would start the userdata echo cycle. The badge key is
+  `kofindownloaded`: a dotted art key is accepted by the setter and never stored. The
+  Downloaded-episodes node filters on a moved path and stays the SQL build's.
 - **A scope readback is minimal; the full row is read for an item whose state moved**
   (`kinds.MINIMAL`, `Readback.full`, `Readback.prefetch_full`). The scope carries what
   finds and owns a row and the userdata a viewer may have edited, nothing else; the plan
