@@ -420,7 +420,10 @@ What remains is kofin's own:
   `special://profile/library/video/` exists every `library://video/...` path resolves there
   and nowhere else, so a profile holding only `kofin/` listed nothing for
   `library://video/movies/` and the skin's categories rows on the P1D's Movies and Shows
-  sections went empty (`kodi-library-nodes`). A side's Jellyfin playlists are pruned, files
+  sections went empty (`kodi-library-nodes`). The seeded tree reached the home widgets only
+  after a Kodi restart: `ReloadSkin()` re-listed `library://video/movies/` over JSON-RPC but
+  the widget kept its empty listing (22.0b2), so an upgraded profile sees the rows after its
+  next restart. A side's Jellyfin playlists are pruned, files
   and states, when its last library leaves the selection (`backends/api/playlists._drop_side`;
   `RemoveLibrary` marks the pass due), and a playlist file the resolver left short — an entry
   the pass had not filed yet — withholds its Etag checksum, because the server's Etag does not
