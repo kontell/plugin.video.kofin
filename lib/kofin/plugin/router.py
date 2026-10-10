@@ -15,7 +15,6 @@ LEGACY_MODES = frozenset(
     {
         "cleandatabases",
         "refreshboxsets",
-        "precacheart",
         "saveplaylist",
         "download",
         "downloadshow",

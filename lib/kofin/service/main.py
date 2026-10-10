@@ -23,6 +23,8 @@ from kofin.service import backdrop
 
 if buildconfig.legacy_features():
     from kofin.service import artcache, chapters
+else:
+    from kofin.service import castart
 from kofin.service.kodiuserdata import KodiUserData
 from kofin.service.player import Player
 from kofin.service.remote import RemoteHandler
@@ -219,8 +221,13 @@ class Service(xbmc.Monitor):
         self._post_connect: Optional[threading.Thread] = None
         self._post_connect_pending = threading.Event()
         # Idle-time cast-image seeder, and the settings button's one-shot.
+        # The SQL build seeds Kodi's texture tables; the API build asks Kodi
+        # to cache each image through its image VFS. One interface, two
+        # workers (service/artcache.py, service/castart.py).
         self.artcache = (
-            artcache.ActorArtCache() if buildconfig.legacy_features() else None
+            artcache.ActorArtCache()
+            if buildconfig.legacy_features()
+            else castart.CastArt()
         )
         self._precache_art: Optional[threading.Thread] = None
         self._online = False
@@ -1284,8 +1291,6 @@ class Service(xbmc.Monitor):
         self._open_who_is_watching()
 
     def _ipc_precache_art(self, name: str, payload: Dict[str, Any]) -> None:
-        if not buildconfig.legacy_features():
-            return None
         self._precache_art_now()
 
     def _ipc_attach_subtitle(self, name: str, payload: Dict[str, Any]) -> None:
@@ -1366,8 +1371,6 @@ class Service(xbmc.Monitor):
 
     def _run_precache_art(self) -> None:
         if self.artcache is None:
-            return None
-        if not buildconfig.legacy_features():
             return None
         toast.show(settings.localized(30672), time_ms=4000)
         try:

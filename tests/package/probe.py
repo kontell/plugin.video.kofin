@@ -138,9 +138,12 @@ service._start_library()
 service._start_downloads()
 service._start_chapter_sweep()
 service.player._start_chapter_thumbs({"Type": "Movie"})
-assert (
-    service.library is None and service.downloads is None and service.artcache is None
-)
+from kofin.service.castart import CastArt
+
+# The API build warms cast images through Kodi's image VFS, never a texture
+# table of its own.
+assert service.library is None and service.downloads is None
+assert isinstance(service.artcache, CastArt)
 service.abortRequested = lambda: True
 assert service.run() is False
 report = json.loads((profile / "api-capabilities.json").read_text())
