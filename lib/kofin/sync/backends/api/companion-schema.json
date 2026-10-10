@@ -12,7 +12,8 @@
     "requests": {"type": "array", "items": {"$ref": "#/definitions/request"}}
   },
   "x-kinds": {
-    "group_versions": {"$ref": "#/definitions/group_versions"}
+    "group_versions": {"$ref": "#/definitions/group_versions"},
+    "chapter_art": {"$ref": "#/definitions/chapter_art"}
   },
   "x-status": {"$ref": "#/definitions/status"},
   "definitions": {
@@ -49,6 +50,27 @@
           }
         },
         "default": {"type": "string"}
+      }
+    },
+    "chapter_art": {
+      "type": "object",
+      "required": ["dynpath", "chapters"],
+      "properties": {
+        "dynpath": {"type": "string"},
+        "session": {"type": "string"},
+        "chapters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["n", "file"],
+            "properties": {
+              "n": {"type": "integer"},
+              "file": {"type": "string"},
+              "width": {"type": "integer"},
+              "height": {"type": "integer"}
+            }
+          }
+        }
       }
     },
     "outcome": {

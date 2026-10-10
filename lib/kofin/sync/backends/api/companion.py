@@ -31,7 +31,8 @@ capability report and logs each refusal once.
 import hashlib
 import json
 import os
-from typing import Any, Dict, List, Optional, Set
+import threading
+from typing import Any, Dict, List, Optional, Sequence, Set
 
 from kofin.core import contract, kodirpc, settings
 from kofin.core.log import Logger
@@ -40,6 +41,11 @@ from . import paths
 
 LOG = Logger(__name__)
 
+# The one lock on the document: the pass thread writes its kinds and the
+# player thread the per-play ones. A lock carries no state across service
+# generations, which is why it is exempt from the no-module-globals rule.
+_LOCK = threading.Lock()
+
 ADDON_ID = "service.kofin.companion"
 VERSION = 2
 DOCUMENT = os.path.join("companion", "requests.json")
@@ -47,8 +53,13 @@ REPORT = "api-capabilities.json"
 STATUS = "status.json"
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "companion-schema.json")
 GROUP_VERSIONS = "group_versions"
-# The kinds this build publishes, in the document for the companion's status.
-KINDS = (GROUP_VERSIONS,)
+CHAPTER_ART = "chapter_art"
+# The kinds this build publishes, in the document for the companion's status:
+# the pass's, collected from the catalogue on every pass, and the live ones a
+# playback publishes and withdraws (chapterart.py).
+PASS_KINDS = (GROUP_VERSIONS,)
+LIVE_KINDS = (CHAPTER_ART,)
+KINDS = PASS_KINDS + LIVE_KINDS
 
 
 def requests_path() -> str:
@@ -142,30 +153,68 @@ def collect(native) -> List[Dict[str, Any]]:
 
 
 def publish(native) -> int:
-    """Write the open requests when the set changed and tell the companion.
-    Returns how many requests are open."""
+    """Write the pass's requests when their set changed and tell the
+    companion. Returns how many of the pass's requests are open."""
     requests = collect(native)
-    current = read()
-    if current.get("v") == VERSION and [r["id"] for r in requests] == [
-        r.get("id") for r in current["requests"] if isinstance(r, dict)
-    ]:
-        if requests:
-            _log_open(requests)
-        return len(requests)
-    generation = int(current.get("generation") or 0) + 1
-    document = {
-        "v": VERSION,
-        "generation": generation,
-        "namespace": native.key,
-        "device": settings.get_str("deviceId"),
-        "kinds": list(KINDS),
-        "requests": requests,
-    }
-    target = requests_path()
-    os.makedirs(os.path.dirname(target), exist_ok=True)
-    with open(target + ".part", "w", encoding="utf-8") as handle:
-        json.dump(document, handle, indent=1)
-    os.replace(target + ".part", target)
+    _write(native.key, PASS_KINDS, requests)
+    if requests:
+        _log_open(requests)
+    else:
+        LOG.debug("companion: no pass request open")
+    return len(requests)
+
+
+def publish_live(kind: str, requests: Sequence[Dict[str, Any]]) -> None:
+    """Replace the requests of one live kind, keeping every other kind's."""
+    _write("", (kind,), list(requests))
+
+
+def _namespace(current: Dict[str, Any]) -> str:
+    namespace = str(current.get("namespace") or "")
+    if namespace:
+        return namespace
+    from .store import namespace as derive
+
+    try:
+        return str(derive(settings.get_str("serverId"), settings.get_str("userId")))
+    except ValueError:
+        return ""
+
+
+def _write(
+    namespace: str, kinds: Sequence[str], requests: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """The document with ``kinds`` replaced by ``requests``; rewritten and
+    announced only when the set of ids changed or the document is of an
+    older version. Returns the document's requests."""
+    with _LOCK:
+        current = read()
+        kept = [
+            r
+            for r in current["requests"]
+            if isinstance(r, dict) and r.get("kind") not in kinds
+        ]
+        merged = kept + requests
+        if current.get("v") == VERSION and sorted(
+            str(r.get("id")) for r in merged
+        ) == sorted(
+            str(r.get("id")) for r in current["requests"] if isinstance(r, dict)
+        ):
+            return [r for r in current["requests"] if isinstance(r, dict)]
+        generation = int(current.get("generation") or 0) + 1
+        document = {
+            "v": VERSION,
+            "generation": generation,
+            "namespace": namespace or _namespace(current),
+            "device": settings.get_str("deviceId"),
+            "kinds": list(KINDS),
+            "requests": merged,
+        }
+        target = requests_path()
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target + ".part", "w", encoding="utf-8") as handle:
+            json.dump(document, handle, indent=1)
+        os.replace(target + ".part", target)
     kodirpc.call(
         "JSONRPC.NotifyAll",
         {
@@ -174,16 +223,13 @@ def publish(native) -> int:
             "data": {
                 "v": VERSION,
                 "generation": generation,
-                "count": len(requests),
+                "count": len(merged),
                 "path": target,
             },
         },
     )
-    if requests:
-        _log_open(requests)
-    else:
-        LOG.info("companion: no request open (generation %d)", generation)
-    return len(requests)
+    LOG.info("companion: generation %d, %d request(s) open", generation, len(merged))
+    return merged
 
 
 def _log_open(requests: List[Dict[str, Any]]) -> None:
@@ -191,15 +237,18 @@ def _log_open(requests: List[Dict[str, Any]]) -> None:
     movies = sum(1 for r in requests if r["kind"] == GROUP_VERSIONS)
     if version is None:
         LOG.info(
-            "companion: %d request(s) open, %d movie(s) with ungrouped versions;"
-            " %s is not installed, so they stay the user's to group",
+            "companion: %d pass request(s) open, %d movie(s) with ungrouped"
+            " versions; %s is not installed, so they stay the user's to group",
             len(requests),
             movies,
             ADDON_ID,
         )
     else:
         LOG.info(
-            "companion: %d request(s) open for %s %s", len(requests), ADDON_ID, version
+            "companion: %d pass request(s) open for %s %s",
+            len(requests),
+            ADDON_ID,
+            version,
         )
 
 

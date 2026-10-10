@@ -168,6 +168,13 @@ class Player(xbmc.Player):
         self._late_subs: Optional[latesubs.LateSubtitles] = None
         self._reporter = _Reporter()
         self._reporter.start()
+        if not buildconfig.legacy_features():
+            # No claim is live at the start of a generation: a chapter art
+            # request a crash left in the companion document is withdrawn
+            # and its staged images removed.
+            from kofin.sync.backends.api import chapterart
+
+            chapterart.clear_at_start()
 
     # A property so joining or leaving a group also withdraws or restores the
     # stream menu, without the SyncPlay manager having to know the menu exists:
@@ -786,7 +793,17 @@ class Player(xbmc.Player):
 
     def _start_chapter_thumbs(self, item: JsonDict) -> None:
         if not buildconfig.legacy_features():
-            return None
+            # The API build stages the server's chapter images for the
+            # companion add-on, which writes the texture rows the native
+            # chapters dialog reads (sync/backends/api/chapterart.py).
+            from kofin.sync.backends.api import chapterart
+
+            if not chapterart.eligible(item):
+                return
+            self._stop_chapter_thumbs()
+            self._chapter_thumbs = chapterart.ChapterArt(self.api, item)
+            self._chapter_thumbs.start()
+            return
         if not settings.get_bool("chapterImages"):
             return
         if not chapters.eligible(item):
