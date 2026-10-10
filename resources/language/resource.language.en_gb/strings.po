@@ -2377,6 +2377,12 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr ""
 
+# 30858 — the toast the API build shows once when it turns Kodi's own
+# "Ignore video extras on scan" setting off for the extras import.
+msgctxt "#30858"
+msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
+msgstr ""
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr ""

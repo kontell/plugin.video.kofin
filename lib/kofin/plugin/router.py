@@ -196,11 +196,6 @@ def dispatch(argv: List[str]) -> None:
             time.monotonic() - imports_began,
         )
         native = location.key if location else None
-        if location is None and paths.under_extras(base_url):
-            # A disc-structure probe below a movie's extras folder; the
-            # provider answers it empty rather than with the root menu.
-            serve(request)
-            return
         if (
             native
             and location is not None
@@ -218,13 +213,26 @@ def dispatch(argv: List[str]) -> None:
             and not params.get("kodi_action")
         ):
             # A movie extra is a file in its movie's extras folder, named by
-            # its title; the id is looked up from the title.
+            # its stem; the id is looked up from the stem. A stem the
+            # catalogue no longer names is a failed play, never a listing.
             from kofin.sync.backends.api.provider import resolve_extra
 
             extra_id = resolve_extra(location)
-            if extra_id:
-                params.setdefault("mode", "play")
-                params["id"] = extra_id
+            if not extra_id:
+                import xbmcgui
+                import xbmcplugin
+
+                LOG.warning(
+                    "extra %r of movie %s not in the catalogue",
+                    location.extra,
+                    (location.movie or "")[:8],
+                )
+                xbmcplugin.setResolvedUrl(
+                    handle, False, xbmcgui.ListItem(path=base_url)
+                )
+                return
+            params.setdefault("mode", "play")
+            params["id"] = extra_id
         if base_url.endswith("/native/") or (
             native and (params.get("kodi_action") or params.get("mode") != "play")
         ):

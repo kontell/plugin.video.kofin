@@ -65,23 +65,57 @@ def test_version_and_extras_urls_round_trip():
     assert paths.parse_item(version)[1] == "a"
     # An extra is a file named by its title, with a video extension Kodi's
     # listing mask accepts, less what a URL path or Kodi's parsing misreads.
-    url = paths.extra_url(
-        KEY, LIB, "a", {"Name": "What? Part 1/2", "Container": "mov,mp4,m4a"}
-    )
+    feature = {"Id": "x1", "Name": "What? Part 1/2", "Container": "mov,mp4,m4a"}
+    ((stem, _),) = paths.extra_stems([feature])
+    url = paths.extra_url(KEY, LIB, "a", stem, feature)
     assert url == paths.extras_dir(KEY, LIB, "a") + "What- Part 1-2.mov"
     location = paths.parse(url)
     assert location is not None
-    assert (location.movie, location.extras, location.extra) == (
+    assert (location.movie, location.extras, location.extra, location.probe) == (
         "a",
         True,
         "What- Part 1-2",
+        False,
     )
-    assert paths.parse(paths.extras_dir(KEY, LIB, "a")).extras is True
+    # Three locations: the directory, a file in it, a disc-probe folder below.
+    directory = paths.parse(paths.extras_dir(KEY, LIB, "a"))
+    assert (directory.extras, directory.extra, directory.probe) == (True, None, False)
+    probe = paths.parse(paths.extras_dir(KEY, LIB, "a") + "BDMV/")
+    assert (probe.movie, probe.extras, probe.extra, probe.probe) == (
+        "a",
+        True,
+        None,
+        True,
+    )
+    assert paths.describe(probe.key and paths.extras_dir(KEY, LIB, "a") + "BDMV/") == (
+        "movies movie a extras probe"
+    )
     assert paths.extra_name({"Name": "..."}) == "Extra"
     assert paths.video_container_of({"Container": "weird"}) == "mkv"
-    assert paths.under_extras(paths.extras_dir(KEY, LIB, "a") + "BDMV/")
-    assert not paths.under_extras(paths.extras_dir(KEY, LIB, "a"))
     assert paths.describe(url) == "movies movie a extras"
+
+
+def test_extras_with_one_title_get_stems_of_their_own_in_id_order():
+    """The stem is the extra's whole identity (Kodi names it by the path), so
+    two features titled alike, or alike once sanitized, cannot share one."""
+    features = [
+        {"Id": "x3", "Name": "Trailer"},
+        {"Id": "x1", "Name": "Trailer"},
+        {"Id": "x2", "Name": "A/B"},
+        {"Id": "x4", "Name": "A-B"},
+        {"Id": "x5", "Name": "trailer (2)"},
+    ]
+    assert [(stem, f["Id"]) for stem, f in paths.extra_stems(features)] == [
+        ("Trailer", "x1"),
+        ("A-B", "x2"),
+        ("Trailer (2)", "x3"),
+        ("A-B (2)", "x4"),
+        ("trailer (2) (2)", "x5"),
+    ]
+    # The token tells the two Trailers apart, and the listing's order does not move it.
+    one = metadata.assets_token(movie(SpecialFeatures=features))
+    assert one == metadata.assets_token(movie(SpecialFeatures=list(reversed(features))))
+    assert one != metadata.assets_token(movie(SpecialFeatures=features[1:]))
 
 
 def test_assets_token_names_versions_and_extras_and_is_empty_without_them():
@@ -232,9 +266,60 @@ def test_an_extra_exists_while_its_movie_names_it_and_resolves_to_its_id(store):
     deleted = paths.parse(folder + "extras/Deleted Scene.mkv")
     assert provider.exists(store, deleted, "") is True
     assert provider.exists(store, paths.parse(folder + "extras/Gone.mkv"), "") is False
+    assert provider.exists(store, paths.parse(folder + "extras/BDMV/"), "") is False
     assert provider.resolve_extra(deleted) == "x1"
+    assert provider.resolve_extra(paths.parse(folder + "extras/Gone.mkv")) == ""
+    # A version file exists while the movie still lists its source; the
+    # movie's own file while the movie does.
+    assert provider.exists(store, paths.parse(folder), "a", "s2") is True
+    assert provider.exists(store, paths.parse(folder), "a", "s9") is False
+    assert provider.exists(store, paths.parse(folder), "a", "") is True
+    store.publish([movie()], library=LIB)
+    assert provider.exists(store, paths.parse(folder), "a", "s2") is False
+    assert provider.exists(store, deleted, "") is False
     store.publish([], library=LIB)
     assert provider.exists(store, deleted, "") is False
+    assert provider.exists(store, paths.parse(folder), "a", "s2") is False
+
+
+def test_two_extras_titled_alike_are_listed_played_and_kept_apart(store, monkeypatch):
+    """The listing, the existence check and the play route all read the one
+    stems list, so the second Trailer is its own file and plays as itself."""
+    from kofin.plugin import router
+    from kofin.sync.backends.api import provider
+
+    item = assets_movie(SpecialFeatureCount=2)
+    item["SpecialFeatures"] = [
+        {"Id": "x2", "Name": "Trailer", "Container": "mkv"},
+        {"Id": "x1", "Name": "Trailer", "Container": "mkv"},
+    ]
+    store.publish([item], library=LIB)
+    folder = folder_of(store)
+    second = paths.parse(folder + "extras/Trailer (2).mkv")
+    assert provider.exists(store, second, "") is True
+    assert provider.resolve_extra(second) == "x2"
+    assert provider.resolve_extra(paths.parse(folder + "extras/Trailer.mkv")) == "x1"
+    listed = []
+    monkeypatch.setattr(
+        provider.xbmcplugin,
+        "addDirectoryItems",
+        lambda h, items, n=0: listed.extend(url for url, _, _ in items),
+    )
+    monkeypatch.setattr(provider.xbmcplugin, "setContent", lambda h, c: None)
+    monkeypatch.setattr(provider.xbmcplugin, "endOfDirectory", lambda *a, **k: None)
+    provider.serve(router.Request(folder + "extras/", 1, {}))
+    assert listed == [folder + "extras/Trailer.mkv", folder + "extras/Trailer (2).mkv"]
+    # A file the catalogue no longer names is a failed play, never a listing.
+    resolved = []
+    monkeypatch.setattr(router.buildconfig, "BACKEND", "api")
+    monkeypatch.setattr(
+        "xbmcplugin.setResolvedUrl", lambda h, ok, item: resolved.append((h, ok))
+    )
+    monkeypatch.setattr(
+        "xbmcplugin.addDirectoryItems", lambda *a, **k: listed.append("listing")
+    )
+    router.dispatch([folder + "extras/Trailer (3).mkv", 7, ""])
+    assert resolved == [(7, False)] and "listing" not in listed
 
 
 # -- the pass ---------------------------------------------------------------------
@@ -300,6 +385,40 @@ def test_new_extras_rescan_the_folder_once_and_a_plain_change_does_not(
     assert kodi.scanned.count(folder) == 2
     assert kodi.rows["Movie"][owner]["plot"] == "Changed"
     assert not store.pending()
+    # The last version and extra gone: the folder is scanned once more, so
+    # the empty token acknowledged is one a scan presented, and no more.
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    assert kodi.scanned.count(folder) == 3
+    assert store.mapping("a").applied["assets"] == ""
+    store.publish([movie(Overview="Again")], library=LIB)
+    backend.reconcile()
+    assert kodi.scanned.count(folder) == 3
+    assert not store.pending()
+
+
+def test_every_publish_path_attaches_a_movie_s_features():
+    """An enumeration page, a catch-up page and a single re-fetch all carry
+    the features: a payload without them reads as a movie without extras."""
+    from kofin.sync.backends.api.library import fetch_kind
+
+    class Api:
+        user_id = "u"
+        calls = []
+
+        def items(self, params):
+            return {
+                "TotalRecordCount": 1,
+                "Items": [movie(SpecialFeatureCount=1)],
+            }
+
+        def special_features(self, item_id):
+            self.calls.append(item_id)
+            return [{"Id": "x1", "Name": "Deleted Scene", "Container": "mkv"}]
+
+    (found,) = fetch_kind(Api(), LIB, "Movie")
+    assert Api.calls == ["a"]
+    assert [f["Id"] for f in found["SpecialFeatures"]] == ["x1"]
 
 
 def test_a_version_the_user_made_default_still_owns_the_row(store, backend, kodi):

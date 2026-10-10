@@ -498,5 +498,6 @@
   "#30853": "Contenu non téléchargé",
   "#30854": "Vérifiez les listes de lecture suivies ; décochez-les pour arrêter la synchronisation des téléchargements.",
   "#30855": "Vérifiez les bibliothèques musicales suivies ; décochez-les pour arrêter la synchronisation des téléchargements.",
-  "#30990": "Indisponible dans cette préversion"
+  "#30990": "Indisponible dans cette préversion",
+  "#30858": "Le réglage Kodi « Ignorer les bonus vidéo lors de l'analyse » est maintenant désactivé pour que les bonus des films puissent être importés"
 }
