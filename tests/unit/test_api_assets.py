@@ -527,7 +527,9 @@ def test_ungrouped_versions_are_published_for_the_companion_and_closed_by_readba
     assert document["device"] == "device-1"
     assert document["kinds"] == list(companion.KINDS)
     contractschema.check_document(document, contractschema.load(companion.SCHEMA_PATH))
-    (request,) = document["requests"]
+    by_kind = {r["kind"]: r for r in document["requests"]}
+    assert sorted(by_kind) == [companion.GROUP_VERSIONS, companion.RETIRE_ASSETS]
+    request = by_kind[companion.GROUP_VERSIONS]
     assert request["kind"] == companion.GROUP_VERSIONS
     assert (request["library"], request["item"]) == (LIB, "a")
     assert request["owner"] == {"movieid": owner["movieid"], "file": owner["file"]}
@@ -543,7 +545,23 @@ def test_ungrouped_versions_are_published_for_the_companion_and_closed_by_readba
     assert ping["message"] == contract.COMPANION_REQUESTS
     assert ping["sender"] == "plugin.video.kofin"
     assert ping["data"]["v"] == 2
-    assert ping["data"]["generation"] == 1 and ping["data"]["count"] == 1
+    assert ping["data"]["generation"] == 1 and ping["data"]["count"] == 2
+    # The movie's asset rows, as the acknowledged mapping names them: the
+    # version file with its name and the extras, for the companion to keep
+    # exactly those (retire_assets).
+    retire = by_kind[companion.RETIRE_ASSETS]
+    assert retire["owner"] == {"movieid": owner["movieid"]}
+    assert retire["versions"] == [{"file": version["file"], "name": "Theatrical Cut"}]
+    assert [e["file"] for e in retire["extras"]] == [
+        paths.extra_url(
+            store.namespace, LIB, "a", "Deleted Scene", {"Container": "mkv"}
+        ),
+        paths.extra_url(store.namespace, LIB, "a", "Making Of", {"Container": "mp4"}),
+    ]
+    assert store.mapping("a").applied["asset_files"] == {
+        "versions": [[version["file"], "Theatrical Cut"]],
+        "extras": [e["file"] for e in retire["extras"]],
+    }
     assert ping["data"]["path"].endswith("companion/requests.json")
     # The same set again is not rewritten and not announced.
     store.publish([assets_movie(Overview="Changed")], library=LIB)
@@ -555,13 +573,22 @@ def test_ungrouped_versions_are_published_for_the_companion_and_closed_by_readba
     store.publish([assets_movie(Overview="Changed again")], library=LIB)
     backend.reconcile()
     document = _requests(store)
-    assert document["requests"] == [] and document["generation"] == 2
+    assert [r["kind"] for r in document["requests"]] == [companion.RETIRE_ASSETS]
+    assert document["generation"] == 2
     assert kodi.notified[-1]["data"] == {
         "v": 2,
         "generation": 2,
-        "count": 0,
+        "count": 1,
         "path": kodi.notified[-1]["data"]["path"],
     }
+    # A movie that loses every version and extra keeps an empty entry, so
+    # the companion is told the rows are gone; one that never had any has
+    # no entry and no request.
+    store.publish([movie("a", Overview="No assets now")], library=LIB)
+    backend.reconcile()
+    (retire,) = _requests(store)["requests"]
+    assert retire["versions"] == [] and retire["extras"] == []
+    assert store.mapping("a").applied["asset_files"] == {"versions": [], "extras": []}
 
 
 def test_the_companion_is_detected_and_reported_as_optional(store, kodi):

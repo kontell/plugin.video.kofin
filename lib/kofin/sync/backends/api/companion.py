@@ -53,11 +53,12 @@ REPORT = "api-capabilities.json"
 STATUS = "status.json"
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "companion-schema.json")
 GROUP_VERSIONS = "group_versions"
+RETIRE_ASSETS = "retire_assets"
 CHAPTER_ART = "chapter_art"
 # The kinds this build publishes, in the document for the companion's status:
 # the pass's, collected from the catalogue on every pass, and the live ones a
 # playback publishes and withdraws (chapterart.py).
-PASS_KINDS = (GROUP_VERSIONS,)
+PASS_KINDS = (GROUP_VERSIONS, RETIRE_ASSETS)
 LIVE_KINDS = (CHAPTER_ART,)
 KINDS = PASS_KINDS + LIVE_KINDS
 
@@ -106,11 +107,35 @@ def _request_id(kind: str, item_id: str, rows: List[int]) -> str:
 
 
 def collect(native) -> List[Dict[str, Any]]:
-    """Every movie whose version files Kodi holds as movies of their own,
-    with the Kodi ids the companion needs to group them."""
+    """The pass's requests: every movie whose version files Kodi holds as
+    movies of their own, with the Kodi ids the companion needs to group
+    them; and every movie with asset rows, with the files it still has, so
+    a version or extra the server renamed or dropped leaves at once instead
+    of waiting for Clean (ledger S25). The second reads the acknowledged
+    mappings only: no payload is loaded for it."""
     requests: List[Dict[str, Any]] = []
     store = native.store
     for library in sorted(store.libraries("Movie")):
+        for item_id, mapping in sorted(
+            store.mappings(kind="Movie", library=library).items()
+        ):
+            files = mapping.applied.get("asset_files")
+            if mapping.kodi_id is None or not isinstance(files, dict):
+                continue
+            requests.append(
+                {
+                    "id": _request_id(RETIRE_ASSETS, item_id, []),
+                    "kind": RETIRE_ASSETS,
+                    "library": library,
+                    "item": item_id,
+                    "owner": {"movieid": mapping.kodi_id},
+                    "versions": [
+                        {"file": url, "name": name}
+                        for url, name in files.get("versions") or []
+                    ],
+                    "extras": [{"file": url} for url in files.get("extras") or []],
+                }
+            )
         owned = native.readback.scope("Movie", library)
         versions = native.readback.versions_in(library)
         if not versions:
@@ -181,12 +206,21 @@ def _namespace(current: Dict[str, Any]) -> str:
         return ""
 
 
+def _signature(requests: Sequence[Dict[str, Any]]) -> List[str]:
+    """What a rewrite is judged by: every request's content, in id order,
+    so a request whose content moved under a stable id (a desired set that
+    changed) is published too."""
+    return sorted(
+        json.dumps(r, sort_keys=True, separators=(",", ":")) for r in requests
+    )
+
+
 def _write(
     namespace: str, kinds: Sequence[str], requests: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
     """The document with ``kinds`` replaced by ``requests``; rewritten and
-    announced only when the set of ids changed or the document is of an
-    older version. Returns the document's requests."""
+    announced only when a request changed or the document is of an older
+    version. Returns the document's requests."""
     with _LOCK:
         current = read()
         kept = [
@@ -195,10 +229,8 @@ def _write(
             if isinstance(r, dict) and r.get("kind") not in kinds
         ]
         merged = kept + requests
-        if current.get("v") == VERSION and sorted(
-            str(r.get("id")) for r in merged
-        ) == sorted(
-            str(r.get("id")) for r in current["requests"] if isinstance(r, dict)
+        if current.get("v") == VERSION and _signature(merged) == _signature(
+            [r for r in current["requests"] if isinstance(r, dict)]
         ):
             return [r for r in current["requests"] if isinstance(r, dict)]
         generation = int(current.get("generation") or 0) + 1

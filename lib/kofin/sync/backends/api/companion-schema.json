@@ -13,6 +13,7 @@
   },
   "x-kinds": {
     "group_versions": {"$ref": "#/definitions/group_versions"},
+    "retire_assets": {"$ref": "#/definitions/retire_assets"},
     "chapter_art": {"$ref": "#/definitions/chapter_art"}
   },
   "x-status": {"$ref": "#/definitions/status"},
@@ -50,6 +51,33 @@
           }
         },
         "default": {"type": "string"}
+      }
+    },
+    "retire_assets": {
+      "type": "object",
+      "required": ["owner", "versions", "extras"],
+      "properties": {
+        "owner": {
+          "type": "object",
+          "required": ["movieid"],
+          "properties": {"movieid": {"type": "integer"}}
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file"],
+            "properties": {"file": {"type": "string"}, "name": {"type": "string"}}
+          }
+        },
+        "extras": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file"],
+            "properties": {"file": {"type": "string"}}
+          }
+        }
       }
     },
     "chapter_art": {

@@ -66,7 +66,7 @@ def test_pass_and_live_kinds_share_the_document(store, kodi, monkeypatch):
     document = _document()
     assert document["generation"] == 2 and document["namespace"] == "ns-1"
     assert [r["id"] for r in document["requests"]] == ["p1", "c1"]
-    assert document["kinds"] == ["group_versions", "chapter_art"]
+    assert document["kinds"] == list(companion.KINDS)
     contractschema.check_document(document, SCHEMA)
     # The pass rewrites its kinds and keeps the live one; nothing changed, so
     # no new generation and no ping.

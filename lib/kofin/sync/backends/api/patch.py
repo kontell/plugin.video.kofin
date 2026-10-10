@@ -44,6 +44,23 @@ LOG = Logger(__name__)
 REFRESH_POLL = 1.0
 
 
+def _with_asset_files(applied, assets, files, previous=None):
+    """The acknowledged file list beside the token: the movie's current
+    assets, or the empty entry once a movie that had assets has none, so
+    the companion's desired set says they are gone (metadata.asset_files).
+    ``previous`` is the last acknowledgement when ``applied`` is a fresh
+    one; whether the movie had assets is read from it."""
+    if assets is None:
+        return applied
+    had = "asset_files" in (previous if previous is not None else applied)
+    if files is not None:
+        if applied.get("asset_files") != files:
+            applied = dict(applied, asset_files=files)
+    elif had and applied.get("asset_files") != metadata.NO_ASSET_FILES:
+        applied = dict(applied, asset_files=metadata.NO_ASSET_FILES)
+    return applied
+
+
 class Patch:
     def __init__(self, record, kodi_id, desired, compare, applied):
         self.record = record
@@ -403,6 +420,11 @@ class Applier:
         # The versions and extras the movie's folder listed, acknowledged so
         # the pass stops scanning the folder for them (native._asset_folders).
         assets = metadata.assets_token(record.item) if kind == "Movie" else None
+        files = (
+            metadata.asset_files(record.item, self.key, record.library)
+            if kind == "Movie"
+            else None
+        )
         if (
             not repair
             and mapping is not None
@@ -415,6 +437,7 @@ class Applier:
             # compare. A retried pass and a re-published item take this path.
             if assets is not None and previous.get("assets", "") != assets:
                 previous = dict(previous, assets=assets)
+            previous = _with_asset_files(previous, assets, files)
             self.ack(record.item_id, record.generation, kodi_id, previous, kind)
             return None
         desired = metadata.details(
@@ -443,6 +466,7 @@ class Applier:
         }
         if assets is not None:
             applied["assets"] = assets
+        applied = _with_asset_files(applied, assets, files, previous)
         compare = merge(kind, desired, row, previous.get("owned", {}))
         if kind in PLAYABLE:
             applied["userdata"] = metadata.userdata(record.item)

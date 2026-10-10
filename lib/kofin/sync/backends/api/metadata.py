@@ -176,6 +176,34 @@ def assets_token(item) -> str:
     )
 
 
+def asset_files(item, key, library) -> Optional[Dict[str, Any]]:
+    """The files a movie's folder lists beyond its own, by URL: its version
+    files with the source's name, its extras. None for a movie with
+    neither. Acknowledged beside the assets token so the companion can be
+    told which asset rows a movie still has (``companion.RETIRE_ASSETS``)
+    without a payload being loaded for it."""
+    sources = version_sources(item)
+    features = special_features(item)
+    if not sources and not features:
+        return None
+    item_id = str(item.get("Id") or "")
+    return {
+        "versions": [
+            [paths.version_url(key, library, item_id, s["Id"]), s.get("Name") or ""]
+            for s in sources[1:]
+        ],
+        "extras": [
+            paths.extra_url(key, library, item_id, stem, f)
+            for stem, f in paths.extra_stems(features)
+        ],
+    }
+
+
+# A movie that lost every version and extra keeps an empty entry, so the
+# companion is told its asset rows are gone too.
+NO_ASSET_FILES: Dict[str, Any] = {"versions": [], "extras": []}
+
+
 def item_separator():
     """Read Kodi's configured video-array separator through its public tag API.
 
