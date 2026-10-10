@@ -203,6 +203,47 @@ def asset_files(item, key, library) -> Optional[Dict[str, Any]]:
 # companion is told its asset rows are gone too.
 NO_ASSET_FILES: Dict[str, Any] = {"versions": [], "extras": []}
 
+# Kodi's StreamFlags (StreamInfo.h) a Jellyfin stream can state. No public
+# setter carries them (ledger S09); the companion writes them to the
+# streamdetails rows the scanner filed (companion.STREAM_FLAGS).
+STREAM_FLAG_DEFAULT = 0x0001
+STREAM_FLAG_FORCED = 0x0040
+STREAM_FLAG_HEARING_IMPAIRED = 0x0080
+
+
+def stream_flags(item) -> Optional[Dict[str, List[int]]]:
+    """The flag bits of a file's audio and subtitle streams, in the order
+    the scanner filed them (the first media source's, as the ListItem lists
+    them), or None when every stream is unflagged."""
+    sources = item.get("MediaSources") or []
+    raw = (
+        (
+            sources[0].get("MediaStreams")
+            if sources and isinstance(sources[0], dict)
+            else None
+        )
+        or item.get("MediaStreams")
+        or []
+    )
+    result: Dict[str, List[int]] = {"audio": [], "subtitle": []}
+    for stream in raw:
+        if not isinstance(stream, dict):
+            continue
+        kind = {"Audio": "audio", "Subtitle": "subtitle"}.get(str(stream.get("Type")))
+        if kind is None:
+            continue
+        bits = 0
+        if stream.get("IsDefault"):
+            bits |= STREAM_FLAG_DEFAULT
+        if stream.get("IsForced"):
+            bits |= STREAM_FLAG_FORCED
+        if stream.get("IsHearingImpaired"):
+            bits |= STREAM_FLAG_HEARING_IMPAIRED
+        result[kind].append(bits)
+    if not any(result["audio"]) and not any(result["subtitle"]):
+        return None
+    return result
+
 
 def item_separator():
     """Read Kodi's configured video-array separator through its public tag API.

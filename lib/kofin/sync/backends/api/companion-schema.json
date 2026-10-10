@@ -14,6 +14,10 @@
   "x-kinds": {
     "group_versions": {"$ref": "#/definitions/group_versions"},
     "retire_assets": {"$ref": "#/definitions/retire_assets"},
+    "episode_tags": {"$ref": "#/definitions/episode_tags"},
+    "season_plot": {"$ref": "#/definitions/season_plot"},
+    "stream_flags": {"$ref": "#/definitions/stream_flags"},
+    "remove_set": {"$ref": "#/definitions/remove_set"},
     "chapter_art": {"$ref": "#/definitions/chapter_art"}
   },
   "x-status": {"$ref": "#/definitions/status"},
@@ -79,6 +83,43 @@
           }
         }
       }
+    },
+    "episode_tags": {
+      "type": "object",
+      "required": ["owner", "tags"],
+      "properties": {
+        "owner": {"type": "object", "required": ["episodeid"], "properties": {"episodeid": {"type": "integer"}}},
+        "tags": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "season_plot": {
+      "type": "object",
+      "required": ["owner", "plot"],
+      "properties": {
+        "owner": {"type": "object", "required": ["seasonid"], "properties": {"seasonid": {"type": "integer"}}},
+        "plot": {"type": "string"}
+      }
+    },
+    "stream_flags": {
+      "type": "object",
+      "required": ["owner", "media", "flags"],
+      "properties": {
+        "owner": {"type": "object"},
+        "media": {"type": "string", "enum": ["movie", "episode", "musicvideo"]},
+        "flags": {
+          "type": "object",
+          "required": ["audio", "subtitle"],
+          "properties": {
+            "audio": {"type": "array", "items": {"type": "integer"}},
+            "subtitle": {"type": "array", "items": {"type": "integer"}}
+          }
+        }
+      }
+    },
+    "remove_set": {
+      "type": "object",
+      "required": ["title"],
+      "properties": {"title": {"type": "string"}}
     },
     "chapter_art": {
       "type": "object",

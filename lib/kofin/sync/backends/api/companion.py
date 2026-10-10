@@ -32,6 +32,7 @@ import hashlib
 import json
 import os
 import threading
+import time
 from typing import Any, Dict, List, Optional, Sequence, Set
 
 from kofin.core import contract, kodirpc, settings
@@ -54,13 +55,35 @@ STATUS = "status.json"
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "companion-schema.json")
 GROUP_VERSIONS = "group_versions"
 RETIRE_ASSETS = "retire_assets"
+EPISODE_TAGS = "episode_tags"
+SEASON_PLOT = "season_plot"
+STREAM_FLAGS = "stream_flags"
+REMOVE_SET = "remove_set"
 CHAPTER_ART = "chapter_art"
 # The kinds this build publishes, in the document for the companion's status:
 # the pass's, collected from the catalogue on every pass, and the live ones a
 # playback publishes and withdraws (chapterart.py).
-PASS_KINDS = (GROUP_VERSIONS, RETIRE_ASSETS)
+PASS_KINDS = (
+    GROUP_VERSIONS,
+    RETIRE_ASSETS,
+    EPISODE_TAGS,
+    SEASON_PLOT,
+    STREAM_FLAGS,
+    REMOVE_SET,
+)
 LIVE_KINDS = (CHAPTER_ART,)
 KINDS = PASS_KINDS + LIVE_KINDS
+# Kinds no public read confirms: their request ids name the item, the
+# companion's status says ``done`` with the request's content hash, and
+# that hash is kept on the mapping (store.annotate_companion) so the request
+# leaves the document until the content moves (plan, section 3.4).
+ACKED_KINDS = (SEASON_PLOT, STREAM_FLAGS, REMOVE_SET)
+FAVORITE_EPISODE_TAG = "Favorite episodes"
+# Media type names the companion's stream_flags handler takes.
+MEDIA_OF = {"Movie": "movie", "Episode": "episode", "MusicVideo": "musicvideo"}
+SETS_JOURNAL = os.path.join("companion", "sets.json")
+# A set removal the companion never answered is left to the user's Clean.
+SETS_JOURNAL_DAYS = 7
 
 
 def requests_path() -> str:
@@ -106,6 +129,23 @@ def _request_id(kind: str, item_id: str, rows: List[int]) -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
+def _item_request_id(kind: str, item_id: str) -> str:
+    """An id the status can be read back by: the kind and the item."""
+    return kind + ":" + item_id
+
+
+def content_hash(request: Dict[str, Any]) -> str:
+    """The companion's digest of a request: everything but its id."""
+    body = {k: v for k, v in request.items() if k != "id"}
+    key = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def _acked(mapping, kind: str, request: Dict[str, Any]) -> bool:
+    done = mapping.applied.get("companion") or {}
+    return bool(done.get(kind)) and done.get(kind) == content_hash(request)
+
+
 def collect(native) -> List[Dict[str, Any]]:
     """The pass's requests: every movie whose version files Kodi holds as
     movies of their own, with the Kodi ids the companion needs to group
@@ -115,6 +155,7 @@ def collect(native) -> List[Dict[str, Any]]:
     mappings only: no payload is loaded for it."""
     requests: List[Dict[str, Any]] = []
     store = native.store
+    _absorb_acks(store)
     for library in sorted(store.libraries("Movie")):
         for item_id, mapping in sorted(
             store.mappings(kind="Movie", library=library).items()
@@ -174,7 +215,166 @@ def collect(native) -> List[Dict[str, Any]]:
                     ],
                 }
             )
+    requests.extend(_metadata_requests(store))
+    requests.extend(_set_requests())
     return requests
+
+
+def _metadata_requests(store) -> List[Dict[str, Any]]:
+    """The video metadata no public setter writes, from the acknowledged
+    mappings: a favourite episode's tag, a season's plot, a file's stream
+    flags (plan C4; ledger S14, S18, S09)."""
+    requests: List[Dict[str, Any]] = []
+    for kind in ("Movie", "Episode", "MusicVideo", "Season"):
+        for library in sorted(store.libraries(kind)):
+            for item_id, mapping in sorted(
+                store.mappings(kind=kind, library=library).items()
+            ):
+                if mapping.kodi_id is None:
+                    continue
+                applied = mapping.applied
+                if kind == "Episode" and applied.get("favorite"):
+                    requests.append(
+                        {
+                            "id": _item_request_id(EPISODE_TAGS, item_id),
+                            "kind": EPISODE_TAGS,
+                            "library": library,
+                            "item": item_id,
+                            "owner": {"episodeid": mapping.kodi_id},
+                            "tags": [FAVORITE_EPISODE_TAG],
+                        }
+                    )
+                if kind == "Season" and applied.get("plot"):
+                    request = {
+                        "id": _item_request_id(SEASON_PLOT, item_id),
+                        "kind": SEASON_PLOT,
+                        "library": library,
+                        "item": item_id,
+                        "owner": {"seasonid": mapping.kodi_id},
+                        "plot": applied["plot"],
+                    }
+                    if not _acked(mapping, SEASON_PLOT, request):
+                        requests.append(request)
+                flags = applied.get("flags")
+                if kind in MEDIA_OF and isinstance(flags, dict):
+                    request = {
+                        "id": _item_request_id(STREAM_FLAGS, item_id),
+                        "kind": STREAM_FLAGS,
+                        "library": library,
+                        "item": item_id,
+                        "owner": {KINDS_ID[kind]: mapping.kodi_id},
+                        "media": MEDIA_OF[kind],
+                        "flags": {
+                            "audio": list(flags.get("audio") or []),
+                            "subtitle": list(flags.get("subtitle") or []),
+                        },
+                    }
+                    if not _acked(mapping, STREAM_FLAGS, request):
+                        requests.append(request)
+    return requests
+
+
+KINDS_ID = {"Movie": "movieid", "Episode": "episodeid", "MusicVideo": "musicvideoid"}
+
+
+def _absorb_acks(store) -> int:
+    """What the companion's status says is done, kept where the requests are
+    built from: the mapping for an item's kind, the journal for a set."""
+    document = status()
+    outcomes = (document or {}).get("requests")
+    if not isinstance(outcomes, dict):
+        return 0
+    rows = []
+    done_sets = set()
+    for request_id, outcome in outcomes.items():
+        if not isinstance(outcome, dict) or outcome.get("state") != "done":
+            continue
+        kind, _sep, item_id = str(request_id).partition(":")
+        if not item_id or kind not in ACKED_KINDS:
+            continue
+        if kind == REMOVE_SET:
+            done_sets.add(item_id)
+        else:
+            rows.append((item_id, kind, str(outcome.get("hash") or "")))
+    count = store.annotate_companion(rows) if rows else 0
+    if done_sets:
+        _prune_sets(done_sets)
+    return count
+
+
+# -- empty set rows --------------------------------------------------------------
+
+
+def sets_journal_path() -> str:
+    return os.path.join(private.addon_data_path(), SETS_JOURNAL)
+
+
+def _read_sets() -> List[Dict[str, Any]]:
+    try:
+        with open(sets_journal_path(), "r", encoding="utf-8") as handle:
+            document = json.load(handle)
+    except (OSError, ValueError):
+        return []
+    entries = document.get("sets") if isinstance(document, dict) else None
+    return (
+        [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
+    )
+
+
+def _write_sets(entries: List[Dict[str, Any]]) -> None:
+    target = sets_journal_path()
+    if not entries:
+        try:
+            os.remove(target)
+        except FileNotFoundError:
+            pass
+        return
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target + ".part", "w", encoding="utf-8") as handle:
+        json.dump({"sets": entries}, handle, indent=1)
+    os.replace(target + ".part", target)
+
+
+def set_key(title: str) -> str:
+    return hashlib.sha256(title.encode("utf-8")).hexdigest()[:16]
+
+
+def journal_set(title: str) -> None:
+    """A set whose last owned member let go: its empty row is the
+    companion's to delete (removal.finish_sets)."""
+    entries = _read_sets()
+    key = set_key(title)
+    if any(e.get("key") == key for e in entries):
+        return
+    entries.append({"key": key, "title": title, "since": int(time.time())})
+    _write_sets(entries)
+    LOG.info("companion: empty set %r left to the companion", title)
+
+
+def _prune_sets(done: Set[str]) -> None:
+    entries = _read_sets()
+    kept = [e for e in entries if e.get("key") not in done]
+    if len(kept) != len(entries):
+        _write_sets(kept)
+
+
+def _set_requests() -> List[Dict[str, Any]]:
+    entries = _read_sets()
+    floor = time.time() - SETS_JOURNAL_DAYS * 86400
+    live = [e for e in entries if int(e.get("since") or 0) >= floor]
+    if len(live) != len(entries):
+        _write_sets(live)
+    return [
+        {
+            "id": _item_request_id(REMOVE_SET, str(e["key"])),
+            "kind": REMOVE_SET,
+            "library": "",
+            "item": str(e["key"]),
+            "title": str(e.get("title") or ""),
+        }
+        for e in live
+        if e.get("key")
+    ]
 
 
 def publish(native) -> int:

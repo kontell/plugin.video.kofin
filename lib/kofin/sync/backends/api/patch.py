@@ -61,6 +61,36 @@ def _with_asset_files(applied, assets, files, previous=None):
     return applied
 
 
+def _with_companion_fields(applied, record):
+    """What the companion's request kinds read from a mapping, so no payload
+    is loaded to build them (companion.collect): an episode's favourite, a
+    season's plot, a file's stream flags. Each key is present only while
+    the fact holds, so its absence withdraws the request."""
+    item = record.item
+    kind = record.kind
+    fields: Dict[str, Any] = {}
+    if kind == "Episode" and (item.get("UserData") or {}).get("IsFavorite"):
+        fields["favorite"] = True
+    if kind == "Season":
+        plot = (item.get("Overview") or "").strip(metadata.ASCII_SPACE)
+        if plot:
+            fields["plot"] = plot
+    if kind in ("Movie", "Episode", "MusicVideo"):
+        flags = metadata.stream_flags(item)
+        if flags is not None:
+            fields["flags"] = flags
+    changed = {k: v for k, v in fields.items() if applied.get(k) != v}
+    gone = [
+        k for k in ("favorite", "plot", "flags") if k in applied and k not in fields
+    ]
+    if not changed and not gone:
+        return applied
+    applied = dict(applied, **changed)
+    for key in gone:
+        del applied[key]
+    return applied
+
+
 class Patch:
     def __init__(self, record, kodi_id, desired, compare, applied):
         self.record = record
@@ -438,6 +468,7 @@ class Applier:
             if assets is not None and previous.get("assets", "") != assets:
                 previous = dict(previous, assets=assets)
             previous = _with_asset_files(previous, assets, files)
+            previous = _with_companion_fields(previous, record)
             self.ack(record.item_id, record.generation, kodi_id, previous, kind)
             return None
         desired = metadata.details(
@@ -467,6 +498,11 @@ class Applier:
         if assets is not None:
             applied["assets"] = assets
         applied = _with_asset_files(applied, assets, files, previous)
+        if previous.get("companion"):
+            # What the companion has done for this row, kept across plans
+            # (companion.collect compares it with the request it would make).
+            applied["companion"] = previous["companion"]
+        applied = _with_companion_fields(applied, record)
         compare = merge(kind, desired, row, previous.get("owned", {}))
         if kind in PLAYABLE:
             applied["userdata"] = metadata.userdata(record.item)

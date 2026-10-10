@@ -632,6 +632,34 @@ class Store(Catalogue):
                 )
         return count
 
+    def annotate_companion(self, rows):
+        """Record what the companion reports done, by request content hash:
+        ``applied["companion"][kind]``, one transaction for the batch
+        (companion._absorb_acks). Returns how many mappings changed."""
+        count = 0
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute("BEGIN IMMEDIATE")
+            for item_id, kind, digest in rows:
+                found = db.cursor.execute(
+                    "SELECT applied FROM api_native WHERE namespace=? AND item_id=?",
+                    (self.namespace, item_id),
+                ).fetchone()
+                if found is None:
+                    continue
+                applied = json.loads(found[0] or "{}")
+                done = dict(applied.get("companion") or {})
+                if done.get(kind) == digest:
+                    continue
+                done[kind] = digest
+                applied["companion"] = done
+                db.cursor.execute(
+                    "UPDATE api_native SET applied=? WHERE namespace=? AND item_id=?",
+                    (encode(applied), self.namespace, item_id),
+                )
+                count += 1
+        return count
+
     def forget(self, item_id, generation):
         """Acknowledge a removal: the native identity goes, the payload shrinks."""
         return self.forget_many([(item_id, generation)]) == 1

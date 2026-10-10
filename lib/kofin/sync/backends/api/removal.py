@@ -21,6 +21,7 @@ import xbmc
 
 from kofin.core.log import Logger
 from . import metadata, paths
+from . import companion
 from .kinds import KINDS, rpc
 from .store import Entry
 
@@ -303,6 +304,10 @@ def finish_sets(native, pending, live_boxsets, errors):
     listed = native.readback.scope("BoxSet")
     kept = {(b.get("Name") or "").strip(metadata.ASCII_SPACE) for b in live_boxsets}
     cleaned = False
+    # The companion deletes the one empty row by title (companion.REMOVE_SET);
+    # without it the clean of the root is what drops it, at the cost of a
+    # check_exists per file under the root.
+    delegated = companion.present() is not None
     for item_id, payload in waiting:
         title = (payload.get("Name") or "").strip(metadata.ASCII_SPACE)
         if title in listed and title not in kept:
@@ -315,7 +320,9 @@ def finish_sets(native, pending, live_boxsets, errors):
             )
             continue
         try:
-            if not cleaned and title not in kept:
+            if title not in kept and delegated:
+                companion.journal_set(title)
+            elif not cleaned and title not in kept:
                 rpc(
                     "VideoLibrary.Clean",
                     {"showdialogs": False, "directory": paths.root(native.key)},
