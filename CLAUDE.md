@@ -369,6 +369,36 @@ What remains is kofin's own:
   mostly-missing library scans the root once, as before. A profile from the one-directory
   layout needs the Movies library deselected and reselected: the old rows' URLs are not
   owned, and importing beside them would double the library.
+- **A movie's version files and extras live in its folder, and only a scan of the folder by
+  name lists them.** The root walk lists the movie's own file alone; the Kodi side of this (the
+  phantom-disc probe, the NFO branch that never groups a plugin item, `AddVideoExtras`, the
+  directory cache) is in `kodi-library-data`'s plugin-sources page, not here.
+  `metadata.assets_token` names what the folder lists beyond that file, and the pass scans the
+  folder when the token acknowledged for the movie differs (`native._asset_folders`) — a token
+  that went empty included, so the token the apply pass acknowledges is always one a scan
+  presented. The scan adds and never removes: a row the listing no longer names leaves through
+  Clean, whose per-file `check_exists` is `provider.exists` (a version file exists while the
+  movie still lists its source, an extra while the movie's payload still names its stem). A
+  version file is the movie's URL with `mediasourceid`; Kodi imports it as a movie of its own
+  and the user groups it in the Versions Manager. `Readback.owns` accepts the movie's URL with
+  or without the source, since the user may make a version the default; `Readback._prefer`
+  lets the movie's own file win over ungrouped version rows and keeps them as `version_rows`,
+  which leave with the movie on removal. Two rows by the movie's own file are still a
+  duplicate identity.
+- **An extra is `extras/<stem>.<container>`, and the stem is its whole identity.** Kodi names
+  the extra by the path below the folder minus the extension, so the id cannot travel in the
+  URL; `paths.extra_stems` gives each feature a stem unique within the movie (`Trailer`,
+  `Trailer (2)`, in id order) and the listing, the token, `exists` and `resolve_extra` read
+  that list and nothing else. The features travel in the movie's payload, and **every publish
+  path attaches them** (`library.attach_extras`: inside `fetch_kind` for movies, and after the
+  single re-fetches of `fetch_items` and `flush_local`), because a payload without them reads
+  as a movie without extras and Clean would drop rows the server still has. `paths.parse`
+  tells the extras directory, a file in it and a disc-probe folder below it apart: the
+  directory is listed, a probe answers empty (`native._prepare_scan` lists the folder and its
+  `VIDEO_TS/` and `BDMV/` through `Files.GetDirectory` right before the scan, so the directory
+  cache answers Kodi's probe), and a file goes to the play route or fails as a play. The pass
+  turns `videolibrary.ignorevideoextras` off once (`allow_extras`), with a toast, since Kodi
+  drops the folder before looking at it while that is on.
 - **A scope readback is minimal; the full row is read for an item whose state moved**
   (`kinds.MINIMAL`, `Readback.full`, `Readback.prefetch_full`). The scope carries what
   finds and owns a row and the userdata a viewer may have edited, nothing else; the plan

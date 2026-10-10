@@ -93,6 +93,7 @@ def test_show_import_files_seasons_and_episodes_under_the_show(store, backend, k
         "content": "tvshows",
         "scraperid": "metadata.local",
         "containssingleitem": True,
+        "usedirectorynames": False,
         "refresh": False,
     }
     assert kodi.scanned == [paths.library_dir(store.namespace, LIB, "tvshows")]

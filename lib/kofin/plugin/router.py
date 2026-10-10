@@ -206,6 +206,33 @@ def dispatch(argv: List[str]) -> None:
             # Kodi's music database keeps no query string on a file name.
             params.setdefault("mode", "play")
             params["id"] = location.song
+        if (
+            native
+            and location is not None
+            and location.extra
+            and not params.get("kodi_action")
+        ):
+            # A movie extra is a file in its movie's extras folder, named by
+            # its stem; the id is looked up from the stem. A stem the
+            # catalogue no longer names is a failed play, never a listing.
+            from kofin.sync.backends.api.provider import resolve_extra
+
+            extra_id = resolve_extra(location)
+            if not extra_id:
+                import xbmcgui
+                import xbmcplugin
+
+                LOG.warning(
+                    "extra %r of movie %s not in the catalogue",
+                    location.extra,
+                    (location.movie or "")[:8],
+                )
+                xbmcplugin.setResolvedUrl(
+                    handle, False, xbmcgui.ListItem(path=base_url)
+                )
+                return
+            params.setdefault("mode", "play")
+            params["id"] = extra_id
         if base_url.endswith("/native/") or (
             native and (params.get("kodi_action") or params.get("mode") != "play")
         ):

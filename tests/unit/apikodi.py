@@ -46,6 +46,15 @@ class Kodi:
         # A directory whose listing the fake should take from here instead
         # of the store (a failed or foreign listing), or drop entirely.
         self.listings = {}
+        # Movie versions and extras: Kodi's settings, the folders the pass
+        # had Kodi list (its directory cache), each binding's folder-names
+        # flag, the extras filed on a movie row, and the extras folders a
+        # scan turned into phantom discs instead.
+        self.settings = {"videolibrary.ignorevideoextras": True}
+        self.listed = []
+        self.dirnames = {}
+        self.extras = {}
+        self.phantoms = []
 
     # -- helpers ---------------------------------------------------------------
 
@@ -171,6 +180,8 @@ class Kodi:
                 if item_id not in present:
                     row = self.imported(record, set_name=collections.get(item_id))
                     self.rows[kind][row[METHODS[kind][0]]] = row
+                if kind == "Movie" and location.movie:
+                    self._scan_movie_assets(record)
         elif location.series is None:
             shows = self.owned("Series")
             for series_id, record in sorted(
@@ -196,6 +207,46 @@ class Kodi:
                 self._import_episodes(row, library, location.series)
         self.monitor.finished += 1
 
+    def _scan_movie_assets(self, record):
+        """A movie folder scanned by name. Kodi imports each further version
+        file as a movie of its own (the plugin tag path never groups), and
+        reads the extras folder only when the folder's binding uses folder
+        names, "Ignore video extras" is off and its directory cache knows the
+        folder and the disc folders probed below it; otherwise the folder is
+        a phantom disc and the extras are lost."""
+        folder = paths.movie_dir(self.key, record.library, record.item_id)
+        canonical = paths.playback_url(
+            self.key, "Movie", record.library, record.item_id
+        )
+        files = {r["file"] for r in self.rows["Movie"].values()}
+        for source in metadata.version_sources(record.item)[1:]:
+            url = paths.version_url(
+                self.key, record.library, record.item_id, source["Id"]
+            )
+            if url in files:
+                continue
+            row = self.imported(
+                record, set_name=self._collections().get(record.item_id)
+            )
+            row["file"] = url
+            self.rows["Movie"][row["movieid"]] = row
+        features = metadata.special_features(record.item)
+        owner = next(
+            (r for r in self.rows["Movie"].values() if r["file"] == canonical), None
+        )
+        if not features or owner is None:
+            return
+        extras = folder + paths.EXTRAS
+        probes = {extras, extras + "VIDEO_TS/", extras + "BDMV/"}
+        if (
+            self.settings.get("videolibrary.ignorevideoextras")
+            or not self.dirnames.get(folder)
+            or not probes <= set(self.listed)
+        ):
+            self.phantoms.append(folder)
+            return
+        self.extras[owner["movieid"]] = [paths.extra_name(f) for f in features]
+
     def remove_content(self, path):
         for kind in ("Movie", "MusicVideo", "Episode"):
             self.rows[kind] = {
@@ -203,6 +254,7 @@ class Kodi:
                 for k, r in self.rows[kind].items()
                 if not r["file"].startswith(path)
             }
+        self.extras = {k: v for k, v in self.extras.items() if k in self.rows["Movie"]}
         gone = [k for k, r in self.rows["Series"].items() if r["file"].startswith(path)]
         for tvshowid in gone:
             self._remove_show(tvshowid)
@@ -503,6 +555,7 @@ class Kodi:
         if method == "VideoLibrary.SetSourceContent":
             if params["content"] != "none":
                 self.recursive[params["path"]] = bool(params.get("scanrecursive"))
+                self.dirnames[params["path"]] = bool(params.get("usedirectorynames"))
             if params["content"] == "none":
                 if (
                     params.get("clearmode") == "remove"
@@ -510,9 +563,18 @@ class Kodi:
                 ):
                     self.remove_content(params["path"])
                 self.bindings.pop(params["path"], None)
+                self.dirnames.pop(params["path"], None)
             else:
                 self.bindings[params["path"]] = params["content"]
             return "OK"
+        if method == "Settings.GetSettingValue":
+            return {"value": self.settings.get(params["setting"])}
+        if method == "Settings.SetSettingValue":
+            self.settings[params["setting"]] = params["value"]
+            return True
+        if method == "Files.GetDirectory":
+            self.listed.append(params["directory"])
+            return {"files": [], "limits": {"total": 0}}
         if method == "VideoLibrary.Scan":
             self.scan(params["directory"])
             return "OK"
@@ -590,6 +652,7 @@ class Kodi:
                     self._remove_show(kodi_id)
                 else:
                     del self.rows[kind][kodi_id]
+                    self.extras.pop(kodi_id, None)
             return "OK"
         raise RuntimeError("Kodi refused " + method)
 

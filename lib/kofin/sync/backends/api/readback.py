@@ -36,11 +36,15 @@ class Readback:
         self._folders: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]] = {}
         # scope key -> Kodi id -> full row, for scopes mostly being compared
         self._full: Dict[Tuple[Any, ...], Dict[Any, Dict[str, Any]]] = {}
+        # scope key -> item id -> the rows Kodi holds for the item's version
+        # files beside the one that owns the identity
+        self._versions: Dict[Tuple[Any, ...], Dict[str, List[Dict[str, Any]]]] = {}
 
     def clear(self):
         self._scopes.clear()
         self._folders.clear()
         self._full.clear()
+        self._versions.clear()
 
     @staticmethod
     def complete(reply, key):
@@ -115,11 +119,38 @@ class Readback:
             expected = paths.show_dir(self.key, library, item_id).rstrip("/")
             if (row.get("file") or "").rstrip("/") != expected:
                 return None
+        elif kind == "Movie":
+            # A movie's version files carry its URL with the source named,
+            # and Kodi lists the movie by the one the user made the default.
+            if paths.without_source(row.get("file") or "") != paths.playback_url(
+                self.key, kind, library, item_id
+            ):
+                return None
         elif row.get("file") != paths.playback_url(
             self.key, kind, library, item_id, parent_id
         ):
             return None
         return item_id
+
+    def _prefer(self, cache_key, item_id, kept, row, id_param):
+        """Two movie rows of one identity: Kodi imported a version file as a
+        movie of its own, which waits for the user to group it. The movie's
+        own file owns the identity; between two version files the older row
+        does. Two rows by the movie's own file are a duplicate of ours."""
+        kept_version = paths.is_version_url(kept.get("file"))
+        row_version = paths.is_version_url(row.get("file"))
+        if not kept_version and not row_version:
+            raise RuntimeError("duplicate owned Movie identity")
+        if kept_version and (not row_version or row[id_param] < kept[id_param]):
+            kept, row = row, kept
+        self._versions.setdefault(cache_key, {}).setdefault(item_id, []).append(row)
+        return kept
+
+    def version_rows(self, library, item_id) -> List[Dict[str, Any]]:
+        """The movie rows Kodi holds for an item's version files beside the
+        row that owns its identity: ungrouped versions."""
+        self.scope("Movie", library)
+        return list(self._versions.get(("Movie", library, ""), {}).get(item_id, []))
 
     # -- scopes --------------------------------------------------------------
 
@@ -177,6 +208,7 @@ class Readback:
             return result
         rows = self._paged(table, params)
         result = {}
+        self._versions.pop(cache_key, None)
         for row in rows:
             if kind == "Season":
                 result[int(row.get("season", -1))] = row
@@ -188,6 +220,11 @@ class Readback:
             if item_id is None:
                 continue
             if item_id in result:
+                if kind == "Movie":
+                    result[item_id] = self._prefer(
+                        cache_key, item_id, result[item_id], row, table.id_param
+                    )
+                    continue
                 raise RuntimeError("duplicate owned %s identity" % kind)
             result[item_id] = row
         self._scopes[cache_key] = result
@@ -263,6 +300,7 @@ class Readback:
             return
         self._scopes.pop((kind, library, parent_id), None)
         self._full.pop((kind, library, parent_id), None)
+        self._versions.pop((kind, library, parent_id), None)
         if kind == "Series":
             # A show's episodes and seasons are read through its row.
             for key in [k for k in self._scopes if k[0] in ("Episode", "Season")]:

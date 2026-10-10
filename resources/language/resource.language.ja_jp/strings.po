@@ -2228,6 +2228,10 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "登録中の音楽ライブラリを確認します。チェックを外すとダウンロードの同期を停止します。"
 
+msgctxt "#30858"
+msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
+msgstr "映画の特典映像を取り込めるよう、Kodi の設定「スキャン時にビデオの特典を無視」をオフにしました"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "このプレビュー版では利用できません"

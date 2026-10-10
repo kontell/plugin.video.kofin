@@ -72,12 +72,47 @@ def _folders(request, directories, label):
     )
 
 
-def exists(store, location, item_id):
+def exists(store, location, item_id, source=""):
     """Whether Kodi may keep a row: unknown state is unavailable, never proof
-    of deletion. Only an explicit committed tombstone says an item is gone."""
+    of deletion. Only an explicit committed tombstone says an item is gone,
+    and only a movie's own payload says a version file or an extra is: the
+    scan that lists the folder adds and never removes, so Clean, which asks
+    this per file, is how a row the listing no longer names leaves."""
+    if location.probe:
+        # A disc-structure folder Kodi probes for: never a row.
+        return False
     if item_id:
         state = store.state(item_id)
-        return not state or state.operation != "remove"
+        if state is not None and state.operation == "remove":
+            return False
+        if source:
+            # A version file exists while the movie still lists its source.
+            record = store.records(kind="Movie", item_ids=[item_id]).get(item_id)
+            if record is None:
+                return True
+            return any(
+                str(s.get("Id")) == source
+                for s in metadata.version_sources(record.item)
+            )
+        return True
+    if location.extra:
+        # An extra exists while its movie does and its payload still lists
+        # the file by that name: the stem and the container both, so a
+        # feature whose container moved leaves its old row to Clean.
+        movie_id = location.movie or ""
+        state = store.state(movie_id)
+        if state is not None and state.operation == "remove":
+            return False
+        record = store.records(kind="Movie", item_ids=[movie_id]).get(movie_id)
+        if record is None:
+            return True
+        return any(
+            stem == location.extra
+            and paths.video_container_of(feature) == location.extra_container
+            for stem, feature in paths.extra_stems(
+                metadata.special_features(record.item)
+            )
+        )
     if location.folder or location.movie:
         return True
     if location.series:
@@ -116,7 +151,7 @@ def serve(request):
     if action == "check_exists":
         xbmcplugin.setResolvedUrl(
             request.handle,
-            exists(store, location, item_id),
+            exists(store, location, item_id, paths.source_of(request.base_url)),
             xbmcgui.ListItem(path=request.base_url),
         )
         return
@@ -227,6 +262,21 @@ def serve(request):
         # on demand, lists its one movie for a scan by name.
         kind = "Movie" if location.content == "movies" else "MusicVideo"
         content = location.content
+        if location.extras:
+            if location.probe:
+                # A disc-structure folder Kodi probes for below the extras
+                # folder (VIDEO_TS/, BDMV/): an empty listing, so that the
+                # directory cache can answer the probe with "no such file".
+                _listing(request, [], "")
+            elif location.extra:
+                # A file in the folder is played, never listed: the router
+                # sends a resolved one to the play route and fails the rest.
+                xbmcplugin.setResolvedUrl(
+                    request.handle, False, xbmcgui.ListItem(path=request.base_url)
+                )
+            else:
+                _extras_folder(request, store, key, library, location.movie or "")
+            return
         wanted = [item_id] if action == "refresh_info" else None
         if kind == "Movie" and location.movie:
             wanted = [location.movie]
@@ -255,23 +305,115 @@ def serve(request):
         if kind == "Episode" and metadata.episode_numbers(record.item) is None:
             # Kodi cannot file an unnumbered special; it stays dynamic-only.
             continue
-        entries.append(
-            (
-                paths.playback_url(key, kind, library, record_id, record.parent_id),
-                metadata.listitem(
-                    record.item,
+        if kind == "Movie":
+            entries.extend(
+                _movie_entries(
+                    record,
                     server,
                     key,
                     library,
                     separator,
-                    set_name=(
-                        collections.get(record_id, "") if kind == "Movie" else None
-                    ),
+                    collections.get(record_id, ""),
+                    # The folder scanned by name lists the movie's versions
+                    # and extras; the root walk and a refresh (which takes
+                    # the first item) list the movie's own file alone.
+                    assets=bool(location.movie) and action != "refresh_info",
+                )
+            )
+            continue
+        entries.append(
+            (
+                paths.playback_url(key, kind, library, record_id, record.parent_id),
+                metadata.listitem(
+                    record.item, server, key, library, separator, set_name=None
                 ),
                 False,
             )
         )
     _listing(request, entries, content)
+
+
+# -- movie versions and extras --------------------------------------------------
+
+
+def _movie_entries(record, server, key, library, separator, set_name, assets):
+    """A movie's file, and with ``assets`` a file per further media source,
+    each carrying the whole tag and the source's name as its video asset
+    title, and the movie's extras folder.
+
+    Kodi files each version file as a movie of its own until the user groups
+    them in the Versions Manager: a plugin item's tag takes the NFO branch of
+    RetrieveInfoForMovie, which never reaches the similar-video grouping. The
+    extras folder is read only when the pass has warmed Kodi's directory
+    cache for it (native._prepare_scan) and the folder's binding uses folder
+    names, which the pass sets.
+    """
+    item = record.item
+    url = paths.playback_url(key, "Movie", library, record.item_id)
+    sources = metadata.version_sources(item)
+
+    def row(name=""):
+        li = metadata.listitem(item, server, key, library, separator, set_name=set_name)
+        if name:
+            li.getVideoInfoTag().setVideoAssetTitle(name)
+        return li
+
+    entries = [(url, row(sources[0].get("Name") or "" if sources else ""), False)]
+    if not assets:
+        return entries
+    for source in sources[1:]:
+        entries.append(
+            (
+                paths.version_url(key, library, record.item_id, source["Id"]),
+                row(source.get("Name") or ""),
+                False,
+            )
+        )
+    if metadata.special_features(item):
+        entries.append(
+            (
+                paths.extras_dir(key, library, record.item_id),
+                xbmcgui.ListItem(paths.EXTRAS.rstrip("/"), offscreen=True),
+                True,
+            )
+        )
+    return entries
+
+
+def _extras_folder(request, store, key, library, movie_id):
+    """A movie's extras: a file per special feature, named by its title with
+    a video extension, built from the movie's payload."""
+    server = store.server()
+    record = store.records(kind="Movie", library=library, item_ids=[movie_id]).get(
+        movie_id
+    )
+    features = metadata.special_features(record.item) if record is not None else []
+    entries = [
+        (
+            paths.extra_url(key, library, movie_id, stem, feature),
+            metadata.extra_listitem(feature, server),
+            False,
+        )
+        for stem, feature in paths.extra_stems(features)
+    ]
+    LOG.debug("extras folder of movie %s: %d rows", movie_id[:8], len(entries))
+    _listing(request, entries, "videos")
+
+
+def resolve_extra(location) -> str:
+    """The item id of the extra a file-style extras URL names, from the
+    movie's payload alone: every publish path attaches the features
+    (library.attach_extras), so a stem the catalogue does not name is a
+    file the listing no longer has, not a lookup to make elsewhere."""
+    movie_id = location.movie or ""
+    record = (
+        Store(location.key).records(kind="Movie", item_ids=[movie_id]).get(movie_id)
+    )
+    features = metadata.special_features(record.item) if record is not None else []
+    for stem, feature in paths.extra_stems(features):
+        if stem == location.extra:
+            return str(feature["Id"])
+    return ""
 
 
 # -- music ---------------------------------------------------------------------

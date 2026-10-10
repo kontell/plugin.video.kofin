@@ -35,7 +35,8 @@ KINDS_BY_COLLECTION = {
     "music": ("MusicArtist", "MusicAlbum", "Audio"),
 }
 SUPPORTED = ("movies", "tvshows", "musicvideos", "mixed", "music")
-FIELDS = info() + ",MediaStreams"
+# SpecialFeatureCount says which movies have extras to fetch (attach_extras).
+FIELDS = info() + ",MediaStreams,SpecialFeatureCount"
 # Music asks for what its tags and art need and nothing the server has to
 # count: RecursiveItemCount alone made an album page twelve times slower on
 # the SQL branch, and People, trailers and streams have no music setter.
@@ -117,10 +118,35 @@ def fetch_kind(api, library, kind, abort=lambda: False, extra=None, on_page=None
             raise ValueError("short %s page" % kind)
         if on_page is not None:
             on_page(len(result), total)
+    if kind == "Movie":
+        attach_extras(api, result, abort)
     return result
 
 
 fetch_movies = fetch_kind
+
+
+def attach_extras(api, items, abort=lambda: False):
+    """A movie's special features travel in its payload: the scanner's
+    listings never contact the server, and the movie folder's extras folder
+    is built from them. Only a movie whose count says it has any is asked.
+
+    Every path that publishes a movie goes through here -- ``fetch_kind``
+    for an enumeration or a catch-up, ``fetch_items`` and ``flush_local``
+    for a single re-fetch -- because a payload without its features reads as
+    a movie without extras: the token goes empty and Clean, asking
+    ``provider.exists`` per file, would drop rows the server still has."""
+    for item in items:
+        if item.get("Type") != "Movie" or not item.get("SpecialFeatureCount"):
+            continue
+        if abort():
+            raise InterruptedError("enumeration stopped")
+        features = api.special_features(item["Id"])
+        item["SpecialFeatures"] = [
+            metadata.compact_extra(feature)
+            for feature in features
+            if isinstance(feature, dict) and feature.get("Id") and feature.get("Name")
+        ]
 
 
 def fetch_boxsets(api, abort=lambda: False, ids=None):
@@ -587,6 +613,7 @@ class Library(threading.Thread):
                 for i in rows
                 if isinstance(i, dict) and i.get("Id") and i.get("Name")
             )
+        attach_extras(self.api, result)
         return result
 
     def _library_of(self, item, selected, hints=None):
@@ -775,6 +802,7 @@ class Library(threading.Thread):
             # Re-fetch the authoritative full DTO before acknowledging the
             # local outbox; a failed read remains replayable.
             item = metadata.compact(self.api.item(item_id))
+            attach_extras(self.api, [item])
             if self.store.entry(item_id) is not None:
                 self.store.publish([item])
             self.store.local_done(item_id, values)

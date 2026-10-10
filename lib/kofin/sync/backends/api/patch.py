@@ -390,6 +390,9 @@ class Applier:
             seasons,
             set_name,
         )
+        # The versions and extras the movie's folder listed, acknowledged so
+        # the pass stops scanning the folder for them (native._asset_folders).
+        assets = metadata.assets_token(record.item) if kind == "Movie" else None
         if (
             not repair
             and mapping is not None
@@ -400,6 +403,8 @@ class Applier:
             # The desired state this payload and these inputs produce was
             # acknowledged against this very row: nothing to build, read or
             # compare. A retried pass and a re-published item take this path.
+            if assets is not None and previous.get("assets", "") != assets:
+                previous = dict(previous, assets=assets)
             self.ack(record.item_id, record.generation, kodi_id, previous, kind)
             return None
         desired = metadata.details(
@@ -423,6 +428,8 @@ class Applier:
             "inputs": inputs,
             "owned": metadata.owned(desired),
         }
+        if assets is not None:
+            applied["assets"] = assets
         compare = merge(kind, desired, row, previous.get("owned", {}))
         if kind in PLAYABLE:
             applied["userdata"] = metadata.userdata(record.item)

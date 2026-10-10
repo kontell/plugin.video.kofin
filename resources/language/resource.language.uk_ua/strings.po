@@ -2228,6 +2228,10 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Перегляньте підписані музичні бібліотеки; зніміть позначку, щоб зупинити синхронізацію завантажень."
 
+msgctxt "#30858"
+msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
+msgstr "Налаштування Kodi «Ігнорувати додаткові матеріали до фільмів під час сканування» тепер вимкнено, щоб можна було імпортувати додаткові матеріали до фільмів"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Недоступно в цій тестовій версії"

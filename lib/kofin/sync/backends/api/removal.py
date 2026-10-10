@@ -174,6 +174,10 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
             if placed.kind == "Series":
                 native.unbind_show(placed.library, item_id)
             elif placed.kind == "Movie":
+                # Version files Kodi imported as movies of their own, which
+                # the user has not grouped yet, leave with the movie.
+                for version in native.readback.version_rows(placed.library, item_id):
+                    rpc(table.remove, {table.id_param: version[table.id_param]})
                 native.unbind_movie(placed.library, item_id)
             attempted.append((item_id, placed))
         except InterruptedError:
@@ -193,7 +197,10 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
             survivors = native.readback.scope(
                 placed.kind, placed.library, placed.parent_id
             )
-        if item_id in survivors:
+        if item_id in survivors or (
+            placed.kind == "Movie"
+            and native.readback.version_rows(placed.library, item_id)
+        ):
             fail_with_children(
                 item_id, RuntimeError("%s removal not confirmed" % placed.kind)
             )

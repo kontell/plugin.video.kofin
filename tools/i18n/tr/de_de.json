@@ -498,5 +498,6 @@
   "#30853": "Inhalt nicht heruntergeladen",
   "#30854": "Abonnierte Playlists prüfen; Häkchen entfernen, um Downloads nicht mehr zu synchronisieren.",
   "#30855": "Abonnierte Musikbibliotheken prüfen; Häkchen entfernen, um Downloads nicht mehr zu synchronisieren.",
-  "#30990": "In dieser Vorabversion nicht verfügbar"
+  "#30990": "In dieser Vorabversion nicht verfügbar",
+  "#30858": "Kodis Einstellung „Video-Extras beim Scannen ignorieren“ ist jetzt aus, damit Film-Extras importiert werden können"
 }

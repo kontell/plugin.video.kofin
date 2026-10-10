@@ -59,6 +59,10 @@ def compact(item):
     would be the catalogue's largest field.
     """
     result = {k: v for k, v in item.items() if k not in _DROP}
+    if not result.get("SpecialFeatureCount"):
+        # Every movie is sent the count; only one with extras keeps it, or
+        # every payload hash would have moved the day the field was asked.
+        result.pop("SpecialFeatureCount", None)
     sources = item.get("MediaSources")
     if item.get("Type") == "Audio":
         result.pop("MediaStreams", None)
@@ -87,6 +91,73 @@ def compact(item):
             for p in people
         ]
     return result
+
+
+# What a special feature's payload keeps: its row, its file name and the
+# streams Kodi reads off the listing.
+_EXTRA_KEYS = (
+    "Id",
+    "Name",
+    "Overview",
+    "Container",
+    "RunTimeTicks",
+    "ImageTags",
+    "BackdropImageTags",
+    "ExtraType",
+    "DateCreated",
+    "MediaStreams",
+)
+
+
+def compact_extra(feature):
+    """A movie's special feature as its payload carries it."""
+    result = {k: feature[k] for k in _EXTRA_KEYS if k in feature}
+    sources = feature.get("MediaSources")
+    if not result.get("MediaStreams") and isinstance(sources, list):
+        for source in sources:
+            if isinstance(source, dict) and source.get("MediaStreams"):
+                result["MediaStreams"] = source["MediaStreams"]
+                break
+    return result
+
+
+def version_sources(item) -> List[Dict[str, Any]]:
+    """The media sources a movie is listed by, a file each, when it has
+    more than one; Jellyfin's first is the one the movie's plain URL plays."""
+    sources = [
+        s
+        for s in (item.get("MediaSources") or [])
+        if isinstance(s, dict) and s.get("Id")
+    ]
+    return sources if len(sources) > 1 else []
+
+
+def special_features(item) -> List[Dict[str, Any]]:
+    return [
+        f
+        for f in (item.get("SpecialFeatures") or [])
+        if isinstance(f, dict) and f.get("Id") and f.get("Name")
+    ]
+
+
+def assets_token(item) -> str:
+    """What a movie's folder lists beyond the movie's own file: its version
+    files and its extras, as the listing names them. Empty for a movie with
+    neither. The pass scans the folder by name when the token moves, since
+    the root walk lists the movie's file alone."""
+    sources = version_sources(item)
+    features = special_features(item)
+    if not sources and not features:
+        return ""
+    return _token(
+        {
+            "versions": [[s["Id"], s.get("Name") or ""] for s in sources],
+            "extras": [
+                [f["Id"], stem, paths.video_container_of(f)]
+                for stem, f in paths.extra_stems(features)
+            ],
+        }
+    )
 
 
 def item_separator():
@@ -886,6 +957,27 @@ def listitem(
         _streams(tag, item)
     elif kind == "Series":
         _cast(tag, item, server)
+    return li
+
+
+def extra_listitem(item, server):
+    """A scanner row for a movie extra. Kodi files the extra by its URL under
+    the movie it found beside it (CVideoInfoScanner::AddVideoExtras) and keeps
+    the row's dates, streams and art; the name it shows is the file's stem,
+    not this tag's title."""
+    title = str(item.get("Name") or "")
+    li = xbmcgui.ListItem(title, offscreen=True)
+    li.setArt(listitems.art_for(item, server))
+    tag = li.getVideoInfoTag()
+    tag.setMediaType("video")
+    tag.setTitle(title)
+    plot = (item.get("Overview") or "").strip(ASCII_SPACE)
+    if plot:
+        tag.setPlot(plot)
+    runtime = int((item.get("RunTimeTicks") or 0) // 10_000_000)
+    if runtime:
+        tag.setDuration(runtime)
+    _streams(tag, item)
     return li
 
 
