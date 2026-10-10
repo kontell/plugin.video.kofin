@@ -285,7 +285,14 @@ def single_nodes():
         {"Name": localized(30359), "Tag": "Favorite tvshows", "Media": "tvshows"},
         {"Name": localized(30360), "Tag": "Favorite episodes", "Media": "episodes"},
     ]
-    if settings.get_bool("downloadsEnabled"):
+    try:
+        downloads = settings.get_bool("downloadsEnabled")
+    except TypeError:
+        # A build whose settings have no downloads section (the API profile
+        # until the feature lands there): getSettingBool raises on a
+        # setting the build does not define.
+        downloads = False
+    if downloads:
         from kofin.downloads import TAG as DOWNLOADS_TAG
 
         singles.append(

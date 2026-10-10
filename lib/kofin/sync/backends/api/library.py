@@ -693,6 +693,13 @@ class Library(threading.Thread):
         label = ", ".join(names)
         if settings.get_str("syncedLibraries") != label:
             settings.set_str("syncedLibraries", label)
+        # The selection moved: the node tree and the skin entries follow it.
+        try:
+            from kofin.sync.dynamic import publish
+
+            publish(self.api.views().get("Items", []), self.api)
+        except Exception:
+            LOG.exception("library nodes not republished")
 
     # -- commands ----------------------------------------------------------------------
 
