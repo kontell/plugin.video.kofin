@@ -298,7 +298,9 @@ class SettingsApplier:
         leave the snapshot on so a real off after recovery still applies.
         """
         confirm = settings.get_str(setting_id)
-        if settings.get_str(LOAD_CANARY) == "" or confirm == "true":
+        # Only an explicit "false" is off: an empty read is a document that
+        # did not load, whatever the canary says this time round.
+        if settings.get_str(LOAD_CANARY) == "" or confirm != "false":
             LOG.warning(
                 "ignoring unconfirmed %s off "
                 "(confirm=%r, canary empty=%s); leaving managed files",

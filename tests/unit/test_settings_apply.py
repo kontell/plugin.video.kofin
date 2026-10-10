@@ -630,7 +630,11 @@ def test_unconfirmed_library_nodes_off_removes_nothing():
     FakeAddon.store["deviceId"] = ""
     applier.apply()
     assert service.library.commands == [] and regenerated == []
+    # An empty read with the canary present is still not an explicit off.
     FakeAddon.store["deviceId"] = "dev-1"
+    FakeAddon.store["libraryNodes"] = ""
+    applier.apply()
+    assert service.library.commands == [] and regenerated == []
     FakeAddon.store["libraryNodes"] = "false"
     applier.apply()
     assert service.library.commands == [("CleanupMusicPlaylists", None)]
