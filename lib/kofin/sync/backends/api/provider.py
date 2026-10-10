@@ -48,6 +48,9 @@ def _roots():
             for row in db.cursor.execute(
                 "SELECT path FROM api_binding ORDER BY path"
             ).fetchall()
+            # Every movie folder is bound (native.bind_folders); the root
+            # listing names the library roots and the show folders.
+            if not getattr(paths.parse(row[0]), "movie", None)
         ]
         for namespace, library in db.cursor.execute(
             "SELECT DISTINCT namespace, library FROM api_entry"

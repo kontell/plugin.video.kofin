@@ -416,6 +416,15 @@ What remains is kofin's own:
   item the pass has acknowledged, the resolver URL Kodi filed the row under, and the label
   from the server's listing. Widget refresh is Kodi's own: every setter announces, the music
   hold hides a pass's, and the first-content reload is the one builtin the pass fires.
+- **Every movie folder is bound, noupdate, or the info dialog has no cast.** Kodi's info dialog
+  loads a library movie's full details, cast included, only when `GetScraperForPath` finds a
+  scraper on the movie's own `strPath` (`CGUIWindowVideoBase::ShowInfo`); otherwise it shows
+  the listing item's tag, which carries none, and a plugin path's parent walk never reaches the
+  bound library root. A show's folder is bound, so shows were fine; every movie in a folder of
+  its own (0.91.0) was not. `native.bind_folders` binds every movie folder after its import
+  with `noupdate`, which Kodi's own Update library skips, and lifts the flag around a scan by
+  name, which the scanner would otherwise skip too (`ignoreFolder` in `DoScan`). Observed on
+  the P1D: Delicatessen's dialog listed no cast unbound and all 20 bound.
 - **A download moves nothing of Kodi's in the API build.** `downloads/nativeport.py` is the
   manager's view of the library per build: the SQL port is the relocation and the stamps; the
   API port leaves the row's plugin URL alone (the resolver plays the local file however the

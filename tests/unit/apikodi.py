@@ -56,6 +56,7 @@ class Kodi:
         self.notified = []
         self.listed = []
         self.dirnames = {}
+        self.noupdate = {}
         self.extras = {}
         self.phantoms = []
 
@@ -168,11 +169,13 @@ class Kodi:
             if kind == "Movie" and location.movie:
                 # A movie folder scanned by name imports its one movie, if
                 # the folder carries a binding of its own (the root lists
-                # every movie as a file, so a root scan needs none).
+                # every movie as a file, so a root scan needs none) and the
+                # binding is not noupdate, which the scanner skips unless
+                # told to scan everything.
+                folder = paths.movie_dir(self.key, library, location.movie)
                 wanted = (
                     [location.movie]
-                    if paths.movie_dir(self.key, library, location.movie)
-                    in self.bindings
+                    if folder in self.bindings and not self.noupdate.get(folder)
                     else []
                 )
             for item_id, record in sorted(
@@ -559,6 +562,7 @@ class Kodi:
             if params["content"] != "none":
                 self.recursive[params["path"]] = bool(params.get("scanrecursive"))
                 self.dirnames[params["path"]] = bool(params.get("usedirectorynames"))
+                self.noupdate[params["path"]] = bool(params.get("noupdate"))
             if params["content"] == "none":
                 if (
                     params.get("clearmode") == "remove"
@@ -567,6 +571,7 @@ class Kodi:
                     self.remove_content(params["path"])
                 self.bindings.pop(params["path"], None)
                 self.dirnames.pop(params["path"], None)
+                self.noupdate.pop(params["path"], None)
             else:
                 self.bindings[params["path"]] = params["content"]
             return "OK"

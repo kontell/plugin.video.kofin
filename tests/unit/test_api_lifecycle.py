@@ -33,10 +33,13 @@ def test_complete_movie_lifecycle_and_foreign_item_survives(store, backend, kodi
     first = store.mapping("a").kodi_id
     assert store.state("a").applied == 1
     # A first import scans the root, which lists every movie as a file under
-    # its own folder's URL; no folder is bound until one is scanned by name.
+    # its own folder's URL; the folder is then bound, noupdate, so the info
+    # dialog finds a scraper on it and Update library skips it.
     assert kodi.bindings == {
-        paths.library_dir(store.namespace, LIB, "movies"): "movies"
+        paths.library_dir(store.namespace, LIB, "movies"): "movies",
+        paths.movie_dir(store.namespace, LIB, "a"): "movies",
     }
+    assert kodi.noupdate[paths.movie_dir(store.namespace, LIB, "a")] is True
     assert kodi.scanned == [paths.library_dir(store.namespace, LIB, "movies")]
     assert kodi.rows["Movie"][first]["file"].startswith(
         paths.movie_dir(store.namespace, LIB, "a")
@@ -94,6 +97,7 @@ def test_show_import_files_seasons_and_episodes_under_the_show(store, backend, k
         "scraperid": "metadata.local",
         "containssingleitem": True,
         "usedirectorynames": False,
+        "noupdate": False,
         "refresh": False,
     }
     assert kodi.scanned == [paths.library_dir(store.namespace, LIB, "tvshows")]
@@ -222,6 +226,7 @@ def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
         paths.library_dir(store.namespace, LIB2, "tvshows"),
         paths.show_dir(store.namespace, LIB2, SHOW2),
         paths.library_dir(store.namespace, LIB2, "movies"),
+        paths.movie_dir(store.namespace, LIB2, "m2"),
     }
     assert set(store.bindings()) == set(kodi.bindings)
     # The survivor was re-read, not re-imported.
@@ -797,3 +802,37 @@ def test_a_first_import_under_repair_acknowledges_without_a_write(store, backend
     kodi.rows["Movie"][store.mapping("a").kodi_id]["plot"] = "Changed"
     backend.reconcile(repair=True)
     assert any(method == "VideoLibrary.SetMovieDetails" for method, _ in kodi.calls)
+
+
+def test_a_movie_scanned_by_name_is_bound_without_noupdate_for_the_scan_only(
+    store, backend, kodi
+):
+    """Kodi's info dialog loads a movie's cast only through a scraper on the
+    movie's own folder, so every folder is bound; noupdate keeps Update
+    library off them, and the scanner would skip a noupdate folder it was
+    told to scan by name, so the flag is lifted for that scan alone."""
+    backend.setup()
+    store.publish([movie("a"), movie("b"), movie("c")], library=LIB)
+    backend.reconcile()
+    folders = {paths.movie_dir(store.namespace, LIB, i) for i in "abc"}
+    assert folders <= set(kodi.bindings)
+    assert all(kodi.noupdate[f] for f in folders)
+    store.publish([movie("a"), movie("b"), movie("c"), movie("d")], library=LIB)
+    backend.reconcile()
+    folder = paths.movie_dir(store.namespace, LIB, "d")
+    assert folder in kodi.scanned and "d" in kodi.owned("Movie")
+    flags = [
+        p.get("noupdate")
+        for p in methods(kodi, "VideoLibrary.SetSourceContent")
+        if p["path"] == folder and p["content"] == "movies"
+    ]
+    assert flags == [False, True]
+    assert not store.pending()
+    # A folder bound before this rule (or never) is bound by the next repair,
+    # with nothing to scan.
+    kodi.bindings.pop(folder)
+    store.unbind(folder)
+    kodi.scanned.clear()
+    backend.reconcile(repair=True)
+    assert kodi.bindings[folder] == "movies" and kodi.noupdate[folder] is True
+    assert kodi.scanned == []
