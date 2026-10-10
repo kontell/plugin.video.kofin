@@ -167,6 +167,25 @@ def test_a_pass_hashes_the_tags_of_each_song_once(store, backend, kodi, monkeypa
     assert not store.pending()
 
 
+def test_album_and_artist_art_is_written_before_any_play_count(store, backend, kodi):
+    """A played song costs a setter each and a library has thousands; the
+    covers and descriptions the scanner cannot derive do not wait for them."""
+    items = album_bundle(songs=2)
+    items[2]["UserData"] = {
+        "Played": True,
+        "PlayCount": 1,
+        "LastPlayedDate": "2026-07-10T19:17:42Z",
+    }
+    store.publish(items, library=LIB)
+    backend.reconcile(repair=True)
+    assert [m for m, _ in kodi.calls if m.startswith("AudioLibrary.Set")] == [
+        "AudioLibrary.SetAlbumDetails",
+        "AudioLibrary.SetArtistDetails",
+        "AudioLibrary.SetSongDetails",
+    ]
+    assert not store.pending()
+
+
 def test_metadata_change_rescans_only_that_album_and_keeps_ids(store, backend, kodi):
     store.publish(
         album_bundle(songs=2) + album_bundle(ALBUM2, ARTIST2, 2, "u"), library=LIB
@@ -720,14 +739,17 @@ def test_a_directory_the_scanner_skips_is_salted_until_it_imports(
     store.publish(items, library=LIB)
     album = next(i for i in items if i["Type"] == "MusicAlbum")
     folder = album["Id"]
+    song = next(i for i in items if i["Type"] == "Audio")
     skipped = kodi._scan_folder
     monkeypatch.setattr(kodi, "_scan_folder", lambda library, folder: None)
-    with pytest.raises(RuntimeError, match="directory salted \\(1\\)"):
+    # The album is planned first and has no row either; the salt is the
+    # song's failure.
+    with pytest.raises(RuntimeError, match="remain pending"):
         backend.reconcile()
+    assert "directory salted (1)" in store.state(song["Id"]).error
     assert store.salt(folder) == 1
     assert metadata.folder_label(album, folder, 1).endswith(" 1")
     assert metadata.folder_label(album, folder, 0).endswith(folder)
-    song = next(i for i in items if i["Type"] == "Audio")
     tags = metadata.song_tags(song, album)
     assert metadata.hash_time(metadata._token([tags, 1])) != metadata.hash_time(
         metadata._token(tags)
