@@ -499,5 +499,7 @@
   "#30854": "Przejrzyj subskrybowane playlisty; odznacz je, aby zatrzymać synchronizację pobrań.",
   "#30855": "Przejrzyj subskrybowane biblioteki muzyczne; odznacz je, aby zatrzymać synchronizację pobrań.",
   "#30990": "Niedostępne w tej wersji testowej",
+  "#30856": "Węzły biblioteki i listy odtwarzania",
+  "#30857": "Twórz węzły biblioteki Kodi i inteligentne listy dla zsynchronizowanych bibliotek wideo oraz kopiuj listy Jellyfin do Kodi w Wideo → Listy odtwarzania → Kofin i Muzyka → Listy odtwarzania → Kofin. Wyłączenie usuwa wszystkie węzły i listy utworzone przez Kofin, pozostawia pliki utworzone ręcznie i pokazuje zsynchronizowane biblioteki przez własne pozycje przeglądania Kofin.",
   "#30858": "Ustawienie Kodi „Ignoruj materiały dodatkowe do filmów podczas skanowania” jest teraz wyłączone, aby można było importować materiały dodatkowe do filmów"
 }

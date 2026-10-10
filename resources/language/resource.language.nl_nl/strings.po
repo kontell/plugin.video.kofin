@@ -2228,6 +2228,14 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Bekijk gevolgde muziekbibliotheken; vink ze uit om het synchroniseren van downloads te stoppen."
 
+msgctxt "#30856"
+msgid "Library nodes and playlists"
+msgstr "Bibliotheekknooppunten en afspeellijsten"
+
+msgctxt "#30857"
+msgid "Create Kodi library nodes and smart playlists for the synced video libraries, and copy Jellyfin playlists into Kodi under Videos → Playlists → Kofin and Music → Playlists → Kofin. Turning this off removes every node and playlist Kofin created, leaves hand-made files alone, and lists the synced libraries through Kofin's own browse entries instead."
+msgstr "Maak Kodi-bibliotheekknooppunten en slimme afspeellijsten voor de gesynchroniseerde videobibliotheken en kopieer Jellyfin-afspeellijsten naar Kodi onder Video's → Afspeellijsten → Kofin en Muziek → Afspeellijsten → Kofin. Uitgeschakeld worden alle knooppunten en afspeellijsten die Kofin heeft gemaakt verwijderd, blijven handgemaakte bestanden onaangeroerd en worden de gesynchroniseerde bibliotheken via Kofins eigen bladeritems getoond."
+
 msgctxt "#30858"
 msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
 msgstr "Kodi's instelling 'Video-extra's negeren bij scannen' staat nu uit zodat filmextra's geïmporteerd kunnen worden"

@@ -499,5 +499,7 @@
   "#30854": "Bekijk gevolgde afspeellijsten; vink ze uit om het synchroniseren van downloads te stoppen.",
   "#30855": "Bekijk gevolgde muziekbibliotheken; vink ze uit om het synchroniseren van downloads te stoppen.",
   "#30990": "Niet beschikbaar in deze testversie",
+  "#30856": "Bibliotheekknooppunten en afspeellijsten",
+  "#30857": "Maak Kodi-bibliotheekknooppunten en slimme afspeellijsten voor de gesynchroniseerde videobibliotheken en kopieer Jellyfin-afspeellijsten naar Kodi onder Video's → Afspeellijsten → Kofin en Muziek → Afspeellijsten → Kofin. Uitgeschakeld worden alle knooppunten en afspeellijsten die Kofin heeft gemaakt verwijderd, blijven handgemaakte bestanden onaangeroerd en worden de gesynchroniseerde bibliotheken via Kofins eigen bladeritems getoond.",
   "#30858": "Kodi's instelling 'Video-extra's negeren bij scannen' staat nu uit zodat filmextra's geïmporteerd kunnen worden"
 }

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 import zipfile
 
 from tests.unit.test_build import _build_module
@@ -32,6 +33,15 @@ def test_zip_and_development_install_have_identical_profile_contents(tmp_path):
         assert ("lib/kofin/sync/backends/api/requirements.json" in contents) == (
             profile == "api"
         )
+        # Each profile ships its own presentation switch and not the other's.
+        settings_ids = {
+            setting.get("id")
+            for setting in ET.fromstring(contents["resources/settings.xml"]).iter(
+                "setting"
+            )
+        }
+        assert ("libraryNodes" in settings_ids) == (profile == "api")
+        assert ("syncMusicPlaylists" in settings_ids) == (profile == "sql")
 
 
 def test_api_package_starts_with_native_imports_and_file_access_forbidden(tmp_path):

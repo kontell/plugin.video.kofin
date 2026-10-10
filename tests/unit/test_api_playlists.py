@@ -179,6 +179,23 @@ def test_nothing_is_written_without_the_setting_or_a_synced_library(
     assert not root.exists()
 
 
+def test_the_playlists_follow_the_presentation_switch(store, tmp_path, monkeypatch):
+    """One setting for the node tree and every playlist (sync/dynamic.py)."""
+    from kofin.sync import dynamic
+    from tests.unit.fakes import FakeAddon
+
+    synced(store, (LIB, "music"))
+    api = FakeApi([{"Id": "p", "Name": "Gym", "MediaType": "Audio"}], {"p": []})
+    root = tmp_path / "playlists"
+    assert api_playlists.SETTING == dynamic.SETTING == "libraryNodes"
+    FakeAddon.store = {dynamic.SETTING: "false"}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    assert api_playlists.wanted() is False
+    assert api_playlists.reconcile(api, store, music_root=str(root)) == {}
+    assert api_playlists.apply(api, store, "p", music_root=str(root)) is False
+    assert not root.exists()
+
+
 def test_a_side_whose_last_library_left_loses_its_playlists(
     store, backend, kodi, tmp_path, monkeypatch
 ):
@@ -230,6 +247,22 @@ def test_a_write_the_catalogue_left_short_is_resolved_again_next_pass(
     assert (root / "Gym.m3u8").read_text(encoding="utf-8").count("#EXTINF") == 2
     # Complete, the Etag now skips it.
     assert api_playlists.reconcile(api, store, music_root=str(root))["tracks"] == 0
+
+
+def test_a_deferred_cleanup_reads_the_switch_again(store, monkeypatch):
+    """The cleanup is queued by the switch going off; run after it went back
+    on, it must not take the playlists the pass wrote back."""
+    from tests.unit.apifixtures import Server, worker
+
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    cleaned = []
+    monkeypatch.setattr(api_playlists, "cleanup", lambda: cleaned.append(True))
+    monkeypatch.setattr(api_playlists, "wanted", lambda: True)
+    w.command("CleanupMusicPlaylists", None)
+    assert cleaned == []
+    monkeypatch.setattr(api_playlists, "wanted", lambda: False)
+    w.command("CleanupMusicPlaylists", None)
+    assert cleaned == [True]
 
 
 def test_a_playlist_without_an_etag_is_resolved_on_every_pass(

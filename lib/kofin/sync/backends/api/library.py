@@ -771,6 +771,12 @@ class Library(threading.Thread):
             self._playlists_due = True
             return
         if command == "CleanupMusicPlaylists":
+            # Queued by the switch going off; by the time it runs the switch
+            # may be on again and the pass may have written the playlists
+            # back, so the setting is read again here.
+            if api_playlists.wanted():
+                LOG.info("playlist cleanup skipped: the switch is on again")
+                return
             api_playlists.cleanup()
             return
         if command == "FastSync":
