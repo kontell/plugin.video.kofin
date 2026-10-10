@@ -1056,7 +1056,7 @@ class Library(threading.Thread):
             return
 
         for source, work_queue, output in sources:
-            if work_queue.qsize() and len(self.download_threads) < self.dthreads:
+            if work_queue.qsize() and self._download_slot_free(source):
 
                 new_thread = GetItemWorker(
                     self.api_factory(),
@@ -1077,6 +1077,25 @@ class Library(threading.Thread):
                 new_thread.start()
                 LOG.info("-->[ q:download/%s/%s ]", source, id(new_thread))
                 self.download_threads.append(new_thread)
+
+    def _download_slot_free(self, source):
+        """Whether a download thread may start for ``source``.
+
+        New content gets one thread beyond ``dthreads`` when none is
+        fetching it. The writers hold metadata back until every addition is
+        written (``added_pending``), so the metadata downloaders fill the
+        bounded ``updated_output`` and wait in ``GetItemWorker._put``; with
+        every slot theirs, an addition arriving then could never download and
+        nothing ever drained the queue they were waiting on (the Bravia sat
+        at 85% for hours, 654 items queued, no thread dead).
+        """
+        if len(self.download_threads) < self.dthreads:
+            return True
+
+        return source == "added" and not any(
+            not thread.is_done and getattr(thread, "source", None) == "added"
+            for thread in self.download_threads
+        )
 
     def worker_sort(self):
         """Get items based on the local jellyfin database and place item in appropriate queues."""
