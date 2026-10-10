@@ -72,12 +72,29 @@ def _folders(request, directories, label):
     )
 
 
-def exists(store, location, item_id):
+def exists(store, location, item_id, source=""):
     """Whether Kodi may keep a row: unknown state is unavailable, never proof
-    of deletion. Only an explicit committed tombstone says an item is gone."""
+    of deletion. Only an explicit committed tombstone says an item is gone,
+    and only a movie's own payload says a version file or an extra is: the
+    scan that lists the folder adds and never removes, so Clean, which asks
+    this per file, is how a row the listing no longer names leaves."""
+    if location.probe:
+        # A disc-structure folder Kodi probes for: never a row.
+        return False
     if item_id:
         state = store.state(item_id)
-        return not state or state.operation != "remove"
+        if state is not None and state.operation == "remove":
+            return False
+        if source:
+            # A version file exists while the movie still lists its source.
+            record = store.records(kind="Movie", item_ids=[item_id]).get(item_id)
+            if record is None:
+                return True
+            return any(
+                str(s.get("Id")) == source
+                for s in metadata.version_sources(record.item)
+            )
+        return True
     if location.extra:
         # An extra exists while its movie does and its payload still names it.
         movie_id = location.movie or ""
@@ -88,8 +105,8 @@ def exists(store, location, item_id):
         if record is None:
             return True
         return any(
-            paths.extra_name(f) == location.extra
-            for f in metadata.special_features(record.item)
+            stem == location.extra
+            for stem, _ in paths.extra_stems(metadata.special_features(record.item))
         )
     if location.folder or location.movie:
         return True
@@ -114,12 +131,6 @@ def serve(request):
         if request.base_url.rstrip("/").endswith("/native"):
             _folders(request, _roots(), "Kofin")
             return
-        if paths.under_extras(request.base_url):
-            # A disc-structure folder Kodi probes for below an extras folder
-            # (VIDEO_TS/, BDMV/): an empty listing, so that the directory
-            # cache can answer the probe with "no such file".
-            _listing(request, [], "")
-            return
         xbmcplugin.endOfDirectory(request.handle, succeeded=False, cacheToDisc=False)
         return
     if location.hold:
@@ -135,7 +146,7 @@ def serve(request):
     if action == "check_exists":
         xbmcplugin.setResolvedUrl(
             request.handle,
-            exists(store, location, item_id),
+            exists(store, location, item_id, paths.source_of(request.base_url)),
             xbmcgui.ListItem(path=request.base_url),
         )
         return
@@ -247,7 +258,19 @@ def serve(request):
         kind = "Movie" if location.content == "movies" else "MusicVideo"
         content = location.content
         if location.extras:
-            _extras_folder(request, store, key, library, location.movie or "")
+            if location.probe:
+                # A disc-structure folder Kodi probes for below the extras
+                # folder (VIDEO_TS/, BDMV/): an empty listing, so that the
+                # directory cache can answer the probe with "no such file".
+                _listing(request, [], "")
+            elif location.extra:
+                # A file in the folder is played, never listed: the router
+                # sends a resolved one to the play route and fails the rest.
+                xbmcplugin.setResolvedUrl(
+                    request.handle, False, xbmcgui.ListItem(path=request.base_url)
+                )
+            else:
+                _extras_folder(request, store, key, library, location.movie or "")
             return
         wanted = [item_id] if action == "refresh_info" else None
         if kind == "Movie" and location.movie:
@@ -362,11 +385,11 @@ def _extras_folder(request, store, key, library, movie_id):
     features = metadata.special_features(record.item) if record is not None else []
     entries = [
         (
-            paths.extra_url(key, library, movie_id, feature),
+            paths.extra_url(key, library, movie_id, stem, feature),
             metadata.extra_listitem(feature, server),
             False,
         )
-        for feature in features
+        for stem, feature in paths.extra_stems(features)
     ]
     LOG.debug("extras folder of movie %s: %d rows", movie_id[:8], len(entries))
     _listing(request, entries, "videos")
@@ -374,32 +397,17 @@ def _extras_folder(request, store, key, library, movie_id):
 
 def resolve_extra(location) -> str:
     """The item id of the extra a file-style extras URL names, from the
-    movie's payload, or from the server when the catalogue no longer names it."""
+    movie's payload alone: every publish path attaches the features
+    (library.attach_extras), so a stem the catalogue does not name is a
+    file the listing no longer has, not a lookup to make elsewhere."""
     movie_id = location.movie or ""
     record = (
         Store(location.key).records(kind="Movie", item_ids=[movie_id]).get(movie_id)
     )
     features = metadata.special_features(record.item) if record is not None else []
-    for feature in features:
-        if paths.extra_name(feature) == location.extra:
+    for stem, feature in paths.extra_stems(features):
+        if stem == location.extra:
             return str(feature["Id"])
-    try:
-        from kofin.core.api import Api
-        from kofin.core.settings import Credentials
-
-        creds = Credentials.load()
-        if creds.is_logged_in:
-            for feature in Api.for_plugin(creds).special_features(movie_id):
-                if (
-                    isinstance(feature, dict)
-                    and feature.get("Id")
-                    and paths.extra_name(feature) == location.extra
-                ):
-                    return str(feature["Id"])
-    except Exception as error:
-        LOG.warning(
-            "extra %r of movie %s not resolved: %s", location.extra, movie_id[:8], error
-        )
     return ""
 
 

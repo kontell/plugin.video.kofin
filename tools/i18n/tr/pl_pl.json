@@ -498,5 +498,6 @@
   "#30853": "Treść nie została pobrana",
   "#30854": "Przejrzyj subskrybowane playlisty; odznacz je, aby zatrzymać synchronizację pobrań.",
   "#30855": "Przejrzyj subskrybowane biblioteki muzyczne; odznacz je, aby zatrzymać synchronizację pobrań.",
-  "#30990": "Niedostępne w tej wersji testowej"
+  "#30990": "Niedostępne w tej wersji testowej",
+  "#30858": "Ustawienie Kodi „Ignoruj dodatki wideo podczas skanowania” jest teraz wyłączone, aby dodatki do filmów mogły być importowane"
 }

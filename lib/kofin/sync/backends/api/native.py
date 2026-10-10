@@ -377,11 +377,15 @@ class Native:
     # -- movie versions and extras -------------------------------------------
 
     def _asset_folders(self, upserts, library) -> List[str]:
-        """Movie folders whose listing holds version files or extras Kodi
-        has not seen: the assets token acknowledged for the movie differs
-        from its payload's (metadata.assets_token), or none was yet. The
-        root walk lists the movie's own file alone, so these are scanned by
-        name."""
+        """Movie folders whose listing Kodi has not seen: the assets token
+        acknowledged for the movie (the listing a scan presented) differs
+        from its payload's (metadata.assets_token). The root walk lists the
+        movie's own file alone, so these are scanned by name -- a movie that
+        lost its last version or extra too, so that the empty token the
+        apply pass then acknowledges is one a scan presented. The scan adds
+        and re-reads and never removes (AddVideoExtras only adds): a row the
+        listing no longer names leaves through Clean, whose per-file
+        check_exists is provider.exists."""
         movies = [
             r for r in upserts.values() if r.kind == "Movie" and r.library == library
         ]
@@ -391,10 +395,9 @@ class Native:
         folders: List[str] = []
         for record in self.payloads.walk(movies):
             token = metadata.assets_token(record.item)
-            if not token:
-                continue
             mapping = mappings.get(record.item_id)
-            if mapping is not None and mapping.applied.get("assets", "") == token:
+            previous = mapping.applied.get("assets", "") if mapping is not None else ""
+            if previous == token:
                 continue
             folder = paths.movie_dir(self.key, library, record.item_id)
             folders.append(folder)
@@ -414,6 +417,10 @@ class Native:
             LOG.info(
                 "Kodi setting %s turned off: movie extras are imported", EXTRAS_SETTING
             )
+            # Kodi's own setting, for every source: the user is told once.
+            from kofin.core import settings, toast
+
+            toast.show(settings.localized(30858))
         self._extras_allowed = True
 
     def _prepare_scan(self, directory):

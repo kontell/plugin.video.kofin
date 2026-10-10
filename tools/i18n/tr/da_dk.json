@@ -498,5 +498,6 @@
   "#30853": "Indhold ikke downloadet",
   "#30854": "Gennemgå abonnerede playlister; fjern markeringen for at stoppe synkronisering af downloads.",
   "#30855": "Gennemgå abonnerede musikbiblioteker; fjern markeringen for at stoppe synkronisering af downloads.",
-  "#30990": "Ikke tilgængelig i denne prøveversion"
+  "#30990": "Ikke tilgængelig i denne prøveversion",
+  "#30858": "Kodis indstilling 'Ignorer videoekstramateriale ved scanning' er nu slået fra, så filmekstramateriale kan importeres"
 }

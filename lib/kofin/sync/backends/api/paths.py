@@ -22,7 +22,7 @@ unplayable, and matched by nothing on a rescan.
 
 import re
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
 
 from kofin.core.urls import PARAM_MEDIA_SOURCE
@@ -115,9 +115,10 @@ _EXTRAS = re.compile(
     r"^/native/([0-9a-f]{32})/([0-9a-f]{32})/movies/([0-9a-z]{1,64})/extras/"
     r"(?:([^/]+)\.([a-z0-9]{1,8}))?$"
 )
-# A folder below an extras folder: the disc structures Kodi probes for.
+# A folder below an extras folder: the disc structures Kodi probes for
+# (VIDEO_TS/, BDMV/), answered with an empty listing.
 _EXTRAS_SUB = re.compile(
-    r"^/native/[0-9a-f]{32}/[0-9a-f]{32}/movies/[0-9a-z]{1,64}/extras/[^/]+/$"
+    r"^/native/([0-9a-f]{32})/([0-9a-f]{32})/movies/([0-9a-z]{1,64})/extras/[^/]+/$"
 )
 # What an extra's title may not carry into a URL path or past Kodi's parsing.
 _UNSAFE = re.compile(r"[/\\?#%|\x00-\x1f]+")
@@ -146,9 +147,11 @@ class Location:
     song: Optional[str] = None
     # The scanner a hold directory belongs to.
     hold: Optional[str] = None
-    # A movie folder's extras directory, and the extra a file in it names.
+    # A movie folder's extras directory; the extra a file in it names (its
+    # stem); or a disc-structure folder Kodi probes for below the directory.
     extras: bool = False
     extra: Optional[str] = None
+    probe: bool = False
 
 
 def root(key):
@@ -180,9 +183,31 @@ def extras_dir(key, library, item_id):
 
 
 def extra_name(item) -> str:
-    """The file stem an extra is listed by, which is the name Kodi gives it."""
+    """An extra's title as a file stem: what a URL path and Kodi's parsing
+    can carry. The sanitizer only; ``extra_stems`` makes the stems unique."""
     name = _UNSAFE.sub("-", str(item.get("Name") or "")).strip(" .")
     return name or "Extra"
+
+
+def extra_stems(features) -> List[Tuple[str, Dict[str, Any]]]:
+    """``(stem, feature)`` for each of a movie's extras, the stem unique
+    within the movie: Kodi names the extra by its path below the extras
+    folder, so the stem is the extra's whole identity and two features
+    titled alike (or alike once sanitized) would be one file. A taken title
+    gets ``Title (2)``, ``Title (3)``, assigned in id order so a stem never
+    moves between listings. The listing, the assets token, ``exists`` and
+    ``resolve_extra`` all read this list and nothing else."""
+    used: set = set()
+    stems: List[Tuple[str, Dict[str, Any]]] = []
+    for feature in sorted(features, key=lambda f: str(f.get("Id") or "")):
+        base = extra_name(feature)
+        stem, n = base, 1
+        while stem.lower() in used:
+            n += 1
+            stem = "%s (%d)" % (base, n)
+        used.add(stem.lower())
+        stems.append((stem, feature))
+    return stems
 
 
 def video_container_of(item) -> str:
@@ -197,23 +222,10 @@ def video_container_of(item) -> str:
     return FALLBACK_VIDEO_CONTAINER
 
 
-def extra_url(key, library, item_id, extra):
-    return (
-        extras_dir(key, library, item_id)
-        + extra_name(extra)
-        + "."
-        + video_container_of(extra)
-    )
-
-
-def under_extras(url) -> bool:
-    """Whether a URL names a folder below a movie's extras folder."""
-    parsed = urlsplit(url or "")
-    return (
-        parsed.scheme == "plugin"
-        and parsed.netloc == "plugin.video.kofin"
-        and _EXTRAS_SUB.match(parsed.path) is not None
-    )
+def extra_url(key, library, item_id, stem, extra):
+    """The file an extra is listed as: its stem from ``extra_stems`` and
+    the container of the feature."""
+    return extras_dir(key, library, item_id) + stem + "." + video_container_of(extra)
 
 
 def version_url(key, library, item_id, source_id):
@@ -241,6 +253,12 @@ def without_source(url) -> str:
 
 def is_version_url(url) -> bool:
     return PARAM_MEDIA_SOURCE in parse_qs(urlsplit(url or "").query)
+
+
+def source_of(url) -> str:
+    """The media source a version URL names, '' for the movie's own file."""
+    query = parse_qs(urlsplit(url or "").query)
+    return (query.get(PARAM_MEDIA_SOURCE) or [""])[0]
 
 
 def hold_dir(key, scanner="music"):
@@ -327,6 +345,10 @@ def parse(url) -> Optional[Location]:
     held = _HOLD.match(parsed.path)
     if held:
         return Location(held.group(1), hold=held.group(2))
+    probe = _EXTRAS_SUB.match(parsed.path)
+    if probe:
+        key, library, movie = probe.groups()
+        return Location(key, library, "movies", movie=movie, extras=True, probe=True)
     extras = _EXTRAS.match(parsed.path)
     if extras:
         key, library, movie, name, _ = extras.groups()
@@ -372,6 +394,8 @@ def describe(url) -> str:
         parts.append("movie " + location.movie[:8])
     if location.extras:
         parts.append("extras")
+    if location.probe:
+        parts.append("probe")
     if location.folder:
         parts.append("folder " + location.folder[-8:])
     if location.hold:

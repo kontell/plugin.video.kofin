@@ -498,5 +498,6 @@
   "#30853": "Innhold ikke lastet ned",
   "#30854": "Se gjennom abonnerte spillelister; fjern avmerkingen for å stoppe synkronisering av nedlastinger.",
   "#30855": "Se gjennom abonnerte musikkbiblioteker; fjern avmerkingen for å stoppe synkronisering av nedlastinger.",
-  "#30990": "Ikke tilgjengelig i denne prøveversjonen"
+  "#30990": "Ikke tilgjengelig i denne prøveversjonen",
+  "#30858": "Kodi-innstillingen 'Ignorer videoekstramateriale ved skanning' er nå slått av slik at filmekstramateriale kan importeres"
 }
