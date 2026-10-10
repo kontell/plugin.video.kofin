@@ -2412,6 +2412,49 @@ def test_the_spawn_path_pauses_after_an_unreachable_worker(monkeypatch):
         thread.is_done = True
 
 
+def test_an_addition_downloads_while_metadata_holds_every_slot():
+    """The writers hold metadata until additions are written, so metadata
+    downloaders blocked on a full writer queue must not also be what keeps
+    the addition from downloading."""
+    import threading
+
+    manager, api = make_library()
+
+    class BlockedWorker:
+        is_done = False
+        source = "updated"
+
+    manager.download_threads = [BlockedWorker() for _ in range(manager.dthreads)]
+    manager.updated_queue.put(["u1"])
+    manager.added_queue.put(["a1"])
+    api.items_result = {"Items": [{"Id": "a1", "Type": "Movie", "Name": "A"}]}
+
+    # Held in its request, so the first worker is still fetching when the
+    # next tick looks for a slot.
+    release = threading.Event()
+    answer = api.items
+
+    def held_items(params):
+        release.wait(5)
+        return answer(params)
+
+    api.items = held_items
+
+    manager.worker_downloads()
+    spawned = manager.download_threads[manager.dthreads :]
+    assert [thread.source for thread in spawned] == ["added"]
+
+    try:
+        # One extra thread, not one per tick.
+        manager.added_queue.put(["a2"])
+        manager.worker_downloads()
+        assert len(manager.download_threads) == manager.dthreads + 1
+    finally:
+        release.set()
+        for thread in spawned:
+            thread.join(5)
+
+
 # --- smalls: recovery hooks, session release, bounded announcements ----------
 
 
