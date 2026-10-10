@@ -946,7 +946,13 @@ def apply_one(
     )
     if stored and stored[1] != filename:
         remove_managed_file(directory, stored[1])
-    state.add_playlist_state(playlist_id, side, filename, checksum)
+    # A short write stays dirty, as in reconcile.
+    state.add_playlist_state(
+        playlist_id,
+        side,
+        filename,
+        "" if resolver is not None and missing else checksum,
+    )
     if missing:
         LOG.info(
             "playlist %s: %d item(s), %d not in the Kodi library",
@@ -1082,7 +1088,16 @@ def reconcile(
         if stored and stored[1] != filename:
             remove_managed_file(directory, stored[1])
             stats["pruned"] += 1
-        state.add_playlist_state(playlist_id, side, filename, checksum)
+        # A write the resolver left short (an entry the pass has not filed
+        # yet) stays dirty: the server's Etag will not move when Kodi files
+        # the item, so the checksum is withheld and the next pass resolves
+        # again.
+        state.add_playlist_state(
+            playlist_id,
+            side,
+            filename,
+            "" if resolver is not None and missing else checksum,
+        )
         want.add(filename)
         stats["playlists"] += 1
         if written:

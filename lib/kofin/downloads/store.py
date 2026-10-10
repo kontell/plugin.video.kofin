@@ -230,15 +230,30 @@ def container_states(container_id: str) -> Dict[str, str]:
             (container_id,),
         )
         states.update(opened.cursor.fetchall())
-        # The API build's catalogue files a season's episodes under it too.
+        # The API build's catalogue files an episode under its series
+        # (store.parent_of), so a season's downloads are the series' whose
+        # payload names the season: the downloads under one series are few,
+        # and their payloads are read for that one key.
         if not buildconfig.legacy_features():
+            import json
+
             opened.cursor.execute(
-                "SELECT d.jellyfin_id, d.state FROM download d "
-                "JOIN api_entry e ON e.item_id = d.jellyfin_id "
-                "WHERE e.parent_id = ? AND e.removed IS NULL",
+                "SELECT d.jellyfin_id, d.state, i.payload FROM download d "
+                "JOIN api_entry e ON e.item_id = d.jellyfin_id AND e.removed IS NULL "
+                "JOIN api_entry s ON s.item_id = ? AND s.removed IS NULL "
+                "AND s.kind = 'Season' AND s.parent_id = e.parent_id "
+                "JOIN api_item i ON i.item_id = d.jellyfin_id "
+                "AND i.operation = 'upsert' WHERE e.kind = 'Episode'",
                 (container_id,),
             )
-            states.update(opened.cursor.fetchall())
+            for jellyfin_id, download_state, payload in opened.cursor.fetchall():
+                try:
+                    item = json.loads(payload)
+                except (TypeError, ValueError):
+                    continue
+                season = str(item.get("SeasonId") or item.get("ParentId") or "")
+                if season == container_id:
+                    states[jellyfin_id] = download_state
         opened.cursor.execute(
             "SELECT jellyfin_id, state FROM download WHERE request_id = ? "
             "OR origin IN (?, ?)",

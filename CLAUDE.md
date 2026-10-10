@@ -410,11 +410,21 @@ What remains is kofin's own:
   placeholder until the add-on exists.
 - **The API build's presentation is built from the catalogue, never from Kodi's tables.**
   `sync/dynamic.py` writes the node tree for whitelisted video libraries with filter rules on
-  the library tag (`dynamic.library_tag`, the tag `metadata.tags` puts on every row) and the
-  smart playlists beside it, publishes `library://` paths for them and `browse` paths for
-  every other view, and takes the tree down by the `kofin` prefix when nothing is synced; a
-  whitelisted music library publishes Kodi's music root, because the SQL music tree filters on
-  Kodi music sources this build never writes. `sync/playlists.py` ships in both builds: its
+  the library tag (`metadata.library_tag`, the tag `metadata.tags` puts on every row; the
+  serializer owns the spelling and the presentation imports it) and the smart playlists
+  beside it, publishes `library://` paths for them and `browse` paths for every other view,
+  and takes the tree down by the `kofin` prefix when nothing is synced; a whitelisted music
+  library publishes Kodi's music root, because the SQL music tree filters on Kodi music
+  sources this build never writes. **Kodi's shipped video nodes are seeded into the profile
+  before the tree is written** (`kodisetup.seed_default_nodes`): the moment
+  `special://profile/library/video/` exists every `library://video/...` path resolves there
+  and nowhere else, so a profile holding only `kofin/` listed nothing for
+  `library://video/movies/` and the skin's categories rows on the P1D's Movies and Shows
+  sections went empty (`kodi-library-nodes`). A side's Jellyfin playlists are pruned, files
+  and states, when its last library leaves the selection (`backends/api/playlists._drop_side`;
+  `RemoveLibrary` marks the pass due), and a playlist file the resolver left short — an entry
+  the pass had not filed yet — withholds its Etag checksum, because the server's Etag does not
+  move when Kodi files the item. `sync/playlists.py` ships in both builds: its
   native database imports are deferred to the SQL refresh functions, and `apply_one` and
   `reconcile` take a `resolver`; the API one (`backends/api/playlists.py`) gives a line for an
   item the pass has acknowledged, the resolver URL Kodi filed the row under, and the label
@@ -425,10 +435,14 @@ What remains is kofin's own:
   scraper on the movie's own `strPath` (`CGUIWindowVideoBase::ShowInfo`); otherwise it shows
   the listing item's tag, which carries none, and a plugin path's parent walk never reaches the
   bound library root. A show's folder is bound, so shows were fine; every movie in a folder of
-  its own (0.91.0) was not. `native.bind_folders` binds every movie folder after its import
-  with `noupdate`, which Kodi's own Update library skips, and lifts the flag around a scan by
-  name, which the scanner would otherwise skip too (`ignoreFolder` in `DoScan`). Observed on
-  the P1D: Delicatessen's dialog listed no cast unbound and all 20 bound.
+  its own (0.91.0) was not. `Native.bind_movie_folders` binds every movie folder of the catalogue
+  with `noupdate`, which Kodi's own Update library skips — after every pass and, since a pass
+  plans pending rows only, once per service generation when nothing is pending
+  (`library.apply`), so an older profile's rows are bound without a Repair; once per profile
+  every folder is re-bound with the flag (`apiMovieBindings`), for the folders an earlier
+  build bound without it. A scan by name lifts the flag around the scan, which the scanner
+  would otherwise skip too (`ignoreFolder` in `DoScan`), and puts it back in a `finally`.
+  Observed on the P1D: Delicatessen's dialog listed no cast unbound and all 20 bound.
 - **A download moves nothing of Kodi's in the API build.** `downloads/nativeport.py` is the
   manager's view of the library per build: the SQL port is the relocation and the stamps; the
   API port leaves the row's plugin URL alone (the resolver plays the local file however the
@@ -438,7 +452,13 @@ What remains is kofin's own:
   leaves the local watched mark of a vanished download to the server round-trip that already
   follows it, since a setter would start the userdata echo cycle. The badge key is
   `kofindownloaded`: a dotted art key is accepted by the setter and never stored. The
-  Downloaded-episodes node filters on a moved path and stays the SQL build's.
+  Downloaded-episodes node filters on a moved path and stays the SQL build's. The port's
+  operations are `attached` (the file landed, or is still there at startup: SQL repoints and
+  stamps and says whether the row moved; API hands the item to the pass and always says yes,
+  so the startup reconcile re-plans every done file and a finish that died before its badge
+  is healed) and `detached`. A season's download menu is answered through the catalogue
+  (`downloads/store.py::container_states`): the catalogue files an episode under its series,
+  so the season's downloads are the series' whose payload names the season.
 - **A scope readback is minimal; the full row is read for an item whose state moved**
   (`kinds.MINIMAL`, `Readback.full`, `Readback.prefetch_full`). The scope carries what
   finds and owns a row and the userdata a viewer may have edited, nothing else; the plan

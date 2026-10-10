@@ -177,3 +177,56 @@ def test_nothing_is_written_without_the_setting_or_a_synced_library(
     monkeypatch.setattr(api_playlists, "wanted", lambda: True)
     assert api_playlists.reconcile(api, store, music_root=str(root)) == {}
     assert not root.exists()
+
+
+def test_a_side_whose_last_library_left_loses_its_playlists(
+    store, backend, kodi, tmp_path, monkeypatch
+):
+    from kofin.sync import kofindb
+
+    monkeypatch.setattr(api_playlists, "wanted", lambda: True)
+    backend.setup()
+    store.publish(album_bundle(songs=1), library=LIB)
+    backend.reconcile()
+    synced(store, (LIB, "music"))
+    api = FakeApi(
+        [{"Id": "p", "Name": "Gym", "MediaType": "Audio", "Etag": "1"}],
+        {"p": [song_item("tc31", "One", 1)]},
+    )
+    root = tmp_path / "playlists" / "music"
+    assert api_playlists.reconcile(api, store, music_root=str(root))["written"] == 1
+    assert (root / "Gym.m3u8").is_file()
+    synced(store)  # the last library leaves the selection
+    assert api_playlists.reconcile(api, store, music_root=str(root)) == {"pruned": 1}
+    assert not root.exists() or not list(root.glob("*.m3u8"))
+    with private.Database() as db:
+        assert kofindb.JellyfinDatabase(db.cursor).get_playlist_states() == []
+    # Nothing left to prune: the next pass is quiet.
+    assert api_playlists.reconcile(api, store, music_root=str(root)) == {}
+
+
+def test_a_write_the_catalogue_left_short_is_resolved_again_next_pass(
+    store, backend, kodi, tmp_path, monkeypatch
+):
+    """The server's Etag does not move when Kodi files an item the pass had
+    not filed yet, so a short write withholds its checksum."""
+    monkeypatch.setattr(api_playlists, "wanted", lambda: True)
+    backend.setup()
+    store.publish(album_bundle(songs=1), library=LIB)
+    backend.reconcile()
+    synced(store, (LIB, "music"))
+    api = FakeApi(
+        [{"Id": "p", "Name": "Gym", "MediaType": "Audio", "Etag": "same"}],
+        {"p": [song_item("tc31", "One", 1), song_item("tc32", "Two", 2)]},
+    )
+    root = tmp_path / "playlists" / "music"
+    stats = api_playlists.reconcile(api, store, music_root=str(root))
+    assert (stats["tracks"], stats["skipped"]) == (1, 1)
+    # The second song reaches Kodi; the Etag is unchanged.
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    stats = api_playlists.reconcile(api, store, music_root=str(root))
+    assert (stats["tracks"], stats["skipped"]) == (2, 0)
+    assert (root / "Gym.m3u8").read_text(encoding="utf-8").count("#EXTINF") == 2
+    # Complete, the Etag now skips it.
+    assert api_playlists.reconcile(api, store, music_root=str(root))["tracks"] == 0

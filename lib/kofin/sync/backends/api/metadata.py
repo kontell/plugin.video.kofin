@@ -16,7 +16,6 @@ import xbmc
 import xbmcgui
 
 from kofin.plugin import listitems
-from kofin.sync import dynamic
 from kofin.sync.model import ratings as shared_ratings, streams_and_runtime
 from kofin.sync.shims import convert_to_local
 from . import paths
@@ -115,6 +114,15 @@ _EXTRA_KEYS = (
     "DateCreated",
     "MediaStreams",
 )
+
+
+# The tag every row of a library carries (tags), and the one the library's
+# filter nodes select by (sync/dynamic.py): spelled here, where it is written.
+LIBRARY_TAG_PREFIX = "kofin.library."
+
+
+def library_tag(library: str) -> str:
+    return LIBRARY_TAG_PREFIX + library
 
 
 def compact_extra(feature):
@@ -260,7 +268,7 @@ def tags(item, library, kind="Movie"):
     if kind not in FAVORITE_TAG:
         return []
     values = [value.strip(ASCII_SPACE) for value in item.get("Tags") or []]
-    values.append(dynamic.library_tag(library))
+    values.append(library_tag(library))
     if (item.get("UserData") or {}).get("IsFavorite"):
         values.append(FAVORITE_TAG[kind])
     return sorted(set(value for value in values if value))

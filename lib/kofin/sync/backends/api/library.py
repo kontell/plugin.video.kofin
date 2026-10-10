@@ -218,6 +218,7 @@ class Library(threading.Thread):
         # must not be retried on every tick ahead of the catch-up.
         self._unsynced_tried: Set[str] = set()
         self._playlists_due = False
+        self._bindings_checked = False
 
     def stop_client(self):
         self.stop_thread = True
@@ -726,6 +727,9 @@ class Library(threading.Thread):
                     state["Whitelist"] = [i for i in state["Whitelist"] if i != library]
                     private.save_sync(state)
             self.update_selection_label()
+            # The playlists of a side whose last library left are pruned
+            # by the next pass (backends/api/playlists.reconcile).
+            self._playlists_due = True
             return
         if command == "removed":
             self.store.invalidate(self._removed_collection_members(data))
@@ -791,6 +795,15 @@ class Library(threading.Thread):
             self._repair = False
             status(xbmc.getLocalizedString(20177))
             self.flush_pending_reload()
+        elif not self._bindings_checked:
+            # Nothing pending, so no pass: the movie folders an older
+            # profile's rows never had bound are bound here, once per
+            # service generation (Native.bind_movie_folders).
+            self._bindings_checked = True
+            try:
+                native.bind_movie_folders()
+            except Exception:
+                LOG.exception("movie folder bindings not completed")
 
     def playlists_pass(self):
         """Rewrite the managed playlist files after an enumeration or a

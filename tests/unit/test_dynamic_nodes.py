@@ -120,3 +120,33 @@ def test_tree_order_is_movies_then_shows_within_the_servers_order(views_env):
         ("tvshows", "2", False),
         ("tvshows", "4", True),
     ]
+
+
+def test_the_shipped_video_nodes_are_seeded_before_the_tree_is_written(
+    views_env, monkeypatch
+):
+    """Once the profile has a library/video/ folder, every library://video/
+    path resolves there: without Kodi's own movies/ and tvshows/ nodes a
+    skin's categories row (library://video/movies/) lists nothing."""
+    import os
+    import shutil
+    import xbmcvfs
+
+    monkeypatch.setattr(
+        "xbmcvfs.copy", lambda src, dst: shutil.copyfile(src, dst) or True
+    )
+    system = xbmcvfs.translatePath("special://xbmc/system/library/video")
+    os.makedirs(os.path.join(system, "movies"))
+    with open(os.path.join(system, "movies", "index.xml"), "w") as handle:
+        handle.write("<node/>")
+    with open(os.path.join(system, "movies", "genres.xml"), "w") as handle:
+        handle.write("<node/>")
+    profile = views_env["profile"] / "library" / "video"
+    (profile / "movies").mkdir()
+    (profile / "movies" / "genres.xml").write_text("<node><mine/></node>")
+    whitelist(MOVIES)
+    dynamic.publish(ITEMS, FakeApi())
+    assert (profile / "movies" / "index.xml").read_text() == "<node/>"
+    # A node the user edited is theirs.
+    assert (profile / "movies" / "genres.xml").read_text() == "<node><mine/></node>"
+    assert (profile / NODE_ROOT / "index.xml").is_file()
