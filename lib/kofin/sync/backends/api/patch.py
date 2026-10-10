@@ -120,7 +120,6 @@ class Applier:
         # artists a live album credits, and the Kodi album id each album's
         # songs were filed under -- read once a pass, not once a row.
         self._song_folders: Dict[str, Set[str]] = {}
-        self._albums: Dict[str, Dict[str, Dict[str, Any]]] = {}
         self._credited: Dict[str, Set[str]] = {}
         self._album_ids: Dict[str, Dict[str, Optional[int]]] = {}
         # Kodi's album and artist rows are not per library: two libraries
@@ -246,17 +245,10 @@ class Applier:
         return self._song_folders[library]
 
     def albums(self, library) -> Dict[str, Dict[str, Any]]:
-        """The library's album payloads, read once a pass: a song's tag hash
-        takes its album's MusicBrainz ids, and 22,000 songs must not read
-        their album 22,000 times."""
-        if library not in self._albums:
-            self._albums[library] = {
-                i: r.item
-                for i, r in self.store.records(
-                    kind="MusicAlbum", library=library
-                ).items()
-            }
-        return self._albums[library]
+        """The library's album payloads, read once a pass and shared with
+        the directory picker (native.album_items)."""
+        items: Dict[str, Dict[str, Any]] = self.native.album_items(library)
+        return items
 
     def credited(self, library) -> Set[str]:
         """The artist ids the library's live albums credit."""
@@ -549,8 +541,7 @@ class Applier:
                 if edits:
                     self.store.local(record.item_id, edits)
                     return None
-            album = self.albums(record.library).get(record.parent_id)
-            applied["tag"] = metadata.tag_hash(record.item, album)
+            applied["tag"] = self.native.tag_hash(record)
             applied["dir"] = record.parent_id
             applied["userdata"] = metadata.userdata(record.item)
             if previous.get("tag") not in (None, applied["tag"]) and not (

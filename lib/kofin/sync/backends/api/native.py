@@ -87,6 +87,12 @@ class Native:
         # listed through Kodi just before the scan (_prepare_scan).
         self._extras_folders: Set[str] = set()
         self._extras_allowed = False
+        # Per pass: a library's album payloads and the tag hash of every
+        # song compared so far. The directory picker and the applier both
+        # need them, and a song's hash is a payload walk, a tag build and a
+        # digest (album_items, tag_hash).
+        self._album_items: Dict[str, Dict[str, Dict]] = {}
+        self._tag_hashes: Dict[str, str] = {}
 
     # -- gates ---------------------------------------------------------------
 
@@ -532,6 +538,9 @@ class Native:
         the number of songs the scan should add, for the bar."""
         if not folders:
             return
+        # The applier reads the album payloads again after the scan; held
+        # across it they are memory Kodi's scanner wants for its page cache.
+        self._album_items.pop(library, None)
         total = len(set(self.store.folders("Audio", library)) | folders)
         if len(folders) > total * ROOT_SCAN_SHARE:
             LOG.info(
@@ -562,6 +571,8 @@ class Native:
         self.store.pin()
         self.readback.clear()
         self.rescanned = set()
+        self._album_items = {}
+        self._tag_hashes = {}
         applier = Applier(self)
         completed = False
         try:
@@ -628,6 +639,8 @@ class Native:
             applier.commit()
             self.progress.close()
             self.payloads = PayloadWindow(self.store)
+            self._album_items = {}
+            self._tag_hashes = {}
             # The pass's tables are the largest Python objects in the
             # process; hand the heap back before Kodi's scanner needs the
             # page cache (core/memory.py).
@@ -805,6 +818,28 @@ class Native:
                 missing.append(record)
         return missing
 
+    def album_items(self, library) -> Dict[str, Dict]:
+        """The library's album payloads, read once a pass: a song's tag hash
+        takes its album's artists and MusicBrainz ids, and 22,000 songs must
+        not read their album 22,000 times."""
+        if library not in self._album_items:
+            self._album_items[library] = {
+                i: r.item
+                for i, r in self.store.records(
+                    kind="MusicAlbum", library=library
+                ).items()
+            }
+        return self._album_items[library]
+
+    def tag_hash(self, record: Record) -> str:
+        """A song's tag hash, computed once a pass."""
+        found = self._tag_hashes.get(record.item_id)
+        if found is None:
+            found = self._tag_hashes[record.item_id] = metadata.tag_hash(
+                record.item, self.album_items(record.library).get(record.parent_id)
+            )
+        return found
+
     def _lost_songs(self, library, folders: Set[str], entries) -> List[str]:
         """Acknowledged songs the scan just run should have re-filed and did
         not: a listing that failed half way, or a scan stopped between its
@@ -888,37 +923,39 @@ class Native:
             # and a tag hash each): the bar names the phase and the log times it.
             began = time.monotonic()
             self.progress.note(progress.label("Audio"))
-            albums = {
-                i: r.item
-                for i, r in self.store.records(
-                    kind="MusicAlbum", library=library
-                ).items()
-            }
-            for record in self.payloads.walk(songs.values()):
+
+            def moved(record):
+                folders.add(record.parent_id)
+                if record.item_id not in upserts:
+                    revived[record.item_id] = record
+
+            # Only a song with a row and an acknowledgement has tags to
+            # compare, and only its payload is read: a first import has
+            # neither for any song, and walking 22,000 payloads to decide
+            # that every directory is new cost a Raspberry Pi 21 s.
+            tagged: List[Record] = []
+            for record in songs.values():
                 item_id = record.item_id
                 folder = record.parent_id
                 row = self.readback.scope("Audio", library, folder).get(item_id)
                 mapping = mappings.get(item_id)
                 applied = mapping.applied if mapping else {}
-                changed = False
                 if row is None:
-                    changed = True
+                    moved(record)
                 elif mapping is None:
                     # Imported but never acknowledged (a userdata patch
                     # failed): the row has the tags of the listing that made
                     # it unless the payload has moved since.
-                    changed = record.generation > 1
-                elif applied.get("tag") != metadata.tag_hash(
-                    record.item, albums.get(folder)
-                ):
-                    changed = True
-                if changed:
-                    folders.add(folder)
-                    if item_id not in upserts:
-                        revived[item_id] = record
+                    if record.generation > 1:
+                        moved(record)
+                else:
+                    tagged.append(record)
                 previous = applied.get("dir")
                 if previous and previous != folder:
                     folders.add(previous)
+            for record in self.payloads.walk(tagged):
+                if mappings[record.item_id].applied.get("tag") != self.tag_hash(record):
+                    moved(record)
             if revived:
                 self.store.invalidate(revived)
                 upserts.update(revived)

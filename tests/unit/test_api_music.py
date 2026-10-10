@@ -116,6 +116,57 @@ def test_a_repair_sends_nothing_for_a_song_whose_userdata_matches(store, backend
     assert not store.pending()
 
 
+def test_a_first_import_reads_no_song_payload_to_pick_its_directories(
+    store, backend, kodi, monkeypatch
+):
+    """A song with no row is missing whatever its tags say: the directories
+    of a first import are picked without one payload read, where walking
+    22,000 of them cost a Raspberry Pi 21 s before the scan began."""
+    store.publish(album_bundle(songs=3), library=LIB)
+    before_the_scan = []
+    payloads, payload = store.payloads, store.payload
+
+    def many(item_ids):
+        wanted = list(item_ids)
+        if not kodi.music_scanned:
+            before_the_scan.extend(wanted)
+        return payloads(wanted)
+
+    def one(item_id):
+        if not kodi.music_scanned:
+            before_the_scan.append(item_id)
+        return payload(item_id)
+
+    monkeypatch.setattr(store, "payloads", many)
+    monkeypatch.setattr(store, "payload", one)
+    backend.reconcile(repair=True)
+    assert kodi.music_scanned == [paths.library_dir(store.namespace, LIB, "music")]
+    assert not before_the_scan
+    assert not store.pending()
+
+
+def test_a_pass_hashes_the_tags_of_each_song_once(store, backend, kodi, monkeypatch):
+    """The directory picker and the applier both compare a song's tag hash;
+    it is a payload walk, a tag build and a digest, made once a pass."""
+    items = album_bundle(songs=3)
+    store.publish(items, library=LIB)
+    backend.reconcile()
+    kodi.music_scanned.clear()
+    store.invalidate([i["Id"] for i in items])
+    hashed = []
+    tag_hash = metadata.tag_hash
+
+    def counting(item, album=None):
+        hashed.append(item["Id"])
+        return tag_hash(item, album)
+
+    monkeypatch.setattr(metadata, "tag_hash", counting)
+    backend.reconcile(repair=True)
+    assert sorted(hashed) == ["tc31", "tc32", "tc33"]
+    assert not kodi.music_scanned
+    assert not store.pending()
+
+
 def test_metadata_change_rescans_only_that_album_and_keeps_ids(store, backend, kodi):
     store.publish(
         album_bundle(songs=2) + album_bundle(ALBUM2, ARTIST2, 2, "u"), library=LIB
