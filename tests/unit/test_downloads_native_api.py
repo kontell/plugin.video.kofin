@@ -160,6 +160,20 @@ def test_a_season_s_download_menu_finds_its_episodes_through_the_catalogue(
             Download(jellyfin_id=item_id, media_type="episode", series_id=SHOW)
         )
         downloads.finish(item_id, "Shows/x/%s.mkv" % item_id, "mkv", 1)
+    # Another profile's catalogue, in the same database, files e2 under s1:
+    # the lookup reads the active namespace alone.
+    from kofin.sync.backends.api.store import Store, namespace
+
+    other = Store(namespace("other-server", "user"))
+    other.initialize("http://other")
+    other.publish(
+        [
+            series(),
+            season("s1", number=1),
+            episode("e2", season_number=1, SeasonId="s1"),
+        ],
+        library=LIB,
+    )
     assert downloads.container_states("s1") == {"e1": downloads.DONE}
     assert downloads.container_states("s2") == {"e2": downloads.DONE}
     assert set(downloads.container_states(SHOW)) == {"e1", "e2"}

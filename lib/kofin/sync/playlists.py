@@ -923,7 +923,9 @@ def apply_one(
 
     etag = playlist.get("Etag") or ""
     checksum = reference_checksum(etag) if etag else ""
-    if stored and stored[0] == side and stored[2] == checksum:
+    # An empty checksum never skips: it is the mark of a short write, and of
+    # a playlist the server gave no Etag.
+    if stored and stored[0] == side and checksum and stored[2] == checksum:
         return False
 
     entries, missing = _entries_for(items, side, mapping, music, video, resolver)
@@ -1067,7 +1069,13 @@ def reconcile(
         directory = audio_dir if side == "Audio" else video_dir
         taken = taken_audio if side == "Audio" else taken_video
         want = want_audio if side == "Audio" else want_video
-        if stored and stored[0] == side and stored[2] == checksum and stored[1]:
+        if (
+            stored
+            and stored[0] == side
+            and checksum
+            and stored[2] == checksum
+            and stored[1]
+        ):
             want.add(stored[1])
             taken.add(os.path.splitext(stored[1])[0].lower())
             stats["playlists"] += 1

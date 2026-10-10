@@ -886,6 +886,27 @@ def test_the_library_binds_movie_folders_once_when_nothing_is_pending(
     w.apply(native)
     w.apply(native)
     assert calls == ["bind"]
+    # A failure is retried after a pause, not every tick and not never.
+    import time
+
+    from kofin.sync.backends.api import library as library_module
+
+    def failing():
+        calls.append("fail")
+        raise OSError("rpc away")
+
+    w._bindings_due = 0.0
+    w.apply(SimpleNamespace(reconcile=native.reconcile, bind_movie_folders=failing))
+    w.apply(SimpleNamespace(reconcile=native.reconcile, bind_movie_folders=failing))
+    assert calls == ["bind", "fail"]
+    assert (
+        time.monotonic()
+        < w._bindings_due
+        <= time.monotonic() + library_module.BINDINGS_RETRY
+    )
+    w._bindings_due = 0.0
+    w.apply(native)
+    assert calls == ["bind", "fail", "bind"] and w._bindings_due == float("inf")
 
 
 def test_a_failed_scan_still_puts_noupdate_back_on_the_folders(
@@ -904,3 +925,33 @@ def test_a_failed_scan_still_puts_noupdate_back_on_the_folders(
     with pytest.raises(OSError):
         backend.reconcile()
     assert kodi.noupdate[folder] is True
+
+
+def test_a_failed_lift_of_noupdate_still_restores_the_folders_bound_so_far(
+    store, backend, kodi, monkeypatch
+):
+    """The lift before a scan by name binds a batch of folders without the
+    flag; when it fails part-way the ones already lifted get it back."""
+    from kofin.sync.backends.api import native as native_module
+
+    backend.setup()
+    store.publish([movie("a"), movie("b"), movie("c")], library=LIB)
+    backend.reconcile()
+    store.publish(
+        [movie("a"), movie("b"), movie("c"), movie("d"), movie("e")], library=LIB
+    )
+    d, e = (paths.movie_dir(store.namespace, LIB, i) for i in "de")
+    real = native_module.rpc_batch
+
+    def failing_lift(requests):
+        replies = real(requests)
+        return [
+            OSError("rpc away") if p["path"] == e and not p.get("noupdate") else r
+            for (m, p), r in zip(requests, replies)
+        ]
+
+    monkeypatch.setattr(native_module, "rpc_batch", failing_lift)
+    with pytest.raises(OSError):
+        backend.reconcile()
+    assert kodi.noupdate[d] is True and kodi.noupdate[e] is True
+    assert kodi.scanned.count(d) == 0

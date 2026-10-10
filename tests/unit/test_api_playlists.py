@@ -263,3 +263,22 @@ def test_a_deferred_cleanup_reads_the_switch_again(store, monkeypatch):
     monkeypatch.setattr(api_playlists, "wanted", lambda: False)
     w.command("CleanupMusicPlaylists", None)
     assert cleaned == [True]
+
+
+def test_a_playlist_without_an_etag_is_resolved_on_every_pass(
+    store, backend, kodi, tmp_path, monkeypatch
+):
+    """An empty checksum never skips: it is the dirty mark of a short write,
+    and what a playlist the server gave no Etag stores."""
+    monkeypatch.setattr(api_playlists, "wanted", lambda: True)
+    backend.setup()
+    store.publish(album_bundle(songs=1), library=LIB)
+    backend.reconcile()
+    synced(store, (LIB, "music"))
+    api = FakeApi(
+        [{"Id": "p", "Name": "Gym", "MediaType": "Audio"}],
+        {"p": [song_item("tc31", "One", 1)]},
+    )
+    root = tmp_path / "playlists" / "music"
+    assert api_playlists.reconcile(api, store, music_root=str(root))["tracks"] == 1
+    assert api_playlists.reconcile(api, store, music_root=str(root))["tracks"] == 1
