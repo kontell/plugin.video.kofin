@@ -889,6 +889,27 @@ def listitem(
     return li
 
 
+def extra_listitem(item, server):
+    """A scanner row for a movie extra. Kodi files the extra by its URL under
+    the movie it found in the parent folder (CVideoInfoScanner::AddVideoExtras)
+    and keeps the row's dates, streams and art; the title it shows is the file
+    name, not this tag's."""
+    title = str(item.get("Name") or "")
+    li = xbmcgui.ListItem(title, offscreen=True)
+    li.setArt(listitems.art_for(item, server))
+    tag = li.getVideoInfoTag()
+    tag.setMediaType("video")
+    tag.setTitle(title)
+    plot = (item.get("Overview") or "").strip(ASCII_SPACE)
+    if plot:
+        tag.setPlot(plot)
+    runtime = int((item.get("RunTimeTicks") or 0) // 10_000_000)
+    if runtime:
+        tag.setDuration(runtime)
+    _streams(tag, item)
+    return li
+
+
 def owned(data) -> Dict[str, List[str]]:
     """The map keys and tags this write puts its name to; a later write may
     clear exactly these and nothing a user or another add-on added."""

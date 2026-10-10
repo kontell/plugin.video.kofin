@@ -76,9 +76,45 @@ CONTAINERS = (
     "webm",
 )
 FALLBACK_CONTAINER = "audio"
+# The folder beside a movie's file Kodi reads its extras from
+# (VIDEO_EXTRAS_FOLDER_REGEXP: "extras", "bonus disc", ...), lower case so
+# the one spelling is ours.
+EXTRAS = "extras/"
+# Containers an extra's file may be named by; anything else is named "mkv".
+# Kodi lists the folder with its video-extension mask (IDirectory::IsAllowed),
+# so the name has to end in an extension it knows.
+VIDEO_CONTAINERS = (
+    "mkv",
+    "mp4",
+    "m4v",
+    "avi",
+    "mov",
+    "wmv",
+    "webm",
+    "ts",
+    "m2ts",
+    "mpg",
+    "mpeg",
+    "flv",
+    "ogv",
+    "3gp",
+    "vob",
+)
+FALLBACK_VIDEO_CONTAINER = "mkv"
 
 # The directory the pass asks the music scanner to hold open while it writes.
 _HOLD = re.compile(r"^/native/([0-9a-f]{32})/hold/(music|video)/$")
+
+# A movie folder's extras directory and the files in it: Kodi names an extra
+# by its path below the extras folder minus the extension
+# (CGUIDialogVideoManagerExtras::GenerateVideoExtra), so the file is the
+# extra's title and carries no query.
+_EXTRAS = re.compile(
+    r"^/native/([0-9a-f]{32})/([0-9a-f]{32})/movies/([0-9a-z]{1,64})/extras/"
+    r"(?:([^/]+)\.([a-z0-9]{1,8}))?$"
+)
+# What an extra's title may not carry into a URL path or past Kodi's parsing.
+_UNSAFE = re.compile(r"[/\\?#%|\x00-\x1f]+")
 
 _PATH = re.compile(
     r"^/native/([0-9a-f]{32})/"
@@ -104,6 +140,9 @@ class Location:
     song: Optional[str] = None
     # The scanner a hold directory belongs to.
     hold: Optional[str] = None
+    # A movie folder's extras directory, and the extra a file in it names.
+    extras: bool = False
+    extra: Optional[str] = None
 
 
 def root(key):
@@ -128,6 +167,52 @@ def movie_dir(key, library, item_id):
     """One folder per movie, so a change re-scans one folder and the extras
     Kodi looks for beside a movie have somewhere to live."""
     return library_dir(key, library, "movies") + item_id + "/"
+
+
+_EXTRAS_SUB = re.compile(
+    r"^/native/[0-9a-f]{32}/[0-9a-f]{32}/movies/[0-9a-z]{1,64}/extras/[^/]+/$"
+)
+
+
+def under_extras(url) -> bool:
+    """Whether a URL names a folder below a movie's extras folder."""
+    parsed = urlsplit(url or "")
+    return (
+        parsed.scheme == "plugin"
+        and parsed.netloc == "plugin.video.kofin"
+        and _EXTRAS_SUB.match(parsed.path) is not None
+    )
+
+
+def extras_dir(key, library, item_id):
+    return movie_dir(key, library, item_id) + EXTRAS
+
+
+def extra_name(item) -> str:
+    """The file stem an extra is listed by, which is the name Kodi gives it."""
+    name = _UNSAFE.sub("-", str(item.get("Name") or "")).strip(" .")
+    return name or "Extra"
+
+
+def video_container_of(item) -> str:
+    container = str(item.get("Container") or "")
+    sources = item.get("MediaSources") or []
+    if not container and sources and isinstance(sources[0], dict):
+        container = str(sources[0].get("Container") or "")
+    for name in container.split(","):
+        name = name.strip().lower()
+        if name in VIDEO_CONTAINERS:
+            return name
+    return FALLBACK_VIDEO_CONTAINER
+
+
+def extra_url(key, library, item_id, extra):
+    return (
+        extras_dir(key, library, item_id)
+        + extra_name(extra)
+        + "."
+        + video_container_of(extra)
+    )
 
 
 def hold_dir(key, scanner="music"):
@@ -214,6 +299,10 @@ def parse(url) -> Optional[Location]:
     held = _HOLD.match(parsed.path)
     if held:
         return Location(held.group(1), hold=held.group(2))
+    extras = _EXTRAS.match(parsed.path)
+    if extras:
+        key, library, movie, name, _ = extras.groups()
+        return Location(key, library, "movies", movie=movie, extras=True, extra=name)
     match = _PATH.match(parsed.path)
     if not match:
         return None
@@ -253,6 +342,8 @@ def describe(url) -> str:
         parts.append("show " + location.series[:8])
     if location.movie:
         parts.append("movie " + location.movie[:8])
+    if location.extras:
+        parts.append("extras")
     if location.folder:
         parts.append("folder " + location.folder[-8:])
     if location.hold:

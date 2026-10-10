@@ -196,6 +196,11 @@ def dispatch(argv: List[str]) -> None:
             time.monotonic() - imports_began,
         )
         native = location.key if location else None
+        if location is None and paths.under_extras(base_url):
+            # A disc-structure probe below an extras folder; the provider
+            # answers it empty rather than the root menu.
+            serve(request)
+            return
         if (
             native
             and location is not None
@@ -206,6 +211,20 @@ def dispatch(argv: List[str]) -> None:
             # Kodi's music database keeps no query string on a file name.
             params.setdefault("mode", "play")
             params["id"] = location.song
+        if (
+            native
+            and location is not None
+            and location.extra
+            and not params.get("kodi_action")
+        ):
+            # A movie extra is a file in its movie's extras folder, named by
+            # its title; the id is looked up from the title.
+            from kofin.sync.backends.api.provider import resolve_extra
+
+            extra_id = resolve_extra(location)
+            if extra_id:
+                params.setdefault("mode", "play")
+                params["id"] = extra_id
         if base_url.endswith("/native/") or (
             native and (params.get("kodi_action") or params.get("mode") != "play")
         ):

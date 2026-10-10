@@ -14,6 +14,7 @@ already holds are listed back to it rather than nothing.
 
 import time
 from typing import Any, Dict, List
+from urllib.parse import urlencode
 
 import xbmcgui
 import xbmcplugin
@@ -21,6 +22,7 @@ import xbmcplugin
 import xbmc
 
 from kofin.core import kodirpc, state
+from kofin.core.urls import PARAM_MEDIA_SOURCE
 from kofin.sync import private
 from kofin.core.log import Logger
 from . import metadata, paths
@@ -100,6 +102,12 @@ def serve(request):
     if location is None:
         if request.base_url.rstrip("/").endswith("/native"):
             _folders(request, _roots(), "Kofin")
+            return
+        if paths.under_extras(request.base_url):
+            # A disc-structure folder Kodi probes for below an extras folder
+            # (VIDEO_TS/, BDMV/): an empty listing, so that the directory
+            # cache can answer the probe with "no such file".
+            _listing(request, [], "")
             return
         xbmcplugin.endOfDirectory(request.handle, succeeded=False, cacheToDisc=False)
         return
@@ -227,6 +235,9 @@ def serve(request):
         # on demand, lists its one movie for a scan by name.
         kind = "Movie" if location.content == "movies" else "MusicVideo"
         content = location.content
+        if location.extras:
+            _extras_folder(request, store, key, library, location.movie or "")
+            return
         wanted = [item_id] if action == "refresh_info" else None
         if kind == "Movie" and location.movie:
             wanted = [location.movie]
@@ -255,6 +266,18 @@ def serve(request):
         if kind == "Episode" and metadata.episode_numbers(record.item) is None:
             # Kodi cannot file an unnumbered special; it stays dynamic-only.
             continue
+        if kind == "Movie" and location.movie:
+            entries.extend(
+                _movie_entries(
+                    record,
+                    server,
+                    key,
+                    library,
+                    separator,
+                    collections.get(record_id, ""),
+                )
+            )
+            continue
         entries.append(
             (
                 paths.playback_url(key, kind, library, record_id, record.parent_id),
@@ -271,7 +294,95 @@ def serve(request):
                 False,
             )
         )
+    if kind == "Movie" and location.movie and _special_features(location.movie):
+        # Kodi reads a movie's extras from an "extras" folder beside its file
+        # (CVideoInfoScanner::AddVideoExtras, with "Ignore video extras" off
+        # and folder names in use on the path).
+        entries.append(
+            (
+                paths.extras_dir(key, library, location.movie),
+                xbmcgui.ListItem("extras", offscreen=True),
+                True,
+            )
+        )
     _listing(request, entries, content)
+
+
+# -- movie assets (prototype) ------------------------------------------------------
+#
+# A movie with several media sources lists one file per source, each carrying
+# the whole tag and the source's name as its video asset title; a movie with
+# special features lists an "extras" folder of them. Both are listed only
+# when the movie's own folder is scanned by name. The special features are
+# asked of the server here, which the module's contract forbids: the
+# catalogue would have to carry them.
+
+
+def _special_features(item_id) -> List[Dict[str, Any]]:
+    try:
+        from kofin.core.api import Api
+        from kofin.core.settings import Credentials
+
+        creds = Credentials.load()
+        if not creds.is_logged_in:
+            return []
+        features = Api.for_plugin(creds).special_features(item_id)
+    except Exception as error:  # a prototype: an unreachable server is no extras
+        LOG.warning("special features of %s unavailable: %s", item_id[:8], error)
+        return []
+    return [f for f in features if isinstance(f, dict) and f.get("Id")]
+
+
+def _movie_entries(record, server, key, library, separator, set_name):
+    item = record.item
+    sources = [
+        s
+        for s in (item.get("MediaSources") or [])
+        if isinstance(s, dict) and s.get("Id")
+    ]
+    url = paths.playback_url(key, "Movie", library, record.item_id)
+
+    def row(name=""):
+        li = metadata.listitem(item, server, key, library, separator, set_name=set_name)
+        if name:
+            li.getVideoInfoTag().setVideoAssetTitle(name)
+        return li
+
+    if len(sources) < 2:
+        return [(url, row(), False)]
+    entries = [(url, row(sources[0].get("Name") or ""), False)]
+    for source in sources[1:]:
+        entries.append(
+            (
+                url + "&" + urlencode({PARAM_MEDIA_SOURCE: source["Id"]}),
+                row(source.get("Name") or ""),
+                False,
+            )
+        )
+    return entries
+
+
+def _extras_folder(request, store, key, library, movie_id):
+    server = store.server()
+    features = _special_features(movie_id)
+    entries = [
+        (
+            paths.extra_url(key, library, movie_id, feature),
+            metadata.extra_listitem(feature, server),
+            False,
+        )
+        for feature in features
+    ]
+    LOG.info("extras folder of movie %s: %d rows", movie_id[:8], len(entries))
+    _listing(request, entries, "videos")
+
+
+def resolve_extra(location) -> str:
+    """The item id of the extra a file-style extras URL names."""
+    for feature in _special_features(location.movie or ""):
+        if paths.extra_name(feature) == location.extra:
+            return str(feature["Id"])
+    return ""
 
 
 # -- music ---------------------------------------------------------------------
