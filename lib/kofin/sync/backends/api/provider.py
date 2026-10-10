@@ -96,7 +96,9 @@ def exists(store, location, item_id, source=""):
             )
         return True
     if location.extra:
-        # An extra exists while its movie does and its payload still names it.
+        # An extra exists while its movie does and its payload still lists
+        # the file by that name: the stem and the container both, so a
+        # feature whose container moved leaves its old row to Clean.
         movie_id = location.movie or ""
         state = store.state(movie_id)
         if state is not None and state.operation == "remove":
@@ -106,7 +108,10 @@ def exists(store, location, item_id, source=""):
             return True
         return any(
             stem == location.extra
-            for stem, _ in paths.extra_stems(metadata.special_features(record.item))
+            and paths.video_container_of(feature) == location.extra_container
+            for stem, feature in paths.extra_stems(
+                metadata.special_features(record.item)
+            )
         )
     if location.folder or location.movie:
         return True

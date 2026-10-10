@@ -151,6 +151,7 @@ class Location:
     # stem); or a disc-structure folder Kodi probes for below the directory.
     extras: bool = False
     extra: Optional[str] = None
+    extra_container: Optional[str] = None
     probe: bool = False
 
 
@@ -351,8 +352,16 @@ def parse(url) -> Optional[Location]:
         return Location(key, library, "movies", movie=movie, extras=True, probe=True)
     extras = _EXTRAS.match(parsed.path)
     if extras:
-        key, library, movie, name, _ = extras.groups()
-        return Location(key, library, "movies", movie=movie, extras=True, extra=name)
+        key, library, movie, name, container = extras.groups()
+        return Location(
+            key,
+            library,
+            "movies",
+            movie=movie,
+            extras=True,
+            extra=name,
+            extra_container=container,
+        )
     match = _PATH.match(parsed.path)
     if not match:
         return None
