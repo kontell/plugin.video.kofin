@@ -51,6 +51,11 @@ STATE = "SyncSession.State"
 # the provider registered with no URL template because its content is
 # tuned, not fetched, and only the provider knows how).
 START = "SyncSession.Start"
+# service -> the companion add-on (plan, phase 6): the open requests changed.
+# ``{"v": 1, "generation": <int>, "count": <int>, "path": <requests file>}``;
+# the document at ``path`` is the contract, this is the ping
+# (sync/backends/api/companion.py).
+COMPANION_REQUESTS = "Companion.Requests"
 
 INBOUND = frozenset({REGISTER, CLAIM, PROPOSE, MENU})
 

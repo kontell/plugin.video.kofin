@@ -628,8 +628,6 @@ class Service(xbmc.Monitor):
         """Build the download manager when enabled. Contained like the library
         manager: playback and sync must survive a broken downloads stack
         (degrade, don't die)."""
-        if not buildconfig.legacy_features():
-            return None
         if self.downloads is not None:
             return
         if not settings.get_bool("downloadsEnabled"):

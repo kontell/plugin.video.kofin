@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass, fields as dataclass_fields
 from typing import Any, Dict, List, Optional, Sequence
 
+from kofin import buildconfig
 from kofin.core.log import Logger
 from kofin.sync.private import Database
 
@@ -229,6 +230,41 @@ def container_states(container_id: str) -> Dict[str, str]:
             (container_id,),
         )
         states.update(opened.cursor.fetchall())
+        # The API build's catalogue files an episode under its series
+        # (store.parent_of), so a season's downloads are the series' whose
+        # payload names the season: the downloads under one series are few,
+        # and their payloads are read for that one key.
+        if not buildconfig.legacy_features():
+            import json
+
+            from kofin.sync.backends.api.identity import current_store
+
+            # The catalogue is namespaced per server and user and the
+            # download table is not: the season, its episodes and their
+            # payloads are read from the active namespace alone.
+            try:
+                namespace = current_store().namespace
+            except Exception:
+                namespace = ""
+            opened.cursor.execute(
+                "SELECT d.jellyfin_id, d.state, i.payload FROM download d "
+                "JOIN api_entry s ON s.namespace = ? AND s.item_id = ? "
+                "AND s.removed IS NULL AND s.kind = 'Season' "
+                "JOIN api_entry e ON e.namespace = s.namespace "
+                "AND e.item_id = d.jellyfin_id AND e.removed IS NULL "
+                "AND e.kind = 'Episode' AND e.parent_id = s.parent_id "
+                "JOIN api_item i ON i.namespace = s.namespace "
+                "AND i.item_id = d.jellyfin_id AND i.operation = 'upsert'",
+                (namespace, container_id),
+            )
+            for jellyfin_id, download_state, payload in opened.cursor.fetchall():
+                try:
+                    item = json.loads(payload)
+                except (TypeError, ValueError):
+                    continue
+                season = str(item.get("SeasonId") or item.get("ParentId") or "")
+                if season == container_id:
+                    states[jellyfin_id] = download_state
         opened.cursor.execute(
             "SELECT jellyfin_id, state FROM download WHERE request_id = ? "
             "OR origin IN (?, ?)",

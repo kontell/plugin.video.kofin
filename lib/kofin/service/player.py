@@ -500,11 +500,11 @@ class Player(xbmc.Player):
         """
         if item.get("Type") not in DELETABLE_TYPES:
             return False
-        if not buildconfig.legacy_features():
-            # No downloads in the API build, and its settings document has
-            # no downloads section to read: getSettingBool would raise.
-            return False
-        if not settings.get_bool("downloadsDeleteAfterWatching"):
+        try:
+            if not settings.get_bool("downloadsDeleteAfterWatching"):
+                return False
+        except TypeError:
+            # A profile whose settings have no downloads section.
             return False
         if not settings.get_bool("downloadsEnabled"):
             return False

@@ -257,9 +257,8 @@ def is_version_url(url) -> bool:
 
 
 def source_of(url) -> str:
-    """The media source a version URL names, '' for the movie's own file."""
-    query = parse_qs(urlsplit(url or "").query)
-    return (query.get(PARAM_MEDIA_SOURCE) or [""])[0]
+    """The media source a version file's URL names, or empty."""
+    return (parse_qs(urlsplit(url or "").query).get(PARAM_MEDIA_SOURCE) or [""])[0]
 
 
 def hold_dir(key, scanner="music"):

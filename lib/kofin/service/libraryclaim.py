@@ -246,7 +246,15 @@ def _local_item_facts(jellyfin_id: str, media: str) -> "Tuple[str, int]":
     dialogs name the item and ``watched_to_end`` needs a runtime, and both
     must work with the server unreachable."""
     if not buildconfig.legacy_features():
-        return ("", 0)
+        # The catalogue's payload is local too.
+        try:
+            from kofin.sync.backends.api.identity import current_store
+
+            item = current_store().item(jellyfin_id) or {}
+        except Exception:  # pragma: no cover - a torn store must not stop play
+            LOG.exception("local item facts unavailable for %s", jellyfin_id)
+            return "", 0
+        return str(item.get("Name") or ""), int(item.get("RunTimeTicks") or 0)
     from kofin.downloads import repoint as downloads_repoint
     from kofin.sync.db import Database
 

@@ -22,6 +22,7 @@ from kofin.sync import changefeed, private
 from kofin.sync.catalogue import BackendMismatch
 from kofin.sync.downloader import info, library_filter
 from . import metadata, progress
+from . import playlists as api_playlists
 from .native import Native
 from .store import Store, namespace
 
@@ -194,6 +195,10 @@ def fetch_boxsets(api, abort=lambda: False, ids=None):
     return result
 
 
+# Seconds before the idle binding backfill is tried again after a failure.
+BINDINGS_RETRY = 300.0
+
+
 class Library(threading.Thread):
     def __init__(self, api, player, api_factory):
         super().__init__(name="kofin-api", daemon=True)
@@ -216,6 +221,10 @@ class Library(threading.Thread):
         # library the server no longer lists never reaches the whitelist and
         # must not be retried on every tick ahead of the catch-up.
         self._unsynced_tried: Set[str] = set()
+        self._playlists_due = False
+        # When the idle binding backfill is next due: now, then never once
+        # it succeeded, or a pause after a failure (apply).
+        self._bindings_due = 0.0
 
     def stop_client(self):
         self.stop_thread = True
@@ -231,6 +240,9 @@ class Library(threading.Thread):
             "UpdateLibrary",
             "RepairLibrary",
             "RemoveLibrary",
+            "SyncPlaylists",
+            "SyncMusicPlaylists",
+            "CleanupMusicPlaylists",
         ):
             self._queue.put((command, data or {}))
 
@@ -278,6 +290,7 @@ class Library(threading.Thread):
                     self.commands,
                     self.refresh,
                     lambda: self.apply(native),
+                    self.playlists_pass,
                     self.flush_pending_reload,
                 ):
                     try:
@@ -494,6 +507,8 @@ class Library(threading.Thread):
                     ),
                 )
         self.update_selection_label()
+        # The playlists follow the catalogue they point into.
+        self._playlists_due = True
 
     def _collection_changes(self, boxsets, complete):
         """Movies whose one native set changes with these collections."""
@@ -699,6 +714,13 @@ class Library(threading.Thread):
         label = ", ".join(names)
         if settings.get_str("syncedLibraries") != label:
             settings.set_str("syncedLibraries", label)
+        # The selection moved: the node tree and the skin entries follow it.
+        try:
+            from kofin.sync.dynamic import publish
+
+            publish(self.api.views().get("Items", []), self.api)
+        except Exception:
+            LOG.exception("library nodes not republished")
 
     # -- commands ----------------------------------------------------------------------
 
@@ -711,6 +733,9 @@ class Library(threading.Thread):
                     state["Whitelist"] = [i for i in state["Whitelist"] if i != library]
                     private.save_sync(state)
             self.update_selection_label()
+            # The playlists of a side whose last library left are pruned
+            # by the next pass (backends/api/playlists.reconcile).
+            self._playlists_due = True
             return
         if command == "removed":
             self.store.invalidate(self._removed_collection_members(data))
@@ -734,6 +759,19 @@ class Library(threading.Thread):
             return
         if command == "SyncLibrary":
             self.full_sync([i for i in data.get("Id", "").split(",") if i])
+            return
+        if command == "SyncPlaylists":
+            playlist_id = (data or {}).get("Id") or ""
+            if playlist_id:
+                api_playlists.apply(self.api, self.store, playlist_id)
+            else:
+                self._playlists_due = True
+            return
+        if command == "SyncMusicPlaylists":
+            self._playlists_due = True
+            return
+        if command == "CleanupMusicPlaylists":
+            api_playlists.cleanup()
             return
         if command == "FastSync":
             self._catchup_due = 0
@@ -763,6 +801,32 @@ class Library(threading.Thread):
             self._repair = False
             status(xbmc.getLocalizedString(20177))
             self.flush_pending_reload()
+        elif time.monotonic() >= self._bindings_due:
+            # Nothing pending, so no pass: the movie folders an older
+            # profile's rows never had bound are bound here, once per
+            # service generation (Native.bind_movie_folders); a failure
+            # (Kodi's RPC away) is retried after a pause, not every tick.
+            try:
+                native.bind_movie_folders()
+            except Exception:
+                LOG.exception("movie folder bindings not completed")
+                self._bindings_due = time.monotonic() + BINDINGS_RETRY
+            else:
+                self._bindings_due = float("inf")
+
+    def playlists_pass(self):
+        """Rewrite the managed playlist files after an enumeration or a
+        request, once the pass has filed the rows they point at."""
+        if not self._playlists_due:
+            return
+        self._playlists_due = False
+        try:
+            stats = api_playlists.reconcile(self.api, self.store)
+        except Exception:
+            LOG.exception("playlists not reconciled; next enumeration retries")
+            return
+        if stats:
+            LOG.info("playlists reconciled: %s", stats)
 
     def flush_pending_reload(self):
         """Fire the owed first-content skin reload once nothing is playing."""
