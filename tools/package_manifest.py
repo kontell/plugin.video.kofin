@@ -161,6 +161,8 @@ def contents(root, path, profile):
             "cleanDatabases",
             "reuseLanguageInvoker",
             "chapterImages",
+            "precacheActorArt",
+            "precacheActorArtNow",
             "syncDuringPlay",
             "limitIndex",
             "limitThreads",

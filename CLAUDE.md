@@ -416,11 +416,6 @@ What remains is kofin's own:
   item the pass has acknowledged, the resolver URL Kodi filed the row under, and the label
   from the server's listing. Widget refresh is Kodi's own: every setter announces, the music
   hold hides a pass's, and the first-content reload is the one builtin the pass fires.
-- **The API build asks Kodi to cache cast images; it writes no texture row.** Opening
-  `image://<url>/` through `xbmcvfs.File` runs `CTextureCache::CacheImage`
-  (`CImageFile::Open`); `service/castart.py` does that for every portrait the catalogue's
-  People carry that `Textures.GetTextures` does not list, at idle, a batch at a time, with the
-  SQL seeder's interface so the service drives either.
 - **A download moves nothing of Kodi's in the API build.** `downloads/nativeport.py` is the
   manager's view of the library per build: the SQL port is the relocation and the stamps; the
   API port leaves the row's plugin URL alone (the resolver plays the local file however the
