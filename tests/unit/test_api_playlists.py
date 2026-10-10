@@ -230,3 +230,22 @@ def test_a_write_the_catalogue_left_short_is_resolved_again_next_pass(
     assert (root / "Gym.m3u8").read_text(encoding="utf-8").count("#EXTINF") == 2
     # Complete, the Etag now skips it.
     assert api_playlists.reconcile(api, store, music_root=str(root))["tracks"] == 0
+
+
+def test_a_playlist_without_an_etag_is_resolved_on_every_pass(
+    store, backend, kodi, tmp_path, monkeypatch
+):
+    """An empty checksum never skips: it is the dirty mark of a short write,
+    and what a playlist the server gave no Etag stores."""
+    monkeypatch.setattr(api_playlists, "wanted", lambda: True)
+    backend.setup()
+    store.publish(album_bundle(songs=1), library=LIB)
+    backend.reconcile()
+    synced(store, (LIB, "music"))
+    api = FakeApi(
+        [{"Id": "p", "Name": "Gym", "MediaType": "Audio"}],
+        {"p": [song_item("tc31", "One", 1)]},
+    )
+    root = tmp_path / "playlists" / "music"
+    assert api_playlists.reconcile(api, store, music_root=str(root))["tracks"] == 1
+    assert api_playlists.reconcile(api, store, music_root=str(root))["tracks"] == 1

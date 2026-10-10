@@ -765,17 +765,18 @@ class Native:
                                 metadata.userdata(record.item),
                             )
                         )
-        if scanned_movie_folders:
-            # Without noupdate for the scan: the scanner skips a noupdate
-            # folder it was not told to scan everything of.
-            self.bind_folders("movies", scanned_movie_folders, force=True)
         try:
+            if scanned_movie_folders:
+                # Without noupdate for the scan: the scanner skips a noupdate
+                # folder it was not told to scan everything of.
+                self.bind_folders("movies", scanned_movie_folders, force=True)
             if directories:
                 self.store.expect_many(expectations)
                 self.scan(directories, expected=expected, prepare=self._prepare_scan)
         finally:
-            # The flag goes back whether the scan finished or not: without
-            # it Kodi's own Update library lists these folders.
+            # The flag goes back whether the scan finished or not, and
+            # whether the lift itself finished: without it Kodi's own Update
+            # library lists these folders.
             if scanned_movie_folders:
                 self.bind_folders(
                     "movies", scanned_movie_folders, force=True, noupdate=True

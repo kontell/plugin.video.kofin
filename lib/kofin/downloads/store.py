@@ -237,14 +237,25 @@ def container_states(container_id: str) -> Dict[str, str]:
         if not buildconfig.legacy_features():
             import json
 
+            from kofin.sync.backends.api.identity import current_store
+
+            # The catalogue is namespaced per server and user and the
+            # download table is not: the season, its episodes and their
+            # payloads are read from the active namespace alone.
+            try:
+                namespace = current_store().namespace
+            except Exception:
+                namespace = ""
             opened.cursor.execute(
                 "SELECT d.jellyfin_id, d.state, i.payload FROM download d "
-                "JOIN api_entry e ON e.item_id = d.jellyfin_id AND e.removed IS NULL "
-                "JOIN api_entry s ON s.item_id = ? AND s.removed IS NULL "
-                "AND s.kind = 'Season' AND s.parent_id = e.parent_id "
-                "JOIN api_item i ON i.item_id = d.jellyfin_id "
-                "AND i.operation = 'upsert' WHERE e.kind = 'Episode'",
-                (container_id,),
+                "JOIN api_entry s ON s.namespace = ? AND s.item_id = ? "
+                "AND s.removed IS NULL AND s.kind = 'Season' "
+                "JOIN api_entry e ON e.namespace = s.namespace "
+                "AND e.item_id = d.jellyfin_id AND e.removed IS NULL "
+                "AND e.kind = 'Episode' AND e.parent_id = s.parent_id "
+                "JOIN api_item i ON i.namespace = s.namespace "
+                "AND i.item_id = d.jellyfin_id AND i.operation = 'upsert'",
+                (namespace, container_id),
             )
             for jellyfin_id, download_state, payload in opened.cursor.fetchall():
                 try:

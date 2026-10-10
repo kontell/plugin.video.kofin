@@ -195,6 +195,10 @@ def fetch_boxsets(api, abort=lambda: False, ids=None):
     return result
 
 
+# Seconds before the idle binding backfill is tried again after a failure.
+BINDINGS_RETRY = 300.0
+
+
 class Library(threading.Thread):
     def __init__(self, api, player, api_factory):
         super().__init__(name="kofin-api", daemon=True)
@@ -218,7 +222,9 @@ class Library(threading.Thread):
         # must not be retried on every tick ahead of the catch-up.
         self._unsynced_tried: Set[str] = set()
         self._playlists_due = False
-        self._bindings_checked = False
+        # When the idle binding backfill is next due: now, then never once
+        # it succeeded, or a pause after a failure (apply).
+        self._bindings_due = 0.0
 
     def stop_client(self):
         self.stop_thread = True
@@ -795,15 +801,18 @@ class Library(threading.Thread):
             self._repair = False
             status(xbmc.getLocalizedString(20177))
             self.flush_pending_reload()
-        elif not self._bindings_checked:
+        elif time.monotonic() >= self._bindings_due:
             # Nothing pending, so no pass: the movie folders an older
             # profile's rows never had bound are bound here, once per
-            # service generation (Native.bind_movie_folders).
-            self._bindings_checked = True
+            # service generation (Native.bind_movie_folders); a failure
+            # (Kodi's RPC away) is retried after a pause, not every tick.
             try:
                 native.bind_movie_folders()
             except Exception:
                 LOG.exception("movie folder bindings not completed")
+                self._bindings_due = time.monotonic() + BINDINGS_RETRY
+            else:
+                self._bindings_due = float("inf")
 
     def playlists_pass(self):
         """Rewrite the managed playlist files after an enumeration or a
