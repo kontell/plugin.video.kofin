@@ -778,7 +778,9 @@ def _streams(tag, item):
         tag.addSubtitleStream(xbmc.SubtitleStreamDetail(language=language or ""))
 
 
-def inputs_token(server, key, library, separator, seasons=(), set_name=None) -> str:
+def inputs_token(
+    server, key, library, separator, seasons=(), set_name=None, downloaded=""
+) -> str:
     """Everything ``details`` reads besides the payload, as one token.
 
     A mapping that carries the payload hash and this token was acknowledged
@@ -805,6 +807,8 @@ def inputs_token(server, key, library, separator, seasons=(), set_name=None) -> 
             # a year for a change that convert_to_local already renders
             # correctly per instant.
             [time.timezone, list(time.tzname)],
+            # A download's badge and tag are part of the row (downloaded.py).
+            downloaded,
         ]
     )
 

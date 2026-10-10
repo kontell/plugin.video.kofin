@@ -69,7 +69,6 @@ SQL_ONLY = (
     "lib/kofin/service/artcache.py",
     "lib/kofin/service/chapters.py",
     "lib/kofin/downloads/repoint.py",
-    "lib/kofin/downloads/manager.py",
     "lib/kofin/plugin/clean.py",
     "context_download_playlist.py",
     "context_playlist.py",
@@ -167,10 +166,6 @@ def contents(root, path, profile):
             "limitThreads",
             "refreshBoxsets",
         }
-        for section in tree.findall("section"):
-            for category in list(section):
-                if category.get("id") == "downloads":
-                    section.remove(category)
         for group in tree.findall(".//group"):
             for setting in list(group):
                 if setting.get("id") in disabled:

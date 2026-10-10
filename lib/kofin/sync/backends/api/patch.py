@@ -34,6 +34,7 @@ from .kinds import (
 )
 from .readback import artist_key
 from .records import Record
+from . import downloaded
 from .store import Mapping, payload_hash
 
 LOG = Logger(__name__)
@@ -83,6 +84,10 @@ class Applier:
         self._rpc_seconds = 0.0
         self._failures: List[Tuple[str, int, str]] = []
         self._salted: Set[str] = set()
+        # Downloaded items and the shows with a downloaded episode: their
+        # rows carry the badge and the tag (downloaded.py), read once a pass.
+        self.downloaded: Set[str] = set()
+        self.downloaded_series: Set[str] = set()
 
     # -- batches -------------------------------------------------------------
 
@@ -129,6 +134,7 @@ class Applier:
     # -- the pass ------------------------------------------------------------
 
     def run(self, upserts: Dict[str, Record], collections, movies, repair, errors):
+        self.downloaded, self.downloaded_series = downloaded.marks()
         self.collections = collections
         self.movies = movies
         self.local = {item_id for item_id, _ in self.store.local_pending()}
@@ -365,6 +371,9 @@ class Applier:
             else ()
         )
         set_name = self.collections.get(record.item_id, "") if kind == "Movie" else None
+        mark = downloaded.flag(
+            kind, record.item_id, self.downloaded, self.downloaded_series
+        )
         mapping = self.mapping(record.item_id)
         previous = mapping.applied if mapping else {}
         if record.item_id in self.local:
@@ -389,6 +398,7 @@ class Applier:
             self.native.separator,
             seasons,
             set_name,
+            downloaded=mark,
         )
         # The versions and extras the movie's folder listed, acknowledged so
         # the pass stops scanning the folder for them (native._asset_folders).
@@ -415,6 +425,9 @@ class Applier:
             self.native.separator,
             seasons,
             set_name,
+        )
+        downloaded.apply(
+            kind, record.item_id, desired, self.downloaded, self.downloaded_series
         )
         if kind in FILED:
             token = desired["uniqueid"]["kofinrefresh"]

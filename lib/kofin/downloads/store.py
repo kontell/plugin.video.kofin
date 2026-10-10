@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass, fields as dataclass_fields
 from typing import Any, Dict, List, Optional, Sequence
 
+from kofin import buildconfig
 from kofin.core.log import Logger
 from kofin.sync.private import Database
 
@@ -229,6 +230,15 @@ def container_states(container_id: str) -> Dict[str, str]:
             (container_id,),
         )
         states.update(opened.cursor.fetchall())
+        # The API build's catalogue files a season's episodes under it too.
+        if not buildconfig.legacy_features():
+            opened.cursor.execute(
+                "SELECT d.jellyfin_id, d.state FROM download d "
+                "JOIN api_entry e ON e.item_id = d.jellyfin_id "
+                "WHERE e.parent_id = ? AND e.removed IS NULL",
+                (container_id,),
+            )
+            states.update(opened.cursor.fetchall())
         opened.cursor.execute(
             "SELECT jellyfin_id, state FROM download WHERE request_id = ? "
             "OR origin IN (?, ?)",

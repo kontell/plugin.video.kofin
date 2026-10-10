@@ -23,7 +23,6 @@ denied = (
     "kofin.sync.clean",
     "kofin.service.artcache",
     "kofin.service.chapters",
-    "kofin.downloads.manager",
     "kofin.downloads.repoint",
 )
 
@@ -138,11 +137,14 @@ service._start_library()
 service._start_downloads()
 service._start_chapter_sweep()
 service.player._start_chapter_thumbs({"Type": "Movie"})
+from kofin.downloads.nativeport import NativeApi
 from kofin.service.castart import CastArt
 
 # The API build warms cast images through Kodi's image VFS, never a texture
-# table of its own.
-assert service.library is None and service.downloads is None
+# table of its own, and a download manager it builds (the stub settings
+# answer "enabled") speaks to the library through the API port alone.
+assert service.library is None
+assert service.downloads is None or isinstance(service.downloads.native, NativeApi)
 assert isinstance(service.artcache, CastArt)
 service.abortRequested = lambda: True
 assert service.run() is False

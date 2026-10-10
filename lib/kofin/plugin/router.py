@@ -16,16 +16,6 @@ LEGACY_MODES = frozenset(
         "cleandatabases",
         "refreshboxsets",
         "saveplaylist",
-        "download",
-        "downloadshow",
-        "downloadplaylist",
-        "downloadmusiclibrary",
-        "downloadsubscriptions",
-        "downloadshows",
-        "canceldownload",
-        "removedownload",
-        "deletealldownloads",
-        "downloadsize",
     }
 )
 

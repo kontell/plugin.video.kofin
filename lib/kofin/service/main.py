@@ -23,8 +23,9 @@ from kofin.service import backdrop
 
 if buildconfig.legacy_features():
     from kofin.service import artcache, chapters
-else:
-    from kofin.service import castart
+# Imported in both builds: it touches nothing native, and a test that flips
+# the backend after import still builds a Service.
+from kofin.service import castart
 from kofin.service.kodiuserdata import KodiUserData
 from kofin.service.player import Player
 from kofin.service.remote import RemoteHandler
@@ -635,8 +636,6 @@ class Service(xbmc.Monitor):
         """Build the download manager when enabled. Contained like the library
         manager: playback and sync must survive a broken downloads stack
         (degrade, don't die)."""
-        if not buildconfig.legacy_features():
-            return None
         if self.downloads is not None:
             return
         if not settings.get_bool("downloadsEnabled"):

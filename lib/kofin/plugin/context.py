@@ -369,6 +369,15 @@ def _container_download_options(
     return entries
 
 
+def downloads_enabled() -> bool:
+    """The downloads master toggle; False in a profile whose settings have
+    no downloads section (getSettingBool raises on an undefined setting)."""
+    try:
+        return settings.get_bool("downloadsEnabled")
+    except TypeError:
+        return False
+
+
 def _download_options(item: dict) -> List[Tuple[str, dict]]:
     """Download / Cancel download / Remove download, from local state.
 
@@ -521,7 +530,7 @@ def _manage_options(item: dict, dynamic: bool) -> List[Tuple[str, dict]]:
     if item.get("SpecialFeatureCount"):
         options.append((settings.localized(30501), {"mode": "extras", "id": item_id}))
 
-    if buildconfig.legacy_features() and settings.get_bool("downloadsEnabled"):
+    if downloads_enabled():
         options.extend(_download_options(item))
 
     # Two gates, and they answer different questions: the setting is whether
@@ -555,7 +564,7 @@ def _offline_menu(item_id: str) -> None:
     queues *playback* events only.
     """
     options: List[Tuple[str, dict]] = []
-    if buildconfig.legacy_features() and settings.get_bool("downloadsEnabled"):
+    if downloads_enabled():
         from kofin.downloads import store
 
         row = store.get(item_id)

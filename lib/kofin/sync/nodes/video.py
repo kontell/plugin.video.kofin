@@ -20,6 +20,7 @@ import xml.etree.ElementTree as etree
 import xbmc
 import xbmcvfs
 
+from kofin import buildconfig
 from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.core.urls import plugin_url
@@ -320,18 +321,21 @@ def single_nodes():
         # (SmartPlayList.cpp), so it answers with every episode of every
         # tagged show -- verified live, 25+ rows for two downloads. Their
         # *path* is the honest signal, since a downloaded episode's row
-        # points into the downloads root (plan W2.6).
-        singles.append(
-            {
-                "Name": localized(30721),
-                "Tag": DOWNLOADS_TAG,
-                "Path": downloads_root_path(),
-                "Media": "episodes",
-                "File": "DownloadedEpisodes",
-                "Type": "downloads",
-                "Icon": NODE_DOWNLOADS_ICON,
-            }
-        )
+        # points into the downloads root (plan W2.6). Only where a row is
+        # moved there: the API build's rows keep their plugin URLs, so it
+        # has no episodes node to offer.
+        if buildconfig.legacy_features():
+            singles.append(
+                {
+                    "Name": localized(30721),
+                    "Tag": DOWNLOADS_TAG,
+                    "Path": downloads_root_path(),
+                    "Media": "episodes",
+                    "File": "DownloadedEpisodes",
+                    "Type": "downloads",
+                    "Icon": NODE_DOWNLOADS_ICON,
+                }
+            )
     return singles
 
 
