@@ -40,6 +40,9 @@ LOG = Logger(__name__)
 ROOT_SCAN_SHARE = 0.5
 # A hold is renewed before the provider's own limit on it runs out.
 HOLD_RENEW = 480.0
+# Kodi drops an extras folder from a movies listing while this is on (its
+# default); the pass turns it off when a folder with extras is first scanned.
+EXTRAS_SETTING = "videolibrary.ignorevideoextras"
 SCAN_POLL = 3.0  # seconds between reads of Kodi's row count during a scan
 
 
@@ -75,6 +78,10 @@ class Native:
         self.rescanned: Set[Tuple[str, str]] = set()
         # scanner -> when the hold on it was taken.
         self._held: Dict[str, float] = {}
+        # Movie folders this pass scans for extras: their extras folder is
+        # listed through Kodi just before the scan (_prepare_scan).
+        self._extras_folders: Set[str] = set()
+        self._extras_allowed = False
 
     # -- gates ---------------------------------------------------------------
 
@@ -165,16 +172,23 @@ class Native:
         )
         self.store.bind(path, content)
 
-    def bind_folders(self, content, folders):
+    def bind_folders(self, content, folders, force=False):
         """A folder under a root needs its own binding: Kodi derives a plugin
         path's parent as the plugin root, so the library binding is never
         found from beneath it (URIUtils::GetParentPath), and a folder without
         one is skipped by the scanner. A show folder is bound before the
         root scan that lists it; a movie folder only before a scan by name
         (``containssingleitem`` would make the folder the movie). The calls
-        go 25 to a batch and the store learns them in one transaction."""
+        go 25 to a batch and the store learns them in one transaction.
+
+        A movie folder is bound with folder names on: the scanner reads an
+        extras folder only from a directory whose settings say its movies
+        are in folders of their own (AddVideoExtras, ``parent_name``).
+        ``force`` binds a folder the store already knows, for the flag."""
         bound = self.store.bindings()
-        wanted = [path for path in folders if path not in bound]
+        wanted = list(
+            dict.fromkeys(folders if force else [p for p in folders if p not in bound])
+        )
         for start in range(0, len(wanted), 25):
             chunk = wanted[start : start + 25]
             replies = rpc_batch(
@@ -186,6 +200,7 @@ class Native:
                             "content": content,
                             "scraperid": "metadata.local",
                             "containssingleitem": content == "tvshows",
+                            "usedirectorynames": content == "movies",
                             "refresh": False,
                         },
                     )
@@ -278,13 +293,16 @@ class Native:
 
         return on_poll
 
-    def scan(self, directories: List[str], scanner="video", expected=None):
+    def scan(
+        self, directories: List[str], scanner="video", expected=None, prepare=None
+    ):
         """Scan each directory in turn and wait for the scanner to go idle.
 
         ``expected`` maps a directory to the rows its scan should add; while
         it runs the bar shows Kodi's own count climbing towards it, read every
         few seconds, since a scan is the longest phase and the pass counts
         nothing of its own until it ends (20 minutes at "0 %" on the box).
+        ``prepare`` is called with each directory just before its scan.
 
         One scan at a time: a second ``VideoLibrary.Scan`` queued while the
         first runs never starts (observed on 22.0b2: of two scans issued
@@ -325,6 +343,8 @@ class Native:
             saved = self.progress.phase(goal, heading) if goal else None
             on_poll = self._scan_watch(location, heading, goal) if saved else None
 
+            if prepare is not None:
+                prepare(directory)
             rpc(method, {"directory": directory, "showdialogs": dialogs})
             self._async_pending = True
             try:
@@ -353,6 +373,65 @@ class Native:
                     self.readback.forget_music(location.library)
         else:
             self.readback.clear()
+
+    # -- movie versions and extras -------------------------------------------
+
+    def _asset_folders(self, upserts, library) -> List[str]:
+        """Movie folders whose listing holds version files or extras Kodi
+        has not seen: the assets token acknowledged for the movie differs
+        from its payload's (metadata.assets_token), or none was yet. The
+        root walk lists the movie's own file alone, so these are scanned by
+        name."""
+        movies = [
+            r for r in upserts.values() if r.kind == "Movie" and r.library == library
+        ]
+        if not movies:
+            return []
+        mappings = self.store.mappings(kind="Movie", library=library)
+        folders: List[str] = []
+        for record in self.payloads.walk(movies):
+            token = metadata.assets_token(record.item)
+            if not token:
+                continue
+            mapping = mappings.get(record.item_id)
+            if mapping is not None and mapping.applied.get("assets", "") == token:
+                continue
+            folder = paths.movie_dir(self.key, library, record.item_id)
+            folders.append(folder)
+            if metadata.special_features(record.item):
+                self._extras_folders.add(folder)
+        return folders
+
+    def allow_extras(self):
+        """Turn Kodi's "Ignore video extras on scan" off, once: while it is
+        on the scanner drops an extras folder from the listing before
+        anything looks at it (VideoInfoScanner.cpp, m_ignoreVideoExtras)."""
+        if self._extras_allowed:
+            return
+        reply = rpc("Settings.GetSettingValue", {"setting": EXTRAS_SETTING})
+        if isinstance(reply, dict) and reply.get("value") is True:
+            rpc("Settings.SetSettingValue", {"setting": EXTRAS_SETTING, "value": False})
+            LOG.info(
+                "Kodi setting %s turned off: movie extras are imported", EXTRAS_SETTING
+            )
+        self._extras_allowed = True
+
+    def _prepare_scan(self, directory):
+        """List a movie's extras folder through Kodi just before the folder
+        is scanned, with the disc folders the scanner probes for below it.
+
+        Before the scanner looks at a listing, every folder in it is probed
+        for a disc structure (CFileItemList::Stack, GetOpticalMediaPath), and
+        CPluginFile::Exists says yes to any plugin URL, so an extras folder
+        is otherwise turned into a phantom VIDEO_TS.IFO. The probe asks the
+        directory cache first (CFile::Exists), which holds the last fifty
+        directories Kodi listed: listed here, the folder and its VIDEO_TS/
+        and BDMV/ answer "no such file" and the folder stays a folder."""
+        if directory not in self._extras_folders:
+            return
+        extras = directory + paths.EXTRAS
+        for probe in (extras, extras + "VIDEO_TS/", extras + "BDMV/"):
+            rpc("Files.GetDirectory", {"directory": probe, "media": "video"})
 
     # -- the scanner hold ----------------------------------------------------
 
@@ -503,10 +582,12 @@ class Native:
     def import_missing(
         self, upserts: Dict[str, Record], errors, entries: Optional[Dict] = None
     ):
-        """Bind and scan whatever the readback shows the scanner has not filed."""
+        """Bind and scan whatever the readback shows the scanner has not filed,
+        and the movie folders whose versions or extras it has not seen."""
         directories: List[str] = []
         expected: Dict[str, int] = {}
         expectations = []
+        self._extras_folders = set()
         for library in sorted({r.library for r in upserts.values() if r.library}):
             kinds = {r.kind for r in upserts.values() if r.library == library}
             for content in paths.CONTENTS:
@@ -565,7 +646,10 @@ class Native:
                         and r.library == library
                         and r.item_id not in present
                     ]
-                if not missing:
+                asset_folders: List[str] = []
+                if content == "movies":
+                    asset_folders = self._asset_folders(upserts, library)
+                if not missing and not asset_folders:
                     continue
                 root = paths.library_dir(self.key, library, content)
                 if content == "movies":
@@ -575,18 +659,30 @@ class Native:
                     # folder's own binding); a first import, or a library
                     # mostly missing, scans the root once, which lists every
                     # movie as a file under its folder's URL.
-                    total = len(present) + len(missing)
-                    if len(missing) > total * ROOT_SCAN_SHARE:
-                        directories.append(root)
-                        expected[root] = len(missing)
-                    else:
-                        movie_folders = [
-                            paths.movie_dir(self.key, library, r.item_id)
-                            for r in missing
-                        ]
-                        self.bind_folders("movies", movie_folders)
-                        directories.extend(movie_folders)
-                        expected.update((folder, 1) for folder in movie_folders)
+                    if missing:
+                        total = len(present) + len(missing)
+                        if len(missing) > total * ROOT_SCAN_SHARE:
+                            directories.append(root)
+                            expected[root] = len(missing)
+                        else:
+                            movie_folders = [
+                                paths.movie_dir(self.key, library, r.item_id)
+                                for r in missing
+                            ]
+                            self.bind_folders("movies", movie_folders)
+                            directories.extend(movie_folders)
+                            expected.update((folder, 1) for folder in movie_folders)
+                    # A folder whose version files or extras Kodi has not
+                    # seen is scanned by name, after the root when the root
+                    # walks (the root lists the movie's own file alone), and
+                    # bound again with folder names on, which the extras need.
+                    if asset_folders:
+                        self.bind_folders("movies", asset_folders, force=True)
+                        directories.extend(
+                            f for f in asset_folders if f not in directories
+                        )
+                        if self._extras_folders:
+                            self.allow_extras()
                 else:
                     directories.append(root)
                     expected[root] = sum(
@@ -603,7 +699,7 @@ class Native:
                         )
         if directories:
             self.store.expect_many(expectations)
-            self.scan(directories, expected=expected)
+            self.scan(directories, expected=expected, prepare=self._prepare_scan)
 
     def _missing_tv(self, upserts, library) -> List[Record]:
         shows = self.readback.scope("Series", library)
