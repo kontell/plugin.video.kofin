@@ -1158,6 +1158,10 @@ class Service(xbmc.Monitor):
                     getattr(self, contract_handler)(sender, payload)
             return
         name = ipc.method_name(method)
+        if name == contract.COMPANION_REQUESTS:
+            # Kofin's own ping to the companion add-on, broadcast under its
+            # own sender: not a command, and nothing here handles it.
+            return
         payload = ipc.decode(data)
         if not ipc.verify(name, payload, self._ipc_nonce):
             # Kodi passes the sender string through from whoever called

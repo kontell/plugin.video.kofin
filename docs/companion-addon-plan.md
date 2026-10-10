@@ -76,21 +76,31 @@ Each phase is one kofin-or pull request (the request kind, its readback, the cap
 
 The repository, CI, the service skeleton, the gate, the document reader, the status writer and the ledger, with no handler. Exit: `api-capabilities.json` on the P1D shows the companion's version and an empty served list, a document with an unknown kind yields `refused: unsupported kind` in the status, and the add-on idles beside main's profile with a status line and no open database.
 
+**Completed (10 October 2026).** kontell/service.kofin.companion#1 and kontell/plugin.video.kofin#280. On the P1D the companion started beside kofin-or 0.93.0 with all three databases in the gate, kofin-or folded its status into the capability report (version 0.1.0, generation 1, 8 done) and logged a stale request's refusal once.
+
 ### C1: Version grouping (S24, the first half of S25)
 
 The `group_versions` handler makes the P1D stub Kodi's own: `ConvertVideoToVersion` semantics, that is the assets moved to the owner (`UpdateAssetsOwner`), the duplicate's movie art converted to version art (`SetVideoVersionDefaultArt`), the duplicate movie row deleted with its hash preserved, the version type named from the request's `name` through `resolve_version_type` and orphan types swept, and the default version set from a new `default` field kofin-or adds to the request from the server's default source. kofin-or's readback acknowledges as it already does. Exit: the scratch movie's versions are grouped within one pass of their import, the Versions Manager lists them under one title with the server's default, and a second pass opens no request.
+
+**Completed (10 October 2026).** kontell/service.kofin.companion#2. The server's default version needed no field: the owner's own file plays the server's first source and stays Kodi's default, as the target's file does in Kodi's flow, so kofin-or's document is unchanged by this phase. On the P1D the scratch movie's version file was grouped into its owner as a typed version within one pass of its import, and a request left stale by a re-import was refused rather than acted on. The gate also showed the provider titling a movie's own file by its stem-named source; `metadata.version_label` now titles an asset by a label only (#283).
 
 ### C2: Chapter art (S35, A03)
 
 Section 6. Exit there.
 
+**Completed (10 October 2026).** kontell/service.kofin.companion#3 and kontell/plugin.video.kofin#281. On the P1D a kofin-resolved play of a film with 15 chapters had all 15 tiles seeded by the companion 1.3 s after the claim, the chapters dialog rendered them, and the stop removed every row and file.
+
 ### C3: Asset lifecycle (the rest of S25)
 
 `retire_assets` for a version or extra the server renamed, removed or dropped: a renamed source renames the owned `videoversiontype` row, a dropped source's file row and version row go at once instead of waiting for Clean, and an extra that left the payload goes the same way. kofin-or publishes the file rows it would otherwise leave to Clean. Exit: rename and removal round trips on the scratch library without a Clean.
 
+**Completed (10 October 2026).** kontell/service.kofin.companion#4 and kontell/plugin.video.kofin#282. The request is the desired set of a movie's asset files from the mapping the pass acknowledges, so no payload is loaded for it. On the P1D a version file renamed on the server and an extra dropped left within one pass, and the new file was grouped as its new source.
+
 ### C4: Video metadata (S14, S18, S23, S09)
 
 Four small handlers: `episode_tags` writes the favourite tag's `tag` and `tag_link` rows with `media_type` episode and prunes them on unfavourite; `season_plot` updates `seasons.plot` for an owned season; `remove_set` deletes an owned set row that kofin-or has emptied; `stream_flags` writes exact `streamdetails` flags, source and version per file. Each names its retiring contribution (phase 8 orders 2 and 3). Exit: each round trip on the P1D, and the node tree's episode-favourite filter listing the tagged episode.
+
+**Completed (10 October 2026).** kontell/service.kofin.companion#5 and kontell/plugin.video.kofin#283. Kodi's `AddSeason` sets a season's plot only on insert, so a show refresh never moves it and the handler is needed. The kinds no public read confirms are acknowledged through the companion's status by content hash, kept on the mapping, and leave the document until the content moves; an emptied set is journaled by the pass for the companion in place of the clean of the whole root. On the P1D the scratch episode carried the favourite tag, the season's plot moved after its import, the stream flags landed on the files whose rows the scanner had filed, and the emptied set's row went. Found on the way: a single-source item's audio and subtitle rows are missing in kofin-or because `streams_and_runtime` reads the first source's streams, which the compact payload drops (one of 1,791 movies on the P1D has an audio row); a shared fix for main first.
 
 ### C5: Music (S12, S27, S28, S29, S30)
 

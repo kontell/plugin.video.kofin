@@ -174,3 +174,24 @@ def test_the_service_reads_a_status_ping_from_the_companion_only(monkeypatch, tm
     monkeypatch.setattr(buildconfig, "BACKEND", "sql")
     service.onNotification(companion.ADDON_ID, "Other.Companion.Status", ping)
     assert len(absorbed) == 1
+
+
+def test_kofins_own_ping_to_the_companion_is_not_an_ipc_command(monkeypatch, tmp_path):
+    from kofin.core import ipc
+    from kofin.service.main import Service
+
+    monkeypatch.setattr(
+        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
+    )
+    service = Service()
+    lines = []
+    monkeypatch.setattr(
+        "kofin.service.main.LOG.warning", lambda msg, *a: lines.append(msg % a)
+    )
+    monkeypatch.setattr(
+        "kofin.service.main.LOG.debug", lambda msg, *a: lines.append(msg % a)
+    )
+    service.onNotification(
+        ipc.SENDER, "Other.Companion.Requests", '{"v": 2, "generation": 3}'
+    )
+    assert lines == []

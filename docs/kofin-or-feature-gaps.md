@@ -10,20 +10,20 @@ Main writes Kodi's own databases (MyVideos, MyMusic, Textures) and is therefore 
 
 ### 1.1 Blocked by Kodi's public API (ledger status G)
 
-These need either a Kodi change (the phase 8 contribution programme in the plan) or the companion add-on.
+These need either a Kodi change (the phase 8 contribution programme in the plan) or the companion add-on. Rows marked closed below are closed by the companion as of its phases C0 to C4 (10 October 2026); the Kodi change stays the way to close them without a privileged helper.
 
 | Gap | Main | kofin-or today | Closes through |
 |---|---|---|---|
-| Stream flags and authority (S09) | Exact `streamdetails` rows, including the Piers `iSource`/`iFlags` columns | The scanner's own stream probe plus the ListItem's streams; no authority over which wins | Kodi: plugin ingestion fields (phase 8, order 3) |
+| Stream flags and authority (S09) | Exact `streamdetails` rows, including the Piers `iSource`/`iFlags` columns | The scanner's own stream probe plus the ListItem's streams; no authority over which wins | Flags closed by the companion (`stream_flags`); authority stays with Kodi's scanner. Found on the same day: a single-source item's audio and subtitle rows are missing in kofin-or, because `streams_and_runtime` reads the first source's streams and the compact payload drops them (one of 1,791 movies on the P1D has an audio row); the fix is the fallback to the item's streams, shared code for main first |
 | Exact music scan/scrape bookkeeping (S12) | Per-row dates and scan markers | Tag-hash date, scan time for album `dateAdded` | Kodi: music metadata contract (phase 8, order 1) |
-| Episode favourite tags (S14) | Episode rows tagged | No episode tag setter; episode favourites are dynamic views only | Kodi: episode tag persistence (phase 8, order 2) |
-| Season plot updates (S18) | Written directly | Ingested once through `addSeason`, carried in the show refresh token; no update | Kodi: season plot get/set (phase 8, order 2) |
-| Precise empty-set removal (S23) | Deleted when emptied | Dropped by Kodi's clean, scoped to a cleared library root; an emptied set can linger | Kodi: set removal API |
-| Editing a version or extra in place (S25) | Rename, default, remove, per-asset userdata written directly | A version file the server drops leaves Kodi only with its movie; a new or renamed one is a folder scan; grouping is the user's, in the Versions Manager | Companion add-on (the first request, `group_versions`, is already published for it) |
+| Episode favourite tags (S14) | Episode rows tagged | No episode tag setter; episode favourites are dynamic views only | Closed by the companion (`episode_tags`); Kodi: episode tag persistence (phase 8, order 2) |
+| Season plot updates (S18) | Written directly | Ingested once through `addSeason`, carried in the show refresh token; no update | Closed by the companion (`season_plot`); Kodi: season plot get/set (phase 8, order 2) |
+| Precise empty-set removal (S23) | Deleted when emptied | Dropped by Kodi's clean, scoped to a cleared library root; an emptied set can linger | Closed by the companion (`remove_set`); Kodi: set removal API |
+| Editing a version or extra in place (S25) | Rename, default, remove, per-asset userdata written directly | A version file the server drops leaves Kodi only with its movie; a new or renamed one is a folder scan; grouping is the user's, in the Versions Manager | Closed by the companion (`group_versions`, `retire_assets`) but for per-asset userdata; Kodi: the version and extra lifecycle (phase 8, order 4) |
 | Empty artist, album and singles shells (S27) | Exact native objects | An empty album or artist is applied without a row; singles under `singles/<artist>` | Kodi: scoped music source operations (phase 8, order 3) |
 | Discography and role rows (S29), artist MBIDs (S28) | Exact rows | Credits through song tags; artists matched by name (629 of 634 on the P1D); MBIDs not sent | Kodi: music source operations |
 | Synthetic music source and album links (S30) | Written directly | Each library's directories are independent; a merged album row is owned by one of them | Kodi: music source operations |
-| Server chapter images (S35, A03) | Texture aliases seeded per play | None; chapter startup gated off | Kodi: chapter-art association (phase 8, order 4) |
+| Server chapter images (S35, A03) | Texture aliases seeded per play | None; chapter startup gated off | Closed by the companion (`chapter_art`); Kodi: chapter-art association (phase 8, order 4) |
 | Page atomicity (S45) | One transaction per page | Scoped readback per kind; a failed listing never announces a full apply, but there is no rollback | Kodi: job/result reporting (phase 8, order 2) |
 
 ### 1.2 Retired on purpose (ledger status R)
@@ -79,7 +79,7 @@ Not gaps, but the behaviour differences an upgrade from main shows.
 
 ## 4. Paths to closure, in order of leverage
 
-1. The companion add-on, outside this repository: grouping a movie's versions (S25) first, then anything the user accepts a privileged helper for. Its identity and repository are undecided (plan, phase 6 exit).
+1. The companion add-on, `kontell/service.kofin.companion`, built to `docs/companion-addon-plan.md`: C0 to C4 serve grouping, dropped and renamed assets, chapter images, episode tags, season plots, stream flags and emptied sets, each verified on the P1D on 10 October 2026; C5, the music family, waits for the phase 8 music contributions. (Its identity was undecided when this report was first written; the plan, phase 6 exit).
 2. Kodi contributions (plan, phase 8): the music metadata contract and `releasedate` fix first, then season plot and episode tags, job reporting, scoped music source operations, plugin ingestion fields, the version and extra lifecycle, chapter art. Each is verified against a stock build before its gap is marked closed.
 3. Shared changes on main, ported to kofin-or: one playlist resolver per build, a `SeasonId` column on the download row, the ListItem builders out of `metadata.py`, the badge key rename.
 4. Phase 7 (0.94.x): the Piers package and whole-addon audit, the profile reset audit, the dependency audit, 32-bit ARM validation of the 0.92 and 0.93 prereleases, and the repository submission candidate.
