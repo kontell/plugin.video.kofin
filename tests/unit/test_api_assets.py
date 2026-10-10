@@ -77,6 +77,7 @@ def test_version_and_extras_urls_round_trip():
         "What- Part 1-2",
         False,
     )
+    assert location.extra_container == "mov"
     # Three locations: the directory, a file in it, a disc-probe folder below.
     directory = paths.parse(paths.extras_dir(KEY, LIB, "a"))
     assert (directory.extras, directory.extra, directory.probe) == (True, None, False)
@@ -266,6 +267,11 @@ def test_an_extra_exists_while_its_movie_names_it_and_resolves_to_its_id(store):
     deleted = paths.parse(folder + "extras/Deleted Scene.mkv")
     assert provider.exists(store, deleted, "") is True
     assert provider.exists(store, paths.parse(folder + "extras/Gone.mkv"), "") is False
+    # The container is part of the file name: a feature that moved to mp4
+    # leaves its mkv row to Clean, and the play route still knows the stem.
+    moved = paths.parse(folder + "extras/Deleted Scene.mp4")
+    assert provider.exists(store, moved, "") is False
+    assert provider.resolve_extra(moved) == "x1"
     assert provider.exists(store, paths.parse(folder + "extras/BDMV/"), "") is False
     assert provider.resolve_extra(deleted) == "x1"
     assert provider.resolve_extra(paths.parse(folder + "extras/Gone.mkv")) == ""
