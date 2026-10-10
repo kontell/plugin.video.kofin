@@ -2230,7 +2230,7 @@ msgstr "Przejrzyj subskrybowane biblioteki muzyczne; odznacz je, aby zatrzymać 
 
 msgctxt "#30858"
 msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
-msgstr "Ustawienie Kodi „Ignoruj dodatki wideo podczas skanowania” jest teraz wyłączone, aby dodatki do filmów mogły być importowane"
+msgstr "Ustawienie Kodi „Ignoruj materiały dodatkowe do filmów podczas skanowania” jest teraz wyłączone, aby można było importować materiały dodatkowe do filmów"
 
 msgctxt "#30990"
 msgid "Not available in this preview"
