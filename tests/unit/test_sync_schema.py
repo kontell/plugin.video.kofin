@@ -162,6 +162,13 @@ def test_every_supported_music_and_texture_version_is_backed():
         # The cleaner re-inserts these after its wipe; a music version
         # without stated seeds would wipe below pristine (plan G2).
         assert version in schema.MUSIC_SEED_SQL
+        # Kodi reads the versiontagscan row to decide whether the music
+        # window asks for a tag rescan; the seed must name this very version.
+        assert any(
+            "INSERT INTO versiontagscan" in statement
+            and "VALUES (%d, 0)" % version in statement
+            for statement in schema.MUSIC_SEED_SQL[version]
+        )
     for version in schema.SUPPORTED["texture"]:
         assert os.path.exists(
             os.path.join(kodifixtures.FIXTURES, "textures%d.sql" % version)
