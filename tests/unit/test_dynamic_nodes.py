@@ -44,6 +44,15 @@ def test_a_whitelisted_library_gets_its_tree_and_library_paths(views_env):
         "value"
     ).text == dynamic.library_tag(MOVIES)
     # Favourites singles ride along; no downloads single in this build.
+    # One smart playlist per synced video library, by the same tag.
+    xsp = (
+        views_env["profile"]
+        / "playlists"
+        / "video"
+        / "Kofin"
+        / ("kofinmovies%s.xsp" % MOVIES)
+    )
+    assert xsp.is_file() and dynamic.library_tag(MOVIES) in xsp.read_text()
     singles = sorted(p.name for p in root.glob("kofin_*.xml"))
     assert singles == [
         "kofin_Favoriteepisodes.xml",

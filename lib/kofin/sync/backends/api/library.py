@@ -22,6 +22,7 @@ from kofin.sync import changefeed, private
 from kofin.sync.catalogue import BackendMismatch
 from kofin.sync.downloader import info, library_filter
 from . import metadata, progress
+from . import playlists as api_playlists
 from .native import Native
 from .store import Store, namespace
 
@@ -208,6 +209,7 @@ class Library(threading.Thread):
         # library the server no longer lists never reaches the whitelist and
         # must not be retried on every tick ahead of the catch-up.
         self._unsynced_tried: Set[str] = set()
+        self._playlists_due = False
 
     def stop_client(self):
         self.stop_thread = True
@@ -223,6 +225,9 @@ class Library(threading.Thread):
             "UpdateLibrary",
             "RepairLibrary",
             "RemoveLibrary",
+            "SyncPlaylists",
+            "SyncMusicPlaylists",
+            "CleanupMusicPlaylists",
         ):
             self._queue.put((command, data or {}))
 
@@ -270,6 +275,7 @@ class Library(threading.Thread):
                     self.commands,
                     self.refresh,
                     lambda: self.apply(native),
+                    self.playlists_pass,
                     self.flush_pending_reload,
                 ):
                     try:
@@ -488,6 +494,8 @@ class Library(threading.Thread):
                     ),
                 )
         self.update_selection_label()
+        # The playlists follow the catalogue they point into.
+        self._playlists_due = True
 
     def _collection_changes(self, boxsets, complete):
         """Movies whose one native set changes with these collections."""
@@ -736,6 +744,19 @@ class Library(threading.Thread):
         if command == "SyncLibrary":
             self.full_sync([i for i in data.get("Id", "").split(",") if i])
             return
+        if command == "SyncPlaylists":
+            playlist_id = (data or {}).get("Id") or ""
+            if playlist_id:
+                api_playlists.apply(self.api, self.store, playlist_id)
+            else:
+                self._playlists_due = True
+            return
+        if command == "SyncMusicPlaylists":
+            self._playlists_due = True
+            return
+        if command == "CleanupMusicPlaylists":
+            api_playlists.cleanup()
+            return
         if command == "FastSync":
             self._catchup_due = 0
             return
@@ -764,6 +785,20 @@ class Library(threading.Thread):
             self._repair = False
             status(xbmc.getLocalizedString(20177))
             self.flush_pending_reload()
+
+    def playlists_pass(self):
+        """Rewrite the managed playlist files after an enumeration or a
+        request, once the pass has filed the rows they point at."""
+        if not self._playlists_due:
+            return
+        self._playlists_due = False
+        try:
+            stats = api_playlists.reconcile(self.api, self.store)
+        except Exception:
+            LOG.exception("playlists not reconciled; next enumeration retries")
+            return
+        if stats:
+            LOG.info("playlists reconciled: %s", stats)
 
     def flush_pending_reload(self):
         """Fire the owed first-content skin reload once nothing is playing."""

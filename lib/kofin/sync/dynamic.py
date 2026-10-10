@@ -19,7 +19,7 @@ hand-made node beside it, and an empty whitelist takes the whole tree down.
 from typing import Dict, List, NamedTuple, Tuple
 
 from kofin.core.log import Logger
-from kofin.sync import private
+from kofin.sync import playlists, private
 from kofin.sync.nodes import props, video
 
 LOG = Logger(__name__)
@@ -85,8 +85,10 @@ def publish(items, server):
         if entries:
             singles = video.single_nodes()
             video.write_tree(entries, singles)
+            playlists.write_video_playlists(entries)
         else:
             video.delete_tree()
+            playlists.remove_video_playlists()
     except Exception:
         # The tree is presentation; the properties below still publish.
         LOG.exception("library node tree not written")

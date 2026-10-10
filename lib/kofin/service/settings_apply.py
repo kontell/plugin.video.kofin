@@ -80,7 +80,6 @@ class SettingsApplier:
         }
         if not buildconfig.legacy_features():
             for key in (
-                "syncMusicPlaylists",
                 "musicTranscode",
                 "preferCriticRating",
                 "downloadsEnabled",
