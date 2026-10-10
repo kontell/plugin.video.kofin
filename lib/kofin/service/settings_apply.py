@@ -80,11 +80,8 @@ class SettingsApplier:
         }
         if not buildconfig.legacy_features():
             for key in (
-                "syncMusicPlaylists",
                 "musicTranscode",
                 "preferCriticRating",
-                "downloadsEnabled",
-                "downloadsPath",
                 "reuseLanguageInvoker",
             ):
                 self.handlers.pop(key, None)
@@ -377,9 +374,17 @@ class SettingsApplier:
         serverless pass clears anyway.
         """
         try:
-            from kofin.sync.views import Views
+            if buildconfig.legacy_features():
+                from kofin.sync.views import Views
 
-            Views().get_nodes()
+                Views().get_nodes()
+            else:
+                from kofin.sync.dynamic import publish
+
+                service = self.service
+                api = getattr(service, "api", None)
+                if api is not None and getattr(service, "_online", False):
+                    publish(api.views().get("Items", []), api)
         except Exception:
             LOG.exception("node regeneration after a settings change failed")
 

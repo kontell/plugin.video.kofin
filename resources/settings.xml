@@ -209,6 +209,11 @@
           <constraints><allowempty>true</allowempty></constraints>
           <control type="edit" format="string"/>
         </setting>
+        <setting id="apiMovieBindings" type="string">
+          <level>4</level>
+          <default></default>
+          <constraints><allowempty>true</allowempty></constraints>
+        </setting>
         <setting id="viewsHash" type="string">
           <level>4</level>
           <default></default>
