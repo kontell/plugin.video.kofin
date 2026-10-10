@@ -371,14 +371,14 @@ def _movie_entries(record, server, key, library, separator, set_name, assets):
             li.getVideoInfoTag().setVideoAssetTitle(name)
         return li
 
-    entries = [(url, row(sources[0].get("Name") or "" if sources else ""), False)]
+    entries = [(url, row(metadata.version_label(sources[0]) if sources else ""), False)]
     if not assets:
         return entries
     for source in sources[1:]:
         entries.append(
             (
                 paths.version_url(key, library, record.item_id, source["Id"]),
-                row(source.get("Name") or "", source),
+                row(metadata.version_label(source), source),
                 False,
             )
         )

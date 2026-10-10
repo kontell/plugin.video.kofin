@@ -651,3 +651,45 @@ def test_a_version_file_lists_its_own_streams_and_runtime(store, monkeypatch):
             movie(MediaSources=[{"Id": "s1", "MediaStreams": [{"Type": "Video"}]}])
         )["MediaSources"][0]
     )
+
+
+def test_a_source_named_like_its_file_is_an_untitled_asset(store, monkeypatch):
+    """Jellyfin names a source after its file unless a label is known; such a
+    name is no version title and would mint a type row per movie in Kodi's
+    Versions picker (audit A4-1)."""
+    from kofin.plugin.router import Request
+    from kofin.sync.backends.api import provider
+
+    item = assets_movie()
+    item["MediaSources"][0].update(
+        Name="Fixture a (2001)",
+        Path="/srv/movies/Fixture a (2001)/Fixture a (2001).mkv",
+    )
+    item["MediaSources"][1].update(
+        Name="Theatrical Cut",
+        Path="/srv/movies/Fixture a (2001)/Fixture a (2001) - Theatrical Cut.mkv",
+    )
+    store.publish([item], library=LIB)
+    titles = []
+
+    class Item:
+        def getVideoInfoTag(self):
+            return type(
+                "Tag", (), {"setVideoAssetTitle": lambda s, n: titles.append(n)}
+            )()
+
+    monkeypatch.setattr(provider.metadata, "listitem", lambda it, *a, **k: Item())
+    monkeypatch.setattr(provider.xbmcplugin, "addDirectoryItems", lambda *a: None)
+    monkeypatch.setattr(provider.xbmcplugin, "setContent", lambda *a: None)
+    monkeypatch.setattr(provider.xbmcplugin, "endOfDirectory", lambda *a, **k: None)
+    provider.serve(Request(folder_of(store), 1, {}))
+    assert titles == ["Theatrical Cut"]
+    assert metadata.version_label({"Name": "Standard Edition"}) == ""
+    assert (
+        metadata.version_label({"Name": "Film", "Path": "C:\\\\Movies\\\\Film.mkv"})
+        == ""
+    )
+    assert (
+        metadata.version_label({"Name": "Director's Cut", "Path": "/x/Film.mkv"})
+        == "Director's Cut"
+    )

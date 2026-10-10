@@ -148,6 +148,23 @@ def version_sources(item) -> List[Dict[str, Any]]:
     return sources if len(sources) > 1 else []
 
 
+def version_label(source) -> str:
+    """A media source's name as a video asset title, or empty when it is no
+    label: Jellyfin's ``GetMediaSourceName`` returns the file name without
+    its extension unless local alternate versions exist, so a name equal to
+    the source file's stem says nothing about the version (Kofin's audit
+    finding A4-1, where a type row per such name filled Kodi's Versions
+    picker). Kodi files an untitled asset as the Standard Edition."""
+    name = str(source.get("Name") or "").strip(ASCII_SPACE)
+    if not name or name.lower() == "standard edition":
+        return ""
+    path = str(source.get("Path") or "").replace("\\", "/").rsplit("/", 1)[-1]
+    stem = path.rsplit(".", 1)[0] if "." in path else path
+    if stem and name.lower() == stem.lower():
+        return ""
+    return name
+
+
 def special_features(item) -> List[Dict[str, Any]]:
     return [
         f
