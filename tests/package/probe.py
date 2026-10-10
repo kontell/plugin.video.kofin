@@ -23,7 +23,6 @@ denied = (
     "kofin.sync.clean",
     "kofin.service.artcache",
     "kofin.service.chapters",
-    "kofin.downloads.manager",
     "kofin.downloads.repoint",
 )
 
@@ -138,9 +137,12 @@ service._start_library()
 service._start_downloads()
 service._start_chapter_sweep()
 service.player._start_chapter_thumbs({"Type": "Movie"})
-assert (
-    service.library is None and service.downloads is None and service.artcache is None
-)
+from kofin.downloads.nativeport import NativeApi
+
+# A download manager the API build builds (the stub settings answer
+# "enabled") speaks to the library through the API port alone.
+assert service.library is None and service.artcache is None
+assert service.downloads is None or isinstance(service.downloads.native, NativeApi)
 service.abortRequested = lambda: True
 assert service.run() is False
 report = json.loads((profile / "api-capabilities.json").read_text())

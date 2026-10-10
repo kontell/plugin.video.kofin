@@ -64,13 +64,11 @@ SQL_ONLY = (
     "lib/kofin/sync/clean.py",
     "lib/kofin/sync/widgetstate.py",
     "lib/kofin/sync/refresh.py",
-    "lib/kofin/sync/playlists.py",
     "lib/kofin/sync/musicsources.py",
     "lib/kofin/sync/nodes/music.py",
     "lib/kofin/service/artcache.py",
     "lib/kofin/service/chapters.py",
     "lib/kofin/downloads/repoint.py",
-    "lib/kofin/downloads/manager.py",
     "lib/kofin/plugin/clean.py",
     "context_download_playlist.py",
     "context_playlist.py",
@@ -165,16 +163,11 @@ def contents(root, path, profile):
             "chapterImages",
             "precacheActorArt",
             "precacheActorArtNow",
-            "syncMusicPlaylists",
             "syncDuringPlay",
             "limitIndex",
             "limitThreads",
             "refreshBoxsets",
         }
-        for section in tree.findall("section"):
-            for category in list(section):
-                if category.get("id") == "downloads":
-                    section.remove(category)
         for group in tree.findall(".//group"):
             for setting in list(group):
                 if setting.get("id") in disabled:

@@ -44,18 +44,47 @@ import os
 import re
 import shutil
 import xml.etree.ElementTree as etree
-from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Iterable,
+    List,
+    NamedTuple,
+    Optional,
+    Set,
+    Tuple,
+)
 
 import xbmcvfs
 
 from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import kofindb as jellyfin_db
-from kofin.sync.db import Database
 from kofin.sync.fields import reference_checksum
-from kofin.sync.kodidb import Music as MusicKodiDb
-from kofin.sync.kodidb import queries as video_queries
 from kofin.sync.nodes import fs
+
+if TYPE_CHECKING:
+    from kofin.sync.kodidb import Music as MusicKodiDb
+else:
+    # Bound on first use by the SQL build's refresh functions (tests bind a
+    # stand-in); the API build never binds it and never reaches them.
+    MusicKodiDb = None
+
+
+def _music_db_class() -> Any:
+    bound = globals().get("MusicKodiDb")
+    if bound is not None:
+        return bound
+    from kofin.sync.kodidb import Music
+
+    return Music
+
+
+# Kodi's databases are the SQL build's: the API build ships this module for
+# its files, naming, state and prune rules and resolves entries through a
+# ``resolver`` of its own (backends/api/playlists.py), so every import of a
+# native database module here is deferred to the functions that need one.
 
 LOG = Logger(__name__)
 
@@ -108,11 +137,17 @@ VIDEO_ITEM_TYPES = frozenset(
     {"Movie", "Episode", "MusicVideo", "Video", "Trailer", "TvChannel"}
 )
 VIDEO_MEDIA_TYPES = frozenset({"movie", "episode", "musicvideo"})
-_VIDEO_ROW_QUERY = {
-    "movie": video_queries.get_movie_playlist_row,
-    "episode": video_queries.get_episode_playlist_row,
-    "musicvideo": video_queries.get_musicvideo_playlist_row,
-}
+
+
+def _video_row_query(media_type: str) -> Optional[str]:
+    from kofin.sync.kodidb import queries as video_queries
+
+    return {
+        "movie": video_queries.get_movie_playlist_row,
+        "episode": video_queries.get_episode_playlist_row,
+        "musicvideo": video_queries.get_musicvideo_playlist_row,
+    }.get(media_type)
+
 
 # A stop for a server that over-reports ``TotalRecordCount`` and re-emits
 # earlier rows on later pages (seen live on the playlist *list* query — see
@@ -425,7 +460,7 @@ class VideoPlaylistDb:
         self.cursor = cursor
 
     def get_playlist_row(self, kodi_id: int, media_type: str) -> Optional[Any]:
-        query = _VIDEO_ROW_QUERY.get(media_type)
+        query = _video_row_query(media_type)
         if not query:
             return None
         self.cursor.execute(query, (kodi_id,))
@@ -714,20 +749,28 @@ def refresh_music_playlists(
 
 def refresh_with_databases(api: Any, root: Optional[str] = None) -> Dict[str, int]:
     """Open kofin + music DBs and run :func:`refresh_music_playlists`."""
+    from kofin.sync.db import Database
+
     with Database("music") as musicdb:
         with Database("kofin") as kofindb_conn:
             mapping = jellyfin_db.JellyfinDatabase(kofindb_conn.cursor)
-            music = MusicKodiDb(musicdb.cursor)
+            music = _music_db_class()(musicdb.cursor)
             return refresh_music_playlists(api, mapping, music, root=root)
 
 
 def _entries_for(
     items: List[Dict[str, Any]],
     side: str,
-    mapping: jellyfin_db.JellyfinDatabase,
+    mapping: Any,
     music: Optional[MusicKodiDb],
     video: Optional[Any],
+    resolver: Any = None,
 ) -> Tuple[List[Entry], int]:
+    """The lines of one playlist, in the server's order, duplicates kept.
+
+    With a ``resolver`` (``entry(item, side) -> Entry | None``) the catalogue
+    answers; otherwise the SQL mapping and Kodi's rows do.
+    """
     entries: List[Entry] = []
     missing = 0
     for item in items:
@@ -735,6 +778,13 @@ def _entries_for(
         item_type = item.get("Type") or ""
         if not item_id:
             missing += 1
+            continue
+        if resolver is not None:
+            entry = resolver.entry(item, side)
+            if entry is None:
+                missing += 1
+                continue
+            entries.append(entry)
             continue
         if side == "Audio":
             if item_type and item_type != "Audio":
@@ -780,10 +830,12 @@ def refresh_song_playlists_many(
     ids = list(dict.fromkeys(item_ids))
     if not ids:
         return 0
+    from kofin.sync.db import Database
+
     written = 0
     with Database("kofin") as opened, Database("music") as musicdb:
         mapping = jellyfin_db.JellyfinDatabase(opened.cursor)
-        music = MusicKodiDb(musicdb.cursor)
+        music = _music_db_class()(musicdb.cursor)
         affected: Set[str] = set()
         for start in range(0, len(ids), 500):
             affected.update(mapping.get_playlists_for_items(ids[start : start + 500]))
@@ -831,7 +883,7 @@ def remove_managed_file(directory: str, filename: str) -> bool:
 
 def apply_one(
     api: Any,
-    mapping: jellyfin_db.JellyfinDatabase,
+    mapping: Any,
     music: Optional[MusicKodiDb],
     video: Optional[Any],
     state: jellyfin_db.JellyfinDatabase,
@@ -840,6 +892,7 @@ def apply_one(
     music_root: Optional[str] = None,
     video_root: Optional[str] = None,
     audio_memberships: Optional[Dict[str, List[str]]] = None,
+    resolver: Any = None,
 ) -> bool:
     """Materialize one server playlist. True when a file was written or removed."""
     playlist_id = playlist.get("Id") or ""
@@ -873,7 +926,7 @@ def apply_one(
     if stored and stored[0] == side and stored[2] == checksum:
         return False
 
-    entries, missing = _entries_for(items, side, mapping, music, video)
+    entries, missing = _entries_for(items, side, mapping, music, video, resolver)
     directory = (
         managed_dir(music_root)
         if side == "Audio"
@@ -893,7 +946,13 @@ def apply_one(
     )
     if stored and stored[1] != filename:
         remove_managed_file(directory, stored[1])
-    state.add_playlist_state(playlist_id, side, filename, checksum)
+    # A short write stays dirty, as in reconcile.
+    state.add_playlist_state(
+        playlist_id,
+        side,
+        filename,
+        "" if resolver is not None and missing else checksum,
+    )
     if missing:
         LOG.info(
             "playlist %s: %d item(s), %d not in the Kodi library",
@@ -925,7 +984,7 @@ def remove_one(
 
 def reconcile(
     api: Any,
-    mapping: jellyfin_db.JellyfinDatabase,
+    mapping: Any,
     music: Optional[MusicKodiDb],
     video: Optional[Any],
     state: jellyfin_db.JellyfinDatabase,
@@ -933,6 +992,7 @@ def reconcile(
     music_root: Optional[str] = None,
     video_root: Optional[str] = None,
     audio_memberships: Optional[Dict[str, List[str]]] = None,
+    resolver: Any = None,
 ) -> Dict[str, int]:
     """Full list + Etag skip + prune for the enabled sides."""
     stats = {"playlists": 0, "written": 0, "tracks": 0, "skipped": 0, "pruned": 0}
@@ -1012,7 +1072,7 @@ def reconcile(
             taken.add(os.path.splitext(stored[1])[0].lower())
             stats["playlists"] += 1
             continue
-        entries, missing = _entries_for(items, side, mapping, music, video)
+        entries, missing = _entries_for(items, side, mapping, music, video, resolver)
         stats["tracks"] += len(entries)
         stats["skipped"] += missing
         # ``taken`` holds other playlists' stems only. Our stored name is not
@@ -1028,7 +1088,16 @@ def reconcile(
         if stored and stored[1] != filename:
             remove_managed_file(directory, stored[1])
             stats["pruned"] += 1
-        state.add_playlist_state(playlist_id, side, filename, checksum)
+        # A write the resolver left short (an entry the pass has not filed
+        # yet) stays dirty: the server's Etag will not move when Kodi files
+        # the item, so the checksum is withheld and the next pass resolves
+        # again.
+        state.add_playlist_state(
+            playlist_id,
+            side,
+            filename,
+            "" if resolver is not None and missing else checksum,
+        )
         want.add(filename)
         stats["playlists"] += 1
         if written:

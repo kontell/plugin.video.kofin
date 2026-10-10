@@ -20,7 +20,6 @@ at the next start, resuming originals from ``bytes_done`` with a Range.
 import os
 import threading
 import time
-from datetime import datetime
 from queue import Empty, Queue
 from typing import (
     Any,
@@ -39,18 +38,21 @@ import xbmc
 from kofin.core import settings, state, toast
 from kofin.core.http import JellyfinError, StreamedResponse, Unauthorized
 from kofin.core.log import Logger
-from kofin.sync.db import Database
+from kofin import buildconfig
 from kofin.downloads import (
     downloads_root,
     export,
     files,
+    nativeport,
     notify_allowed,
     probe,
     progress,
     quality,
-    repoint,
     store,
 )
+
+if buildconfig.legacy_features():
+    from kofin.downloads import repoint  # noqa: F401 -- the SQL port's module
 
 LOG = Logger(__name__)
 
@@ -150,9 +152,13 @@ class DownloadManager:
         api_factory: Callable[[], Any],
         refresh: Callable[[List[str]], None],
         stopping: "threading.Event",
+        native: Optional[nativeport.Native] = None,
     ) -> None:
         self._api_factory = api_factory
         self._refresh = refresh
+        # What the Kodi library says about a download, per build
+        # (downloads/nativeport.py).
+        self.native: nativeport.Native = native or nativeport.for_build()
         # The service generation's own event (never state.should_stop —
         # the successor lowers that on its way up; see service/main.py).
         self._stopping = stopping
@@ -512,8 +518,7 @@ class DownloadManager:
         as that sibling."""
         self._delete_media(row)
         store.remove(row.jellyfin_id)
-        repoint.unstamp_tag(row)
-        repoint.clear_badge(row)
+        self.native.detached(row)
 
     def _apply_remove_batch(
         self, item_ids: Iterable[str], subscription: bool = False
@@ -555,7 +560,7 @@ class DownloadManager:
             self._apply_cancel(item_id)
             return
         root = downloads_root()
-        restored = repoint.restore(row, root)
+        restored = self.native.restore(row, root)
         departed_subscription_item = False
         if not restored and row.origin.startswith(
             ("auto:playlist:", "auto:musiclibrary:")
@@ -564,12 +569,7 @@ class DownloadManager:
             # its removal message. The sync writer may already have removed
             # the Kodi row, leaving nothing to restore. In that one case the
             # full remove path can still delete the orphaned local copy.
-            from kofin.sync.db import Database
-
-            with Database("kofin") as opened:
-                departed_subscription_item = (
-                    repoint.mapping_for_on(opened.cursor, row.jellyfin_id) is None
-                )
+            departed_subscription_item = not self.native.mapped(row.jellyfin_id)
         if not restored and not departed_subscription_item:
             # Refused (no captured filename, no usable mapping): deleting
             # the media now would leave the library row pointing at a file
@@ -752,9 +752,7 @@ class DownloadManager:
         self._attempts.pop(item_id, None)
         finished = store.get(item_id)
         if finished is not None:
-            repoint.repoint(finished, root)
-            repoint.stamp_tag(finished)
-            repoint.stamp_badge(finished)
+            self.native.attached(finished, root)
         if media_type in store.VIDEO_MEDIA_TYPES:
             self._capture_segments(api, item_id)
         if settings.get_bool("downloadsExportMetadata"):
@@ -803,11 +801,7 @@ class DownloadManager:
         if self._music_view_written and not force:
             return
         try:
-            from kofin.sync import playlists
-            from kofin.sync.nodes import music as music_nodes
-
-            playlists.refresh_downloaded_music()
-            music_nodes.write_music_nodes()
+            self.native.music_view(force)
             self._music_view_written = True
         except Exception:  # pragma: no cover - the view is best-effort
             LOG.exception("downloaded-music view refresh failed")
@@ -1240,9 +1234,7 @@ class DownloadManager:
                     self._handle_vanished(row, root)
                     touched = True
                     continue
-                if repoint.repoint(row, root):
-                    repoint.stamp_tag(row)  # idempotent; a repair wiped links
-                    repoint.stamp_badge(row)
+                if self.native.attached(row, root):
                     touched = True
                     if row.media_type == "song":
                         repointed_songs.add(row.jellyfin_id)
@@ -1274,7 +1266,7 @@ class DownloadManager:
             "downloaded file missing for %s; cleaning up and marking it watched",
             row.jellyfin_id,
         )
-        if not repoint.restore(row, root):
+        if not self.native.restore(row, root):
             # The file is already gone, so there is nothing to keep: the
             # cleanup proceeds — the row must go, or the sweep finds the
             # same missing file every pass — and the library row heals on
@@ -1308,27 +1300,11 @@ class DownloadManager:
         self._push_played(row)
 
     def _mark_local_watched(self, row: "store.Download") -> None:
-        """Kodi's own playcount, written straight through SQLite.
-
-        Never JSON-RPC: an announcer-visible library write feeds the
-        userdata echo cycle (report → server echoes UserDataChanged → kofin
-        writes it back), which terminates only because direct writes raise
-        no Kodi announcement — see service/kodiuserdata.py.
-        """
-        try:
-            with Database("kofin") as kofin_db, Database("video") as video:
-                mapping = repoint.mapping_for_on(kofin_db.cursor, row.jellyfin_id)
-                if mapping is None:
-                    return
-                video.cursor.execute(
-                    "UPDATE files SET playCount = 1, lastPlayed = ? WHERE idFile = ?",
-                    (
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        mapping.kodi_fileid,
-                    ),
-                )
-        except Exception:
-            LOG.exception("could not mark %s watched locally", row.jellyfin_id)
+        """Kodi's own play state for a vanished download, as the build's
+        port writes it (the SQL port straight through SQLite, never JSON-RPC,
+        so the userdata echo cycle is never started; the API port leaves it
+        to the server round-trip that follows)."""
+        self.native.mark_watched(row)
 
     def _push_played(self, row: "store.Download") -> None:
         """Tell the server, or park it for the next connect.
@@ -1551,9 +1527,7 @@ class DownloadManager:
 
     def _refresh_song_playlists(self, item_ids: Set[str]) -> None:
         try:
-            from kofin.sync import playlists
-
-            playlists.refresh_song_playlists_many(item_ids)
+            self.native.refresh_song_playlists(item_ids)
         except Exception:
             LOG.exception("managed playlist refresh after song repoint failed")
 
@@ -1725,66 +1699,17 @@ def _dir_taken_by_other(owner_id: str) -> Callable[[str], bool]:
     return taken
 
 
+# The sweep's two reads of Kodi's own play state, as module functions so a
+# test can stand them in; each build's port answers (downloads/nativeport.py).
+_as_epoch = nativeport._as_epoch
+
+
 def _watched_locally(row: "store.Download") -> bool:
-    """Kodi's own playcount for the item's file row — the local truth, which
-    is what lets the sweep run offline."""
-    with Database("kofin") as kofin_db, Database("video") as video:
-        mapping = repoint.mapping_for_on(kofin_db.cursor, row.jellyfin_id)
-        if mapping is None:
-            return False
-        video.cursor.execute(
-            "SELECT playCount FROM files WHERE idFile = ?",
-            (mapping.kodi_fileid,),
-        )
-        found = video.cursor.fetchone()
-    return bool(found is not None and found[0])
+    return nativeport.for_build().watched_locally(row)
 
 
 def _last_touch(row: "store.Download") -> Optional[Tuple[float, bool]]:
-    """``(lastPlayed as unix seconds, has a resume point)``, or None when the
-    item has no library row to read (the stale sweep's "unknown age").
-
-    Both facts hang off the one file row the download was repointed onto.
-    The resume point is a ``type = 1`` bookmark, Kodi's own RESUME kind — the
-    same row ``widgetstate`` reads for its in-progress percentages — which
-    Kodi deletes at the end of playback, and which the sync writers also
-    write from the server's UserData.
-    """
-    with Database("kofin") as kofin_db, Database("video") as video:
-        mapping = repoint.mapping_for_on(kofin_db.cursor, row.jellyfin_id)
-        if mapping is None:
-            return None
-        video.cursor.execute(
-            "SELECT lastPlayed FROM files WHERE idFile = ?", (mapping.kodi_fileid,)
-        )
-        found = video.cursor.fetchone()
-        if found is None:
-            return None
-        video.cursor.execute(
-            "SELECT 1 AS present FROM bookmark WHERE idFile = ? AND type = 1 LIMIT 1",
-            (mapping.kodi_fileid,),
-        )
-        resuming = video.cursor.fetchone() is not None
-    return _as_epoch(found[0]), resuming
-
-
-def _as_epoch(stamp: Any) -> float:
-    """A Kodi timestamp column as unix seconds; 0.0 for unset or unparseable.
-
-    Two spellings reach the column and both are local time: Kodi's own (and
-    ``_mark_local_watched``'s) ``'%Y-%m-%d %H:%M:%S'``, and the ISO ``T`` form
-    the sync writers hand it (``shims.date_played``). 0.0 rather than an
-    exception for anything else — a column kofin did not write is not a
-    reason to abandon a sweep.
-    """
-    if not stamp:
-        return 0.0
-    try:
-        return datetime.strptime(
-            str(stamp)[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S"
-        ).timestamp()
-    except ValueError:
-        return 0.0
+    return nativeport.for_build().last_touch(row)
 
 
 def _remove_quietly(path: str) -> None:

@@ -333,19 +333,18 @@ class Store(Catalogue):
         current, pin = row
         return pin if pinned and pin is not None else current
 
-    def entries(self, pinned=True) -> Dict[str, Entry]:
-        """Membership at the pinned generation (or the current one)."""
+    def entries(self, pinned=True, kind=None) -> Dict[str, Entry]:
+        """Membership at the pinned generation (or the current one), of one
+        kind when asked."""
         with Database() as db:
             self._prepare(db.cursor)
             generation = self._generation(db.cursor, pinned)
-            return {
-                e.item_id: e
-                for e in self._entries(
-                    db.cursor,
-                    "added<=? AND (removed IS NULL OR removed>?)",
-                    (generation, generation),
-                )
-            }
+            where = "added<=? AND (removed IS NULL OR removed>?)"
+            params: tuple = (generation, generation)
+            if kind is not None:
+                where += " AND kind=?"
+                params += (kind,)
+            return {e.item_id: e for e in self._entries(db.cursor, where, params)}
 
     def entry(self, item_id) -> Optional[Entry]:
         """The current placement of one item, tombstoned items excluded."""

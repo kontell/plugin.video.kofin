@@ -80,7 +80,7 @@ def verify_kodi_defaults():
     music nodes to generate (``sync/views.py::write_music_nodes``).
     """
     for kind in ("video", "music"):
-        _seed_default_nodes(kind)
+        seed_default_nodes(kind)
 
     # The fork forced its own ordering onto the default movie/tvshow/musicvideo
     # nodes here; kofin does not touch the user's node order (plan §3).
@@ -91,7 +91,7 @@ def verify_kodi_defaults():
         xbmcvfs.mkdirs(playlist_path)
 
 
-def _seed_default_nodes(kind):
+def seed_default_nodes(kind):
     """Copy Kodi's shipped ``kind`` node tree into the profile.
 
     Missing files only: a node the user has edited is theirs, and the copy

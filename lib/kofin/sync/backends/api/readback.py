@@ -149,8 +149,15 @@ class Readback:
     def version_rows(self, library, item_id) -> List[Dict[str, Any]]:
         """The movie rows Kodi holds for an item's version files beside the
         row that owns its identity: ungrouped versions."""
+        return self.versions_in(library).get(item_id, [])
+
+    def versions_in(self, library) -> Dict[str, List[Dict[str, Any]]]:
+        """Every item of a library with ungrouped version rows."""
         self.scope("Movie", library)
-        return list(self._versions.get(("Movie", library, ""), {}).get(item_id, []))
+        return {
+            item_id: list(rows)
+            for item_id, rows in self._versions.get(("Movie", library, ""), {}).items()
+        }
 
     # -- scopes --------------------------------------------------------------
 

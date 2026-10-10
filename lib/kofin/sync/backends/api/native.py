@@ -19,10 +19,10 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import xbmc
 
-from kofin.core import memory, state
+from kofin.core import memory, settings, state
 from kofin.core.log import Logger
 from kofin.sync.catalogue import BackendMismatch
-from . import metadata, paths, progress, removal
+from . import companion, metadata, paths, progress, removal
 from .kinds import rpc, rpc_batch
 from .patch import Applier
 from .readback import Readback
@@ -43,6 +43,11 @@ HOLD_RENEW = 480.0
 # Kodi drops an extras folder from a movies listing while this is on (its
 # default); the pass turns it off when a folder with extras is first scanned.
 EXTRAS_SETTING = "videolibrary.ignorevideoextras"
+# The profile has had every movie folder bound with noupdate
+# (Native.bind_movie_folders); a hidden string setting, since the store
+# does not record a binding's flag.
+MOVIE_BINDINGS_SETTING = "apiMovieBindings"
+MOVIE_BINDINGS_STATE = "noupdate"
 SCAN_POLL = 3.0  # seconds between reads of Kodi's row count during a scan
 
 
@@ -172,7 +177,7 @@ class Native:
         )
         self.store.bind(path, content)
 
-    def bind_folders(self, content, folders, force=False):
+    def bind_folders(self, content, folders, force=False, noupdate=False):
         """A folder under a root needs its own binding: Kodi derives a plugin
         path's parent as the plugin root, so the library binding is never
         found from beneath it (URIUtils::GetParentPath), and a folder without
@@ -184,11 +189,28 @@ class Native:
         A movie folder is bound with folder names on: the scanner reads an
         extras folder only from a directory whose settings say its movies
         are in folders of their own (AddVideoExtras, ``parent_name``).
-        ``force`` binds a folder the store already knows, for the flag."""
+        ``force`` binds a folder the store already knows, for a flag.
+
+        ``noupdate`` is the binding every movie folder ends up with: Kodi's
+        info dialog loads a library movie's full details (its cast among
+        them) only when it finds a scraper on the movie's own folder, and a
+        plugin path's parent walk never reaches the bound library root
+        (CGUIWindowVideoBase::ShowInfo, CVideoDatabase::GetScraperForPath),
+        so every folder is bound; with ``noupdate`` Kodi's own Update library
+        lists none of them. The scanner skips a ``noupdate`` folder it was
+        not told to scan everything of, so a folder scanned by name is bound
+        without the flag first and with it afterwards (import_missing)."""
         bound = self.store.bindings()
         wanted = list(
             dict.fromkeys(folders if force else [p for p in folders if p not in bound])
         )
+        if wanted:
+            LOG.info(
+                "binding %d %s folder(s)%s",
+                len(wanted),
+                content,
+                " noupdate" if noupdate else "",
+            )
         for start in range(0, len(wanted), 25):
             chunk = wanted[start : start + 25]
             replies = rpc_batch(
@@ -201,6 +223,7 @@ class Native:
                             "scraperid": "metadata.local",
                             "containssingleitem": content == "tvshows",
                             "usedirectorynames": content == "movies",
+                            "noupdate": noupdate,
                             "refresh": False,
                         },
                     )
@@ -216,6 +239,29 @@ class Native:
             failed = [r for r in replies if isinstance(r, Exception)]
             if failed:
                 raise failed[0]
+
+    def bind_movie_folders(self):
+        """Every movie folder carries its binding (bind_folders), the folders
+        of an older profile's rows included: a pass plans pending rows only,
+        so this runs on the catalogue, after a pass and once per service
+        generation when nothing is pending (library.apply). Once per
+        profile every movie folder is bound again with ``noupdate``, for the
+        folders an earlier build bound without it -- the store does not
+        record the flag -- and MOVIE_BINDINGS_SETTING remembers that."""
+        folders = sorted(
+            {
+                paths.movie_dir(self.key, e.library, e.item_id)
+                for e in self.store.entries(kind="Movie").values()
+            }
+        )
+        if not folders:
+            return
+        force = settings.get_str(MOVIE_BINDINGS_SETTING) != MOVIE_BINDINGS_STATE
+        if force:
+            LOG.info("binding every movie folder with noupdate, once")
+        self.bind_folders("movies", folders, force=force, noupdate=True)
+        if force:
+            settings.set_str(MOVIE_BINDINGS_SETTING, MOVIE_BINDINGS_STATE)
 
     def bind_show(self, library, series_id):
         self.bind_folders("tvshows", [paths.show_dir(self.key, library, series_id)])
@@ -563,6 +609,16 @@ class Native:
             movies = {i for i, e in entries.items() if e.kind == "Movie"}
             applier.run(upserts, collections, movies, repair, errors)
             removal.finish_sets(self, pending, boxsets, errors)
+            try:
+                self.bind_movie_folders()
+            except Exception:
+                LOG.exception("movie folder bindings not completed")
+            try:
+                # What this pass could not do and the companion add-on can:
+                # published for it, confirmed by the next readback.
+                companion.publish(self)
+            except Exception:
+                LOG.exception("companion requests not published")
             if errors:
                 raise RuntimeError(
                     "%d native operations remain pending: %s" % (len(errors), errors[0])
@@ -595,6 +651,9 @@ class Native:
         expected: Dict[str, int] = {}
         expectations = []
         self._extras_folders = set()
+        # Movie folders scanned by name this pass: bound without noupdate
+        # for the scan and with it afterwards (bind_folders).
+        scanned_movie_folders: List[str] = []
         for library in sorted({r.library for r in upserts.values() if r.library}):
             kinds = {r.kind for r in upserts.values() if r.library == library}
             for content in paths.CONTENTS:
@@ -676,7 +735,7 @@ class Native:
                                 paths.movie_dir(self.key, library, r.item_id)
                                 for r in missing
                             ]
-                            self.bind_folders("movies", movie_folders)
+                            scanned_movie_folders.extend(movie_folders)
                             directories.extend(movie_folders)
                             expected.update((folder, 1) for folder in movie_folders)
                     # A folder whose version files or extras Kodi has not
@@ -684,7 +743,9 @@ class Native:
                     # walks (the root lists the movie's own file alone), and
                     # bound again with folder names on, which the extras need.
                     if asset_folders:
-                        self.bind_folders("movies", asset_folders, force=True)
+                        scanned_movie_folders.extend(
+                            f for f in asset_folders if f not in scanned_movie_folders
+                        )
                         directories.extend(
                             f for f in asset_folders if f not in directories
                         )
@@ -704,9 +765,21 @@ class Native:
                                 metadata.userdata(record.item),
                             )
                         )
-        if directories:
-            self.store.expect_many(expectations)
-            self.scan(directories, expected=expected, prepare=self._prepare_scan)
+        if scanned_movie_folders:
+            # Without noupdate for the scan: the scanner skips a noupdate
+            # folder it was not told to scan everything of.
+            self.bind_folders("movies", scanned_movie_folders, force=True)
+        try:
+            if directories:
+                self.store.expect_many(expectations)
+                self.scan(directories, expected=expected, prepare=self._prepare_scan)
+        finally:
+            # The flag goes back whether the scan finished or not: without
+            # it Kodi's own Update library lists these folders.
+            if scanned_movie_folders:
+                self.bind_folders(
+                    "movies", scanned_movie_folders, force=True, noupdate=True
+                )
 
     def _missing_tv(self, upserts, library) -> List[Record]:
         shows = self.readback.scope("Series", library)

@@ -72,9 +72,16 @@ def compact(item):
                 if isinstance(source, dict) and source.get("MediaStreams"):
                     result["MediaStreams"] = source["MediaStreams"]
                     break
+        # A movie with several sources lists a file per source, each with
+        # the source's own streams; a single source's are the item's.
+        strip = (
+            _DROP
+            if len(sources) > 1 and item.get("Type") == "Movie"
+            else _DROP + ("MediaStreams",)
+        )
         result["MediaSources"] = [
             (
-                {k: v for k, v in s.items() if k not in _DROP + ("MediaStreams",)}
+                {k: v for k, v in s.items() if k not in strip}
                 if isinstance(s, dict)
                 else s
             )
@@ -107,6 +114,15 @@ _EXTRA_KEYS = (
     "DateCreated",
     "MediaStreams",
 )
+
+
+# The tag every row of a library carries (tags), and the one the library's
+# filter nodes select by (sync/dynamic.py): spelled here, where it is written.
+LIBRARY_TAG_PREFIX = "kofin.library."
+
+
+def library_tag(library: str) -> str:
+    return LIBRARY_TAG_PREFIX + library
 
 
 def compact_extra(feature):
@@ -252,7 +268,7 @@ def tags(item, library, kind="Movie"):
     if kind not in FAVORITE_TAG:
         return []
     values = [value.strip(ASCII_SPACE) for value in item.get("Tags") or []]
-    values.append("kofin.library." + library)
+    values.append(library_tag(library))
     if (item.get("UserData") or {}).get("IsFavorite"):
         values.append(FAVORITE_TAG[kind])
     return sorted(set(value for value in values if value))
@@ -770,7 +786,9 @@ def _streams(tag, item):
         tag.addSubtitleStream(xbmc.SubtitleStreamDetail(language=language or ""))
 
 
-def inputs_token(server, key, library, separator, seasons=(), set_name=None) -> str:
+def inputs_token(
+    server, key, library, separator, seasons=(), set_name=None, downloaded=""
+) -> str:
     """Everything ``details`` reads besides the payload, as one token.
 
     A mapping that carries the payload hash and this token was acknowledged
@@ -797,6 +815,8 @@ def inputs_token(server, key, library, separator, seasons=(), set_name=None) -> 
             # a year for a change that convert_to_local already renders
             # correctly per instant.
             [time.timezone, list(time.tzname)],
+            # A download's badge and tag are part of the row (downloaded.py).
+            downloaded,
         ]
     )
 
