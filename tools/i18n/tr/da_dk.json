@@ -498,5 +498,7 @@
   "#30853": "Indhold ikke downloadet",
   "#30854": "Gennemgå abonnerede playlister; fjern markeringen for at stoppe synkronisering af downloads.",
   "#30855": "Gennemgå abonnerede musikbiblioteker; fjern markeringen for at stoppe synkronisering af downloads.",
-  "#30990": "Ikke tilgængelig i denne prøveversion"
+  "#30990": "Ikke tilgængelig i denne prøveversion",
+  "#30856": "Biblioteksnoder og afspilningslister",
+  "#30857": "Opret Kodi-biblioteksnoder og smarte afspilningslister for de synkroniserede videobiblioteker, og kopiér Jellyfin-afspilningslister til Kodi under Videoer → Afspilningslister → Kofin og Musik → Afspilningslister → Kofin. Slås dette fra, fjernes alle noder og afspilningslister, Kofin har oprettet, håndlavede filer lades være, og de synkroniserede biblioteker vises via Kofins egne gennemse-poster i stedet."
 }

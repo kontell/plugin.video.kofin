@@ -498,5 +498,7 @@
   "#30853": "Contenido no descargado",
   "#30854": "Revisa las listas de reproducción suscritas; desmárcalas para dejar de sincronizar las descargas.",
   "#30855": "Revisa las bibliotecas de música suscritas; desmárcalas para dejar de sincronizar las descargas.",
-  "#30990": "No disponible en esta versión preliminar"
+  "#30990": "No disponible en esta versión preliminar",
+  "#30856": "Nodos de biblioteca y listas de reproducción",
+  "#30857": "Crea nodos de biblioteca de Kodi y listas inteligentes para las bibliotecas de video sincronizadas, y copia las listas de Jellyfin a Kodi en Videos → Listas de reproducción → Kofin y Música → Listas de reproducción → Kofin. Al desactivarlo se eliminan todos los nodos y listas que Kofin creó, los archivos hechos a mano se dejan intactos y las bibliotecas sincronizadas se muestran a través de las entradas de exploración propias de Kofin."
 }

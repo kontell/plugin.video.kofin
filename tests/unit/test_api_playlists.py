@@ -177,3 +177,20 @@ def test_nothing_is_written_without_the_setting_or_a_synced_library(
     monkeypatch.setattr(api_playlists, "wanted", lambda: True)
     assert api_playlists.reconcile(api, store, music_root=str(root)) == {}
     assert not root.exists()
+
+
+def test_the_playlists_follow_the_presentation_switch(store, tmp_path, monkeypatch):
+    """One setting for the node tree and every playlist (sync/dynamic.py)."""
+    from kofin.sync import dynamic
+    from tests.unit.fakes import FakeAddon
+
+    synced(store, (LIB, "music"))
+    api = FakeApi([{"Id": "p", "Name": "Gym", "MediaType": "Audio"}], {"p": []})
+    root = tmp_path / "playlists"
+    assert api_playlists.SETTING == dynamic.SETTING == "libraryNodes"
+    FakeAddon.store = {dynamic.SETTING: "false"}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    assert api_playlists.wanted() is False
+    assert api_playlists.reconcile(api, store, music_root=str(root)) == {}
+    assert api_playlists.apply(api, store, "p", music_root=str(root)) is False
+    assert not root.exists()

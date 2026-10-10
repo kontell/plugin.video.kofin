@@ -11,16 +11,16 @@ prune rules are the shared module's (sync/playlists.py).
 
 from typing import Any, Dict, Optional, Set
 
-from kofin.core import settings
 from kofin.core.log import Logger
-from kofin.sync import kofindb, playlists, private
+from kofin.sync import dynamic, kofindb, playlists, private
 from . import paths
 from .store import Store
 
 LOG = Logger(__name__)
 
 VIDEO_KINDS = ("Movie", "Episode", "MusicVideo")
-SETTING = "syncMusicPlaylists"
+# The one switch for the generated presentation, the node tree included.
+SETTING = dynamic.SETTING
 
 
 class Resolver:
@@ -67,11 +67,7 @@ class Resolver:
 
 
 def wanted() -> bool:
-    try:
-        return settings.get_bool(SETTING)
-    except TypeError:
-        # A profile whose settings predate the setting in this build.
-        return False
+    return dynamic.wanted()
 
 
 def enabled_kinds() -> Set[str]:

@@ -2228,6 +2228,14 @@ msgctxt "#30855"
 msgid "Review subscribed music libraries; untick to stop syncing downloads."
 msgstr "Просмотрите подписанные музыкальные библиотеки; снимите отметку, чтобы остановить синхронизацию загрузок."
 
+msgctxt "#30856"
+msgid "Library nodes and playlists"
+msgstr "Узлы библиотеки и плейлисты"
+
+msgctxt "#30857"
+msgid "Create Kodi library nodes and smart playlists for the synced video libraries, and copy Jellyfin playlists into Kodi under Videos → Playlists → Kofin and Music → Playlists → Kofin. Turning this off removes every node and playlist Kofin created, leaves hand-made files alone, and lists the synced libraries through Kofin's own browse entries instead."
+msgstr "Создавать узлы библиотеки Kodi и умные плейлисты для синхронизированных видеобиблиотек и копировать плейлисты Jellyfin в Kodi в Видео → Плейлисты → Kofin и Музыка → Плейлисты → Kofin. При отключении удаляются все узлы и плейлисты, созданные Kofin, созданные вручную файлы не затрагиваются, а синхронизированные библиотеки показываются через собственные пункты обзора Kofin."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Недоступно в этой тестовой версии"

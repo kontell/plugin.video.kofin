@@ -49,8 +49,9 @@ Handler = Callable[[str, str], None]
 # empty read is corroborated before it is acted on (``_is_spurious_clear``).
 # ``syncMusicPlaylists`` is here too: a failed settings load during materialize
 # was observed live as true→"" which fired CleanupMusicPlaylists and wiped
-# the just-written ``playlists/music/Kofin/`` folder.
-GUARDED_CLEARS = ("librarySelection", "syncMusicPlaylists")
+# the just-written ``playlists/music/Kofin/`` folder. ``libraryNodes`` is the
+# API build's switch for the same files and the node tree with them.
+GUARDED_CLEARS = ("librarySelection", "syncMusicPlaylists", "libraryNodes")
 
 # Non-empty for the whole life of an installed addon: Credentials.load
 # generates it on first use and logging out deliberately keeps it. So an empty
@@ -71,6 +72,7 @@ class SettingsApplier:
             "whoIsWatchingShortlist": self._who_shortlist_changed,
             "contextBitrates": self._context_bitrates_changed,
             "syncMusicPlaylists": self._sync_music_playlists_changed,
+            "libraryNodes": self._library_nodes_changed,
             "musicTranscode": self._music_transcode_changed,
             "useServerBackdrop": self._server_backdrop_changed,
             "preferCriticRating": self._prefer_critic_rating_changed,
@@ -282,21 +284,61 @@ class SettingsApplier:
         if new == "true":
             library.enqueue_command("SyncMusicPlaylists")
             return
-        # Disable path is destructive (deletes playlists/music/Kofin/). Live
-        # testing showed failed settings loads can surface the boolean default
-        # ("false") while the document is mid-rewrite after setSettingBool —
-        # corroborate before wiping.
-        confirm = settings.get_str("syncMusicPlaylists")
+        if not self._confirmed_off("syncMusicPlaylists"):
+            return
+        library.enqueue_command("CleanupMusicPlaylists")
+
+    def _confirmed_off(self, setting_id: str) -> bool:
+        """Whether a boolean read as off was really switched off.
+
+        The off direction of these settings is destructive (it deletes the
+        managed playlists). Live testing showed failed settings loads can
+        surface the boolean default ("false") while the document is
+        mid-rewrite after setSettingBool — corroborate before wiping, and
+        leave the snapshot on so a real off after recovery still applies.
+        """
+        confirm = settings.get_str(setting_id)
         if settings.get_str(LOAD_CANARY) == "" or confirm == "true":
             LOG.warning(
-                "ignoring unconfirmed syncMusicPlaylists off "
-                "(confirm=%r, canary empty=%s); leaving managed playlists",
+                "ignoring unconfirmed %s off "
+                "(confirm=%r, canary empty=%s); leaving managed files",
+                setting_id,
                 confirm,
                 settings.get_str(LOAD_CANARY) == "",
             )
-            self.snapshot["syncMusicPlaylists"] = "true"
+            self.snapshot[setting_id] = "true"
+            return False
+        return True
+
+    def _library_nodes_changed(self, old: str, new: str) -> None:
+        """The API build's one presentation switch (``sync/dynamic.py``).
+
+        On: the node tree and the smart playlists are written now and the
+        Jellyfin playlists at the next pass. Off: the managed playlists go
+        through the library thread and the tree with the republish; a
+        toggle that lands while the server is away is caught up by the
+        publish that follows the next enumeration.
+        """
+        library = self._library_manager()
+        if new == "true":
+            if library is not None:
+                library.enqueue_command("SyncMusicPlaylists")
+            self._regenerate_nodes()
             return
-        library.enqueue_command("CleanupMusicPlaylists")
+        if not self._confirmed_off("libraryNodes"):
+            return
+        if library is not None:
+            library.enqueue_command("CleanupMusicPlaylists")
+        self._regenerate_nodes()
+
+    def _playlists_wanted(self) -> bool:
+        """The build's playlist switch: the SQL build's playlist sync, or the
+        API build's presentation switch."""
+        if buildconfig.legacy_features():
+            return settings.get_bool("syncMusicPlaylists")
+        from kofin.sync import dynamic
+
+        return dynamic.wanted()
 
     def _server_backdrop_changed(self, old: str, new: str) -> None:
         """Swap the addon fanart now rather than at the next connect.
@@ -312,7 +354,7 @@ class SettingsApplier:
     def _music_transcode_changed(self, old: str, new: str) -> None:
         """Path mode flip rewrites MyMusic rows later; rematerialize playlists
         so lines match the new path form when playlist sync is on."""
-        if not settings.get_bool("syncMusicPlaylists"):
+        if not self._playlists_wanted():
             return
         library = self._library_manager()
         if library is None:

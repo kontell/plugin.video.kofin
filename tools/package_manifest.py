@@ -75,6 +75,27 @@ SQL_ONLY = (
 )
 PROFILES = ("sql", "api")
 
+# Settings each profile removes from resources/settings.xml. The two
+# presentation toggles are one per build: syncMusicPlaylists is the SQL
+# build's playlist sync, libraryNodes the API build's nodes-and-playlists
+# switch (sync/dynamic.py), and a toggle the build never reads must not be
+# on screen.
+DISABLED_SETTINGS = {
+    "sql": {"libraryNodes"},
+    "api": {
+        "cleanDatabases",
+        "reuseLanguageInvoker",
+        "chapterImages",
+        "precacheActorArt",
+        "precacheActorArtNow",
+        "syncDuringPlay",
+        "syncMusicPlaylists",
+        "limitIndex",
+        "limitThreads",
+        "refreshBoxsets",
+    },
+}
+
 
 def selected_profile(root):
     source = ast.parse((root / "lib/kofin/buildconfig.py").read_text())
@@ -129,6 +150,14 @@ def contents(root, path, profile):
         return source.replace(
             'BACKEND = "' + current + '"', 'BACKEND = "' + profile + '"'
         ).encode("utf-8")
+    if path.as_posix() == "resources/settings.xml":
+        tree = ET.fromstring(data)
+        disabled = DISABLED_SETTINGS[profile]
+        for group in tree.findall(".//group"):
+            for setting in list(group):
+                if setting.get("id") in disabled:
+                    group.remove(setting)
+        return ET.tostring(tree, encoding="utf-8", xml_declaration=True)
     if profile != "api":
         return data
     if path.as_posix() == "addon.xml":
@@ -154,23 +183,5 @@ def contents(root, path, profile):
                     "context_download_playlist.py",
                 ):
                     menu.remove(item)
-        return ET.tostring(tree, encoding="utf-8", xml_declaration=True)
-    if path.as_posix() == "resources/settings.xml":
-        tree = ET.fromstring(data)
-        disabled = {
-            "cleanDatabases",
-            "reuseLanguageInvoker",
-            "chapterImages",
-            "precacheActorArt",
-            "precacheActorArtNow",
-            "syncDuringPlay",
-            "limitIndex",
-            "limitThreads",
-            "refreshBoxsets",
-        }
-        for group in tree.findall(".//group"):
-            for setting in list(group):
-                if setting.get("id") in disabled:
-                    group.remove(setting)
         return ET.tostring(tree, encoding="utf-8", xml_declaration=True)
     return data

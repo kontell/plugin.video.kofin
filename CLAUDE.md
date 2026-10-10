@@ -416,6 +416,12 @@ What remains is kofin's own:
   item the pass has acknowledged, the resolver URL Kodi filed the row under, and the label
   from the server's listing. Widget refresh is Kodi's own: every setter announces, the music
   hold hides a pass's, and the first-content reload is the one builtin the pass fires.
+  **`libraryNodes` is the API build's one switch for all of it** (`dynamic.wanted`): off takes
+  down the tree, the smart playlists and both `Kofin/` playlist folders, and publishes a
+  synced video library as a browse entry (a synced music library keeps Kodi's music root,
+  which is Kodi's). Only an explicit `false` is off — an empty read is a settings document
+  that did not load, and off deletes files. `syncMusicPlaylists` stays the SQL build's; each
+  profile ships one of the two (`package_manifest.DISABLED_SETTINGS`).
 - **Every movie folder is bound, noupdate, or the info dialog has no cast.** Kodi's info dialog
   loads a library movie's full details, cast included, only when `GetScraperForPath` finds a
   scraper on the movie's own `strPath` (`CGUIWindowVideoBase::ShowInfo`); otherwise it shows

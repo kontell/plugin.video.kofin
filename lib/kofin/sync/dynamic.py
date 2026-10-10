@@ -14,15 +14,26 @@ build never writes.
 Ownership is the ``kofin`` name prefix throughout (``nodes/fs.py``): a tree
 rewrite reconciles the folder against what it wrote and never touches a
 hand-made node beside it, and an empty whitelist takes the whole tree down.
+
+One setting switches the generated presentation as a whole (``SETTING``):
+the tree, the smart playlists beside it and the Jellyfin playlists
+(``backends/api/playlists.py`` reads the same switch). Off, the files Kofin
+wrote go the way an empty whitelist takes them and a synced video library is
+published as a browse entry, like an unsynced one; Kodi's own library and the
+rows in it are untouched. The SQL build's ``syncMusicPlaylists`` is the other
+build's switch, and each package ships one (``tools/package_manifest.py``).
 """
 
 from typing import Dict, List, NamedTuple, Tuple
 
+from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import playlists, private
 from kofin.sync.nodes import props, video
 
 LOG = Logger(__name__)
+
+SETTING = "libraryNodes"
 
 # The tag the API backend puts on every row of a library (metadata.tags),
 # and the one the library's filter nodes select by.
@@ -70,6 +81,21 @@ def node_entries(views: List[View], whitelist: List[str]) -> List[Tuple[Dict, bo
     return entries
 
 
+def wanted() -> bool:
+    """Whether the generated presentation is on (``SETTING``).
+
+    Only an explicit off switches it off. Off deletes files, and an empty
+    read is a settings document that did not load (the applier's canary
+    case, ``service/settings_apply.py``), as is a build whose settings never
+    defined the switch; both read as the default, which is on.
+    """
+    try:
+        value = settings.get_str(SETTING)
+    except TypeError:
+        return True
+    return value.strip().lower() != "false"
+
+
 def publish(items, server):
     views = [
         View(i["Id"], i.get("Name", ""), i.get("CollectionType") or "mixed")
@@ -79,7 +105,8 @@ def publish(items, server):
     whitelist = [
         x.replace("Mixed:", "") for x in (private.get_sync().get("Whitelist") or [])
     ]
-    entries = node_entries(views, whitelist)
+    nodes = wanted()
+    entries = node_entries(views, whitelist) if nodes else []
     singles: List[Dict] = []
     try:
         if entries:
@@ -93,6 +120,12 @@ def publish(items, server):
         # The tree is presentation; the properties below still publish.
         LOG.exception("library node tree not written")
         singles = []
+    if not nodes:
+        # Without the tree a synced video library has no node to point at,
+        # so its entries are browse entries; a synced music library keeps
+        # Kodi's music root, which is Kodi's, not a file of ours.
+        music = {v.view_id for v in views if v.media_type == "music"}
+        whitelist = [x for x in whitelist if x in music]
     props.publish(
         views,
         {"Whitelist": whitelist, "SortedViews": [v.view_id for v in views]},

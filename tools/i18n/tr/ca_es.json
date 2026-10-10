@@ -498,5 +498,7 @@
   "#30853": "Contingut no descarregat",
   "#30854": "Revisa les llistes de reproducció subscrites; desmarca-les per deixar de sincronitzar les descàrregues.",
   "#30855": "Revisa les biblioteques de música subscrites; desmarca-les per deixar de sincronitzar les descàrregues.",
-  "#30990": "No disponible en aquesta versió prèvia"
+  "#30990": "No disponible en aquesta versió prèvia",
+  "#30856": "Nodes de biblioteca i llistes de reproducció",
+  "#30857": "Crea nodes de biblioteca de Kodi i llistes intel·ligents per a les biblioteques de vídeo sincronitzades, i copia les llistes de Jellyfin a Kodi a Vídeos → Llistes de reproducció → Kofin i Música → Llistes de reproducció → Kofin. Si ho desactives, s'eliminen tots els nodes i llistes que Kofin ha creat, els fitxers fets a mà es deixen intactes i les biblioteques sincronitzades es mostren a través de les entrades de navegació pròpies de Kofin."
 }

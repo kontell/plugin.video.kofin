@@ -498,5 +498,7 @@
   "#30853": "Innehållet har inte laddats ned",
   "#30854": "Granska prenumererade spellistor; avmarkera för att sluta synkronisera nedladdningar.",
   "#30855": "Granska prenumererade musikbibliotek; avmarkera för att sluta synkronisera nedladdningar.",
-  "#30990": "Inte tillgängligt i denna förhandsversion"
+  "#30990": "Inte tillgängligt i denna förhandsversion",
+  "#30856": "Biblioteksnoder och spellistor",
+  "#30857": "Skapa Kodi-biblioteksnoder och smarta spellistor för de synkade videobiblioteken och kopiera Jellyfin-spellistor till Kodi under Video → Spellistor → Kofin och Musik → Spellistor → Kofin. Avstängt tas alla noder och spellistor som Kofin skapat bort, handgjorda filer lämnas orörda och de synkade biblioteken visas via Kofins egna bläddringsposter i stället."
 }

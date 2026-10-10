@@ -498,5 +498,7 @@
   "#30853": "Innhold ikke lastet ned",
   "#30854": "Se gjennom abonnerte spillelister; fjern avmerkingen for å stoppe synkronisering av nedlastinger.",
   "#30855": "Se gjennom abonnerte musikkbiblioteker; fjern avmerkingen for å stoppe synkronisering av nedlastinger.",
-  "#30990": "Ikke tilgjengelig i denne prøveversjonen"
+  "#30990": "Ikke tilgjengelig i denne prøveversjonen",
+  "#30856": "Biblioteknoder og spillelister",
+  "#30857": "Opprett Kodi-biblioteknoder og smarte spillelister for de synkroniserte videobibliotekene, og kopier Jellyfin-spillelister til Kodi under Video → Spillelister → Kofin og Musikk → Spillelister → Kofin. Slås dette av, fjernes alle noder og spillelister Kofin har opprettet, håndlagde filer lates være, og de synkroniserte bibliotekene vises via Kofins egne bla-oppføringer i stedet."
 }

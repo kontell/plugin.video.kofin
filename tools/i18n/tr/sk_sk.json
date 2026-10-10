@@ -498,5 +498,7 @@
   "#30853": "Obsah nie je stiahnutý",
   "#30854": "Skontrolujte odoberané playlisty; zrušením výberu zastavíte synchronizáciu stiahnutých súborov.",
   "#30855": "Skontrolujte odoberané hudobné knižnice; zrušením výberu zastavíte synchronizáciu stiahnutých súborov.",
-  "#30990": "V tejto skúšobnej verzii nie je dostupné"
+  "#30990": "V tejto skúšobnej verzii nie je dostupné",
+  "#30856": "Uzly knižnice a zoznamy skladieb",
+  "#30857": "Vytvárať uzly knižnice Kodi a inteligentné zoznamy pre synchronizované video knižnice a kopírovať zoznamy Jellyfin do Kodi do Video → Zoznamy skladieb → Kofin a Hudba → Zoznamy skladieb → Kofin. Vypnutie odstráni všetky uzly a zoznamy, ktoré Kofin vytvoril, ručne vytvorené súbory ponechá a synchronizované knižnice zobrazí cez vlastné položky prehliadania Kofinu."
 }

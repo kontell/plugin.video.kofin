@@ -498,5 +498,7 @@
   "#30853": "A tartalom nincs letöltve",
   "#30854": "Nézd át a követett lejátszási listákat; a kijelölés törlésével leáll a letöltések szinkronizálása.",
   "#30855": "Nézd át a követett zenei könyvtárakat; a kijelölés törlésével leáll a letöltések szinkronizálása.",
-  "#30990": "Ebben az előzetes verzióban nem érhető el"
+  "#30990": "Ebben az előzetes verzióban nem érhető el",
+  "#30856": "Könyvtárcsomópontok és lejátszási listák",
+  "#30857": "Kodi-könyvtárcsomópontok és intelligens lejátszási listák létrehozása a szinkronizált videókönyvtárakhoz, és a Jellyfin-lejátszási listák másolása a Kodiba a Videók → Lejátszási listák → Kofin és a Zene → Lejátszási listák → Kofin alá. Kikapcsolva a Kofin által létrehozott minden csomópont és lista eltűnik, a kézzel készített fájlok megmaradnak, és a szinkronizált könyvtárak a Kofin saját tallózó bejegyzésein keresztül jelennek meg."
 }
