@@ -247,3 +247,19 @@ def test_a_write_the_catalogue_left_short_is_resolved_again_next_pass(
     assert (root / "Gym.m3u8").read_text(encoding="utf-8").count("#EXTINF") == 2
     # Complete, the Etag now skips it.
     assert api_playlists.reconcile(api, store, music_root=str(root))["tracks"] == 0
+
+
+def test_a_deferred_cleanup_reads_the_switch_again(store, monkeypatch):
+    """The cleanup is queued by the switch going off; run after it went back
+    on, it must not take the playlists the pass wrote back."""
+    from tests.unit.apifixtures import Server, worker
+
+    w = worker(store, Server({LIB: []}), [LIB], monkeypatch)
+    cleaned = []
+    monkeypatch.setattr(api_playlists, "cleanup", lambda: cleaned.append(True))
+    monkeypatch.setattr(api_playlists, "wanted", lambda: True)
+    w.command("CleanupMusicPlaylists", None)
+    assert cleaned == []
+    monkeypatch.setattr(api_playlists, "wanted", lambda: False)
+    w.command("CleanupMusicPlaylists", None)
+    assert cleaned == [True]
