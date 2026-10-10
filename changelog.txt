@@ -1,3 +1,8 @@
+v0.29.1
+- A sync no longer stalls when new content arrives during a large metadata update
+- Clean databases no longer makes Kodi ask to rescan music tags on every visit
+- Sync is routed through a backend boundary shared with the kofin-or preview; no change in behaviour
+
 v0.29.0
 - Music libraries and playlists can be downloaded and kept in sync
 - A transcoded download is sized before it starts
