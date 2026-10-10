@@ -228,6 +228,12 @@ def store(tmp_path, monkeypatch):
 @pytest.fixture
 def kodi(store, monkeypatch):
     """The fake answers at kodirpc, so every module's ``rpc`` reaches it."""
+    from tests.unit.fakes import FakeAddon
+
+    # A settings store that keeps what the pass writes (the movie-binding
+    # marker), fresh per test.
+    FakeAddon.store = {}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     fake = Kodi(store)
 
     def call(method, params=None):
@@ -366,6 +372,7 @@ def worker(store, server, selected, monkeypatch, feed=None):
     w._catchup_due = 0.0
     w._full_due = False
     w._repair = False
+    w._bindings_checked = False
     w.changefeed = feed
     w._unsynced_tried = set()
     w._queue = queue.Queue()

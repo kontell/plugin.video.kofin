@@ -500,5 +500,6 @@
   "#30855": "Granska prenumererade musikbibliotek; avmarkera för att sluta synkronisera nedladdningar.",
   "#30990": "Inte tillgängligt i denna förhandsversion",
   "#30856": "Biblioteksnoder och spellistor",
-  "#30857": "Skapa Kodi-biblioteksnoder och smarta spellistor för de synkade videobiblioteken och kopiera Jellyfin-spellistor till Kodi under Video → Spellistor → Kofin och Musik → Spellistor → Kofin. Avstängt tas alla noder och spellistor som Kofin skapat bort, handgjorda filer lämnas orörda och de synkade biblioteken visas via Kofins egna bläddringsposter i stället."
+  "#30857": "Skapa Kodi-biblioteksnoder och smarta spellistor för de synkade videobiblioteken och kopiera Jellyfin-spellistor till Kodi under Video → Spellistor → Kofin och Musik → Spellistor → Kofin. Avstängt tas alla noder och spellistor som Kofin skapat bort, handgjorda filer lämnas orörda och de synkade biblioteken visas via Kofins egna bläddringsposter i stället.",
+  "#30858": "Kodis inställning 'Ignorera videoextramaterial vid skanning' är nu av så att filmextramaterial kan importeras"
 }

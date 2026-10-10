@@ -500,5 +500,6 @@
   "#30855": "Vérifiez les bibliothèques musicales suivies ; décochez-les pour arrêter la synchronisation des téléchargements.",
   "#30990": "Indisponible dans cette préversion",
   "#30856": "Nœuds de bibliothèque et listes de lecture",
-  "#30857": "Créer des nœuds de bibliothèque Kodi et des listes de lecture intelligentes pour les bibliothèques vidéo synchronisées, et copier les listes de lecture Jellyfin dans Kodi sous Vidéos → Listes de lecture → Kofin et Musique → Listes de lecture → Kofin. Désactivé, tous les nœuds et listes créés par Kofin sont supprimés, les fichiers faits à la main sont laissés intacts et les bibliothèques synchronisées sont affichées par les entrées de navigation propres à Kofin."
+  "#30857": "Créer des nœuds de bibliothèque Kodi et des listes de lecture intelligentes pour les bibliothèques vidéo synchronisées, et copier les listes de lecture Jellyfin dans Kodi sous Vidéos → Listes de lecture → Kofin et Musique → Listes de lecture → Kofin. Désactivé, tous les nœuds et listes créés par Kofin sont supprimés, les fichiers faits à la main sont laissés intacts et les bibliothèques synchronisées sont affichées par les entrées de navigation propres à Kofin.",
+  "#30858": "Le réglage Kodi « Ignorer les bonus vidéo lors de l'analyse » est maintenant désactivé pour que les bonus des films puissent être importés"
 }

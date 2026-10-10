@@ -85,14 +85,37 @@ def enabled_kinds() -> Set[str]:
     return playlists.enabled_kinds(views, whitelist)
 
 
+def _drop_side(side: str, state, root) -> int:
+    """The managed files and the states of a side whose last library left
+    the selection, the way the whole feature's go when it is turned off."""
+    stale = [row for row in state.get_playlist_states() if row[1] == side]
+    if not stale:
+        return 0
+    if side == "Audio":
+        removed = playlists.cleanup_managed_playlists(root)
+    else:
+        removed = playlists.cleanup_video_playlists(root)
+    for row in stale:
+        state.remove_playlist_state(row[0])
+    LOG.info("%s playlists pruned: no synced library left (%d files)", side, removed)
+    return removed
+
+
 def reconcile(api, store: Store, music_root=None, video_root=None) -> Dict[str, int]:
-    """Every server playlist of the enabled sides, written and pruned."""
+    """Every server playlist of the enabled sides, written and pruned; a
+    side with no synced library left loses its files and states."""
     if not wanted():
         return {}
     kinds = enabled_kinds()
-    if not kinds:
-        return {}
     with private.Database() as db:
+        state = kofindb.JellyfinDatabase(db.cursor)
+        pruned = 0
+        if "Audio" not in kinds:
+            pruned += _drop_side("Audio", state, music_root)
+        if "Video" not in kinds:
+            pruned += _drop_side("Video", state, video_root)
+        if not kinds:
+            return {"pruned": pruned} if pruned else {}
         return playlists.reconcile(
             api,
             None,

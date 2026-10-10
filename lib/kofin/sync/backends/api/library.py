@@ -119,6 +119,8 @@ def fetch_kind(api, library, kind, abort=lambda: False, extra=None, on_page=None
             raise ValueError("short %s page" % kind)
         if on_page is not None:
             on_page(len(result), total)
+    if kind == "Movie":
+        attach_extras(api, result, abort)
     return result
 
 
@@ -128,7 +130,13 @@ fetch_movies = fetch_kind
 def attach_extras(api, items, abort=lambda: False):
     """A movie's special features travel in its payload: the scanner's
     listings never contact the server, and the movie folder's extras folder
-    is built from them. Only a movie whose count says it has any is asked."""
+    is built from them. Only a movie whose count says it has any is asked.
+
+    Every path that publishes a movie goes through here -- ``fetch_kind``
+    for an enumeration or a catch-up, ``fetch_items`` and ``flush_local``
+    for a single re-fetch -- because a payload without its features reads as
+    a movie without extras: the token goes empty and Clean, asking
+    ``provider.exists`` per file, would drop rows the server still has."""
     for item in items:
         if item.get("Type") != "Movie" or not item.get("SpecialFeatureCount"):
             continue
@@ -210,6 +218,7 @@ class Library(threading.Thread):
         # must not be retried on every tick ahead of the catch-up.
         self._unsynced_tried: Set[str] = set()
         self._playlists_due = False
+        self._bindings_checked = False
 
     def stop_client(self):
         self.stop_thread = True
@@ -420,8 +429,6 @@ class Library(threading.Thread):
                         kind,
                         time.monotonic() - began,
                     )
-                    if kind == "Movie":
-                        attach_extras(self.api, found, self._stop_event.is_set)
                     rows.extend(found)
                 fetched[library] = rows
         finally:
@@ -720,6 +727,9 @@ class Library(threading.Thread):
                     state["Whitelist"] = [i for i in state["Whitelist"] if i != library]
                     private.save_sync(state)
             self.update_selection_label()
+            # The playlists of a side whose last library left are pruned
+            # by the next pass (backends/api/playlists.reconcile).
+            self._playlists_due = True
             return
         if command == "removed":
             self.store.invalidate(self._removed_collection_members(data))
@@ -785,6 +795,15 @@ class Library(threading.Thread):
             self._repair = False
             status(xbmc.getLocalizedString(20177))
             self.flush_pending_reload()
+        elif not self._bindings_checked:
+            # Nothing pending, so no pass: the movie folders an older
+            # profile's rows never had bound are bound here, once per
+            # service generation (Native.bind_movie_folders).
+            self._bindings_checked = True
+            try:
+                native.bind_movie_folders()
+            except Exception:
+                LOG.exception("movie folder bindings not completed")
 
     def playlists_pass(self):
         """Rewrite the managed playlist files after an enumeration or a
@@ -838,6 +857,7 @@ class Library(threading.Thread):
             # Re-fetch the authoritative full DTO before acknowledging the
             # local outbox; a failed read remains replayable.
             item = metadata.compact(self.api.item(item_id))
+            attach_extras(self.api, [item])
             if self.store.entry(item_id) is not None:
                 self.store.publish([item])
             self.store.local_done(item_id, values)

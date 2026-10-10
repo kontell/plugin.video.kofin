@@ -828,11 +828,79 @@ def test_a_movie_scanned_by_name_is_bound_without_noupdate_for_the_scan_only(
     ]
     assert flags == [False, True]
     assert not store.pending()
-    # A folder bound before this rule (or never) is bound by the next repair,
-    # with nothing to scan.
-    kodi.bindings.pop(folder)
-    store.unbind(folder)
+
+
+def test_the_movie_folders_of_an_older_profile_are_bound_outside_the_pending_gate(
+    store, backend, kodi, monkeypatch
+):
+    """A pass plans pending rows only, so the folders of rows an earlier
+    build imported are bound from the catalogue: once with the flag forced
+    on for every folder (the store does not record a binding's flag), then
+    only the folders the store does not know, and nothing is scanned."""
+    from kofin.sync.backends.api import native as native_module
+    from tests.unit.fakes import FakeAddon
+
+    FakeAddon.store = {}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    backend.setup()
+    store.publish([movie("a"), movie("b")], library=LIB)
+    backend.reconcile()
+    a, b = (paths.movie_dir(store.namespace, LIB, i) for i in "ab")
+    assert FakeAddon.store[native_module.MOVIE_BINDINGS_SETTING] == "noupdate"
+    # An older profile: one folder never bound, one bound without the flag.
+    kodi.bindings.pop(a)
+    store.unbind(a)
+    kodi.noupdate[b] = False
+    FakeAddon.store[native_module.MOVIE_BINDINGS_SETTING] = ""
     kodi.scanned.clear()
-    backend.reconcile(repair=True)
-    assert kodi.bindings[folder] == "movies" and kodi.noupdate[folder] is True
+    kodi.calls.clear()
+    backend.bind_movie_folders()
+    assert kodi.bindings[a] == "movies" and kodi.noupdate[a] is True
+    assert kodi.noupdate[b] is True
     assert kodi.scanned == []
+    assert FakeAddon.store[native_module.MOVIE_BINDINGS_SETTING] == "noupdate"
+    # Done once: the next call binds nothing the store knows.
+    kodi.calls.clear()
+    backend.bind_movie_folders()
+    assert not methods(kodi, "VideoLibrary.SetSourceContent")
+    kodi.bindings.pop(b)
+    store.unbind(b)
+    backend.bind_movie_folders()
+    assert [p["path"] for p in methods(kodi, "VideoLibrary.SetSourceContent")] == [b]
+
+
+def test_the_library_binds_movie_folders_once_when_nothing_is_pending(
+    store, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from tests.unit.apifixtures import Server, worker
+
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    calls = []
+    native = SimpleNamespace(
+        reconcile=lambda repair=False: calls.append("reconcile"),
+        bind_movie_folders=lambda: calls.append("bind"),
+    )
+    assert not store.has_pending()
+    w.apply(native)
+    w.apply(native)
+    assert calls == ["bind"]
+
+
+def test_a_failed_scan_still_puts_noupdate_back_on_the_folders(
+    store, backend, kodi, monkeypatch
+):
+    backend.setup()
+    store.publish([movie("a"), movie("b"), movie("c")], library=LIB)
+    backend.reconcile()
+    store.publish([movie("a"), movie("b"), movie("c"), movie("d")], library=LIB)
+    folder = paths.movie_dir(store.namespace, LIB, "d")
+
+    def failing(*args, **kwargs):
+        raise OSError("scan lost")
+
+    monkeypatch.setattr(backend, "scan", failing)
+    with pytest.raises(OSError):
+        backend.reconcile()
+    assert kodi.noupdate[folder] is True

@@ -500,5 +500,6 @@
   "#30855": "Zkontrolujte odebírané hudební knihovny; zrušením výběru zastavíte synchronizaci stahování.",
   "#30990": "V této zkušební verzi není dostupné",
   "#30856": "Uzly knihovny a seznamy stop",
-  "#30857": "Vytvářet uzly knihovny Kodi a chytré seznamy pro synchronizované video knihovny a kopírovat seznamy Jellyfin do Kodi do Video → Seznamy stop → Kofin a Hudba → Seznamy stop → Kofin. Vypnutí odstraní všechny uzly a seznamy, které Kofin vytvořil, ručně vytvořené soubory ponechá a synchronizované knihovny zobrazí přes vlastní položky procházení Kofinu."
+  "#30857": "Vytvářet uzly knihovny Kodi a chytré seznamy pro synchronizované video knihovny a kopírovat seznamy Jellyfin do Kodi do Video → Seznamy stop → Kofin a Hudba → Seznamy stop → Kofin. Vypnutí odstraní všechny uzly a seznamy, které Kofin vytvořil, ručně vytvořené soubory ponechá a synchronizované knihovny zobrazí přes vlastní položky procházení Kofinu.",
+  "#30858": "Nastavení Kodi „Ignorovat video bonusy při skenování“ je nyní vypnuto, aby se daly importovat bonusy filmů"
 }

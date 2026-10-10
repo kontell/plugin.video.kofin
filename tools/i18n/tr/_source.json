@@ -554,5 +554,6 @@
   "#30855": "Review subscribed music libraries; untick to stop syncing downloads.",
   "#30856": "Library nodes and playlists",
   "#30857": "Create Kodi library nodes and smart playlists for the synced video libraries, and copy Jellyfin playlists into Kodi under Videos → Playlists → Kofin and Music → Playlists → Kofin. Turning this off removes every node and playlist Kofin created, leaves hand-made files alone, and lists the synced libraries through Kofin's own browse entries instead.",
+  "#30858": "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported",
   "#30990": "Not available in this preview"
 }

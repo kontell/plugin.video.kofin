@@ -518,8 +518,7 @@ class DownloadManager:
         as that sibling."""
         self._delete_media(row)
         store.remove(row.jellyfin_id)
-        self.native.unstamp_tag(row)
-        self.native.clear_badge(row)
+        self.native.detached(row)
 
     def _apply_remove_batch(
         self, item_ids: Iterable[str], subscription: bool = False
@@ -753,9 +752,7 @@ class DownloadManager:
         self._attempts.pop(item_id, None)
         finished = store.get(item_id)
         if finished is not None:
-            self.native.repoint(finished, root)
-            self.native.stamp_tag(finished)
-            self.native.stamp_badge(finished)
+            self.native.attached(finished, root)
         if media_type in store.VIDEO_MEDIA_TYPES:
             self._capture_segments(api, item_id)
         if settings.get_bool("downloadsExportMetadata"):
@@ -1237,9 +1234,7 @@ class DownloadManager:
                     self._handle_vanished(row, root)
                     touched = True
                     continue
-                if self.native.repoint(row, root):
-                    self.native.stamp_tag(row)  # idempotent; a repair wiped links
-                    self.native.stamp_badge(row)
+                if self.native.attached(row, root):
                     touched = True
                     if row.media_type == "song":
                         repointed_songs.add(row.jellyfin_id)

@@ -24,17 +24,11 @@ LOG = Logger(__name__)
 
 
 class Native(Protocol):
-    def repoint(self, row: Any, root: str) -> bool: ...
+    def attached(self, row: Any, root: str) -> bool: ...
+
+    def detached(self, row: Any) -> None: ...
 
     def restore(self, row: Any, root: str) -> bool: ...
-
-    def stamp_tag(self, row: Any) -> None: ...
-
-    def unstamp_tag(self, row: Any) -> None: ...
-
-    def stamp_badge(self, row: Any) -> None: ...
-
-    def clear_badge(self, row: Any) -> None: ...
 
     def mapped(self, item_id: str) -> bool: ...
 
@@ -77,35 +71,28 @@ def _as_epoch(stamp: Any) -> float:
 class NativeSql:
     """The SQL build: Kodi's rows are kofin's to move and stamp."""
 
-    def repoint(self, row: Any, root: str) -> bool:
+    def attached(self, row: Any, root: str) -> bool:
+        """The library row points at the file and carries the tag and the
+        badge; whether the row moved. The stamps are idempotent and go on
+        every time, so a repair that wiped the links is healed by the
+        startup reconcile."""
         from kofin.downloads import repoint
 
-        return bool(repoint.repoint(row, root))
+        moved = bool(repoint.repoint(row, root))
+        repoint.stamp_tag(row)
+        repoint.stamp_badge(row)
+        return moved
+
+    def detached(self, row: Any) -> None:
+        from kofin.downloads import repoint
+
+        repoint.unstamp_tag(row)
+        repoint.clear_badge(row)
 
     def restore(self, row: Any, root: str) -> bool:
         from kofin.downloads import repoint
 
         return bool(repoint.restore(row, root))
-
-    def stamp_tag(self, row: Any) -> None:
-        from kofin.downloads import repoint
-
-        repoint.stamp_tag(row)
-
-    def unstamp_tag(self, row: Any) -> None:
-        from kofin.downloads import repoint
-
-        repoint.unstamp_tag(row)
-
-    def stamp_badge(self, row: Any) -> None:
-        from kofin.downloads import repoint
-
-        repoint.stamp_badge(row)
-
-    def clear_badge(self, row: Any) -> None:
-        from kofin.downloads import repoint
-
-        repoint.clear_badge(row)
 
     def mapped(self, item_id: str) -> bool:
         from kofin.downloads import repoint
@@ -209,9 +196,16 @@ class NativeApi:
 
         return current_store()
 
-    def repoint(self, row: Any, root: str) -> bool:
-        # The row keeps its plugin URL and the resolver plays the file.
-        return False
+    def attached(self, row: Any, root: str) -> bool:
+        """The row keeps its plugin URL (the resolver plays the file); the
+        pass is handed the item once, for the badge and the tag. Always
+        true: the startup reconcile re-plans every done file, which is how
+        a finish that died before this call still gets its badge."""
+        self._replan(row)
+        return True
+
+    def detached(self, row: Any) -> None:
+        self._replan(row)
 
     def restore(self, row: Any, root: str) -> bool:
         return True
@@ -229,11 +223,6 @@ class NativeApi:
             LOG.exception(
                 "download state of %s not handed to the pass", row.jellyfin_id
             )
-
-    stamp_tag = _replan
-    unstamp_tag = _replan
-    stamp_badge = _replan
-    clear_badge = _replan
 
     def mapped(self, item_id: str) -> bool:
         try:

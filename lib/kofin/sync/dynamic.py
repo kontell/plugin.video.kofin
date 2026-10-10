@@ -22,26 +22,31 @@ wrote go the way an empty whitelist takes them and a synced video library is
 published as a browse entry, like an unsynced one; Kodi's own library and the
 rows in it are untouched. The SQL build's ``syncMusicPlaylists`` is the other
 build's switch, and each package ships one (``tools/package_manifest.py``).
+
+Kodi's shipped video nodes are seeded into the profile before the tree is
+written (``kodisetup.seed_default_nodes``): the moment
+``special://profile/library/video/`` exists, every ``library://video/...``
+path resolves there and nowhere else (CLibraryDirectory::GetDirectory, no
+merge), so a profile holding only ``kofin/`` lists nothing for
+``library://video/movies/`` and a skin's categories row goes empty -- as
+the P1D's did until the seed. The music tree is not written in this build,
+so the music folder is left to Kodi.
 """
 
 from typing import Dict, List, NamedTuple, Tuple
 
 from kofin.core import settings
 from kofin.core.log import Logger
-from kofin.sync import playlists, private
+from kofin.sync import kodisetup, playlists, private
+from kofin.sync.backends.api.metadata import (  # noqa: F401  (re-exported)
+    LIBRARY_TAG_PREFIX,
+    library_tag,
+)
 from kofin.sync.nodes import props, video
 
 LOG = Logger(__name__)
 
 SETTING = "libraryNodes"
-
-# The tag the API backend puts on every row of a library (metadata.tags),
-# and the one the library's filter nodes select by.
-LIBRARY_TAG_PREFIX = "kofin.library."
-
-
-def library_tag(library: str) -> str:
-    return LIBRARY_TAG_PREFIX + library
 
 
 class View(NamedTuple):
@@ -110,6 +115,7 @@ def publish(items, server):
     singles: List[Dict] = []
     try:
         if entries:
+            kodisetup.seed_default_nodes("video")
             singles = video.single_nodes()
             video.write_tree(entries, singles)
             playlists.write_video_playlists(entries)

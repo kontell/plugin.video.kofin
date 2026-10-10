@@ -500,5 +500,6 @@
   "#30855": "Revisa las bibliotecas de música suscritas; desmárcalas para dejar de sincronizar las descargas.",
   "#30990": "No disponible en esta versión preliminar",
   "#30856": "Nodos de biblioteca y listas de reproducción",
-  "#30857": "Crea nodos de biblioteca de Kodi y listas inteligentes para las bibliotecas de vídeo sincronizadas, y copia las listas de Jellyfin a Kodi en Vídeos → Listas de reproducción → Kofin y Música → Listas de reproducción → Kofin. Al desactivarlo se eliminan todos los nodos y listas que Kofin creó, los archivos hechos a mano se dejan intactos y las bibliotecas sincronizadas se muestran a través de las entradas de exploración propias de Kofin."
+  "#30857": "Crea nodos de biblioteca de Kodi y listas inteligentes para las bibliotecas de vídeo sincronizadas, y copia las listas de Jellyfin a Kodi en Vídeos → Listas de reproducción → Kofin y Música → Listas de reproducción → Kofin. Al desactivarlo se eliminan todos los nodos y listas que Kofin creó, los archivos hechos a mano se dejan intactos y las bibliotecas sincronizadas se muestran a través de las entradas de exploración propias de Kofin.",
+  "#30858": "La opción de Kodi «Ignorar extras de vídeo al escanear» está ahora desactivada para poder importar los extras de las películas"
 }

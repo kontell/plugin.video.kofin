@@ -16,7 +16,6 @@ import xbmc
 import xbmcgui
 
 from kofin.plugin import listitems
-from kofin.sync import dynamic
 from kofin.sync.model import ratings as shared_ratings, streams_and_runtime
 from kofin.sync.shims import convert_to_local
 from . import paths
@@ -117,6 +116,15 @@ _EXTRA_KEYS = (
 )
 
 
+# The tag every row of a library carries (tags), and the one the library's
+# filter nodes select by (sync/dynamic.py): spelled here, where it is written.
+LIBRARY_TAG_PREFIX = "kofin.library."
+
+
+def library_tag(library: str) -> str:
+    return LIBRARY_TAG_PREFIX + library
+
+
 def compact_extra(feature):
     """A movie's special feature as its payload carries it."""
     result = {k: feature[k] for k in _EXTRA_KEYS if k in feature}
@@ -161,8 +169,8 @@ def assets_token(item) -> str:
         {
             "versions": [[s["Id"], s.get("Name") or ""] for s in sources],
             "extras": [
-                [f["Id"], paths.extra_name(f), paths.video_container_of(f)]
-                for f in features
+                [f["Id"], stem, paths.video_container_of(f)]
+                for stem, f in paths.extra_stems(features)
             ],
         }
     )
@@ -260,7 +268,7 @@ def tags(item, library, kind="Movie"):
     if kind not in FAVORITE_TAG:
         return []
     values = [value.strip(ASCII_SPACE) for value in item.get("Tags") or []]
-    values.append(dynamic.library_tag(library))
+    values.append(library_tag(library))
     if (item.get("UserData") or {}).get("IsFavorite"):
         values.append(FAVORITE_TAG[kind])
     return sorted(set(value for value in values if value))

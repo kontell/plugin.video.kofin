@@ -60,8 +60,8 @@ def test_a_download_puts_the_badge_and_tag_on_the_row_and_its_removal_takes_them
     kodi.calls.clear()
     port = nativeport.NativeApi()
     row = downloaded_movie()
-    assert port.repoint(row, "/dl") is False and port.restore(row, "/dl") is True
-    port.stamp_badge(row)
+    # Attached: the pass is handed the item, and always has work.
+    assert port.attached(row, "/dl") is True and port.restore(row, "/dl") is True
     backend.reconcile()
     (kodi_row,) = kodi.rows["Movie"].values()
     assert kodi_row["art"][downloaded.BADGE_ART] == downloaded.BADGE_URL
@@ -76,7 +76,7 @@ def test_a_download_puts_the_badge_and_tag_on_the_row_and_its_removal_takes_them
     assert not methods(kodi, "VideoLibrary.SetMovieDetails")
     # The download goes: the badge and the tag go with it, nothing else does.
     downloads.remove("a")
-    port.clear_badge(row)
+    port.detached(row)
     backend.reconcile()
     (kodi_row,) = kodi.rows["Movie"].values()
     assert downloaded.BADGE_ART not in kodi_row["art"]
@@ -115,10 +115,51 @@ def test_the_sql_port_is_the_repoint_module(monkeypatch):
         repoint, "restore", lambda row, root: calls.append(("restore", root)) or True
     )
     monkeypatch.setattr(
+        repoint, "repoint", lambda row, root: calls.append(("repoint", root)) or False
+    )
+    monkeypatch.setattr(
+        repoint, "stamp_tag", lambda row: calls.append(("tag", row.jellyfin_id))
+    )
+    monkeypatch.setattr(
         repoint, "stamp_badge", lambda row: calls.append(("badge", row.jellyfin_id))
     )
     port = nativeport.NativeSql()
     row = Download(jellyfin_id="a", media_type="movie")
     assert port.restore(row, "/dl") is True
-    port.stamp_badge(row)
-    assert calls == [("restore", "/dl"), ("badge", "a")]
+    # The stamps go on whether or not the row moved.
+    assert port.attached(row, "/dl") is False
+    assert calls == [
+        ("restore", "/dl"),
+        ("repoint", "/dl"),
+        ("tag", "a"),
+        ("badge", "a"),
+    ]
+
+
+def test_a_season_s_download_menu_finds_its_episodes_through_the_catalogue(
+    store, monkeypatch
+):
+    """The catalogue files an episode under its series, so a season is
+    answered by the series' downloads whose payload names the season."""
+    from kofin import buildconfig
+    from tests.unit.apifixtures import SHOW, episode, season, series
+
+    monkeypatch.setattr(buildconfig, "BACKEND", "api")
+    store.publish(
+        [
+            series(),
+            season("s1", number=1),
+            season("s2", number=2),
+            episode("e1", season_number=1, SeasonId="s1"),
+            episode("e2", season_number=2, SeasonId="s2"),
+        ],
+        library=LIB,
+    )
+    for item_id in ("e1", "e2"):
+        downloads.queue(
+            Download(jellyfin_id=item_id, media_type="episode", series_id=SHOW)
+        )
+        downloads.finish(item_id, "Shows/x/%s.mkv" % item_id, "mkv", 1)
+    assert downloads.container_states("s1") == {"e1": downloads.DONE}
+    assert downloads.container_states("s2") == {"e2": downloads.DONE}
+    assert set(downloads.container_states(SHOW)) == {"e1", "e2"}

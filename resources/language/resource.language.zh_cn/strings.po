@@ -2236,6 +2236,10 @@ msgctxt "#30857"
 msgid "Create Kodi library nodes and smart playlists for the synced video libraries, and copy Jellyfin playlists into Kodi under Videos → Playlists → Kofin and Music → Playlists → Kofin. Turning this off removes every node and playlist Kofin created, leaves hand-made files alone, and lists the synced libraries through Kofin's own browse entries instead."
 msgstr "为已同步的视频资料库创建 Kodi 资料库节点和智能播放列表，并将 Jellyfin 播放列表复制到 Kodi 的 视频 → 播放列表 → Kofin 和 音乐 → 播放列表 → Kofin。关闭后会删除 Kofin 创建的所有节点和播放列表，手动创建的文件保持不动，已同步的资料库改为通过 Kofin 自己的浏览条目显示。"
 
+msgctxt "#30858"
+msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
+msgstr "已关闭 Kodi 的“扫描时忽略视频花絮”设置，以便导入电影花絮"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "此预览版暂不支持"
