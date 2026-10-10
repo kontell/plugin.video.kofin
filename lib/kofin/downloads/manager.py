@@ -20,7 +20,6 @@ at the next start, resuming originals from ``bytes_done`` with a Range.
 import os
 import threading
 import time
-from datetime import datetime
 from queue import Empty, Queue
 from typing import (
     Any,
