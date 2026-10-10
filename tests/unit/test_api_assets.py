@@ -525,7 +525,7 @@ def test_ungrouped_versions_are_published_for_the_companion_and_closed_by_readba
     assert document["v"] == 2 and document["generation"] == 1
     assert document["namespace"] == store.namespace
     assert document["device"] == "device-1"
-    assert document["kinds"] == [companion.GROUP_VERSIONS]
+    assert document["kinds"] == list(companion.KINDS)
     contractschema.check_document(document, contractschema.load(companion.SCHEMA_PATH))
     (request,) = document["requests"]
     assert request["kind"] == companion.GROUP_VERSIONS
