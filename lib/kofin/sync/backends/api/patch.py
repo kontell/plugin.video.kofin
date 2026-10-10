@@ -573,7 +573,21 @@ class Applier:
                 return None
         compare = merge(kind, desired, row, previous.get("owned", {}))
         if matches(row, compare) and (
-            not repair or previous.get("hash") == applied["hash"]
+            # A song's desired state is its play count and last played, and
+            # the readback shows both: a matching row has nothing a repair
+            # could re-send, and the setter is not free -- UpdateSong
+            # rewrites the song's dateAdded from the file's timestamp, which
+            # for a plugin path is the moment of the call.
+            kind == "Audio"
+            # As for video (plan): a row with no acknowledgement was filed
+            # by the scanner from this very listing, and the pass after a
+            # complete enumeration runs as a repair. Without this a first
+            # import sent a setter for every song, 230 ms each on a
+            # Raspberry Pi: 308 s of a 357 s pass for 1,353 songs, six of
+            # them ever played.
+            or not repair
+            or mapping is None
+            or previous.get("hash") == applied["hash"]
         ):
             self.ack(record.item_id, record.generation, kodi_id, applied, kind)
             return None

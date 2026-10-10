@@ -82,6 +82,40 @@ def test_music_import_files_songs_under_album_directories(store, backend, kodi):
     assert not [m for m, _ in kodi.calls if m.startswith("AudioLibrary.Set")]
 
 
+def test_a_first_import_under_repair_writes_only_the_played_song(store, backend, kodi):
+    """The pass after a complete enumeration runs as a repair, and the first
+    of them is the import itself: a row the scanner has just filed with the
+    userdata the server holds is acknowledged, never written."""
+    items = album_bundle(songs=3) + album_bundle(ALBUM2, ARTIST2, songs=2, prefix="u")
+    items[2]["UserData"] = {
+        "Played": True,
+        "PlayCount": 4,
+        "LastPlayedDate": "2026-07-10T19:17:42Z",
+    }
+    store.publish(items, library=LIB)
+    backend.reconcile(repair=True)
+    assert not store.pending()
+    patches = methods(kodi, "AudioLibrary.SetSongDetails")
+    assert len(patches) == 1 and patches[0]["playcount"] == 4
+    assert owned_songs(kodi)["tc31"]["playcount"] == 4
+
+
+def test_a_repair_sends_nothing_for_a_song_whose_userdata_matches(store, backend, kodi):
+    """A song's desired state is its userdata and the readback shows all of
+    it, so a moved payload hash is no reason to write: the setter would only
+    re-stamp the song's dateAdded."""
+    store.publish(album_bundle(songs=2), library=LIB)
+    backend.reconcile()
+    kodi.calls.clear()
+    kodi.music_scanned.clear()
+    # A field neither the tags nor the userdata read.
+    store.publish([song("tc31", ALBUM, 1, Etag="moved")])
+    backend.reconcile(repair=True)
+    assert not kodi.music_scanned
+    assert not methods(kodi, "AudioLibrary.SetSongDetails")
+    assert not store.pending()
+
+
 def test_metadata_change_rescans_only_that_album_and_keeps_ids(store, backend, kodi):
     store.publish(
         album_bundle(songs=2) + album_bundle(ALBUM2, ARTIST2, 2, "u"), library=LIB
