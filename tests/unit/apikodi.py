@@ -53,6 +53,8 @@ class Kodi:
         # flag, the extras filed on a movie row, and the extras folders a
         # scan turned into phantom discs instead.
         self.settings = {"videolibrary.ignorevideoextras": True}
+        # "Download actor thumbnails" as each video scan found it.
+        self.scan_actor_thumbs = []
         # Installed add-ons the service may ask about, and NotifyAll sends.
         self.addons = {}
         self.notified = []
@@ -160,6 +162,7 @@ class Kodi:
 
     def scan(self, directory):
         self.scanned.append(directory)
+        self.scan_actor_thumbs.append(self.settings.get("videolibrary.actorthumbs"))
         location = paths.parse(directory)
         assert location is not None and location.library, directory
         library = location.library

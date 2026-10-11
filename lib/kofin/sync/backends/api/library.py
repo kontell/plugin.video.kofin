@@ -366,6 +366,13 @@ class Library(threading.Thread):
         self.store.initialize(self.api.server)
         native = Native(self.store, self._stop_event.is_set)
         native.setup()
+        # A Kodi stopped mid-scan never gave back the setting the scan was
+        # holding (Native.without_actor_thumbs); a pass would, but none may
+        # be due.
+        try:
+            native.restore_settings()
+        except Exception:
+            LOG.exception("held Kodi settings not restored; the next pass retries")
         self.startup_done = True
         # Recover native work before trying to reach Jellyfin.
         while not self.stop_thread and not monitor.abortRequested():

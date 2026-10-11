@@ -324,6 +324,104 @@ def test_a_shows_episodes_are_read_once_for_all_its_seasons(
     assert len(reads) == 1
 
 
+def test_a_large_video_scan_runs_without_actor_thumbnails_and_gives_them_back(
+    store, backend, kodi
+):
+    """With "Download actor thumbnails" on, Kodi's scanner queues a texture
+    job for every cast member of every item it files. A scan of many rows
+    runs with the setting off and restores it; a few rows are not worth it,
+    and a setting the user has off stays off."""
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = True
+    backend.setup()
+    store.publish([movie(), movie("b")], library=LIB)
+    backend.reconcile()
+    assert kodi.scan_actor_thumbs == [True]
+    many = [movie("%03x" % n) for n in range(0x100, 0x100 + native.ACTOR_THUMBS_FLOOR)]
+    store.publish([movie(), movie("b")] + many, library=LIB)
+    backend.reconcile()
+    assert kodi.scan_actor_thumbs[1:] and not any(kodi.scan_actor_thumbs[1:])
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is True
+    assert store.held_settings() == {}
+    assert len(kodi.owned("Movie")) == len(many) + 2
+
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = False
+    kodi.scan_actor_thumbs.clear()
+    more = [movie("%03x" % n) for n in range(0x300, 0x300 + native.ACTOR_THUMBS_FLOOR)]
+    store.publish([movie(), movie("b")] + many + more, library=LIB)
+    backend.reconcile()
+    assert kodi.scan_actor_thumbs and not any(kodi.scan_actor_thumbs)
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is False
+    assert store.held_settings() == {}
+
+
+def test_held_settings_read_a_store_made_before_the_table_existed(store):
+    """A profile from an earlier build has no api_held table; the first
+    thing a pass does with it is read it."""
+    with private.Database() as db:
+        db.cursor.execute("DROP TABLE IF EXISTS api_held")
+    assert store.held_settings() == {}
+    with private.Database() as db:
+        db.cursor.execute("DROP TABLE IF EXISTS api_held")
+    store.hold_setting("videolibrary.actorthumbs", True)
+    assert store.held_settings() == {"videolibrary.actorthumbs": True}
+    store.release_setting("videolibrary.actorthumbs")
+    assert store.held_settings() == {}
+
+
+def test_a_refused_settings_call_never_costs_the_scan(
+    store, backend, kodi, monkeypatch
+):
+    """The hold shortens a scan; it is never a reason not to run one."""
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = True
+    backend.setup()
+    real = native.rpc
+
+    def refusing(method, params=None):
+        if method == "Settings.GetSettingValue":
+            raise RuntimeError("Kodi refused " + method)
+        return real(method, params)
+
+    monkeypatch.setattr(native, "rpc", refusing)
+    many = [movie("%03x" % n) for n in range(0x100, 0x100 + native.ACTOR_THUMBS_FLOOR)]
+    store.publish(many, library=LIB)
+    backend.reconcile()
+    assert len(kodi.owned("Movie")) == len(many)
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is True
+    assert store.held_settings() == {}
+
+
+def test_a_setting_held_by_a_scan_that_never_ended_is_given_back(
+    store, backend, kodi, monkeypatch
+):
+    """Kodi stopped mid-scan: the record of the user's value outlives it,
+    the next pass restores it, and a hold found already recorded keeps the
+    first value, which was the user's."""
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = True
+    backend.setup()
+    store.publish(
+        [movie("%03x" % n) for n in range(0x100, 0x100 + native.ACTOR_THUMBS_FLOOR)],
+        library=LIB,
+    )
+
+    def dies(*args, **kwargs):
+        raise KeyboardInterrupt("Kodi went away")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(backend, "scan", dies)
+        patch.setattr(Native, "restore_settings", lambda self: None)
+        with pytest.raises(KeyboardInterrupt):
+            backend.reconcile()
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is False
+    assert store.held_settings() == {native.ACTOR_THUMBS_SETTING: True}
+    # The pass's own value, read after the hold, never replaces the user's.
+    store.hold_setting(native.ACTOR_THUMBS_SETTING, False)
+    assert store.held_settings() == {native.ACTOR_THUMBS_SETTING: True}
+
+    backend.restore_settings()
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is True
+    assert store.held_settings() == {}
+
+
 def test_collections_file_sets_at_import_and_patch_set_details(store, backend, kodi):
     store.publish(
         [

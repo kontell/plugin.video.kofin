@@ -127,7 +127,37 @@ class Store(Catalogue):
                 PRIMARY KEY(namespace,item_id));
             CREATE TABLE IF NOT EXISTS api_setup(
                 id INTEGER PRIMARY KEY CHECK(id=1), namespace TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS api_held(
+                setting TEXT PRIMARY KEY, value TEXT NOT NULL);
         """)
+
+    # -- Kodi settings a scan owes back --------------------------------------
+
+    def hold_setting(self, setting, value):
+        """Record the value a Kodi setting had before a scan changed it. The
+        first record wins: a hold a stopped Kodi left behind is the user's
+        value, and the one read after it is the pass's own."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute(
+                "INSERT OR IGNORE INTO api_held VALUES (?,?)",
+                (setting, json.dumps(value)),
+            )
+
+    def held_settings(self) -> Dict[str, Any]:
+        with Database() as db:
+            self._prepare(db.cursor)
+            return {
+                setting: json.loads(value)
+                for setting, value in db.cursor.execute(
+                    "SELECT setting, value FROM api_held"
+                ).fetchall()
+            }
+
+    def release_setting(self, setting):
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute("DELETE FROM api_held WHERE setting=?", (setting,))
 
     # -- lifecycle -----------------------------------------------------------
 

@@ -15,6 +15,7 @@ import or the one album a song was renamed in.
 """
 
 import time
+from contextlib import contextmanager
 from typing import Dict, List, Optional, Set, Tuple
 
 import xbmc
@@ -41,6 +42,10 @@ HOLD_RENEW = 480.0
 # Kodi drops an extras folder from a movies listing while this is on (its
 # default); the pass turns it off when a folder with extras is first scanned.
 EXTRAS_SETTING = "videolibrary.ignorevideoextras"
+ACTOR_THUMBS_SETTING = "videolibrary.actorthumbs"
+# A video scan expected to file at least this many rows runs with Kodi's
+# "Download actor thumbnails" off (Native.without_actor_thumbs).
+ACTOR_THUMBS_FLOOR = 100
 # The profile has had every movie folder bound with noupdate
 # (Native.bind_movie_folders); a hidden string setting, since the store
 # does not record a binding's flag.
@@ -514,6 +519,64 @@ class Native:
             toast.show(settings.localized(30858))
         self._extras_allowed = True
 
+    @contextmanager
+    def without_actor_thumbs(self, rows):
+        """Run a large video scan with Kodi's "Download actor thumbnails" off,
+        and put the setting back.
+
+        With it on the scanner asks the texture cache for every cast
+        member's picture before it files the item (FetchActorThumbs,
+        VideoInfoScanner.cpp): a lookup in the texture database behind the
+        lock its one worker holds while it writes, then a search of the
+        whole job queue for a duplicate (CJobQueue::AddJob), twenty times a
+        movie, into a queue that a first import fills faster than the worker
+        empties it. The pictures are not lost by the hold: the listing gives
+        every actor's URL, AddActor stores it, and Kodi fetches a picture the
+        first time something shows it.
+
+        The value is recorded before it is changed (store.hold_setting), so
+        a Kodi stopped mid-scan gets it back at the next start
+        (restore_settings)."""
+        held = False
+        if rows >= ACTOR_THUMBS_FLOOR:
+            try:
+                reply = rpc(
+                    "Settings.GetSettingValue", {"setting": ACTOR_THUMBS_SETTING}
+                )
+                if isinstance(reply, dict) and reply.get("value") is True:
+                    self.store.hold_setting(ACTOR_THUMBS_SETTING, True)
+                    rpc(
+                        "Settings.SetSettingValue",
+                        {"setting": ACTOR_THUMBS_SETTING, "value": False},
+                    )
+                    held = True
+                    LOG.info(
+                        "Kodi setting %s off for a scan of %d rows",
+                        ACTOR_THUMBS_SETTING,
+                        rows,
+                    )
+            except RuntimeError as error:
+                # The scan is the work; the hold only makes it shorter.
+                LOG.warning("actor thumbnails left on for the scan: %s", error)
+        try:
+            yield
+        finally:
+            if held:
+                try:
+                    self.restore_settings()
+                except RuntimeError as error:
+                    # Kodi is going away; the record outlives it.
+                    LOG.warning("%s; restored at the next pass", error)
+
+    def restore_settings(self):
+        """Give back every Kodi setting a scan was holding: the scan that
+        just ended, or one a stopped Kodi never finished. The record goes
+        only after Kodi took the value."""
+        for setting, value in self.store.held_settings().items():
+            rpc("Settings.SetSettingValue", {"setting": setting, "value": value})
+            self.store.release_setting(setting)
+            LOG.info("Kodi setting %s back to %r", setting, value)
+
     def _prepare_scan(self, directory):
         """List a movie's extras folder through Kodi just before the folder
         is scanned, with the disc folders the scanner probes for below it.
@@ -625,6 +688,7 @@ class Native:
         # running that outlives it. Wait for Kodi to finish using it before
         # publishing the newer desired view to a scan, however long it runs.
         self.wait(lambda: self._idle("any"), busy=lambda: not self._idle("any"))
+        self.restore_settings()
         self.store.pin()
         self.readback.clear()
         self.rescanned = set()
@@ -842,7 +906,10 @@ class Native:
                 self.bind_folders("movies", scanned_movie_folders, force=True)
             if directories:
                 self.store.expect_many(expectations)
-                self.scan(directories, expected=expected, prepare=self._prepare_scan)
+                with self.without_actor_thumbs(sum(expected.values())):
+                    self.scan(
+                        directories, expected=expected, prepare=self._prepare_scan
+                    )
         finally:
             # The flag goes back whether the scan finished or not, and
             # whether the lift itself finished: without it Kodi's own Update
