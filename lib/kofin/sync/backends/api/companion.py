@@ -32,7 +32,7 @@ import hashlib
 import json
 import os
 import threading
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
 from kofin.core import contract, kodirpc, settings
 from kofin.core.log import Logger
@@ -165,8 +165,25 @@ def publish(native) -> int:
 
 
 def publish_live(kind: str, requests: Sequence[Dict[str, Any]]) -> None:
-    """Replace the requests of one live kind, keeping every other kind's."""
+    """Replace the requests of one live kind, keeping every other kind's.
+    For the kind as a whole (a generation start clears it); a claim adds
+    and removes its own request with ``put_live`` and ``drop_live``."""
     _write("", (kind,), list(requests))
+
+
+def put_live(request: Dict[str, Any]) -> None:
+    """Add one live request, or replace the one that carries its id. Every
+    other request stays, of its own kind too: a claim publishes beside
+    whatever an earlier claim has not withdrawn yet."""
+    wanted = str(request["id"])
+    _replace("", lambda r: str(r.get("id")) == wanted, [dict(request)])
+
+
+def drop_live(request_id: str) -> None:
+    """Remove one live request by its id, and nothing else: a claim
+    withdraws what it published. Replacing the whole kind from a claim's
+    janitor thread took the next claim's request with it."""
+    _replace("", lambda r: str(r.get("id")) == request_id, [])
 
 
 def _namespace(current: Dict[str, Any]) -> str:
@@ -187,13 +204,19 @@ def _write(
     """The document with ``kinds`` replaced by ``requests``; rewritten and
     announced only when the set of ids changed or the document is of an
     older version. Returns the document's requests."""
+    return _replace(namespace, lambda r: r.get("kind") in kinds, requests)
+
+
+def _replace(
+    namespace: str,
+    gone: Callable[[Dict[str, Any]], bool],
+    requests: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """The document with every request ``gone`` accepts removed and
+    ``requests`` added, under the one lock both writers share."""
     with _LOCK:
         current = read()
-        kept = [
-            r
-            for r in current["requests"]
-            if isinstance(r, dict) and r.get("kind") not in kinds
-        ]
+        kept = [r for r in current["requests"] if isinstance(r, dict) and not gone(r)]
         merged = kept + requests
         if current.get("v") == VERSION and sorted(
             str(r.get("id")) for r in merged

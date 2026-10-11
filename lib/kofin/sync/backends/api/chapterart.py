@@ -21,6 +21,7 @@ import os
 import shutil
 import threading
 import time
+import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 import xbmc
@@ -63,8 +64,15 @@ def stage_dir() -> str:
     return os.path.join(private.addon_data_path(), STAGE)
 
 
-def request_id(item_id: str, path: str) -> str:
-    key = json.dumps([companion.CHAPTER_ART, item_id, path], separators=(",", ":"))
+def request_id(item_id: str, path: str, claim: str = "") -> str:
+    """The id of one claim's request, which is also its staging directory.
+
+    ``claim`` is a token of the claim's own. Without it a replay of the
+    same item had the id, and so the directory, of the play before it,
+    whose janitor thread was still on its way to remove both."""
+    key = json.dumps(
+        [companion.CHAPTER_ART, item_id, path, claim], separators=(",", ":")
+    )
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
@@ -118,9 +126,11 @@ class ChapterArt:
         self._item = item
         self._cancel = threading.Event()
         self._thread: Optional[threading.Thread] = None
-        self._directory = os.path.join(
-            stage_dir(), request_id(item["Id"], item["Path"])
-        )
+        # This claim's request and staging directory, and nobody else's:
+        # stop() returns before the janitor has run, and the next claim is
+        # constructed straight after it.
+        self._id = request_id(item["Id"], item["Path"], uuid.uuid4().hex)
+        self._directory = os.path.join(stage_dir(), self._id)
         self._published = False
 
     def start(self) -> None:
@@ -166,7 +176,7 @@ class ChapterArt:
             shutil.rmtree(self._directory, ignore_errors=True)
             return
         request = {
-            "id": request_id(item["Id"], item["Path"]),
+            "id": self._id,
             "kind": companion.CHAPTER_ART,
             "library": "",
             "item": item["Id"],
@@ -174,7 +184,7 @@ class ChapterArt:
             "session": str(item.get("PlaySessionId") or ""),
             "chapters": entries,
         }
-        companion.publish_live(companion.CHAPTER_ART, [request])
+        companion.put_live(request)
         self._published = True
         seeded = self._await(len(entries))
         if seeded == len(entries):
@@ -242,7 +252,9 @@ class ChapterArt:
             thread.join(timeout=30)
         if self._published:
             try:
-                companion.publish_live(companion.CHAPTER_ART, [])
+                # By id: a newer claim's request, this item's or another's,
+                # is not this claim's to withdraw.
+                companion.drop_live(self._id)
                 left = self._await(0)
                 LOG.debug(
                     "<-- chapter art %s withdrawn (%d row(s) left)",
