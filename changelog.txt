@@ -1,10 +1,15 @@
+v0.93.1
+- Faster first import of music, movies and TV shows in the API build.
+- Requests for the Kofin Companion add-on: grouped movie versions, retired versions and extras, chapter images, favourite-episode tags, season plots, stream flags and emptied collections.
+- A large video import runs with Kodi's "Download actor thumbnails" off and puts the setting back afterwards.
+- A long import no longer slows other add-ons.
+
 v0.93.0
-- Movie versions and extras in the API build: a movie's alternate versions and special features are files in its folder. Kodi imports a version as a movie of its own, to be grouped in the Versions Manager, and the extras under the movie.
+- Movie versions and extras in the API build: Kodi imports a version as a movie of its own, to be grouped in the Versions Manager.
 - Kodi's "Ignore video extras on scan" is turned off once for the extras import, with a notice.
-- Library nodes and smart playlists for the synced video libraries, and Jellyfin playlists under Videos → Playlists → Kofin and Music → Playlists → Kofin; one setting on the Sync tab switches all of it.
-- Kodi's own Movies and TV shows nodes are kept beside Kofin's, so the home screen's categories rows stay. Restart Kodi once after upgrading.
-- The full cast shows in a movie's information dialog again: every movie folder carries its scraper binding.
-- Downloads in the API build: a downloaded item plays from disk however it is reached, carries the badge and the Kofin Downloads tag, and nothing of Kodi's rows is moved.
+- Settings toggle for Library nodes and smart playlists.
+- The full cast shows in a movie's information dialog again.
+- Downloads in the API build.
 - What the stock interfaces cannot do, grouping a movie's versions, is published as a request document for a companion add-on.
 - Every path that publishes a movie carries its special features, so Clean databases removes only files the server no longer lists.
 
