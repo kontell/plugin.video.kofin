@@ -71,12 +71,16 @@ class Recorder:
 class FakeProviders:
     """The provider seam as _start_item drives it, recording the asked ticks."""
 
-    def __init__(self, ticks=None):
+    def __init__(self, ticks=None, runtime_ticks=None):
         self.ticks = ticks if ticks is not None else []
+        self.runtime_ticks = runtime_ticks  # None: the provider cannot say
 
     def play_target(self, key, start_ticks, provider="jellyfin"):
         self.ticks.append(start_ticks)
-        return {"url": "plugin://plugin.video.kofin/?mode=play", "audio": False}
+        target = {"url": "plugin://plugin.video.kofin/?mode=play", "audio": False}
+        if self.runtime_ticks is not None:
+            target["runtime_ticks"] = self.runtime_ticks
+        return target
 
     resolved = None  # what resolve_kodi_id answers (the mapping)
 
@@ -2049,6 +2053,138 @@ class TestLoadAllowance:
         assert len(started) == 1
         # 60s group position + the 9s this device's last load took.
         assert utils.ticks_to_ms(started[0]) == pytest.approx(69000.0, abs=50)
+
+
+class TestStartPastTheEnd:
+    """An item is never started at or beyond its end.
+
+    When the last entry of a queue plays out, the group's clock keeps
+    running: a snapshot taken afterwards names the same item at a position
+    past its runtime, and a member that has already finished it is idle, so
+    the queue went to ``_start_item``. Measured: on direct play the load
+    ended the instant it began, the 45 s watchdog then failed it, and the
+    member left the group with an error; on a transcode the item started
+    over from 0:00.
+    """
+
+    RUNTIME_S = 1429
+
+    @staticmethod
+    def _snapshot(position_s, playing=True, version=4, last_update=None):
+        ticks = utils.seconds_to_ticks(position_s)
+        return {
+            "GroupId": "g1",
+            "Type": "StateSnapshot",
+            "StateVersion": version,
+            "Data": {
+                "GroupName": "movie night",
+                "State": "Playing" if playing else "Paused",
+                "PlayQueue": make_queue(
+                    playing=playing, start_ticks=ticks, last_update=last_update
+                )["Data"],
+                "PositionTicks": ticks,
+                "When": now_iso(),
+                "IsPlaying": playing,
+                "Members": [{"UserName": "alice"}],
+            },
+        }
+
+    @pytest.fixture
+    def finished(self, manager, timers):
+        """A member whose player has just reached the end of the group's
+        item: idle, the item still its own (on_ended keeps it)."""
+        join(manager)
+        manager.providers = FakeProviders(
+            runtime_ticks=utils.seconds_to_ticks(self.RUNTIME_S)
+        )
+        manager.played = []
+        manager.playback.play_item = manager.played.append
+        manager.playback.schedule = lambda command: None
+        manager.current_item_id = "item-1"
+        manager.current_playlist_item_id = "pl-1"
+        manager.phase = utils.Phase.IDLE
+        return manager
+
+    def test_a_snapshot_past_the_end_starts_nothing(self, finished, timers):
+        published = []
+        finished.publish_session_state = lambda announce=False: published.append(1)
+
+        finished._handle_group_update(self._snapshot(self.RUNTIME_S + 5))
+
+        assert finished.played == []
+        assert finished.phase == "idle"
+        # No load, so no load watchdog to fail it 45 s later.
+        assert timers == []
+        assert finished._load_started_ms is None
+        assert published
+
+    def test_exactly_the_end_starts_nothing(self, finished):
+        finished._handle_group_update(self._snapshot(self.RUNTIME_S, playing=False))
+
+        assert finished.played == []
+
+    def test_the_item_stays_the_member_s_own(self, finished):
+        finished._handle_group_update(self._snapshot(self.RUNTIME_S + 5))
+
+        assert finished.current_playlist_item_id == "pl-1"
+        # ...so the group's commands for it are not "another queue item",
+        # and no snapshot is pulled for each one.
+        finished._handle_command(
+            {
+                "Command": "Pause",
+                "When": now_iso(),
+                "EmittedAt": now_iso(),
+                "PositionTicks": utils.seconds_to_ticks(self.RUNTIME_S + 6),
+                "PlaylistItemId": "pl-1",
+            }
+        )
+        assert finished._api.named("syncplay_snapshot") == []
+
+    def test_a_load_aimed_past_the_end_starts_nothing(self, finished, monkeypatch):
+        # Three seconds from the end, and this device's loads take nine:
+        # the group will be past the end before the first frame.
+        clock = [1000.0]
+        monkeypatch.setattr(utils, "local_ms", lambda: clock[0])
+        TestLoadAllowance._load(finished, 9000.0, clock)
+
+        finished._handle_group_update(self._snapshot(self.RUNTIME_S - 3))
+
+        assert finished.played == []
+
+    def test_a_position_inside_the_item_starts_as_before(self, finished, timers):
+        finished._handle_group_update(self._snapshot(600))
+
+        assert len(finished.played) == 1
+        assert finished.phase == "loading"
+        assert [delay for delay, _, _ in timers] == [45]
+
+    def test_an_unknown_runtime_starts_as_before(self, finished, timers):
+        # Live, a delegated or template provider's content: there is no end
+        # to be past.
+        finished.providers = FakeProviders()
+
+        finished._handle_group_update(self._snapshot(self.RUNTIME_S + 5))
+
+        assert len(finished.played) == 1
+        assert finished.phase == "loading"
+
+    def test_the_group_going_back_inside_the_item_starts_it(self, finished):
+        """Repeat-one, a Stop then Unpause, a seek back and the snapshot
+        after it: each re-sends the same playlist item at a position that
+        is inside it again."""
+        stamp = now_iso()
+        finished._handle_group_update(
+            self._snapshot(self.RUNTIME_S + 5, last_update=stamp)
+        )
+        assert finished.played == []
+
+        finished._handle_group_update(
+            make_queue(version=5, last_update=stamp, start_ticks=0)
+        )
+
+        assert len(finished.played) == 1
+        assert finished.providers.ticks[-1] == 0
+        assert finished.phase == "loading"
 
 
 class TestLoadWatchdogGeneration:

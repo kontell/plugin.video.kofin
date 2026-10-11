@@ -18,19 +18,35 @@ from typing import Dict, Optional, Protocol, TypedDict
 from urllib.parse import quote
 
 from kofin.core.urls import plugin_url
-from kofin.syncplay.ports import SyncPlayApi
+from kofin.syncplay.ports import JsonDict, SyncPlayApi
 
 #################################################################################################
 
 JELLYFIN = "jellyfin"
 
+# Jellyfin item types whose length is not fixed, so no runtime is claimed for
+# them: channels and programmes, and ``Recording`` — a recording still being
+# written is already longer than the length it was probed at.
+LIVE_TYPES = frozenset(
+    {"TvChannel", "LiveTvChannel", "Program", "LiveTvProgram", "Recording"}
+)
 
-class PlayTarget(TypedDict):
-    """What the playback controller needs to start a queue item: the URL to
-    hand Kodi, and which playlist it belongs on."""
 
+class _PlayTargetRequired(TypedDict):
     url: str
     audio: bool
+
+
+class PlayTarget(_PlayTargetRequired, total=False):
+    """What the playback controller needs to start a queue item: the URL to
+    hand Kodi, and which playlist it belongs on.
+
+    ``runtime_ticks`` is the item's length where its provider can vouch for
+    one, so the engine can decline a start aimed at or past the end. A
+    provider that cannot — live content, a template or delegated provider —
+    leaves it out, and nothing is checked."""
+
+    runtime_ticks: int
 
 
 class Provider(Protocol):
@@ -76,7 +92,35 @@ class JellyfinProvider:
         # was measured reaching the route as startticks=-240000.
         params["startticks"] = str(max(0, int(start_ticks or 0)))
 
-        return {"url": plugin_url(params), "audio": item.get("Type") == "Audio"}
+        target: PlayTarget = {
+            "url": plugin_url(params),
+            "audio": item.get("Type") == "Audio",
+        }
+        runtime_ticks = self._runtime_ticks(item)
+
+        if runtime_ticks:
+            target["runtime_ticks"] = runtime_ticks
+
+        return target
+
+    @staticmethod
+    def _runtime_ticks(item: JsonDict) -> int:
+        """The longest this item can run, or 0 when that is not known.
+
+        The longest of its versions, not the item's own figure: that one
+        describes the primary version, and a member may be on a longer cut.
+        Nothing for the live kinds — a recording still being written is
+        already longer than whatever length it was probed at.
+        """
+        if item.get("Type") in LIVE_TYPES:
+            return 0
+
+        sources = item.get("MediaSources") or []
+
+        return max(
+            [int(item.get("RunTimeTicks") or 0)]
+            + [int(source.get("RunTimeTicks") or 0) for source in sources]
+        )
 
     def resolve_kodi_id(self, kodi_id: int, media: str) -> Optional[str]:
         from kofin.sync import private as database  # deferred: pulls in the DB stack
