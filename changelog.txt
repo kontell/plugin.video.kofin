@@ -1,3 +1,13 @@
+v0.93.1
+- First imports in the API build are faster. On a Raspberry Pi 3 a 1,353-song library imports in 37 seconds where it took 6 minutes, and movie and TV libraries take a sixth to a quarter less time.
+- Music: a song just imported is no longer written a second time, album directories are scanned thirty-two to a scan, and albums and artists get their artwork before play counts are written.
+- A library is read from the server three pages at a time.
+- A large movie or TV import runs with Kodi's "Download actor thumbnails" off and puts the setting back afterwards. The pictures still load when first shown.
+- A season's artwork arrives with its show.
+- A long import no longer slows the Python threads of every other add-on.
+- Requests for the Kofin Companion add-on (service.kofin.companion), which does what Kodi's interfaces cannot: grouping a movie's versions, retiring versions and extras the server dropped, chapter images, favourite-episode tags, season plots, stream flags and emptied collections. Kofin works as before without it.
+- With the companion, Kodi's databases use WAL and name indexes: a 1,788-movie import on the Pi takes 8 minutes where it took 22.
+
 v0.93.0
 - Movie versions and extras in the API build: a movie's alternate versions and special features are files in its folder. Kodi imports a version as a movie of its own, to be grouped in the Versions Manager, and the extras under the movie.
 - Kodi's "Ignore video extras on scan" is turned off once for the extras import, with a notice.
