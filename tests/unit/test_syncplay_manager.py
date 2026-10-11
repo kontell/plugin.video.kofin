@@ -1333,6 +1333,127 @@ class TestLocalStartHold:
         assert manager.player.paused is True
 
 
+class TestLocalPlayIdentityOnEitherBuild:
+    """A library play started in a group is identified from Player.OnPlay
+    through the build's own Kodi-id lookup, with the manager's real provider
+    registry — the same outcomes on the SQL build and the API build.
+
+    The API build's rows are not in the sync database, so the one lookup the
+    provider made answered None for all of them: a movie started from the
+    library in a group was released as unmanaged 70-120 ms after it began
+    and the member became a spectator, before the play route's own claim
+    could be forwarded.
+    """
+
+    @pytest.fixture(params=["sql", "api"])
+    def library(self, request, manager, monkeypatch):
+        """{(kodi_id, media): jellyfin_id} behind whichever lookup the
+        build uses; a missing row is one that is not kofin's."""
+        from kofin import buildconfig
+        from kofin.sync.backends.api import identity
+
+        rows = {}
+        monkeypatch.setattr(buildconfig, "BACKEND", request.param)
+
+        if request.param == "sql":
+            monkeypatch.setattr(
+                database_module,
+                "get_item",
+                lambda kid, media: (
+                    (rows[(kid, media)],) if (kid, media) in rows else None
+                ),
+            )
+        else:
+            # sync.private.get_item is left real: on this build it answers
+            # None whatever is asked, which is the defect.
+            monkeypatch.setattr(
+                identity, "mapped_item", lambda kid, media: rows.get((kid, media))
+            )
+
+        return rows
+
+    def test_a_library_play_stays_held_for_the_group(
+        self, manager, paused_cond, library
+    ):
+        join(manager)
+        library[(42, "movie")] = "jf-1"
+        manager.player.playing = True
+        manager.player.position = 42.0
+        manager.phase = "idle"
+        manager.on_playback_started()
+
+        manager.on_kodi_play({"item": {"id": 42, "type": "movie"}})
+
+        assert manager._hold is not None
+        assert manager.player.paused is True
+        assert manager.ignore_wait is False
+        assert manager._api.named("syncplay_set_ignore_wait") == []
+
+        # ...and is proposed once A/V is up, from the play route's claim.
+        manager._local_item_id = lambda: "jf-1"
+        manager.on_avstarted()
+
+        assert manager._api.named("syncplay_set_new_queue") == [
+            ("syncplay_set_new_queue", ["jf-1"], 0, utils.seconds_to_ticks(42.0))
+        ]
+
+    def test_a_playlist_advance_is_proposed_from_onplay(
+        self, manager, paused_cond, library
+    ):
+        join(manager)
+        library[(43, "song")] = "track-n1"
+        manager.player.playing = True
+        manager.phase = "synced"
+        manager.on_playback_started()
+
+        manager.on_kodi_play({"item": {"id": 43, "type": "song"}})
+
+        assert manager._api.named("syncplay_set_new_queue") == [
+            ("syncplay_set_new_queue", ["track-n1"], 0, 0)
+        ]
+        assert manager._hold["proposed"] is True
+        assert manager.player.paused is True
+
+    def test_a_row_that_is_not_kofin_s_is_released_at_once(
+        self, manager, paused_cond, library
+    ):
+        join(manager)
+        manager.player.playing = True
+        manager.phase = "idle"
+        manager.on_playback_started()
+
+        manager.on_kodi_play({"item": {"id": 99, "type": "movie"}})
+
+        assert manager._hold is None
+        assert manager.player.paused is False
+        assert manager.ignore_wait is True
+
+
+class TestLocalPlayLookupFailure:
+    def test_a_lookup_that_fails_leaves_the_play_to_its_claim(
+        self, manager, paused_cond, monkeypatch
+    ):
+        """Not "foreign": the hold stands and the forward retry identifies
+        the play from the play route's claim."""
+        from kofin import buildconfig
+        from kofin.sync.backends.api import identity
+
+        def refuse(kodi_id, media):
+            raise RuntimeError("Kodi refused VideoLibrary.GetMovieDetails")
+
+        monkeypatch.setattr(buildconfig, "BACKEND", "api")
+        monkeypatch.setattr(identity, "mapped_item", refuse)
+        join(manager)
+        manager.player.playing = True
+        manager.phase = "idle"
+        manager.on_playback_started()
+
+        manager.on_kodi_play({"item": {"id": 42, "type": "movie"}})
+
+        assert manager._hold is not None
+        assert manager.ignore_wait is False
+
+
 class TestTransitionSequence:
     """The full playlist-advance timeline as seen in the fork's field logs:
     boundary -> hold -> fast identify -> late onAVStarted -> queue echo
