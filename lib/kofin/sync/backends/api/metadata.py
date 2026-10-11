@@ -482,6 +482,16 @@ def _timestamp(value):
     return convert_to_local(value)[:19].replace("T", " ")
 
 
+def own_art(item, server) -> Dict[str, str]:
+    """The art a row carries in its own right: an episode's ``tvshow.*`` and
+    ``season.*`` keys are the show's and the season's (see ``details``)."""
+    return {
+        key: value
+        for key, value in listitems.art_for(item, server).items()
+        if "." not in key
+    }
+
+
 def details(
     item,
     server,
@@ -506,11 +516,7 @@ def details(
         # true, and a show whose art URL changed after its episodes were
         # acknowledged (the artwork cap) left two episodes on the LibreELEC
         # box failing "readback differs: art" on every pass.
-        "art": {
-            key: value
-            for key, value in listitems.art_for(item, server).items()
-            if "." not in key
-        },
+        "art": own_art(item, server),
         "dateadded": _timestamp(item.get("DateCreated")),
     }
     if kind == "BoxSet":
@@ -1042,11 +1048,22 @@ def listitem(
             (s for s in seasons if s.get("IndexNumber") is not None),
             key=lambda s: int(s["IndexNumber"]),
         ):
+            number = int(season["IndexNumber"])
             tag.addSeason(
-                int(season["IndexNumber"]),
+                number,
                 season_title(season),
                 (season.get("Overview") or "").strip(ASCII_SPACE),
             )
+            # The season's art rides with the show. The scanner files what a
+            # show's tag offers under a season number with the show's own
+            # row (GetSeasonThumbs, SetDetailsForTvShow), so a first import
+            # finds the season row as desired and sends it nothing: a
+            # SetSeasonDetails and its readback are 0.2 s a season on a
+            # Raspberry Pi, in either journal mode. A row Kodi filed
+            # otherwise (an artwork level that takes fewer types) differs
+            # and is patched as before.
+            for art_type, url in sorted(own_art(season, server).items()):
+                tag.addAvailableArtwork(url, art_type, season=number)
         if episodes is not None:
             digest = show_hash(episodes)
             li.setProperty("hash", digest)

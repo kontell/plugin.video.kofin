@@ -174,6 +174,25 @@ def test_scanner_listitem_never_stamps_a_zero_resume_point(monkeypatch):
         episodes=[episode("e1")],
     )
     tag.addSeason.assert_called_once_with(2, "Book Two", "arc")
+    assert not tag.addAvailableArtwork.called
+    # A season's own art is offered to the scanner under its number.
+    tag.reset_mock()
+    pictured = season(
+        "s", number=2, ImageTags={"Primary": "p1", "Banner": "b1"}, SeriesId="show"
+    )
+    pictured["SeriesPrimaryImageTag"] = "sp"
+    metadata.listitem(
+        series(), SERVER, "key", LIB, seasons=[pictured], episodes=[episode("e1")]
+    )
+    offered = {
+        (call.args[1], call.kwargs["season"]): call.args[0]
+        for call in tag.addAvailableArtwork.call_args_list
+    }
+    assert set(offered) == {("banner", 2), ("poster", 2), ("thumb", 2)}
+    assert offered == {
+        (kind, 2): url
+        for kind, url in metadata.details(pictured, SERVER, "key", LIB)["art"].items()
+    }
     li.setProperty.assert_called_with("hash", metadata.show_hash([episode("e1")]))
     assert not tag.setResumePoint.called
 

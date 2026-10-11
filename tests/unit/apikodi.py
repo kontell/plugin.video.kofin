@@ -53,6 +53,9 @@ class Kodi:
         # flag, the extras filed on a movie row, and the extras folders a
         # scan turned into phantom discs instead.
         self.settings = {"videolibrary.ignorevideoextras": True}
+        # Whether a scan files the season art a show's listing offers
+        # (videolibrary.artworklevel: all of it at "maximum", none at "none").
+        self.files_season_art = True
         # "Download actor thumbnails" as each video scan found it.
         self.scan_actor_thumbs = []
         # Installed add-ons the service may ask about, and NotifyAll sends.
@@ -136,11 +139,16 @@ class Kodi:
         self.rows["Series"][row["tvshowid"]] = row
         for season in seasons:
             if season.get("IndexNumber") is not None:
-                self._season_row(
+                filed = self._season_row(
                     row["tvshowid"],
                     int(season["IndexNumber"]),
                     metadata.season_title(season),
                 )
+                # What the show's tag offered under the season's number
+                # (addAvailableArtwork), filed with the show at Kodi's
+                # artwork level "maximum" and not at "none".
+                if self.files_season_art:
+                    filed["art"].update(metadata.own_art(season, SERVER))
         return row
 
     def _import_episodes(self, show_row, library, series_id):

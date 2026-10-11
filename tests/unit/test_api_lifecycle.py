@@ -234,6 +234,46 @@ def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
     assert not any(m == "VideoLibrary.Scan" for m, _ in kodi.calls)
 
 
+def pictured_show():
+    items = show_bundle(episodes=2, seasons=(1, 2)) + [episode("ea21", SHOW, 2, 1)]
+    for item in items:
+        if item["Type"] == "Season":
+            item["ImageTags"] = {"Primary": "tag-%d" % item["IndexNumber"]}
+    return items
+
+
+def test_season_art_is_filed_with_the_show_and_costs_no_setter(store, backend, kodi):
+    """The show's listing offers each season's art under its number and the
+    scanner files it with the show, so a first import sends a season
+    nothing. An art change afterwards is the setter's, as before."""
+    store.publish(pictured_show(), library=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    seasons = {r["season"]: r for r in kodi.rows["Season"].values()}
+    assert seasons[1]["art"]["poster"].endswith("Images/Primary?tag=tag-1")
+    assert seasons[2]["art"]["poster"].endswith("Images/Primary?tag=tag-2")
+    assert not methods(kodi, "VideoLibrary.SetSeasonDetails")
+    assert store.mapping(SHOW[:4] + "s1").kodi_id == seasons[1]["seasonid"]
+    changed = season(SHOW[:4] + "s1", SHOW, 1, ImageTags={"Primary": "newer"})
+    store.publish([changed])
+    backend.reconcile()
+    assert not store.pending()
+    (sent,) = methods(kodi, "VideoLibrary.SetSeasonDetails")
+    assert sent["art"]["poster"].endswith("Images/Primary?tag=newer")
+
+
+def test_season_art_kodi_did_not_file_is_patched(store, backend, kodi):
+    """Kodi's artwork level decides what the scanner takes from a listing;
+    a season row left without its art differs and gets its setter."""
+    kodi.files_season_art = False
+    store.publish(pictured_show(), library=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    assert len(methods(kodi, "VideoLibrary.SetSeasonDetails")) == 2
+    seasons = {r["season"]: r for r in kodi.rows["Season"].values()}
+    assert seasons[1]["art"]["poster"].endswith("Images/Primary?tag=tag-1")
+
+
 def test_a_small_scope_wanted_whole_is_read_in_one_listing(store, backend, kodi):
     """A first import compares every row. A show below the prefetch floor
     used to be read a row at a time: a dozen details calls where one
