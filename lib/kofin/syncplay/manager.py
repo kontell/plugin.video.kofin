@@ -124,6 +124,11 @@ class SyncPlayManager(object):
         # marks a native playlist advance (starts at 0); otherwise the
         # start position is read from the player once it settles.
         self._hold: Optional[Dict[str, Any]] = None
+        # The item the user stopped here, from the stop until the stop prompt
+        # resolves: {"playlist_item_id"}. Until the user has said what the
+        # stop means for the group, nothing the group sends about that item
+        # may load it again.
+        self._stop_pending: Optional[Dict[str, Any]] = None
 
         self._prog_depth = 0
         self._prog_release = 0.0
@@ -766,6 +771,16 @@ class SyncPlayManager(object):
             LOG.info("Spectator playing own media; not following transport")
             return
 
+        if command.get("Command") != "Stop" and self._stopped_here(
+            command.get("PlaylistItemId")
+        ):
+            # Not a missed queue update, so nothing to reconcile: the item is
+            # known, and the user stopped it. Read as "another queue item"
+            # (the stop cleared ours), a group Pause pulled a snapshot and the
+            # snapshot reloaded the item underneath the open stop prompt.
+            LOG.info("Command for the item stopped here; waiting on the stop prompt")
+            return
+
         if (
             command.get("Command") != "Stop"
             and command.get("PlaylistItemId")
@@ -879,6 +894,7 @@ class SyncPlayManager(object):
         self.current_provider = JELLYFIN
         self.phase = Phase.IDLE
         self.ignore_wait = False
+        self._stop_pending = None
         self._join_pending_since = 0.0
         self.player.syncplay_group_active = False
         self._release_hold()
@@ -1017,6 +1033,13 @@ class SyncPlayManager(object):
             # flow will converge on the snapshot position by itself.
             return
 
+        if self._stop_pending is not None:
+            # The stop prompt is open and the queue started nothing (it
+            # named the item stopped here): there is no playback for a
+            # synthetic command to act on, and none may be recorded as
+            # applied.
+            return
+
         state = snapshot.get("State")
 
         if snapshot.get("IsPlaying"):
@@ -1099,6 +1122,17 @@ class SyncPlayManager(object):
             and self.phase != Phase.IDLE
         ):
             return  # tail-only change; drift reference stays authoritative
+
+        if self._stopped_here(playlist_item_id):
+            # A re-sent queue or a snapshot, not a new selection: the group
+            # is still on the item the user just stopped. A different item
+            # falls through and starts — the group really moved on, which is
+            # what _stop_superseded expects.
+            LOG.info(
+                "[ syncplay/queue ] still the item stopped here; "
+                "waiting on the stop prompt"
+            )
+            return
 
         # Position reference: StartPositionTicks is extrapolated to *send* time
         # by the server (Group.cs::GetPlayQueueUpdate adds the elapsed since
@@ -1232,6 +1266,9 @@ class SyncPlayManager(object):
         self.current_item_id = item_id
         self.current_playlist_item_id = playlist_item_id
         self.current_provider = provider
+        # Whatever starts here replaced the stop (_apply_play_queue never
+        # brings the stopped item itself this far while the prompt is open).
+        self._stop_pending = None
         # A leftover zap Unpause must not resume the next item. last_command
         # stays: a transcode Seek reload is the same event, and clearing it
         # here would re-apply the Seek (Pixel 7 Pro, two reloads for one skip).
@@ -1466,8 +1503,12 @@ class SyncPlayManager(object):
             return  # load-failure timer handles it
 
         if self.phase in FOLLOWING:
+            # Marked before the detach clears the item: the dispatcher can be
+            # handling a group command for it on its own thread right now.
+            pending = {"playlist_item_id": self.current_playlist_item_id}
+            self._stop_pending = pending
             self._detach_playback()
-            thread = threading.Thread(target=self._user_stopped_prompt)
+            thread = threading.Thread(target=self._user_stopped_prompt, args=(pending,))
             thread.daemon = True
             thread.start()
 
@@ -1507,10 +1548,36 @@ class SyncPlayManager(object):
             or self.player.isPlaying()
         )
 
-    def _user_stopped_prompt(self):
+    def _stopped_here(self, playlist_item_id):
+        """Is this the item the user stopped, with the stop prompt unresolved?"""
+        pending = self._stop_pending
+
+        return (
+            pending is not None
+            and playlist_item_id is not None
+            and pending["playlist_item_id"] == playlist_item_id
+        )
+
+    def _user_stopped_prompt(self, pending=None):
         """Local stop while synced: sort out what it means for the group.
 
-        A stop that is immediately followed by another local start is a
+        ``pending`` is the stop this prompt was started for (on_stopped).
+        Whichever way the prompt ends — superseded, answered, dismissed, the
+        group left — that stop is resolved, and the group's updates about the
+        item are followed again exactly as before it. A later stop's mark is
+        not this prompt's to clear.
+        """
+        if pending is None:
+            pending = self._stop_pending
+
+        try:
+            self._ask_what_the_stop_means()
+        finally:
+            if self._stop_pending is pending:
+                self._stop_pending = None
+
+    def _ask_what_the_stop_means(self):
+        """A stop that is immediately followed by another local start is a
         replace-play (the user picked a new item), not a departure: give
         the new start a moment to appear and skip the prompt when it does.
         """

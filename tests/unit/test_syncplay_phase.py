@@ -50,7 +50,7 @@ def manager():
     m.playback.start_loop = lambda: None
     m.playback.ensure_paused = lambda: None
     m.playback.stop_media = lambda: None
-    m._user_stopped_prompt = lambda: None
+    m._user_stopped_prompt = lambda pending=None: None
     m._watch_hold = lambda hold: None
     join(m)
     yield m
