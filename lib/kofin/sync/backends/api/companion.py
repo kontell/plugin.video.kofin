@@ -236,8 +236,8 @@ def _write(
     namespace: str, kinds: Sequence[str], requests: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
     """The document with ``kinds`` replaced by ``requests``; rewritten and
-    announced only when a request changed or the document is of an older
-    version. Returns the document's requests."""
+    announced only when a request or the document's header changed, or the
+    document is of an older version. Returns the document's requests."""
     return _replace(namespace, lambda r: r.get("kind") in kinds, requests)
 
 
@@ -247,22 +247,42 @@ def _replace(
     requests: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     """The document with every request ``gone`` accepts removed and
-    ``requests`` added, under the one lock both writers share."""
+    ``requests`` added, under the one lock both writers share.
+
+    Unchanged means the whole document the companion would read: every
+    request's content (``_signature``) and the header beside them. The
+    device id and the kinds this build publishes are assigned only on a
+    write, so a comparison of the requests alone left a changed device id,
+    or a kind a new build added, at whatever the last write had put there
+    for as long as the request set stood still."""
     with _LOCK:
         current = read()
         kept = [r for r in current["requests"] if isinstance(r, dict) and not gone(r)]
         merged = kept + requests
-        if current.get("v") == VERSION and _signature(merged) == _signature(
-            [r for r in current["requests"] if isinstance(r, dict)]
-        ):
-            return [r for r in current["requests"] if isinstance(r, dict)]
-        generation = int(current.get("generation") or 0) + 1
-        document = {
+        header = {
             "v": VERSION,
-            "generation": generation,
             "namespace": namespace or _namespace(current),
             "device": settings.get_str("deviceId"),
             "kinds": list(KINDS),
+        }
+        stored = [r for r in current["requests"] if isinstance(r, dict)]
+        if not current.get("generation"):
+            # No document yet: with nothing to ask there is nothing to say,
+            # and a header alone is not worth a file and a ping.
+            unchanged = not merged
+        else:
+            unchanged = all(
+                current.get(field) == value for field, value in header.items()
+            ) and _signature(merged) == _signature(stored)
+        if unchanged:
+            return stored
+        generation = int(current.get("generation") or 0) + 1
+        document = {
+            "v": header["v"],
+            "generation": generation,
+            "namespace": header["namespace"],
+            "device": header["device"],
+            "kinds": header["kinds"],
             "requests": merged,
         }
         target = requests_path()

@@ -85,6 +85,45 @@ def test_pass_and_live_kinds_share_the_document(store, kodi, monkeypatch):
     }
 
 
+def test_a_changed_header_is_published_under_an_unchanged_request_set(
+    store, kodi, monkeypatch
+):
+    """The device id and the kinds this build publishes are written only
+    when the document is, so "the requests did not change" alone left both
+    at the last write's values: the companion reads ``kinds`` to know what
+    this build publishes, and ``device`` to know whose chapter keys are its
+    to sweep."""
+    settings.set_str("deviceId", "device-1")
+    request = {
+        "id": "p1",
+        "kind": companion.GROUP_VERSIONS,
+        "library": "L",
+        "item": "a",
+        "owner": {"movieid": 1},
+        "versions": [{"movieid": 2, "mediasourceid": "s2"}],
+    }
+    monkeypatch.setattr(companion, "collect", lambda native: [request])
+    native = SimpleNamespace(key="ns-1")
+    companion.publish(native)
+    companion.publish(native)
+    assert _document()["generation"] == 1 and len(kodi.notified) == 1
+    settings.set_str("deviceId", "device-2")
+    companion.publish(native)
+    document = _document()
+    assert document["generation"] == 2 and document["device"] == "device-2"
+    monkeypatch.setattr(companion, "KINDS", tuple(companion.KINDS) + ("new_kind",))
+    companion.publish(native)
+    document = _document()
+    assert document["generation"] == 3 and document["kinds"][-1] == "new_kind"
+    companion.publish(SimpleNamespace(key="ns-2"))
+    document = _document()
+    assert document["generation"] == 4 and document["namespace"] == "ns-2"
+    # A live writer names no namespace and keeps the document's.
+    companion.publish_live(companion.CHAPTER_ART, [])
+    assert _document()["generation"] == 4 and len(kodi.notified) == 4
+    assert [r["id"] for r in _document()["requests"]] == ["p1"]
+
+
 def test_a_live_request_derives_the_namespace_when_no_document_exists(store, kodi):
     settings.set_str("serverId", "server-1")
     settings.set_str("userId", "user-1")
