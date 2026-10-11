@@ -381,6 +381,7 @@ def worker(store, server, selected, monkeypatch, feed=None):
     w._full_due = False
     w._repair = False
     w._bindings_due = 0.0
+    w._settings_due = 0.0
     w.changefeed = feed
     w._unsynced_tried = set()
     w._queue = queue.Queue()

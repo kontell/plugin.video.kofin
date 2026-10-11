@@ -89,6 +89,10 @@ class Native:
         # listed through Kodi just before the scan (_prepare_scan).
         self._extras_folders: Set[str] = set()
         self._extras_allowed = False
+        # A held Kodi setting is still to be given back (restore_settings),
+        # and the ones whose refusal has been said.
+        self.settings_owed = False
+        self._refused_settings: Set[str] = set()
 
     # -- gates ---------------------------------------------------------------
 
@@ -522,10 +526,17 @@ class Native:
                 )
                 if isinstance(reply, dict) and reply.get("value") is True:
                     self.store.hold_setting(ACTOR_THUMBS_SETTING, True)
-                    rpc(
-                        "Settings.SetSettingValue",
-                        {"setting": ACTOR_THUMBS_SETTING, "value": False},
-                    )
+                    try:
+                        rpc(
+                            "Settings.SetSettingValue",
+                            {"setting": ACTOR_THUMBS_SETTING, "value": False},
+                        )
+                    except RuntimeError:
+                        # Kodi kept its value, so nothing is held. A record
+                        # left here would be given back at a later start,
+                        # over whatever the user had set by then.
+                        self.store.release_setting(ACTOR_THUMBS_SETTING)
+                        raise
                     held = True
                     LOG.info(
                         "Kodi setting %s off for a scan of %d rows",
@@ -547,17 +558,25 @@ class Native:
         only after Kodi took the value.
 
         A value Kodi will not take now is no reason to stop: the record
-        stays and every later pass and service start asks again. Raised
-        from here it failed the pass that called it, and the pass after
-        that, for as long as Kodi refused."""
+        stays, ``settings_owed`` says so, and every later pass and service
+        start asks again, as does the library thread while nothing is
+        pending (``Library.apply``). Raised from here it failed the pass
+        that called it, and the pass after that, for as long as Kodi
+        refused. A refusal is a warning once a setting and generation."""
+        owed = False
         for setting, value in self.store.held_settings().items():
             try:
                 rpc("Settings.SetSettingValue", {"setting": setting, "value": value})
             except RuntimeError as error:
-                LOG.warning("Kodi setting %s not given back yet: %s", setting, error)
+                owed = True
+                say = LOG.debug if setting in self._refused_settings else LOG.warning
+                self._refused_settings.add(setting)
+                say("Kodi setting %s not given back yet: %s", setting, error)
                 continue
             self.store.release_setting(setting)
+            self._refused_settings.discard(setting)
             LOG.info("Kodi setting %s back to %r", setting, value)
+        self.settings_owed = owed
 
     def _prepare_scan(self, directory):
         """List a movie's extras folder through Kodi just before the folder

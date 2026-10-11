@@ -280,6 +280,8 @@ def fetch_boxsets(api, abort=lambda: False, ids=None):
 
 # Seconds before the idle binding backfill is tried again after a failure.
 BINDINGS_RETRY = 300.0
+# And between two idle attempts to give a held Kodi setting back.
+SETTINGS_RETRY = 300.0
 
 
 class Library(threading.Thread):
@@ -308,6 +310,9 @@ class Library(threading.Thread):
         # When the idle binding backfill is next due: now, then never once
         # it succeeded, or a pause after a failure (apply).
         self._bindings_due = 0.0
+        # When a Kodi setting a scan held and Kodi would not take back is
+        # next asked for while nothing is pending (apply).
+        self._settings_due = 0.0
 
     def stop_client(self):
         self.stop_thread = True
@@ -373,6 +378,7 @@ class Library(threading.Thread):
             native.restore_settings()
         except Exception:
             LOG.exception("held Kodi settings not restored; the next pass retries")
+        self._settings_due = time.monotonic() + SETTINGS_RETRY
         self.startup_done = True
         # Recover native work before trying to reach Jellyfin.
         while not self.stop_thread and not monitor.abortRequested():
@@ -915,6 +921,12 @@ class Library(threading.Thread):
                 self._bindings_due = time.monotonic() + BINDINGS_RETRY
             else:
                 self._bindings_due = float("inf")
+        elif native.settings_owed and time.monotonic() >= self._settings_due:
+            # A pass gives a held setting back when it starts, and none may
+            # come for hours: the user's "Download actor thumbnails" must
+            # not stay off for that long because one call was refused.
+            self._settings_due = time.monotonic() + SETTINGS_RETRY
+            native.restore_settings()
 
     def playlists_pass(self):
         """Rewrite the managed playlist files after an enumeration or a

@@ -506,6 +506,84 @@ def test_a_setting_held_by_a_scan_that_never_ended_is_given_back(
     assert store.held_settings() == {}
 
 
+def test_a_hold_kodi_refused_leaves_no_record_behind(store, backend, kodi, monkeypatch):
+    """The record is written before the setter, so a Kodi stopped between
+    the two still gets its value back. When the setter is refused Kodi kept
+    its value and nothing is held: a record left there was given back at a
+    later start, over a change the user had made in between."""
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = True
+    backend.setup()
+    real = native.rpc
+
+    def refusing(method, params=None):
+        if method == "Settings.SetSettingValue":
+            raise RuntimeError("Kodi refused " + method)
+        return real(method, params)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(native, "rpc", refusing)
+        with backend.without_actor_thumbs(native.ACTOR_THUMBS_FLOOR):
+            assert store.held_settings() == {}
+    assert store.held_settings() == {}
+    # The user turns it off; nothing of the pass's turns it back on.
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = False
+    backend.restore_settings()
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is False
+    assert backend.settings_owed is False
+
+
+def test_a_refused_restore_is_asked_again_while_nothing_is_pending(
+    store, backend, kodi, monkeypatch
+):
+    """A pass gives a held setting back when it starts, and none may come
+    for hours. The library thread asks again on a pause of its own, and a
+    refusal is a warning once, not once an attempt."""
+    import time
+
+    from kofin.sync.backends.api import library as library_module
+    from tests.unit.apifixtures import Server, worker
+
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = False
+    backend.setup()
+    store.hold_setting(native.ACTOR_THUMBS_SETTING, True)
+    real = native.rpc
+    refuse = {"on": True}
+    warnings = []
+    monkeypatch.setattr(
+        native.LOG, "warning", lambda msg, *args: warnings.append(msg % args)
+    )
+
+    def rpc(method, params=None):
+        if method == "Settings.SetSettingValue" and refuse["on"]:
+            raise RuntimeError("Kodi refused " + method)
+        return real(method, params)
+
+    monkeypatch.setattr(native, "rpc", rpc)
+    backend.restore_settings()
+    assert backend.settings_owed is True
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    w._bindings_due = float("inf")
+    assert not store.has_pending()
+    w.apply(backend)
+    w.apply(backend)  # not every tick
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is False
+    assert len(warnings) == 1
+    assert (
+        time.monotonic()
+        < w._settings_due
+        <= time.monotonic() + library_module.SETTINGS_RETRY
+    )
+    refuse["on"] = False
+    w._settings_due = 0.0
+    w.apply(backend)
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is True
+    assert store.held_settings() == {} and backend.settings_owed is False
+    # Nothing owed: the idle tick asks Kodi nothing.
+    w._settings_due = 0.0
+    monkeypatch.setattr(native, "rpc", lambda *a, **k: 1 / 0)
+    w.apply(backend)
+
+
 def test_collections_file_sets_at_import_and_patch_set_details(store, backend, kodi):
     store.publish(
         [
@@ -1100,6 +1178,7 @@ def test_the_library_binds_movie_folders_once_when_nothing_is_pending(
     native = SimpleNamespace(
         reconcile=lambda repair=False: calls.append("reconcile"),
         bind_movie_folders=lambda: calls.append("bind"),
+        settings_owed=False,
     )
     assert not store.has_pending()
     w.apply(native)
@@ -1115,8 +1194,11 @@ def test_the_library_binds_movie_folders_once_when_nothing_is_pending(
         raise OSError("rpc away")
 
     w._bindings_due = 0.0
-    w.apply(SimpleNamespace(reconcile=native.reconcile, bind_movie_folders=failing))
-    w.apply(SimpleNamespace(reconcile=native.reconcile, bind_movie_folders=failing))
+    broken = SimpleNamespace(
+        reconcile=native.reconcile, bind_movie_folders=failing, settings_owed=False
+    )
+    w.apply(broken)
+    w.apply(broken)
     assert calls == ["bind", "fail"]
     assert (
         time.monotonic()
