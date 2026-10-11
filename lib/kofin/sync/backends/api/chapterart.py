@@ -199,6 +199,14 @@ class ChapterArt:
         }
         companion.put_live(request)
         self._published = True
+        if self._cancel.is_set():
+            # stop() landed between the check above and the publish. The
+            # janitor withdraws after joining this thread, but it stops
+            # waiting after 30 s and reads _published as it finds it: the
+            # thread that published after a cancel withdraws for itself.
+            companion.drop_live(self._id)
+            shutil.rmtree(self._directory, ignore_errors=True)
+            return
         seeded = self._await(len(entries))
         if seeded == len(entries):
             LOG.info(
