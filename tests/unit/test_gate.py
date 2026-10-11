@@ -145,6 +145,11 @@ def test_only_a_home_screen_listing_is_counted():
     # always answer.
     assert gate.BOUNDED_MODES <= router.LISTING_MODES
     assert not gate.BOUNDED_MODES & {"play", "check_exists"}
+    # One spelling of where the provider's paths lie, in three places.
+    from kofin.sync.backends.api import paths
+
+    assert gate.NATIVE_MARK == router.NATIVE_MARK
+    assert paths.BASE == BASE + gate.NATIVE_MARK.strip("/") + "/"
 
 
 def test_a_request_turned_away_has_its_directory_ended_and_nothing_else(ended):
