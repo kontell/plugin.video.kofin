@@ -71,12 +71,16 @@ class Recorder:
 class FakeProviders:
     """The provider seam as _start_item drives it, recording the asked ticks."""
 
-    def __init__(self, ticks=None):
+    def __init__(self, ticks=None, runtime_ticks=None):
         self.ticks = ticks if ticks is not None else []
+        self.runtime_ticks = runtime_ticks  # None: the provider cannot say
 
     def play_target(self, key, start_ticks, provider="jellyfin"):
         self.ticks.append(start_ticks)
-        return {"url": "plugin://plugin.video.kofin/?mode=play", "audio": False}
+        target = {"url": "plugin://plugin.video.kofin/?mode=play", "audio": False}
+        if self.runtime_ticks is not None:
+            target["runtime_ticks"] = self.runtime_ticks
+        return target
 
     resolved = None  # what resolve_kodi_id answers (the mapping)
 
@@ -85,6 +89,32 @@ class FakeProviders:
 
     def is_delegated(self, name):
         return False
+
+
+class InertTimer:
+    """threading.Timer stand-in: what was armed is recorded, nothing fires."""
+
+    armed = []
+
+    def __init__(self, delay, func, args=()):
+        InertTimer.armed.append((delay, func, args))
+        self.daemon = True
+
+    def start(self):
+        pass
+
+    def cancel(self):
+        pass
+
+
+@pytest.fixture
+def timers(monkeypatch):
+    """For tests that run the real _start_item: its 45 s load watchdog is
+    recorded instead of armed, so it can be asserted on — and cannot outlive
+    the test and fire into a manager that has been torn down."""
+    InertTimer.armed = []
+    monkeypatch.setattr(manager_module.threading, "Timer", InertTimer)
+    return InertTimer.armed
 
 
 @pytest.fixture(autouse=True)
@@ -1744,6 +1774,243 @@ class TestStoppedPrompt:
         assert not manager.in_group()
 
 
+class TestStopPending:
+    """Between the user's stop and their answer to the stop prompt, the
+    group's messages about that item do not load it again.
+
+    The stop clears the member's current item, so a group command for it read
+    as "another queue item": a v2 member pulled a snapshot, and the snapshot's
+    queue — valid index, member idle — went to ``_start_item``. Measured: a
+    member stopped by hand, the prompt on screen, another member's Pause, and
+    the stopped item playing again underneath the dialog 0.6 s later.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_grace_wait(self, monkeypatch):
+        monkeypatch.setattr(utils, "STOP_PROMPT_GRACE", 0.0)
+        monkeypatch.setattr(manager_module.time, "sleep", lambda seconds: None)
+
+    @staticmethod
+    def _stop(manager, monkeypatch, item=("item-1", "pl-1")):
+        """The user stops the item being followed. Hands back the prompt
+        on_stopped started, unrun — the dialog is open."""
+        started = []
+
+        class OpenPrompt:
+            def __init__(self, target=None, args=(), **kwargs):
+                started.append((target, args))
+                self.daemon = False
+
+            def start(self):
+                pass
+
+        manager.current_item_id, manager.current_playlist_item_id = item
+        manager.phase = utils.Phase.SYNCED
+
+        with monkeypatch.context() as patch:
+            patch.setattr(manager_module.threading, "Thread", OpenPrompt)
+            manager.on_stopped()
+
+        assert len(started) == 1
+        target, args = started[0]
+        return lambda: target(*args)
+
+    @staticmethod
+    def _answer(monkeypatch, selection, on_select=None):
+        FakeDialog.selection = selection
+        FakeDialog.asked = []
+        FakeDialog.on_select = on_select
+        monkeypatch.setattr(manager_module.xbmcgui, "Dialog", FakeDialog)
+
+    @staticmethod
+    def _command(name="Pause", item="pl-1"):
+        return {
+            "Command": name,
+            "When": now_iso(),
+            "EmittedAt": now_iso(),
+            "PositionTicks": 1000,
+            "PlaylistItemId": item,
+        }
+
+    def test_a_command_for_the_stopped_item_pulls_no_snapshot(
+        self, manager, monkeypatch
+    ):
+        join(manager)
+        scheduled = []
+        manager.playback.schedule = scheduled.append
+        self._stop(manager, monkeypatch)
+
+        manager._handle_command(self._command("Pause"))
+        manager._handle_command(self._command("Unpause"))
+        manager._handle_command(self._command("Seek"))
+
+        assert scheduled == []
+        assert manager._api.named("syncplay_snapshot") == []
+
+    def test_a_group_stop_still_lands(self, manager, monkeypatch):
+        join(manager)
+        scheduled = []
+        manager.playback.schedule = scheduled.append
+        self._stop(manager, monkeypatch)
+
+        manager._handle_command(self._command("Stop"))
+
+        assert len(scheduled) == 1
+
+    def test_a_command_for_another_item_still_reconciles(self, manager, monkeypatch):
+        # The group moved on while the prompt is open: that is a missed
+        # queue update, exactly as before.
+        join(manager)
+        manager.playback.schedule = lambda command: None
+        self._stop(manager, monkeypatch)
+
+        manager._handle_command(self._command("Pause", item="pl-2"))
+
+        assert manager._api.named("syncplay_snapshot")
+
+    def test_a_resent_queue_does_not_reload_the_stopped_item(
+        self, manager, monkeypatch
+    ):
+        join(manager)
+        started = []
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
+        self._stop(manager, monkeypatch)
+
+        manager._handle_group_update(make_queue(version=3, playing=True))
+
+        assert started == []
+        assert manager.phase == "idle"
+
+    def test_a_snapshot_does_not_reload_the_stopped_item(self, manager, monkeypatch):
+        join(manager)
+        started = []
+        scheduled = []
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
+        manager.playback.schedule = scheduled.append
+        self._stop(manager, monkeypatch)
+
+        manager._handle_group_update(
+            TestSnapshot().snapshot(version=4, playing=True, state="Playing")
+        )
+
+        assert started == []
+        # Nothing is playing for the snapshot's synthetic command to act on,
+        # and a command that did not run must not be remembered as applied.
+        assert scheduled == []
+        assert manager.group_state == "Playing"  # the mirror still follows
+
+    def test_the_group_moving_on_starts_the_new_item(
+        self, manager, monkeypatch, timers
+    ):
+        join(manager)
+        manager.providers = FakeProviders()
+        self._stop(manager, monkeypatch)
+
+        manager._handle_group_update(make_queue(version=3, items=(("item-2", "pl-2"),)))
+
+        assert manager.current_playlist_item_id == "pl-2"
+        assert manager.phase == "loading"
+        # ...and with that the stop is superseded: if the group comes back
+        # to the first item, the member follows it there.
+        manager._handle_group_update(make_queue(version=4, last_update=now_iso(1000)))
+        assert manager.current_playlist_item_id == "pl-1"
+
+    @pytest.mark.parametrize(
+        "selection, in_group",
+        [(0, True), (1, True), (-1, True), (2, False)],
+        ids=["stop-for-everyone", "spectator", "dismissed", "leave"],
+    )
+    def test_an_answer_resolves_the_stop(
+        self, manager, monkeypatch, selection, in_group
+    ):
+        join(manager)
+        prompt = self._stop(manager, monkeypatch)
+        self._answer(monkeypatch, selection)
+
+        prompt()
+
+        assert len(FakeDialog.asked) == 1
+        assert manager._stop_pending is None
+        assert manager.in_group() is in_group
+
+    def test_after_the_answer_the_item_is_followed_as_before(
+        self, manager, monkeypatch
+    ):
+        # Unchanged on purpose: an idle spectator re-attaches on the group's
+        # next update.
+        join(manager)
+        started = []
+        manager._start_item = lambda i, p, prov=None: started.append((i, p))
+        prompt = self._stop(manager, monkeypatch)
+        self._answer(monkeypatch, 1)
+        prompt()
+
+        manager._handle_group_update(make_queue(version=3))
+
+        assert started == [("item-1", "pl-1")]
+
+    def test_a_superseded_prompt_resolves_the_stop(self, manager, monkeypatch):
+        # A replace-play: the prompt never opens, and its stop is over.
+        join(manager)
+        prompt = self._stop(manager, monkeypatch)
+        self._answer(monkeypatch, 0)
+        manager._hold = {"transition": False, "proposed": False, "item_id": None}
+
+        prompt()
+
+        assert FakeDialog.asked == []
+        assert manager._stop_pending is None
+
+    def test_a_stale_answer_resolves_the_stop(self, manager, monkeypatch):
+        join(manager)
+        prompt = self._stop(manager, monkeypatch)
+
+        def answer():
+            manager._hold = {"transition": False, "proposed": True, "item_id": "i"}
+            return 0
+
+        self._answer(monkeypatch, 0, on_select=answer)
+
+        prompt()
+
+        assert manager._api.named("syncplay_stop") == []
+        assert manager._stop_pending is None
+
+    def test_being_removed_from_the_group_resolves_the_stop(self, manager, monkeypatch):
+        join(manager)
+        self._stop(manager, monkeypatch)
+
+        manager._handle_group_update({"GroupId": "g1", "Type": "GroupLeft"})
+
+        assert manager._stop_pending is None
+
+    def test_an_earlier_prompt_does_not_resolve_a_later_stop(
+        self, manager, monkeypatch, timers
+    ):
+        # The first dialog can outlive its stop: the group moved on, the
+        # member followed, and the user stopped that item too.
+        join(manager)
+        manager.providers = FakeProviders()
+        first = self._stop(manager, monkeypatch)
+        manager._handle_group_update(make_queue(version=3, items=(("item-2", "pl-2"),)))
+        self._stop(manager, monkeypatch, item=("item-2", "pl-2"))
+        self._answer(monkeypatch, 1)
+
+        first()
+
+        assert manager._stopped_here("pl-2")
+
+    def test_a_stop_the_group_made_marks_nothing(self, manager, monkeypatch):
+        join(manager)
+        manager.current_item_id, manager.current_playlist_item_id = "item-1", "pl-1"
+        manager.phase = utils.Phase.SYNCED
+
+        with manager.programmatic():
+            manager.on_stopped()
+
+        assert manager._stop_pending is None
+
+
 class TestCommandGroupGate:
     def test_command_for_another_group_discarded(self, manager):
         join(manager)
@@ -1907,6 +2174,138 @@ class TestLoadAllowance:
         assert len(started) == 1
         # 60s group position + the 9s this device's last load took.
         assert utils.ticks_to_ms(started[0]) == pytest.approx(69000.0, abs=50)
+
+
+class TestStartPastTheEnd:
+    """An item is never started at or beyond its end.
+
+    When the last entry of a queue plays out, the group's clock keeps
+    running: a snapshot taken afterwards names the same item at a position
+    past its runtime, and a member that has already finished it is idle, so
+    the queue went to ``_start_item``. Measured: on direct play the load
+    ended the instant it began, the 45 s watchdog then failed it, and the
+    member left the group with an error; on a transcode the item started
+    over from 0:00.
+    """
+
+    RUNTIME_S = 1429
+
+    @staticmethod
+    def _snapshot(position_s, playing=True, version=4, last_update=None):
+        ticks = utils.seconds_to_ticks(position_s)
+        return {
+            "GroupId": "g1",
+            "Type": "StateSnapshot",
+            "StateVersion": version,
+            "Data": {
+                "GroupName": "movie night",
+                "State": "Playing" if playing else "Paused",
+                "PlayQueue": make_queue(
+                    playing=playing, start_ticks=ticks, last_update=last_update
+                )["Data"],
+                "PositionTicks": ticks,
+                "When": now_iso(),
+                "IsPlaying": playing,
+                "Members": [{"UserName": "alice"}],
+            },
+        }
+
+    @pytest.fixture
+    def finished(self, manager, timers):
+        """A member whose player has just reached the end of the group's
+        item: idle, the item still its own (on_ended keeps it)."""
+        join(manager)
+        manager.providers = FakeProviders(
+            runtime_ticks=utils.seconds_to_ticks(self.RUNTIME_S)
+        )
+        manager.played = []
+        manager.playback.play_item = manager.played.append
+        manager.playback.schedule = lambda command: None
+        manager.current_item_id = "item-1"
+        manager.current_playlist_item_id = "pl-1"
+        manager.phase = utils.Phase.IDLE
+        return manager
+
+    def test_a_snapshot_past_the_end_starts_nothing(self, finished, timers):
+        published = []
+        finished.publish_session_state = lambda announce=False: published.append(1)
+
+        finished._handle_group_update(self._snapshot(self.RUNTIME_S + 5))
+
+        assert finished.played == []
+        assert finished.phase == "idle"
+        # No load, so no load watchdog to fail it 45 s later.
+        assert timers == []
+        assert finished._load_started_ms is None
+        assert published
+
+    def test_exactly_the_end_starts_nothing(self, finished):
+        finished._handle_group_update(self._snapshot(self.RUNTIME_S, playing=False))
+
+        assert finished.played == []
+
+    def test_the_item_stays_the_member_s_own(self, finished):
+        finished._handle_group_update(self._snapshot(self.RUNTIME_S + 5))
+
+        assert finished.current_playlist_item_id == "pl-1"
+        # ...so the group's commands for it are not "another queue item",
+        # and no snapshot is pulled for each one.
+        finished._handle_command(
+            {
+                "Command": "Pause",
+                "When": now_iso(),
+                "EmittedAt": now_iso(),
+                "PositionTicks": utils.seconds_to_ticks(self.RUNTIME_S + 6),
+                "PlaylistItemId": "pl-1",
+            }
+        )
+        assert finished._api.named("syncplay_snapshot") == []
+
+    def test_a_load_aimed_past_the_end_starts_nothing(self, finished, monkeypatch):
+        # Three seconds from the end, and this device's loads take nine:
+        # the group will be past the end before the first frame.
+        clock = [1000.0]
+        monkeypatch.setattr(utils, "local_ms", lambda: clock[0])
+        TestLoadAllowance._load(finished, 9000.0, clock)
+
+        finished._handle_group_update(self._snapshot(self.RUNTIME_S - 3))
+
+        assert finished.played == []
+
+    def test_a_position_inside_the_item_starts_as_before(self, finished, timers):
+        finished._handle_group_update(self._snapshot(600))
+
+        assert len(finished.played) == 1
+        assert finished.phase == "loading"
+        assert [delay for delay, _, _ in timers] == [45]
+
+    def test_an_unknown_runtime_starts_as_before(self, finished, timers):
+        # Live, a delegated or template provider's content: there is no end
+        # to be past.
+        finished.providers = FakeProviders()
+
+        finished._handle_group_update(self._snapshot(self.RUNTIME_S + 5))
+
+        assert len(finished.played) == 1
+        assert finished.phase == "loading"
+
+    def test_the_group_going_back_inside_the_item_starts_it(self, finished):
+        """Repeat-one, a Stop then Unpause, a seek back and the snapshot
+        after it: each re-sends the same playlist item at a position that
+        is inside it again."""
+        stamp = now_iso()
+        finished._handle_group_update(
+            self._snapshot(self.RUNTIME_S + 5, last_update=stamp)
+        )
+        assert finished.played == []
+
+        finished._handle_group_update(
+            make_queue(version=5, last_update=stamp, start_ticks=0)
+        )
+
+        assert len(finished.played) == 1
+        assert finished.providers.ticks[-1] == 0
+        assert finished.phase == "loading"
 
 
 class TestLoadWatchdogGeneration:
