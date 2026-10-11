@@ -293,6 +293,33 @@ def test_a_publish_that_lost_the_race_with_stop_withdraws_itself(rig, monkeypatc
     assert _document()["requests"] == []
 
 
+def test_staged_files_outlive_a_request_that_could_not_be_withdrawn(rig, monkeypatch):
+    """A document that cannot be written still names the request, and the
+    companion reads its files from the stage: neither the claim's janitor
+    nor the clear at a start removes images a standing request points at."""
+    from tests.unit.fakes import FakeWindow
+
+    FakeWindow.store = {}
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    worker = chapterart.ChapterArt(rig.api, _item())
+    worker._publish()
+
+    def unwritable(*args, **kwargs):
+        raise OSError("read-only file system")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(companion, "drop_live", unwritable)
+        patch.setattr(companion, "publish_live", unwritable)
+        worker._cleanup()
+        assert chapterart.clear_at_start() is False
+    (request,) = _document()["requests"]
+    assert all(os.path.exists(c["file"]) for c in request["chapters"])
+    # Once the document can be written both go, the request first.
+    assert chapterart.clear_at_start() is True
+    assert _document()["requests"] == []
+    assert not os.path.exists(chapterart.stage_dir())
+
+
 def test_without_a_companion_nothing_is_downloaded(rig, monkeypatch):
     monkeypatch.setattr(companion, "present", lambda: None)
     worker = chapterart.ChapterArt(rig.api, _item())
