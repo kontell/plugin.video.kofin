@@ -204,9 +204,13 @@ def asset_files(item, key, library) -> Optional[Dict[str, Any]]:
     if not sources and not features:
         return None
     item_id = str(item.get("Id") or "")
+    # The label, not the raw name: this is the name the companion files the
+    # version under, and a name equal to the file's stem is no label
+    # (version_label). The token above keeps the raw name, so a rename
+    # still moves it.
     return {
         "versions": [
-            [paths.version_url(key, library, item_id, s["Id"]), s.get("Name") or ""]
+            [paths.version_url(key, library, item_id, s["Id"]), version_label(s)]
             for s in sources[1:]
         ],
         "extras": [
@@ -228,10 +232,10 @@ STREAM_FLAG_FORCED = 0x0040
 STREAM_FLAG_HEARING_IMPAIRED = 0x0080
 
 
-def stream_flags(item) -> Optional[Dict[str, List[int]]]:
+def _stream_bits(item) -> Dict[str, List[int]]:
     """The flag bits of a file's audio and subtitle streams, in the order
     the scanner filed them (the first media source's, as the ListItem lists
-    them), or None when every stream is unflagged."""
+    them)."""
     sources = item.get("MediaSources") or []
     raw = (
         (
@@ -257,9 +261,28 @@ def stream_flags(item) -> Optional[Dict[str, List[int]]]:
         if stream.get("IsHearingImpaired"):
             bits |= STREAM_FLAG_HEARING_IMPAIRED
         result[kind].append(bits)
+    return result
+
+
+def stream_flags(item) -> Optional[Dict[str, List[int]]]:
+    """The flag bits of a file's audio and subtitle streams (``_stream_bits``),
+    or None when every stream is unflagged: a file that never had a flag is
+    asked nothing of the companion."""
+    result = _stream_bits(item)
     if not any(result["audio"]) and not any(result["subtitle"]):
         return None
     return result
+
+
+def cleared_stream_flags(item) -> Optional[Dict[str, List[int]]]:
+    """A zero for every audio and subtitle stream of a file: what is asked
+    of the companion once a file that had flags has none, since the bits
+    it wrote stay on the rows until they are written over. None when the
+    file lists no such stream, where there is no row to name."""
+    result = _stream_bits(item)
+    if not result["audio"] and not result["subtitle"]:
+        return None
+    return {kind: [0] * len(bits) for kind, bits in result.items()}
 
 
 def item_separator():

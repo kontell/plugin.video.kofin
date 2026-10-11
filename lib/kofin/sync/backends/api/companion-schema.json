@@ -121,7 +121,7 @@
     "remove_set": {
       "type": "object",
       "required": ["title"],
-      "properties": {"title": {"type": "string"}}
+      "properties": {"title": {"type": "string"}, "since": {"type": "integer"}}
     },
     "chapter_art": {
       "type": "object",

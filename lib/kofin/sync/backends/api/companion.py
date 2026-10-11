@@ -38,7 +38,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 from kofin.core import contract, kodirpc, settings
 from kofin.core.log import Logger
 from kofin.sync import private
-from . import paths
+from . import metadata, paths
 
 LOG = Logger(__name__)
 
@@ -187,8 +187,12 @@ def collect(native) -> List[Dict[str, Any]]:
             if owner is None:
                 continue
             record = payloads.get(item_id)
+            # The label the folder listing gave the file, not the raw name:
+            # a source named like its file is no version (version_label),
+            # and the companion, which sees a plugin URL for a file name,
+            # cannot tell.
             names = {
-                s["Id"]: s.get("Name") or ""
+                s["Id"]: metadata.version_label(s)
                 for s in (record.item.get("MediaSources") or [] if record else [])
                 if isinstance(s, dict) and s.get("Id")
             }
@@ -244,37 +248,53 @@ def _metadata_requests(store) -> List[Dict[str, Any]]:
                             "tags": [FAVORITE_EPISODE_TAG],
                         }
                     )
-                if kind == "Season" and applied.get("plot"):
-                    request = {
-                        "id": _item_request_id(SEASON_PLOT, item_id),
-                        "kind": SEASON_PLOT,
-                        "library": library,
-                        "item": item_id,
-                        "owner": {"seasonid": mapping.kodi_id},
-                        "plot": applied["plot"],
-                    }
+                # A stored plot or flag list is a request even when it is
+                # empty: the companion's withdrawal leaves the row as it is,
+                # so a cleared one is asked for (patch._with_companion_fields).
+                plot = applied.get("plot")
+                if kind == "Season" and isinstance(plot, str):
+                    request = season_plot_request(
+                        library, item_id, mapping.kodi_id, plot
+                    )
                     if not _acked(mapping, SEASON_PLOT, request):
                         requests.append(request)
                 flags = applied.get("flags")
                 if kind in MEDIA_OF and isinstance(flags, dict):
-                    request = {
-                        "id": _item_request_id(STREAM_FLAGS, item_id),
-                        "kind": STREAM_FLAGS,
-                        "library": library,
-                        "item": item_id,
-                        "owner": {KINDS_ID[kind]: mapping.kodi_id},
-                        "media": MEDIA_OF[kind],
-                        "flags": {
-                            "audio": list(flags.get("audio") or []),
-                            "subtitle": list(flags.get("subtitle") or []),
-                        },
-                    }
+                    request = stream_flags_request(
+                        kind, library, item_id, mapping.kodi_id, flags
+                    )
                     if not _acked(mapping, STREAM_FLAGS, request):
                         requests.append(request)
     return requests
 
 
 KINDS_ID = {"Movie": "movieid", "Episode": "episodeid", "MusicVideo": "musicvideoid"}
+
+
+def season_plot_request(library, item_id, season_id, plot: str) -> Dict[str, Any]:
+    return {
+        "id": _item_request_id(SEASON_PLOT, item_id),
+        "kind": SEASON_PLOT,
+        "library": library,
+        "item": item_id,
+        "owner": {"seasonid": season_id},
+        "plot": plot,
+    }
+
+
+def stream_flags_request(kind, library, item_id, kodi_id, flags) -> Dict[str, Any]:
+    return {
+        "id": _item_request_id(STREAM_FLAGS, item_id),
+        "kind": STREAM_FLAGS,
+        "library": library,
+        "item": item_id,
+        "owner": {KINDS_ID[kind]: kodi_id},
+        "media": MEDIA_OF[kind],
+        "flags": {
+            "audio": list(flags.get("audio") or []),
+            "subtitle": list(flags.get("subtitle") or []),
+        },
+    }
 
 
 def _absorb_acks(store) -> int:
@@ -285,17 +305,18 @@ def _absorb_acks(store) -> int:
     if not isinstance(outcomes, dict):
         return 0
     rows = []
-    done_sets = set()
+    done_sets: Dict[str, str] = {}
     for request_id, outcome in outcomes.items():
         if not isinstance(outcome, dict) or outcome.get("state") != "done":
             continue
         kind, _sep, item_id = str(request_id).partition(":")
         if not item_id or kind not in ACKED_KINDS:
             continue
+        digest = str(outcome.get("hash") or "")
         if kind == REMOVE_SET:
-            done_sets.add(item_id)
+            done_sets[item_id] = digest
         else:
-            rows.append((item_id, kind, str(outcome.get("hash") or "")))
+            rows.append((item_id, kind, digest))
     count = store.annotate_companion(rows) if rows else 0
     if done_sets:
         _prune_sets(done_sets)
@@ -351,9 +372,31 @@ def journal_set(title: str) -> None:
     LOG.info("companion: empty set %r left to the companion", title)
 
 
-def _prune_sets(done: Set[str]) -> None:
+def _set_request(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """One journal entry as its request. ``since`` is part of it, and so of
+    its content hash: the key is the title's, and without the stamp a set
+    emptied again under the same title asked exactly what the status
+    already called done."""
+    return {
+        "id": _item_request_id(REMOVE_SET, str(entry["key"])),
+        "kind": REMOVE_SET,
+        "library": "",
+        "item": str(entry["key"]),
+        "title": str(entry.get("title") or ""),
+        "since": int(entry.get("since") or 0),
+    }
+
+
+def _prune_sets(done: Dict[str, str]) -> None:
+    """Drop the journal entries the status reports done, by content hash
+    like every other acknowledged kind: a ``done`` left in the status from
+    an earlier removal of the same title is not this entry's."""
     entries = _read_sets()
-    kept = [e for e in entries if e.get("key") not in done]
+    kept = [
+        e
+        for e in entries
+        if not e.get("key") or done.get(str(e["key"])) != content_hash(_set_request(e))
+    ]
     if len(kept) != len(entries):
         _write_sets(kept)
 
@@ -364,17 +407,7 @@ def _set_requests() -> List[Dict[str, Any]]:
     live = [e for e in entries if int(e.get("since") or 0) >= floor]
     if len(live) != len(entries):
         _write_sets(live)
-    return [
-        {
-            "id": _item_request_id(REMOVE_SET, str(e["key"])),
-            "kind": REMOVE_SET,
-            "library": "",
-            "item": str(e["key"]),
-            "title": str(e.get("title") or ""),
-        }
-        for e in live
-        if e.get("key")
-    ]
+    return [_set_request(e) for e in live if e.get("key")]
 
 
 def publish(native) -> int:
