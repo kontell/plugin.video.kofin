@@ -8,10 +8,10 @@ owned row back (``readback``), removals wait for that confirmation
 scans, and runs one pass in ``reconcile``.
 
 Music is scanned by directory. A song is missing, or its tags have moved,
-or it has moved album: each means its album directory is listed again, and
-a pass with many such directories walks the library's music root once
-instead -- Kodi lists every album folder either way, and one scan job costs
-less than hundreds.
+or it has moved album: each means its album directory is listed again. The
+directories a pass wants listed are planned in order and scanned a part at
+a time (``scan_music``, ``walk``), whether they are every album of a first
+import or the one album a song was renamed in.
 """
 
 import time
@@ -22,7 +22,7 @@ import xbmc
 from kofin.core import memory, settings, state
 from kofin.core.log import Logger
 from kofin.sync.catalogue import BackendMismatch
-from . import companion, metadata, paths, progress, removal
+from . import companion, metadata, paths, progress, removal, walk
 from .kinds import rpc, rpc_batch
 from .patch import Applier
 from .readback import Readback
@@ -31,12 +31,10 @@ from .store import Entry, Store
 
 LOG = Logger(__name__)
 
-# A pass walks the library's music root once instead of scanning changed
-# album directories by name when at least this share of the directories
-# changed. Measured on the P1D: a directory scan is 60-80 ms, and a root walk
-# re-lists every unchanged directory at about 100 ms each because Kodi
-# re-creates the Python interpreter when it has no database work between two
-# listings -- so the walk pays only when most directories have work.
+# A pass scans a movies root once instead of the missing movies' folders by
+# name when at least this share of the library is missing. (Music has no
+# such choice to make: scan_music lists exactly the directories that
+# changed, however many, a part at a time.)
 ROOT_SCAN_SHARE = 0.5
 # A hold is renewed before the provider's own limit on it runs out.
 HOLD_RENEW = 480.0
@@ -79,7 +77,7 @@ class Native:
         self.progress = progress.Progress()
         self._server = ""
         # (library, folder) pairs whose directory this pass has re-listed,
-        # or (library, "*") when the music root was walked.
+        # and (library, "*") when that was every directory of the library.
         self.rescanned: Set[Tuple[str, str]] = set()
         # scanner -> when the hold on it was taken.
         self._held: Dict[str, float] = {}
@@ -361,7 +359,12 @@ class Native:
         return on_poll
 
     def scan(
-        self, directories: List[str], scanner="video", expected=None, prepare=None
+        self,
+        directories: List[str],
+        scanner="video",
+        expected=None,
+        prepare=None,
+        span=0,
     ):
         """Scan each directory in turn and wait for the scanner to go idle.
 
@@ -369,6 +372,8 @@ class Native:
         it runs the bar shows Kodi's own count climbing towards it, read every
         few seconds, since a scan is the longest phase and the pass counts
         nothing of its own until it ends (20 minutes at "0 %" on the box).
+        ``span`` is that count for the whole run of directories instead: one
+        phase of the bar across the parts of a music walk.
         ``prepare`` is called with each directory just before its scan.
 
         One scan at a time: a second ``VideoLibrary.Scan`` queued while the
@@ -395,44 +400,63 @@ class Native:
         # LibreELEC box). The video scanner has no such thread.
         dialogs = progress.show_dialogs() and scanner != "music"
         expected = expected or {}
-        for directory in directories:
-            self.wait(lambda: self._idle(scanner), busy=lambda: self._scanning(scanner))
-            serial = finished()
-            began = time.monotonic()
-            location = paths.parse(directory)
-            heading = "%s: %s" % (
+
+        def heading_of(location):
+            return "%s: %s" % (
                 xbmc.getLocalizedString(progress.SCANNING),
                 progress.label(
                     location.content if location and location.content else scanner
                 ),
             )
-            goal = int(expected.get(directory) or 0)
-            saved = self.progress.phase(goal, heading) if goal else None
-            on_poll = self._scan_watch(location, heading, goal) if saved else None
 
-            if prepare is not None:
-                prepare(directory)
-            rpc(method, {"directory": directory, "showdialogs": dialogs})
-            self._async_pending = True
-            try:
+        spanned = None
+        span_poll = None
+        if span:
+            first = paths.parse(directories[0])
+            spanned = self.progress.phase(int(span), heading_of(first))
+            span_poll = self._scan_watch(first, heading_of(first), int(span))
+        try:
+            for directory in directories:
                 self.wait(
-                    lambda serial=serial: finished() > serial and self._idle(scanner),
-                    busy=lambda: self._scanning(scanner),
-                    on_poll=on_poll,
+                    lambda: self._idle(scanner), busy=lambda: self._scanning(scanner)
                 )
-                LOG.info(
-                    "%s scan of %s took %.1f s",
-                    scanner,
-                    paths.describe(directory),
-                    time.monotonic() - began,
-                )
-            except TimeoutError:
-                if finished() == serial:
-                    raise
-            finally:
-                self._async_pending = not self._idle(scanner)
-                if saved is not None:
-                    self.progress.restore(saved)
+                serial = finished()
+                began = time.monotonic()
+                location = paths.parse(directory)
+                heading = heading_of(location)
+                goal = 0 if span else int(expected.get(directory) or 0)
+                saved = self.progress.phase(goal, heading) if goal else None
+                on_poll = self._scan_watch(location, heading, goal) if saved else None
+                if span:
+                    on_poll = span_poll
+
+                if prepare is not None:
+                    prepare(directory)
+                rpc(method, {"directory": directory, "showdialogs": dialogs})
+                self._async_pending = True
+                try:
+                    self.wait(
+                        lambda serial=serial: finished() > serial
+                        and self._idle(scanner),
+                        busy=lambda: self._scanning(scanner),
+                        on_poll=on_poll,
+                    )
+                    LOG.info(
+                        "%s scan of %s took %.1f s",
+                        scanner,
+                        paths.describe(directory),
+                        time.monotonic() - began,
+                    )
+                except TimeoutError:
+                    if finished() == serial:
+                        raise
+                finally:
+                    self._async_pending = not self._idle(scanner)
+                    if saved is not None:
+                        self.progress.restore(saved)
+        finally:
+            if spanned is not None:
+                self.progress.restore(spanned)
         if scanner == "music":
             for directory in directories:
                 location = paths.parse(directory)
@@ -548,31 +572,49 @@ class Native:
             self.release(scanner)
 
     def scan_music(self, library, folders: Set[str], expected=0):
-        """List the changed album directories again: each by name, or the
-        library's music root once when most of them changed. ``expected`` is
-        the number of songs the scan should add, for the bar."""
+        """Have Kodi list the changed album directories again.
+
+        The directories are planned in listing order (``walk.rows``) and
+        scanned a part at a time: each scan is of a directory that lists
+        ``paths.MUSIC_PART`` of them, and the scanner goes into each. That
+        is one scan job for every thirty-two directories where a scan by
+        name was one for each, and it lists no directory that did not
+        change, where a walk of the library root listed them all. It is
+        also the only one of the three that is safe from Kodi's directory
+        cache: a directory scanned by name "does not exist" to Kodi when a
+        cached listing of its parent fails to name it, a new album under a
+        root listed before it arrived (``paths.MUSIC_PART`` has the rest).
+        ``expected`` is the number of songs the scan should add, for the bar.
+        """
         if not folders:
             return
+        every = walk.root_folders(self.store, library)
+        rows = walk.rows(self.store, library, folders, self.album_items(library))
         # The applier reads the album payloads again after the scan; held
         # across it they are memory Kodi's scanner wants for its page cache.
         self._album_items.pop(library, None)
-        total = len(set(self.store.folders("Audio", library)) | folders)
-        if len(folders) > total * ROOT_SCAN_SHARE:
-            LOG.info(
-                "music: %d of %d directories changed; walking the library root",
-                len(folders),
-                total,
-            )
-            root = paths.library_dir(self.key, library, "music")
-            self.scan([root], "music", expected={root: expected})
-            self.rescanned.add((library, "*"))
-            return
-        LOG.info("music: scanning %d of %d directories by name", len(folders), total)
+        self.store.plan_walk(library, rows)
+        parts = walk.parts(len(rows))
+        LOG.info(
+            "music: %d of %d directories changed; scanning them in %d part(s)",
+            len(rows),
+            len(every | set(folders)),
+            parts,
+        )
+        began = time.monotonic()
         self.scan(
-            [paths.music_dir(self.key, library, folder) for folder in sorted(folders)],
+            [paths.music_part(self.key, library, n) for n in range(parts)],
             "music",
+            span=expected,
+        )
+        LOG.info(
+            "music: %d directories scanned in %.1f s",
+            len(rows),
+            time.monotonic() - began,
         )
         self.rescanned.update((library, folder) for folder in folders)
+        if every <= set(folders):
+            self.rescanned.add((library, "*"))
 
     # -- the pass ------------------------------------------------------------
 

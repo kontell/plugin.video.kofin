@@ -42,6 +42,8 @@ class Kodi:
         self.albums = {}
         self.artists = {}
         self.music_scanned = []
+        # Every album directory a music scan went into, in order.
+        self.music_folders = []
         self.holding = False
         # A directory whose listing the fake should take from here instead
         # of the store (a failed or foreign listing), or drop entirely.
@@ -315,10 +317,21 @@ class Kodi:
             return
         self.music_scanned.append(directory)
         assert location is not None and location.content == "music", directory
-        if location.folder is None:
+        if location.walk:
+            # A part of the pass's plan: the scanner goes into each of the
+            # directories it lists.
+            assert location.part is not None, directory
+            for folder, _label in self.store.walk_part(
+                location.library, location.part, paths.MUSIC_PART
+            ):
+                self.music_folders.append(folder)
+                self._scan_folder(location.library, folder)
+        elif location.folder is None:
             for folder in self._root_folders(location.library):
+                self.music_folders.append(folder)
                 self._scan_folder(location.library, folder)
         else:
+            self.music_folders.append(location.folder)
             self._scan_folder(location.library, location.folder)
         self._cleanup_music()
         self.monitor.music_finished += 1

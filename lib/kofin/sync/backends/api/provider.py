@@ -23,7 +23,7 @@ import xbmc
 from kofin.core import kodirpc, state
 from kofin.sync import private
 from kofin.core.log import Logger
-from . import metadata, paths
+from . import metadata, paths, walk
 from .records import PayloadWindow
 from .store import Store
 
@@ -84,6 +84,9 @@ def exists(store, location, item_id, source=""):
     if location.probe:
         # A disc-structure folder Kodi probes for: never a row.
         return False
+    if location.walk:
+        # The pass's own scan directories: no row is ever filed under one.
+        return True
     if item_id:
         state = store.state(item_id)
         if state is not None and state.operation == "remove":
@@ -151,6 +154,12 @@ def serve(request):
         return
     store = Store(location.key)
     item_id = request.params.get("id") or location.song
+    if location.walk and action != "check_exists":
+        if location.part is None:
+            _walk_parts(request, store, location.key, location.library)
+        else:
+            _music_part(request, store, location.key, location.library, location.part)
+        return
     if action == "check_exists":
         xbmcplugin.setResolvedUrl(
             request.handle,
@@ -434,30 +443,47 @@ def resolve_extra(location) -> str:
 
 def _music_root(request, store, key, library):
     """The library's album directories: every live one, and every one that
-    still has songs to shed. A tombstone leaves Kodi only through the
-    complete listing of its directory, so a directory whose songs are all
-    gone stays listed, empty, until the scan has confirmed it."""
-    folders = set(store.folders("Audio", library))
-    folders.update(
-        placed.parent_id
-        for placed in store.tombstones().values()
-        if placed.kind == "Audio" and placed.library == library and placed.parent_id
+    still has songs to shed (walk.root_folders)."""
+    _album_folders(request, key, library, walk.rows(store, library))
+
+
+def _music_part(request, store, key, library, index):
+    """One part of the scan the pass planned (store.plan_walk): its
+    directories under the labels planned for them, with no payload read. A
+    part the plan does not reach lists nothing, and that costs nothing: no
+    song is filed under a part, so a scan of one removes none."""
+    _album_folders(
+        request, key, library, store.walk_part(library, index, paths.MUSIC_PART)
     )
-    albums = store.records(kind="MusicAlbum", library=library) if folders else {}
-    entries = []
-    for folder in sorted(folders):
-        album = albums.get(folder)
-        label = metadata.folder_label(
-            album.item if album else None, folder, store.salt(folder)
-        )
-        entries.append(
+
+
+def _walk_parts(request, store, key, library):
+    """The parts of the plan, for whoever lists their parent: Kodi takes a
+    directory to exist from the cached listing of its parent when it has
+    one, so this listing never leaves a part of the plan out."""
+    _folders(
+        request,
+        [
+            paths.music_part(key, library, index)
+            for index in range(walk.parts(store.walk_size(library)))
+        ],
+        "Kofin",
+    )
+
+
+def _album_folders(request, key, library, rows):
+    _listing(
+        request,
+        [
             (
                 paths.music_dir(key, library, folder),
                 xbmcgui.ListItem(label, offscreen=True),
                 True,
             )
-        )
-    _listing(request, entries, "")
+            for folder, label in rows
+        ],
+        "",
+    )
 
 
 RETRY_DELAY = 5.0

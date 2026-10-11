@@ -2,7 +2,7 @@
 
 import pytest
 
-from kofin.sync.backends.api import metadata, native, paths
+from kofin.sync.backends.api import metadata, paths
 from kofin.sync.backends.api.readback import artist_key
 from tests.unit.apikodi import song_id_of
 from tests.unit.apifixtures import (  # noqa: F401
@@ -38,9 +38,10 @@ def test_music_import_files_songs_under_album_directories(store, backend, kodi):
     store.publish(items, library=LIB)
     backend.reconcile()
     assert not store.pending()
-    # Every directory is new, so the library root is walked once; no binding
-    # is made, the music scanner needs none.
-    assert kodi.music_scanned == [paths.library_dir(store.namespace, LIB, "music")]
+    # Every directory is new and one part lists them both; no binding is
+    # made, the music scanner needs none.
+    assert kodi.music_scanned == [paths.music_part(store.namespace, LIB, 0)]
+    assert sorted(kodi.music_folders) == sorted([ALBUM, ALBUM2])
     assert not methods(kodi, "VideoLibrary.SetSourceContent")
     songs = owned_songs(kodi)
     assert set(songs) == {"tc31", "tc32", "tc33", "ud41", "ud42"}
@@ -76,6 +77,7 @@ def test_music_import_files_songs_under_album_directories(store, backend, kodi):
     # A second pass sends nothing and scans nothing.
     kodi.calls.clear()
     kodi.music_scanned.clear()
+    kodi.music_folders.clear()
     store.invalidate(["tc31", ALBUM, ARTIST])
     backend.reconcile()
     assert not kodi.music_scanned
@@ -108,6 +110,7 @@ def test_a_repair_sends_nothing_for_a_song_whose_userdata_matches(store, backend
     backend.reconcile()
     kodi.calls.clear()
     kodi.music_scanned.clear()
+    kodi.music_folders.clear()
     # A field neither the tags nor the userdata read.
     store.publish([song("tc31", ALBUM, 1, Etag="moved")])
     backend.reconcile(repair=True)
@@ -140,7 +143,7 @@ def test_a_first_import_reads_no_song_payload_to_pick_its_directories(
     monkeypatch.setattr(store, "payloads", many)
     monkeypatch.setattr(store, "payload", one)
     backend.reconcile(repair=True)
-    assert kodi.music_scanned == [paths.library_dir(store.namespace, LIB, "music")]
+    assert kodi.music_folders == [ALBUM]
     assert not before_the_scan
     assert not store.pending()
 
@@ -152,6 +155,7 @@ def test_a_pass_hashes_the_tags_of_each_song_once(store, backend, kodi, monkeypa
     store.publish(items, library=LIB)
     backend.reconcile()
     kodi.music_scanned.clear()
+    kodi.music_folders.clear()
     store.invalidate([i["Id"] for i in items])
     hashed = []
     tag_hash = metadata.tag_hash
@@ -194,10 +198,11 @@ def test_metadata_change_rescans_only_that_album_and_keeps_ids(store, backend, k
     before = owned_songs(kodi)
     kodi.songs[before["tc31"]["songid"]]["playcount"] = 7
     kodi.music_scanned.clear()
+    kodi.music_folders.clear()
     kodi.calls.clear()
     store.publish([song("tc31", ALBUM, 1, Name="Renamed")])
     backend.reconcile()
-    assert kodi.music_scanned == [paths.music_dir(store.namespace, LIB, ALBUM)]
+    assert kodi.music_folders == [ALBUM]
     after = owned_songs(kodi)
     # Same id, Kodi's own play count kept, the tag re-read.
     assert after["tc31"]["songid"] == before["tc31"]["songid"]
@@ -214,6 +219,7 @@ def test_server_userdata_patches_without_a_rescan(store, backend, kodi):
     store.publish(album_bundle(songs=2), library=LIB)
     backend.reconcile()
     kodi.music_scanned.clear()
+    kodi.music_folders.clear()
     store.publish(
         [
             song(
@@ -238,9 +244,10 @@ def test_song_removal_is_the_directory_listed_without_it(store, backend, kodi):
     )
     backend.reconcile()
     kodi.music_scanned.clear()
+    kodi.music_folders.clear()
     store.publish([], removed=["tc33"])
     backend.reconcile()
-    assert kodi.music_scanned == [paths.music_dir(store.namespace, LIB, ALBUM)]
+    assert kodi.music_folders == [ALBUM]
     assert set(owned_songs(kodi)) == {"tc31", "tc32", "ud41"}
     assert not store.pending()
     assert store.state("tc33").status == "applied"
@@ -254,19 +261,19 @@ def test_last_song_takes_album_and_artist_with_it(store, backend, kodi):
     )
     backend.reconcile()
     kodi.music_scanned.clear()
+    kodi.music_folders.clear()
     store.publish([], removed=["tc31", ALBUM, ARTIST])
     backend.reconcile()
-    assert kodi.music_scanned == [paths.music_dir(store.namespace, LIB, ALBUM)]
+    assert kodi.music_folders == [ALBUM]
     assert set(owned_songs(kodi)) == {"ud41"}
     assert len(kodi.albums) == 1 and len(kodi.artists) == 1
     assert not store.pending()
     assert store.mapping(ALBUM) is None and store.mapping(ARTIST) is None
 
 
-def test_whole_library_removal_walks_the_root_once_with_tombstone_folders(
-    store, backend, kodi, monkeypatch
+def test_whole_library_removal_scans_every_emptied_directory_in_one_scan(
+    store, backend, kodi
 ):
-    monkeypatch.setattr(native, "ROOT_SCAN_SHARE", 0.01)
     items = album_bundle(songs=2) + album_bundle(ALBUM2, ARTIST2, 2, "u")
     other = album_bundle("a7" * 16, "b8" * 16, 1, "v")
     membership = {i["Id"]: LIB for i in items}
@@ -275,13 +282,14 @@ def test_whole_library_removal_walks_the_root_once_with_tombstone_folders(
     backend.reconcile()
     assert len(owned_songs(kodi)) == 5
     kodi.music_scanned.clear()
+    kodi.music_folders.clear()
     kodi.calls.clear()
     store.publish([], library=LIB)
     backend.reconcile()
-    root = paths.library_dir(store.namespace, LIB, "music")
-    assert kodi.music_scanned == [root]
-    # The root listing still named both emptied directories: that is how
-    # Kodi was told to visit them.
+    # One scan, whose part named both emptied directories: that is how Kodi
+    # was told to visit them.
+    assert kodi.music_scanned == [paths.music_part(store.namespace, LIB, 0)]
+    assert sorted(kodi.music_folders) == sorted([ALBUM, ALBUM2])
     assert set(owned_songs(kodi)) == {"va71"}
     assert len(kodi.albums) == 1 and len(kodi.artists) == 1
     assert not store.pending()
@@ -312,10 +320,12 @@ def test_a_song_moved_between_albums_rescans_both_directories(store, backend, ko
     backend.reconcile()
     old_row = owned_songs(kodi)["tc32"]
     kodi.music_scanned.clear()
+    kodi.music_folders.clear()
     store.publish([song("tc32", ALBUM2, 2, ARTIST2)])
     backend.reconcile()
-    # Two of two directories changed: the root is walked once.
-    assert kodi.music_scanned == [paths.library_dir(store.namespace, LIB, "music")]
+    # The directory it left and the one it joined, in one scan.
+    assert kodi.music_scanned == [paths.music_part(store.namespace, LIB, 0)]
+    assert sorted(kodi.music_folders) == sorted([ALBUM, ALBUM2])
     songs = owned_songs(kodi)
     assert songs["tc32"]["file"] == paths.playback_url(
         store.namespace, "Audio", LIB, "tc32", ALBUM2, "flac"
@@ -341,8 +351,9 @@ def test_a_directory_that_lost_songs_heals_on_the_next_pass(store, backend, kodi
     assert not store.pending()
     store.publish([song("tc31", number=1, Name="Renamed")])
     kodi.music_scanned.clear()
+    kodi.music_folders.clear()
     backend.reconcile()
-    assert kodi.music_scanned == [paths.library_dir(store.namespace, LIB, "music")]
+    assert kodi.music_folders == [ALBUM]
     assert set(owned_songs(kodi)) == {"tc31", "tc32", "tc33"}
     assert not store.pending()
 
@@ -425,7 +436,9 @@ def test_music_readback_pages_and_acknowledges_in_batches(
     # (a zero-width page is the bar reading Kodi's count during a scan).
     assert all(p["limits"]["end"] - p["limits"]["start"] == 7 for p in listings)
     assert len(listings) < 30
-    assert len(opens) < 40
+    # Thirty songs, and the opens do not follow them: the plan of the scan
+    # and its one part are a handful more whatever the library holds.
+    assert len(opens) < 48
 
 
 def test_music_patch_failure_keeps_the_song_pending(store, backend, kodi):
@@ -438,6 +451,7 @@ def test_music_patch_failure_keeps_the_song_pending(store, backend, kodi):
     assert {i.item_id for i, _, _ in store.pending()} == {"tc31"}
     kodi.fail = ""
     kodi.music_scanned.clear()
+    kodi.music_folders.clear()
     backend.reconcile()
     assert not store.pending()
     assert not kodi.music_scanned
@@ -452,11 +466,141 @@ def test_video_and_music_libraries_share_one_pass(store, backend, kodi):
     backend.reconcile()
     assert not store.pending()
     assert kodi.scanned == [paths.library_dir(store.namespace, LIB, "movies")]
-    assert kodi.music_scanned == [paths.library_dir(store.namespace, LIB2, "music")]
+    assert kodi.music_scanned == [paths.music_part(store.namespace, LIB2, 0)]
     assert artist_key(" Band ") == "band"
 
 
 # -- provider, serializer, identity, coordinator ------------------------------
+
+
+def five_albums():
+    """Five albums of one song each, created a day apart, newest first in
+    the catalogue so that only the label can order them."""
+    items = []
+    for day in (5, 4, 3, 2, 1):
+        album_id = ("%02x" % (0xA0 + day)) * 16
+        artist_id = ("%02x" % (0xB0 + day)) * 16
+        items += album_bundle(
+            album_id,
+            artist_id,
+            songs=1,
+            prefix="d%d" % day,
+            Name="Record %d" % day,
+            DateCreated="2024-01-%02dT00:00:00.00Z" % day,
+            ProviderIds={},
+        )
+    for item in items:
+        if item["Type"] == "Audio":
+            item["Album"] = "Record " + item["Id"][1]
+    return items, [("%02x" % (0xA0 + day)) * 16 for day in (1, 2, 3, 4, 5)]
+
+
+def test_a_scan_visits_its_directories_a_part_at_a_time_in_label_order(
+    store, backend, kodi, monkeypatch
+):
+    """Kodi's directory cache holds fifty listings, and what is still in it
+    when a scan ends is what the scanner's second look at each album is
+    answered from: the directories go to the scanner a part at a time, each
+    part a scan of its own, in the order one listing would have had them."""
+    monkeypatch.setattr(paths, "MUSIC_PART", 2)
+    items, oldest_first = five_albums()
+    store.publish(items, library=LIB)
+    backend.reconcile(repair=True)
+    assert not store.pending()
+    assert kodi.music_scanned == [
+        paths.music_part(store.namespace, LIB, n) for n in range(3)
+    ]
+    # Oldest first on the server's creation date, so that Kodi, which
+    # numbers albums as it adds them, has the newest at the top.
+    assert kodi.music_folders == oldest_first
+    assert len(owned_songs(kodi)) == 5
+    # A change in one of the five is a scan of that one directory.
+    kodi.music_scanned.clear()
+    kodi.music_folders.clear()
+    changed = next(i for i in items if i["Id"] == "d3a31")
+    store.publish([dict(changed, Name="Renamed")])
+    backend.reconcile()
+    assert kodi.music_scanned == [paths.music_part(store.namespace, LIB, 0)]
+    assert kodi.music_folders == [oldest_first[2]]
+    assert owned_songs(kodi)["d3a31"]["title"] == "Renamed"
+    assert not store.pending()
+
+
+def test_a_part_is_never_a_directory_below_the_music_root():
+    """Kodi takes a directory it is asked to scan to exist from its cached
+    listing of the parent when it has one, and it lists a music root on its
+    own account; a part below the root was skipped as missing the moment
+    that listing was cached (observed on 22.0b2). The parts have a parent
+    of their own, which nothing lists but a request for it."""
+    key, library = "a" * 32, "b" * 32
+    root = paths.library_dir(key, library, "music")
+    part = paths.music_part(key, library, 7)
+    assert not part.startswith(root)
+    assert part.startswith(paths.walk_dir(key, library))
+    located = paths.parse(part)
+    assert (located.key, located.library, located.content) == (key, library, "music")
+    assert located.walk and located.part == 7 and located.folder is None
+    parent = paths.parse(paths.walk_dir(key, library))
+    assert parent.walk and parent.part is None
+    # An album directory and the root are neither.
+    assert not paths.parse(root).walk
+    assert not paths.parse(paths.music_dir(key, library, "c" * 32)).walk
+
+
+def test_the_provider_lists_a_part_from_the_plan_and_the_parent_names_every_part(
+    store, monkeypatch
+):
+    from kofin.plugin.router import Request
+    from kofin.sync.backends.api import provider, walk
+
+    monkeypatch.setattr(paths, "MUSIC_PART", 2)
+    items, oldest_first = five_albums()
+    store.publish(items, library=LIB)
+    rendered = []
+    monkeypatch.setattr(
+        provider.xbmcplugin,
+        "addDirectoryItems",
+        lambda h, entries, n: rendered.append(list(entries)),
+    )
+    monkeypatch.setattr(provider.xbmcplugin, "setContent", lambda h, c: None)
+    monkeypatch.setattr(provider.xbmcplugin, "endOfDirectory", lambda h, **k: None)
+    key = store.namespace
+
+    def listed(url):
+        provider.serve(Request(url, 1, {}))
+        return [(entry[0], entry[2]) for entry in rendered[-1]]
+
+    # Nothing planned: a part lists nothing and the parent names no part.
+    assert listed(paths.music_part(key, LIB, 0)) == []
+    assert listed(paths.walk_dir(key, LIB)) == []
+    # The root lists every directory, as it always did.
+    everything = [(paths.music_dir(key, LIB, f), True) for f in oldest_first]
+    assert listed(paths.library_dir(key, LIB, "music")) == everything
+    # A plan of three of the five: two parts, in the plan's order.
+    wanted = [oldest_first[4], oldest_first[0], oldest_first[2]]
+    rows = walk.rows(store, LIB, wanted)
+    assert [folder for folder, _ in rows] == [
+        oldest_first[0],
+        oldest_first[2],
+        oldest_first[4],
+    ]
+    store.plan_walk(LIB, rows)
+    assert listed(paths.music_part(key, LIB, 0)) == [
+        (paths.music_dir(key, LIB, oldest_first[0]), True),
+        (paths.music_dir(key, LIB, oldest_first[2]), True),
+    ]
+    assert listed(paths.music_part(key, LIB, 1)) == [
+        (paths.music_dir(key, LIB, oldest_first[4]), True)
+    ]
+    assert listed(paths.music_part(key, LIB, 2)) == []
+    assert listed(paths.walk_dir(key, LIB)) == [
+        (paths.music_part(key, LIB, 0), True),
+        (paths.music_part(key, LIB, 1), True),
+    ]
+    # A later plan replaces it.
+    store.plan_walk(LIB, rows[:1])
+    assert listed(paths.music_part(key, LIB, 1)) == []
+    assert store.walk_size(LIB) == 1
 
 
 def test_music_provider_lists_folders_with_tombstones_and_never_fails(
@@ -810,8 +954,9 @@ def test_applied_songs_a_half_failed_relisting_removed_are_found_after_the_scan(
     assert len(store.pending()) == 2
     del kodi.listings[directory]
     kodi.music_scanned.clear()
+    kodi.music_folders.clear()
     backend.reconcile()
-    assert kodi.music_scanned == [paths.library_dir(store.namespace, LIB, "music")]
+    assert kodi.music_folders == [ALBUM]
     assert set(owned_songs(kodi)) == {"tc31", "tc32", "tc33"}
     assert not store.pending()
 
@@ -825,10 +970,10 @@ def test_an_album_change_retags_its_songs_without_a_song_payload_change(
     backend.reconcile()
     before = store.mapping("tc31").applied["tag"]
     kodi.music_scanned.clear()
+    kodi.music_folders.clear()
     store.publish([album(ProviderIds={"MusicBrainzAlbum": "mb-album-moved"})])
     backend.reconcile()
-    # One directory of one: the root is walked (ROOT_SCAN_SHARE).
-    assert kodi.music_scanned == [paths.library_dir(store.namespace, LIB, "music")]
+    assert kodi.music_folders == [ALBUM]
     assert store.mapping("tc31").applied["tag"] != before
     assert store.mapping("tc31").applied["tag"] == metadata.tag_hash(
         store.records(item_ids=["tc31"])["tc31"].item,
@@ -837,6 +982,7 @@ def test_an_album_change_retags_its_songs_without_a_song_payload_change(
     assert not store.pending()
     # An album change that moves no tag scans nothing.
     kodi.music_scanned.clear()
+    kodi.music_folders.clear()
     store.publish(
         [album(ProviderIds={"MusicBrainzAlbum": "mb-album-moved"}, Overview="x")]
     )

@@ -114,6 +114,10 @@ class Store(Catalogue):
             CREATE TABLE IF NOT EXISTS api_salt(
                 namespace TEXT NOT NULL, folder TEXT NOT NULL, salt INTEGER NOT NULL,
                 PRIMARY KEY(namespace,folder));
+            CREATE TABLE IF NOT EXISTS api_walk(
+                namespace TEXT NOT NULL, library TEXT NOT NULL, position INTEGER NOT NULL,
+                folder TEXT NOT NULL, label TEXT NOT NULL,
+                PRIMARY KEY(namespace,library,position));
             CREATE TABLE IF NOT EXISTS api_expected(
                 namespace TEXT NOT NULL, item_id TEXT NOT NULL, generation INTEGER NOT NULL,
                 expires REAL NOT NULL, payload TEXT NOT NULL,
@@ -767,6 +771,58 @@ class Store(Catalogue):
             row = db.cursor.execute(
                 "SELECT salt FROM api_salt WHERE namespace=? AND folder=?",
                 (self.namespace, folder),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def salts(self) -> Dict[str, int]:
+        """Every salted directory with its salt, in one read: a listing of
+        1,557 album directories asked for them one database open at a time."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                "SELECT folder, salt FROM api_salt WHERE namespace=?",
+                (self.namespace,),
+            ).fetchall()
+        return {folder: int(salt) for folder, salt in rows}
+
+    def plan_walk(self, library, rows):
+        """The album directories a scan of the library is to visit, in order,
+        each with the label it is listed under. The pass writes the plan
+        before the scan and the provider lists it a part at a time
+        (``walk_part``), reading no payload."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute("BEGIN IMMEDIATE")
+            db.cursor.execute(
+                "DELETE FROM api_walk WHERE namespace=? AND library=?",
+                (self.namespace, library),
+            )
+            db.cursor.executemany(
+                "INSERT INTO api_walk VALUES (?,?,?,?,?)",
+                [
+                    (self.namespace, library, position, folder, label)
+                    for position, (folder, label) in enumerate(rows)
+                ],
+            )
+
+    def walk_part(self, library, index, size) -> List[Tuple[str, str]]:
+        """(folder, label) of the directories in one part of the plan."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                """SELECT folder, label FROM api_walk WHERE namespace=? AND library=?
+                AND position>=? AND position<? ORDER BY position""",
+                (self.namespace, library, index * size, (index + 1) * size),
+            ).fetchall()
+        return [(folder, label) for folder, label in rows]
+
+    def walk_size(self, library) -> int:
+        """How many directories the library's plan names."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            row = db.cursor.execute(
+                "SELECT COUNT(*) FROM api_walk WHERE namespace=? AND library=?",
+                (self.namespace, library),
             ).fetchone()
         return int(row[0]) if row else 0
 
