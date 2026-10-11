@@ -287,6 +287,43 @@ def test_unnumbered_special_and_empty_season_apply_without_a_row(store, backend,
     assert store.mapping(SHOW[:4] + "s1").kodi_id is not None
 
 
+def test_a_shows_episodes_are_read_once_for_all_its_seasons(
+    store, backend, kodi, monkeypatch
+):
+    """Whether a season has an importable episode is asked per season and
+    answered from the show's episodes; they are read once a show, not once
+    a season (347 seasons were 349 s of a pass on a Raspberry Pi)."""
+    from kofin.sync.backends.api.patch import Applier
+
+    items = show_bundle(episodes=2, seasons=(1, 2, 3, 0)) + [
+        episode("ea31", SHOW, 3, 1),
+        episode("ea19", season_number=0, number=0),
+    ]
+    store.publish(items, library=LIB)
+    reads = []
+    records = store.records
+
+    def counting(*args, **kwargs):
+        if kwargs.get("kind") == "Episode" and kwargs.get("parent_id") == SHOW:
+            reads.append(1)
+        return records(*args, **kwargs)
+
+    monkeypatch.setattr(store, "records", counting)
+    applier = Applier(backend)
+    seasons = {
+        r.item["IndexNumber"]: r
+        for r in records(kind="Season", parent_id=SHOW).values()
+    }
+    # Season 2 has no episode at all; the specials only an unnumbered one.
+    assert [applier.season_has_episodes(seasons[n]) for n in (1, 2, 3, 0)] == [
+        True,
+        False,
+        True,
+        False,
+    ]
+    assert len(reads) == 1
+
+
 def test_collections_file_sets_at_import_and_patch_set_details(store, backend, kodi):
     store.publish(
         [

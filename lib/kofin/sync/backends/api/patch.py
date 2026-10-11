@@ -120,6 +120,8 @@ class Applier:
         # artists a live album credits, and the Kodi album id each album's
         # songs were filed under -- read once a pass, not once a row.
         self._song_folders: Dict[str, Set[str]] = {}
+        # Per show: the season numbers with an importable episode.
+        self._seasons_with_episodes: Dict[str, Set[int]] = {}
         self._credited: Dict[str, Set[str]] = {}
         self._album_ids: Dict[str, Dict[str, Optional[int]]] = {}
         # Kodi's album and artist rows are not per library: two libraries
@@ -588,13 +590,24 @@ class Applier:
         number = season.item.get("IndexNumber")
         if number is None:
             return False
-        for episode in self.store.records(
-            kind="Episode", parent_id=season.parent_id
-        ).values():
-            numbers = metadata.episode_numbers(episode.item)
-            if numbers is not None and numbers["season"] == int(number):
-                return True
-        return False
+        return int(number) in self.seasons_with_episodes(season.parent_id)
+
+    def seasons_with_episodes(self, series_id: str) -> Set[int]:
+        """The season numbers of a show that hold an importable episode,
+        read once a show. Asked per season, every season of a show read
+        every episode payload of the show again: 347 seasons were 349 s of
+        a pass on a Raspberry Pi, the show's episodes parsed once for each
+        of its seasons."""
+        if series_id not in self._seasons_with_episodes:
+            found: Set[int] = set()
+            for episode in self.store.records(
+                kind="Episode", parent_id=series_id
+            ).values():
+                numbers = metadata.episode_numbers(episode.item)
+                if numbers is not None:
+                    found.add(numbers["season"])
+            self._seasons_with_episodes[series_id] = found
+        return self._seasons_with_episodes[series_id]
 
     # -- refresh -------------------------------------------------------------
 
