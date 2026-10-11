@@ -141,6 +141,15 @@ def test_only_a_home_screen_listing_is_counted():
         [native + "x/", "7", "?mode=play&id=x"],
     ):
         assert gate.bounded(argv) == "", argv
+    # A query with an escape in it is read exactly as the router reads it,
+    # so an escaped name or value cannot make the two disagree.
+    assert gate.bounded([BASE, "7", "?mode=%62rowse&view=a"]) == (
+        BASE + "?mode=%62rowse&view=a"
+    )
+    assert gate.bounded([BASE, "7", "?%6dode=nextepisodes"]) != ""
+    assert gate.bounded([BASE, "7", "?mode=browse&label=Recently+added"]) != ""
+    assert gate.bounded([BASE, "7", "?mode=pl%61y&id=x"]) == ""
+    assert gate.bounded([BASE, "7", "?mode=browse&kodi_%61ction=check_exists"]) == ""
     # Every counted route builds its own listing, and none is one that must
     # always answer.
     assert gate.BOUNDED_MODES <= router.LISTING_MODES
