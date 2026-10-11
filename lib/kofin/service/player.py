@@ -169,9 +169,9 @@ class Player(xbmc.Player):
         self._reporter = _Reporter()
         self._reporter.start()
         if not buildconfig.legacy_features():
-            # No claim is live at the start of a generation: a chapter art
-            # request a crash left in the companion document is withdrawn
-            # and its staged images removed.
+            # A chapter art request a crash left in the companion document
+            # is withdrawn and its staged images removed, unless a playback
+            # is live: generations overlap, and it may be the other one's.
             from kofin.sync.backends.api import chapterart
 
             chapterart.clear_at_start()

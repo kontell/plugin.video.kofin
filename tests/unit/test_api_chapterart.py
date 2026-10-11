@@ -269,7 +269,11 @@ def test_eligibility():
     assert not chapterart.eligible(_item(Id=""))
 
 
-def test_clear_at_start_withdraws_and_removes_the_stage(store, kodi):
+def test_clear_at_start_withdraws_and_removes_the_stage(store, kodi, monkeypatch):
+    from tests.unit.fakes import FakeWindow
+
+    FakeWindow.store = {}
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
     settings.set_str("deviceId", "device-1")
     companion.publish_live(
         companion.CHAPTER_ART,
@@ -285,7 +289,16 @@ def test_clear_at_start_withdraws_and_removes_the_stage(store, kodi):
         ],
     )
     os.makedirs(os.path.join(chapterart.stage_dir(), "old"))
-    chapterart.clear_at_start()
+    # Generations overlap: a start under a playback the other generation
+    # claimed leaves its request and its tiles alone.
+    state.set_playing_id("m1")
+    try:
+        assert chapterart.clear_at_start() is False
+        assert [r["id"] for r in _document()["requests"]] == ["c1"]
+        assert os.path.isdir(os.path.join(chapterart.stage_dir(), "old"))
+    finally:
+        state.clear_playing_id()
+    assert chapterart.clear_at_start() is True
     assert _document()["requests"] == []
     assert not os.path.exists(chapterart.stage_dir())
 
