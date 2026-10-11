@@ -40,7 +40,11 @@ PROP = "kofin.listing.flight"
 # Home while the first is still answering is served as it always was.
 FLIGHTS = 2
 # Longer than a listing takes on a device under load: the slowest seen while
-# Kodi was failing was 176 s, and the median at rest is seconds.
+# Kodi was failing was 176 s, the slowest with the gate 48 s, and the median
+# at rest is seconds. A build that outlives it leaves its slot open to one
+# more, so the bound on a URL is then two builds started per SECONDS, not
+# two in all; a longer lease would instead refuse a URL for that long after
+# two requests died holding it.
 SECONDS = 180.0
 # The listing routes a skin puts on its home screen. Not ``play`` or
 # ``check_exists``, which answer for one item and must always answer; not
@@ -67,12 +71,23 @@ def bounded(argv: list[str]) -> str:
         return ""
     query = (argv[2] if len(argv) > 2 else "").lstrip("?").rstrip("/")
     mode = ""
-    for part in query.split("&"):
-        name, _, value = part.partition("=")
-        if name == "kodi_action":
+    if "%" in query or "+" in query:
+        # An escape somewhere in it: read as the router will, at the price
+        # of the one import, so that an escaped name or value cannot make
+        # the two disagree about which route this is.
+        from urllib.parse import parse_qsl
+
+        params = dict(parse_qsl(query))
+        if params.get("kodi_action"):
             return ""
-        if name == "mode":
-            mode = value
+        mode = params.get("mode", "")
+    else:
+        for part in query.split("&"):
+            name, _, value = part.partition("=")
+            if name == "kodi_action" and value:
+                return ""
+            if name == "mode":
+                mode = value
     if mode not in BOUNDED_MODES:
         return ""
     return argv[0] + "?" + query
