@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import xbmc
 
-from kofin.core import kodirpc
+from kofin.core import kodirpc, state
 from kofin.core.api import Api
 from kofin.core.imagecache import image_size
 from kofin.core.log import Logger
@@ -76,14 +76,27 @@ def request_id(item_id: str, path: str, claim: str = "") -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
-def clear_at_start() -> None:
-    """No claim is live when a generation starts: withdraw what a crash
-    left and remove its staged images."""
+def clear_at_start() -> bool:
+    """Withdraw what a crash left and remove its staged images, at a
+    generation start where nothing of kofin's is playing.
+
+    Not while something is: service generations overlap (Kodi starts the
+    replacement while the old one is still in its run loop) and
+    ``kofin.playing.id`` is shared between them, so a start with it set may
+    be under a playback the other generation claimed. Its request and its
+    staged tiles are in use, nothing would restage them, and that
+    generation's own stop withdraws them. A request a crash left then
+    waits for the next quiet start, as the SQL build's sweep does
+    (``Service._start_chapter_sweep``). Returns whether it cleared."""
+    if state.get_playing_id():
+        LOG.debug("chapter art clear deferred: playback live")
+        return False
     try:
         companion.publish_live(companion.CHAPTER_ART, [])
     except Exception:
         LOG.exception("chapter art requests not cleared")
     shutil.rmtree(stage_dir(), ignore_errors=True)
+    return True
 
 
 def seeded_count(item_id: str) -> Optional[int]:

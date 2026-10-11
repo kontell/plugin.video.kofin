@@ -93,6 +93,46 @@ def test_status_summary_keeps_what_the_report_needs():
     assert companion.status_summary({"v": 1, "requests": "no"})["refused"] == {}
 
 
+def test_a_malformed_status_is_summarized_never_raised(profile, monkeypatch):
+    """The status is another add-on's file and the summary is read while
+    the backend is prepared at start: a field of the wrong type is the
+    field left out, never an exception that leaves native sync off."""
+    broken = {
+        "generation": 5,
+        "kinds": 7,
+        "summary": ["done"],
+        "gate": {"video": 149, "music": {"version": 84, "ok": 1}},
+        "requests": {"r1": "done", "r2": {"state": "refused", "reason": None}},
+    }
+    assert companion.status_summary(broken) == {
+        "generation": 5,
+        "updated": None,
+        "idle": None,
+        "kinds": [],
+        "gate": {"music": {"version": 84, "ok": True}},
+        "summary": {},
+        "refused": {"r2": ""},
+        "waiting": {},
+    }
+    assert companion.status_summary({"summary": {"done": "many", "refused": 2}})[
+        "summary"
+    ] == {"refused": 2}
+    with open(companion.status_path(), "w", encoding="utf-8") as handle:
+        json.dump(broken, handle)
+    monkeypatch.setattr(
+        companion.kodirpc,
+        "call",
+        lambda method, params: {"addon": {"enabled": True, "version": "0.1.0"}},
+    )
+    assert companion.status_block()["status"]["kinds"] == []
+    lines = []
+    monkeypatch.setattr(
+        companion.LOG, "info", lambda msg, *args: lines.append(msg % args)
+    )
+    companion.absorb_status(set(), {"backend": "api"})
+    assert lines[0] == "companion status: generation 5, 0 done, 0 waiting, 0 refused"
+
+
 def test_status_block_reads_the_file_beside_kofins_profile_data(profile, monkeypatch):
     assert companion.status_path() == str(
         profile / "addon_data" / companion.ADDON_ID / "status.json"
