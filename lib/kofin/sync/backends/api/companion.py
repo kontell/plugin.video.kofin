@@ -18,30 +18,87 @@ whole whenever the set changes, and ``Companion.Requests`` goes out over
 generation, so a running companion wakes and one started later finds the
 file. A request leaves the document when the readback no longer shows the
 rows it named; there is no acknowledgement message to forge or to lose.
+
+The document is version 2 (``companion-schema.json`` beside this module is
+the contract both sides test against): version 1 carried the requests,
+version 2 adds the device id every chapter key will carry and the kinds this
+build publishes, so the companion's status can say which it cannot serve.
+The companion writes its own status document and pings ``Companion.Status``
+(docs/companion-addon-plan.md, section 3.3); kofin-or folds it into the
+capability report and logs each refusal once.
 """
 
 import hashlib
 import json
 import os
-from typing import Any, Dict, List, Optional
+import threading
+import time
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
-from kofin.core import contract, kodirpc
+from kofin.core import contract, kodirpc, settings
 from kofin.core.log import Logger
 from kofin.sync import private
-from . import paths
+from . import metadata, paths
 
 LOG = Logger(__name__)
 
-# The companion's identity is decided with the user before it exists; until
-# then this is where kofin-or looks for it.
+# The one lock on the document: the pass thread writes its kinds and the
+# player thread the per-play ones. A lock carries no state across service
+# generations, which is why it is exempt from the no-module-globals rule.
+_LOCK = threading.Lock()
+
 ADDON_ID = "service.kofin.companion"
-VERSION = 1
+VERSION = 2
 DOCUMENT = os.path.join("companion", "requests.json")
+REPORT = "api-capabilities.json"
+STATUS = "status.json"
+SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "companion-schema.json")
 GROUP_VERSIONS = "group_versions"
+RETIRE_ASSETS = "retire_assets"
+EPISODE_TAGS = "episode_tags"
+SEASON_PLOT = "season_plot"
+STREAM_FLAGS = "stream_flags"
+REMOVE_SET = "remove_set"
+CHAPTER_ART = "chapter_art"
+# The kinds this build publishes, in the document for the companion's status:
+# the pass's, collected from the catalogue on every pass, and the live ones a
+# playback publishes and withdraws (chapterart.py).
+PASS_KINDS = (
+    GROUP_VERSIONS,
+    RETIRE_ASSETS,
+    EPISODE_TAGS,
+    SEASON_PLOT,
+    STREAM_FLAGS,
+    REMOVE_SET,
+)
+LIVE_KINDS = (CHAPTER_ART,)
+KINDS = PASS_KINDS + LIVE_KINDS
+# Kinds no public read confirms: their request ids name the item, the
+# companion's status says ``done`` with the request's content hash, and
+# that hash is kept on the mapping (store.annotate_companion) so the request
+# leaves the document until the content moves (plan, section 3.4).
+ACKED_KINDS = (SEASON_PLOT, STREAM_FLAGS, REMOVE_SET)
+FAVORITE_EPISODE_TAG = "Favorite episodes"
+# Media type names the companion's stream_flags handler takes.
+MEDIA_OF = {"Movie": "movie", "Episode": "episode", "MusicVideo": "musicvideo"}
+SETS_JOURNAL = os.path.join("companion", "sets.json")
+# A set removal the companion never answered is left to the user's Clean.
+SETS_JOURNAL_DAYS = 7
 
 
 def requests_path() -> str:
     return os.path.join(private.addon_data_path(), DOCUMENT)
+
+
+def report_path() -> str:
+    return os.path.join(private.addon_data_path(), REPORT)
+
+
+def status_path() -> str:
+    """The companion's status document, beside kofin's profile data."""
+    return os.path.join(
+        os.path.dirname(private.addon_data_path().rstrip("/")), ADDON_ID, STATUS
+    )
 
 
 def present() -> Optional[str]:
@@ -72,12 +129,54 @@ def _request_id(kind: str, item_id: str, rows: List[int]) -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
+def _item_request_id(kind: str, item_id: str) -> str:
+    """An id the status can be read back by: the kind and the item."""
+    return kind + ":" + item_id
+
+
+def content_hash(request: Dict[str, Any]) -> str:
+    """The companion's digest of a request: everything but its id."""
+    body = {k: v for k, v in request.items() if k != "id"}
+    key = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def _acked(mapping, kind: str, request: Dict[str, Any]) -> bool:
+    done = mapping.applied.get("companion") or {}
+    return bool(done.get(kind)) and done.get(kind) == content_hash(request)
+
+
 def collect(native) -> List[Dict[str, Any]]:
-    """Every movie whose version files Kodi holds as movies of their own,
-    with the Kodi ids the companion needs to group them."""
+    """The pass's requests: every movie whose version files Kodi holds as
+    movies of their own, with the Kodi ids the companion needs to group
+    them; and every movie with asset rows, with the files it still has, so
+    a version or extra the server renamed or dropped leaves at once instead
+    of waiting for Clean (ledger S25). The second reads the acknowledged
+    mappings only: no payload is loaded for it."""
     requests: List[Dict[str, Any]] = []
     store = native.store
+    _absorb_acks(store)
     for library in sorted(store.libraries("Movie")):
+        for item_id, mapping in sorted(
+            store.mappings(kind="Movie", library=library).items()
+        ):
+            files = mapping.applied.get("asset_files")
+            if mapping.kodi_id is None or not isinstance(files, dict):
+                continue
+            requests.append(
+                {
+                    "id": _request_id(RETIRE_ASSETS, item_id, []),
+                    "kind": RETIRE_ASSETS,
+                    "library": library,
+                    "item": item_id,
+                    "owner": {"movieid": mapping.kodi_id},
+                    "versions": [
+                        {"file": url, "name": name}
+                        for url, name in files.get("versions") or []
+                    ],
+                    "extras": [{"file": url} for url in files.get("extras") or []],
+                }
+            )
         owned = native.readback.scope("Movie", library)
         versions = native.readback.versions_in(library)
         if not versions:
@@ -88,8 +187,12 @@ def collect(native) -> List[Dict[str, Any]]:
             if owner is None:
                 continue
             record = payloads.get(item_id)
+            # The label the folder listing gave the file, not the raw name:
+            # a source named like its file is no version (version_label),
+            # and the companion, which sees a plugin URL for a file name,
+            # cannot tell.
             names = {
-                s["Id"]: s.get("Name") or ""
+                s["Id"]: metadata.version_label(s)
                 for s in (record.item.get("MediaSources") or [] if record else [])
                 if isinstance(s, dict) and s.get("Id")
             }
@@ -116,32 +219,310 @@ def collect(native) -> List[Dict[str, Any]]:
                     ],
                 }
             )
+    requests.extend(_metadata_requests(store))
+    requests.extend(_set_requests())
     return requests
 
 
-def publish(native) -> int:
-    """Write the open requests when the set changed and tell the companion.
-    Returns how many requests are open."""
-    requests = collect(native)
-    current = read()
-    if [r["id"] for r in requests] == [
-        r.get("id") for r in current["requests"] if isinstance(r, dict)
-    ]:
-        if requests:
-            _log_open(requests)
-        return len(requests)
-    generation = int(current.get("generation") or 0) + 1
-    document = {
-        "v": VERSION,
-        "generation": generation,
-        "namespace": native.key,
-        "requests": requests,
+def _metadata_requests(store) -> List[Dict[str, Any]]:
+    """The video metadata no public setter writes, from the acknowledged
+    mappings: a favourite episode's tag, a season's plot, a file's stream
+    flags (plan C4; ledger S14, S18, S09)."""
+    requests: List[Dict[str, Any]] = []
+    for kind in ("Movie", "Episode", "MusicVideo", "Season"):
+        for library in sorted(store.libraries(kind)):
+            for item_id, mapping in sorted(
+                store.mappings(kind=kind, library=library).items()
+            ):
+                if mapping.kodi_id is None:
+                    continue
+                applied = mapping.applied
+                if kind == "Episode" and applied.get("favorite"):
+                    requests.append(
+                        {
+                            "id": _item_request_id(EPISODE_TAGS, item_id),
+                            "kind": EPISODE_TAGS,
+                            "library": library,
+                            "item": item_id,
+                            "owner": {"episodeid": mapping.kodi_id},
+                            "tags": [FAVORITE_EPISODE_TAG],
+                        }
+                    )
+                # A stored plot or flag list is a request even when it is
+                # empty: the companion's withdrawal leaves the row as it is,
+                # so a cleared one is asked for (patch._with_companion_fields).
+                plot = applied.get("plot")
+                if kind == "Season" and isinstance(plot, str):
+                    request = season_plot_request(
+                        library, item_id, mapping.kodi_id, plot
+                    )
+                    if not _acked(mapping, SEASON_PLOT, request):
+                        requests.append(request)
+                flags = applied.get("flags")
+                if kind in MEDIA_OF and isinstance(flags, dict):
+                    request = stream_flags_request(
+                        kind, library, item_id, mapping.kodi_id, flags
+                    )
+                    if not _acked(mapping, STREAM_FLAGS, request):
+                        requests.append(request)
+    return requests
+
+
+KINDS_ID = {"Movie": "movieid", "Episode": "episodeid", "MusicVideo": "musicvideoid"}
+
+
+def season_plot_request(library, item_id, season_id, plot: str) -> Dict[str, Any]:
+    return {
+        "id": _item_request_id(SEASON_PLOT, item_id),
+        "kind": SEASON_PLOT,
+        "library": library,
+        "item": item_id,
+        "owner": {"seasonid": season_id},
+        "plot": plot,
     }
-    target = requests_path()
+
+
+def stream_flags_request(kind, library, item_id, kodi_id, flags) -> Dict[str, Any]:
+    return {
+        "id": _item_request_id(STREAM_FLAGS, item_id),
+        "kind": STREAM_FLAGS,
+        "library": library,
+        "item": item_id,
+        "owner": {KINDS_ID[kind]: kodi_id},
+        "media": MEDIA_OF[kind],
+        "flags": {
+            "audio": list(flags.get("audio") or []),
+            "subtitle": list(flags.get("subtitle") or []),
+        },
+    }
+
+
+def _absorb_acks(store) -> int:
+    """What the companion's status says is done, kept where the requests are
+    built from: the mapping for an item's kind, the journal for a set."""
+    document = status()
+    outcomes = (document or {}).get("requests")
+    if not isinstance(outcomes, dict):
+        return 0
+    rows = []
+    done_sets: Dict[str, str] = {}
+    for request_id, outcome in outcomes.items():
+        if not isinstance(outcome, dict) or outcome.get("state") != "done":
+            continue
+        kind, _sep, item_id = str(request_id).partition(":")
+        if not item_id or kind not in ACKED_KINDS:
+            continue
+        digest = str(outcome.get("hash") or "")
+        if kind == REMOVE_SET:
+            done_sets[item_id] = digest
+        else:
+            rows.append((item_id, kind, digest))
+    count = store.annotate_companion(rows) if rows else 0
+    if done_sets:
+        _prune_sets(done_sets)
+    return count
+
+
+# -- empty set rows --------------------------------------------------------------
+
+
+def sets_journal_path() -> str:
+    return os.path.join(private.addon_data_path(), SETS_JOURNAL)
+
+
+def _read_sets() -> List[Dict[str, Any]]:
+    try:
+        with open(sets_journal_path(), "r", encoding="utf-8") as handle:
+            document = json.load(handle)
+    except (OSError, ValueError):
+        return []
+    entries = document.get("sets") if isinstance(document, dict) else None
+    return (
+        [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
+    )
+
+
+def _write_sets(entries: List[Dict[str, Any]]) -> None:
+    target = sets_journal_path()
+    if not entries:
+        try:
+            os.remove(target)
+        except FileNotFoundError:
+            pass
+        return
     os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(target + ".part", "w", encoding="utf-8") as handle:
-        json.dump(document, handle, indent=1)
+        json.dump({"sets": entries}, handle, indent=1)
     os.replace(target + ".part", target)
+
+
+def set_key(title: str) -> str:
+    return hashlib.sha256(title.encode("utf-8")).hexdigest()[:16]
+
+
+def journal_set(title: str) -> None:
+    """A set whose last owned member let go: its empty row is the
+    companion's to delete (removal.finish_sets)."""
+    entries = _read_sets()
+    key = set_key(title)
+    if any(e.get("key") == key for e in entries):
+        return
+    entries.append({"key": key, "title": title, "since": int(time.time())})
+    _write_sets(entries)
+    LOG.info("companion: empty set %r left to the companion", title)
+
+
+def _set_request(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """One journal entry as its request. ``since`` is part of it, and so of
+    its content hash: the key is the title's, and without the stamp a set
+    emptied again under the same title asked exactly what the status
+    already called done."""
+    return {
+        "id": _item_request_id(REMOVE_SET, str(entry["key"])),
+        "kind": REMOVE_SET,
+        "library": "",
+        "item": str(entry["key"]),
+        "title": str(entry.get("title") or ""),
+        "since": int(entry.get("since") or 0),
+    }
+
+
+def _prune_sets(done: Dict[str, str]) -> None:
+    """Drop the journal entries the status reports done, by content hash
+    like every other acknowledged kind: a ``done`` left in the status from
+    an earlier removal of the same title is not this entry's."""
+    entries = _read_sets()
+    kept = [
+        e
+        for e in entries
+        if not e.get("key") or done.get(str(e["key"])) != content_hash(_set_request(e))
+    ]
+    if len(kept) != len(entries):
+        _write_sets(kept)
+
+
+def _set_requests() -> List[Dict[str, Any]]:
+    entries = _read_sets()
+    floor = time.time() - SETS_JOURNAL_DAYS * 86400
+    live = [e for e in entries if int(e.get("since") or 0) >= floor]
+    if len(live) != len(entries):
+        _write_sets(live)
+    return [_set_request(e) for e in live if e.get("key")]
+
+
+def publish(native) -> int:
+    """Write the pass's requests when their set changed and tell the
+    companion. Returns how many of the pass's requests are open."""
+    requests = collect(native)
+    _write(native.key, PASS_KINDS, requests)
+    if requests:
+        _log_open(requests)
+    else:
+        LOG.debug("companion: no pass request open")
+    return len(requests)
+
+
+def publish_live(kind: str, requests: Sequence[Dict[str, Any]]) -> None:
+    """Replace the requests of one live kind, keeping every other kind's.
+    For the kind as a whole (a generation start clears it); a claim adds
+    and removes its own request with ``put_live`` and ``drop_live``."""
+    _write("", (kind,), list(requests))
+
+
+def put_live(request: Dict[str, Any]) -> None:
+    """Add one live request, or replace the one that carries its id. Every
+    other request stays, of its own kind too: a claim publishes beside
+    whatever an earlier claim has not withdrawn yet."""
+    wanted = str(request["id"])
+    _replace("", lambda r: str(r.get("id")) == wanted, [dict(request)])
+
+
+def drop_live(request_id: str) -> None:
+    """Remove one live request by its id, and nothing else: a claim
+    withdraws what it published. Replacing the whole kind from a claim's
+    janitor thread took the next claim's request with it."""
+    _replace("", lambda r: str(r.get("id")) == request_id, [])
+
+
+def _namespace(current: Dict[str, Any]) -> str:
+    namespace = str(current.get("namespace") or "")
+    if namespace:
+        return namespace
+    from .store import namespace as derive
+
+    try:
+        return str(derive(settings.get_str("serverId"), settings.get_str("userId")))
+    except ValueError:
+        return ""
+
+
+def _signature(requests: Sequence[Dict[str, Any]]) -> List[str]:
+    """What a rewrite is judged by: every request's content, in id order,
+    so a request whose content moved under a stable id (a desired set that
+    changed) is published too."""
+    return sorted(
+        json.dumps(r, sort_keys=True, separators=(",", ":")) for r in requests
+    )
+
+
+def _write(
+    namespace: str, kinds: Sequence[str], requests: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """The document with ``kinds`` replaced by ``requests``; rewritten and
+    announced only when a request or the document's header changed, or the
+    document is of an older version. Returns the document's requests."""
+    return _replace(namespace, lambda r: r.get("kind") in kinds, requests)
+
+
+def _replace(
+    namespace: str,
+    gone: Callable[[Dict[str, Any]], bool],
+    requests: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """The document with every request ``gone`` accepts removed and
+    ``requests`` added, under the one lock both writers share.
+
+    Unchanged means the whole document the companion would read: every
+    request's content (``_signature``) and the header beside them. The
+    device id and the kinds this build publishes are assigned only on a
+    write, so a comparison of the requests alone left a changed device id,
+    or a kind a new build added, at whatever the last write had put there
+    for as long as the request set stood still."""
+    with _LOCK:
+        current = read()
+        kept = [r for r in current["requests"] if isinstance(r, dict) and not gone(r)]
+        merged = kept + requests
+        header = {
+            "v": VERSION,
+            "namespace": namespace or _namespace(current),
+            "device": settings.get_str("deviceId"),
+            "kinds": list(KINDS),
+        }
+        stored = [r for r in current["requests"] if isinstance(r, dict)]
+        if not current.get("generation"):
+            # No document yet: with nothing to ask there is nothing to say,
+            # and a header alone is not worth a file and a ping.
+            unchanged = not merged
+        else:
+            unchanged = all(
+                current.get(field) == value for field, value in header.items()
+            ) and _signature(merged) == _signature(stored)
+        if unchanged:
+            return stored
+        generation = int(current.get("generation") or 0) + 1
+        document = {
+            "v": header["v"],
+            "generation": generation,
+            "namespace": header["namespace"],
+            "device": header["device"],
+            "kinds": header["kinds"],
+            "requests": merged,
+        }
+        target = requests_path()
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target + ".part", "w", encoding="utf-8") as handle:
+            json.dump(document, handle, indent=1)
+        os.replace(target + ".part", target)
     kodirpc.call(
         "JSONRPC.NotifyAll",
         {
@@ -150,16 +531,13 @@ def publish(native) -> int:
             "data": {
                 "v": VERSION,
                 "generation": generation,
-                "count": len(requests),
+                "count": len(merged),
                 "path": target,
             },
         },
     )
-    if requests:
-        _log_open(requests)
-    else:
-        LOG.info("companion: no request open (generation %d)", generation)
-    return len(requests)
+    LOG.info("companion: generation %d, %d request(s) open", generation, len(merged))
+    return merged
 
 
 def _log_open(requests: List[Dict[str, Any]]) -> None:
@@ -167,13 +545,164 @@ def _log_open(requests: List[Dict[str, Any]]) -> None:
     movies = sum(1 for r in requests if r["kind"] == GROUP_VERSIONS)
     if version is None:
         LOG.info(
-            "companion: %d request(s) open, %d movie(s) with ungrouped versions;"
-            " %s is not installed, so they stay the user's to group",
+            "companion: %d pass request(s) open, %d movie(s) with ungrouped"
+            " versions; %s is not installed, so they stay the user's to group",
             len(requests),
             movies,
             ADDON_ID,
         )
     else:
         LOG.info(
-            "companion: %d request(s) open for %s %s", len(requests), ADDON_ID, version
+            "companion: %d pass request(s) open for %s %s",
+            len(requests),
+            ADDON_ID,
+            version,
         )
+
+
+# -- the companion's status ------------------------------------------------------
+
+
+def status() -> Optional[Dict[str, Any]]:
+    """The companion's last status document, or None when it never wrote one."""
+    try:
+        with open(status_path(), "r", encoding="utf-8") as handle:
+            document = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def status_summary(document: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """What the capability report keeps of a status: the generation it
+    answered, the kinds it serves, the gate it found, the counts, and every
+    request it refused or is still waiting on, by reason.
+
+    Total: the status is another add-on's file, and this is read while the
+    backend is prepared at start, where an exception leaves native sync
+    off. A field of the wrong type is read as the field left out."""
+    if not document:
+        return {}
+    outcomes = document.get("requests")
+    if not isinstance(outcomes, dict):
+        outcomes = {}
+    by_state: Dict[str, Dict[str, str]] = {"refused": {}, "waiting": {}}
+    for request_id, outcome in outcomes.items():
+        if not isinstance(outcome, dict):
+            continue
+        state = str(outcome.get("state") or "")
+        if state in by_state:
+            by_state[state][str(request_id)] = str(outcome.get("reason") or "")
+    gate = document.get("gate")
+    kinds = document.get("kinds")
+    counts = document.get("summary")
+    return {
+        "generation": document.get("generation"),
+        "updated": document.get("updated"),
+        "idle": document.get("idle"),
+        "kinds": [str(k) for k in kinds] if isinstance(kinds, list) else [],
+        "gate": (
+            {
+                kind: {"version": entry.get("version"), "ok": bool(entry.get("ok"))}
+                for kind, entry in gate.items()
+                if isinstance(entry, dict)
+            }
+            if isinstance(gate, dict)
+            else {}
+        ),
+        "summary": (
+            {
+                str(state): count
+                for state, count in counts.items()
+                if isinstance(count, int) and not isinstance(count, bool)
+            }
+            if isinstance(counts, dict)
+            else {}
+        ),
+        "refused": by_state["refused"],
+        "waiting": by_state["waiting"],
+    }
+
+
+def current_status(version: Optional[str]) -> Optional[Dict[str, Any]]:
+    """The companion's status, as far as it is this run's (plan section 8,
+    "A stale status").
+
+    None without the add-on: the status file outlives an uninstall, and a
+    report that named the kinds an absent add-on serves would be wrong.
+    None for a status that answered an older generation than the request
+    document carries now: until the companion answers the new one, what it
+    said about the old is not what is being served. An idle status names
+    no generation and is kept."""
+    if version is None:
+        return None
+    document = status()
+    if document is None:
+        return None
+    answered = document.get("generation")
+    generation = read().get("generation")
+    if (
+        isinstance(answered, int)
+        and isinstance(generation, int)
+        and answered < generation
+    ):
+        return None
+    return document
+
+
+def status_block() -> Dict[str, Any]:
+    """The capability report's companion entry: presence and the status
+    that is current (``current_status``)."""
+    version = present()
+    return {
+        "addon": ADDON_ID,
+        "version": version,
+        "status": status_summary(current_status(version)),
+    }
+
+
+def absorb_status(
+    seen: Set[str], report: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """A ``Companion.Status`` ping: fold the status into the capability
+    report and log what it says, each refusal once (``seen`` is the
+    service's memory of the refusals already logged).
+
+    ``report`` is the capability report this process wrote at its start
+    (``Service._prepare_api_backend``), and the file is rewritten from it.
+    The file is never read back to be rewritten: a ping handled around the
+    start-up write read the previous run's report and put it back over the
+    new one, ``native_sync_enabled`` and ``private_state`` with it, and
+    every later ping then read its own stale write. Without a report yet,
+    nothing is written; the start-up write carries the block itself."""
+    block = status_block()
+    summary = block["status"]
+    if report is not None:
+        report["companion"] = block
+        target = report_path()
+        with open(target + ".part", "w", encoding="utf-8") as handle:
+            json.dump(report, handle, indent=2)
+        os.replace(target + ".part", target)
+    if not summary:
+        return block
+    if summary.get("idle"):
+        key = "idle:%s" % summary["idle"]
+        if key not in seen:
+            seen.add(key)
+            LOG.info("companion idle: %s", summary["idle"])
+        return block
+    counts = summary.get("summary") or {}
+    LOG.info(
+        "companion status: generation %s, %d done, %d waiting, %d refused",
+        summary.get("generation"),
+        int(counts.get("done") or 0),
+        int(counts.get("waiting") or 0),
+        int(counts.get("refused") or 0),
+    )
+    for request_id, reason in sorted(summary.get("refused", {}).items()):
+        key = "%s:%s" % (request_id, reason)
+        if key in seen:
+            continue
+        seen.add(key)
+        LOG.info("companion refused request %s: %s", request_id, reason)
+    return block

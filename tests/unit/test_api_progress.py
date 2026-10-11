@@ -192,3 +192,62 @@ def test_a_scan_moves_the_bar_by_kodis_own_count(
     messages = [e[2] for e in dialog.events if e[0] == "update"]
     assert any(m.endswith("4 / 4") for m in messages)
     assert backend.progress.total == 100 and backend.progress.done == 0
+
+
+def test_a_music_walk_is_one_phase_of_the_bar_across_its_parts(
+    store, backend, kodi, bar, monkeypatch
+):
+    """The music pass owns the bar for its whole plan: Kodi's count of the
+    library's songs climbs towards the plan's total across the parts,
+    where a phase a part would start the bar again at every part."""
+    from kofin.sync.backends.api import native as native_module
+    from kofin.sync.backends.api import paths
+
+    monkeypatch.setattr(paths, "MUSIC_PART", 1)
+    state = {"scanning": False, "left": 0, "count": 10, "scans": []}
+    original = kodi.rpc
+
+    def rpc(method, params=None):
+        if method == "AudioLibrary.Scan":
+            state["scans"].append(params["directory"])
+            state["scanning"], state["left"] = True, 3
+            return "OK"
+        if (
+            method == "AudioLibrary.GetSongs"
+            and params.get("limits", {}).get("end") == 0
+        ):
+            return {
+                "songs": [],
+                "limits": {"start": 0, "end": 0, "total": state["count"]},
+            }
+        return original(method, params)
+
+    def visible(flag):
+        if flag == "Library.IsScanningMusic" and state["scanning"]:
+            state["count"] += 1
+            state["left"] -= 1
+            if state["left"] <= 0:
+                state["scanning"] = False
+                backend.monitor.music_finished += 1
+            return True
+        return False
+
+    monkeypatch.setattr(native_module, "rpc", rpc)
+    monkeypatch.setattr(native_module.xbmc, "getCondVisibility", visible)
+    monkeypatch.setattr(backend, "SCAN_POLL", 0.0)
+    backend.progress.begin(100)
+    backend.music.scan(LIB, {"album-a", "album-b"}, expected=6)
+    assert state["scans"] == [
+        paths.music_part(store.namespace, LIB, 0),
+        paths.music_part(store.namespace, LIB, 1),
+    ]
+    (dialog,) = bar.instances
+    counts = [
+        int(m.rsplit(" ", 3)[1])
+        for m in (e[2] for e in dialog.events if e[0] == "update")
+        if m.endswith("/ 6")
+    ]
+    # One count for the run: it never starts again at the second part.
+    assert counts == sorted(counts) and counts[-1] >= 4
+    assert backend.progress.total == 100 and backend.progress.done == 0
+    assert (LIB, "album-a") in backend.music.rescanned

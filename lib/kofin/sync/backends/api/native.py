@@ -7,14 +7,13 @@ owned row back (``readback``), removals wait for that confirmation
 (``patch``). This module owns the gates, the waits, the bindings and the
 scans, and runs one pass in ``reconcile``.
 
-Music is scanned by directory. A song is missing, or its tags have moved,
-or it has moved album: each means its album directory is listed again, and
-a pass with many such directories walks the library's music root once
-instead -- Kodi lists every album folder either way, and one scan job costs
-less than hundreds.
+Music is scanned by directory, a plan of them a part at a time. Which
+directories, in which order and under what bar is ``musicpass`` and
+``walk``; the scanner they drive is here.
 """
 
 import time
+from contextlib import contextmanager
 from typing import Dict, List, Optional, Set, Tuple
 
 import xbmc
@@ -24,25 +23,28 @@ from kofin.core.log import Logger
 from kofin.sync.catalogue import BackendMismatch
 from . import companion, metadata, paths, progress, removal
 from .kinds import rpc, rpc_batch
+from .musicpass import MusicPass
 from .patch import Applier
 from .readback import Readback
 from .records import PayloadWindow, Record
-from .store import Entry, Store
+from .store import Store
 
 LOG = Logger(__name__)
 
-# A pass walks the library's music root once instead of scanning changed
-# album directories by name when at least this share of the directories
-# changed. Measured on the P1D: a directory scan is 60-80 ms, and a root walk
-# re-lists every unchanged directory at about 100 ms each because Kodi
-# re-creates the Python interpreter when it has no database work between two
-# listings -- so the walk pays only when most directories have work.
+# A pass scans a movies root once instead of the missing movies' folders by
+# name when at least this share of the library is missing. (Music has no
+# such choice to make: MusicPass.scan lists exactly the directories that
+# changed, however many, a part at a time.)
 ROOT_SCAN_SHARE = 0.5
 # A hold is renewed before the provider's own limit on it runs out.
 HOLD_RENEW = 480.0
 # Kodi drops an extras folder from a movies listing while this is on (its
 # default); the pass turns it off when a folder with extras is first scanned.
 EXTRAS_SETTING = "videolibrary.ignorevideoextras"
+ACTOR_THUMBS_SETTING = "videolibrary.actorthumbs"
+# A video scan expected to file at least this many rows runs with Kodi's
+# "Download actor thumbnails" off (Native.without_actor_thumbs).
+ACTOR_THUMBS_FLOOR = 100
 # The profile has had every movie folder bound with noupdate
 # (Native.bind_movie_folders); a hidden string setting, since the store
 # does not record a binding's flag.
@@ -78,15 +80,19 @@ class Native:
         self.payloads = PayloadWindow(self.store)
         self.progress = progress.Progress()
         self._server = ""
-        # (library, folder) pairs whose directory this pass has re-listed,
-        # or (library, "*") when the music root was walked.
-        self.rescanned: Set[Tuple[str, str]] = set()
+        # The pass's music work and what it reads once for it; a new one
+        # for every pass (reconcile).
+        self.music = MusicPass(self)
         # scanner -> when the hold on it was taken.
         self._held: Dict[str, float] = {}
         # Movie folders this pass scans for extras: their extras folder is
         # listed through Kodi just before the scan (_prepare_scan).
         self._extras_folders: Set[str] = set()
         self._extras_allowed = False
+        # A held Kodi setting is still to be given back (restore_settings),
+        # and the ones whose refusal has been said.
+        self.settings_owed = False
+        self._refused_settings: Set[str] = set()
 
     # -- gates ---------------------------------------------------------------
 
@@ -153,6 +159,21 @@ class Native:
                 deadline = time.monotonic() + timeout
             elif time.monotonic() >= deadline:
                 raise TimeoutError("native operation did not converge")
+
+    def pump(self):
+        """Run the callbacks Kodi has queued for this thread.
+
+        Kodi queues one for every announcement on every Monitor object, in
+        one queue for the whole process, and they leave it only when the
+        thread that made the object waits on Kodi; every other Python thread
+        walks past them on each wait of its own (core/ws.py has the measure
+        of it). The pass's setters announce every row they write, thousands
+        in a burst with no wait between them, so the burst takes its own
+        callbacks off as it goes. One millisecond, since a zero timeout is
+        Kodi's spelling of "for ever".
+        """
+        if self.abort() or self.monitor.waitForAbort(0.001):
+            raise InterruptedError("native operation interrupted")
 
     def server_url(self):
         if not self._server:
@@ -312,7 +333,15 @@ class Native:
         total = (reply or {}).get("limits", {}).get("total")
         return total if isinstance(total, int) else None
 
-    def _scan_watch(self, location, heading, goal):
+    def scan_heading(self, location, scanner="video") -> str:
+        return "%s: %s" % (
+            xbmc.getLocalizedString(progress.SCANNING),
+            progress.label(
+                location.content if location and location.content else scanner
+            ),
+        )
+
+    def scan_watch(self, location, heading, goal):
         """A poll callback that reads Kodi's row count under the scan's
         library every few seconds and moves the bar towards ``goal``."""
         if not self.progress.open:
@@ -340,7 +369,12 @@ class Native:
         return on_poll
 
     def scan(
-        self, directories: List[str], scanner="video", expected=None, prepare=None
+        self,
+        directories: List[str],
+        scanner="video",
+        expected=None,
+        prepare=None,
+        on_poll=None,
     ):
         """Scan each directory in turn and wait for the scanner to go idle.
 
@@ -348,6 +382,8 @@ class Native:
         it runs the bar shows Kodi's own count climbing towards it, read every
         few seconds, since a scan is the longest phase and the pass counts
         nothing of its own until it ends (20 minutes at "0 %" on the box).
+        ``on_poll`` is called while a directory with no such count is
+        scanned: the caller's own bar across the run (``MusicPass.scan``).
         ``prepare`` is called with each directory just before its scan.
 
         One scan at a time: a second ``VideoLibrary.Scan`` queued while the
@@ -379,15 +415,10 @@ class Native:
             serial = finished()
             began = time.monotonic()
             location = paths.parse(directory)
-            heading = "%s: %s" % (
-                xbmc.getLocalizedString(progress.SCANNING),
-                progress.label(
-                    location.content if location and location.content else scanner
-                ),
-            )
+            heading = self.scan_heading(location, scanner)
             goal = int(expected.get(directory) or 0)
             saved = self.progress.phase(goal, heading) if goal else None
-            on_poll = self._scan_watch(location, heading, goal) if saved else None
+            watch = self.scan_watch(location, heading, goal) if saved else on_poll
 
             if prepare is not None:
                 prepare(directory)
@@ -397,7 +428,7 @@ class Native:
                 self.wait(
                     lambda serial=serial: finished() > serial and self._idle(scanner),
                     busy=lambda: self._scanning(scanner),
-                    on_poll=on_poll,
+                    on_poll=watch,
                 )
                 LOG.info(
                     "%s scan of %s took %.1f s",
@@ -469,6 +500,84 @@ class Native:
             toast.show(settings.localized(30858))
         self._extras_allowed = True
 
+    @contextmanager
+    def without_actor_thumbs(self, rows):
+        """Run a large video scan with Kodi's "Download actor thumbnails" off,
+        and put the setting back.
+
+        With it on the scanner asks the texture cache for every cast
+        member's picture before it files the item (FetchActorThumbs,
+        VideoInfoScanner.cpp): a lookup in the texture database behind the
+        lock its one worker holds while it writes, then a search of the
+        whole job queue for a duplicate (CJobQueue::AddJob), twenty times a
+        movie, into a queue that a first import fills faster than the worker
+        empties it. The pictures are not lost by the hold: the listing gives
+        every actor's URL, AddActor stores it, and Kodi fetches a picture the
+        first time something shows it.
+
+        The value is recorded before it is changed (store.hold_setting), so
+        a Kodi stopped mid-scan gets it back at the next start
+        (restore_settings)."""
+        held = False
+        if rows >= ACTOR_THUMBS_FLOOR:
+            try:
+                reply = rpc(
+                    "Settings.GetSettingValue", {"setting": ACTOR_THUMBS_SETTING}
+                )
+                if isinstance(reply, dict) and reply.get("value") is True:
+                    self.store.hold_setting(ACTOR_THUMBS_SETTING, True)
+                    try:
+                        rpc(
+                            "Settings.SetSettingValue",
+                            {"setting": ACTOR_THUMBS_SETTING, "value": False},
+                        )
+                    except RuntimeError:
+                        # Kodi kept its value, so nothing is held. A record
+                        # left here would be given back at a later start,
+                        # over whatever the user had set by then.
+                        self.store.release_setting(ACTOR_THUMBS_SETTING)
+                        raise
+                    held = True
+                    LOG.info(
+                        "Kodi setting %s off for a scan of %d rows",
+                        ACTOR_THUMBS_SETTING,
+                        rows,
+                    )
+            except RuntimeError as error:
+                # The scan is the work; the hold only makes it shorter.
+                LOG.warning("actor thumbnails left on for the scan: %s", error)
+        try:
+            yield
+        finally:
+            if held:
+                self.restore_settings()
+
+    def restore_settings(self):
+        """Give back every Kodi setting a scan was holding: the scan that
+        just ended, or one a stopped Kodi never finished. The record goes
+        only after Kodi took the value.
+
+        A value Kodi will not take now is no reason to stop: the record
+        stays, ``settings_owed`` says so, and every later pass and service
+        start asks again, as does the library thread while nothing is
+        pending (``Library.apply``). Raised from here it failed the pass
+        that called it, and the pass after that, for as long as Kodi
+        refused. A refusal is a warning once a setting and generation."""
+        owed = False
+        for setting, value in self.store.held_settings().items():
+            try:
+                rpc("Settings.SetSettingValue", {"setting": setting, "value": value})
+            except RuntimeError as error:
+                owed = True
+                say = LOG.debug if setting in self._refused_settings else LOG.warning
+                self._refused_settings.add(setting)
+                say("Kodi setting %s not given back yet: %s", setting, error)
+                continue
+            self.store.release_setting(setting)
+            self._refused_settings.discard(setting)
+            LOG.info("Kodi setting %s back to %r", setting, value)
+        self.settings_owed = owed
+
     def _prepare_scan(self, directory):
         """List a movie's extras folder through Kodi just before the folder
         is scanned, with the disc folders the scanner probes for below it.
@@ -526,30 +635,6 @@ class Native:
         for scanner in list(self._held):
             self.release(scanner)
 
-    def scan_music(self, library, folders: Set[str], expected=0):
-        """List the changed album directories again: each by name, or the
-        library's music root once when most of them changed. ``expected`` is
-        the number of songs the scan should add, for the bar."""
-        if not folders:
-            return
-        total = len(set(self.store.folders("Audio", library)) | folders)
-        if len(folders) > total * ROOT_SCAN_SHARE:
-            LOG.info(
-                "music: %d of %d directories changed; walking the library root",
-                len(folders),
-                total,
-            )
-            root = paths.library_dir(self.key, library, "music")
-            self.scan([root], "music", expected={root: expected})
-            self.rescanned.add((library, "*"))
-            return
-        LOG.info("music: scanning %d of %d directories by name", len(folders), total)
-        self.scan(
-            [paths.music_dir(self.key, library, folder) for folder in sorted(folders)],
-            "music",
-        )
-        self.rescanned.update((library, folder) for folder in folders)
-
     # -- the pass ------------------------------------------------------------
 
     def reconcile(self, repair=False):
@@ -559,9 +644,10 @@ class Native:
         # running that outlives it. Wait for Kodi to finish using it before
         # publishing the newer desired view to a scan, however long it runs.
         self.wait(lambda: self._idle("any"), busy=lambda: not self._idle("any"))
+        self.restore_settings()
         self.store.pin()
         self.readback.clear()
-        self.rescanned = set()
+        self.music = MusicPass(self)
         applier = Applier(self)
         completed = False
         try:
@@ -613,6 +699,11 @@ class Native:
                 self.bind_movie_folders()
             except Exception:
                 LOG.exception("movie folder bindings not completed")
+            # The requests are built from the stored mappings, and what the
+            # companion reports done is written onto them: every
+            # acknowledgement of this pass is in the store before either.
+            # Applier.run leaves none queued; this is that, said here.
+            applier.commit()
             try:
                 # What this pass could not do and the companion add-on can:
                 # published for it, confirmed by the next readback.
@@ -628,6 +719,7 @@ class Native:
             applier.commit()
             self.progress.close()
             self.payloads = PayloadWindow(self.store)
+            self.music.forget()
             # The pass's tables are the largest Python objects in the
             # process; hand the heap back before Kodi's scanner needs the
             # page cache (core/memory.py).
@@ -663,23 +755,7 @@ class Native:
                     try:
                         if entries is None:
                             entries = self.store.entries()
-                        folders = self._music_directories(upserts, library, entries)
-                        songs_expected = sum(
-                            1
-                            for r in upserts.values()
-                            if r.kind == "Audio"
-                            and r.library == library
-                            and r.parent_id in folders
-                        )
-                        self.scan_music(library, folders, expected=songs_expected)
-                        lost = self._lost_songs(library, folders, entries)
-                        if lost:
-                            self.store.invalidate(lost)
-                            LOG.warning(
-                                "music: %d acknowledged songs missing after the"
-                                " scan; pending again",
-                                len(lost),
-                            )
+                        self.music.import_missing(upserts, library, entries)
                     except InterruptedError:
                         raise
                     except Exception as error:
@@ -772,7 +848,10 @@ class Native:
                 self.bind_folders("movies", scanned_movie_folders, force=True)
             if directories:
                 self.store.expect_many(expectations)
-                self.scan(directories, expected=expected, prepare=self._prepare_scan)
+                with self.without_actor_thumbs(sum(expected.values())):
+                    self.scan(
+                        directories, expected=expected, prepare=self._prepare_scan
+                    )
         finally:
             # The flag goes back whether the scan finished or not, and
             # whether the lift itself finished: without it Kodi's own Update
@@ -804,141 +883,3 @@ class Native:
             ):
                 missing.append(record)
         return missing
-
-    def _lost_songs(self, library, folders: Set[str], entries) -> List[str]:
-        """Acknowledged songs the scan just run should have re-filed and did
-        not: a listing that failed half way, or a scan stopped between its
-        delete and its re-add. Nothing pending names them, so they are found
-        by comparing what was acknowledged with what Kodi holds, and go back
-        to pending for the next pass to re-list their directory (salted, if
-        Kodi kept the hash of the listing that lost them)."""
-        everywhere = (library, "*") in self.rescanned
-        held = self.readback.folders(library)
-        lost: List[str] = []
-        for item_id, known in self.store.mappings(
-            kind="Audio", library=library
-        ).items():
-            if known.kodi_id is None:
-                continue
-            placed = entries.get(item_id)
-            if placed is None or placed.kind != "Audio" or placed.library != library:
-                continue
-            if not everywhere and placed.parent_id not in folders:
-                continue
-            if item_id not in held.get(placed.parent_id, {}):
-                lost.append(item_id)
-        return lost
-
-    def _music_directories(
-        self, upserts: Dict[str, Record], library, entries: Dict[str, Entry]
-    ) -> Set[str]:
-        """The album directories whose listing Kodi must read again.
-
-        A song with no row is missing; one whose tag hash moved since its
-        row was acknowledged needs its tags re-read, which the scanner does
-        only for a directory whose listing changed; one that moved album
-        leaves its old directory only when that directory is listed without
-        it. And a directory holding rows no live song of ours claims -- the
-        old half of a move, or a listing that failed half way -- is settled
-        by its complete listing too.
-
-        Two kinds of applied song join the comparison uninvited. One Kodi
-        no longer holds -- a listing that failed half way, a scan stopped
-        between its delete and its re-add, a user's rescan interrupted:
-        nothing pending names it, so it is found by comparing what was
-        acknowledged with what Kodi has. And one whose album's payload moved:
-        its tags take the album's artists and MusicBrainz ids, which its own
-        payload hash never sees. Either goes back to pending and into this
-        pass, so the scan re-files it and the applier acknowledges it again.
-        """
-        songs = {
-            r.item_id: r
-            for r in upserts.values()
-            if r.kind == "Audio" and r.library == library
-        }
-        folders: Set[str] = set()
-        mappings = self.store.mappings(kind="Audio", library=library)
-        held = self.readback.folders(library)
-        changed_albums = {
-            r.item_id
-            for r in upserts.values()
-            if r.kind == "MusicAlbum" and r.library == library
-        }
-        uninvited: List[str] = []
-        for item_id, known in mappings.items():
-            if item_id in songs or known.kodi_id is None:
-                continue
-            placed = entries.get(item_id)
-            if placed is None or placed.kind != "Audio" or placed.library != library:
-                continue
-            if (
-                item_id not in held.get(placed.parent_id, {})
-                or placed.parent_id in changed_albums
-            ):
-                uninvited.append(item_id)
-        if uninvited:
-            songs.update(
-                self.store.records(
-                    kind="Audio", library=library, item_ids=uninvited, payloads=False
-                )
-            )
-        revived: Dict[str, Record] = {}
-        if songs:
-            # Six minutes on a Raspberry Pi for 22,000 songs (a payload parse
-            # and a tag hash each): the bar names the phase and the log times it.
-            began = time.monotonic()
-            self.progress.note(progress.label("Audio"))
-            albums = {
-                i: r.item
-                for i, r in self.store.records(
-                    kind="MusicAlbum", library=library
-                ).items()
-            }
-            for record in self.payloads.walk(songs.values()):
-                item_id = record.item_id
-                folder = record.parent_id
-                row = self.readback.scope("Audio", library, folder).get(item_id)
-                mapping = mappings.get(item_id)
-                applied = mapping.applied if mapping else {}
-                changed = False
-                if row is None:
-                    changed = True
-                elif mapping is None:
-                    # Imported but never acknowledged (a userdata patch
-                    # failed): the row has the tags of the listing that made
-                    # it unless the payload has moved since.
-                    changed = record.generation > 1
-                elif applied.get("tag") != metadata.tag_hash(
-                    record.item, albums.get(folder)
-                ):
-                    changed = True
-                if changed:
-                    folders.add(folder)
-                    if item_id not in upserts:
-                        revived[item_id] = record
-                previous = applied.get("dir")
-                if previous and previous != folder:
-                    folders.add(previous)
-            if revived:
-                self.store.invalidate(revived)
-                upserts.update(revived)
-            LOG.info(
-                "music: %d songs compared in %.1f s; %d directories to scan,"
-                " %d applied songs put back",
-                len(songs),
-                time.monotonic() - began,
-                len(folders),
-                len(revived),
-            )
-        for folder, rows in self.readback.folders(library).items():
-            for item_id in rows:
-                placed = entries.get(item_id)
-                if (
-                    placed is None
-                    or placed.kind != "Audio"
-                    or placed.library != library
-                    or placed.parent_id != folder
-                ):
-                    folders.add(folder)
-                    break
-        return folders

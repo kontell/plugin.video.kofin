@@ -16,8 +16,13 @@ from kofin.core import kodirpc
 # little to retry.
 BATCH = 25
 
-# Application order: a season or episode patch needs its show's row first,
-# a set needs its movies, an album or artist is found through its songs.
+# Application order: a season or episode patch needs its show's row first
+# and a set needs its movies. An album or artist is found through the rows
+# of its songs, which the scan has filed before any music kind is planned,
+# so the three music kinds are free to go in any order -- and songs go
+# last: a song's patch is its play count, one setter per played song at
+# 230 ms each on a Raspberry Pi's card, which for a library with 7,900
+# played songs is half an hour every album cover would wait behind.
 ORDER = (
     "Series",
     "Season",
@@ -25,9 +30,9 @@ ORDER = (
     "Movie",
     "MusicVideo",
     "BoxSet",
-    "Audio",
     "MusicAlbum",
     "MusicArtist",
+    "Audio",
 )
 
 # Kinds whose rows carry a resolver URL and a namespaced unique id. A song

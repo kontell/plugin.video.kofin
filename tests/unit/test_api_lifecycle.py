@@ -234,6 +234,63 @@ def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
     assert not any(m == "VideoLibrary.Scan" for m, _ in kodi.calls)
 
 
+def pictured_show():
+    items = show_bundle(episodes=2, seasons=(1, 2)) + [episode("ea21", SHOW, 2, 1)]
+    for item in items:
+        if item["Type"] == "Season":
+            item["ImageTags"] = {"Primary": "tag-%d" % item["IndexNumber"]}
+    return items
+
+
+def test_season_art_is_filed_with_the_show_and_costs_no_setter(store, backend, kodi):
+    """The show's listing offers each season's art under its number and the
+    scanner files it with the show, so a first import sends a season
+    nothing. An art change afterwards is the setter's, as before."""
+    store.publish(pictured_show(), library=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    seasons = {r["season"]: r for r in kodi.rows["Season"].values()}
+    assert seasons[1]["art"]["poster"].endswith("Images/Primary?tag=tag-1")
+    assert seasons[2]["art"]["poster"].endswith("Images/Primary?tag=tag-2")
+    assert not methods(kodi, "VideoLibrary.SetSeasonDetails")
+    assert store.mapping(SHOW[:4] + "s1").kodi_id == seasons[1]["seasonid"]
+    changed = season(SHOW[:4] + "s1", SHOW, 1, ImageTags={"Primary": "newer"})
+    store.publish([changed])
+    backend.reconcile()
+    assert not store.pending()
+    (sent,) = methods(kodi, "VideoLibrary.SetSeasonDetails")
+    assert sent["art"]["poster"].endswith("Images/Primary?tag=newer")
+
+
+def test_season_art_kodi_did_not_file_is_patched(store, backend, kodi):
+    """Kodi's artwork level decides what the scanner takes from a listing;
+    a season row left without its art differs and gets its setter."""
+    kodi.files_season_art = False
+    store.publish(pictured_show(), library=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    assert len(methods(kodi, "VideoLibrary.SetSeasonDetails")) == 2
+    seasons = {r["season"]: r for r in kodi.rows["Season"].values()}
+    assert seasons[1]["art"]["poster"].endswith("Images/Primary?tag=tag-1")
+
+
+def test_a_small_scope_wanted_whole_is_read_in_one_listing(store, backend, kodi):
+    """A first import compares every row. A show below the prefetch floor
+    used to be read a row at a time: a dozen details calls where one
+    listing of the show answers."""
+    store.publish(show_bundle(episodes=6, seasons=(1, 2)), library=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    assert not methods(kodi, "VideoLibrary.GetEpisodeDetails")
+    # One changed episode of the six is still read by its id, not by
+    # listing the show in full.
+    kodi.calls.clear()
+    store.publish([episode("ea11", Overview="edited")])
+    backend.reconcile()
+    assert not store.pending()
+    assert methods(kodi, "VideoLibrary.GetEpisodeDetails")
+
+
 def test_episode_and_show_removals_confirm_with_scoped_readbacks(store, backend, kodi):
     store.publish(
         show_bundle(episodes=3) + show_bundle(SHOW2, episodes=1, prefix="f"),
@@ -285,6 +342,246 @@ def test_unnumbered_special_and_empty_season_apply_without_a_row(store, backend,
     assert store.mapping(SHOW[:4] + "s0").kodi_id is None
     assert store.mapping(SHOW[:4] + "s7").kodi_id is None
     assert store.mapping(SHOW[:4] + "s1").kodi_id is not None
+
+
+def test_a_shows_episodes_are_read_once_for_all_its_seasons(
+    store, backend, kodi, monkeypatch
+):
+    """Whether a season has an importable episode is asked per season and
+    answered from the show's episodes; they are read once a show, not once
+    a season (347 seasons were 349 s of a pass on a Raspberry Pi)."""
+    from kofin.sync.backends.api.patch import Applier
+
+    items = show_bundle(episodes=2, seasons=(1, 2, 3, 0)) + [
+        episode("ea31", SHOW, 3, 1),
+        episode("ea19", season_number=0, number=0),
+    ]
+    store.publish(items, library=LIB)
+    reads = []
+    records = store.records
+
+    def counting(*args, **kwargs):
+        if kwargs.get("kind") == "Episode" and kwargs.get("parent_id") == SHOW:
+            reads.append(1)
+        return records(*args, **kwargs)
+
+    monkeypatch.setattr(store, "records", counting)
+    applier = Applier(backend)
+    seasons = {
+        r.item["IndexNumber"]: r
+        for r in records(kind="Season", parent_id=SHOW).values()
+    }
+    # Season 2 has no episode at all; the specials only an unnumbered one.
+    assert [applier.season_has_episodes(seasons[n]) for n in (1, 2, 3, 0)] == [
+        True,
+        False,
+        True,
+        False,
+    ]
+    assert len(reads) == 1
+
+
+def test_a_large_video_scan_runs_without_actor_thumbnails_and_gives_them_back(
+    store, backend, kodi
+):
+    """With "Download actor thumbnails" on, Kodi's scanner queues a texture
+    job for every cast member of every item it files. A scan of many rows
+    runs with the setting off and restores it; a few rows are not worth it,
+    and a setting the user has off stays off."""
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = True
+    backend.setup()
+    store.publish([movie(), movie("b")], library=LIB)
+    backend.reconcile()
+    assert kodi.scan_actor_thumbs == [True]
+    many = [movie("%03x" % n) for n in range(0x100, 0x100 + native.ACTOR_THUMBS_FLOOR)]
+    store.publish([movie(), movie("b")] + many, library=LIB)
+    backend.reconcile()
+    assert kodi.scan_actor_thumbs[1:] and not any(kodi.scan_actor_thumbs[1:])
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is True
+    assert store.held_settings() == {}
+    assert len(kodi.owned("Movie")) == len(many) + 2
+
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = False
+    kodi.scan_actor_thumbs.clear()
+    more = [movie("%03x" % n) for n in range(0x300, 0x300 + native.ACTOR_THUMBS_FLOOR)]
+    store.publish([movie(), movie("b")] + many + more, library=LIB)
+    backend.reconcile()
+    assert kodi.scan_actor_thumbs and not any(kodi.scan_actor_thumbs)
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is False
+    assert store.held_settings() == {}
+
+
+def test_a_refused_restore_costs_neither_the_pass_nor_the_record(
+    store, backend, kodi, monkeypatch
+):
+    """A held value Kodi will not take back (a Kodi going down, a setting a
+    later Kodi dropped) is asked again at every pass; it never fails one,
+    and it does not keep another held setting from going back."""
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = False
+    backend.setup()
+    store.hold_setting("videolibrary.gone", True)
+    store.hold_setting(native.ACTOR_THUMBS_SETTING, True)
+    real = native.rpc
+
+    def refusing(method, params=None):
+        if method == "Settings.SetSettingValue" and (
+            params["setting"] == "videolibrary.gone"
+        ):
+            raise RuntimeError("Kodi refused " + method)
+        return real(method, params)
+
+    monkeypatch.setattr(native, "rpc", refusing)
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    assert not store.pending() and len(kodi.owned("Movie")) == 1
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is True
+    assert store.held_settings() == {"videolibrary.gone": True}
+
+
+def test_held_settings_read_a_store_made_before_the_table_existed(store):
+    """A profile from an earlier build has no api_held table; the first
+    thing a pass does with it is read it."""
+    with private.Database() as db:
+        db.cursor.execute("DROP TABLE IF EXISTS api_held")
+    assert store.held_settings() == {}
+    with private.Database() as db:
+        db.cursor.execute("DROP TABLE IF EXISTS api_held")
+    store.hold_setting("videolibrary.actorthumbs", True)
+    assert store.held_settings() == {"videolibrary.actorthumbs": True}
+    store.release_setting("videolibrary.actorthumbs")
+    assert store.held_settings() == {}
+
+
+def test_a_refused_settings_call_never_costs_the_scan(
+    store, backend, kodi, monkeypatch
+):
+    """The hold shortens a scan; it is never a reason not to run one."""
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = True
+    backend.setup()
+    real = native.rpc
+
+    def refusing(method, params=None):
+        if method == "Settings.GetSettingValue":
+            raise RuntimeError("Kodi refused " + method)
+        return real(method, params)
+
+    monkeypatch.setattr(native, "rpc", refusing)
+    many = [movie("%03x" % n) for n in range(0x100, 0x100 + native.ACTOR_THUMBS_FLOOR)]
+    store.publish(many, library=LIB)
+    backend.reconcile()
+    assert len(kodi.owned("Movie")) == len(many)
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is True
+    assert store.held_settings() == {}
+
+
+def test_a_setting_held_by_a_scan_that_never_ended_is_given_back(
+    store, backend, kodi, monkeypatch
+):
+    """Kodi stopped mid-scan: the record of the user's value outlives it,
+    the next pass restores it, and a hold found already recorded keeps the
+    first value, which was the user's."""
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = True
+    backend.setup()
+    store.publish(
+        [movie("%03x" % n) for n in range(0x100, 0x100 + native.ACTOR_THUMBS_FLOOR)],
+        library=LIB,
+    )
+
+    def dies(*args, **kwargs):
+        raise KeyboardInterrupt("Kodi went away")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(backend, "scan", dies)
+        patch.setattr(Native, "restore_settings", lambda self: None)
+        with pytest.raises(KeyboardInterrupt):
+            backend.reconcile()
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is False
+    assert store.held_settings() == {native.ACTOR_THUMBS_SETTING: True}
+    # The pass's own value, read after the hold, never replaces the user's.
+    store.hold_setting(native.ACTOR_THUMBS_SETTING, False)
+    assert store.held_settings() == {native.ACTOR_THUMBS_SETTING: True}
+
+    backend.restore_settings()
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is True
+    assert store.held_settings() == {}
+
+
+def test_a_hold_kodi_refused_leaves_no_record_behind(store, backend, kodi, monkeypatch):
+    """The record is written before the setter, so a Kodi stopped between
+    the two still gets its value back. When the setter is refused Kodi kept
+    its value and nothing is held: a record left there was given back at a
+    later start, over a change the user had made in between."""
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = True
+    backend.setup()
+    real = native.rpc
+
+    def refusing(method, params=None):
+        if method == "Settings.SetSettingValue":
+            raise RuntimeError("Kodi refused " + method)
+        return real(method, params)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(native, "rpc", refusing)
+        with backend.without_actor_thumbs(native.ACTOR_THUMBS_FLOOR):
+            assert store.held_settings() == {}
+    assert store.held_settings() == {}
+    # The user turns it off; nothing of the pass's turns it back on.
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = False
+    backend.restore_settings()
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is False
+    assert backend.settings_owed is False
+
+
+def test_a_refused_restore_is_asked_again_while_nothing_is_pending(
+    store, backend, kodi, monkeypatch
+):
+    """A pass gives a held setting back when it starts, and none may come
+    for hours. The library thread asks again on a pause of its own, and a
+    refusal is a warning once, not once an attempt."""
+    import time
+
+    from kofin.sync.backends.api import library as library_module
+    from tests.unit.apifixtures import Server, worker
+
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = False
+    backend.setup()
+    store.hold_setting(native.ACTOR_THUMBS_SETTING, True)
+    real = native.rpc
+    refuse = {"on": True}
+    warnings = []
+    monkeypatch.setattr(
+        native.LOG, "warning", lambda msg, *args: warnings.append(msg % args)
+    )
+
+    def rpc(method, params=None):
+        if method == "Settings.SetSettingValue" and refuse["on"]:
+            raise RuntimeError("Kodi refused " + method)
+        return real(method, params)
+
+    monkeypatch.setattr(native, "rpc", rpc)
+    backend.restore_settings()
+    assert backend.settings_owed is True
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    w._bindings_due = float("inf")
+    assert not store.has_pending()
+    w.apply(backend)
+    w.apply(backend)  # not every tick
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is False
+    assert len(warnings) == 1
+    assert (
+        time.monotonic()
+        < w._settings_due
+        <= time.monotonic() + library_module.SETTINGS_RETRY
+    )
+    refuse["on"] = False
+    w._settings_due = 0.0
+    w.apply(backend)
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is True
+    assert store.held_settings() == {} and backend.settings_owed is False
+    # Nothing owed: the idle tick asks Kodi nothing.
+    w._settings_due = 0.0
+    monkeypatch.setattr(native, "rpc", lambda *a, **k: 1 / 0)
+    w.apply(backend)
 
 
 def test_collections_file_sets_at_import_and_patch_set_details(store, backend, kodi):
@@ -881,6 +1178,7 @@ def test_the_library_binds_movie_folders_once_when_nothing_is_pending(
     native = SimpleNamespace(
         reconcile=lambda repair=False: calls.append("reconcile"),
         bind_movie_folders=lambda: calls.append("bind"),
+        settings_owed=False,
     )
     assert not store.has_pending()
     w.apply(native)
@@ -896,8 +1194,11 @@ def test_the_library_binds_movie_folders_once_when_nothing_is_pending(
         raise OSError("rpc away")
 
     w._bindings_due = 0.0
-    w.apply(SimpleNamespace(reconcile=native.reconcile, bind_movie_folders=failing))
-    w.apply(SimpleNamespace(reconcile=native.reconcile, bind_movie_folders=failing))
+    broken = SimpleNamespace(
+        reconcile=native.reconcile, bind_movie_folders=failing, settings_owed=False
+    )
+    w.apply(broken)
+    w.apply(broken)
     assert calls == ["bind", "fail"]
     assert (
         time.monotonic()

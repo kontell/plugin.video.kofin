@@ -56,8 +56,12 @@ START = "SyncSession.Start"
 # the document at ``path`` is the contract, this is the ping
 # (sync/backends/api/companion.py).
 COMPANION_REQUESTS = "Companion.Requests"
+# the companion add-on -> service: its status document changed.
+# ``{"v": 1, "generation": <int or null>, "path": <status file>}``; the
+# document is read, the ping is the prompt (companion.absorb_status).
+COMPANION_STATUS = "Companion.Status"
 
-INBOUND = frozenset({REGISTER, CLAIM, PROPOSE, MENU})
+INBOUND = frozenset({REGISTER, CLAIM, PROPOSE, MENU, COMPANION_STATUS})
 
 # Caps. A payload is a notification, not a document; anything bigger than
 # this is malformed or hostile, and either way not worth parsing.
@@ -72,6 +76,7 @@ _REQUIRED = {
     CLAIM: ("provider", "key"),
     PROPOSE: ("provider", "key"),
     MENU: (),
+    COMPANION_STATUS: (),
 }
 
 

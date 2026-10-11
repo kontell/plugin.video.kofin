@@ -59,8 +59,9 @@ def inspect(allow_dirty=False):
             ),
             "application": capture["application"],
             # The companion add-on closes what public interfaces cannot
-            # (companion.py); its absence is a feature reduced, never a fault.
-            "companion": {"addon": companion.ADDON_ID, "version": companion.present()},
+            # (companion.py); its absence is a feature reduced, never a
+            # fault, and its last status says what it serves and refuses.
+            "companion": companion.status_block(),
         }
     )
     return report

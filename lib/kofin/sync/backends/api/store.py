@@ -114,6 +114,10 @@ class Store(Catalogue):
             CREATE TABLE IF NOT EXISTS api_salt(
                 namespace TEXT NOT NULL, folder TEXT NOT NULL, salt INTEGER NOT NULL,
                 PRIMARY KEY(namespace,folder));
+            CREATE TABLE IF NOT EXISTS api_walk(
+                namespace TEXT NOT NULL, library TEXT NOT NULL, position INTEGER NOT NULL,
+                folder TEXT NOT NULL, label TEXT NOT NULL,
+                PRIMARY KEY(namespace,library,position));
             CREATE TABLE IF NOT EXISTS api_expected(
                 namespace TEXT NOT NULL, item_id TEXT NOT NULL, generation INTEGER NOT NULL,
                 expires REAL NOT NULL, payload TEXT NOT NULL,
@@ -123,7 +127,37 @@ class Store(Catalogue):
                 PRIMARY KEY(namespace,item_id));
             CREATE TABLE IF NOT EXISTS api_setup(
                 id INTEGER PRIMARY KEY CHECK(id=1), namespace TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS api_held(
+                setting TEXT PRIMARY KEY, value TEXT NOT NULL);
         """)
+
+    # -- Kodi settings a scan owes back --------------------------------------
+
+    def hold_setting(self, setting, value):
+        """Record the value a Kodi setting had before a scan changed it. The
+        first record wins: a hold a stopped Kodi left behind is the user's
+        value, and the one read after it is the pass's own."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute(
+                "INSERT OR IGNORE INTO api_held VALUES (?,?)",
+                (setting, json.dumps(value)),
+            )
+
+    def held_settings(self) -> Dict[str, Any]:
+        with Database() as db:
+            self._prepare(db.cursor)
+            return {
+                setting: json.loads(value)
+                for setting, value in db.cursor.execute(
+                    "SELECT setting, value FROM api_held"
+                ).fetchall()
+            }
+
+    def release_setting(self, setting):
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute("DELETE FROM api_held WHERE setting=?", (setting,))
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -632,6 +666,34 @@ class Store(Catalogue):
                 )
         return count
 
+    def annotate_companion(self, rows):
+        """Record what the companion reports done, by request content hash:
+        ``applied["companion"][kind]``, one transaction for the batch
+        (companion._absorb_acks). Returns how many mappings changed."""
+        count = 0
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute("BEGIN IMMEDIATE")
+            for item_id, kind, digest in rows:
+                found = db.cursor.execute(
+                    "SELECT applied FROM api_native WHERE namespace=? AND item_id=?",
+                    (self.namespace, item_id),
+                ).fetchone()
+                if found is None:
+                    continue
+                applied = json.loads(found[0] or "{}")
+                done = dict(applied.get("companion") or {})
+                if done.get(kind) == digest:
+                    continue
+                done[kind] = digest
+                applied["companion"] = done
+                db.cursor.execute(
+                    "UPDATE api_native SET applied=? WHERE namespace=? AND item_id=?",
+                    (encode(applied), self.namespace, item_id),
+                )
+                count += 1
+        return count
+
     def forget(self, item_id, generation):
         """Acknowledge a removal: the native identity goes, the payload shrinks."""
         return self.forget_many([(item_id, generation)]) == 1
@@ -739,6 +801,58 @@ class Store(Catalogue):
             row = db.cursor.execute(
                 "SELECT salt FROM api_salt WHERE namespace=? AND folder=?",
                 (self.namespace, folder),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def salts(self) -> Dict[str, int]:
+        """Every salted directory with its salt, in one read: a listing of
+        1,557 album directories asked for them one database open at a time."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                "SELECT folder, salt FROM api_salt WHERE namespace=?",
+                (self.namespace,),
+            ).fetchall()
+        return {folder: int(salt) for folder, salt in rows}
+
+    def plan_walk(self, library, rows):
+        """The album directories a scan of the library is to visit, in order,
+        each with the label it is listed under. The pass writes the plan
+        before the scan and the provider lists it a part at a time
+        (``walk_part``), reading no payload."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute("BEGIN IMMEDIATE")
+            db.cursor.execute(
+                "DELETE FROM api_walk WHERE namespace=? AND library=?",
+                (self.namespace, library),
+            )
+            db.cursor.executemany(
+                "INSERT INTO api_walk VALUES (?,?,?,?,?)",
+                [
+                    (self.namespace, library, position, folder, label)
+                    for position, (folder, label) in enumerate(rows)
+                ],
+            )
+
+    def walk_part(self, library, index, size) -> List[Tuple[str, str]]:
+        """(folder, label) of the directories in one part of the plan."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                """SELECT folder, label FROM api_walk WHERE namespace=? AND library=?
+                AND position>=? AND position<? ORDER BY position""",
+                (self.namespace, library, index * size, (index + 1) * size),
+            ).fetchall()
+        return [(folder, label) for folder, label in rows]
+
+    def walk_size(self, library) -> int:
+        """How many directories the library's plan names."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            row = db.cursor.execute(
+                "SELECT COUNT(*) FROM api_walk WHERE namespace=? AND library=?",
+                (self.namespace, library),
             ).fetchone()
         return int(row[0]) if row else 0
 

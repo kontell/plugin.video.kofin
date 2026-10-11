@@ -107,6 +107,24 @@ FALLBACK_VIDEO_CONTAINER = "mkv"
 # The directory the pass asks the music scanner to hold open while it writes.
 _HOLD = re.compile(r"^/native/([0-9a-f]{32})/hold/(music|video)/$")
 
+# The album directories a music scan visits are listed to it in parts of
+# this many, each part a directory of its own (music_part). After a scan
+# Kodi's music scanner asks for every added album's directory a second time,
+# to look for cover files a plugin never has (RetrieveLocalArt,
+# AddLocalArtwork), and that request is answered from Kodi's directory cache
+# while the listing is still in it. The cache holds the last fifty listings
+# (MAX_CACHED_DIRS): a root walked in one scan has pushed every album out by
+# then, a part has not.
+MUSIC_PART = 32
+# The parts live beside the libraries, not below a music root. Kodi decides
+# whether a directory it is asked to scan exists from its cached listing of
+# the parent when it has one (CDirectory::Exists, CDirectoryCache::FileExists),
+# and it lists a music root on its own account -- for the art of an album
+# whose songs span two directories, for one -- so a part below the root "did
+# not exist" the moment that listing was cached, and its scan was skipped.
+# Nothing lists the parts' parent but a request for it, which names them all.
+_WALK = re.compile(r"^/native/([0-9a-f]{32})/walk/([0-9a-f]{32})/(?:(\d{1,6})/)?$")
+
 # A movie folder's extras directory and the files in it. Kodi names an extra
 # by its path below the extras folder minus the extension
 # (CGUIDialogVideoManagerExtras::GenerateVideoExtra), so the file is the
@@ -147,6 +165,10 @@ class Location:
     song: Optional[str] = None
     # The scanner a hold directory belongs to.
     hold: Optional[str] = None
+    # The pass's walk of a library's music directories: its parent, or with
+    # ``part`` one part of it by index (music_part).
+    walk: bool = False
+    part: Optional[int] = None
     # A movie folder's extras directory; the extra a file in it names (its
     # stem); or a disc-structure folder Kodi probes for below the directory.
     extras: bool = False
@@ -265,6 +287,18 @@ def hold_dir(key, scanner="music"):
     return root(key) + "hold/" + scanner + "/"
 
 
+def walk_dir(key, library):
+    """The parent of the parts a pass walks the library's music by."""
+    return root(key) + "walk/" + library + "/"
+
+
+def music_part(key, library, index):
+    """One part of the pass's walk: a directory listing MUSIC_PART album
+    directories, never one a song is filed under and never one another
+    listing names."""
+    return walk_dir(key, library) + "%d/" % index
+
+
 def music_dir(key, library, folder):
     if not folder:
         raise ValueError("a song directory needs its album or singles folder")
@@ -345,6 +379,16 @@ def parse(url) -> Optional[Location]:
     held = _HOLD.match(parsed.path)
     if held:
         return Location(held.group(1), hold=held.group(2))
+    walked = _WALK.match(parsed.path)
+    if walked:
+        key, library, index = walked.groups()
+        return Location(
+            key,
+            library,
+            "music",
+            walk=True,
+            part=int(index) if index is not None else None,
+        )
     probe = _EXTRAS_SUB.match(parsed.path)
     if probe:
         key, library, movie = probe.groups()
@@ -406,6 +450,8 @@ def describe(url) -> str:
         parts.append("probe")
     if location.folder:
         parts.append("folder " + location.folder[-8:])
+    if location.walk:
+        parts.append("walk" if location.part is None else "part %d" % location.part)
     if location.hold:
         parts.append("hold")
     return " ".join(parts)

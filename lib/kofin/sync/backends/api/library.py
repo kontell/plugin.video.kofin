@@ -8,9 +8,11 @@ the shared change-feed contract carry the changes. Native operations already
 published are replayed even if Jellyfin is offline.
 """
 
+import collections
 import queue
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Set
 
 import xbmc
@@ -55,6 +57,10 @@ PAGE = 200
 # A song's DTO is a tenth of a movie's; 22,000 of them in pages of 200 is
 # 112 round trips for what 45 can carry.
 MUSIC_PAGE = 500
+# Pages of one listing asked for at once. The server builds a page of 500
+# songs in half a second; a Raspberry Pi took 1.7 s to 2.5 s over each, and
+# its thread ran at a quarter of a core while it did: the rest was the wire.
+PAGERS = 3
 HAS_CONTENT = {
     "Movie": "Movies",
     "Series": "TVShows",
@@ -74,35 +80,50 @@ def collection_kinds(view):
     return KINDS_BY_COLLECTION.get(collection, ())
 
 
-def fetch_kind(api, library, kind, abort=lambda: False, extra=None, on_page=None):
+def fetch_kind(
+    api,
+    library,
+    kind,
+    abort=lambda: False,
+    extra=None,
+    on_page=None,
+    api_factory=None,
+):
     """Only a complete, stable, duplicate-free pagination can imply deletion.
 
     ``on_page(fetched, total)`` is told after every page, for the bar.
+
+    With ``api_factory`` the pages after the first are asked for PAGERS at
+    a time, each worker on a client of its own, and taken in listing order.
+    Nothing is relaxed for it: every page reports the first page's total
+    and is exactly as long as its place in the listing says, or the
+    enumeration fails as a whole.
     """
     result: List[dict] = []
     seen = set()
-    total = None
-    while total is None or len(result) < total:
+    limit = MUSIC_PAGE if kind in MUSIC_KINDS else PAGE
+
+    def ask(client, start):
         if abort():
             raise InterruptedError("enumeration stopped")
         params = {
-            **library_filter(api, library, kind),
+            **library_filter(client, library, kind),
             "Fields": MUSIC_FIELDS if kind in MUSIC_KINDS else FIELDS,
-            "StartIndex": len(result),
-            "Limit": MUSIC_PAGE if kind in MUSIC_KINDS else PAGE,
+            "StartIndex": start,
+            "Limit": limit,
             "SortBy": "DateCreated,SortName",
             "SortOrder": "Ascending,Ascending",
             "EnableTotalRecordCount": True,
         }
         params.update(extra or {})
-        page = api.items(params)
+        page = client.items(params)
         count = page.get("TotalRecordCount")
         rows = page.get("Items")
         if not isinstance(count, int) or count < 0 or not isinstance(rows, list):
             raise ValueError("incomplete %s page" % kind)
-        if total is not None and count != total:
-            raise ValueError("%s listing changed during enumeration" % kind)
-        total = count
+        return count, rows
+
+    def take(rows, total):
         for item in rows:
             if (
                 not isinstance(item, dict)
@@ -119,9 +140,86 @@ def fetch_kind(api, library, kind, abort=lambda: False, extra=None, on_page=None
             raise ValueError("short %s page" % kind)
         if on_page is not None:
             on_page(len(result), total)
+
+    total, rows = ask(api, 0)
+    take(rows, total)
+    starts = list(range(limit, total, limit))
+    if api_factory is not None and len(starts) > 1 and len(rows) == limit:
+        _fetch_pages(ask, take, starts, total, limit, kind, api_factory, api)
+    while len(result) < total:
+        count, rows = ask(api, len(result))
+        if count != total:
+            raise ValueError("%s listing changed during enumeration" % kind)
+        take(rows, total)
     if kind == "Movie":
         attach_extras(api, result, abort)
     return result
+
+
+def _account(client):
+    return getattr(client, "server", None), getattr(client, "user_id", None)
+
+
+def _fetch_pages(ask, take, starts, total, limit, kind, api_factory, api):
+    """The pages at ``starts``, PAGERS in flight, taken in listing order.
+
+    At most PAGERS pages wait to be taken, so a slow first page never lets
+    the rest of a catalogue pile up behind it in memory.
+
+    Every page client answers for the account ``api`` asked the first page
+    as. The factory reads the stored credentials when it is called, and a
+    sign-in changed while the enumeration runs (the service restarts for
+    it, but this thread runs on until it is torn down) made the later
+    clients another user's: the same totals, that user's play state, filed
+    under this account's namespace. Such an enumeration fails as a whole.
+    """
+    local = threading.local()
+    clients: List[Any] = []
+    account = _account(api)
+
+    def page(start):
+        client = getattr(local, "client", None)
+        if client is None:
+            client = api_factory()
+            clients.append(client)
+            if _account(client) != account:
+                raise ValueError("account changed during %s enumeration" % kind)
+            local.client = client
+        return ask(client, start)
+
+    pending = iter(starts)
+    window: "collections.deque" = collections.deque()
+    pool = ThreadPoolExecutor(
+        max_workers=min(PAGERS, len(starts)), thread_name_prefix="kofin-page"
+    )
+
+    def top_up():
+        while len(window) < PAGERS:
+            start = next(pending, None)
+            if start is None:
+                return
+            window.append((start, pool.submit(page, start)))
+
+    try:
+        top_up()
+        while window:
+            start, future = window.popleft()
+            count, rows = future.result()
+            if count != total:
+                raise ValueError("%s listing changed during enumeration" % kind)
+            if len(rows) != min(limit, total - start):
+                raise ValueError("short %s page" % kind)
+            top_up()
+            take(rows, total)
+    finally:
+        for _, future in window:
+            future.cancel()
+        pool.shutdown(wait=True)
+        for client in clients:
+            try:
+                client.close()
+            except Exception as error:
+                LOG.debug("page client not closed: %s", error)
 
 
 fetch_movies = fetch_kind
@@ -197,6 +295,8 @@ def fetch_boxsets(api, abort=lambda: False, ids=None):
 
 # Seconds before the idle binding backfill is tried again after a failure.
 BINDINGS_RETRY = 300.0
+# And between two idle attempts to give a held Kodi setting back.
+SETTINGS_RETRY = 300.0
 
 
 class Library(threading.Thread):
@@ -225,6 +325,9 @@ class Library(threading.Thread):
         # When the idle binding backfill is next due: now, then never once
         # it succeeded, or a pause after a failure (apply).
         self._bindings_due = 0.0
+        # When a Kodi setting a scan held and Kodi would not take back is
+        # next asked for while nothing is pending (apply).
+        self._settings_due = 0.0
 
     def stop_client(self):
         self.stop_thread = True
@@ -266,48 +369,11 @@ class Library(threading.Thread):
     def run(self):
         monitor = xbmc.Monitor()
         try:
-            self.store.initialize(self.api.server)
-            native = Native(self.store, self._stop_event.is_set)
-            native.setup()
-            self.startup_done = True
-            # Recover native work before trying to reach Jellyfin.
-            while not self.stop_thread and not monitor.abortRequested():
-                failed = False
-                try:
-                    self.apply(native)
-                except InterruptedError:
-                    break
-                except Exception:
-                    # A failed native job must not stop a newer server edit
-                    # from replacing its payload, or poison jobs never heal.
-                    LOG.exception("API native work remains pending")
-                    failed = True
-                # Local delivery and individual events can fail permanently
-                # (e.g. an item deleted before its update event is processed).
-                # Neither may prevent enumeration from repairing the snapshot.
-                for work in (
-                    self.flush_local,
-                    self.commands,
-                    self.refresh,
-                    lambda: self.apply(native),
-                    self.playlists_pass,
-                    self.flush_pending_reload,
-                ):
-                    try:
-                        work()
-                    except InterruptedError:
-                        return
-                    except Exception:
-                        LOG.exception("API video sync will retry")
-                        status(settings.localized(30403))
-                        self._catchup_due = min(
-                            self._catchup_due, time.monotonic() + 30
-                        )
-                        failed = True
-                if failed and self._stop_event.wait(5):
-                    break
-                if monitor.waitForAbort(0.5):
-                    break
+            # One connection to kofin.db for as long as this thread runs: it
+            # is the thread that asks the store for work twice a second and
+            # the one every pass runs on (private.hold_connections).
+            with private.hold_connections():
+                self._run(monitor)
         except BackendMismatch as error:
             status(settings.localized(30420) % str(error))
             LOG.warning("API sync blocked: %s", error)
@@ -315,6 +381,56 @@ class Library(threading.Thread):
             LOG.exception("API video worker stopped")
         finally:
             self.stop_thread = True
+
+    def _run(self, monitor):
+        self.store.initialize(self.api.server)
+        native = Native(self.store, self._stop_event.is_set)
+        native.setup()
+        # A Kodi stopped mid-scan never gave back the setting the scan was
+        # holding (Native.without_actor_thumbs); a pass would, but none may
+        # be due.
+        try:
+            native.restore_settings()
+        except Exception:
+            LOG.exception("held Kodi settings not restored; the next pass retries")
+        self._settings_due = time.monotonic() + SETTINGS_RETRY
+        self.startup_done = True
+        # Recover native work before trying to reach Jellyfin.
+        while not self.stop_thread and not monitor.abortRequested():
+            failed = False
+            try:
+                self.apply(native)
+            except InterruptedError:
+                break
+            except Exception:
+                # A failed native job must not stop a newer server edit
+                # from replacing its payload, or poison jobs never heal.
+                LOG.exception("API native work remains pending")
+                failed = True
+            # Local delivery and individual events can fail permanently
+            # (e.g. an item deleted before its update event is processed).
+            # Neither may prevent enumeration from repairing the snapshot.
+            for work in (
+                self.flush_local,
+                self.commands,
+                self.refresh,
+                lambda: self.apply(native),
+                self.playlists_pass,
+                self.flush_pending_reload,
+            ):
+                try:
+                    work()
+                except InterruptedError:
+                    return
+                except Exception:
+                    LOG.exception("API video sync will retry")
+                    status(settings.localized(30403))
+                    self._catchup_due = min(self._catchup_due, time.monotonic() + 30)
+                    failed = True
+            if failed and self._stop_event.wait(5):
+                break
+            if monitor.waitForAbort(0.5):
+                break
 
     def commands(self):
         failed = False
@@ -428,6 +544,7 @@ class Library(threading.Thread):
                         on_page=lambda done, total, kind=kind: bar.track(
                             kind, done, total
                         ),
+                        api_factory=getattr(self, "api_factory", None),
                     )
                     LOG.info(
                         "enumerated %d %s in %.1f s",
@@ -819,6 +936,12 @@ class Library(threading.Thread):
                 self._bindings_due = time.monotonic() + BINDINGS_RETRY
             else:
                 self._bindings_due = float("inf")
+        elif native.settings_owed and time.monotonic() >= self._settings_due:
+            # A pass gives a held setting back when it starts, and none may
+            # come for hours: the user's "Download actor thumbnails" must
+            # not stay off for that long because one call was refused.
+            self._settings_due = time.monotonic() + SETTINGS_RETRY
+            native.restore_settings()
 
     def playlists_pass(self):
         """Rewrite the managed playlist files after an enumeration or a

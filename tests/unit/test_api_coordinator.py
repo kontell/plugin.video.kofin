@@ -381,3 +381,155 @@ def test_a_removed_collection_invalidates_its_members_on_every_path(store, monke
     w2.catch_up()
     assert store.state("box").operation == "remove"
     assert {i.item_id for i, _, _ in store.pending()} >= {"a", "b"}
+
+
+class PagedServer:
+    """A listing of ``count`` movies served a page at a time, recording what
+    was asked and how many requests were in flight at once."""
+
+    user_id = "u"
+
+    def __init__(self, count, log=None, tamper=None):
+        import threading
+
+        self.rows = [movie("m%04d" % n) for n in range(count)]
+        self.log = log if log is not None else []
+        self.tamper = tamper
+        self.lock = threading.Lock()
+        self.flying = 0
+        self.widest = 0
+        self.closed = 0
+
+    def items(self, params):
+        import time
+
+        with self.lock:
+            self.flying += 1
+            self.widest = max(self.widest, self.flying)
+        try:
+            time.sleep(0.01)
+            start, limit = params["StartIndex"], params["Limit"]
+            reply = {
+                "Items": [dict(r) for r in self.rows[start : start + limit]],
+                "TotalRecordCount": len(self.rows),
+            }
+            self.log.append(start)
+            return self.tamper(start, reply) if self.tamper else reply
+        finally:
+            with self.lock:
+                self.flying -= 1
+
+    def close(self):
+        self.closed += 1
+
+
+def paged(monkeypatch, count, tamper=None, page=10):
+    from kofin.sync.backends.api import library
+
+    monkeypatch.setattr(library, "PAGE", page)
+    log = []
+    first = PagedServer(count, log, tamper)
+    workers = []
+
+    def factory():
+        workers.append(PagedServer(count, log, tamper))
+        return workers[-1]
+
+    return first, workers, factory, log
+
+
+def test_pages_after_the_first_are_fetched_side_by_side_in_listing_order(monkeypatch):
+    """The rows are the listing's, in its order, whichever page answered
+    first; no more than PAGERS requests fly at once and every worker's
+    client is closed."""
+    from kofin.sync.backends.api import library
+
+    first, workers, factory, log = paged(monkeypatch, 95)
+    progress = []
+    rows = fetch_kind(
+        first,
+        LIB,
+        "Movie",
+        on_page=lambda done, total: progress.append((done, total)),
+        api_factory=factory,
+    )
+    assert [r["Id"] for r in rows] == ["m%04d" % n for n in range(95)]
+    assert sorted(log) == list(range(0, 95, 10))
+    assert first.log[0] == 0
+    assert 1 < len(workers) <= library.PAGERS
+    assert max(w.widest for w in workers) == 1
+    assert all(w.closed == 1 for w in workers)
+    assert progress == [(n, 95) for n in list(range(10, 95, 10)) + [95]]
+
+
+def test_a_short_page_fails_a_side_by_side_enumeration(monkeypatch):
+    def drop_one(start, reply):
+        if start == 40:
+            reply["Items"].pop()
+        return reply
+
+    first, workers, factory, _ = paged(monkeypatch, 95, drop_one)
+    with pytest.raises(ValueError, match="short Movie page"):
+        fetch_kind(first, LIB, "Movie", api_factory=factory)
+    assert all(w.closed == 1 for w in workers)
+
+
+def test_a_moving_total_fails_a_side_by_side_enumeration(monkeypatch):
+    def grow(start, reply):
+        if start == 60:
+            reply["TotalRecordCount"] += 1
+        return reply
+
+    first, _, factory, _ = paged(monkeypatch, 95, grow)
+    with pytest.raises(ValueError, match="listing changed"):
+        fetch_kind(first, LIB, "Movie", api_factory=factory)
+
+
+def test_a_duplicate_across_pages_fails_a_side_by_side_enumeration(monkeypatch):
+    def repeat(start, reply):
+        if start == 30:
+            reply["Items"][0]["Id"] = "m0001"
+        return reply
+
+    first, _, factory, _ = paged(monkeypatch, 95, repeat)
+    with pytest.raises(ValueError, match="invalid or duplicate"):
+        fetch_kind(first, LIB, "Movie", api_factory=factory)
+
+
+def test_a_page_client_of_another_account_fails_the_enumeration(monkeypatch):
+    """The factory reads the stored credentials when it is called. A sign-in
+    changed mid-enumeration made the later page clients another user's,
+    whose pages have the same totals and that user's play state; they are
+    never filed under the account the first page was asked as."""
+    first, workers, factory, log = paged(monkeypatch, 95)
+
+    def other_account():
+        client = factory()
+        client.user_id = "someone-else"
+        return client
+
+    with pytest.raises(ValueError, match="account changed during Movie"):
+        fetch_kind(first, LIB, "Movie", api_factory=other_account)
+    assert log == [0]  # no page was asked as the other account
+    assert workers and all(w.closed == 1 for w in workers)
+
+
+def test_a_server_that_caps_its_pages_is_read_one_page_at_a_time(monkeypatch):
+    """A first page shorter than was asked for says the offsets cannot be
+    known ahead: the listing is followed from where each page ended."""
+
+    def capped(start, reply):
+        reply["Items"] = reply["Items"][:7]
+        return reply
+
+    first, workers, factory, log = paged(monkeypatch, 40, capped)
+    rows = fetch_kind(first, LIB, "Movie", api_factory=factory)
+    assert [r["Id"] for r in rows] == ["m%04d" % n for n in range(40)]
+    assert not workers
+    assert log == list(range(0, 40, 7))
+
+
+def test_two_pages_need_no_second_client(monkeypatch):
+    first, workers, factory, log = paged(monkeypatch, 20)
+    assert len(fetch_kind(first, LIB, "Movie", api_factory=factory)) == 20
+    assert not workers and log == [0, 10]

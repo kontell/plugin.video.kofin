@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import unquote
 
 from kofin.core.log import Logger
-from . import metadata
+from . import companion, metadata
 from .kinds import (
     BATCH,
     DERIVED,
@@ -42,6 +42,93 @@ LOG = Logger(__name__)
 # A refresh takes seconds; re-listing the scope every poll would re-read a
 # library dozens of times for one changed item.
 REFRESH_POLL = 1.0
+
+
+def _with_asset_files(applied, assets, files, previous=None):
+    """The acknowledged file list beside the token: the movie's current
+    assets, or the empty entry once a movie that had assets has none, so
+    the companion's desired set says they are gone (metadata.asset_files).
+    ``previous`` is the last acknowledgement as it was read; whether the
+    movie had assets is read from it, by its file list or, for an
+    acknowledgement older than the list, by its assets token. Without the
+    token a movie whose assets went while the earlier build ran had no
+    entry at all, and the companion was never told its rows are gone."""
+    if assets is None:
+        return applied
+    before = previous if previous is not None else applied
+    had = "asset_files" in before or bool(before.get("assets"))
+    if files is not None:
+        if applied.get("asset_files") != files:
+            applied = dict(applied, asset_files=files)
+    elif had and applied.get("asset_files") != metadata.NO_ASSET_FILES:
+        applied = dict(applied, asset_files=metadata.NO_ASSET_FILES)
+    return applied
+
+
+def _with_companion_fields(applied, record, kodi_id, previous=None):
+    """What the companion's request kinds read from a mapping, so no payload
+    is loaded to build them (companion.collect): an episode's favourite, a
+    season's plot, a file's stream flags.
+
+    A favourite is present only while it holds: the companion's withdrawal
+    of that request unlinks the tag, so its absence is the whole message.
+    A plot and stream flags are not like that. The companion leaves what
+    it wrote when either request goes ("plot of season stands"), so a plot
+    the server emptied, or flags it cleared, stayed on Kodi's row with
+    nothing left asking for them to go. Once a row has carried either, the
+    cleared value is kept and asked for (an empty plot, a zero for every
+    stream) until the companion has acknowledged exactly that request; then
+    the key goes. A row that never carried one is never asked for a clear.
+    ``previous`` is the last acknowledgement when ``applied`` is a fresh
+    one; what the row carried, and what the companion has acknowledged for
+    it, is read from there.
+    """
+    item = record.item
+    kind = record.kind
+    before = previous if previous is not None else applied
+    done = before.get("companion") or {}
+    fields: Dict[str, Any] = {}
+    if kind == "Episode" and (item.get("UserData") or {}).get("IsFavorite"):
+        fields["favorite"] = True
+    if kind == "Season":
+        plot = (item.get("Overview") or "").strip(metadata.ASCII_SPACE)
+        if plot:
+            fields["plot"] = plot
+        elif "plot" in before and not _cleared(
+            done,
+            companion.SEASON_PLOT,
+            companion.season_plot_request(record.library, record.item_id, kodi_id, ""),
+        ):
+            fields["plot"] = ""
+    if kind in ("Movie", "Episode", "MusicVideo"):
+        flags = metadata.stream_flags(item)
+        if flags is not None:
+            fields["flags"] = flags
+        elif "flags" in before:
+            zero = metadata.cleared_stream_flags(item)
+            if zero is not None and not _cleared(
+                done,
+                companion.STREAM_FLAGS,
+                companion.stream_flags_request(
+                    kind, record.library, record.item_id, kodi_id, zero
+                ),
+            ):
+                fields["flags"] = zero
+    changed = {k: v for k, v in fields.items() if applied.get(k) != v}
+    gone = [
+        k for k in ("favorite", "plot", "flags") if k in applied and k not in fields
+    ]
+    if not changed and not gone:
+        return applied
+    applied = dict(applied, **changed)
+    for key in gone:
+        del applied[key]
+    return applied
+
+
+def _cleared(done, kind, request) -> bool:
+    """Whether the companion has acknowledged this very clearing request."""
+    return bool(done.get(kind)) and done.get(kind) == companion.content_hash(request)
 
 
 class Patch:
@@ -73,7 +160,8 @@ class Applier:
         # artists a live album credits, and the Kodi album id each album's
         # songs were filed under -- read once a pass, not once a row.
         self._song_folders: Dict[str, Set[str]] = {}
-        self._albums: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        # Per show: the season numbers with an importable episode.
+        self._seasons_with_episodes: Dict[str, Set[int]] = {}
         self._credited: Dict[str, Set[str]] = {}
         self._album_ids: Dict[str, Dict[str, Optional[int]]] = {}
         # Kodi's album and artist rows are not per library: two libraries
@@ -199,17 +287,10 @@ class Applier:
         return self._song_folders[library]
 
     def albums(self, library) -> Dict[str, Dict[str, Any]]:
-        """The library's album payloads, read once a pass: a song's tag hash
-        takes its album's MusicBrainz ids, and 22,000 songs must not read
-        their album 22,000 times."""
-        if library not in self._albums:
-            self._albums[library] = {
-                i: r.item
-                for i, r in self.store.records(
-                    kind="MusicAlbum", library=library
-                ).items()
-            }
-        return self._albums[library]
+        """The library's album payloads, read once a pass and shared with
+        the directory picker (MusicPass.album_items)."""
+        items: Dict[str, Dict[str, Any]] = self.native.music.album_items(library)
+        return items
 
     def credited(self, library) -> Set[str]:
         """The artist ids the library's live albums credit."""
@@ -342,8 +423,8 @@ class Applier:
                 # or the next; nothing native to confirm yet.
                 raise RuntimeError("%s has no native row yet" % kind)
             if kind == "Audio" and (
-                (record.library, record.parent_id) in self.native.rescanned
-                or (record.library, "*") in self.native.rescanned
+                (record.library, record.parent_id) in self.native.music.rescanned
+                or (record.library, "*") in self.native.music.rescanned
             ):
                 # Listed and scanned this pass and still absent: Kodi skipped
                 # the directory "due to no change" -- a scan stopped before
@@ -403,6 +484,11 @@ class Applier:
         # The versions and extras the movie's folder listed, acknowledged so
         # the pass stops scanning the folder for them (native._asset_folders).
         assets = metadata.assets_token(record.item) if kind == "Movie" else None
+        files = (
+            metadata.asset_files(record.item, self.key, record.library)
+            if kind == "Movie"
+            else None
+        )
         if (
             not repair
             and mapping is not None
@@ -413,9 +499,12 @@ class Applier:
             # The desired state this payload and these inputs produce was
             # acknowledged against this very row: nothing to build, read or
             # compare. A retried pass and a re-published item take this path.
+            acked = previous
             if assets is not None and previous.get("assets", "") != assets:
-                previous = dict(previous, assets=assets)
-            self.ack(record.item_id, record.generation, kodi_id, previous, kind)
+                acked = dict(previous, assets=assets)
+            acked = _with_asset_files(acked, assets, files, previous)
+            acked = _with_companion_fields(acked, record, kodi_id)
+            self.ack(record.item_id, record.generation, kodi_id, acked, kind)
             return None
         desired = metadata.details(
             record.item,
@@ -443,6 +532,12 @@ class Applier:
         }
         if assets is not None:
             applied["assets"] = assets
+        applied = _with_asset_files(applied, assets, files, previous)
+        if previous.get("companion"):
+            # What the companion has done for this row, kept across plans
+            # (companion.collect compares it with the request it would make).
+            applied["companion"] = previous["companion"]
+        applied = _with_companion_fields(applied, record, kodi_id, previous)
         compare = merge(kind, desired, row, previous.get("owned", {}))
         if kind in PLAYABLE:
             applied["userdata"] = metadata.userdata(record.item)
@@ -489,13 +584,12 @@ class Applier:
                 if edits:
                     self.store.local(record.item_id, edits)
                     return None
-            album = self.albums(record.library).get(record.parent_id)
-            applied["tag"] = metadata.tag_hash(record.item, album)
+            applied["tag"] = self.native.music.tag_hash(record)
             applied["dir"] = record.parent_id
             applied["userdata"] = metadata.userdata(record.item)
             if previous.get("tag") not in (None, applied["tag"]) and not (
-                (record.library, record.parent_id) in self.native.rescanned
-                or (record.library, "*") in self.native.rescanned
+                (record.library, record.parent_id) in self.native.music.rescanned
+                or (record.library, "*") in self.native.music.rescanned
             ):
                 # The tags moved and the directory was not re-listed this
                 # pass: the row still carries the old ones.
@@ -513,7 +607,21 @@ class Applier:
                 return None
         compare = merge(kind, desired, row, previous.get("owned", {}))
         if matches(row, compare) and (
-            not repair or previous.get("hash") == applied["hash"]
+            # A song's desired state is its play count and last played, and
+            # the readback shows both: a matching row has nothing a repair
+            # could re-send, and the setter is not free -- UpdateSong
+            # rewrites the song's dateAdded from the file's timestamp, which
+            # for a plugin path is the moment of the call.
+            kind == "Audio"
+            # As for video (plan): a row with no acknowledgement was filed
+            # by the scanner from this very listing, and the pass after a
+            # complete enumeration runs as a repair. Without this a first
+            # import sent a setter for every song, 230 ms each on a
+            # Raspberry Pi: 308 s of a 357 s pass for 1,353 songs, six of
+            # them ever played.
+            or not repair
+            or mapping is None
+            or previous.get("hash") == applied["hash"]
         ):
             self.ack(record.item_id, record.generation, kodi_id, applied, kind)
             return None
@@ -523,13 +631,24 @@ class Applier:
         number = season.item.get("IndexNumber")
         if number is None:
             return False
-        for episode in self.store.records(
-            kind="Episode", parent_id=season.parent_id
-        ).values():
-            numbers = metadata.episode_numbers(episode.item)
-            if numbers is not None and numbers["season"] == int(number):
-                return True
-        return False
+        return int(number) in self.seasons_with_episodes(season.parent_id)
+
+    def seasons_with_episodes(self, series_id: str) -> Set[int]:
+        """The season numbers of a show that hold an importable episode,
+        read once a show. Asked per season, every season of a show read
+        every episode payload of the show again: 347 seasons were 349 s of
+        a pass on a Raspberry Pi, the show's episodes parsed once for each
+        of its seasons."""
+        if series_id not in self._seasons_with_episodes:
+            found: Set[int] = set()
+            for episode in self.store.records(
+                kind="Episode", parent_id=series_id
+            ).values():
+                numbers = metadata.episode_numbers(episode.item)
+                if numbers is not None:
+                    found.add(numbers["season"])
+            self._seasons_with_episodes[series_id] = found
+        return self._seasons_with_episodes[series_id]
 
     # -- refresh -------------------------------------------------------------
 
@@ -657,6 +776,8 @@ class Applier:
         began = time.monotonic()
         replies = rpc_batch(setters)
         self._rpc_seconds += time.monotonic() - began
+        # Every setter announced its row (native.pump).
+        self.native.pump()
         confirmations: List[Tuple[str, Optional[Dict[str, Any]]]] = []
         confirming = []
         for patch, reply in zip(patches, replies):

@@ -148,6 +148,23 @@ def version_sources(item) -> List[Dict[str, Any]]:
     return sources if len(sources) > 1 else []
 
 
+def version_label(source) -> str:
+    """A media source's name as a video asset title, or empty when it is no
+    label: Jellyfin's ``GetMediaSourceName`` returns the file name without
+    its extension unless local alternate versions exist, so a name equal to
+    the source file's stem says nothing about the version (Kofin's audit
+    finding A4-1, where a type row per such name filled Kodi's Versions
+    picker). Kodi files an untitled asset as the Standard Edition."""
+    name = str(source.get("Name") or "").strip(ASCII_SPACE)
+    if not name or name.lower() == "standard edition":
+        return ""
+    path = str(source.get("Path") or "").replace("\\", "/").rsplit("/", 1)[-1]
+    stem = path.rsplit(".", 1)[0] if "." in path else path
+    if stem and name.lower() == stem.lower():
+        return ""
+    return name
+
+
 def special_features(item) -> List[Dict[str, Any]]:
     return [
         f
@@ -174,6 +191,102 @@ def assets_token(item) -> str:
             ],
         }
     )
+
+
+def asset_files(item, key, library) -> Optional[Dict[str, Any]]:
+    """The files a movie's folder lists beyond its own, by URL: its version
+    files with the source's name, its extras. None for a movie with
+    neither. Acknowledged beside the assets token so the companion can be
+    told which asset rows a movie still has (``companion.RETIRE_ASSETS``)
+    without a payload being loaded for it."""
+    sources = version_sources(item)
+    features = special_features(item)
+    if not sources and not features:
+        return None
+    item_id = str(item.get("Id") or "")
+    # The label, not the raw name: this is the name the companion files the
+    # version under, and a name equal to the file's stem is no label
+    # (version_label). The token above keeps the raw name, so a rename
+    # still moves it.
+    return {
+        "versions": [
+            [paths.version_url(key, library, item_id, s["Id"]), version_label(s)]
+            for s in sources[1:]
+        ],
+        "extras": [
+            paths.extra_url(key, library, item_id, stem, f)
+            for stem, f in paths.extra_stems(features)
+        ],
+    }
+
+
+# A movie that lost every version and extra keeps an empty entry, so the
+# companion is told its asset rows are gone too.
+NO_ASSET_FILES: Dict[str, Any] = {"versions": [], "extras": []}
+
+# Kodi's StreamFlags (StreamInfo.h) a Jellyfin stream can state. No public
+# setter carries them (ledger S09); the companion writes them to the
+# streamdetails rows the scanner filed (companion.STREAM_FLAGS).
+STREAM_FLAG_DEFAULT = 0x0001
+STREAM_FLAG_FORCED = 0x0040
+STREAM_FLAG_HEARING_IMPAIRED = 0x0080
+
+
+def _stream_bits(item) -> Dict[str, List[int]]:
+    """The flag bits of a file's audio and subtitle streams, in the order
+    the scanner filed them (the first media source's, as the ListItem lists
+    them)."""
+    sources = item.get("MediaSources") or []
+    raw = (
+        (
+            sources[0].get("MediaStreams")
+            if sources and isinstance(sources[0], dict)
+            else None
+        )
+        or item.get("MediaStreams")
+        or []
+    )
+    result: Dict[str, List[int]] = {"audio": [], "subtitle": []}
+    for stream in raw:
+        if not isinstance(stream, dict):
+            continue
+        kind = {"Audio": "audio", "Subtitle": "subtitle"}.get(str(stream.get("Type")))
+        if kind is None:
+            continue
+        bits = 0
+        if stream.get("IsDefault"):
+            bits |= STREAM_FLAG_DEFAULT
+        if stream.get("IsForced"):
+            bits |= STREAM_FLAG_FORCED
+        if stream.get("IsHearingImpaired"):
+            bits |= STREAM_FLAG_HEARING_IMPAIRED
+        result[kind].append(bits)
+    return result
+
+
+def stream_flags(item) -> Optional[Dict[str, List[int]]]:
+    """The flag bits of a file's audio and subtitle streams (``_stream_bits``),
+    or None when every stream is unflagged: a file that never had a flag is
+    asked nothing of the companion."""
+    result = _stream_bits(item)
+    if not any(result["audio"]) and not any(result["subtitle"]):
+        return None
+    return result
+
+
+def cleared_stream_flags(item) -> Optional[Dict[str, List[int]]]:
+    """A zero for every audio and subtitle stream of a file: what is asked
+    of the companion once a file that had flags has none, since the bits
+    it wrote stay on the rows until they are written over. None when the
+    file lists no such stream, where there is no row to name: the bits are
+    matched to rows by position, so a request naming none is refused by the
+    companion for as long as a row stands, and none stands for long, since
+    a change of streams moves the refresh token and the scanner files the
+    file's stream rows again from a listing that has neither kind."""
+    result = _stream_bits(item)
+    if not result["audio"] and not result["subtitle"]:
+        return None
+    return {kind: [0] * len(bits) for kind, bits in result.items()}
 
 
 def item_separator():
@@ -396,6 +509,16 @@ def _timestamp(value):
     return convert_to_local(value)[:19].replace("T", " ")
 
 
+def own_art(item, server) -> Dict[str, str]:
+    """The art a row carries in its own right: an episode's ``tvshow.*`` and
+    ``season.*`` keys are the show's and the season's (see ``details``)."""
+    return {
+        key: value
+        for key, value in listitems.art_for(item, server).items()
+        if "." not in key
+    }
+
+
 def details(
     item,
     server,
@@ -420,11 +543,7 @@ def details(
         # true, and a show whose art URL changed after its episodes were
         # acknowledged (the artwork cap) left two episodes on the LibreELEC
         # box failing "readback differs: art" on every pass.
-        "art": {
-            key: value
-            for key, value in listitems.art_for(item, server).items()
-            if "." not in key
-        },
+        "art": own_art(item, server),
         "dateadded": _timestamp(item.get("DateCreated")),
     }
     if kind == "BoxSet":
@@ -956,11 +1075,22 @@ def listitem(
             (s for s in seasons if s.get("IndexNumber") is not None),
             key=lambda s: int(s["IndexNumber"]),
         ):
+            number = int(season["IndexNumber"])
             tag.addSeason(
-                int(season["IndexNumber"]),
+                number,
                 season_title(season),
                 (season.get("Overview") or "").strip(ASCII_SPACE),
             )
+            # The season's art rides with the show. The scanner files what a
+            # show's tag offers under a season number with the show's own
+            # row (GetSeasonThumbs, SetDetailsForTvShow), so a first import
+            # finds the season row as desired and sends it nothing: a
+            # SetSeasonDetails and its readback are 0.2 s a season on a
+            # Raspberry Pi, in either journal mode. A row Kodi filed
+            # otherwise (an artwork level that takes fewer types) differs
+            # and is patched as before.
+            for art_type, url in sorted(own_art(season, server).items()):
+                tag.addAvailableArtwork(url, art_type, season=number)
         if episodes is not None:
             digest = show_hash(episodes)
             li.setProperty("hash", digest)

@@ -42,6 +42,8 @@ class Kodi:
         self.albums = {}
         self.artists = {}
         self.music_scanned = []
+        # Every album directory a music scan went into, in order.
+        self.music_folders = []
         self.holding = False
         # A directory whose listing the fake should take from here instead
         # of the store (a failed or foreign listing), or drop entirely.
@@ -51,6 +53,11 @@ class Kodi:
         # flag, the extras filed on a movie row, and the extras folders a
         # scan turned into phantom discs instead.
         self.settings = {"videolibrary.ignorevideoextras": True}
+        # Whether a scan files the season art a show's listing offers
+        # (videolibrary.artworklevel: all of it at "maximum", none at "none").
+        self.files_season_art = True
+        # "Download actor thumbnails" as each video scan found it.
+        self.scan_actor_thumbs = []
         # Installed add-ons the service may ask about, and NotifyAll sends.
         self.addons = {}
         self.notified = []
@@ -132,11 +139,16 @@ class Kodi:
         self.rows["Series"][row["tvshowid"]] = row
         for season in seasons:
             if season.get("IndexNumber") is not None:
-                self._season_row(
+                filed = self._season_row(
                     row["tvshowid"],
                     int(season["IndexNumber"]),
                     metadata.season_title(season),
                 )
+                # What the show's tag offered under the season's number
+                # (addAvailableArtwork), filed with the show at Kodi's
+                # artwork level "maximum" and not at "none".
+                if self.files_season_art:
+                    filed["art"].update(metadata.own_art(season, SERVER))
         return row
 
     def _import_episodes(self, show_row, library, series_id):
@@ -158,6 +170,7 @@ class Kodi:
 
     def scan(self, directory):
         self.scanned.append(directory)
+        self.scan_actor_thumbs.append(self.settings.get("videolibrary.actorthumbs"))
         location = paths.parse(directory)
         assert location is not None and location.library, directory
         library = location.library
@@ -315,10 +328,21 @@ class Kodi:
             return
         self.music_scanned.append(directory)
         assert location is not None and location.content == "music", directory
-        if location.folder is None:
+        if location.walk:
+            # A part of the pass's plan: the scanner goes into each of the
+            # directories it lists.
+            assert location.part is not None, directory
+            for folder, _label in self.store.walk_part(
+                location.library, location.part, paths.MUSIC_PART
+            ):
+                self.music_folders.append(folder)
+                self._scan_folder(location.library, folder)
+        elif location.folder is None:
             for folder in self._root_folders(location.library):
+                self.music_folders.append(folder)
                 self._scan_folder(location.library, folder)
         else:
+            self.music_folders.append(location.folder)
             self._scan_folder(location.library, location.folder)
         self._cleanup_music()
         self.monitor.music_finished += 1

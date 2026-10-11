@@ -1,0 +1,176 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "The companion contract: the request document Kofin writes and the status document the companion writes back",
+  "type": "object",
+  "required": ["v", "generation", "requests"],
+  "properties": {
+    "v": {"type": "integer", "enum": [1, 2]},
+    "generation": {"type": "integer"},
+    "namespace": {"type": "string"},
+    "device": {"type": "string"},
+    "kinds": {"type": "array", "items": {"type": "string"}},
+    "requests": {"type": "array", "items": {"$ref": "#/definitions/request"}}
+  },
+  "if": {"properties": {"v": {"const": 2}}, "required": ["v"]},
+  "then": {"required": ["namespace", "device", "kinds"]},
+  "x-kinds": {
+    "group_versions": {"$ref": "#/definitions/group_versions"},
+    "retire_assets": {"$ref": "#/definitions/retire_assets"},
+    "episode_tags": {"$ref": "#/definitions/episode_tags"},
+    "season_plot": {"$ref": "#/definitions/season_plot"},
+    "stream_flags": {"$ref": "#/definitions/stream_flags"},
+    "remove_set": {"$ref": "#/definitions/remove_set"},
+    "chapter_art": {"$ref": "#/definitions/chapter_art"}
+  },
+  "x-status": {"$ref": "#/definitions/status"},
+  "definitions": {
+    "request": {
+      "type": "object",
+      "required": ["id", "kind", "library", "item"],
+      "properties": {
+        "id": {"type": "string"},
+        "kind": {"type": "string"},
+        "library": {"type": "string"},
+        "item": {"type": "string"}
+      }
+    },
+    "group_versions": {
+      "type": "object",
+      "required": ["owner", "versions"],
+      "properties": {
+        "owner": {
+          "type": "object",
+          "required": ["movieid"],
+          "properties": {"movieid": {"type": "integer"}, "file": {"type": ["string", "null"]}}
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["movieid", "mediasourceid"],
+            "properties": {
+              "movieid": {"type": "integer"},
+              "file": {"type": ["string", "null"]},
+              "mediasourceid": {"type": "string"},
+              "name": {"type": "string"}
+            }
+          }
+        },
+        "default": {"type": "string"}
+      }
+    },
+    "retire_assets": {
+      "type": "object",
+      "required": ["owner", "versions", "extras"],
+      "properties": {
+        "owner": {
+          "type": "object",
+          "required": ["movieid"],
+          "properties": {"movieid": {"type": "integer"}}
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file"],
+            "properties": {"file": {"type": "string"}, "name": {"type": "string"}}
+          }
+        },
+        "extras": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file"],
+            "properties": {"file": {"type": "string"}}
+          }
+        }
+      }
+    },
+    "episode_tags": {
+      "type": "object",
+      "required": ["owner", "tags"],
+      "properties": {
+        "owner": {"type": "object", "required": ["episodeid"], "properties": {"episodeid": {"type": "integer"}}},
+        "tags": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "season_plot": {
+      "type": "object",
+      "required": ["owner", "plot"],
+      "properties": {
+        "owner": {"type": "object", "required": ["seasonid"], "properties": {"seasonid": {"type": "integer"}}},
+        "plot": {"type": "string"}
+      }
+    },
+    "stream_flags": {
+      "type": "object",
+      "required": ["owner", "media", "flags"],
+      "properties": {
+        "owner": {"type": "object"},
+        "media": {"type": "string", "enum": ["movie", "episode", "musicvideo"]},
+        "flags": {
+          "type": "object",
+          "required": ["audio", "subtitle"],
+          "properties": {
+            "audio": {"type": "array", "items": {"type": "integer"}},
+            "subtitle": {"type": "array", "items": {"type": "integer"}}
+          }
+        }
+      }
+    },
+    "remove_set": {
+      "type": "object",
+      "required": ["title"],
+      "properties": {"title": {"type": "string"}, "since": {"type": "integer"}}
+    },
+    "chapter_art": {
+      "type": "object",
+      "required": ["dynpath", "chapters"],
+      "properties": {
+        "dynpath": {"type": "string"},
+        "session": {"type": "string"},
+        "chapters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["n", "file"],
+            "properties": {
+              "n": {"type": "integer"},
+              "file": {"type": "string"},
+              "width": {"type": "integer"},
+              "height": {"type": "integer"}
+            }
+          }
+        }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "required": ["state", "reason", "hash"],
+      "properties": {
+        "state": {"type": "string", "enum": ["done", "waiting", "refused"]},
+        "reason": {"type": "string"},
+        "hash": {"type": "string"},
+        "at": {"type": "string"}
+      }
+    },
+    "status": {
+      "type": "object",
+      "required": ["v", "companion", "contract", "kinds", "updated", "requests"],
+      "properties": {
+        "v": {"type": "integer", "enum": [1]},
+        "companion": {"type": "string"},
+        "contract": {"type": "array", "items": {"type": "integer"}},
+        "kinds": {"type": "array", "items": {"type": "string"}},
+        "trigger": {"type": "string"},
+        "updated": {"type": "string"},
+        "generation": {"type": ["integer", "null"]},
+        "idle": {"type": "string"},
+        "busy": {"type": "boolean"},
+        "gate": {"type": "object"},
+        "requests": {"type": "object", "additionalProperties": {"$ref": "#/definitions/outcome"}},
+        "summary": {"type": "object"}
+      }
+    }
+  }
+}
