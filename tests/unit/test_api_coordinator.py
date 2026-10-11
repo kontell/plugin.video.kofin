@@ -496,6 +496,24 @@ def test_a_duplicate_across_pages_fails_a_side_by_side_enumeration(monkeypatch):
         fetch_kind(first, LIB, "Movie", api_factory=factory)
 
 
+def test_a_page_client_of_another_account_fails_the_enumeration(monkeypatch):
+    """The factory reads the stored credentials when it is called. A sign-in
+    changed mid-enumeration made the later page clients another user's,
+    whose pages have the same totals and that user's play state; they are
+    never filed under the account the first page was asked as."""
+    first, workers, factory, log = paged(monkeypatch, 95)
+
+    def other_account():
+        client = factory()
+        client.user_id = "someone-else"
+        return client
+
+    with pytest.raises(ValueError, match="account changed during Movie"):
+        fetch_kind(first, LIB, "Movie", api_factory=other_account)
+    assert log == [0]  # no page was asked as the other account
+    assert workers and all(w.closed == 1 for w in workers)
+
+
 def test_a_server_that_caps_its_pages_is_read_one_page_at_a_time(monkeypatch):
     """A first page shorter than was asked for says the offsets cannot be
     known ahead: the listing is followed from where each page ended."""

@@ -145,7 +145,7 @@ def fetch_kind(
     take(rows, total)
     starts = list(range(limit, total, limit))
     if api_factory is not None and len(starts) > 1 and len(rows) == limit:
-        _fetch_pages(ask, take, starts, total, limit, kind, api_factory)
+        _fetch_pages(ask, take, starts, total, limit, kind, api_factory, api)
     while len(result) < total:
         count, rows = ask(api, len(result))
         if count != total:
@@ -156,20 +156,35 @@ def fetch_kind(
     return result
 
 
-def _fetch_pages(ask, take, starts, total, limit, kind, api_factory):
+def _account(client):
+    return getattr(client, "server", None), getattr(client, "user_id", None)
+
+
+def _fetch_pages(ask, take, starts, total, limit, kind, api_factory, api):
     """The pages at ``starts``, PAGERS in flight, taken in listing order.
 
     At most PAGERS pages wait to be taken, so a slow first page never lets
     the rest of a catalogue pile up behind it in memory.
+
+    Every page client answers for the account ``api`` asked the first page
+    as. The factory reads the stored credentials when it is called, and a
+    sign-in changed while the enumeration runs (the service restarts for
+    it, but this thread runs on until it is torn down) made the later
+    clients another user's: the same totals, that user's play state, filed
+    under this account's namespace. Such an enumeration fails as a whole.
     """
     local = threading.local()
     clients: List[Any] = []
+    account = _account(api)
 
     def page(start):
         client = getattr(local, "client", None)
         if client is None:
-            client = local.client = api_factory()
+            client = api_factory()
             clients.append(client)
+            if _account(client) != account:
+                raise ValueError("account changed during %s enumeration" % kind)
+            local.client = client
         return ask(client, start)
 
     pending = iter(starts)
