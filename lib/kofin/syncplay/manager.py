@@ -1311,6 +1311,29 @@ class SyncPlayManager(object):
                 self._load_failed("item lookup failed")
                 return
 
+            runtime_ms = utils.ticks_to_ms(target.get("runtime_ticks"))
+
+            if runtime_ms and estimate_ms >= runtime_ms:
+                # The group's clock has run off the end of the item: the
+                # last entry of a queue played out and nothing followed it.
+                # A load aimed there ends the instant it starts on direct
+                # play (and the watchdog below then fails it 45s later and
+                # leaves the group), and starts over from 0:00 on a
+                # transcode. Nothing is loaded, and the item stays ours: the
+                # group's commands for it are not "another queue item", and
+                # a queue or snapshot that puts the group back inside it
+                # starts it then.
+                LOG.info(
+                    "[ syncplay/play ] not started: %.1fs is at or past the "
+                    "item's end (%.1fs)",
+                    estimate_ms / 1000.0,
+                    runtime_ms / 1000.0,
+                )
+                self.phase = Phase.IDLE
+                self._load_started_ms = None
+                self.publish_session_state()
+                return
+
             try:
                 self.playback.play_item(target)
             except Exception as error:
