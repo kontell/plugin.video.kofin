@@ -77,7 +77,6 @@ class WSClient(threading.Thread):
         self._keepalive: Optional[_KeepAlive] = None
 
     def run(self) -> None:
-        monitor = xbmc.Monitor()
         LOG.info("websocket url: %s", self._url)
         # Socket-level timeout for the connect phase: without one, a
         # black-holed host blocks create_connection for the OS TCP timeout
@@ -120,7 +119,19 @@ class WSClient(threading.Thread):
                 # Reconnection is this loop's job and it cannot do it from
                 # inside a traceback.
                 LOG.exception("websocket attempt failed")
-            if self._stop or monitor.waitForAbort(RECONNECT_SECONDS):
+            # A Monitor for this wait and no longer. Kodi queues a callback
+            # per announcement for every Monitor object alive, in one queue
+            # for the whole process, and only the thread that made the
+            # object can take its callbacks off it -- which it does inside
+            # waitForAbort and nowhere else. This thread sits in run_forever
+            # for as long as the socket is up, so a Monitor held across it
+            # collected every announcement Kodi made and never let one go,
+            # and every Python thread in Kodi walks that queue on each of
+            # its own waits (RetardedAsyncCallbackHandler::makePendingCalls).
+            # A music scan announces every song: importing 22,381 on a
+            # Raspberry Pi fell from 60 songs a second to 14 and was still
+            # falling, where it now holds 90.
+            if self._stop or xbmc.Monitor().waitForAbort(RECONNECT_SECONDS):
                 break
         LOG.debug("websocket thread exit")
 
