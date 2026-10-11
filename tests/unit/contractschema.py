@@ -60,6 +60,14 @@ def validate(
             return errors
     if "enum" in schema and instance not in schema["enum"]:
         errors.append("%s: %r not in %r" % (path, instance, schema["enum"]))
+    if "const" in schema and instance != schema["const"]:
+        errors.append("%s: %r is not %r" % (path, instance, schema["const"]))
+    if "if" in schema:
+        # draft-07: the branch is chosen by whether the instance conforms
+        # to "if", and only the chosen branch can add violations.
+        branch = "else" if validate(instance, schema["if"], root, path) else "then"
+        if branch in schema:
+            errors.extend(validate(instance, schema[branch], root, path))
     if isinstance(instance, dict):
         for key in schema.get("required", ()):
             if key not in instance:

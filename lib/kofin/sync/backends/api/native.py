@@ -750,6 +750,11 @@ class Native:
                 self.bind_movie_folders()
             except Exception:
                 LOG.exception("movie folder bindings not completed")
+            # The requests are built from the stored mappings, and what the
+            # companion reports done is written onto them: every
+            # acknowledgement of this pass is in the store before either.
+            # Applier.run leaves none queued; this is that, said here.
+            applier.commit()
             try:
                 # What this pass could not do and the companion add-on can:
                 # published for it, confirmed by the next readback.

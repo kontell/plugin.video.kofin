@@ -85,6 +85,45 @@ def test_pass_and_live_kinds_share_the_document(store, kodi, monkeypatch):
     }
 
 
+def test_a_changed_header_is_published_under_an_unchanged_request_set(
+    store, kodi, monkeypatch
+):
+    """The device id and the kinds this build publishes are written only
+    when the document is, so "the requests did not change" alone left both
+    at the last write's values: the companion reads ``kinds`` to know what
+    this build publishes, and ``device`` to know whose chapter keys are its
+    to sweep."""
+    settings.set_str("deviceId", "device-1")
+    request = {
+        "id": "p1",
+        "kind": companion.GROUP_VERSIONS,
+        "library": "L",
+        "item": "a",
+        "owner": {"movieid": 1},
+        "versions": [{"movieid": 2, "mediasourceid": "s2"}],
+    }
+    monkeypatch.setattr(companion, "collect", lambda native: [request])
+    native = SimpleNamespace(key="ns-1")
+    companion.publish(native)
+    companion.publish(native)
+    assert _document()["generation"] == 1 and len(kodi.notified) == 1
+    settings.set_str("deviceId", "device-2")
+    companion.publish(native)
+    document = _document()
+    assert document["generation"] == 2 and document["device"] == "device-2"
+    monkeypatch.setattr(companion, "KINDS", tuple(companion.KINDS) + ("new_kind",))
+    companion.publish(native)
+    document = _document()
+    assert document["generation"] == 3 and document["kinds"][-1] == "new_kind"
+    companion.publish(SimpleNamespace(key="ns-2"))
+    document = _document()
+    assert document["generation"] == 4 and document["namespace"] == "ns-2"
+    # A live writer names no namespace and keeps the document's.
+    companion.publish_live(companion.CHAPTER_ART, [])
+    assert _document()["generation"] == 4 and len(kodi.notified) == 4
+    assert [r["id"] for r in _document()["requests"]] == ["p1"]
+
+
 def test_a_live_request_derives_the_namespace_when_no_document_exists(store, kodi):
     settings.set_str("serverId", "server-1")
     settings.set_str("userId", "user-1")
@@ -169,9 +208,8 @@ def rig(store, kodi, monkeypatch):
 def test_the_claim_stages_the_images_publishes_and_withdraws(rig):
     worker = chapterart.ChapterArt(rig.api, _item())
     worker._publish()
-    directory = os.path.join(
-        chapterart.stage_dir(), chapterart.request_id("m1", DYNPATH)
-    )
+    directory = worker._directory
+    assert os.path.dirname(directory) == chapterart.stage_dir()
     # 15 of the server's 20 chapters are the player's; one download failed.
     staged = sorted(os.listdir(directory), key=lambda n: int(n.split(".")[0]))
     assert len(staged) == 14 and "3.jpg" not in staged and "15.jpg" in staged
@@ -198,6 +236,37 @@ def test_the_claim_stages_the_images_publishes_and_withdraws(rig):
     worker._cleanup()
     assert _document()["requests"] == []
     assert not os.path.exists(directory)
+
+
+def test_a_claims_cleanup_leaves_the_next_claim_alone(rig):
+    """stop() hands the withdrawal to a janitor thread and returns, and the
+    player constructs the next claim straight after. The janitor used to
+    clear the whole kind and remove a directory named after the item and
+    the path alone: a replay lost its request and its files, and another
+    item lost its request."""
+    first = chapterart.ChapterArt(rig.api, _item())
+    first._publish()
+    replay = chapterart.ChapterArt(rig.api, _item())
+    other = chapterart.ChapterArt(rig.api, dict(_item(), Id="m2"))
+    assert len({first._id, replay._id, other._id}) == 3
+    assert len({first._directory, replay._directory, other._directory}) == 3
+    replay._publish()
+    other._publish()
+    assert sorted(r["id"] for r in _document()["requests"]) == sorted(
+        [first._id, replay._id, other._id]
+    )
+    # The first claim's janitor runs only now.
+    first._cleanup()
+    assert sorted(r["id"] for r in _document()["requests"]) == sorted(
+        [replay._id, other._id]
+    )
+    assert not os.path.exists(first._directory)
+    for live in (replay, other):
+        (request,) = [r for r in _document()["requests"] if r["id"] == live._id]
+        assert all(os.path.exists(c["file"]) for c in request["chapters"])
+    replay._cleanup()
+    other._cleanup()
+    assert _document()["requests"] == [] and os.listdir(chapterart.stage_dir()) == []
 
 
 def test_without_a_companion_nothing_is_downloaded(rig, monkeypatch):

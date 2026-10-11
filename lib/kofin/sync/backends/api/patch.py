@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import unquote
 
 from kofin.core.log import Logger
-from . import metadata
+from . import companion, metadata
 from .kinds import (
     BATCH,
     DERIVED,
@@ -48,11 +48,15 @@ def _with_asset_files(applied, assets, files, previous=None):
     """The acknowledged file list beside the token: the movie's current
     assets, or the empty entry once a movie that had assets has none, so
     the companion's desired set says they are gone (metadata.asset_files).
-    ``previous`` is the last acknowledgement when ``applied`` is a fresh
-    one; whether the movie had assets is read from it."""
+    ``previous`` is the last acknowledgement as it was read; whether the
+    movie had assets is read from it, by its file list or, for an
+    acknowledgement older than the list, by its assets token. Without the
+    token a movie whose assets went while the earlier build ran had no
+    entry at all, and the companion was never told its rows are gone."""
     if assets is None:
         return applied
-    had = "asset_files" in (previous if previous is not None else applied)
+    before = previous if previous is not None else applied
+    had = "asset_files" in before or bool(before.get("assets"))
     if files is not None:
         if applied.get("asset_files") != files:
             applied = dict(applied, asset_files=files)
@@ -61,13 +65,28 @@ def _with_asset_files(applied, assets, files, previous=None):
     return applied
 
 
-def _with_companion_fields(applied, record):
+def _with_companion_fields(applied, record, kodi_id, previous=None):
     """What the companion's request kinds read from a mapping, so no payload
     is loaded to build them (companion.collect): an episode's favourite, a
-    season's plot, a file's stream flags. Each key is present only while
-    the fact holds, so its absence withdraws the request."""
+    season's plot, a file's stream flags.
+
+    A favourite is present only while it holds: the companion's withdrawal
+    of that request unlinks the tag, so its absence is the whole message.
+    A plot and stream flags are not like that. The companion leaves what
+    it wrote when either request goes ("plot of season stands"), so a plot
+    the server emptied, or flags it cleared, stayed on Kodi's row with
+    nothing left asking for them to go. Once a row has carried either, the
+    cleared value is kept and asked for (an empty plot, a zero for every
+    stream) until the companion has acknowledged exactly that request; then
+    the key goes. A row that never carried one is never asked for a clear.
+    ``previous`` is the last acknowledgement when ``applied`` is a fresh
+    one; what the row carried, and what the companion has acknowledged for
+    it, is read from there.
+    """
     item = record.item
     kind = record.kind
+    before = previous if previous is not None else applied
+    done = before.get("companion") or {}
     fields: Dict[str, Any] = {}
     if kind == "Episode" and (item.get("UserData") or {}).get("IsFavorite"):
         fields["favorite"] = True
@@ -75,10 +94,26 @@ def _with_companion_fields(applied, record):
         plot = (item.get("Overview") or "").strip(metadata.ASCII_SPACE)
         if plot:
             fields["plot"] = plot
+        elif "plot" in before and not _cleared(
+            done,
+            companion.SEASON_PLOT,
+            companion.season_plot_request(record.library, record.item_id, kodi_id, ""),
+        ):
+            fields["plot"] = ""
     if kind in ("Movie", "Episode", "MusicVideo"):
         flags = metadata.stream_flags(item)
         if flags is not None:
             fields["flags"] = flags
+        elif "flags" in before:
+            zero = metadata.cleared_stream_flags(item)
+            if zero is not None and not _cleared(
+                done,
+                companion.STREAM_FLAGS,
+                companion.stream_flags_request(
+                    kind, record.library, record.item_id, kodi_id, zero
+                ),
+            ):
+                fields["flags"] = zero
     changed = {k: v for k, v in fields.items() if applied.get(k) != v}
     gone = [
         k for k in ("favorite", "plot", "flags") if k in applied and k not in fields
@@ -89,6 +124,11 @@ def _with_companion_fields(applied, record):
     for key in gone:
         del applied[key]
     return applied
+
+
+def _cleared(done, kind, request) -> bool:
+    """Whether the companion has acknowledged this very clearing request."""
+    return bool(done.get(kind)) and done.get(kind) == companion.content_hash(request)
 
 
 class Patch:
@@ -459,11 +499,12 @@ class Applier:
             # The desired state this payload and these inputs produce was
             # acknowledged against this very row: nothing to build, read or
             # compare. A retried pass and a re-published item take this path.
+            acked = previous
             if assets is not None and previous.get("assets", "") != assets:
-                previous = dict(previous, assets=assets)
-            previous = _with_asset_files(previous, assets, files)
-            previous = _with_companion_fields(previous, record)
-            self.ack(record.item_id, record.generation, kodi_id, previous, kind)
+                acked = dict(previous, assets=assets)
+            acked = _with_asset_files(acked, assets, files, previous)
+            acked = _with_companion_fields(acked, record, kodi_id)
+            self.ack(record.item_id, record.generation, kodi_id, acked, kind)
             return None
         desired = metadata.details(
             record.item,
@@ -496,7 +537,7 @@ class Applier:
             # What the companion has done for this row, kept across plans
             # (companion.collect compares it with the request it would make).
             applied["companion"] = previous["companion"]
-        applied = _with_companion_fields(applied, record)
+        applied = _with_companion_fields(applied, record, kodi_id, previous)
         compare = merge(kind, desired, row, previous.get("owned", {}))
         if kind in PLAYABLE:
             applied["userdata"] = metadata.userdata(record.item)

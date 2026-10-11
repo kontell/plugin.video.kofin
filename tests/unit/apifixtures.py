@@ -1,6 +1,7 @@
 """Builders, fixtures and stand-ins shared by the API backend tests."""
 
 import copy
+import os
 import queue
 from types import SimpleNamespace
 
@@ -8,7 +9,7 @@ import pytest
 
 from kofin.core import kodirpc
 from kofin.sync import private
-from kofin.sync.backends.api import native
+from kofin.sync.backends.api import companion, native
 from kofin.sync.backends.api.library import Library
 from kofin.sync.backends.api.native import Native
 from kofin.sync.backends.api.store import Store, namespace
@@ -219,6 +220,13 @@ def store(tmp_path, monkeypatch):
     private.reset_overrides()
     private.set_path_override("kofin", str(tmp_path / "kofin.db"))
     monkeypatch.setattr(private, "addon_data_path", lambda: str(tmp_path))
+    # The companion's status lives beside the profile data, and beside
+    # tmp_path is the session's temp root: a status one test wrote was read
+    # by the pass of every test after it.
+    try:
+        os.remove(companion.status_path())
+    except FileNotFoundError:
+        pass
     store = Store(namespace("server", "user"))
     store.initialize(SERVER)
     yield store

@@ -591,6 +591,37 @@ def test_ungrouped_versions_are_published_for_the_companion_and_closed_by_readba
     assert store.mapping("a").applied["asset_files"] == {"versions": [], "extras": []}
 
 
+def test_assets_lost_under_an_older_acknowledgement_are_still_retired(
+    store, backend, kodi
+):
+    """A build before the file list acknowledged the assets token alone. A
+    movie that had assets then and has none on the first pass of this build
+    is told to the companion by that token; without it the movie had no
+    entry and its version and extra rows waited for Clean."""
+    from kofin.sync.backends.api import companion
+
+    backend.setup()
+    store.publish([assets_movie()], library=LIB)
+    backend.reconcile()
+    mapping = store.mapping("a")
+    legacy = {k: v for k, v in mapping.applied.items() if k != "asset_files"}
+    assert legacy["assets"]
+    record = store.records(kind="Movie", item_ids=["a"])["a"]
+    assert store.remember("a", record.generation, mapping.kodi_id, legacy, "Movie")
+    assert "asset_files" not in store.mapping("a").applied
+    store.publish([movie("a", Overview="No assets now")], library=LIB)
+    backend.reconcile()
+    assert store.mapping("a").applied["asset_files"] == {"versions": [], "extras": []}
+    retire = [
+        r for r in _requests(store)["requests"] if r["kind"] == companion.RETIRE_ASSETS
+    ]
+    assert [(r["item"], r["versions"], r["extras"]) for r in retire] == [("a", [], [])]
+    # A movie that never had any still has no entry and no request.
+    store.publish([movie("b")], library=LIB)
+    backend.reconcile()
+    assert "asset_files" not in store.mapping("b").applied
+
+
 def test_the_companion_is_detected_and_reported_as_optional(store, kodi):
     from kofin.sync.backends.api import companion
 
@@ -651,6 +682,50 @@ def test_a_version_file_lists_its_own_streams_and_runtime(store, monkeypatch):
             movie(MediaSources=[{"Id": "s1", "MediaStreams": [{"Type": "Video"}]}])
         )["MediaSources"][0]
     )
+
+
+def test_the_companion_is_sent_the_label_never_a_file_stem(store, backend, kodi):
+    """Both requests that hand the companion a version's name send the label
+    the folder listing gave the file. The companion sees a plugin URL for a
+    file name and cannot tell a stem from a label itself, so a raw stem
+    would still mint a type row per movie (audit A4-1). The assets token
+    keeps the raw name: a rename still moves it."""
+    from kofin.sync.backends.api import companion
+
+    def sourced(second):
+        item = assets_movie()
+        item["MediaSources"][0].update(
+            Name="Fixture a (2001)",
+            Path="/srv/movies/Fixture a (2001)/Fixture a (2001).mkv",
+        )
+        item["MediaSources"][1].update(
+            Name=second, Path="/srv/movies/alt/%s.mkv" % second
+        )
+        return item
+
+    backend.setup()
+    store.publish([sourced("Fixture a (2001) alt")], library=LIB)
+    backend.reconcile()
+    by_kind = {r["kind"]: r for r in _requests(store)["requests"]}
+    assert [v["name"] for v in by_kind[companion.GROUP_VERSIONS]["versions"]] == [""]
+    assert [v["name"] for v in by_kind[companion.RETIRE_ASSETS]["versions"]] == [""]
+    assert [n for _url, n in store.mapping("a").applied["asset_files"]["versions"]] == [
+        ""
+    ]
+    token = store.mapping("a").applied["assets"]
+    # A real label is sent as it is.
+    item = sourced("Theatrical Cut")
+    item["MediaSources"][1]["Path"] = "/srv/movies/alt/Fixture a (2001) - tc.mkv"
+    store.publish([item], library=LIB)
+    backend.reconcile()
+    by_kind = {r["kind"]: r for r in _requests(store)["requests"]}
+    assert [v["name"] for v in by_kind[companion.GROUP_VERSIONS]["versions"]] == [
+        "Theatrical Cut"
+    ]
+    assert [v["name"] for v in by_kind[companion.RETIRE_ASSETS]["versions"]] == [
+        "Theatrical Cut"
+    ]
+    assert store.mapping("a").applied["assets"] != token
 
 
 def test_a_source_named_like_its_file_is_an_untitled_asset(store, monkeypatch):

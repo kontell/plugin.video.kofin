@@ -165,6 +165,119 @@ def test_an_acknowledged_kind_leaves_the_document_until_its_content_moves(
     )
 
 
+def _done(*requests):
+    _status(
+        {
+            r["id"]: {"state": "done", "reason": "", "hash": companion.content_hash(r)}
+            for r in requests
+        }
+    )
+
+
+UNFLAGGED_STREAMS = [
+    {"Type": "Video", "Codec": "h264", "Width": 1920, "Height": 1080},
+    {"Type": "Audio", "Codec": "aac"},
+    {"Type": "Audio", "Codec": "dts"},
+    {"Type": "Subtitle", "Language": "eng"},
+    {"Type": "Subtitle", "Language": "eng"},
+]
+
+
+def _plain_episode():
+    # A season needs an importable episode to have a row in Kodi at all.
+    return episode("e1", SHOW, 1, 1, MediaStreams=UNFLAGGED_STREAMS)
+
+
+def _cleared_bundle(**season_values):
+    return [
+        series(SHOW),
+        season("s1", SHOW, 1, Overview="", **season_values),
+        _plain_episode(),
+        movie("m1", MediaStreams=UNFLAGGED_STREAMS),
+        movie("m2", MediaStreams=UNFLAGGED_STREAMS),
+    ]
+
+
+def test_a_cleared_plot_and_cleared_flags_are_asked_for_until_acknowledged(
+    store, backend, kodi
+):
+    """The companion leaves what it wrote when a plot or flags request goes,
+    so dropping the key left a plot the server emptied and flags it cleared
+    on Kodi's rows. A row that carried either asks for the cleared value
+    until exactly that request is acknowledged; a row that never did asks
+    for nothing."""
+    backend.setup()
+    store.publish(
+        [
+            series(SHOW),
+            season("s1", SHOW, 1, Overview="The season's plot"),
+            _plain_episode(),
+            movie("m1", MediaStreams=FLAGGED_STREAMS),
+            movie("m2", MediaStreams=UNFLAGGED_STREAMS),
+        ],
+        library=LIB,
+    )
+    backend.reconcile()
+    by_kind = _by_kind(store)
+    (old_plot,) = by_kind[companion.SEASON_PLOT]
+    (old_flags,) = by_kind[companion.STREAM_FLAGS]
+    _done(old_plot, old_flags)
+    store.publish(_cleared_bundle(), library=LIB)
+    backend.reconcile()
+    contractschema.check_document(_document(store), SCHEMA)
+    by_kind = _by_kind(store)
+    (plot,) = by_kind[companion.SEASON_PLOT]
+    assert plot["plot"] == "" and plot["id"] == old_plot["id"]
+    (flags,) = by_kind[companion.STREAM_FLAGS]  # e1 and m2 never carried a flag
+    assert flags["item"] == "m1"
+    assert flags["flags"] == {"audio": [0, 0], "subtitle": [0, 0]}
+    assert store.mapping("s1").applied["plot"] == ""
+    assert store.mapping("m1").applied["flags"] == flags["flags"]
+    assert "flags" not in store.mapping("m2").applied
+    assert "flags" not in store.mapping("e1").applied
+    # The acknowledgement of the request before the clear is not this one's.
+    store.publish(_cleared_bundle(Name="Season One"), library=LIB)
+    backend.reconcile()
+    assert companion.SEASON_PLOT in _by_kind(store)
+    assert store.mapping("s1").applied["plot"] == ""
+    # Acknowledged: the requests leave, and the keys go at the next plan.
+    _done(plot, flags)
+    store.publish([], library=LIB)
+    backend.reconcile()
+    by_kind = _by_kind(store)
+    assert companion.SEASON_PLOT not in by_kind
+    assert companion.STREAM_FLAGS not in by_kind
+    bundle = _cleared_bundle(Name="Season 1")
+    bundle[3] = movie("m1", MediaStreams=UNFLAGGED_STREAMS, Overview="moved")
+    store.publish(bundle, library=LIB)
+    backend.reconcile()
+    assert "plot" not in store.mapping("s1").applied
+    assert "flags" not in store.mapping("m1").applied
+    by_kind = _by_kind(store)
+    assert companion.SEASON_PLOT not in by_kind
+    assert companion.STREAM_FLAGS not in by_kind
+
+
+def test_an_acknowledgement_lands_in_the_pass_that_plans_its_row(store, backend, kodi):
+    """The requests are built from the stored mappings and the companion's
+    acknowledgements are written onto them, so every acknowledgement of the
+    pass is committed before either: a row planned in the same pass keeps
+    the hash the status reported."""
+    backend.setup()
+    store.publish(_bundle(), library=LIB)
+    backend.reconcile()
+    flags = {r["item"]: r for r in _by_kind(store)[companion.STREAM_FLAGS]}
+    _done(flags["m1"])
+    bundle = _bundle()
+    bundle[3] = movie("m1", MediaStreams=FLAGGED_STREAMS, Overview="moved")
+    store.publish(bundle, library=LIB)
+    backend.reconcile()
+    assert store.mapping("m1").applied["companion"] == {
+        companion.STREAM_FLAGS: companion.content_hash(flags["m1"])
+    }
+    assert [r["item"] for r in _by_kind(store)[companion.STREAM_FLAGS]] == ["e1"]
+
+
 def test_a_favourite_withdrawn_takes_its_request_with_it(store, backend, kodi):
     backend.setup()
     store.publish(_bundle(), library=LIB)
@@ -205,6 +318,39 @@ def test_an_emptied_set_goes_to_the_companion_when_it_is_present(store, backend,
         }
     )
     store.publish([movie(Overview="again")], library=LIB)
+    backend.reconcile()
+    assert companion.REMOVE_SET not in _by_kind(store)
+    assert not os.path.exists(companion.sets_journal_path())
+
+
+def test_a_done_for_an_earlier_removal_does_not_close_a_later_one(
+    store, backend, kodi, monkeypatch
+):
+    """The request id of a set is its title's, so the same title emptied
+    again has the id of the removal before it, and the status keeps that
+    removal's ``done`` until the companion rewrites it. The journal entry
+    goes only for the hash of the request it makes, which carries the
+    entry's stamp."""
+    clock = {"now": 1_800_000_000}
+    monkeypatch.setattr(companion.time, "time", lambda: clock["now"])
+    backend.setup()
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    companion.journal_set("Pair")
+    backend.reconcile()
+    (first,) = _by_kind(store)[companion.REMOVE_SET]
+    assert first["since"] == 1_800_000_000
+    _done(first)
+    backend.reconcile()
+    assert companion.REMOVE_SET not in _by_kind(store)
+    # The same title, emptied again later; the status still says done.
+    clock["now"] += 3600
+    companion.journal_set("Pair")
+    backend.reconcile()
+    (second,) = _by_kind(store)[companion.REMOVE_SET]
+    assert second["id"] == first["id"] and second["since"] == first["since"] + 3600
+    assert os.path.exists(companion.sets_journal_path())
+    _done(second)
     backend.reconcile()
     assert companion.REMOVE_SET not in _by_kind(store)
     assert not os.path.exists(companion.sets_journal_path())
