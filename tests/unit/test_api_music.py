@@ -690,6 +690,38 @@ def test_music_patches_run_under_a_held_scanner(store, backend, kodi):
     assert not kodi.hold_tokens
 
 
+def test_a_burst_of_setters_takes_its_own_callbacks_off_kodis_queue(
+    store, backend, kodi
+):
+    """Every setter announces its row, and Kodi queues a callback on the
+    pass's own Monitor for each: the pass waits on the Monitor after every
+    batch it sends, the only thing that takes them off again, and never
+    with the zero timeout that Kodi reads as "until shutdown"."""
+    waits = []
+
+    def wait(seconds):
+        waits.append((seconds, len(methods(kodi, "AudioLibrary.SetSongDetails"))))
+        return False
+
+    backend.monitor.waitForAbort = wait
+    items = [artist(), album()]
+    for number in range(1, 61):
+        items.append(
+            song(
+                "t%02d" % number,
+                ALBUM,
+                number,
+                UserData={"Played": True, "PlayCount": number},
+            )
+        )
+    store.publish(items, library=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    assert all(seconds > 0 for seconds, _ in waits)
+    # Once after each of the three song batches (25, 25, 10), at the least.
+    assert {25, 50, 60} <= {sent for _, sent in waits}
+
+
 def test_provider_hold_listing_waits_for_the_token_and_lists_nothing(
     store, monkeypatch
 ):

@@ -722,6 +722,8 @@ class Applier:
         began = time.monotonic()
         replies = rpc_batch(setters)
         self._rpc_seconds += time.monotonic() - began
+        # Every setter announced its row (native.pump).
+        self.native.pump()
         confirmations: List[Tuple[str, Optional[Dict[str, Any]]]] = []
         confirming = []
         for patch, reply in zip(patches, replies):

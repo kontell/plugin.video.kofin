@@ -160,6 +160,21 @@ class Native:
             elif time.monotonic() >= deadline:
                 raise TimeoutError("native operation did not converge")
 
+    def pump(self):
+        """Run the callbacks Kodi has queued for this thread.
+
+        Kodi queues one for every announcement on every Monitor object, in
+        one queue for the whole process, and they leave it only when the
+        thread that made the object waits on Kodi; every other Python thread
+        walks past them on each wait of its own (core/ws.py has the measure
+        of it). The pass's setters announce every row they write, thousands
+        in a burst with no wait between them, so the burst takes its own
+        callbacks off as it goes. One millisecond, since a zero timeout is
+        Kodi's spelling of "for ever".
+        """
+        if self.abort() or self.monitor.waitForAbort(0.001):
+            raise InterruptedError("native operation interrupted")
+
     def server_url(self):
         if not self._server:
             self._server = self.store.server()
