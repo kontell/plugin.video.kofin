@@ -7,11 +7,9 @@ owned row back (``readback``), removals wait for that confirmation
 (``patch``). This module owns the gates, the waits, the bindings and the
 scans, and runs one pass in ``reconcile``.
 
-Music is scanned by directory. A song is missing, or its tags have moved,
-or it has moved album: each means its album directory is listed again. The
-directories a pass wants listed are planned in order and scanned a part at
-a time (``scan_music``, ``walk``), whether they are every album of a first
-import or the one album a song was renamed in.
+Music is scanned by directory, a plan of them a part at a time. Which
+directories, in which order and under what bar is ``musicpass`` and
+``walk``; the scanner they drive is here.
 """
 
 import time
@@ -23,18 +21,19 @@ import xbmc
 from kofin.core import memory, settings, state
 from kofin.core.log import Logger
 from kofin.sync.catalogue import BackendMismatch
-from . import companion, metadata, paths, progress, removal, walk
+from . import companion, metadata, paths, progress, removal
 from .kinds import rpc, rpc_batch
+from .musicpass import MusicPass
 from .patch import Applier
 from .readback import Readback
 from .records import PayloadWindow, Record
-from .store import Entry, Store
+from .store import Store
 
 LOG = Logger(__name__)
 
 # A pass scans a movies root once instead of the missing movies' folders by
 # name when at least this share of the library is missing. (Music has no
-# such choice to make: scan_music lists exactly the directories that
+# such choice to make: MusicPass.scan lists exactly the directories that
 # changed, however many, a part at a time.)
 ROOT_SCAN_SHARE = 0.5
 # A hold is renewed before the provider's own limit on it runs out.
@@ -81,21 +80,15 @@ class Native:
         self.payloads = PayloadWindow(self.store)
         self.progress = progress.Progress()
         self._server = ""
-        # (library, folder) pairs whose directory this pass has re-listed,
-        # and (library, "*") when that was every directory of the library.
-        self.rescanned: Set[Tuple[str, str]] = set()
+        # The pass's music work and what it reads once for it; a new one
+        # for every pass (reconcile).
+        self.music = MusicPass(self)
         # scanner -> when the hold on it was taken.
         self._held: Dict[str, float] = {}
         # Movie folders this pass scans for extras: their extras folder is
         # listed through Kodi just before the scan (_prepare_scan).
         self._extras_folders: Set[str] = set()
         self._extras_allowed = False
-        # Per pass: a library's album payloads and the tag hash of every
-        # song compared so far. The directory picker and the applier both
-        # need them, and a song's hash is a payload walk, a tag build and a
-        # digest (album_items, tag_hash).
-        self._album_items: Dict[str, Dict[str, Dict]] = {}
-        self._tag_hashes: Dict[str, str] = {}
 
     # -- gates ---------------------------------------------------------------
 
@@ -336,7 +329,15 @@ class Native:
         total = (reply or {}).get("limits", {}).get("total")
         return total if isinstance(total, int) else None
 
-    def _scan_watch(self, location, heading, goal):
+    def scan_heading(self, location, scanner="video") -> str:
+        return "%s: %s" % (
+            xbmc.getLocalizedString(progress.SCANNING),
+            progress.label(
+                location.content if location and location.content else scanner
+            ),
+        )
+
+    def scan_watch(self, location, heading, goal):
         """A poll callback that reads Kodi's row count under the scan's
         library every few seconds and moves the bar towards ``goal``."""
         if not self.progress.open:
@@ -369,7 +370,7 @@ class Native:
         scanner="video",
         expected=None,
         prepare=None,
-        span=0,
+        on_poll=None,
     ):
         """Scan each directory in turn and wait for the scanner to go idle.
 
@@ -377,8 +378,8 @@ class Native:
         it runs the bar shows Kodi's own count climbing towards it, read every
         few seconds, since a scan is the longest phase and the pass counts
         nothing of its own until it ends (20 minutes at "0 %" on the box).
-        ``span`` is that count for the whole run of directories instead: one
-        phase of the bar across the parts of a music walk.
+        ``on_poll`` is called while a directory with no such count is
+        scanned: the caller's own bar across the run (``MusicPass.scan``).
         ``prepare`` is called with each directory just before its scan.
 
         One scan at a time: a second ``VideoLibrary.Scan`` queued while the
@@ -405,63 +406,39 @@ class Native:
         # LibreELEC box). The video scanner has no such thread.
         dialogs = progress.show_dialogs() and scanner != "music"
         expected = expected or {}
+        for directory in directories:
+            self.wait(lambda: self._idle(scanner), busy=lambda: self._scanning(scanner))
+            serial = finished()
+            began = time.monotonic()
+            location = paths.parse(directory)
+            heading = self.scan_heading(location, scanner)
+            goal = int(expected.get(directory) or 0)
+            saved = self.progress.phase(goal, heading) if goal else None
+            watch = self.scan_watch(location, heading, goal) if saved else on_poll
 
-        def heading_of(location):
-            return "%s: %s" % (
-                xbmc.getLocalizedString(progress.SCANNING),
-                progress.label(
-                    location.content if location and location.content else scanner
-                ),
-            )
-
-        spanned = None
-        span_poll = None
-        if span:
-            first = paths.parse(directories[0])
-            spanned = self.progress.phase(int(span), heading_of(first))
-            span_poll = self._scan_watch(first, heading_of(first), int(span))
-        try:
-            for directory in directories:
+            if prepare is not None:
+                prepare(directory)
+            rpc(method, {"directory": directory, "showdialogs": dialogs})
+            self._async_pending = True
+            try:
                 self.wait(
-                    lambda: self._idle(scanner), busy=lambda: self._scanning(scanner)
+                    lambda serial=serial: finished() > serial and self._idle(scanner),
+                    busy=lambda: self._scanning(scanner),
+                    on_poll=watch,
                 )
-                serial = finished()
-                began = time.monotonic()
-                location = paths.parse(directory)
-                heading = heading_of(location)
-                goal = 0 if span else int(expected.get(directory) or 0)
-                saved = self.progress.phase(goal, heading) if goal else None
-                on_poll = self._scan_watch(location, heading, goal) if saved else None
-                if span:
-                    on_poll = span_poll
-
-                if prepare is not None:
-                    prepare(directory)
-                rpc(method, {"directory": directory, "showdialogs": dialogs})
-                self._async_pending = True
-                try:
-                    self.wait(
-                        lambda serial=serial: finished() > serial
-                        and self._idle(scanner),
-                        busy=lambda: self._scanning(scanner),
-                        on_poll=on_poll,
-                    )
-                    LOG.info(
-                        "%s scan of %s took %.1f s",
-                        scanner,
-                        paths.describe(directory),
-                        time.monotonic() - began,
-                    )
-                except TimeoutError:
-                    if finished() == serial:
-                        raise
-                finally:
-                    self._async_pending = not self._idle(scanner)
-                    if saved is not None:
-                        self.progress.restore(saved)
-        finally:
-            if spanned is not None:
-                self.progress.restore(spanned)
+                LOG.info(
+                    "%s scan of %s took %.1f s",
+                    scanner,
+                    paths.describe(directory),
+                    time.monotonic() - began,
+                )
+            except TimeoutError:
+                if finished() == serial:
+                    raise
+            finally:
+                self._async_pending = not self._idle(scanner)
+                if saved is not None:
+                    self.progress.restore(saved)
         if scanner == "music":
             for directory in directories:
                 location = paths.parse(directory)
@@ -639,51 +616,6 @@ class Native:
         for scanner in list(self._held):
             self.release(scanner)
 
-    def scan_music(self, library, folders: Set[str], expected=0):
-        """Have Kodi list the changed album directories again.
-
-        The directories are planned in listing order (``walk.rows``) and
-        scanned a part at a time: each scan is of a directory that lists
-        ``paths.MUSIC_PART`` of them, and the scanner goes into each. That
-        is one scan job for every thirty-two directories where a scan by
-        name was one for each, and it lists no directory that did not
-        change, where a walk of the library root listed them all. It is
-        also the only one of the three that is safe from Kodi's directory
-        cache: a directory scanned by name "does not exist" to Kodi when a
-        cached listing of its parent fails to name it, a new album under a
-        root listed before it arrived (``paths.MUSIC_PART`` has the rest).
-        ``expected`` is the number of songs the scan should add, for the bar.
-        """
-        if not folders:
-            return
-        every = walk.root_folders(self.store, library)
-        rows = walk.rows(self.store, library, folders, self.album_items(library))
-        # The applier reads the album payloads again after the scan; held
-        # across it they are memory Kodi's scanner wants for its page cache.
-        self._album_items.pop(library, None)
-        self.store.plan_walk(library, rows)
-        parts = walk.parts(len(rows))
-        LOG.info(
-            "music: %d of %d directories changed; scanning them in %d part(s)",
-            len(rows),
-            len(every | set(folders)),
-            parts,
-        )
-        began = time.monotonic()
-        self.scan(
-            [paths.music_part(self.key, library, n) for n in range(parts)],
-            "music",
-            span=expected,
-        )
-        LOG.info(
-            "music: %d directories scanned in %.1f s",
-            len(rows),
-            time.monotonic() - began,
-        )
-        self.rescanned.update((library, folder) for folder in folders)
-        if every <= set(folders):
-            self.rescanned.add((library, "*"))
-
     # -- the pass ------------------------------------------------------------
 
     def reconcile(self, repair=False):
@@ -696,9 +628,7 @@ class Native:
         self.restore_settings()
         self.store.pin()
         self.readback.clear()
-        self.rescanned = set()
-        self._album_items = {}
-        self._tag_hashes = {}
+        self.music = MusicPass(self)
         applier = Applier(self)
         completed = False
         try:
@@ -770,8 +700,7 @@ class Native:
             applier.commit()
             self.progress.close()
             self.payloads = PayloadWindow(self.store)
-            self._album_items = {}
-            self._tag_hashes = {}
+            self.music.forget()
             # The pass's tables are the largest Python objects in the
             # process; hand the heap back before Kodi's scanner needs the
             # page cache (core/memory.py).
@@ -807,23 +736,7 @@ class Native:
                     try:
                         if entries is None:
                             entries = self.store.entries()
-                        folders = self._music_directories(upserts, library, entries)
-                        songs_expected = sum(
-                            1
-                            for r in upserts.values()
-                            if r.kind == "Audio"
-                            and r.library == library
-                            and r.parent_id in folders
-                        )
-                        self.scan_music(library, folders, expected=songs_expected)
-                        lost = self._lost_songs(library, folders, entries)
-                        if lost:
-                            self.store.invalidate(lost)
-                            LOG.warning(
-                                "music: %d acknowledged songs missing after the"
-                                " scan; pending again",
-                                len(lost),
-                            )
+                        self.music.import_missing(upserts, library, entries)
                     except InterruptedError:
                         raise
                     except Exception as error:
@@ -951,165 +864,3 @@ class Native:
             ):
                 missing.append(record)
         return missing
-
-    def album_items(self, library) -> Dict[str, Dict]:
-        """The library's album payloads, read once a pass: a song's tag hash
-        takes its album's artists and MusicBrainz ids, and 22,000 songs must
-        not read their album 22,000 times."""
-        if library not in self._album_items:
-            self._album_items[library] = {
-                i: r.item
-                for i, r in self.store.records(
-                    kind="MusicAlbum", library=library
-                ).items()
-            }
-        return self._album_items[library]
-
-    def tag_hash(self, record: Record) -> str:
-        """A song's tag hash, computed once a pass."""
-        found = self._tag_hashes.get(record.item_id)
-        if found is None:
-            found = self._tag_hashes[record.item_id] = metadata.tag_hash(
-                record.item, self.album_items(record.library).get(record.parent_id)
-            )
-        return found
-
-    def _lost_songs(self, library, folders: Set[str], entries) -> List[str]:
-        """Acknowledged songs the scan just run should have re-filed and did
-        not: a listing that failed half way, or a scan stopped between its
-        delete and its re-add. Nothing pending names them, so they are found
-        by comparing what was acknowledged with what Kodi holds, and go back
-        to pending for the next pass to re-list their directory (salted, if
-        Kodi kept the hash of the listing that lost them)."""
-        everywhere = (library, "*") in self.rescanned
-        held = self.readback.folders(library)
-        lost: List[str] = []
-        for item_id, known in self.store.mappings(
-            kind="Audio", library=library
-        ).items():
-            if known.kodi_id is None:
-                continue
-            placed = entries.get(item_id)
-            if placed is None or placed.kind != "Audio" or placed.library != library:
-                continue
-            if not everywhere and placed.parent_id not in folders:
-                continue
-            if item_id not in held.get(placed.parent_id, {}):
-                lost.append(item_id)
-        return lost
-
-    def _music_directories(
-        self, upserts: Dict[str, Record], library, entries: Dict[str, Entry]
-    ) -> Set[str]:
-        """The album directories whose listing Kodi must read again.
-
-        A song with no row is missing; one whose tag hash moved since its
-        row was acknowledged needs its tags re-read, which the scanner does
-        only for a directory whose listing changed; one that moved album
-        leaves its old directory only when that directory is listed without
-        it. And a directory holding rows no live song of ours claims -- the
-        old half of a move, or a listing that failed half way -- is settled
-        by its complete listing too.
-
-        Two kinds of applied song join the comparison uninvited. One Kodi
-        no longer holds -- a listing that failed half way, a scan stopped
-        between its delete and its re-add, a user's rescan interrupted:
-        nothing pending names it, so it is found by comparing what was
-        acknowledged with what Kodi has. And one whose album's payload moved:
-        its tags take the album's artists and MusicBrainz ids, which its own
-        payload hash never sees. Either goes back to pending and into this
-        pass, so the scan re-files it and the applier acknowledges it again.
-        """
-        songs = {
-            r.item_id: r
-            for r in upserts.values()
-            if r.kind == "Audio" and r.library == library
-        }
-        folders: Set[str] = set()
-        mappings = self.store.mappings(kind="Audio", library=library)
-        held = self.readback.folders(library)
-        changed_albums = {
-            r.item_id
-            for r in upserts.values()
-            if r.kind == "MusicAlbum" and r.library == library
-        }
-        uninvited: List[str] = []
-        for item_id, known in mappings.items():
-            if item_id in songs or known.kodi_id is None:
-                continue
-            placed = entries.get(item_id)
-            if placed is None or placed.kind != "Audio" or placed.library != library:
-                continue
-            if (
-                item_id not in held.get(placed.parent_id, {})
-                or placed.parent_id in changed_albums
-            ):
-                uninvited.append(item_id)
-        if uninvited:
-            songs.update(
-                self.store.records(
-                    kind="Audio", library=library, item_ids=uninvited, payloads=False
-                )
-            )
-        revived: Dict[str, Record] = {}
-        if songs:
-            # Six minutes on a Raspberry Pi for 22,000 songs (a payload parse
-            # and a tag hash each): the bar names the phase and the log times it.
-            began = time.monotonic()
-            self.progress.note(progress.label("Audio"))
-
-            def moved(record):
-                folders.add(record.parent_id)
-                if record.item_id not in upserts:
-                    revived[record.item_id] = record
-
-            # Only a song with a row and an acknowledgement has tags to
-            # compare, and only its payload is read: a first import has
-            # neither for any song, and walking 22,000 payloads to decide
-            # that every directory is new cost a Raspberry Pi 21 s.
-            tagged: List[Record] = []
-            for record in songs.values():
-                item_id = record.item_id
-                folder = record.parent_id
-                row = self.readback.scope("Audio", library, folder).get(item_id)
-                mapping = mappings.get(item_id)
-                applied = mapping.applied if mapping else {}
-                if row is None:
-                    moved(record)
-                elif mapping is None:
-                    # Imported but never acknowledged (a userdata patch
-                    # failed): the row has the tags of the listing that made
-                    # it unless the payload has moved since.
-                    if record.generation > 1:
-                        moved(record)
-                else:
-                    tagged.append(record)
-                previous = applied.get("dir")
-                if previous and previous != folder:
-                    folders.add(previous)
-            for record in self.payloads.walk(tagged):
-                if mappings[record.item_id].applied.get("tag") != self.tag_hash(record):
-                    moved(record)
-            if revived:
-                self.store.invalidate(revived)
-                upserts.update(revived)
-            LOG.info(
-                "music: %d songs compared in %.1f s; %d directories to scan,"
-                " %d applied songs put back",
-                len(songs),
-                time.monotonic() - began,
-                len(folders),
-                len(revived),
-            )
-        for folder, rows in self.readback.folders(library).items():
-            for item_id in rows:
-                placed = entries.get(item_id)
-                if (
-                    placed is None
-                    or placed.kind != "Audio"
-                    or placed.library != library
-                    or placed.parent_id != folder
-                ):
-                    folders.add(folder)
-                    break
-        return folders

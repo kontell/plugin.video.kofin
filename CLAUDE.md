@@ -288,7 +288,7 @@ What remains is kofin's own:
   the count (`provider._known_entries`); until the store or that readback answers,
   `_music_folder` waits (`RETRY_DELAY`) and leaves only at shutdown.
 - **The pass finds applied songs Kodi lost.** Nothing pending names a song a half-failed
-  listing, a stopped scan or a user's interrupted rescan removed, so `_music_directories`
+  listing, a stopped scan or a user's interrupted rescan removed, so `MusicPass.directories`
   compares every acknowledged song with the readback, puts the missing ones back to pending
   and into the pass, and scans their directory. Songs whose album's payload moved join the
   same comparison, because `song_tags` takes the album's artists and MusicBrainz ids.
@@ -310,7 +310,7 @@ What remains is kofin's own:
   re-ran four whole-library widget queries. It does not change Kodi's per-setter cost (nine
   autocommit statements, 46 ms a song on the P1D) and the video database has no such flag.
 - **A music scan is a plan scanned a part at a time: never the library root, never a directory
-  by name** (`native.scan_music`, `walk.py`, `paths.MUSIC_PART`, `store.plan_walk`). The pass
+  by name** (`musicpass.MusicPass.scan`, `walk.py`, `paths.MUSIC_PART`, `store.plan_walk`). The pass
   plans the album directories it wants listed, in listing order under their labels, and scans
   `/native/<key>/walk/<library>/<n>/`, each part a directory that lists thirty-two of them.
   Two things Kodi's directory cache does make the other two ways lose. After a scan the
@@ -524,9 +524,9 @@ What remains is kofin's own:
   through the rows of its songs, not through their acknowledgements, and a played song is a
   setter each: with 7,873 of them first, no album had a cover until they were done.
 - **A first import picks its music directories without reading a payload**
-  (`native._music_directories`): a song with no row is missing whatever its tags say, and
+  (`MusicPass.directories`): a song with no row is missing whatever its tags say, and
   only a song with a row and an acknowledgement has a tag hash to compare. The picker and the
-  applier share that hash and the album payloads for the pass (`Native.tag_hash`,
+  applier share that hash and the album payloads for the pass (`MusicPass.tag_hash`,
   `album_items`).
 - **A library is enumerated three pages at a time** (`library.fetch_kind`, `PAGERS`), each
   worker on its own client, taken in listing order with three in flight at most. What makes

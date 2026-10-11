@@ -243,8 +243,8 @@ def remove_music(native, pending, placement, removals, errors):
         try:
             if native.abort():
                 raise InterruptedError("native sync stopped")
-            native.scan_music(library, folders)
-            if (library, "*") in native.rescanned:
+            native.music.scan(library, folders)
+            if (library, "*") in native.music.rescanned:
                 survivors = native.readback.folders(library)
             else:
                 survivors = {

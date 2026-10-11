@@ -288,8 +288,8 @@ class Applier:
 
     def albums(self, library) -> Dict[str, Dict[str, Any]]:
         """The library's album payloads, read once a pass and shared with
-        the directory picker (native.album_items)."""
-        items: Dict[str, Dict[str, Any]] = self.native.album_items(library)
+        the directory picker (MusicPass.album_items)."""
+        items: Dict[str, Dict[str, Any]] = self.native.music.album_items(library)
         return items
 
     def credited(self, library) -> Set[str]:
@@ -423,8 +423,8 @@ class Applier:
                 # or the next; nothing native to confirm yet.
                 raise RuntimeError("%s has no native row yet" % kind)
             if kind == "Audio" and (
-                (record.library, record.parent_id) in self.native.rescanned
-                or (record.library, "*") in self.native.rescanned
+                (record.library, record.parent_id) in self.native.music.rescanned
+                or (record.library, "*") in self.native.music.rescanned
             ):
                 # Listed and scanned this pass and still absent: Kodi skipped
                 # the directory "due to no change" -- a scan stopped before
@@ -584,12 +584,12 @@ class Applier:
                 if edits:
                     self.store.local(record.item_id, edits)
                     return None
-            applied["tag"] = self.native.tag_hash(record)
+            applied["tag"] = self.native.music.tag_hash(record)
             applied["dir"] = record.parent_id
             applied["userdata"] = metadata.userdata(record.item)
             if previous.get("tag") not in (None, applied["tag"]) and not (
-                (record.library, record.parent_id) in self.native.rescanned
-                or (record.library, "*") in self.native.rescanned
+                (record.library, record.parent_id) in self.native.music.rescanned
+                or (record.library, "*") in self.native.music.rescanned
             ):
                 # The tags moved and the directory was not re-listed this
                 # pass: the row still carries the old ones.
