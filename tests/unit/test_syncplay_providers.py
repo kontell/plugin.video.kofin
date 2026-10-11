@@ -57,6 +57,45 @@ def test_a_negative_start_clamps_to_zero():
     assert target["url"].endswith("&startticks=0")
 
 
+def test_the_target_carries_the_item_s_runtime():
+    item = {"Id": ITEM_ID, "Type": "Movie", "RunTimeTicks": 14289000000}
+
+    assert jellyfin(item).play_target(ITEM_ID, 0)["runtime_ticks"] == 14289000000
+
+
+def test_the_runtime_is_the_longest_version_s():
+    """The item's own figure is its primary version's; a member on the
+    extended cut is still inside the item after the theatrical one ends."""
+    item = {
+        "Id": ITEM_ID,
+        "Type": "Movie",
+        "RunTimeTicks": 70000000000,
+        "MediaSources": [
+            {"Id": "a", "RunTimeTicks": 70000000000},
+            {"Id": "b", "RunTimeTicks": 75000000000},
+            {"Id": "c"},
+        ],
+    }
+
+    assert jellyfin(item).play_target(ITEM_ID, 0)["runtime_ticks"] == 75000000000
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"Id": ITEM_ID, "Type": "Movie"},
+        {"Id": ITEM_ID, "Type": "Movie", "RunTimeTicks": 0},
+        {"Id": ITEM_ID, "Type": "Movie", "RunTimeTicks": None, "MediaSources": None},
+        # A recording still being written is longer than it was probed at.
+        {"Id": ITEM_ID, "Type": "Recording", "RunTimeTicks": 6000000000},
+        {"Id": ITEM_ID, "Type": "TvChannel", "RunTimeTicks": 6000000000},
+    ],
+    ids=["absent", "zero", "nulls", "recording", "channel"],
+)
+def test_no_runtime_is_claimed_where_none_is_known(item):
+    assert "runtime_ticks" not in jellyfin(item).play_target(ITEM_ID, 0)
+
+
 def test_a_missing_item_is_a_failed_lookup():
     with pytest.raises(LookupError):
         jellyfin(None).play_target(ITEM_ID, 0)
