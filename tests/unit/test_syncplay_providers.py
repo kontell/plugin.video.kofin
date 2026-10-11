@@ -81,6 +81,71 @@ def test_an_unmapped_kodi_id_resolves_to_none(monkeypatch):
     assert providers.JellyfinProvider(None).resolve_kodi_id(42, "movie") is None
 
 
+# --- the API build has no table of Kodi ids ---------------------------------
+#
+# sync.private.get_item answers None for every row there, so a provider that
+# asked it called every library play foreign.
+
+
+@pytest.fixture
+def api_build(monkeypatch):
+    from kofin import buildconfig
+    from kofin.sync.backends.api import identity
+
+    monkeypatch.setattr(buildconfig, "BACKEND", "api")
+    return identity
+
+
+def test_on_the_api_build_a_native_row_maps_through_its_identity(
+    api_build, monkeypatch
+):
+    asked = []
+
+    def mapped_item(kodi_id, media):
+        asked.append((kodi_id, media))
+        return "jf-9"
+
+    monkeypatch.setattr(api_build, "mapped_item", mapped_item)
+
+    assert providers.JellyfinProvider(None).resolve_kodi_id(42, "movie") == "jf-9"
+    assert asked == [(42, "movie")]
+
+
+def test_on_the_api_build_a_row_that_is_not_ours_resolves_to_none(
+    api_build, monkeypatch
+):
+    monkeypatch.setattr(api_build, "mapped_item", lambda kid, media: None)
+
+    assert providers.JellyfinProvider(None).resolve_kodi_id(42, "movie") is None
+
+
+def test_on_the_api_build_a_failed_lookup_is_not_an_answer(api_build, monkeypatch):
+    """None means "not ours" and releases the play as unmanaged; a lookup
+    that could not be made must not be read as that."""
+
+    def refuse(kodi_id, media):
+        raise RuntimeError("Kodi refused VideoLibrary.GetMovieDetails")
+
+    monkeypatch.setattr(api_build, "mapped_item", refuse)
+
+    with pytest.raises(RuntimeError):
+        providers.JellyfinProvider(None).resolve_kodi_id(42, "movie")
+
+
+def test_on_the_sql_build_the_api_identity_is_never_asked(monkeypatch):
+    """The SQL distribution does not ship the API backend at all."""
+    from kofin import buildconfig
+    from kofin.sync.backends.api import identity
+
+    monkeypatch.setattr(buildconfig, "BACKEND", "sql")
+    monkeypatch.setattr(
+        identity, "mapped_item", lambda kid, media: pytest.fail("API lookup asked")
+    )
+    monkeypatch.setattr(database_module, "get_item", lambda kid, media: ("jf-9", "x"))
+
+    assert providers.JellyfinProvider(None).resolve_kodi_id(42, "movie") == "jf-9"
+
+
 def test_the_registry_dispatches_to_the_default_provider():
     registry = providers.jellyfin_registry(FakeApi({"Id": ITEM_ID, "Type": "Movie"}))
 

@@ -132,6 +132,31 @@ def test_identity_lookups_cover_episodes_and_music_videos(
     assert identity.mapped_item(episode_id, "episode") is None
 
 
+def test_syncplay_resolves_a_native_row_through_the_identity_lookup(
+    store, backend, kodi, monkeypatch
+):
+    """SyncPlay identifies a library play from Player.OnPlay's Kodi id. On
+    this build that is this lookup and nothing else: there is no table of
+    Kodi ids to ask."""
+    from kofin import buildconfig
+    from kofin.syncplay import providers
+
+    monkeypatch.setattr(identity, "current_store", lambda: store)
+    monkeypatch.setattr(buildconfig, "BACKEND", "api")
+    store.publish(show_bundle() + [movie()], library=LIB)
+    backend.reconcile()
+    provider = providers.JellyfinProvider(None)
+    episode_id = store.mapping("ea11").kodi_id
+
+    assert provider.resolve_kodi_id(episode_id, "episode") == "ea11"
+    assert provider.resolve_kodi_id(store.mapping("a").kodi_id, "movie") == "a"
+    # A row of another kind, and one kofin does not own: not ours, so the
+    # play is given back at once instead of being held for the group.
+    assert provider.resolve_kodi_id(episode_id, "movie") is None
+    kodi.rows["Episode"][episode_id]["file"] = "/foreign.mkv"
+    assert provider.resolve_kodi_id(episode_id, "episode") is None
+
+
 def test_namespace_and_urls_are_server_user_and_library_scoped():
     assert namespace("server", "a") != namespace("server", "b")
     key = namespace("server", "a")

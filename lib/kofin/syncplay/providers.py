@@ -17,6 +17,7 @@ database.
 from typing import Dict, Optional, Protocol, TypedDict
 from urllib.parse import quote
 
+from kofin import buildconfig
 from kofin.core.urls import plugin_url
 from kofin.syncplay.ports import SyncPlayApi
 
@@ -79,6 +80,20 @@ class JellyfinProvider:
         return {"url": plugin_url(params), "audio": item.get("Type") == "Audio"}
 
     def resolve_kodi_id(self, kodi_id: int, media: str) -> Optional[str]:
+        if buildconfig.BACKEND != "sql":
+            # The API build keeps no table of Kodi ids: a native row is ours
+            # when its unique id and resolver URL say so, which is the lookup
+            # the library claim and the userdata watcher already make.
+            # sync.private.get_item answers None for every row on this build,
+            # so every library play in a group read as a foreign item and was
+            # released as unmanaged ~100 ms after it started. A lookup that
+            # fails raises: the caller leaves that play to its claim rather
+            # than calling it foreign.
+            from kofin.sync.backends.api.identity import mapped_item
+
+            item_id = mapped_item(kodi_id, media)
+            return str(item_id) if item_id else None
+
         from kofin.sync import private as database  # deferred: pulls in the DB stack
 
         mapped = database.get_item(kodi_id, media)
