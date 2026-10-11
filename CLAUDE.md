@@ -309,10 +309,40 @@ What remains is kofin's own:
   `transaction`, which the skin's music widgets skip; without the hold every song written
   re-ran four whole-library widget queries. It does not change Kodi's per-setter cost (nine
   autocommit statements, 46 ms a song on the P1D) and the video database has no such flag.
-- **Walk a music root only when most of its directories changed** (`native.ROOT_SCAN_SHARE`).
-  A directory scan is 60–80 ms; a root walk re-lists every unchanged directory at about
-  100 ms each because Kodi re-creates the Python interpreter when it has no work between two
-  listings. A first import and a whole-library removal walk; everything else scans by name.
+- **A music scan is a plan scanned a part at a time: never the library root, never a directory
+  by name** (`native.scan_music`, `walk.py`, `paths.MUSIC_PART`, `store.plan_walk`). The pass
+  plans the album directories it wants listed, in listing order under their labels, and scans
+  `/native/<key>/walk/<library>/<n>/`, each part a directory that lists thirty-two of them.
+  Two things Kodi's directory cache does make the other two ways lose. After a scan the
+  scanner asks for every added album's directory again, looking for cover files, and that
+  request is answered from the cache only while the listing is still among its last fifty: a
+  root walk listed every album twice (a quarter of the scan). And Kodi takes a directory it is
+  asked to scan to exist from its cached listing of the parent, which it also makes on its own
+  account (the art of an album whose songs span two directories): a part placed below the
+  music root was skipped with "does not exist - skipping scan" the moment the root was
+  cached, and a new album scanned by name is open to the same. So the parts have a parent of
+  their own, whose listing names every part of the plan. On the LibreELEC Pi 3 Music-Alt's 87
+  directories scan in 20.6 s where the root walk took 27.2 s, 12.0 s against 21.5 s with the
+  database in WAL mode; Music's 1,557 in 292.7 s against 323.4 s. `ROOT_SCAN_SHARE` is the
+  movies' alone.
+- **No thread keeps an `xbmc.Monitor` it does not wait on.** Kodi queues a callback for every
+  announcement on every Monitor object alive, in one queue for the whole process, and a
+  callback leaves it only when the thread that made the object calls `waitForAbort` or
+  `xbmc.sleep`; every other Python thread in Kodi walks past what is left on each wait of its
+  own. The websocket thread held one across `run_forever`, for hours: a 22,381-song import
+  fell from 60 songs a second to 14 and was still falling, each album listing taking 0.5 s
+  instead of 0.04 s, with the service threads of five add-ons spinning. It now makes one for
+  the wait between attempts (`core/ws.py`). The pass's own burst of setters does the same to
+  itself, so `Applier.flush` waits a millisecond on the pass's Monitor after every batch
+  (`Native.pump`; a zero timeout is "for ever"). `abortRequested()` does not take callbacks
+  off; a thread that only polls it needs no Monitor of its own.
+- **The library thread holds one connection to kofin.db for as long as it runs**
+  (`private.hold_connections`, `Library.run`). A `Database` block that opens and closes a
+  connection is 26 ms and 15 ms on the Pi's card, against 0.04 ms for a statement on a
+  connection already open: four of them a tick kept the idle service at 31.6 % of a core, and
+  a playlist reconcile of 2,163 tracks took 4 min 37 s. The hold is the thread's and ends with
+  the `with`, which is what keeps it out of the no-module-state rule; the plugin's
+  process-wide pool is the other spelling and stays the plugin's.
 - **The tick asks `has_pending`, never `pending()`, to test for work.** Loading every pending
   payload twice a second kept the idle service at a third of a core on 31,000 rows.
 - **`forget_many` collects closed intervals once per batch.** Once per item, the "still
@@ -485,7 +515,54 @@ What remains is kofin's own:
   as a repair, and repair re-sends a row whose acknowledged hash moved; a row with no
   acknowledgement was just filed by the scanner from this very listing, so a matching one
   is acknowledged (`patch.Applier.plan`). Without that a tablet re-wrote all 6,200 rows of
-  its first import.
+  its first import. Music has the same rule in `plan_music`, where its absence sent a setter
+  for every song of a first import (308 s of a 357 s pass for 1,353 songs on the Pi), and a
+  song goes further: its desired state is its play count and last played, the readback shows
+  both, and `UpdateSong` rewrites `dateAdded` to the moment of the call for a plugin path, so
+  a song that matches is never written, repair or not.
+- **Songs are applied last of the music kinds** (`kinds.ORDER`). An album or artist is found
+  through the rows of its songs, not through their acknowledgements, and a played song is a
+  setter each: with 7,873 of them first, no album had a cover until they were done.
+- **A first import picks its music directories without reading a payload**
+  (`native._music_directories`): a song with no row is missing whatever its tags say, and
+  only a song with a row and an acknowledgement has a tag hash to compare. The picker and the
+  applier share that hash and the album payloads for the pass (`Native.tag_hash`,
+  `album_items`).
+- **A library is enumerated three pages at a time** (`library.fetch_kind`, `PAGERS`), each
+  worker on its own client, taken in listing order with three in flight at most. What makes
+  a listing complete is unchanged: every page reports the first page's total, is exactly as
+  long as its place says and repeats no id, or the enumeration fails; a server that caps the
+  first page is read a page at a time. 22,381 songs: 113 s to 45 s on the Pi.
+- **Kodi's own databases are rollback journals unless something switches them, and this build
+  may not.** Kodi sets `synchronous` and nothing else on a connection, so a setter's every
+  statement is a journal file written, synced and removed: `SetSongDetails` 133 ms against
+  17 ms in WAL on the Pi's card, a first Music-Alt pass 37.0 s against 21.7 s. The SQL build
+  switches the databases it writes; here it is the companion's to do
+  (`service.kofin.companion`, `journal.py`).
+- **A video import's time is Kodi's, and what a listing carries sets it.** A first-import pass
+  of 1,788 movies on the Pi is 1,490 s: 1,300 s Kodi's scan, 118 s binding every folder
+  (`SetSourceContent`, 60 ms a call in either journal mode), 48 s planning and 13 s the sets,
+  after 58 s of enumerating and publishing. A trace of the scanner half way
+  through put a movie at 600 ms: about 300 ms waiting on journal commits and 215 ms in
+  `select … from actor where name like '…'` and its twin on `tag`, one table scan per cast
+  member and per tag, each as long as the library's cast so far (`AddActor`, `AddToTable`;
+  28 ms a lookup at 38,000 actors). So a name added to every item's listing is a lookup on
+  every item, quadratic over an import. The companion's WAL switch and its
+  `ix_kofin_{actor,tag,studio}_nocase` indexes take the scan from 1,265 s to 446 s; with the
+  hold below, 259 s and a 424 s pass.
+- **A large video scan runs with Kodi's "Download actor thumbnails" off, and gives it back**
+  (`Native.without_actor_thumbs`, `ACTOR_THUMBS_FLOOR`, `store.hold_setting`). With it on the
+  scanner asks the texture cache for every cast member's picture before filing the item: a
+  texture-database lookup behind the lock its one worker holds while writing, then a linear
+  search of the whole job queue for a duplicate (`CJobQueue::AddJob`), into a queue a first
+  import fills faster than the worker drains. Off for the scan: 1,265 s to 1,078 s on stock
+  Kodi, 446 s to 259 s beside the companion's indexes. Nothing is lost — the listing's
+  `xbmc.Actor` thumbnail is stored by `AddActor` whatever the setting says, and the info dialog
+  fetches a picture when it first shows it. The user's value is recorded **before** the setting
+  moves and forgotten only after Kodi took it back, and every pass and every service start
+  restores a record a stopped Kodi left; the first record wins, because the value read after
+  a crash is the pass's own `false`. A refused settings call leaves the setting alone and
+  the scan runs anyway.
 - **A pooled private connection leaves every block idle.** `Database.__exit__` reads
   `total_changes` as a delta from `__enter__` and commits a block that opened a transaction
   without changing a row, or the next listing on that interpreter ran inside it and a
