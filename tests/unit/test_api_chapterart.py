@@ -124,6 +124,35 @@ def test_a_changed_header_is_published_under_an_unchanged_request_set(
     assert [r["id"] for r in _document()["requests"]] == ["p1"]
 
 
+def test_a_changed_request_body_is_published_under_an_unchanged_request_id(
+    store, kodi, monkeypatch
+):
+    """A rewrite is judged by every request's content, not its id: a
+    desired set that moved under a stable id is a new generation."""
+    settings.set_str("deviceId", "device-1")
+    request = {
+        "id": "p1",
+        "kind": companion.GROUP_VERSIONS,
+        "library": "L",
+        "item": "a",
+        "owner": {"movieid": 1},
+        "versions": [{"movieid": 2, "mediasourceid": "s2"}],
+    }
+    requests = [request]
+    monkeypatch.setattr(companion, "collect", lambda native: list(requests))
+    native = SimpleNamespace(key="ns-1")
+    companion.publish(native)
+    companion.publish(native)
+    assert _document()["generation"] == 1 and len(kodi.notified) == 1
+    requests[0] = dict(request, versions=[{"movieid": 3, "mediasourceid": "s3"}])
+    companion.publish(native)
+    document = _document()
+    assert document["generation"] == 2 and len(kodi.notified) == 2
+    assert [(r["id"], r["versions"]) for r in document["requests"]] == [
+        ("p1", [{"movieid": 3, "mediasourceid": "s3"}])
+    ]
+
+
 def test_a_live_request_derives_the_namespace_when_no_document_exists(store, kodi):
     settings.set_str("serverId", "server-1")
     settings.set_str("userId", "user-1")
@@ -291,6 +320,33 @@ def test_a_publish_that_lost_the_race_with_stop_withdraws_itself(rig, monkeypatc
     # The janitor's own withdrawal afterwards finds nothing left to do.
     worker._cleanup()
     assert _document()["requests"] == []
+
+
+def test_staged_files_outlive_a_request_that_could_not_be_withdrawn(rig, monkeypatch):
+    """A document that cannot be written still names the request, and the
+    companion reads its files from the stage: neither the claim's janitor
+    nor the clear at a start removes images a standing request points at."""
+    from tests.unit.fakes import FakeWindow
+
+    FakeWindow.store = {}
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    worker = chapterart.ChapterArt(rig.api, _item())
+    worker._publish()
+
+    def unwritable(*args, **kwargs):
+        raise OSError("read-only file system")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(companion, "drop_live", unwritable)
+        patch.setattr(companion, "publish_live", unwritable)
+        worker._cleanup()
+        assert chapterart.clear_at_start() is False
+    (request,) = _document()["requests"]
+    assert all(os.path.exists(c["file"]) for c in request["chapters"])
+    # Once the document can be written both go, the request first.
+    assert chapterart.clear_at_start() is True
+    assert _document()["requests"] == []
+    assert not os.path.exists(chapterart.stage_dir())
 
 
 def test_without_a_companion_nothing_is_downloaded(rig, monkeypatch):
