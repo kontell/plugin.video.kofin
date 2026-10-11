@@ -168,6 +168,54 @@ def test_run_forever_keeps_pings_but_never_a_pong_deadline(monkeypatch):
     assert timeouts == [10]
 
 
+def test_no_monitor_is_alive_while_the_socket_runs(monkeypatch):
+    """Kodi queues a callback per announcement for every Monitor object
+    alive, in one process-wide queue that every Python thread walks, and a
+    Monitor's callbacks leave it only when its own thread waits on it. This
+    thread waits between attempts and never while the socket is up, so it
+    may hold a Monitor for that wait alone."""
+    import weakref
+
+    from kofin.core import ws as ws_module
+
+    alive = weakref.WeakSet()
+    during_the_socket = []
+    waits = []
+
+    class Monitor:
+        def __init__(self):
+            alive.add(self)
+
+        def waitForAbort(self, seconds):
+            waits.append(seconds)
+            return len(waits) >= 2
+
+    class FakeApp:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def run_forever(self, **kwargs):
+            during_the_socket.append(len(alive))
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(ws_module.websocket, "WebSocketApp", FakeApp)
+    monkeypatch.setattr(ws_module.websocket, "setdefaulttimeout", lambda seconds: None)
+    monkeypatch.setattr(ws_module.xbmc, "Monitor", Monitor)
+
+    client = WSClient(
+        "http://s:8096",
+        "auth",
+        on_event=lambda message_type, data: None,
+        on_connected=lambda: None,
+    )
+    client.run()
+
+    assert waits == [ws_module.RECONNECT_SECONDS] * 2
+    assert during_the_socket == [0, 0]
+
+
 def test_wss_honours_ssl_verify(monkeypatch):
     """HTTP honours sslVerify; WSS used to inherit websocket-client's
     CERT_REQUIRED even when the setting was off."""
