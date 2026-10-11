@@ -538,7 +538,13 @@ What remains is kofin's own:
   statement is a journal file written, synced and removed: `SetSongDetails` 133 ms against
   17 ms in WAL on the Pi's card, a first Music-Alt pass 37.0 s against 21.7 s. The SQL build
   switches the databases it writes; here it is the companion's to do
-  (`service.kofin.companion`, `journal.py`).
+  (`service.kofin.companion`, `journal.py`). The mode lives in the file, so a profile the SQL
+  build ever wrote is already WAL, and only a database Kodi created is "stock". It decides a
+  music import: Kodi takes no play count from a listing (`CSong(CFileItem&)` zeroes it), so
+  every played song is one `SetSongDetails`, which is three statements and one per genre,
+  each its own commit. 7,873 played songs of 22,381 are 37 minutes of a 52-minute first
+  import on a rollback journal and 9 of 18 in WAL; the library and its art are there after 14
+  and 9.
 - **A video import's time is Kodi's, and what a listing carries sets it.** A first-import pass
   of 1,788 movies on the Pi is 1,490 s: 1,300 s Kodi's scan, 118 s binding every folder
   (`SetSourceContent`, 60 ms a call in either journal mode), 48 s planning and 13 s the sets,
@@ -549,7 +555,24 @@ What remains is kofin's own:
   28 ms a lookup at 38,000 actors). So a name added to every item's listing is a lookup on
   every item, quadratic over an import. The companion's WAL switch and its
   `ix_kofin_{actor,tag,studio}_nocase` indexes take the scan from 1,265 s to 446 s; with the
-  hold below, 259 s and a 424 s pass.
+  hold below, 259 s and a 424 s pass. Shows are the same shape: 79 shows and 4,316 episodes
+  scan in 1,292 s on stock Kodi and 294 s beside the companion's two changes
+  (`tests/live/or_bench/README.md` has every run).
+- **A season's art, name and plot ride with its show's listing; a season is sent a setter only
+  for a change.** `metadata.build` offers each season's art on the show's tag under the
+  season's number (`addAvailableArtwork(url, type, season=n)`) beside `addSeason`, and Kodi's
+  scanner files both with the show's row, for a plugin source too (337 thumb, 337 fanart and
+  332 poster rows in `art` before the pass sent anything). A `GetSeasonDetails` or
+  `SetSeasonDetails` lists the whole show's seasons inside Kodi (`GetSeasonInfo`), 79 ms and
+  120 ms a call on the Pi in either journal mode, so 327 setters and their readbacks were
+  most of a 96–125 s season kind that is now 25 s. `apikodi`'s `files_season_art` is the
+  artwork level: a season Kodi filed with less differs and is patched as before.
+- **A small scope wanted whole is read in one listing** (`Readback.SMALL_SHARE`). The
+  prefetch floor of twenty-five rows left every show's seasons, and every show of a dozen
+  episodes, on the row-at-a-time path however much of the scope was about to be compared:
+  761 details calls for a first import of 79 shows, at 50 ms an episode and 79 ms a season
+  where one listing of the show costs as much as one of them. One changed episode of a short
+  show is still read by its id.
 - **A large video scan runs with Kodi's "Download actor thumbnails" off, and gives it back**
   (`Native.without_actor_thumbs`, `ACTOR_THUMBS_FLOOR`, `store.hold_setting`). With it on the
   scanner asks the texture cache for every cast member's picture before filing the item: a
