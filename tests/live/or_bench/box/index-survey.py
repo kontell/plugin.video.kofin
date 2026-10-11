@@ -79,6 +79,9 @@ def main():
                     " ORDER BY rowid DESC LIMIT 25" % (column, table, column)
                 )
             ]
+            if not names:
+                print("%-8s %6d rows  nothing to look up" % (table, rows))
+                continue
             before = measure(conn, statement, names)
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS ix_kofin_%s_nocase ON %s (%s COLLATE NOCASE)"
