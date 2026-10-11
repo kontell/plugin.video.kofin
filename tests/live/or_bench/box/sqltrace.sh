@@ -8,7 +8,7 @@
 OUT="$1"; SECS="${2:-45}"
 [ -n "$OUT" ] || { echo "usage: sqltrace.sh <out-file> [seconds]"; exit 2; }
 exec python3 - "$OUT" "$SECS" "${KODI_HOME:-/storage/.kodi}" "${KODI_RPC:-localhost:8080}" <<'PY'
-import base64, http.client, json, re, signal, sys, time
+import base64, http.client, json, os, re, signal, sys, time
 import xml.etree.ElementTree as ET
 
 out, seconds, home = sys.argv[1], float(sys.argv[2]), sys.argv[3]
@@ -42,15 +42,24 @@ def rpc(method, params):
     return reply["result"]
 
 
-def lines():
-    with open(LOG, encoding="utf-8", errors="replace") as log:
-        return log.read().splitlines()
+def added(inode, offset):
+    """The log from ``offset`` on, a line at a time. Never the whole file:
+    a debug log runs to hundreds of megabytes on a device with one gigabyte.
+    A Kodi restarted meanwhile moved the log aside and began another, which
+    is read from its start."""
+    with open(LOG, "rb") as log:
+        now = os.fstat(log.fileno())
+        if now.st_ino != inode or now.st_size < offset:
+            offset = 0
+        log.seek(offset)
+        for raw in log:
+            yield raw.decode("utf-8", errors="replace")
 
 
 names = ("debug.setextraloglevel", "debug.extralogging")
 before = {name: rpc("Settings.GetSettingValue", {"setting": name})["value"] for name in names}
 signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
-start = len(lines())
+began = os.stat(LOG)
 unrestored = []
 try:
     levels = sorted(set(before["debug.setextraloglevel"] or []) | {DATABASE})
@@ -67,9 +76,11 @@ finally:
     if unrestored:
         # Said here, so it is said however the wait above ended.
         print("sqltrace.sh: NOT RESTORED, set by hand: " + "; ".join(unrestored), file=sys.stderr)
-kept = [re.sub(r"api_key=[0-9a-f]+", "api_key=X", line) for line in lines()[start:]]
+kept = 0
 with open(out, "w", encoding="utf-8") as target:
-    target.write("\n".join(kept) + "\n")
-print(len(kept), out)
+    for line in added(began.st_ino, began.st_size):
+        target.write(re.sub(r"api_key=[0-9a-f]+", "api_key=X", line))
+        kept += 1
+print(kept, out)
 sys.exit(1 if unrestored else 0)
 PY
