@@ -94,7 +94,10 @@ def clear_at_start() -> bool:
     try:
         companion.publish_live(companion.CHAPTER_ART, [])
     except Exception:
+        # The document still names the requests, so their files stay: a
+        # request whose images are gone is worse than one left a start.
         LOG.exception("chapter art requests not cleared")
+        return False
     shutil.rmtree(stage_dir(), ignore_errors=True)
     return True
 
@@ -271,11 +274,13 @@ class ChapterArt:
         thread = self._thread
         if thread is not None and thread.is_alive():
             thread.join(timeout=30)
+        withdrawn = not self._published
         if self._published:
             try:
                 # By id: a newer claim's request, this item's or another's,
                 # is not this claim's to withdraw.
                 companion.drop_live(self._id)
+                withdrawn = True
                 left = self._await(0)
                 LOG.debug(
                     "<-- chapter art %s withdrawn (%d row(s) left)",
@@ -284,4 +289,7 @@ class ChapterArt:
                 )
             except Exception:
                 LOG.exception("chapter art request not withdrawn")
-        shutil.rmtree(self._directory, ignore_errors=True)
+        if withdrawn:
+            # Never under a request the document still names; what stays
+            # goes with the clear at the next quiet start.
+            shutil.rmtree(self._directory, ignore_errors=True)
