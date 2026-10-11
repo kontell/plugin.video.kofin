@@ -576,7 +576,11 @@ def status() -> Optional[Dict[str, Any]]:
 def status_summary(document: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """What the capability report keeps of a status: the generation it
     answered, the kinds it serves, the gate it found, the counts, and every
-    request it refused or is still waiting on, by reason."""
+    request it refused or is still waiting on, by reason.
+
+    Total: the status is another add-on's file, and this is read while the
+    backend is prepared at start, where an exception leaves native sync
+    off. A field of the wrong type is read as the field left out."""
     if not document:
         return {}
     outcomes = document.get("requests")
@@ -590,11 +594,13 @@ def status_summary(document: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         if state in by_state:
             by_state[state][str(request_id)] = str(outcome.get("reason") or "")
     gate = document.get("gate")
+    kinds = document.get("kinds")
+    counts = document.get("summary")
     return {
         "generation": document.get("generation"),
         "updated": document.get("updated"),
         "idle": document.get("idle"),
-        "kinds": list(document.get("kinds") or []),
+        "kinds": [str(k) for k in kinds] if isinstance(kinds, list) else [],
         "gate": (
             {
                 kind: {"version": entry.get("version"), "ok": bool(entry.get("ok"))}
@@ -604,7 +610,15 @@ def status_summary(document: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             if isinstance(gate, dict)
             else {}
         ),
-        "summary": dict(document.get("summary") or {}),
+        "summary": (
+            {
+                str(state): count
+                for state, count in counts.items()
+                if isinstance(count, int) and not isinstance(count, bool)
+            }
+            if isinstance(counts, dict)
+            else {}
+        ),
         "refused": by_state["refused"],
         "waiting": by_state["waiting"],
     }
