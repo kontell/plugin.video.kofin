@@ -124,6 +124,35 @@ def test_a_changed_header_is_published_under_an_unchanged_request_set(
     assert [r["id"] for r in _document()["requests"]] == ["p1"]
 
 
+def test_a_changed_request_body_is_published_under_an_unchanged_request_id(
+    store, kodi, monkeypatch
+):
+    """A rewrite is judged by every request's content, not its id: a
+    desired set that moved under a stable id is a new generation."""
+    settings.set_str("deviceId", "device-1")
+    request = {
+        "id": "p1",
+        "kind": companion.GROUP_VERSIONS,
+        "library": "L",
+        "item": "a",
+        "owner": {"movieid": 1},
+        "versions": [{"movieid": 2, "mediasourceid": "s2"}],
+    }
+    requests = [request]
+    monkeypatch.setattr(companion, "collect", lambda native: list(requests))
+    native = SimpleNamespace(key="ns-1")
+    companion.publish(native)
+    companion.publish(native)
+    assert _document()["generation"] == 1 and len(kodi.notified) == 1
+    requests[0] = dict(request, versions=[{"movieid": 3, "mediasourceid": "s3"}])
+    companion.publish(native)
+    document = _document()
+    assert document["generation"] == 2 and len(kodi.notified) == 2
+    assert [(r["id"], r["versions"]) for r in document["requests"]] == [
+        ("p1", [{"movieid": 3, "mediasourceid": "s3"}])
+    ]
+
+
 def test_a_live_request_derives_the_namespace_when_no_document_exists(store, kodi):
     settings.set_str("serverId", "server-1")
     settings.set_str("userId", "user-1")
