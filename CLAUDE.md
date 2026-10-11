@@ -585,7 +585,8 @@ What remains is kofin's own:
   moves and forgotten only after Kodi took it back, and every pass and every service start
   restores a record a stopped Kodi left; the first record wins, because the value read after
   a crash is the pass's own `false`. A refused settings call leaves the setting alone and
-  the scan runs anyway.
+  the scan runs anyway; a refused restore keeps its record for the next pass and fails
+  nothing, since raised from `reconcile` it would fail every pass for as long as Kodi refused.
 - **A pooled private connection leaves every block idle.** `Database.__exit__` reads
   `total_changes` as a delta from `__enter__` and commits a block that opened a transaction
   without changing a row, or the next listing on that interpreter ran inside it and a

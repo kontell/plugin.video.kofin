@@ -562,18 +562,23 @@ class Native:
             yield
         finally:
             if held:
-                try:
-                    self.restore_settings()
-                except RuntimeError as error:
-                    # Kodi is going away; the record outlives it.
-                    LOG.warning("%s; restored at the next pass", error)
+                self.restore_settings()
 
     def restore_settings(self):
         """Give back every Kodi setting a scan was holding: the scan that
         just ended, or one a stopped Kodi never finished. The record goes
-        only after Kodi took the value."""
+        only after Kodi took the value.
+
+        A value Kodi will not take now is no reason to stop: the record
+        stays and every later pass and service start asks again. Raised
+        from here it failed the pass that called it, and the pass after
+        that, for as long as Kodi refused."""
         for setting, value in self.store.held_settings().items():
-            rpc("Settings.SetSettingValue", {"setting": setting, "value": value})
+            try:
+                rpc("Settings.SetSettingValue", {"setting": setting, "value": value})
+            except RuntimeError as error:
+                LOG.warning("Kodi setting %s not given back yet: %s", setting, error)
+                continue
             self.store.release_setting(setting)
             LOG.info("Kodi setting %s back to %r", setting, value)
 

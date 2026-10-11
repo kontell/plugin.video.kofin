@@ -411,6 +411,33 @@ def test_a_large_video_scan_runs_without_actor_thumbnails_and_gives_them_back(
     assert store.held_settings() == {}
 
 
+def test_a_refused_restore_costs_neither_the_pass_nor_the_record(
+    store, backend, kodi, monkeypatch
+):
+    """A held value Kodi will not take back (a Kodi going down, a setting a
+    later Kodi dropped) is asked again at every pass; it never fails one,
+    and it does not keep another held setting from going back."""
+    kodi.settings[native.ACTOR_THUMBS_SETTING] = False
+    backend.setup()
+    store.hold_setting("videolibrary.gone", True)
+    store.hold_setting(native.ACTOR_THUMBS_SETTING, True)
+    real = native.rpc
+
+    def refusing(method, params=None):
+        if method == "Settings.SetSettingValue" and (
+            params["setting"] == "videolibrary.gone"
+        ):
+            raise RuntimeError("Kodi refused " + method)
+        return real(method, params)
+
+    monkeypatch.setattr(native, "rpc", refusing)
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    assert not store.pending() and len(kodi.owned("Movie")) == 1
+    assert kodi.settings[native.ACTOR_THUMBS_SETTING] is True
+    assert store.held_settings() == {"videolibrary.gone": True}
+
+
 def test_held_settings_read_a_store_made_before_the_table_existed(store):
     """A profile from an earlier build has no api_held table; the first
     thing a pass does with it is read it."""
