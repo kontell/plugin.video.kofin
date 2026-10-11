@@ -319,6 +319,11 @@ class Readback:
 
     FULL_SHARE = 0.1
     FULL_FLOOR = 25
+    # Below the floor, a scope is still read in one listing when most of it
+    # is wanted: a first import compares every row, and a show of a dozen
+    # episodes read a row at a time is a dozen calls where one answers
+    # (761 of them for 79 shows).
+    SMALL_SHARE = 0.5
 
     def _scope_params(self, kind, library, parent_id):
         table = KINDS[kind]
@@ -346,7 +351,9 @@ class Readback:
         if key in self._full or kind in ("Audio", "MusicAlbum", "MusicArtist"):
             return
         known = len(self.scope(kind, library, parent_id))
-        if count < self.FULL_FLOOR or count < known * self.FULL_SHARE:
+        if count < 2 or count < known * self.FULL_SHARE:
+            return
+        if count < self.FULL_FLOOR and count < known * self.SMALL_SHARE:
             return
         found = self._scope_params(kind, library, parent_id)
         if found is None:

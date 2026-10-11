@@ -234,6 +234,23 @@ def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
     assert not any(m == "VideoLibrary.Scan" for m, _ in kodi.calls)
 
 
+def test_a_small_scope_wanted_whole_is_read_in_one_listing(store, backend, kodi):
+    """A first import compares every row. A show below the prefetch floor
+    used to be read a row at a time: a dozen details calls where one
+    listing of the show answers."""
+    store.publish(show_bundle(episodes=6, seasons=(1, 2)), library=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    assert not methods(kodi, "VideoLibrary.GetEpisodeDetails")
+    # One changed episode of the six is still read by its id, not by
+    # listing the show in full.
+    kodi.calls.clear()
+    store.publish([episode("ea11", Overview="edited")])
+    backend.reconcile()
+    assert not store.pending()
+    assert methods(kodi, "VideoLibrary.GetEpisodeDetails")
+
+
 def test_episode_and_show_removals_confirm_with_scoped_readbacks(store, backend, kodi):
     store.publish(
         show_bundle(episodes=3) + show_bundle(SHOW2, episodes=1, prefix="f"),
