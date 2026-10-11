@@ -278,7 +278,11 @@ def cleared_stream_flags(item) -> Optional[Dict[str, List[int]]]:
     """A zero for every audio and subtitle stream of a file: what is asked
     of the companion once a file that had flags has none, since the bits
     it wrote stay on the rows until they are written over. None when the
-    file lists no such stream, where there is no row to name."""
+    file lists no such stream, where there is no row to name: the bits are
+    matched to rows by position, so a request naming none is refused by the
+    companion for as long as a row stands, and none stands for long, since
+    a change of streams moves the refresh token and the scanner files the
+    file's stream rows again from a listing that has neither kind."""
     result = _stream_bits(item)
     if not result["audio"] and not result["subtitle"]:
         return None
