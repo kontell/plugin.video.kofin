@@ -11,7 +11,8 @@ import json
 import os
 import sqlite3
 import threading
-from typing import Any, Dict, Optional, Tuple
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, Optional, Tuple
 
 import xbmcvfs
 
@@ -45,6 +46,42 @@ def pool_connections(enabled: bool) -> None:
             except Exception:
                 pass
         _pool.clear()
+
+
+# The connections a service thread holds for the length of a ``with
+# hold_connections()``. Thread state, and none of it outlives the block that
+# made it: the block closes every connection on its way out, so a service
+# restart, which ends the thread, finds nothing left behind.
+_held = threading.local()
+
+
+@contextmanager
+def hold_connections() -> Iterator[None]:
+    """Keep this thread's private-database connection open across every
+    ``Database`` block inside the ``with``.
+
+    A block opens a connection and closes it, and in WAL mode with nobody
+    else connected that is the WAL and its index created and torn down each
+    time: 26 ms to open and 15 ms to close on a Raspberry Pi's card, against
+    0.04 ms for a statement on a connection already open. The library thread
+    makes four such blocks on every half-second tick, and ran at a third of a
+    core doing nothing; a playlist reconcile makes three for every track.
+    """
+    depth = getattr(_held, "depth", 0)
+    if depth == 0:
+        _held.connections = {}
+    _held.depth = depth + 1
+    try:
+        yield
+    finally:
+        _held.depth -= 1
+        if _held.depth == 0:
+            connections, _held.connections = _held.connections, {}
+            for conn in connections.values():
+                try:
+                    conn.close()
+                except Exception as error:
+                    LOG.debug("held connection not closed: %s", error)
 
 
 def set_path_override(kind: str, path: str) -> None:
@@ -93,8 +130,11 @@ class Database(object):
         """
         self.path = self._resolve_path()
         key = (self.path, threading.get_ident())
-        self._pooled = _pooling
+        held = _held.connections if getattr(_held, "depth", 0) else None
+        self._pooled = _pooling or held is not None
         pooled = _pool.get(key) if _pooling else None
+        if pooled is None and held is not None:
+            pooled = held.get(self.path)
         if pooled is not None:
             self.conn = pooled
             self.cursor = self.conn.cursor()
@@ -112,6 +152,8 @@ class Database(object):
             raise
         if _pooling:
             _pool[key] = self.conn
+        elif held is not None:
+            held[self.path] = self.conn
         self._changes_at_enter = self.conn.total_changes
 
         return self

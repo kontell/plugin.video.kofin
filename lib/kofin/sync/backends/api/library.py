@@ -349,48 +349,11 @@ class Library(threading.Thread):
     def run(self):
         monitor = xbmc.Monitor()
         try:
-            self.store.initialize(self.api.server)
-            native = Native(self.store, self._stop_event.is_set)
-            native.setup()
-            self.startup_done = True
-            # Recover native work before trying to reach Jellyfin.
-            while not self.stop_thread and not monitor.abortRequested():
-                failed = False
-                try:
-                    self.apply(native)
-                except InterruptedError:
-                    break
-                except Exception:
-                    # A failed native job must not stop a newer server edit
-                    # from replacing its payload, or poison jobs never heal.
-                    LOG.exception("API native work remains pending")
-                    failed = True
-                # Local delivery and individual events can fail permanently
-                # (e.g. an item deleted before its update event is processed).
-                # Neither may prevent enumeration from repairing the snapshot.
-                for work in (
-                    self.flush_local,
-                    self.commands,
-                    self.refresh,
-                    lambda: self.apply(native),
-                    self.playlists_pass,
-                    self.flush_pending_reload,
-                ):
-                    try:
-                        work()
-                    except InterruptedError:
-                        return
-                    except Exception:
-                        LOG.exception("API video sync will retry")
-                        status(settings.localized(30403))
-                        self._catchup_due = min(
-                            self._catchup_due, time.monotonic() + 30
-                        )
-                        failed = True
-                if failed and self._stop_event.wait(5):
-                    break
-                if monitor.waitForAbort(0.5):
-                    break
+            # One connection to kofin.db for as long as this thread runs: it
+            # is the thread that asks the store for work twice a second and
+            # the one every pass runs on (private.hold_connections).
+            with private.hold_connections():
+                self._run(monitor)
         except BackendMismatch as error:
             status(settings.localized(30420) % str(error))
             LOG.warning("API sync blocked: %s", error)
@@ -398,6 +361,48 @@ class Library(threading.Thread):
             LOG.exception("API video worker stopped")
         finally:
             self.stop_thread = True
+
+    def _run(self, monitor):
+        self.store.initialize(self.api.server)
+        native = Native(self.store, self._stop_event.is_set)
+        native.setup()
+        self.startup_done = True
+        # Recover native work before trying to reach Jellyfin.
+        while not self.stop_thread and not monitor.abortRequested():
+            failed = False
+            try:
+                self.apply(native)
+            except InterruptedError:
+                break
+            except Exception:
+                # A failed native job must not stop a newer server edit
+                # from replacing its payload, or poison jobs never heal.
+                LOG.exception("API native work remains pending")
+                failed = True
+            # Local delivery and individual events can fail permanently
+            # (e.g. an item deleted before its update event is processed).
+            # Neither may prevent enumeration from repairing the snapshot.
+            for work in (
+                self.flush_local,
+                self.commands,
+                self.refresh,
+                lambda: self.apply(native),
+                self.playlists_pass,
+                self.flush_pending_reload,
+            ):
+                try:
+                    work()
+                except InterruptedError:
+                    return
+                except Exception:
+                    LOG.exception("API video sync will retry")
+                    status(settings.localized(30403))
+                    self._catchup_due = min(self._catchup_due, time.monotonic() + 30)
+                    failed = True
+            if failed and self._stop_event.wait(5):
+                break
+            if monitor.waitForAbort(0.5):
+                break
 
     def commands(self):
         failed = False
