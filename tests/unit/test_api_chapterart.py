@@ -230,6 +230,30 @@ def test_a_claims_cleanup_leaves_the_next_claim_alone(rig):
     assert _document()["requests"] == [] and os.listdir(chapterart.stage_dir()) == []
 
 
+def test_a_publish_that_lost_the_race_with_stop_withdraws_itself(rig, monkeypatch):
+    """stop() can land between the worker's last look at the cancel flag
+    and its publish, and a janitor that gave up waiting for the worker has
+    already read "nothing published". The worker checks again after the
+    publish and takes its own request and files back."""
+    worker = chapterart.ChapterArt(rig.api, _item())
+    publish = companion.put_live
+    seen = []
+
+    def late_cancel(request):
+        publish(request)
+        seen.append([r["id"] for r in _document()["requests"]])
+        worker._cancel.set()
+
+    monkeypatch.setattr(companion, "put_live", late_cancel)
+    worker._publish()
+    assert seen == [[worker._id]]
+    assert _document()["requests"] == []
+    assert not os.path.exists(worker._directory)
+    # The janitor's own withdrawal afterwards finds nothing left to do.
+    worker._cleanup()
+    assert _document()["requests"] == []
+
+
 def test_without_a_companion_nothing_is_downloaded(rig, monkeypatch):
     monkeypatch.setattr(companion, "present", lambda: None)
     worker = chapterart.ChapterArt(rig.api, _item())
