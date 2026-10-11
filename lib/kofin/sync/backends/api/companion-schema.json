@@ -11,6 +11,8 @@
     "kinds": {"type": "array", "items": {"type": "string"}},
     "requests": {"type": "array", "items": {"$ref": "#/definitions/request"}}
   },
+  "if": {"properties": {"v": {"const": 2}}, "required": ["v"]},
+  "then": {"required": ["namespace", "device", "kinds"]},
   "x-kinds": {
     "group_versions": {"$ref": "#/definitions/group_versions"},
     "chapter_art": {"$ref": "#/definitions/chapter_art"}
