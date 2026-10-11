@@ -8,9 +8,11 @@ the shared change-feed contract carry the changes. Native operations already
 published are replayed even if Jellyfin is offline.
 """
 
+import collections
 import queue
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Set
 
 import xbmc
@@ -55,6 +57,10 @@ PAGE = 200
 # A song's DTO is a tenth of a movie's; 22,000 of them in pages of 200 is
 # 112 round trips for what 45 can carry.
 MUSIC_PAGE = 500
+# Pages of one listing asked for at once. The server builds a page of 500
+# songs in half a second; a Raspberry Pi took 1.7 s to 2.5 s over each, and
+# its thread ran at a quarter of a core while it did: the rest was the wire.
+PAGERS = 3
 HAS_CONTENT = {
     "Movie": "Movies",
     "Series": "TVShows",
@@ -74,35 +80,50 @@ def collection_kinds(view):
     return KINDS_BY_COLLECTION.get(collection, ())
 
 
-def fetch_kind(api, library, kind, abort=lambda: False, extra=None, on_page=None):
+def fetch_kind(
+    api,
+    library,
+    kind,
+    abort=lambda: False,
+    extra=None,
+    on_page=None,
+    api_factory=None,
+):
     """Only a complete, stable, duplicate-free pagination can imply deletion.
 
     ``on_page(fetched, total)`` is told after every page, for the bar.
+
+    With ``api_factory`` the pages after the first are asked for PAGERS at
+    a time, each worker on a client of its own, and taken in listing order.
+    Nothing is relaxed for it: every page reports the first page's total
+    and is exactly as long as its place in the listing says, or the
+    enumeration fails as a whole.
     """
     result: List[dict] = []
     seen = set()
-    total = None
-    while total is None or len(result) < total:
+    limit = MUSIC_PAGE if kind in MUSIC_KINDS else PAGE
+
+    def ask(client, start):
         if abort():
             raise InterruptedError("enumeration stopped")
         params = {
-            **library_filter(api, library, kind),
+            **library_filter(client, library, kind),
             "Fields": MUSIC_FIELDS if kind in MUSIC_KINDS else FIELDS,
-            "StartIndex": len(result),
-            "Limit": MUSIC_PAGE if kind in MUSIC_KINDS else PAGE,
+            "StartIndex": start,
+            "Limit": limit,
             "SortBy": "DateCreated,SortName",
             "SortOrder": "Ascending,Ascending",
             "EnableTotalRecordCount": True,
         }
         params.update(extra or {})
-        page = api.items(params)
+        page = client.items(params)
         count = page.get("TotalRecordCount")
         rows = page.get("Items")
         if not isinstance(count, int) or count < 0 or not isinstance(rows, list):
             raise ValueError("incomplete %s page" % kind)
-        if total is not None and count != total:
-            raise ValueError("%s listing changed during enumeration" % kind)
-        total = count
+        return count, rows
+
+    def take(rows, total):
         for item in rows:
             if (
                 not isinstance(item, dict)
@@ -119,9 +140,71 @@ def fetch_kind(api, library, kind, abort=lambda: False, extra=None, on_page=None
             raise ValueError("short %s page" % kind)
         if on_page is not None:
             on_page(len(result), total)
+
+    total, rows = ask(api, 0)
+    take(rows, total)
+    starts = list(range(limit, total, limit))
+    if api_factory is not None and len(starts) > 1 and len(rows) == limit:
+        _fetch_pages(ask, take, starts, total, limit, kind, api_factory)
+    while len(result) < total:
+        count, rows = ask(api, len(result))
+        if count != total:
+            raise ValueError("%s listing changed during enumeration" % kind)
+        take(rows, total)
     if kind == "Movie":
         attach_extras(api, result, abort)
     return result
+
+
+def _fetch_pages(ask, take, starts, total, limit, kind, api_factory):
+    """The pages at ``starts``, PAGERS in flight, taken in listing order.
+
+    At most PAGERS pages wait to be taken, so a slow first page never lets
+    the rest of a catalogue pile up behind it in memory.
+    """
+    local = threading.local()
+    clients: List[Any] = []
+
+    def page(start):
+        client = getattr(local, "client", None)
+        if client is None:
+            client = local.client = api_factory()
+            clients.append(client)
+        return ask(client, start)
+
+    pending = iter(starts)
+    window: "collections.deque" = collections.deque()
+    pool = ThreadPoolExecutor(
+        max_workers=min(PAGERS, len(starts)), thread_name_prefix="kofin-page"
+    )
+
+    def top_up():
+        while len(window) < PAGERS:
+            start = next(pending, None)
+            if start is None:
+                return
+            window.append((start, pool.submit(page, start)))
+
+    try:
+        top_up()
+        while window:
+            start, future = window.popleft()
+            count, rows = future.result()
+            if count != total:
+                raise ValueError("%s listing changed during enumeration" % kind)
+            if len(rows) != min(limit, total - start):
+                raise ValueError("short %s page" % kind)
+            top_up()
+            take(rows, total)
+    finally:
+        for _, future in window:
+            future.cancel()
+        pool.shutdown(wait=True)
+        for client in clients:
+            try:
+                client.close()
+            except Exception as error:
+                LOG.debug("page client not closed: %s", error)
 
 
 fetch_movies = fetch_kind
@@ -428,6 +511,7 @@ class Library(threading.Thread):
                         on_page=lambda done, total, kind=kind: bar.track(
                             kind, done, total
                         ),
+                        api_factory=getattr(self, "api_factory", None),
                     )
                     LOG.info(
                         "enumerated %d %s in %.1f s",
