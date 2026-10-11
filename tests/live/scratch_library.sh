@@ -8,7 +8,19 @@ set -euo pipefail
 T="${TMPDIR:-/tmp}/kofin-scratch"; mkdir -p "$T"
 STATE=$T/scratch-state.json
 ROOT=/media/bluecon/scratch-kofin
-set -a; eval "$(grep -E '^(JELLYFIN_URL|JELLYFIN_API_KEY|KODI_P1D_HOST)=' ~/.config/kodi-drive/targets.env)"; set +a
+# The three values are read as data, never evaluated: a `$(...)` or a backtick in the file is text.
+target() {  # target NAME -- the value of NAME= in targets.env, one pair of surrounding quotes removed
+  local line value
+  line=$(grep -m1 -E "^$1=" ~/.config/kodi-drive/targets.env) || return 0
+  value=${line#*=}
+  case "$value" in
+    \"*\") value=${value#\"}; value=${value%\"} ;;
+    \'*\') value=${value#\'}; value=${value%\'} ;;
+  esac
+  printf '%s' "$value"
+}
+JELLYFIN_URL=$(target JELLYFIN_URL); JELLYFIN_API_KEY=$(target JELLYFIN_API_KEY); KODI_P1D_HOST=$(target KODI_P1D_HOST)
+export JELLYFIN_URL JELLYFIN_API_KEY KODI_P1D_HOST
 RIG="${KOFIN_RIG_SSH:-conor@${KODI_P1D_HOST:-p1d}}"
 AUTH="Authorization: MediaBrowser Token=\"$JELLYFIN_API_KEY\", Client=\"scratch\", Device=\"dev\", DeviceId=\"scratch-dev\", Version=\"1\""
 USER_ID=$(ssh "$RIG" 'grep -o "id=\"userId\"[^>]*>[^<]*" ~/.var/app/tv.kodi.Kodi/data/userdata/profiles/OR/addon_data/plugin.video.kofin/settings.xml | sed "s/.*>//"')
