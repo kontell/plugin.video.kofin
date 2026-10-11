@@ -33,7 +33,7 @@ import json
 import os
 import threading
 import time
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
 from kofin.core import contract, kodirpc, settings
 from kofin.core.log import Logger
@@ -390,8 +390,25 @@ def publish(native) -> int:
 
 
 def publish_live(kind: str, requests: Sequence[Dict[str, Any]]) -> None:
-    """Replace the requests of one live kind, keeping every other kind's."""
+    """Replace the requests of one live kind, keeping every other kind's.
+    For the kind as a whole (a generation start clears it); a claim adds
+    and removes its own request with ``put_live`` and ``drop_live``."""
     _write("", (kind,), list(requests))
+
+
+def put_live(request: Dict[str, Any]) -> None:
+    """Add one live request, or replace the one that carries its id. Every
+    other request stays, of its own kind too: a claim publishes beside
+    whatever an earlier claim has not withdrawn yet."""
+    wanted = str(request["id"])
+    _replace("", lambda r: str(r.get("id")) == wanted, [dict(request)])
+
+
+def drop_live(request_id: str) -> None:
+    """Remove one live request by its id, and nothing else: a claim
+    withdraws what it published. Replacing the whole kind from a claim's
+    janitor thread took the next claim's request with it."""
+    _replace("", lambda r: str(r.get("id")) == request_id, [])
 
 
 def _namespace(current: Dict[str, Any]) -> str:
@@ -419,27 +436,53 @@ def _write(
     namespace: str, kinds: Sequence[str], requests: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
     """The document with ``kinds`` replaced by ``requests``; rewritten and
-    announced only when a request changed or the document is of an older
-    version. Returns the document's requests."""
+    announced only when a request or the document's header changed, or the
+    document is of an older version. Returns the document's requests."""
+    return _replace(namespace, lambda r: r.get("kind") in kinds, requests)
+
+
+def _replace(
+    namespace: str,
+    gone: Callable[[Dict[str, Any]], bool],
+    requests: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """The document with every request ``gone`` accepts removed and
+    ``requests`` added, under the one lock both writers share.
+
+    Unchanged means the whole document the companion would read: every
+    request's content (``_signature``) and the header beside them. The
+    device id and the kinds this build publishes are assigned only on a
+    write, so a comparison of the requests alone left a changed device id,
+    or a kind a new build added, at whatever the last write had put there
+    for as long as the request set stood still."""
     with _LOCK:
         current = read()
-        kept = [
-            r
-            for r in current["requests"]
-            if isinstance(r, dict) and r.get("kind") not in kinds
-        ]
+        kept = [r for r in current["requests"] if isinstance(r, dict) and not gone(r)]
         merged = kept + requests
-        if current.get("v") == VERSION and _signature(merged) == _signature(
-            [r for r in current["requests"] if isinstance(r, dict)]
-        ):
-            return [r for r in current["requests"] if isinstance(r, dict)]
-        generation = int(current.get("generation") or 0) + 1
-        document = {
+        header = {
             "v": VERSION,
-            "generation": generation,
             "namespace": namespace or _namespace(current),
             "device": settings.get_str("deviceId"),
             "kinds": list(KINDS),
+        }
+        stored = [r for r in current["requests"] if isinstance(r, dict)]
+        if not current.get("generation"):
+            # No document yet: with nothing to ask there is nothing to say,
+            # and a header alone is not worth a file and a ping.
+            unchanged = not merged
+        else:
+            unchanged = all(
+                current.get(field) == value for field, value in header.items()
+            ) and _signature(merged) == _signature(stored)
+        if unchanged:
+            return stored
+        generation = int(current.get("generation") or 0) + 1
+        document = {
+            "v": header["v"],
+            "generation": generation,
+            "namespace": header["namespace"],
+            "device": header["device"],
+            "kinds": header["kinds"],
             "requests": merged,
         }
         target = requests_path()
@@ -534,27 +577,60 @@ def status_summary(document: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def current_status(version: Optional[str]) -> Optional[Dict[str, Any]]:
+    """The companion's status, as far as it is this run's (plan section 8,
+    "A stale status").
+
+    None without the add-on: the status file outlives an uninstall, and a
+    report that named the kinds an absent add-on serves would be wrong.
+    None for a status that answered an older generation than the request
+    document carries now: until the companion answers the new one, what it
+    said about the old is not what is being served. An idle status names
+    no generation and is kept."""
+    if version is None:
+        return None
+    document = status()
+    if document is None:
+        return None
+    answered = document.get("generation")
+    generation = read().get("generation")
+    if (
+        isinstance(answered, int)
+        and isinstance(generation, int)
+        and answered < generation
+    ):
+        return None
+    return document
+
+
 def status_block() -> Dict[str, Any]:
-    """The capability report's companion entry: presence and the last status."""
+    """The capability report's companion entry: presence and the status
+    that is current (``current_status``)."""
+    version = present()
     return {
         "addon": ADDON_ID,
-        "version": present(),
-        "status": status_summary(status()),
+        "version": version,
+        "status": status_summary(current_status(version)),
     }
 
 
-def absorb_status(seen: Set[str]) -> Dict[str, Any]:
+def absorb_status(
+    seen: Set[str], report: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """A ``Companion.Status`` ping: fold the status into the capability
     report and log what it says, each refusal once (``seen`` is the
-    service's memory of the refusals already logged)."""
+    service's memory of the refusals already logged).
+
+    ``report`` is the capability report this process wrote at its start
+    (``Service._prepare_api_backend``), and the file is rewritten from it.
+    The file is never read back to be rewritten: a ping handled around the
+    start-up write read the previous run's report and put it back over the
+    new one, ``native_sync_enabled`` and ``private_state`` with it, and
+    every later ping then read its own stale write. Without a report yet,
+    nothing is written; the start-up write carries the block itself."""
     block = status_block()
     summary = block["status"]
-    try:
-        with open(report_path(), "r", encoding="utf-8") as handle:
-            report = json.load(handle)
-    except (OSError, ValueError):
-        report = None
-    if isinstance(report, dict):
+    if report is not None:
         report["companion"] = block
         target = report_path()
         with open(target + ".part", "w", encoding="utf-8") as handle:

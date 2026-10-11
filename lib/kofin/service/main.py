@@ -217,6 +217,9 @@ class Service(xbmc.Monitor):
         # The companion's refusals already logged, so a status ping that
         # repeats one is quiet (companion.absorb_status).
         self._companion_seen: Set[str] = set()
+        # The capability report this generation wrote at its start, which a
+        # companion status is folded into (companion.absorb_status).
+        self._api_report: Optional[Dict[str, Any]] = None
         self._backdrop: Optional[threading.Thread] = None
         # Post-connect worker (see _on_ws_connected): the pending event is
         # how a reconnect that lands mid-run asks for one more pass.
@@ -335,6 +338,9 @@ class Service(xbmc.Monitor):
         with open(target + ".part", "w", encoding="utf-8") as handle:
             json.dump(report, handle, indent=2)
         os.replace(target + ".part", target)
+        # Only now: a status ping folds into this dict and rewrites the
+        # file from it, and must not do so while this write is in flight.
+        self._api_report = report
         LOG.info(
             "API movie backend: interfaces=%s private_state=%s",
             report["interfaces_passed"],
@@ -1294,7 +1300,7 @@ class Service(xbmc.Monitor):
         if sender != companion.ADDON_ID:
             return
         try:
-            companion.absorb_status(self._companion_seen)
+            companion.absorb_status(self._companion_seen, self._api_report)
         except Exception:
             LOG.exception("companion status not read")
 

@@ -591,6 +591,37 @@ def test_ungrouped_versions_are_published_for_the_companion_and_closed_by_readba
     assert store.mapping("a").applied["asset_files"] == {"versions": [], "extras": []}
 
 
+def test_assets_lost_under_an_older_acknowledgement_are_still_retired(
+    store, backend, kodi
+):
+    """A build before the file list acknowledged the assets token alone. A
+    movie that had assets then and has none on the first pass of this build
+    is told to the companion by that token; without it the movie had no
+    entry and its version and extra rows waited for Clean."""
+    from kofin.sync.backends.api import companion
+
+    backend.setup()
+    store.publish([assets_movie()], library=LIB)
+    backend.reconcile()
+    mapping = store.mapping("a")
+    legacy = {k: v for k, v in mapping.applied.items() if k != "asset_files"}
+    assert legacy["assets"]
+    record = store.records(kind="Movie", item_ids=["a"])["a"]
+    assert store.remember("a", record.generation, mapping.kodi_id, legacy, "Movie")
+    assert "asset_files" not in store.mapping("a").applied
+    store.publish([movie("a", Overview="No assets now")], library=LIB)
+    backend.reconcile()
+    assert store.mapping("a").applied["asset_files"] == {"versions": [], "extras": []}
+    retire = [
+        r for r in _requests(store)["requests"] if r["kind"] == companion.RETIRE_ASSETS
+    ]
+    assert [(r["item"], r["versions"], r["extras"]) for r in retire] == [("a", [], [])]
+    # A movie that never had any still has no entry and no request.
+    store.publish([movie("b")], library=LIB)
+    backend.reconcile()
+    assert "asset_files" not in store.mapping("b").applied
+
+
 def test_the_companion_is_detected_and_reported_as_optional(store, kodi):
     from kofin.sync.backends.api import companion
 

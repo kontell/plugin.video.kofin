@@ -48,11 +48,15 @@ def _with_asset_files(applied, assets, files, previous=None):
     """The acknowledged file list beside the token: the movie's current
     assets, or the empty entry once a movie that had assets has none, so
     the companion's desired set says they are gone (metadata.asset_files).
-    ``previous`` is the last acknowledgement when ``applied`` is a fresh
-    one; whether the movie had assets is read from it."""
+    ``previous`` is the last acknowledgement as it was read; whether the
+    movie had assets is read from it, by its file list or, for an
+    acknowledgement older than the list, by its assets token. Without the
+    token a movie whose assets went while the earlier build ran had no
+    entry at all, and the companion was never told its rows are gone."""
     if assets is None:
         return applied
-    had = "asset_files" in (previous if previous is not None else applied)
+    before = previous if previous is not None else applied
+    had = "asset_files" in before or bool(before.get("assets"))
     if files is not None:
         if applied.get("asset_files") != files:
             applied = dict(applied, asset_files=files)
@@ -465,11 +469,12 @@ class Applier:
             # The desired state this payload and these inputs produce was
             # acknowledged against this very row: nothing to build, read or
             # compare. A retried pass and a re-published item take this path.
+            acked = previous
             if assets is not None and previous.get("assets", "") != assets:
-                previous = dict(previous, assets=assets)
-            previous = _with_asset_files(previous, assets, files)
-            previous = _with_companion_fields(previous, record)
-            self.ack(record.item_id, record.generation, kodi_id, previous, kind)
+                acked = dict(previous, assets=assets)
+            acked = _with_asset_files(acked, assets, files, previous)
+            acked = _with_companion_fields(acked, record)
+            self.ack(record.item_id, record.generation, kodi_id, acked, kind)
             return None
         desired = metadata.details(
             record.item,
