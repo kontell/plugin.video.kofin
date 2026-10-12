@@ -45,6 +45,7 @@ EPISODES = [(1, 1), (1, 2), (1, 3), (2, 1), (2, 2)]
 # default): anything shorter is marked played at any stop past its first
 # twentieth, and a stop half-way would test nothing a real episode shows.
 VIDEO_SECONDS = 330
+NOISE = "Scratch Album Noise"
 ALBUMS = {
     ("Scratch Artist", "Scratch Album One"): 4,
     ("Scratch Artist", "Scratch Album Two"): 4,
@@ -54,6 +55,9 @@ ALBUMS = {
     # (CFileItem::SetFromSong sets no dynamic path, and PAPlayer is handed
     # musicdb://songs/<id>, which never reaches the plugin).
     ("Scratch Artist", "Scratch Album Solo"): 1,
+    # One song of noise: a sine tone is 99 kbit/s as FLAC, below every music
+    # bitrate limit the settings offer, and noise is far above all of them.
+    ("Scratch Artist", NOISE): 1,
 }
 EXPECTED = {"Movie": 1, "Episode": len(EPISODES), "Audio": sum(ALBUMS.values())}
 
@@ -135,9 +139,12 @@ def song(path, seconds, artist, album, title, track, total):
     if os.path.exists(path):
         return
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    source = "sine=frequency=%d:sample_rate=44100" % (300 + 40 * track)
+    if album == NOISE:
+        source = "anoisesrc=color=white:sample_rate=44100:amplitude=0.05"
     _ffmpeg(
         [
-            "-f", "lavfi", "-i", "sine=frequency=%d:sample_rate=44100" % (300 + 40 * track),
+            "-f", "lavfi", "-i", source,
             "-t", str(seconds),
             "-c:a", "flac",
             "-metadata", "title=" + title,

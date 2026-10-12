@@ -2240,6 +2240,10 @@ msgctxt "#30858"
 msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
 msgstr "A opção do Kodi 'Ignorar extras de vídeo ao analisar' está agora desativada para que os extras dos filmes possam ser importados"
 
+msgctxt "#30861"
+msgid "Transcode music whose bitrate is above the maximum set below. Off, songs play from the server untouched."
+msgstr "Transcodificar a música cuja taxa de bits esteja acima do máximo definido abaixo. Desativado, as músicas são reproduzidas a partir do servidor sem alterações."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Indisponível nesta versão de pré-visualização"

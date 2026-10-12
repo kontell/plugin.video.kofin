@@ -80,6 +80,13 @@ def test_the_api_profile_hides_the_direct_play_lists_under_force_direct_play(
         assert ("forceDirectPlay", "false") in _visible_while(sql[name])
 
 
+def test_the_api_profile_says_what_transcode_music_does_there(tmp_path):
+    """Every song is a plugin path in the API build, so the switch rewrites
+    nothing and its help must not ask for a repair."""
+    assert _settings(tmp_path, "api")["musicTranscode"].get("help") == "30861"
+    assert _settings(tmp_path, "sql")["musicTranscode"].get("help") == "30136"
+
+
 def test_api_package_starts_with_native_imports_and_file_access_forbidden(tmp_path):
     build = _build_module()
     stage = tmp_path / "addon"

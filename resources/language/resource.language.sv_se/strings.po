@@ -2240,6 +2240,10 @@ msgctxt "#30858"
 msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
 msgstr "Kodis inställning 'Ignorera videoextramaterial vid skanning' är nu av så att filmextramaterial kan importeras"
 
+msgctxt "#30861"
+msgid "Transcode music whose bitrate is above the maximum set below. Off, songs play from the server untouched."
+msgstr "Omkoda musik vars bithastighet överstiger det maximum som anges nedan. Av: låtar spelas upp oförändrade från servern."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Inte tillgängligt i denna förhandsversion"

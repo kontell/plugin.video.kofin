@@ -2392,6 +2392,12 @@ msgctxt "#30858"
 msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
 msgstr ""
 
+# 30861 — the API build's help for "Transcode music", in place of 30136:
+# no path is rewritten there (tools/package_manifest.py, HELP).
+msgctxt "#30861"
+msgid "Transcode music whose bitrate is above the maximum set below. Off, songs play from the server untouched."
+msgstr ""
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr ""

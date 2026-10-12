@@ -501,5 +501,6 @@
   "#30990": "V tejto skúšobnej verzii nie je dostupné",
   "#30856": "Uzly knižnice a zoznamy skladieb",
   "#30857": "Vytvárať uzly knižnice Kodi a inteligentné zoznamy pre synchronizované video knižnice a kopírovať zoznamy Jellyfin do Kodi do Video → Zoznamy skladieb → Kofin a Hudba → Zoznamy skladieb → Kofin. Vypnutie odstráni všetky uzly a zoznamy, ktoré Kofin vytvoril, ručne vytvorené súbory ponechá a synchronizované knižnice zobrazí cez vlastné položky prehliadania Kofinu.",
-  "#30858": "Nastavenie Kodi „Ignorovať video bonusy pri skenovaní“ je teraz vypnuté, aby sa dali importovať bonusy filmov"
+  "#30858": "Nastavenie Kodi „Ignorovať video bonusy pri skenovaní“ je teraz vypnuté, aby sa dali importovať bonusy filmov",
+  "#30861": "Prekódovať hudbu, ktorej dátový tok je vyšší než maximum nastavené nižšie. Vypnuté: skladby sa prehrávajú zo servera bez zmeny."
 }

@@ -117,6 +117,17 @@ VISIBLE_WHILE = {
 }
 
 
+# A setting whose help text differs in a profile: {profile: {setting: id}}.
+# "Transcode music" decides how a song's path is written in the SQL build,
+# which is why its help asks for a repair there. In the API build every song
+# is a plugin path whatever it says, and it only decides whether the bitrate
+# limit applies.
+HELP = {
+    "sql": {},
+    "api": {"musicTranscode": "30861"},
+}
+
+
 def show_while(setting, other, value):
     """Give a setting a visibility rule on another setting's value, beside
     any rule it already has."""
@@ -197,6 +208,8 @@ def contents(root, path, profile):
                     continue
                 if setting.get("id") in conditional:
                     show_while(setting, *conditional[setting.get("id")])
+                if setting.get("id") in HELP[profile]:
+                    setting.set("help", HELP[profile][setting.get("id")])
         return ET.tostring(tree, encoding="utf-8", xml_declaration=True)
     if profile != "api":
         return data

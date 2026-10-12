@@ -2240,6 +2240,10 @@ msgctxt "#30858"
 msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
 msgstr "已關閉 Kodi 的「掃描時忽略影片花絮」設定，以便匯入電影花絮"
 
+msgctxt "#30861"
+msgid "Transcode music whose bitrate is above the maximum set below. Off, songs play from the server untouched."
+msgstr "對位元率高於下方所設上限的音樂進行轉碼。關閉時，歌曲會原樣從伺服器播放。"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "此預覽版暫不支援"
