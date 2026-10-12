@@ -482,3 +482,51 @@ def test_a_refresh_can_say_which_part_of_its_token_moved():
     # The parts never change the token a row was filed under.
     item = movie(People=cast, MediaStreams=STREAMS)
     assert metadata.refresh_token(item) == metadata.refresh_token(dict(item))
+
+
+def test_a_library_episode_carries_its_own_thumb_and_no_poster():
+    """A Kodi episode has no poster of its own. Given its show's as one, a
+    skin that asks for the poster before the thumb showed the show's poster
+    on every episode."""
+    pictured = episode(
+        "e1",
+        ImageTags={"Primary": "still"},
+        SeriesPrimaryImageTag="show-poster",
+        ParentBackdropItemId=SHOW,
+        ParentBackdropImageTags=["backdrop"],
+    )
+    art = metadata.details(pictured, SERVER, "key", LIB)["art"]
+    assert art["thumb"].endswith("/Items/e1/Images/Primary?tag=still")
+    assert "poster" not in art
+    assert not any("." in key for key in art)
+    # An episode with no picture of its own gets no thumb either: not its
+    # show's poster in the place of a still.
+    bare = episode("e2", SeriesPrimaryImageTag="show-poster")
+    assert "thumb" not in metadata.details(bare, SERVER, "key", LIB)["art"]
+    assert "poster" not in metadata.details(bare, SERVER, "key", LIB)["art"]
+    # A plugin listing has no show row behind it and keeps the fallbacks.
+    from kofin.plugin import listitems
+
+    listed = listitems.art_for(pictured, SERVER)
+    assert listed["poster"].endswith("/Images/Primary?tag=show-poster")
+    # A show and a movie keep their posters.
+    assert (
+        "poster"
+        in metadata.details(series(ImageTags={"Primary": "p"}), SERVER, "key", LIB)[
+            "art"
+        ]
+    )
+    assert (
+        "poster"
+        in metadata.details(movie(ImageTags={"Primary": "p"}), SERVER, "key", LIB)[
+            "art"
+        ]
+    )
+
+
+def test_a_change_of_what_details_makes_moves_the_inputs_token(monkeypatch):
+    """An acknowledgement made under the old serializer is compared again,
+    not taken on trust."""
+    before = metadata.inputs_token(SERVER, "key", LIB, " / ")
+    monkeypatch.setattr(metadata, "SERIALIZER", metadata.SERIALIZER + 1)
+    assert metadata.inputs_token(SERVER, "key", LIB, " / ") != before

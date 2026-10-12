@@ -1409,3 +1409,37 @@ def test_a_later_stamp_of_kodis_own_is_the_same_play():
     assert patch.matches(row, {"playcount": 1, "lastplayed": "2026-10-12 14:24:08"})
     assert not patch.matches(row, {"playcount": 2, "lastplayed": "2026-10-12 14:24:08"})
     assert not patch.matches(row, {"playcount": 1, "lastplayed": ""})
+
+
+def test_an_episode_filed_with_its_shows_poster_loses_it_at_the_next_compare(
+    store, backend, kodi
+):
+    """Rows an earlier build filed carry the show's poster as the episode's
+    own. It is a key kofin put there, so the pass that compares the row
+    takes it off."""
+    items = show_bundle(episodes=1)
+    for item in items:
+        if item["Type"] == "Episode":
+            item["ImageTags"] = {"Primary": "still"}
+            item["SeriesPrimaryImageTag"] = "show-poster"
+    store.publish(items, library=LIB)
+    backend.reconcile()
+    row = kodi.rows["Episode"][store.mapping("ea11").kodi_id]
+    assert "poster" not in row["art"] and row["art"]["thumb"]
+    # As the earlier build left it: the poster on the row, and on record as
+    # a key kofin owns.
+    row["art"]["poster"] = "http://server/Items/show/Images/Primary?tag=show-poster"
+    mapping = store.mapping("ea11")
+    applied = dict(mapping.applied)
+    applied["owned"] = dict(
+        applied["owned"], art=sorted(applied["owned"]["art"] + ["poster"])
+    )
+    applied["inputs"] = "made by the earlier serializer"
+    store.remember(
+        "ea11", store.state("ea11").desired, mapping.kodi_id, applied, "Episode"
+    )
+    store.invalidate(["ea11"])
+    backend.reconcile()
+    assert "poster" not in row["art"]
+    assert row["art"]["thumb"]
+    assert not store.pending()

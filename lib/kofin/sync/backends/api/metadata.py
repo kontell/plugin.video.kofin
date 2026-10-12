@@ -559,12 +559,27 @@ def _timestamp(value):
 
 def own_art(item, server) -> Dict[str, str]:
     """The art a row carries in its own right: an episode's ``tvshow.*`` and
-    ``season.*`` keys are the show's and the season's (see ``details``)."""
-    return {
+    ``season.*`` keys are the show's and the season's (see ``details``).
+
+    An episode's own picture is its thumb and nothing stands in for it. The
+    listing mapping gives every episode its show's poster as ``poster``, and
+    as ``thumb`` too when the episode has no picture: right for a row of a
+    plugin listing, which has no show row behind it, and wrong for a library
+    row. A Kodi episode has no poster of its own, so a skin that asks for
+    one before the thumb showed the show's poster on every episode kofin
+    filed, where the SQL build, which writes the thumb alone, shows the
+    still. Kodi reads the show's and the season's art off their own rows.
+    """
+    art = {
         key: value
         for key, value in listitems.art_for(item, server).items()
         if "." not in key
     }
+    if item.get("Type") == "Episode":
+        art.pop("poster", None)
+        if not (item.get("ImageTags") or {}).get("Primary"):
+            art.pop("thumb", None)
+    return art
 
 
 def details(
@@ -980,6 +995,13 @@ def _streams(tag, item):
         tag.addSubtitleStream(xbmc.SubtitleStreamDetail(language=language or ""))
 
 
+# What ``details`` makes of a payload, as a number: raised when the same
+# payload and inputs come to a different desired state, so that an
+# acknowledgement made under the old one is compared again and not taken
+# on trust (inputs_token). 2: an episode's art without its show's poster.
+SERIALIZER = 2
+
+
 def inputs_token(
     server, key, library, separator, seasons=(), set_name=None, downloaded=""
 ) -> str:
@@ -997,6 +1019,7 @@ def inputs_token(
     """
     return _token(
         [
+            SERIALIZER,
             server or "",
             key,
             library or "",
