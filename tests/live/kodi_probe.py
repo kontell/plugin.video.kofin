@@ -175,13 +175,16 @@ def refresh_time(kind, kodi_id, episodes=None, timeout=300):
         ).get(key, [])
         return [r for r in rows if r["uniqueid"].get("kofin") == wanted]
 
+    # Rows that share the title and the item (a movie's version rows) were
+    # there before the refresh and are not the row coming back.
+    others = {row[id_param] for row in find()} - {kodi_id}
     began = time.monotonic()
     rpc(refresh, params)
     issued = time.monotonic() - began
     gone = None
     while time.monotonic() - began < timeout:
         time.sleep(0.1)
-        match = find()
+        match = [row for row in find() if row[id_param] not in others]
         if not match:
             if gone is None:
                 gone = time.monotonic() - began
@@ -304,14 +307,27 @@ def _userdata():
     raise SystemExit("no userdata directory found; set KODI_USERDATA")
 
 
+def _profile_dir():
+    """The current profile's directory, from profiles.xml: a profile's
+    directory need not be its name, and the master profile's name is in
+    whatever language Kodi first started in."""
+    base = _userdata()
+    current = rpc("Profiles.GetCurrentProfile")["label"]
+    listing = os.path.join(base, "profiles.xml")
+    if os.path.isfile(listing):
+        for node in ET.parse(listing).getroot().iter("profile"):
+            if node.findtext("name") == current:
+                directory = node.findtext("directory") or ""
+                if directory.startswith("special://masterprofile/"):
+                    directory = directory[len("special://masterprofile/") :]
+                return os.path.join(base, directory) if directory.strip("/") else base
+    return base
+
+
 def kofin(message, data=None):
     """Send a kofin IPC command with the running service's nonce."""
-    profile = rpc("Profiles.GetCurrentProfile")["label"]
-    base = _userdata()
-    if profile != "Master user":
-        base = os.path.join(base, "profiles", profile)
     with open(
-        os.path.join(base, "addon_data", "plugin.video.kofin", "ipc.nonce"),
+        os.path.join(_profile_dir(), "addon_data", "plugin.video.kofin", "ipc.nonce"),
         encoding="utf-8",
     ) as handle:
         nonce = handle.read().strip()
