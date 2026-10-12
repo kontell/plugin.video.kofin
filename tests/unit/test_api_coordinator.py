@@ -157,14 +157,12 @@ def test_a_first_selection_is_listed_once(store, monkeypatch):
     assert store.watermark()[1]
 
 
-def _named_states(w, monkeypatch):
-    """Give the states their string ids for names. With strings to write, the
-    node tree would be published for real, into the working directory."""
+def _named_states(monkeypatch):
+    """Give the states their string ids for names."""
     from kofin.sync.backends.api import library
 
     monkeypatch.setattr(library.settings, "localized", lambda i: "L%d" % i)
     monkeypatch.setattr(library.xbmc, "getLocalizedString", lambda i: "K%d" % i)
-    w.publish_selection = lambda: None
 
 
 def test_a_first_listing_is_named_in_the_status_while_it_runs(store, monkeypatch):
@@ -172,7 +170,7 @@ def test_a_first_listing_is_named_in_the_status_while_it_runs(store, monkeypatch
 
     server = Server({LIB: [movie()], LIB2: show_bundle()})
     w = worker(store, server, [LIB, LIB2], monkeypatch)
-    _named_states(w, monkeypatch)
+    _named_states(monkeypatch)
     seen = []
     items = server.items
     server.items = lambda params: seen.append(status.read()) or items(params)
@@ -192,7 +190,7 @@ def test_a_listing_that_leaves_nothing_to_apply_ends_the_update(store, monkeypat
     from kofin.sync.backends.api import status
 
     w = worker(store, Server({}), [], monkeypatch)
-    _named_states(w, monkeypatch)
+    _named_states(monkeypatch)
 
     w.full_sync([LIB])
 
