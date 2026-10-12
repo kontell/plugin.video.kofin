@@ -1433,3 +1433,33 @@ def test_a_later_stamp_of_kodis_own_is_the_same_play():
     assert patch.matches(row, {"playcount": 1, "lastplayed": "2026-10-12 14:24:08"})
     assert not patch.matches(row, {"playcount": 2, "lastplayed": "2026-10-12 14:24:08"})
     assert not patch.matches(row, {"playcount": 1, "lastplayed": ""})
+
+
+def test_a_set_that_cannot_be_handed_over_does_not_fail_the_removal(
+    store, backend, kodi, monkeypatch
+):
+    """The rows are gone by then. Failed for the sake of its sets, the
+    library was cleared again on the next pass and the sets, which Kodi no
+    longer lists, could not be told a second time."""
+    from kofin.sync.backends.api import companion
+
+    monkeypatch.setattr(companion, "present", lambda: "0.1.0")
+
+    def unwritable(title):
+        raise OSError("journal not written")
+
+    monkeypatch.setattr(companion, "journal_set", unwritable)
+    store.publish([movie(), movie("b"), boxset("box", "Pair", ["a", "b"])], library=LIB)
+    backend.reconcile()
+    kodi.calls.clear()
+
+    store.publish([], library=LIB)
+    backend.reconcile()
+
+    assert not kodi.rows["Movie"]
+    assert len(methods(kodi, "VideoLibrary.SetSourceContent")) == 1
+    assert not [i for i, _, op, _ in store.pending_work() if op == "remove"]
+    # The home widgets still hear of the removal.
+    assert [p["directory"] for p in methods(kodi, "VideoLibrary.Scan")] == [
+        native.NOWHERE
+    ]
