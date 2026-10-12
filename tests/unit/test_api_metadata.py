@@ -443,3 +443,38 @@ def test_inputs_token_moves_with_the_art_query_and_the_zone(monkeypatch):
     assert capped != base
     monkeypatch.setattr(metadata.time, "timezone", 12345)
     assert metadata.inputs_token("http://s", "k", LIB, " / ") != capped
+
+
+def test_a_refresh_can_say_which_part_of_its_token_moved():
+    """The token says only that something no setter carries has changed. A
+    viewer watching a show being scanned again wants to know what."""
+    from kofin.sync.backends.api.patch import moved_parts
+
+    cast = [{"Name": "A", "Type": "Actor"}]
+    first = metadata.refresh_parts(movie(People=cast, MediaStreams=STREAMS))
+    assert set(first) == {"cast", "streams"}
+    recast = metadata.refresh_parts(
+        movie(People=cast + [{"Name": "B", "Type": "Actor"}], MediaStreams=STREAMS)
+    )
+    assert moved_parts(first, recast) == "its cast moved"
+    remuxed = metadata.refresh_parts(movie(People=cast, MediaStreams=STREAMS[:2]))
+    assert moved_parts(first, remuxed) == "its streams moved"
+    assert moved_parts(first, first) == "nothing on record moved"
+    # A row acknowledged by an earlier build has no parts on record.
+    assert moved_parts(None, first) == "what moved is not on record"
+    assert moved_parts({}, first) == "what moved is not on record"
+    # A show's parts are its cast and its seasons' plots; an episode's
+    # numbering is its own.
+    show = metadata.refresh_parts(
+        series(People=cast), [season("s", number=1, Overview="arc")]
+    )
+    assert set(show) == {"cast", "seasons"}
+    replotted = metadata.refresh_parts(
+        series(People=cast), [season("s", number=1, Overview="another arc")]
+    )
+    assert moved_parts(show, replotted) == "its seasons moved"
+    numbered = metadata.refresh_parts(episode("e1", People=cast, IndexNumberEnd=2))
+    assert "numbering" in numbered
+    # The parts never change the token a row was filed under.
+    item = movie(People=cast, MediaStreams=STREAMS)
+    assert metadata.refresh_token(item) == metadata.refresh_token(dict(item))

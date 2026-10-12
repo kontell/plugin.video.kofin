@@ -302,12 +302,27 @@ class Kodi:
                 row = self._import_show(record)
                 self._import_episodes(row, record.library, item_id)
             else:
-                row = self._import_show(record)
-                for other in list(self.rows["Episode"].values()) + list(
-                    self.rows["Season"].values()
-                ):
-                    if other.get("tvshowid") == kodi_id:
-                        other["tvshowid"] = row["tvshowid"]
+                # Kodi rewrites the show's own row in place and leaves its
+                # seasons and episodes alone (observed on 22.0b2: the same
+                # tvshowid, every episode id and play count kept).
+                seasons = [
+                    r.item
+                    for r in self.store.records(
+                        kind="Season", parent_id=item_id
+                    ).values()
+                ]
+                fresh = self.imported(record, seasons)
+                fresh["tvshowid"] = kodi_id
+                self.rows["Series"][kodi_id] = fresh
+                # AddSeason only inserts: a season Kodi has keeps its row,
+                # its name and its plot.
+                for season in seasons:
+                    if season.get("IndexNumber") is not None:
+                        self._season_row(
+                            kodi_id,
+                            int(season["IndexNumber"]),
+                            metadata.season_title(season),
+                        )
             return
         row = self.imported(
             record,

@@ -256,7 +256,7 @@ class Applier:
                     if self.native.abort():
                         raise InterruptedError("native sync stopped")
                     self.native.progress.step(kind)
-                    patch = self.plan(record, repair, upserts)
+                    patch = self.plan(record, repair)
                     if patch is not None:
                         queue.append(patch)
                         if len(queue) >= BATCH:
@@ -411,7 +411,7 @@ class Applier:
             )
         return False
 
-    def plan(self, record: Record, repair, upserts) -> Optional[Patch]:
+    def plan(self, record: Record, repair) -> Optional[Patch]:
         kind = record.kind
         if self.rowless(record):
             self.ack(record.item_id, record.generation, None, {}, kind)
@@ -518,10 +518,17 @@ class Applier:
         downloaded.apply(
             kind, record.item_id, desired, self.downloaded, self.downloaded_series
         )
+        parts = metadata.refresh_parts(record.item, seasons) if kind in FILED else {}
         if kind in FILED:
             token = desired["uniqueid"]["kofinrefresh"]
             if (row.get("uniqueid") or {}).get("kofinrefresh") != token:
-                row = self.refresh(record, kodi_id, token, upserts)
+                LOG.info(
+                    "refreshing %s %s: %s",
+                    kind.lower(),
+                    record.item_id,
+                    moved_parts(previous.get("refresh"), parts),
+                )
+                row = self.refresh(record, kodi_id, token)
                 kodi_id = row[KINDS[kind].id_param]
         # Only now the full row: the scope carries what finds and owns it.
         row = self.readback.full(kind, record.library, record.parent_id, row)
@@ -530,6 +537,8 @@ class Applier:
             "inputs": inputs,
             "owned": metadata.owned(desired),
         }
+        if parts:
+            applied["refresh"] = parts
         if assets is not None:
             applied["assets"] = assets
         applied = _with_asset_files(applied, assets, files, previous)
@@ -652,12 +661,19 @@ class Applier:
 
     # -- refresh -------------------------------------------------------------
 
-    def refresh(self, record: Record, kodi_id, token, upserts):
+    def refresh(self, record: Record, kodi_id, token):
         """Re-import a row whose cast or streams changed; confirmed by token.
 
-        A show refresh re-creates every episode of the show, so their rows,
-        identities and userdata all need another pass; they are put back to
-        pending and joined to this one.
+        A show is refreshed alone. Kodi then rewrites the show's own row
+        from the listing, cast included, and keeps its id, its seasons and
+        its episodes (CVideoInfoScanner::RetrieveInfoForTvShow, the
+        refresh-show-info-only branch: one OnUpdate, 0.3 s on a desktop).
+        Asked to refresh the episodes too, it deletes the show and every
+        episode and imports them again under new ids, so a recast show lost
+        its play counts to whatever the catalogue held and was announced
+        row by row to every widget. What a show refresh cannot do is change
+        the plot of a season Kodi already has (AddSeason only inserts); that
+        is the companion's (companion.season_plot_request).
         """
         kind = record.kind
         table = KINDS[kind]
@@ -668,11 +684,7 @@ class Applier:
         )
         params: Dict[str, Any] = {table.id_param: kodi_id, "ignorenfo": False}
         if kind == "Series":
-            # The refresh deletes every episode and re-creates it from the
-            # supplied tag, so a watched mark or position the viewer set in
-            # Kodi since the last sync is captured first, as a local edit.
-            self.capture_local_edits(record)
-            params["refreshepisodes"] = True
+            params["refreshepisodes"] = False
         rpc(table.refresh, params)
         self.native._async_pending = True
         last = [0.0]
@@ -692,28 +704,7 @@ class Applier:
 
         row = self.native.wait(refreshed, busy=self.native._scanning)
         self.native._async_pending = False
-        if kind == "Series":
-            children = self.store.records(
-                kind=("Season", "Episode"), parent_id=record.item_id
-            )
-            self.store.invalidate(children)
-            for child in children.values():
-                upserts.setdefault(child.item_id, child)
-            self.readback.forget("Series", record.library)
         return row
-
-    def capture_local_edits(self, show: Record):
-        rows = self.readback.scope("Episode", show.library, show.item_id)
-        for item_id, row in rows.items():
-            mapping = self.store.mapping(item_id)
-            item = self.store.item(item_id)
-            if not mapping or not mapping.applied.get("userdata") or item is None:
-                continue
-            edits = local_edits(
-                row, mapping.applied["userdata"], metadata.userdata(item)
-            )
-            if edits:
-                self.store.local(item_id, edits)
 
     # -- patches -------------------------------------------------------------
 
@@ -846,6 +837,18 @@ class Applier:
                 raise
             except Exception as error:
                 self.fail(record, error, errors)
+
+
+def moved_parts(before, now) -> str:
+    """Which parts of a refresh token moved, for the log. A row acknowledged
+    by an earlier build has no parts on record, and one the scanner filed
+    and nothing acknowledged has none either."""
+    if not before:
+        return "what moved is not on record"
+    moved = sorted(
+        part for part in set(before) | set(now) if before.get(part) != now.get(part)
+    )
+    return "its %s moved" % ", ".join(moved) if moved else "nothing on record moved"
 
 
 def local_edits(row, previous, desired):

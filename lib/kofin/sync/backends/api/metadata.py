@@ -339,6 +339,45 @@ def refresh_token(item, seasons=()):
     return _token(value)
 
 
+# The token's fields by what a viewer would call them, for the line a
+# refresh is logged with.
+REFRESH_PARTS = {
+    "People": "cast",
+    "MediaStreams": "streams",
+    "MediaSources": "streams",
+    "Video3DFormat": "streams",
+    "AspectRatio": "streams",
+    "AirsBeforeSeasonNumber": "numbering",
+    "AirsAfterSeasonNumber": "numbering",
+    "AirsBeforeEpisodeNumber": "numbering",
+    "IndexNumberEnd": "numbering",
+}
+
+
+def refresh_parts(item, seasons=()) -> Dict[str, str]:
+    """What ``refresh_token`` hashes, a short hash per part: kept beside a
+    row's acknowledgement so that the refresh of it can say which part
+    moved. The token alone says only that something did."""
+    kind = item.get("Type")
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for key, part in REFRESH_PARTS.items():
+        if part != "cast" and kind not in ("Movie", "Episode", "MusicVideo"):
+            continue
+        if part == "numbering" and kind != "Episode":
+            continue
+        if item.get(key) is not None:
+            grouped.setdefault(part, {})[key] = item[key]
+    if kind == "Series":
+        grouped["seasons"] = {
+            "Seasons": sorted(
+                (int(s.get("IndexNumber") or 0), s.get("Overview") or "")
+                for s in seasons
+                if s.get("IndexNumber") is not None
+            )
+        }
+    return {part: _token(value)[:8] for part, value in sorted(grouped.items())}
+
+
 def userdata(item) -> Dict[str, Any]:
     """The userdata Kodi keeps for a playable row. A song has no resume point
     in Kodi's music library, so a song's is its playcount and last played."""

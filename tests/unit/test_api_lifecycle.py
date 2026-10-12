@@ -3,7 +3,7 @@
 import pytest
 
 from kofin.sync import private
-from kofin.sync.backends.api import metadata, native, paths
+from kofin.sync.backends.api import metadata, native, patch, paths
 from kofin.sync.backends.api.native import Native
 from kofin.sync.backends.api.store import Store, namespace
 from kofin.sync.catalogue import BackendMismatch
@@ -169,26 +169,41 @@ def test_episode_refresh_changes_id_and_restores_userdata(store, backend, kodi):
     assert not store.pending()
 
 
-def test_show_cast_change_refreshes_the_show_and_every_episode_follows(
-    store, backend, kodi
-):
+def test_a_show_cast_change_refreshes_the_show_alone(store, backend, kodi, monkeypatch):
+    """Asked to refresh the episodes as well, Kodi deletes the show and
+    every episode and imports them again under new ids: a recast show lost
+    its play counts to whatever the catalogue held, and every widget was
+    told of each row."""
     store.publish(show_bundle(episodes=3), library=LIB)
     backend.reconcile()
-    old_show = store.mapping(SHOW).kodi_id
-    old_episodes = {i: store.mapping(i).kodi_id for i in ("ea11", "ea12", "ea13")}
-    kodi.rows["Episode"][old_episodes["ea12"]]["playcount"] = 1
+    show = store.mapping(SHOW).kodi_id
+    episodes = {i: store.mapping(i).kodi_id for i in ("ea11", "ea12", "ea13")}
+    seasons = dict(kodi.rows["Season"])
+    kodi.rows["Episode"][episodes["ea12"]]["playcount"] = 1
     store.publish([series(People=[{"Name": "Recast", "Type": "Actor"}])])
+    kodi.calls.clear()
+    lines = []
+    monkeypatch.setattr(patch.LOG, "info", lambda msg, *a: lines.append(msg % a))
     backend.reconcile()
     assert methods(kodi, "VideoLibrary.RefreshTVShow") == [
-        {"tvshowid": old_show, "ignorenfo": False, "refreshepisodes": True}
+        {"tvshowid": show, "ignorenfo": False, "refreshepisodes": False}
     ]
-    assert store.mapping(SHOW).kodi_id != old_show
-    for item_id, before in old_episodes.items():
-        assert store.mapping(item_id).kodi_id != before
-    # The local watched mark set before the refresh is carried as a local
-    # edit rather than lost under the re-created row.
-    assert store.local_pending() == [("ea12", {"playcount": 1})]
-    assert not [i for i in store.pending() if i[0].item_id != "ea12"]
+    assert store.mapping(SHOW).kodi_id == show
+    assert kodi.rows["Series"][show]["uniqueid"][
+        "kofinrefresh"
+    ] == metadata.refresh_token(
+        store.item(SHOW),
+        [r.item for r in store.records(kind="Season", parent_id=SHOW).values()],
+    )
+    # No episode and no season was touched: the same rows, and the watched
+    # mark a viewer set in Kodi is where it was.
+    assert {i: store.mapping(i).kodi_id for i in episodes} == episodes
+    assert kodi.rows["Episode"][episodes["ea12"]]["playcount"] == 1
+    assert kodi.rows["Season"] == seasons
+    assert not methods(kodi, "VideoLibrary.RefreshEpisode")
+    assert not store.pending()
+    # And the log says why the show was refreshed.
+    assert "refreshing series %s: its cast moved" % SHOW in lines
 
 
 def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
