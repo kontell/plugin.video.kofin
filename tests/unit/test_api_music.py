@@ -441,6 +441,29 @@ def test_music_readback_pages_and_acknowledges_in_batches(
     assert len(opens) < 48
 
 
+def test_a_song_marked_unplayed_keeps_the_stamp_kodi_cannot_clear(store, backend, kodi):
+    """Kodi's song setter loads the row first and an empty date leaves the
+    old one standing, so a last-played stamp cannot be cleared through it.
+    Wanted empty, a song played once and then marked unplayed failed its
+    readback on every pass, and each failed pass was run again in full."""
+    items = album_bundle(songs=1)
+    items[2]["UserData"] = {
+        "Played": True,
+        "PlayCount": 1,
+        "LastPlayedDate": "2026-07-10T19:17:42Z",
+    }
+    store.publish(items, library=LIB)
+    backend.reconcile()
+    row = next(iter(kodi.songs.values()))
+    assert row["playcount"] == 1 and row["lastplayed"]
+    stamp = row["lastplayed"]
+    items[2]["UserData"] = {"Played": False, "PlayCount": 0}
+    store.publish([items[2]])
+    backend.reconcile()
+    assert row["playcount"] == 0 and row["lastplayed"] == stamp
+    assert not store.pending()
+
+
 def test_music_patch_failure_keeps_the_song_pending(store, backend, kodi):
     items = album_bundle(songs=1)
     items[2]["UserData"] = {"Played": True, "PlayCount": 1}
@@ -468,6 +491,46 @@ def test_video_and_music_libraries_share_one_pass(store, backend, kodi):
     assert kodi.scanned == [paths.library_dir(store.namespace, LIB, "movies")]
     assert kodi.music_scanned == [paths.music_part(store.namespace, LIB2, 0)]
     assert artist_key(" Band ") == "band"
+
+
+def test_album_and_artist_art_does_not_wait_for_the_video_scans(store, backend, kodi):
+    """Selected together, a music library's covers came after every movie
+    and show had been scanned: the music scan runs first, but the kinds were
+    all applied after the last scan, half an hour later on a small device."""
+    membership = {"a": LIB}
+    items = [movie()] + album_bundle(songs=2)
+    items[3]["UserData"] = {
+        "Played": True,
+        "PlayCount": 1,
+        "LastPlayedDate": "2026-07-10T19:17:42Z",
+    }
+    membership.update({i["Id"]: LIB2 for i in items[1:]})
+    store.publish(items, membership=membership, complete_libraries=[LIB, LIB2])
+    backend.reconcile(repair=True)
+    assert not store.pending()
+    order = [
+        m
+        for m, _ in kodi.calls
+        if m.startswith("AudioLibrary.Set")
+        or m in ("VideoLibrary.Scan", "AudioLibrary.Scan")
+    ]
+    video_scan = order.index("VideoLibrary.Scan")
+    assert order.index("AudioLibrary.SetAlbumDetails") < video_scan
+    assert order.index("AudioLibrary.SetArtistDetails") < video_scan
+    # The play counts still go last of all, after the video kinds.
+    assert order.index("AudioLibrary.SetSongDetails") > video_scan
+    # Each of the two is applied once.
+    assert order.count("AudioLibrary.SetAlbumDetails") == 1
+    assert order.count("AudioLibrary.SetArtistDetails") == 1
+
+
+def test_a_pass_with_no_video_scan_keeps_one_hold_and_its_order(store, backend, kodi):
+    items = album_bundle(songs=2)
+    items[2]["UserData"] = {"Played": True, "PlayCount": 1}
+    store.publish(items, library=LIB)
+    backend.reconcile(repair=True)
+    assert kodi.hold_tokens == ["music"]
+    assert not store.pending()
 
 
 # -- provider, serializer, identity, coordinator ------------------------------
@@ -725,10 +788,7 @@ def test_song_tags_hash_moves_for_tags_only_and_the_row_is_marked_loaded(
         "playcount": 3,
         "lastplayed": metadata._timestamp("2023-11-15T19:18:34.08Z"),
     }
-    assert metadata.details(song("t1"), "http://s", "k", LIB) == {
-        "playcount": 0,
-        "lastplayed": "",
-    }
+    assert metadata.details(song("t1"), "http://s", "k", LIB) == {"playcount": 0}
     tag = Mock()
     li = Mock()
     li.getMusicInfoTag.return_value = tag

@@ -10,6 +10,7 @@ full premiere date -- and ``details`` speaks that representation.
 
 import hashlib
 import time
+from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import xbmc
@@ -311,7 +312,7 @@ def _token(value) -> str:
     return hashlib.sha256(encode(value).encode()).hexdigest()[:24]
 
 
-def refresh_token(item, seasons=()):
+def refresh_fields(item, seasons=()) -> Dict[str, Any]:
     """Fields with no complete public setter: a change here means a refresh.
 
     A show's season plots have ingestion only (``addSeason``), and an
@@ -336,7 +337,39 @@ def refresh_token(item, seasons=()):
             for s in seasons
             if s.get("IndexNumber") is not None
         )
-    return _token(value)
+    return value
+
+
+def refresh_token(item, seasons=()):
+    return _token(refresh_fields(item, seasons))
+
+
+# The token's fields by what a viewer would call them, for the line a
+# refresh is logged with.
+REFRESH_PARTS = {
+    "People": "cast",
+    "MediaStreams": "streams",
+    "MediaSources": "streams",
+    "Video3DFormat": "streams",
+    "AspectRatio": "streams",
+    "AirsBeforeSeasonNumber": "numbering",
+    "AirsAfterSeasonNumber": "numbering",
+    "AirsBeforeEpisodeNumber": "numbering",
+    "IndexNumberEnd": "numbering",
+    "Seasons": "seasons",
+}
+
+
+def refresh_parts(item, seasons=()) -> Dict[str, str]:
+    """The token's own fields, a short hash per part: kept beside a row's
+    acknowledgement so that the refresh of it can say which part moved. The
+    token alone says only that something did. Built from the one dict the
+    token hashes, so a field cannot join the token and be missing here; one
+    that has no word yet is reported under its own name."""
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for key, value in refresh_fields(item, seasons).items():
+        grouped.setdefault(REFRESH_PARTS.get(key, key.lower()), {})[key] = value
+    return {part: _token(value)[:8] for part, value in sorted(grouped.items())}
 
 
 def userdata(item) -> Dict[str, Any]:
@@ -352,8 +385,17 @@ def userdata(item) -> Dict[str, Any]:
     # Kodi's watched setter generates a timestamp when none is supplied.
     # Preserve that supported behavior for old server records without a date;
     # explicit server dates and unwatched clears still round-trip exactly.
-    if data.get("LastPlayedDate") or not result["playcount"]:
-        result["lastplayed"] = _timestamp(data.get("LastPlayedDate"))
+    if data.get("LastPlayedDate"):
+        result["lastplayed"] = _timestamp(data["LastPlayedDate"])
+    elif not result["playcount"]:
+        if item.get("Type") != "Audio":
+            result["lastplayed"] = ""
+        # An unplayed song has no opinion on its stamp. Kodi's song setter
+        # cannot clear one: it loads the row, an empty date leaves the old
+        # one standing (CDateTime::SetFromDBDateTime), and UpdateSong writes
+        # it back. Wanted empty, a song played once and then marked unplayed
+        # failed its readback on every pass, and every failed pass was run
+        # again in full a few seconds later, for good.
     elif item.get("Type") == "Audio":
         # Played, but the server never recorded when. Kodi's UpdateSong
         # stamps the current time on a played song with no date
@@ -509,14 +551,56 @@ def _timestamp(value):
     return convert_to_local(value)[:19].replace("T", " ")
 
 
+# Kodi's own spelling of a last-played stamp, local time: what _timestamp writes.
+STAMP = "%Y-%m-%d %H:%M:%S"
+# How much later than the server's stamp Kodi's own may be and still be
+# the same play: the server stamps a play when it starts and Kodi when it
+# ends, so the two differ by the length of what was played, pauses included.
+SAME_PLAY = 6 * 3600
+
+
+def same_play(actual: str, wanted: str) -> bool:
+    """Whether Kodi's last-played stamp needs no write to agree with the
+    server's. Equal stamps do, and so does one of Kodi's that is later by
+    no more than a sitting: written back to the server's earlier one, every
+    song played here cost a setter twenty seconds after it ended, and a
+    song's setter rewrites its date added."""
+    if actual == wanted:
+        return True
+    if not actual or not wanted:
+        return False
+    try:
+        ahead = (
+            datetime.strptime(actual, STAMP) - datetime.strptime(wanted, STAMP)
+        ).total_seconds()
+    except ValueError:
+        return False
+    return 0 <= ahead <= SAME_PLAY
+
+
 def own_art(item, server) -> Dict[str, str]:
     """The art a row carries in its own right: an episode's ``tvshow.*`` and
-    ``season.*`` keys are the show's and the season's (see ``details``)."""
-    return {
+    ``season.*`` keys are the show's and the season's (see ``details``).
+
+    An episode's own picture is its thumb and nothing stands in for it. The
+    listing mapping gives every episode its show's poster as ``poster``, and
+    as ``thumb`` too when the episode has no picture: right for a row of a
+    plugin listing, which has no show row behind it, and wrong for a library
+    row. A Kodi episode has no poster of its own, so a skin that asks for
+    one before the thumb showed the show's poster on every episode kofin
+    filed, where the SQL build, which writes the thumb alone, shows the
+    still. Kodi reads the show's and the season's art off their own rows.
+    """
+    art = {
         key: value
         for key, value in listitems.art_for(item, server).items()
         if "." not in key
     }
+    if item.get("Type") == "Episode":
+        art.pop("poster", None)
+        if not (item.get("ImageTags") or {}).get("Primary"):
+            art.pop("thumb", None)
+    return art
 
 
 def details(
@@ -873,8 +957,35 @@ def _cast(tag, item, server):
         tag.setCast(actors)
 
 
+# What a scanner row carries that no setter can put there afterwards, as a
+# number: raised when the listing gains something the rows already filed
+# lack. Nothing is re-imported for it unasked; a library filed under an
+# older number is rebuilt when the viewer repairs it (library.Library
+# .rebuild_stale). 2: a single-source row's video, audio and subtitle
+# streams.
+SCANNER_FORMAT = 2
+
+
+def _stream_source(item):
+    """The item as ``streams_and_runtime`` reads it. ``compact`` keeps a
+    single source's streams on the item alone, and the shared reader looks
+    in the first source: every single-source row was filed with a stub
+    video stream and no audio or subtitle stream at all."""
+    sources = item.get("MediaSources") or []
+    streams = item.get("MediaStreams")
+    if (
+        not streams
+        or not sources
+        or not isinstance(sources[0], dict)
+        or sources[0].get("MediaStreams")
+    ):
+        return item
+    first = dict(sources[0], MediaStreams=streams)
+    return dict(item, MediaSources=[first] + list(sources[1:]))
+
+
 def _streams(tag, item):
-    streams, runtime = streams_and_runtime(item)
+    streams, runtime = streams_and_runtime(_stream_source(item))
     for stream in streams["video"]:
         stereo = {
             "HalfSideBySide": "left_right",
@@ -905,6 +1016,13 @@ def _streams(tag, item):
         tag.addSubtitleStream(xbmc.SubtitleStreamDetail(language=language or ""))
 
 
+# What ``details`` makes of a payload, as a number: raised when the same
+# payload and inputs come to a different desired state, so that an
+# acknowledgement made under the old one is compared again and not taken
+# on trust (inputs_token). 2: an episode's art without its show's poster.
+SERIALIZER = 2
+
+
 def inputs_token(
     server, key, library, separator, seasons=(), set_name=None, downloaded=""
 ) -> str:
@@ -922,6 +1040,7 @@ def inputs_token(
     """
     return _token(
         [
+            SERIALIZER,
             server or "",
             key,
             library or "",

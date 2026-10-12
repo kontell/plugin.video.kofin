@@ -81,8 +81,12 @@ PROFILES = ("sql", "api")
 # switch (sync/dynamic.py), and a toggle the build never reads must not be
 # on screen.
 DISABLED_SETTINGS = {
-    "sql": {"libraryNodes"},
+    "sql": {"libraryNodes", "libraryStatus"},
     "api": {
+        # The two read-only lines the SQL coordinator writes; the API build
+        # has the status dialog in their place (sync/backends/api/status.py).
+        "syncedLibraries",
+        "syncStatus",
         "cleanDatabases",
         "reuseLanguageInvoker",
         "chapterImages",
@@ -95,6 +99,53 @@ DISABLED_SETTINGS = {
         "refreshBoxsets",
     },
 }
+
+
+# Settings a profile shows only while another setting holds a value:
+# {profile: {setting: (the other setting, its value)}}. The three lists are
+# what a device can play and what its display accepts, and a play under
+# force direct play reads none of them. Hidden, they keep their values, and
+# two things still read those: a transcode asked for from the context menu
+# and the download decision (deviceprofile.build, ProfileConfig.for_downloads).
+# They carry the rule in the API profile alone: on Kodi 21 a <dependencies>
+# block on a list[string] setting unregisters the setting it names (the note
+# in settings.xml), and the SQL profile still installs there. The API
+# profile's floor is Kodi 22.
+VISIBLE_WHILE = {
+    "sql": {},
+    "api": {
+        "directPlayVideoCodecs": ("forceDirectPlay", "false"),
+        "directPlayAudioCodecs": ("forceDirectPlay", "false"),
+        "allowedHdrTypes": ("forceDirectPlay", "false"),
+    },
+}
+
+
+# A setting whose help text differs in a profile: {profile: {setting: id}}.
+# "Transcode music" decides how a song's path is written in the SQL build,
+# which is why its help asks for a repair there. In the API build every song
+# is a plugin path whatever it says, and it only decides whether the bitrate
+# limit applies.
+HELP = {
+    "sql": {},
+    "api": {"musicTranscode": "30861"},
+}
+
+
+def show_while(setting, other, value):
+    """Give a setting a visibility rule on another setting's value, beside
+    any rule it already has."""
+    dependencies = setting.find("dependencies")
+    if dependencies is None:
+        dependencies = ET.Element("dependencies")
+        control = setting.find("control")
+        position = list(setting).index(control) if control is not None else len(setting)
+        setting.insert(position, dependencies)
+    dependency = ET.SubElement(dependencies, "dependency", {"type": "visible"})
+    condition = ET.SubElement(
+        dependency, "condition", {"operator": "is", "setting": other}
+    )
+    condition.text = value
 
 
 def selected_profile(root):
@@ -153,10 +204,16 @@ def contents(root, path, profile):
     if path.as_posix() == "resources/settings.xml":
         tree = ET.fromstring(data)
         disabled = DISABLED_SETTINGS[profile]
+        conditional = VISIBLE_WHILE[profile]
         for group in tree.findall(".//group"):
             for setting in list(group):
                 if setting.get("id") in disabled:
                     group.remove(setting)
+                    continue
+                if setting.get("id") in conditional:
+                    show_while(setting, *conditional[setting.get("id")])
+                if setting.get("id") in HELP[profile]:
+                    setting.set("help", HELP[profile][setting.get("id")])
         return ET.tostring(tree, encoding="utf-8", xml_declaration=True)
     if profile != "api":
         return data

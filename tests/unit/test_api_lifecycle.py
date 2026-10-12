@@ -3,7 +3,7 @@
 import pytest
 
 from kofin.sync import private
-from kofin.sync.backends.api import metadata, native, paths
+from kofin.sync.backends.api import metadata, native, patch, paths
 from kofin.sync.backends.api.native import Native
 from kofin.sync.backends.api.store import Store, namespace
 from kofin.sync.catalogue import BackendMismatch
@@ -169,26 +169,41 @@ def test_episode_refresh_changes_id_and_restores_userdata(store, backend, kodi):
     assert not store.pending()
 
 
-def test_show_cast_change_refreshes_the_show_and_every_episode_follows(
-    store, backend, kodi
-):
+def test_a_show_cast_change_refreshes_the_show_alone(store, backend, kodi, monkeypatch):
+    """Asked to refresh the episodes as well, Kodi deletes the show and
+    every episode and imports them again under new ids: a recast show lost
+    its play counts to whatever the catalogue held, and every widget was
+    told of each row."""
     store.publish(show_bundle(episodes=3), library=LIB)
     backend.reconcile()
-    old_show = store.mapping(SHOW).kodi_id
-    old_episodes = {i: store.mapping(i).kodi_id for i in ("ea11", "ea12", "ea13")}
-    kodi.rows["Episode"][old_episodes["ea12"]]["playcount"] = 1
+    show = store.mapping(SHOW).kodi_id
+    episodes = {i: store.mapping(i).kodi_id for i in ("ea11", "ea12", "ea13")}
+    seasons = dict(kodi.rows["Season"])
+    kodi.rows["Episode"][episodes["ea12"]]["playcount"] = 1
     store.publish([series(People=[{"Name": "Recast", "Type": "Actor"}])])
+    kodi.calls.clear()
+    lines = []
+    monkeypatch.setattr(patch.LOG, "info", lambda msg, *a: lines.append(msg % a))
     backend.reconcile()
     assert methods(kodi, "VideoLibrary.RefreshTVShow") == [
-        {"tvshowid": old_show, "ignorenfo": False, "refreshepisodes": True}
+        {"tvshowid": show, "ignorenfo": False, "refreshepisodes": False}
     ]
-    assert store.mapping(SHOW).kodi_id != old_show
-    for item_id, before in old_episodes.items():
-        assert store.mapping(item_id).kodi_id != before
-    # The local watched mark set before the refresh is carried as a local
-    # edit rather than lost under the re-created row.
-    assert store.local_pending() == [("ea12", {"playcount": 1})]
-    assert not [i for i in store.pending() if i[0].item_id != "ea12"]
+    assert store.mapping(SHOW).kodi_id == show
+    assert kodi.rows["Series"][show]["uniqueid"][
+        "kofinrefresh"
+    ] == metadata.refresh_token(
+        store.item(SHOW),
+        [r.item for r in store.records(kind="Season", parent_id=SHOW).values()],
+    )
+    # No episode and no season was touched: the same rows, and the watched
+    # mark a viewer set in Kodi is where it was.
+    assert {i: store.mapping(i).kodi_id for i in episodes} == episodes
+    assert kodi.rows["Episode"][episodes["ea12"]]["playcount"] == 1
+    assert kodi.rows["Season"] == seasons
+    assert not methods(kodi, "VideoLibrary.RefreshEpisode")
+    assert not store.pending()
+    # And the log says why the show was refreshed.
+    assert "refreshing series %s: its cast moved" % SHOW in lines
 
 
 def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
@@ -220,7 +235,15 @@ def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
     assert not methods(kodi, "VideoLibrary.RemoveMovie")
     assert set(kodi.owned("Series")) == {SHOW2}
     assert set(kodi.owned("Movie")) == {"m2"}
-    assert kodi.builtins == ["UpdateLibrary(video)"]
+    # The home widgets hear of it through a scan of a directory that is not
+    # there. No scan with no directory, which walks every bound folder of
+    # the libraries that stay, and no clean, which asks the add-on about
+    # every one of them and deletes the row of any it gets no answer for.
+    assert kodi.builtins == []
+    assert not methods(kodi, "VideoLibrary.Clean")
+    assert [p["directory"] for p in methods(kodi, "VideoLibrary.Scan")] == [
+        native.NOWHERE
+    ]
     assert not store.pending()
     assert set(kodi.bindings) == {
         paths.library_dir(store.namespace, LIB2, "tvshows"),
@@ -231,7 +254,77 @@ def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
     assert set(store.bindings()) == set(kodi.bindings)
     # The survivor was re-read, not re-imported.
     assert store.mapping(SHOW2).kodi_id in kodi.rows["Series"]
-    assert not any(m == "VideoLibrary.Scan" for m, _ in kodi.calls)
+
+
+def test_a_library_without_movies_leaves_with_an_event_and_no_walk(
+    store, backend, kodi
+):
+    membership = {}
+    items = []
+    for library, show_id in ((LIB, SHOW), (LIB2, SHOW2)):
+        for item in show_bundle(show_id):
+            items.append(item)
+            membership[item["Id"]] = library
+    store.publish(items, membership=membership, complete_libraries=[LIB, LIB2])
+    backend.reconcile()
+    kodi.calls.clear()
+    kodi.builtins.clear()
+    kodi.scanned.clear()
+    store.publish([], library=LIB)
+    backend.reconcile()
+    assert set(kodi.owned("Series")) == {SHOW2}
+    assert kodi.builtins == []
+    assert not methods(kodi, "VideoLibrary.Clean")
+    # The one scan is of a directory that is not there.
+    assert kodi.scanned == [native.NOWHERE]
+    assert not store.pending()
+
+
+def test_a_show_library_leaving_rereads_only_the_shows_kodi_could_have_merged(
+    store, backend, kodi
+):
+    """Kodi files a show onto an existing row of the same title and
+    premiere, or the same default id, whatever library it came from, so
+    such a copy may have gone with the library. Every show of every other
+    library used to be read again for it: 79 shows and 4,316 episodes when
+    a library of one show left."""
+    third = "c" * 32
+    membership = {}
+    items = []
+    bundles = (
+        (LIB, show_bundle(SHOW)),
+        (LIB2, show_bundle(SHOW2)),
+        (third, show_bundle("d" * 32)),
+    )
+    for number, (library, bundle) in enumerate(bundles):
+        for item in bundle:
+            if item["Type"] == "Series":
+                # The first two are one show to Kodi; the third is its own.
+                item["Name"] = "Twin" if number < 2 else "Other"
+                item["ProviderIds"] = {"Tvdb": "100" if number < 2 else "101"}
+            items.append(item)
+            membership[item["Id"]] = library
+    store.publish(items, membership=membership, complete_libraries=[LIB, LIB2, third])
+    backend.reconcile()
+    kodi.calls.clear()
+    store.publish([], library=LIB)
+    planned = []
+    plan = patch.Applier.plan
+
+    def recording(self, record, repair):
+        planned.append(record.item_id)
+        return plan(self, record, repair)
+
+    patch.Applier.plan = recording
+    try:
+        backend.reconcile()
+    finally:
+        patch.Applier.plan = plan
+    assert not store.pending()
+    # The twin in the second library and its children were read again; the
+    # unrelated show of the third was left alone.
+    twin = {i["Id"] for i in show_bundle(SHOW2)}
+    assert set(planned) == twin
 
 
 def pictured_show():
@@ -612,10 +705,12 @@ def test_collections_file_sets_at_import_and_patch_set_details(store, backend, k
     kodi.calls.clear()
     store.publish([], library=LIB)
     backend.reconcile()
-    assert methods(kodi, "VideoLibrary.Clean") == [
-        {"showdialogs": False, "directory": paths.library_root(store.namespace, LIB)}
-    ]
-    assert kodi.rows["BoxSet"] == {}
+    # The set the library emptied is not cleaned out of Kodi. With no
+    # companion to delete it, its row stays, linked by no movie and so in no
+    # listing.
+    assert not methods(kodi, "VideoLibrary.Clean")
+    assert [r["title"] for r in kodi.rows["BoxSet"].values()] == ["Trilogy"]
+    assert not kodi.rows["Movie"]
 
 
 def test_patches_travel_in_arrays_of_twenty_five(store, backend, kodi, monkeypatch):
@@ -860,14 +955,36 @@ def test_whole_library_clear_survives_a_movie_that_never_imported(store, backend
     backend.reconcile()
     assert not store.pending()
     assert kodi.rows["Movie"] == {}
-    assert kodi.rows["BoxSet"] == {}
     assert [p["clearmode"] for p in methods(kodi, "VideoLibrary.SetSourceContent")] == [
         "remove"
     ]
-    # The clean that drops empty sets runs for every cleared movie library.
-    assert methods(kodi, "VideoLibrary.Clean") == [
-        {"showdialogs": False, "directory": paths.library_root(store.namespace, LIB)}
-    ]
+    # No clean for the set the library emptied (removal._release_sets).
+    assert not methods(kodi, "VideoLibrary.Clean")
+
+
+def test_a_set_a_removed_library_emptied_is_the_companions_to_delete(
+    store, backend, kodi, monkeypatch
+):
+    """Kodi's clean asks the add-on about every bound folder of every
+    library, whatever directory it is given, and deletes the path row of one
+    that goes unanswered: a movie of a library that stayed left every
+    listing that way. The companion deletes the one empty set by title."""
+    from kofin.sync.backends.api import companion
+
+    monkeypatch.setattr(companion, "present", lambda: "0.1.0")
+    store.publish([movie(), movie("b"), boxset("box", "Pair", ["a", "b"])], library=LIB)
+    store.publish([movie("c")], library=LIB2)
+    backend.reconcile()
+    assert [r["title"] for r in kodi.rows["BoxSet"].values()] == ["Pair"]
+    kodi.calls.clear()
+
+    store.publish([], library=LIB)
+    backend.reconcile()
+
+    assert not methods(kodi, "VideoLibrary.Clean")
+    assert set(kodi.owned("Movie")) == {"c"}
+    journal = companion._read_sets()
+    assert [entry["title"] for entry in journal] == ["Pair"]
 
 
 def test_episodes_of_a_show_whose_removal_fails_stay_pending(store, backend, kodi):
@@ -1256,3 +1373,194 @@ def test_a_failed_lift_of_noupdate_still_restores_the_folders_bound_so_far(
         backend.reconcile()
     assert kodi.noupdate[d] is True and kodi.noupdate[e] is True
     assert kodi.scanned.count(d) == 0
+
+
+def test_a_count_that_differs_only_in_size_is_not_a_viewers_edit():
+    """A viewer's edit is the watched mark going on or off. Kodi and the
+    server having counted differently is not one, and read as one it sent
+    Kodi's count up to the server after every play."""
+    edits = patch.local_edits
+    # Kodi counted the play it made, the server counted it too: 2 against 1.
+    assert edits({"playcount": 2}, {"playcount": 1}, {"playcount": 1}) == {}
+    assert edits({"playcount": 1}, {"playcount": 3}, {"playcount": 4}) == {}
+    # The mark going on, and coming off.
+    assert edits({"playcount": 2}, {"playcount": 0}, {"playcount": 0}) == {
+        "playcount": 2
+    }
+    assert edits({"playcount": 0}, {"playcount": 3}, {"playcount": 3}) == {
+        "playcount": 0
+    }
+    # The server already says what Kodi says.
+    assert edits({"playcount": 1}, {"playcount": 0}, {"playcount": 5}) == {}
+
+
+def test_a_count_kodi_ran_ahead_on_is_brought_back_to_the_servers(store, backend, kodi):
+    store.publish(show_bundle(), library=LIB)
+    backend.reconcile()
+    store.publish([episode("ea11", UserData={"Played": True, "PlayCount": 1})])
+    backend.reconcile()
+    row = kodi.rows["Episode"][store.mapping("ea11").kodi_id]
+    assert row["playcount"] == 1
+    # Kodi's player counts the same play again.
+    row["playcount"] = 2
+    store.publish(
+        [episode("ea11", UserData={"Played": True, "PlayCount": 1}, Overview="x")]
+    )
+    backend.reconcile()
+    assert row["playcount"] == 1
+    assert store.local_pending() == []
+    assert not store.pending()
+
+
+def test_a_later_stamp_of_kodis_own_is_the_same_play():
+    """The server stamps a play when it starts and Kodi when it ends.
+    Written back to the server's earlier stamp, every song played here cost
+    a setter twenty seconds after it ended."""
+    same = metadata.same_play
+    assert same("2026-10-12 14:24:33", "2026-10-12 14:24:08")
+    assert same("2026-10-12 14:24:08", "2026-10-12 14:24:08")
+    # The server's is the later one: played somewhere else since.
+    assert not same("2026-10-12 14:24:08", "2026-10-12 14:24:33")
+    # Not a sitting apart: a stamp Kodi made up on the day of an import
+    # against a play of years ago.
+    assert not same("2026-10-12 14:24:33", "2019-03-01 20:00:00")
+    # A mark cleared, or never there.
+    assert not same("2026-10-12 14:24:33", "")
+    assert not same("", "2026-10-12 14:24:33")
+    assert same("", "")
+    assert not same("not a date", "2026-10-12 14:24:33")
+    row = {"playcount": 1, "lastplayed": "2026-10-12 14:24:33"}
+    assert patch.matches(row, {"playcount": 1, "lastplayed": "2026-10-12 14:24:08"})
+    assert not patch.matches(row, {"playcount": 2, "lastplayed": "2026-10-12 14:24:08"})
+    assert not patch.matches(row, {"playcount": 1, "lastplayed": ""})
+
+
+def test_an_episode_filed_with_its_shows_poster_loses_it_at_the_next_compare(
+    store, backend, kodi
+):
+    """Rows an earlier build filed carry the show's poster as the episode's
+    own. It is a key kofin put there, so the pass that compares the row
+    takes it off."""
+    items = show_bundle(episodes=1)
+    for item in items:
+        if item["Type"] == "Episode":
+            item["ImageTags"] = {"Primary": "still"}
+            item["SeriesPrimaryImageTag"] = "show-poster"
+    store.publish(items, library=LIB)
+    backend.reconcile()
+    row = kodi.rows["Episode"][store.mapping("ea11").kodi_id]
+    assert "poster" not in row["art"] and row["art"]["thumb"]
+    # As the earlier build left it: the poster on the row, and on record as
+    # a key kofin owns.
+    row["art"]["poster"] = "http://server/Items/show/Images/Primary?tag=show-poster"
+    mapping = store.mapping("ea11")
+    applied = dict(mapping.applied)
+    applied["owned"] = dict(
+        applied["owned"], art=sorted(applied["owned"]["art"] + ["poster"])
+    )
+    applied["inputs"] = "made by the earlier serializer"
+    store.remember(
+        "ea11", store.state("ea11").desired, mapping.kodi_id, applied, "Episode"
+    )
+    store.invalidate(["ea11"])
+    backend.reconcile()
+    assert "poster" not in row["art"]
+    assert row["art"]["thumb"]
+    assert not store.pending()
+
+
+def test_a_stopped_clear_is_not_over_until_kodi_has_answered(monkeypatch):
+    """The clear runs on a thread of its own so that the bar can move. A
+    stop must not leave that call behind in Kodi with nobody waiting on it:
+    the next service generation would issue the same clear beside it."""
+    import threading
+    from types import SimpleNamespace
+
+    from kofin.sync.backends.api import removal
+
+    answer = threading.Event()
+    answered = []
+
+    def rpc(method, params):
+        answer.wait(5)
+        answered.append(method)
+
+    monkeypatch.setattr(removal, "rpc", rpc)
+    monkeypatch.setattr(removal, "removing", lambda library: "Removing library")
+    native = SimpleNamespace(
+        key="key",
+        progress=SimpleNamespace(
+            phase=lambda *a: None, at=lambda *a: None, restore=lambda saved: None
+        ),
+        abort=lambda: True,
+        monitor=SimpleNamespace(waitForAbort=lambda seconds: True),
+    )
+    timer = threading.Timer(0.2, answer.set)
+    timer.start()
+    try:
+        with pytest.raises(InterruptedError):
+            removal.clear_library(native, LIB, {"Movie"})
+        assert answered == ["VideoLibrary.SetSourceContent"]
+    finally:
+        timer.cancel()
+        answer.set()
+
+
+def test_a_row_count_kodi_refuses_does_not_keep_a_library_from_being_cleared(
+    monkeypatch,
+):
+    """The count before the clear is for the bar alone."""
+    from types import SimpleNamespace
+
+    from kofin.sync.backends.api import removal
+
+    calls = []
+    monkeypatch.setattr(removal, "rpc", lambda method, params: calls.append(method))
+    monkeypatch.setattr(removal, "removing", lambda library: "Removing library")
+
+    def refused(kinds):
+        raise RuntimeError("VideoLibrary.GetMovies: refused")
+
+    monkeypatch.setattr(removal, "_rows", refused)
+    native = SimpleNamespace(
+        key="key",
+        progress=SimpleNamespace(
+            phase=lambda *a: None, at=lambda *a: None, restore=lambda saved: None
+        ),
+        abort=lambda: False,
+        monitor=SimpleNamespace(waitForAbort=lambda seconds: False),
+        readback=SimpleNamespace(clear=lambda: None, scope=lambda *a: {}),
+        store=SimpleNamespace(unbind=lambda root: calls.append("unbind")),
+    )
+    removal.clear_library(native, LIB, {"Movie"}, rows=5)
+    assert calls == ["VideoLibrary.SetSourceContent", "unbind"]
+
+
+def test_a_set_that_cannot_be_handed_over_does_not_fail_the_removal(
+    store, backend, kodi, monkeypatch
+):
+    """The rows are gone by then. Failed for the sake of its sets, the
+    library was cleared again on the next pass and the sets, which Kodi no
+    longer lists, could not be told a second time."""
+    from kofin.sync.backends.api import companion
+
+    monkeypatch.setattr(companion, "present", lambda: "0.1.0")
+
+    def unwritable(title):
+        raise OSError("journal not written")
+
+    monkeypatch.setattr(companion, "journal_set", unwritable)
+    store.publish([movie(), movie("b"), boxset("box", "Pair", ["a", "b"])], library=LIB)
+    backend.reconcile()
+    kodi.calls.clear()
+
+    store.publish([], library=LIB)
+    backend.reconcile()
+
+    assert not kodi.rows["Movie"]
+    assert len(methods(kodi, "VideoLibrary.SetSourceContent")) == 1
+    assert not [i for i, _, op, _ in store.pending_work() if op == "remove"]
+    # The home widgets still hear of the removal.
+    assert [p["directory"] for p in methods(kodi, "VideoLibrary.Scan")] == [
+        native.NOWHERE
+    ]

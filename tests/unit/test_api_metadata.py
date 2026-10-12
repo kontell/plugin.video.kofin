@@ -152,6 +152,82 @@ def test_collections_pick_one_set_per_movie_stably():
     assert metadata.collections_of(sets) == {"a": "alpha", "b": "Zeta"}
 
 
+def _recorded_streams(monkeypatch, item):
+    from unittest.mock import Mock
+
+    tag = Mock()
+    li = Mock()
+    li.getVideoInfoTag.return_value = tag
+    monkeypatch.setattr(metadata.xbmcgui, "ListItem", lambda *a, **k: li)
+    for name in ("VideoStreamDetail", "AudioStreamDetail", "SubtitleStreamDetail"):
+        monkeypatch.setattr(metadata.xbmc, name, lambda **kw: kw)
+    metadata.listitem(item, SERVER, "key", LIB)
+    return (
+        [c.args[0] for c in tag.addVideoStream.call_args_list],
+        [c.args[0] for c in tag.addAudioStream.call_args_list],
+        [c.args[0] for c in tag.addSubtitleStream.call_args_list],
+    )
+
+
+STREAMS = [
+    {"Type": "Video", "Codec": "hevc", "Width": 3840, "Height": 2160},
+    {"Type": "Audio", "Codec": "eac3", "Channels": 6, "Language": "eng"},
+    {"Type": "Audio", "Codec": "aac", "Channels": 2, "Language": "fra"},
+    {"Type": "Subtitle", "Codec": "subrip", "Language": "eng"},
+]
+
+
+def test_a_single_source_row_is_filed_with_its_streams(monkeypatch):
+    """compact keeps a single source's streams on the item alone and the
+    shared reader looked in the first source, so every such movie and
+    episode was filed with a stub video stream, no codec, and no audio or
+    subtitle stream (1,787 movies and 4,316 episodes on one profile)."""
+    for build in (movie, lambda **values: episode("e1", **values)):
+        item = metadata.compact(
+            build(
+                MediaSources=[
+                    {"Id": "src", "Container": "mkv", "MediaStreams": STREAMS}
+                ],
+                MediaStreams=STREAMS,
+            )
+        )
+        assert "MediaStreams" not in item["MediaSources"][0]
+        video, audio, subtitle = _recorded_streams(monkeypatch, item)
+        assert [(v["codec"], v["width"], v["height"]) for v in video] == [
+            ("hevc", 3840, 2160)
+        ]
+        assert [(a["codec"], a["channels"], a["language"]) for a in audio] == [
+            ("eac3", 6, "eng"),
+            ("aac", 2, "fra"),
+        ]
+        assert [s["language"] for s in subtitle] == ["eng"]
+
+
+def test_a_version_row_is_filed_with_its_own_source_streams(monkeypatch):
+    """A movie with several sources keeps each source's streams, and the
+    row of one version must not take the item's."""
+    other = [
+        {"Type": "Video", "Codec": "h264", "Width": 1920, "Height": 1080},
+        {"Type": "Audio", "Codec": "ac3", "Channels": 6, "Language": "eng"},
+    ]
+    item = metadata.compact(
+        movie(
+            MediaSources=[
+                {"Id": "a", "Container": "mkv", "MediaStreams": STREAMS},
+                {"Id": "b", "Container": "mkv", "MediaStreams": other},
+            ],
+            MediaStreams=STREAMS,
+        )
+    )
+    video, audio, _ = _recorded_streams(monkeypatch, item)
+    assert [v["codec"] for v in video] == ["hevc"]
+    shown = dict(item, MediaSources=[item["MediaSources"][1]], MediaStreams=other)
+    video, audio, subtitle = _recorded_streams(monkeypatch, shown)
+    assert [v["codec"] for v in video] == ["h264"]
+    assert [a["codec"] for a in audio] == ["ac3"]
+    assert subtitle == []
+
+
 def test_scanner_listitem_never_stamps_a_zero_resume_point(monkeypatch):
     from unittest.mock import Mock
 
@@ -351,7 +427,11 @@ def test_a_played_song_without_a_server_date_is_last_played_when_it_was_added():
     assert metadata.userdata(dated)["lastplayed"] == metadata._timestamp(
         "2026-01-02T03:04:05Z"
     )
-    assert metadata.userdata(song("t1"))["lastplayed"] == ""
+    # An unplayed song has no opinion on its stamp: Kodi's song setter
+    # cannot clear one, and wanted empty it failed its readback for good.
+    assert metadata.userdata(song("t1")) == {"playcount": 0}
+    # An unwatched video's is cleared, as before.
+    assert metadata.userdata(movie(UserData={}))["lastplayed"] == ""
     # The video setters leave a missing date alone: unchanged.
     assert "lastplayed" not in metadata.userdata(movie(UserData={"Played": True}))
 
@@ -367,3 +447,111 @@ def test_inputs_token_moves_with_the_art_query_and_the_zone(monkeypatch):
     assert capped != base
     monkeypatch.setattr(metadata.time, "timezone", 12345)
     assert metadata.inputs_token("http://s", "k", LIB, " / ") != capped
+
+
+def test_a_refresh_can_say_which_part_of_its_token_moved():
+    """The token says only that something no setter carries has changed. A
+    viewer watching a show being scanned again wants to know what."""
+    from kofin.sync.backends.api.patch import moved_parts
+
+    cast = [{"Name": "A", "Type": "Actor"}]
+    first = metadata.refresh_parts(movie(People=cast, MediaStreams=STREAMS))
+    assert set(first) == {"cast", "streams"}
+    recast = metadata.refresh_parts(
+        movie(People=cast + [{"Name": "B", "Type": "Actor"}], MediaStreams=STREAMS)
+    )
+    assert moved_parts(first, recast) == "its cast moved"
+    remuxed = metadata.refresh_parts(movie(People=cast, MediaStreams=STREAMS[:2]))
+    assert moved_parts(first, remuxed) == "its streams moved"
+    assert moved_parts(first, first) == "nothing on record moved"
+    # A row acknowledged by an earlier build has no parts on record.
+    assert moved_parts(None, first) == "what moved is not on record"
+    assert moved_parts({}, first) == "what moved is not on record"
+    # A show's parts are its cast and its seasons' plots; an episode's
+    # numbering is its own.
+    show = metadata.refresh_parts(
+        series(People=cast), [season("s", number=1, Overview="arc")]
+    )
+    assert set(show) == {"cast", "seasons"}
+    replotted = metadata.refresh_parts(
+        series(People=cast), [season("s", number=1, Overview="another arc")]
+    )
+    assert moved_parts(show, replotted) == "its seasons moved"
+    numbered = metadata.refresh_parts(episode("e1", People=cast, IndexNumberEnd=2))
+    assert "numbering" in numbered
+    # The parts never change the token a row was filed under.
+    item = movie(People=cast, MediaStreams=STREAMS)
+    assert metadata.refresh_token(item) == metadata.refresh_token(dict(item))
+
+
+def test_a_library_episode_carries_its_own_thumb_and_no_poster():
+    """A Kodi episode has no poster of its own. Given its show's as one, a
+    skin that asks for the poster before the thumb showed the show's poster
+    on every episode."""
+    pictured = episode(
+        "e1",
+        ImageTags={"Primary": "still"},
+        SeriesPrimaryImageTag="show-poster",
+        ParentBackdropItemId=SHOW,
+        ParentBackdropImageTags=["backdrop"],
+    )
+    art = metadata.details(pictured, SERVER, "key", LIB)["art"]
+    assert art["thumb"].endswith("/Items/e1/Images/Primary?tag=still")
+    assert "poster" not in art
+    assert not any("." in key for key in art)
+    # An episode with no picture of its own gets no thumb either: not its
+    # show's poster in the place of a still.
+    bare = episode("e2", SeriesPrimaryImageTag="show-poster")
+    assert "thumb" not in metadata.details(bare, SERVER, "key", LIB)["art"]
+    assert "poster" not in metadata.details(bare, SERVER, "key", LIB)["art"]
+    # A plugin listing has no show row behind it and keeps the fallbacks.
+    from kofin.plugin import listitems
+
+    listed = listitems.art_for(pictured, SERVER)
+    assert listed["poster"].endswith("/Images/Primary?tag=show-poster")
+    # A show and a movie keep their posters.
+    assert (
+        "poster"
+        in metadata.details(series(ImageTags={"Primary": "p"}), SERVER, "key", LIB)[
+            "art"
+        ]
+    )
+    assert (
+        "poster"
+        in metadata.details(movie(ImageTags={"Primary": "p"}), SERVER, "key", LIB)[
+            "art"
+        ]
+    )
+
+
+def test_a_change_of_what_details_makes_moves_the_inputs_token(monkeypatch):
+    """An acknowledgement made under the old serializer is compared again,
+    not taken on trust."""
+    before = metadata.inputs_token(SERVER, "key", LIB, " / ")
+    monkeypatch.setattr(metadata, "SERIALIZER", metadata.SERIALIZER + 1)
+    assert metadata.inputs_token(SERVER, "key", LIB, " / ") != before
+
+
+def test_the_parts_are_the_tokens_own_fields():
+    """The log's reason is built from the dict the token hashes: a field in
+    the token and not in the parts would refresh a row and say nothing
+    moved."""
+    samples = [
+        movie(),
+        episode("e1"),
+        series(),
+        dict(movie(), Type="MusicVideo"),
+    ]
+    for item in samples:
+        fields = metadata.refresh_fields(item, [season("s", number=1)])
+        assert metadata.refresh_token(item, [season("s", number=1)]) == (
+            metadata._token(fields)
+        )
+        # Every field has a word a viewer would use for it.
+        assert set(fields) <= set(metadata.REFRESH_PARTS)
+        parts = metadata.refresh_parts(item, [season("s", number=1)])
+        assert set(parts) == {metadata.REFRESH_PARTS[key] for key in fields}
+    # A field that moves from nothing to something moves its part.
+    bare = metadata.refresh_parts(episode("e1"))
+    ended = metadata.refresh_parts(episode("e1", IndexNumberEnd=2))
+    assert bare["numbering"] != ended["numbering"] and bare["cast"] == ended["cast"]

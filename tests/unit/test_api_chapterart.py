@@ -180,6 +180,8 @@ def test_a_live_request_derives_the_namespace_when_no_document_exists(store, kod
 
 
 class FakeApi:
+    server = "http://s"
+
     def __init__(self, chapters=20, images=True):
         self.calls = []
         self._chapters = [
@@ -195,7 +197,8 @@ class FakeApi:
         return self._chapters
 
     def chapter_image_url(self, item_id, index, tag, max_width):
-        return "http://s/Items/%s/Images/Chapter/%d?tag=%s&maxWidth=%d" % (
+        return "%s/Items/%s/Images/Chapter/%d?tag=%s&maxWidth=%d" % (
+            self.server,
             item_id,
             index,
             tag,
@@ -227,6 +230,12 @@ def rig(store, kodi, monkeypatch):
         return 0
 
     monkeypatch.setattr(chapterart, "seeded_count", count)
+    # The workers' own transport is the server's; here it is the fake's.
+    monkeypatch.setattr(
+        chapterart.ChapterArt,
+        "_downloads",
+        lambda self: (self._api, lambda: None),
+    )
     lines = []
     monkeypatch.setattr(
         chapterart.LOG, "info", lambda msg, *args: lines.append(msg % args)
@@ -320,6 +329,42 @@ def test_a_publish_that_lost_the_race_with_stop_withdraws_itself(rig, monkeypatc
     # The janitor's own withdrawal afterwards finds nothing left to do.
     worker._cleanup()
     assert _document()["requests"] == []
+
+
+def test_the_images_are_fetched_a_few_at_once_and_listed_in_chapter_order(rig):
+    """One after another, the sixty-one images of a long film were most of
+    the wait between the start of playback and the tiles being there."""
+    import threading
+    import time
+
+    lock = threading.Lock()
+    running = []
+    peak = [0]
+    download = rig.api.download
+
+    def slow(url):
+        with lock:
+            running.append(url)
+            peak[0] = max(peak[0], len(running))
+        try:
+            # The first chapter is the slowest to come back.
+            time.sleep(0.08 if "Chapter/0?" in url else 0.01)
+            return download(url)
+        finally:
+            with lock:
+                running.remove(url)
+
+    rig.api.download = slow
+    worker = chapterart.ChapterArt(rig.api, _item())
+    worker._publish()
+    (request,) = _document()["requests"]
+    assert [c["n"] for c in request["chapters"]] == [n for n in range(1, 16) if n != 3]
+    assert 1 < peak[0] <= chapterart.STAGERS
+    # The line that says how long it took names the three stretches.
+    assert any(
+        "(listed in " in line and "staged in " in line and "seeded in " in line
+        for line in rig.lines
+    )
 
 
 def test_staged_files_outlive_a_request_that_could_not_be_withdrawn(rig, monkeypatch):
@@ -514,3 +559,61 @@ def test_the_api_player_stages_on_claim_and_withdraws_on_finalize(
 def test_the_api_player_skips_a_transcode(api_player, monkeypatch):
     _play(monkeypatch, method="Transcode")
     assert SpyArt.instances == []
+
+
+def test_the_image_workers_do_not_share_the_services_session(store, monkeypatch):
+    """The service's client is one requests session, in use by the library
+    thread while a film's chapters are fetched. Three workers at once on it
+    is what the sync avoids by giving each of its workers a client."""
+    from kofin.core.stdhttp import StdlibHttp
+
+    creds = SimpleNamespace(
+        server_address="http://server.example",
+        device_id="device-1",
+        user_id="user",
+        token="token",
+        server_id="server",
+    )
+    monkeypatch.setattr(chapterart.Credentials, "load", staticmethod(lambda: creds))
+    api = FakeApi()
+    worker = chapterart.ChapterArt(api, _item())
+    client, release = worker._downloads()
+    assert client is not api
+    assert isinstance(client._http, StdlibHttp)
+    # Its retry ladder ends with the play the images are for.
+    assert client._http._abort() is False
+    worker._cancel.set()
+    assert client._http._abort() is True
+    release()
+
+
+def test_an_image_is_asked_of_the_server_its_token_is_for(rig, monkeypatch):
+    """The address was built by the service's client and fetched by one made
+    from the credentials of the moment: after a login to another server, the
+    new token went to the old server's address."""
+    workers = FakeApi()
+    released = []
+    monkeypatch.setattr(
+        chapterart.ChapterArt,
+        "_downloads",
+        lambda self: (workers, lambda: released.append(True)),
+    )
+    art = chapterart.ChapterArt(rig.api, _item())
+    art._publish()
+    art._cleanup()
+    # Same server: every address is the workers' client's own, and so is
+    # every request.
+    fetched = [url for call, url in workers.calls if call == "download"]
+    assert fetched and all(url.startswith(workers.server + "/") for url in fetched)
+    assert not [call for call in rig.api.calls if call[0] == "download"]
+    assert released == [True]
+
+    # Another server: nothing is asked of either.
+    workers.calls.clear()
+    workers.server = "http://elsewhere"
+    art = chapterart.ChapterArt(rig.api, _item())
+    art._publish()
+    art._cleanup()
+    assert workers.calls == []
+    assert released == [True, True]
+    assert any("server changed" in line for line in rig.lines)

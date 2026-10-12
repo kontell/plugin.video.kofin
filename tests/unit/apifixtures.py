@@ -384,6 +384,9 @@ def worker(store, server, selected, monkeypatch, feed=None):
     w._settings_due = 0.0
     w.changefeed = feed
     w._unsynced_tried = set()
+    w._rebuilding = set()
+    w._first_attended = False
+    w._held_userdata = {}
     w._queue = queue.Queue()
     selections = (
         selected
@@ -405,6 +408,10 @@ def worker(store, server, selected, monkeypatch, feed=None):
     monkeypatch.setattr(library.settings, "set_str", lambda *_: None)
     monkeypatch.setattr(library.private, "get_sync", lambda: {"Whitelist": []})
     monkeypatch.setattr(library.private, "save_sync", lambda state: None)
+    # The coordinator republishes the node tree when the selection moves, and
+    # under the stubs its paths are relative: a test that whitelists a
+    # library wrote kofin/ and Kofin/ into the working directory.
+    monkeypatch.setattr("kofin.sync.dynamic.publish", lambda *a, **k: None)
     if feed is None:
         monkeypatch.setattr(library.changefeed, "detect", lambda api: None)
     return w

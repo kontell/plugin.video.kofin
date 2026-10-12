@@ -13,7 +13,7 @@ import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import xbmc
 
@@ -25,8 +25,9 @@ from kofin.sync.catalogue import BackendMismatch
 from kofin.sync.downloader import info, library_filter
 from . import metadata, progress
 from . import playlists as api_playlists
+from . import status as apistatus
 from .native import Native
-from .store import Store, namespace
+from .store import REBUILDING, Store, namespace
 
 LOG = Logger(__name__)
 
@@ -61,6 +62,13 @@ MUSIC_PAGE = 500
 # songs in half a second; a Raspberry Pi took 1.7 s to 2.5 s over each, and
 # its thread ran at a quarter of a core while it did: the rest was the wire.
 PAGERS = 3
+# How long after a playback stopped the user data held for its item is
+# applied when the server has sent nothing newer. The server's own entry
+# for the stop arrives within a second or two and replaces the held one.
+HELD_USERDATA_GRACE = 20.0
+# What a viewer asks for by name: the bar is up from the request to the end
+# of the work (progress.Progress.attend).
+ATTENDED = ("SyncLibrary", "UpdateLibrary", "RepairLibrary", "RemoveLibrary")
 HAS_CONTENT = {
     "Movie": "Movies",
     "Series": "TVShows",
@@ -69,10 +77,9 @@ HAS_CONTENT = {
 }
 
 
-def status(value):
-    # Every setting write rewrites settings.xml and fires a settings callback.
-    if settings.get_str("syncStatus") != value:
-        settings.set_str("syncStatus", value)
+def status(value, listing=()):
+    """What the sync is doing, for the status dialog (status.py)."""
+    apistatus.write(value, listing)
 
 
 def collection_kinds(view):
@@ -312,7 +319,8 @@ class Library(threading.Thread):
         self._reload_owed: Set[str] = set()
         self.stop_thread = False
         self._stop_event = threading.Event()
-        self._queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+        # (command, data), and a third member on an entry that is a retry.
+        self._queue: queue.Queue[Tuple[Any, ...]] = queue.Queue()
         self._catchup_due = 0.0
         self._full_due = False
         self._repair = False
@@ -321,6 +329,14 @@ class Library(threading.Thread):
         # library the server no longer lists never reaches the whitelist and
         # must not be retried on every tick ahead of the catch-up.
         self._unsynced_tried: Set[str] = set()
+        # Libraries a repair is rebuilding: their rows are leaving Kodi, and
+        # nothing is enumerated until they have left (rebuild_stale, refresh).
+        self._rebuilding: Set[str] = set()
+        self._first_attended = False
+        # The server's user data for the item this Kodi is playing, kept
+        # back until it has stopped (apply_userdata): item id -> the newest
+        # entry and when the item was first seen no longer playing.
+        self._held_userdata: Dict[str, Tuple[dict, Optional[float]]] = {}
         self._playlists_due = False
         # When the idle binding backfill is next due: now, then never once
         # it succeeded, or a pause after a failure (apply).
@@ -381,10 +397,18 @@ class Library(threading.Thread):
             LOG.exception("API video worker stopped")
         finally:
             self.stop_thread = True
+            # A stop in the middle of a request leaves nobody to finish its
+            # bar: the tick that would have settled it never ran.
+            try:
+                self._bar().finish()
+            except Exception:
+                LOG.debug("progress bar not taken down at the stop")
 
     def _run(self, monitor):
         self.store.initialize(self.api.server)
-        native = Native(self.store, self._stop_event.is_set)
+        # A rebuild a stopped service left half done is still one.
+        self._rebuilding.update(self.store.rebuilding())
+        native = Native(self.store, self._stop_event.is_set, bar=self._bar())
         native.setup()
         # A Kodi stopped mid-scan never gave back the setting the scan was
         # holding (Native.without_actor_thumbs); a pass would, but none may
@@ -413,6 +437,7 @@ class Library(threading.Thread):
             for work in (
                 self.flush_local,
                 self.commands,
+                self.release_userdata,
                 self.refresh,
                 lambda: self.apply(native),
                 self.playlists_pass,
@@ -427,6 +452,7 @@ class Library(threading.Thread):
                     status(settings.localized(30403))
                     self._catchup_due = min(self._catchup_due, time.monotonic() + 30)
                     failed = True
+            self.settle_progress(failed)
             if failed and self._stop_event.wait(5):
                 break
             if monitor.waitForAbort(0.5):
@@ -436,19 +462,45 @@ class Library(threading.Thread):
         failed = False
         # Only visit each queued command once per tick, including failures.
         for _ in range(min(100, self._queue.qsize())):
-            command, data = self._queue.get_nowait()
+            entry = self._queue.get_nowait()
+            command, data = entry[0], entry[1]
             try:
-                self.command(command, data)
+                self.command(command, data, retry=len(entry) > 2)
             except InterruptedError:
                 raise
             except Exception:
                 LOG.exception("API video command will retry: %s", command)
-                self._queue.put((command, data))
+                # Marked as a retry: it is not the viewer asking again, and
+                # the bar must not come back up for each one while the
+                # server is away (settle_progress).
+                self._queue.put((command, data, True))
                 failed = True
         if failed:
             raise RuntimeError("API video commands remain pending")
 
+    def settle_progress(self, failed=False):
+        """Take the bar down when what the viewer asked for is done: nothing
+        queued, nothing to list, nothing pending. A tick that failed takes
+        it down too; the retries that follow are not what was asked for
+        and may go on for as long as the server is away."""
+        bar = self._bar()
+        if not bar.attended:
+            return
+        if failed or not (
+            self._queue.qsize()
+            or self._full_due
+            or self._rebuilding
+            or self.store.has_pending()
+        ):
+            bar.finish()
+
     def refresh(self):
+        if self._rebuilding:
+            if self.store.removing(self._rebuilding):
+                # Listed again while its rows are still in Kodi, a library
+                # is only compared with them, and they are the old rows.
+                return
+            self._rebuilding.clear()
         watermark, enumerated = self.store.watermark()
         unsynced = sorted(
             set(settings.get_list("librarySelection"))
@@ -459,6 +511,7 @@ class Library(threading.Thread):
             # Selected while no worker was running to hear the setting change.
             self._unsynced_tried.update(unsynced)
             self._catchup_due = time.monotonic() + 30
+            self._bar().attend()
             self.full_sync(unsynced)
             return
         if (
@@ -470,6 +523,16 @@ class Library(threading.Thread):
             # Advance before the call so failure gets a bounded retry rather
             # than keeping the already-expired deadline on every tick.
             self._catchup_due = time.monotonic() + 30
+            if (
+                not enumerated
+                and not self._first_attended
+                and settings.get_list("librarySelection")
+            ):
+                # The first listing of a profile is its first import, and
+                # attended once: a listing that failed is tried again every
+                # half minute, and the bar came back up for each try.
+                self._first_attended = True
+                self._bar().attend()
             self.full_sync()
             self._full_due = False
             self._catchup_due = time.monotonic() + CATCHUP_INTERVAL
@@ -520,42 +583,72 @@ class Library(threading.Thread):
 
     def full_sync(self, libraries=None):
         """Enumerate the selected libraries (or the named ones) completely."""
+        bar = self._bar()
+        try:
+            self._full_sync(libraries, bar)
+        finally:
+            bar.close()
+        # The pass that follows says when the update is done; a listing that
+        # left it nothing to do ends here. One that failed is the tick's to
+        # report.
+        if not (self.store.has_pending() or self._repair):
+            status(xbmc.getLocalizedString(20177))
+        else:
+            status(settings.localized(30401))
+
+    def _full_sync(self, libraries, bar):
+        # Until the first page of the first kind arrives nothing is counted:
+        # the libraries are asked for, the server's clock is read.
+        bar.working(progress.PREPARING)
         selected = settings.get_list("librarySelection")
         supported = self._supported_views()
+        # A library being rebuilt is listed when its old rows have left Kodi,
+        # whoever asks: refresh waits for that, and a listing asked for by
+        # name (SyncLibrary) must not publish it over them either.
+        held = {i for i in self._rebuilding if self.store.removing([i])}
         targets = [
             library
             for library in sorted(libraries if libraries is not None else selected)
-            if library in supported and library in selected
+            if library in supported and library in selected and library not in held
         ]
         complete = libraries is None
+        # A listing is minutes of a first import, and until it is published
+        # the catalogue has no row of a library selected for the first time.
+        whitelist = private.get_sync()["Whitelist"]
+        status(
+            settings.localized(30401),
+            listing=[
+                supported[library].get("Name", library)
+                for library in targets
+                if library not in whitelist
+            ],
+        )
         started = self._server_now()
         fetched: Dict[str, List[dict]] = {}
-        bar = self._bar()
-        try:
-            for library in targets:
-                rows: List[dict] = []
-                for kind in collection_kinds(supported[library]):
-                    began = time.monotonic()
-                    found = fetch_kind(
-                        self.api,
-                        library,
-                        kind,
-                        self._stop_event.is_set,
-                        on_page=lambda done, total, kind=kind: bar.track(
-                            kind, done, total
-                        ),
-                        api_factory=getattr(self, "api_factory", None),
-                    )
-                    LOG.info(
-                        "enumerated %d %s in %.1f s",
-                        len(found),
-                        kind,
-                        time.monotonic() - began,
-                    )
-                    rows.extend(found)
-                fetched[library] = rows
-        finally:
-            bar.close()
+        for library in targets:
+            rows: List[dict] = []
+            for kind in collection_kinds(supported[library]):
+                began = time.monotonic()
+                bar.asking(kind)
+                found = fetch_kind(
+                    self.api,
+                    library,
+                    kind,
+                    self._stop_event.is_set,
+                    on_page=lambda done, total, kind=kind: bar.track(kind, done, total),
+                    api_factory=getattr(self, "api_factory", None),
+                )
+                LOG.info(
+                    "enumerated %d %s in %.1f s",
+                    len(found),
+                    kind,
+                    time.monotonic() - began,
+                )
+                rows.extend(found)
+            fetched[library] = rows
+        # The collections, the catalogue and the node tree follow, with
+        # nothing to count.
+        bar.working(progress.SAVING)
         movies_selected = any(
             "Movie" in collection_kinds(supported[library])
             for library in selected
@@ -590,7 +683,7 @@ class Library(threading.Thread):
                 items.append(item)
         invalidate = self._collection_changes(boxsets, complete)
         began = time.monotonic()
-        self.store.publish(
+        self.publish(
             items + boxsets,
             membership=membership,
             complete_libraries=committed,
@@ -613,6 +706,10 @@ class Library(threading.Thread):
             state = private.get_sync()
             if library not in state["Whitelist"]:
                 state["Whitelist"].append(library)
+                if not self.store.has_rows(library):
+                    # Nothing of it is in Kodi yet, so every row it gets is
+                    # filed by this build's listing.
+                    self.store.set_scanner_format(library, metadata.SCANNER_FORMAT)
             private.save_sync(state)
             with private.Database() as db:
                 db.cursor.execute(
@@ -623,7 +720,7 @@ class Library(threading.Thread):
                         supported[library].get("CollectionType") or "mixed",
                     ),
                 )
-        self.update_selection_label()
+        self.publish_selection()
         # The playlists follow the catalogue they point into.
         self._playlists_due = True
 
@@ -683,7 +780,7 @@ class Library(threading.Thread):
                     continue
             wanted[record.id] = record
         items, membership = self._resolve(list(wanted), selected, supported, wanted)
-        self.store.publish(items, membership=membership, removed=removed)
+        self.publish(items, membership=membership, removed=removed)
         self.apply_userdata(change_set.userdata)
         if change_set.envelope.server_time:
             self.store.set_watermark(
@@ -724,7 +821,7 @@ class Library(threading.Thread):
                     [b["Id"] for b in changed if isinstance(b, dict) and b.get("Id")],
                 )
         invalidate = self._collection_changes(boxsets, False)
-        self.store.publish(items + boxsets, membership=membership)
+        self.publish(items + boxsets, membership=membership)
         self.store.invalidate(invalidate)
         self.store.set_watermark(watermark=changefeed.unix_to_watermark(started))
 
@@ -804,12 +901,37 @@ class Library(threading.Thread):
             items.extend(sets)
         return items, membership
 
+    def _playing(self) -> str:
+        """The item this Kodi is playing through kofin, or ''."""
+        item = self.player.current_item() if self.player is not None else None
+        return str((item or {}).get("Id") or "")
+
     def apply_userdata(self, data):
+        """Merge the server's user data into the catalogue, except for the
+        item this Kodi is playing.
+
+        The server counts a play when it starts, and reports progress while
+        it runs. Mirrored as they arrive, those wrote the playing row under
+        Kodi's own player: a song's count was set to the server's new count
+        during the song and counted again by Kodi at its end (one play, two
+        counts, and the outbox then took Kodi's number to the server), and a
+        watched episode being watched again lost its mark until it ended.
+        Kodi's player owns the row of what it plays. That something came
+        for it is kept, and the entry the server sends when the playback
+        stops is applied in its place; when none comes, the server is asked
+        a while after the stop (release_userdata).
+        """
+        playing = self._playing()
         items = []
+        settled = []
         for entry in data:
             item_id = entry.get("ItemId") if isinstance(entry, dict) else entry
             if not item_id:
                 continue
+            if isinstance(entry, dict) and item_id == playing:
+                self._held_userdata[item_id] = (entry, None)
+                continue
+            settled.append(item_id)
             item = self.store.item(item_id)
             if item is None:
                 continue
@@ -817,8 +939,85 @@ class Library(threading.Thread):
             items.append(item)
         if items:
             self.store.publish(items)
+        # Only now. A release has no queue behind it: dropped before a
+        # publish that failed, its entry was gone for good.
+        for item_id in settled:
+            self._held_userdata.pop(item_id, None)
 
-    def update_selection_label(self):
+    def publish(self, items, **placement):
+        """Publish full items as the server sent them, all but the user data
+        of the item this Kodi is playing, which is held like an entry sent
+        for it (apply_userdata) while the item keeps what the catalogue has.
+
+        A listing, a catch-up or a metadata change that arrives during a
+        play carries the server's count for the play in progress as surely
+        as a user data event does, and wrote it to the row Kodi's own player
+        was about to count.
+        """
+        playing = self._playing()
+        if playing:
+            for item in items:
+                if item.get("Id") != playing:
+                    continue
+                known = self.store.item(playing)
+                if known is not None and isinstance(item.get("UserData"), dict):
+                    self._held_userdata[playing] = (
+                        dict(item["UserData"], ItemId=playing),
+                        None,
+                    )
+                    item["UserData"] = known.get("UserData") or {}
+                break
+        self.store.publish(items, **placement)
+
+    def release_userdata(self):
+        """Once an item has stopped and the server has had time to settle
+        the play, ask it what the play made of the item.
+
+        The last entry heard is not that. It may be a progress report, and
+        the entry the stop sent may never have arrived: applied as it stood,
+        the progress report of an episode being watched again took its
+        watched mark away after it had ended.
+        """
+        if not self._held_userdata:
+            return
+        playing = self._playing()
+        now = time.monotonic()
+        due = []
+        for item_id, (entry, stopped) in list(self._held_userdata.items()):
+            if item_id == playing:
+                self._held_userdata[item_id] = (entry, None)
+            elif stopped is None:
+                self._held_userdata[item_id] = (entry, now)
+            elif now - stopped >= HELD_USERDATA_GRACE:
+                due.append(item_id)
+        if not due:
+            return
+        try:
+            page = self.api.items({"userId": self.api.user_id, "Ids": ",".join(due)})
+            rows = page.get("Items")
+            if not isinstance(rows, list):
+                raise ValueError("incomplete item fetch")
+        except Exception as error:
+            # Held, and asked again a grace period on: the server may stay
+            # away for as long as it likes, and this is no failure of a tick.
+            LOG.debug("user data of %d finished play(s) not read: %s", len(due), error)
+            for item_id in due:
+                self._held_userdata[item_id] = (self._held_userdata[item_id][0], now)
+            return
+        fresh = {
+            row["Id"]: dict(row.get("UserData") or {}, ItemId=row["Id"])
+            for row in rows
+            if isinstance(row, dict) and row.get("Id")
+        }
+        for item_id in due:
+            if item_id not in fresh:
+                # The server no longer lists it; its removal is another path's.
+                self._held_userdata.pop(item_id, None)
+        # apply_userdata drops each from the held set once it is published.
+        self.apply_userdata([fresh[item_id] for item_id in due if item_id in fresh])
+
+    def publish_selection(self):
+        """The selection moved: the node tree and the skin entries follow it."""
         whitelist = private.get_sync()["Whitelist"]
         with private.Database() as db:
             names = [
@@ -828,10 +1027,7 @@ class Library(threading.Thread):
                 ).fetchall()
                 if key in whitelist
             ]
-        label = ", ".join(names)
-        if settings.get_str("syncedLibraries") != label:
-            settings.set_str("syncedLibraries", label)
-        # The selection moved: the node tree and the skin entries follow it.
+        LOG.info("synced libraries: %s", ", ".join(names) or "none")
         try:
             from kofin.sync.dynamic import publish
 
@@ -841,18 +1037,80 @@ class Library(threading.Thread):
 
     # -- commands ----------------------------------------------------------------------
 
-    def command(self, command, data):
+    def drop_libraries(self, libraries):
+        """Tombstone every item of these libraries and take them off the
+        whitelist; the next pass removes their rows."""
+        for library in libraries:
+            self.store.publish([], library=library)
+            state = private.get_sync()
+            state["Whitelist"] = [i for i in state["Whitelist"] if i != library]
+            private.save_sync(state)
+        self.publish_selection()
+        # The playlists of a side whose last library left are pruned
+        # by the next pass (backends/api/playlists.reconcile).
+        self._playlists_due = True
+
+    def rebuild_stale(self, picked):
+        """Remove the rows of every picked video library filed under an
+        older scanner format, so the enumeration that follows imports them
+        again; returns those libraries.
+
+        What the format numbers (metadata.SCANNER_FORMAT) has no setter, so
+        a row filed without it gets it only by being filed again, and a
+        refresh of one row is a plugin call of its own: 0.2 s on a desktop
+        and 3 to 10 s on a Raspberry Pi 3, hours for a library there, where
+        removing the rows and scanning the root is a first import. It is the
+        viewer's to ask for, never a pass's: the library is gone from Kodi
+        until the import has run. A music library has no such rows and is
+        repaired by comparison as before.
+        """
+        whitelist = private.get_sync()["Whitelist"]
+        with private.Database() as db:
+            media = dict(
+                db.cursor.execute("SELECT view_id, media_type FROM view").fetchall()
+            )
+        stale = [
+            library
+            for library in sorted(picked or whitelist)
+            if library in whitelist
+            and media.get(library) != "music"
+            and self.store.scanner_format(library) < metadata.SCANNER_FORMAT
+        ]
+        rebuild = [library for library in stale if self.store.has_rows(library)]
+        for library in stale:
+            if library not in rebuild:
+                # Nothing was ever filed for it; whatever comes is current.
+                self.store.set_scanner_format(library, metadata.SCANNER_FORMAT)
+        if rebuild:
+            LOG.info(
+                "repair: %d library(ies) filed before scanner format %d;"
+                " their rows are removed and imported again: %s",
+                len(rebuild),
+                metadata.SCANNER_FORMAT,
+                ", ".join(rebuild),
+            )
+            # Recorded before the rows are tombstoned: a service stopped
+            # between the two must not list the library over its old rows.
+            for library in rebuild:
+                self.store.set_scanner_format(library, REBUILDING)
+            # And off the whitelist before a row is tombstoned. Stopped
+            # between the tombstones and that write, a library lost its rows
+            # while still on the whitelist, where nothing lists it again
+            # before the next complete enumeration. Stopped after this write
+            # instead, it is selected and not synced: listed again over the
+            # rows it still has, and still asking for its repair.
+            state = private.get_sync()
+            state["Whitelist"] = [i for i in state["Whitelist"] if i not in rebuild]
+            private.save_sync(state)
+            self.drop_libraries(rebuild)
+            self._rebuilding.update(rebuild)
+        return rebuild
+
+    def command(self, command, data, retry=False):
+        if command in ATTENDED and not retry:
+            self._bar().attend()
         if command == "RemoveLibrary":
-            for library in data.get("Id", "").split(","):
-                if library:
-                    self.store.publish([], library=library)
-                    state = private.get_sync()
-                    state["Whitelist"] = [i for i in state["Whitelist"] if i != library]
-                    private.save_sync(state)
-            self.update_selection_label()
-            # The playlists of a side whose last library left are pruned
-            # by the next pass (backends/api/playlists.reconcile).
-            self._playlists_due = True
+            self.drop_libraries([i for i in data.get("Id", "").split(",") if i])
             return
         if command == "removed":
             self.store.invalidate(self._removed_collection_members(data))
@@ -872,9 +1130,16 @@ class Library(threading.Thread):
                     known, selected, self._supported_views()
                 )
                 if items:
-                    self.store.publish(items, membership=membership)
+                    self.publish(items, membership=membership)
             return
         if command == "SyncLibrary":
+            if not self.store.watermark()[1]:
+                # Nothing has ever been listed whole, so the refresh that
+                # follows in this tick lists every selected library, this
+                # one among them: listing it here as well made a first
+                # selection enumerate everything twice.
+                self._full_due = True
+                return
             self.full_sync([i for i in data.get("Id", "").split(",") if i])
             return
         if command == "SyncPlaylists":
@@ -899,8 +1164,15 @@ class Library(threading.Thread):
         if command == "FastSync":
             self._catchup_due = 0
             return
+        rebuilt = (
+            self.rebuild_stale([i for i in (data or {}).get("Id", "").split(",") if i])
+            if command == "RepairLibrary"
+            else []
+        )
         self._full_due = True
-        self._repair = self._repair or command == "RepairLibrary"
+        # A rebuild's first pass only removes; the pass after the complete
+        # enumeration that follows is the repair (full_sync).
+        self._repair = self._repair or (command == "RepairLibrary" and not rebuilt)
 
     # -- native application -----------------------------------------------------------
 
@@ -923,6 +1195,8 @@ class Library(threading.Thread):
                         self._reload_owed.add(kind)
             self._repair = False
             status(xbmc.getLocalizedString(20177))
+            # The playlists and the skin's reload follow, counting nothing.
+            self._bar().working(progress.WAITING)
             self.flush_pending_reload()
         elif time.monotonic() >= self._bindings_due:
             # Nothing pending, so no pass: the movie folders an older
@@ -984,9 +1258,12 @@ class Library(threading.Thread):
         for item_id, values in self.store.local_pending():
             payload: Dict[str, Any] = {}
             if "playcount" in values:
-                payload.update(
-                    Played=values["playcount"] > 0, PlayCount=values["playcount"]
-                )
+                # The watched mark and never the number: the server counts
+                # the plays it is told of, Kodi counts its own, and a count
+                # sent from here replaced the server's with Kodi's (a song
+                # played once went up as 2; an episode marked watched took
+                # a count of 8 down to 1).
+                payload["Played"] = values["playcount"] > 0
             if "position" in values:
                 payload["PlaybackPositionTicks"] = int(values["position"] * 10000000)
             # The partial setter is idempotent across an interrupted reply;
@@ -997,5 +1274,5 @@ class Library(threading.Thread):
             item = metadata.compact(self.api.item(item_id))
             attach_extras(self.api, [item])
             if self.store.entry(item_id) is not None:
-                self.store.publish([item])
+                self.publish([item])
             self.store.local_done(item_id, values)

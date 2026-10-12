@@ -130,10 +130,71 @@ def test_enumeration_publishes_nothing_when_the_selection_emptied(store, monkeyp
 def test_sync_library_enumerates_only_the_named_library(store, monkeypatch):
     server = Server({LIB: [movie()], LIB2: show_bundle()})
     w = worker(store, server, [LIB, LIB2], monkeypatch)
+    store.set_watermark(watermark="2026-10-08T00:00:00Z", enumerated=time.time())
     w.command("SyncLibrary", {"Id": LIB})
     assert set(store.records(pinned=False)) == {"a"}
-    assert not w._repair
-    assert store.watermark() == ("", 0.0)
+    assert not w._repair and not w._full_due
+
+
+def test_a_first_selection_is_listed_once(store, monkeypatch):
+    """Nothing has been listed whole on a new profile, so the refresh that
+    follows the command in the same tick lists every selected library. The
+    command listed its library first as well: a first selection enumerated
+    everything twice, a minute of it on a small device."""
+    server = Server({LIB: [movie()], LIB2: show_bundle()})
+    w = worker(store, server, [LIB, LIB2], monkeypatch)
+    listings = []
+    items = server.items
+    server.items = lambda params: listings.append(params.get("ParentId")) or items(
+        params
+    )
+    w.command("SyncLibrary", {"Id": LIB})
+    assert listings == [] and w._full_due
+    w.refresh()
+    assert set(store.records(pinned=False)) >= {"a", SHOW}
+    # Each library was asked for once per kind, and the profile is listed.
+    assert listings.count(LIB) == 1
+    assert store.watermark()[1]
+
+
+def _named_states(monkeypatch):
+    """Give the states their string ids for names."""
+    from kofin.sync.backends.api import library
+
+    monkeypatch.setattr(library.settings, "localized", lambda i: "L%d" % i)
+    monkeypatch.setattr(library.xbmc, "getLocalizedString", lambda i: "K%d" % i)
+
+
+def test_a_first_listing_is_named_in_the_status_while_it_runs(store, monkeypatch):
+    from kofin.sync.backends.api import status
+
+    server = Server({LIB: [movie()], LIB2: show_bundle()})
+    w = worker(store, server, [LIB, LIB2], monkeypatch)
+    _named_states(monkeypatch)
+    seen = []
+    items = server.items
+    server.items = lambda params: seen.append(status.read()) or items(params)
+
+    w.full_sync()
+
+    assert seen[0]["state"] == "L30401"
+    assert sorted(seen[0]["listing"]) == sorted(
+        view["Name"] for view in server.views()["Items"]
+    )
+    # Published and waiting for the pass: still updating, nothing being listed.
+    assert status.read()["state"] == "L30401" and status.read()["listing"] == []
+    assert status.read()["since"] == seen[0]["since"]
+
+
+def test_a_listing_that_leaves_nothing_to_apply_ends_the_update(store, monkeypatch):
+    from kofin.sync.backends.api import status
+
+    w = worker(store, Server({}), [], monkeypatch)
+    _named_states(monkeypatch)
+
+    w.full_sync([LIB])
+
+    assert status.read()["state"] == "K20177"
 
 
 def test_catch_up_applies_feed_records_and_advances_the_watermark(store, monkeypatch):
@@ -254,7 +315,7 @@ def test_failed_event_or_local_delivery_cannot_starve_enumeration(store, monkeyp
     monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(library.time, "time", lambda: 10**6)
     monkeypatch.setattr(
-        library, "Native", lambda *args: SimpleNamespace(setup=lambda: None)
+        library, "Native", lambda *args, **kwargs: SimpleNamespace(setup=lambda: None)
     )
     monkeypatch.setattr(w, "apply", lambda native: None)
     monkeypatch.setattr(library, "status", lambda value: None)
@@ -533,3 +594,368 @@ def test_two_pages_need_no_second_client(monkeypatch):
     first, workers, factory, log = paged(monkeypatch, 20)
     assert len(fetch_kind(first, LIB, "Movie", api_factory=factory)) == 20
     assert not workers and log == [0, 10]
+
+
+def _whitelist(monkeypatch, *libraries):
+    from kofin.sync.backends.api import library
+
+    state = {"Whitelist": list(libraries)}
+    monkeypatch.setattr(library.private, "get_sync", lambda: state)
+    monkeypatch.setattr(
+        library.private,
+        "save_sync",
+        lambda new: state.update(Whitelist=list(new["Whitelist"])),
+    )
+    return state
+
+
+def _filed(store, monkeypatch, server, *libraries):
+    """Libraries enumerated and with a native row for every item, as a
+    profile an earlier build imported has them: no scanner format on record."""
+    from kofin.sync import private
+
+    w = worker(store, server, list(libraries), monkeypatch)
+    state = _whitelist(monkeypatch)
+    w.full_sync()
+    for number, (item_id, record) in enumerate(store.records(pinned=False).items()):
+        store.remember(item_id, record.generation, number + 1, {}, record.kind)
+    with private.Database() as db:
+        db.cursor.execute("DELETE FROM api_library")
+    w._full_due = w._repair = False
+    return w, state
+
+
+def _pending(store):
+    return {item_id: operation for item_id, _, operation, _ in store.pending_work()}
+
+
+def test_a_repair_rebuilds_a_video_library_filed_under_an_older_scanner_format(
+    store, monkeypatch
+):
+    """Streams have no setter, so a row filed without them gets them only by
+    being filed again, and nothing but the viewer's own repair may take a
+    library out of Kodi to do it."""
+    from kofin.sync.backends.api import metadata
+
+    server = Server({LIB: [movie(), movie("b")], LIB2: show_bundle()})
+    w, state = _filed(store, monkeypatch, server, LIB, LIB2)
+    assert store.scanner_format(LIB) == 1
+    enumerations = []
+    full_sync = w.full_sync
+    monkeypatch.setattr(w, "full_sync", lambda *a: enumerations.append(a))
+    monkeypatch.setattr(w, "catch_up", lambda: enumerations.append("catch-up"))
+
+    w.command("RepairLibrary", {"Id": LIB})
+    assert {i: e.library for i, e in store.tombstones().items()} == {"a": LIB, "b": LIB}
+    assert state["Whitelist"] == [LIB2]
+    assert w._rebuilding == {LIB} and w._full_due
+    # Its first pass only removes; the repair is the pass after the listing.
+    assert not w._repair
+    # Listed while its rows are still in Kodi, it would be compared with them.
+    w.refresh()
+    assert enumerations == []
+    store.forget_many([(i, store.state(i).desired) for i in ("a", "b")])
+    assert not store.has_rows(LIB)
+    w.refresh()
+    assert enumerations == [()] and not w._rebuilding
+
+    monkeypatch.setattr(w, "full_sync", full_sync)
+    w.full_sync()
+    assert sorted(state["Whitelist"]) == sorted([LIB, LIB2])
+    assert store.scanner_format(LIB) == metadata.SCANNER_FORMAT
+    pending = _pending(store)
+    assert pending["a"] == pending["b"] == "upsert"
+    # The shows were not picked and are as they were.
+    assert store.scanner_format(LIB2) == 1 and store.has_rows(LIB2)
+    # Once rebuilt, a repair of it is the comparison it always was.
+    w._full_due = w._repair = False
+    w.command("RepairLibrary", {"Id": LIB})
+    assert store.tombstones() == {} and w._repair and not w._rebuilding
+
+
+def test_a_rebuild_outlives_the_service_and_a_listing_asked_for_by_name(
+    store, monkeypatch
+):
+    """The removal is minutes long. Listed before its old rows have left, by
+    a restarted service or by a SyncLibrary for it, the library would be
+    compared with those rows and the repair would have rebuilt nothing."""
+    server = Server({LIB: [movie(), movie("b")], LIB2: show_bundle()})
+    w, state = _filed(store, monkeypatch, server, LIB, LIB2)
+    w.command("RepairLibrary", {"Id": LIB})
+    assert store.rebuilding() == [LIB]
+
+    # Asked for by name while its rows are still in Kodi.
+    w.command("SyncLibrary", {"Id": LIB})
+    assert _pending(store) == {"a": "remove", "b": "remove"}
+    assert state["Whitelist"] == [LIB2]
+
+    # A service started during the removal knows of the rebuild.
+    again = worker(store, server, [LIB, LIB2], monkeypatch)
+    _whitelist(monkeypatch, LIB2)
+    again._rebuilding.update(store.rebuilding())
+    enumerations = []
+    monkeypatch.setattr(again, "full_sync", lambda *a: enumerations.append(a))
+    again.refresh()
+    assert enumerations == [] and again._rebuilding == {LIB}
+    store.forget_many([(i, store.state(i).desired) for i in ("a", "b")])
+    again.refresh()
+    assert enumerations and not again._rebuilding
+
+
+def test_a_rebuild_stopped_before_its_tombstones_leaves_the_library_listed(
+    store, monkeypatch
+):
+    """The rows were tombstoned first and the whitelist written after. A
+    service killed between the two removed the rows of a library still on
+    the whitelist, and nothing listed it again before the next complete
+    enumeration: gone from Kodi for up to a day."""
+    from kofin.sync.backends.api import metadata
+
+    server = Server({LIB: [movie(), movie("b")], LIB2: show_bundle()})
+    w, state = _filed(store, monkeypatch, server, LIB, LIB2)
+    publish = store.publish
+
+    def killed(*args, **kwargs):
+        raise InterruptedError
+
+    monkeypatch.setattr(store, "publish", killed)
+    with pytest.raises(InterruptedError):
+        w.command("RepairLibrary", {"Id": LIB})
+    assert state["Whitelist"] == [LIB2] and store.tombstones() == {}
+    assert store.rebuilding() == [LIB]
+
+    # The service after it: nothing is leaving, so nothing is waited for,
+    # and the library is one that is selected and not synced.
+    monkeypatch.setattr(store, "publish", publish)
+    again = worker(store, server, [LIB, LIB2], monkeypatch)
+    _whitelist(monkeypatch, LIB2)
+    again._rebuilding.update(store.rebuilding())
+    enumerations = []
+    monkeypatch.setattr(again, "full_sync", lambda *a: enumerations.append(a))
+    again.refresh()
+    assert enumerations and not again._rebuilding
+    # It has the rows it had, and still asks for the repair that did not run.
+    assert store.has_rows(LIB)
+    assert store.scanner_format(LIB) < metadata.SCANNER_FORMAT
+
+
+def test_a_repair_with_no_library_named_rebuilds_every_stale_video_library(
+    store, monkeypatch
+):
+    music = "c" * 32
+    server = Server(
+        {LIB: [movie()], LIB2: show_bundle(), music: []},
+        views=[
+            {"Id": LIB, "CollectionType": "movies", "Name": "Films"},
+            {"Id": LIB2, "CollectionType": "tvshows", "Name": "Shows"},
+            {"Id": music, "CollectionType": "music", "Name": "Music"},
+        ],
+    )
+    w, state = _filed(store, monkeypatch, server, LIB, LIB2, music)
+    w.command("RepairLibrary", {})
+    assert w._rebuilding == {LIB, LIB2}
+    # A music library has no such rows and stays where it is.
+    assert state["Whitelist"] == [music]
+
+
+def test_a_library_is_recorded_under_the_format_its_rows_are_filed_with(
+    store, monkeypatch
+):
+    from kofin.sync import private
+    from kofin.sync.backends.api import metadata
+
+    server = Server({LIB: [movie()], LIB2: show_bundle()})
+    w = worker(store, server, [LIB], monkeypatch)
+    state = _whitelist(monkeypatch)
+    w.full_sync()
+    assert store.scanner_format(LIB) == metadata.SCANNER_FORMAT
+    # Deselected and selected again before its rows had left: they are the
+    # rows of whatever build filed them, and the record must not say more.
+    record = store.records(pinned=False)["a"]
+    store.remember("a", record.generation, 1, {}, "Movie")
+    with private.Database() as db:
+        db.cursor.execute("DELETE FROM api_library")
+    state["Whitelist"] = []
+    w.full_sync()
+    assert state["Whitelist"] == [LIB] and store.scanner_format(LIB) == 1
+
+
+def _user_data(store, item_id):
+    return store.item(item_id).get("UserData") or {}
+
+
+def test_the_server_user_data_of_the_playing_item_waits_for_its_stop(
+    store, monkeypatch
+):
+    """The server counts a play when it starts. Written to Kodi then, the
+    count was added to again by Kodi's own player at the end: one play of a
+    song, two counts."""
+    from kofin.sync.backends.api import library
+
+    store.publish([movie(UserData={}), movie("b", UserData={})], library=LIB)
+    w = worker(store, Server({LIB: [movie(), movie("b")]}), [LIB], monkeypatch)
+    playing = [{"Id": "a"}]
+    w.player = SimpleNamespace(current_item=lambda: playing[0])
+    clock = [1000.0]
+    monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
+
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 1}])
+    w.command("userdata", [{"ItemId": "b", "Played": True, "PlayCount": 1}])
+    assert not _user_data(store, "a").get("Played")
+    # What is not playing here is merged as it arrives.
+    assert _user_data(store, "b")["Played"]
+    # Progress reports replace the entry held, and nothing is applied
+    # however long the playback lasts.
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 1, "X": 1}])
+    clock[0] += 3600
+    w.release_userdata()
+    assert not _user_data(store, "a").get("Played") and list(w._held_userdata) == ["a"]
+
+    # The stop: the server's own entry for it is applied and nothing is held.
+    playing[0] = None
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 2}])
+    assert _user_data(store, "a")["PlayCount"] == 2
+    assert w._held_userdata == {}
+
+
+def _played_here(store, monkeypatch, items):
+    """A worker, a player that can be told what plays, and a clock."""
+    from kofin.sync.backends.api import library
+
+    server = Server({LIB: items})
+    store.publish([dict(item, UserData={}) for item in items], library=LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    playing = [None]
+    w.player = SimpleNamespace(current_item=lambda: playing[0])
+    clock = [1000.0]
+    monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
+    return w, server, playing, clock
+
+
+def test_what_a_play_made_of_an_item_is_asked_of_the_server_after_the_stop(
+    store, monkeypatch
+):
+    """The last entry heard may be a progress report, and the one the stop
+    sent may never arrive. Applied as it stood, the report of an episode
+    being watched again took its watched mark away after it had ended."""
+    from kofin.sync.backends.api import library
+
+    w, server, playing, clock = _played_here(store, monkeypatch, [movie()])
+    playing[0] = {"Id": "a"}
+    w.command("userdata", [{"ItemId": "a", "Played": False, "PlayCount": 2}])
+    playing[0] = None
+    # The stop's own entry is lost; the server has it all the same.
+    server.libraries[LIB][0]["UserData"] = {"Played": True, "PlayCount": 2}
+    w.release_userdata()
+    clock[0] += library.HELD_USERDATA_GRACE - 1
+    w.release_userdata()
+    assert _user_data(store, "a") == {} and list(w._held_userdata) == ["a"]
+    clock[0] += 2
+    w.release_userdata()
+    assert _user_data(store, "a")["Played"] and w._held_userdata == {}
+    assert _user_data(store, "a")["PlayCount"] == 2
+
+    # Played again before the grace was over: held for the new playback.
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 3}])
+    playing[0] = {"Id": "a"}
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 4}])
+    playing[0] = None
+    w.release_userdata()
+    playing[0] = {"Id": "a"}
+    clock[0] += library.HELD_USERDATA_GRACE + 5
+    w.release_userdata()
+    assert _user_data(store, "a")["PlayCount"] == 3
+
+
+def test_a_release_the_server_cannot_answer_is_asked_again(store, monkeypatch):
+    from kofin.sync.backends.api import library
+
+    w, server, playing, clock = _played_here(store, monkeypatch, [movie()])
+    playing[0] = {"Id": "a"}
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 1}])
+    playing[0] = None
+    server.libraries[LIB][0]["UserData"] = {"Played": True, "PlayCount": 1}
+    answer = server.items
+
+    def away(params):
+        raise OSError("server away")
+
+    server.items = away
+    w.release_userdata()
+    clock[0] += library.HELD_USERDATA_GRACE + 1
+    w.release_userdata()
+    # Not a failure of the tick, and nothing lost: asked again a grace on.
+    assert list(w._held_userdata) == ["a"] and _user_data(store, "a") == {}
+    server.items = answer
+    w.release_userdata()
+    assert list(w._held_userdata) == ["a"]
+    clock[0] += library.HELD_USERDATA_GRACE + 1
+    w.release_userdata()
+    assert _user_data(store, "a")["Played"] and w._held_userdata == {}
+
+
+def test_a_release_whose_publish_failed_is_still_held(store, monkeypatch):
+    """A release has no queue behind it; dropped before a publish that
+    failed, what it held was gone for good."""
+    from kofin.sync.backends.api import library
+
+    w, server, playing, clock = _played_here(store, monkeypatch, [movie()])
+    playing[0] = {"Id": "a"}
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 1}])
+    playing[0] = None
+    server.libraries[LIB][0]["UserData"] = {"Played": True, "PlayCount": 1}
+    w.release_userdata()
+    clock[0] += library.HELD_USERDATA_GRACE + 1
+    publish = store.publish
+
+    def locked(*args, **kwargs):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(store, "publish", locked)
+    with pytest.raises(RuntimeError):
+        w.release_userdata()
+    assert list(w._held_userdata) == ["a"]
+    monkeypatch.setattr(store, "publish", publish)
+    w.release_userdata()
+    assert _user_data(store, "a")["Played"] and w._held_userdata == {}
+
+
+def test_a_full_item_arriving_mid_play_does_not_carry_its_user_data(store, monkeypatch):
+    """A listing, a catch-up or a metadata change during a play carries the
+    server's count for the play in progress as surely as a user data event
+    does."""
+    w, server, playing, clock = _played_here(store, monkeypatch, [movie(), movie("b")])
+    playing[0] = {"Id": "a"}
+    for row in server.libraries[LIB]:
+        row["UserData"] = {"Played": True, "PlayCount": 1}
+        row["Overview"] = "Edited"
+
+    w.command("changed", ["a", "b"])
+    # The metadata is taken; the user data of what is playing waits.
+    assert store.item("a")["Overview"] == store.item("b")["Overview"] == "Edited"
+    assert _user_data(store, "a") == {} and _user_data(store, "b")["Played"]
+    assert w._held_userdata["a"][0]["PlayCount"] == 1
+
+    # A complete listing during the play is no different.
+    w._held_userdata.clear()
+    w.full_sync()
+    assert _user_data(store, "a") == {} and list(w._held_userdata) == ["a"]
+
+
+def test_a_watched_mark_goes_to_the_server_without_a_count(store, monkeypatch):
+    """Kodi counts its own plays and the server the ones it is told of. The
+    count sent with the mark replaced the server's: a song played once went
+    up as 2."""
+    server = Server({LIB: [movie()]})
+    store.publish([movie()], library=LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    store.local("a", {"playcount": 4})
+    w.flush_local()
+    assert server.updated == [("a", {"Played": True})]
+    store.local("a", {"playcount": 0, "position": 30.0})
+    w.flush_local()
+    assert server.updated[-1] == (
+        "a",
+        {"Played": False, "PlaybackPositionTicks": 300000000},
+    )
+    assert store.local_pending() == []

@@ -2240,6 +2240,46 @@ msgctxt "#30858"
 msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
 msgstr "Налаштування Kodi «Ігнорувати додаткові матеріали до фільмів під час сканування» тепер вимкнено, щоб можна було імпортувати додаткові матеріали до фільмів"
 
+msgctxt "#30859"
+msgid "Library status"
+msgstr "Стан медіатеки"
+
+msgctxt "#30860"
+msgid "What is synced, what is still pending and what the sync is doing now."
+msgstr "Що синхронізовано, що ще очікує і що синхронізація робить зараз."
+
+msgctxt "#30861"
+msgid "Transcode music whose bitrate is above the maximum set below. Off, songs play from the server untouched."
+msgstr "Перекодовувати музику, бітрейт якої перевищує максимум, заданий нижче. Якщо вимкнено, композиції відтворюються із сервера без змін."
+
+msgctxt "#30862"
+msgid "in Kodi / on the server"
+msgstr "у Kodi / на сервері"
+
+msgctxt "#30863"
+msgid "Pending"
+msgstr "Очікує"
+
+msgctxt "#30864"
+msgid "Failed"
+msgstr "Збій"
+
+msgctxt "#30865"
+msgid "Last full update"
+msgstr "Останнє повне оновлення"
+
+msgctxt "#30866"
+msgid "Companion add-on"
+msgstr "Супутній додаток"
+
+msgctxt "#30867"
+msgid "Repair to add codec details"
+msgstr "Відновіть, щоб додати відомості про кодеки"
+
+msgctxt "#30868"
+msgid "Kodi cannot import"
+msgstr "Kodi не може імпортувати"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Недоступно в цій тестовій версії"

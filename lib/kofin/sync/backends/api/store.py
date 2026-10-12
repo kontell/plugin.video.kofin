@@ -17,7 +17,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from kofin.sync.catalogue import Catalogue
 from kofin.sync.model import MediaItem
@@ -89,6 +89,12 @@ class Mapping:
     kind: str
 
 
+# The scanner format of a library whose rows are being removed for a
+# rebuild (library.rebuild_stale). It is below every real format, and it is
+# in the store because the removal outlives a service restart.
+REBUILDING = 0
+
+
 class Store(Catalogue):
     def _prepare(self, cursor):
         super()._prepare(cursor)
@@ -129,7 +135,123 @@ class Store(Catalogue):
                 id INTEGER PRIMARY KEY CHECK(id=1), namespace TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS api_held(
                 setting TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS api_library(
+                namespace TEXT NOT NULL, library TEXT NOT NULL,
+                scanner INTEGER NOT NULL,
+                PRIMARY KEY(namespace,library));
         """)
+
+    # -- the scanner format a library's rows were filed under ----------------
+
+    def scanner_format(self, library) -> int:
+        """1 for a library with no record: its rows were filed before the
+        record existed (metadata.SCANNER_FORMAT)."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            row = db.cursor.execute(
+                "SELECT scanner FROM api_library WHERE namespace=? AND library=?",
+                (self.namespace, library),
+            ).fetchone()
+        return int(row[0]) if row else 1
+
+    def set_scanner_format(self, library, value):
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute(
+                "INSERT OR REPLACE INTO api_library VALUES (?,?,?)",
+                (self.namespace, library, int(value)),
+            )
+
+    def rebuilding(self) -> List[str]:
+        """The libraries recorded as being rebuilt (REBUILDING): their rows
+        are being removed so that the listing after imports them again."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                "SELECT library FROM api_library WHERE namespace=? AND scanner=?",
+                (self.namespace, REBUILDING),
+            ).fetchall()
+        return [row[0] for row in rows]
+
+    # -- what the status dialog counts -----------------------------------------
+
+    def summary(self) -> Dict[Tuple[str, str], Tuple[int, int, int]]:
+        """(library, kind) -> (items in the catalogue, of them in Kodi, of
+        them settled without a row: what Kodi's scanner cannot file)."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                """SELECT e.library, e.kind, COUNT(*),
+                SUM(CASE WHEN n.kodi_id IS NOT NULL THEN 1 ELSE 0 END),
+                SUM(CASE WHEN n.item_id IS NOT NULL AND n.kodi_id IS NULL
+                    AND i.status='applied' THEN 1 ELSE 0 END)
+                FROM api_entry e
+                JOIN api_item i ON i.namespace=e.namespace AND i.item_id=e.item_id
+                LEFT JOIN api_native n
+                ON n.namespace=e.namespace AND n.item_id=e.item_id
+                WHERE e.namespace=? AND e.removed IS NULL
+                GROUP BY e.library, e.kind""",
+                (self.namespace,),
+            ).fetchall()
+        return {
+            (row[0], row[1]): (int(row[2]), int(row[3] or 0), int(row[4] or 0))
+            for row in rows
+        }
+
+    def leaving(self) -> Set[str]:
+        """The libraries with a removal still pending."""
+        return {entry.library for entry in self.tombstones().values() if entry.library}
+
+    def outstanding(self) -> Tuple[int, int, str]:
+        """(items pending, of them failed at their last try, one failure)."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            pending, failed = db.cursor.execute(
+                """SELECT COUNT(*), SUM(CASE WHEN error<>'' THEN 1 ELSE 0 END)
+                FROM api_item WHERE namespace=? AND status='pending'""",
+                (self.namespace,),
+            ).fetchone()
+            row = db.cursor.execute(
+                """SELECT error FROM api_item
+                WHERE namespace=? AND status='pending' AND error<>'' LIMIT 1""",
+                (self.namespace,),
+            ).fetchone()
+        return int(pending or 0), int(failed or 0), row[0] if row else ""
+
+    def has_rows(self, library) -> bool:
+        """Whether any live item of the library has a native row."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            return bool(
+                db.cursor.execute(
+                    """SELECT 1 FROM api_native n JOIN api_entry e
+                    ON e.namespace=n.namespace AND e.item_id=n.item_id
+                    WHERE n.namespace=? AND n.kodi_id IS NOT NULL
+                    AND e.removed IS NULL AND e.library=? LIMIT 1""",
+                    (self.namespace, library),
+                ).fetchone()
+            )
+
+    def removing(self, libraries) -> bool:
+        """Whether a removal is still pending for an item last placed in
+        one of these libraries."""
+        libraries = list(libraries)
+        if not libraries:
+            return False
+        with Database() as db:
+            self._prepare(db.cursor)
+            return bool(
+                db.cursor.execute(
+                    """SELECT 1 FROM api_item i JOIN api_entry e
+                    ON e.namespace=i.namespace AND e.item_id=i.item_id
+                    WHERE i.namespace=? AND i.operation='remove'
+                    AND i.status='pending' AND e.library IN (%s)
+                    AND e.added=(SELECT MAX(added) FROM api_entry x
+                        WHERE x.namespace=e.namespace AND x.item_id=e.item_id)
+                    LIMIT 1""" % ",".join("?" * len(libraries)),
+                    [self.namespace] + libraries,
+                ).fetchone()
+            )
 
     # -- Kodi settings a scan owes back --------------------------------------
 
@@ -755,21 +877,6 @@ class Store(Catalogue):
                     " AND item_id IN (%s)" % ",".join("?" * len(chunk)),
                     [self.namespace] + chunk,
                 )
-
-    def invalidate_where(self, kinds, except_library=None):
-        with Database() as db:
-            self._prepare(db.cursor)
-            kinds = tuple(kinds)
-            params: List[Any] = [self.namespace] + list(kinds)
-            query = (
-                "UPDATE api_item SET status='pending' WHERE namespace=? AND operation='upsert'"
-                " AND item_id IN (SELECT item_id FROM api_entry e WHERE e.namespace=api_item.namespace"
-                " AND e.removed IS NULL AND e.kind IN (%s)" % ",".join("?" * len(kinds))
-            )
-            if except_library is not None:
-                query += " AND e.library<>?"
-                params.append(except_library)
-            db.cursor.execute(query + ")", params)
 
     # -- scanner bindings, watermarks --------------------------------------------
 

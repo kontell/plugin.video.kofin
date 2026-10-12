@@ -265,7 +265,12 @@ def test_cast_carries_the_persons_portrait(recorded, monkeypatch):
     }
     listitems.build(item, SERVER)
     assert actors == [
-        ("Al Pacino", "Arthur Kirkland", 0, SERVER + "/Items/p1/Images/Primary?tag=t1"),
+        (
+            "Al Pacino",
+            "Arthur Kirkland",
+            0,
+            SERVER + "/Items/p1/Images/Primary?tag=t1" + listitems.person_query(),
+        ),
         ("No Portrait", "Judge", 1, ""),
     ]
 
@@ -373,12 +378,31 @@ def test_art_query_is_memoised_for_a_moment(monkeypatch):
     listitems.forget_art_query()
 
 
-def test_person_thumb_obeys_the_artwork_cap(monkeypatch):
+def test_a_persons_portrait_is_capped_at_400_whatever_the_artwork_cap(monkeypatch):
     """The video scanner caches a row's actor thumbs at import; uncapped they
-    were 3,615 full-size decodes beside 3,239 capped posters on a tablet."""
-    monkeypatch.setattr(listitems, "art_query", lambda: "&MaxHeight=720&Quality=90")
-    assert (
-        listitems.person_thumb("http://s", {"Id": "p1", "PrimaryImageTag": "t1"})
-        == "http://s/Items/p1/Images/Primary?tag=t1&MaxHeight=720&Quality=90"
+    were 3,615 full-size decodes beside 3,239 capped posters on a tablet.
+    Under the artwork cap alone they still came at up to 1080 high, which
+    for most portraits is no cap: a portrait is a thumb beside a name."""
+    person = {"Id": "p1", "PrimaryImageTag": "t1"}
+    cases = (
+        (1080, True, "&MaxHeight=400&MaxWidth=400&Quality=90"),
+        (720, False, "&MaxHeight=400&MaxWidth=400"),
+        # A viewer's cap below 400 is the cap.
+        (240, True, "&MaxHeight=240&MaxWidth=240&Quality=90"),
+        # No artwork cap at all is not no cap for a portrait.
+        (0, True, "&MaxHeight=400&MaxWidth=400&Quality=90"),
     )
+    for cap, compress, query in cases:
+        monkeypatch.setattr(listitems.settings, "get_int", lambda key, cap=cap: cap)
+        monkeypatch.setattr(
+            listitems.settings, "get_bool", lambda key, compress=compress: compress
+        )
+        listitems.forget_art_query()
+        assert (
+            listitems.person_thumb("http://s", person)
+            == "http://s/Items/p1/Images/Primary?tag=t1" + query
+        )
+    # The posters keep the cap the viewer set, and none when there is none.
+    assert listitems.art_query() == ""
+    listitems.forget_art_query()
     assert listitems.person_thumb("http://s", {"Id": "p1"}) == ""

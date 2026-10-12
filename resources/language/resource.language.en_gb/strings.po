@@ -2392,6 +2392,52 @@ msgctxt "#30858"
 msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
 msgstr ""
 
+# 30859-30868 — the API build's library status dialog (settings.xml
+# libraryStatus, plugin/actions.py library_status) and its help for
+# "Transcode music" (30861, in place of 30136: no path is rewritten there).
+# 30862 follows 30859 in the dialog's heading; 30863-30868 each lead a row
+# and are followed by a colon and a value. 30868 counts what Kodi's scanner
+# has no place for, such as a special with no episode number.
+msgctxt "#30859"
+msgid "Library status"
+msgstr ""
+
+msgctxt "#30860"
+msgid "What is synced, what is still pending and what the sync is doing now."
+msgstr ""
+
+msgctxt "#30861"
+msgid "Transcode music whose bitrate is above the maximum set below. Off, songs play from the server untouched."
+msgstr ""
+
+msgctxt "#30862"
+msgid "in Kodi / on the server"
+msgstr ""
+
+msgctxt "#30863"
+msgid "Pending"
+msgstr ""
+
+msgctxt "#30864"
+msgid "Failed"
+msgstr ""
+
+msgctxt "#30865"
+msgid "Last full update"
+msgstr ""
+
+msgctxt "#30866"
+msgid "Companion add-on"
+msgstr ""
+
+msgctxt "#30867"
+msgid "Repair to add codec details"
+msgstr ""
+
+msgctxt "#30868"
+msgid "Kodi cannot import"
+msgstr ""
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr ""

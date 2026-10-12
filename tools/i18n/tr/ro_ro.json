@@ -501,5 +501,15 @@
   "#30990": "Indisponibil în această versiune preliminară",
   "#30856": "Noduri de bibliotecă și liste de redare",
   "#30857": "Creează noduri de bibliotecă Kodi și liste inteligente pentru bibliotecile video sincronizate și copiază listele Jellyfin în Kodi la Video → Liste de redare → Kofin și Muzică → Liste de redare → Kofin. Dezactivat, elimină toate nodurile și listele create de Kofin, lasă fișierele făcute manual neatinse și afișează bibliotecile sincronizate prin intrările de navigare proprii Kofin.",
-  "#30858": "Setarea Kodi „Ignoră extrasurile video la scanare” este acum dezactivată pentru ca extrasurile filmelor să poată fi importate"
+  "#30858": "Setarea Kodi „Ignoră extrasurile video la scanare” este acum dezactivată pentru ca extrasurile filmelor să poată fi importate",
+  "#30859": "Stare bibliotecă",
+  "#30860": "Ce este sincronizat, ce mai este în așteptare și ce face acum sincronizarea.",
+  "#30861": "Transcodează muzica a cărei rată de biți depășește maximul stabilit mai jos. Dezactivat, melodiile sunt redate de pe server nemodificate.",
+  "#30862": "în Kodi / pe server",
+  "#30863": "În așteptare",
+  "#30864": "Eșuate",
+  "#30865": "Ultima actualizare completă",
+  "#30866": "Supliment companion",
+  "#30867": "Repară pentru a adăuga detaliile codecurilor",
+  "#30868": "Kodi nu poate importa"
 }

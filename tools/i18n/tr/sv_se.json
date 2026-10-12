@@ -501,5 +501,15 @@
   "#30990": "Inte tillgängligt i denna förhandsversion",
   "#30856": "Biblioteksnoder och spellistor",
   "#30857": "Skapa Kodi-biblioteksnoder och smarta spellistor för de synkade videobiblioteken och kopiera Jellyfin-spellistor till Kodi under Video → Spellistor → Kofin och Musik → Spellistor → Kofin. Avstängt tas alla noder och spellistor som Kofin skapat bort, handgjorda filer lämnas orörda och de synkade biblioteken visas via Kofins egna bläddringsposter i stället.",
-  "#30858": "Kodis inställning 'Ignorera videoextramaterial vid skanning' är nu av så att filmextramaterial kan importeras"
+  "#30858": "Kodis inställning 'Ignorera videoextramaterial vid skanning' är nu av så att filmextramaterial kan importeras",
+  "#30859": "Biblioteksstatus",
+  "#30860": "Vad som är synkat, vad som fortfarande väntar och vad synken gör just nu.",
+  "#30861": "Omkoda musik vars bithastighet överstiger det maximum som anges nedan. Av: låtar spelas upp oförändrade från servern.",
+  "#30862": "i Kodi / på servern",
+  "#30863": "Väntar",
+  "#30864": "Misslyckades",
+  "#30865": "Senaste fullständiga uppdatering",
+  "#30866": "Hjälptillägg",
+  "#30867": "Reparera för att lägga till codec-uppgifter",
+  "#30868": "Kodi kan inte importera"
 }

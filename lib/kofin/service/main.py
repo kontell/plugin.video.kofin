@@ -317,6 +317,7 @@ class Service(xbmc.Monitor):
 
     def _prepare_api_backend(self) -> None:
         from kofin.sync.backend import create_backend
+        from kofin.sync.backends.api import status as apistatus
         from kofin.sync.catalogue import BackendMismatch
         from kofin.sync.private import addon_data_path
         import os
@@ -347,15 +348,12 @@ class Service(xbmc.Monitor):
             report["private_state"],
         )
         if report["private_state"] != "ready":
-            settings.set_str(
-                "syncStatus",
+            apistatus.write(
                 settings.localized(30420)
-                % "Fresh native library required; see OR migration guide",
+                % "Fresh native library required; see OR migration guide"
             )
         elif not self._api_interfaces:
-            settings.set_str(
-                "syncStatus", settings.localized(30420) % "; ".join(report["errors"])
-            )
+            apistatus.write(settings.localized(30420) % "; ".join(report["errors"]))
         elif self.credentials.is_logged_in:
             # Published native work is replayable without waiting for Jellyfin
             # to reconnect after Kodi restarts.

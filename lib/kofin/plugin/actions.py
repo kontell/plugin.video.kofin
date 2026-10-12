@@ -815,6 +815,21 @@ def delete_all_downloads(request: Request) -> None:
     ipc.notify(ipc.DOWNLOAD_REMOVE_ALL)
 
 
+def library_status(request: Request) -> None:
+    """Settings button: what is synced, what is pending, what the sync is
+    doing (the API build). The report and its dialog are status.py's; the
+    button carries no ``<close>``, so reading it returns to the settings."""
+    from kofin import buildconfig
+
+    if buildconfig.BACKEND != "api":
+        toast.show(settings.localized(30990), toast.WARNING)
+        return
+    from kofin.sync.backends.api import status
+    from kofin.sync.backends.api.identity import current_store
+
+    status.show(current_store())
+
+
 def download_size(request: Request) -> None:
     """Settings button: where the downloads are and what they weigh (D1).
 

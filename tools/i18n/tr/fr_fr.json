@@ -501,5 +501,15 @@
   "#30990": "Indisponible dans cette préversion",
   "#30856": "Nœuds de bibliothèque et listes de lecture",
   "#30857": "Créer des nœuds de bibliothèque Kodi et des listes de lecture intelligentes pour les bibliothèques vidéo synchronisées, et copier les listes de lecture Jellyfin dans Kodi sous Vidéos → Listes de lecture → Kofin et Musique → Listes de lecture → Kofin. Désactivé, tous les nœuds et listes créés par Kofin sont supprimés, les fichiers faits à la main sont laissés intacts et les bibliothèques synchronisées sont affichées par les entrées de navigation propres à Kofin.",
-  "#30858": "Le réglage Kodi « Ignorer les bonus vidéo lors de l'analyse » est maintenant désactivé pour que les bonus des films puissent être importés"
+  "#30858": "Le réglage Kodi « Ignorer les bonus vidéo lors de l'analyse » est maintenant désactivé pour que les bonus des films puissent être importés",
+  "#30859": "État de la bibliothèque",
+  "#30860": "Ce qui est synchronisé, ce qui reste en attente et ce que fait la synchronisation en ce moment.",
+  "#30861": "Transcoder la musique dont le débit dépasse le maximum défini ci-dessous. Désactivé, les chansons sont lues depuis le serveur sans modification.",
+  "#30862": "dans Kodi / sur le serveur",
+  "#30863": "En attente",
+  "#30864": "En échec",
+  "#30865": "Dernière mise à jour complète",
+  "#30866": "Extension compagnon",
+  "#30867": "Réparer pour ajouter les détails des codecs",
+  "#30868": "Kodi ne peut pas importer"
 }

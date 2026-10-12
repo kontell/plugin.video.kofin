@@ -42,6 +42,53 @@ def test_zip_and_development_install_have_identical_profile_contents(tmp_path):
         }
         assert ("libraryNodes" in settings_ids) == (profile == "api")
         assert ("syncMusicPlaylists" in settings_ids) == (profile == "sql")
+        # The status dialog stands where the SQL build has its two lines.
+        assert ("libraryStatus" in settings_ids) == (profile == "api")
+        assert ("syncStatus" in settings_ids) == (profile == "sql")
+        assert ("syncedLibraries" in settings_ids) == (profile == "sql")
+
+
+def _settings(tmp_path, profile):
+    build = _build_module()
+    stage = tmp_path / profile
+    build.stage(stage, profile)
+    tree = ET.parse(stage / "resources" / "settings.xml").getroot()
+    return {setting.get("id"): setting for setting in tree.iter("setting")}
+
+
+def _visible_while(setting):
+    return {
+        (condition.get("setting"), condition.text)
+        for dependency in setting.findall("dependencies/dependency")
+        if dependency.get("type") == "visible"
+        for condition in dependency.iter("condition")
+    }
+
+
+def test_the_api_profile_hides_the_direct_play_lists_under_force_direct_play(
+    tmp_path,
+):
+    """On Kodi 21 a visibility rule on a list setting unregisters the setting
+    it names, and the SQL build still installs there; the API build's floor
+    is Kodi 22."""
+    lists = ("directPlayVideoCodecs", "directPlayAudioCodecs", "allowedHdrTypes")
+    api, sql = _settings(tmp_path, "api"), _settings(tmp_path, "sql")
+    for name in lists:
+        assert ("forceDirectPlay", "false") in _visible_while(api[name])
+        assert ("forceDirectPlay", "false") not in _visible_while(sql[name])
+        # The rule comes before the control, where the settings schema has it.
+        children = [child.tag for child in api[name]]
+        assert children.index("dependencies") < children.index("control")
+    for name in ("forceRemux", "forceTranscode"):
+        assert ("forceDirectPlay", "false") in _visible_while(api[name])
+        assert ("forceDirectPlay", "false") in _visible_while(sql[name])
+
+
+def test_the_api_profile_says_what_transcode_music_does_there(tmp_path):
+    """Every song is a plugin path in the API build, so the switch rewrites
+    nothing and its help must not ask for a repair."""
+    assert _settings(tmp_path, "api")["musicTranscode"].get("help") == "30861"
+    assert _settings(tmp_path, "sql")["musicTranscode"].get("help") == "30136"
 
 
 def test_api_package_starts_with_native_imports_and_file_access_forbidden(tmp_path):

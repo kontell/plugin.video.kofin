@@ -262,9 +262,18 @@ class MusicPass:
                 previous = applied.get("dir")
                 if previous and previous != folder:
                     folders.add(previous)
-            for record in self.native.payloads.walk(tagged):
-                if mappings[record.item_id].applied.get("tag") != self.tag_hash(record):
-                    moved(record)
+            # The walk is the long part (a payload parsed and a tag hash for
+            # each song), so it is the part the bar counts.
+            saved = self.native.progress.phase(len(tagged), progress.label("Audio"))
+            try:
+                for record in self.native.payloads.walk(tagged):
+                    self.native.progress.step("Audio")
+                    if mappings[record.item_id].applied.get("tag") != self.tag_hash(
+                        record
+                    ):
+                        moved(record)
+            finally:
+                self.native.progress.restore(saved)
             if revived:
                 self.store.invalidate(revived)
                 upserts.update(revived)
