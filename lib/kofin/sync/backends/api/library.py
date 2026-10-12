@@ -319,7 +319,8 @@ class Library(threading.Thread):
         self._reload_owed: Set[str] = set()
         self.stop_thread = False
         self._stop_event = threading.Event()
-        self._queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+        # (command, data), and a third member on an entry that is a retry.
+        self._queue: queue.Queue[Tuple[Any, ...]] = queue.Queue()
         self._catchup_due = 0.0
         self._full_due = False
         self._repair = False
@@ -460,9 +461,10 @@ class Library(threading.Thread):
         failed = False
         # Only visit each queued command once per tick, including failures.
         for _ in range(min(100, self._queue.qsize())):
-            command, data, *again = self._queue.get_nowait()
+            entry = self._queue.get_nowait()
+            command, data = entry[0], entry[1]
             try:
-                self.command(command, data, retry=bool(again))
+                self.command(command, data, retry=len(entry) > 2)
             except InterruptedError:
                 raise
             except Exception:
