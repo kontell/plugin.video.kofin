@@ -23,14 +23,16 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import xbmc
 
-from kofin.core import kodirpc, state
+from kofin.core import kodirpc, settings, state
 from kofin.core.api import Api
 from kofin.core.imagecache import image_size
 from kofin.core.log import Logger
+from kofin.core.settings import Credentials
+from kofin.core.stdhttp import StdlibHttp
 from kofin.sync import private
 from . import companion
 
@@ -50,6 +52,16 @@ ACK_POLL = 0.5
 
 _DIRECT_METHODS = ("DirectPlay", "DirectStream")
 _VIDEO_TYPES = ("Movie", "Episode", "MusicVideo", "Video")
+
+
+class _Staging(StdlibHttp):
+    """The image workers' transport: a kept-alive connection per worker
+    thread (stdhttp), and a retry ladder that gives up when the play the
+    images are for is over."""
+
+    def __init__(self, verify_ssl: bool, abort: Callable[[], bool]) -> None:
+        super().__init__(verify_ssl)
+        self._abort = abort
 
 
 def eligible(item: JsonDict) -> bool:
@@ -247,6 +259,7 @@ class ChapterArt:
         the wait between the start of playback and the tiles being there.
         """
         os.makedirs(self._directory, exist_ok=True)
+        download, release = self._downloads()
 
         def fetch(pair: Tuple[int, Any]) -> Optional[JsonDict]:
             position, tag = pair
@@ -256,7 +269,7 @@ class ChapterArt:
                 self._item["Id"], position, str(tag), IMAGE_MAX_WIDTH
             )
             try:
-                data = self._api.download(url)
+                data = download(url)
             except Exception as error:
                 LOG.debug("chapter %d image fetch failed: %s", position, error)
                 return None
@@ -268,11 +281,26 @@ class ChapterArt:
             width, height = image_size(data)
             return {"n": position + 1, "file": target, "width": width, "height": height}
 
-        with ThreadPoolExecutor(
-            max_workers=STAGERS, thread_name_prefix="kofin-chapter-image"
-        ) as pool:
-            fetched = list(pool.map(fetch, tagged))
+        try:
+            with ThreadPoolExecutor(
+                max_workers=STAGERS, thread_name_prefix="kofin-chapter-image"
+            ) as pool:
+                fetched = list(pool.map(fetch, tagged))
+        finally:
+            release()
         return [entry for entry in fetched if entry is not None]
+
+    def _downloads(self) -> Tuple[Callable[[str], bytes], Callable[[], None]]:
+        """The workers' download call, and what releases it afterwards.
+
+        Not the service's client. That is one requests session, the library
+        thread is on it while a film's chapters are fetched, and a session
+        is not for concurrent requests: the sync gives each of its workers
+        a client of its own for that reason (service/main.py, _new_api).
+        """
+        transport = _Staging(settings.get_bool("sslVerify"), self._cancel.is_set)
+        client = Api.from_credentials(transport, Credentials.load())
+        return client.download, transport.close
 
     def _await(self, wanted: int) -> int:
         """Poll the texture cache until it holds ``wanted`` keys of the item
