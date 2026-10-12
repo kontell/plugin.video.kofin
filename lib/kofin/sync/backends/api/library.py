@@ -25,6 +25,7 @@ from kofin.sync.catalogue import BackendMismatch
 from kofin.sync.downloader import info, library_filter
 from . import metadata, progress
 from . import playlists as api_playlists
+from . import status as apistatus
 from .native import Native
 from .store import Store, namespace
 
@@ -76,10 +77,9 @@ HAS_CONTENT = {
 }
 
 
-def status(value):
-    # Every setting write rewrites settings.xml and fires a settings callback.
-    if settings.get_str("syncStatus") != value:
-        settings.set_str("syncStatus", value)
+def status(value, listing=()):
+    """What the sync is doing, for the status dialog (status.py)."""
+    apistatus.write(value, listing)
 
 
 def collection_kinds(view):
@@ -567,6 +567,13 @@ class Library(threading.Thread):
             self._full_sync(libraries, bar)
         finally:
             bar.close()
+        # The pass that follows says when the update is done; a listing that
+        # left it nothing to do ends here. One that failed is the tick's to
+        # report.
+        if not (self.store.has_pending() or self._repair):
+            status(xbmc.getLocalizedString(20177))
+        else:
+            status(settings.localized(30401))
 
     def _full_sync(self, libraries, bar):
         # Until the first page of the first kind arrives nothing is counted:
@@ -580,6 +587,17 @@ class Library(threading.Thread):
             if library in supported and library in selected
         ]
         complete = libraries is None
+        # A listing is minutes of a first import, and until it is published
+        # the catalogue has no row of a library selected for the first time.
+        whitelist = private.get_sync()["Whitelist"]
+        status(
+            settings.localized(30401),
+            listing=[
+                supported[library].get("Name", library)
+                for library in targets
+                if library not in whitelist
+            ],
+        )
         started = self._server_now()
         fetched: Dict[str, List[dict]] = {}
         for library in targets:
@@ -676,7 +694,7 @@ class Library(threading.Thread):
                         supported[library].get("CollectionType") or "mixed",
                     ),
                 )
-        self.update_selection_label()
+        self.publish_selection()
         # The playlists follow the catalogue they point into.
         self._playlists_due = True
 
@@ -914,7 +932,8 @@ class Library(threading.Thread):
             # apply_userdata drops each from the held set as it applies it.
             self.apply_userdata(due)
 
-    def update_selection_label(self):
+    def publish_selection(self):
+        """The selection moved: the node tree and the skin entries follow it."""
         whitelist = private.get_sync()["Whitelist"]
         with private.Database() as db:
             names = [
@@ -924,10 +943,7 @@ class Library(threading.Thread):
                 ).fetchall()
                 if key in whitelist
             ]
-        label = ", ".join(names)
-        if settings.get_str("syncedLibraries") != label:
-            settings.set_str("syncedLibraries", label)
-        # The selection moved: the node tree and the skin entries follow it.
+        LOG.info("synced libraries: %s", ", ".join(names) or "none")
         try:
             from kofin.sync.dynamic import publish
 
@@ -945,7 +961,7 @@ class Library(threading.Thread):
             state = private.get_sync()
             state["Whitelist"] = [i for i in state["Whitelist"] if i != library]
             private.save_sync(state)
-        self.update_selection_label()
+        self.publish_selection()
         # The playlists of a side whose last library left are pruned
         # by the next pass (backends/api/playlists.reconcile).
         self._playlists_due = True

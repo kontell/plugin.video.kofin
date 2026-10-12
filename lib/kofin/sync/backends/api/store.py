@@ -17,7 +17,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from kofin.sync.catalogue import Catalogue
 from kofin.sync.model import MediaItem
@@ -155,6 +155,51 @@ class Store(Catalogue):
                 "INSERT OR REPLACE INTO api_library VALUES (?,?,?)",
                 (self.namespace, library, int(value)),
             )
+
+    # -- what the status dialog counts -----------------------------------------
+
+    def summary(self) -> Dict[Tuple[str, str], Tuple[int, int, int]]:
+        """(library, kind) -> (items in the catalogue, of them in Kodi, of
+        them settled without a row: what Kodi's scanner cannot file)."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                """SELECT e.library, e.kind, COUNT(*),
+                SUM(CASE WHEN n.kodi_id IS NOT NULL THEN 1 ELSE 0 END),
+                SUM(CASE WHEN n.item_id IS NOT NULL AND n.kodi_id IS NULL
+                    AND i.status='applied' THEN 1 ELSE 0 END)
+                FROM api_entry e
+                JOIN api_item i ON i.namespace=e.namespace AND i.item_id=e.item_id
+                LEFT JOIN api_native n
+                ON n.namespace=e.namespace AND n.item_id=e.item_id
+                WHERE e.namespace=? AND e.removed IS NULL
+                GROUP BY e.library, e.kind""",
+                (self.namespace,),
+            ).fetchall()
+        return {
+            (row[0], row[1]): (int(row[2]), int(row[3] or 0), int(row[4] or 0))
+            for row in rows
+        }
+
+    def leaving(self) -> Set[str]:
+        """The libraries with a removal still pending."""
+        return {entry.library for entry in self.tombstones().values() if entry.library}
+
+    def outstanding(self) -> Tuple[int, int, str]:
+        """(items pending, of them failed at their last try, one failure)."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            pending, failed = db.cursor.execute(
+                """SELECT COUNT(*), SUM(CASE WHEN error<>'' THEN 1 ELSE 0 END)
+                FROM api_item WHERE namespace=? AND status='pending'""",
+                (self.namespace,),
+            ).fetchone()
+            row = db.cursor.execute(
+                """SELECT error FROM api_item
+                WHERE namespace=? AND status='pending' AND error<>'' LIMIT 1""",
+                (self.namespace,),
+            ).fetchone()
+        return int(pending or 0), int(failed or 0), row[0] if row else ""
 
     def has_rows(self, library) -> bool:
         """Whether any live item of the library has a native row."""

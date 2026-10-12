@@ -502,5 +502,14 @@
   "#30856": "Nodes de biblioteca i llistes de reproducció",
   "#30857": "Crea nodes de biblioteca de Kodi i llistes intel·ligents per a les biblioteques de vídeo sincronitzades, i copia les llistes de Jellyfin a Kodi a Vídeos → Llistes de reproducció → Kofin i Música → Llistes de reproducció → Kofin. Si ho desactives, s'eliminen tots els nodes i llistes que Kofin ha creat, els fitxers fets a mà es deixen intactes i les biblioteques sincronitzades es mostren a través de les entrades de navegació pròpies de Kofin.",
   "#30858": "L'opció de Kodi «Ignora els extres de vídeo en escanejar» s'ha desactivat perquè es puguin importar els extres de les pel·lícules",
-  "#30861": "Transcodifica la música amb una taxa de bits superior al màxim definit a sota. Si està desactivat, les cançons es reprodueixen des del servidor sense canvis."
+  "#30859": "Estat de la biblioteca",
+  "#30860": "Què s'ha sincronitzat, què queda pendent i què fa ara la sincronització.",
+  "#30861": "Transcodifica la música amb una taxa de bits superior al màxim definit a sota. Si està desactivat, les cançons es reprodueixen des del servidor sense canvis.",
+  "#30862": "a Kodi / al servidor",
+  "#30863": "Pendents",
+  "#30864": "Fallits",
+  "#30865": "Darrera actualització completa",
+  "#30866": "Complement acompanyant",
+  "#30867": "Repara per afegir els detalls dels còdecs",
+  "#30868": "Kodi no pot importar"
 }

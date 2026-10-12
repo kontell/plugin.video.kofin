@@ -502,5 +502,14 @@
   "#30856": "Nodi della libreria e playlist",
   "#30857": "Crea nodi della libreria Kodi e playlist intelligenti per le librerie video sincronizzate e copia le playlist Jellyfin in Kodi sotto Video → Playlist → Kofin e Musica → Playlist → Kofin. Se disattivato, rimuove tutti i nodi e le playlist creati da Kofin, lascia intatti i file fatti a mano e mostra le librerie sincronizzate tramite le voci di esplorazione di Kofin.",
   "#30858": "L'impostazione di Kodi « Ignora gli extra video durante la scansione » è ora disattivata così gli extra dei film possono essere importati",
-  "#30861": "Transcodifica la musica con bitrate superiore al massimo impostato qui sotto. Se disattivato, i brani vengono riprodotti dal server senza modifiche."
+  "#30859": "Stato della libreria",
+  "#30860": "Cosa è sincronizzato, cosa è ancora in attesa e cosa sta facendo ora la sincronizzazione.",
+  "#30861": "Transcodifica la musica con bitrate superiore al massimo impostato qui sotto. Se disattivato, i brani vengono riprodotti dal server senza modifiche.",
+  "#30862": "in Kodi / sul server",
+  "#30863": "In attesa",
+  "#30864": "Non riusciti",
+  "#30865": "Ultimo aggiornamento completo",
+  "#30866": "Add-on companion",
+  "#30867": "Ripara per aggiungere i dettagli dei codec",
+  "#30868": "Kodi non può importare"
 }

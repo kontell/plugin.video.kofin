@@ -502,5 +502,14 @@
   "#30856": "Könyvtárcsomópontok és lejátszási listák",
   "#30857": "Kodi-könyvtárcsomópontok és intelligens lejátszási listák létrehozása a szinkronizált videókönyvtárakhoz, és a Jellyfin-lejátszási listák másolása a Kodiba a Videók → Lejátszási listák → Kofin és a Zene → Lejátszási listák → Kofin alá. Kikapcsolva a Kofin által létrehozott minden csomópont és lista eltűnik, a kézzel készített fájlok megmaradnak, és a szinkronizált könyvtárak a Kofin saját tallózó bejegyzésein keresztül jelennek meg.",
   "#30858": "A Kodi „Videó extrák figyelmen kívül hagyása átvizsgáláskor” beállítása most ki van kapcsolva, hogy a filmek extrái importálhatók legyenek",
-  "#30861": "A lent beállított maximumnál nagyobb bitrátájú zene átkódolása. Kikapcsolva a dalok változatlanul, a kiszolgálóról játszódnak le."
+  "#30859": "Médiatár állapota",
+  "#30860": "Mi van szinkronizálva, mi vár még, és mit csinál most a szinkronizálás.",
+  "#30861": "A lent beállított maximumnál nagyobb bitrátájú zene átkódolása. Kikapcsolva a dalok változatlanul, a kiszolgálóról játszódnak le.",
+  "#30862": "a Kodiban / a kiszolgálón",
+  "#30863": "Függőben",
+  "#30864": "Sikertelen",
+  "#30865": "Utolsó teljes frissítés",
+  "#30866": "Társkiegészítő",
+  "#30867": "Javítás a kodekadatok hozzáadásához",
+  "#30868": "A Kodi nem tudja importálni"
 }

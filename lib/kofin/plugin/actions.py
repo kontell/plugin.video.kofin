@@ -815,6 +815,43 @@ def delete_all_downloads(request: Request) -> None:
     ipc.notify(ipc.DOWNLOAD_REMOVE_ALL)
 
 
+def library_status(request: Request) -> None:
+    """Settings button: what is synced, what is pending, what the sync is
+    doing (the API build).
+
+    A report to read, like the one for the downloads' size: one row per
+    fact, the value in the row's own label, and no ``<close>`` on the
+    button, so reading it returns to the settings. It is what the catalogue
+    and the sync's status document hold at the moment it is opened; the first
+    row reads them again, which is how a running import is watched.
+    """
+    from kofin import buildconfig
+
+    if buildconfig.BACKEND != "api":
+        toast.show(settings.localized(30990), toast.WARNING)
+        return
+    from kofin.sync.backends.api import companion, metadata, progress, status
+    from kofin.sync.backends.api.identity import current_store
+
+    heading = "%s — %s" % (settings.localized(30859), settings.localized(30862))
+    while True:
+        lines = status.rows(
+            status.read(),
+            status.snapshot(current_store(), metadata.SCANNER_FORMAT),
+            companion.present(),
+            progress.stage,
+            progress.label,
+        )
+        # The refresh row is the one under the cursor, since reading the
+        # report again is the one thing to do with it, and it is the first:
+        # under a cursor on the last row the list scrolls the sync's own
+        # line off the top as soon as there are more rows than fit.
+        rows: List[Union[str, xbmcgui.ListItem]] = [xbmc.getLocalizedString(184)]
+        rows.extend(lines)
+        if xbmcgui.Dialog().select(heading, rows, preselect=0) != 0:
+            return
+
+
 def download_size(request: Request) -> None:
     """Settings button: where the downloads are and what they weigh (D1).
 

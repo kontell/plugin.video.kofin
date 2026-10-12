@@ -2240,9 +2240,45 @@ msgctxt "#30858"
 msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
 msgstr "映画の特典映像を取り込めるよう、Kodi の設定「スキャン時にビデオの特典を無視」をオフにしました"
 
+msgctxt "#30859"
+msgid "Library status"
+msgstr "ライブラリの状態"
+
+msgctxt "#30860"
+msgid "What is synced, what is still pending and what the sync is doing now."
+msgstr "同期済みの内容、保留中の内容、同期が現在行っている処理を表示します。"
+
 msgctxt "#30861"
 msgid "Transcode music whose bitrate is above the maximum set below. Off, songs play from the server untouched."
 msgstr "ビットレートが下で設定した上限を超える音楽をトランスコードします。オフの場合、曲はサーバーからそのまま再生されます。"
+
+msgctxt "#30862"
+msgid "in Kodi / on the server"
+msgstr "Kodi 内 / サーバー上"
+
+msgctxt "#30863"
+msgid "Pending"
+msgstr "保留中"
+
+msgctxt "#30864"
+msgid "Failed"
+msgstr "失敗"
+
+msgctxt "#30865"
+msgid "Last full update"
+msgstr "前回の完全更新"
+
+msgctxt "#30866"
+msgid "Companion add-on"
+msgstr "コンパニオンアドオン"
+
+msgctxt "#30867"
+msgid "Repair to add codec details"
+msgstr "コーデック情報を追加するには修復してください"
+
+msgctxt "#30868"
+msgid "Kodi cannot import"
+msgstr "Kodi がインポートできない項目"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

@@ -2240,9 +2240,45 @@ msgctxt "#30858"
 msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
 msgstr "Nastavení Kodi „Ignorovat video bonusy při skenování“ je nyní vypnuto, aby se daly importovat bonusy filmů"
 
+msgctxt "#30859"
+msgid "Library status"
+msgstr "Stav knihovny"
+
+msgctxt "#30860"
+msgid "What is synced, what is still pending and what the sync is doing now."
+msgstr "Co je synchronizováno, co ještě čeká a co synchronizace právě dělá."
+
 msgctxt "#30861"
 msgid "Transcode music whose bitrate is above the maximum set below. Off, songs play from the server untouched."
 msgstr "Překódovat hudbu, jejíž datový tok je vyšší než maximum nastavené níže. Vypnuto: skladby se přehrávají ze serveru beze změny."
+
+msgctxt "#30862"
+msgid "in Kodi / on the server"
+msgstr "v Kodi / na serveru"
+
+msgctxt "#30863"
+msgid "Pending"
+msgstr "Čeká"
+
+msgctxt "#30864"
+msgid "Failed"
+msgstr "Selhalo"
+
+msgctxt "#30865"
+msgid "Last full update"
+msgstr "Poslední úplná aktualizace"
+
+msgctxt "#30866"
+msgid "Companion add-on"
+msgstr "Doprovodný doplněk"
+
+msgctxt "#30867"
+msgid "Repair to add codec details"
+msgstr "Opravit pro doplnění údajů o kodecích"
+
+msgctxt "#30868"
+msgid "Kodi cannot import"
+msgstr "Kodi nedokáže importovat"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

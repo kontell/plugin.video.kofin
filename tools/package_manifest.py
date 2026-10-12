@@ -81,8 +81,12 @@ PROFILES = ("sql", "api")
 # switch (sync/dynamic.py), and a toggle the build never reads must not be
 # on screen.
 DISABLED_SETTINGS = {
-    "sql": {"libraryNodes"},
+    "sql": {"libraryNodes", "libraryStatus"},
     "api": {
+        # The two read-only lines the SQL coordinator writes; the API build
+        # has the status dialog in their place (sync/backends/api/status.py).
+        "syncedLibraries",
+        "syncStatus",
         "cleanDatabases",
         "reuseLanguageInvoker",
         "chapterImages",

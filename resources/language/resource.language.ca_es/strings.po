@@ -2240,9 +2240,45 @@ msgctxt "#30858"
 msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
 msgstr "L'opció de Kodi «Ignora els extres de vídeo en escanejar» s'ha desactivat perquè es puguin importar els extres de les pel·lícules"
 
+msgctxt "#30859"
+msgid "Library status"
+msgstr "Estat de la biblioteca"
+
+msgctxt "#30860"
+msgid "What is synced, what is still pending and what the sync is doing now."
+msgstr "Què s'ha sincronitzat, què queda pendent i què fa ara la sincronització."
+
 msgctxt "#30861"
 msgid "Transcode music whose bitrate is above the maximum set below. Off, songs play from the server untouched."
 msgstr "Transcodifica la música amb una taxa de bits superior al màxim definit a sota. Si està desactivat, les cançons es reprodueixen des del servidor sense canvis."
+
+msgctxt "#30862"
+msgid "in Kodi / on the server"
+msgstr "a Kodi / al servidor"
+
+msgctxt "#30863"
+msgid "Pending"
+msgstr "Pendents"
+
+msgctxt "#30864"
+msgid "Failed"
+msgstr "Fallits"
+
+msgctxt "#30865"
+msgid "Last full update"
+msgstr "Darrera actualització completa"
+
+msgctxt "#30866"
+msgid "Companion add-on"
+msgstr "Complement acompanyant"
+
+msgctxt "#30867"
+msgid "Repair to add codec details"
+msgstr "Repara per afegir els detalls dels còdecs"
+
+msgctxt "#30868"
+msgid "Kodi cannot import"
+msgstr "Kodi no pot importar"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

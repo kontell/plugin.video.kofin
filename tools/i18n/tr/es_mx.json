@@ -502,5 +502,14 @@
   "#30856": "Nodos de biblioteca y listas de reproducción",
   "#30857": "Crea nodos de biblioteca de Kodi y listas inteligentes para las bibliotecas de video sincronizadas, y copia las listas de Jellyfin a Kodi en Videos → Listas de reproducción → Kofin y Música → Listas de reproducción → Kofin. Al desactivarlo se eliminan todos los nodos y listas que Kofin creó, los archivos hechos a mano se dejan intactos y las bibliotecas sincronizadas se muestran a través de las entradas de exploración propias de Kofin.",
   "#30858": "La opción de Kodi «Ignorar extras de video al escanear» ahora está desactivada para poder importar los extras de las películas",
-  "#30861": "Transcodifica la música cuya tasa de bits supere el máximo establecido abajo. Desactivado, las canciones se reproducen desde el servidor sin cambios."
+  "#30859": "Estado de la biblioteca",
+  "#30860": "Qué está sincronizado, qué sigue pendiente y qué está haciendo ahora la sincronización.",
+  "#30861": "Transcodifica la música cuya tasa de bits supere el máximo establecido abajo. Desactivado, las canciones se reproducen desde el servidor sin cambios.",
+  "#30862": "en Kodi / en el servidor",
+  "#30863": "Pendientes",
+  "#30864": "Fallidos",
+  "#30865": "Última actualización completa",
+  "#30866": "Complemento acompañante",
+  "#30867": "Reparar para agregar los detalles de códec",
+  "#30868": "Kodi no puede importar"
 }

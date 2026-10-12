@@ -157,6 +157,48 @@ def test_a_first_selection_is_listed_once(store, monkeypatch):
     assert store.watermark()[1]
 
 
+def _named_states(w, monkeypatch):
+    """Give the states their string ids for names. With strings to write, the
+    node tree would be published for real, into the working directory."""
+    from kofin.sync.backends.api import library
+
+    monkeypatch.setattr(library.settings, "localized", lambda i: "L%d" % i)
+    monkeypatch.setattr(library.xbmc, "getLocalizedString", lambda i: "K%d" % i)
+    w.publish_selection = lambda: None
+
+
+def test_a_first_listing_is_named_in_the_status_while_it_runs(store, monkeypatch):
+    from kofin.sync.backends.api import status
+
+    server = Server({LIB: [movie()], LIB2: show_bundle()})
+    w = worker(store, server, [LIB, LIB2], monkeypatch)
+    _named_states(w, monkeypatch)
+    seen = []
+    items = server.items
+    server.items = lambda params: seen.append(status.read()) or items(params)
+
+    w.full_sync()
+
+    assert seen[0]["state"] == "L30401"
+    assert sorted(seen[0]["listing"]) == sorted(
+        view["Name"] for view in server.views()["Items"]
+    )
+    # Published and waiting for the pass: still updating, nothing being listed.
+    assert status.read()["state"] == "L30401" and status.read()["listing"] == []
+    assert status.read()["since"] == seen[0]["since"]
+
+
+def test_a_listing_that_leaves_nothing_to_apply_ends_the_update(store, monkeypatch):
+    from kofin.sync.backends.api import status
+
+    w = worker(store, Server({}), [], monkeypatch)
+    _named_states(w, monkeypatch)
+
+    w.full_sync([LIB])
+
+    assert status.read()["state"] == "K20177"
+
+
 def test_catch_up_applies_feed_records_and_advances_the_watermark(store, monkeypatch):
     from kofin.sync.changefeed import ChangeRecord, unix_to_watermark
 

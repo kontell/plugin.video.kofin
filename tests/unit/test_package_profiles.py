@@ -42,6 +42,10 @@ def test_zip_and_development_install_have_identical_profile_contents(tmp_path):
         }
         assert ("libraryNodes" in settings_ids) == (profile == "api")
         assert ("syncMusicPlaylists" in settings_ids) == (profile == "sql")
+        # The status dialog stands where the SQL build has its two lines.
+        assert ("libraryStatus" in settings_ids) == (profile == "api")
+        assert ("syncStatus" in settings_ids) == (profile == "sql")
+        assert ("syncedLibraries" in settings_ids) == (profile == "sql")
 
 
 def _settings(tmp_path, profile):

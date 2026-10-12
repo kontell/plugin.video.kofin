@@ -502,5 +502,14 @@
   "#30856": "Bibliotheekknooppunten en afspeellijsten",
   "#30857": "Maak Kodi-bibliotheekknooppunten en slimme afspeellijsten voor de gesynchroniseerde videobibliotheken en kopieer Jellyfin-afspeellijsten naar Kodi onder Video's → Afspeellijsten → Kofin en Muziek → Afspeellijsten → Kofin. Uitgeschakeld worden alle knooppunten en afspeellijsten die Kofin heeft gemaakt verwijderd, blijven handgemaakte bestanden onaangeroerd en worden de gesynchroniseerde bibliotheken via Kofins eigen bladeritems getoond.",
   "#30858": "Kodi's instelling 'Video-extra's negeren bij scannen' staat nu uit zodat filmextra's geïmporteerd kunnen worden",
-  "#30861": "Transcodeer muziek met een bitrate boven het hieronder ingestelde maximum. Uit: nummers worden ongewijzigd vanaf de server afgespeeld."
+  "#30859": "Bibliotheekstatus",
+  "#30860": "Wat gesynchroniseerd is, wat nog in de wachtrij staat en wat de synchronisatie nu doet.",
+  "#30861": "Transcodeer muziek met een bitrate boven het hieronder ingestelde maximum. Uit: nummers worden ongewijzigd vanaf de server afgespeeld.",
+  "#30862": "in Kodi / op de server",
+  "#30863": "In afwachting",
+  "#30864": "Mislukt",
+  "#30865": "Laatste volledige update",
+  "#30866": "Companion-add-on",
+  "#30867": "Repareer om codecdetails toe te voegen",
+  "#30868": "Kodi kan niet importeren"
 }

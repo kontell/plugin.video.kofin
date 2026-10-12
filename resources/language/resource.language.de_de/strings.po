@@ -2240,9 +2240,45 @@ msgctxt "#30858"
 msgid "Kodi's 'Ignore video extras on scan' setting is now off so movie extras can be imported"
 msgstr "Kodis Einstellung „Video-Extras beim Scannen ignorieren“ ist jetzt aus, damit Film-Extras importiert werden können"
 
+msgctxt "#30859"
+msgid "Library status"
+msgstr "Bibliotheksstatus"
+
+msgctxt "#30860"
+msgid "What is synced, what is still pending and what the sync is doing now."
+msgstr "Was synchronisiert ist, was noch aussteht und was die Synchronisation gerade tut."
+
 msgctxt "#30861"
 msgid "Transcode music whose bitrate is above the maximum set below. Off, songs play from the server untouched."
 msgstr "Musik transkodieren, deren Bitrate über dem unten eingestellten Maximum liegt. Aus werden Songs unverändert vom Server wiedergegeben."
+
+msgctxt "#30862"
+msgid "in Kodi / on the server"
+msgstr "in Kodi / auf dem Server"
+
+msgctxt "#30863"
+msgid "Pending"
+msgstr "Ausstehend"
+
+msgctxt "#30864"
+msgid "Failed"
+msgstr "Fehlgeschlagen"
+
+msgctxt "#30865"
+msgid "Last full update"
+msgstr "Letzte vollständige Aktualisierung"
+
+msgctxt "#30866"
+msgid "Companion add-on"
+msgstr "Companion-Add-on"
+
+msgctxt "#30867"
+msgid "Repair to add codec details"
+msgstr "Reparieren, um Codec-Details zu ergänzen"
+
+msgctxt "#30868"
+msgid "Kodi cannot import"
+msgstr "Kodi kann nicht importieren"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

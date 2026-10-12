@@ -41,6 +41,7 @@ ACTION_MODES = {
     "removedownload",
     "deletealldownloads",
     "downloadsize",
+    "librarystatus",
     "favorite",
     "unfavorite",
     "delete",
