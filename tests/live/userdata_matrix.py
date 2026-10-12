@@ -227,6 +227,8 @@ def play(item, stop_after=None, next_after=None, seek_percent=None):
     done = probe(*args)
     if done.get("started_s") is None:
         raise RuntimeError("playback did not start")
+    if done.get("timed_out"):
+        raise RuntimeError("playback was still running at the probe's limit")
     return done
 
 

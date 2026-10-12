@@ -10,6 +10,7 @@ full premiere date -- and ``details`` speaks that representation.
 
 import hashlib
 import time
+from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import xbmc
@@ -311,7 +312,7 @@ def _token(value) -> str:
     return hashlib.sha256(encode(value).encode()).hexdigest()[:24]
 
 
-def refresh_token(item, seasons=()):
+def refresh_fields(item, seasons=()) -> Dict[str, Any]:
     """Fields with no complete public setter: a change here means a refresh.
 
     A show's season plots have ingestion only (``addSeason``), and an
@@ -336,7 +337,11 @@ def refresh_token(item, seasons=()):
             for s in seasons
             if s.get("IndexNumber") is not None
         )
-    return _token(value)
+    return value
+
+
+def refresh_token(item, seasons=()):
+    return _token(refresh_fields(item, seasons))
 
 
 # The token's fields by what a viewer would call them, for the line a
@@ -351,30 +356,19 @@ REFRESH_PARTS = {
     "AirsAfterSeasonNumber": "numbering",
     "AirsBeforeEpisodeNumber": "numbering",
     "IndexNumberEnd": "numbering",
+    "Seasons": "seasons",
 }
 
 
 def refresh_parts(item, seasons=()) -> Dict[str, str]:
-    """What ``refresh_token`` hashes, a short hash per part: kept beside a
-    row's acknowledgement so that the refresh of it can say which part
-    moved. The token alone says only that something did."""
-    kind = item.get("Type")
+    """The token's own fields, a short hash per part: kept beside a row's
+    acknowledgement so that the refresh of it can say which part moved. The
+    token alone says only that something did. Built from the one dict the
+    token hashes, so a field cannot join the token and be missing here; one
+    that has no word yet is reported under its own name."""
     grouped: Dict[str, Dict[str, Any]] = {}
-    for key, part in REFRESH_PARTS.items():
-        if part != "cast" and kind not in ("Movie", "Episode", "MusicVideo"):
-            continue
-        if part == "numbering" and kind != "Episode":
-            continue
-        if item.get(key) is not None:
-            grouped.setdefault(part, {})[key] = item[key]
-    if kind == "Series":
-        grouped["seasons"] = {
-            "Seasons": sorted(
-                (int(s.get("IndexNumber") or 0), s.get("Overview") or "")
-                for s in seasons
-                if s.get("IndexNumber") is not None
-            )
-        }
+    for key, value in refresh_fields(item, seasons).items():
+        grouped.setdefault(REFRESH_PARTS.get(key, key.lower()), {})[key] = value
     return {part: _token(value)[:8] for part, value in sorted(grouped.items())}
 
 
@@ -555,6 +549,33 @@ def _timestamp(value):
     if not value:
         return ""
     return convert_to_local(value)[:19].replace("T", " ")
+
+
+# Kodi's own spelling of a last-played stamp, local time: what _timestamp writes.
+STAMP = "%Y-%m-%d %H:%M:%S"
+# How much later than the server's stamp Kodi's own may be and still be
+# the same play: the server stamps a play when it starts and Kodi when it
+# ends, so the two differ by the length of what was played, pauses included.
+SAME_PLAY = 6 * 3600
+
+
+def same_play(actual: str, wanted: str) -> bool:
+    """Whether Kodi's last-played stamp needs no write to agree with the
+    server's. Equal stamps do, and so does one of Kodi's that is later by
+    no more than a sitting: written back to the server's earlier one, every
+    song played here cost a setter twenty seconds after it ended, and a
+    song's setter rewrites its date added."""
+    if actual == wanted:
+        return True
+    if not actual or not wanted:
+        return False
+    try:
+        ahead = (
+            datetime.strptime(actual, STAMP) - datetime.strptime(wanted, STAMP)
+        ).total_seconds()
+    except ValueError:
+        return False
+    return 0 <= ahead <= SAME_PLAY
 
 
 def own_art(item, server) -> Dict[str, str]:

@@ -339,6 +339,32 @@ def test_a_tick_that_failed_takes_the_bar_down(store, bar, stages, monkeypatch):
     assert dialog.events[-1] == ("close",)
 
 
+def test_a_retried_command_does_not_bring_the_bar_back(store, bar, stages, monkeypatch):
+    """A request that failed is taken down with its tick. Its retries are
+    not the viewer asking again: the bar came back up for each one, every
+    few seconds for as long as the server was away."""
+    from tests.unit.apifixtures import Server, worker
+
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+
+    def away(*args, **kwargs):
+        raise OSError("server away")
+
+    # Listed whole once before, so the command lists its library itself.
+    store.set_watermark(watermark="w", enumerated=1.0)
+    monkeypatch.setattr(w, "full_sync", away)
+    w.enqueue_command("SyncLibrary", {"Id": LIB})
+    for _ in range(3):
+        with pytest.raises(RuntimeError):
+            w.commands()
+        w.settle_progress(failed=True)
+    # Up once for the request, down with its failure, and not again.
+    (dialog,) = bar.instances
+    assert [e[0] for e in dialog.events].count("create") == 1
+    assert dialog.events[-1] == ("close",)
+    assert w._queue.qsize() == 1
+
+
 def test_a_library_leaving_says_so_by_name(store, backend, kodi, bar, stages):
     from kofin.sync import private
 

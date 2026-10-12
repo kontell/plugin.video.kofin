@@ -741,36 +741,128 @@ def test_the_server_user_data_of_the_playing_item_waits_for_its_stop(
     assert w._held_userdata == {}
 
 
-def test_held_user_data_the_server_never_replaced_is_applied_after_the_stop(
-    store, monkeypatch
-):
+def _played_here(store, monkeypatch, items):
+    """A worker, a player that can be told what plays, and a clock."""
     from kofin.sync.backends.api import library
 
-    store.publish([movie(UserData={})], library=LIB)
-    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
-    playing = [{"Id": "a"}]
+    server = Server({LIB: items})
+    store.publish([dict(item, UserData={}) for item in items], library=LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    playing = [None]
     w.player = SimpleNamespace(current_item=lambda: playing[0])
     clock = [1000.0]
     monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
-    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 1}])
+    return w, server, playing, clock
+
+
+def test_what_a_play_made_of_an_item_is_asked_of_the_server_after_the_stop(
+    store, monkeypatch
+):
+    """The last entry heard may be a progress report, and the one the stop
+    sent may never arrive. Applied as it stood, the report of an episode
+    being watched again took its watched mark away after it had ended."""
+    from kofin.sync.backends.api import library
+
+    w, server, playing, clock = _played_here(store, monkeypatch, [movie()])
+    playing[0] = {"Id": "a"}
+    w.command("userdata", [{"ItemId": "a", "Played": False, "PlayCount": 2}])
     playing[0] = None
+    # The stop's own entry is lost; the server has it all the same.
+    server.libraries[LIB][0]["UserData"] = {"Played": True, "PlayCount": 2}
     w.release_userdata()
     clock[0] += library.HELD_USERDATA_GRACE - 1
     w.release_userdata()
-    assert not _user_data(store, "a").get("Played")
+    assert _user_data(store, "a") == {} and list(w._held_userdata) == ["a"]
     clock[0] += 2
     w.release_userdata()
     assert _user_data(store, "a")["Played"] and w._held_userdata == {}
+    assert _user_data(store, "a")["PlayCount"] == 2
+
     # Played again before the grace was over: held for the new playback.
-    w.command("userdata", [{"ItemId": "a", "Played": False, "PlayCount": 2}])
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 3}])
     playing[0] = {"Id": "a"}
-    w.command("userdata", [{"ItemId": "a", "Played": False, "PlayCount": 3}])
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 4}])
     playing[0] = None
     w.release_userdata()
     playing[0] = {"Id": "a"}
     clock[0] += library.HELD_USERDATA_GRACE + 5
     w.release_userdata()
-    assert _user_data(store, "a")["PlayCount"] == 2
+    assert _user_data(store, "a")["PlayCount"] == 3
+
+
+def test_a_release_the_server_cannot_answer_is_asked_again(store, monkeypatch):
+    from kofin.sync.backends.api import library
+
+    w, server, playing, clock = _played_here(store, monkeypatch, [movie()])
+    playing[0] = {"Id": "a"}
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 1}])
+    playing[0] = None
+    server.libraries[LIB][0]["UserData"] = {"Played": True, "PlayCount": 1}
+    answer = server.items
+
+    def away(params):
+        raise OSError("server away")
+
+    server.items = away
+    w.release_userdata()
+    clock[0] += library.HELD_USERDATA_GRACE + 1
+    w.release_userdata()
+    # Not a failure of the tick, and nothing lost: asked again a grace on.
+    assert list(w._held_userdata) == ["a"] and _user_data(store, "a") == {}
+    server.items = answer
+    w.release_userdata()
+    assert list(w._held_userdata) == ["a"]
+    clock[0] += library.HELD_USERDATA_GRACE + 1
+    w.release_userdata()
+    assert _user_data(store, "a")["Played"] and w._held_userdata == {}
+
+
+def test_a_release_whose_publish_failed_is_still_held(store, monkeypatch):
+    """A release has no queue behind it; dropped before a publish that
+    failed, what it held was gone for good."""
+    from kofin.sync.backends.api import library
+
+    w, server, playing, clock = _played_here(store, monkeypatch, [movie()])
+    playing[0] = {"Id": "a"}
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 1}])
+    playing[0] = None
+    server.libraries[LIB][0]["UserData"] = {"Played": True, "PlayCount": 1}
+    w.release_userdata()
+    clock[0] += library.HELD_USERDATA_GRACE + 1
+    publish = store.publish
+
+    def locked(*args, **kwargs):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(store, "publish", locked)
+    with pytest.raises(RuntimeError):
+        w.release_userdata()
+    assert list(w._held_userdata) == ["a"]
+    monkeypatch.setattr(store, "publish", publish)
+    w.release_userdata()
+    assert _user_data(store, "a")["Played"] and w._held_userdata == {}
+
+
+def test_a_full_item_arriving_mid_play_does_not_carry_its_user_data(store, monkeypatch):
+    """A listing, a catch-up or a metadata change during a play carries the
+    server's count for the play in progress as surely as a user data event
+    does."""
+    w, server, playing, clock = _played_here(store, monkeypatch, [movie(), movie("b")])
+    playing[0] = {"Id": "a"}
+    for row in server.libraries[LIB]:
+        row["UserData"] = {"Played": True, "PlayCount": 1}
+        row["Overview"] = "Edited"
+
+    w.command("changed", ["a", "b"])
+    # The metadata is taken; the user data of what is playing waits.
+    assert store.item("a")["Overview"] == store.item("b")["Overview"] == "Edited"
+    assert _user_data(store, "a") == {} and _user_data(store, "b")["Played"]
+    assert w._held_userdata["a"][0]["PlayCount"] == 1
+
+    # A complete listing during the play is no different.
+    w._held_userdata.clear()
+    w.full_sync()
+    assert _user_data(store, "a") == {} and list(w._held_userdata) == ["a"]
 
 
 def test_a_watched_mark_goes_to_the_server_without_a_count(store, monkeypatch):
