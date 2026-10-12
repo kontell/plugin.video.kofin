@@ -1409,3 +1409,40 @@ def test_a_later_stamp_of_kodis_own_is_the_same_play():
     assert patch.matches(row, {"playcount": 1, "lastplayed": "2026-10-12 14:24:08"})
     assert not patch.matches(row, {"playcount": 2, "lastplayed": "2026-10-12 14:24:08"})
     assert not patch.matches(row, {"playcount": 1, "lastplayed": ""})
+
+
+def test_a_stopped_clear_is_not_over_until_kodi_has_answered(monkeypatch):
+    """The clear runs on a thread of its own so that the bar can move. A
+    stop must not leave that call behind in Kodi with nobody waiting on it:
+    the next service generation would issue the same clear beside it."""
+    import threading
+    from types import SimpleNamespace
+
+    from kofin.sync.backends.api import removal
+
+    answer = threading.Event()
+    answered = []
+
+    def rpc(method, params):
+        answer.wait(5)
+        answered.append(method)
+
+    monkeypatch.setattr(removal, "rpc", rpc)
+    monkeypatch.setattr(removal, "removing", lambda library: "Removing library")
+    native = SimpleNamespace(
+        key="key",
+        progress=SimpleNamespace(
+            phase=lambda *a: None, at=lambda *a: None, restore=lambda saved: None
+        ),
+        abort=lambda: True,
+        monitor=SimpleNamespace(waitForAbort=lambda seconds: True),
+    )
+    timer = threading.Timer(0.2, answer.set)
+    timer.start()
+    try:
+        with pytest.raises(InterruptedError):
+            removal.clear_library(native, LIB, {"Movie"})
+        assert answered == ["VideoLibrary.SetSourceContent"]
+    finally:
+        timer.cancel()
+        answer.set()
