@@ -16,6 +16,8 @@ device's own ``guisettings.xml`` and never printed.
                                             library selection while it is down
     kodi_probe.py wait-log PATTERN [SECS] [FROM_LINE]   until the log has it
     kodi_probe.py log-lines                 how many lines the log has now
+    kodi_probe.py watch-total METHOD SECS   a listing's total, each time it changes
+    kodi_probe.py widgets FROM_LINE         home widget re-fetches logged since a line
     kodi_probe.py log-since LINE REGEX      matching log lines from LINE on
     kodi_probe.py wait-idle [SECS]          until nothing is playing
     kodi_probe.py play ITEM_JSON [STOP_AFTER_S] [NEXT_AFTER_S] [SEEK_PERCENT]
@@ -370,6 +372,50 @@ def log_since(start, pattern):
     return found
 
 
+def watch_total(method, seconds, interval=2.0):
+    """A listing's row count over time: one entry each time it changes,
+    with the wall clock, to lay beside the log."""
+    began = time.monotonic()
+    changes = []
+    last = None
+    while time.monotonic() - began < seconds:
+        try:
+            total = rpc(method, {"limits": {"start": 0, "end": 1}}, timeout=30)[
+                "limits"
+            ]["total"]
+        except Exception:  # noqa: BLE001 - a busy Kodi misses a poll
+            total = None
+        if total != last:
+            changes.append(
+                {
+                    "at_s": round(time.monotonic() - began, 1),
+                    "clock": time.strftime("%H:%M:%S"),
+                    "total": total,
+                }
+            )
+            last = total
+        time.sleep(interval)
+    return changes
+
+
+def widgets(start):
+    """Home widget re-fetches Kodi logged from a line on (debug logging):
+    how many per source, and the last time each was fetched."""
+    counts = {}
+    last = {}
+    for line in log_since(start, r"CDirectoryProvider\[.*\]: refreshing"):
+        source = line.split("CDirectoryProvider[", 1)[1].split("]: refreshing", 1)[0]
+        counts[source] = counts.get(source, 0) + 1
+        last[source] = line[11:19]
+    return {
+        "refreshes": sum(counts.values()),
+        "by_source": {
+            source: {"count": counts[source], "last": last[source]}
+            for source in sorted(counts, key=lambda k: -counts[k])
+        },
+    }
+
+
 def wait_idle(seconds=300.0):
     """Wait until no player is active; returns how long that took."""
     began = time.monotonic()
@@ -539,6 +585,10 @@ def main(argv):
         result = bounce(argv[2:])
     elif command == "log-lines":
         result = log_lines()
+    elif command == "watch-total":
+        result = watch_total(argv[2], float(argv[3]))
+    elif command == "widgets":
+        result = widgets(int(argv[2]))
     elif command == "log-since":
         result = log_since(int(argv[2]), argv[3])
     elif command == "wait-idle":
