@@ -13,7 +13,7 @@ import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import xbmc
 
@@ -61,6 +61,10 @@ MUSIC_PAGE = 500
 # songs in half a second; a Raspberry Pi took 1.7 s to 2.5 s over each, and
 # its thread ran at a quarter of a core while it did: the rest was the wire.
 PAGERS = 3
+# How long after a playback stopped the user data held for its item is
+# applied when the server has sent nothing newer. The server's own entry
+# for the stop arrives within a second or two and replaces the held one.
+HELD_USERDATA_GRACE = 20.0
 HAS_CONTENT = {
     "Movie": "Movies",
     "Series": "TVShows",
@@ -324,6 +328,10 @@ class Library(threading.Thread):
         # Libraries a repair is rebuilding: their rows are leaving Kodi, and
         # nothing is enumerated until they have left (rebuild_stale, refresh).
         self._rebuilding: Set[str] = set()
+        # The server's user data for the item this Kodi is playing, kept
+        # back until it has stopped (apply_userdata): item id -> the newest
+        # entry and when the item was first seen no longer playing.
+        self._held_userdata: Dict[str, Tuple[dict, Optional[float]]] = {}
         self._playlists_due = False
         # When the idle binding backfill is next due: now, then never once
         # it succeeded, or a pause after a failure (apply).
@@ -416,6 +424,7 @@ class Library(threading.Thread):
             for work in (
                 self.flush_local,
                 self.commands,
+                self.release_userdata,
                 self.refresh,
                 lambda: self.apply(native),
                 self.playlists_pass,
@@ -817,12 +826,36 @@ class Library(threading.Thread):
             items.extend(sets)
         return items, membership
 
+    def _playing(self) -> str:
+        """The item this Kodi is playing through kofin, or ''."""
+        item = self.player.current_item() if self.player is not None else None
+        return str((item or {}).get("Id") or "")
+
     def apply_userdata(self, data):
+        """Merge the server's user data into the catalogue, except for the
+        item this Kodi is playing.
+
+        The server counts a play when it starts, and reports progress while
+        it runs. Mirrored as they arrive, those wrote the playing row under
+        Kodi's own player: a song's count was set to the server's new count
+        during the song and counted again by Kodi at its end (one play, two
+        counts, and the outbox then took Kodi's number to the server), and a
+        watched episode being watched again lost its mark until it ended.
+        Kodi's player owns the row of what it plays. The entry is kept and
+        the one the server sends when the playback stops replaces it; one
+        that is never replaced is applied a while after the stop
+        (release_userdata).
+        """
+        playing = self._playing()
         items = []
         for entry in data:
             item_id = entry.get("ItemId") if isinstance(entry, dict) else entry
             if not item_id:
                 continue
+            if isinstance(entry, dict) and item_id == playing:
+                self._held_userdata[item_id] = (entry, None)
+                continue
+            self._held_userdata.pop(item_id, None)
             item = self.store.item(item_id)
             if item is None:
                 continue
@@ -830,6 +863,25 @@ class Library(threading.Thread):
             items.append(item)
         if items:
             self.store.publish(items)
+
+    def release_userdata(self):
+        """Apply the user data held for an item once it has stopped and the
+        server has had time to send what the stop made of it."""
+        if not self._held_userdata:
+            return
+        playing = self._playing()
+        now = time.monotonic()
+        due = []
+        for item_id, (entry, stopped) in list(self._held_userdata.items()):
+            if item_id == playing:
+                self._held_userdata[item_id] = (entry, None)
+            elif stopped is None:
+                self._held_userdata[item_id] = (entry, now)
+            elif now - stopped >= HELD_USERDATA_GRACE:
+                due.append(entry)
+        if due:
+            # apply_userdata drops each from the held set as it applies it.
+            self.apply_userdata(due)
 
     def update_selection_label(self):
         whitelist = private.get_sync()["Whitelist"]
@@ -1051,9 +1103,12 @@ class Library(threading.Thread):
         for item_id, values in self.store.local_pending():
             payload: Dict[str, Any] = {}
             if "playcount" in values:
-                payload.update(
-                    Played=values["playcount"] > 0, PlayCount=values["playcount"]
-                )
+                # The watched mark and never the number: the server counts
+                # the plays it is told of, Kodi counts its own, and a count
+                # sent from here replaced the server's with Kodi's (a song
+                # played once went up as 2; an episode marked watched took
+                # a count of 8 down to 1).
+                payload["Played"] = values["playcount"] > 0
             if "position" in values:
                 payload["PlaybackPositionTicks"] = int(values["position"] * 10000000)
             # The partial setter is idempotent across an interrupted reply;

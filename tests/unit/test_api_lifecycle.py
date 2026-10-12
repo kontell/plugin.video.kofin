@@ -1271,3 +1271,63 @@ def test_a_failed_lift_of_noupdate_still_restores_the_folders_bound_so_far(
         backend.reconcile()
     assert kodi.noupdate[d] is True and kodi.noupdate[e] is True
     assert kodi.scanned.count(d) == 0
+
+
+def test_a_count_that_differs_only_in_size_is_not_a_viewers_edit():
+    """A viewer's edit is the watched mark going on or off. Kodi and the
+    server having counted differently is not one, and read as one it sent
+    Kodi's count up to the server after every play."""
+    edits = patch.local_edits
+    # Kodi counted the play it made, the server counted it too: 2 against 1.
+    assert edits({"playcount": 2}, {"playcount": 1}, {"playcount": 1}) == {}
+    assert edits({"playcount": 1}, {"playcount": 3}, {"playcount": 4}) == {}
+    # The mark going on, and coming off.
+    assert edits({"playcount": 2}, {"playcount": 0}, {"playcount": 0}) == {
+        "playcount": 2
+    }
+    assert edits({"playcount": 0}, {"playcount": 3}, {"playcount": 3}) == {
+        "playcount": 0
+    }
+    # The server already says what Kodi says.
+    assert edits({"playcount": 1}, {"playcount": 0}, {"playcount": 5}) == {}
+
+
+def test_a_count_kodi_ran_ahead_on_is_brought_back_to_the_servers(store, backend, kodi):
+    store.publish(show_bundle(), library=LIB)
+    backend.reconcile()
+    store.publish([episode("ea11", UserData={"Played": True, "PlayCount": 1})])
+    backend.reconcile()
+    row = kodi.rows["Episode"][store.mapping("ea11").kodi_id]
+    assert row["playcount"] == 1
+    # Kodi's player counts the same play again.
+    row["playcount"] = 2
+    store.publish(
+        [episode("ea11", UserData={"Played": True, "PlayCount": 1}, Overview="x")]
+    )
+    backend.reconcile()
+    assert row["playcount"] == 1
+    assert store.local_pending() == []
+    assert not store.pending()
+
+
+def test_a_later_stamp_of_kodis_own_is_the_same_play():
+    """The server stamps a play when it starts and Kodi when it ends.
+    Written back to the server's earlier stamp, every song played here cost
+    a setter twenty seconds after it ended."""
+    same = patch.same_play
+    assert same("2026-10-12 14:24:33", "2026-10-12 14:24:08")
+    assert same("2026-10-12 14:24:08", "2026-10-12 14:24:08")
+    # The server's is the later one: played somewhere else since.
+    assert not same("2026-10-12 14:24:08", "2026-10-12 14:24:33")
+    # Not a sitting apart: a stamp Kodi made up on the day of an import
+    # against a play of years ago.
+    assert not same("2026-10-12 14:24:33", "2019-03-01 20:00:00")
+    # A mark cleared, or never there.
+    assert not same("2026-10-12 14:24:33", "")
+    assert not same("", "2026-10-12 14:24:33")
+    assert same("", "")
+    assert not same("not a date", "2026-10-12 14:24:33")
+    row = {"playcount": 1, "lastplayed": "2026-10-12 14:24:33"}
+    assert patch.matches(row, {"playcount": 1, "lastplayed": "2026-10-12 14:24:08"})
+    assert not patch.matches(row, {"playcount": 2, "lastplayed": "2026-10-12 14:24:08"})
+    assert not patch.matches(row, {"playcount": 1, "lastplayed": ""})

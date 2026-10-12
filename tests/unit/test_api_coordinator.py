@@ -651,3 +651,92 @@ def test_a_library_is_recorded_under_the_format_its_rows_are_filed_with(
     state["Whitelist"] = []
     w.full_sync()
     assert state["Whitelist"] == [LIB] and store.scanner_format(LIB) == 1
+
+
+def _user_data(store, item_id):
+    return store.item(item_id).get("UserData") or {}
+
+
+def test_the_server_user_data_of_the_playing_item_waits_for_its_stop(
+    store, monkeypatch
+):
+    """The server counts a play when it starts. Written to Kodi then, the
+    count was added to again by Kodi's own player at the end: one play of a
+    song, two counts."""
+    from kofin.sync.backends.api import library
+
+    store.publish([movie(UserData={}), movie("b", UserData={})], library=LIB)
+    w = worker(store, Server({LIB: [movie(), movie("b")]}), [LIB], monkeypatch)
+    playing = [{"Id": "a"}]
+    w.player = SimpleNamespace(current_item=lambda: playing[0])
+    clock = [1000.0]
+    monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
+
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 1}])
+    w.command("userdata", [{"ItemId": "b", "Played": True, "PlayCount": 1}])
+    assert not _user_data(store, "a").get("Played")
+    # What is not playing here is merged as it arrives.
+    assert _user_data(store, "b")["Played"]
+    # Progress reports replace the entry held, and nothing is applied
+    # however long the playback lasts.
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 1, "X": 1}])
+    clock[0] += 3600
+    w.release_userdata()
+    assert not _user_data(store, "a").get("Played") and list(w._held_userdata) == ["a"]
+
+    # The stop: the server's own entry for it is applied and nothing is held.
+    playing[0] = None
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 2}])
+    assert _user_data(store, "a")["PlayCount"] == 2
+    assert w._held_userdata == {}
+
+
+def test_held_user_data_the_server_never_replaced_is_applied_after_the_stop(
+    store, monkeypatch
+):
+    from kofin.sync.backends.api import library
+
+    store.publish([movie(UserData={})], library=LIB)
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    playing = [{"Id": "a"}]
+    w.player = SimpleNamespace(current_item=lambda: playing[0])
+    clock = [1000.0]
+    monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
+    w.command("userdata", [{"ItemId": "a", "Played": True, "PlayCount": 1}])
+    playing[0] = None
+    w.release_userdata()
+    clock[0] += library.HELD_USERDATA_GRACE - 1
+    w.release_userdata()
+    assert not _user_data(store, "a").get("Played")
+    clock[0] += 2
+    w.release_userdata()
+    assert _user_data(store, "a")["Played"] and w._held_userdata == {}
+    # Played again before the grace was over: held for the new playback.
+    w.command("userdata", [{"ItemId": "a", "Played": False, "PlayCount": 2}])
+    playing[0] = {"Id": "a"}
+    w.command("userdata", [{"ItemId": "a", "Played": False, "PlayCount": 3}])
+    playing[0] = None
+    w.release_userdata()
+    playing[0] = {"Id": "a"}
+    clock[0] += library.HELD_USERDATA_GRACE + 5
+    w.release_userdata()
+    assert _user_data(store, "a")["PlayCount"] == 2
+
+
+def test_a_watched_mark_goes_to_the_server_without_a_count(store, monkeypatch):
+    """Kodi counts its own plays and the server the ones it is told of. The
+    count sent with the mark replaced the server's: a song played once went
+    up as 2."""
+    server = Server({LIB: [movie()]})
+    store.publish([movie()], library=LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    store.local("a", {"playcount": 4})
+    w.flush_local()
+    assert server.updated == [("a", {"Played": True})]
+    store.local("a", {"playcount": 0, "position": 30.0})
+    w.flush_local()
+    assert server.updated[-1] == (
+        "a",
+        {"Played": False, "PlaybackPositionTicks": 300000000},
+    )
+    assert store.local_pending() == []

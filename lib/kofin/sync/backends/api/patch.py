@@ -15,6 +15,7 @@ in batches and then read back in one listing per library.
 
 import collections
 import time
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import unquote
 
@@ -852,10 +853,19 @@ def moved_parts(before, now) -> str:
 
 
 def local_edits(row, previous, desired):
-    """Userdata the viewer changed in Kodi since the last write, if any."""
+    """Userdata the viewer changed in Kodi since the last write, if any.
+
+    A viewer's edit of a play count is the watched mark going on or off. A
+    count that differs only in size is Kodi and the server having counted
+    differently, and the server's count is then written to Kodi like any
+    other field: read as an edit, it sent Kodi's count up to the server
+    after every play."""
     edits = {}
     playcount = row.get("playcount", 0) or 0
-    if playcount != previous.get("playcount") and playcount != desired["playcount"]:
+    watched = bool(playcount)
+    if watched != bool(previous.get("playcount")) and watched != bool(
+        desired["playcount"]
+    ):
         edits["playcount"] = playcount
     if "resume" not in desired:
         # A song: Kodi's music library keeps no resume point.
@@ -929,6 +939,33 @@ def merge(kind, desired, row, owned_before):
     return compare
 
 
+# Kodi's own spelling of a last-played stamp, local time (metadata._timestamp).
+STAMP = "%Y-%m-%d %H:%M:%S"
+# How much later than the server's stamp Kodi's own may be and still be
+# the same play: the server stamps a play when it starts and Kodi when it
+# ends, so the two differ by the length of what was played, pauses included.
+SAME_PLAY = 6 * 3600
+
+
+def same_play(actual: str, wanted: str) -> bool:
+    """Whether Kodi's last-played stamp needs no write to agree with the
+    server's. Equal stamps do, and so does one of Kodi's that is later by
+    no more than a sitting: written back to the server's earlier one, every
+    song played here cost a setter twenty seconds after it ended, and a
+    song's setter rewrites its date added."""
+    if actual == wanted:
+        return True
+    if not actual or not wanted:
+        return False
+    try:
+        ahead = (
+            datetime.strptime(actual, STAMP) - datetime.strptime(wanted, STAMP)
+        ).total_seconds()
+    except ValueError:
+        return False
+    return 0 <= ahead <= SAME_PLAY
+
+
 def matches(row, desired):
     for key, value in desired.items():
         actual = row.get(key)
@@ -952,6 +989,9 @@ def matches(row, desired):
                     return False
         elif key == "rating":
             if abs(float(actual or 0) - float(value or 0)) >= 0.01:
+                return False
+        elif key == "lastplayed":
+            if not same_play(actual or "", value or ""):
                 return False
         elif isinstance(value, list):
             if sorted(actual or []) != sorted(value):
