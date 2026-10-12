@@ -391,7 +391,10 @@ def watch_total(method, seconds, interval=2.0):
             total = rpc(method, {"limits": {"start": 0, "end": 1}}, timeout=30)[
                 "limits"
             ]["total"]
-        except Exception:  # noqa: BLE001 - a busy Kodi misses a poll
+        except (OSError, ValueError):
+            # A busy Kodi misses a poll. An error Kodi answers with (a method
+            # it does not have) is rpc's RuntimeError and is not caught: every
+            # poll would fail alike and read as a listing that never changed.
             total = None
         if total != last:
             changes.append(
