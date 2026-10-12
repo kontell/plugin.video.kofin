@@ -227,6 +227,12 @@ def rig(store, kodi, monkeypatch):
         return 0
 
     monkeypatch.setattr(chapterart, "seeded_count", count)
+    # The workers' own transport is the server's; here it is the fake's.
+    monkeypatch.setattr(
+        chapterart.ChapterArt,
+        "_downloads",
+        lambda self: (self._api.download, lambda: None),
+    )
     lines = []
     monkeypatch.setattr(
         chapterart.LOG, "info", lambda msg, *args: lines.append(msg % args)
@@ -550,3 +556,30 @@ def test_the_api_player_stages_on_claim_and_withdraws_on_finalize(
 def test_the_api_player_skips_a_transcode(api_player, monkeypatch):
     _play(monkeypatch, method="Transcode")
     assert SpyArt.instances == []
+
+
+def test_the_image_workers_do_not_share_the_services_session(store, monkeypatch):
+    """The service's client is one requests session, in use by the library
+    thread while a film's chapters are fetched. Three workers at once on it
+    is what the sync avoids by giving each of its workers a client."""
+    from kofin.core.stdhttp import StdlibHttp
+
+    creds = SimpleNamespace(
+        server_address="http://server.example",
+        device_id="device-1",
+        user_id="user",
+        token="token",
+        server_id="server",
+    )
+    monkeypatch.setattr(chapterart.Credentials, "load", staticmethod(lambda: creds))
+    api = FakeApi()
+    worker = chapterart.ChapterArt(api, _item())
+    download, release = worker._downloads()
+    client = download.__self__
+    assert client is not api
+    assert isinstance(client._http, StdlibHttp)
+    # Its retry ladder ends with the play the images are for.
+    assert client._http._abort() is False
+    worker._cancel.set()
+    assert client._http._abort() is True
+    release()

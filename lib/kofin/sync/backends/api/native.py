@@ -12,10 +12,9 @@ directories, in which order and under what bar is ``musicpass`` and
 ``walk``; the scanner they drive is here.
 """
 
-import functools
 import time
 from contextlib import contextmanager
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
 import xbmc
 
@@ -70,11 +69,17 @@ class Monitor(xbmc.Monitor):
             self.music_finished += 1
 
 
-def apply_first(applier, upserts, repair, errors, kinds, applied):
-    """Apply the kinds that do not wait for the video scans (kinds.MUSIC_FIRST)
-    and note them, so that the pass's main run leaves them out."""
-    applier.run(upserts, {}, set(), repair, errors, kinds=kinds)
-    applied.extend(kinds)
+class VideoScan(NamedTuple):
+    """What a pass has Kodi's video scanner list (Native.plan_video)."""
+
+    directories: List[str]
+    # Rows the scan of each directory is to file, for Kodi's own count.
+    expected: Dict[str, int]
+    # (item id, generation, user data) of what the scanner is about to file.
+    expectations: List[Tuple[str, int, Dict]]
+    # Movie folders scanned by name: bound without noupdate for the scan
+    # and with it afterwards (bind_folders).
+    movie_folders: List[str]
 
 
 class Native:
@@ -233,7 +238,7 @@ class Native:
         so every folder is bound; with ``noupdate`` Kodi's own Update library
         lists none of them. The scanner skips a ``noupdate`` folder it was
         not told to scan everything of, so a folder scanned by name is bound
-        without the flag first and with it afterwards (import_missing)."""
+        without the flag first and with it afterwards (scan_video)."""
         bound = self.store.bindings()
         wanted = list(
             dict.fromkeys(folders if force else [p for p in folders if p not in bound])
@@ -722,27 +727,23 @@ class Native:
                 )
             self.progress.begin(len(upserts))
 
-            early = [
-                kind
-                for kind in MUSIC_FIRST
-                if any(r.kind == kind for r in upserts.values())
-            ]
-            applied: List[str] = []
-            # Bound, not a nested function: the applier's name is deleted when
-            # the pass ends, to hand its tables back, and a function that
-            # reads a name its scope deletes is an undefined name to ruff.
-            self.import_missing(
-                upserts,
-                errors,
-                entries,
-                before_video=(
-                    functools.partial(
-                        apply_first, applier, upserts, repair, errors, early, applied
-                    )
-                    if early
-                    else None
-                ),
+            self.scan_music(upserts, errors, entries)
+            video = self.plan_video(upserts, errors)
+            # Album and artist artwork does not wait for the video scans
+            # (kinds.MUSIC_FIRST). With no video scan to wait for, the kinds
+            # keep their order and the music hold is taken once.
+            early = (
+                [
+                    kind
+                    for kind in MUSIC_FIRST
+                    if any(r.kind == kind for r in upserts.values())
+                ]
+                if video.directories or video.movie_folders
+                else []
             )
+            if early:
+                applier.run(upserts, {}, set(), repair, errors, kinds=early)
+            self.scan_video(video)
             boxsets = [r.item for r in self.store.records(kind="BoxSet").values()]
             collections = metadata.collections_of(boxsets)
             movies = {i for i, e in entries.items() if e.kind == "Movie"}
@@ -752,7 +753,7 @@ class Native:
                 movies,
                 repair,
                 errors,
-                kinds=[kind for kind in ORDER if kind not in applied],
+                kinds=[kind for kind in ORDER if kind not in early],
             )
             # Sets, bindings and the companion's requests: nothing counted.
             self.progress.working(progress.WAITING)
@@ -796,27 +797,35 @@ class Native:
             if (completed or not self._async_pending) and self._idle("any"):
                 self.store.unpin()
 
-    def import_missing(
-        self,
-        upserts: Dict[str, Record],
-        errors,
-        entries: Optional[Dict] = None,
-        before_video=None,
+    def scan_music(
+        self, upserts: Dict[str, Record], errors, entries: Optional[Dict] = None
     ):
-        """Bind and scan whatever the readback shows the scanner has not filed,
-        and the movie folders whose versions or extras it has not seen.
+        """Have Kodi list the music directories that need it, a library at a
+        time. The pass scans music before video (reconcile)."""
+        for library in sorted({r.library for r in upserts.values() if r.library}):
+            if not any(
+                paths.CONTENT.get(r.kind) == "music"
+                for r in upserts.values()
+                if r.library == library
+            ):
+                continue
+            try:
+                if entries is None:
+                    entries = self.store.entries()
+                self.music.import_missing(upserts, library, entries)
+            except InterruptedError:
+                raise
+            except Exception as error:
+                errors.append(error)
 
-        Music is scanned first, and when a video scan is to follow,
-        ``before_video`` runs between the two: the pass applies album and
-        artist artwork there (kinds.MUSIC_FIRST). With no video scan to wait
-        for it is not called, and the kinds keep their order.
-        """
+    def plan_video(self, upserts: Dict[str, Record], errors) -> VideoScan:
+        """Bind whatever the readback shows the video scanner has not filed,
+        and name the directories to scan for it and for the movie folders
+        whose versions or extras the scanner has not seen."""
         directories: List[str] = []
         expected: Dict[str, int] = {}
         expectations = []
         self._extras_folders = set()
-        # Movie folders scanned by name this pass: bound without noupdate
-        # for the scan and with it afterwards (bind_folders).
         scanned_movie_folders: List[str] = []
         for library in sorted({r.library for r in upserts.values() if r.library}):
             kinds = {r.kind for r in upserts.values() if r.library == library}
@@ -824,14 +833,6 @@ class Native:
                 if not any(paths.CONTENT.get(k) == content for k in kinds):
                     continue
                 if content == "music":
-                    try:
-                        if entries is None:
-                            entries = self.store.entries()
-                        self.music.import_missing(upserts, library, entries)
-                    except InterruptedError:
-                        raise
-                    except Exception as error:
-                        errors.append(error)
                     continue
                 try:
                     self.bind(library, content)
@@ -913,26 +914,30 @@ class Native:
                                 metadata.userdata(record.item),
                             )
                         )
-        if before_video is not None and (directories or scanned_movie_folders):
-            before_video()
+        return VideoScan(directories, expected, expectations, scanned_movie_folders)
+
+    def scan_video(self, video: VideoScan):
+        """Have Kodi's video scanner list what plan_video named."""
         try:
-            if scanned_movie_folders:
+            if video.movie_folders:
                 # Without noupdate for the scan: the scanner skips a noupdate
                 # folder it was not told to scan everything of.
-                self.bind_folders("movies", scanned_movie_folders, force=True)
-            if directories:
-                self.store.expect_many(expectations)
-                with self.without_actor_thumbs(sum(expected.values())):
+                self.bind_folders("movies", video.movie_folders, force=True)
+            if video.directories:
+                self.store.expect_many(video.expectations)
+                with self.without_actor_thumbs(sum(video.expected.values())):
                     self.scan(
-                        directories, expected=expected, prepare=self._prepare_scan
+                        video.directories,
+                        expected=video.expected,
+                        prepare=self._prepare_scan,
                     )
         finally:
             # The flag goes back whether the scan finished or not, and
             # whether the lift itself finished: without it Kodi's own Update
             # library lists these folders.
-            if scanned_movie_folders:
+            if video.movie_folders:
                 self.bind_folders(
-                    "movies", scanned_movie_folders, force=True, noupdate=True
+                    "movies", video.movie_folders, force=True, noupdate=True
                 )
 
     def _missing_tv(self, upserts, library) -> List[Record]:

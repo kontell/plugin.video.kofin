@@ -145,7 +145,12 @@ def clear_library(native, library, kinds, rows=0):
             failure.append(error)
 
     try:
-        before = _rows(kinds) if rows else 0
+        try:
+            before = _rows(kinds) if rows else 0
+        except Exception:
+            # The count is the bar's alone. A listing Kodi refuses here must
+            # not be what keeps the library from being cleared.
+            before = rows = 0
         worker = threading.Thread(target=clear, name="kofin-library-clear")
         worker.daemon = True
         worker.start()

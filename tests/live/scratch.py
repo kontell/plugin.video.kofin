@@ -35,6 +35,9 @@ import urllib.request
 ROOT = os.environ.get("SCRATCH_ROOT", "/media/bluecon/scratch-kofin")
 STATE_DIR = os.path.join(os.environ.get("TMPDIR", "/tmp"), "kofin-scratch")
 STATE = os.path.join(STATE_DIR, "scratch-py-state.json")
+# Written into SCRATCH_ROOT by ``media``. The root is configurable and
+# ``cleanup`` removes it whole, so nothing is removed that does not carry it.
+MARKER = os.path.join(ROOT, ".kofin-scratch")
 LIBRARIES = {
     "movies": ("Scratch Movies", "movies", ["Movie"]),
     "shows": ("Scratch Shows", "tvshows", ["Series", "Season", "Episode"]),
@@ -158,7 +161,46 @@ def song(path, seconds, artist, album, title, track, total):
     )  # fmt: skip
 
 
+def _claim_root():
+    """Make SCRATCH_ROOT this tool's, or refuse one that is somebody's."""
+    if os.path.isdir(ROOT) and os.listdir(ROOT) and not os.path.isfile(MARKER):
+        raise SystemExit(
+            "%s exists, is not empty and was not made by this tool; "
+            "set SCRATCH_ROOT to a directory of its own" % ROOT
+        )
+    os.makedirs(ROOT, exist_ok=True)
+    if not os.path.isfile(MARKER):
+        with open(MARKER, "w", encoding="utf-8") as handle:
+            json.dump({"made_by": "tests/live/scratch.py"}, handle)
+
+
+def _ours(folder, key):
+    """Whether a server library is the one this tool makes for ``key``: its
+    one path is the directory under SCRATCH_ROOT. The names are ordinary
+    enough for a real library to carry one."""
+    paths = [os.path.normpath(path) for path in folder.get("Locations") or []]
+    return paths == [os.path.normpath(os.path.join(ROOT, key))]
+
+
+def _retime_clips():
+    """Drop the video clips made at another length, so that they are made
+    again. ``clip`` skips a file that is there, and a clip under five minutes
+    is marked played by the server at any stop: one left from an earlier run
+    fails the very scenarios the length exists for."""
+    with open(MARKER, encoding="utf-8") as handle:
+        made = json.load(handle)
+    if made.get("video_seconds") == VIDEO_SECONDS:
+        return
+    for key in ("movies", "shows"):
+        shutil.rmtree(os.path.join(ROOT, key), ignore_errors=True)
+    made["video_seconds"] = VIDEO_SECONDS
+    with open(MARKER, "w", encoding="utf-8") as handle:
+        json.dump(made, handle)
+
+
 def media():
+    _claim_root()
+    _retime_clips()
     clip(
         os.path.join(ROOT, "movies/Scratch Movie (2020)/Scratch Movie (2020).mkv"),
         VIDEO_SECONDS,
@@ -194,16 +236,28 @@ def media():
     print("%d files under the scratch root" % count)
 
 
+def _scanning():
+    """Whether the server's library scan is queued or running."""
+    time.sleep(1)  # a scan just asked for is not yet a task that runs
+    for task in api("GET", "/ScheduledTasks"):
+        if task.get("Key") == "RefreshLibrary":
+            return task.get("State") != "Idle"
+    return False
+
+
 def _await_scan(data):
     """Wait for the server to list everything the scratch media holds. A
     scan that has not got there in five minutes is a failure to report, not
     a count to print."""
     found = {}
     for _ in range(60):
-        found = _counts(data)
-        if all(found.get(kind, 0) >= wanted for kind, wanted in EXPECTED.items()):
-            print("scanned: %s" % json.dumps(found, sort_keys=True))
-            return
+        # The counts alone say nothing of a scan of clips that changed: they
+        # were right before it began. The scan itself has to be over.
+        if not _scanning():
+            found = _counts(data)
+            if all(found.get(kind, 0) >= want for kind, want in EXPECTED.items()):
+                print("scanned: %s" % json.dumps(found, sort_keys=True))
+                return
         time.sleep(5)
     raise SystemExit(
         "scan incomplete after five minutes: %s of %s"
@@ -213,10 +267,19 @@ def _await_scan(data):
 
 def libraries():
     data = state()
-    existing = {
-        folder["Name"]: folder["ItemId"]
-        for folder in api("GET", "/Library/VirtualFolders")
+    folders = {
+        folder["Name"]: folder for folder in api("GET", "/Library/VirtualFolders")
     }
+    # Before anything is made: a library of one of these names that is not
+    # on the scratch root is somebody's, and is neither adopted here nor
+    # deleted by ``cleanup``.
+    for key, (name, _, _) in LIBRARIES.items():
+        if name in folders and not _ours(folders[name], key):
+            raise SystemExit(
+                "the server has a library named %s that is not on %s; "
+                "nothing was changed" % (name, ROOT)
+            )
+    existing = {name: folder["ItemId"] for name, folder in folders.items()}
     for key, (name, collection, types) in LIBRARIES.items():
         if name not in existing:
             api(
@@ -295,6 +358,9 @@ def grant(users):
         # The first snapshot is the user's own; a second grant must not
         # overwrite it with one that already holds the scratch folders.
         snapshots.setdefault(user, policy)
+        # On disk before the policy moves: a later user's request failing
+        # must not leave this one changed with nothing to restore it from.
+        save(data)
         if policy.get("EnableAllFolders"):
             print("user sees every folder; nothing to change")
             continue
@@ -304,7 +370,6 @@ def grant(users):
         )
         api("POST", "/Users/%s/Policy" % user, body=policy)
         print("granted %d scratch folder(s)" % len(wanted))
-    save(data)
 
 
 def restore_policy():
@@ -411,18 +476,30 @@ def reset(user):
 
 def cleanup():
     data = state()
+    folders = {
+        folder["Name"]: folder for folder in api("GET", "/Library/VirtualFolders")
+    }
     for key, (name, _, _) in LIBRARIES.items():
-        if data.get("lib_" + key):
+        if not data.get("lib_" + key):
+            continue
+        if name in folders and not _ours(folders[name], key):
+            print("%s is not on %s; left alone" % (name, ROOT))
+        elif name in folders:
             api(
                 "DELETE",
                 "/Library/VirtualFolders",
                 {"name": name, "refreshLibrary": "true"},
             )
             print("deleted %s" % name)
-            data.pop("lib_" + key, None)
+        data.pop("lib_" + key, None)
     save(data)
-    shutil.rmtree(ROOT, ignore_errors=True)
-    print("clips removed")
+    if not os.path.isdir(ROOT):
+        print("no clips to remove")
+    elif os.path.isfile(MARKER):
+        shutil.rmtree(ROOT, ignore_errors=True)
+        print("clips removed")
+    else:
+        print("%s was not made by this tool; left alone" % ROOT)
 
 
 def main(argv):

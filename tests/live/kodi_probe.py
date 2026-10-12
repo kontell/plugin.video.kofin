@@ -523,7 +523,7 @@ def play(item, stop_after=None, next_after=None, seek_percent=None, limit=600.0)
             },
         )
     playing_since = time.monotonic()
-    skipped = stopped = False
+    skipped = stopped = ended = False
     idle_since = None
     while time.monotonic() - began < limit:
         players = rpc("Player.GetActivePlayers")
@@ -533,6 +533,7 @@ def play(item, stop_after=None, next_after=None, seek_percent=None, limit=600.0)
             if idle_since is None:
                 idle_since = time.monotonic()
             if time.monotonic() - idle_since >= 1.5:
+                ended = True
                 break
             time.sleep(0.25)
             continue
@@ -565,11 +566,17 @@ def play(item, stop_after=None, next_after=None, seek_percent=None, limit=600.0)
             rpc("Player.Stop", {"playerid": players[0]["playerid"]})
             stopped = True
         time.sleep(0.5)
+    if not ended:
+        # Still playing at the limit: stopped here, and said, so that nobody
+        # reads the state of an item as if its play were over.
+        for player in rpc("Player.GetActivePlayers"):
+            rpc("Player.Stop", {"playerid": player["playerid"]})
     return {
         "started_s": started,
         "total_s": round(time.monotonic() - began, 1),
         "stopped": stopped,
         "skipped": skipped,
+        "timed_out": not ended,
     }
 
 
