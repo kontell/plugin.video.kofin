@@ -12,6 +12,7 @@ directories, in which order and under what bar is ``musicpass`` and
 ``walk``; the scanner they drive is here.
 """
 
+import functools
 import time
 from contextlib import contextmanager
 from typing import Dict, List, Optional, Set, Tuple
@@ -67,6 +68,13 @@ class Monitor(xbmc.Monitor):
             self.finished += 1
         elif library.lower() == "music":
             self.music_finished += 1
+
+
+def apply_first(applier, upserts, repair, errors, kinds, applied):
+    """Apply the kinds that do not wait for the video scans (kinds.MUSIC_FIRST)
+    and note them, so that the pass's main run leaves them out."""
+    applier.run(upserts, {}, set(), repair, errors, kinds=kinds)
+    applied.extend(kinds)
 
 
 class Native:
@@ -715,13 +723,20 @@ class Native:
                 if any(r.kind == kind for r in upserts.values())
             ]
             applied: List[str] = []
-
-            def music_first():
-                applier.run(upserts, {}, set(), repair, errors, kinds=early)
-                applied.extend(early)
-
+            # Bound, not a nested function: the applier's name is deleted when
+            # the pass ends, to hand its tables back, and a function that
+            # reads a name its scope deletes is an undefined name to ruff.
             self.import_missing(
-                upserts, errors, entries, before_video=music_first if early else None
+                upserts,
+                errors,
+                entries,
+                before_video=(
+                    functools.partial(
+                        apply_first, applier, upserts, repair, errors, early, applied
+                    )
+                    if early
+                    else None
+                ),
             )
             boxsets = [r.item for r in self.store.records(kind="BoxSet").values()]
             collections = metadata.collections_of(boxsets)
