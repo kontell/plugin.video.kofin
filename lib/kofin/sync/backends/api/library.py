@@ -395,6 +395,12 @@ class Library(threading.Thread):
             LOG.exception("API video worker stopped")
         finally:
             self.stop_thread = True
+            # A stop in the middle of a request leaves nobody to finish its
+            # bar: the tick that would have settled it never ran.
+            try:
+                self._bar().finish()
+            except Exception:
+                LOG.debug("progress bar not taken down at the stop")
 
     def _run(self, monitor):
         self.store.initialize(self.api.server)
@@ -454,14 +460,17 @@ class Library(threading.Thread):
         failed = False
         # Only visit each queued command once per tick, including failures.
         for _ in range(min(100, self._queue.qsize())):
-            command, data = self._queue.get_nowait()
+            command, data, *again = self._queue.get_nowait()
             try:
-                self.command(command, data)
+                self.command(command, data, retry=bool(again))
             except InterruptedError:
                 raise
             except Exception:
                 LOG.exception("API video command will retry: %s", command)
-                self._queue.put((command, data))
+                # Marked as a retry: it is not the viewer asking again, and
+                # the bar must not come back up for each one while the
+                # server is away (settle_progress).
+                self._queue.put((command, data, True))
                 failed = True
         if failed:
             raise RuntimeError("API video commands remain pending")
@@ -1061,8 +1070,8 @@ class Library(threading.Thread):
             self._rebuilding.update(rebuild)
         return rebuild
 
-    def command(self, command, data):
-        if command in ATTENDED:
+    def command(self, command, data, retry=False):
+        if command in ATTENDED and not retry:
             self._bar().attend()
         if command == "RemoveLibrary":
             self.drop_libraries([i for i in data.get("Id", "").split(",") if i])

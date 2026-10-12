@@ -1446,3 +1446,33 @@ def test_a_stopped_clear_is_not_over_until_kodi_has_answered(monkeypatch):
     finally:
         timer.cancel()
         answer.set()
+
+
+def test_a_row_count_kodi_refuses_does_not_keep_a_library_from_being_cleared(
+    monkeypatch,
+):
+    """The count before the clear is for the bar alone."""
+    from types import SimpleNamespace
+
+    from kofin.sync.backends.api import removal
+
+    calls = []
+    monkeypatch.setattr(removal, "rpc", lambda method, params: calls.append(method))
+    monkeypatch.setattr(removal, "removing", lambda library: "Removing library")
+
+    def refused(kinds):
+        raise RuntimeError("VideoLibrary.GetMovies: refused")
+
+    monkeypatch.setattr(removal, "_rows", refused)
+    native = SimpleNamespace(
+        key="key",
+        progress=SimpleNamespace(
+            phase=lambda *a: None, at=lambda *a: None, restore=lambda saved: None
+        ),
+        abort=lambda: False,
+        monitor=SimpleNamespace(waitForAbort=lambda seconds: False),
+        readback=SimpleNamespace(clear=lambda: None, scope=lambda *a: {}),
+        store=SimpleNamespace(unbind=lambda root: calls.append("unbind")),
+    )
+    removal.clear_library(native, LIB, {"Movie"}, rows=5)
+    assert calls == ["VideoLibrary.SetSourceContent", "unbind"]
