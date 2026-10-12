@@ -711,7 +711,9 @@
              lookup of it warned (Kodi settings-manager bug, verified
              empirically on 21.3). They therefore stay visible even under force
              direct play — a native multiselect that closed the settings window
-             (the only way to hide them) was not worth the trade. -->
+             (the only way to hide them) was not worth the trade. The API
+             profile, whose floor is Kodi 22, adds the rule when it is built
+             (tools/package_manifest.py, VISIBLE_WHILE). -->
         <setting id="directPlayVideoCodecs" type="list[string]" label="30108" help="30109">
           <level>0</level>
           <default>h264,h264_10bit,hevc,hevc_rext,av1,mpeg2video,vp9,vc1</default>

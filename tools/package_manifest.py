@@ -97,6 +97,42 @@ DISABLED_SETTINGS = {
 }
 
 
+# Settings a profile shows only while another setting holds a value:
+# {profile: {setting: (the other setting, its value)}}. The three lists are
+# what a device can play and what its display accepts, and a play under
+# force direct play reads none of them. Hidden, they keep their values, and
+# two things still read those: a transcode asked for from the context menu
+# and the download decision (deviceprofile.build, ProfileConfig.for_downloads).
+# They carry the rule in the API profile alone: on Kodi 21 a <dependencies>
+# block on a list[string] setting unregisters the setting it names (the note
+# in settings.xml), and the SQL profile still installs there. The API
+# profile's floor is Kodi 22.
+VISIBLE_WHILE = {
+    "sql": {},
+    "api": {
+        "directPlayVideoCodecs": ("forceDirectPlay", "false"),
+        "directPlayAudioCodecs": ("forceDirectPlay", "false"),
+        "allowedHdrTypes": ("forceDirectPlay", "false"),
+    },
+}
+
+
+def show_while(setting, other, value):
+    """Give a setting a visibility rule on another setting's value, beside
+    any rule it already has."""
+    dependencies = setting.find("dependencies")
+    if dependencies is None:
+        dependencies = ET.Element("dependencies")
+        control = setting.find("control")
+        position = list(setting).index(control) if control is not None else len(setting)
+        setting.insert(position, dependencies)
+    dependency = ET.SubElement(dependencies, "dependency", {"type": "visible"})
+    condition = ET.SubElement(
+        dependency, "condition", {"operator": "is", "setting": other}
+    )
+    condition.text = value
+
+
 def selected_profile(root):
     source = ast.parse((root / "lib/kofin/buildconfig.py").read_text())
     for statement in source.body:
@@ -153,10 +189,14 @@ def contents(root, path, profile):
     if path.as_posix() == "resources/settings.xml":
         tree = ET.fromstring(data)
         disabled = DISABLED_SETTINGS[profile]
+        conditional = VISIBLE_WHILE[profile]
         for group in tree.findall(".//group"):
             for setting in list(group):
                 if setting.get("id") in disabled:
                     group.remove(setting)
+                    continue
+                if setting.get("id") in conditional:
+                    show_while(setting, *conditional[setting.get("id")])
         return ET.tostring(tree, encoding="utf-8", xml_declaration=True)
     if profile != "api":
         return data
