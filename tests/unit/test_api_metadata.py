@@ -482,3 +482,28 @@ def test_a_refresh_can_say_which_part_of_its_token_moved():
     # The parts never change the token a row was filed under.
     item = movie(People=cast, MediaStreams=STREAMS)
     assert metadata.refresh_token(item) == metadata.refresh_token(dict(item))
+
+
+def test_the_parts_are_the_tokens_own_fields():
+    """The log's reason is built from the dict the token hashes: a field in
+    the token and not in the parts would refresh a row and say nothing
+    moved."""
+    samples = [
+        movie(),
+        episode("e1"),
+        series(),
+        dict(movie(), Type="MusicVideo"),
+    ]
+    for item in samples:
+        fields = metadata.refresh_fields(item, [season("s", number=1)])
+        assert metadata.refresh_token(item, [season("s", number=1)]) == (
+            metadata._token(fields)
+        )
+        # Every field has a word a viewer would use for it.
+        assert set(fields) <= set(metadata.REFRESH_PARTS)
+        parts = metadata.refresh_parts(item, [season("s", number=1)])
+        assert set(parts) == {metadata.REFRESH_PARTS[key] for key in fields}
+    # A field that moves from nothing to something moves its part.
+    bare = metadata.refresh_parts(episode("e1"))
+    ended = metadata.refresh_parts(episode("e1", IndexNumberEnd=2))
+    assert bare["numbering"] != ended["numbering"] and bare["cast"] == ended["cast"]

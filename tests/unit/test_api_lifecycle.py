@@ -1392,7 +1392,7 @@ def test_a_later_stamp_of_kodis_own_is_the_same_play():
     """The server stamps a play when it starts and Kodi when it ends.
     Written back to the server's earlier stamp, every song played here cost
     a setter twenty seconds after it ended."""
-    same = patch.same_play
+    same = metadata.same_play
     assert same("2026-10-12 14:24:33", "2026-10-12 14:24:08")
     assert same("2026-10-12 14:24:08", "2026-10-12 14:24:08")
     # The server's is the later one: played somewhere else since.
