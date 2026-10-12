@@ -662,6 +662,43 @@ def test_a_rebuild_outlives_the_service_and_a_listing_asked_for_by_name(
     assert enumerations and not again._rebuilding
 
 
+def test_a_rebuild_stopped_before_its_tombstones_leaves_the_library_listed(
+    store, monkeypatch
+):
+    """The rows were tombstoned first and the whitelist written after. A
+    service killed between the two removed the rows of a library still on
+    the whitelist, and nothing listed it again before the next complete
+    enumeration: gone from Kodi for up to a day."""
+    from kofin.sync.backends.api import metadata
+
+    server = Server({LIB: [movie(), movie("b")], LIB2: show_bundle()})
+    w, state = _filed(store, monkeypatch, server, LIB, LIB2)
+    publish = store.publish
+
+    def killed(*args, **kwargs):
+        raise InterruptedError
+
+    monkeypatch.setattr(store, "publish", killed)
+    with pytest.raises(InterruptedError):
+        w.command("RepairLibrary", {"Id": LIB})
+    assert state["Whitelist"] == [LIB2] and store.tombstones() == {}
+    assert store.rebuilding() == [LIB]
+
+    # The service after it: nothing is leaving, so nothing is waited for,
+    # and the library is one that is selected and not synced.
+    monkeypatch.setattr(store, "publish", publish)
+    again = worker(store, server, [LIB, LIB2], monkeypatch)
+    _whitelist(monkeypatch, LIB2)
+    again._rebuilding.update(store.rebuilding())
+    enumerations = []
+    monkeypatch.setattr(again, "full_sync", lambda *a: enumerations.append(a))
+    again.refresh()
+    assert enumerations and not again._rebuilding
+    # It has the rows it had, and still asks for the repair that did not run.
+    assert store.has_rows(LIB)
+    assert store.scanner_format(LIB) < metadata.SCANNER_FORMAT
+
+
 def test_a_repair_with_no_library_named_rebuilds_every_stale_video_library(
     store, monkeypatch
 ):
