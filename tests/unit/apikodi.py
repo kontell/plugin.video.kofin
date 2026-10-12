@@ -579,6 +579,11 @@ class Kodi:
                     else:
                         merged[name] = value
                 values["art"] = merged
+            if kind == "Audio" and not values.get("lastplayed"):
+                # Kodi loads the song first and an empty date leaves the
+                # one it has standing (CDateTime::SetFromDBDateTime), which
+                # UpdateSong then writes back: a stamp is never cleared.
+                values.pop("lastplayed", None)
             row.update(copy.deepcopy(values))
         return "OK"
 
