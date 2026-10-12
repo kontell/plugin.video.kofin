@@ -85,7 +85,7 @@ def api(method, path, params=None, body=None):
             raw = reply.read()
             return json.loads(raw.decode("utf-8")) if raw.strip() else None
     except urllib.error.HTTPError as error:
-        raise SystemExit("%s %s: HTTP %d" % (method, path, error.code))
+        raise SystemExit("%s %s: HTTP %d" % (method, path, error.code)) from error
 
 
 def state():
