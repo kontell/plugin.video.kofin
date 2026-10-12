@@ -15,6 +15,7 @@ with their songs, since Kodi's own cleanup drops their empty rows. Nothing is
 forgotten on the strength of an accepted call.
 """
 
+import functools
 import threading
 import time
 from typing import Any, Dict, List, Set, Tuple
@@ -226,6 +227,19 @@ def _release_sets(native, before):
         companion.journal_set(title)
 
 
+def _owed(library, what, call):
+    """Do something a library is owed once its rows are gone, and never
+    fail its removal for it: failed, the library was cleared a second time
+    on the next pass, and its sets could not be told again, since Kodi no
+    longer lists them."""
+    try:
+        call()
+    except InterruptedError:
+        raise
+    except Exception as error:
+        LOG.warning("library %s: left without %s: %s", library, what, error)
+
+
 def remove(native, pending, entries, tombstones, errors) -> Set[str]:
     """Apply every tombstone but the sets'; returns the libraries cleared whole."""
     store = native.store
@@ -262,15 +276,15 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
                 len(members),
                 time.monotonic() - began,
             )
-            if sets:
-                _release_sets(native, sets)
-            native.library_event()
         except InterruptedError:
             raise
         except Exception as error:
             for item_id in members:
                 _fail(store, pending, item_id, error, errors)
             continue
+        if sets:
+            _owed(library, "its sets", functools.partial(_release_sets, native, sets))
+        _owed(library, "its event", native.library_event)
         # One transaction: let go of one at a time, a library of 6,000 items
         # was 6,000 commits, each collecting the catalogue's closed intervals.
         store.forget_many([(item_id, pending[item_id][0]) for item_id in members])

@@ -385,6 +385,7 @@ def worker(store, server, selected, monkeypatch, feed=None):
     w.changefeed = feed
     w._unsynced_tried = set()
     w._rebuilding = set()
+    w._first_attended = False
     w._held_userdata = {}
     w._queue = queue.Queue()
     selections = (
