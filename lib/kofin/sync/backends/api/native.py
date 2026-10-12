@@ -51,6 +51,9 @@ ACTOR_THUMBS_FLOOR = 100
 MOVIE_BINDINGS_SETTING = "apiMovieBindings"
 MOVIE_BINDINGS_STATE = "noupdate"
 SCAN_POLL = 3.0  # seconds between reads of Kodi's row count during a scan
+# A directory that is not there. Scanned, it is skipped at once and the scan
+# still ends with the announcement home widgets listen for (library_event).
+NOWHERE = "special://temp/kofin-no-such-directory/"
 
 
 class Monitor(xbmc.Monitor):
@@ -286,6 +289,22 @@ class Native:
 
     def bind_show(self, library, series_id):
         self.bind_folders("tvshows", [paths.show_dir(self.key, library, series_id)])
+
+    def library_event(self):
+        """Have Kodi announce that the video library changed, and scan
+        nothing for it.
+
+        A scan with no directory walks every bound folder to compare its
+        hash: every show of every library that was not being removed, 10 to
+        14 s on a desktop each time a library left, and Kodi refused the
+        clean asked for straight after it ("CleanLibrary is not possible
+        while scanning or cleaning"), so the sets a removed movie library
+        had emptied were never dropped. Not issued while a scan runs: the
+        builtin behind the call stops a running scan instead of queuing.
+        """
+        if not self._idle("video"):
+            return
+        rpc("VideoLibrary.Scan", {"directory": NOWHERE, "showdialogs": False})
 
     def unbind_show(self, library, series_id):
         self.unbind_folder(paths.show_dir(self.key, library, series_id))

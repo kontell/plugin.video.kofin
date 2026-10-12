@@ -19,7 +19,7 @@ import copy
 import re
 
 
-from kofin.sync.backends.api import metadata, paths
+from kofin.sync.backends.api import metadata, native, paths
 
 SERVER = "http://fixture.invalid"
 
@@ -170,6 +170,10 @@ class Kodi:
 
     def scan(self, directory):
         self.scanned.append(directory)
+        if directory == native.NOWHERE:
+            # A directory that is not there: nothing is walked, and the scan
+            # ends with the announcement all the same.
+            return
         self.scan_actor_thumbs.append(self.settings.get("videolibrary.actorthumbs"))
         location = paths.parse(directory)
         assert location is not None and location.library, directory

@@ -816,21 +816,6 @@ class Store(Catalogue):
                     [self.namespace] + chunk,
                 )
 
-    def invalidate_where(self, kinds, except_library=None):
-        with Database() as db:
-            self._prepare(db.cursor)
-            kinds = tuple(kinds)
-            params: List[Any] = [self.namespace] + list(kinds)
-            query = (
-                "UPDATE api_item SET status='pending' WHERE namespace=? AND operation='upsert'"
-                " AND item_id IN (SELECT item_id FROM api_entry e WHERE e.namespace=api_item.namespace"
-                " AND e.removed IS NULL AND e.kind IN (%s)" % ",".join("?" * len(kinds))
-            )
-            if except_library is not None:
-                query += " AND e.library<>?"
-                params.append(except_library)
-            db.cursor.execute(query + ")", params)
-
     # -- scanner bindings, watermarks --------------------------------------------
 
     def bindings(self) -> Dict[str, str]:

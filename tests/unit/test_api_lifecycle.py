@@ -235,7 +235,14 @@ def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
     assert not methods(kodi, "VideoLibrary.RemoveMovie")
     assert set(kodi.owned("Series")) == {SHOW2}
     assert set(kodi.owned("Movie")) == {"m2"}
-    assert kodi.builtins == ["UpdateLibrary(video)"]
+    # A library that held movies is cleaned for the sets it emptied, and the
+    # clean's end is the announcement the home widgets hear. Nothing is
+    # scanned: with no directory, Kodi's scan walked every bound folder of
+    # the libraries that stayed and refused the clean asked for after it.
+    assert kodi.builtins == []
+    assert methods(kodi, "VideoLibrary.Clean") == [
+        {"showdialogs": False, "directory": paths.library_root(store.namespace, LIB)}
+    ]
     assert not store.pending()
     assert set(kodi.bindings) == {
         paths.library_dir(store.namespace, LIB2, "tvshows"),
@@ -247,6 +254,77 @@ def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
     # The survivor was re-read, not re-imported.
     assert store.mapping(SHOW2).kodi_id in kodi.rows["Series"]
     assert not any(m == "VideoLibrary.Scan" for m, _ in kodi.calls)
+
+
+def test_a_library_without_movies_leaves_with_an_event_and_no_walk(
+    store, backend, kodi
+):
+    membership = {}
+    items = []
+    for library, show_id in ((LIB, SHOW), (LIB2, SHOW2)):
+        for item in show_bundle(show_id):
+            items.append(item)
+            membership[item["Id"]] = library
+    store.publish(items, membership=membership, complete_libraries=[LIB, LIB2])
+    backend.reconcile()
+    kodi.calls.clear()
+    kodi.builtins.clear()
+    kodi.scanned.clear()
+    store.publish([], library=LIB)
+    backend.reconcile()
+    assert set(kodi.owned("Series")) == {SHOW2}
+    assert kodi.builtins == []
+    assert not methods(kodi, "VideoLibrary.Clean")
+    # The one scan is of a directory that is not there.
+    assert kodi.scanned == [native.NOWHERE]
+    assert not store.pending()
+
+
+def test_a_show_library_leaving_rereads_only_the_shows_kodi_could_have_merged(
+    store, backend, kodi
+):
+    """Kodi files a show onto an existing row of the same title and
+    premiere, or the same default id, whatever library it came from, so
+    such a copy may have gone with the library. Every show of every other
+    library used to be read again for it: 79 shows and 4,316 episodes when
+    a library of one show left."""
+    third = "c" * 32
+    membership = {}
+    items = []
+    bundles = (
+        (LIB, show_bundle(SHOW)),
+        (LIB2, show_bundle(SHOW2)),
+        (third, show_bundle("d" * 32)),
+    )
+    for number, (library, bundle) in enumerate(bundles):
+        for item in bundle:
+            if item["Type"] == "Series":
+                # The first two are one show to Kodi; the third is its own.
+                item["Name"] = "Twin" if number < 2 else "Other"
+                item["ProviderIds"] = {"Tvdb": "100" if number < 2 else "101"}
+            items.append(item)
+            membership[item["Id"]] = library
+    store.publish(items, membership=membership, complete_libraries=[LIB, LIB2, third])
+    backend.reconcile()
+    kodi.calls.clear()
+    store.publish([], library=LIB)
+    planned = []
+    plan = patch.Applier.plan
+
+    def recording(self, record, repair):
+        planned.append(record.item_id)
+        return plan(self, record, repair)
+
+    patch.Applier.plan = recording
+    try:
+        backend.reconcile()
+    finally:
+        patch.Applier.plan = plan
+    assert not store.pending()
+    # The twin in the second library and its children were read again; the
+    # unrelated show of the third was left alone.
+    twin = {i["Id"] for i in show_bundle(SHOW2)}
+    assert set(planned) == twin
 
 
 def pictured_show():

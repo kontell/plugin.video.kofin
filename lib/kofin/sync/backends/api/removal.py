@@ -15,9 +15,8 @@ with their songs, since Kodi's own cleanup drops their empty rows. Nothing is
 forgotten on the strength of an accepted call.
 """
 
+import time
 from typing import Any, Dict, List, Set, Tuple
-
-import xbmc
 
 from kofin.core.log import Logger
 from . import metadata, paths
@@ -31,6 +30,55 @@ LOG = Logger(__name__)
 def _fail(store, pending, item_id, error, errors):
     store.failed(item_id, pending[item_id][0], type(error).__name__ + ": " + str(error))
     errors.append(error)
+
+
+def _merged_shows(store, pending, placement, members) -> List[str]:
+    """The shows of other libraries that Kodi may have filed on one row
+    with a show of the library just cleared, and their seasons and episodes.
+
+    Kodi files a show onto an existing row with the same default unique id,
+    or the same title and premiere date (GetMatchingTvShow), whatever
+    library either came from, so a copy in another library may have gone
+    with this one and has to be read again. Every show of every other
+    library used to be: removing a library of one show re-read 79 others
+    and their 4,316 episodes, two minutes on a desktop. A show sharing a
+    name or any provider id with one that left is every show Kodi could
+    have merged, and in most libraries that is none.
+    """
+    names: Set[str] = set()
+    provider_ids: Set[Tuple[str, str]] = set()
+    for item_id in members:
+        if placement[item_id].kind != "Series":
+            continue
+        payload = pending[item_id][2] or {}
+        names.add((payload.get("Name") or "").strip())
+        provider_ids.update(_provider_ids(payload))
+    names.discard("")
+    if not names and not provider_ids:
+        return []
+    gone = set(members)
+    merged = [
+        record.item_id
+        for record in store.records(kind="Series", pinned=False).values()
+        if record.item_id not in gone
+        and (
+            (record.item.get("Name") or "").strip() in names
+            or provider_ids & _provider_ids(record.item)
+        )
+    ]
+    for series_id in list(merged):
+        merged.extend(
+            store.records(kind=("Season", "Episode"), parent_id=series_id, pinned=False)
+        )
+    return merged
+
+
+def _provider_ids(item) -> Set[Tuple[str, str]]:
+    return {
+        (str(name).lower(), str(value))
+        for name, value in (item.get("ProviderIds") or {}).items()
+        if value
+    }
 
 
 def clear_library(native, library, kinds):
@@ -75,16 +123,20 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
             continue
         kinds = {placement[i].kind for i in members}
         try:
+            began = time.monotonic()
             clear_library(native, library, kinds)
-            # SetSourceContent announces nothing where the row removers
-            # notify per row; the root is unbound, so this scan walks nothing
-            # and only fires the library event the home widgets listen for.
-            xbmc.executebuiltin("UpdateLibrary(video)")
+            LOG.info(
+                "library %s: %d item(s) cleared from Kodi in %.1f s",
+                library,
+                len(members),
+                time.monotonic() - began,
+            )
             if "Movie" in kinds:
                 # No public call removes a set and no mapping can be trusted
                 # to say which movie had one. Kodi's own clean drops the
                 # empty sets; scoped to a root with no files left, it is
-                # cheap next to a dangling set.
+                # cheap next to a dangling set, and its end is announced to
+                # the home widgets like a scan's.
                 rpc(
                     "VideoLibrary.Clean",
                     {
@@ -92,22 +144,20 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
                         "directory": paths.library_root(native.key, library),
                     },
                 )
+            else:
+                native.library_event()
         except InterruptedError:
             raise
         except Exception as error:
             for item_id in members:
                 _fail(store, pending, item_id, error, errors)
             continue
-        for item_id in members:
-            store.forget(item_id, pending[item_id][0])
+        # One transaction: let go of one at a time, a library of 6,000 items
+        # was 6,000 commits, each collecting the catalogue's closed intervals.
+        store.forget_many([(item_id, pending[item_id][0]) for item_id in members])
         cleared.add(library)
         if kinds & {"Series", "Episode"}:
-            # Kodi merges shows with one title and premiere across libraries
-            # (GetMatchingTvShow), so another library's copy may have gone
-            # with this one: have the others re-read.
-            store.invalidate_where(
-                ("Series", "Season", "Episode"), except_library=library
-            )
+            store.invalidate(_merged_shows(store, pending, placement, members))
 
     # 2. Music: every song tombstone is its album directory listed without
     #    it. The directories are scanned (the root once, when there are
@@ -120,10 +170,11 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
     #    gathered first, whatever order the ids sort in.
     children: Dict[str, List[str]] = {}
     rows: List[Tuple[str, Entry]] = []
+    settled: List[Tuple[str, int]] = []
     for item_id in sorted(removals):
         placed = placement.get(item_id)
         if placed is None or placed.library in cleared:
-            store.forget(item_id, pending[item_id][0])
+            settled.append((item_id, pending[item_id][0]))
             continue
         table = KINDS[placed.kind]
         if table.removal in ("members", "rescan"):
@@ -139,6 +190,7 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
             store.forget(item_id, pending[item_id][0])
             continue
         rows.append((item_id, placed))
+    store.forget_many(settled)
 
     def forget_with_children(item_id):
         store.forget(item_id, pending[item_id][0])
