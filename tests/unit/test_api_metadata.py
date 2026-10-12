@@ -427,7 +427,11 @@ def test_a_played_song_without_a_server_date_is_last_played_when_it_was_added():
     assert metadata.userdata(dated)["lastplayed"] == metadata._timestamp(
         "2026-01-02T03:04:05Z"
     )
-    assert metadata.userdata(song("t1"))["lastplayed"] == ""
+    # An unplayed song has no opinion on its stamp: Kodi's song setter
+    # cannot clear one, and wanted empty it failed its readback for good.
+    assert metadata.userdata(song("t1")) == {"playcount": 0}
+    # An unwatched video's is cleared, as before.
+    assert metadata.userdata(movie(UserData={}))["lastplayed"] == ""
     # The video setters leave a missing date alone: unchanged.
     assert "lastplayed" not in metadata.userdata(movie(UserData={"Played": True}))
 
