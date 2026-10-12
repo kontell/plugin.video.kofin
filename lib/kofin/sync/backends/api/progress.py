@@ -146,6 +146,13 @@ class Progress:
         self.done = min(int(done), self.total)
         self._paint(self.counted(kind), False)
 
+    def asking(self, kind: str):
+        """The kind whose first page is being asked for: named at once, with
+        nothing counted. Until that page came back the bar went on showing
+        the finished count of the kind before."""
+        self.total = self.done = 0
+        self._paint(label(kind), True)
+
     def note(self, message: str):
         """A phase change: painted now, whatever the last paint was."""
         self._paint(message, True)
