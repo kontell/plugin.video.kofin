@@ -365,6 +365,37 @@ def test_a_retried_command_does_not_bring_the_bar_back(store, bar, stages, monke
     assert w._queue.qsize() == 1
 
 
+def test_a_first_listing_that_fails_is_attended_once(store, bar, stages, monkeypatch):
+    """It is tried again every half minute for as long as the server is
+    away, and the bar came back up for each try."""
+    from tests.unit.apifixtures import Server, worker
+
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+
+    def away(*args, **kwargs):
+        raise OSError("server away")
+
+    monkeypatch.setattr(w, "full_sync", away)
+    for _ in range(3):
+        w._catchup_due = 0.0
+        with pytest.raises(OSError):
+            w.refresh()
+        w.settle_progress(failed=True)
+    (dialog,) = bar.instances
+    assert [e[0] for e in dialog.events].count("create") == 1
+    assert dialog.events[-1] == ("close",)
+
+
+def test_the_next_kind_is_named_before_its_first_page(bar, monkeypatch):
+    monkeypatch.setattr(progress_module, "label", lambda kind: kind + "s")
+    bar_ = progress_module.Progress()
+    bar_.attend()
+    bar_.track("Series", 79, 79)
+    bar_.asking("Season")
+    (dialog,) = bar.instances
+    assert dialog.events[-1] == ("update", 0, "Seasons")
+
+
 def test_a_library_leaving_says_so_by_name(store, backend, kodi, bar, stages):
     from kofin.sync import private
 

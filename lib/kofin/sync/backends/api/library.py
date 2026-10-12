@@ -332,6 +332,7 @@ class Library(threading.Thread):
         # Libraries a repair is rebuilding: their rows are leaving Kodi, and
         # nothing is enumerated until they have left (rebuild_stale, refresh).
         self._rebuilding: Set[str] = set()
+        self._first_attended = False
         # The server's user data for the item this Kodi is playing, kept
         # back until it has stopped (apply_userdata): item id -> the newest
         # entry and when the item was first seen no longer playing.
@@ -522,8 +523,15 @@ class Library(threading.Thread):
             # Advance before the call so failure gets a bounded retry rather
             # than keeping the already-expired deadline on every tick.
             self._catchup_due = time.monotonic() + 30
-            if not enumerated and settings.get_list("librarySelection"):
-                # The first listing of a profile is its first import.
+            if (
+                not enumerated
+                and not self._first_attended
+                and settings.get_list("librarySelection")
+            ):
+                # The first listing of a profile is its first import, and
+                # attended once: a listing that failed is tried again every
+                # half minute, and the bar came back up for each try.
+                self._first_attended = True
                 self._bar().attend()
             self.full_sync()
             self._full_due = False
@@ -603,6 +611,7 @@ class Library(threading.Thread):
             rows: List[dict] = []
             for kind in collection_kinds(supported[library]):
                 began = time.monotonic()
+                bar.asking(kind)
                 found = fetch_kind(
                     self.api,
                     library,
