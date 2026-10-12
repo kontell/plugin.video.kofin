@@ -391,8 +391,17 @@ def userdata(item) -> Dict[str, Any]:
     # Kodi's watched setter generates a timestamp when none is supplied.
     # Preserve that supported behavior for old server records without a date;
     # explicit server dates and unwatched clears still round-trip exactly.
-    if data.get("LastPlayedDate") or not result["playcount"]:
-        result["lastplayed"] = _timestamp(data.get("LastPlayedDate"))
+    if data.get("LastPlayedDate"):
+        result["lastplayed"] = _timestamp(data["LastPlayedDate"])
+    elif not result["playcount"]:
+        if item.get("Type") != "Audio":
+            result["lastplayed"] = ""
+        # An unplayed song has no opinion on its stamp. Kodi's song setter
+        # cannot clear one: it loads the row, an empty date leaves the old
+        # one standing (CDateTime::SetFromDBDateTime), and UpdateSong writes
+        # it back. Wanted empty, a song played once and then marked unplayed
+        # failed its readback on every pass, and every failed pass was run
+        # again in full a few seconds later, for good.
     elif item.get("Type") == "Audio":
         # Played, but the server never recorded when. Kodi's UpdateSong
         # stamps the current time on a played song with no date
