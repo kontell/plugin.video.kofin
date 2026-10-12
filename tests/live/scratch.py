@@ -175,8 +175,25 @@ def _ours(folder, key):
     return paths == [os.path.normpath(os.path.join(ROOT, key))]
 
 
+def _retime_clips():
+    """Drop the video clips made at another length, so that they are made
+    again. ``clip`` skips a file that is there, and a clip under five minutes
+    is marked played by the server at any stop: one left from an earlier run
+    fails the very scenarios the length exists for."""
+    with open(MARKER, encoding="utf-8") as handle:
+        made = json.load(handle)
+    if made.get("video_seconds") == VIDEO_SECONDS:
+        return
+    for key in ("movies", "shows"):
+        shutil.rmtree(os.path.join(ROOT, key), ignore_errors=True)
+    made["video_seconds"] = VIDEO_SECONDS
+    with open(MARKER, "w", encoding="utf-8") as handle:
+        json.dump(made, handle)
+
+
 def media():
     _claim_root()
+    _retime_clips()
     clip(
         os.path.join(ROOT, "movies/Scratch Movie (2020)/Scratch Movie (2020).mkv"),
         VIDEO_SECONDS,
@@ -212,16 +229,28 @@ def media():
     print("%d files under the scratch root" % count)
 
 
+def _scanning():
+    """Whether the server's library scan is queued or running."""
+    time.sleep(1)  # a scan just asked for is not yet a task that runs
+    for task in api("GET", "/ScheduledTasks"):
+        if task.get("Key") == "RefreshLibrary":
+            return task.get("State") != "Idle"
+    return False
+
+
 def _await_scan(data):
     """Wait for the server to list everything the scratch media holds. A
     scan that has not got there in five minutes is a failure to report, not
     a count to print."""
     found = {}
     for _ in range(60):
-        found = _counts(data)
-        if all(found.get(kind, 0) >= wanted for kind, wanted in EXPECTED.items()):
-            print("scanned: %s" % json.dumps(found, sort_keys=True))
-            return
+        # The counts alone say nothing of a scan of clips that changed: they
+        # were right before it began. The scan itself has to be over.
+        if not _scanning():
+            found = _counts(data)
+            if all(found.get(kind, 0) >= want for kind, want in EXPECTED.items()):
+                print("scanned: %s" % json.dumps(found, sort_keys=True))
+                return
         time.sleep(5)
     raise SystemExit(
         "scan incomplete after five minutes: %s of %s"
