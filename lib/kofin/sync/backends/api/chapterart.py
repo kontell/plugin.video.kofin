@@ -259,17 +259,26 @@ class ChapterArt:
         the wait between the start of playback and the tiles being there.
         """
         os.makedirs(self._directory, exist_ok=True)
-        download, release = self._downloads()
+        client, release = self._downloads()
+        if client.server != self._api.server:
+            # The credentials moved to another server since this play was
+            # claimed. Its images are not there, and nothing is asked.
+            release()
+            LOG.info("chapter art: the server changed under the play; not staged")
+            return []
 
         def fetch(pair: Tuple[int, Any]) -> Optional[JsonDict]:
             position, tag = pair
             if self._cancel.is_set():
                 return None
-            url = self._api.chapter_image_url(
+            # The address is the downloading client's own. Built by the
+            # service's client, it could name a server the token sent with
+            # the request was never issued by.
+            url = client.chapter_image_url(
                 self._item["Id"], position, str(tag), IMAGE_MAX_WIDTH
             )
             try:
-                data = download(url)
+                data = client.download(url)
             except Exception as error:
                 LOG.debug("chapter %d image fetch failed: %s", position, error)
                 return None
@@ -290,17 +299,20 @@ class ChapterArt:
             release()
         return [entry for entry in fetched if entry is not None]
 
-    def _downloads(self) -> Tuple[Callable[[str], bytes], Callable[[], None]]:
-        """The workers' download call, and what releases it afterwards.
+    def _downloads(self) -> Tuple[Api, Callable[[], None]]:
+        """The workers' client, and what releases it afterwards.
 
         Not the service's client. That is one requests session, the library
         thread is on it while a film's chapters are fetched, and a session
         is not for concurrent requests: the sync gives each of its workers
         a client of its own for that reason (service/main.py, _new_api).
+
+        It is made from the credentials as they are now, so the address of
+        every image and the token sent with it are one client's (_stage).
         """
         transport = _Staging(settings.get_bool("sslVerify"), self._cancel.is_set)
         client = Api.from_credentials(transport, Credentials.load())
-        return client.download, transport.close
+        return client, transport.close
 
     def _await(self, wanted: int) -> int:
         """Poll the texture cache until it holds ``wanted`` keys of the item

@@ -180,6 +180,8 @@ def test_a_live_request_derives_the_namespace_when_no_document_exists(store, kod
 
 
 class FakeApi:
+    server = "http://s"
+
     def __init__(self, chapters=20, images=True):
         self.calls = []
         self._chapters = [
@@ -195,7 +197,8 @@ class FakeApi:
         return self._chapters
 
     def chapter_image_url(self, item_id, index, tag, max_width):
-        return "http://s/Items/%s/Images/Chapter/%d?tag=%s&maxWidth=%d" % (
+        return "%s/Items/%s/Images/Chapter/%d?tag=%s&maxWidth=%d" % (
+            self.server,
             item_id,
             index,
             tag,
@@ -231,7 +234,7 @@ def rig(store, kodi, monkeypatch):
     monkeypatch.setattr(
         chapterart.ChapterArt,
         "_downloads",
-        lambda self: (self._api.download, lambda: None),
+        lambda self: (self._api, lambda: None),
     )
     lines = []
     monkeypatch.setattr(
@@ -574,8 +577,7 @@ def test_the_image_workers_do_not_share_the_services_session(store, monkeypatch)
     monkeypatch.setattr(chapterart.Credentials, "load", staticmethod(lambda: creds))
     api = FakeApi()
     worker = chapterart.ChapterArt(api, _item())
-    download, release = worker._downloads()
-    client = download.__self__
+    client, release = worker._downloads()
     assert client is not api
     assert isinstance(client._http, StdlibHttp)
     # Its retry ladder ends with the play the images are for.
@@ -583,3 +585,35 @@ def test_the_image_workers_do_not_share_the_services_session(store, monkeypatch)
     worker._cancel.set()
     assert client._http._abort() is True
     release()
+
+
+def test_an_image_is_asked_of_the_server_its_token_is_for(rig, monkeypatch):
+    """The address was built by the service's client and fetched by one made
+    from the credentials of the moment: after a login to another server, the
+    new token went to the old server's address."""
+    workers = FakeApi()
+    released = []
+    monkeypatch.setattr(
+        chapterart.ChapterArt,
+        "_downloads",
+        lambda self: (workers, lambda: released.append(True)),
+    )
+    art = chapterart.ChapterArt(rig.api, _item())
+    art._publish()
+    art._cleanup()
+    # Same server: every address is the workers' client's own, and so is
+    # every request.
+    fetched = [url for call, url in workers.calls if call == "download"]
+    assert fetched and all(url.startswith(workers.server + "/") for url in fetched)
+    assert not [call for call in rig.api.calls if call[0] == "download"]
+    assert released == [True]
+
+    # Another server: nothing is asked of either.
+    workers.calls.clear()
+    workers.server = "http://elsewhere"
+    art = chapterart.ChapterArt(rig.api, _item())
+    art._publish()
+    art._cleanup()
+    assert workers.calls == []
+    assert released == [True, True]
+    assert any("server changed" in line for line in rig.lines)
