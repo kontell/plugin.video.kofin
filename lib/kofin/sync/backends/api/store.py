@@ -89,6 +89,12 @@ class Mapping:
     kind: str
 
 
+# The scanner format of a library whose rows are being removed for a
+# rebuild (library.rebuild_stale). It is below every real format, and it is
+# in the store because the removal outlives a service restart.
+REBUILDING = 0
+
+
 class Store(Catalogue):
     def _prepare(self, cursor):
         super()._prepare(cursor)
@@ -155,6 +161,17 @@ class Store(Catalogue):
                 "INSERT OR REPLACE INTO api_library VALUES (?,?,?)",
                 (self.namespace, library, int(value)),
             )
+
+    def rebuilding(self) -> List[str]:
+        """The libraries recorded as being rebuilt (REBUILDING): their rows
+        are being removed so that the listing after imports them again."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                "SELECT library FROM api_library WHERE namespace=? AND scanner=?",
+                (self.namespace, REBUILDING),
+            ).fetchall()
+        return [row[0] for row in rows]
 
     # -- what the status dialog counts -----------------------------------------
 

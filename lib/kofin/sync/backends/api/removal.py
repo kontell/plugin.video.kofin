@@ -151,6 +151,12 @@ def clear_library(native, library, kinds, rows=0):
         worker.start()
         while worker.is_alive():
             if native.abort() or native.monitor.waitForAbort(CLEAR_POLL):
+                # The call cannot be taken back, and it is this thread's:
+                # reported stopped while Kodi is still clearing, the thread
+                # would let the next service generation issue the same
+                # clear beside it. It waits as it did when it made the call
+                # itself, and no longer paints.
+                worker.join()
                 raise InterruptedError("native sync stopped")
             if rows and worker.is_alive():
                 try:

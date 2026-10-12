@@ -27,7 +27,7 @@ from . import metadata, progress
 from . import playlists as api_playlists
 from . import status as apistatus
 from .native import Native
-from .store import Store, namespace
+from .store import REBUILDING, Store, namespace
 
 LOG = Logger(__name__)
 
@@ -398,6 +398,8 @@ class Library(threading.Thread):
 
     def _run(self, monitor):
         self.store.initialize(self.api.server)
+        # A rebuild a stopped service left half done is still one.
+        self._rebuilding.update(self.store.rebuilding())
         native = Native(self.store, self._stop_event.is_set, bar=self._bar())
         native.setup()
         # A Kodi stopped mid-scan never gave back the setting the scan was
@@ -581,10 +583,14 @@ class Library(threading.Thread):
         bar.working(progress.PREPARING)
         selected = settings.get_list("librarySelection")
         supported = self._supported_views()
+        # A library being rebuilt is listed when its old rows have left Kodi,
+        # whoever asks: refresh waits for that, and a listing asked for by
+        # name (SyncLibrary) must not publish it over them either.
+        held = {i for i in self._rebuilding if self.store.removing([i])}
         targets = [
             library
             for library in sorted(libraries if libraries is not None else selected)
-            if library in supported and library in selected
+            if library in supported and library in selected and library not in held
         ]
         complete = libraries is None
         # A listing is minutes of a first import, and until it is published
@@ -1005,6 +1011,10 @@ class Library(threading.Thread):
                 metadata.SCANNER_FORMAT,
                 ", ".join(rebuild),
             )
+            # Recorded before the rows are tombstoned: a service stopped
+            # between the two must not list the library over its old rows.
+            for library in rebuild:
+                self.store.set_scanner_format(library, REBUILDING)
             self.drop_libraries(rebuild)
             self._rebuilding.update(rebuild)
         return rebuild

@@ -675,6 +675,35 @@ def test_a_repair_rebuilds_a_video_library_filed_under_an_older_scanner_format(
     assert store.tombstones() == {} and w._repair and not w._rebuilding
 
 
+def test_a_rebuild_outlives_the_service_and_a_listing_asked_for_by_name(
+    store, monkeypatch
+):
+    """The removal is minutes long. Listed before its old rows have left, by
+    a restarted service or by a SyncLibrary for it, the library would be
+    compared with those rows and the repair would have rebuilt nothing."""
+    server = Server({LIB: [movie(), movie("b")], LIB2: show_bundle()})
+    w, state = _filed(store, monkeypatch, server, LIB, LIB2)
+    w.command("RepairLibrary", {"Id": LIB})
+    assert store.rebuilding() == [LIB]
+
+    # Asked for by name while its rows are still in Kodi.
+    w.command("SyncLibrary", {"Id": LIB})
+    assert _pending(store) == {"a": "remove", "b": "remove"}
+    assert state["Whitelist"] == [LIB2]
+
+    # A service started during the removal knows of the rebuild.
+    again = worker(store, server, [LIB, LIB2], monkeypatch)
+    _whitelist(monkeypatch, LIB2)
+    again._rebuilding.update(store.rebuilding())
+    enumerations = []
+    monkeypatch.setattr(again, "full_sync", lambda *a: enumerations.append(a))
+    again.refresh()
+    assert enumerations == [] and again._rebuilding == {LIB}
+    store.forget_many([(i, store.state(i).desired) for i in ("a", "b")])
+    again.refresh()
+    assert enumerations and not again._rebuilding
+
+
 def test_a_repair_with_no_library_named_rebuilds_every_stale_video_library(
     store, monkeypatch
 ):
