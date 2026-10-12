@@ -916,6 +916,15 @@ class Library(threading.Thread):
             # between the two must not list the library over its old rows.
             for library in rebuild:
                 self.store.set_scanner_format(library, REBUILDING)
+            # And off the whitelist before a row is tombstoned. Stopped
+            # between the tombstones and that write, a library lost its rows
+            # while still on the whitelist, where nothing lists it again
+            # before the next complete enumeration. Stopped after this write
+            # instead, it is selected and not synced: listed again over the
+            # rows it still has, and still asking for its repair.
+            state = private.get_sync()
+            state["Whitelist"] = [i for i in state["Whitelist"] if i not in rebuild]
+            private.save_sync(state)
             self.drop_libraries(rebuild)
             self._rebuilding.update(rebuild)
         return rebuild
