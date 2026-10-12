@@ -22,7 +22,7 @@ from kofin.core import memory, settings, state
 from kofin.core.log import Logger
 from kofin.sync.catalogue import BackendMismatch
 from . import companion, metadata, paths, progress, removal
-from .kinds import rpc, rpc_batch
+from .kinds import MUSIC_FIRST, ORDER, rpc, rpc_batch
 from .musicpass import MusicPass
 from .patch import Applier
 from .readback import Readback
@@ -708,11 +708,32 @@ class Native:
                     loader=self.payloads,
                 )
             self.progress.begin(len(upserts))
-            self.import_missing(upserts, errors, entries)
+
+            early = [
+                kind
+                for kind in MUSIC_FIRST
+                if any(r.kind == kind for r in upserts.values())
+            ]
+            applied: List[str] = []
+
+            def music_first():
+                applier.run(upserts, {}, set(), repair, errors, kinds=early)
+                applied.extend(early)
+
+            self.import_missing(
+                upserts, errors, entries, before_video=music_first if early else None
+            )
             boxsets = [r.item for r in self.store.records(kind="BoxSet").values()]
             collections = metadata.collections_of(boxsets)
             movies = {i for i, e in entries.items() if e.kind == "Movie"}
-            applier.run(upserts, collections, movies, repair, errors)
+            applier.run(
+                upserts,
+                collections,
+                movies,
+                repair,
+                errors,
+                kinds=[kind for kind in ORDER if kind not in applied],
+            )
             removal.finish_sets(self, pending, boxsets, errors)
             try:
                 self.bind_movie_folders()
@@ -754,10 +775,20 @@ class Native:
                 self.store.unpin()
 
     def import_missing(
-        self, upserts: Dict[str, Record], errors, entries: Optional[Dict] = None
+        self,
+        upserts: Dict[str, Record],
+        errors,
+        entries: Optional[Dict] = None,
+        before_video=None,
     ):
         """Bind and scan whatever the readback shows the scanner has not filed,
-        and the movie folders whose versions or extras it has not seen."""
+        and the movie folders whose versions or extras it has not seen.
+
+        Music is scanned first, and when a video scan is to follow,
+        ``before_video`` runs between the two: the pass applies album and
+        artist artwork there (kinds.MUSIC_FIRST). With no video scan to wait
+        for it is not called, and the kinds keep their order.
+        """
         directories: List[str] = []
         expected: Dict[str, int] = {}
         expectations = []
@@ -860,6 +891,8 @@ class Native:
                                 metadata.userdata(record.item),
                             )
                         )
+        if before_video is not None and (directories or scanned_movie_folders):
+            before_video()
         try:
             if scanned_movie_folders:
                 # Without noupdate for the scan: the scanner skips a noupdate

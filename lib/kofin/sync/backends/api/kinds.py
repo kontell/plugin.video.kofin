@@ -23,6 +23,13 @@ BATCH = 25
 # last: a song's patch is its play count, one setter per played song at
 # 230 ms each on a Raspberry Pi's card, which for a library with 7,900
 # played songs is half an hour every album cover would wait behind.
+# The two music kinds whose patch is their artwork and text. They are
+# applied as soon as the music scans are done, before any video scan
+# starts: left in their place in the order, every album cover waited for
+# every movie and show selected with it to be scanned first, half an hour
+# and more on a small device (native.reconcile).
+MUSIC_FIRST = ("MusicAlbum", "MusicArtist")
+
 ORDER = (
     "Series",
     "Season",

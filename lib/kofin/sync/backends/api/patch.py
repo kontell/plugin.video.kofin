@@ -222,15 +222,25 @@ class Applier:
 
     # -- the pass ------------------------------------------------------------
 
-    def run(self, upserts: Dict[str, Record], collections, movies, repair, errors):
+    def run(
+        self,
+        upserts: Dict[str, Record],
+        collections,
+        movies,
+        repair,
+        errors,
+        kinds=ORDER,
+    ):
+        """Plan and patch the pass's records of ``kinds``, in that order."""
         self.downloaded, self.downloaded_series = downloaded.marks()
         self.collections = collections
         self.movies = movies
         self.local = {item_id for item_id, _ in self.store.local_pending()}
-        self._mappings = self.store.mappings()
-        self._mappings_loaded = True
+        if not self._mappings_loaded:
+            self._mappings = self.store.mappings()
+            self._mappings_loaded = True
         queue: List[Patch] = []
-        for kind in ORDER:
+        for kind in kinds:
             ids = sorted(i for i, r in upserts.items() if r.kind == kind)
             if not ids:
                 continue
@@ -270,7 +280,7 @@ class Applier:
             if KINDS[kind].removal == "rescan":
                 self.confirm_by_scope(kind, errors)
             self.commit()
-            if kind == ORDER[-1] or KINDS[kind].removal != "rescan":
+            if kind == kinds[-1] or KINDS[kind].removal != "rescan":
                 self.native.release_all()
             LOG.info(
                 "%s: %d planned in %.1f s, %.1f s of it in Kodi calls",

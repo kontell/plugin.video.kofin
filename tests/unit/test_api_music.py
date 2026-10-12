@@ -470,6 +470,46 @@ def test_video_and_music_libraries_share_one_pass(store, backend, kodi):
     assert artist_key(" Band ") == "band"
 
 
+def test_album_and_artist_art_does_not_wait_for_the_video_scans(store, backend, kodi):
+    """Selected together, a music library's covers came after every movie
+    and show had been scanned: the music scan runs first, but the kinds were
+    all applied after the last scan, half an hour later on a small device."""
+    membership = {"a": LIB}
+    items = [movie()] + album_bundle(songs=2)
+    items[3]["UserData"] = {
+        "Played": True,
+        "PlayCount": 1,
+        "LastPlayedDate": "2026-07-10T19:17:42Z",
+    }
+    membership.update({i["Id"]: LIB2 for i in items[1:]})
+    store.publish(items, membership=membership, complete_libraries=[LIB, LIB2])
+    backend.reconcile(repair=True)
+    assert not store.pending()
+    order = [
+        m
+        for m, _ in kodi.calls
+        if m.startswith("AudioLibrary.Set")
+        or m in ("VideoLibrary.Scan", "AudioLibrary.Scan")
+    ]
+    video_scan = order.index("VideoLibrary.Scan")
+    assert order.index("AudioLibrary.SetAlbumDetails") < video_scan
+    assert order.index("AudioLibrary.SetArtistDetails") < video_scan
+    # The play counts still go last of all, after the video kinds.
+    assert order.index("AudioLibrary.SetSongDetails") > video_scan
+    # Each of the two is applied once.
+    assert order.count("AudioLibrary.SetAlbumDetails") == 1
+    assert order.count("AudioLibrary.SetArtistDetails") == 1
+
+
+def test_a_pass_with_no_video_scan_keeps_one_hold_and_its_order(store, backend, kodi):
+    items = album_bundle(songs=2)
+    items[2]["UserData"] = {"Played": True, "PlayCount": 1}
+    store.publish(items, library=LIB)
+    backend.reconcile(repair=True)
+    assert kodi.hold_tokens == ["music"]
+    assert not store.pending()
+
+
 # -- provider, serializer, identity, coordinator ------------------------------
 
 
