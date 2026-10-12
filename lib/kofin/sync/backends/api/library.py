@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import xbmc
 
 from kofin.core import memory, settings
+from kofin.core.http import HttpError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials
 from kofin.sync import changefeed, private
@@ -1255,24 +1256,54 @@ class Library(threading.Thread):
         xbmc.executebuiltin("ReloadSkin()")
 
     def flush_local(self):
+        """Tell the server what was marked or played in Kodi.
+
+        Each edit on its own. The outbox was flushed in order and stopped at
+        the first that failed, so an edit of an item the server had since
+        deleted (404) failed every tick for ever: every edit behind it never
+        left, the rows waiting on them stayed pending, and a television ran
+        two passes a minute for as long as it was on. An item the server no
+        longer has is nothing to tell it about, and its edit is dropped; any
+        other failure is raised once the rest have been delivered.
+        """
+        failure: Optional[Exception] = None
         for item_id, values in self.store.local_pending():
-            payload: Dict[str, Any] = {}
-            if "playcount" in values:
-                # The watched mark and never the number: the server counts
-                # the plays it is told of, Kodi counts its own, and a count
-                # sent from here replaced the server's with Kodi's (a song
-                # played once went up as 2; an episode marked watched took
-                # a count of 8 down to 1).
-                payload["Played"] = values["playcount"] > 0
-            if "position" in values:
-                payload["PlaybackPositionTicks"] = int(values["position"] * 10000000)
-            # The partial setter is idempotent across an interrupted reply;
-            # MarkPlayed would increment the server count again on retry.
-            self.api.update_user_data(item_id, payload)
-            # Re-fetch the authoritative full DTO before acknowledging the
-            # local outbox; a failed read remains replayable.
-            item = metadata.compact(self.api.item(item_id))
-            attach_extras(self.api, [item])
-            if self.store.entry(item_id) is not None:
-                self.publish([item])
-            self.store.local_done(item_id, values)
+            try:
+                self._deliver_local(item_id, values)
+            except InterruptedError:
+                raise
+            except HttpError as error:
+                if error.status == 404:
+                    LOG.info(
+                        "play state of %s not sent: the server no longer has it",
+                        item_id,
+                    )
+                    self.store.local_done(item_id, values)
+                    continue
+                failure = failure or error
+            except Exception as error:
+                failure = failure or error
+        if failure is not None:
+            raise failure
+
+    def _deliver_local(self, item_id, values):
+        payload: Dict[str, Any] = {}
+        if "playcount" in values:
+            # The watched mark and never the number: the server counts
+            # the plays it is told of, Kodi counts its own, and a count
+            # sent from here replaced the server's with Kodi's (a song
+            # played once went up as 2; an episode marked watched took
+            # a count of 8 down to 1).
+            payload["Played"] = values["playcount"] > 0
+        if "position" in values:
+            payload["PlaybackPositionTicks"] = int(values["position"] * 10000000)
+        # The partial setter is idempotent across an interrupted reply;
+        # MarkPlayed would increment the server count again on retry.
+        self.api.update_user_data(item_id, payload)
+        # Re-fetch the authoritative full DTO before acknowledging the
+        # local outbox; a failed read remains replayable.
+        item = metadata.compact(self.api.item(item_id))
+        attach_extras(self.api, [item])
+        if self.store.entry(item_id) is not None:
+            self.publish([item])
+        self.store.local_done(item_id, values)
