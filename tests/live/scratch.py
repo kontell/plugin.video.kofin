@@ -11,12 +11,14 @@ The server is ``JELLYFIN_URL`` with ``JELLYFIN_API_KEY``; neither is printed.
 
     scratch.py media                 generate the clips
     scratch.py libraries             create the three libraries, wait for the scan
+    scratch.py rescan                wait for a scan to pick up changed clips
     scratch.py grant USER [USER...]  let these users see them (policy snapshot kept)
     scratch.py restore-policy        put every snapshotted policy back
     scratch.py ids                   item ids by type and name
     scratch.py cast NAME[,NAME...]   replace the show's cast
     scratch.py userdata USER [TYPE]  play state of every scratch item of a type
     scratch.py mark USER ITEM played|unplayed   as another client would
+    scratch.py reset USER            every scratch item unplayed again
     scratch.py cleanup               delete the libraries and the clips
 """
 
@@ -39,10 +41,19 @@ LIBRARIES = {
     "music": ("Scratch Music", "music", ["MusicArtist", "MusicAlbum", "Audio"]),
 }
 EPISODES = [(1, 1), (1, 2), (1, 3), (2, 1), (2, 2)]
+# Longer than the server's shortest resumable item (five minutes by
+# default): anything shorter is marked played at any stop past its first
+# twentieth, and a stop half-way would test nothing a real episode shows.
+VIDEO_SECONDS = 330
 ALBUMS = {
     ("Scratch Artist", "Scratch Album One"): 4,
     ("Scratch Artist", "Scratch Album Two"): 4,
     ("Other Scratch Artist", "Scratch Album Three"): 3,
+    # One song, so that an album can be opened to play exactly one: Kodi
+    # cannot open a library song with a plugin path by its song id
+    # (CFileItem::SetFromSong sets no dynamic path, and PAPlayer is handed
+    # musicdb://songs/<id>, which never reaches the plugin).
+    ("Scratch Artist", "Scratch Album Solo"): 1,
 }
 EXPECTED = {"Movie": 1, "Episode": len(EPISODES), "Audio": sum(ALBUMS.values())}
 
@@ -91,7 +102,11 @@ def _ffmpeg(args):
 
 
 def clip(path, seconds):
-    """A test pattern with two audio tracks and a subtitle."""
+    """A test pattern with two audio tracks and a subtitle. A clip that
+    exists is left alone: made again it is a new file to the server, and
+    every client refreshes the row for its streams."""
+    if os.path.exists(path):
+        return
     os.makedirs(os.path.dirname(path), exist_ok=True)
     srt = os.path.join(STATE_DIR, "scratch.srt")
     os.makedirs(STATE_DIR, exist_ok=True)
@@ -117,6 +132,8 @@ def clip(path, seconds):
 
 
 def song(path, seconds, artist, album, title, track, total):
+    if os.path.exists(path):
+        return
     os.makedirs(os.path.dirname(path), exist_ok=True)
     _ffmpeg(
         [
@@ -135,7 +152,10 @@ def song(path, seconds, artist, album, title, track, total):
 
 
 def media():
-    clip(os.path.join(ROOT, "movies/Scratch Movie (2020)/Scratch Movie (2020).mkv"), 40)
+    clip(
+        os.path.join(ROOT, "movies/Scratch Movie (2020)/Scratch Movie (2020).mkv"),
+        VIDEO_SECONDS,
+    )
     for season, episode in EPISODES:
         clip(
             os.path.join(
@@ -143,7 +163,7 @@ def media():
                 "shows/Scratch Show/Season %d/Scratch Show S%02dE%02d.mkv"
                 % (season, season, episode),
             ),
-            40,
+            VIDEO_SECONDS,
         )
     for (artist, album), tracks in ALBUMS.items():
         for track in range(1, tracks + 1):
@@ -213,6 +233,17 @@ def libraries():
         "libraries: %s"
         % json.dumps({k: v for k, v in data.items() if k.startswith("lib_")})
     )
+
+
+def rescan():
+    data = state()
+    api("POST", "/Library/Refresh")
+    for _ in range(60):
+        found = _counts(data)
+        if all(found.get(kind, 0) >= wanted for kind, wanted in EXPECTED.items()):
+            break
+        time.sleep(5)
+    print("scanned: %s" % json.dumps(found, sort_keys=True))
 
 
 def _items(data, kinds, user=None, fields="Path"):
@@ -343,6 +374,27 @@ def mark(user, item_id, value):
     print("marked %s" % value)
 
 
+def reset(user):
+    data = state()
+    count = 0
+    for item in _items(data, ["Movie", "Episode", "Audio"], user=user):
+        played = item.get("UserData") or {}
+        if (
+            played.get("Played")
+            or played.get("PlayCount")
+            or played.get("PlaybackPositionTicks")
+        ):
+            api("DELETE", "/UserPlayedItems/%s" % item["Id"], {"userId": user})
+            api(
+                "POST",
+                "/UserItems/%s/UserData" % item["Id"],
+                {"userId": user},
+                {"PlayCount": 0, "PlaybackPositionTicks": 0, "Played": False},
+            )
+            count += 1
+    print("%d item(s) reset" % count)
+
+
 def cleanup():
     data = state()
     for key, (name, _, _) in LIBRARIES.items():
@@ -367,6 +419,8 @@ def main(argv):
         media()
     elif command == "libraries":
         libraries()
+    elif command == "rescan":
+        rescan()
     elif command == "grant":
         grant(argv[2:])
     elif command == "restore-policy":
@@ -379,6 +433,8 @@ def main(argv):
         userdata(argv[2], argv[3] if len(argv) > 3 else "Episode")
     elif command == "mark":
         mark(argv[2], argv[3], argv[4])
+    elif command == "reset":
+        reset(argv[2])
     elif command == "cleanup":
         cleanup()
     else:

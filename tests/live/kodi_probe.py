@@ -15,6 +15,12 @@ device's own ``guisettings.xml`` and never printed.
     kodi_probe.py bounce [+ID|-ID ...]      restart kofin's service, changing its
                                             library selection while it is down
     kodi_probe.py wait-log PATTERN [SECS] [FROM_LINE]   until the log has it
+    kodi_probe.py log-lines                 how many lines the log has now
+    kodi_probe.py log-since LINE REGEX      matching log lines from LINE on
+    kodi_probe.py wait-idle [SECS]          until nothing is playing
+    kodi_probe.py play ITEM_JSON [STOP_AFTER_S] [NEXT_AFTER_S] [SEEK_PERCENT]
+                                            play an item to its end (or stop it),
+                                            seeking first if asked
 
 ``KODI_USERDATA`` names the userdata directory when it is not one of the
 usual two (a Flatpak install, LibreELEC).
@@ -352,6 +358,111 @@ def wait_log(pattern, seconds=120.0, start=0):
     return None
 
 
+def log_since(start, pattern):
+    import re
+
+    wanted = re.compile(pattern)
+    found = []
+    with open(logfile(), encoding="utf-8", errors="replace") as handle:
+        for number, line in enumerate(handle):
+            if number >= start and wanted.search(line):
+                found.append(line.rstrip("\n"))
+    return found
+
+
+def wait_idle(seconds=300.0):
+    """Wait until no player is active; returns how long that took."""
+    began = time.monotonic()
+    while time.monotonic() - began < seconds:
+        if not rpc("Player.GetActivePlayers"):
+            return round(time.monotonic() - began, 1)
+        time.sleep(0.5)
+    return None
+
+
+def play(item, stop_after=None, next_after=None, seek_percent=None, limit=600.0):
+    """Open an item and stay with it: until playback has really begun, then
+    to its end, or to a stop after ``stop_after`` seconds of playing, with
+    a skip to the next item after ``next_after`` seconds if asked. A seek
+    to ``seek_percent`` right after the start makes a long item short."""
+    began = time.monotonic()
+    rpc("Player.Open", {"item": item})
+    started = None
+    while time.monotonic() - began < 60:
+        players = rpc("Player.GetActivePlayers")
+        if players:
+            position = rpc(
+                "Player.GetProperties",
+                {"playerid": players[0]["playerid"], "properties": ["time", "speed"]},
+            )
+            clock = position["time"]
+            seconds = clock["hours"] * 3600 + clock["minutes"] * 60 + clock["seconds"]
+            if position["speed"] == 1 and (seconds > 0 or clock["milliseconds"] > 0):
+                started = round(time.monotonic() - began, 1)
+                break
+        time.sleep(0.25)
+    if started is None:
+        return {"started_s": None}
+    if seek_percent is not None:
+        time.sleep(3)
+        rpc(
+            "Player.Seek",
+            {
+                "playerid": rpc("Player.GetActivePlayers")[0]["playerid"],
+                "value": {"percentage": seek_percent},
+            },
+        )
+    playing_since = time.monotonic()
+    skipped = stopped = False
+    idle_since = None
+    while time.monotonic() - began < limit:
+        players = rpc("Player.GetActivePlayers")
+        if not players:
+            # Between two items of a queue Kodi has no player for a moment;
+            # only a second of none is the end.
+            if idle_since is None:
+                idle_since = time.monotonic()
+            if time.monotonic() - idle_since >= 1.5:
+                break
+            time.sleep(0.25)
+            continue
+        idle_since = None
+        elapsed = time.monotonic() - playing_since
+        if next_after is not None and not skipped and elapsed >= next_after:
+            rpc("Player.GoTo", {"playerid": players[0]["playerid"], "to": "next"})
+            skipped = True
+            # The next item's own clock: wait for it to be playing.
+            for _ in range(40):
+                time.sleep(0.25)
+                active = rpc("Player.GetActivePlayers")
+                if active:
+                    clock = rpc(
+                        "Player.GetProperties",
+                        {"playerid": active[0]["playerid"], "properties": ["time"]},
+                    )["time"]
+                    if clock["seconds"] < next_after and (
+                        clock["seconds"] or clock["milliseconds"]
+                    ):
+                        break
+            playing_since = time.monotonic()
+            continue
+        if (
+            stop_after is not None
+            and not stopped
+            and (next_after is None or skipped)
+            and elapsed >= stop_after
+        ):
+            rpc("Player.Stop", {"playerid": players[0]["playerid"]})
+            stopped = True
+        time.sleep(0.5)
+    return {
+        "started_s": started,
+        "total_s": round(time.monotonic() - began, 1),
+        "stopped": stopped,
+        "skipped": skipped,
+    }
+
+
 def bounce(edits=()):
     """Disable kofin, wait for its service script to have exited (not just
     begun stopping), apply library selection edits to the settings file, and
@@ -426,6 +537,19 @@ def main(argv):
         result = counts()
     elif command == "bounce":
         result = bounce(argv[2:])
+    elif command == "log-lines":
+        result = log_lines()
+    elif command == "log-since":
+        result = log_since(int(argv[2]), argv[3])
+    elif command == "wait-idle":
+        result = wait_idle(float(argv[2]) if len(argv) > 2 else 300.0)
+    elif command == "play":
+        result = play(
+            json.loads(argv[2]),
+            float(argv[3]) if len(argv) > 3 and argv[3] != "-" else None,
+            float(argv[4]) if len(argv) > 4 and argv[4] != "-" else None,
+            float(argv[5]) if len(argv) > 5 else None,
+        )
     elif command == "wait-log":
         result = wait_log(
             argv[2],
