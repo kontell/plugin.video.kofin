@@ -101,6 +101,43 @@ def clear_library(native, library, kinds):
     native.store.unbind(root)
 
 
+def _listed_sets(native) -> Set[str]:
+    """The titles of the sets Kodi lists: those a movie links."""
+    native.readback.forget("BoxSet")
+    return set(native.readback.scope("BoxSet"))
+
+
+def _release_sets(native, before):
+    """Let go of the sets a cleared movie library emptied, without a clean.
+
+    Kodi's clean was asked for here, "scoped" to the library's root. The
+    scope holds for the files the clean tests and not for the stage after
+    it: every path with content set, of every library, is asked of the
+    add-on that owns it, one plugin call per bound folder, and the path row
+    of one that goes unanswered is deleted (CVideoDatabase::CleanDatabase,
+    "Cleaning paths that don't exist and have content set"). This backend
+    binds every movie and show folder, and Kodi has one reusable interpreter
+    for plugin calls: on a desktop a second plugin request arrived in the
+    middle of such a clean, one folder's question was never asked, and a
+    movie of a library that stayed lost its folder's row and left every
+    listing. So no clean. An emptied set is the companion's to delete (it
+    deletes one only when it is empty); without the companion the row
+    stays, in no listing, until a clean the viewer asks for.
+    """
+    emptied = sorted(before - _listed_sets(native))
+    if not emptied:
+        return
+    if companion.present() is None:
+        LOG.info(
+            "%d collection(s) the removal emptied stay in Kodi, unlisted: "
+            "no companion to delete them",
+            len(emptied),
+        )
+        return
+    for title in emptied:
+        companion.journal_set(title)
+
+
 def remove(native, pending, entries, tombstones, errors) -> Set[str]:
     """Apply every tombstone but the sets'; returns the libraries cleared whole."""
     store = native.store
@@ -124,6 +161,7 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
         kinds = {placement[i].kind for i in members}
         try:
             began = time.monotonic()
+            sets = _listed_sets(native) if "Movie" in kinds else set()
             clear_library(native, library, kinds)
             LOG.info(
                 "library %s: %d item(s) cleared from Kodi in %.1f s",
@@ -131,21 +169,9 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
                 len(members),
                 time.monotonic() - began,
             )
-            if "Movie" in kinds:
-                # No public call removes a set and no mapping can be trusted
-                # to say which movie had one. Kodi's own clean drops the
-                # empty sets; scoped to a root with no files left, it is
-                # cheap next to a dangling set, and its end is announced to
-                # the home widgets like a scan's.
-                rpc(
-                    "VideoLibrary.Clean",
-                    {
-                        "showdialogs": False,
-                        "directory": paths.library_root(native.key, library),
-                    },
-                )
-            else:
-                native.library_event()
+            if sets:
+                _release_sets(native, sets)
+            native.library_event()
         except InterruptedError:
             raise
         except Exception as error:
