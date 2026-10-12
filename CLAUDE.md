@@ -387,6 +387,52 @@ What remains is kofin's own:
   the lists keep their values, and a context-menu transcode and the download decision still
   read them. `HELP` swaps a help string the same way: "Transcode music" rewrites no path in
   the API build, where it only decides whether the music bitrate limit applies.
+- **Kodi's player owns the row of what it plays.** The server counts a play when it starts
+  (and marks a song played there and then), so its user data for the playing item, written
+  to Kodi during the play, was counted again by Kodi's own player at the end: one play of a
+  song, two counts. It is held until the play is over **however it arrives**: as an event
+  (`Library.apply_userdata`) or inside a full item, which is why a listing, a catch-up, a
+  changed item and the outbox's re-read publish through `Library.publish` and never through
+  `store.publish`. After the stop the server is asked what the play made of the item
+  (`release_userdata`); the last event heard may be a progress report. The other three
+  halves of the same fix: the watched mark goes to the server and never Kodi's count
+  (`flush_local`), a count that only grew is not a local edit (`patch.local_edits`), and a
+  stamp of Kodi's own up to six hours later than the server's is the same play
+  (`metadata.same_play`). `tests/live/userdata_matrix.py` is the gate, on scratch libraries.
+- **An unplayed song has no `lastplayed` opinion** (`metadata.userdata`). Kodi's song setter
+  cannot clear the date, so a desired empty one never matched the readback and failed every
+  pass for ever.
+- **A show is refreshed with `refreshepisodes: false`** (`patch.Applier.refresh`). With `true`
+  Kodi deletes the show and imports it again under new ids, which is what filled the
+  in-progress widget with shows after a cast change. A row's acknowledgement keeps a hash per
+  part of the refresh token (`metadata.refresh_parts`, built from `refresh_fields`, the one
+  dict the token hashes), so the log says which part moved.
+- **A library leaves with a clean or a scan of nowhere, never `UpdateLibrary(video)`**
+  (`removal.py`, `native.library_event`). The builtin with no path lists every folder of the
+  libraries that stay, and a clean asked for while it runs is refused. Only the shows Kodi
+  could have merged with a leaving one are invalidated (`_merged_shows`), not every show.
+  The clear runs on a thread of its own for the bar's sake, and a stop waits for it.
+- **A single-source item's streams are on the item, not on its source** (`metadata.compact`,
+  `_stream_source`): read off the first source alone, every such row was filed with a stub
+  video stream and no audio or subtitle. Streams have no setter, so `SCANNER_FORMAT` numbers
+  what a listing carries and a **manual** Repair rebuilds a video library filed under an
+  older one (`Library.rebuild_stale`): never a pass, since the library is gone from Kodi
+  until the import has run. The rebuild is on record in the store (`store.REBUILDING`) and
+  no path lists the library while its old rows are still leaving.
+- **Album and artist artwork is applied between the music scan and the video scans**
+  (`kinds.MUSIC_FIRST`, `Native.reconcile`: `scan_music`, `plan_video`, the early kinds,
+  `scan_video`). With no video scan to wait for, the kinds keep their order and the music
+  hold is taken once.
+- **A viewer's request has one bar from the request to the end of the work**
+  (`progress.Progress.attend`, `Library.settle_progress`). `close` ends a stretch and leaves
+  an attended bar up; only `finish` takes it down, and a retried command does not attend
+  again. A stage that counts nothing says so with one of Kodi's own strings.
+- **A library episode's own art is its thumb, and only when it has one** (`metadata.own_art`).
+  Given its show's poster, a skin that asks for the poster first showed it on every episode.
+  Cast pictures have a cap of their own, 400 (`listitems.person_query`).
+- **The chapter image workers do not use the service's HTTP session** (`ChapterArt._downloads`):
+  three at once on the one `requests` session the library thread is on is what the sync
+  avoids by giving each worker a client.
 - **A music scan never shows Kodi's dialog.** With `showdialogs` the music scanner starts its
   `MusicFileCounter` thread, which lists every directory a second time, concurrently, to size
   Kodi's bar: two root listings of 62 s side by side on the LibreELEC box, and every album
