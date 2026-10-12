@@ -373,6 +373,20 @@ What remains is kofin's own:
   `showdialogs` to the scan calls. Both settings must stay in the API profile's
   `settings.xml` (`tools/package_manifest.py`): `getSettingBool` on a setting the build does
   not define raises `TypeError`, and that failed every pass on the box once.
+- **The API build's sync status is a file, never a setting.** The library thread writes
+  `sync-status.json` when its state changes (`backends/api/status.py`) and the "Library status"
+  button reads the catalogue when it is opened (`plugin/actions.py::library_status`);
+  `syncStatus` and `syncedLibraries` are the SQL build's and are not in the API profile. The
+  state is written by a listing as well as by the pass, with the names of the libraries
+  listed for the first time: the catalogue has no row of one until its listing is published,
+  and a first selection read "Done" for as long as the server was being asked.
+- **A profile adds to settings.xml what the file cannot carry for both builds**
+  (`tools/package_manifest.py`). `VISIBLE_WHILE` hides the three direct play lists under force
+  direct play in the API profile only: on Kodi 21 a `<dependencies>` block on a `list[string]`
+  setting unregisters the setting it names, and the SQL build still installs there. Hidden,
+  the lists keep their values, and a context-menu transcode and the download decision still
+  read them. `HELP` swaps a help string the same way: "Transcode music" rewrites no path in
+  the API build, where it only decides whether the music bitrate limit applies.
 - **A music scan never shows Kodi's dialog.** With `showdialogs` the music scanner starts its
   `MusicFileCounter` thread, which lists every directory a second time, concurrently, to size
   Kodi's bar: two root listings of 62 s side by side on the LibreELEC box, and every album
