@@ -21,6 +21,7 @@ permissions:
 env:
   PYTHON_VERSION: "3.11"
   APP_ID: plugin.video.kofin
+  WIKI_PAGE: https://github.com/kontell/plugin.video.kofin/wiki/API-sync-variant
 
 jobs:
   check:
@@ -115,6 +116,9 @@ jobs:
           fi
           # First blank-line-delimited paragraph — same rule as pvr.kofin.
           changes="$(awk -v RS= 'NR==1' changelog.txt)"
+          # This branch only: every release of the API variant says where
+          # its upgrade steps and open feature gaps are written down.
+          changes+=$'\n\n'"This is a pre-release of the API sync variant, for Kodi 22 only. What it is, upgrading from 0.29.x and the open feature gaps: $WIKI_PAGE"
           EOF="$(dd if=/dev/urandom bs=15 count=1 status=none | base64)"
           {
             echo "changes<<$EOF"
