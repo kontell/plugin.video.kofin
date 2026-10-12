@@ -873,8 +873,26 @@ def _cast(tag, item, server):
         tag.setCast(actors)
 
 
+def _stream_source(item):
+    """The item as ``streams_and_runtime`` reads it. ``compact`` keeps a
+    single source's streams on the item alone, and the shared reader looks
+    in the first source: every single-source row was filed with a stub
+    video stream and no audio or subtitle stream at all."""
+    sources = item.get("MediaSources") or []
+    streams = item.get("MediaStreams")
+    if (
+        not streams
+        or not sources
+        or not isinstance(sources[0], dict)
+        or sources[0].get("MediaStreams")
+    ):
+        return item
+    first = dict(sources[0], MediaStreams=streams)
+    return dict(item, MediaSources=[first] + list(sources[1:]))
+
+
 def _streams(tag, item):
-    streams, runtime = streams_and_runtime(item)
+    streams, runtime = streams_and_runtime(_stream_source(item))
     for stream in streams["video"]:
         stereo = {
             "HalfSideBySide": "left_right",

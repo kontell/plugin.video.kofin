@@ -152,6 +152,82 @@ def test_collections_pick_one_set_per_movie_stably():
     assert metadata.collections_of(sets) == {"a": "alpha", "b": "Zeta"}
 
 
+def _recorded_streams(monkeypatch, item):
+    from unittest.mock import Mock
+
+    tag = Mock()
+    li = Mock()
+    li.getVideoInfoTag.return_value = tag
+    monkeypatch.setattr(metadata.xbmcgui, "ListItem", lambda *a, **k: li)
+    for name in ("VideoStreamDetail", "AudioStreamDetail", "SubtitleStreamDetail"):
+        monkeypatch.setattr(metadata.xbmc, name, lambda **kw: kw)
+    metadata.listitem(item, SERVER, "key", LIB)
+    return (
+        [c.args[0] for c in tag.addVideoStream.call_args_list],
+        [c.args[0] for c in tag.addAudioStream.call_args_list],
+        [c.args[0] for c in tag.addSubtitleStream.call_args_list],
+    )
+
+
+STREAMS = [
+    {"Type": "Video", "Codec": "hevc", "Width": 3840, "Height": 2160},
+    {"Type": "Audio", "Codec": "eac3", "Channels": 6, "Language": "eng"},
+    {"Type": "Audio", "Codec": "aac", "Channels": 2, "Language": "fra"},
+    {"Type": "Subtitle", "Codec": "subrip", "Language": "eng"},
+]
+
+
+def test_a_single_source_row_is_filed_with_its_streams(monkeypatch):
+    """compact keeps a single source's streams on the item alone and the
+    shared reader looked in the first source, so every such movie and
+    episode was filed with a stub video stream, no codec, and no audio or
+    subtitle stream (1,787 movies and 4,316 episodes on one profile)."""
+    for build in (movie, lambda **values: episode("e1", **values)):
+        item = metadata.compact(
+            build(
+                MediaSources=[
+                    {"Id": "src", "Container": "mkv", "MediaStreams": STREAMS}
+                ],
+                MediaStreams=STREAMS,
+            )
+        )
+        assert "MediaStreams" not in item["MediaSources"][0]
+        video, audio, subtitle = _recorded_streams(monkeypatch, item)
+        assert [(v["codec"], v["width"], v["height"]) for v in video] == [
+            ("hevc", 3840, 2160)
+        ]
+        assert [(a["codec"], a["channels"], a["language"]) for a in audio] == [
+            ("eac3", 6, "eng"),
+            ("aac", 2, "fra"),
+        ]
+        assert [s["language"] for s in subtitle] == ["eng"]
+
+
+def test_a_version_row_is_filed_with_its_own_source_streams(monkeypatch):
+    """A movie with several sources keeps each source's streams, and the
+    row of one version must not take the item's."""
+    other = [
+        {"Type": "Video", "Codec": "h264", "Width": 1920, "Height": 1080},
+        {"Type": "Audio", "Codec": "ac3", "Channels": 6, "Language": "eng"},
+    ]
+    item = metadata.compact(
+        movie(
+            MediaSources=[
+                {"Id": "a", "Container": "mkv", "MediaStreams": STREAMS},
+                {"Id": "b", "Container": "mkv", "MediaStreams": other},
+            ],
+            MediaStreams=STREAMS,
+        )
+    )
+    video, audio, _ = _recorded_streams(monkeypatch, item)
+    assert [v["codec"] for v in video] == ["hevc"]
+    shown = dict(item, MediaSources=[item["MediaSources"][1]], MediaStreams=other)
+    video, audio, subtitle = _recorded_streams(monkeypatch, shown)
+    assert [v["codec"] for v in video] == ["h264"]
+    assert [a["codec"] for a in audio] == ["ac3"]
+    assert subtitle == []
+
+
 def test_scanner_listitem_never_stamps_a_zero_resume_point(monkeypatch):
     from unittest.mock import Mock
 
