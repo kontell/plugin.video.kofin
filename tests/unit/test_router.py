@@ -275,3 +275,35 @@ def test_a_listing_handler_that_returns_is_left_to_close_itself(
 ):
     router.dispatch(argv("?mode=browse", "7"))
     assert ended == []  # the recorder never called it, and neither did dispatch
+
+
+def test_a_listing_that_is_not_native_imports_none_of_the_provider():
+    """Every home widget's request used to import the scanner provider to
+    learn that its path was not the provider's: 3 s of a fresh interpreter
+    on a Raspberry Pi 3 at rest, more under an import, on every request.
+    Checked in a subprocess so this test's own imports cannot mask it."""
+    lib = str(Path(__file__).resolve().parents[2] / "lib")
+    code = (
+        "import sys; sys.path.insert(0, %r); "
+        "from kofin import buildconfig; buildconfig.BACKEND = 'api'; "
+        "from kofin.plugin import router; "
+        "router._resolve = lambda mode: (lambda request: None); "
+        "router.dispatch(['plugin://plugin.video.kofin/', '5', '']); "
+        "router.dispatch(['plugin://plugin.video.kofin/', '5', '?mode=browse&view=a']); "
+        "loaded = [m for m in sys.modules if m.startswith('kofin.sync')]; "
+        "assert not loaded, loaded" % lib
+    )
+    subprocess.check_call([sys.executable, "-c", code])
+
+
+def test_a_native_path_still_reaches_the_provider(monkeypatch):
+    from kofin import buildconfig
+    from kofin.sync.backends.api import provider
+
+    served = []
+    monkeypatch.setattr(buildconfig, "BACKEND", "api")
+    monkeypatch.setattr(provider, "serve", served.append)
+    native = "plugin://plugin.video.kofin/native/%s/%s/movies/" % ("a" * 32, "b" * 32)
+    router.dispatch([native, "7", ""])
+    router.dispatch(["plugin://plugin.video.kofin/native/", "8", ""])
+    assert [request.handle for request in served] == [7, 8]

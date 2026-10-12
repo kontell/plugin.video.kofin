@@ -9,6 +9,11 @@ from kofin import buildconfig
 
 LOG = Logger(__name__)
 
+# Every path the API build's scanner provider answers lies under this
+# (sync/backends/api/paths.py); spelled again in plugin/gate.py, which
+# imports nothing of kofin's, and a test holds the two together.
+NATIVE_MARK = "/native/"
+
 Params = Dict[str, str]
 
 LEGACY_MODES = frozenset(
@@ -172,7 +177,10 @@ def dispatch(argv: List[str]) -> None:
     resume = len(argv) > 3 and argv[3].split(":", 1)[-1] == "true"
     request = Request(base_url, handle, params, resume)
 
-    if buildconfig.BACKEND == "api":
+    # A path outside the provider's is not parsed, and pays for none of the
+    # provider's imports: every home widget's request spent 3 s on them on a
+    # Raspberry Pi 3 at rest to learn that it was not native.
+    if buildconfig.BACKEND == "api" and NATIVE_MARK in base_url:
         import time
 
         imports_began = time.monotonic()
