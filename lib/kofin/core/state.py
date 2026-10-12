@@ -95,6 +95,15 @@ PROP_SYNCSESSION = "syncsession.state"
 # lines as list items, and it carries the song id so that it *changes* per
 # song -- a list bound to it re-reads the directory on the change, which
 # Container.Refresh cannot do for a window that is not a media window.
+# The listings being built, per plugin URL: at most two builds of one URL at
+# a time, so a skin's home widgets asked for again at every visit to Home
+# cannot pile up until Kodi has no thread left to create. Named here, as
+# every property kofin shares is; read and written in plugin/gate.py alone,
+# because the request it turns away must not have imported this module or
+# anything else of kofin's. Earns its place because the requests are
+# separate interpreters with nothing in common but this window.
+PROP_LISTING_FLIGHT = "kofin.listing.flight"
+
 PROP_LYRIC_HAS = "kofin.lyric.has"
 PROP_LYRIC_JSON = "kofin.lyric.json"
 PROP_LYRIC_PATH = "kofin.lyric.path"

@@ -5,6 +5,15 @@ _LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB not in sys.path:
     sys.path.insert(0, _LIB)
 
-from kofin.plugin.router import dispatch  # noqa: E402
+# The gate first, and nothing of kofin's before it: a request it turns away
+# must not have paid for the router's imports (plugin/gate.py).
+from kofin.plugin import gate  # noqa: E402
 
-dispatch(sys.argv)
+_flight = gate.enter(sys.argv)
+if _flight is not None:
+    try:
+        from kofin.plugin.router import dispatch  # noqa: E402
+
+        dispatch(sys.argv)
+    finally:
+        gate.leave(_flight)
