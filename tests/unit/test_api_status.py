@@ -193,10 +193,10 @@ def _dialog(monkeypatch, store, answers, backend="api"):
     dialog.select_answers = list(answers)
     shown = []
     monkeypatch.setattr(buildconfig, "BACKEND", backend)
-    monkeypatch.setattr(actions.xbmcgui, "Dialog", lambda: dialog)
+    monkeypatch.setattr(status.xbmcgui, "Dialog", lambda: dialog)
     monkeypatch.setattr(actions.toast, "show", lambda *a, **k: shown.append(a[0]))
     monkeypatch.setattr(actions.settings, "localized", lambda i: "L%d" % i)
-    monkeypatch.setattr(actions.xbmc, "getLocalizedString", lambda i: "K%d" % i)
+    monkeypatch.setattr(status.xbmc, "getLocalizedString", lambda i: "K%d" % i)
     monkeypatch.setattr(identity, "current_store", lambda: store)
     monkeypatch.setattr(companion, "present", lambda: None)
     actions.library_status(Request("plugin://x", -1, {}))

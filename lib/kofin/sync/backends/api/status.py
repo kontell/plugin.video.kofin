@@ -17,10 +17,15 @@ which is when a sync runs.
 import json
 import os
 import time
-from typing import Any, Dict, List, NamedTuple, Optional
+from typing import Any, Dict, List, NamedTuple, Optional, Union
 
+import xbmc
+import xbmcgui
+
+from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import private
+from . import companion, metadata, progress
 
 LOG = Logger(__name__)
 
@@ -184,6 +189,31 @@ def rows(
         lines.append("%s:  %s" % (text(30865), _moment(found.enumerated, clock)))
     lines.append("%s:  %s" % (text(30866), companion or "—"))
     return [line.rstrip() for line in lines]
+
+
+def show(store) -> None:
+    """The report, as a dialog to read: one row per fact, the value in the
+    row's own label (a select dialog's plain layout has no second field).
+
+    It is what the catalogue and the sync's document hold at the moment it
+    is opened. The first row reads them again, which is how a running import
+    is watched, and it is the row under the cursor: under a cursor on the
+    last row the list scrolls the sync's own line off the top as soon as
+    there are more rows than fit.
+    """
+    heading = "%s \u2014 %s" % (settings.localized(30859), settings.localized(30862))
+    while True:
+        lines = rows(
+            read(),
+            snapshot(store, metadata.SCANNER_FORMAT),
+            companion.present(),
+            progress.stage,
+            progress.label,
+        )
+        choices: List[Union[str, xbmcgui.ListItem]] = [xbmc.getLocalizedString(184)]
+        choices.extend(lines)
+        if xbmcgui.Dialog().select(heading, choices, preselect=0) != 0:
+            return
 
 
 def _moment(stamp: float, clock) -> str:
