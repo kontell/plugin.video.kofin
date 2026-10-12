@@ -1,5 +1,5 @@
 v0.93.2
-- Video, audio and subtitle details on movies and episodes in the API build. Run Repair once on libraries synced by an earlier version.
+- Video, audio and subtitle details on movies and episodes in the API build. Run Repair once on video libraries synced by an earlier version.
 - Music and show play counts match the server, and a cast change no longer fills the in-progress widget.
 - Episodes show their own image, album and artist artwork arrives before the video import, and chapter images appear sooner.
 - One progress bar through an update or a library removal, and removing a library no longer rescans the others.
