@@ -235,13 +235,14 @@ def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
     assert not methods(kodi, "VideoLibrary.RemoveMovie")
     assert set(kodi.owned("Series")) == {SHOW2}
     assert set(kodi.owned("Movie")) == {"m2"}
-    # A library that held movies is cleaned for the sets it emptied, and the
-    # clean's end is the announcement the home widgets hear. Nothing is
-    # scanned: with no directory, Kodi's scan walked every bound folder of
-    # the libraries that stayed and refused the clean asked for after it.
+    # The home widgets hear of it through a scan of a directory that is not
+    # there. No scan with no directory, which walks every bound folder of
+    # the libraries that stay, and no clean, which asks the add-on about
+    # every one of them and deletes the row of any it gets no answer for.
     assert kodi.builtins == []
-    assert methods(kodi, "VideoLibrary.Clean") == [
-        {"showdialogs": False, "directory": paths.library_root(store.namespace, LIB)}
+    assert not methods(kodi, "VideoLibrary.Clean")
+    assert [p["directory"] for p in methods(kodi, "VideoLibrary.Scan")] == [
+        native.NOWHERE
     ]
     assert not store.pending()
     assert set(kodi.bindings) == {
@@ -253,7 +254,6 @@ def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
     assert set(store.bindings()) == set(kodi.bindings)
     # The survivor was re-read, not re-imported.
     assert store.mapping(SHOW2).kodi_id in kodi.rows["Series"]
-    assert not any(m == "VideoLibrary.Scan" for m, _ in kodi.calls)
 
 
 def test_a_library_without_movies_leaves_with_an_event_and_no_walk(
@@ -705,10 +705,12 @@ def test_collections_file_sets_at_import_and_patch_set_details(store, backend, k
     kodi.calls.clear()
     store.publish([], library=LIB)
     backend.reconcile()
-    assert methods(kodi, "VideoLibrary.Clean") == [
-        {"showdialogs": False, "directory": paths.library_root(store.namespace, LIB)}
-    ]
-    assert kodi.rows["BoxSet"] == {}
+    # The set the library emptied is not cleaned out of Kodi. With no
+    # companion to delete it, its row stays, linked by no movie and so in no
+    # listing.
+    assert not methods(kodi, "VideoLibrary.Clean")
+    assert [r["title"] for r in kodi.rows["BoxSet"].values()] == ["Trilogy"]
+    assert not kodi.rows["Movie"]
 
 
 def test_patches_travel_in_arrays_of_twenty_five(store, backend, kodi, monkeypatch):
@@ -953,14 +955,36 @@ def test_whole_library_clear_survives_a_movie_that_never_imported(store, backend
     backend.reconcile()
     assert not store.pending()
     assert kodi.rows["Movie"] == {}
-    assert kodi.rows["BoxSet"] == {}
     assert [p["clearmode"] for p in methods(kodi, "VideoLibrary.SetSourceContent")] == [
         "remove"
     ]
-    # The clean that drops empty sets runs for every cleared movie library.
-    assert methods(kodi, "VideoLibrary.Clean") == [
-        {"showdialogs": False, "directory": paths.library_root(store.namespace, LIB)}
-    ]
+    # No clean for the set the library emptied (removal._release_sets).
+    assert not methods(kodi, "VideoLibrary.Clean")
+
+
+def test_a_set_a_removed_library_emptied_is_the_companions_to_delete(
+    store, backend, kodi, monkeypatch
+):
+    """Kodi's clean asks the add-on about every bound folder of every
+    library, whatever directory it is given, and deletes the path row of one
+    that goes unanswered: a movie of a library that stayed left every
+    listing that way. The companion deletes the one empty set by title."""
+    from kofin.sync.backends.api import companion
+
+    monkeypatch.setattr(companion, "present", lambda: "0.1.0")
+    store.publish([movie(), movie("b"), boxset("box", "Pair", ["a", "b"])], library=LIB)
+    store.publish([movie("c")], library=LIB2)
+    backend.reconcile()
+    assert [r["title"] for r in kodi.rows["BoxSet"].values()] == ["Pair"]
+    kodi.calls.clear()
+
+    store.publish([], library=LIB)
+    backend.reconcile()
+
+    assert not methods(kodi, "VideoLibrary.Clean")
+    assert set(kodi.owned("Movie")) == {"c"}
+    journal = companion._read_sets()
+    assert [entry["title"] for entry in journal] == ["Pair"]
 
 
 def test_episodes_of_a_show_whose_removal_fails_stay_pending(store, backend, kodi):
