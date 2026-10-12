@@ -1365,3 +1365,68 @@ def test_progress_reports_stay_home_offline(monkeypatch):
     drain(player)
     assert api.calls == []  # the position still updated for the segment tick
     assert player._item["CurrentPosition"] == 42.0  # getTime stub
+
+
+# --- a track queued ahead -------------------------------------------------------
+
+SONG = "5" * 32
+NATIVE_SONG = "plugin://plugin.video.kofin/native/%s/%s/music/%s/%s.flac" % (
+    "a" * 32,
+    "b" * 32,
+    "c" * 32,
+    SONG,
+)
+
+
+def _queue_song(item_id=SONG, session="ps1"):
+    state.push_play_item(
+        {
+            "Id": item_id,
+            "Type": "Audio",
+            "Path": "http://s/Audio/%s/stream.flac?static=true&playSessionId=%s"
+            % (item_id, session),
+            "PlayMethod": "DirectStream",
+            "PlaySessionId": session,
+            "MediaSourceId": "src1",
+            "DeviceId": "dev1",
+            "Runtime": 0,
+            "AudioStreamIndex": None,
+            "SubtitleStreamIndex": None,
+            "CurrentPosition": 0.0,
+        }
+    )
+
+
+def test_a_track_kodi_queued_ahead_is_claimed_by_its_item(monkeypatch):
+    """PAPlayer asks for the next track of an album a few seconds before
+    the current one ends, and when it starts Kodi names it by the plugin URL
+    it was listed under, not by the stream the play route resolved. Matched
+    on the path alone, every track after the first went unclaimed: played
+    and counted in Kodi, never reported to the server."""
+    player, api = make_player(monkeypatch, url=NATIVE_SONG)
+    # An entry an earlier, unclaimed play of the same song left behind, and
+    # one for another song that is not this playback's.
+    _queue_song(session="stale")
+    _queue_song("6" * 32, session="other")
+    _queue_song(session="fresh")
+
+    player.onPlayBackStarted()
+    drain(player)
+    assert api.calls[0][0] == "playing"
+    assert api.calls[0][1]["ItemId"] == SONG
+    assert api.calls[0][1]["PlaySessionId"] == "fresh"
+    assert state.get_playing_id() == SONG
+    # The stale entry went with the claim; the other song's is untouched.
+    assert state.claim_play_item_of(SONG) is None
+    assert state.claim_play_item_of("6" * 32)["PlaySessionId"] == "other"
+
+
+def test_a_plugin_url_that_is_not_kofins_claims_nothing(monkeypatch):
+    foreign = "plugin://plugin.audio.other/?id=%s" % SONG
+    player, api = make_player(monkeypatch, url=foreign)
+    _queue_song()
+    monkeypatch.setattr(player, "isPlayingAudio", lambda: False)
+    player.onPlayBackStarted()
+    drain(player)
+    assert api.calls == []
+    assert state.claim_play_item_of(SONG) is not None

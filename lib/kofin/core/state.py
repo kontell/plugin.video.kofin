@@ -257,6 +257,31 @@ def claim_play_item(path: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def claim_play_item_of(item_id: str) -> Optional[Dict[str, Any]]:
+    """Take the newest queued entry for an item, whatever it resolved to,
+    and drop any older one for it.
+
+    For a track Kodi queued ahead. PAPlayer asks for the next track a few
+    seconds before the current one ends; the play route resolves it and
+    queues its entry under the stream it resolved to; and when the track
+    starts Kodi names it by the plugin URL it was listed under, not by that
+    stream. Matched on the path alone, every track of an album after the
+    first went unclaimed: played and counted in Kodi, never reported.
+    """
+    newest = None
+    for entry_path in reversed(_queue_files()):
+        item = _read_entry(entry_path)
+        if item is None or item.get("Id") != item_id:
+            continue
+        try:
+            os.remove(entry_path)
+        except OSError:
+            continue  # someone else claimed it first
+        if newest is None:
+            newest = item
+    return newest
+
+
 def play_item_queued(path: str) -> bool:
     """Whether a resolved play for ``path`` is already waiting to be claimed.
 

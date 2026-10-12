@@ -139,6 +139,14 @@ _ID_IN_PATH = re.compile(
 )
 
 
+def path_item_id(path: str) -> Optional[str]:
+    """The Jellyfin id one of kofin's own URLs names, or None."""
+    match = _ID_IN_PATH.search(path or "")
+    if match:
+        return match.group(1) or match.group(2) or match.group(3)
+    return None
+
+
 def playing_jellyfin_id(item: xbmcgui.ListItem, path: str) -> Optional[str]:
     """The Jellyfin id of the song Kodi is playing, or None if it is not ours.
 
@@ -163,10 +171,7 @@ def playing_jellyfin_id(item: xbmcgui.ListItem, path: str) -> Optional[str]:
         if mapped:
             return mapped
 
-    match = _ID_IN_PATH.search(path or "")
-    if match:
-        return match.group(1) or match.group(2) or match.group(3)
-    return None
+    return path_item_id(path)
 
 
 def library_claim(jellyfin_id: str, path: str, api: Api) -> Optional[JsonDict]:

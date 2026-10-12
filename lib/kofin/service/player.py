@@ -49,6 +49,7 @@ if buildconfig.legacy_features():
 from kofin.service.libraryclaim import (
     backfill_library_claim,
     downloaded_path,
+    path_item_id,
     playing_jellyfin_id,
 )
 from kofin.service.segments import SegmentEngine
@@ -62,6 +63,7 @@ LOG = Logger(__name__)
 JsonDict = Dict[str, Any]
 
 PROGRESS_INTERVAL_SECONDS = 10.0
+PLUGIN_URL = "plugin://plugin.video.kofin/"
 CLAIM_TIMEOUT_SECONDS = 10.0
 # Grace for a claim that arrives from the Player.OnPlay notification instead
 # of the play route (see backfill_library_claim): library-originated audio,
@@ -711,6 +713,12 @@ class Player(xbmc.Player):
                 else:
                     kind = "video"
                 claimed = state.claim_play_item(current_file)
+                if claimed is None and current_file.startswith(PLUGIN_URL):
+                    # A track Kodi queued ahead is named by the plugin URL
+                    # it was listed under; its entry is found by the item.
+                    queued = path_item_id(current_file)
+                    if queued:
+                        claimed = state.claim_play_item_of(queued)
                 if claimed is not None:
                     outcome = "claimed"
                     break
