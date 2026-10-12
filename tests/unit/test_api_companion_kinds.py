@@ -5,7 +5,9 @@ the acknowledgement of the kinds no public read confirms."""
 import json
 import os
 
-from kofin.sync.backends.api import companion, paths
+import pytest
+
+from kofin.sync.backends.api import companion, metadata, paths
 from tests.unit import contractschema
 from tests.unit.apifixtures import (  # noqa: F401
     LIB,
@@ -29,6 +31,13 @@ FLAGGED_STREAMS = [
     {"Type": "Subtitle", "Language": "eng", "IsForced": True, "IsDefault": True},
     {"Type": "Subtitle", "Language": "eng", "IsHearingImpaired": True},
 ]
+
+
+@pytest.fixture(autouse=True)
+def filed_by_this_build(store):
+    """The library's rows carry their streams, as every library this build
+    imports does (metadata.SCANNER_FORMAT)."""
+    store.set_scanner_format(LIB, metadata.SCANNER_FORMAT)
 
 
 def _document(store):
@@ -107,6 +116,26 @@ def test_the_metadata_kinds_are_built_from_the_mappings(store, backend, kodi):
     }
     assert "flags" not in store.mapping("m2").applied
     assert companion.REMOVE_SET not in by_kind
+
+
+def test_no_flags_are_asked_for_rows_filed_without_their_streams(store, backend, kodi):
+    """A library an older build filed has no stream rows for a flag to land
+    on. Asked for anyway, every request was refused on every pass: 5,632 of
+    them on one television, until the library was repaired."""
+    from kofin.sync.backends.api.store import REBUILDING
+
+    backend.setup()
+    store.publish(_bundle(streams=FLAGGED_STREAMS), library=LIB)
+    for scanner in (1, REBUILDING):
+        store.set_scanner_format(LIB, scanner)
+        backend.reconcile()
+        by_kind = _by_kind(store)
+        assert companion.STREAM_FLAGS not in by_kind
+        # What does not need a stream row is asked for as before.
+        assert companion.SEASON_PLOT in by_kind and companion.EPISODE_TAGS in by_kind
+    store.set_scanner_format(LIB, metadata.SCANNER_FORMAT)
+    backend.reconcile()
+    assert companion.STREAM_FLAGS in _by_kind(store)
 
 
 def test_an_acknowledged_kind_leaves_the_document_until_its_content_moves(
