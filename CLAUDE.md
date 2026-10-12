@@ -20,7 +20,7 @@ Kofin (`plugin.video.kofin`) is a Jellyfin client addon for Kodi that mirrors se
 ## Commands
 
 ```bash
-# Everything the repo gates on (black, ruff, mypy, pytest):
+# The checks the repo gates on (black, ruff, mypy, pytest); CI also builds the zip:
 tox
 
 # Individually (venv from requirements-dev.txt):
@@ -49,7 +49,7 @@ Kodi restart**, because Kodi caches add-on strings for the process lifetime
 
 GitHub Actions mirrors the pvr.kofin split (quality gate vs tag release):
 
-- `.github/workflows/ci.yml` — on every PR and push to `main`: `black`, `ruff`, `mypy`, and `pytest tests/unit` as separate Checks jobs, plus a `package` job that uploads a Kodi-installable zip artifact (`plugin.video.kofin-<ver>-prN-<sha>.zip` / `…-main-<sha>.zip`, 14-day retention). Live tests are not run in CI. All five jobs are required on `main` and `kofin-or`, on a branch that is up to date with its base, so run `tox` before every push and on every branch of a stack.
+- `.github/workflows/ci.yml` — on every PR and every push to `main` or `kofin-or`: `black`, `ruff`, `mypy`, and `pytest tests/unit` as separate Checks jobs, plus a `package` job that uploads a Kodi-installable zip artifact (`plugin.video.kofin-<ver>-prN-<sha>.zip` / `…-main-<sha>.zip`, 14-day retention). Live tests are not run in CI. All five jobs are required on `main` and `kofin-or`, on a branch that is up to date with its base, so run `tox` (the first four) before every push and on every branch of a stack.
 - `.github/workflows/release.yml` — on a `v*` tag: re-runs `black`, `mypy` and the unit tests (not `ruff`, which only `ci.yml` runs), builds `plugin.video.kofin-<ver>.zip`, asserts the tag matches `addon.xml`, and opens a **draft** GitHub release whose body is the top paragraph of `changelog.txt`.
 - `.github/workflows/kodi-schema-watch.yml` — every two days: runs `tools/check_kodi_schema.py` against `xbmc/xbmc` and opens one issue per database schema version newer than the gate, deduped on the issue title against open *and closed* issues labelled `kodi-schema`. It reports, it does not admit — see **The schema gate** below for what admitting one costs.
 
