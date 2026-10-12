@@ -322,6 +322,42 @@ def test_a_publish_that_lost_the_race_with_stop_withdraws_itself(rig, monkeypatc
     assert _document()["requests"] == []
 
 
+def test_the_images_are_fetched_a_few_at_once_and_listed_in_chapter_order(rig):
+    """One after another, the sixty-one images of a long film were most of
+    the wait between the start of playback and the tiles being there."""
+    import threading
+    import time
+
+    lock = threading.Lock()
+    running = []
+    peak = [0]
+    download = rig.api.download
+
+    def slow(url):
+        with lock:
+            running.append(url)
+            peak[0] = max(peak[0], len(running))
+        try:
+            # The first chapter is the slowest to come back.
+            time.sleep(0.08 if "Chapter/0?" in url else 0.01)
+            return download(url)
+        finally:
+            with lock:
+                running.remove(url)
+
+    rig.api.download = slow
+    worker = chapterart.ChapterArt(rig.api, _item())
+    worker._publish()
+    (request,) = _document()["requests"]
+    assert [c["n"] for c in request["chapters"]] == [n for n in range(1, 16) if n != 3]
+    assert 1 < peak[0] <= chapterart.STAGERS
+    # The line that says how long it took names the three stretches.
+    assert any(
+        "(listed in " in line and "staged in " in line and "seeded in " in line
+        for line in rig.lines
+    )
+
+
 def test_staged_files_outlive_a_request_that_could_not_be_withdrawn(rig, monkeypatch):
     """A document that cannot be written still names the request, and the
     companion reads its files from the stage: neither the claim's janitor

@@ -22,6 +22,7 @@ import shutil
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 
 import xbmc
@@ -40,6 +41,9 @@ JsonDict = Dict[str, Any]
 STAGE = os.path.join("companion", "chapters")
 # Server-side resize for the downloads: the dialog renders small tiles.
 IMAGE_MAX_WIDTH = 640
+# Images downloaded side by side. The server resizes each one the first time
+# it is asked for, so a few at once is also a few resizes at once on it.
+STAGERS = 3
 # How long a seeding or a removal is waited for before the log says so.
 ACK_TIMEOUT = 12.0
 ACK_POLL = 0.5
@@ -178,6 +182,7 @@ class ChapterArt:
             return
         began = time.monotonic()
         chapters = self._api.chapters(item["Id"])
+        listed = time.monotonic()
         count = player_chapter_count()
         tagged = [
             (position, chapter.get("ImageTag"))
@@ -188,6 +193,7 @@ class ChapterArt:
             LOG.debug("no chapter images for %s", item["Id"])
             return
         entries = self._stage(tagged)
+        staged = time.monotonic()
         if not entries or self._cancel.is_set():
             shutil.rmtree(self._directory, ignore_errors=True)
             return
@@ -212,12 +218,18 @@ class ChapterArt:
             return
         seeded = self._await(len(entries))
         if seeded == len(entries):
+            # The three stretches, so that a slow one can be named: the
+            # chapter list from the server, the images, and the companion.
             LOG.info(
-                "--> chapter art %s: %d of %d seeded by the companion in %.1f s",
+                "--> chapter art %s: %d of %d seeded by the companion in %.1f s"
+                " (listed in %.1f, staged in %.1f, seeded in %.1f)",
                 item["Id"],
                 seeded,
                 len(chapters),
                 time.monotonic() - began,
+                listed - began,
+                staged - listed,
+                time.monotonic() - staged,
             )
         else:
             LOG.info(
@@ -229,11 +241,17 @@ class ChapterArt:
             )
 
     def _stage(self, tagged: List[Tuple[int, Any]]) -> List[JsonDict]:
+        """Download the images, ``STAGERS`` at a time, in chapter order.
+
+        One after another, the sixty-one images of a long film were most of
+        the wait between the start of playback and the tiles being there.
+        """
         os.makedirs(self._directory, exist_ok=True)
-        entries: List[JsonDict] = []
-        for position, tag in tagged:
+
+        def fetch(pair: Tuple[int, Any]) -> Optional[JsonDict]:
+            position, tag = pair
             if self._cancel.is_set():
-                break
+                return None
             url = self._api.chapter_image_url(
                 self._item["Id"], position, str(tag), IMAGE_MAX_WIDTH
             )
@@ -241,17 +259,20 @@ class ChapterArt:
                 data = self._api.download(url)
             except Exception as error:
                 LOG.debug("chapter %d image fetch failed: %s", position, error)
-                continue
+                return None
             if not data:
-                continue
+                return None
             target = os.path.join(self._directory, "%d.jpg" % (position + 1))
             with open(target, "wb") as handle:
                 handle.write(data)
             width, height = image_size(data)
-            entries.append(
-                {"n": position + 1, "file": target, "width": width, "height": height}
-            )
-        return entries
+            return {"n": position + 1, "file": target, "width": width, "height": height}
+
+        with ThreadPoolExecutor(
+            max_workers=STAGERS, thread_name_prefix="kofin-chapter-image"
+        ) as pool:
+            fetched = list(pool.map(fetch, tagged))
+        return [entry for entry in fetched if entry is not None]
 
     def _await(self, wanted: int) -> int:
         """Poll the texture cache until it holds ``wanted`` keys of the item
