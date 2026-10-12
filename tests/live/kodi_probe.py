@@ -338,14 +338,6 @@ def kofin(message, data=None):
     )
 
 
-def _profile_dir():
-    profile = rpc("Profiles.GetCurrentProfile")["label"]
-    base = _userdata()
-    if profile != "Master user":
-        base = os.path.join(base, "profiles", profile)
-    return base
-
-
 def logfile():
     return os.path.join(os.path.dirname(_userdata().rstrip("/")), "temp", "kodi.log")
 
@@ -373,16 +365,31 @@ def bounce(edits=()):
     begun stopping), apply library selection edits to the settings file, and
     enable it again. A settings file edited under a running service is not
     read, and an enable before the old script has gone starts nothing."""
-    start = log_lines()
-    rpc("Addons.SetAddonEnabled", {"addonid": "plugin.video.kofin", "enabled": False})
-    gone = wait_log("service.py)", 90, start)
-    selected = None
+    tree = node = None
     if edits:
+        # Read before kofin is disabled: a profile with no settings file
+        # fails here, with the add-on still running.
         path = os.path.join(
             _profile_dir(), "addon_data", "plugin.video.kofin", "settings.xml"
         )
         tree = ET.parse(path)
+    start = log_lines()
+    rpc("Addons.SetAddonEnabled", {"addonid": "plugin.video.kofin", "enabled": False})
+    gone = wait_log("service.py)", 90, start)
+    if edits and gone is None:
+        # Edited under a service that is still running, the file is not
+        # read and may be written over. Enabled again so that a restart of
+        # Kodi brings the add-on back; it starts nothing until then.
+        rpc(
+            "Addons.SetAddonEnabled", {"addonid": "plugin.video.kofin", "enabled": True}
+        )
+        raise SystemExit("kofin's service did not exit in 90 s; settings not edited")
+    selected = None
+    if edits:
         node = tree.getroot().find("./setting[@id='librarySelection']")
+        if node is None:
+            # A profile that has never chosen a library has no such setting.
+            node = ET.SubElement(tree.getroot(), "setting", {"id": "librarySelection"})
         ids = [i for i in (node.text or "").split(",") if i]
         for edit in edits:
             if edit[0] == "+" and edit[1:] not in ids:

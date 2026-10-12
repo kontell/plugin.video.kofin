@@ -167,6 +167,23 @@ def media():
     print("%d files under the scratch root" % count)
 
 
+def _await_scan(data):
+    """Wait for the server to list everything the scratch media holds. A
+    scan that has not got there in five minutes is a failure to report, not
+    a count to print."""
+    found = {}
+    for _ in range(60):
+        found = _counts(data)
+        if all(found.get(kind, 0) >= wanted for kind, wanted in EXPECTED.items()):
+            print("scanned: %s" % json.dumps(found, sort_keys=True))
+            return
+        time.sleep(5)
+    raise SystemExit(
+        "scan incomplete after five minutes: %s of %s"
+        % (json.dumps(found, sort_keys=True), json.dumps(EXPECTED, sort_keys=True))
+    )
+
+
 def libraries():
     data = state()
     existing = {
@@ -203,12 +220,7 @@ def libraries():
     # A library made while another is being scanned is not always scanned
     # itself (the music one was left empty), so the scan is asked for.
     api("POST", "/Library/Refresh")
-    for _ in range(60):
-        found = _counts(data)
-        if all(found.get(kind, 0) >= wanted for kind, wanted in EXPECTED.items()):
-            break
-        time.sleep(5)
-    print("scanned: %s" % json.dumps(found, sort_keys=True))
+    _await_scan(data)
     print(
         "libraries: %s"
         % json.dumps({k: v for k, v in data.items() if k.startswith("lib_")})
