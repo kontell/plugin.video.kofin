@@ -311,7 +311,7 @@ def _token(value) -> str:
     return hashlib.sha256(encode(value).encode()).hexdigest()[:24]
 
 
-def refresh_token(item, seasons=()):
+def refresh_fields(item, seasons=()) -> Dict[str, Any]:
     """Fields with no complete public setter: a change here means a refresh.
 
     A show's season plots have ingestion only (``addSeason``), and an
@@ -336,7 +336,11 @@ def refresh_token(item, seasons=()):
             for s in seasons
             if s.get("IndexNumber") is not None
         )
-    return _token(value)
+    return value
+
+
+def refresh_token(item, seasons=()):
+    return _token(refresh_fields(item, seasons))
 
 
 # The token's fields by what a viewer would call them, for the line a
@@ -351,30 +355,19 @@ REFRESH_PARTS = {
     "AirsAfterSeasonNumber": "numbering",
     "AirsBeforeEpisodeNumber": "numbering",
     "IndexNumberEnd": "numbering",
+    "Seasons": "seasons",
 }
 
 
 def refresh_parts(item, seasons=()) -> Dict[str, str]:
-    """What ``refresh_token`` hashes, a short hash per part: kept beside a
-    row's acknowledgement so that the refresh of it can say which part
-    moved. The token alone says only that something did."""
-    kind = item.get("Type")
+    """The token's own fields, a short hash per part: kept beside a row's
+    acknowledgement so that the refresh of it can say which part moved. The
+    token alone says only that something did. Built from the one dict the
+    token hashes, so a field cannot join the token and be missing here; one
+    that has no word yet is reported under its own name."""
     grouped: Dict[str, Dict[str, Any]] = {}
-    for key, part in REFRESH_PARTS.items():
-        if part != "cast" and kind not in ("Movie", "Episode", "MusicVideo"):
-            continue
-        if part == "numbering" and kind != "Episode":
-            continue
-        if item.get(key) is not None:
-            grouped.setdefault(part, {})[key] = item[key]
-    if kind == "Series":
-        grouped["seasons"] = {
-            "Seasons": sorted(
-                (int(s.get("IndexNumber") or 0), s.get("Overview") or "")
-                for s in seasons
-                if s.get("IndexNumber") is not None
-            )
-        }
+    for key, value in refresh_fields(item, seasons).items():
+        grouped.setdefault(REFRESH_PARTS.get(key, key.lower()), {})[key] = value
     return {part: _token(value)[:8] for part, value in sorted(grouped.items())}
 
 
