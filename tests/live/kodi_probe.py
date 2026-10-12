@@ -181,13 +181,16 @@ def refresh_time(kind, kodi_id, episodes=None, timeout=300):
         ).get(key, [])
         return [r for r in rows if r["uniqueid"].get("kofin") == wanted]
 
+    # Rows that share the title and the item (a movie's version rows) were
+    # there before the refresh and are not the row coming back.
+    others = {row[id_param] for row in find()} - {kodi_id}
     began = time.monotonic()
     rpc(refresh, params)
     issued = time.monotonic() - began
     gone = None
     while time.monotonic() - began < timeout:
         time.sleep(0.1)
-        match = find()
+        match = [row for row in find() if row[id_param] not in others]
         if not match:
             if gone is None:
                 gone = time.monotonic() - began
@@ -310,14 +313,27 @@ def _userdata():
     raise SystemExit("no userdata directory found; set KODI_USERDATA")
 
 
+def _profile_dir():
+    """The current profile's directory, from profiles.xml: a profile's
+    directory need not be its name, and the master profile's name is in
+    whatever language Kodi first started in."""
+    base = _userdata()
+    current = rpc("Profiles.GetCurrentProfile")["label"]
+    listing = os.path.join(base, "profiles.xml")
+    if os.path.isfile(listing):
+        for node in ET.parse(listing).getroot().iter("profile"):
+            if node.findtext("name") == current:
+                directory = node.findtext("directory") or ""
+                if directory.startswith("special://masterprofile/"):
+                    directory = directory[len("special://masterprofile/") :]
+                return os.path.join(base, directory) if directory.strip("/") else base
+    return base
+
+
 def kofin(message, data=None):
     """Send a kofin IPC command with the running service's nonce."""
-    profile = rpc("Profiles.GetCurrentProfile")["label"]
-    base = _userdata()
-    if profile != "Master user":
-        base = os.path.join(base, "profiles", profile)
     with open(
-        os.path.join(base, "addon_data", "plugin.video.kofin", "ipc.nonce"),
+        os.path.join(_profile_dir(), "addon_data", "plugin.video.kofin", "ipc.nonce"),
         encoding="utf-8",
     ) as handle:
         nonce = handle.read().strip()
@@ -326,14 +342,6 @@ def kofin(message, data=None):
         "JSONRPC.NotifyAll",
         {"sender": "plugin.video.kofin", "message": message, "data": [payload]},
     )
-
-
-def _profile_dir():
-    profile = rpc("Profiles.GetCurrentProfile")["label"]
-    base = _userdata()
-    if profile != "Master user":
-        base = os.path.join(base, "profiles", profile)
-    return base
 
 
 def logfile():
@@ -468,16 +476,31 @@ def bounce(edits=()):
     begun stopping), apply library selection edits to the settings file, and
     enable it again. A settings file edited under a running service is not
     read, and an enable before the old script has gone starts nothing."""
-    start = log_lines()
-    rpc("Addons.SetAddonEnabled", {"addonid": "plugin.video.kofin", "enabled": False})
-    gone = wait_log("service.py)", 90, start)
-    selected = None
+    tree = node = None
     if edits:
+        # Read before kofin is disabled: a profile with no settings file
+        # fails here, with the add-on still running.
         path = os.path.join(
             _profile_dir(), "addon_data", "plugin.video.kofin", "settings.xml"
         )
         tree = ET.parse(path)
+    start = log_lines()
+    rpc("Addons.SetAddonEnabled", {"addonid": "plugin.video.kofin", "enabled": False})
+    gone = wait_log("service.py)", 90, start)
+    if edits and gone is None:
+        # Edited under a service that is still running, the file is not
+        # read and may be written over. Enabled again so that a restart of
+        # Kodi brings the add-on back; it starts nothing until then.
+        rpc(
+            "Addons.SetAddonEnabled", {"addonid": "plugin.video.kofin", "enabled": True}
+        )
+        raise SystemExit("kofin's service did not exit in 90 s; settings not edited")
+    selected = None
+    if edits:
         node = tree.getroot().find("./setting[@id='librarySelection']")
+        if node is None:
+            # A profile that has never chosen a library has no such setting.
+            node = ET.SubElement(tree.getroot(), "setting", {"id": "librarySelection"})
         ids = [i for i in (node.text or "").split(",") if i]
         for edit in edits:
             if edit[0] == "+" and edit[1:] not in ids:
