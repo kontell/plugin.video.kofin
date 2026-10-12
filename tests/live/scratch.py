@@ -250,12 +250,7 @@ def libraries():
 def rescan():
     data = state()
     api("POST", "/Library/Refresh")
-    for _ in range(60):
-        found = _counts(data)
-        if all(found.get(kind, 0) >= wanted for kind, wanted in EXPECTED.items()):
-            break
-        time.sleep(5)
-    print("scanned: %s" % json.dumps(found, sort_keys=True))
+    _await_scan(data)
 
 
 def _items(data, kinds, user=None, fields="Path"):
