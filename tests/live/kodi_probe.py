@@ -12,6 +12,9 @@ device's own ``guisettings.xml`` and never printed.
     kodi_probe.py coverage KIND             how many rows have which streams
     kodi_probe.py kofin MESSAGE [DATA_JSON] a kofin command, as its settings send it
     kodi_probe.py counts                    rows per library kind
+    kodi_probe.py bounce [+ID|-ID ...]      restart kofin's service, changing its
+                                            library selection while it is down
+    kodi_probe.py wait-log PATTERN [SECS] [FROM_LINE]   until the log has it
 
 ``KODI_USERDATA`` names the userdata directory when it is not one of the
 usual two (a Flatpak install, LibreELEC).
@@ -319,6 +322,71 @@ def kofin(message, data=None):
     )
 
 
+def _profile_dir():
+    profile = rpc("Profiles.GetCurrentProfile")["label"]
+    base = _userdata()
+    if profile != "Master user":
+        base = os.path.join(base, "profiles", profile)
+    return base
+
+
+def logfile():
+    return os.path.join(os.path.dirname(_userdata().rstrip("/")), "temp", "kodi.log")
+
+
+def log_lines():
+    with open(logfile(), "rb") as handle:
+        return sum(1 for _ in handle)
+
+
+def wait_log(pattern, seconds=120.0, start=0):
+    """Wait until a log line from ``start`` on contains ``pattern``; returns
+    the line, or None at the deadline."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        with open(logfile(), encoding="utf-8", errors="replace") as handle:
+            for number, line in enumerate(handle):
+                if number >= start and pattern in line:
+                    return line.rstrip("\n")
+        time.sleep(1)
+    return None
+
+
+def bounce(edits=()):
+    """Disable kofin, wait for its service script to have exited (not just
+    begun stopping), apply library selection edits to the settings file, and
+    enable it again. A settings file edited under a running service is not
+    read, and an enable before the old script has gone starts nothing."""
+    start = log_lines()
+    rpc("Addons.SetAddonEnabled", {"addonid": "plugin.video.kofin", "enabled": False})
+    gone = wait_log("service.py)", 90, start)
+    selected = None
+    if edits:
+        path = os.path.join(
+            _profile_dir(), "addon_data", "plugin.video.kofin", "settings.xml"
+        )
+        tree = ET.parse(path)
+        node = tree.getroot().find("./setting[@id='librarySelection']")
+        ids = [i for i in (node.text or "").split(",") if i]
+        for edit in edits:
+            if edit[0] == "+" and edit[1:] not in ids:
+                ids.append(edit[1:])
+            if edit[0] == "-" and edit[1:] in ids:
+                ids.remove(edit[1:])
+        node.text = ",".join(ids)
+        tree.write(path, encoding="utf-8", xml_declaration=True)
+        selected = len(ids)
+    mark = log_lines()
+    rpc("Addons.SetAddonEnabled", {"addonid": "plugin.video.kofin", "enabled": True})
+    started = wait_log("--->>> kofin service", 90, mark)
+    return {
+        "old_service_exited": bool(gone),
+        "selected": selected,
+        "started": (started or "")[-60:],
+        "log_line": mark,
+    }
+
+
 def counts():
     result = {}
     for name, method in (
@@ -356,6 +424,14 @@ def main(argv):
         result = kofin(argv[2], json.loads(argv[3]) if len(argv) > 3 else None)
     elif command == "counts":
         result = counts()
+    elif command == "bounce":
+        result = bounce(argv[2:])
+    elif command == "wait-log":
+        result = wait_log(
+            argv[2],
+            float(argv[3]) if len(argv) > 3 else 120.0,
+            int(argv[4]) if len(argv) > 4 else 0,
+        )
     else:
         raise SystemExit(__doc__)
     json.dump(result, sys.stdout, indent=1, sort_keys=True)
