@@ -645,7 +645,7 @@ class Library(threading.Thread):
                 items.append(item)
         invalidate = self._collection_changes(boxsets, complete)
         began = time.monotonic()
-        self.store.publish(
+        self.publish(
             items + boxsets,
             membership=membership,
             complete_libraries=committed,
@@ -742,7 +742,7 @@ class Library(threading.Thread):
                     continue
             wanted[record.id] = record
         items, membership = self._resolve(list(wanted), selected, supported, wanted)
-        self.store.publish(items, membership=membership, removed=removed)
+        self.publish(items, membership=membership, removed=removed)
         self.apply_userdata(change_set.userdata)
         if change_set.envelope.server_time:
             self.store.set_watermark(
@@ -783,7 +783,7 @@ class Library(threading.Thread):
                     [b["Id"] for b in changed if isinstance(b, dict) and b.get("Id")],
                 )
         invalidate = self._collection_changes(boxsets, False)
-        self.store.publish(items + boxsets, membership=membership)
+        self.publish(items + boxsets, membership=membership)
         self.store.invalidate(invalidate)
         self.store.set_watermark(watermark=changefeed.unix_to_watermark(started))
 
@@ -878,13 +878,14 @@ class Library(threading.Thread):
         during the song and counted again by Kodi at its end (one play, two
         counts, and the outbox then took Kodi's number to the server), and a
         watched episode being watched again lost its mark until it ended.
-        Kodi's player owns the row of what it plays. The entry is kept and
-        the one the server sends when the playback stops replaces it; one
-        that is never replaced is applied a while after the stop
-        (release_userdata).
+        Kodi's player owns the row of what it plays. That something came
+        for it is kept, and the entry the server sends when the playback
+        stops is applied in its place; when none comes, the server is asked
+        a while after the stop (release_userdata).
         """
         playing = self._playing()
         items = []
+        settled = []
         for entry in data:
             item_id = entry.get("ItemId") if isinstance(entry, dict) else entry
             if not item_id:
@@ -892,7 +893,7 @@ class Library(threading.Thread):
             if isinstance(entry, dict) and item_id == playing:
                 self._held_userdata[item_id] = (entry, None)
                 continue
-            self._held_userdata.pop(item_id, None)
+            settled.append(item_id)
             item = self.store.item(item_id)
             if item is None:
                 continue
@@ -900,10 +901,45 @@ class Library(threading.Thread):
             items.append(item)
         if items:
             self.store.publish(items)
+        # Only now. A release has no queue behind it: dropped before a
+        # publish that failed, its entry was gone for good.
+        for item_id in settled:
+            self._held_userdata.pop(item_id, None)
+
+    def publish(self, items, **placement):
+        """Publish full items as the server sent them, all but the user data
+        of the item this Kodi is playing, which is held like an entry sent
+        for it (apply_userdata) while the item keeps what the catalogue has.
+
+        A listing, a catch-up or a metadata change that arrives during a
+        play carries the server's count for the play in progress as surely
+        as a user data event does, and wrote it to the row Kodi's own player
+        was about to count.
+        """
+        playing = self._playing()
+        if playing:
+            for item in items:
+                if item.get("Id") != playing:
+                    continue
+                known = self.store.item(playing)
+                if known is not None and isinstance(item.get("UserData"), dict):
+                    self._held_userdata[playing] = (
+                        dict(item["UserData"], ItemId=playing),
+                        None,
+                    )
+                    item["UserData"] = known.get("UserData") or {}
+                break
+        self.store.publish(items, **placement)
 
     def release_userdata(self):
-        """Apply the user data held for an item once it has stopped and the
-        server has had time to send what the stop made of it."""
+        """Once an item has stopped and the server has had time to settle
+        the play, ask it what the play made of the item.
+
+        The last entry heard is not that. It may be a progress report, and
+        the entry the stop sent may never have arrived: applied as it stood,
+        the progress report of an episode being watched again took its
+        watched mark away after it had ended.
+        """
         if not self._held_userdata:
             return
         playing = self._playing()
@@ -915,10 +951,32 @@ class Library(threading.Thread):
             elif stopped is None:
                 self._held_userdata[item_id] = (entry, now)
             elif now - stopped >= HELD_USERDATA_GRACE:
-                due.append(entry)
-        if due:
-            # apply_userdata drops each from the held set as it applies it.
-            self.apply_userdata(due)
+                due.append(item_id)
+        if not due:
+            return
+        try:
+            page = self.api.items({"userId": self.api.user_id, "Ids": ",".join(due)})
+            rows = page.get("Items")
+            if not isinstance(rows, list):
+                raise ValueError("incomplete item fetch")
+        except Exception as error:
+            # Held, and asked again a grace period on: the server may stay
+            # away for as long as it likes, and this is no failure of a tick.
+            LOG.debug("user data of %d finished play(s) not read: %s", len(due), error)
+            for item_id in due:
+                self._held_userdata[item_id] = (self._held_userdata[item_id][0], now)
+            return
+        fresh = {
+            row["Id"]: dict(row.get("UserData") or {}, ItemId=row["Id"])
+            for row in rows
+            if isinstance(row, dict) and row.get("Id")
+        }
+        for item_id in due:
+            if item_id not in fresh:
+                # The server no longer lists it; its removal is another path's.
+                self._held_userdata.pop(item_id, None)
+        # apply_userdata drops each from the held set once it is published.
+        self.apply_userdata([fresh[item_id] for item_id in due if item_id in fresh])
 
     def update_selection_label(self):
         whitelist = private.get_sync()["Whitelist"]
@@ -1027,7 +1085,7 @@ class Library(threading.Thread):
                     known, selected, self._supported_views()
                 )
                 if items:
-                    self.store.publish(items, membership=membership)
+                    self.publish(items, membership=membership)
             return
         if command == "SyncLibrary":
             if not self.store.watermark()[1]:
@@ -1171,5 +1229,5 @@ class Library(threading.Thread):
             item = metadata.compact(self.api.item(item_id))
             attach_extras(self.api, [item])
             if self.store.entry(item_id) is not None:
-                self.store.publish([item])
+                self.publish([item])
             self.store.local_done(item_id, values)
