@@ -407,11 +407,18 @@ What remains is kofin's own:
   in-progress widget with shows after a cast change. A row's acknowledgement keeps a hash per
   part of the refresh token (`metadata.refresh_parts`, built from `refresh_fields`, the one
   dict the token hashes), so the log says which part moved.
-- **A library leaves with a clean or a scan of nowhere, never `UpdateLibrary(video)`**
+- **A library leaves with a scan of nowhere: never `UpdateLibrary(video)`, and never a clean**
   (`removal.py`, `native.library_event`). The builtin with no path lists every folder of the
-  libraries that stay, and a clean asked for while it runs is refused. Only the shows Kodi
-  could have merged with a leaving one are invalidated (`_merged_shows`), not every show.
-  The clear runs on a thread of its own for the bar's sake, and a stop waits for it.
+  libraries that stay. A clean is worse: its `directory` narrows only the files it tests, and
+  the stage after asks the add-on about **every bound folder of every library** and deletes
+  the path row of one that goes unanswered. With one reusable interpreter, a second plugin
+  request in the middle (kofin's own music removal, on the P1D) left one of 1,869 questions
+  unasked, and a movie of a library that stayed kept its row and left every listing. The
+  sets a removed library emptied go to the companion (`_release_sets`); without it they
+  stay, unlisted. `finish_sets` still cleans the root for a removed collection when there
+  is no companion, and has the same stage in it. Only the shows Kodi could have merged with
+  a leaving one are invalidated (`_merged_shows`), not every show, and the clear runs on a
+  thread of its own for the bar's sake, where a stop waits for it.
 - **A single-source item's streams are on the item, not on its source** (`metadata.compact`,
   `_stream_source`): read off the first source alone, every such row was filed with a stub
   video stream and no audio or subtitle. Streams have no setter, so `SCANNER_FORMAT` numbers
