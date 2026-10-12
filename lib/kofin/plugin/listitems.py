@@ -141,16 +141,22 @@ def person_thumb(server: str, person: JsonDict) -> str:
     cast, and only then, so a listing carrying fifty of these costs nothing
     until one is looked at. (The sync path pre-caches the same images for
     library rows — service/artcache.py — because there Kodi's own dialog
-    draws them all at once.) Capped and encoded like every other image: the
-    video scanner caches a row's actor thumbs at import
-    (``videolibrary.actorthumbs``, on by default), and a tablet decoded
-    3,615 full-size portraits beside 3,239 capped posters.
+    draws them all at once.) Capped and encoded: the video scanner caches
+    a row's actor thumbs at import (``videolibrary.actorthumbs``, on by
+    default), and a tablet decoded 3,615 full-size portraits beside 3,239
+    capped posters. The cap is its own (``person_query``): a portrait is
+    drawn as a thumb beside a name, never across a screen.
     """
     tag = person.get("PrimaryImageTag")
     person_id = person.get("Id")
     if not tag or not person_id:
         return ""
-    return "%s/Items/%s/Images/Primary?tag=%s%s" % (server, person_id, tag, art_query())
+    return "%s/Items/%s/Images/Primary?tag=%s%s" % (
+        server,
+        person_id,
+        tag,
+        person_query(),
+    )
 
 
 # The art query, memoised for a moment. Module state on purpose: a settings
@@ -159,8 +165,13 @@ def person_thumb(server: str, person: JsonDict) -> str:
 # item turned a 14 s listing of 1,788 movies into 80 s. Two seconds of
 # memory survives any restart (it is time, not a handle) and a settings
 # change shows within them.
-_ART_QUERY: Tuple[float, str] = (0.0, "")
+_ART_QUERY: Tuple[float, str, str] = (0.0, "", "")
 ART_QUERY_TTL = 2.0
+# The longest side of a person's portrait, the SQL build's figure
+# (sync/fields.py). Under the artwork cap alone a portrait came at up to
+# 1080 high, which for most is no cap at all: forty actors of one library
+# were 3.5 MB at that and 1.1 MB at this.
+PERSON_MAX = 400
 
 
 def art_query() -> str:
@@ -174,25 +185,34 @@ def art_query() -> str:
     JPEG at quality 90, which only changes bytes once a resize happens
     (``sync/fields.py`` has the measurement).
     """
+    return _queries()[0]
+
+
+def person_query() -> str:
+    """The cap and encoding for a person's portrait: ``PERSON_MAX`` on its
+    longest side, or the artwork cap where that is the smaller."""
+    return _queries()[1]
+
+
+def _queries() -> Tuple[str, str]:
     global _ART_QUERY
     now = time.monotonic()
-    stamp, cached = _ART_QUERY
+    stamp, art, person = _ART_QUERY
     if now - stamp < ART_QUERY_TTL:
-        return cached
+        return art, person
     maxheight = settings.get_int("maxArtResolution")
-    query = ""
-    if maxheight:
-        query = "&MaxHeight=%d" % maxheight
-        if settings.get_bool("compressArt"):
-            query += "&Quality=90"
-    _ART_QUERY = (now, query)
-    return query
+    quality = "&Quality=90" if settings.get_bool("compressArt") else ""
+    art = "&MaxHeight=%d%s" % (maxheight, quality) if maxheight else ""
+    side = min(maxheight, PERSON_MAX) if maxheight else PERSON_MAX
+    person = "&MaxHeight=%d&MaxWidth=%d%s" % (side, side, quality)
+    _ART_QUERY = (now, art, person)
+    return art, person
 
 
 def forget_art_query() -> None:
     """Drop the memo (tests, and anything that changes the settings itself)."""
     global _ART_QUERY
-    _ART_QUERY = (0.0, "")
+    _ART_QUERY = (0.0, "", "")
 
 
 def art_for(item: JsonDict, server: str) -> Dict[str, str]:
