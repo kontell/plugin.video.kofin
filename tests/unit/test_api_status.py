@@ -173,6 +173,60 @@ def test_the_last_complete_listing_is_dated(store, monkeypatch):
     assert "Last full update:  1970-01-02 00:00" in _rows(store)
 
 
+def test_a_document_of_another_shape_is_read_as_far_as_it_fits(store, monkeypatch):
+    """The dialog's process reads what another wrote. A truthy ``since``
+    that is not a number reached the clock and the report did not open."""
+    import json
+
+    _views(monkeypatch, [])
+    with open(status.path(), "w", encoding="utf-8") as handle:
+        json.dump(
+            {"state": "Updating library", "since": "unknown", "listing": "Movies"},
+            handle,
+        )
+    assert status.read() == {"state": "Updating library"}
+    assert _rows(store, status.read())[0] == "Sync status:  Updating library"
+
+    with open(status.path(), "w", encoding="utf-8") as handle:
+        json.dump({"state": 7, "since": True, "listing": ["Movies", 3]}, handle)
+    assert status.read() == {"listing": ["Movies"]}
+    assert _rows(store, status.read())[:2] == [
+        "Sync status:  Done",
+        "Movies:  Preparing...",
+    ]
+    # A number no calendar has is no date, and nothing raised.
+    assert _rows(store, {"state": "Updating library", "since": 1e300})[0] == (
+        "Sync status:  Updating library"
+    )
+
+
+def test_two_writers_do_not_share_a_temporary_file(store, monkeypatch):
+    """Two service generations overlap, each with a library thread. On one
+    ".part" path the first rename took the other writer's file, and that
+    writer's status was dropped."""
+    import os
+    import threading
+
+    opened = []
+    real_open = open
+
+    def spy(name, mode="r", **kwargs):
+        if "w" in mode:
+            opened.append(os.path.basename(name))
+        return real_open(name, mode, **kwargs)
+
+    monkeypatch.setattr("builtins.open", spy)
+    status.write("Updating library")
+    other = threading.Thread(target=status.write, args=("Removing library",))
+    other.start()
+    other.join()
+    assert len(opened) == 2 and opened[0] != opened[1]
+    assert all(name.endswith(".part") for name in opened)
+    assert status.read()["state"] == "Removing library"
+    assert os.listdir(os.path.dirname(status.path())).count("sync-status.json") == 1
+    assert not [n for n in os.listdir(os.path.dirname(status.path())) if ".part" in n]
+
+
 def test_a_status_that_cannot_be_written_fails_nothing(store, monkeypatch, tmp_path):
     blocked = tmp_path / "file"
     blocked.write_text("")

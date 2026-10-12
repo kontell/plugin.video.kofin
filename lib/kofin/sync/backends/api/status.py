@@ -16,6 +16,7 @@ which is when a sync runs.
 
 import json
 import os
+import threading
 import time
 from typing import Any, Dict, List, NamedTuple, Optional, Union
 
@@ -45,12 +46,27 @@ def path() -> str:
 
 
 def read() -> Dict[str, Any]:
+    """The document, as far as it has the shape ``write`` gives it. It is
+    read by another process than the one that wrote it, and a field of
+    another type (a hand edit, a later build's) is left out, not shown."""
     try:
         with open(path(), "r", encoding="utf-8") as handle:
             document = json.load(handle)
     except (OSError, ValueError):
         return {}
-    return document if isinstance(document, dict) else {}
+    if not isinstance(document, dict):
+        return {}
+    found: Dict[str, Any] = {}
+    state = document.get("state")
+    if isinstance(state, str):
+        found["state"] = state
+    since = document.get("since")
+    if isinstance(since, (int, float)) and not isinstance(since, bool):
+        found["since"] = float(since)
+    listing = document.get("listing")
+    if isinstance(listing, list):
+        found["listing"] = [name for name in listing if isinstance(name, str)]
+    return found
 
 
 def write(state: str, listing=()) -> None:
@@ -65,14 +81,23 @@ def write(state: str, listing=()) -> None:
     since = current.get("since") if same else None
     document = {"state": state, "since": since or time.time(), "listing": listing}
     target = path()
+    # A path of this thread's own. Two service generations run side by side
+    # for a moment, each with a library thread: on one shared ".part" the
+    # first to rename took the other's file with it, and the second write
+    # was lost.
+    part = "%s.%d.part" % (target, threading.get_ident())
     try:
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target + ".part", "w", encoding="utf-8") as handle:
+        with open(part, "w", encoding="utf-8") as handle:
             json.dump(document, handle)
-        os.replace(target + ".part", target)
+        os.replace(part, target)
     except OSError as error:
         # A status that cannot be written is never a reason to fail a sync.
         LOG.debug("sync status not written: %s", error)
+        try:
+            os.remove(part)
+        except OSError:
+            pass
 
 
 class LibraryStatus(NamedTuple):
@@ -147,9 +172,10 @@ def rows(
     decided here, where it can be tested without a dialog."""
     lines = []
     state = document.get("state") or text(20177)
-    if document.get("since"):
+    began = _moment(document.get("since") or 0, clock)
+    if began:
         # An update that began hours ago is one that stopped.
-        state = "%s (%s)" % (state, _moment(document["since"], clock))
+        state = "%s (%s)" % (state, began)
     lines.append("%s:  %s" % (text(30262), state))
     # A first listing: the server is still being asked what the library has.
     known = {library.name for library in found.libraries}
@@ -185,8 +211,9 @@ def rows(
         if found.error:
             line += " (%s)" % found.error[:120]
         lines.append(line)
-    if found.enumerated:
-        lines.append("%s:  %s" % (text(30865), _moment(found.enumerated, clock)))
+    enumerated = _moment(found.enumerated, clock)
+    if enumerated:
+        lines.append("%s:  %s" % (text(30865), enumerated))
     lines.append("%s:  %s" % (text(30866), companion or "—"))
     return [line.rstrip() for line in lines]
 
@@ -217,7 +244,14 @@ def show(store) -> None:
 
 
 def _moment(stamp: float, clock) -> str:
-    return time.strftime("%Y-%m-%d %H:%M", clock(stamp))
+    """A time as the dialog shows it; empty for none, and for a number no
+    calendar has (the clock raises for one far enough out)."""
+    if not stamp:
+        return ""
+    try:
+        return time.strftime("%Y-%m-%d %H:%M", clock(stamp))
+    except (OverflowError, OSError, ValueError):
+        return ""
 
 
 def _number(value: int) -> str:
