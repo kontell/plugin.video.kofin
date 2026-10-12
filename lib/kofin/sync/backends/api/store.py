@@ -129,7 +129,67 @@ class Store(Catalogue):
                 id INTEGER PRIMARY KEY CHECK(id=1), namespace TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS api_held(
                 setting TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS api_library(
+                namespace TEXT NOT NULL, library TEXT NOT NULL,
+                scanner INTEGER NOT NULL,
+                PRIMARY KEY(namespace,library));
         """)
+
+    # -- the scanner format a library's rows were filed under ----------------
+
+    def scanner_format(self, library) -> int:
+        """1 for a library with no record: its rows were filed before the
+        record existed (metadata.SCANNER_FORMAT)."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            row = db.cursor.execute(
+                "SELECT scanner FROM api_library WHERE namespace=? AND library=?",
+                (self.namespace, library),
+            ).fetchone()
+        return int(row[0]) if row else 1
+
+    def set_scanner_format(self, library, value):
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute(
+                "INSERT OR REPLACE INTO api_library VALUES (?,?,?)",
+                (self.namespace, library, int(value)),
+            )
+
+    def has_rows(self, library) -> bool:
+        """Whether any live item of the library has a native row."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            return bool(
+                db.cursor.execute(
+                    """SELECT 1 FROM api_native n JOIN api_entry e
+                    ON e.namespace=n.namespace AND e.item_id=n.item_id
+                    WHERE n.namespace=? AND n.kodi_id IS NOT NULL
+                    AND e.removed IS NULL AND e.library=? LIMIT 1""",
+                    (self.namespace, library),
+                ).fetchone()
+            )
+
+    def removing(self, libraries) -> bool:
+        """Whether a removal is still pending for an item last placed in
+        one of these libraries."""
+        libraries = list(libraries)
+        if not libraries:
+            return False
+        with Database() as db:
+            self._prepare(db.cursor)
+            return bool(
+                db.cursor.execute(
+                    """SELECT 1 FROM api_item i JOIN api_entry e
+                    ON e.namespace=i.namespace AND e.item_id=i.item_id
+                    WHERE i.namespace=? AND i.operation='remove'
+                    AND i.status='pending' AND e.library IN (%s)
+                    AND e.added=(SELECT MAX(added) FROM api_entry x
+                        WHERE x.namespace=e.namespace AND x.item_id=e.item_id)
+                    LIMIT 1""" % ",".join("?" * len(libraries)),
+                    [self.namespace] + libraries,
+                ).fetchone()
+            )
 
     # -- Kodi settings a scan owes back --------------------------------------
 

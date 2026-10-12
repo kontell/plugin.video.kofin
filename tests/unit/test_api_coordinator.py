@@ -533,3 +533,121 @@ def test_two_pages_need_no_second_client(monkeypatch):
     first, workers, factory, log = paged(monkeypatch, 20)
     assert len(fetch_kind(first, LIB, "Movie", api_factory=factory)) == 20
     assert not workers and log == [0, 10]
+
+
+def _whitelist(monkeypatch, *libraries):
+    from kofin.sync.backends.api import library
+
+    state = {"Whitelist": list(libraries)}
+    monkeypatch.setattr(library.private, "get_sync", lambda: state)
+    monkeypatch.setattr(
+        library.private,
+        "save_sync",
+        lambda new: state.update(Whitelist=list(new["Whitelist"])),
+    )
+    return state
+
+
+def _filed(store, monkeypatch, server, *libraries):
+    """Libraries enumerated and with a native row for every item, as a
+    profile an earlier build imported has them: no scanner format on record."""
+    from kofin.sync import private
+
+    w = worker(store, server, list(libraries), monkeypatch)
+    state = _whitelist(monkeypatch)
+    w.full_sync()
+    for number, (item_id, record) in enumerate(store.records(pinned=False).items()):
+        store.remember(item_id, record.generation, number + 1, {}, record.kind)
+    with private.Database() as db:
+        db.cursor.execute("DELETE FROM api_library")
+    w._full_due = w._repair = False
+    return w, state
+
+
+def _pending(store):
+    return {item_id: operation for item_id, _, operation, _ in store.pending_work()}
+
+
+def test_a_repair_rebuilds_a_video_library_filed_under_an_older_scanner_format(
+    store, monkeypatch
+):
+    """Streams have no setter, so a row filed without them gets them only by
+    being filed again, and nothing but the viewer's own repair may take a
+    library out of Kodi to do it."""
+    from kofin.sync.backends.api import metadata
+
+    server = Server({LIB: [movie(), movie("b")], LIB2: show_bundle()})
+    w, state = _filed(store, monkeypatch, server, LIB, LIB2)
+    assert store.scanner_format(LIB) == 1
+    enumerations = []
+    full_sync = w.full_sync
+    monkeypatch.setattr(w, "full_sync", lambda *a: enumerations.append(a))
+    monkeypatch.setattr(w, "catch_up", lambda: enumerations.append("catch-up"))
+
+    w.command("RepairLibrary", {"Id": LIB})
+    assert {i: e.library for i, e in store.tombstones().items()} == {"a": LIB, "b": LIB}
+    assert state["Whitelist"] == [LIB2]
+    assert w._rebuilding == {LIB} and w._full_due
+    # Its first pass only removes; the repair is the pass after the listing.
+    assert not w._repair
+    # Listed while its rows are still in Kodi, it would be compared with them.
+    w.refresh()
+    assert enumerations == []
+    store.forget_many([(i, store.state(i).desired) for i in ("a", "b")])
+    assert not store.has_rows(LIB)
+    w.refresh()
+    assert enumerations == [()] and not w._rebuilding
+
+    monkeypatch.setattr(w, "full_sync", full_sync)
+    w.full_sync()
+    assert sorted(state["Whitelist"]) == sorted([LIB, LIB2])
+    assert store.scanner_format(LIB) == metadata.SCANNER_FORMAT
+    pending = _pending(store)
+    assert pending["a"] == pending["b"] == "upsert"
+    # The shows were not picked and are as they were.
+    assert store.scanner_format(LIB2) == 1 and store.has_rows(LIB2)
+    # Once rebuilt, a repair of it is the comparison it always was.
+    w._full_due = w._repair = False
+    w.command("RepairLibrary", {"Id": LIB})
+    assert store.tombstones() == {} and w._repair and not w._rebuilding
+
+
+def test_a_repair_with_no_library_named_rebuilds_every_stale_video_library(
+    store, monkeypatch
+):
+    music = "c" * 32
+    server = Server(
+        {LIB: [movie()], LIB2: show_bundle(), music: []},
+        views=[
+            {"Id": LIB, "CollectionType": "movies", "Name": "Films"},
+            {"Id": LIB2, "CollectionType": "tvshows", "Name": "Shows"},
+            {"Id": music, "CollectionType": "music", "Name": "Music"},
+        ],
+    )
+    w, state = _filed(store, monkeypatch, server, LIB, LIB2, music)
+    w.command("RepairLibrary", {})
+    assert w._rebuilding == {LIB, LIB2}
+    # A music library has no such rows and stays where it is.
+    assert state["Whitelist"] == [music]
+
+
+def test_a_library_is_recorded_under_the_format_its_rows_are_filed_with(
+    store, monkeypatch
+):
+    from kofin.sync import private
+    from kofin.sync.backends.api import metadata
+
+    server = Server({LIB: [movie()], LIB2: show_bundle()})
+    w = worker(store, server, [LIB], monkeypatch)
+    state = _whitelist(monkeypatch)
+    w.full_sync()
+    assert store.scanner_format(LIB) == metadata.SCANNER_FORMAT
+    # Deselected and selected again before its rows had left: they are the
+    # rows of whatever build filed them, and the record must not say more.
+    record = store.records(pinned=False)["a"]
+    store.remember("a", record.generation, 1, {}, "Movie")
+    with private.Database() as db:
+        db.cursor.execute("DELETE FROM api_library")
+    state["Whitelist"] = []
+    w.full_sync()
+    assert state["Whitelist"] == [LIB] and store.scanner_format(LIB) == 1

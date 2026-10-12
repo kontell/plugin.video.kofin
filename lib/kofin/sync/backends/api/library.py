@@ -321,6 +321,9 @@ class Library(threading.Thread):
         # library the server no longer lists never reaches the whitelist and
         # must not be retried on every tick ahead of the catch-up.
         self._unsynced_tried: Set[str] = set()
+        # Libraries a repair is rebuilding: their rows are leaving Kodi, and
+        # nothing is enumerated until they have left (rebuild_stale, refresh).
+        self._rebuilding: Set[str] = set()
         self._playlists_due = False
         # When the idle binding backfill is next due: now, then never once
         # it succeeded, or a pause after a failure (apply).
@@ -449,6 +452,12 @@ class Library(threading.Thread):
             raise RuntimeError("API video commands remain pending")
 
     def refresh(self):
+        if self._rebuilding:
+            if self.store.removing(self._rebuilding):
+                # Listed again while its rows are still in Kodi, a library
+                # is only compared with them, and they are the old rows.
+                return
+            self._rebuilding.clear()
         watermark, enumerated = self.store.watermark()
         unsynced = sorted(
             set(settings.get_list("librarySelection"))
@@ -613,6 +622,10 @@ class Library(threading.Thread):
             state = private.get_sync()
             if library not in state["Whitelist"]:
                 state["Whitelist"].append(library)
+                if not self.store.has_rows(library):
+                    # Nothing of it is in Kodi yet, so every row it gets is
+                    # filed by this build's listing.
+                    self.store.set_scanner_format(library, metadata.SCANNER_FORMAT)
             private.save_sync(state)
             with private.Database() as db:
                 db.cursor.execute(
@@ -841,18 +854,65 @@ class Library(threading.Thread):
 
     # -- commands ----------------------------------------------------------------------
 
+    def drop_libraries(self, libraries):
+        """Tombstone every item of these libraries and take them off the
+        whitelist; the next pass removes their rows."""
+        for library in libraries:
+            self.store.publish([], library=library)
+            state = private.get_sync()
+            state["Whitelist"] = [i for i in state["Whitelist"] if i != library]
+            private.save_sync(state)
+        self.update_selection_label()
+        # The playlists of a side whose last library left are pruned
+        # by the next pass (backends/api/playlists.reconcile).
+        self._playlists_due = True
+
+    def rebuild_stale(self, picked):
+        """Remove the rows of every picked video library filed under an
+        older scanner format, so the enumeration that follows imports them
+        again; returns those libraries.
+
+        What the format numbers (metadata.SCANNER_FORMAT) has no setter, so
+        a row filed without it gets it only by being filed again, and a
+        refresh of one row is a plugin call of its own: 0.2 s on a desktop
+        and 3 to 10 s on a Raspberry Pi 3, hours for a library there, where
+        removing the rows and scanning the root is a first import. It is the
+        viewer's to ask for, never a pass's: the library is gone from Kodi
+        until the import has run. A music library has no such rows and is
+        repaired by comparison as before.
+        """
+        whitelist = private.get_sync()["Whitelist"]
+        with private.Database() as db:
+            media = dict(
+                db.cursor.execute("SELECT view_id, media_type FROM view").fetchall()
+            )
+        stale = [
+            library
+            for library in sorted(picked or whitelist)
+            if library in whitelist
+            and media.get(library) != "music"
+            and self.store.scanner_format(library) < metadata.SCANNER_FORMAT
+        ]
+        rebuild = [library for library in stale if self.store.has_rows(library)]
+        for library in stale:
+            if library not in rebuild:
+                # Nothing was ever filed for it; whatever comes is current.
+                self.store.set_scanner_format(library, metadata.SCANNER_FORMAT)
+        if rebuild:
+            LOG.info(
+                "repair: %d library(ies) filed before scanner format %d;"
+                " their rows are removed and imported again: %s",
+                len(rebuild),
+                metadata.SCANNER_FORMAT,
+                ", ".join(rebuild),
+            )
+            self.drop_libraries(rebuild)
+            self._rebuilding.update(rebuild)
+        return rebuild
+
     def command(self, command, data):
         if command == "RemoveLibrary":
-            for library in data.get("Id", "").split(","):
-                if library:
-                    self.store.publish([], library=library)
-                    state = private.get_sync()
-                    state["Whitelist"] = [i for i in state["Whitelist"] if i != library]
-                    private.save_sync(state)
-            self.update_selection_label()
-            # The playlists of a side whose last library left are pruned
-            # by the next pass (backends/api/playlists.reconcile).
-            self._playlists_due = True
+            self.drop_libraries([i for i in data.get("Id", "").split(",") if i])
             return
         if command == "removed":
             self.store.invalidate(self._removed_collection_members(data))
@@ -899,8 +959,15 @@ class Library(threading.Thread):
         if command == "FastSync":
             self._catchup_due = 0
             return
+        rebuilt = (
+            self.rebuild_stale([i for i in (data or {}).get("Id", "").split(",") if i])
+            if command == "RepairLibrary"
+            else []
+        )
         self._full_due = True
-        self._repair = self._repair or command == "RepairLibrary"
+        # A rebuild's first pass only removes; the pass after the complete
+        # enumeration that follows is the repair (full_sync).
+        self._repair = self._repair or (command == "RepairLibrary" and not rebuilt)
 
     # -- native application -----------------------------------------------------------
 

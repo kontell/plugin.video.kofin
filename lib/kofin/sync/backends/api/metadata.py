@@ -873,6 +873,15 @@ def _cast(tag, item, server):
         tag.setCast(actors)
 
 
+# What a scanner row carries that no setter can put there afterwards, as a
+# number: raised when the listing gains something the rows already filed
+# lack. Nothing is re-imported for it unasked; a library filed under an
+# older number is rebuilt when the viewer repairs it (library.Library
+# .rebuild_stale). 2: a single-source row's video, audio and subtitle
+# streams.
+SCANNER_FORMAT = 2
+
+
 def _stream_source(item):
     """The item as ``streams_and_runtime`` reads it. ``compact`` keeps a
     single source's streams on the item alone, and the shared reader looks
