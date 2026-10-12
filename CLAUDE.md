@@ -63,7 +63,7 @@ GitHub Actions mirrors the pvr.kofin split (quality gate vs tag release):
 
    v…
    ```
-   The top paragraph (up to the first blank line) becomes the release body.
+   The top paragraph (up to the first blank line) becomes the release body, and on this branch the workflow adds the link to the wiki's API sync variant page beneath it.
 3. Commit, merge to `main`, wait for CI green.
 4. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 5. Review the draft (`gh release view vX.Y.Z`), then **publish it yourself** —
