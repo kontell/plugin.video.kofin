@@ -72,7 +72,7 @@ class Monitor(xbmc.Monitor):
 class Native:
     SCAN_POLL = SCAN_POLL
 
-    def __init__(self, store: Store, abort=lambda: False):
+    def __init__(self, store: Store, abort=lambda: False, bar=None):
         self.store = store
         self.key = store.namespace
         self.abort = abort
@@ -81,7 +81,9 @@ class Native:
         self.readback = Readback(self.key)
         self._async_pending = False
         self.payloads = PayloadWindow(self.store)
-        self.progress = progress.Progress()
+        # The library thread's own bar when it made this pass (one bar from
+        # a viewer's request to the end of the work), else one of its own.
+        self.progress = bar if bar is not None else progress.Progress()
         self._server = ""
         # The pass's music work and what it reads once for it; a new one
         # for every pass (reconcile).
@@ -658,6 +660,9 @@ class Native:
 
     def reconcile(self, repair=False):
         """Replay durable operations; an accepted RPC is never a commit."""
+        # Until the first scan or the first row is counted, the pass waits
+        # for Kodi's scanners, reads the catalogue, removes, binds and plans.
+        self.progress.working(progress.PREPARING)
         self.setup()
         # A prior process may have died with its pin held, or left a scan
         # running that outlives it. Wait for Kodi to finish using it before
@@ -734,6 +739,8 @@ class Native:
                 errors,
                 kinds=[kind for kind in ORDER if kind not in applied],
             )
+            # Sets, bindings and the companion's requests: nothing counted.
+            self.progress.working(progress.WAITING)
             removal.finish_sets(self, pending, boxsets, errors)
             try:
                 self.bind_movie_folders()

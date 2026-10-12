@@ -15,11 +15,13 @@ with their songs, since Kodi's own cleanup drops their empty rows. Nothing is
 forgotten on the strength of an accepted call.
 """
 
+import threading
 import time
 from typing import Any, Dict, List, Set, Tuple
 
 from kofin.core.log import Logger
-from . import metadata, paths
+from kofin.sync import private
+from . import metadata, paths, progress
 from . import companion
 from .kinds import KINDS, rpc
 from .store import Entry
@@ -81,13 +83,88 @@ def _provider_ids(item) -> Set[Tuple[str, str]]:
     }
 
 
-def clear_library(native, library, kinds):
-    """One call removes every row Kodi filed under the library root."""
-    root = paths.library_root(native.key, library)
-    rpc(
-        "VideoLibrary.SetSourceContent",
-        {"path": root, "content": "none", "clearmode": "remove", "refresh": False},
+# The kinds whose rows Kodi's listings can count while a library is cleared.
+COUNTED = ("Movie", "Episode", "MusicVideo")
+# Seconds between reads of Kodi's row counts during a clear.
+CLEAR_POLL = 3.0
+
+
+def library_label(library) -> str:
+    """The library's name as the viewer selected it, or ''."""
+    try:
+        with private.Database() as db:
+            row = db.cursor.execute(
+                "SELECT view_name FROM view WHERE view_id=?", (library,)
+            ).fetchone()
+    except Exception:
+        return ""
+    return str(row[0]) if row and row[0] else ""
+
+
+def removing(library) -> str:
+    """The bar's text while a library leaves."""
+    name = library_label(library)
+    heading = progress.stage(progress.REMOVING)
+    return "%s: %s" % (heading, name) if name else heading
+
+
+def _rows(kinds) -> int:
+    return sum(
+        rpc(KINDS[kind].listing, {"limits": {"start": 0, "end": 1}})["limits"]["total"]
+        for kind in COUNTED
+        if kind in kinds
     )
+
+
+def clear_library(native, library, kinds, rows=0):
+    """One call removes every row Kodi filed under the library root.
+
+    The call returns when the last row is gone: three minutes for 1,787
+    movies on a desktop, a quarter of an hour on a Raspberry Pi 3, and
+    until this said so the screen showed nothing in that time. It is made
+    on a thread of its own, and this one reads how many of the library's
+    ``rows`` Kodi still lists and moves the bar.
+    """
+    root = paths.library_root(native.key, library)
+    heading = removing(library)
+    saved = native.progress.phase(rows, heading)
+    failure: List[BaseException] = []
+
+    def clear():
+        try:
+            rpc(
+                "VideoLibrary.SetSourceContent",
+                {
+                    "path": root,
+                    "content": "none",
+                    "clearmode": "remove",
+                    "refresh": False,
+                },
+            )
+        except BaseException as error:  # noqa: BLE001 - handed to the caller
+            failure.append(error)
+
+    try:
+        before = _rows(kinds) if rows else 0
+        worker = threading.Thread(target=clear, name="kofin-library-clear")
+        worker.daemon = True
+        worker.start()
+        while worker.is_alive():
+            if native.abort() or native.monitor.waitForAbort(CLEAR_POLL):
+                raise InterruptedError("native sync stopped")
+            if rows and worker.is_alive():
+                try:
+                    gone = before - _rows(kinds)
+                except Exception:
+                    continue  # a busy Kodi misses a reading, not the clear
+                native.progress.at(
+                    gone, "%s %d / %d" % (heading, max(0, min(gone, rows)), rows)
+                )
+        worker.join()
+    finally:
+        native.progress.restore(saved)
+    if failure:
+        raise failure[0]
     native.readback.clear()
     left = []
     if "Movie" in kinds:
@@ -124,7 +201,12 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
         kinds = {placement[i].kind for i in members}
         try:
             began = time.monotonic()
-            clear_library(native, library, kinds)
+            clear_library(
+                native,
+                library,
+                kinds,
+                rows=sum(1 for i in members if placement[i].kind in COUNTED),
+            )
             LOG.info(
                 "library %s: %d item(s) cleared from Kodi in %.1f s",
                 library,
@@ -295,6 +377,10 @@ def remove_music(native, pending, placement, removals, errors):
         try:
             if native.abort():
                 raise InterruptedError("native sync stopped")
+            if native.progress.attended:
+                # A viewer took a library out: the scans that empty its
+                # directories count nothing the bar could show.
+                native.progress.note(removing(library))
             native.music.scan(library, folders)
             if (library, "*") in native.music.rescanned:
                 survivors = native.readback.folders(library)

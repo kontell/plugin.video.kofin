@@ -65,6 +65,9 @@ PAGERS = 3
 # applied when the server has sent nothing newer. The server's own entry
 # for the stop arrives within a second or two and replaces the held one.
 HELD_USERDATA_GRACE = 20.0
+# What a viewer asks for by name: the bar is up from the request to the end
+# of the work (progress.Progress.attend).
+ATTENDED = ("SyncLibrary", "UpdateLibrary", "RepairLibrary", "RemoveLibrary")
 HAS_CONTENT = {
     "Movie": "Movies",
     "Series": "TVShows",
@@ -395,7 +398,7 @@ class Library(threading.Thread):
 
     def _run(self, monitor):
         self.store.initialize(self.api.server)
-        native = Native(self.store, self._stop_event.is_set)
+        native = Native(self.store, self._stop_event.is_set, bar=self._bar())
         native.setup()
         # A Kodi stopped mid-scan never gave back the setting the scan was
         # holding (Native.without_actor_thumbs); a pass would, but none may
@@ -439,6 +442,7 @@ class Library(threading.Thread):
                     status(settings.localized(30403))
                     self._catchup_due = min(self._catchup_due, time.monotonic() + 30)
                     failed = True
+            self.settle_progress(failed)
             if failed and self._stop_event.wait(5):
                 break
             if monitor.waitForAbort(0.5):
@@ -460,6 +464,22 @@ class Library(threading.Thread):
         if failed:
             raise RuntimeError("API video commands remain pending")
 
+    def settle_progress(self, failed=False):
+        """Take the bar down when what the viewer asked for is done: nothing
+        queued, nothing to list, nothing pending. A tick that failed takes
+        it down too; the retries that follow are not what was asked for
+        and may go on for as long as the server is away."""
+        bar = self._bar()
+        if not bar.attended:
+            return
+        if failed or not (
+            self._queue.qsize()
+            or self._full_due
+            or self._rebuilding
+            or self.store.has_pending()
+        ):
+            bar.finish()
+
     def refresh(self):
         if self._rebuilding:
             if self.store.removing(self._rebuilding):
@@ -477,6 +497,7 @@ class Library(threading.Thread):
             # Selected while no worker was running to hear the setting change.
             self._unsynced_tried.update(unsynced)
             self._catchup_due = time.monotonic() + 30
+            self._bar().attend()
             self.full_sync(unsynced)
             return
         if (
@@ -488,6 +509,9 @@ class Library(threading.Thread):
             # Advance before the call so failure gets a bounded retry rather
             # than keeping the already-expired deadline on every tick.
             self._catchup_due = time.monotonic() + 30
+            if not enumerated and settings.get_list("librarySelection"):
+                # The first listing of a profile is its first import.
+                self._bar().attend()
             self.full_sync()
             self._full_due = False
             self._catchup_due = time.monotonic() + CATCHUP_INTERVAL
@@ -538,6 +562,16 @@ class Library(threading.Thread):
 
     def full_sync(self, libraries=None):
         """Enumerate the selected libraries (or the named ones) completely."""
+        bar = self._bar()
+        try:
+            self._full_sync(libraries, bar)
+        finally:
+            bar.close()
+
+    def _full_sync(self, libraries, bar):
+        # Until the first page of the first kind arrives nothing is counted:
+        # the libraries are asked for, the server's clock is read.
+        bar.working(progress.PREPARING)
         selected = settings.get_list("librarySelection")
         supported = self._supported_views()
         targets = [
@@ -548,32 +582,29 @@ class Library(threading.Thread):
         complete = libraries is None
         started = self._server_now()
         fetched: Dict[str, List[dict]] = {}
-        bar = self._bar()
-        try:
-            for library in targets:
-                rows: List[dict] = []
-                for kind in collection_kinds(supported[library]):
-                    began = time.monotonic()
-                    found = fetch_kind(
-                        self.api,
-                        library,
-                        kind,
-                        self._stop_event.is_set,
-                        on_page=lambda done, total, kind=kind: bar.track(
-                            kind, done, total
-                        ),
-                        api_factory=getattr(self, "api_factory", None),
-                    )
-                    LOG.info(
-                        "enumerated %d %s in %.1f s",
-                        len(found),
-                        kind,
-                        time.monotonic() - began,
-                    )
-                    rows.extend(found)
-                fetched[library] = rows
-        finally:
-            bar.close()
+        for library in targets:
+            rows: List[dict] = []
+            for kind in collection_kinds(supported[library]):
+                began = time.monotonic()
+                found = fetch_kind(
+                    self.api,
+                    library,
+                    kind,
+                    self._stop_event.is_set,
+                    on_page=lambda done, total, kind=kind: bar.track(kind, done, total),
+                    api_factory=getattr(self, "api_factory", None),
+                )
+                LOG.info(
+                    "enumerated %d %s in %.1f s",
+                    len(found),
+                    kind,
+                    time.monotonic() - began,
+                )
+                rows.extend(found)
+            fetched[library] = rows
+        # The collections, the catalogue and the node tree follow, with
+        # nothing to count.
+        bar.working(progress.SAVING)
         movies_selected = any(
             "Movie" in collection_kinds(supported[library])
             for library in selected
@@ -963,6 +994,8 @@ class Library(threading.Thread):
         return rebuild
 
     def command(self, command, data):
+        if command in ATTENDED:
+            self._bar().attend()
         if command == "RemoveLibrary":
             self.drop_libraries([i for i in data.get("Id", "").split(",") if i])
             return
@@ -987,6 +1020,13 @@ class Library(threading.Thread):
                     self.store.publish(items, membership=membership)
             return
         if command == "SyncLibrary":
+            if not self.store.watermark()[1]:
+                # Nothing has ever been listed whole, so the refresh that
+                # follows in this tick lists every selected library, this
+                # one among them: listing it here as well made a first
+                # selection enumerate everything twice.
+                self._full_due = True
+                return
             self.full_sync([i for i in data.get("Id", "").split(",") if i])
             return
         if command == "SyncPlaylists":
@@ -1042,6 +1082,8 @@ class Library(threading.Thread):
                         self._reload_owed.add(kind)
             self._repair = False
             status(xbmc.getLocalizedString(20177))
+            # The playlists and the skin's reload follow, counting nothing.
+            self._bar().working(progress.WAITING)
             self.flush_pending_reload()
         elif time.monotonic() >= self._bindings_due:
             # Nothing pending, so no pass: the movie folders an older

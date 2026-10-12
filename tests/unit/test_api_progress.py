@@ -251,3 +251,109 @@ def test_a_music_walk_is_one_phase_of_the_bar_across_its_parts(
     assert counts == sorted(counts) and counts[-1] >= 4
     assert backend.progress.total == 100 and backend.progress.done == 0
     assert (LIB, "album-a") in backend.music.rescanned
+
+
+# -- what a viewer asked for ---------------------------------------------------
+
+
+@pytest.fixture
+def stages(monkeypatch):
+    monkeypatch.setattr(progress_module, "stage", lambda code: "stage %d" % code)
+
+
+def test_an_attended_bar_is_up_at_once_and_stays_until_the_work_is_finished(
+    bar, stages
+):
+    """A library selected, updated, repaired or taken out. The bar used to
+    be made by the first page of the first listing, only above the
+    threshold, and closed between the listing and the pass: seconds of
+    nothing after the request and again between the stages."""
+    SETTINGS["syncProgressThreshold"] = 100
+    bar_ = progress_module.Progress()
+    bar_.attend()
+    (dialog,) = bar.instances
+    assert dialog.events == [("create", "Kofin", "stage 314")]
+    # A listing of fewer items than the threshold is still shown.
+    bar_.track("Movie", 3, 5)
+    assert dialog.events[-1][:2] == ("update", 60)
+    # The end of the listing is not the end of the work.
+    bar_.close()
+    assert dialog.events[-1][0] == "update"
+    # A stretch that counts nothing says what it is and starts from nought.
+    bar_.working(progress_module.SAVING)
+    assert dialog.events[-1] == ("update", 0, "stage 33008")
+    bar_.begin(4)
+    bar_.step("Movie")
+    bar_.close()
+    assert ("close",) not in dialog.events
+    bar_.finish()
+    assert dialog.events[-1] == ("close",)
+    assert not bar_.attended and len(bar.instances) == 1
+    # Unattended again, the threshold decides as before.
+    bar_.begin(5)
+    assert len(bar.instances) == 1
+
+
+def test_one_bar_carries_a_request_from_the_listing_through_the_pass(
+    store, backend, kodi, bar, stages, monkeypatch
+):
+    from kofin.sync.backends.api import library
+    from tests.unit.apifixtures import Server, worker
+
+    SETTINGS["syncProgressThreshold"] = 100
+    server = Server({LIB: [movie(), movie("b")]})
+    w = worker(store, server, [LIB], monkeypatch)
+    # As the library thread makes its pass: with its own bar.
+    native = backend
+    native.progress = w._bar()
+    w.command("UpdateLibrary", {})
+    (dialog,) = bar.instances
+    assert dialog.events[0] == ("create", "Kofin", "stage 314")
+    w.refresh()
+    w.apply(native)
+    w.settle_progress()
+    assert len(bar.instances) == 1
+    messages = [e[2] for e in dialog.events if e[0] == "update"]
+    # Listed, saved, prepared, scanned, counted off, and only then closed.
+    assert "stage 33008" in messages
+    assert messages.index("stage 33008") < max(
+        i for i, m in enumerate(messages) if m == "stage 314"
+    )
+    assert any((m or "").endswith("2 / 2") for m in messages)
+    assert dialog.events[-1] == ("close",)
+    assert dialog.events.count(("close",)) == 1
+    assert library.ATTENDED
+
+
+def test_a_tick_that_failed_takes_the_bar_down(store, bar, stages, monkeypatch):
+    from tests.unit.apifixtures import Server, worker
+
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    w.command("UpdateLibrary", {})
+    (dialog,) = bar.instances
+    # Work is still owed, so the bar stays...
+    w.settle_progress()
+    assert dialog.events[-1] != ("close",)
+    # ...but not across the retries of a failure.
+    w.settle_progress(failed=True)
+    assert dialog.events[-1] == ("close",)
+
+
+def test_a_library_leaving_says_so_by_name(store, backend, kodi, bar, stages):
+    from kofin.sync import private
+
+    SETTINGS["syncProgressThreshold"] = 100
+    store.publish([movie(), movie("b")], library=LIB)
+    backend.reconcile()
+    with private.Database() as db:
+        db.cursor.execute(
+            "INSERT OR REPLACE INTO view VALUES (?,?,?)", (LIB, "Films", "movies")
+        )
+    Bar.instances = []
+    backend.progress.attend()
+    store.publish([], library=LIB)
+    backend.reconcile()
+    (dialog,) = bar.instances
+    messages = [e[2] for e in dialog.events if e[0] == "update"]
+    assert "stage 30408: Films" in messages
+    backend.progress.finish()

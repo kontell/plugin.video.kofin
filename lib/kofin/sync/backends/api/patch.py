@@ -246,6 +246,9 @@ class Applier:
                 continue
             began = time.monotonic()
             self._rpc_seconds = 0.0
+            # The kind's name before its first row is counted: the readback
+            # that comes first can take as long as the rows themselves.
+            self.native.progress.note(self.native.progress.counted(kind))
             if KINDS[kind].removal != "rescan":
                 # A scope mostly about to be compared is read in full once.
                 per_scope: Dict[Tuple[str, str], int] = {}

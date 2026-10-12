@@ -130,10 +130,31 @@ def test_enumeration_publishes_nothing_when_the_selection_emptied(store, monkeyp
 def test_sync_library_enumerates_only_the_named_library(store, monkeypatch):
     server = Server({LIB: [movie()], LIB2: show_bundle()})
     w = worker(store, server, [LIB, LIB2], monkeypatch)
+    store.set_watermark(watermark="2026-10-08T00:00:00Z", enumerated=time.time())
     w.command("SyncLibrary", {"Id": LIB})
     assert set(store.records(pinned=False)) == {"a"}
-    assert not w._repair
-    assert store.watermark() == ("", 0.0)
+    assert not w._repair and not w._full_due
+
+
+def test_a_first_selection_is_listed_once(store, monkeypatch):
+    """Nothing has been listed whole on a new profile, so the refresh that
+    follows the command in the same tick lists every selected library. The
+    command listed its library first as well: a first selection enumerated
+    everything twice, a minute of it on a small device."""
+    server = Server({LIB: [movie()], LIB2: show_bundle()})
+    w = worker(store, server, [LIB, LIB2], monkeypatch)
+    listings = []
+    items = server.items
+    server.items = lambda params: listings.append(params.get("ParentId")) or items(
+        params
+    )
+    w.command("SyncLibrary", {"Id": LIB})
+    assert listings == [] and w._full_due
+    w.refresh()
+    assert set(store.records(pinned=False)) >= {"a", SHOW}
+    # Each library was asked for once per kind, and the profile is listed.
+    assert listings.count(LIB) == 1
+    assert store.watermark()[1]
 
 
 def test_catch_up_applies_feed_records_and_advances_the_watermark(store, monkeypatch):
@@ -254,7 +275,7 @@ def test_failed_event_or_local_delivery_cannot_starve_enumeration(store, monkeyp
     monkeypatch.setattr(library.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(library.time, "time", lambda: 10**6)
     monkeypatch.setattr(
-        library, "Native", lambda *args: SimpleNamespace(setup=lambda: None)
+        library, "Native", lambda *args, **kwargs: SimpleNamespace(setup=lambda: None)
     )
     monkeypatch.setattr(w, "apply", lambda native: None)
     monkeypatch.setattr(library, "status", lambda value: None)

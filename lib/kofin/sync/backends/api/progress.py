@@ -7,6 +7,14 @@ most once a second and never per item: ``DialogProgressBG.update`` waits on
 Kodi's app thread, and a pass that painted from every write froze the GUI
 (``kodi-performance``). Kodi's own scanning dialog is shown beside it by
 passing ``showdialogs`` to the scan calls, which this module also decides.
+
+What a viewer asked for -- a library selected, updated, repaired or taken
+out -- is *attended*: the bar is up from the request to the end of the work,
+whatever the threshold, and every stretch that counts nothing says what it
+is doing. Unattended, the bar was made by the first page of the first
+listing and closed between the listing and the pass, so a selection was
+followed by seconds of nothing, the pass by more, and a removal by nothing
+at all for as long as it took.
 """
 
 import time
@@ -34,6 +42,18 @@ KIND_LABELS = {
 }
 CONTENT_LABELS = {"movies": 20342, "tvshows": 20343, "musicvideos": 20389, "music": 134}
 SCANNING = 189  # "Scanning media information"
+PREPARING = 314  # "Preparing..."
+SAVING = 33008  # "Saving"
+WAITING = 20186  # "Please wait"
+REMOVING = 30408  # kofin's own: "Removing library"
+
+
+def stage(code: int) -> str:
+    """The text of a stage that counts nothing: one of kofin's own strings
+    (30000 to 30999) or one of Kodi's."""
+    if 30000 <= code < 31000:
+        return str(settings.localized(code))
+    return str(xbmc.getLocalizedString(code))
 
 
 def label(kind_or_content: str) -> str:
@@ -72,10 +92,21 @@ class Progress:
         self._last = 0.0
         self.total = 0
         self.done = 0
+        self.attended = False
 
     @property
     def open(self) -> bool:
         return self._dialog is not None
+
+    def attend(self):
+        """A viewer asked for what follows: the bar is up from now, whatever
+        the threshold, and stays up until ``finish``."""
+        self.attended = True
+        self.total = self.done = 0
+        if self._dialog is None:
+            self._open(stage(PREPARING))
+        else:
+            self.note(stage(PREPARING))
 
     def begin(self, total: int):
         """Size the bar; open it when the setting and the threshold allow."""
@@ -83,16 +114,24 @@ class Progress:
         self.done = 0
         if self._dialog is not None:
             return
-        if not show_dialogs() or self.total <= threshold():
+        if not self.attended and self.total <= threshold():
+            return
+        self._open(settings.localized(30401))
+
+    def _open(self, message: str):
+        if not show_dialogs():
             return
         try:
             dialog = xbmcgui.DialogProgressBG()
-            dialog.create("Kofin", settings.localized(30401))
+            dialog.create("Kofin", message)
         except Exception as error:
             LOG.debug("progress bar unavailable: %s", error)
             return
         self._dialog = dialog
         self._last = 0.0
+        # What the bar showed and when, for a report that nothing seemed to
+        # be happening: at debug level, once a second at most.
+        LOG.debug("bar up: %s", message)
 
     def step(self, kind: str, n: int = 1):
         """One more item of ``kind`` done."""
@@ -110,6 +149,12 @@ class Progress:
     def note(self, message: str):
         """A phase change: painted now, whatever the last paint was."""
         self._paint(message, True)
+
+    def working(self, code: int = PREPARING):
+        """A stretch that counts nothing: the bar says so and goes back to
+        its start, in place of the last count of what came before."""
+        self.total = self.done = 0
+        self._paint(stage(code), True)
 
     def phase(self, total: int, message: str):
         """A sub-phase with its own count, painted now; ``restore`` undoes it."""
@@ -144,8 +189,22 @@ class Progress:
             self._dialog.update(percent, message=message)
         except Exception as error:
             LOG.debug("progress bar update failed: %s", error)
+        else:
+            LOG.debug("bar: %d %% %s", percent, message)
 
     def close(self):
+        """The end of one stretch of work. An attended bar stays up: more of
+        what the viewer asked for follows, and ``finish`` takes it down."""
+        if self.attended:
+            return
+        self._shut()
+
+    def finish(self):
+        """The end of what the viewer asked for."""
+        self.attended = False
+        self._shut()
+
+    def _shut(self):
         if self._dialog is None:
             return
         try:
@@ -153,3 +212,4 @@ class Progress:
         except Exception as error:
             LOG.debug("progress bar close failed: %s", error)
         self._dialog = None
+        LOG.debug("bar down")

@@ -18,6 +18,8 @@ device's own ``guisettings.xml`` and never printed.
     kodi_probe.py log-lines                 how many lines the log has now
     kodi_probe.py watch-total METHOD SECS   a listing's total, each time it changes
     kodi_probe.py widgets FROM_LINE         home widget re-fetches logged since a line
+    kodi_probe.py bar FROM_LINE             kofin's bar since a line: what it showed
+                                            and the longest it showed nothing new
     kodi_probe.py log-since LINE REGEX      matching log lines from LINE on
     kodi_probe.py wait-idle [SECS]          until nothing is playing
     kodi_probe.py play ITEM_JSON [STOP_AFTER_S] [NEXT_AFTER_S] [SEEK_PERCENT]
@@ -416,6 +418,57 @@ def widgets(start):
     }
 
 
+def _clock(line):
+    hours, minutes, seconds = line[11:23].split(":")
+    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+
+
+def bar(start):
+    """kofin's progress bar from a log line on (debug logging): every text
+    it showed with its time, how long it was down between being up, and the
+    longest stretch in which what it showed did not change."""
+    events = []
+    for line in log_since(start, r"kofin\.sync\.backends\.api\.progress: bar"):
+        text = line.split("progress: ", 1)[1]
+        events.append((_clock(line), line[11:19], text))
+    shown = []
+    gaps = []
+    down_since = None
+    last_change = None
+    last_text = None
+    longest_same = (0.0, "", "")
+    for at, clock, text in events:
+        if text.startswith("bar down"):
+            down_since = at
+            last_text = None
+            continue
+        if down_since is not None:
+            gaps.append({"down_s": round(at - down_since, 1), "until": clock})
+            down_since = None
+        if text != last_text:
+            if last_change is not None and at - last_change[0] > longest_same[0]:
+                longest_same = (
+                    round(at - last_change[0], 1),
+                    last_change[1],
+                    last_change[2],
+                )
+            last_change = (at, clock, text)
+            last_text = text
+            shown.append(
+                "%s %s" % (clock, text.replace("bar: ", "").replace("bar up: ", "UP "))
+            )
+    return {
+        "paints": len(events),
+        "texts": shown,
+        "down_between": gaps,
+        "longest_unchanged": {
+            "seconds": longest_same[0],
+            "from": longest_same[1],
+            "text": longest_same[2],
+        },
+    }
+
+
 def wait_idle(seconds=300.0):
     """Wait until no player is active; returns how long that took."""
     began = time.monotonic()
@@ -587,6 +640,8 @@ def main(argv):
         result = log_lines()
     elif command == "watch-total":
         result = watch_total(argv[2], float(argv[3]))
+    elif command == "bar":
+        result = bar(int(argv[2]))
     elif command == "widgets":
         result = widgets(int(argv[2]))
     elif command == "log-since":
