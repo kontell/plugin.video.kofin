@@ -1,3 +1,8 @@
+v0.29.2
+- SyncPlay no longer restarts an item a member stopped or played to the end
+- Kodi no longer crashes when Home is visited often during a large sync
+- A long sync no longer slows other add-ons
+
 v0.29.1
 - A sync no longer stalls when new content arrives during a large metadata update
 - Clean databases no longer makes Kodi ask to rescan music tags on every visit
