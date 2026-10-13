@@ -213,12 +213,24 @@ class NativeApi:
     def _replan(self, row: Any) -> None:
         """Have the pass build the row again with its download state: the
         badge on a movie or an episode, the tag on a movie or on the show
-        an episode belongs to."""
+        an episode belongs to, and the badge on that show and on the season
+        the episode is in. Every season of the show is handed over: which
+        of them holds a download is the pass's to say, by the episodes'
+        numbers, and a show's seasons are few."""
         items: List[str] = [row.jellyfin_id]
-        if row.media_type == "episode" and row.series_id:
-            items.append(row.series_id)
         try:
-            self._store().invalidate(items)
+            store = self._store()
+            if row.media_type == "episode" and row.series_id:
+                items.append(row.series_id)
+                items.extend(
+                    store.records(
+                        kind="Season",
+                        parent_id=row.series_id,
+                        pinned=False,
+                        payloads=False,
+                    )
+                )
+            store.invalidate(items)
         except Exception:
             LOG.exception(
                 "download state of %s not handed to the pass", row.jellyfin_id

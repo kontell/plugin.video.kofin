@@ -1020,7 +1020,8 @@ def _streams(tag, item):
 # payload and inputs come to a different desired state, so that an
 # acknowledgement made under the old one is compared again and not taken
 # on trust (inputs_token). 2: an episode's art without its show's poster.
-SERIALIZER = 2
+# 3: the download badge on the show and the season of a downloaded episode.
+SERIALIZER = 3
 
 
 def inputs_token(

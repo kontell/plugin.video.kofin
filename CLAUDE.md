@@ -535,8 +535,17 @@ What remains is kofin's own:
   native database imports are deferred to the SQL refresh functions, and `apply_one` and
   `reconcile` take a `resolver`; the API one (`backends/api/playlists.py`) gives a line for an
   item the pass has acknowledged, the resolver URL Kodi filed the row under, and the label
-  from the server's listing. Widget refresh is Kodi's own: every setter announces, the music
-  hold hides a pass's, and the first-content reload is the one builtin the pass fires.
+  from the server's listing. Widget refresh is Kodi's own where Kodi announces: a setter that
+  moves a play count, a last played or a resume point does, the music hold hides a pass's,
+  and the first-content reload is the one builtin the pass fires. **A setter that changes
+  only art or tags announces nothing** (22.0b2: `SetMovieDetails` writes through
+  `UpdateDetailsForMovie` and `RemoveArtForItem`, and neither reaches `AnnounceUpdate`; the
+  notification socket stayed silent on the P1D while an art key and a tag were added and
+  taken off), and a home widget reloads on an announcement alone. So a pass that put a
+  download's badge on a row or took it off ends with one scan of nowhere
+  (`Native.announce_writes`, `Applier.badges_moved`): after its last setter, through `scan`
+  so that a running scan is waited for and not stopped, and without Kodi's dialog. Other
+  art-only patches still reach no widget until something else announces.
   **`libraryNodes` is the API build's one switch for all of it** (`dynamic.wanted`): off takes
   down the tree, the smart playlists and both `Kofin/` playlist folders, and publishes a
   synced video library as a browse entry (a synced music library keeps Kodi's music root,
@@ -560,11 +569,17 @@ What remains is kofin's own:
   manager's view of the library per build: the SQL port is the relocation and the stamps; the
   API port leaves the row's plugin URL alone (the resolver plays the local file however the
   item is reached), hands the badge and the "Kofin Downloads" tag to the pass by invalidating
-  the item and its show (`backends/api/downloaded.py`, the download state is an input of the
-  desired state and joins `inputs_token`), reads Kodi's play state back by the mapped id, and
-  leaves the local watched mark of a vanished download to the server round-trip that already
-  follows it, since a setter would start the userdata echo cycle. The badge key is
-  `kofindownloaded`: a dotted art key is accepted by the setter and never stored. The
+  the item, its show and the show's seasons (`backends/api/downloaded.py`, the download state
+  is an input of the desired state and joins `inputs_token`), reads Kodi's play state back by
+  the mapped id, and leaves the local watched mark of a vanished download to the server
+  round-trip that already follows it, since a setter would start the userdata echo cycle. The
+  badge is on the movie or the episode and, as in the SQL build, on the episode's season and
+  show; the season is the one of the episode's number (`Applier.downloaded_seasons`). The
+  badge key is `kofindownloaded`: Kodi's `SetArtForItem` refuses an art type with a dot in it
+  (they are the types derived from a parent, `tvshow.poster`), so the setter accepts
+  `kofin.downloaded` and stores nothing. A skin therefore tests both keys, the SQL build's
+  `ListItem.Art(kofin.downloaded)` and this one, or it shows no badge on one of the builds
+  (skin.contuary read the first alone). The
   Downloaded-episodes node filters on a moved path and stays the SQL build's. The port's
   operations are `attached` (the file landed, or is still there at startup: SQL repoints and
   stamps and says whether the row moved; API hands the item to the pass and always says yes,

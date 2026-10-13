@@ -175,7 +175,11 @@ class Applier:
         # Downloaded items and the shows with a downloaded episode: their
         # rows carry the badge and the tag (downloaded.py), read once a pass.
         self.downloaded: Set[str] = set()
-        self.downloaded_series: Set[str] = set()
+        self.downloaded_series: Dict[str, Set[str]] = {}
+        self._downloaded_seasons: Dict[str, Set[int]] = {}
+        # Whether a patch of this pass puts a download's badge on a row or
+        # takes it off: Kodi announces neither (Native.announce_writes).
+        self.badges_moved = False
 
     # -- batches -------------------------------------------------------------
 
@@ -232,6 +236,7 @@ class Applier:
     ):
         """Plan and patch the pass's records of ``kinds``, in that order."""
         self.downloaded, self.downloaded_series = downloaded.marks()
+        self._downloaded_seasons = {}
         self.collections = collections
         self.movies = movies
         self.local = {item_id for item_id, _ in self.store.local_pending()}
@@ -471,7 +476,11 @@ class Applier:
         )
         set_name = self.collections.get(record.item_id, "") if kind == "Movie" else None
         mark = downloaded.flag(
-            kind, record.item_id, self.downloaded, self.downloaded_series
+            kind,
+            record.item_id,
+            self.downloaded,
+            self.downloaded_series,
+            season=kind == "Season" and self.season_is_downloaded(record),
         )
         mapping = self.mapping(record.item_id)
         previous = mapping.applied if mapping else {}
@@ -537,9 +546,7 @@ class Applier:
             seasons,
             set_name,
         )
-        downloaded.apply(
-            kind, record.item_id, desired, self.downloaded, self.downloaded_series
-        )
+        downloaded.apply(kind, desired, mark)
         parts = metadata.refresh_parts(record.item, seasons) if kind in FILED else {}
         if kind in FILED:
             token = desired["uniqueid"]["kofinrefresh"]
@@ -594,6 +601,8 @@ class Applier:
         ):
             self.ack(record.item_id, record.generation, kodi_id, applied, kind)
             return None
+        if (downloaded.BADGE_ART in (row.get("art") or {})) != bool(mark):
+            self.badges_moved = True
         return Patch(record, kodi_id, desired, compare, applied)
 
     def plan_music(self, record: Record, row, repair) -> Optional[Patch]:
@@ -657,6 +666,26 @@ class Applier:
             self.ack(record.item_id, record.generation, kodi_id, applied, kind)
             return None
         return Patch(record, kodi_id, desired, compare, applied)
+
+    def season_is_downloaded(self, season: Record) -> bool:
+        number = season.item.get("IndexNumber")
+        if number is None or season.parent_id not in self.downloaded_series:
+            return False
+        return int(number) in self.downloaded_seasons(season.parent_id)
+
+    def downloaded_seasons(self, series_id: str) -> Set[int]:
+        """The season numbers of a show that hold a downloaded episode, read
+        once a show: the payloads of its downloaded episodes, which are few,
+        and only for a show that has any."""
+        if series_id not in self._downloaded_seasons:
+            found: Set[int] = set()
+            episodes = sorted(self.downloaded_series.get(series_id) or ())
+            for item in self.store.payloads(episodes).values():
+                numbers = metadata.episode_numbers(item)
+                if numbers is not None:
+                    found.add(numbers["season"])
+            self._downloaded_seasons[series_id] = found
+        return self._downloaded_seasons[series_id]
 
     def season_has_episodes(self, season: Record) -> bool:
         number = season.item.get("IndexNumber")
