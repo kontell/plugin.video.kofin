@@ -5,7 +5,7 @@ import pytest
 
 from kofin.downloads import TAG, nativeport, store as downloads
 from kofin.downloads.store import Download
-from kofin.sync.backends.api import downloaded, identity
+from kofin.sync.backends.api import downloaded, identity, native
 from tests.unit.apifixtures import (  # noqa: F401
     LIB,
     backend,
@@ -194,6 +194,71 @@ def test_a_show_acknowledged_before_it_carried_a_badge_is_built_again(
     nativeport.NativeApi().attached(row, "/dl")
     backend.reconcile()
     assert badged(kodi)["Series"] == [SHOW]
+
+
+def scans(kodi):
+    return [p["directory"] for p in methods(kodi, "VideoLibrary.Scan")]
+
+
+def test_a_badge_that_moved_ends_the_pass_with_one_library_event(store, backend, kodi):
+    """Kodi announces nothing for a setter that changes only art or tags,
+    and a home widget reloads on an announcement alone: the badge was on the
+    row and on no widget. One scan of a directory that is not there, after
+    the last setter, however many rows the download marked."""
+    from tests.unit.apifixtures import show_bundle
+
+    backend.setup()
+    store.publish(show_bundle(episodes=2) + [movie()], library=LIB)
+    backend.reconcile()
+    kodi.calls.clear()
+    # A patch that moves no badge is not announced for.
+    store.publish([movie(Overview="Edited")])
+    backend.reconcile()
+    assert len(methods(kodi, "VideoLibrary.SetMovieDetails")) == 1
+    assert scans(kodi) == []
+    # The episode, its season and its show: three setters, one event, and
+    # the event after the last of them.
+    row = downloaded_episode()
+    port = nativeport.NativeApi()
+    port.attached(row, "/dl")
+    kodi.calls.clear()
+    backend.reconcile()
+    called = [method for method, _ in kodi.calls]
+    setters = [i for i, m in enumerate(called) if m.endswith("Details") and ".Set" in m]
+    assert len(setters) == 3
+    assert scans(kodi) == [native.NOWHERE]
+    assert called.index("VideoLibrary.Scan") > max(setters)
+    assert methods(kodi, "VideoLibrary.Scan")[0]["showdialogs"] is False
+    # A pass that finds the badges where it left them announces nothing.
+    kodi.calls.clear()
+    port.attached(row, "/dl")
+    backend.reconcile()
+    assert scans(kodi) == []
+    # Taken off again: one event more.
+    downloads.remove("ea11")
+    port.detached(row)
+    backend.reconcile()
+    assert scans(kodi) == [native.NOWHERE]
+    assert not store.pending()
+
+
+def test_a_library_event_kodi_never_ends_does_not_fail_the_pass(
+    store, backend, kodi, monkeypatch
+):
+    backend.setup()
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    row = downloaded_movie()
+    nativeport.NativeApi().attached(row, "/dl")
+
+    def never(*_args, **_kwargs):
+        raise TimeoutError("no announcement")
+
+    monkeypatch.setattr(backend, "announce_writes", never)
+    backend.reconcile()
+    assert not store.pending()
+    (kodi_row,) = kodi.rows["Movie"].values()
+    assert kodi_row["art"][downloaded.BADGE_ART] == downloaded.BADGE_URL
 
 
 def test_the_play_state_is_read_back_by_the_mapped_id(store, backend, kodi):

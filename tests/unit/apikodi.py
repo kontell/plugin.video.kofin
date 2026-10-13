@@ -176,6 +176,7 @@ class Kodi:
         if directory == native.NOWHERE:
             # A directory that is not there: nothing is walked, and the scan
             # ends with the announcement all the same.
+            self.monitor.finished += 1
             return
         self.scan_actor_thumbs.append(self.settings.get("videolibrary.actorthumbs"))
         location = paths.parse(directory)

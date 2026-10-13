@@ -321,6 +321,25 @@ class Native:
             return
         rpc("VideoLibrary.Scan", {"directory": NOWHERE, "showdialogs": False})
 
+    def announce_writes(self):
+        """``library_event`` for what a pass wrote, at its end.
+
+        A setter that changes only art or tags announces nothing: on 22.0b2
+        VideoLibrary.SetMovieDetails writes through UpdateDetailsForMovie
+        and RemoveArtForItem, neither of which reaches AnnounceUpdate, and
+        the notification socket stayed silent while an art key and a tag
+        were added and taken off. A home widget reloads on an announcement
+        and on nothing else, so a download's badge reached none of them. The
+        SQL build's refresh after a download is UpdateLibrary(video), which
+        walks nothing there and ends with the same announcement as this.
+
+        Issued through ``scan``, which waits for a running scan instead of
+        stopping it, and waited for: the pass lets go of its snapshot only
+        when Kodi is idle. Never with Kodi's dialog, which would come up
+        for a scan of nothing.
+        """
+        self.scan([NOWHERE], dialogs=False)
+
     def unbind_show(self, library, series_id):
         self.unbind_folder(paths.show_dir(self.key, library, series_id))
 
@@ -409,6 +428,7 @@ class Native:
         expected=None,
         prepare=None,
         on_poll=None,
+        dialogs=None,
     ):
         """Scan each directory in turn and wait for the scanner to go idle.
 
@@ -441,8 +461,11 @@ class Native:
         # scanner starts its MusicFileCounter thread, which lists every
         # directory a second time, concurrently, to size the bar
         # (MusicInfoScanner.cpp; two root listings of 62 s each on the
-        # LibreELEC box). The video scanner has no such thread.
-        dialogs = progress.show_dialogs() and scanner != "music"
+        # LibreELEC box). The video scanner has no such thread. ``dialogs``
+        # is the caller's word against the setting's (announce_writes).
+        if dialogs is None:
+            dialogs = progress.show_dialogs()
+        dialogs = dialogs and scanner != "music"
         expected = expected or {}
         for directory in directories:
             self.wait(lambda: self._idle(scanner), busy=lambda: self._scanning(scanner))
@@ -769,6 +792,14 @@ class Native:
             # acknowledgement of this pass is in the store before either.
             # Applier.run leaves none queued; this is that, said here.
             applier.commit()
+            if applier.badges_moved:
+                # After every setter of the pass, and once for all of them.
+                try:
+                    self.announce_writes()
+                except InterruptedError:
+                    raise
+                except Exception:
+                    LOG.exception("home widgets not told of a download's badge")
             try:
                 # What this pass could not do and the companion add-on can:
                 # published for it, confirmed by the next readback.

@@ -177,6 +177,9 @@ class Applier:
         self.downloaded: Set[str] = set()
         self.downloaded_series: Dict[str, Set[str]] = {}
         self._downloaded_seasons: Dict[str, Set[int]] = {}
+        # Whether a patch of this pass puts a download's badge on a row or
+        # takes it off: Kodi announces neither (Native.announce_writes).
+        self.badges_moved = False
 
     # -- batches -------------------------------------------------------------
 
@@ -598,6 +601,8 @@ class Applier:
         ):
             self.ack(record.item_id, record.generation, kodi_id, applied, kind)
             return None
+        if (downloaded.BADGE_ART in (row.get("art") or {})) != bool(mark):
+            self.badges_moved = True
         return Patch(record, kodi_id, desired, compare, applied)
 
     def plan_music(self, record: Record, row, repair) -> Optional[Patch]:
