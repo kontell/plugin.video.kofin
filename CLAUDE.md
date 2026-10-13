@@ -609,6 +609,10 @@ What remains is kofin's own:
   id, before the first sync as after it. What such a library can still share with ours goes
   by name: a set of the same title takes our art and plot and holds a collection's removal
   pending while a movie of theirs lists it, and an artist is found by name alone.
+- **A count asks for one row, never a zero-width page** (`Native._count`, `Native.setup`).
+  `limits` with an end of 0 gets no row from the video library and every row from the audio
+  library: the bar of a music import read its count that way every three seconds and was
+  handed the library's whole song list each time (22,381 songs, 1.1 MB, 22.0b2 on the P1D).
 - **A collection is planned in every pass that plans a movie filed under it, and a set is
   never acknowledged without a compare** (`Native.join_sets`, `patch.Applier.plan`). A set
   is Kodi's to make and to drop: it goes with the last movie that names it (the companion
