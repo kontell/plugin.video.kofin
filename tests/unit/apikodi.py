@@ -544,8 +544,10 @@ class Kodi:
             rows = sorted(rows, key=lambda r: r["file"])
         limits = params.get("limits") or {}
         start = limits.get("start", 0)
-        end = limits.get("end", len(rows))
-        page = rows[start:end] if end >= 0 else rows[start:]
+        # The audio library reads an end of 0 as no limit, where the video
+        # library answers it with no row at all.
+        end = limits.get("end", 0)
+        page = rows[start:end] if end > 0 else rows[start:]
         return page, len(rows)
 
     def _music_properties(self, row, params):

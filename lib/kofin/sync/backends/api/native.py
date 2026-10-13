@@ -164,9 +164,7 @@ class Native:
         if owner == self.key:
             return
         for method, rule in LEFTOVERS:
-            # One row and the count. Not a zero-width page: the audio
-            # library reads an end of 0 as no limit, and answered with all
-            # 22,381 songs of a library for the one number (22.0b2).
+            # One row and the count, never a zero-width page (_count).
             reply = rpc(method, {"filter": rule, "limits": {"start": 0, "end": 1}})
             if not isinstance(reply, dict) or not isinstance(
                 reply.get("limits", {}).get("total"), int
@@ -396,7 +394,14 @@ class Native:
         self.store.unbind(path)
 
     def _count(self, location) -> Optional[int]:
-        """Kodi's row count under a scanner directory's library, or None."""
+        """Kodi's row count under a scanner directory's library, or None.
+
+        One row is asked for with it, and never a zero-width page: the video
+        library answers an end of 0 with no row, the audio library with
+        every row. The bar of a music import read this every three seconds
+        and was handed the library's whole song list each time (22,381
+        songs and 1.1 MB for the one number, 22.0b2).
+        """
         if location is None or not location.library or not location.content:
             return None
         library_dir = paths.library_dir(self.key, location.library, location.content)
@@ -414,7 +419,7 @@ class Native:
                     "operator": "startswith",
                     "value": library_dir,
                 },
-                "limits": {"start": 0, "end": 0},
+                "limits": {"start": 0, "end": 1},
             },
         )
         total = (reply or {}).get("limits", {}).get("total")

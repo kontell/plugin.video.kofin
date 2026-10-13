@@ -163,13 +163,12 @@ def test_a_scan_moves_the_bar_by_kodis_own_count(
         if method == "AudioLibrary.Scan":
             state["scanning"] = True
             return "OK"
-        if (
-            method == "AudioLibrary.GetSongs"
-            and params.get("limits", {}).get("end") == 0
-        ):
+        if method == "AudioLibrary.GetSongs" and "properties" not in params:
+            # The bar's count: one row asked for, and no property.
+            assert params["limits"] == {"start": 0, "end": 1}
             return {
                 "songs": [],
-                "limits": {"start": 0, "end": 0, "total": state["count"]},
+                "limits": {"start": 0, "end": 1, "total": state["count"]},
             }
         return original(method, params)
 
@@ -194,6 +193,35 @@ def test_a_scan_moves_the_bar_by_kodis_own_count(
     assert backend.progress.total == 100 and backend.progress.done == 0
 
 
+def test_the_bars_count_asks_the_audio_library_for_one_row(store, backend, kodi):
+    """An end of 0 is a zero-width page to the video library and no limit to
+    the audio library: the count of a music import, read every three
+    seconds, came back with every song the library held."""
+    from kofin.core import kodirpc
+    from kofin.sync.backends.api import paths
+    from tests.unit.apifixtures import album_bundle
+
+    store.publish(album_bundle(songs=3), library=LIB)
+    backend.reconcile()
+    assert len(kodi.songs) == 3
+    answered = []
+    real = kodirpc.call
+
+    def counting(method, params=None):
+        reply = real(method, params)
+        if method == "AudioLibrary.GetSongs":
+            answered.append((params["limits"], len(reply["songs"])))
+        return reply
+
+    kodirpc.call = counting
+    try:
+        location = paths.parse(paths.library_dir(store.namespace, LIB, "music"))
+        assert backend._count(location) == 3
+    finally:
+        kodirpc.call = real
+    assert answered == [({"start": 0, "end": 1}, 1)]
+
+
 def test_a_music_walk_is_one_phase_of_the_bar_across_its_parts(
     store, backend, kodi, bar, monkeypatch
 ):
@@ -212,13 +240,12 @@ def test_a_music_walk_is_one_phase_of_the_bar_across_its_parts(
             state["scans"].append(params["directory"])
             state["scanning"], state["left"] = True, 3
             return "OK"
-        if (
-            method == "AudioLibrary.GetSongs"
-            and params.get("limits", {}).get("end") == 0
-        ):
+        if method == "AudioLibrary.GetSongs" and "properties" not in params:
+            # The bar's count: one row asked for, and no property.
+            assert params["limits"] == {"start": 0, "end": 1}
             return {
                 "songs": [],
-                "limits": {"start": 0, "end": 0, "total": state["count"]},
+                "limits": {"start": 0, "end": 1, "total": state["count"]},
             }
         return original(method, params)
 
