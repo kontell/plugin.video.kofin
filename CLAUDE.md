@@ -583,6 +583,17 @@ What remains is kofin's own:
   re-published item, never under Repair, whose point is the compare. Anything new that
   `details` reads must join the token or the short-circuit will keep a stale state: the
   art query was missing from it, so a moved cap would have frozen every old art URL.
+- **A collection is planned in every pass that plans a movie filed under it, and a set is
+  never acknowledged without a compare** (`Native.join_sets`, `patch.Applier.plan`). A set
+  is Kodi's to make and to drop: it goes with the last movie that names it (the companion
+  deletes the empty row, as a clean does) and a scan or a movie's patch makes it again from
+  the name alone, bare, while the collection's payload has not moved. `sets.idSet` is a
+  plain rowid, so the new row takes the number the old one had and the short-circuit above
+  read it as the row it knew. 54 sets on the Bravia (a Repair's rebuild, cut short by a
+  Kodi restart) and 54 on the P1D (Movies deselected and selected again) had no art and no
+  plot, and only the repair pass after the next daily enumeration would have compared them.
+  The collection is put back to pending before its movies are acknowledged, so a pass
+  stopped between the two kinds still owes the set.
 - **A first import is not a repair write.** The pass after every complete enumeration runs
   as a repair, and repair re-sends a row whose acknowledged hash moved; a row with no
   acknowledgement was just filed by the scanner from this very listing, so a matching one
