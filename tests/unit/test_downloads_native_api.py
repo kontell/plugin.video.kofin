@@ -9,6 +9,7 @@ from kofin.sync.backends.api import downloaded, identity
 from tests.unit.apifixtures import (  # noqa: F401
     LIB,
     backend,
+    episode,
     kodi,
     methods,
     movie,
@@ -37,17 +38,24 @@ def test_marks_name_downloaded_items_and_the_shows_of_downloaded_episodes(store)
     downloads.finish("e", "Shows/s/e.mkv", "mkv", 1)
     downloads.queue(Download(jellyfin_id="q", media_type="movie"))  # still queued
     done, series = downloaded.marks()
-    assert (done, series) == ({"m", "e"}, {"show"})
+    assert (done, series) == ({"m", "e"}, {"show": {"e"}})
     assert downloaded.flag("Movie", "m", done, series) == "downloaded"
     assert downloaded.flag("Episode", "e", done, series) == "downloaded"
     assert downloaded.flag("Series", "show", done, series) == "downloaded"
     assert downloaded.flag("Movie", "q", done, series) == ""
+    # A season is marked on the caller's word: nothing here names one.
+    assert downloaded.flag("Season", "s", done, series) == ""
+    assert downloaded.flag("Season", "s", done, series, season=True) == "downloaded"
     desired = {"art": {"poster": "p"}, "tag": ["kofin.library.x"]}
-    downloaded.apply("Movie", "m", desired, done, series)
+    downloaded.apply("Movie", desired, "downloaded")
     assert desired["art"][downloaded.BADGE_ART] == downloaded.BADGE_URL
     assert desired["tag"] == sorted(["kofin.library.x", TAG])
+    # A season has the badge and no tag: Kodi keeps none for a season.
+    season_row = {"art": {}}
+    downloaded.apply("Season", season_row, "downloaded")
+    assert season_row == {"art": {downloaded.BADGE_ART: downloaded.BADGE_URL}}
     plain = {"art": {}, "tag": []}
-    downloaded.apply("Movie", "q", plain, done, series)
+    downloaded.apply("Movie", plain, "")
     assert plain == {"art": {}, "tag": []}
 
 
@@ -82,6 +90,110 @@ def test_a_download_puts_the_badge_and_tag_on_the_row_and_its_removal_takes_them
     assert downloaded.BADGE_ART not in kodi_row["art"]
     assert TAG not in kodi_row["tag"] and "kofin.library." + LIB in kodi_row["tag"]
     assert not store.pending()
+
+
+def downloaded_episode(item_id="ea11"):
+    from tests.unit.apifixtures import SHOW
+
+    downloads.queue(Download(jellyfin_id=item_id, media_type="episode", series_id=SHOW))
+    downloads.finish(item_id, "Shows/x/%s.mkv" % item_id, "mkv", 1)
+    return downloads.get(item_id)
+
+
+def badged(kodi):
+    """The rows carrying the badge: episodes and shows by item id, seasons
+    by number."""
+    found = {
+        kind: sorted(
+            item_id
+            for item_id, row in kodi.owned(kind).items()
+            if downloaded.BADGE_ART in row["art"]
+        )
+        for kind in ("Episode", "Series")
+    }
+    found["Season"] = sorted(
+        row["season"]
+        for row in kodi.rows["Season"].values()
+        if downloaded.BADGE_ART in row["art"]
+    )
+    return found
+
+
+def test_an_episode_s_download_badges_its_season_and_its_show(store, backend, kodi):
+    """A skin marks the show and the season on the way down to the file, as
+    it does on the SQL build's rows. The season is found by the episode's
+    number, which is how Kodi files it; the show's other season stays plain."""
+    from tests.unit.apifixtures import SHOW, show_bundle
+
+    backend.setup()
+    store.publish(
+        show_bundle(episodes=2, seasons=(1, 2))
+        + [episode("late", season_number=2, number=1)],
+        library=LIB,
+    )
+    backend.reconcile()
+    assert not store.pending()
+    kodi.calls.clear()
+    row = downloaded_episode()
+    port = nativeport.NativeApi()
+    port.attached(row, "/dl")
+    backend.reconcile()
+    assert not store.pending()
+    assert badged(kodi) == {"Episode": ["ea11"], "Season": [1], "Series": [SHOW]}
+    (show,) = kodi.rows["Series"].values()
+    assert TAG in show["tag"]
+    assert len(methods(kodi, "VideoLibrary.SetSeasonDetails")) == 1
+    # The download goes: all three badges go with it.
+    downloads.remove("ea11")
+    port.detached(row)
+    backend.reconcile()
+    assert not store.pending()
+    assert badged(kodi) == {"Episode": [], "Season": [], "Series": []}
+    (show,) = kodi.rows["Series"].values()
+    assert TAG not in show["tag"]
+
+
+def test_a_show_acknowledged_before_it_carried_a_badge_is_built_again(
+    store, backend, kodi, monkeypatch
+):
+    """A show with a download was acknowledged under the same mark when the
+    mark meant the tag alone, so nothing but the serializer's number tells
+    that acknowledgement from one made now (metadata.SERIALIZER)."""
+    from kofin.sync.backends.api import metadata
+    from tests.unit.apifixtures import SHOW, show_bundle
+
+    backend.setup()
+    store.publish(show_bundle(episodes=1), library=LIB)
+    row = downloaded_episode()
+    backend.reconcile()
+    assert badged(kodi)["Series"] == [SHOW]
+    # The row and its acknowledgement as the serializer before left them.
+    (show,) = kodi.rows["Series"].values()
+    del show["art"][downloaded.BADGE_ART]
+    mapping = store.mapping(SHOW)
+    applied = dict(mapping.applied)
+    applied["owned"] = dict(
+        applied["owned"],
+        art=[k for k in applied["owned"]["art"] if k != downloaded.BADGE_ART],
+    )
+    seasons = [r.item for r in store.records(kind="Season", parent_id=SHOW).values()]
+    with monkeypatch.context() as earlier:
+        earlier.setattr(metadata, "SERIALIZER", 2)
+        applied["inputs"] = metadata.inputs_token(
+            backend.server_url(),
+            store.namespace,
+            LIB,
+            backend.separator,
+            seasons,
+            None,
+            downloaded="downloaded",
+        )
+    assert applied["inputs"] != mapping.applied["inputs"]
+    store.remember(SHOW, store.state(SHOW).desired, mapping.kodi_id, applied, "Series")
+    # The service start hands every done file to the pass.
+    nativeport.NativeApi().attached(row, "/dl")
+    backend.reconcile()
+    assert badged(kodi)["Series"] == [SHOW]
 
 
 def test_the_play_state_is_read_back_by_the_mapped_id(store, backend, kodi):
