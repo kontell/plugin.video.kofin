@@ -1,3 +1,9 @@
+v0.93.3
+- Movie sets keep their artwork and plot when a library is imported again.
+- Download badges on shows and seasons; home widgets update when a download finishes or is removed.
+- A play state for an item deleted on the server no longer stalls the sync.
+- Library status: picking a row no longer closes the list.
+
 v0.93.2
 - Video, audio and subtitle details on movies and episodes in the API build. Run Repair once on video libraries synced by an earlier version.
 - Music and show play counts match the server, and a cast change no longer fills the in-progress widget.
