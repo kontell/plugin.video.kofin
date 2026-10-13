@@ -51,6 +51,33 @@ ACTOR_THUMBS_FLOOR = 100
 MOVIE_BINDINGS_SETTING = "apiMovieBindings"
 MOVIE_BINDINGS_STATE = "noupdate"
 SCAN_POLL = 3.0  # seconds between reads of Kodi's row count during a scan
+# The rows an earlier Kofin filed, as the listings that can hold them and
+# the rule that picks them out (Native.setup). The SQL build files video
+# under the add-on's plugin URL, and a song either there, when it is
+# transcoded, or at the server's own stream URL:
+# <server>/Audio/<id>/stream.<container>?static=true. An earlier catalogue
+# of this build files everything under paths.BASE, which is below that URL.
+# An episode has a show and an album or an artist has songs, so those
+# listings are not asked.
+KOFIN_FILED = {
+    "field": "path",
+    "operator": "startswith",
+    "value": "plugin://plugin.video.kofin/",
+}
+SQL_STREAMED = {
+    "and": [
+        {"field": "path", "operator": "contains", "value": "/Audio/"},
+        {"field": "filename", "operator": "startswith", "value": "stream."},
+        {"field": "filename", "operator": "contains", "value": "static=true"},
+    ]
+}
+LEFTOVERS = (
+    ("VideoLibrary.GetMovies", KOFIN_FILED),
+    ("VideoLibrary.GetTVShows", KOFIN_FILED),
+    ("VideoLibrary.GetMusicVideos", KOFIN_FILED),
+    ("AudioLibrary.GetSongs", KOFIN_FILED),
+    ("AudioLibrary.GetSongs", SQL_STREAMED),
+)
 # A directory that is not there. Scanned, it is skipped at once and the scan
 # still ends with the announcement home widgets listen for (library_event).
 NOWHERE = "special://temp/kofin-no-such-directory/"
@@ -115,6 +142,20 @@ class Native:
     # -- gates ---------------------------------------------------------------
 
     def setup(self):
+        """The first-run gate: no sync into a profile that still holds what
+        an earlier Kofin filed.
+
+        Those rows are in no catalogue, so an import beside them files every
+        item twice and nothing would ever remove the first copy. They are
+        told by where they are filed (LEFTOVERS), and they are all the gate
+        refuses. It used to refuse any row at all, which shut out a profile
+        with a library of its own files or of another add-on's for no
+        reason: the rows of this catalogue are found by their URL and their
+        unique id (Readback.owns), and a row that is neither is never read
+        as ours, patched or removed, whether it was there before the first
+        sync or came after it. What Kodi keeps by name is shared either
+        way: a set of the same title, an artist of the same name.
+        """
         owner = self.store.prepared()
         if owner and owner != self.key:
             raise BackendMismatch(
@@ -122,28 +163,19 @@ class Native:
             )
         if owner == self.key:
             return
-        for kind in (
-            "Movies",
-            "TVShows",
-            "Episodes",
-            "MusicVideos",
-            "Songs",
-            "Albums",
-            "Artists",
-        ):
-            library = (
-                "AudioLibrary"
-                if kind in ("Songs", "Albums", "Artists")
-                else "VideoLibrary"
-            )
-            reply = rpc(library + ".Get" + kind, {"limits": {"start": 0, "end": 1}})
+        for method, rule in LEFTOVERS:
+            # One row and the count, never a zero-width page (_count).
+            reply = rpc(method, {"filter": rule, "limits": {"start": 0, "end": 1}})
             if not isinstance(reply, dict) or not isinstance(
                 reply.get("limits", {}).get("total"), int
             ):
-                raise RuntimeError("cannot verify empty native library")
+                raise RuntimeError(
+                    "cannot tell whether an earlier Kofin library is in Kodi"
+                )
             if reply["limits"]["total"]:
                 raise BackendMismatch(
-                    "fresh native library required; choose a clean profile or reset before switching to OR"
+                    "Kodi still holds a library an earlier Kofin filed; remove it"
+                    " or use a clean profile before switching to OR"
                 )
         self.store.prepare_empty()
 
@@ -362,7 +394,14 @@ class Native:
         self.store.unbind(path)
 
     def _count(self, location) -> Optional[int]:
-        """Kodi's row count under a scanner directory's library, or None."""
+        """Kodi's row count under a scanner directory's library, or None.
+
+        One row is asked for with it, and never a zero-width page: the video
+        library answers an end of 0 with no row, the audio library with
+        every row. The bar of a music import read this every three seconds
+        and was handed the library's whole song list each time (22,381
+        songs and 1.1 MB for the one number, 22.0b2).
+        """
         if location is None or not location.library or not location.content:
             return None
         library_dir = paths.library_dir(self.key, location.library, location.content)
@@ -380,7 +419,7 @@ class Native:
                     "operator": "startswith",
                     "value": library_dir,
                 },
-                "limits": {"start": 0, "end": 0},
+                "limits": {"start": 0, "end": 1},
             },
         )
         total = (reply or {}).get("limits", {}).get("total")

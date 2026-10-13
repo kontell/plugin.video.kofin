@@ -1,3 +1,7 @@
+v0.93.4
+- A profile that already has a local library, or another add-on's, can be synced; only an earlier Kofin library has to be removed first.
+- Less load on Kodi during a music import.
+
 v0.93.3
 - Movie sets keep their artwork and plot when a library is imported again.
 - Download badges on shows and seasons; home widgets update when a download finishes or is removed.
