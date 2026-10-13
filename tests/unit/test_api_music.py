@@ -430,10 +430,11 @@ def test_music_readback_pages_and_acknowledges_in_batches(
     listings = [
         p
         for p in methods(kodi, "AudioLibrary.GetSongs")
-        if "filter" in p and p["limits"]["end"] > p["limits"]["start"]
+        if "properties" in p and p["limits"]["end"] > p["limits"]["start"]
     ]
-    # Paged seven at a time, read whole a few times a pass, never per row
-    # (a zero-width page is the bar reading Kodi's count during a scan).
+    # Paged seven at a time, read whole a few times a pass, never per row.
+    # A call that asks for no property is a count: the first-run gate's, and
+    # the bar's during a scan.
     assert all(p["limits"]["end"] - p["limits"]["start"] == 7 for p in listings)
     assert len(listings) < 30
     # Thirty songs, and the opens do not follow them: the plan of the scan

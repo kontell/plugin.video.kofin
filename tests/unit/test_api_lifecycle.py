@@ -809,18 +809,95 @@ def test_unconfirmed_removal_stays_pending(store, backend, kodi):
     assert len(kodi.rows["Movie"]) == 1
 
 
-def test_first_run_gate_refuses_existing_library_and_other_namespace(
-    store, backend, kodi
+SQL_BUILD = "plugin://plugin.video.kofin/" + LIB + "/"
+
+
+@pytest.mark.parametrize(
+    "table,row",
+    [
+        # The SQL build's video rows, under the add-on's plugin URL.
+        ("Movie", {"movieid": 900, "file": SQL_BUILD + "?id=a&mode=play"}),
+        ("Series", {"tvshowid": 900, "file": SQL_BUILD + SHOW + "/"}),
+        ("MusicVideo", {"musicvideoid": 900, "file": SQL_BUILD + "?id=m&mode=play"}),
+        # Its songs: there when transcoded, else at the server's stream URL.
+        ("songs", {"songid": 900, "file": SQL_BUILD + "s1/stream.mp3?mode=play&id=s1"}),
+        (
+            "songs",
+            {
+                "songid": 900,
+                "file": "http://server:8096/Audio/s1/stream.mp3?static=true",
+            },
+        ),
+        # A row of an earlier catalogue of this build, its kofin.db gone.
+        (
+            "Movie",
+            {
+                "movieid": 900,
+                "file": paths.BASE + "f" * 32 + "/" + LIB + "/movies/a/a.mkv",
+            },
+        ),
+    ],
+)
+def test_first_run_gate_refuses_what_an_earlier_kofin_filed(
+    store, backend, kodi, table, row
 ):
-    kodi.rows["Movie"][4] = {"movieid": 4, "file": "/foreign.mkv", "uniqueid": {}}
-    with pytest.raises(BackendMismatch, match="fresh"):
+    """Those rows are in no catalogue: an import beside them files every
+    item twice, and nothing would ever take the first copy away."""
+    held = kodi.songs if table == "songs" else kodi.rows[table]
+    held[900] = dict(row, uniqueid={}, albumid=0)
+    with pytest.raises(BackendMismatch, match="earlier Kofin"):
         backend.setup()
     assert not store.prepared()
-    kodi.rows["Movie"].clear()
+    held.clear()
+    backend.setup()
+    assert store.prepared() == store.namespace
+
+
+def test_first_run_gate_refuses_another_namespace(store, backend, kodi):
     backend.setup()
     other = Native(Store(namespace("another", "user")))
     with pytest.raises(BackendMismatch, match="another"):
         other.setup()
+
+
+def test_a_library_that_is_not_kofins_is_no_reason_to_refuse(store, backend, kodi):
+    """A profile with files of its own, or another add-on's library, syncs
+    like any other: a row is ours by its URL and its unique id, and one
+    that is neither is left as it was through the import and the removal,
+    whether it was there before the first sync or came after it."""
+    theirs = {
+        "Movie": {
+            900: {"movieid": 900, "file": "/films/Local (2001)/Local.mkv"},
+            901: {
+                "movieid": 901,
+                "file": "plugin://plugin.video.composite_for_plex/library/movies/1",
+            },
+        },
+        "Series": {902: {"tvshowid": 902, "file": "smb://nas/tv/Their show/"}},
+    }
+    for table, rows in theirs.items():
+        for row in rows.values():
+            row.update(uniqueid={"imdb": "tt%d" % len(row["file"])}, title="Theirs")
+        kodi.rows[table].update(copy.deepcopy(rows))
+    # A file of their own that looks a little like the SQL build's songs.
+    kodi.songs[903] = {
+        "songid": 903,
+        "file": "/music/Audio/Band/Record/stream.of.thought.mp3",
+        "albumid": 0,
+    }
+    backend.setup()
+    assert store.prepared() == store.namespace
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    assert set(kodi.owned("Movie")) == {"a"}
+    store.publish([], library=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    assert kodi.owned("Movie") == {}
+    for table, rows in theirs.items():
+        assert kodi.rows[table] == rows
+    assert set(kodi.songs) == {903}
 
 
 def test_expected_userdata_scoped_by_generation_and_expiry(store, monkeypatch):

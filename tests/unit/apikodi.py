@@ -24,6 +24,20 @@ from kofin.sync.backends.api import metadata, native, paths
 SERVER = "http://fixture.invalid"
 
 
+def filed_under(file, rule):
+    """Whether a row's file answers a filter rule on its path or its file
+    name, the two fields the backend filters by."""
+    if "and" in rule:
+        return all(filed_under(file, part) for part in rule["and"])
+    directory, _, name = file.rpartition("/")
+    subject = name if rule["field"] == "filename" else directory + "/"
+    if rule["operator"] == "startswith":
+        return subject.startswith(rule["value"])
+    if rule["operator"] == "contains":
+        return rule["value"] in subject
+    raise RuntimeError("Kodi refused the filter")
+
+
 class Kodi:
     def __init__(self, store):
         self.store = store
@@ -508,21 +522,21 @@ class Kodi:
             "MusicArtist": list(self.artists.values()),
         }[kind]
         if "filter" in params:
-            prefix = params["filter"]["value"]
+            rule = params["filter"]
             if kind == "Audio":
-                rows = [r for r in rows if r["file"].startswith(prefix)]
+                rows = [r for r in rows if filed_under(r["file"], rule)]
             else:
                 albums = {
                     r["albumid"]
                     for r in self.songs.values()
-                    if r["file"].startswith(prefix)
+                    if filed_under(r["file"], rule)
                 }
                 if kind == "MusicAlbum":
                     rows = [r for r in rows if r["albumid"] in albums]
                 else:
                     names = set()
                     for song in self.songs.values():
-                        if song["file"].startswith(prefix):
+                        if filed_under(song["file"], rule):
                             names.update(n.casefold() for n in song["artist"])
                             names.update(n.casefold() for n in song["albumartist"])
                     rows = [r for r in rows if r["artist"].casefold() in names]
@@ -688,8 +702,7 @@ class Kodi:
                     )
                 ]
             if "filter" in params:
-                prefix = params["filter"]["value"]
-                rows = [r for r in rows if r["file"].startswith(prefix)]
+                rows = [r for r in rows if filed_under(r["file"], params["filter"])]
             if "tvshowid" in params:
                 rows = [r for r in rows if r.get("tvshowid") == params["tvshowid"]]
             return {list_key: copy.deepcopy(rows), "limits": {"total": len(rows)}}
