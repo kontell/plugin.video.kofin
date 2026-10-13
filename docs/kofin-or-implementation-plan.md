@@ -351,6 +351,8 @@ The transition deliberately creates a new native library. Jellyfin remains autho
 
 Implement a first-run gate that detects a legacy backend marker or a nonempty unprepared library through own state and public APIs. It must stop automatic sync and direct the user through the reset workflow; installing a higher numbered preview must not silently adopt a SQL-created library. Once initial setup has completed, OR's ordinary ownership rules protect any other subsequently added native content.
 
+**Deviation (13 October 2026).** The gate as first built refused any row at all in Kodi's video or music library. It now refuses only what an earlier Kofin filed: video and transcoded songs under the add-on's plugin URL, and the SQL build's other songs at the server's stream URL (`<server>/Audio/<id>/stream.<container>?static=true`). The ownership rules of the last sentence above do not depend on when a row arrived, so a profile with local files or another add-on's library needs no reset; a SQL-created library is still never adopted or imported beside.
+
 The OR addon does **not** perform a broad SQL nuke itself. The prerequisite reset happens through the existing main tool before switching, a new profile, or an external/user-controlled Kodi-stopped procedure. The feasibility report found no equivalent public operation that resets every native table to pristine. OR's own “remove Kofin content” operation is narrower and uses supported APIs/scans.
 
 ### OR → main, or recovery from a failed preview

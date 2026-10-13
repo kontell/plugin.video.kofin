@@ -598,6 +598,17 @@ What remains is kofin's own:
   re-published item, never under Repair, whose point is the compare. Anything new that
   `details` reads must join the token or the short-circuit will keep a stale state: the
   art query was missing from it, so a moved cap would have frozen every old art URL.
+- **The first-run gate refuses what an earlier Kofin filed, and nothing else**
+  (`Native.setup`, `native.LEFTOVERS`). Those rows are in no catalogue, so an import beside
+  them files every item twice. They are told by where they are filed: video, and songs the SQL
+  build transcodes, under the add-on's plugin URL; its other songs at the server's stream URL,
+  `<server>/Audio/<id>/stream.<container>?static=true` (all 22,348 songs of the P1D's SQL
+  profile and none under the plugin URL, so the path rule alone lets a music library
+  through). The gate used to refuse any row at all, which shut out a profile with files of
+  its own or another add-on's library for no reason: a row is ours by its URL and its unique
+  id, before the first sync as after it. What such a library can still share with ours goes
+  by name: a set of the same title takes our art and plot and holds a collection's removal
+  pending while a movie of theirs lists it, and an artist is found by name alone.
 - **A collection is planned in every pass that plans a movie filed under it, and a set is
   never acknowledged without a compare** (`Native.join_sets`, `patch.Applier.plan`). A set
   is Kodi's to make and to drop: it goes with the last movie that names it (the companion
