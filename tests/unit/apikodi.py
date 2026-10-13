@@ -110,8 +110,11 @@ class Kodi:
         for row in self.rows["BoxSet"].values():
             if row["title"] == title:
                 return row
-        row = {"setid": self._id(), "title": title, "plot": "", "art": {}}
-        self.rows["BoxSet"][row["setid"]] = row
+        # sets.idSet is a plain rowid, numbered from the highest one left: a
+        # set made again after it was deleted takes the number it had.
+        setid = max(self.rows["BoxSet"], default=0) + 1
+        row = {"setid": setid, "title": title, "plot": "", "art": {}}
+        self.rows["BoxSet"][setid] = row
         return row
 
     def _season_row(self, tvshowid, number, name=""):

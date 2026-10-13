@@ -711,6 +711,10 @@ class Native:
             for item_id, generation, operation, _ in self.store.pending_work():
                 if operation == "upsert" and item_id not in pending:
                     pending[item_id] = (generation, operation, {})
+            sets = self.store.records(kind="BoxSet")
+            boxsets = [r.item for r in sets.values()]
+            collections = metadata.collections_of(boxsets)
+            self.join_sets(pending, entries, sets, collections)
             upserts: Dict[str, Record] = {}
             for item_id, (generation, operation, _payload) in pending.items():
                 entry = entries.get(item_id)
@@ -744,8 +748,6 @@ class Native:
             if early:
                 applier.run(upserts, {}, set(), repair, errors, kinds=early)
             self.scan_video(video)
-            boxsets = [r.item for r in self.store.records(kind="BoxSet").values()]
-            collections = metadata.collections_of(boxsets)
             movies = {i for i, e in entries.items() if e.kind == "Movie"}
             applier.run(
                 upserts,
@@ -796,6 +798,38 @@ class Native:
             # A timed-out scan must retain its snapshot until Kodi is idle.
             if (completed or not self._async_pending) and self._idle("any"):
                 self.store.unpin()
+
+    def join_sets(self, pending, entries, sets: Dict[str, Record], collections):
+        """Put every collection a movie of this pass is filed under into the
+        pass, pending before that movie is acknowledged.
+
+        A set is Kodi's to make and to drop. It goes with the last movie
+        that names it (the companion deletes the empty row, as a clean does)
+        and a scan or a movie's patch makes it again from the name alone,
+        with no art and no plot. The collection's payload moves with none of
+        that, so nothing but its movies can bring it here: a library
+        imported again left every set of it bare, with only the repair pass
+        after the next daily enumeration to compare them. Planned, a set is
+        compared with its row (Applier.plan), and one found as it was left is
+        sent nothing.
+        """
+        taken = {
+            collections[item_id]
+            for item_id, (_, operation, _) in pending.items()
+            if operation == "upsert"
+            and item_id in collections
+            and item_id in entries
+            and entries[item_id].kind == "Movie"
+        }
+        joined = {
+            item_id: record
+            for item_id, record in sets.items()
+            if item_id not in pending
+            and (record.item.get("Name") or "").strip(metadata.ASCII_SPACE) in taken
+        }
+        self.store.invalidate(joined)
+        for item_id, record in joined.items():
+            pending[item_id] = (record.generation, "upsert", {})
 
     def scan_music(
         self, upserts: Dict[str, Record], errors, entries: Optional[Dict] = None

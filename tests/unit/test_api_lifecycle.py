@@ -1,5 +1,7 @@
 """Native lifecycle through the fake Kodi: import, patch, refresh, remove."""
 
+import copy
+
 import pytest
 
 from kofin.sync import private
@@ -1042,6 +1044,152 @@ def test_collections_without_a_kodi_set_apply_without_a_row(store, backend, kodi
     store.publish([boxset("winner", "Alpha", ["a"], Overview="edited")])
     with pytest.raises(RuntimeError, match="no native row yet"):
         backend.reconcile()
+
+
+def _reimported_pair(store, backend, kodi):
+    """A library with one collection, imported, removed and published again;
+    returns the set's row as the first import left it."""
+    items = [
+        movie(),
+        movie("b"),
+        boxset(
+            "box",
+            "Pair",
+            ["a", "b"],
+            Overview="Two films",
+            ImageTags={"Primary": "p"},
+        ),
+    ]
+    store.publish(items, library=LIB)
+    backend.reconcile()
+    before = copy.deepcopy(next(iter(kodi.rows["BoxSet"].values())))
+    assert before["plot"] == "Two films" and before["art"]
+    store.publish([], library=LIB)
+    backend.reconcile()
+    # A collection is not of the library, and stays applied without it.
+    assert store.state("box").status == "applied"
+    # The companion deletes the set the removal emptied, as a clean would.
+    kodi.rows["BoxSet"].clear()
+    # Selected again: listed by name, the collection exactly as it was.
+    store.publish(items, library=LIB)
+    return before
+
+
+def test_a_library_imported_again_gets_its_sets_details_again(store, backend, kodi):
+    """A set is Kodi's to make and to drop. It goes with the last movie that
+    names it and a scan makes it again from the movie's set name alone,
+    under the number it had, while the collection's payload has not moved:
+    nothing but its movies brings it into the pass that imports them. 54
+    sets on a television and 54 on a desktop had no art and no plot after
+    their library was imported again."""
+    before = _reimported_pair(store, backend, kodi)
+    backend.reconcile()
+    assert not store.pending()
+    assert list(kodi.rows["BoxSet"].values()) == [before]
+    assert store.mapping("box").kodi_id == before["setid"]
+
+
+def test_a_pass_stopped_after_its_movies_still_owes_their_sets(
+    store, backend, kodi, monkeypatch
+):
+    """The collection is pending before a movie of it is acknowledged: a Kodi
+    stopped between the two kinds leaves nothing else that names the set."""
+    before = _reimported_pair(store, backend, kodi)
+    real = kodi.rpc
+
+    def stopped(method, params=None):
+        if method == "VideoLibrary.GetMovieSets":
+            raise InterruptedError("Kodi is stopping")
+        return real(method, params)
+
+    monkeypatch.setattr(kodi, "rpc", stopped)
+    with pytest.raises(InterruptedError):
+        backend.reconcile()
+    assert store.state("a").status == "applied"
+    assert store.state("box").status == "pending"
+    monkeypatch.setattr(kodi, "rpc", real)
+    backend.reconcile()
+    assert not store.pending()
+    assert list(kodi.rows["BoxSet"].values()) == [before]
+
+
+def test_a_set_is_compared_however_it_was_acknowledged(store, backend, kodi):
+    """An unchanged payload acknowledged against this very id is no proof of
+    what the set carries: the row under that id may be a newer one."""
+    store.publish(
+        [movie(), boxset("box", "Solo", ["a"], Overview="One film")], library=LIB
+    )
+    backend.reconcile()
+    row = next(iter(kodi.rows["BoxSet"].values()))
+    row.update(plot="", art={})
+    store.invalidate({"box"})
+    backend.reconcile()
+    assert not store.pending()
+    assert row["plot"] == "One film"
+
+
+def test_the_collection_a_movie_falls_back_to_is_planned_with_it(store, backend, kodi):
+    """A movie in two collections files one set. When the collection it took
+    goes, its patch makes the other's set, and that one's payload has not
+    moved either."""
+    store.publish(
+        [
+            movie(),
+            boxset("winner", "Alpha", ["a"]),
+            boxset("loser", "Zeta", ["a"], Overview="The other one"),
+        ],
+        library=LIB,
+    )
+    backend.reconcile()
+    assert store.mapping("loser").kodi_id is None
+    store.publish([], removed=["winner"])
+    backend.reconcile()
+    assert not store.pending()
+    assert kodi.owned("Movie")["a"]["set"] == "Zeta"
+    sets = {r["title"]: r for r in kodi.rows["BoxSet"].values()}
+    assert sets["Zeta"]["plot"] == "The other one"
+    assert store.mapping("loser").kodi_id == sets["Zeta"]["setid"]
+
+
+def test_only_a_movie_filed_under_a_collection_brings_it_into_the_pass(
+    store, backend, kodi
+):
+    store.publish(
+        [movie(), movie("b"), boxset("box", "Solo", ["a"], Overview="One film")],
+        library=LIB,
+    )
+    backend.reconcile()
+    kodi.calls.clear()
+    store.publish([movie("b", Overview="Edited")])
+    backend.reconcile()
+    assert not methods(kodi, "VideoLibrary.GetMovieSets")
+    store.publish([movie("a", Overview="Edited")])
+    backend.reconcile()
+    assert not store.pending()
+    # Compared, found as it was left, and sent nothing.
+    assert methods(kodi, "VideoLibrary.GetMovieSets")
+    assert not methods(kodi, "VideoLibrary.SetMovieSetDetails")
+
+
+def test_a_set_a_patch_made_after_a_library_was_cleared_is_found(store, backend, kodi):
+    """The clear reads the set listing to see what it emptied. A movie
+    patched later in the same pass makes a set that listing never saw."""
+    store.publish([movie(), boxset("box", "Solo", ["a"])], library=LIB)
+    store.publish(
+        [
+            movie("c"),
+            boxset("winner", "Alpha", ["c"]),
+            boxset("loser", "Zeta", ["c"], Overview="The other one"),
+        ],
+        library=LIB2,
+    )
+    backend.reconcile()
+    store.publish([], library=LIB)
+    store.publish([], removed=["winner"])
+    backend.reconcile()
+    assert not store.pending()
+    sets = {r["title"]: r for r in kodi.rows["BoxSet"].values()}
+    assert sets["Zeta"]["plot"] == "The other one"
 
 
 def test_removing_a_collection_unfiles_its_movies_and_drops_the_empty_set(

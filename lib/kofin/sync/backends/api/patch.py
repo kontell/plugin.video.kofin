@@ -248,6 +248,11 @@ class Applier:
             # The kind's name before its first row is counted: the readback
             # that comes first can take as long as the rows themselves.
             self.native.progress.note(self.native.progress.counted(kind))
+            if kind == "BoxSet":
+                # A library clear reads the set listing to see what it
+                # emptied, and a movie patched since may have made a set that
+                # listing never saw.
+                self.readback.forget("BoxSet")
             if KINDS[kind].removal != "rescan":
                 # A scope mostly about to be compared is read in full once.
                 per_scope: Dict[Tuple[str, str], int] = {}
@@ -504,6 +509,10 @@ class Applier:
         )
         if (
             not repair
+            # A set's id is no proof of its row: Kodi numbers a new set from
+            # the highest one left, so a set deleted and made again answers
+            # under the number it was acknowledged by (Native.join_sets).
+            and kind != "BoxSet"
             and mapping is not None
             and mapping.kodi_id == kodi_id
             and previous.get("hash") == payload
