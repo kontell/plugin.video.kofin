@@ -400,6 +400,15 @@ What remains is kofin's own:
   (`flush_local`), a count that only grew is not a local edit (`patch.local_edits`), and a
   stamp of Kodi's own up to six hours later than the server's is the same play
   (`metadata.same_play`). `tests/live/userdata_matrix.py` is the gate, on scratch libraries.
+- **The play-state outbox never stops at one edit, and an edit of an item the server no
+  longer has is dropped** (`Library.flush_local`). Flushed in order and stopped at the first
+  failure, one edit of a deleted item (404) failed every tick for ever: three edits behind
+  it never reached the server, the rows waiting on them stayed pending, and a television
+  ran two 20 s passes a minute for as long as it was on, each one pinging the companion.
+- **No stream flags are asked of the companion for a library filed under an older scanner
+  format, or one being rebuilt** (`companion._metadata_requests`). Those rows have no
+  stream rows for a flag to land on, and every request was refused on every pass: 5,632 of
+  them on the same television until its libraries were repaired.
 - **An unplayed song has no `lastplayed` opinion** (`metadata.userdata`). Kodi's song setter
   cannot clear the date, so a desired empty one never matched the readback and failed every
   pass for ever.

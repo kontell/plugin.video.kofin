@@ -959,3 +959,74 @@ def test_a_watched_mark_goes_to_the_server_without_a_count(store, monkeypatch):
         {"Played": False, "PlaybackPositionTicks": 300000000},
     )
     assert store.local_pending() == []
+
+
+def _refusing(server, monkeypatch, item_id, status):
+    from kofin.core.http import HttpError
+
+    update = server.update_user_data
+
+    def refuse(target, payload):
+        if target == item_id:
+            raise HttpError(
+                status, "POST /UserItems/%s/UserData -> %d" % (target, status)
+            )
+        update(target, payload)
+
+    monkeypatch.setattr(server, "update_user_data", refuse)
+
+
+def test_an_edit_of_an_item_the_server_deleted_is_dropped_and_the_rest_go(
+    store, monkeypatch
+):
+    """The outbox stopped at the first edit that failed. One for an item the
+    server had deleted failed every tick for ever, the edits behind it never
+    left, and the rows waiting on them had the pass run twice a minute."""
+    server = Server({LIB: [movie(), movie("b")]})
+    store.publish([movie(), movie("b")], library=LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    store.local("gone", {"playcount": 1, "position": 0.0})
+    store.local("a", {"playcount": 2})
+    store.local("b", {"playcount": 0})
+    _refusing(server, monkeypatch, "gone", 404)
+
+    w.flush_local()
+    assert sorted(server.updated) == [("a", {"Played": True}), ("b", {"Played": False})]
+    assert store.local_pending() == []
+
+
+def test_an_item_deleted_between_the_edit_and_its_reading_back_is_dropped_too(
+    store, monkeypatch
+):
+    from kofin.core.http import HttpError
+
+    server = Server({LIB: [movie()]})
+    store.publish([movie()], library=LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    store.local("a", {"playcount": 1})
+
+    def gone(item_id):
+        raise HttpError(404, "GET /Items/%s -> 404" % item_id)
+
+    monkeypatch.setattr(server, "item", gone)
+    w.flush_local()
+    assert server.updated == [("a", {"Played": True})]
+    assert store.local_pending() == []
+
+
+def test_an_edit_the_server_refuses_stays_and_does_not_hold_the_others_back(
+    store, monkeypatch
+):
+    from kofin.core.http import HttpError
+
+    server = Server({LIB: [movie(), movie("b")]})
+    store.publish([movie(), movie("b")], library=LIB)
+    w = worker(store, server, [LIB], monkeypatch)
+    store.local("a", {"playcount": 2})
+    store.local("b", {"playcount": 1})
+    _refusing(server, monkeypatch, "a", 500)
+
+    with pytest.raises(HttpError):
+        w.flush_local()
+    assert server.updated == [("b", {"Played": True})]
+    assert store.local_pending() == [("a", {"playcount": 2})]

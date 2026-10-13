@@ -231,6 +231,12 @@ def _metadata_requests(store) -> List[Dict[str, Any]]:
     requests: List[Dict[str, Any]] = []
     for kind in ("Movie", "Episode", "MusicVideo", "Season"):
         for library in sorted(store.libraries(kind)):
+            # Rows filed under an older scanner format have no stream rows
+            # for a flag to land on (metadata.SCANNER_FORMAT), and neither
+            # have the rows of a library being rebuilt. Asked for anyway,
+            # every one was refused on every pass until the library was
+            # repaired: 5,632 requests on one television.
+            flagged = store.scanner_format(library) >= metadata.SCANNER_FORMAT
             for item_id, mapping in sorted(
                 store.mappings(kind=kind, library=library).items()
             ):
@@ -259,7 +265,7 @@ def _metadata_requests(store) -> List[Dict[str, Any]]:
                     if not _acked(mapping, SEASON_PLOT, request):
                         requests.append(request)
                 flags = applied.get("flags")
-                if kind in MEDIA_OF and isinstance(flags, dict):
+                if flagged and kind in MEDIA_OF and isinstance(flags, dict):
                     request = stream_flags_request(
                         kind, library, item_id, mapping.kodi_id, flags
                     )
