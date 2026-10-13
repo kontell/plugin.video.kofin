@@ -227,19 +227,28 @@ def show(store) -> None:
     is watched, and it is the row under the cursor: under a cursor on the
     last row the list scrolls the sync's own line off the top as soon as
     there are more rows than fit.
+
+    The first row is the only one that does anything. A select dialog
+    closes on whichever row is picked, so a fact that was picked is shown
+    again as it was, the cursor on it: picking one used to close the report,
+    which read as the report having gone wrong. Back is what closes it.
     """
     heading = "%s \u2014 %s" % (settings.localized(30859), settings.localized(30862))
+    lines: List[str] = []
+    cursor = 0
     while True:
-        lines = rows(
-            read(),
-            snapshot(store, metadata.SCANNER_FORMAT),
-            companion.present(),
-            progress.stage,
-            progress.label,
-        )
+        if cursor == 0:
+            lines = rows(
+                read(),
+                snapshot(store, metadata.SCANNER_FORMAT),
+                companion.present(),
+                progress.stage,
+                progress.label,
+            )
         choices: List[Union[str, xbmcgui.ListItem]] = [xbmc.getLocalizedString(184)]
         choices.extend(lines)
-        if xbmcgui.Dialog().select(heading, choices, preselect=0) != 0:
+        cursor = xbmcgui.Dialog().select(heading, choices, preselect=cursor)
+        if cursor < 0:
             return
 
 

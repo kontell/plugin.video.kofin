@@ -273,12 +273,28 @@ def test_the_dialog_is_a_report_whose_first_row_reads_it_again(store, monkeypatc
     assert rows[2].startswith("Films:  0 / 1")
 
 
-def test_picking_a_row_of_the_report_closes_it(store, monkeypatch):
-    _views(monkeypatch, [])
+def test_a_fact_that_is_picked_does_nothing_and_back_closes_the_report(
+    store, monkeypatch
+):
+    """Only the first row is an action. A select dialog closes on any row,
+    so a fact that was picked is shown again as it was, under the cursor."""
+    store.publish([movie("a")], library=LIB)
+    _views(monkeypatch, [LIB], **{LIB: ("Films", "movies")})
+    reads = []
+    real = status.snapshot
+    monkeypatch.setattr(
+        status, "snapshot", lambda *args: reads.append(1) or real(*args)
+    )
 
-    dialog, _ = _dialog(monkeypatch, store, [1, 1, 1])
+    # A fact, another fact, the refresh row, then back.
+    dialog, _ = _dialog(monkeypatch, store, [2, 1, 0, -1])
 
-    assert len(dialog.selects) == 1
+    assert len(dialog.selects) == 4
+    assert [preselect for _, _, preselect in dialog.selects] == [0, 2, 1, 0]
+    # The facts were read when the report opened and at the refresh row,
+    # not when one of them was picked.
+    assert len(reads) == 2
+    assert dialog.selects[0][1] == dialog.selects[1][1] == dialog.selects[2][1]
 
 
 def test_the_sql_build_has_no_status_dialog(store, monkeypatch):
