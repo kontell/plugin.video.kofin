@@ -2280,6 +2280,30 @@ msgctxt "#30868"
 msgid "Kodi cannot import"
 msgstr "A Kodi nem tudja importálni"
 
+msgctxt "#30869"
+msgid "Scheduled full update"
+msgstr "Ütemezett teljes frissítés"
+
+msgctxt "#30870"
+msgid "How often to re-read every library from the server. Turn this on if the server lacks the KofinSyncQueue plugin, or deletions there won't reach Kodi."
+msgstr "Milyen gyakran olvassa be újra az összes médiatárat a kiszolgálóról. Kapcsolja be, ha a kiszolgálón nincs KofinSyncQueue bővítmény, különben a törlések nem jutnak el a Kodiba."
+
+msgctxt "#30871"
+msgid "Daily"
+msgstr "Naponta"
+
+msgctxt "#30872"
+msgid "Weekly"
+msgstr "Hetente"
+
+msgctxt "#30873"
+msgid "Update all libraries now?"
+msgstr "Frissíti most az összes médiatárat?"
+
+msgctxt "#30874"
+msgid "Re-read every library from the server now."
+msgstr "Most újraolvassa az összes médiatárat a kiszolgálóról."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Ebben az előzetes verzióban nem érhető el"

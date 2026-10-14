@@ -2280,6 +2280,30 @@ msgctxt "#30868"
 msgid "Kodi cannot import"
 msgstr "Το Kodi δεν μπορεί να εισαγάγει"
 
+msgctxt "#30869"
+msgid "Scheduled full update"
+msgstr "Προγραμματισμένη πλήρης ενημέρωση"
+
+msgctxt "#30870"
+msgid "How often to re-read every library from the server. Turn this on if the server lacks the KofinSyncQueue plugin, or deletions there won't reach Kodi."
+msgstr "Πόσο συχνά διαβάζονται ξανά όλες οι βιβλιοθήκες από τον διακομιστή. Ενεργοποιήστε το αν ο διακομιστής δεν έχει το πρόσθετο KofinSyncQueue, αλλιώς οι διαγραφές δεν φτάνουν στο Kodi."
+
+msgctxt "#30871"
+msgid "Daily"
+msgstr "Καθημερινά"
+
+msgctxt "#30872"
+msgid "Weekly"
+msgstr "Εβδομαδιαία"
+
+msgctxt "#30873"
+msgid "Update all libraries now?"
+msgstr "Ενημέρωση όλων των βιβλιοθηκών τώρα;"
+
+msgctxt "#30874"
+msgid "Re-read every library from the server now."
+msgstr "Διαβάζει τώρα ξανά όλες τις βιβλιοθήκες από τον διακομιστή."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Δεν διατίθεται σε αυτή τη δοκιμαστική έκδοση"

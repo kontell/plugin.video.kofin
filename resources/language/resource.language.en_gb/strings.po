@@ -2438,6 +2438,30 @@ msgctxt "#30868"
 msgid "Kodi cannot import"
 msgstr ""
 
+msgctxt "#30869"
+msgid "Scheduled full update"
+msgstr ""
+
+msgctxt "#30870"
+msgid "How often to re-read every library from the server. Turn this on if the server lacks the KofinSyncQueue plugin, or deletions there won't reach Kodi."
+msgstr ""
+
+msgctxt "#30871"
+msgid "Daily"
+msgstr ""
+
+msgctxt "#30872"
+msgid "Weekly"
+msgstr ""
+
+msgctxt "#30873"
+msgid "Update all libraries now?"
+msgstr ""
+
+msgctxt "#30874"
+msgid "Re-read every library from the server now."
+msgstr ""
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr ""

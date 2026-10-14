@@ -79,9 +79,10 @@ PROFILES = ("sql", "api")
 # presentation toggles are one per build: syncMusicPlaylists is the SQL
 # build's playlist sync, libraryNodes the API build's nodes-and-playlists
 # switch (sync/dynamic.py), and a toggle the build never reads must not be
-# on screen.
+# on screen. The scheduled full update is the API coordinator's clock; the
+# SQL build has no such pass.
 DISABLED_SETTINGS = {
-    "sql": {"libraryNodes", "libraryStatus"},
+    "sql": {"libraryNodes", "libraryStatus", "fullUpdateInterval"},
     "api": {
         # The two read-only lines the SQL coordinator writes; the API build
         # has the status dialog in their place (sync/backends/api/status.py).
@@ -125,10 +126,12 @@ VISIBLE_WHILE = {
 # "Transcode music" decides how a song's path is written in the SQL build,
 # which is why its help asks for a repair there. In the API build every song
 # is a plugin path whatever it says, and it only decides whether the bitrate
-# limit applies.
+# limit applies. "Update libraries" catches up and prunes the libraries the
+# viewer picks in the SQL build; in the API build it lists every library,
+# after a confirmation (plugin/actions.py update_libraries).
 HELP = {
     "sql": {},
-    "api": {"musicTranscode": "30861"},
+    "api": {"musicTranscode": "30861", "updateLibraries": "30874"},
 }
 
 

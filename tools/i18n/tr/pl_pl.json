@@ -511,5 +511,11 @@
   "#30865": "Ostatnia pełna aktualizacja",
   "#30866": "Wtyczka towarzysząca",
   "#30867": "Napraw, aby dodać informacje o kodekach",
-  "#30868": "Kodi nie może zaimportować"
+  "#30868": "Kodi nie może zaimportować",
+  "#30869": "Zaplanowana pełna aktualizacja",
+  "#30870": "Jak często ponownie odczytywać wszystkie biblioteki z serwera. Włącz, jeśli serwer nie ma wtyczki KofinSyncQueue, inaczej usunięcia nie dotrą do Kodi.",
+  "#30871": "Codziennie",
+  "#30872": "Co tydzień",
+  "#30873": "Zaktualizować teraz wszystkie biblioteki?",
+  "#30874": "Ponownie odczytuje teraz wszystkie biblioteki z serwera."
 }

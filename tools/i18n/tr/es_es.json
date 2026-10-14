@@ -511,5 +511,11 @@
   "#30865": "Última actualización completa",
   "#30866": "Complemento acompañante",
   "#30867": "Reparar para añadir los detalles de códec",
-  "#30868": "Kodi no puede importar"
+  "#30868": "Kodi no puede importar",
+  "#30869": "Actualización completa programada",
+  "#30870": "Con qué frecuencia volver a leer todas las bibliotecas del servidor. Actívalo si el servidor no tiene el complemento KofinSyncQueue; si no, las eliminaciones no llegarán a Kodi.",
+  "#30871": "Diaria",
+  "#30872": "Semanal",
+  "#30873": "¿Actualizar ahora todas las bibliotecas?",
+  "#30874": "Vuelve a leer ahora todas las bibliotecas del servidor."
 }

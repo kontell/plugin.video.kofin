@@ -511,5 +511,11 @@
   "#30865": "Letzte vollständige Aktualisierung",
   "#30866": "Companion-Add-on",
   "#30867": "Reparieren, um Codec-Details zu ergänzen",
-  "#30868": "Kodi kann nicht importieren"
+  "#30868": "Kodi kann nicht importieren",
+  "#30869": "Geplante vollständige Aktualisierung",
+  "#30870": "Wie oft alle Bibliotheken erneut vom Server gelesen werden. Schalte es ein, wenn dem Server das Plugin KofinSyncQueue fehlt, sonst erreichen Löschungen Kodi nicht.",
+  "#30871": "Täglich",
+  "#30872": "Wöchentlich",
+  "#30873": "Alle Bibliotheken jetzt aktualisieren?",
+  "#30874": "Liest jetzt alle Bibliotheken erneut vom Server."
 }

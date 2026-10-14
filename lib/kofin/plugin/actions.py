@@ -122,9 +122,20 @@ def open_settings(request: Request) -> None:
 
 
 def update_libraries(request: Request) -> None:
-    """Per-library (or all) fast-sync catch-up + prune pass (S2.10)."""
+    """Per-library (or all) fast-sync catch-up + prune pass (S2.10).
+
+    The API build lists every selected library whatever is picked (its
+    coordinator reads no ids from the command), so it asks only whether to
+    update them all now."""
+    from kofin import buildconfig
+
     whitelist = settings.get_list("librarySelection")
     if not whitelist:
+        return
+
+    if buildconfig.BACKEND == "api":
+        if xbmcgui.Dialog().yesno(settings.localized(30256), settings.localized(30873)):
+            ipc.notify(ipc.UPDATE_LIBRARY, {})
         return
 
     names = _selection_names(whitelist)

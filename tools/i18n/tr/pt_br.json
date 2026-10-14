@@ -511,5 +511,11 @@
   "#30865": "Última atualização completa",
   "#30866": "Complemento companheiro",
   "#30867": "Reparar para adicionar os detalhes de codec",
-  "#30868": "O Kodi não consegue importar"
+  "#30868": "O Kodi não consegue importar",
+  "#30869": "Atualização completa programada",
+  "#30870": "Com que frequência ler de novo todas as bibliotecas do servidor. Ative se o servidor não tiver o plugin KofinSyncQueue; caso contrário, exclusões não chegam ao Kodi.",
+  "#30871": "Diária",
+  "#30872": "Semanal",
+  "#30873": "Atualizar todas as bibliotecas agora?",
+  "#30874": "Lê de novo todas as bibliotecas do servidor agora."
 }

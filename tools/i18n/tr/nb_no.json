@@ -511,5 +511,11 @@
   "#30865": "Siste fullstendige oppdatering",
   "#30866": "Følgetillegg",
   "#30867": "Reparer for å legge til kodekdetaljer",
-  "#30868": "Kodi kan ikke importere"
+  "#30868": "Kodi kan ikke importere",
+  "#30869": "Planlagt fullstendig oppdatering",
+  "#30870": "Hvor ofte alle bibliotek leses inn fra serveren på nytt. Slå på hvis serveren mangler tillegget KofinSyncQueue, ellers når ikke slettinger Kodi.",
+  "#30871": "Daglig",
+  "#30872": "Ukentlig",
+  "#30873": "Oppdatere alle bibliotek nå?",
+  "#30874": "Leser alle bibliotek fra serveren på nytt nå."
 }

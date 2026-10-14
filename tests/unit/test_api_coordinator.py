@@ -271,6 +271,33 @@ def test_catch_up_without_a_companion_uses_the_save_date(store, monkeypatch):
     assert unix_to_watermark(0) < store.watermark()[0]
 
 
+@pytest.mark.parametrize(
+    "days, age, full",
+    [(0, 30, False), (1, 0.5, False), (1, 1.5, True), (7, 2, False), (7, 8, True)],
+)
+def test_the_scheduled_full_update_follows_the_setting(
+    store, monkeypatch, days, age, full
+):
+    """Off by default: a stale stamp is a catch-up, not a complete listing,
+    unless the viewer chose a schedule and it has run out."""
+    from kofin.sync.backends.api import library
+
+    store.set_watermark(watermark="2026-10-08T00:00:00Z", enumerated=1000.0)
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    monkeypatch.setattr(library.private, "get_sync", lambda: {"Whitelist": [LIB]})
+    monkeypatch.setattr(
+        library.settings,
+        "get_int",
+        lambda key: days if key == "fullUpdateInterval" else 0,
+    )
+    monkeypatch.setattr(library.time, "time", lambda: 1000.0 + age * library.DAY)
+    ran = []
+    monkeypatch.setattr(w, "full_sync", lambda libraries=None: ran.append("full"))
+    monkeypatch.setattr(w, "catch_up", lambda: ran.append("catch-up"))
+    w.refresh()
+    assert ran == (["full"] if full else ["catch-up"])
+
+
 def test_websocket_changes_fetch_known_items_and_defer_unknown_ones(store, monkeypatch):
     server = Server({LIB: [movie(), movie("b")]})
     store.publish([movie()], library=LIB)

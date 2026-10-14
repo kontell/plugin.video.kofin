@@ -511,5 +511,11 @@
   "#30865": "Darrera actualització completa",
   "#30866": "Complement acompanyant",
   "#30867": "Repara per afegir els detalls dels còdecs",
-  "#30868": "Kodi no pot importar"
+  "#30868": "Kodi no pot importar",
+  "#30869": "Actualització completa programada",
+  "#30870": "Cada quant es tornen a llegir totes les biblioteques del servidor. Activeu-ho si el servidor no té el connector KofinSyncQueue; si no, les supressions no arribaran a Kodi.",
+  "#30871": "Diària",
+  "#30872": "Setmanal",
+  "#30873": "Voleu actualitzar ara totes les biblioteques?",
+  "#30874": "Torna a llegir ara totes les biblioteques del servidor."
 }

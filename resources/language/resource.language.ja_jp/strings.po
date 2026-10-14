@@ -2280,6 +2280,30 @@ msgctxt "#30868"
 msgid "Kodi cannot import"
 msgstr "Kodi がインポートできない項目"
 
+msgctxt "#30869"
+msgid "Scheduled full update"
+msgstr "定期的な完全更新"
+
+msgctxt "#30870"
+msgid "How often to re-read every library from the server. Turn this on if the server lacks the KofinSyncQueue plugin, or deletions there won't reach Kodi."
+msgstr "すべてのライブラリをサーバーから読み直す頻度です。サーバーに KofinSyncQueue プラグインがない場合はオンにしてください。オフのままだと削除が Kodi に反映されません。"
+
+msgctxt "#30871"
+msgid "Daily"
+msgstr "毎日"
+
+msgctxt "#30872"
+msgid "Weekly"
+msgstr "毎週"
+
+msgctxt "#30873"
+msgid "Update all libraries now?"
+msgstr "今すぐすべてのライブラリを更新しますか？"
+
+msgctxt "#30874"
+msgid "Re-read every library from the server now."
+msgstr "今すぐすべてのライブラリをサーバーから読み直します。"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "このプレビュー版では利用できません"

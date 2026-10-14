@@ -2280,6 +2280,30 @@ msgctxt "#30868"
 msgid "Kodi cannot import"
 msgstr "Kodi 无法导入"
 
+msgctxt "#30869"
+msgid "Scheduled full update"
+msgstr "定期完整更新"
+
+msgctxt "#30870"
+msgid "How often to re-read every library from the server. Turn this on if the server lacks the KofinSyncQueue plugin, or deletions there won't reach Kodi."
+msgstr "从服务器重新读取所有媒体库的频率。如果服务器没有 KofinSyncQueue 插件，请开启此项，否则删除不会同步到 Kodi。"
+
+msgctxt "#30871"
+msgid "Daily"
+msgstr "每天"
+
+msgctxt "#30872"
+msgid "Weekly"
+msgstr "每周"
+
+msgctxt "#30873"
+msgid "Update all libraries now?"
+msgstr "立即更新所有媒体库？"
+
+msgctxt "#30874"
+msgid "Re-read every library from the server now."
+msgstr "立即从服务器重新读取所有媒体库。"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "此预览版暂不支持"
