@@ -598,6 +598,18 @@ What remains is kofin's own:
   re-published item, never under Repair, whose point is the compare. Anything new that
   `details` reads must join the token or the short-circuit will keep a stale state: the
   art query was missing from it, so a moved cap would have frozen every old art URL.
+- **The payload hash leaves out `UserData.Key`** (`store.payload_hash`). Jellyfin answers
+  an album's key with the one its user data was saved under or with its release group's,
+  depending on its user data cache, so the hash moved for the same 30 albums between
+  enumerations and every repair rewrote them unchanged. `store.hash_matches` still accepts
+  the whole-payload digest older acknowledgements carry; refusing it would have the next
+  repair rewrite every row once. A hash that moves for a field no desired state reads is a
+  rewrite of every such row on every repair.
+- **A complete enumeration on a clock is opt-in** (`fullUpdateInterval`, days, off by
+  default; `library.full_interval`). A first listing, Update library and a sync-queue
+  retention overrun still list everything. Without KofinSyncQueue the catch-up reads save
+  dates and sees no deletion, so on such a server a removed item leaves Kodi only through
+  the schedule or Update library — the setting's help says so.
 - **The first-run gate refuses what an earlier Kofin filed, and nothing else**
   (`Native.setup`, `native.LEFTOVERS`). Those rows are in no catalogue, so an import beside
   them files every item twice. They are told by where they are filed: video, and songs the SQL
