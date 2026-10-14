@@ -1,3 +1,8 @@
+v0.93.5
+- Scheduled full update setting, off by default.
+- Update libraries asks once, then updates every library.
+- Albums are no longer rewritten after every full update.
+
 v0.93.4
 - A profile that already has a local library, or another add-on's, can be synced; only an earlier Kofin library has to be removed first.
 - Less load on Kodi during a music import.

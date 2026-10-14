@@ -511,5 +511,11 @@
   "#30865": "Dernière mise à jour complète",
   "#30866": "Extension compagnon",
   "#30867": "Réparer pour ajouter les détails des codecs",
-  "#30868": "Kodi ne peut pas importer"
+  "#30868": "Kodi ne peut pas importer",
+  "#30869": "Mise à jour complète planifiée",
+  "#30870": "Fréquence de relecture de toutes les bibliothèques depuis le serveur. Activez-la si le serveur n'a pas le plugin KofinSyncQueue, sinon les suppressions n'atteindront pas Kodi.",
+  "#30871": "Quotidienne",
+  "#30872": "Hebdomadaire",
+  "#30873": "Mettre à jour toutes les bibliothèques maintenant ?",
+  "#30874": "Relit maintenant toutes les bibliothèques depuis le serveur."
 }

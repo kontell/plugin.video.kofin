@@ -1047,9 +1047,12 @@ def test_show_names_come_from_the_id_map_and_kodi_over_jsonrpc(monkeypatch, tmp_
 # --- update libraries (P1.11: previously uncalled) ----------------------------
 
 
-def _update_wired(monkeypatch, picked):
+def _update_wired(monkeypatch, picked, backend="sql", confirm=True):
+    from kofin import buildconfig
+
+    monkeypatch.setattr(buildconfig, "BACKEND", backend)
     sent = []
-    dialog = FakeDialog(multiselect=picked)
+    dialog = FakeDialog(multiselect=picked, yesno=confirm)
     monkeypatch.setattr(actions.settings, "get_list", lambda key: ["lib1", "lib2"])
     monkeypatch.setattr(actions.settings, "localized", lambda i: "L%d" % i)
     monkeypatch.setattr(actions, "_selection_names", lambda ids: ["One", "Two"])
@@ -1083,3 +1086,24 @@ def test_update_libraries_cancelled_sends_nothing(monkeypatch):
     actions.update_libraries(actions.Request("plugin://x", -1, {}))
 
     assert sent == []
+
+
+def test_api_update_libraries_confirms_and_updates_them_all(monkeypatch):
+    """The API coordinator lists every selected library whatever is picked,
+    so the API build asks one question and offers no list."""
+    sent, dialog = _update_wired(monkeypatch, None, backend="api")
+
+    actions.update_libraries(actions.Request("plugin://x", -1, {}))
+
+    assert sent == [(actions.ipc.UPDATE_LIBRARY, {})]
+    assert dialog.yesnos == [("L30256", "L30873")]
+    assert dialog.multiselects == []
+
+
+def test_api_update_libraries_declined_sends_nothing(monkeypatch):
+    sent, dialog = _update_wired(monkeypatch, None, backend="api", confirm=False)
+
+    actions.update_libraries(actions.Request("plugin://x", -1, {}))
+
+    assert sent == []
+    assert dialog.multiselects == []

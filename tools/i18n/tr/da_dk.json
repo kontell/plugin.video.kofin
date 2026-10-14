@@ -511,5 +511,11 @@
   "#30865": "Seneste fulde opdatering",
   "#30866": "Følgetilføjelse",
   "#30867": "Reparer for at tilføje codec-oplysninger",
-  "#30868": "Kodi kan ikke importere"
+  "#30868": "Kodi kan ikke importere",
+  "#30869": "Planlagt fuld opdatering",
+  "#30870": "Hvor ofte alle biblioteker læses fra serveren igen. Slå til, hvis serveren mangler pluginet KofinSyncQueue, ellers når sletninger ikke Kodi.",
+  "#30871": "Dagligt",
+  "#30872": "Ugentligt",
+  "#30873": "Opdater alle biblioteker nu?",
+  "#30874": "Læser alle biblioteker fra serveren igen nu."
 }

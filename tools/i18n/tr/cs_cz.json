@@ -511,5 +511,11 @@
   "#30865": "Poslední úplná aktualizace",
   "#30866": "Doprovodný doplněk",
   "#30867": "Opravit pro doplnění údajů o kodecích",
-  "#30868": "Kodi nedokáže importovat"
+  "#30868": "Kodi nedokáže importovat",
+  "#30869": "Plánovaná úplná aktualizace",
+  "#30870": "Jak často znovu načíst všechny knihovny ze serveru. Zapněte, pokud server nemá plugin KofinSyncQueue, jinak se smazání do Kodi nedostanou.",
+  "#30871": "Denně",
+  "#30872": "Týdně",
+  "#30873": "Aktualizovat nyní všechny knihovny?",
+  "#30874": "Nyní znovu načte všechny knihovny ze serveru."
 }

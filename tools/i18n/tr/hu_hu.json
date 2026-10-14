@@ -511,5 +511,11 @@
   "#30865": "Utolsó teljes frissítés",
   "#30866": "Társkiegészítő",
   "#30867": "Javítás a kodekadatok hozzáadásához",
-  "#30868": "A Kodi nem tudja importálni"
+  "#30868": "A Kodi nem tudja importálni",
+  "#30869": "Ütemezett teljes frissítés",
+  "#30870": "Milyen gyakran olvassa be újra az összes médiatárat a kiszolgálóról. Kapcsolja be, ha a kiszolgálón nincs KofinSyncQueue bővítmény, különben a törlések nem jutnak el a Kodiba.",
+  "#30871": "Naponta",
+  "#30872": "Hetente",
+  "#30873": "Frissíti most az összes médiatárat?",
+  "#30874": "Most újraolvassa az összes médiatárat a kiszolgálóról."
 }

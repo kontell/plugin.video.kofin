@@ -2280,6 +2280,30 @@ msgctxt "#30868"
 msgid "Kodi cannot import"
 msgstr "Kodi nedokáže importovať"
 
+msgctxt "#30869"
+msgid "Scheduled full update"
+msgstr "Plánovaná úplná aktualizácia"
+
+msgctxt "#30870"
+msgid "How often to re-read every library from the server. Turn this on if the server lacks the KofinSyncQueue plugin, or deletions there won't reach Kodi."
+msgstr "Ako často znova načítať všetky knižnice zo servera. Zapnite, ak server nemá plugin KofinSyncQueue, inak sa odstránenia do Kodi nedostanú."
+
+msgctxt "#30871"
+msgid "Daily"
+msgstr "Denne"
+
+msgctxt "#30872"
+msgid "Weekly"
+msgstr "Týždenne"
+
+msgctxt "#30873"
+msgid "Update all libraries now?"
+msgstr "Aktualizovať teraz všetky knižnice?"
+
+msgctxt "#30874"
+msgid "Re-read every library from the server now."
+msgstr "Teraz znova načíta všetky knižnice zo servera."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "V tejto skúšobnej verzii nie je dostupné"

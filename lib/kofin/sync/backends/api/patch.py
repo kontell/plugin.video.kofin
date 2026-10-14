@@ -35,7 +35,7 @@ from .kinds import (
 from .readback import artist_key
 from .records import Record
 from . import downloaded
-from .store import Mapping, payload_hash
+from .store import Mapping, hash_matches, payload_hash
 
 LOG = Logger(__name__)
 
@@ -524,7 +524,7 @@ class Applier:
             and kind != "BoxSet"
             and mapping is not None
             and mapping.kodi_id == kodi_id
-            and previous.get("hash") == payload
+            and hash_matches(previous.get("hash"), record.item)
             and previous.get("inputs") == inputs
         ):
             # The desired state this payload and these inputs produce was
@@ -596,7 +596,9 @@ class Applier:
             # a first import re-wrote all 6,200 of its rows (a tablet spent
             # an hour on it).
             and (
-                not repair or mapping is None or previous.get("hash") == applied["hash"]
+                not repair
+                or mapping is None
+                or hash_matches(previous.get("hash"), record.item)
             )
         ):
             self.ack(record.item_id, record.generation, kodi_id, applied, kind)
@@ -661,7 +663,7 @@ class Applier:
             # them ever played.
             or not repair
             or mapping is None
-            or previous.get("hash") == applied["hash"]
+            or hash_matches(previous.get("hash"), record.item)
         ):
             self.ack(record.item_id, record.generation, kodi_id, applied, kind)
             return None

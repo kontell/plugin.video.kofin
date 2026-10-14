@@ -54,8 +54,37 @@ def encode(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+def _digest(value):
+    return hashlib.sha256(encode(value).encode()).hexdigest()[:24]
+
+
 def payload_hash(payload):
-    return hashlib.sha256(encode(payload).encode()).hexdigest()[:24]
+    """The payload's digest, without ``UserData.Key``.
+
+    The key names the row Jellyfin keeps the user's data under, not anything
+    about the item, and the server does not give one answer for it: an album
+    whose data was saved under ``<artist>-<album>`` before its MusicBrainz
+    release group was known answers with that key or with the release
+    group's, depending on Jellyfin's user data cache (the single-item and
+    list endpoints disagreed, minutes apart). In the digest it moved 30
+    album hashes between one complete enumeration and the next, and the
+    repair pass after each rewrote all 30 with what they already held."""
+    userdata = payload.get("UserData") if isinstance(payload, dict) else None
+    if isinstance(userdata, dict) and "Key" in userdata:
+        payload = dict(
+            payload, UserData={k: v for k, v in userdata.items() if k != "Key"}
+        )
+    return _digest(payload)
+
+
+def hash_matches(acknowledged, payload) -> bool:
+    """Whether an acknowledged digest is this payload's. One made before the
+    key left the digest is of the whole payload, and still counts: refusing
+    it would have the next repair rewrite every row once."""
+    return bool(acknowledged) and acknowledged in (
+        payload_hash(payload),
+        _digest(payload),
+    )
 
 
 def tombstone(kind, item_id):

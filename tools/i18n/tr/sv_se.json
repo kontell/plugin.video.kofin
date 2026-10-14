@@ -511,5 +511,11 @@
   "#30865": "Senaste fullständiga uppdatering",
   "#30866": "Hjälptillägg",
   "#30867": "Reparera för att lägga till codec-uppgifter",
-  "#30868": "Kodi kan inte importera"
+  "#30868": "Kodi kan inte importera",
+  "#30869": "Schemalagd fullständig uppdatering",
+  "#30870": "Hur ofta alla bibliotek läses in från servern igen. Slå på om servern saknar tillägget KofinSyncQueue, annars når borttagningar inte Kodi.",
+  "#30871": "Dagligen",
+  "#30872": "Varje vecka",
+  "#30873": "Uppdatera alla bibliotek nu?",
+  "#30874": "Läser in alla bibliotek från servern igen nu."
 }

@@ -2280,6 +2280,30 @@ msgctxt "#30868"
 msgid "Kodi cannot import"
 msgstr "Kodi не може імпортувати"
 
+msgctxt "#30869"
+msgid "Scheduled full update"
+msgstr "Планове повне оновлення"
+
+msgctxt "#30870"
+msgid "How often to re-read every library from the server. Turn this on if the server lacks the KofinSyncQueue plugin, or deletions there won't reach Kodi."
+msgstr "Як часто заново зчитувати всі медіатеки із сервера. Увімкніть, якщо на сервері немає плагіна KofinSyncQueue, інакше видалення не потраплять у Kodi."
+
+msgctxt "#30871"
+msgid "Daily"
+msgstr "Щодня"
+
+msgctxt "#30872"
+msgid "Weekly"
+msgstr "Щотижня"
+
+msgctxt "#30873"
+msgid "Update all libraries now?"
+msgstr "Оновити всі медіатеки зараз?"
+
+msgctxt "#30874"
+msgid "Re-read every library from the server now."
+msgstr "Зараз заново зчитує всі медіатеки із сервера."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Недоступно в цій тестовій версії"

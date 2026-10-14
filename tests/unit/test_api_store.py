@@ -125,3 +125,19 @@ def test_payload_window_holds_a_bounded_number_of_payloads(store):
     assert window.reads == 6
     assert window("m000")["Id"] == "m000"
     assert window.reads == 7
+
+
+def test_payload_hash_leaves_out_the_user_data_key():
+    from kofin.sync.backends.api.store import _digest, hash_matches, payload_hash
+
+    stored = {"Id": "x", "UserData": {"Key": "Band-Record", "PlayCount": 1}}
+    keyed = dict(stored, UserData={"Key": "MusicAlbum-rg", "PlayCount": 1})
+    played = dict(stored, UserData={"Key": "Band-Record", "PlayCount": 2})
+    assert payload_hash(stored) == payload_hash(keyed)
+    assert payload_hash(stored) != payload_hash(played)
+    # The digest acknowledgements carried before is still this payload's;
+    # one of another payload, or none, is not.
+    assert hash_matches(_digest(stored), stored)
+    assert hash_matches(payload_hash(keyed), stored)
+    assert not hash_matches(_digest(keyed), stored)
+    assert not hash_matches("", stored)

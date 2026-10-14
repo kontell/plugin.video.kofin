@@ -511,5 +511,11 @@
   "#30865": "Ultimo aggiornamento completo",
   "#30866": "Add-on companion",
   "#30867": "Ripara per aggiungere i dettagli dei codec",
-  "#30868": "Kodi non può importare"
+  "#30868": "Kodi non può importare",
+  "#30869": "Aggiornamento completo pianificato",
+  "#30870": "Ogni quanto rileggere tutte le librerie dal server. Attivalo se il server non ha il plugin KofinSyncQueue, altrimenti le eliminazioni non arrivano a Kodi.",
+  "#30871": "Giornaliero",
+  "#30872": "Settimanale",
+  "#30873": "Aggiornare ora tutte le librerie?",
+  "#30874": "Rilegge ora tutte le librerie dal server."
 }

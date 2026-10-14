@@ -2,8 +2,9 @@
 
 One worker serializes publication and native jobs. Callbacks enqueue intent
 and never wait on Kodi scans. A complete enumeration -- startup without a
-watermark, Update library, the daily pass -- is the only listing that may
-imply deletion; between passes the websocket and a watermarked catch-up on
+watermark, Update library, a sync-queue retention overrun, the scheduled full
+update when one is set -- is the only listing that may imply deletion;
+between passes the websocket and a watermarked catch-up on
 the shared change-feed contract carry the changes. Native operations already
 published are replayed even if Jellyfin is offline.
 """
@@ -51,10 +52,23 @@ MUSIC_FIELDS = (
 )
 MUSIC_KINDS = ("MusicArtist", "MusicAlbum", "Audio")
 CHANGEFEED_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music")
-# Between the websocket and the companion feed the catch-up is a safety net;
-# a full enumeration is a daily event, not a timer.
+# Between the websocket and the companion feed the catch-up is a safety net.
+# A full enumeration on a clock is the viewer's choice (fullUpdateInterval,
+# in days, 0 for none): in four days of logs on three devices the daily one
+# found nothing the websocket and the sync queue had not carried but a cast
+# member's new portrait, and its repair pass rewrote rows that had not
+# changed. Without the sync queue the catch-up reads save dates and cannot
+# see a deletion, which is what the setting's help says.
 CATCHUP_INTERVAL = 1800
-FULL_INTERVAL = 86400
+DAY = 86400
+
+
+def full_interval() -> Optional[float]:
+    """Seconds between scheduled complete enumerations, or None for none."""
+    days = settings.get_int("fullUpdateInterval")
+    return days * DAY if days > 0 else None
+
+
 PAGE = 200
 # A song's DTO is a tenth of a movie's; 22,000 of them in pages of 200 is
 # 112 round trips for what 45 can carry.
@@ -518,8 +532,8 @@ class Library(threading.Thread):
         if (
             self._full_due
             or not enumerated
-            or time.time() - enumerated >= FULL_INTERVAL
             or not watermark
+            or self._schedule_due(enumerated)
         ):
             # Advance before the call so failure gets a bounded retry rather
             # than keeping the already-expired deadline on every tick.
@@ -542,6 +556,11 @@ class Library(threading.Thread):
             self._catchup_due = time.monotonic() + 30
             self.catch_up()
             self._catchup_due = time.monotonic() + CATCHUP_INTERVAL
+
+    @staticmethod
+    def _schedule_due(enumerated) -> bool:
+        interval = full_interval()
+        return interval is not None and time.time() - enumerated >= interval
 
     # -- enumeration -----------------------------------------------------------------
 

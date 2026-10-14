@@ -511,5 +511,11 @@
   "#30865": "Viimeisin täysi päivitys",
   "#30866": "Apulisäosa",
   "#30867": "Korjaa lisätäksesi koodekkitiedot",
-  "#30868": "Kodi ei voi tuoda"
+  "#30868": "Kodi ei voi tuoda",
+  "#30869": "Ajoitettu täysi päivitys",
+  "#30870": "Kuinka usein kaikki kirjastot luetaan palvelimelta uudelleen. Ota käyttöön, jos palvelimella ei ole KofinSyncQueue-laajennusta, muuten poistot eivät näy Kodissa.",
+  "#30871": "Päivittäin",
+  "#30872": "Viikoittain",
+  "#30873": "Päivitetäänkö kaikki kirjastot nyt?",
+  "#30874": "Lukee nyt kaikki kirjastot palvelimelta uudelleen."
 }

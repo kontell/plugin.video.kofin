@@ -565,5 +565,11 @@
   "#30866": "Companion add-on",
   "#30867": "Repair to add codec details",
   "#30868": "Kodi cannot import",
+  "#30869": "Scheduled full update",
+  "#30870": "How often to re-read every library from the server. Turn this on if the server lacks the KofinSyncQueue plugin, or deletions there won't reach Kodi.",
+  "#30871": "Daily",
+  "#30872": "Weekly",
+  "#30873": "Update all libraries now?",
+  "#30874": "Re-read every library from the server now.",
   "#30990": "Not available in this preview"
 }

@@ -511,5 +511,11 @@
   "#30865": "Ultima actualizare completă",
   "#30866": "Supliment companion",
   "#30867": "Repară pentru a adăuga detaliile codecurilor",
-  "#30868": "Kodi nu poate importa"
+  "#30868": "Kodi nu poate importa",
+  "#30869": "Actualizare completă programată",
+  "#30870": "Cât de des se recitesc toate bibliotecile de pe server. Activați dacă serverul nu are pluginul KofinSyncQueue, altfel ștergerile nu ajung în Kodi.",
+  "#30871": "Zilnic",
+  "#30872": "Săptămânal",
+  "#30873": "Actualizați acum toate bibliotecile?",
+  "#30874": "Recitește acum toate bibliotecile de pe server."
 }

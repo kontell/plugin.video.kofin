@@ -511,5 +511,11 @@
   "#30865": "Laatste volledige update",
   "#30866": "Companion-add-on",
   "#30867": "Repareer om codecdetails toe te voegen",
-  "#30868": "Kodi kan niet importeren"
+  "#30868": "Kodi kan niet importeren",
+  "#30869": "Geplande volledige update",
+  "#30870": "Hoe vaak alle bibliotheken opnieuw van de server worden gelezen. Zet dit aan als de server de plug-in KofinSyncQueue niet heeft, anders bereiken verwijderingen Kodi niet.",
+  "#30871": "Dagelijks",
+  "#30872": "Wekelijks",
+  "#30873": "Alle bibliotheken nu bijwerken?",
+  "#30874": "Leest nu alle bibliotheken opnieuw van de server."
 }
