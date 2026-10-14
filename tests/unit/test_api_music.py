@@ -119,6 +119,48 @@ def test_a_repair_sends_nothing_for_a_song_whose_userdata_matches(store, backend
     assert not store.pending()
 
 
+def test_a_repair_sends_nothing_for_an_album_whose_userdata_key_moved(
+    store, backend, kodi
+):
+    """Jellyfin answers an album's UserData.Key with the key its user data
+    was saved under or with its release group's, depending on its cache. No
+    desired state reads the key, and a repair that hashed it rewrote the same
+    thirty albums after every complete enumeration."""
+    items = album_bundle(songs=2)
+    items[1]["UserData"] = {"Key": "Band-Record", "PlayCount": 0, "Played": False}
+    store.publish(items, library=LIB)
+    backend.reconcile()
+    kodi.calls.clear()
+    kodi.music_scanned.clear()
+    kodi.music_folders.clear()
+    key = "MusicAlbum-MusicBrainzReleaseGroup-rg"
+    store.publish([dict(items[1], UserData=dict(items[1]["UserData"], Key=key))])
+    backend.reconcile(repair=True)
+    assert not methods(kodi, "AudioLibrary.SetAlbumDetails")
+    assert not store.pending()
+
+
+def test_an_acknowledgement_of_the_whole_payload_still_counts(store, backend, kodi):
+    """Rows acknowledged before the key left the digest carry the whole
+    payload's: refused, the first repair would rewrite every album."""
+    from kofin.sync.backends.api.store import _digest, payload_hash
+
+    items = album_bundle(songs=2)
+    items[1]["UserData"] = {"Key": "Band-Record", "PlayCount": 0, "Played": False}
+    store.publish(items, library=LIB)
+    backend.reconcile()
+    record = store.records(pinned=False)[ALBUM]
+    mapping = store.mapping(ALBUM)
+    legacy = dict(mapping.applied, hash=_digest(record.item))
+    assert store.remember(ALBUM, record.generation, mapping.kodi_id, legacy)
+    kodi.calls.clear()
+    kodi.music_scanned.clear()
+    kodi.music_folders.clear()
+    backend.reconcile(repair=True)
+    assert not methods(kodi, "AudioLibrary.SetAlbumDetails")
+    assert store.mapping(ALBUM).applied["hash"] == payload_hash(record.item)
+
+
 def test_a_first_import_reads_no_song_payload_to_pick_its_directories(
     store, backend, kodi, monkeypatch
 ):
