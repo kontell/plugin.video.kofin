@@ -2093,3 +2093,80 @@ def test_kofins_own_sender_never_reaches_the_contract_arm(monkeypatch, tmp_path)
     )
 
     assert recorder.calls == []
+
+
+def test_start_queue_ipc_starts_the_music_playlist_after_a_moment(monkeypatch):
+    """Play all's request is answered once the plugin script that sent it has
+    ended, so Kodi resolves the first track in the interpreter it keeps
+    warm rather than in a cold one (ipc.START_QUEUE)."""
+    import threading
+
+    import xbmc
+
+    from kofin.service import main
+
+    service = Service()
+    calls = []
+    started = threading.Event()
+
+    def call(method, params=None):
+        calls.append((method, params))
+        started.set()
+        return "OK"
+
+    class Queue:
+        sizes = iter([0, 1, 2])
+
+        def __init__(self, kind):
+            assert kind == xbmc.PLAYLIST_MUSIC
+
+        def size(self):
+            return next(Queue.sizes, 2)
+
+    monkeypatch.setattr(main.kodirpc, "call", call)
+    monkeypatch.setattr(main.xbmc, "PlayList", Queue)
+    monkeypatch.setattr(main, "QUEUE_START_DELAY", 0.05)
+    # Sent before the plugin adds the tracks: started once they are there.
+    service.onNotification(ipc.SENDER, "Other.StartQueue", '[{"Count": 2}]')
+    assert calls == []  # not on the notification thread
+    assert started.wait(timeout=2)
+    assert calls == [
+        ("Player.Open", {"item": {"playlistid": xbmc.PLAYLIST_MUSIC, "position": 0}})
+    ]
+
+
+def test_a_stopping_service_starts_no_queue(monkeypatch):
+    from kofin.service import main
+
+    service = Service()
+    calls = []
+    monkeypatch.setattr(main.kodirpc, "call", lambda *a: calls.append(a))
+    service._stopping.set()
+    service._start_queue(0)
+    assert calls == []
+
+
+def test_a_queue_that_never_fills_is_started_after_the_timeout(monkeypatch):
+    import xbmc
+
+    from kofin.service import main
+
+    service = Service()
+    calls = []
+    monkeypatch.setattr(
+        main.kodirpc, "call", lambda method, params=None: calls.append(method)
+    )
+
+    class Queue:
+        def __init__(self, kind):
+            pass
+
+        def size(self):
+            return 1
+
+    monkeypatch.setattr(main.xbmc, "PlayList", Queue)
+    monkeypatch.setattr(main, "QUEUE_FILL_TIMEOUT", 0.1)
+    monkeypatch.setattr(main, "QUEUE_START_DELAY", 0.0)
+    service._start_queue(5)
+    assert calls == ["Player.Open"]
+    assert xbmc.PLAYLIST_MUSIC == 0

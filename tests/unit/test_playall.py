@@ -94,6 +94,15 @@ def kodi(monkeypatch):
     monkeypatch.setattr(playall.xbmc, "PlayList", FakePlaylist)
     monkeypatch.setattr(playall.xbmc, "Player", FakePlayer)
     events = []
+
+    def notify_now(method, data=None):
+        events.append(method)
+        # What the queue held when the request went: it must go first.
+        queued = FakePlaylist.instances[-1].entries if FakePlaylist.instances else []
+        events.append(("asked", dict(data or {}), len(queued)))
+        return True
+
+    monkeypatch.setattr(playall.ipc, "notify_now", notify_now)
     monkeypatch.setattr(playall, "stop_current_playback", lambda: events.append("stop"))
     monkeypatch.setattr(playall.toast, "show", lambda *a, **k: events.append("toast"))
     return events
@@ -128,8 +137,29 @@ def test_an_album_plays_in_disc_and_track_order(monkeypatch, kodi):
         "plugin://plugin.video.kofin/?mode=play&id=t3",
     ]
     assert all(li is not None for _url, li in playlist.entries)
-    assert kodi == ["stop"]  # stopped before the hand-over, nothing toasted
-    assert FakePlayer.played == [playlist]
+    # Stopped before the hand-over, nothing toasted, and the start left to
+    # the service, asked before the first track was added.
+    assert kodi == ["stop", "StartQueue", ("asked", {"Count": 3}, 0)]
+    assert FakePlayer.played == []
+
+
+def test_the_service_starts_the_queue_so_the_first_track_finds_a_warm_interpreter(
+    monkeypatch, kodi
+):
+    """Player().play returns only after Kodi has resolved the first track,
+    and that resolve then needs an interpreter other than the one this
+    script holds: a cold one, 10 s of a 13 s start on a Raspberry Pi 3."""
+    api = ContainerApi({"Id": "al1", "Type": "MusicAlbum"}, TRACKS)
+    _play(monkeypatch, api)
+    assert "StartQueue" in kodi
+    assert FakePlayer.played == []
+
+
+def test_a_refused_request_starts_the_queue_here(monkeypatch, kodi):
+    monkeypatch.setattr(playall.ipc, "notify_now", lambda method, data=None: False)
+    api = ContainerApi({"Id": "al1", "Type": "MusicAlbum"}, TRACKS)
+    _play(monkeypatch, api)
+    assert FakePlayer.played == [FakePlaylist.instances[-1]]
 
 
 def test_shuffle_asks_the_server_for_a_random_order(monkeypatch):
@@ -201,7 +231,7 @@ def test_nothing_playable_queues_nothing(monkeypatch, kodi):
     _play(monkeypatch, api)
     assert FakePlaylist.instances == []
     assert FakePlayer.played == []
-    assert kodi == []
+    assert kodi == []  # no stop and no start either
 
 
 def test_a_video_container_is_refused(monkeypatch, kodi):
