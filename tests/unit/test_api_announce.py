@@ -280,3 +280,37 @@ def test_the_playlists_pass_reconciles_the_download_subscriptions(store, monkeyp
     monkeypatch.setattr(library.api_playlists, "apply", lambda api, s, i: None)
     w.command("SyncPlaylists", {"Id": "pl1"})
     assert calls[-1] == "pl1"
+
+
+def test_over_the_limit_every_item_is_offered_to_the_downloads(
+    store, monkeypatch, toasts
+):
+    """The cap is the toast's alone: an item dropped before the downloads saw
+    it would never come back, since the catalogue then holds it."""
+    monkeypatch.setattr(announce, "LIMIT", 2)
+    w, _ = _caught_up(
+        store,
+        monkeypatch,
+        [movie()],
+        [("b", "Added", LIB), ("c", "Added", LIB)],
+        libraries={LIB: [movie(), movie("b"), movie("c"), movie("d")]},
+    )
+    w.catch_up()
+    from kofin.sync.changefeed import ChangeRecord
+
+    w.changefeed.records = [ChangeRecord("d", "Added", library_ids=[LIB])]
+    w.catch_up()
+    assert set(w.arrivals.arriving) == {"b", "c", "d"}
+    _file(store, "b", "c", "d")
+    playing = [True]
+    w.player = SimpleNamespace(
+        isPlayingVideo=lambda: playing[0], current_item=lambda: None
+    )
+    monkeypatch.setattr(announce.xbmc, "getCondVisibility", lambda _: False)
+    w.announce_new_content()
+    assert sorted(toasts.queued[0]) == ["b", "c", "d"]
+    # Held for the video, the toast keeps the last two.
+    assert [e.item_id for e in w.arrivals.backlog] == ["c", "d"]
+    playing[0] = False
+    w.announce_new_content()
+    assert toasts.shown == ["2 movies added to library"]
