@@ -39,8 +39,11 @@ class Arrivals:
         self.arriving: Dict[str, newcontent.Entry] = {}
         # Filed, not announced yet.
         self.backlog: List[newcontent.Entry] = []
-        # New songs, not filed yet: item id -> library. Never announced (an
-        # album says it arrived) but claimed for a subscribed music library.
+        # New songs, not filed or not claimed yet: item id -> library. Never
+        # announced (an album says it arrived) but claimed for a subscribed
+        # music library. Not capped, as the SQL build's new_song_entries is
+        # not: a song dropped here is in the catalogue and never offered
+        # again.
         self.songs: Dict[str, str] = {}
 
     def published(
@@ -111,7 +114,10 @@ class Arrivals:
         try:
             subscriptions.claim_library_songs(filed)
         except Exception:
+            # Asked again on the next flush: the catalogue holds these now,
+            # and no later catch-up would offer them again.
             LOG.exception("music-library subscription claim failed")
+            self.songs.update(filed)
 
     def _announce(self, player) -> None:
         if not self.backlog:
