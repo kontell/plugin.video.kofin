@@ -557,6 +557,10 @@ STAMP = "%Y-%m-%d %H:%M:%S"
 # the same play: the server stamps a play when it starts and Kodi when it
 # ends, so the two differ by the length of what was played, pauses included.
 SAME_PLAY = 6 * 3600
+# How much earlier than the server's a stamp of Kodi's own may be and still
+# be the same play. Kodi stamps a song when it ends, the server when kofin
+# reports the stop a moment later.
+STOP_REPORT = 10
 
 
 def same_play(actual: str, wanted: str) -> bool:
@@ -564,7 +568,13 @@ def same_play(actual: str, wanted: str) -> bool:
     server's. Equal stamps do, and so does one of Kodi's that is later by
     no more than a sitting: written back to the server's earlier one, every
     song played here cost a setter twenty seconds after it ended, and a
-    song's setter rewrites its date added."""
+    song's setter rewrites its date added.
+
+    So does one of Kodi's that is earlier by no more than the stop report.
+    Kodi stamps a song as it ends, and the server stamps the stop kofin
+    reports right after it: the last song of an album, which nothing
+    follows, was 0.3 s behind it, a second by the clock, and was rewritten
+    a second later, a setter and a widget refresh after the album ended."""
     if actual == wanted:
         return True
     if not actual or not wanted:
@@ -575,7 +585,7 @@ def same_play(actual: str, wanted: str) -> bool:
         ).total_seconds()
     except ValueError:
         return False
-    return 0 <= ahead <= SAME_PLAY
+    return -STOP_REPORT <= ahead <= SAME_PLAY
 
 
 def own_art(item, server) -> Dict[str, str]:

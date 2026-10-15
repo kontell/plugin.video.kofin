@@ -398,7 +398,8 @@ What remains is kofin's own:
   (`release_userdata`); the last event heard may be a progress report. The other three
   halves of the same fix: the watched mark goes to the server and never Kodi's count
   (`flush_local`), a count that only grew is not a local edit (`patch.local_edits`), and a
-  stamp of Kodi's own up to six hours later than the server's is the same play
+  stamp of Kodi's own up to six hours later than the server's, or up to ten seconds earlier
+  (the stop report that follows Kodi's own stamp of a song's end), is the same play
   (`metadata.same_play`). `tests/live/userdata_matrix.py` is the gate, on scratch libraries.
 - **The play-state outbox never stops at one edit, and an edit of an item the server no
   longer has is dropped** (`Library.flush_local`). Flushed in order and stopped at the first

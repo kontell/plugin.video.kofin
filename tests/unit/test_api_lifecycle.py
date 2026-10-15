@@ -1651,6 +1651,11 @@ def test_a_later_stamp_of_kodis_own_is_the_same_play():
     assert same("2026-10-12 14:24:08", "2026-10-12 14:24:08")
     # The server's is the later one: played somewhere else since.
     assert not same("2026-10-12 14:24:08", "2026-10-12 14:24:33")
+    # Later by the stop report alone: Kodi stamps the end of a song and the
+    # server the stop kofin sends after it.
+    assert same("2026-10-15 13:41:53", "2026-10-15 13:41:54")
+    assert same("2026-10-15 13:41:44", "2026-10-15 13:41:54")
+    assert not same("2026-10-15 13:41:43", "2026-10-15 13:41:54")
     # Not a sitting apart: a stamp Kodi made up on the day of an import
     # against a play of years ago.
     assert not same("2026-10-12 14:24:33", "2019-03-01 20:00:00")
