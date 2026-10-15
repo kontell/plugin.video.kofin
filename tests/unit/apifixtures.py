@@ -9,7 +9,7 @@ import pytest
 
 from kofin.core import kodirpc
 from kofin.sync import private
-from kofin.sync.backends.api import companion, native
+from kofin.sync.backends.api import announce, companion, native
 from kofin.sync.backends.api.library import Library
 from kofin.sync.backends.api.native import Native
 from kofin.sync.backends.api.store import Store, namespace
@@ -387,6 +387,7 @@ def worker(store, server, selected, monkeypatch, feed=None):
     w._rebuilding = set()
     w._first_attended = False
     w._held_userdata = {}
+    w.arrivals = announce.Arrivals()
     w._queue = queue.Queue()
     selections = (
         selected

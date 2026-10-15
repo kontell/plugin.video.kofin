@@ -22,8 +22,10 @@ from kofin.sync import newcontent
 LOG = Logger(__name__)
 
 # The SQL build's numbers (sync/library.py NEW_CONTENT_LIMIT and
-# NEW_CONTENT_TIME): what is held at most, the oldest dropped first, and how
-# long a toast stays up.
+# NEW_CONTENT_TIME): how many filed items wait for a toast at most, the
+# oldest dropped first, and how long a toast stays up. Nothing caps what is
+# not filed yet: an item dropped there would never reach the downloads, and
+# the next catch-up finds it in the catalogue and does not offer it again.
 LIMIT = 500
 TOAST_MS = 5000
 
@@ -48,8 +50,6 @@ class Arrivals:
             entry = newcontent.entry_for(item)
             if entry is not None and entry.type in newcontent.ANNOUNCED:
                 self.arriving[entry.item_id] = entry
-        while len(self.arriving) > LIMIT:
-            self.arriving.pop(next(iter(self.arriving)))
 
     def flush(self, store, api, player) -> None:
         """Hand what the pass has filed to the downloads, and announce it
