@@ -168,7 +168,39 @@ class Store(Catalogue):
                 namespace TEXT NOT NULL, library TEXT NOT NULL,
                 scanner INTEGER NOT NULL,
                 PRIMARY KEY(namespace,library));
+            CREATE TABLE IF NOT EXISTS api_cleaning(
+                namespace TEXT PRIMARY KEY, library TEXT NOT NULL);
         """)
+
+    # -- the library Kodi's clean is removing ---------------------------------
+
+    def set_cleaning(self, library: Optional[str]):
+        """Name the library whose removal Kodi's clean is running, or none.
+
+        The provider answers the clean (provider.exists), in another
+        process: a tombstone is "gone" only for this library while it is
+        named, so the clean of one library never takes the rows of another
+        that is leaving in the same pass before that one's own clean."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            if library:
+                db.cursor.execute(
+                    "INSERT OR REPLACE INTO api_cleaning VALUES (?,?)",
+                    (self.namespace, library),
+                )
+            else:
+                db.cursor.execute(
+                    "DELETE FROM api_cleaning WHERE namespace=?", (self.namespace,)
+                )
+
+    def cleaning(self) -> Optional[str]:
+        with Database() as db:
+            self._prepare(db.cursor)
+            row = db.cursor.execute(
+                "SELECT library FROM api_cleaning WHERE namespace=?",
+                (self.namespace,),
+            ).fetchone()
+        return row[0] if row else None
 
     # -- the scanner format a library's rows were filed under ----------------
 

@@ -428,6 +428,9 @@ class Library(threading.Thread):
         self._rebuilding.update(self.store.rebuilding())
         native = Native(self.store, self._stop_event.is_set, bar=self._bar())
         native.setup()
+        # A clean a stopped service left running named its library; the
+        # provider must not keep reading that library's tombstones as gone.
+        self.store.set_cleaning(None)
         # A Kodi stopped mid-scan never gave back the setting the scan was
         # holding (Native.without_actor_thumbs); a pass would, but none may
         # be due.

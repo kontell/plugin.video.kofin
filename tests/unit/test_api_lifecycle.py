@@ -208,9 +208,7 @@ def test_a_show_cast_change_refreshes_the_show_alone(store, backend, kodi, monke
     assert "refreshing series %s: its cast moved" % SHOW in lines
 
 
-def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
-    store, backend, kodi
-):
+def test_removing_one_of_two_libraries_is_kodis_clean_of_that_one(store, backend, kodi):
     membership = {}
     items = []
     for library, show_id in ((LIB, SHOW), (LIB2, SHOW2)):
@@ -224,28 +222,26 @@ def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
     kodi.builtins.clear()
     store.publish([], library=LIB)
     backend.reconcile()
-    clears = methods(kodi, "VideoLibrary.SetSourceContent")
-    assert clears == [
-        {
-            "path": paths.library_root(store.namespace, LIB),
-            "content": "none",
-            "clearmode": "remove",
-            "refresh": False,
-        }
+    # Kodi's own clean, of the leaving library's root: its files and its
+    # folders are answered "gone" and every other library's are not.
+    assert methods(kodi, "VideoLibrary.Clean") == [
+        {"directory": paths.library_root(store.namespace, LIB), "showdialogs": False}
+    ]
+    assert not [
+        p
+        for p in methods(kodi, "VideoLibrary.SetSourceContent")
+        if p.get("clearmode") == "remove"
     ]
     assert not methods(kodi, "VideoLibrary.RemoveTVShow")
     assert not methods(kodi, "VideoLibrary.RemoveMovie")
     assert set(kodi.owned("Series")) == {SHOW2}
     assert set(kodi.owned("Movie")) == {"m2"}
-    # The home widgets hear of it through a scan of a directory that is not
-    # there. No scan with no directory, which walks every bound folder of
-    # the libraries that stay, and no clean, which asks the add-on about
-    # every one of them and deletes the row of any it gets no answer for.
+    assert kodi.hidden == {}
+    # The clean's end is what the home widgets hear: no scan of nowhere,
+    # and no scan with no directory, which walks every bound folder.
     assert kodi.builtins == []
-    assert not methods(kodi, "VideoLibrary.Clean")
-    assert [p["directory"] for p in methods(kodi, "VideoLibrary.Scan")] == [
-        native.NOWHERE
-    ]
+    assert not methods(kodi, "VideoLibrary.Scan")
+    assert store.cleaning() is None
     assert not store.pending()
     assert set(kodi.bindings) == {
         paths.library_dir(store.namespace, LIB2, "tvshows"),
@@ -258,7 +254,7 @@ def test_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
     assert store.mapping(SHOW2).kodi_id in kodi.rows["Series"]
 
 
-def test_a_library_without_movies_leaves_with_an_event_and_no_walk(
+def test_a_library_without_movies_leaves_through_the_clean_and_no_walk(
     store, backend, kodi
 ):
     membership = {}
@@ -276,9 +272,11 @@ def test_a_library_without_movies_leaves_with_an_event_and_no_walk(
     backend.reconcile()
     assert set(kodi.owned("Series")) == {SHOW2}
     assert kodi.builtins == []
-    assert not methods(kodi, "VideoLibrary.Clean")
-    # The one scan is of a directory that is not there.
-    assert kodi.scanned == [native.NOWHERE]
+    assert [p["directory"] for p in methods(kodi, "VideoLibrary.Clean")] == [
+        paths.library_root(store.namespace, LIB)
+    ]
+    # Nothing is scanned: the clean's end is the announcement.
+    assert kodi.scanned == []
     assert not store.pending()
 
 
@@ -707,11 +705,11 @@ def test_collections_file_sets_at_import_and_patch_set_details(store, backend, k
     kodi.calls.clear()
     store.publish([], library=LIB)
     backend.reconcile()
-    # The set the library emptied is not cleaned out of Kodi. With no
-    # companion to delete it, its row stays, linked by no movie and so in no
-    # listing.
-    assert not methods(kodi, "VideoLibrary.Clean")
-    assert [r["title"] for r in kodi.rows["BoxSet"].values()] == ["Trilogy"]
+    # The set the library emptied goes with Kodi's clean of it.
+    assert [p["directory"] for p in methods(kodi, "VideoLibrary.Clean")] == [
+        paths.library_root(store.namespace, LIB)
+    ]
+    assert kodi.rows["BoxSet"] == {}
     assert not kodi.rows["Movie"]
 
 
@@ -1034,20 +1032,16 @@ def test_whole_library_clear_survives_a_movie_that_never_imported(store, backend
     backend.reconcile()
     assert not store.pending()
     assert kodi.rows["Movie"] == {}
-    assert [p["clearmode"] for p in methods(kodi, "VideoLibrary.SetSourceContent")] == [
-        "remove"
-    ]
-    # No clean for the set the library emptied (removal._release_sets).
-    assert not methods(kodi, "VideoLibrary.Clean")
+    assert len(methods(kodi, "VideoLibrary.Clean")) == 1
+    # The set the library emptied goes with the clean.
+    assert kodi.rows["BoxSet"] == {}
 
 
-def test_a_set_a_removed_library_emptied_is_the_companions_to_delete(
+def test_a_set_a_removed_library_emptied_goes_with_the_clean_companion_or_not(
     store, backend, kodi, monkeypatch
 ):
-    """Kodi's clean asks the add-on about every bound folder of every
-    library, whatever directory it is given, and deletes the path row of one
-    that goes unanswered: a movie of a library that stayed left every
-    listing that way. The companion deletes the one empty set by title."""
+    """Kodi's clean drops the sets no movie links, so a library's removal
+    journals nothing for the companion."""
     from kofin.sync.backends.api import companion
 
     monkeypatch.setattr(companion, "present", lambda: "0.1.0")
@@ -1060,10 +1054,10 @@ def test_a_set_a_removed_library_emptied_is_the_companions_to_delete(
     store.publish([], library=LIB)
     backend.reconcile()
 
-    assert not methods(kodi, "VideoLibrary.Clean")
+    assert len(methods(kodi, "VideoLibrary.Clean")) == 1
     assert set(kodi.owned("Movie")) == {"c"}
-    journal = companion._read_sets()
-    assert [entry["title"] for entry in journal] == ["Pair"]
+    assert kodi.rows["BoxSet"] == {}
+    assert companion._read_sets() == []
 
 
 def test_episodes_of_a_show_whose_removal_fails_stay_pending(store, backend, kodi):
@@ -1720,53 +1714,41 @@ def test_an_episode_filed_with_its_shows_poster_loses_it_at_the_next_compare(
     assert not store.pending()
 
 
-def test_a_stopped_clear_is_not_over_until_kodi_has_answered(monkeypatch):
-    """The clear runs on a thread of its own so that the bar can move. A
-    stop must not leave that call behind in Kodi with nobody waiting on it:
-    the next service generation would issue the same clear beside it."""
-    import threading
+def test_a_stopped_clean_still_takes_its_library_off_the_marker(monkeypatch):
+    """The provider reads the marker in another process: left behind by a
+    stop, it would go on answering for the wrong library."""
     from types import SimpleNamespace
 
     from kofin.sync.backends.api import removal
 
-    answer = threading.Event()
-    answered = []
+    marks = []
 
-    def rpc(method, params):
-        answer.wait(5)
-        answered.append(method)
+    def stopped(root, on_poll=None):
+        raise InterruptedError("native sync stopped")
 
-    monkeypatch.setattr(removal, "rpc", rpc)
     monkeypatch.setattr(removal, "removing", lambda library: "Removing library")
     native = SimpleNamespace(
         key="key",
         progress=SimpleNamespace(
             phase=lambda *a: None, at=lambda *a: None, restore=lambda saved: None
         ),
-        abort=lambda: True,
-        monitor=SimpleNamespace(waitForAbort=lambda seconds: True),
+        clean=stopped,
+        store=SimpleNamespace(set_cleaning=marks.append),
     )
-    timer = threading.Timer(0.2, answer.set)
-    timer.start()
-    try:
-        with pytest.raises(InterruptedError):
-            removal.clear_library(native, LIB, {"Movie"})
-        assert answered == ["VideoLibrary.SetSourceContent"]
-    finally:
-        timer.cancel()
-        answer.set()
+    with pytest.raises(InterruptedError):
+        removal.clear_library(native, LIB, {"Movie"})
+    assert marks == [LIB, None]
 
 
 def test_a_row_count_kodi_refuses_does_not_keep_a_library_from_being_cleared(
     monkeypatch,
 ):
-    """The count before the clear is for the bar alone."""
+    """The count before the clean is for the bar alone."""
     from types import SimpleNamespace
 
     from kofin.sync.backends.api import removal
 
     calls = []
-    monkeypatch.setattr(removal, "rpc", lambda method, params: calls.append(method))
     monkeypatch.setattr(removal, "removing", lambda library: "Removing library")
 
     def refused(kinds):
@@ -1778,40 +1760,124 @@ def test_a_row_count_kodi_refuses_does_not_keep_a_library_from_being_cleared(
         progress=SimpleNamespace(
             phase=lambda *a: None, at=lambda *a: None, restore=lambda saved: None
         ),
-        abort=lambda: False,
-        monitor=SimpleNamespace(waitForAbort=lambda seconds: False),
+        clean=lambda root, on_poll=None: calls.append("clean"),
         readback=SimpleNamespace(clear=lambda: None, scope=lambda *a: {}),
-        store=SimpleNamespace(unbind=lambda root: calls.append("unbind")),
+        store=SimpleNamespace(
+            unbind=lambda root: calls.append("unbind"),
+            set_cleaning=lambda library: calls.append(("cleaning", library)),
+        ),
     )
     removal.clear_library(native, LIB, {"Movie"}, rows=5)
-    assert calls == ["VideoLibrary.SetSourceContent", "unbind"]
+    assert calls == [("cleaning", LIB), "clean", ("cleaning", None), "unbind"]
 
 
-def test_a_set_that_cannot_be_handed_over_does_not_fail_the_removal(
+def test_the_check_of_the_libraries_that_stay_never_fails_a_removal(
     store, backend, kodi, monkeypatch
 ):
-    """The rows are gone by then. Failed for the sake of its sets, the
-    library was cleared again on the next pass and the sets, which Kodi no
-    longer lists, could not be told a second time."""
-    from kofin.sync.backends.api import companion
+    """The rows are gone by then: failed for the sake of the check, the
+    library would be cleaned again on every pass."""
+    from kofin.sync.backends.api import removal
 
-    monkeypatch.setattr(companion, "present", lambda: "0.1.0")
+    def broken(native, leaving):
+        raise RuntimeError("readback refused")
 
-    def unwritable(title):
-        raise OSError("journal not written")
-
-    monkeypatch.setattr(companion, "journal_set", unwritable)
-    store.publish([movie(), movie("b"), boxset("box", "Pair", ["a", "b"])], library=LIB)
+    monkeypatch.setattr(removal, "restore_lost", broken)
+    store.publish([movie(), movie("b")], library=LIB)
     backend.reconcile()
-    kodi.calls.clear()
-
     store.publish([], library=LIB)
     backend.reconcile()
-
     assert not kodi.rows["Movie"]
-    assert len(methods(kodi, "VideoLibrary.SetSourceContent")) == 1
     assert not [i for i, _, op, _ in store.pending_work() if op == "remove"]
-    # The home widgets still hear of the removal.
-    assert [p["directory"] for p in methods(kodi, "VideoLibrary.Scan")] == [
-        native.NOWHERE
+
+
+def test_a_question_the_clean_lost_hides_nothing_for_long(store, backend, kodi):
+    """A plugin request arriving with one of the clean's questions can take
+    the warm interpreter from it; the question reads as "gone" and Kodi
+    deletes that folder's row. The movie of a library that stays then sits
+    in Kodi's table in no listing: found after the clean, its hidden row is
+    removed by id and it is filed again in the same pass."""
+    store.publish([movie("a"), movie("b")], library=LIB)
+    store.publish([movie("c")], library=LIB2)
+    backend.reconcile()
+    old = store.mapping("c").kodi_id
+    kodi.lose_questions = {paths.movie_dir(store.namespace, LIB2, "c")}
+    store.publish([], library=LIB)
+    backend.reconcile()
+    assert set(kodi.owned("Movie")) == {"c"}
+    assert kodi.hidden == {}
+    assert {"movieid": old} in methods(kodi, "VideoLibrary.RemoveMovie")
+    assert store.mapping("c").kodi_id != old
+    assert paths.movie_dir(store.namespace, LIB2, "c") in kodi.bindings
+    assert not store.pending()
+
+
+def test_a_show_the_clean_took_is_filed_again_whole(store, backend, kodi):
+    membership = {}
+    items = []
+    for library, show_id in ((LIB, SHOW), (LIB2, SHOW2)):
+        for item in show_bundle(show_id):
+            items.append(item)
+            membership[item["Id"]] = library
+    store.publish(items, membership=membership, complete_libraries=[LIB, LIB2])
+    backend.reconcile()
+    episodes = {i for i, r in kodi.owned("Episode").items() if r.get("tvshowid")}
+    kodi.lose_questions = {paths.show_dir(store.namespace, LIB2, SHOW2)}
+    store.publish([], library=LIB)
+    backend.reconcile()
+    assert set(kodi.owned("Series")) == {SHOW2}
+    survivors = {
+        i
+        for i in episodes
+        if store.entry(i) is not None and store.entry(i).library == LIB2
+    }
+    assert survivors <= set(kodi.owned("Episode"))
+    assert not store.pending()
+
+
+def test_two_libraries_leaving_together_each_go_with_their_own_clean(
+    store, backend, kodi
+):
+    """The first clean asks about every bound folder, the second library's
+    too: answered "gone" there, its movies would be hidden before its own
+    clean could find their files."""
+    store.publish([movie("a")], library=LIB)
+    store.publish([movie("b")], library=LIB2)
+    backend.reconcile()
+    store.publish([], library=LIB)
+    store.publish([], library=LIB2)
+    backend.reconcile()
+    assert [p["directory"] for p in methods(kodi, "VideoLibrary.Clean")] == [
+        paths.library_root(store.namespace, LIB),
+        paths.library_root(store.namespace, LIB2),
     ]
+    assert kodi.rows["Movie"] == {} and kodi.hidden == {}
+    assert kodi.bindings == {}
+    assert not store.pending()
+
+
+def test_while_a_library_is_cleaned_only_its_tombstones_are_gone(store):
+    from kofin.sync.backends.api import provider
+
+    store.publish([movie("a")], library=LIB)
+    store.publish([movie("b")], library=LIB2)
+    store.publish([], library=LIB)
+    store.publish([], library=LIB2)
+    key = store.namespace
+    file_a = paths.parse_item(paths.playback_url(key, "Movie", LIB, "a"))
+    file_b = paths.parse_item(paths.playback_url(key, "Movie", LIB2, "b"))
+    folder_a = paths.parse(paths.movie_dir(key, LIB, "a"))
+    folder_b = paths.parse(paths.movie_dir(key, LIB2, "b"))
+    root_a = paths.parse(paths.library_dir(key, LIB, "movies"))
+    root_b = paths.parse(paths.library_dir(key, LIB2, "movies"))
+    store.set_cleaning(LIB)
+    assert not provider.exists(store, file_a[0], file_a[1])
+    assert not provider.exists(store, folder_a, "")
+    assert not provider.exists(store, root_a, "")
+    # The other leaving library waits for its own clean.
+    assert provider.exists(store, file_b[0], file_b[1])
+    assert provider.exists(store, folder_b, "")
+    assert provider.exists(store, root_b, "")
+    store.set_cleaning(None)
+    # With no clean named, a tombstone is gone wherever it is.
+    assert not provider.exists(store, file_b[0], file_b[1])
+    assert not provider.exists(store, folder_b, "")

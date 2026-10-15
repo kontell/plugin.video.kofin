@@ -50,6 +50,13 @@ class Kodi:
         self.fail = ""
         self.accept_without_apply = False
         self.monitor = None
+        # Kodi's clean (clean): the folders whose question is lost, as when
+        # a second plugin request takes the warm interpreter from it; the
+        # rows a lost folder hides (movie id -> row), still in Kodi's table
+        # and in no listing; and every question the clean asked.
+        self.lose_questions = set()
+        self.hidden = {}
+        self.clean_questions = []
         self.scanned = []
         # Music: songs by Kodi id; albums and artists derived from them.
         self.songs = {}
@@ -317,6 +324,54 @@ class Kodi:
         self.bindings = {
             p: c for p, c in self.bindings.items() if not p.startswith(path)
         }
+
+    def clean(self, directory):
+        """CVideoDatabase::CleanDatabase, as far as a plugin source sees it.
+
+        Every file below ``directory`` is asked of the add-on and a row whose
+        answer is "no" is deleted. Then every bound folder, of every library,
+        is asked, and the row of a folder answered "no" -- or whose question
+        was lost -- is deleted: a movie filed under it stays in the movie
+        table and leaves every listing (``hidden``), a show is deleted with
+        its seasons and episodes. Sets no movie links go last, and the end
+        is announced like Kodi's (onCleanFinished)."""
+        from kofin.sync.backends.api import provider
+
+        def asks(url):
+            self.clean_questions.append(url)
+            location, item_id = paths.parse_item(url)
+            if location is None:
+                return True
+            return provider.exists(self.store, location, item_id, paths.source_of(url))
+
+        for kind in ("Movie", "MusicVideo", "Episode"):
+            for kodi_id, row in list(self.rows[kind].items()):
+                if row["file"].startswith(directory) and not asks(row["file"]):
+                    del self.rows[kind][kodi_id]
+                    self.extras.pop(kodi_id, None)
+        for path in sorted(self.bindings):
+            if path in self.lose_questions:
+                self.clean_questions.append(path)
+            elif asks(path):
+                continue
+            self.bindings.pop(path)
+            self.dirnames.pop(path, None)
+            self.noupdate.pop(path, None)
+            for kodi_id, row in list(self.rows["Movie"].items()):
+                if (
+                    paths.parse(path) is not None
+                    and row["file"].startswith(path)
+                    and (paths.parse(path).movie is not None)
+                ):
+                    self.hidden[kodi_id] = self.rows["Movie"].pop(kodi_id)
+            for tvshowid, row in list(self.rows["Series"].items()):
+                if row["file"] == path:
+                    self._remove_show(tvshowid)
+        linked = {r.get("set") for r in self.rows["Movie"].values()}
+        self.rows["BoxSet"] = {
+            k: r for k, r in self.rows["BoxSet"].items() if r["title"] in linked
+        }
+        self.monitor.cleaned += 1
 
     def _remove_show(self, tvshowid):
         self.rows["Series"].pop(tvshowid, None)
@@ -692,10 +747,7 @@ class Kodi:
         if method == "AudioLibrary.Scan":
             return self.music_rpc(method, params)
         if method == "VideoLibrary.Clean":
-            linked = {r.get("set") for r in self.rows["Movie"].values()}
-            self.rows["BoxSet"] = {
-                k: r for k, r in self.rows["BoxSet"].items() if r["title"] in linked
-            }
+            self.clean(params.get("directory") or "")
             return "OK"
         if not match:
             raise RuntimeError("Kodi refused " + method)
@@ -730,6 +782,10 @@ class Kodi:
                 rows = [r for r in rows if r.get("tvshowid") == params["tvshowid"]]
             return {list_key: copy.deepcopy(rows), "limits": {"total": len(rows)}}
         kodi_id = params[id_param]
+        if verb == "Remove" and kind == "Movie" and kodi_id in self.hidden:
+            # Kodi's DeleteMovie needs only the id, listed or not.
+            del self.hidden[kodi_id]
+            return "OK"
         if kodi_id not in self.rows[kind]:
             raise RuntimeError("Kodi refused " + method)
         if verb == "Get":

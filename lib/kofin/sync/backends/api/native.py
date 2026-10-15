@@ -79,7 +79,7 @@ LEFTOVERS = (
     ("AudioLibrary.GetSongs", SQL_STREAMED),
 )
 # A directory that is not there. Scanned, it is skipped at once and the scan
-# still ends with the announcement home widgets listen for (library_event).
+# still ends with the announcement home widgets listen for (announce_writes).
 NOWHERE = "special://temp/kofin-no-such-directory/"
 
 
@@ -88,12 +88,17 @@ class Monitor(xbmc.Monitor):
         super().__init__()
         self.finished = 0
         self.music_finished = 0
+        self.cleaned = 0
 
     def onScanFinished(self, library):
         if library.lower() == "video":
             self.finished += 1
         elif library.lower() == "music":
             self.music_finished += 1
+
+    def onCleanFinished(self, library):
+        if library.lower() == "video":
+            self.cleaned += 1
 
 
 class VideoScan(NamedTuple):
@@ -337,24 +342,8 @@ class Native:
     def bind_show(self, library, series_id):
         self.bind_folders("tvshows", [paths.show_dir(self.key, library, series_id)])
 
-    def library_event(self):
-        """Have Kodi announce that the video library changed, and scan
-        nothing for it.
-
-        A scan with no directory walks every bound folder to compare its
-        hash: every show of every library that was not being removed, 10 to
-        14 s on a desktop each time a library left, and Kodi refused the
-        clean asked for straight after it ("CleanLibrary is not possible
-        while scanning or cleaning"), so the sets a removed movie library
-        had emptied were never dropped. Not issued while a scan runs: the
-        builtin behind the call stops a running scan instead of queuing.
-        """
-        if not self._idle("video"):
-            return
-        rpc("VideoLibrary.Scan", {"directory": NOWHERE, "showdialogs": False})
-
     def announce_writes(self):
-        """``library_event`` for what a pass wrote, at its end.
+        """Have Kodi announce what a pass wrote, at its end.
 
         A setter that changes only art or tags announces nothing: on 22.0b2
         VideoLibrary.SetMovieDetails writes through UpdateDetailsForMovie
@@ -546,6 +535,35 @@ class Native:
                     self.readback.forget_music(location.library)
         else:
             self.readback.clear()
+
+    def clean(self, directory, on_poll=None):
+        """Have Kodi's clean drop what the catalogue no longer has below
+        ``directory``, and wait for the clean to end.
+
+        The clean asks the add-on whether each file below the directory
+        exists, and then whether every bound folder of every library does,
+        a plugin call each, and deletes the row of any the answer is "no"
+        for. A question that is never run reads as "no": Kodi can hand two
+        plugin requests that arrive together the one interpreter it keeps
+        warm, and the second takes the first one's place. So the clean runs
+        alone. This thread issues nothing else that reaches the plugin until
+        Kodi says the clean is over (onCleanFinished), and what is left of
+        the risk -- a request of the skin's or the viewer's -- is what
+        removal.restore_lost puts right afterwards.
+        """
+        self.wait(lambda: self._idle("video"), busy=lambda: self._scanning("video"))
+        serial = self.monitor.cleaned
+        rpc("VideoLibrary.Clean", {"directory": directory, "showdialogs": False})
+        self._async_pending = True
+        try:
+            self.wait(
+                lambda: self.monitor.cleaned > serial and self._idle("video"),
+                busy=lambda: self._scanning("video"),
+                on_poll=on_poll,
+            )
+        finally:
+            self._async_pending = not self._idle("video")
+        self.readback.clear()
 
     # -- movie versions and extras -------------------------------------------
 

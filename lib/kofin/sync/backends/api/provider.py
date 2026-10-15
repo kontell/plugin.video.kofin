@@ -80,7 +80,23 @@ def exists(store, location, item_id, source=""):
     of deletion. Only an explicit committed tombstone says an item is gone,
     and only a movie's own payload says a version file or an extra is: the
     scan that lists the folder adds and never removes, so Clean, which asks
-    this per file, is how a row the listing no longer names leaves."""
+    this per file, is how a row the listing no longer names leaves.
+
+    While the pass has Kodi's clean remove a library (store.cleaning), a
+    tombstone is gone only in that library: another leaving in the same
+    pass keeps its rows, and its folders' rows, for its own clean. Its
+    movie folders and its root are gone with it, or the clean would keep
+    their rows."""
+    cleaning = store.cleaning()
+    if cleaning and location.library != cleaning:
+        return _exists(store, location, item_id, source, tombstones=False)
+    return _exists(store, location, item_id, source, tombstones=True)
+
+
+def _exists(store, location, item_id, source, tombstones):
+    def gone(state):
+        return tombstones and state is not None and state.operation == "remove"
+
     if location.probe:
         # A disc-structure folder Kodi probes for: never a row.
         return False
@@ -88,8 +104,7 @@ def exists(store, location, item_id, source=""):
         # The pass's own scan directories: no row is ever filed under one.
         return True
     if item_id:
-        state = store.state(item_id)
-        if state is not None and state.operation == "remove":
+        if gone(store.state(item_id)):
             return False
         if source:
             # A version file exists while the movie still lists its source.
@@ -106,8 +121,7 @@ def exists(store, location, item_id, source=""):
         # the file by that name: the stem and the container both, so a
         # feature whose container moved leaves its old row to Clean.
         movie_id = location.movie or ""
-        state = store.state(movie_id)
-        if state is not None and state.operation == "remove":
+        if gone(store.state(movie_id)):
             return False
         record = store.records(kind="Movie", item_ids=[movie_id]).get(movie_id)
         if record is None:
@@ -119,12 +133,19 @@ def exists(store, location, item_id, source=""):
                 metadata.special_features(record.item)
             )
         )
-    if location.folder or location.movie:
+    if location.movie:
+        return not gone(store.state(location.movie))
+    if location.folder:
         return True
     if location.series:
-        state = store.state(location.series)
-        return not state or state.operation != "remove"
+        return not gone(store.state(location.series))
     if location.library:
+        if store.removing([location.library]) and not store.records(
+            library=location.library, pinned=False
+        ):
+            # A library that is leaving whole: its root and content roots go
+            # with its own clean, and wait for it while another's runs.
+            return not tombstones
         prefix = paths.library_root(store.namespace, location.library)
         if any(path.startswith(prefix) for path in store.bindings()):
             return True
