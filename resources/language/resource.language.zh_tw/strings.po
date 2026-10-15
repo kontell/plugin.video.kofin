@@ -977,8 +977,8 @@ msgid "advancedsettings.xml enables cleanonupdate — incompatible with library 
 msgstr "advancedsettings.xml 啟用了 cleanonupdate — 與媒體庫同步不相容"
 
 msgctxt "#30450"
-msgid "Skipping & Next up"
-msgstr "跳過與下一集"
+msgid "Skipping & Play next"
+msgstr "跳過與播放下一集"
 
 msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."

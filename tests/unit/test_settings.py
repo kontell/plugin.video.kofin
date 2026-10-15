@@ -280,6 +280,20 @@ def test_the_downloads_category_stays_a_single_group():
     assert len(list(category.iter("group"))) == 1
 
 
+def test_the_streaming_bitrate_cap_shows_under_force_direct_play():
+    """Play with transcoding's default bitrate is the cap, and force direct
+    play does not reach that play, so the cap has a use with it on."""
+    import xml.etree.ElementTree as etree
+
+    root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
+    setting = next(
+        element
+        for element in root.iter("setting")
+        if element.get("id") == "maxStreamingBitrate"
+    )
+    assert setting.find("dependencies") is None
+
+
 def test_get_float_reads_the_fractional_bitrate_options():
     """downloadsMaxBitrate had to leave Kodi's integer type to offer 0.5 and
     0.75 Mbit/s; an unreadable or empty value means unlimited, which is what
