@@ -132,6 +132,16 @@ def test_source_bitrate_override_is_unlimited():
     assert profile["DirectPlayProfiles"] == []
 
 
+def test_context_default_bitrate_is_the_cap_under_force_direct_play():
+    # The context item's "Default (max streaming bitrate)" passes 0, and a
+    # forced transcode under force direct play still reads the cap, which is
+    # why the setting stays on screen with force direct play on.
+    config = ProfileConfig(force_direct_play=True, max_bitrate_mbps=8)
+    profile = build(config, bitrate_override_mbps=0, force_transcode=True)
+    assert profile["MaxStreamingBitrate"] == 8_000_000
+    assert profile["DirectPlayProfiles"] == []
+
+
 def test_force_direct_play_wildcards():
     profile = build(ProfileConfig(force_direct_play=True, max_bitrate_mbps=10))
     assert profile["MaxStreamingBitrate"] == UNLIMITED_BITRATE
