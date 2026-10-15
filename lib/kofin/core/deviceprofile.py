@@ -221,8 +221,9 @@ def build(
 
     ``bitrate_override_mbps``/``force_transcode`` implement the transcode
     context item: a forced transcode at a chosen bitrate for this play only.
-    The override may be fractional (0.5/0.75 Mbit/s) or 0, which — like force
-    transcode itself — means the source bitrate (unlimited).
+    The override may be fractional (0.5/0.75 Mbit/s) or 0, which means
+    Maximum streaming bitrate: the context item's default, read even under
+    force direct play, and unlimited only when that setting is.
 
     ``burn_subtitles`` withdraws the image formats from SubtitleProfiles for
     this play only, which is what makes the server answer ``Encode`` for a

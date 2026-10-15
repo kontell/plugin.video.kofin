@@ -123,9 +123,9 @@ def test_fractional_bitrate_override():
     assert profile["DirectPlayProfiles"] == []
 
 
-def test_source_bitrate_override_is_unlimited():
-    # The context "Source" option (0) transcodes at the source bitrate, the
-    # same result as force transcode with no cap.
+def test_the_default_override_with_no_cap_is_unlimited():
+    # The context item's "Default (max streaming bitrate)" option (0) with no
+    # cap set transcodes at the source bitrate.
     config = ProfileConfig(force_direct_play=True)
     profile = build(config, bitrate_override_mbps=0, force_transcode=True)
     assert profile["MaxStreamingBitrate"] == UNLIMITED_BITRATE

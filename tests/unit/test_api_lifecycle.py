@@ -1474,6 +1474,22 @@ def test_a_movie_scanned_by_name_is_bound_without_noupdate_for_the_scan_only(
     assert not store.pending()
 
 
+def test_two_new_movies_scanned_by_name_forget_their_root_once(store, backend, kodi):
+    """Kodi holds the root from the first import's scan; forgotten before the
+    first folder below it, it stays forgotten for the second."""
+    backend.setup()
+    store.publish([movie(i) for i in "abc"], library=LIB)
+    backend.reconcile()
+    store.publish([movie(i) for i in "abcde"], library=LIB)
+    backend.reconcile()
+    folders = [paths.movie_dir(store.namespace, LIB, i) for i in "de"]
+    assert [f for f in kodi.scanned if f in folders] == folders
+    assert kodi.forgotten == [paths.library_dir(store.namespace, LIB, "movies")]
+    assert kodi.skipped == []
+    assert {"d", "e"} <= set(kodi.owned("Movie"))
+    assert not store.pending()
+
+
 def test_the_movie_folders_of_an_older_profile_are_bound_outside_the_pending_gate(
     store, backend, kodi, monkeypatch
 ):
