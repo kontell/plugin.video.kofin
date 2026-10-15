@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
-from kofin.sync.catalogue import Catalogue
+from kofin.sync.catalogue import Catalogue, ItemState
 from kofin.sync.model import MediaItem
 from kofin.core.log import Logger
 from kofin.sync.private import Database
@@ -537,6 +537,44 @@ class Store(Catalogue):
             self._prepare(db.cursor)
             rows = self._entries(db.cursor, "item_id=? AND removed IS NULL", (item_id,))
         return rows[0] if rows else None
+
+    def known(self, item_ids: Iterable[str]) -> Set[str]:
+        """Which of ``item_ids`` the catalogue places now, as ``entry`` reads
+        one: an item whose removal is pending is not one of them."""
+        ids = list(item_ids)
+        found: Set[str] = set()
+        with Database() as db:
+            self._prepare(db.cursor)
+            for start in range(0, len(ids), 500):
+                chunk = ids[start : start + 500]
+                found.update(
+                    row[0]
+                    for row in db.cursor.execute(
+                        "SELECT item_id FROM api_entry WHERE namespace=?"
+                        " AND removed IS NULL AND item_id IN (%s)"
+                        % ",".join("?" * len(chunk)),
+                        [self.namespace] + chunk,
+                    )
+                )
+        return found
+
+    def states(self, item_ids: Iterable[str]) -> Dict[str, ItemState]:
+        """``state`` for many items, a few hundred to a query; an item the
+        catalogue has no row of is left out."""
+        ids = list(item_ids)
+        result: Dict[str, ItemState] = {}
+        with Database() as db:
+            self._prepare(db.cursor)
+            for start in range(0, len(ids), 500):
+                chunk = ids[start : start + 500]
+                for row in db.cursor.execute(
+                    "SELECT item_id, desired, applied, operation, status, error"
+                    " FROM api_item WHERE namespace=? AND item_id IN (%s)"
+                    % ",".join("?" * len(chunk)),
+                    [self.namespace] + chunk,
+                ):
+                    result[row[0]] = ItemState(*row[1:])
+        return result
 
     def tombstones(self) -> Dict[str, Entry]:
         """The last known placement of every item with a pending removal."""
