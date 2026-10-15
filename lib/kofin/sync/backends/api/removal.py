@@ -125,6 +125,13 @@ def clear_library(native, library, kinds, rows=0):
     until this said so the screen showed nothing in that time. It is made
     on a thread of its own, and this one reads how many of the library's
     ``rows`` Kodi still lists and moves the bar.
+
+    One call, not a folder at a time: removed fifty folders to a call with
+    a pause between, the same library took 186 s on the P1D against 109 s
+    and 1,364 s on a Raspberry Pi 3 against 803 s, and neither way stalled
+    a Python thread (tests/live/or_bench/README.md).
+    Its waits are timed: a three-second wait that took 47 s is how the
+    stall of one ``OnRemove`` callback per row showed on a television.
     """
     root = paths.library_root(native.key, library)
     heading = removing(library)
@@ -154,9 +161,14 @@ def clear_library(native, library, kinds, rows=0):
             before = rows = 0
         worker = threading.Thread(target=clear, name="kofin-library-clear")
         worker.daemon = True
+        began = time.monotonic()
         worker.start()
+        longest = 0.0
         while worker.is_alive():
-            if native.abort() or native.monitor.waitForAbort(CLEAR_POLL):
+            asked = time.monotonic()
+            aborted = native.abort() or native.monitor.waitForAbort(CLEAR_POLL)
+            longest = max(longest, time.monotonic() - asked)
+            if aborted:
                 # The call cannot be taken back, and it is this thread's:
                 # reported stopped while Kodi is still clearing, the thread
                 # would let the next service generation issue the same
@@ -173,6 +185,13 @@ def clear_library(native, library, kinds, rows=0):
                     gone, "%s %d / %d" % (heading, max(0, min(gone, rows)), rows)
                 )
         worker.join()
+        LOG.info(
+            "library %s cleared in %.1f s; the longest %.0f s wait took %.1f s",
+            library,
+            time.monotonic() - began,
+            CLEAR_POLL,
+            longest,
+        )
     finally:
         native.progress.restore(saved)
     if failure:

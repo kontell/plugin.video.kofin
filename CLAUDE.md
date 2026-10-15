@@ -239,6 +239,12 @@ What remains is kofin's own:
   unbinds the scraper and leaves every row in place; the API backend's whole-library removal
   (`backends/api/removal.py::clear_library`) relies on `"remove"` being `RemoveContentForPath`
   on the library root, under which every row of that library is filed.
+- **A library is cleared in one call, and the home widgets churn while it goes.** Removed
+  fifty folders to a call, Movies took 186 s against 109 s on the P1D and 1,364 s against
+  803 s on the Pi, and neither way stalled a Python thread (#308's question). What costs a clear is the widgets:
+  every deleted row is a `VideoLibrary.OnRemove` without `transaction`, and every visible
+  video widget lists itself again for each one (2,448 refreshes on the Pi, 803 s against
+  480 s with none on screen). `tests/live/or_bench/README.md` has the runs.
 - **Every show folder under a `tvshows/` root carries its own binding** (`Native.bind_show`,
   `containssingleitem`). Kodi takes a plugin path's parent to be the plugin *root*
   (`URIUtils::GetParentPath`), so a folder never inherits the root's binding and the scanner
