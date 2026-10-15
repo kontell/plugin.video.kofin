@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import xbmc
 
-from kofin.core import ipc, settings, toast
+from kofin.core import ipc, settings, state, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
@@ -156,10 +156,15 @@ def queue_and_play(tracks: List[JsonDict], server: str) -> None:
     started here as before.
     """
     stop_current_playback()
+    owner = state.take_queue()
     playlist = xbmc.PlayList(xbmc.PLAYLIST_MUSIC)
     playlist.clear()
-    asked = ipc.notify_now(ipc.START_QUEUE, {"Count": len(tracks)})
+    asked = ipc.notify_now(ipc.START_QUEUE, {"Count": len(tracks), "Owner": owner})
     for track in tracks:
+        if not state.owns_queue(owner):
+            # A newer Play all cleared the playlist and is filling it.
+            LOG.info("play all: a newer request took the queue")
+            return
         playlist.add(listitems.path_for(track), listitems.build(track, server))
     if not asked:
         LOG.warning("play all: the service was not asked; starting the queue here")

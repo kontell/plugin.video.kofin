@@ -12,7 +12,7 @@ import xbmc
 from kofin.core.http import JellyfinError
 from kofin.plugin import playall
 from kofin.plugin.router import Request
-from tests.unit.fakes import FakeAddon
+from tests.unit.fakes import FakeAddon, FakeWindow
 
 
 class FakePlaylist:
@@ -89,6 +89,8 @@ TRACKS = [track(1), track(2), track(3)]
 def kodi(monkeypatch):
     FakeAddon.store = {}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    FakeWindow.store = {}
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
     FakePlaylist.instances = []
     FakePlayer.played = []
     monkeypatch.setattr(playall.xbmc, "PlayList", FakePlaylist)
@@ -139,7 +141,8 @@ def test_an_album_plays_in_disc_and_track_order(monkeypatch, kodi):
     assert all(li is not None for _url, li in playlist.entries)
     # Stopped before the hand-over, nothing toasted, and the start left to
     # the service, asked before the first track was added.
-    assert kodi == ["stop", "StartQueue", ("asked", {"Count": 3}, 0)]
+    owner = FakeWindow.store["kofin.queue.owner"]
+    assert kodi == ["stop", "StartQueue", ("asked", {"Count": 3, "Owner": owner}, 0)]
     assert FakePlayer.played == []
 
 
@@ -160,6 +163,26 @@ def test_a_refused_request_starts_the_queue_here(monkeypatch, kodi):
     api = ContainerApi({"Id": "al1", "Type": "MusicAlbum"}, TRACKS)
     _play(monkeypatch, api)
     assert FakePlayer.played == [FakePlaylist.instances[-1]]
+
+
+def test_a_newer_play_all_takes_the_queue_and_this_one_stops_adding(monkeypatch, kodi):
+    """The newer request cleared the playlist; tracks added after that would
+    be the wrong album's in its queue."""
+    from kofin.core import state
+
+    added = []
+
+    class Taken(FakePlaylist):
+        def add(self, url, listitem=None, index=-1):
+            added.append(url)
+            if len(added) == 2:
+                state.take_queue()  # the second Play all
+
+    monkeypatch.setattr(playall.xbmc, "PlayList", Taken)
+    api = ContainerApi({"Id": "al1", "Type": "MusicAlbum"}, TRACKS)
+    _play(monkeypatch, api)
+    assert len(added) == 2
+    assert FakePlayer.played == []
 
 
 def test_shuffle_asks_the_server_for_a_random_order(monkeypatch):
