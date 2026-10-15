@@ -239,16 +239,33 @@ def claim_new_library_songs(entries: Iterable[Any]) -> None:
     }
     if not libraries or not songs:
         return
-    queued: Dict[str, List[str]] = {}
+    placed: Dict[str, str] = {}
     with Database("kofin") as opened:
         for item_id in songs:
             opened.cursor.execute(
                 "SELECT media_folder FROM jellyfin WHERE jellyfin_id = ?", (item_id,)
             )
             row = opened.cursor.fetchone()
-            if not row or row[0] not in libraries:
+            if row:
+                placed[item_id] = row[0]
+    claim_library_songs(placed)
+
+
+def claim_library_songs(placed: Dict[str, str]) -> None:
+    """Claim new songs, each named with its library, for the music libraries
+    subscribed. The SQL build reads the library from its mapping table
+    (claim_new_library_songs); the API build has it from the catalogue."""
+    if not settings.get_bool("downloadsEnabled"):
+        return
+    libraries = set(subscribed(LIBRARY_SETTING))
+    if not libraries or not placed:
+        return
+    queued: Dict[str, List[str]] = {}
+    with Database("kofin") as opened:
+        for item_id, library in sorted(placed.items()):
+            if library not in libraries:
                 continue
-            owner_id = owner("musiclibrary", row[0])
+            owner_id = owner("musiclibrary", library)
             opened.cursor.execute(
                 "INSERT OR IGNORE INTO download_subscription(owner, jellyfin_id) "
                 "VALUES (?, ?)",

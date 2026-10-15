@@ -10,7 +10,7 @@ schedule) and a repair announce nothing, as the SQL build's full sync does
 not, and a played item is never announced (newcontent.entry_for).
 """
 
-from typing import Any, Collection, Dict, Iterable, List
+from typing import Any, Collection, Dict, Iterable, List, Optional
 
 import xbmc
 
@@ -37,8 +37,16 @@ class Arrivals:
         self.arriving: Dict[str, newcontent.Entry] = {}
         # Filed, not announced yet.
         self.backlog: List[newcontent.Entry] = []
+        # New songs, not filed yet: item id -> library. Never announced (an
+        # album says it arrived) but claimed for a subscribed music library.
+        self.songs: Dict[str, str] = {}
 
-    def published(self, items: Iterable[Dict[str, Any]], known: Collection[str]):
+    def published(
+        self,
+        items: Iterable[Dict[str, Any]],
+        known: Collection[str],
+        membership: Optional[Dict[str, str]] = None,
+    ):
         """Note what a catch-up publishes that ``known``, the ids the
         catalogue placed before the publish, did not hold. A song is not
         announced: its album says it arrived."""
@@ -46,14 +54,21 @@ class Arrivals:
             if item.get("Id") in known:
                 continue
             entry = newcontent.entry_for(item)
-            if entry is not None and entry.type in newcontent.ANNOUNCED:
+            if entry is None:
+                continue
+            if entry.type in newcontent.ANNOUNCED:
                 self.arriving[entry.item_id] = entry
+            elif entry.type == "Audio" and (membership or {}).get(entry.item_id):
+                self.songs[entry.item_id] = (membership or {})[entry.item_id]
         while len(self.arriving) > LIMIT:
             self.arriving.pop(next(iter(self.arriving)))
+        while len(self.songs) > LIMIT * 20:
+            self.songs.pop(next(iter(self.songs)))
 
     def flush(self, store, api, player) -> None:
         """Hand what the pass has filed to the downloads, and announce it
         unless a video is playing."""
+        self._claim_songs(store)
         landed = self._landed(store)
         if landed:
             # Before the toast's hold: the hold paces announcements, and
@@ -79,6 +94,26 @@ class Arrivals:
             elif state.status == "applied":
                 landed.append(self.arriving.pop(item_id))
         return landed
+
+    def _claim_songs(self, store) -> None:
+        if not self.songs:
+            return
+        states = store.states(list(self.songs))
+        filed: Dict[str, str] = {}
+        for item_id in list(self.songs):
+            state = states.get(item_id)
+            if state is None or state.operation != "upsert":
+                del self.songs[item_id]
+            elif state.status == "applied":
+                filed[item_id] = self.songs.pop(item_id)
+        if not filed:
+            return
+        from kofin.downloads import subscriptions
+
+        try:
+            subscriptions.claim_library_songs(filed)
+        except Exception:
+            LOG.exception("music-library subscription claim failed")
 
     def _announce(self, player) -> None:
         if not self.backlog:

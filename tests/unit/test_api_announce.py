@@ -216,3 +216,67 @@ def test_the_catch_up_by_save_date_announces_too(store, monkeypatch, toasts):
     _file(store, "b")
     w.announce_new_content()
     assert toasts.shown == ["Fixture b movie added to library"]
+
+
+def test_a_new_song_is_claimed_for_its_library_once_filed_and_never_announced(
+    store, monkeypatch, toasts
+):
+    from kofin.downloads import subscriptions
+    from tests.unit.apifixtures import ALBUM, album_bundle
+
+    from kofin.sync.changefeed import ChangeRecord, unix_to_watermark
+
+    bundle = album_bundle(songs=2)
+    songs = [item for item in bundle if item["Type"] == "Audio"]
+    server = Server(
+        {LIB: bundle}, views=[{"Id": LIB, "CollectionType": "music", "Name": "M"}]
+    )
+    store.publish([i for i in bundle if i["Type"] != "Audio"], library=LIB)
+    store.set_watermark(watermark=unix_to_watermark(500), enumerated=time.time())
+    feed = Feed(
+        [ChangeRecord(song["Id"], "Added", library_ids=[LIB]) for song in songs]
+    )
+    w = worker(store, server, [LIB], monkeypatch, feed=feed)
+    w.player = SimpleNamespace(isPlayingVideo=lambda: False, current_item=lambda: None)
+    claimed = []
+    monkeypatch.setattr(subscriptions, "claim_library_songs", claimed.append)
+    w.catch_up()
+    w.announce_new_content()
+    assert claimed == []
+    _file(store, *[song["Id"] for song in songs])
+    w.announce_new_content()
+    assert claimed == [{song["Id"]: LIB for song in songs}]
+    assert toasts.shown == [] and toasts.queued == []
+    assert ALBUM in store.known([ALBUM])  # the album was there before
+
+
+def test_the_playlists_pass_reconciles_the_download_subscriptions(store, monkeypatch):
+    """The API build had nothing that did: a subscribed music library or
+    playlist queued nothing."""
+    from kofin.downloads import subscriptions
+    from kofin.sync.backends.api import library
+
+    w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+    calls = []
+    monkeypatch.setattr(library.api_playlists, "reconcile", lambda api, s: {})
+    monkeypatch.setattr(
+        subscriptions,
+        "reconcile_music_libraries",
+        lambda api: calls.append("libraries"),
+    )
+    monkeypatch.setattr(
+        subscriptions,
+        "reconcile_playlists_direct",
+        lambda api: calls.append("playlists"),
+    )
+    monkeypatch.setattr(
+        subscriptions,
+        "reconcile_playlist_direct",
+        lambda api, playlist_id: calls.append(playlist_id),
+    )
+    w._playlists_due = True
+    w.playlists_pass()
+    assert calls == ["libraries", "playlists"]
+    monkeypatch.setattr(library.api_playlists, "apply", lambda api, s, i: None)
+    w.command("SyncPlaylists", {"Id": "pl1"})
+    assert calls[-1] == "pl1"

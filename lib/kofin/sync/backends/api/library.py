@@ -980,7 +980,7 @@ class Library(threading.Thread):
         """
         if announce and items:
             placed = self.store.known(item["Id"] for item in items)
-            self._arrivals().published(items, placed)
+            self._arrivals().published(items, placed, placement.get("membership"))
         playing = self._playing()
         if playing:
             for item in items:
@@ -1184,6 +1184,7 @@ class Library(threading.Thread):
             playlist_id = (data or {}).get("Id") or ""
             if playlist_id:
                 api_playlists.apply(self.api, self.store, playlist_id)
+                self.reconcile_subscriptions(playlist_id)
             else:
                 self._playlists_due = True
             return
@@ -1265,9 +1266,27 @@ class Library(threading.Thread):
             stats = api_playlists.reconcile(self.api, self.store)
         except Exception:
             LOG.exception("playlists not reconciled; next enumeration retries")
-            return
-        if stats:
-            LOG.info("playlists reconciled: %s", stats)
+        else:
+            if stats:
+                LOG.info("playlists reconciled: %s", stats)
+        self.reconcile_subscriptions()
+
+    def reconcile_subscriptions(self, playlist_id=""):
+        """Bring the music-library and playlist download subscriptions to the
+        server's listing: one playlist's when a request names it, every
+        subscription's after a complete enumeration and when the viewer
+        subscribes. The SQL build does this in its music playlist sync; the
+        API build had nothing that did, and a subscription queued nothing."""
+        from kofin.downloads import subscriptions
+
+        try:
+            if playlist_id:
+                subscriptions.reconcile_playlist_direct(self.api, playlist_id)
+            else:
+                subscriptions.reconcile_music_libraries(self.api)
+                subscriptions.reconcile_playlists_direct(self.api)
+        except Exception:
+            LOG.exception("download subscriptions not reconciled")
 
     def flush_pending_reload(self):
         """Fire the owed first-content skin reload once nothing is playing."""
