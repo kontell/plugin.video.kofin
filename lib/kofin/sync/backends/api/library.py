@@ -353,6 +353,9 @@ class Library(threading.Thread):
         # entry and when the item was first seen no longer playing.
         self._held_userdata: Dict[str, Tuple[dict, Optional[float]]] = {}
         self._playlists_due = False
+        # What catch-ups bring that the catalogue did not hold, until the
+        # pass has filed it and a toast may go up (announce.Arrivals).
+        self.arrivals = announce.Arrivals()
         # When the idle binding backfill is next due: now, then never once
         # it succeeded, or a pause after a failure (apply).
         self._bindings_due = 0.0
@@ -801,7 +804,8 @@ class Library(threading.Thread):
                     continue
             wanted[record.id] = record
         items, membership = self._resolve(list(wanted), selected, supported, wanted)
-        self.publish(items, announce=True, membership=membership, removed=removed)
+        self.arrivals.published(items, self.store.known(i["Id"] for i in items))
+        self.publish(items, membership=membership, removed=removed)
         self.apply_userdata(change_set.userdata)
         if change_set.envelope.server_time:
             self.store.set_watermark(
@@ -842,7 +846,8 @@ class Library(threading.Thread):
                     [b["Id"] for b in changed if isinstance(b, dict) and b.get("Id")],
                 )
         invalidate = self._collection_changes(boxsets, False)
-        self.publish(items + boxsets, announce=True, membership=membership)
+        self.arrivals.published(items, self.store.known(i["Id"] for i in items))
+        self.publish(items + boxsets, membership=membership)
         self.store.invalidate(invalidate)
         self.store.set_watermark(watermark=changefeed.unix_to_watermark(started))
 
@@ -965,7 +970,7 @@ class Library(threading.Thread):
         for item_id in settled:
             self._held_userdata.pop(item_id, None)
 
-    def publish(self, items, announce=False, **placement):
+    def publish(self, items, **placement):
         """Publish full items as the server sent them, all but the user data
         of the item this Kodi is playing, which is held like an entry sent
         for it (apply_userdata) while the item keeps what the catalogue has.
@@ -974,13 +979,7 @@ class Library(threading.Thread):
         play carries the server's count for the play in progress as surely
         as a user data event does, and wrote it to the row Kodi's own player
         was about to count.
-
-        ``announce`` is a catch-up's: what it brings that the catalogue did
-        not place is new content (announce.Arrivals).
         """
-        if announce and items:
-            placed = self.store.known(item["Id"] for item in items)
-            self._arrivals().published(items, placed)
         playing = self._playing()
         if playing:
             for item in items:
@@ -996,16 +995,9 @@ class Library(threading.Thread):
                 break
         self.store.publish(items, **placement)
 
-    def _arrivals(self) -> "announce.Arrivals":
-        """The new content held for its toast, made on first use."""
-        arrivals = getattr(self, "arrivals", None)
-        if arrivals is None:
-            arrivals = self.arrivals = announce.Arrivals()
-        return arrivals
-
     def announce_new_content(self):
         """Announce what the pass filed of the new content catch-ups brought."""
-        self._arrivals().flush(self.store, self.api, self.player)
+        self.arrivals.flush(self.store, self.api, self.player)
 
     def release_userdata(self):
         """Once an item has stopped and the server has had time to settle

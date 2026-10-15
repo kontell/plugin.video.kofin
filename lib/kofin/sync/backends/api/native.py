@@ -134,9 +134,6 @@ class Native:
         # listed through Kodi just before the scan (_prepare_scan).
         self._extras_folders: Set[str] = set()
         self._extras_allowed = False
-        # Movies roots whose listing Kodi may hold in its directory cache,
-        # which turns away a scan of a folder below them (_prepare_scan).
-        self._listed_roots: Set[str] = set()
         # A held Kodi setting is still to be given back (restore_settings),
         # and the ones whose refusal has been said.
         self.settings_owed = False
@@ -678,20 +675,8 @@ class Native:
         self.settings_owed = owed
 
     def _prepare_scan(self, directory):
-        """Make Kodi forget a movies root it may hold before a folder below
-        it is scanned, and list a movie's extras folder through Kodi just
-        before the folder is scanned, with the disc folders the scanner
-        probes for below it.
-
-        Kodi decides whether a directory it is asked to scan exists from its
-        cached listing of the parent when it has one (CDirectory::Exists,
-        CDirectoryCache::FileExists), and a movies root lists files, never
-        folders: while the root's listing was cached -- after the scan of a
-        first import, for one -- every movie folder scanned by name was
-        "does not exist - skipping scan", and the pass failed and scanned it
-        again every few seconds. The cache holds the last fifty listings,
-        so a root listed hours before had usually gone, and one listed in
-        the same pass never had.
+        """List a movie's extras folder through Kodi just before the folder
+        is scanned, with the disc folders the scanner probes for below it.
 
         Before the scanner looks at a listing, every folder in it is probed
         for a disc structure (CFileItemList::Stack, GetOpticalMediaPath), and
@@ -700,15 +685,6 @@ class Native:
         directory cache first (CFile::Exists), which holds the last fifty
         directories Kodi listed: listed here, the folder and its VIDEO_TS/
         and BDMV/ answer "no such file" and the folder stays a folder."""
-        location = paths.parse(directory)
-        if location is not None and location.content == "movies":
-            root = paths.library_dir(location.key, location.library, "movies")
-            if location.movie is None:
-                # Its scan lists it, and Kodi keeps the listing.
-                self._listed_roots.add(root)
-            elif root in self._listed_roots:
-                self._forget_listing(root)
-                self._listed_roots.discard(root)
         if directory not in self._extras_folders:
             return
         extras = directory + paths.EXTRAS
@@ -1054,16 +1030,37 @@ class Native:
         return VideoScan(directories, expected, expectations, scanned_movie_folders)
 
     def scan_video(self, video: VideoScan):
-        """Have Kodi's video scanner list what plan_video named."""
+        """Have Kodi's video scanner list what plan_video named.
+
+        A movies root Kodi may hold in its directory cache is forgotten
+        before the first folder below it is scanned. Kodi decides whether a
+        directory it is asked to scan exists from its cached listing of the
+        parent when it has one (CDirectory::Exists,
+        CDirectoryCache::FileExists), and a movies root lists files, never
+        folders: while the root's listing was cached -- after the scan of a
+        first import, for one -- every movie folder scanned by name was
+        "does not exist - skipping scan", and the pass failed and scanned it
+        again every few seconds. The cache holds the last fifty listings,
+        so a root listed hours before had usually gone, and one listed in
+        the same pass never had. A pass lists a library's root before its
+        folders (plan_video), so one forget per root covers them all."""
+        owed = {
+            paths.library_dir(location.key, location.library, "movies")
+            for location in map(paths.parse, video.movie_folders)
+            if location is not None
+        }
+
+        def prepare(directory):
+            location = paths.parse(directory)
+            if location is not None and location.movie is not None:
+                root = paths.library_dir(location.key, location.library, "movies")
+                if root in owed:
+                    owed.discard(root)
+                    self._forget_listing(root)
+            self._prepare_scan(directory)
+
         try:
             if video.movie_folders:
-                # Kodi may hold any root these folders are below, from
-                # whatever listed it last (_prepare_scan).
-                self._listed_roots = {
-                    paths.library_dir(location.key, location.library, "movies")
-                    for location in map(paths.parse, video.movie_folders)
-                    if location is not None
-                }
                 # Without noupdate for the scan: the scanner skips a noupdate
                 # folder it was not told to scan everything of.
                 self.bind_folders("movies", video.movie_folders, force=True)
@@ -1073,7 +1070,7 @@ class Native:
                     self.scan(
                         video.directories,
                         expected=video.expected,
-                        prepare=self._prepare_scan,
+                        prepare=prepare,
                     )
         finally:
             # The flag goes back whether the scan finished or not, and
