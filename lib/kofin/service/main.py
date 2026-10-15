@@ -1360,7 +1360,7 @@ class Service(xbmc.Monitor):
         it: that one's own request starts it, and a start from here, up to
         QUEUE_FILL_TIMEOUT late, would open its position 0 a second time."""
 
-        def superseded():
+        def superseded() -> bool:
             return bool(owner) and not state.owns_queue(owner)
 
         playlist = xbmc.PlayList(xbmc.PLAYLIST_MUSIC)
