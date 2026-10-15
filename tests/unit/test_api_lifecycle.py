@@ -1460,6 +1460,11 @@ def test_a_movie_scanned_by_name_is_bound_without_noupdate_for_the_scan_only(
     backend.reconcile()
     folder = paths.movie_dir(store.namespace, LIB, "d")
     assert folder in kodi.scanned and "d" in kodi.owned("Movie")
+    # The first import's scan left the root in Kodi's directory cache, where
+    # it lists files and no folder: forgotten first, or the folder "does not
+    # exist" and its scan is skipped.
+    assert kodi.forgotten == [paths.library_dir(store.namespace, LIB, "movies")]
+    assert kodi.skipped == []
     flags = [
         p.get("noupdate")
         for p in methods(kodi, "VideoLibrary.SetSourceContent")

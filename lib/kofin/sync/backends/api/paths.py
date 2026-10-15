@@ -138,6 +138,14 @@ _EXTRAS = re.compile(
 _EXTRAS_SUB = re.compile(
     r"^/native/([0-9a-f]{32})/([0-9a-f]{32})/movies/([0-9a-z]{1,64})/extras/[^/]+/$"
 )
+# A request that only makes Kodi forget its cached listing of a directory.
+# Kodi drops a directory's cache entry before it asks for the listing again
+# and stores the answer only when the listing succeeds
+# (CDirectory::GetDirectory), and a plugin URL's query is not part of the
+# cache key (CURL options, DirectoryCache getKey): the provider refuses the
+# request and the entry stays gone (Native._forget_listing).
+FORGET = "kofin_forget"
+
 # What an extra's title may not carry into a URL path or past Kodi's parsing.
 _UNSAFE = re.compile(r"[/\\?#%|\x00-\x1f]+")
 
@@ -199,6 +207,11 @@ def movie_dir(key, library, item_id):
     """One folder per movie, so a change re-scans one folder and the extras
     Kodi looks for beside a movie have somewhere to live."""
     return library_dir(key, library, "movies") + item_id + "/"
+
+
+def forgetting(directory):
+    """The request that makes Kodi forget its cached listing of ``directory``."""
+    return directory + "?" + FORGET + "=1"
 
 
 def extras_dir(key, library, item_id):
