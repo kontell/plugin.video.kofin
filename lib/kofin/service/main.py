@@ -1347,20 +1347,28 @@ class Service(xbmc.Monitor):
             count = int(payload.get("Count") or 0)
         except (TypeError, ValueError):
             count = 0
+        owner = str(payload.get("Owner") or "")
         LOG.debug("music queue start asked for %d track(s)", count)
         starter = threading.Thread(
-            target=self._start_queue, args=(count,), name="kofin-queue-start"
+            target=self._start_queue, args=(count, owner), name="kofin-queue-start"
         )
         starter.daemon = True
         starter.start()
 
-    def _start_queue(self, count: int = 0) -> None:
+    def _start_queue(self, count: int = 0, owner: str = "") -> None:
+        """Start the queue once it is full, unless a newer Play all has taken
+        it: that one's own request starts it, and a start from here, up to
+        QUEUE_FILL_TIMEOUT late, would open its position 0 a second time."""
+
+        def superseded():
+            return bool(owner) and not state.owns_queue(owner)
+
         playlist = xbmc.PlayList(xbmc.PLAYLIST_MUSIC)
         deadline = time.monotonic() + QUEUE_FILL_TIMEOUT
         while playlist.size() < count and time.monotonic() < deadline:
-            if self._stopping.wait(0.05):
+            if self._stopping.wait(0.05) or superseded():
                 return
-        if self._stopping.wait(QUEUE_START_DELAY):
+        if self._stopping.wait(QUEUE_START_DELAY) or superseded():
             return
         started = kodirpc.call(
             "Player.Open", {"item": {"playlistid": xbmc.PLAYLIST_MUSIC, "position": 0}}
