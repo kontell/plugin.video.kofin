@@ -1,3 +1,9 @@
+v0.93.6
+- Speed up starting playback of an album
+- Fix toasts for new content
+- Fix movie import looop
+- Settings tidy up
+
 v0.93.5
 - Scheduled full update setting, off by default.
 - Update libraries asks once, then updates every library.
