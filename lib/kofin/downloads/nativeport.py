@@ -277,12 +277,15 @@ class NativeApi:
         return _as_epoch(found.get("lastplayed")), bool(resume.get("position"))
 
     def music_view(self, force: bool) -> None:
-        # The Downloaded-music smart playlist is a file; the music node tree
-        # filters on Kodi music sources this build never writes.
-        from kofin.sync import playlists
+        # A download keeps its row's plugin URL here, so the smart playlist's
+        # rule on the downloads folder matches nothing: the view is a playlist
+        # of the finished songs, written whole each time.
+        from kofin.sync.backends.api import playlists as api_playlists
 
-        playlists.refresh_downloaded_music()
+        api_playlists.write_downloaded_music(self._store())
 
     def refresh_song_playlists(self, item_ids: Iterable[str]) -> None:
-        # A song's playlist line is its plugin URL, which a download never moves.
-        return None
+        # A song's line in a server playlist is its plugin URL, which a
+        # download never moves; the Downloaded-music view is the set of
+        # finished songs, which did.
+        self.music_view(True)

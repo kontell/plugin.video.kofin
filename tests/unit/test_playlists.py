@@ -1001,3 +1001,24 @@ def test_an_empty_listing_on_an_empty_folder_is_not_an_error(tmp_path):
 
     assert stats["playlists"] == 0
     assert stats["pruned"] == 0
+
+
+def test_the_downloaded_music_list_keeps_its_name_and_survives_the_cleanup(tmp_path):
+    """The API build's Downloaded-music list sits beside the server's
+    playlists: a server playlist of the same title takes "(2)", even one that
+    held the name before, and the cleanup and the prune leave it."""
+    from kofin.sync import playlists as pl
+
+    assert (
+        pl.assign_playlist_filename(
+            "Downloaded music", set(pl.RESERVED_STEMS), "Downloaded music.m3u8"
+        )
+        == "Downloaded music (2).m3u8"
+    )
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    (root / pl.DOWNLOADED_MUSIC_M3U8).write_text("#EXTM3U\n")
+    (root / "Mix.m3u8").write_text("#EXTM3U\n")
+    assert "downloaded music" in pl._m3u8_stems(str(root))
+    pl.cleanup_managed_playlists(str(root))
+    assert sorted(p.name for p in root.iterdir()) == [pl.DOWNLOADED_MUSIC_M3U8]

@@ -354,3 +354,42 @@ def test_a_season_s_download_menu_finds_its_episodes_through_the_catalogue(
     assert downloads.container_states("s1") == {"e1": downloads.DONE}
     assert downloads.container_states("s2") == {"e2": downloads.DONE}
     assert set(downloads.container_states(SHOW)) == {"e1", "e2"}
+
+
+def test_the_downloaded_music_view_lists_the_finished_songs(
+    store, backend, kodi, tmp_path, monkeypatch
+):
+    """A download keeps its row's plugin URL in this build, so the smart
+    playlist's rule on the downloads folder matched nothing. The view is a
+    playlist of the finished songs in album order, written by the port, and
+    the smart playlist goes."""
+    from kofin.sync import playlists
+    from kofin.sync.backends.api import playlists as api_playlists
+    from tests.unit.apifixtures import LIB2, album_bundle
+
+    backend.setup()
+    store.publish(album_bundle(songs=3), library=LIB2)
+    backend.reconcile()
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    (root / playlists.DOWNLOADED_MUSIC_XSP).write_text("<smartplaylist/>")
+    monkeypatch.setattr(playlists, "managed_dir", lambda root_=None: str(root))
+    for item_id in ("tc33", "tc31"):
+        downloads.queue(Download(jellyfin_id=item_id, media_type="song"))
+        downloads.finish(item_id, "Music/Band/%s.flac" % item_id, "flac", 1)
+    downloads.queue(Download(jellyfin_id="tc32", media_type="song"))
+    nativeport.NativeApi().refresh_song_playlists({"tc31"})
+    text = (root / playlists.DOWNLOADED_MUSIC_M3U8).read_text()
+    resolver = api_playlists.Resolver(store)
+    assert [line for line in text.splitlines() if line.startswith("plugin://")] == [
+        resolver.entry(store.item(item_id), "Audio").path
+        for item_id in ("tc31", "tc33")
+    ]
+    assert not (root / playlists.DOWNLOADED_MUSIC_XSP).exists()
+    # A removal rewrites it.
+    downloads.remove("tc33")
+    nativeport.NativeApi().music_view(True)
+    text = (root / playlists.DOWNLOADED_MUSIC_M3U8).read_text()
+    assert [line for line in text.splitlines() if line.startswith("plugin://")] == [
+        resolver.entry(store.item("tc31"), "Audio").path
+    ]
