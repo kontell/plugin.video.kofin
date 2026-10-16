@@ -70,8 +70,6 @@ SQL_ONLY = (
     "lib/kofin/service/chapters.py",
     "lib/kofin/downloads/repoint.py",
     "lib/kofin/plugin/clean.py",
-    "context_download_playlist.py",
-    "context_playlist.py",
 )
 PROFILES = ("sql", "api")
 
@@ -236,12 +234,5 @@ def contents(root, path, profile):
             ET.SubElement(
                 requires, "import", {"addon": "xbmc.addon", "version": "21.90.802"}
             )
-        for menu in tree.findall(".//menu"):
-            for item in list(menu):
-                if item.get("library") in (
-                    "context_playlist.py",
-                    "context_download_playlist.py",
-                ):
-                    menu.remove(item)
         return ET.tostring(tree, encoding="utf-8", xml_declaration=True)
     return data

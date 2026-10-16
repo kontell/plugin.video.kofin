@@ -608,8 +608,6 @@ def save_playlist() -> None:
 
 def manage_download_playlist() -> None:
     """Download actions for one file in the managed music playlist folder."""
-    if not buildconfig.legacy_features():
-        return None
     from kofin.downloads import store, subscriptions
     from kofin.sync import playlists
     from kofin.sync.private import Database
