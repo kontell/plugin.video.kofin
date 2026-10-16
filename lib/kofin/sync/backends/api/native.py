@@ -139,6 +139,7 @@ class Native:
         # listed through Kodi just before the scan (_prepare_scan).
         self._extras_folders: Set[str] = set()
         self._extras_allowed = False
+        self._cleans_plugins: Optional[bool] = None
         # A held Kodi setting is still to be given back (restore_settings),
         # and the ones whose refusal has been said.
         self.settings_owed = False
@@ -342,6 +343,22 @@ class Native:
     def bind_show(self, library, series_id):
         self.bind_folders("tvshows", [paths.show_dir(self.key, library, series_id)])
 
+    def library_event(self):
+        """Have Kodi announce that the video library changed, and scan
+        nothing for it.
+
+        A scan with no directory walks every bound folder to compare its
+        hash: every show of every library that was not being removed, 10 to
+        14 s on a desktop each time a library left, and Kodi refused the
+        clean asked for straight after it ("CleanLibrary is not possible
+        while scanning or cleaning"), so the sets a removed movie library
+        had emptied were never dropped. Not issued while a scan runs: the
+        builtin behind the call stops a running scan instead of queuing.
+        """
+        if not self._idle("video"):
+            return
+        rpc("VideoLibrary.Scan", {"directory": NOWHERE, "showdialogs": False})
+
     def announce_writes(self):
         """Have Kodi announce what a pass wrote, at its end.
 
@@ -535,6 +552,17 @@ class Native:
                     self.readback.forget_music(location.library)
         else:
             self.readback.clear()
+
+    def kodi_cleans_plugins(self):
+        """Whether Kodi's clean removes what the add-on answers is gone and
+        keeps what it could not ask about: Kodi 23 on. Before it, a clean the
+        add-on starts keeps every row of a plugin path no source covers, and
+        Clean library asks about each movie folder."""
+        if self._cleans_plugins is None:
+            reply = rpc("Application.GetProperties", {"properties": ["version"]})
+            version = reply.get("version", {}) if isinstance(reply, dict) else {}
+            self._cleans_plugins = int(version.get("major", 0)) >= 23
+        return self._cleans_plugins
 
     def clean(self, directory, on_poll=None):
         """Have Kodi's clean drop what the catalogue no longer has below

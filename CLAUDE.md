@@ -237,9 +237,9 @@ What remains is kofin's own:
   until its detail patch cleared it.
 - **`VideoLibrary.SetSourceContent` deletes rows only with `clearmode: "remove"`.** `"clear"`
   unbinds the scraper and leaves every row in place; the API backend's whole-library removal
-  (`backends/api/removal.py::clear_library`) relies on `"remove"` being `RemoveContentForPath`
-  on the library root, under which every row of that library is filed.
-- **A library is removed in one clean, never in pieces.** Removed fifty folders to a call,
+  before Kodi 23 (`backends/api/removal.py::remove_library`) relies on `"remove"` being
+  `RemoveContentForPath` on the library root, under which every row of that library is filed.
+- **A library is removed in one call, never in pieces.** Removed fifty folders to a call,
   Movies took 186 s against 109 s on the P1D and 1,364 s against 803 s on the Pi, and
   neither way stalled a Python thread (#308's question). Through `SetSourceContent remove`
   every deleted row was a `VideoLibrary.OnRemove` without `transaction`, and every visible
@@ -425,25 +425,30 @@ What remains is kofin's own:
   in-progress widget with shows after a cast change. A row's acknowledgement keeps a hash per
   part of the refresh token (`metadata.refresh_parts`, built from `refresh_fields`, the one
   dict the token hashes), so the log says which part moved.
-- **A library leaves through Kodi's clean, run alone** (`removal.clear_library`,
-  `Native.clean`). The clean's `directory` narrows only the files it tests; the stage after
-  asks the add-on about **every bound folder of every library** and deletes the path row of
-  one answered "no", and a question that is never run reads as "no". Kodi can hand two
-  plugin requests that arrive together its one warm interpreter (`Reuseable` is a state
-  check, `CLanguageInvokerThread`), and the second takes the first one's place: with
-  kofin's own music removal listing beside a clean, one of 1,869 questions went unasked on
-  the P1D and a movie of a library that stayed left every listing. So the library thread
-  starts the clean when Kodi is idle and issues nothing that reaches the plugin until
-  `onCleanFinished`; the provider answers "gone" only for the library being cleaned
-  (`store.set_cleaning`), or the first of two libraries leaving in one pass would hide the
-  second's movies before its own clean found their files; and `removal.restore_lost` then
-  finds what a request of the skin's or the viewer's still cost the libraries that stay (a
-  hidden movie is removed by id and filed again, a deleted show imported again). The clean
-  drops the sets nothing links, and its end is the one announcement the widgets need.
-  Never `UpdateLibrary(video)`: the builtin with no path lists every folder of the
-  libraries that stay. Only the shows Kodi could have merged with a leaving one are
-  invalidated (`_merged_shows`). A clean asks about every other source's folders too, so
-  one that is unreachable at that moment loses its rows, as with any Kodi clean.
+- **From Kodi 23 a library leaves through Kodi's clean, run alone** (`removal.clear_library`,
+  `Native.clean`, gated by `Native.kodi_cleans_plugins`). The gate assumes the plugin clean
+  fixes (kontell/xbmc `fix/clean-unanswered-plugin-check`, `fix/clean-addon-is-source`) land
+  in 23: before them a clean kofin starts keeps every movie, whose folder no source covers,
+  and Clean library asks about each movie folder, so an older Kodi removes the library in one
+  `SetSourceContent remove` (`removal.remove_library`), with the companion's set journal and
+  a scan of nowhere for the widgets. The clean's `directory` narrows only the files it tests;
+  the stage after asks the add-on about **every bound folder of every library** and deletes
+  the path row of one answered "no", and before Kodi 23 a question that is never run reads as
+  "no". Kodi can hand two plugin requests that arrive together its one warm interpreter
+  (`Reuseable` is a state check, `CLanguageInvokerThread`), and the second takes the first
+  one's place: with kofin's own music removal listing beside a clean, one of 1,869 questions
+  went unasked on the P1D and a movie of a library that stayed left every listing. So the
+  library thread starts the clean when Kodi is idle and issues nothing that reaches the
+  plugin until `onCleanFinished`; the provider answers "gone" only for the library being
+  cleaned (`store.set_cleaning`), or the first of two libraries leaving in one pass would
+  hide the second's movies before its own clean found their files; and `removal.restore_lost`
+  then finds what a request of the skin's or the viewer's still cost the libraries that stay
+  (a hidden movie is removed by id and filed again, a deleted show imported again). The clean
+  drops the sets nothing links, and its end is the one announcement the widgets need. Never
+  `UpdateLibrary(video)`: the builtin with no path lists every folder of the libraries that
+  stay. Only the shows Kodi could have merged with a leaving one are invalidated
+  (`_merged_shows`). A clean asks about every other source's folders too, so one that is
+  unreachable at that moment loses its rows, as with any Kodi clean.
 - **A single-source item's streams are on the item, not on its source** (`metadata.compact`,
   `_stream_source`): read off the first source alone, every such row was filed with a stub
   video stream and no audio or subtitle. Streams have no setter, so `SCANNER_FORMAT` numbers

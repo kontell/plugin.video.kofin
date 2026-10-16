@@ -16,6 +16,7 @@ forgotten on the strength of an accepted call.
 """
 
 import functools
+import threading
 import time
 from typing import Any, Dict, List, Set, Tuple
 
@@ -176,6 +177,136 @@ def clear_library(native, library, kinds, rows=0):
     native.store.unbind(root)
 
 
+def remove_library(native, library, kinds, rows=0):
+    """Before Kodi 23, one call removes every row Kodi filed under the library
+    root; Kodi's clean could not (Native.kodi_cleans_plugins).
+
+    The call returns when the last row is gone: three minutes for 1,787
+    movies on a desktop, a quarter of an hour on a Raspberry Pi 3, and
+    until this said so the screen showed nothing in that time. It is made
+    on a thread of its own, and this one reads how many of the library's
+    ``rows`` Kodi still lists and moves the bar.
+
+    One call, not a folder at a time: removed fifty folders to a call with
+    a pause between, the same library took 186 s on the P1D against 109 s
+    and 1,364 s on a Raspberry Pi 3 against 803 s, and neither way stalled
+    a Python thread (tests/live/or_bench/README.md).
+    Its waits are timed: a three-second wait that took 47 s is how the
+    stall of one ``OnRemove`` callback per row showed on a television.
+    """
+    root = paths.library_root(native.key, library)
+    heading = removing(library)
+    saved = native.progress.phase(rows, heading)
+    failure: List[BaseException] = []
+
+    def clear():
+        try:
+            rpc(
+                "VideoLibrary.SetSourceContent",
+                {
+                    "path": root,
+                    "content": "none",
+                    "clearmode": "remove",
+                    "refresh": False,
+                },
+            )
+        except BaseException as error:  # noqa: BLE001 - handed to the caller
+            failure.append(error)
+
+    try:
+        try:
+            before = _rows(kinds) if rows else 0
+        except Exception:
+            # The count is the bar's alone. A listing Kodi refuses here must
+            # not be what keeps the library from being cleared.
+            before = rows = 0
+        worker = threading.Thread(target=clear, name="kofin-library-clear")
+        worker.daemon = True
+        began = time.monotonic()
+        worker.start()
+        longest = 0.0
+        while worker.is_alive():
+            asked = time.monotonic()
+            aborted = native.abort() or native.monitor.waitForAbort(CLEAR_POLL)
+            longest = max(longest, time.monotonic() - asked)
+            if aborted:
+                # The call cannot be taken back, and it is this thread's:
+                # reported stopped while Kodi is still clearing, the thread
+                # would let the next service generation issue the same
+                # clear beside it. It waits as it did when it made the call
+                # itself, and no longer paints.
+                worker.join()
+                raise InterruptedError("native sync stopped")
+            if rows and worker.is_alive():
+                try:
+                    gone = before - _rows(kinds)
+                except Exception:
+                    continue  # a busy Kodi misses a reading, not the clear
+                native.progress.at(
+                    gone, "%s %d / %d" % (heading, max(0, min(gone, rows)), rows)
+                )
+        worker.join()
+        LOG.info(
+            "library %s cleared in %.1f s; the longest %.0f s wait took %.1f s",
+            library,
+            time.monotonic() - began,
+            CLEAR_POLL,
+            longest,
+        )
+    finally:
+        native.progress.restore(saved)
+    if failure:
+        raise failure[0]
+    native.readback.clear()
+    left = []
+    if "Movie" in kinds:
+        left += list(native.readback.scope("Movie", library))
+    if "MusicVideo" in kinds:
+        left += list(native.readback.scope("MusicVideo", library))
+    if kinds & {"Series", "Season", "Episode"}:
+        left += list(native.readback.scope("Series", library))
+    if left:
+        raise RuntimeError("native clear left %d owned rows" % len(left))
+    native.store.unbind(root)
+
+
+def _listed_sets(native) -> Set[str]:
+    """The titles of the sets Kodi lists: those a movie links."""
+    native.readback.forget("BoxSet")
+    return set(native.readback.scope("BoxSet"))
+
+
+def _release_sets(native, before):
+    """Let go of the sets a cleared movie library emptied, without a clean.
+
+    Kodi's clean was asked for here, "scoped" to the library's root. The
+    scope holds for the files the clean tests and not for the stage after
+    it: every path with content set, of every library, is asked of the
+    add-on that owns it, one plugin call per bound folder, and the path row
+    of one that goes unanswered is deleted (CVideoDatabase::CleanDatabase,
+    "Cleaning paths that don't exist and have content set"). This backend
+    binds every movie and show folder, and Kodi has one reusable interpreter
+    for plugin calls: on a desktop a second plugin request arrived in the
+    middle of such a clean, one folder's question was never asked, and a
+    movie of a library that stayed lost its folder's row and left every
+    listing. So no clean. An emptied set is the companion's to delete (it
+    deletes one only when it is empty); without the companion the row
+    stays, in no listing, until a clean the viewer asks for.
+    """
+    emptied = sorted(before - _listed_sets(native))
+    if not emptied:
+        return
+    if companion.present() is None:
+        LOG.info(
+            "%d collection(s) the removal emptied stay in Kodi, unlisted: "
+            "no companion to delete them",
+            len(emptied),
+        )
+        return
+    for title in emptied:
+        companion.journal_set(title)
+
+
 def restore_lost(native, leaving) -> int:
     """Put back what a clean took from the libraries that stay; returns how
     many items were put back to pending.
@@ -267,20 +398,22 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
     #    below.
     cleared: Set[str] = set()
     cleaned_whole: Set[str] = set()
+    cleans = native.kodi_cleans_plugins()
     for library, members in sorted(by_library.items()):
         members = {i for i in members if KINDS[placement[i].kind].removal != "rescan"}
         if not library or not members or not members <= removals:
             continue
         kinds = {placement[i].kind for i in members}
+        counted = sum(1 for i in members if placement[i].kind in COUNTED)
+        sets: Set[str] = set()
         try:
             began = time.monotonic()
-            cleaned_whole.add(library)
-            clear_library(
-                native,
-                library,
-                kinds,
-                rows=sum(1 for i in members if placement[i].kind in COUNTED),
-            )
+            if cleans:
+                cleaned_whole.add(library)
+                clear_library(native, library, kinds, rows=counted)
+            else:
+                sets = _listed_sets(native) if "Movie" in kinds else set()
+                remove_library(native, library, kinds, rows=counted)
             LOG.info(
                 "library %s: %d item(s) cleared from Kodi in %.1f s",
                 library,
@@ -293,6 +426,12 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
             for item_id in members:
                 _fail(store, pending, item_id, error, errors)
             continue
+        if not cleans:
+            if sets:
+                _owed(
+                    library, "its sets", functools.partial(_release_sets, native, sets)
+                )
+            _owed(library, "its event", native.library_event)
         # One transaction: let go of one at a time, a library of 6,000 items
         # was 6,000 commits, each collecting the catalogue's closed intervals.
         store.forget_many([(item_id, pending[item_id][0]) for item_id in members])

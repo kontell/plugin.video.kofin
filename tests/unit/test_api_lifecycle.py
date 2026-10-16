@@ -1881,3 +1881,173 @@ def test_while_a_library_is_cleaned_only_its_tombstones_are_gone(store):
     # With no clean named, a tombstone is gone wherever it is.
     assert not provider.exists(store, file_b[0], file_b[1])
     assert not provider.exists(store, folder_b, "")
+
+
+def test_before_kodi_23_removing_one_of_two_libraries_clears_only_that_one_in_one_call(
+    store, backend, kodi
+):
+    kodi.major = 22
+    membership = {}
+    items = []
+    for library, show_id in ((LIB, SHOW), (LIB2, SHOW2)):
+        for item in show_bundle(show_id) + [movie("m" + library[0])]:
+            items.append(item)
+            membership[item["Id"]] = library
+    store.publish(items, membership=membership, complete_libraries=[LIB, LIB2])
+    backend.reconcile()
+    assert len(kodi.owned("Series")) == 2 and len(kodi.owned("Movie")) == 2
+    kodi.calls.clear()
+    kodi.builtins.clear()
+    store.publish([], library=LIB)
+    backend.reconcile()
+    clears = methods(kodi, "VideoLibrary.SetSourceContent")
+    assert clears == [
+        {
+            "path": paths.library_root(store.namespace, LIB),
+            "content": "none",
+            "clearmode": "remove",
+            "refresh": False,
+        }
+    ]
+    assert not methods(kodi, "VideoLibrary.RemoveTVShow")
+    assert not methods(kodi, "VideoLibrary.RemoveMovie")
+    assert set(kodi.owned("Series")) == {SHOW2}
+    assert set(kodi.owned("Movie")) == {"m2"}
+    # The home widgets hear of it through a scan of a directory that is not
+    # there. No scan with no directory, which walks every bound folder of
+    # the libraries that stay, and no clean, which asks the add-on about
+    # every one of them and deletes the row of any it gets no answer for.
+    assert kodi.builtins == []
+    assert not methods(kodi, "VideoLibrary.Clean")
+    assert [p["directory"] for p in methods(kodi, "VideoLibrary.Scan")] == [
+        native.NOWHERE
+    ]
+    assert not store.pending()
+    assert set(kodi.bindings) == {
+        paths.library_dir(store.namespace, LIB2, "tvshows"),
+        paths.show_dir(store.namespace, LIB2, SHOW2),
+        paths.library_dir(store.namespace, LIB2, "movies"),
+        paths.movie_dir(store.namespace, LIB2, "m2"),
+    }
+    assert set(store.bindings()) == set(kodi.bindings)
+    # The survivor was re-read, not re-imported.
+    assert store.mapping(SHOW2).kodi_id in kodi.rows["Series"]
+
+
+def test_before_kodi_23_a_library_without_movies_leaves_with_an_event_and_no_walk(
+    store, backend, kodi
+):
+    kodi.major = 22
+    membership = {}
+    items = []
+    for library, show_id in ((LIB, SHOW), (LIB2, SHOW2)):
+        for item in show_bundle(show_id):
+            items.append(item)
+            membership[item["Id"]] = library
+    store.publish(items, membership=membership, complete_libraries=[LIB, LIB2])
+    backend.reconcile()
+    kodi.calls.clear()
+    kodi.builtins.clear()
+    kodi.scanned.clear()
+    store.publish([], library=LIB)
+    backend.reconcile()
+    assert set(kodi.owned("Series")) == {SHOW2}
+    assert kodi.builtins == []
+    assert not methods(kodi, "VideoLibrary.Clean")
+    # The one scan is of a directory that is not there.
+    assert kodi.scanned == [native.NOWHERE]
+    assert not store.pending()
+
+
+def test_before_kodi_23_a_set_a_removed_library_emptied_is_the_companions_to_delete(
+    store, backend, kodi, monkeypatch
+):
+    """Kodi's clean asks the add-on about every bound folder of every
+    library, whatever directory it is given, and deletes the path row of one
+    that goes unanswered: a movie of a library that stayed left every
+    listing that way. The companion deletes the one empty set by title."""
+    kodi.major = 22
+    from kofin.sync.backends.api import companion
+
+    monkeypatch.setattr(companion, "present", lambda: "0.1.0")
+    store.publish([movie(), movie("b"), boxset("box", "Pair", ["a", "b"])], library=LIB)
+    store.publish([movie("c")], library=LIB2)
+    backend.reconcile()
+    assert [r["title"] for r in kodi.rows["BoxSet"].values()] == ["Pair"]
+    kodi.calls.clear()
+
+    store.publish([], library=LIB)
+    backend.reconcile()
+
+    assert not methods(kodi, "VideoLibrary.Clean")
+    assert set(kodi.owned("Movie")) == {"c"}
+    journal = companion._read_sets()
+    assert [entry["title"] for entry in journal] == ["Pair"]
+
+
+def test_a_stopped_removal_is_not_over_until_kodi_has_answered(monkeypatch):
+    """The clear runs on a thread of its own so that the bar can move. A
+    stop must not leave that call behind in Kodi with nobody waiting on it:
+    the next service generation would issue the same clear beside it."""
+    import threading
+    from types import SimpleNamespace
+
+    from kofin.sync.backends.api import removal
+
+    answer = threading.Event()
+    answered = []
+
+    def rpc(method, params):
+        answer.wait(5)
+        answered.append(method)
+
+    monkeypatch.setattr(removal, "rpc", rpc)
+    monkeypatch.setattr(removal, "removing", lambda library: "Removing library")
+    native = SimpleNamespace(
+        key="key",
+        progress=SimpleNamespace(
+            phase=lambda *a: None, at=lambda *a: None, restore=lambda saved: None
+        ),
+        abort=lambda: True,
+        monitor=SimpleNamespace(waitForAbort=lambda seconds: True),
+    )
+    timer = threading.Timer(0.2, answer.set)
+    timer.start()
+    try:
+        with pytest.raises(InterruptedError):
+            removal.remove_library(native, LIB, {"Movie"})
+        assert answered == ["VideoLibrary.SetSourceContent"]
+    finally:
+        timer.cancel()
+        answer.set()
+
+
+def test_before_kodi_23_a_set_that_cannot_be_handed_over_does_not_fail_the_removal(
+    store, backend, kodi, monkeypatch
+):
+    """The rows are gone by then. Failed for the sake of its sets, the
+    library was cleared again on the next pass and the sets, which Kodi no
+    longer lists, could not be told a second time."""
+    kodi.major = 22
+    from kofin.sync.backends.api import companion
+
+    monkeypatch.setattr(companion, "present", lambda: "0.1.0")
+
+    def unwritable(title):
+        raise OSError("journal not written")
+
+    monkeypatch.setattr(companion, "journal_set", unwritable)
+    store.publish([movie(), movie("b"), boxset("box", "Pair", ["a", "b"])], library=LIB)
+    backend.reconcile()
+    kodi.calls.clear()
+
+    store.publish([], library=LIB)
+    backend.reconcile()
+
+    assert not kodi.rows["Movie"]
+    assert len(methods(kodi, "VideoLibrary.SetSourceContent")) == 1
+    assert not [i for i, _, op, _ in store.pending_work() if op == "remove"]
+    # The home widgets still hear of the removal.
+    assert [p["directory"] for p in methods(kodi, "VideoLibrary.Scan")] == [
+        native.NOWHERE
+    ]

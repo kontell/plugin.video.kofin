@@ -57,6 +57,9 @@ class Kodi:
         self.lose_questions = set()
         self.hidden = {}
         self.clean_questions = []
+        # Kodi 23 on cleans a plugin's rows by what the add-on answers
+        # (Native.kodi_cleans_plugins); before it a library is removed in one call.
+        self.major = 23
         self.scanned = []
         # Music: songs by Kodi id; albums and artists derived from them.
         self.songs = {}
@@ -727,6 +730,8 @@ class Kodi:
                 raise RuntimeError("Kodi refused " + method)
             self.listed.append(params["directory"])
             return {"files": [], "limits": {"total": 0}}
+        if method == "Application.GetProperties":
+            return {"version": {"major": self.major, "minor": 0}}
         if method == "Addons.GetAddonDetails":
             version = self.addons.get(params["addonid"])
             if version is None:
