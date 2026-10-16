@@ -487,9 +487,11 @@ What remains is kofin's own:
   that went empty included, so the token the apply pass acknowledges is always one a scan
   presented. The scan adds and never removes: a row the listing no longer names leaves through
   Clean, whose per-file `check_exists` is `provider.exists` (a version file exists while the
-  movie still lists its source, an extra while the movie's payload still names its stem). A
-  version file is the movie's URL with `mediasourceid`; Kodi imports it as a movie of its own
-  and the user groups it in the Versions Manager. `Readback.owns` accepts the movie's URL with
+  movie still lists its source, an extra while the movie's payload still names its stem). The
+  source is read from the request's query, never from `base_url` (Kodi's `argv[0]`, which has
+  none): read from there, every version file existed. A version file is the movie's URL with
+  `mediasourceid`; Kodi imports it as a movie of its own and the user groups it in the Versions
+  Manager. `Readback.owns` accepts the movie's URL with
   or without the source, since the user may make a version the default; `Readback._prefer`
   lets the movie's own file win over ungrouped version rows and keeps them as `version_rows`,
   which leave with the movie on removal. Two rows by the movie's own file are still a
