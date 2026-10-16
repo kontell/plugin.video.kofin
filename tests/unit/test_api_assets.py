@@ -368,6 +368,49 @@ def test_versions_and_extras_scan_the_movie_folder_after_the_root(store, backend
     assert kodi.scanned == [root, folder]
 
 
+def test_the_extras_folder_of_a_movie_with_extras_is_bound_noupdate(
+    store, backend, kodi, monkeypatch
+):
+    """An extra's URL has no query, so Kodi files it under the add-on's root,
+    and a clean asks about a plugin file only through a binding on its
+    folder: without one, Clean library deleted every extra unasked. The scan
+    that files the extras binds their folder, noupdate so that Update library
+    never scans them as movies, and a profile whose extras an earlier build
+    filed has them bound once."""
+    from kofin.sync.backends.api import native as native_module
+    from tests.unit.fakes import FakeAddon
+
+    FakeAddon.store = {}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    store.publish([assets_movie(), movie("b")], library=LIB)
+    backend.reconcile()
+    extras = paths.extras_dir(store.namespace, LIB, "a")
+    assert kodi.bindings[extras] == "movies" and kodi.noupdate[extras] is True
+    assert paths.extras_dir(store.namespace, LIB, "b") not in kodi.bindings
+    # An earlier build's profile: movie folders bound, extras folders not.
+    kodi.bindings.pop(extras)
+    store.unbind(extras)
+    FakeAddon.store[native_module.MOVIE_BINDINGS_SETTING] = (
+        native_module.MOVIE_BINDINGS_STATE
+    )
+    kodi.scanned.clear()
+    kodi.calls.clear()
+    backend.bind_movie_folders()
+    assert [p["path"] for p in methods(kodi, "VideoLibrary.SetSourceContent")] == [
+        extras
+    ]
+    assert kodi.noupdate[extras] is True and kodi.scanned == []
+    assert (
+        FakeAddon.store[native_module.MOVIE_BINDINGS_SETTING]
+        == native_module.EXTRAS_BINDINGS_STATE
+    )
+    # Once: later calls read no acknowledgement for it.
+    kodi.bindings.pop(extras)
+    store.unbind(extras)
+    backend.bind_movie_folders()
+    assert extras not in kodi.bindings
+
+
 def test_new_extras_rescan_the_folder_once_and_a_plain_change_does_not(
     store, backend, kodi
 ):

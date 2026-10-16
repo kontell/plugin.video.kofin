@@ -821,6 +821,33 @@ class Store(Catalogue):
             row[0]: Mapping(row[1], json.loads(row[2] or "{}"), row[3]) for row in rows
         }
 
+    def movies_with_extras(self) -> Tuple[Dict[str, Entry], Set[str]]:
+        """The movies at the pinned generation, as ``entries`` reads them,
+        and which of them an acknowledgement lists extras for
+        (metadata.asset_files), in one read (Native.bind_movie_folders)."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            generation = self._generation(db.cursor, True)
+            entries = {
+                e.item_id: e
+                for e in self._entries(
+                    db.cursor,
+                    "added<=? AND (removed IS NULL OR removed>?) AND kind=?",
+                    (generation, generation, "Movie"),
+                )
+            }
+            rows = db.cursor.execute(
+                "SELECT item_id, applied FROM api_native"
+                " WHERE namespace=? AND kind='Movie'",
+                (self.namespace,),
+            ).fetchall()
+        extras = set()
+        for item_id, applied in rows:
+            files = json.loads(applied or "{}").get("asset_files") or {}
+            if files.get("extras"):
+                extras.add(item_id)
+        return entries, extras
+
     def remember(self, item_id, generation, kodi_id, applied, kind=None):
         """Acknowledge readback of exactly the desired generation."""
         return self.remember_many([(item_id, generation, kodi_id, applied, kind)]) == 1

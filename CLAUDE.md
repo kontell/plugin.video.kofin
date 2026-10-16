@@ -507,7 +507,12 @@ What remains is kofin's own:
   `VIDEO_TS/` and `BDMV/` through `Files.GetDirectory` right before the scan, so the directory
   cache answers Kodi's probe), and a file goes to the play route or fails as a play. The pass
   turns `videolibrary.ignorevideoextras` off once (`allow_extras`), with a toast, since Kodi
-  drops the folder before looking at it while that is on.
+  drops the folder before looking at it while that is on. **The folder `extras/` is bound,
+  `noupdate`, or Clean library deletes every extra unasked:** an extra's URL has no query, so
+  Kodi files it under the add-on's root (`CVideoDatabase::SplitPath`), where a clean finds no
+  binding and asks nothing. The scan that files a movie's extras binds the folder
+  (`scan_video`), and `bind_movie_folders` binds those an earlier build filed once per profile
+  (`apiMovieBindings` at `noupdate+extras`), so no pass reads every acknowledgement for them.
 - **What stock Piers interfaces cannot do is published for the companion add-on, never done
   through SQL.** `sync/backends/api/companion.py` writes the open requests to
   `companion/requests.json` in the profile and sends `Companion.Requests` over
