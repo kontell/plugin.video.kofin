@@ -174,3 +174,30 @@ def test_namespace_and_urls_are_server_user_and_library_scoped():
     )
     assert paths.parse(paths.library_dir(key, LIB, "musicvideos") + SHOW + "/") is None
     assert paths.key_from_url(url) == key
+
+
+def test_a_forget_request_is_refused_and_lists_nothing(store, monkeypatch):
+    """Kodi keeps no listing of a refused request, and the query is not part
+    of its cache key: the refusal is what takes a cached root out."""
+    from urllib.parse import parse_qsl, urlsplit
+
+    from kofin.plugin.router import Request
+    from kofin.sync.backends.api import provider
+
+    store.publish([movie()], library=LIB)
+    root = paths.library_dir(store.namespace, LIB, "movies")
+    url = paths.forgetting(root)
+    assert url.startswith(root + "?")
+    ended, rendered = [], []
+    monkeypatch.setattr(
+        provider.xbmcplugin,
+        "endOfDirectory",
+        lambda handle, succeeded=True, **_: ended.append(succeeded),
+    )
+    monkeypatch.setattr(
+        provider.xbmcplugin,
+        "addDirectoryItems",
+        lambda h, items, n: rendered.append(list(items)),
+    )
+    provider.serve(Request(root, 1, dict(parse_qsl(urlsplit(url).query))))
+    assert ended == [False] and rendered == []

@@ -1460,12 +1460,33 @@ def test_a_movie_scanned_by_name_is_bound_without_noupdate_for_the_scan_only(
     backend.reconcile()
     folder = paths.movie_dir(store.namespace, LIB, "d")
     assert folder in kodi.scanned and "d" in kodi.owned("Movie")
+    # The first import's scan left the root in Kodi's directory cache, where
+    # it lists files and no folder: forgotten first, or the folder "does not
+    # exist" and its scan is skipped.
+    assert kodi.forgotten == [paths.library_dir(store.namespace, LIB, "movies")]
+    assert kodi.skipped == []
     flags = [
         p.get("noupdate")
         for p in methods(kodi, "VideoLibrary.SetSourceContent")
         if p["path"] == folder and p["content"] == "movies"
     ]
     assert flags == [False, True]
+    assert not store.pending()
+
+
+def test_two_new_movies_scanned_by_name_forget_their_root_once(store, backend, kodi):
+    """Kodi holds the root from the first import's scan; forgotten before the
+    first folder below it, it stays forgotten for the second."""
+    backend.setup()
+    store.publish([movie(i) for i in "abc"], library=LIB)
+    backend.reconcile()
+    store.publish([movie(i) for i in "abcde"], library=LIB)
+    backend.reconcile()
+    folders = [paths.movie_dir(store.namespace, LIB, i) for i in "de"]
+    assert [f for f in kodi.scanned if f in folders] == folders
+    assert kodi.forgotten == [paths.library_dir(store.namespace, LIB, "movies")]
+    assert kodi.skipped == []
+    assert {"d", "e"} <= set(kodi.owned("Movie"))
     assert not store.pending()
 
 
@@ -1646,6 +1667,11 @@ def test_a_later_stamp_of_kodis_own_is_the_same_play():
     assert same("2026-10-12 14:24:08", "2026-10-12 14:24:08")
     # The server's is the later one: played somewhere else since.
     assert not same("2026-10-12 14:24:08", "2026-10-12 14:24:33")
+    # Later by the stop report alone: Kodi stamps the end of a song and the
+    # server the stop kofin sends after it.
+    assert same("2026-10-15 13:41:53", "2026-10-15 13:41:54")
+    assert same("2026-10-15 13:41:44", "2026-10-15 13:41:54")
+    assert not same("2026-10-15 13:41:43", "2026-10-15 13:41:54")
     # Not a sitting apart: a stamp Kodi made up on the day of an import
     # against a play of years ago.
     assert not same("2026-10-12 14:24:33", "2019-03-01 20:00:00")

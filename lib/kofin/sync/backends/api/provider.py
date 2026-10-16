@@ -136,6 +136,10 @@ def serve(request):
     # One database connection for the life of this interpreter: a scanner
     # that reuses it between listings then pays the open once.
     private.pool_connections(True)
+    if request.params.get(paths.FORGET):
+        # Refused on purpose: Kodi keeps no listing of a failed request.
+        xbmcplugin.endOfDirectory(request.handle, succeeded=False, cacheToDisc=False)
+        return
     location = paths.parse(request.base_url)
     action = request.params.get("kodi_action", "")
     if location is None:

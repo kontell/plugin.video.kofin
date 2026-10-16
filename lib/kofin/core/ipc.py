@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 import xbmc
 import xbmcvfs
 
+from kofin.core import kodirpc
 from kofin.core.log import Logger
 
 LOG = Logger(__name__)
@@ -78,6 +79,16 @@ ATTACH_SUBTITLE = "AttachSubtitle"
 # Rewrite managed playlist files after an explicit save-to-Jellyfin.
 # Payload {"Id": "<playlist>"} applies one; empty reconciles the enabled sides.
 SYNC_PLAYLISTS = "SyncPlaylists"
+# Play all (plugin/playall.py) builds the music queue in the plugin process
+# and asks the service to start it. Kodi resolves the first track with a
+# plugin request of its own, which gets the interpreter Kodi keeps warm only
+# if the script before it has ended; started from the plugin, the first
+# track was always asked for before then and got a cold one. The queue is
+# Kodi's music playlist; the payload {"Count": n, "Owner": token} is how many
+# tracks the plugin is about to add to it, after the request, and which
+# Play all asked (state.take_queue). Not guarded: a forged one starts the
+# queue the viewer already has.
+START_QUEUE = "StartQueue"
 
 _REGISTRY = frozenset(
     {
@@ -96,6 +107,7 @@ _REGISTRY = frozenset(
         DOWNLOAD_REMOVE_ALL,
         ATTACH_SUBTITLE,
         SYNC_PLAYLISTS,
+        START_QUEUE,
     }
 )
 
@@ -204,6 +216,31 @@ def notify(method: str, data: Optional[Dict[str, Any]] = None) -> None:
     if method in GUARDED:
         payload[NONCE_KEY] = nonce()
     xbmc.executebuiltin("NotifyAll(%s, %s, %s)" % (SENDER, method, _encode(payload)))
+
+
+def notify_now(method: str, data: Optional[Dict[str, Any]] = None) -> bool:
+    """Send a message through JSON-RPC rather than the NotifyAll builtin,
+    and say whether Kodi took it.
+
+    The builtin is posted to Kodi's application thread, and returns before
+    the message is out. This call returns once Kodi has taken the message,
+    so one sent before a burst of other announcements arrives before them.
+    That is the measurement it rests on: a message sent after Play all had
+    added 230 tracks, each a ``Playlist.OnAdd`` for every Python monitor in
+    Kodi, reached the service 6.3-6.5 s later on a Raspberry Pi 3, through
+    either transport; sent through this call before the first track, it
+    arrived in about 0.1 s. JSON-RPC takes the payload as a value, so it
+    needs none of the builtin parser's encoding.
+    """
+    if method not in _REGISTRY:
+        raise ValueError("unregistered IPC message: %s" % method)
+    payload = dict(data or {})
+    if method in GUARDED:
+        payload[NONCE_KEY] = nonce()
+    result = kodirpc.call(
+        "JSONRPC.NotifyAll", {"sender": SENDER, "message": method, "data": [payload]}
+    )
+    return result is not None and result is not kodirpc.FAILED
 
 
 def _encode(data: Dict[str, Any]) -> str:

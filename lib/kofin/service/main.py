@@ -12,7 +12,17 @@ from typing import Any, Dict, List, Optional, Set
 
 import xbmc
 
-from kofin.core import auth, contract, diag, ipc, log, settings, state, toast
+from kofin.core import (
+    auth,
+    contract,
+    diag,
+    ipc,
+    kodirpc,
+    log,
+    settings,
+    state,
+    toast,
+)
 from kofin.core.api import Api
 from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
@@ -109,6 +119,14 @@ SERVER_LIFECYCLE_MESSAGES = {
 # anyone goes looking for server logs.
 LOST_TOAST_GRACE_SECONDS = 90.0
 
+# How long after Play all's queue is full the service starts it
+# (_ipc_start_queue). The script that filled it ends a few milliseconds
+# later; the delay covers that on a busy Raspberry Pi 3, where the end was
+# seen up to 117 ms after the first track had been asked for. The queue is
+# waited for QUEUE_FILL_TIMEOUT at most: 230 tracks took 0.4 s on the Pi.
+QUEUE_START_DELAY = 0.3
+QUEUE_FILL_TIMEOUT = 10.0
+
 CAPABILITIES: Dict[str, Any] = {
     "PlayableMediaTypes": "Audio,Video",
     "SupportsMediaControl": True,
@@ -172,6 +190,7 @@ class Service(xbmc.Monitor):
         ipc.WHO_IS_WATCHING: "_ipc_who_is_watching",
         ipc.PRECACHE_ART: "_ipc_precache_art",
         ipc.ATTACH_SUBTITLE: "_ipc_attach_subtitle",
+        ipc.START_QUEUE: "_ipc_start_queue",
         ipc.DOWNLOAD_ADD: "_ipc_download_add",
         ipc.DOWNLOAD_CANCEL: "_ipc_download_cancel",
         ipc.DOWNLOAD_REMOVE: "_ipc_download_remove",
@@ -1317,6 +1336,47 @@ class Service(xbmc.Monitor):
             LOG.warning("AttachSubtitle without a usable index: %s", payload)
         else:
             self.player.fetch_subtitle(index)
+
+    def _ipc_start_queue(self, name: str, payload: Dict[str, Any]) -> None:
+        """Start the music queue Play all is building, once it holds the
+        tracks the request counts and a moment more: by then the plugin
+        script that sent it has ended, and Kodi gives the first track's
+        resolve the interpreter it keeps warm (ipc.START_QUEUE).
+        Notification thread: the wait is a thread of its own."""
+        try:
+            count = int(payload.get("Count") or 0)
+        except (TypeError, ValueError):
+            count = 0
+        owner = str(payload.get("Owner") or "")
+        LOG.debug("music queue start asked for %d track(s)", count)
+        starter = threading.Thread(
+            target=self._start_queue, args=(count, owner), name="kofin-queue-start"
+        )
+        starter.daemon = True
+        starter.start()
+
+    def _start_queue(self, count: int = 0, owner: str = "") -> None:
+        """Start the queue once it is full, unless a newer Play all has taken
+        it: that one's own request starts it, and a start from here, up to
+        QUEUE_FILL_TIMEOUT late, would open its position 0 a second time."""
+
+        def superseded() -> bool:
+            return bool(owner) and not state.owns_queue(owner)
+
+        playlist = xbmc.PlayList(xbmc.PLAYLIST_MUSIC)
+        deadline = time.monotonic() + QUEUE_FILL_TIMEOUT
+        while playlist.size() < count and time.monotonic() < deadline:
+            if self._stopping.wait(0.05) or superseded():
+                return
+        if self._stopping.wait(QUEUE_START_DELAY) or superseded():
+            return
+        started = kodirpc.call(
+            "Player.Open", {"item": {"playlistid": xbmc.PLAYLIST_MUSIC, "position": 0}}
+        )
+        if started is None or started is kodirpc.FAILED:
+            LOG.warning("the music queue was not started: Kodi refused Player.Open")
+        else:
+            LOG.debug("music queue started")
 
     def _downloads_for(self, name: str) -> Optional[DownloadsPort]:
         """The download manager a download command goes to, started on

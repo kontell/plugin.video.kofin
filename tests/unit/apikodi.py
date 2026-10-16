@@ -76,6 +76,11 @@ class Kodi:
         self.addons = {}
         self.notified = []
         self.listed = []
+        # Kodi's directory cache, of the directories that matter here: a
+        # scanned movies root, and what a forget request took out of it.
+        self.cached = set()
+        self.forgotten = []
+        self.skipped = []
         self.dirnames = {}
         self.noupdate = {}
         self.extras = {}
@@ -196,6 +201,16 @@ class Kodi:
         location = paths.parse(directory)
         assert location is not None and location.library, directory
         library = location.library
+        if location.content == "movies":
+            root = paths.library_dir(self.key, library, "movies")
+            if location.movie is None:
+                self.cached.add(root)
+            elif root in self.cached:
+                # The cached root lists files, never this folder: Kodi says
+                # the folder does not exist and skips the scan.
+                self.skipped.append(directory)
+                self.monitor.finished += 1
+                return
         if location.content in ("movies", "musicvideos"):
             kind = "Movie" if location.content == "movies" else "MusicVideo"
             present = self.owned(kind)
@@ -649,6 +664,12 @@ class Kodi:
             self.settings[params["setting"]] = params["value"]
             return True
         if method == "Files.GetDirectory":
+            directory, _, query = params["directory"].partition("?")
+            if query == paths.FORGET + "=1":
+                # Kodi drops the entry, asks the provider, and is refused.
+                self.cached.discard(directory)
+                self.forgotten.append(directory)
+                raise RuntimeError("Kodi refused " + method)
             self.listed.append(params["directory"])
             return {"files": [], "limits": {"total": 0}}
         if method == "Addons.GetAddonDetails":

@@ -170,6 +170,21 @@ def test_new_song_joins_its_library_subscription_after_writer_commit(
         assert opened.cursor.fetchone()[0] == 1
 
 
+def test_a_song_named_with_its_library_is_claimed_without_the_mapping_table(
+    wired, monkeypatch
+):
+    """The API build has no jellyfin table; the catalogue names the library."""
+    monkeypatch.setattr(
+        subscriptions.settings,
+        "get_str",
+        lambda key: "library" if key == subscriptions.LIBRARY_SETTING else "",
+    )
+    subscriptions.claim_library_songs({"song": "library", "other": "elsewhere"})
+    assert [message for message, _ in wired] == [ipc.DOWNLOAD_ADD]
+    assert wired[0][1]["Ids"] == ["song"]
+    assert wired[0][1]["Origin"] == "auto:musiclibrary:library"
+
+
 def test_playlist_subscription_runs_without_playlist_file_sync(wired, monkeypatch):
     monkeypatch.setattr(
         subscriptions.settings,

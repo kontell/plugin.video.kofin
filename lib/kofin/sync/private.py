@@ -26,11 +26,12 @@ _tables_ensured: set = set()
 
 # Connections kept open for the plugin process, per path and thread. Module
 # state, deliberately: it lives in a plugin interpreter Kodi recycles, never
-# in the service (``pool_connections`` is called from the provider only). A
-# scanner that reuses the interpreter between two listings then reuses the
-# connection too, and the first statement of a fresh connection -- which
-# read the schema and the WAL index off a thrashing SD card for 12-24 s per
-# album listing on the LibreELEC box -- is paid once per interpreter.
+# in the service (``pool_connections`` is called from the provider and the
+# play route only). A scanner that reuses the interpreter between two
+# listings then reuses the connection too, and the first statement of a
+# fresh connection -- which read the schema and the WAL index off a
+# thrashing SD card for 12-24 s per album listing on the LibreELEC box -- is
+# paid once per interpreter.
 _pooling = False
 _pool: Dict[Tuple[str, int], "sqlite3.Connection"] = {}
 

@@ -64,3 +64,20 @@ What each step was worth, same library and device:
 | Season art on the show's listing, with the row above | Shows season kind 125 s to 26 s (235 s on `63bd091`) |
 | WAL (companion) | `SetSongDetails` 133 ms to 17 ms; Music-Alt pass 37.0 s to 21.7 s |
 | Name indexes (companion) | `actor` lookup 28.2 ms to 0.15 ms at 38,000 rows |
+
+## Removing a library, 15 October 2026
+
+The question #308 left open: does removing a library a piece at a time, so Kodi's callback queue can drain between pieces, beat the one `SetSourceContent remove` on the library root? Movies, 1,791 rows, removed with `RemoveLibrary` from a profile on this stack (P1D: Piers flatpak with service.kofin.companion 0.1.2; Pi: LibreELEC Pi 3, no companion). "Pieces" is fifty bound movie folders to a call, a second apart, then the root.
+
+Three measures besides the time. `box/heartbeat.py`, run inside Kodi with `RunScript`, sleeps 100 ms at a time and records how late it wakes: a Python thread starved by the callback queue shows there. The clear's own log line gives the longest of the library thread's 3 s waits, the symptom #308 saw (47 s). A host-side poll times `XBMC.GetInfoLabels` every half second. And Kodi's log counts the widget refreshes (`CDirectoryProvider[…]: refreshing`).
+
+| Device | Removal | On screen | Clear | Widget refreshes | Heartbeat, latest wake | Longest 3 s wait | JSON-RPC, slowest |
+|---|---|---|---|---|---|---|---|
+| P1D | one call | Music window, no movie widgets | 69.5 s | 31 | 0.05 s | 3.0 s | 0.37 s |
+| P1D | one call | Home, movie widgets | 109.0 s | 1,172 | 0.12 s | 3.0 s | 0.15 s |
+| P1D | pieces | Home, movie widgets | 185.8 s | 938 | 0.08 s | 3.0 s | 0.21 s |
+| Pi | one call | Settings, no widgets | 480.2 s | 0 | 0.09 s | 3.0 s | 0.21 s |
+| Pi | one call | Home, movie widgets | 803.4 s | 2,448 | 0.32 s | 3.1 s | 0.26 s |
+| Pi | pieces | Home, movie widgets | 1,363.8 s | 3,531 | 0.28 s | 3.1 s | 0.98 s |
+
+Nothing stalled on either device, with or without pieces, so the pieces have nothing to buy, and they cost the pauses, a call per folder and more widget refreshes besides: the removal stays one call. What does cost a clear is the home widgets. Every row a clear deletes is a `VideoLibrary.OnRemove` with no `transaction` flag (`CVideoDatabase::DeleteMovie`; Kodi sets the flag only for its own clean), and every visible widget that holds video items is invalidated by it and lists its path again, back to back, for as long as the clear runs: each movie widget about 400 times on the Pi, two thirds more time for the clear.

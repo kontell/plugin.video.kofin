@@ -1245,3 +1245,16 @@ def test_downloaded_file_answers_only_for_a_finished_download(offline_env):
 
     (media / "m.mkv").unlink()
     assert play_module.downloaded_file("m1") is None  # the file went away
+
+
+def test_a_resolve_keeps_one_kofin_db_connection_for_its_interpreter(
+    resume_env, monkeypatch
+):
+    """Three opens of kofin.db were 1.8 s of a 2.6 s resolve on a Raspberry
+    Pi 3, on every track of a queue: the route pools them, as the provider
+    does."""
+    pooled = []
+    monkeypatch.setattr(play.private, "pool_connections", pooled.append)
+    run_play({"id": "ep1"}, resume=False)
+    assert pooled == [True]
+    assert resume_env["resolved"]

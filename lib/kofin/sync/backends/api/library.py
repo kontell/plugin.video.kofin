@@ -25,7 +25,7 @@ from kofin.core.settings import Credentials
 from kofin.sync import changefeed, private
 from kofin.sync.catalogue import BackendMismatch
 from kofin.sync.downloader import info, library_filter
-from . import metadata, progress
+from . import announce, metadata, progress
 from . import playlists as api_playlists
 from . import status as apistatus
 from .native import Native
@@ -353,6 +353,9 @@ class Library(threading.Thread):
         # entry and when the item was first seen no longer playing.
         self._held_userdata: Dict[str, Tuple[dict, Optional[float]]] = {}
         self._playlists_due = False
+        # What catch-ups bring that the catalogue did not hold, until the
+        # pass has filed it and a toast may go up (announce.Arrivals).
+        self.arrivals = announce.Arrivals()
         # When the idle binding backfill is next due: now, then never once
         # it succeeded, or a pause after a failure (apply).
         self._bindings_due = 0.0
@@ -455,6 +458,7 @@ class Library(threading.Thread):
                 self.release_userdata,
                 self.refresh,
                 lambda: self.apply(native),
+                self.announce_new_content,
                 self.playlists_pass,
                 self.flush_pending_reload,
             ):
@@ -800,6 +804,9 @@ class Library(threading.Thread):
                     continue
             wanted[record.id] = record
         items, membership = self._resolve(list(wanted), selected, supported, wanted)
+        self.arrivals.published(
+            items, self.store.known(i["Id"] for i in items), membership
+        )
         self.publish(items, membership=membership, removed=removed)
         self.apply_userdata(change_set.userdata)
         if change_set.envelope.server_time:
@@ -841,6 +848,9 @@ class Library(threading.Thread):
                     [b["Id"] for b in changed if isinstance(b, dict) and b.get("Id")],
                 )
         invalidate = self._collection_changes(boxsets, False)
+        self.arrivals.published(
+            items, self.store.known(i["Id"] for i in items), membership
+        )
         self.publish(items + boxsets, membership=membership)
         self.store.invalidate(invalidate)
         self.store.set_watermark(watermark=changefeed.unix_to_watermark(started))
@@ -988,6 +998,10 @@ class Library(threading.Thread):
                     item["UserData"] = known.get("UserData") or {}
                 break
         self.store.publish(items, **placement)
+
+    def announce_new_content(self):
+        """Announce what the pass filed of the new content catch-ups brought."""
+        self.arrivals.flush(self.store, self.api, self.player)
 
     def release_userdata(self):
         """Once an item has stopped and the server has had time to settle
@@ -1166,6 +1180,7 @@ class Library(threading.Thread):
             playlist_id = (data or {}).get("Id") or ""
             if playlist_id:
                 api_playlists.apply(self.api, self.store, playlist_id)
+                self.reconcile_subscriptions(playlist_id)
             else:
                 self._playlists_due = True
             return
@@ -1247,9 +1262,27 @@ class Library(threading.Thread):
             stats = api_playlists.reconcile(self.api, self.store)
         except Exception:
             LOG.exception("playlists not reconciled; next enumeration retries")
-            return
-        if stats:
-            LOG.info("playlists reconciled: %s", stats)
+        else:
+            if stats:
+                LOG.info("playlists reconciled: %s", stats)
+        self.reconcile_subscriptions()
+
+    def reconcile_subscriptions(self, playlist_id=""):
+        """Bring the music-library and playlist download subscriptions to the
+        server's listing: one playlist's when a request names it, every
+        subscription's after a complete enumeration and when the viewer
+        subscribes. The SQL build does this in its music playlist sync; the
+        API build had nothing that did, and a subscription queued nothing."""
+        from kofin.downloads import subscriptions
+
+        try:
+            if playlist_id:
+                subscriptions.reconcile_playlist_direct(self.api, playlist_id)
+            else:
+                subscriptions.reconcile_music_libraries(self.api)
+                subscriptions.reconcile_playlists_direct(self.api)
+        except Exception:
+            LOG.exception("download subscriptions not reconciled")
 
     def flush_pending_reload(self):
         """Fire the owed first-content skin reload once nothing is playing."""

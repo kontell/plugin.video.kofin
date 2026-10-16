@@ -997,10 +997,10 @@ msgctxt "#30414"
 msgid "advancedsettings.xml enables cleanonupdate — incompatible with library sync"
 msgstr ""
 
-# 30450-30499 — Skipping & Next up tab: media segments + Play Next
+# 30450-30499 — Skipping & Play next tab: media segments + Play Next
 
 msgctxt "#30450"
-msgid "Skipping & Next up"
+msgid "Skipping & Play next"
 msgstr ""
 
 msgctxt "#30451"

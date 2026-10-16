@@ -30,6 +30,7 @@ from kofin.core.urls import (
     STREAM_REQUEST_PARAMS,
 )
 from kofin.plugin import listitems, subtitles
+from kofin.sync import private
 from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
@@ -662,6 +663,11 @@ def resolve_downloaded(
 
 
 def play(request: Request) -> None:
+    # One connection to kofin.db for the life of this interpreter, as the
+    # provider keeps: a resolve opened it three times (the offline answer,
+    # the native identity, the downloaded file), and on a Raspberry Pi 3
+    # each open was 0.6 s of a 2.6 s resolve, on every track of a queue.
+    private.pool_connections(True)
     item_id = request.params.get("id", "")
     creds = Credentials.load()
     if not creds.is_logged_in or not item_id:

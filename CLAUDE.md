@@ -239,6 +239,12 @@ What remains is kofin's own:
   unbinds the scraper and leaves every row in place; the API backend's whole-library removal
   (`backends/api/removal.py::clear_library`) relies on `"remove"` being `RemoveContentForPath`
   on the library root, under which every row of that library is filed.
+- **A library is cleared in one call, and the home widgets churn while it goes.** Removed
+  fifty folders to a call, Movies took 186 s against 109 s on the P1D and 1,364 s against
+  803 s on the Pi, and neither way stalled a Python thread (#308's question). What costs a clear is the widgets:
+  every deleted row is a `VideoLibrary.OnRemove` without `transaction`, and every visible
+  video widget lists itself again for each one (2,448 refreshes on the Pi, 803 s against
+  480 s with none on screen). `tests/live/or_bench/README.md` has the runs.
 - **Every show folder under a `tvshows/` root carries its own binding** (`Native.bind_show`,
   `containssingleitem`). Kodi takes a plugin path's parent to be the plugin *root*
   (`URIUtils::GetParentPath`), so a folder never inherits the root's binding and the scanner
@@ -398,7 +404,8 @@ What remains is kofin's own:
   (`release_userdata`); the last event heard may be a progress report. The other three
   halves of the same fix: the watched mark goes to the server and never Kodi's count
   (`flush_local`), a count that only grew is not a local edit (`patch.local_edits`), and a
-  stamp of Kodi's own up to six hours later than the server's is the same play
+  stamp of Kodi's own up to six hours later than the server's, or up to ten seconds earlier
+  (the stop report that follows Kodi's own stamp of a song's end), is the same play
   (`metadata.same_play`). `tests/live/userdata_matrix.py` is the gate, on scratch libraries.
 - **The play-state outbox never stops at one edit, and an edit of an item the server no
   longer has is dropped** (`Library.flush_local`). Flushed in order and stopped at the first
