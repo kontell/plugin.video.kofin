@@ -7,9 +7,12 @@ whitelisted video library gets the generated node tree under
 ``library://`` paths in its properties, and everything else is a dynamic
 ``browse`` entry. The tree's filter nodes select by the library tag the API
 backend puts on every row (``library_tag``), so the files are the SQL
-build's with one rule changed. A whitelisted music library publishes Kodi's
-music root: the SQL music tree filters on Kodi music *sources*, which this
-build never writes.
+build's with one rule changed. A whitelisted music library gets a folder in
+the music tree (``nodes/music.write_music_nodes``), whose nodes filter on the
+folder the library's songs are filed under, since the SQL tree's Kodi music
+*sources* are never written here; its skin entry is Kodi's music root, as in
+the SQL build. The folder's path is what the Manage menu reads a library's
+downloads from (``plugin/context.py``).
 
 Ownership is the ``kofin`` name prefix throughout (``nodes/fs.py``): a tree
 rewrite reconciles the folder against what it wrote and never touches a
@@ -29,8 +32,8 @@ written (``kodisetup.seed_default_nodes``): the moment
 path resolves there and nowhere else (CLibraryDirectory::GetDirectory, no
 merge), so a profile holding only ``kofin/`` lists nothing for
 ``library://video/movies/`` and a skin's categories row goes empty -- as
-the P1D's did until the seed. The music tree is not written in this build,
-so the music folder is left to Kodi.
+the P1D's did until the seed. The music tree gets Kodi's shipped music nodes
+the same way.
 """
 
 from typing import Dict, List, NamedTuple, Tuple
@@ -42,6 +45,7 @@ from kofin.sync.backends.api.metadata import (  # noqa: F401  (re-exported)
     LIBRARY_TAG_PREFIX,
     library_tag,
 )
+from kofin.sync.nodes import music as music_nodes
 from kofin.sync.nodes import props, video
 
 LOG = Logger(__name__)
@@ -86,6 +90,32 @@ def node_entries(views: List[View], whitelist: List[str]) -> List[Tuple[Dict, bo
     return entries
 
 
+def music_entries(views: List[View], whitelist: List[str]) -> List[Dict]:
+    """The whitelisted music libraries as the music tree wants them, in the
+    server's order, each with the folder its songs are filed under. None
+    without a server and user to name the folders by."""
+    from kofin.core.settings import Credentials
+    from kofin.sync.backends.api import paths
+    from kofin.sync.backends.api.store import namespace
+
+    music = [v for v in views if v.media_type == "music" and v.view_id in whitelist]
+    if not music:
+        return []
+    creds = Credentials.load()
+    try:
+        key = namespace(creds.server_id, creds.user_id)
+    except ValueError:
+        return []
+    return [
+        {
+            "Id": view.view_id,
+            "Name": view.view_name,
+            "Path": paths.library_dir(key, view.view_id, "music"),
+        }
+        for view in music
+    ]
+
+
 def wanted() -> bool:
     """Whether the generated presentation is on (``SETTING``).
 
@@ -126,6 +156,13 @@ def publish(items, server):
         # The tree is presentation; the properties below still publish.
         LOG.exception("library node tree not written")
         singles = []
+    try:
+        libraries = music_entries(views, whitelist) if nodes else []
+        if libraries:
+            kodisetup.seed_default_nodes("music")
+        music_nodes.write_music_nodes(libraries, downloads=False)
+    except Exception:
+        LOG.exception("music node tree not written")
     if not nodes:
         # Without the tree a synced video library has no node to point at,
         # so its entries are browse entries; a synced music library keeps

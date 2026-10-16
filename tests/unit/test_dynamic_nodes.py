@@ -207,3 +207,76 @@ def test_the_shipped_video_nodes_are_seeded_before_the_tree_is_written(
     # A node the user edited is theirs.
     assert (profile / "movies" / "genres.xml").read_text() == "<node><mine/></node>"
     assert (profile / NODE_ROOT / "index.xml").is_file()
+
+
+def logged_in():
+    FakeAddon.store.update({"serverId": "s" * 32, "userId": "u" * 32})
+
+
+def test_a_whitelisted_music_library_gets_its_folder_in_the_music_tree(
+    views_env, monkeypatch
+):
+    """The Manage menu reads a library's downloads from its folder in the
+    music tree. The folder's nodes take the library's songs by the folder they
+    are filed under, Kodi's own music nodes are seeded first, and there is no
+    Downloaded folder, whose rule on the downloads folder matches nothing in
+    this build."""
+    import os
+    import shutil
+
+    import xbmcvfs
+
+    from kofin.sync.backends.api import paths
+    from kofin.sync.backends.api.store import namespace
+
+    monkeypatch.setattr(
+        "xbmcvfs.copy", lambda src, dst: shutil.copyfile(src, dst) or True
+    )
+    system = xbmcvfs.translatePath("special://xbmc/system/library/music")
+    os.makedirs(os.path.join(system, "albums"))
+    with open(os.path.join(system, "albums", "index.xml"), "w") as handle:
+        handle.write("<node/>")
+    logged_in()
+    FakeAddon.store["downloadsEnabled"] = "true"
+    whitelist(MOVIES, MUSIC)
+    dynamic.publish(ITEMS, FakeApi())
+    music = views_env["profile"] / "library" / "music"
+    folder = music / NODE_ROOT / ("kofinmusic" + MUSIC)
+    assert (music / "albums" / "index.xml").read_text() == "<node/>"
+    assert sorted(p.name for p in (music / NODE_ROOT).iterdir() if p.is_dir()) == [
+        "kofinmusic" + MUSIC
+    ]
+    assert sorted(p.name for p in folder.iterdir()) == [
+        "albums.xml",
+        "artists.xml",
+        "genres.xml",
+        "index.xml",
+        "songs.xml",
+    ]
+    for stem in ("albums", "artists", "genres", "songs"):
+        rule = ET.parse(folder / ("%s.xml" % stem)).getroot().find("rule")
+        assert (rule.get("field"), rule.get("operator")) == ("path", "startswith")
+        assert rule.find("value").text == paths.library_dir(
+            namespace("s" * 32, "u" * 32), MUSIC, "music"
+        )
+    # The skin entry stays Kodi's music root, as in the SQL build.
+    assert (
+        props()["Kofin.nodes.2.path"] == "ActivateWindow(Music,library://music/,return)"
+    )
+    # The switch off takes the tree down, and so does leaving the selection.
+    FakeAddon.store[dynamic.SETTING] = "false"
+    dynamic.publish(ITEMS, FakeApi())
+    assert not (music / NODE_ROOT).exists()
+    FakeAddon.store[dynamic.SETTING] = "true"
+    dynamic.publish(ITEMS, FakeApi())
+    assert folder.is_dir()
+    whitelist(MOVIES)
+    dynamic.publish(ITEMS, FakeApi())
+    assert not (music / NODE_ROOT).exists()
+    assert (music / "albums" / "index.xml").is_file()
+
+
+def test_no_music_tree_is_written_before_a_login(views_env):
+    whitelist(MUSIC)
+    dynamic.publish(ITEMS, FakeApi())
+    assert not (views_env["profile"] / "library" / "music" / NODE_ROOT).exists()

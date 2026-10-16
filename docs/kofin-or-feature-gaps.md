@@ -31,7 +31,7 @@ None of these needs Kodi.
 
 | Gap | kofin-or today | To do |
 |---|---|---|
-| Music browsing by library (S31, S40) | A synced music library publishes Kodi's own music root; the Downloaded-music view is a smart playlist | Per-library music nodes on `path` rules, which match an album or an artist by its songs' paths; decide whether they are wanted |
+| Downloaded music (S40) | The Downloaded-music smart playlist filters on the downloads folder, and a download keeps its plugin URL in this build, so it lists nothing | A view built from the download store, such as a playlist of the downloaded songs' URLs |
 | Per-version play state (S25) | Only the movie's row is patched | Jellyfin keeps a play count per version; set it on each version file through `Files.SetFileDetails` |
 | Save playlist to Jellyfin, Download playlist on a playlist file (`context_playlist.py`, `context_download_playlist.py`, the `saveplaylist` route) | Omitted from the API profile; playlist and music-library download subscriptions work from kofin's own views (S36) | Rebuild on the catalogue, which the API playlist resolver already reads |
 | Artist MusicBrainz ids (S28) | Album ids sent; artists matched by name (629 of 634 on the P1D) | Send them if they separate the artists name matching gets wrong |
@@ -55,7 +55,6 @@ These exist only because main owns the tables, or they are Kodi's own model. The
 | Discography and role rows (S29) | Kodi's artist dialog lists the albums an artist is album artist of beside the scraped discography, and main writes only the default role |
 | Synthetic music source (S30) | Per-library browsing takes `path` rules; two libraries' directories are independent |
 | Page transaction and rollback (S45) | The pass converges by readback and retry, and a failed listing never announces a full apply |
-| The SQL music node tree (`nodes/music.py`) | It filters on Kodi music sources this build never writes; per-library music nodes are 1.2 |
 
 A legacy route reached from an old favourite or widget answers with the "Not available in this preview" toast rather than failing silently.
 
