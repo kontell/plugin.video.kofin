@@ -213,3 +213,38 @@ def test_download_commands_are_guarded(nonce_file):
     } <= ipc.GUARDED
     secret = ipc.rotate_nonce()
     assert ipc.verify(ipc.ATTACH_SUBTITLE, {}, secret) is False
+
+
+def test_notify_now_goes_through_json_rpc_with_the_registry_and_the_secret(
+    monkeypatch, nonce_file
+):
+    """The NotifyAll builtin, posted from a plugin script, reached the service
+    seconds late on a Raspberry Pi 3; JSON-RPC delivers at once."""
+    from kofin.core import kodirpc
+
+    calls = []
+
+    def call(method, params=None):
+        calls.append((method, params))
+        return "OK"
+
+    monkeypatch.setattr(kodirpc, "call", call)
+    assert ipc.notify_now(ipc.START_QUEUE) is True
+    assert calls == [
+        (
+            "JSONRPC.NotifyAll",
+            {"sender": ipc.SENDER, "message": ipc.START_QUEUE, "data": [{}]},
+        )
+    ]
+    # What the service reads back is the payload itself.
+    import json
+
+    assert ipc.decode(json.dumps(calls[0][1]["data"])) == {}
+    ipc.rotate_nonce()
+    ipc.notify_now(ipc.DOWNLOAD_ADD, {"Ids": ["a"]})
+    sent = calls[-1][1]["data"][0]
+    assert sent["Ids"] == ["a"] and sent[ipc.NONCE_KEY] == ipc.nonce()
+    with pytest.raises(ValueError):
+        ipc.notify_now("Unregistered")
+    monkeypatch.setattr(kodirpc, "call", lambda method, params=None: None)
+    assert ipc.notify_now(ipc.START_QUEUE) is False

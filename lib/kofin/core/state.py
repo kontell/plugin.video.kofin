@@ -104,6 +104,13 @@ PROP_SYNCSESSION = "syncsession.state"
 # separate interpreters with nothing in common but this window.
 PROP_LISTING_FLIGHT = "kofin.listing.flight"
 
+# Which Play all owns the music playlist (plugin/playall.py, ipc.START_QUEUE).
+# A second Play all while the first is still adding its tracks takes the
+# playlist over: the first stops adding, and the service starts only the
+# newest request's queue. A token rather than a counter, so two interpreters
+# never race on a read and an increment.
+PROP_QUEUE_OWNER = "kofin.queue.owner"
+
 PROP_LYRIC_HAS = "kofin.lyric.has"
 PROP_LYRIC_JSON = "kofin.lyric.json"
 PROP_LYRIC_PATH = "kofin.lyric.path"
@@ -117,6 +124,17 @@ _HOME_WINDOW = 10000
 
 def _window() -> xbmcgui.Window:
     return xbmcgui.Window(_HOME_WINDOW)
+
+
+def take_queue() -> str:
+    """Make this Play all the music playlist's owner; returns its token."""
+    token = uuid.uuid4().hex
+    _window().setProperty(PROP_QUEUE_OWNER, token)
+    return token
+
+
+def owns_queue(token: str) -> bool:
+    return _window().getProperty(PROP_QUEUE_OWNER) == token
 
 
 def set_online(online: bool) -> None:

@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import xbmc
 
-from kofin.core import settings, toast
+from kofin.core import ipc, settings, state, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
@@ -138,13 +138,37 @@ def queue_and_play(tracks: List[JsonDict], server: str) -> None:
     transcode item does it — a new plugin play handed to Kodi while
     something else is still playing loses a race with the outgoing stop
     (context.stop_current_playback).
+
+    The service starts the queue (ipc.START_QUEUE). Kodi resolves the first
+    track with a plugin request of its own, and gives it the interpreter it
+    keeps warm only once this script has ended. ``Player().play`` returns
+    after that resolve, so the first track always got a cold interpreter,
+    whose start and imports were 10 s of a 13 s start for a 230-track album
+    on a Raspberry Pi 3; and a start posted from here was still asked for
+    before this script had ended, every time.
+
+    The request goes before the tracks. Every track added is a
+    ``Playlist.OnAdd`` announcement for every Python monitor in Kodi, and a
+    request sent after 230 of them reached the service six seconds later on
+    the Pi. Sent first, through JSON-RPC (ipc.notify_now) so that it is
+    announced before the first add, it carries the count, and the service
+    waits for the queue to hold that many. When Kodi refuses it the queue is
+    started here as before.
     """
+    stop_current_playback()
+    owner = state.take_queue()
     playlist = xbmc.PlayList(xbmc.PLAYLIST_MUSIC)
     playlist.clear()
+    asked = ipc.notify_now(ipc.START_QUEUE, {"Count": len(tracks), "Owner": owner})
     for track in tracks:
+        if not state.owns_queue(owner):
+            # A newer Play all cleared the playlist and is filling it.
+            LOG.info("play all: a newer request took the queue")
+            return
         playlist.add(listitems.path_for(track), listitems.build(track, server))
-    stop_current_playback()
-    xbmc.Player().play(playlist)
+    if not asked:
+        LOG.warning("play all: the service was not asked; starting the queue here")
+        xbmc.Player().play(playlist)
 
 
 def play_all(request: Request) -> None:
