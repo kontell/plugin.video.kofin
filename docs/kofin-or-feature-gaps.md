@@ -33,8 +33,7 @@ None of these needs Kodi.
 |---|---|---|
 | Music browsing by library (S31, S40) | A synced music library publishes Kodi's own music root; the Downloaded-music view is a smart playlist | Per-library music nodes on `path` rules, which match an album or an artist by its songs' paths; decide whether they are wanted |
 | Per-version play state (S25) | Only the movie's row is patched | Jellyfin keeps a play count per version; set it on each version file through `Files.SetFileDetails` |
-| Music-library download subscriptions (S36) | Playlist subscriptions reconcile through the catalogue | Claim music-library subscriptions through the catalogue too |
-| Save playlist to Jellyfin, Download playlist (`context_playlist.py`, `context_download_playlist.py`, the `saveplaylist` route) | Omitted from the API profile | Rebuild on the catalogue, which the API playlist resolver already reads |
+| Save playlist to Jellyfin, Download playlist on a playlist file (`context_playlist.py`, `context_download_playlist.py`, the `saveplaylist` route) | Omitted from the API profile; playlist and music-library download subscriptions work from kofin's own views (S36) | Rebuild on the catalogue, which the API playlist resolver already reads |
 | Artist MusicBrainz ids (S28) | Album ids sent; artists matched by name (629 of 634 on the P1D) | Send them if they separate the artists name matching gets wrong |
 | Downloaded-episodes node (S39) | The badge is on the episode and on its season and show | A node on the "Kofin Downloads" tag, once Kodi keeps episode tags (S14) |
 
