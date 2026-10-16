@@ -977,8 +977,8 @@ msgid "advancedsettings.xml enables cleanonupdate — incompatible with library 
 msgstr "Az advancedsettings.xml bekapcsolja a cleanonupdate beállítást — ez összeférhetetlen a médiatár szinkronizálásával"
 
 msgctxt "#30450"
-msgid "Skipping & Next up"
-msgstr "Kihagyás és következő"
+msgid "Skipping & Play next"
+msgstr "Kihagyás és következő lejátszása"
 
 msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."

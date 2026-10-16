@@ -239,7 +239,7 @@
   "#30418": "Server is shutting down",
   "#30420": "Library sync is off: %s",
   "#30414": "advancedsettings.xml enables cleanonupdate — incompatible with library sync",
-  "#30450": "Skipping & Next up",
+  "#30450": "Skipping & Play next",
   "#30451": "Media segment skipping and the Play Next prompt.",
   "#30452": "Media segments",
   "#30453": "React to media segments",

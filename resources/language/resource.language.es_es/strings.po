@@ -977,8 +977,8 @@ msgid "advancedsettings.xml enables cleanonupdate — incompatible with library 
 msgstr "advancedsettings.xml activa cleanonupdate: incompatible con la sincronización de la biblioteca"
 
 msgctxt "#30450"
-msgid "Skipping & Next up"
-msgstr "Saltos y a continuación"
+msgid "Skipping & Play next"
+msgstr "Saltos y reproducir siguiente"
 
 msgctxt "#30451"
 msgid "Media segment skipping and the Play Next prompt."
