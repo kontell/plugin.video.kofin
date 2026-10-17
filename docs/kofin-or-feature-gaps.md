@@ -10,7 +10,7 @@ Main writes Kodi's own databases (MyVideos, MyMusic, Textures) and is therefore 
 
 ### 1.1 Blocked by Kodi's public API (ledger status G, and C where the companion closes it)
 
-These need a Kodi change or the companion add-on. Each Kodi change has a trial PR on kontell/xbmc, none of them upstream yet; the companion stays the way to close a row on Kodi 22.
+These need a Kodi change or the companion add-on. A kontell/xbmc PR named here is a trial, not yet upstream; the companion stays the way to close a row on Kodi 22.
 
 | Gap | Main | kofin-or today | Closes through |
 |---|---|---|---|
@@ -23,6 +23,8 @@ These need a Kodi change or the companion add-on. Each Kodi change has a trial P
 | Stream flags (S09) | Exact `streamdetails` rows with `iFlags` | No default, forced or hearing-impaired bit | Closed by the companion (`stream_flags`); Kodi: `setFlags()` on the Python stream details (kontell/xbmc#9) |
 | Server chapter images (S35, A03) | Texture aliases seeded per play | None | Closed by the companion (`chapter_art`); Kodi: `chapter<n>` art on the playing item (kontell/xbmc#11) |
 | Import time | WAL and the name indexes set on Kodi's databases | Kodi's rollback journal and unindexed name lookups | Closed by the companion; Kodi: WAL (kontell/xbmc#4) and the name indexes (kontell/xbmc#5) |
+| Featured artists' discography (S29) | A `discography` row for every artist an album's `ArtistItems` names, so a featured artist's dialog lists the album | No public interface writes `discography`; a featured artist's dialog lists only the albums they are album artist of | Kodi: a typed artist-album relationship (feasibility §9.3), with no trial PR |
+| Stream rows after a play (S09) | A play's probed streams overwrite the row in both builds; main writes the server's back on the item's next update | The probed rows stay: there is no stream setter, and a play moves neither the item nor its stream token, so no refresh runs | Kodi: a provider stream-authority policy (feasibility §9.5), with no trial PR |
 | Unnumbered specials (S19) | Filed with no number | Kodi's scanner files a plugin episode only with a season and an episode number; the special is a dynamic view | Kodi, if wanted: file a plugin item by its own tag where it has no number |
 
 ### 1.2 Not built yet in kofin-or (ledger status D, or I partial)
@@ -52,7 +54,7 @@ These exist only because main owns the tables, or they are Kodi's own model. The
 | Schema gates and seeding (S46) | No schema to gate; the package exclusion and `api-capabilities.json` take their place |
 | Sync during play, `limitIndex`, `limitThreads`, the `reuseLanguageInvoker` toggle | Tuning for main's writer threads and MyVideos writes; the API pass has its own progress bar and one scan at a time |
 | Empty artist, album and singles shells (S27) | Kodi has an artist through a credit and deletes one without (`CleanupArtists`), and an album through its songs; songs without an album file under `singles/<artist>` |
-| Discography and role rows (S29) | Kodi's artist dialog lists the albums an artist is album artist of beside the scraped discography, and main writes only the default role |
+| Song artist roles (S29) | Main writes only the default role |
 | Synthetic music source (S30) | Per-library browsing takes `path` rules; two libraries' directories are independent |
 | Page transaction and rollback (S45) | The pass converges by readback and retry, and a failed listing never announces a full apply |
 | The SQL music node tree (`nodes/music.py`) | It filters on Kodi music sources this build never writes; per-library music nodes are 1.2 |
@@ -69,7 +71,7 @@ Not gaps, but the behaviour differences an upgrade from main shows.
 - One setting on the Sync tab, "Library nodes and playlists", switches the node tree, the smart playlists and the Jellyfin playlists together; main has the playlist toggle alone.
 - Kodi's shipped Movies and TV shows nodes are seeded beside kofin's at the first publish; the home screen's categories rows appear after one Kodi restart.
 - The download badge key is `kofindownloaded` on the row where main's writers stamp `kofin.downloaded`; a skin reads both while the branches coexist.
-- An album or an artist with no songs has no row; an empty season, an unnumbered special and a set with no synced movie are dynamic views, as on main, where Kodi does not list them either.
+- An album or an artist with no songs has no row; an empty season and a set with no synced movie are dynamic views, as on main, where Kodi does not list them either.
 - Downloads play from disk however the item is reached, as on main, but nothing of Kodi's rows moves for them.
 
 ## 3. What kofin-or has that main does not
