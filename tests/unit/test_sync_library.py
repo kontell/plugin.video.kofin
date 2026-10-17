@@ -1052,6 +1052,7 @@ def test_ws_events_ignored_before_startup_done():
 
 def test_library_commands_enqueue(monkeypatch):
     import json
+    import threading
 
     from kofin.core import ipc
     from kofin.service.main import Service
@@ -1067,6 +1068,7 @@ def test_library_commands_enqueue(monkeypatch):
     service = Service.__new__(Service)
     service.library = FakeLibrary()
     service._ipc_nonce = "test-nonce"
+    service._stopping = threading.Event()
     monkeypatch.setattr(Service, "_start_library", lambda self: None)
 
     # A guarded library command carrying the secret reaches the library.
