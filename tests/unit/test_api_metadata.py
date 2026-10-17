@@ -495,6 +495,34 @@ def test_inputs_token_moves_with_the_art_query_and_the_zone(monkeypatch):
     assert metadata.inputs_token("http://s", "k", LIB, " / ") != capped
 
 
+def test_a_version_that_comes_or_goes_moves_no_refresh():
+    """A movie's row is its own file's. A version that came or went, the
+    label Jellyfin gives the first source while there are versions, and the
+    streams the payload keeps on a source only while there are several move
+    nothing a refresh could put right."""
+    own = [{"Type": "Video", "Codec": "hevc"}, {"Type": "Audio", "Codec": "aac"}]
+    single = metadata.compact(
+        movie(
+            MediaStreams=own,
+            MediaSources=[{"Id": "s1", "Name": "Film", "MediaStreams": own}],
+        )
+    )
+    versioned = metadata.compact(
+        movie(
+            MediaStreams=own,
+            MediaSources=[
+                {"Id": "s1", "Name": "Theatrical", "MediaStreams": own},
+                {"Id": "s2", "Name": "Director's Cut", "MediaStreams": own[:1]},
+            ],
+        )
+    )
+    assert metadata.refresh_token(single) == metadata.refresh_token(versioned)
+    remuxed = metadata.compact(
+        movie(MediaStreams=own[:1], MediaSources=[{"Id": "s1", "Name": "Film"}])
+    )
+    assert metadata.refresh_token(remuxed) != metadata.refresh_token(single)
+
+
 def test_a_refresh_can_say_which_part_of_its_token_moved():
     """The token says only that something no setter carries has changed. A
     viewer watching a show being scanned again wants to know what."""

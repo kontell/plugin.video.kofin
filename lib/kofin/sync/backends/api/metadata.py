@@ -276,10 +276,13 @@ def refresh_fields(item, seasons=()) -> Dict[str, Any]:
         # of the folder (Native.retire_assets): a version that came or went
         # refreshed the movie, which Kodi files again under a new id. So
         # did the first source's name, which Jellyfin makes a label while
-        # the movie has versions and the file's stem when it has none.
+        # the movie has versions and the file's stem when it has none, and
+        # its streams, which the payload keeps on the source only while
+        # there are several (compact): the item's own streams are the
+        # token's either way.
         value["MediaSources"] = [
             (
-                {k: v for k, v in source.items() if k != "Name"}
+                {k: v for k, v in source.items() if k not in ("Name", "MediaStreams")}
                 if isinstance(source, dict)
                 else source
             )
