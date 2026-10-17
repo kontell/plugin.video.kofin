@@ -919,6 +919,32 @@ def remove_managed_file(directory: str, filename: str) -> bool:
         return False
 
 
+def _reserved(side: str, filename: str) -> bool:
+    """A music playlist file under a generated view's name (RESERVED_STEMS).
+    Only a server playlist stored there before the stem was reserved has one,
+    and it is moved off it on its next pass even while its Etag holds."""
+    return (
+        side == "Audio"
+        and bool(filename)
+        and os.path.splitext(filename)[0].lower() in RESERVED_STEMS
+    )
+
+
+def _remove_stored(
+    directory: str, side: str, filename: str, copy: Optional[str] = None
+) -> bool:
+    """Remove a server playlist's stored file. A reserved name is the view's,
+    which the API build's download list writes over it, so it stands unless
+    it still holds exactly ``copy``, the playlist's file under its new name:
+    then no view was written there and the file is the playlist's alone."""
+    if _reserved(side, filename):
+        if copy is None or _read_text(os.path.join(directory, filename)) != (
+            _read_text(os.path.join(directory, copy))
+        ):
+            return False
+    return remove_managed_file(directory, filename)
+
+
 def apply_one(
     api: Any,
     mapping: Any,
@@ -946,7 +972,7 @@ def apply_one(
                 if stored[0] == "Audio"
                 else managed_video_dir() if video_root is None else video_root
             )
-            remove_managed_file(directory, stored[1])
+            _remove_stored(directory, stored[0], stored[1])
             state.remove_playlist_state(playlist_id)
             return True
         return False
@@ -962,8 +988,14 @@ def apply_one(
     etag = playlist.get("Etag") or ""
     checksum = reference_checksum(etag) if etag else ""
     # An empty checksum never skips: it is the mark of a short write, and of
-    # a playlist the server gave no Etag.
-    if stored and stored[0] == side and checksum and stored[2] == checksum:
+    # a playlist the server gave no Etag. Nor does a reserved name.
+    if (
+        stored
+        and stored[0] == side
+        and checksum
+        and stored[2] == checksum
+        and not _reserved(side, stored[1])
+    ):
         return False
 
     entries, missing = _entries_for(items, side, mapping, music, video, resolver)
@@ -985,7 +1017,7 @@ def apply_one(
         stored_filename=keep,
     )
     if stored and stored[1] != filename:
-        remove_managed_file(directory, stored[1])
+        _remove_stored(directory, stored[0], stored[1], copy=filename)
     # A short write stays dirty, as in reconcile.
     state.add_playlist_state(
         playlist_id,
@@ -1017,7 +1049,7 @@ def remove_one(
         if stored[0] == "Audio"
         else (video_root if video_root is not None else managed_video_dir())
     )
-    removed = remove_managed_file(directory, stored[1])
+    removed = _remove_stored(directory, stored[0], stored[1])
     state.remove_playlist_state(playlist_id)
     return removed
 
@@ -1117,6 +1149,7 @@ def reconcile(
             and checksum
             and stored[2] == checksum
             and stored[1]
+            and not _reserved(side, stored[1])
         ):
             want.add(stored[1])
             taken.add(os.path.splitext(stored[1])[0].lower())
@@ -1136,7 +1169,7 @@ def reconcile(
             stored_filename=stored_name,
         )
         if stored and stored[1] != filename:
-            remove_managed_file(directory, stored[1])
+            _remove_stored(directory, stored[0], stored[1], copy=filename)
             stats["pruned"] += 1
         # A write the resolver left short (an entry the pass has not filed
         # yet) stays dirty: the server's Etag will not move when Kodi files
@@ -1163,7 +1196,7 @@ def reconcile(
     known = {row[0]: row for row in state.get_playlist_states()}
     for playlist_id, media_type, filename, _checksum in list(known.values()):
         if media_type == "Audio" and "Audio" in kinds and filename not in want_audio:
-            remove_managed_file(audio_dir, filename)
+            _remove_stored(audio_dir, "Audio", filename)
             state.remove_playlist_state(playlist_id)
             stats["pruned"] += 1
         elif media_type == "Video" and "Video" in kinds and filename not in want_video:

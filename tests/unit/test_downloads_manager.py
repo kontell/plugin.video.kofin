@@ -1597,12 +1597,21 @@ def test_a_bulk_removal_refreshes_and_toasts_once_not_per_row(
         store.finish(item_id, rel, "opus", 1)
         item_ids.append(item_id)
 
+    playlist_refreshes = []
+    monkeypatch.setattr(
+        manager.native,
+        "refresh_song_playlists",
+        lambda ids: playlist_refreshes.append(set(ids)),
+    )
     manager.remove(item_ids)
     manager._drain_ops()
 
     assert store.rows() == []
     # One refresh for the batch, against the music database, not video.
     assert refreshes == [["music"]]
+    # One playlist refresh with the removed songs: in the API build it is what
+    # rewrites the Downloaded-music list.
+    assert playlist_refreshes == [{"s0", "s1", "s2"}]
     # ...and one toast, naming the count rather than three file names.
     assert shown == ["L30824 3"]
 
