@@ -419,6 +419,11 @@ def build_single(single, order):
             xml, "rule", {"field": "path", "operator": "startswith"}
         )
         etree.SubElement(rule, "value").text = single["Path"]
+    elif not buildconfig.native_sync():
+        # The API build's Kodi 23 keeps an episode's own tags, and its tag
+        # rule matches them (kontell/xbmc #12); a favourite episode carries
+        # the tag (metadata.FAVORITE_TAG). Nothing stamps the writer below.
+        _tag_rule(xml, single["Tag"])
     else:
         # Favorite episodes: same Kodi limitation as Downloaded episodes —
         # a tag rule on content=episodes compiles against

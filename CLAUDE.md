@@ -316,11 +316,12 @@ What remains is kofin's own:
   `UpdateSong` stamps the current time on a played song with no date, which put sixteen
   songs marked played years ago at the top of a tablet's recently played albums on import
   day. The video setters leave a missing date alone and are unchanged.
-- **Kodi orders recently added albums by `album.dateAdded`, which is scan time for a plugin
-  source** (`song.dateAdded` comes from the file's timestamp, which a plugin path has not;
-  no setter and no music ListItem key carries it). A first import in `folder_label` order
-  (the server's `DateCreated`) lands the right order; every re-listing of a directory moves
-  its album to the top. A user-accepted "rescan tags from files" re-stamps the whole library.
+- **A song's date added is the server's `DateCreated`** (`metadata.song_listitem`,
+  `InfoTagMusic.setDateAdded`, kontell/xbmc #13), and an album takes its newest song's, so
+  recently added albums is the server's order. Without #13 Kodi took the time of the scan
+  for a plugin path, which has no file date. The date is not one of the tags: it moves no
+  directory's hash, so a library filed by an earlier build takes it as its directories are
+  listed again (a Repair lists every one). `folder_label` still lists albums oldest first.
 - **The pass holds the music scanner while it writes** (`native.hold`, `provider._hold`, the
   `kofin.native.hold.*` window property). Announcements made while the scanner is busy carry
   `transaction`, which the skin's music widgets skip; without the hold every song written
@@ -421,11 +422,7 @@ What remains is kofin's own:
   longer has is dropped** (`Library.flush_local`). Flushed in order and stopped at the first
   failure, one edit of a deleted item (404) failed every tick for ever: three edits behind
   it never reached the server, the rows waiting on them stayed pending, and a television
-  ran two 20 s passes a minute for as long as it was on, each one pinging the companion.
-- **No stream flags are asked of the companion for a library filed under an older scanner
-  format, or one being rebuilt** (`companion._metadata_requests`). Those rows have no
-  stream rows for a flag to land on, and every request was refused on every pass: 5,632 of
-  them on the same television until its libraries were repaired.
+  ran two 20 s passes a minute for as long as it was on.
 - **An unplayed song has no `lastplayed` opinion** (`metadata.userdata`). Kodi's song setter
   cannot clear the date, so a desired empty one never matched the readback and failed every
   pass for ever.
@@ -441,14 +438,17 @@ What remains is kofin's own:
   the path row of one that goes unanswered. With one reusable interpreter, a second plugin
   request in the middle (kofin's own music removal, on the P1D) left one of 1,869 questions
   unasked, and a movie of a library that stayed kept its row and left every listing. The
-  sets a removed library emptied go to the companion (`_release_sets`); without it they
-  stay, unlisted. `finish_sets` still cleans the root for a removed collection when there
-  is no companion, and has the same stage in it. Only the shows Kodi could have merged with
+  sets a removed library emptied go with the remove itself (kontell/xbmc #3), and a
+  collection the server removed leaves by its id once no movie files it (`finish_sets`,
+  `VideoLibrary.RemoveMovieSet`, #7, after a title check, since Kodi reuses set ids).
+  Only the shows Kodi could have merged with
   a leaving one are invalidated (`_merged_shows`), not every show, and the clear runs on a
   thread of its own for the bar's sake, where a stop waits for it.
 - **A single-source item's streams are on the item, not on its source** (`metadata.compact`,
   `_stream_source`): read off the first source alone, every such row was filed with a stub
-  video stream and no audio or subtitle. Streams have no setter, so `SCANNER_FORMAT` numbers
+  video stream and no audio or subtitle. A stream's default, forced and hearing-impaired
+  flags are listed with it by the names an NFO's `<flag>` takes (`metadata._streams`,
+  kontell/xbmc #9). Streams have no setter, so `SCANNER_FORMAT` (3: the flags) numbers
   what a listing carries and a **manual** Repair rebuilds a video library filed under an
   older one (`Library.rebuild_stale`): never a pass, since the library is gone from Kodi
   until the import has run. The rebuild is on record in the store (`store.REBUILDING`) and
@@ -464,9 +464,6 @@ What remains is kofin's own:
 - **A library episode's own art is its thumb, and only when it has one** (`metadata.own_art`).
   Given its show's poster, a skin that asks for the poster first showed it on every episode.
   Cast pictures have a cap of their own, 400 (`listitems.person_query`).
-- **The chapter image workers do not use the service's HTTP session** (`ChapterArt._downloads`):
-  three at once on the one `requests` session the library thread is on is what the sync
-  avoids by giving each worker a client.
 - **A music scan never shows Kodi's dialog.** With `showdialogs` the music scanner starts its
   `MusicFileCounter` thread, which lists every directory a second time, concurrently, to size
   Kodi's bar: two root listings of 62 s side by side on the LibreELEC box, and every album
@@ -496,16 +493,22 @@ What remains is kofin's own:
   folder when the token acknowledged for the movie differs (`native._asset_folders`) — a token
   that went empty included, so the token the apply pass acknowledges is always one a scan
   presented. The scan adds and never removes: a row the listing no longer names leaves through
-  Clean, whose per-file `check_exists` is `provider.exists` (a version file exists while the
-  movie still lists its source, an extra while the movie's payload still names its stem). The
-  source is read from the request's query, never from `base_url` (Kodi's `argv[0]`, which has
-  none): read from there, every version file existed. A version file is the movie's URL with
-  `mediasourceid`; Kodi imports it as a movie of its own and the user groups it in the Versions
-  Manager. `Readback.owns` accepts the movie's URL with
-  or without the source, since the user may make a version the default; `Readback._prefer`
-  lets the movie's own file win over ungrouped version rows and keeps them as `version_rows`,
-  which leave with the movie on removal. Two rows by the movie's own file are still a
-  duplicate identity.
+  a clean, whose per-file `check_exists` is `provider.exists` (a version file exists while
+  the movie still lists its source, an extra while the movie's payload still names its stem).
+  The pass runs that clean itself, of the one movie's folder, when the movie's acknowledged
+  file list (`asset_files`) lost an entry (`patch.assets_dropped`, `Native.retire_assets`);
+  Kodi 23 asks the add-on about the folder's versions and extras and keeps what it cannot
+  answer for (kontell/xbmc #1, #2, #10). The source is read from the request's query, never
+  from `base_url` (Kodi's `argv[0]`, which has none): read from there, every version file
+  existed. A version file is the movie's URL with `mediasourceid`. Every file of a movie with
+  several sources says it has versions, the movie's own as the default, under the movie's
+  unique ids (`metadata.Version`, kontell/xbmc #8), so the scan files one movie with a version
+  per file. A movie's refresh token takes its own source alone: a version that came or went
+  refreshed the movie, which Kodi files again under a new id. `Readback.owns` accepts the
+  movie's URL with or without the source, since the user may make a version the default;
+  `Readback._prefer` lets the movie's own file win over a version row Kodi filed apart and
+  keeps it as `version_rows`, which leave with the movie on removal. Two rows by the movie's
+  own file are still a duplicate identity.
 - **An extra is `extras/<stem>.<container>`, and the stem is its whole identity.** Kodi names
   the extra by the path below the folder minus the extension, so the id cannot travel in the
   URL; `paths.extra_stems` gives each feature a stem unique within the movie (`Trailer`,
@@ -525,17 +528,24 @@ What remains is kofin's own:
   binding and asks nothing. The scan that files a movie's extras binds the folder
   (`scan_video`), and `bind_movie_folders` binds those an earlier build filed once per profile
   (`apiMovieBindings` at `noupdate+extras`), so no pass reads every acknowledgement for them.
-- **What stock Piers interfaces cannot do is published for the companion add-on, never done
-  through SQL.** `sync/backends/api/companion.py` writes the open requests to
-  `companion/requests.json` in the profile and sends `Companion.Requests` over
-  `JSONRPC.NotifyAll` (`core/contract.py`) whenever the set changes; the first request is a
-  movie's ungrouped version rows (`Readback.versions_in`). A request leaves the document when
-  the readback no longer shows the rows it named, so there is no acknowledgement to forge or
-  lose; the companion's presence is read from `Addons` into `api-capabilities.json`, and its
-  absence is logged as the gap it leaves. The companion is `service.kofin.companion`
-  (kontell/service.kofin.companion), built to `docs/companion-addon-plan.md`.
-- **The companion contract is one document of desired state with two writers and one lock.** The pass replaces its kinds (`group_versions`, `retire_assets`, `episode_tags`, `season_plot`, `stream_flags`, `remove_set`) and a playback replaces `chapter_art`; a rewrite is judged by every request's content, not its id, so a desired set that moved under a stable id is published. A kind with no public read (`companion.ACKED_KINDS`) is acknowledged through the companion's status by content hash, kept on the mapping (`store.annotate_companion`) so the request leaves until the content moves; the acknowledgement survives a re-plan of the row (`patch.plan` carries `applied["companion"]`). What those kinds read comes from the mapping, never a payload: `patch._with_companion_fields` keeps an episode's favourite while it holds, and a season's plot and a file's stream flags beside the acknowledgement, and `asset_files` the movie's version and extra URLs with the label the listing gave each version (the empty entry once a movie that had assets has none). A plot or flags that went are not dropped like the favourite: the companion's withdrawal unlinks a tag but leaves a plot and flag bits standing, so a row that carried either keeps the cleared value (an empty plot, a zero per stream) and asks for it until that very request is acknowledged. A set's request carries its journal stamp, so the `done` of an earlier removal of the same title never closes a later one. An emptied set is journaled (`companion/sets.json`) for the companion when it is present, in place of the clean of the whole root. `companion-schema.json` is the shape both test suites check.
-- **Chapter art is staged by kofin-or and written by the companion.** At the play claim of a direct video play, `chapterart.ChapterArt` downloads the server's images for the chapters the player lists into `companion/chapters/<request>/`, publishes `chapter_art` with the exact dynpath, confirms through `Textures.GetTextures` (logged with the time since the claim) and withdraws on stop; a generation start withdraws what a crash left. Kodi's own extractor refuses every http source and the dialog reads the texture database only, so a file without its row is invisible; the one scheme Kodi serves over HTTP without classing it a stream, `dav://`, does extract but makes Kodi fetch the stream's sibling files and parse the video as an EDL (probe of 10 October 2026), so it is not a route.
+- **This build needs a Kodi 23 carrying kontell/xbmc #1–#13, and uses each change
+  unconditionally.** `addon.xml` imports `xbmc.python` 3.2.0 (#8, #9 and #13 raise it), and
+  `requirements.json` lists every interface the build calls (`RemoveMovieSet`, `plot` on
+  `SetSeasonDetails`, `tag` on `SetEpisodeDetails`, the version flags, the stream flags, a
+  song's date added), so a Kodi without one keeps native sync off and the probe names what
+  is missing (`capabilities.inspect`). There is no companion add-on and no fallback: a Kodi
+  without a change is not this build's. The Piers build (`api`) keeps the companion. The
+  first start deletes the `companion/` folder an earlier build left in the profile
+  (`backends.api.forget_companion`); a companion still installed reads the missing request
+  document as asking nothing, and its schema gate (MyVideos149) refuses Kodi 23's databases.
+- **A season's plot and an episode's tags are patched like any other field** (kontell/xbmc #6,
+  #12). An empty server plot is no opinion: `SetDetailsForSeason` writes no empty plot, so a
+  plot the server cleared stays in Kodi. A show's refresh token carries its seasons' numbers
+  only (`metadata.refresh_fields`), so a season plot no longer refreshes its show.
+- **Chapter art is the resolved item's `chapter<n>` art** (`plugin/play.py::chapter_art`,
+  kontell/xbmc #11): the server's image for each chapter it has one for, numbered from 1 as
+  Kodi numbers chapters, on a direct play of the item's own file. Kodi's own extractor
+  refuses every http source, and a transcode's stream has no chapters.
 - **The API build's presentation is built from the catalogue, never from Kodi's tables.**
   `sync/dynamic.py` writes the node tree for whitelisted video libraries with filter rules on
   the library tag (`metadata.library_tag`, the tag `metadata.tags` puts on every row; the
@@ -664,9 +674,8 @@ What remains is kofin's own:
   handed the library's whole song list each time (22,381 songs, 1.1 MB, 22.0b2 on the P1D).
 - **A collection is planned in every pass that plans a movie filed under it, and a set is
   never acknowledged without a compare** (`Native.join_sets`, `patch.Applier.plan`). A set
-  is Kodi's to make and to drop: it goes with the last movie that names it (the companion
-  deletes the empty row, as a clean does) and a scan or a movie's patch makes it again from
-  the name alone, bare, while the collection's payload has not moved. `sets.idSet` is a
+  is Kodi's to make and to drop: it goes with the last movie that names it, and a scan or a
+  movie's patch makes it again from the name alone, bare, while the collection's payload has not moved. `sets.idSet` is a
   plain rowid, so the new row takes the number the old one had and the short-circuit above
   read it as the row it knew. 54 sets on the Bravia (a Repair's rebuild, cut short by a
   Kodi restart) and 54 on the P1D (Movies deselected and selected again) had no art and no
@@ -680,8 +689,9 @@ What remains is kofin's own:
   its first import. Music has the same rule in `plan_music`, where its absence sent a setter
   for every song of a first import (308 s of a 357 s pass for 1,353 songs on the Pi), and a
   song goes further: its desired state is its play count and last played, the readback shows
-  both, and `UpdateSong` rewrites `dateAdded` to the moment of the call for a plugin path, so
-  a song that matches is never written, repair or not.
+  both, and a setter is 46 ms a song for nothing (without kontell/xbmc #13 `UpdateSong` also
+  rewrote `dateAdded` to the moment of the call), so a song that matches is never written,
+  repair or not.
 - **Songs are applied last of the music kinds** (`kinds.ORDER`). An album or artist is found
   through the rows of its songs, not through their acknowledgements, and a played song is a
   setter each: with 7,873 of them first, no album had a cover until they were done.
@@ -695,10 +705,10 @@ What remains is kofin's own:
   a listing complete is unchanged: every page reports the first page's total, is exactly as
   long as its place says and repeats no id, or the enumeration fails; a server that caps the
   first page is read a page at a time. 22,381 songs: 113 s to 45 s on the Pi.
-- **Kodi's own databases are rollback journals unless something switches them, and this build
-  may not.** The SQL build switches the databases it writes; here it is the companion's to do
-  (`service.kofin.companion`, `upkeep.py`). The mode lives in the file, so a profile the SQL
-  build ever wrote is already WAL, and only a database Kodi created is "stock". What the
+- **Kodi 23 with kontell/xbmc #4 runs its databases in WAL, and this build never switches
+  them.** Without #4 they are rollback journals: the SQL build switches the databases it
+  writes, and on Piers it is the companion's to do. The mode lives in the file, so a profile
+  the SQL build ever wrote is already WAL. What the
   journal costs a write, and why every played song is a setter of its own, is in
   `kodi-performance` and `kodi-library-data`'s plugin-sources page. On the Pi's card it
   decides a music import: `SetSongDetails` 133 ms against 17 ms in WAL, a first Music-Alt
@@ -711,10 +721,11 @@ What remains is kofin's own:
   after 58 s of enumerating and publishing. A trace of the scanner half way through put a
   movie at 600 ms: about 300 ms waiting on journal commits and 215 ms in the name lookups
   `kodi-performance` describes, one per cast member and per tag. So a name added to every
-  item's listing is a lookup on every item, quadratic over an import. The companion's WAL
-  switch and its `ix_kofin_{actor,tag,studio}_nocase` indexes take the scan from 1,265 s to
-  446 s; with the hold below, 259 s and a 424 s pass. Shows are the same shape: 79 shows and
-  4,316 episodes scan in 1,292 s on stock Kodi and 294 s beside the companion's two changes
+  item's listing is a lookup on every item, quadratic over an import. WAL and the name
+  indexes (kontell/xbmc #4 and #5, measured as the companion's switch and its
+  `ix_kofin_{actor,tag,studio}_nocase` indexes) take the scan from 1,265 s to 446 s; with
+  the hold below, 259 s and a 424 s pass. Shows are the same shape: 79 shows and 4,316
+  episodes scan in 1,292 s on a rollback journal without the indexes and 294 s with both
   (`tests/live/or_bench/README.md` has every run).
 - **A season's art, name and plot ride with its show's listing; a season is sent a setter only
   for a change.** `metadata.build` offers each season's art on the show's tag under the
@@ -734,7 +745,7 @@ What remains is kofin's own:
   (`Native.without_actor_thumbs`, `ACTOR_THUMBS_FLOOR`, `store.hold_setting`). What the
   setting costs the scanner per cast member, and why nothing is lost without it, is in
   `kodi-library-data`'s plugin-sources page. Off for the scan: 1,265 s to 1,078 s on stock
-  Kodi, 446 s to 259 s beside the companion's indexes. The user's value is recorded **before**
+  Kodi, 446 s to 259 s beside WAL and the name indexes. The user's value is recorded **before**
   the setting moves and forgotten only after Kodi took it back, and every pass and every
   service start restores a record a stopped Kodi left; the first record wins, because the
   value read after a crash is the pass's own `false`. A refused hold leaves the setting

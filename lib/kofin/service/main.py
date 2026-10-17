@@ -8,7 +8,7 @@ lives on the objects rebuilt each pass.
 import json
 import threading
 import time
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 import xbmc
 
@@ -206,7 +206,6 @@ class Service(xbmc.Monitor):
         contract.CLAIM: "_contract_claim",
         contract.PROPOSE: "_contract_propose",
         contract.MENU: "_contract_menu",
-        contract.COMPANION_STATUS: "_contract_companion_status",
     }
 
     def __init__(self) -> None:
@@ -233,12 +232,6 @@ class Service(xbmc.Monitor):
         self._syncplay_menu: Optional[threading.Thread] = None
         self._who_is_watching: Optional[threading.Thread] = None
         self._chapter_sweep: Optional[threading.Thread] = None
-        # The companion's refusals already logged, so a status ping that
-        # repeats one is quiet (companion.absorb_status).
-        self._companion_seen: Set[str] = set()
-        # The capability report this generation wrote at its start, which a
-        # companion status is folded into (companion.absorb_status).
-        self._api_report: Optional[Dict[str, Any]] = None
         self._backdrop: Optional[threading.Thread] = None
         # Post-connect worker (see _on_ws_connected): the pending event is
         # how a reconnect that lands mid-run asks for one more pass.
@@ -358,9 +351,6 @@ class Service(xbmc.Monitor):
         with open(target + ".part", "w", encoding="utf-8") as handle:
             json.dump(report, handle, indent=2)
         os.replace(target + ".part", target)
-        # Only now: a status ping folds into this dict and rewrites the
-        # file from it, and must not do so while this write is in flight.
-        self._api_report = report
         LOG.info(
             "API movie backend: interfaces=%s private_state=%s",
             report["interfaces_passed"],
@@ -1181,10 +1171,6 @@ class Service(xbmc.Monitor):
                     getattr(self, contract_handler)(sender, payload)
             return
         name = ipc.method_name(method)
-        if name == contract.COMPANION_REQUESTS:
-            # Kofin's own ping to the companion add-on, broadcast under its
-            # own sender: not a command, and nothing here handles it.
-            return
         payload = ipc.decode(data)
         if not ipc.verify(name, payload, self._ipc_nonce):
             # Kodi passes the sender string through from whoever called
@@ -1308,18 +1294,6 @@ class Service(xbmc.Monitor):
 
     def _contract_menu(self, sender: str, payload: Dict[str, Any]) -> None:
         self._open_syncplay_menu()
-
-    def _contract_companion_status(self, sender: str, payload: Dict[str, Any]) -> None:
-        if buildconfig.BACKEND != "api":
-            return
-        from kofin.sync.backends.api import companion
-
-        if sender != companion.ADDON_ID:
-            return
-        try:
-            companion.absorb_status(self._companion_seen, self._api_report)
-        except Exception:
-            LOG.exception("companion status not read")
 
     def _ipc_who_is_watching(self, name: str, payload: Dict[str, Any]) -> None:
         self._open_who_is_watching()

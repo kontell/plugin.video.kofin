@@ -18,7 +18,7 @@ import json
 import os
 import threading
 import time
-from typing import Any, Dict, List, NamedTuple, Optional, Union
+from typing import Any, Dict, List, NamedTuple, Union
 
 import xbmc
 import xbmcgui
@@ -26,7 +26,7 @@ import xbmcgui
 from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import private
-from . import companion, metadata, progress
+from . import metadata, progress
 
 LOG = Logger(__name__)
 
@@ -162,7 +162,6 @@ def snapshot(store, scanner_format: int) -> Snapshot:
 def rows(
     document: Dict[str, Any],
     found: Snapshot,
-    companion: Optional[str],
     text,
     kind_label,
     clock=time.localtime,
@@ -214,7 +213,6 @@ def rows(
     enumerated = _moment(found.enumerated, clock)
     if enumerated:
         lines.append("%s:  %s" % (text(30865), enumerated))
-    lines.append("%s:  %s" % (text(30866), companion or "—"))
     return [line.rstrip() for line in lines]
 
 
@@ -241,7 +239,6 @@ def show(store) -> None:
             lines = rows(
                 read(),
                 snapshot(store, metadata.SCANNER_FORMAT),
-                companion.present(),
                 progress.stage,
                 progress.label,
             )

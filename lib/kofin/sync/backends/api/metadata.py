@@ -11,7 +11,7 @@ full premiere date -- and ``details`` speaks that representation.
 import hashlib
 import time
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Tuple
 
 import xbmc
 import xbmcgui
@@ -41,6 +41,8 @@ NO_YEAR = 1
 FAVORITE_TAG = {
     "Movie": "Favorite movies",
     "Series": "Favorite tvshows",
+    # Kodi 23 keeps an episode's tags (kontell/xbmc #12).
+    "Episode": "Favorite episodes",
     "MusicVideo": "Favorite musicvideos",
 }
 # Kodi's sort position for a special that airs after a whole season.
@@ -197,16 +199,16 @@ def assets_token(item) -> str:
 def asset_files(item, key, library) -> Optional[Dict[str, Any]]:
     """The files a movie's folder lists beyond its own, by URL: its version
     files with the source's name, its extras. None for a movie with
-    neither. Acknowledged beside the assets token so the companion can be
-    told which asset rows a movie still has (``companion.RETIRE_ASSETS``)
-    without a payload being loaded for it."""
+    neither. Acknowledged beside the assets token, so what a movie's folder
+    listed is known without a payload being loaded for it: which movies
+    have an extras folder to bind (``Native.bind_movie_folders``)."""
     sources = version_sources(item)
     features = special_features(item)
     if not sources and not features:
         return None
     item_id = str(item.get("Id") or "")
-    # The label, not the raw name: this is the name the companion files the
-    # version under, and a name equal to the file's stem is no label
+    # The label, not the raw name: this is the name the version is filed
+    # under, and a name equal to the file's stem is no label
     # (version_label). The token above keeps the raw name, so a rename
     # still moves it.
     return {
@@ -221,73 +223,9 @@ def asset_files(item, key, library) -> Optional[Dict[str, Any]]:
     }
 
 
-# A movie that lost every version and extra keeps an empty entry, so the
-# companion is told its asset rows are gone too.
+# A movie that lost every version and extra keeps an empty entry, so that
+# its last acknowledgement does not still list them.
 NO_ASSET_FILES: Dict[str, Any] = {"versions": [], "extras": []}
-
-# Kodi's StreamFlags (StreamInfo.h) a Jellyfin stream can state. No public
-# setter carries them (ledger S09); the companion writes them to the
-# streamdetails rows the scanner filed (companion.STREAM_FLAGS).
-STREAM_FLAG_DEFAULT = 0x0001
-STREAM_FLAG_FORCED = 0x0040
-STREAM_FLAG_HEARING_IMPAIRED = 0x0080
-
-
-def _stream_bits(item) -> Dict[str, List[int]]:
-    """The flag bits of a file's audio and subtitle streams, in the order
-    the scanner filed them (the first media source's, as the ListItem lists
-    them)."""
-    sources = item.get("MediaSources") or []
-    raw = (
-        (
-            sources[0].get("MediaStreams")
-            if sources and isinstance(sources[0], dict)
-            else None
-        )
-        or item.get("MediaStreams")
-        or []
-    )
-    result: Dict[str, List[int]] = {"audio": [], "subtitle": []}
-    for stream in raw:
-        if not isinstance(stream, dict):
-            continue
-        kind = {"Audio": "audio", "Subtitle": "subtitle"}.get(str(stream.get("Type")))
-        if kind is None:
-            continue
-        bits = 0
-        if stream.get("IsDefault"):
-            bits |= STREAM_FLAG_DEFAULT
-        if stream.get("IsForced"):
-            bits |= STREAM_FLAG_FORCED
-        if stream.get("IsHearingImpaired"):
-            bits |= STREAM_FLAG_HEARING_IMPAIRED
-        result[kind].append(bits)
-    return result
-
-
-def stream_flags(item) -> Optional[Dict[str, List[int]]]:
-    """The flag bits of a file's audio and subtitle streams (``_stream_bits``),
-    or None when every stream is unflagged: a file that never had a flag is
-    asked nothing of the companion."""
-    result = _stream_bits(item)
-    if not any(result["audio"]) and not any(result["subtitle"]):
-        return None
-    return result
-
-
-def cleared_stream_flags(item) -> Optional[Dict[str, List[int]]]:
-    """A zero for every audio and subtitle stream of a file: what is asked
-    of the companion once a file that had flags has none, since the bits
-    it wrote stay on the rows until they are written over. None when the
-    file lists no such stream, where there is no row to name: the bits are
-    matched to rows by position, so a request naming none is refused by the
-    companion for as long as a row stands, and none stands for long, since
-    a change of streams moves the refresh token and the scanner files the
-    file's stream rows again from a listing that has neither kind."""
-    result = _stream_bits(item)
-    if not result["audio"] and not result["subtitle"]:
-        return None
-    return {kind: [0] * len(bits) for kind, bits in result.items()}
 
 
 def item_separator():
@@ -315,9 +253,10 @@ def _token(value) -> str:
 def refresh_fields(item, seasons=()) -> Dict[str, Any]:
     """Fields with no complete public setter: a change here means a refresh.
 
-    A show's season plots have ingestion only (``addSeason``), and an
-    episode's sort numbering has no setter, so both join the token the way
-    cast and streams did for movies.
+    An episode's sort numbering has no setter, so it joins the token the way
+    cast and streams did for movies. A show's seasons join it by number
+    alone: a season's name and plot are its own row's to patch
+    (``SetSeasonDetails`` takes a plot from kontell/xbmc #6).
     """
     kind = item.get("Type")
     keys: Tuple[str, ...] = ("People",)
@@ -331,9 +270,27 @@ def refresh_fields(item, seasons=()) -> Dict[str, Any]:
             "IndexNumberEnd",
         )
     value: Dict[str, Any] = {key: item.get(key) for key in keys}
+    if kind == "Movie" and isinstance(value.get("MediaSources"), list):
+        # A movie's row is its own file's. Its further sources are its
+        # version files, filed by its folder's scan and retired by a clean
+        # of the folder (Native.retire_assets): a version that came or went
+        # refreshed the movie, which Kodi files again under a new id. So
+        # did the first source's name, which Jellyfin makes a label while
+        # the movie has versions and the file's stem when it has none, and
+        # its streams, which the payload keeps on the source only while
+        # there are several (compact): the item's own streams are the
+        # token's either way.
+        value["MediaSources"] = [
+            (
+                {k: v for k, v in source.items() if k not in ("Name", "MediaStreams")}
+                if isinstance(source, dict)
+                else source
+            )
+            for source in value["MediaSources"][:1]
+        ]
     if kind == "Series":
         value["Seasons"] = sorted(
-            (int(s.get("IndexNumber") or 0), s.get("Overview") or "")
+            int(s.get("IndexNumber") or 0)
             for s in seasons
             if s.get("IndexNumber") is not None
         )
@@ -647,7 +604,7 @@ def details(
     data["uniqueid"] = unique_ids(item, key, seasons)
     if kind != "Season":
         data["runtime"] = int(item.get("RunTimeTicks") or 0) // 10000000
-    if kind in ("Movie", "Series", "MusicVideo"):
+    if kind in FAVORITE_TAG:
         data["tag"] = tags(item, library, kind)
     if kind in ("Movie", "Series", "Episode"):
         data["originaltitle"] = item.get("OriginalTitle") or ""
@@ -708,6 +665,12 @@ def details(
             "art": data["art"],
             "uniqueid": data["uniqueid"],
         }
+        # No opinion on an empty plot: Kodi's season setter leaves the
+        # stored one in place (SetDetailsForSeason writes no empty plot), so
+        # an empty desired plot would differ from the row on every pass.
+        plot = (item.get("Overview") or "").strip(ASCII_SPACE)
+        if plot:
+            data["plot"] = plot
         return data
     _clean_strings(
         data,
@@ -903,6 +866,14 @@ def song_listitem(item, album=None, salt: int = 0):
         tag.setMusicBrainzAlbumID(tags["musicbrainzalbumid"])
     if tags["musicbrainzreleasegroupid"]:
         tag.setMusicBrainzReleaseGroupID(tags["musicbrainzreleasegroupid"])
+    # When the server first saw the song. Kodi 23 keeps it for a file with
+    # no date of its own (kontell/xbmc #13), where it took the time of the
+    # scan, and of every setter after it. Not one of the tags: a date the
+    # server corrects moves no directory's hash, and an existing library
+    # takes the date as its directories are listed again.
+    created = _timestamp(item.get("DateCreated"))
+    if created:
+        tag.setDateAdded(created)
     # The date is what the scanner hashes a listing by; a salt moves it
     # without touching a tag (store.bump_salt).
     li.setDateTime(hash_time(_token([tags, salt]) if salt else _token(tags)))
@@ -972,8 +943,26 @@ def _cast(tag, item, server):
 # lack. Nothing is re-imported for it unasked; a library filed under an
 # older number is rebuilt when the viewer repairs it (library.Library
 # .rebuild_stale). 2: a single-source row's video, audio and subtitle
-# streams.
-SCANNER_FORMAT = 2
+# streams. 3: their default, forced and hearing-impaired flags.
+SCANNER_FORMAT = 3
+
+# A Jellyfin stream's flags by the names an NFO's <flag> takes, which is
+# what the stream details' setFlags reads (kontell/xbmc #9).
+STREAM_FLAGS = (
+    ("IsDefault", "default"),
+    ("IsForced", "forced"),
+    ("IsHearingImpaired", "hearingimpaired"),
+)
+
+
+def _flags(raw, kind) -> List[List[str]]:
+    """The flag names of each stream of ``kind`` ("Audio", "Subtitle"), in
+    the order ``streams_and_runtime`` lists them."""
+    return [
+        [name for field, name in STREAM_FLAGS if stream.get(field)]
+        for stream in raw
+        if isinstance(stream, dict) and stream.get("Type") == kind
+    ]
 
 
 def _stream_source(item):
@@ -995,7 +984,17 @@ def _stream_source(item):
 
 
 def _streams(tag, item):
-    streams, runtime = streams_and_runtime(_stream_source(item))
+    source = _stream_source(item)
+    streams, runtime = streams_and_runtime(source)
+    # The raw list streams_and_runtime reads, for the flags it drops.
+    sources = source.get("MediaSources") or []
+    raw = (
+        (sources[0].get("MediaStreams") if sources else None)
+        or source.get("MediaStreams")
+        or []
+    )
+    audio_flags = _flags(raw, "Audio")
+    subtitle_flags = _flags(raw, "Subtitle")
     for stream in streams["video"]:
         stereo = {
             "HalfSideBySide": "left_right",
@@ -1014,16 +1013,20 @@ def _streams(tag, item):
                 hdrtype=stream.get("hdrtype") or "",
             )
         )
-    for stream in streams["audio"]:
-        tag.addAudioStream(
-            xbmc.AudioStreamDetail(
-                channels=int(stream.get("channels") or 0),
-                codec=stream.get("codec") or "",
-                language=stream.get("language") or "",
-            )
+    for index, stream in enumerate(streams["audio"]):
+        audio = xbmc.AudioStreamDetail(
+            channels=int(stream.get("channels") or 0),
+            codec=stream.get("codec") or "",
+            language=stream.get("language") or "",
         )
-    for language in streams["subtitle"]:
-        tag.addSubtitleStream(xbmc.SubtitleStreamDetail(language=language or ""))
+        if index < len(audio_flags) and audio_flags[index]:
+            audio.setFlags(audio_flags[index])  # type: ignore[attr-defined]
+        tag.addAudioStream(audio)
+    for index, language in enumerate(streams["subtitle"]):
+        subtitle = xbmc.SubtitleStreamDetail(language=language or "")
+        if index < len(subtitle_flags) and subtitle_flags[index]:
+            subtitle.setFlags(subtitle_flags[index])  # type: ignore[attr-defined]
+        tag.addSubtitleStream(subtitle)
 
 
 # What ``details`` makes of a payload, as a number: raised when the same
@@ -1031,7 +1034,8 @@ def _streams(tag, item):
 # acknowledgement made under the old one is compared again and not taken
 # on trust (inputs_token). 2: an episode's art without its show's poster.
 # 3: the download badge on the show and the season of a downloaded episode.
-SERIALIZER = 3
+# 4: a season's plot and an episode's tags (Kodi 23).
+SERIALIZER = 4
 
 
 def inputs_token(
@@ -1111,6 +1115,27 @@ def hash_date(value: str) -> str:
     return day.strftime("%Y-%m-%dT00:00:00Z")
 
 
+class Version(NamedTuple):
+    """A file of a movie with several media sources, as its scanner row
+    says so: the source's label, whether it is the movie's own file, and
+    the movie's unique ids (not the source's, whose streams move the
+    refresh token). A further version's ids leave out ``kofinrefresh``
+    (``Version.of``): Kodi groups a file under a movie only while no unique
+    id type of the two differs (``HasConflictingUniqueID``), and the token
+    the movie's row was filed under need not be the one a version listed
+    later carries."""
+
+    label: str
+    default: bool
+    ids: Dict[str, str]
+
+    @classmethod
+    def of(cls, label: str, default: bool, ids: Dict[str, str]) -> "Version":
+        if not default:
+            ids = {k: v for k, v in ids.items() if k != "kofinrefresh"}
+        return cls(label, default, ids)
+
+
 def listitem(
     item,
     server,
@@ -1120,12 +1145,18 @@ def listitem(
     seasons=(),
     episodes=None,
     set_name=None,
+    version: Optional[Version] = None,
 ):
     """A scanner row: everything ``details`` wants, through the InfoTag.
 
     No zero resume point is ever stamped: the scanner persists any *set*
     point as a bookmark, and the in-progress rule for movies and episodes
     alike is that row's existence.
+
+    A ``version`` row says it is one of the movie's versions: a plugin
+    item's tag takes the NFO branch of RetrieveInfoForMovie, which groups a
+    file under the movie its unique ids name only when the tag says it has
+    versions (kontell/xbmc #8).
     """
     kind = item.get("Type", "Movie")
     if kind == "Audio":
@@ -1176,7 +1207,12 @@ def listitem(
     if data.get("set"):
         # The scanner files the set at import; no patch per member later.
         tag.setSet(data["set"])
-    tag.setUniqueIDs(data["uniqueid"], "kofin")
+    tag.setUniqueIDs(version.ids if version else data["uniqueid"], "kofin")
+    if version is not None:
+        tag.setHasVideoVersions(True)
+        tag.setIsDefaultVideoVersion(version.default)
+        if version.label:
+            tag.setVideoAssetTitle(version.label)
     if data.get("ratings"):
         tag.setRatings(
             {name: (r["rating"], r["votes"]) for name, r in data["ratings"].items()},

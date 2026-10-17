@@ -127,17 +127,36 @@ def test_show_and_episode_details_speak_their_setters():
     assert "set" not in show and "playcount" not in show
     # tvshowcounts derives a show's date added from its episode files.
     assert "dateadded" not in show
-    changed = metadata.details(
+    # A season's plot is its own row's to patch (kontell/xbmc #6) and moves
+    # no show refresh; a season that arrives or leaves does.
+    replotted = metadata.details(
         series(),
         SERVER,
         "key",
         LIB,
         seasons=[season("s", number=1, Overview="other arc")],
     )
-    assert changed["uniqueid"]["kofinrefresh"] != show["uniqueid"]["kofinrefresh"]
+    assert replotted["uniqueid"]["kofinrefresh"] == show["uniqueid"]["kofinrefresh"]
+    renumbered = metadata.details(
+        series(), SERVER, "key", LIB, seasons=[season("s", number=2, Overview="arc")]
+    )
+    assert renumbered["uniqueid"]["kofinrefresh"] != show["uniqueid"]["kofinrefresh"]
+    filed = metadata.details(
+        season("s", number=1, Overview=" arc "), SERVER, "key", LIB
+    )
+    assert filed["plot"] == "arc"
+    # An empty plot is no opinion: Kodi's season setter keeps the stored one.
+    assert "plot" not in metadata.details(season("s", number=1), SERVER, "key", LIB)
     ep = metadata.details(episode("e1"), SERVER, "key", LIB)
     assert (ep["season"], ep["episode"], ep["firstaired"]) == (1, 1, "2001-02-10")
-    assert "tag" not in ep and ep["resume"]["position"] == 0
+    assert ep["resume"]["position"] == 0
+    # Kodi 23 keeps an episode's tags (kontell/xbmc #12): the library's, and
+    # the favourite's while it holds.
+    assert ep["tag"] == ["kofin.library." + LIB]
+    loved = metadata.details(
+        episode("e1", UserData={"IsFavorite": True}), SERVER, "key", LIB
+    )
+    assert loved["tag"] == ["Favorite episodes", "kofin.library." + LIB]
     clip = metadata.details(musicvideo(), SERVER, "key", LIB)
     assert clip["artist"] == ["Band"] and clip["album"] == "Album"
     assert metadata.details(boxset("b", " Set ", ["a"]), SERVER, "key", LIB) == {
@@ -159,8 +178,13 @@ def _recorded_streams(monkeypatch, item):
     li = Mock()
     li.getVideoInfoTag.return_value = tag
     monkeypatch.setattr(metadata.xbmcgui, "ListItem", lambda *a, **k: li)
+
+    class Detail(dict):
+        def setFlags(self, flags):
+            self["flags"] = list(flags)
+
     for name in ("VideoStreamDetail", "AudioStreamDetail", "SubtitleStreamDetail"):
-        monkeypatch.setattr(metadata.xbmc, name, lambda **kw: kw)
+        monkeypatch.setattr(metadata.xbmc, name, lambda **kw: Detail(kw))
     metadata.listitem(item, SERVER, "key", LIB)
     return (
         [c.args[0] for c in tag.addVideoStream.call_args_list],
@@ -201,6 +225,28 @@ def test_a_single_source_row_is_filed_with_its_streams(monkeypatch):
             ("aac", 2, "fra"),
         ]
         assert [s["language"] for s in subtitle] == ["eng"]
+
+
+def test_a_streams_flags_are_listed_by_name(monkeypatch):
+    """Kodi 23 files a plugin's stream flags (kontell/xbmc #9) by the names
+    an NFO's <flag> takes, matched to the streams in order."""
+    streams = [
+        {"Type": "Video", "Codec": "hevc"},
+        {"Type": "Audio", "Codec": "eac3", "Language": "eng", "IsDefault": True},
+        {"Type": "Audio", "Codec": "aac", "Language": "fra"},
+        {"Type": "Subtitle", "Language": "eng", "IsForced": True, "IsDefault": True},
+        {"Type": "Subtitle", "Language": "eng", "IsHearingImpaired": True},
+    ]
+    _video, audio, subtitle = _recorded_streams(
+        monkeypatch, movie(MediaStreams=streams)
+    )
+    assert [a.get("flags") for a in audio] == [["default"], None]
+    assert [s.get("flags") for s in subtitle] == [
+        ["default", "forced"],
+        ["hearingimpaired"],
+    ]
+    # Rows filed before the flags are rebuilt by a manual Repair.
+    assert metadata.SCANNER_FORMAT == 3
 
 
 def test_a_version_row_is_filed_with_its_own_source_streams(monkeypatch):
@@ -449,6 +495,34 @@ def test_inputs_token_moves_with_the_art_query_and_the_zone(monkeypatch):
     assert metadata.inputs_token("http://s", "k", LIB, " / ") != capped
 
 
+def test_a_version_that_comes_or_goes_moves_no_refresh():
+    """A movie's row is its own file's. A version that came or went, the
+    label Jellyfin gives the first source while there are versions, and the
+    streams the payload keeps on a source only while there are several move
+    nothing a refresh could put right."""
+    own = [{"Type": "Video", "Codec": "hevc"}, {"Type": "Audio", "Codec": "aac"}]
+    single = metadata.compact(
+        movie(
+            MediaStreams=own,
+            MediaSources=[{"Id": "s1", "Name": "Film", "MediaStreams": own}],
+        )
+    )
+    versioned = metadata.compact(
+        movie(
+            MediaStreams=own,
+            MediaSources=[
+                {"Id": "s1", "Name": "Theatrical", "MediaStreams": own},
+                {"Id": "s2", "Name": "Director's Cut", "MediaStreams": own[:1]},
+            ],
+        )
+    )
+    assert metadata.refresh_token(single) == metadata.refresh_token(versioned)
+    remuxed = metadata.compact(
+        movie(MediaStreams=own[:1], MediaSources=[{"Id": "s1", "Name": "Film"}])
+    )
+    assert metadata.refresh_token(remuxed) != metadata.refresh_token(single)
+
+
 def test_a_refresh_can_say_which_part_of_its_token_moved():
     """The token says only that something no setter carries has changed. A
     viewer watching a show being scanned again wants to know what."""
@@ -467,7 +541,7 @@ def test_a_refresh_can_say_which_part_of_its_token_moved():
     # A row acknowledged by an earlier build has no parts on record.
     assert moved_parts(None, first) == "what moved is not on record"
     assert moved_parts({}, first) == "what moved is not on record"
-    # A show's parts are its cast and its seasons' plots; an episode's
+    # A show's parts are its cast and its seasons' numbers; an episode's
     # numbering is its own.
     show = metadata.refresh_parts(
         series(People=cast), [season("s", number=1, Overview="arc")]
@@ -476,7 +550,12 @@ def test_a_refresh_can_say_which_part_of_its_token_moved():
     replotted = metadata.refresh_parts(
         series(People=cast), [season("s", number=1, Overview="another arc")]
     )
-    assert moved_parts(show, replotted) == "its seasons moved"
+    assert moved_parts(show, replotted) == "nothing on record moved"
+    added = metadata.refresh_parts(
+        series(People=cast),
+        [season("s", number=1, Overview="arc"), season("s2", number=2)],
+    )
+    assert moved_parts(show, added) == "its seasons moved"
     numbered = metadata.refresh_parts(episode("e1", People=cast, IndexNumberEnd=2))
     assert "numbering" in numbered
     # The parts never change the token a row was filed under.

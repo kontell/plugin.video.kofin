@@ -255,7 +255,7 @@ PROPERTIES: Dict[str, List[str]] = {
         "status",
         "runtime",
     ],
-    "Season": ["season", "title", "art", "tvshowid"],
+    "Season": ["season", "title", "plot", "art", "tvshowid"],
     "Episode": [
         "file",
         "uniqueid",
@@ -268,6 +268,7 @@ PROPERTIES: Dict[str, List[str]] = {
         "runtime",
         "director",
         "writer",
+        "tag",
         "art",
         "ratings",
         "dateadded",

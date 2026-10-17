@@ -369,6 +369,63 @@ def test_season_art_kodi_did_not_file_is_patched(store, backend, kodi):
     assert seasons[1]["art"]["poster"].endswith("Images/Primary?tag=tag-1")
 
 
+def test_a_seasons_plot_rides_with_its_show_and_is_patched_when_it_moves(
+    store, backend, kodi
+):
+    """The show's listing files each season's plot (addSeason), so a first
+    import sends a season nothing. A plot the server changes afterwards is
+    the season's own setter's (kontell/xbmc #6) and refreshes no show; an
+    emptied one is no opinion, since the setter keeps the stored plot."""
+    items = show_bundle(seasons=(1,))
+    items[1]["Overview"] = "An arc"
+    store.publish(items, library=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    (row,) = kodi.rows["Season"].values()
+    assert row["plot"] == "An arc"
+    assert not methods(kodi, "VideoLibrary.SetSeasonDetails")
+    kodi.calls.clear()
+    store.publish([season(SHOW[:4] + "s1", SHOW, 1, Overview="Another arc")])
+    backend.reconcile()
+    assert not store.pending()
+    (sent,) = methods(kodi, "VideoLibrary.SetSeasonDetails")
+    assert sent["plot"] == "Another arc"
+    assert row["plot"] == "Another arc"
+    assert not methods(kodi, "VideoLibrary.RefreshTVShow")
+    kodi.calls.clear()
+    store.publish([season(SHOW[:4] + "s1", SHOW, 1, Overview="")])
+    backend.reconcile()
+    assert not store.pending()
+    assert not methods(kodi, "VideoLibrary.SetSeasonDetails")
+
+
+def test_a_favourite_episode_carries_its_tag(store, backend, kodi):
+    """Kodi 23 keeps an episode's tags (kontell/xbmc #12): the scan files
+    the favourite's tag, and a change on the server is patched in and out
+    with the episode's setter."""
+    items = show_bundle(episodes=2)
+    items[2]["UserData"] = {"IsFavorite": True}
+    store.publish(items, library=LIB)
+    backend.reconcile()
+    assert not store.pending()
+    rows = kodi.owned("Episode")
+    assert "Favorite episodes" in rows["ea11"]["tag"]
+    assert "Favorite episodes" not in rows["ea12"]["tag"]
+    assert not methods(kodi, "VideoLibrary.SetEpisodeDetails")
+    store.publish(
+        [
+            episode("ea11", UserData={"IsFavorite": False}),
+            episode("ea12", number=2, UserData={"IsFavorite": True}),
+        ]
+    )
+    backend.reconcile()
+    assert not store.pending()
+    rows = kodi.owned("Episode")
+    assert "Favorite episodes" not in rows["ea11"]["tag"]
+    assert "Favorite episodes" in rows["ea12"]["tag"]
+    assert all("kofin.library." + LIB in r["tag"] for r in rows.values())
+
+
 def test_a_small_scope_wanted_whole_is_read_in_one_listing(store, backend, kodi):
     """A first import compares every row. A show below the prefetch floor
     used to be read a row at a time: a dozen details calls where one
@@ -707,11 +764,10 @@ def test_collections_file_sets_at_import_and_patch_set_details(store, backend, k
     kodi.calls.clear()
     store.publish([], library=LIB)
     backend.reconcile()
-    # The set the library emptied is not cleaned out of Kodi. With no
-    # companion to delete it, its row stays, linked by no movie and so in no
-    # listing.
+    # The set the library emptied goes with the removal (kontell/xbmc #3),
+    # without a clean.
     assert not methods(kodi, "VideoLibrary.Clean")
-    assert [r["title"] for r in kodi.rows["BoxSet"].values()] == ["Trilogy"]
+    assert not kodi.rows["BoxSet"]
     assert not kodi.rows["Movie"]
 
 
@@ -1037,33 +1093,28 @@ def test_whole_library_clear_survives_a_movie_that_never_imported(store, backend
     assert [p["clearmode"] for p in methods(kodi, "VideoLibrary.SetSourceContent")] == [
         "remove"
     ]
-    # No clean for the set the library emptied (removal._release_sets).
+    # No clean for the set the library emptied: the removal takes it.
     assert not methods(kodi, "VideoLibrary.Clean")
 
 
-def test_a_set_a_removed_library_emptied_is_the_companions_to_delete(
-    store, backend, kodi, monkeypatch
-):
+def test_a_set_a_removed_library_emptied_goes_with_it(store, backend, kodi):
     """Kodi's clean asks the add-on about every bound folder of every
-    library, whatever directory it is given, and deletes the path row of one
-    that goes unanswered: a movie of a library that stayed left every
-    listing that way. The companion deletes the one empty set by title."""
-    from kofin.sync.backends.api import companion
-
-    monkeypatch.setattr(companion, "present", lambda: "0.1.0")
+    library, whatever directory it is given, so a removal never cleans:
+    the one remove deletes the set it emptied (kontell/xbmc #3), and a set
+    of a library that stays is left alone."""
     store.publish([movie(), movie("b"), boxset("box", "Pair", ["a", "b"])], library=LIB)
-    store.publish([movie("c")], library=LIB2)
+    store.publish([movie("c"), boxset("box2", "Solo", ["c"])], library=LIB2)
     backend.reconcile()
-    assert [r["title"] for r in kodi.rows["BoxSet"].values()] == ["Pair"]
+    assert sorted(r["title"] for r in kodi.rows["BoxSet"].values()) == ["Pair", "Solo"]
     kodi.calls.clear()
 
     store.publish([], library=LIB)
     backend.reconcile()
 
     assert not methods(kodi, "VideoLibrary.Clean")
+    assert not methods(kodi, "VideoLibrary.RemoveMovieSet")
     assert set(kodi.owned("Movie")) == {"c"}
-    journal = companion._read_sets()
-    assert [entry["title"] for entry in journal] == ["Pair"]
+    assert [r["title"] for r in kodi.rows["BoxSet"].values()] == ["Solo"]
 
 
 def test_episodes_of_a_show_whose_removal_fails_stay_pending(store, backend, kodi):
@@ -1145,8 +1196,8 @@ def _reimported_pair(store, backend, kodi):
     backend.reconcile()
     # A collection is not of the library, and stays applied without it.
     assert store.state("box").status == "applied"
-    # The companion deletes the set the removal emptied, as a clean would.
-    kodi.rows["BoxSet"].clear()
+    # The removal took the set it emptied (kontell/xbmc #3).
+    assert not kodi.rows["BoxSet"]
     # Selected again: listed by name, the collection exactly as it was.
     store.publish(items, library=LIB)
     return before
@@ -1275,6 +1326,7 @@ def test_removing_a_collection_unfiles_its_movies_and_drops_the_empty_set(
     store.publish([movie(), movie("b"), boxset("box", "Pair", ["a", "b"])], library=LIB)
     backend.reconcile()
     assert kodi.owned("Movie")["a"]["set"] == "Pair"
+    setid = store.mapping("box").kodi_id
     kodi.calls.clear()
     store.publish([], removed=["box"])
     # The coordinator invalidates the members on the removal path; the pass
@@ -1285,10 +1337,80 @@ def test_removing_a_collection_unfiles_its_movies_and_drops_the_empty_set(
     assert kodi.owned("Movie")["b"]["set"] == ""
     assert kodi.rows["BoxSet"] == {}
     assert len(methods(kodi, "VideoLibrary.SetMovieDetails")) == 2
-    assert methods(kodi, "VideoLibrary.Clean") == [
-        {"showdialogs": False, "directory": paths.root(store.namespace)}
-    ]
+    # The empty row goes by its id, and no clean asks the add-on about
+    # every bound folder for it.
+    assert methods(kodi, "VideoLibrary.RemoveMovieSet") == [{"setid": setid}]
+    assert not methods(kodi, "VideoLibrary.Clean")
     assert store.state("box").status == "applied"
+
+
+def test_a_set_id_kodi_gave_another_set_is_left_alone(store, backend, kodi):
+    """Kodi numbers a new set from the highest one left, so the id a removed
+    collection was acknowledged under may name another set by then. An
+    emptied set cannot be read back, so what is checked is that no set with
+    movies holds the id: a set someone's movie files is never removed."""
+    store.publish([movie(), boxset("box", "Pair", ["a"])], library=LIB)
+    store.publish([movie("c")], library=LIB2)
+    backend.reconcile()
+    setid = store.mapping("box").kodi_id
+    kodi.rows["BoxSet"][setid]["title"] = "Someone else's"
+    kodi.owned("Movie")["c"]["set"] = "Someone else's"
+    store.publish([], removed=["box"])
+    backend.reconcile()
+    assert not store.pending()
+    assert not methods(kodi, "VideoLibrary.RemoveMovieSet")
+    assert kodi.rows["BoxSet"][setid]["title"] == "Someone else's"
+
+
+def test_a_set_kodi_could_not_be_asked_to_remove_stays_pending(
+    store, backend, kodi, monkeypatch
+):
+    """A Kodi that could not be asked is no proof the set is gone: the
+    collection stays pending, and the next pass removes the set."""
+    from kofin.core import kodirpc
+    from kofin.sync.backends.api import removal
+
+    store.publish([movie(), boxset("box", "Pair", ["a"])], library=LIB)
+    backend.reconcile()
+    setid = store.mapping("box").kodi_id
+    store.publish([], removed=["box"])
+    real = removal.kodirpc.call
+
+    def unreachable(method, params=None):
+        if method == "VideoLibrary.RemoveMovieSet":
+            return kodirpc.FAILED
+        return real(method, params)
+
+    monkeypatch.setattr(removal.kodirpc, "call", unreachable)
+    with pytest.raises(RuntimeError):
+        backend.reconcile()
+    assert store.state("box").status == "pending"
+    assert setid in kodi.rows["BoxSet"]
+    monkeypatch.setattr(removal.kodirpc, "call", real)
+    backend.reconcile()
+    assert not store.pending()
+    assert setid not in kodi.rows["BoxSet"]
+
+
+def test_a_collection_removed_by_id_alone_still_leaves(store, backend, kodi):
+    """A removal the server reported by id carries no name (store.tombstone
+    of an item never stored); the empty set still goes by the id it was
+    acknowledged under."""
+    store.publish([movie(), movie("b"), boxset("box", "Pair", ["a", "b"])], library=LIB)
+    backend.reconcile()
+    setid = store.mapping("box").kodi_id
+    with private.Database() as db:
+        db.cursor.execute(
+            "UPDATE api_item SET payload=? WHERE item_id='box'",
+            ('{"Id": "box", "Type": "BoxSet"}',),
+        )
+    store.publish([], removed=["box"])
+    store.invalidate({"a", "b"})
+    backend.reconcile()
+    assert not store.pending()
+    assert kodi.owned("Movie")["a"]["set"] == ""
+    assert methods(kodi, "VideoLibrary.RemoveMovieSet") == [{"setid": setid}]
+    assert kodi.rows["BoxSet"] == {}
 
 
 def test_a_collection_removal_waits_while_a_member_still_files_it(store, backend, kodi):
@@ -1791,33 +1913,3 @@ def test_a_row_count_kodi_refuses_does_not_keep_a_library_from_being_cleared(
     )
     removal.clear_library(native, LIB, {"Movie"}, rows=5)
     assert calls == ["VideoLibrary.SetSourceContent", "unbind"]
-
-
-def test_a_set_that_cannot_be_handed_over_does_not_fail_the_removal(
-    store, backend, kodi, monkeypatch
-):
-    """The rows are gone by then. Failed for the sake of its sets, the
-    library was cleared again on the next pass and the sets, which Kodi no
-    longer lists, could not be told a second time."""
-    from kofin.sync.backends.api import companion
-
-    monkeypatch.setattr(companion, "present", lambda: "0.1.0")
-
-    def unwritable(title):
-        raise OSError("journal not written")
-
-    monkeypatch.setattr(companion, "journal_set", unwritable)
-    store.publish([movie(), movie("b"), boxset("box", "Pair", ["a", "b"])], library=LIB)
-    backend.reconcile()
-    kodi.calls.clear()
-
-    store.publish([], library=LIB)
-    backend.reconcile()
-
-    assert not kodi.rows["Movie"]
-    assert len(methods(kodi, "VideoLibrary.SetSourceContent")) == 1
-    assert not [i for i, _, op, _ in store.pending_work() if op == "remove"]
-    # The home widgets still hear of the removal.
-    assert [p["directory"] for p in methods(kodi, "VideoLibrary.Scan")] == [
-        native.NOWHERE
-    ]

@@ -361,12 +361,14 @@ def _movie_entries(record, server, key, library, separator, set_name, assets):
     each carrying the whole tag and the source's name as its video asset
     title, and the movie's extras folder.
 
-    Kodi files each version file as a movie of its own until the user groups
-    them in the Versions Manager: a plugin item's tag takes the NFO branch of
-    RetrieveInfoForMovie, which never reaches the similar-video grouping. The
-    extras folder is read only when the pass has warmed Kodi's directory
-    cache for it (native._prepare_scan) and the folder's binding uses folder
-    names, which the pass sets.
+    A plugin item's tag takes the NFO branch of RetrieveInfoForMovie, which
+    groups a file under an existing movie only when the tag says it has
+    versions (kontell/xbmc #8). So every file of a movie with several
+    sources says so, the movie's own as the default, and carries the
+    movie's unique ids, not its source's: the scan then files one movie
+    with a version per file. The extras folder is read only when the pass
+    has warmed Kodi's directory cache for it (native._prepare_scan) and the
+    folder's binding uses folder names, which the pass sets.
     """
     item = record.item
     url = paths.playback_url(key, "Movie", library, record.item_id)
@@ -381,12 +383,21 @@ def _movie_entries(record, server, key, library, separator, set_name, assets):
                 shown["MediaStreams"] = source["MediaStreams"]
             if source.get("RunTimeTicks"):
                 shown["RunTimeTicks"] = source["RunTimeTicks"]
-        li = metadata.listitem(
-            shown, server, key, library, separator, set_name=set_name
+        return metadata.listitem(
+            shown,
+            server,
+            key,
+            library,
+            separator,
+            set_name=set_name,
+            version=(
+                metadata.Version.of(
+                    name, source is None, metadata.unique_ids(item, key)
+                )
+                if sources
+                else None
+            ),
         )
-        if name:
-            li.getVideoInfoTag().setVideoAssetTitle(name)
-        return li
 
     entries = [(url, row(metadata.version_label(sources[0]) if sources else ""), False)]
     if not assets:

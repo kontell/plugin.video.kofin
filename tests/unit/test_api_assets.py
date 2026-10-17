@@ -203,22 +203,17 @@ def test_the_movie_folder_lists_versions_and_the_extras_folder(store, monkeypatc
     from kofin.sync.backends.api import provider
 
     store.publish([assets_movie()], library=LIB)
-    rendered, content, titles = [], [], []
-
-    class Tag:
-        def setVideoAssetTitle(self, name):
-            titles.append(name)
+    rendered, content, versions = [], [], []
 
     class Item:
         def __init__(self, label):
             self.label = label
 
-        def getVideoInfoTag(self):
-            return Tag()
+    def listitem(item, *a, version=None, **k):
+        versions.append(version)
+        return Item(item["Id"])
 
-    monkeypatch.setattr(
-        provider.metadata, "listitem", lambda item, *a, **k: Item(item["Id"])
-    )
+    monkeypatch.setattr(provider.metadata, "listitem", listitem)
     monkeypatch.setattr(
         provider.metadata, "extra_listitem", lambda item, server: Item(item["Name"])
     )
@@ -240,11 +235,20 @@ def test_the_movie_folder_lists_versions_and_the_extras_folder(store, monkeypatc
         (paths.version_url(key, LIB, "a", "s2"), False),
         (folder + "extras/", True),
     ]
-    assert titles == ["Director's Cut", "Theatrical Cut"]
+    # Each file says it is a version of the movie (kontell/xbmc #8), under
+    # the movie's own ids, the movie's own file the default.
+    ids = metadata.unique_ids(store.item("a"), key)
+    # A further version leaves the refresh token out: Kodi groups a file
+    # under a movie only while none of their unique id types differ.
+    grouped = {k: v for k, v in ids.items() if k != "kofinrefresh"}
+    assert versions == [
+        metadata.Version("Director's Cut", True, ids),
+        metadata.Version("Theatrical Cut", False, grouped),
+    ]
     # The root lists the movie's own file alone, with its source's name...
     provider.serve(Request(paths.library_dir(key, LIB, "movies"), 1, {}))
     assert [e[0] for e in rendered[-1]] == [canonical]
-    assert titles[-1] == "Director's Cut"
+    assert versions[-1] == metadata.Version("Director's Cut", True, ids)
     # ...and so does a refresh, which takes the first item.
     provider.serve(Request(folder, 1, {"kodi_action": "refresh_info", "id": "a"}))
     assert [e[0] for e in rendered[-1]] == [canonical]
@@ -369,21 +373,16 @@ def test_versions_and_extras_scan_the_movie_folder_after_the_root(store, backend
     assert kodi.listed == [extras, extras + "VIDEO_TS/", extras + "BDMV/"]
     assert kodi.settings["videolibrary.ignorevideoextras"] is False
     assert not kodi.phantoms
-    rows = movie_rows(kodi)
-    assert [r["file"] for r in rows] == [
-        paths.playback_url(key, "Movie", LIB, "a"),
-        paths.version_url(key, LIB, "a", "s2"),
+    # One movie: its further version file is filed as a version of it
+    # (kontell/xbmc #8), with the source's label.
+    (row,) = movie_rows(kodi)
+    assert row["file"] == paths.playback_url(key, "Movie", LIB, "a")
+    assert kodi.versions[row["movieid"]] == [
+        (paths.version_url(key, LIB, "a", "s2"), "Theatrical Cut")
     ]
-    assert kodi.extras[rows[0]["movieid"]] == ["Deleted Scene", "Making Of"]
-    # The movie's own file owns the identity; the version's row is Kodi's
-    # until the user groups it, and nothing is patched on it.
-    assert store.mapping("a").kodi_id == rows[0]["movieid"]
+    assert kodi.extras[row["movieid"]] == ["Deleted Scene", "Making Of"]
+    assert store.mapping("a").kodi_id == row["movieid"]
     assert store.mapping("a").applied["assets"] == metadata.assets_token(assets_movie())
-    assert not [
-        p
-        for p in methods(kodi, "VideoLibrary.SetMovieDetails")
-        if p["movieid"] == rows[1]["movieid"]
-    ]
     assert not store.pending()
     backend.reconcile()
     assert kodi.scanned == [root, folder]
@@ -580,11 +579,10 @@ def test_a_version_the_user_made_default_still_owns_the_row(store, backend, kodi
     backend.setup()
     store.publish([assets_movie()], library=LIB)
     backend.reconcile()
-    owner, version = movie_rows(kodi)
-    # The user grouped the two in Kodi's Versions Manager and made the
-    # Theatrical Cut the default: one row, listed by the version's file.
-    del kodi.rows["Movie"][version["movieid"]]
-    owner["file"] = version["file"]
+    (owner,) = movie_rows(kodi)
+    # The user made the Theatrical Cut the default in Kodi's Versions
+    # Manager: the row is listed by the version's file.
+    owner["file"] = paths.version_url(store.namespace, LIB, "a", "s2")
     store.publish([assets_movie(Overview="Changed")], library=LIB)
     backend.reconcile()
     assert store.state("a").status == "applied"
@@ -594,18 +592,18 @@ def test_a_version_the_user_made_default_still_owns_the_row(store, backend, kodi
     assert not store.pending()
 
 
-def test_removing_the_movie_takes_its_ungrouped_version_rows_too(store, backend, kodi):
+def test_removing_the_movie_takes_its_versions_and_extras(store, backend, kodi):
     backend.setup()
     store.publish([assets_movie(), movie("b")], library=LIB)
     backend.reconcile()
-    assert len(kodi.rows["Movie"]) == 3
+    assert len(kodi.rows["Movie"]) == 2
     store.publish([movie("b")], library=LIB)
     backend.reconcile()
     assert [r["file"] for r in kodi.rows["Movie"].values()] == [
         paths.playback_url(store.namespace, "Movie", LIB, "b")
     ]
-    assert len(methods(kodi, "VideoLibrary.RemoveMovie")) == 2
-    assert kodi.extras == {}
+    assert len(methods(kodi, "VideoLibrary.RemoveMovie")) == 1
+    assert kodi.extras == {} and kodi.versions == {}
     assert not store.pending()
 
 
@@ -642,113 +640,97 @@ def test_two_rows_by_the_movie_s_own_file_are_still_a_duplicate(store, backend, 
         raise AssertionError("two rows by the movie's own file were accepted")
 
 
-# -- the companion contract -------------------------------------------------------
+# -- what a movie's folder listed ---------------------------------------------------
 
 
-def _requests(store):
-    import json
-    import os
-
-    from kofin.sync import private
-
-    path = os.path.join(private.addon_data_path(), "companion", "requests.json")
-    with open(path, encoding="utf-8") as handle:
-        return json.load(handle)
-
-
-def test_ungrouped_versions_are_published_for_the_companion_and_closed_by_readback(
-    store, backend, kodi
-):
-    from kofin.core import contract
-    from kofin.sync.backends.api import companion
-
-    from kofin.core import settings
-    from tests.unit import contractschema
-
-    settings.set_str("deviceId", "device-1")
+def test_a_movies_asset_files_are_acknowledged_by_url(store, backend, kodi):
+    """The acknowledgement names the files a movie's folder listed beyond
+    its own: the version file with its label, and the extras. A movie that
+    loses every version and extra keeps an empty entry, so its last
+    acknowledgement does not still list them."""
     backend.setup()
     store.publish([assets_movie()], library=LIB)
     backend.reconcile()
-    owner, version = movie_rows(kodi)
-    document = _requests(store)
-    assert document["v"] == 2 and document["generation"] == 1
-    assert document["namespace"] == store.namespace
-    assert document["device"] == "device-1"
-    assert document["kinds"] == list(companion.KINDS)
-    contractschema.check_document(document, contractschema.load(companion.SCHEMA_PATH))
-    by_kind = {r["kind"]: r for r in document["requests"]}
-    assert sorted(by_kind) == [companion.GROUP_VERSIONS, companion.RETIRE_ASSETS]
-    request = by_kind[companion.GROUP_VERSIONS]
-    assert request["kind"] == companion.GROUP_VERSIONS
-    assert (request["library"], request["item"]) == (LIB, "a")
-    assert request["owner"] == {"movieid": owner["movieid"], "file": owner["file"]}
-    assert request["versions"] == [
-        {
-            "movieid": version["movieid"],
-            "file": version["file"],
-            "mediasourceid": "s2",
-            "name": "Theatrical Cut",
-        }
-    ]
-    (ping,) = kodi.notified
-    assert ping["message"] == contract.COMPANION_REQUESTS
-    assert ping["sender"] == "plugin.video.kofin"
-    assert ping["data"]["v"] == 2
-    assert ping["data"]["generation"] == 1 and ping["data"]["count"] == 2
-    # The movie's asset rows, as the acknowledged mapping names them: the
-    # version file with its name and the extras, for the companion to keep
-    # exactly those (retire_assets).
-    retire = by_kind[companion.RETIRE_ASSETS]
-    assert retire["owner"] == {"movieid": owner["movieid"]}
-    assert retire["versions"] == [{"file": version["file"], "name": "Theatrical Cut"}]
-    assert [e["file"] for e in retire["extras"]] == [
-        paths.extra_url(
-            store.namespace, LIB, "a", "Deleted Scene", {"Container": "mkv"}
-        ),
-        paths.extra_url(store.namespace, LIB, "a", "Making Of", {"Container": "mp4"}),
-    ]
     assert store.mapping("a").applied["asset_files"] == {
-        "versions": [[version["file"], "Theatrical Cut"]],
-        "extras": [e["file"] for e in retire["extras"]],
+        "versions": [
+            [paths.version_url(store.namespace, LIB, "a", "s2"), "Theatrical Cut"]
+        ],
+        "extras": [
+            paths.extra_url(
+                store.namespace, LIB, "a", "Deleted Scene", {"Container": "mkv"}
+            ),
+            paths.extra_url(
+                store.namespace, LIB, "a", "Making Of", {"Container": "mp4"}
+            ),
+        ],
     }
-    assert ping["data"]["path"].endswith("companion/requests.json")
-    # The same set again is not rewritten and not announced.
-    store.publish([assets_movie(Overview="Changed")], library=LIB)
-    backend.reconcile()
-    assert len(kodi.notified) == 1 and _requests(store)["generation"] == 1
-    # The companion (or the user) grouped the two: the request leaves the
-    # document when the readback no longer shows the version's row.
-    del kodi.rows["Movie"][version["movieid"]]
-    store.publish([assets_movie(Overview="Changed again")], library=LIB)
-    backend.reconcile()
-    document = _requests(store)
-    assert [r["kind"] for r in document["requests"]] == [companion.RETIRE_ASSETS]
-    assert document["generation"] == 2
-    assert kodi.notified[-1]["data"] == {
-        "v": 2,
-        "generation": 2,
-        "count": 1,
-        "path": kodi.notified[-1]["data"]["path"],
-    }
-    # A movie that loses every version and extra keeps an empty entry, so
-    # the companion is told the rows are gone; one that never had any has
-    # no entry and no request.
     store.publish([movie("a", Overview="No assets now")], library=LIB)
     backend.reconcile()
-    (retire,) = _requests(store)["requests"]
-    assert retire["versions"] == [] and retire["extras"] == []
     assert store.mapping("a").applied["asset_files"] == {"versions": [], "extras": []}
 
 
-def test_assets_lost_under_an_older_acknowledgement_are_still_retired(
+def test_a_dropped_version_and_extra_leave_through_a_clean_of_the_folder(
+    store, backend, kodi
+):
+    """The folder's scan adds and never removes. A pass whose listing of a
+    movie lost a version file or an extra cleans that movie's folder, and
+    Kodi 23 removes what the add-on says has gone (kontell/xbmc #1, #2,
+    #10): only below that folder, and once the pass has applied."""
+    backend.setup()
+    store.publish([assets_movie(), assets_movie(Id="b")], library=LIB)
+    backend.reconcile()
+    (row,) = [r for r in movie_rows(kodi) if r["file"].endswith("id=a")]
+    assert kodi.versions[row["movieid"]] and len(kodi.extras[row["movieid"]]) == 2
+    assert kodi.cleaned == []
+    item = assets_movie(
+        MediaSources=[{"Id": "s1", "Name": "Director's Cut", "Container": "mkv"}],
+        SpecialFeatures=[assets_movie()["SpecialFeatures"][1]],
+        SpecialFeatureCount=1,
+    )
+    store.publish([item, assets_movie(Id="b")], library=LIB)
+    kodi.calls.clear()
+    backend.reconcile()
+    assert not store.pending()
+    # A version that went is the folder's, not the movie row's: no refresh.
+    assert not methods(kodi, "VideoLibrary.RefreshMovie")
+    assert kodi.cleaned == [folder_of(store)]
+    assert kodi.versions[row["movieid"]] == []
+    assert kodi.extras[row["movieid"]] == ["Making Of"]
+    # The other movie's assets were not asked about.
+    (other,) = [r for r in movie_rows(kodi) if r["file"].endswith("id=b")]
+    assert kodi.versions[other["movieid"]] and len(kodi.extras[other["movieid"]]) == 2
+    # A change that drops nothing cleans nothing.
+    store.publish([dict(item, Overview="Changed"), assets_movie(Id="b")], library=LIB)
+    backend.reconcile()
+    assert kodi.cleaned == [folder_of(store)]
+
+
+def test_a_dropped_asset_is_judged_by_the_files_the_folder_listed():
+    from kofin.sync.backends.api.patch import assets_dropped
+
+    listed = {"versions": [["v1", ""], ["v2", "Cut"]], "extras": ["x1"]}
+    assert not assets_dropped({}, {"asset_files": listed})
+    assert not assets_dropped({"asset_files": listed}, {"asset_files": listed})
+    fewer = {"versions": [["v1", ""]], "extras": ["x1"]}
+    assert assets_dropped({"asset_files": listed}, {"asset_files": fewer})
+    assert not assets_dropped({"asset_files": fewer}, {"asset_files": listed})
+    # A label that moved is no file that went.
+    relabelled = {"versions": [["v1", ""], ["v2", "Other"]], "extras": ["x1"]}
+    assert not assets_dropped({"asset_files": listed}, {"asset_files": relabelled})
+    # An acknowledgement older than the file list names no files: a token
+    # that moved off a non-empty one may have lost some.
+    assert assets_dropped({"assets": "t1"}, {"assets": "t2"})
+    assert not assets_dropped({"assets": "t1"}, {"assets": "t1"})
+    assert not assets_dropped({"assets": ""}, {"assets": "t2"})
+
+
+def test_assets_lost_under_an_older_acknowledgement_are_still_recorded(
     store, backend, kodi
 ):
     """A build before the file list acknowledged the assets token alone. A
     movie that had assets then and has none on the first pass of this build
-    is told to the companion by that token; without it the movie had no
-    entry and its version and extra rows waited for Clean."""
-    from kofin.sync.backends.api import companion
-
+    is known by that token to have had them; one that never had any has no
+    entry."""
     backend.setup()
     store.publish([assets_movie()], library=LIB)
     backend.reconcile()
@@ -761,36 +743,24 @@ def test_assets_lost_under_an_older_acknowledgement_are_still_retired(
     store.publish([movie("a", Overview="No assets now")], library=LIB)
     backend.reconcile()
     assert store.mapping("a").applied["asset_files"] == {"versions": [], "extras": []}
-    retire = [
-        r for r in _requests(store)["requests"] if r["kind"] == companion.RETIRE_ASSETS
-    ]
-    assert [(r["item"], r["versions"], r["extras"]) for r in retire] == [("a", [], [])]
-    # A movie that never had any still has no entry and no request.
     store.publish([movie("b")], library=LIB)
     backend.reconcile()
     assert "asset_files" not in store.mapping("b").applied
 
 
-def test_the_companion_is_detected_and_reported_as_optional(store, kodi):
-    from kofin.sync.backends.api import companion
+def test_the_companions_requests_are_deleted_at_start(store, tmp_path):
+    """What the Piers build kept for the companion add-on goes the first time
+    this build starts; a companion still installed reads a missing document
+    as one that asks for nothing."""
+    from kofin.sync.backends.api import forget_companion
 
-    assert companion.present() is None
-    kodi.addons[companion.ADDON_ID] = "0.1.0"
-    assert companion.present() == "0.1.0"
-
-
-def test_a_plain_movie_publishes_no_companion_request(store, backend, kodi):
-    import os
-
-    from kofin.sync import private
-
-    backend.setup()
-    store.publish([movie()], library=LIB)
-    backend.reconcile()
-    assert kodi.notified == []
-    assert not os.path.exists(
-        os.path.join(private.addon_data_path(), "companion", "requests.json")
-    )
+    folder = tmp_path / "companion"
+    (folder / "chapters" / "x").mkdir(parents=True)
+    (folder / "requests.json").write_text("{}")
+    (folder / "sets.json").write_text("{}")
+    forget_companion()
+    assert not folder.exists()
+    forget_companion()  # nothing left to delete is no error
 
 
 def test_a_version_file_lists_its_own_streams_and_runtime(store, monkeypatch):
@@ -833,13 +803,10 @@ def test_a_version_file_lists_its_own_streams_and_runtime(store, monkeypatch):
     )
 
 
-def test_the_companion_is_sent_the_label_never_a_file_stem(store, backend, kodi):
-    """Both requests that hand the companion a version's name send the label
-    the folder listing gave the file. The companion sees a plugin URL for a
-    file name and cannot tell a stem from a label itself, so a raw stem
-    would still mint a type row per movie (audit A4-1). The assets token
-    keeps the raw name: a rename still moves it."""
-    from kofin.sync.backends.api import companion
+def test_a_versions_label_is_acknowledged_never_a_file_stem(store, backend, kodi):
+    """The acknowledged file list carries the label the folder listing gave
+    the version file, never a raw stem (audit A4-1). The assets token keeps
+    the raw name: a rename still moves it."""
 
     def sourced(second):
         item = assets_movie()
@@ -855,23 +822,16 @@ def test_the_companion_is_sent_the_label_never_a_file_stem(store, backend, kodi)
     backend.setup()
     store.publish([sourced("Fixture a (2001) alt")], library=LIB)
     backend.reconcile()
-    by_kind = {r["kind"]: r for r in _requests(store)["requests"]}
-    assert [v["name"] for v in by_kind[companion.GROUP_VERSIONS]["versions"]] == [""]
-    assert [v["name"] for v in by_kind[companion.RETIRE_ASSETS]["versions"]] == [""]
     assert [n for _url, n in store.mapping("a").applied["asset_files"]["versions"]] == [
         ""
     ]
     token = store.mapping("a").applied["assets"]
-    # A real label is sent as it is.
+    # A real label is kept as it is.
     item = sourced("Theatrical Cut")
     item["MediaSources"][1]["Path"] = "/srv/movies/alt/Fixture a (2001) - tc.mkv"
     store.publish([item], library=LIB)
     backend.reconcile()
-    by_kind = {r["kind"]: r for r in _requests(store)["requests"]}
-    assert [v["name"] for v in by_kind[companion.GROUP_VERSIONS]["versions"]] == [
-        "Theatrical Cut"
-    ]
-    assert [v["name"] for v in by_kind[companion.RETIRE_ASSETS]["versions"]] == [
+    assert [n for _url, n in store.mapping("a").applied["asset_files"]["versions"]] == [
         "Theatrical Cut"
     ]
     assert store.mapping("a").applied["assets"] != token
@@ -896,13 +856,11 @@ def test_a_source_named_like_its_file_is_an_untitled_asset(store, monkeypatch):
     store.publish([item], library=LIB)
     titles = []
 
-    class Item:
-        def getVideoInfoTag(self):
-            return type(
-                "Tag", (), {"setVideoAssetTitle": lambda s, n: titles.append(n)}
-            )()
+    def listitem(it, *a, version=None, **k):
+        if version is not None and version.label:
+            titles.append(version.label)
 
-    monkeypatch.setattr(provider.metadata, "listitem", lambda it, *a, **k: Item())
+    monkeypatch.setattr(provider.metadata, "listitem", listitem)
     monkeypatch.setattr(provider.xbmcplugin, "addDirectoryItems", lambda *a: None)
     monkeypatch.setattr(provider.xbmcplugin, "setContent", lambda *a: None)
     monkeypatch.setattr(provider.xbmcplugin, "endOfDirectory", lambda *a, **k: None)
