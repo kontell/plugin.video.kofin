@@ -23,6 +23,7 @@ import xbmc
 from kofin.core import kodirpc, state
 from kofin.sync import private
 from kofin.core.log import Logger
+from kofin.core.urls import PARAM_MEDIA_SOURCE
 from . import metadata, paths, walk
 from .records import PayloadWindow
 from .store import Store
@@ -165,9 +166,12 @@ def serve(request):
             _music_part(request, store, location.key, location.library, location.part)
         return
     if action == "check_exists":
+        # The source is in the query: base_url is Kodi's argv[0], which has
+        # none, and read from there every version file existed.
+        source = request.params.get(PARAM_MEDIA_SOURCE, "")
         xbmcplugin.setResolvedUrl(
             request.handle,
-            exists(store, location, item_id, paths.source_of(request.base_url)),
+            exists(store, location, item_id, source),
             xbmcgui.ListItem(path=request.base_url),
         )
         return
