@@ -6,12 +6,16 @@ holds a folder per synced music library -- Artists, Albums, Songs and
 Genres, the same ways in Kodi's own music library offers -- plus a
 Downloaded folder while the downloads feature is on.
 
-A library's sub-nodes filter on its MyMusic ``source`` row rather than a
-tag (MyMusic has none) or a path (a downloaded song's path is repointed at
-the filesystem, so it would fall out of its own library). See
-sync/musicsources.py. Every file is written whole on every pass: nothing in
-them is the user's to keep, and a leftover rule for a renamed library would
-match nothing under ``match=all`` -- silently.
+In the SQL build a library's sub-nodes filter on its MyMusic ``source`` row
+rather than a tag (MyMusic has none) or a path (a downloaded song's path is
+repointed at the filesystem, so it would fall out of its own library). See
+sync/musicsources.py. The API build writes no music source, and a download
+never moves a row there, so its nodes filter on the folder the library's
+songs are filed under (``library_rule``): a music smart playlist's ``path``
+rule takes an album or an artist by its songs' paths. Every file is written
+whole on every pass: nothing in them is the user's to keep, and a leftover
+rule for a renamed library would match nothing under ``match=all`` --
+silently.
 """
 
 import os
@@ -21,7 +25,6 @@ import xbmcvfs
 
 from kofin.core import settings
 from kofin.core.log import Logger
-from kofin.sync import musicsources
 from kofin.sync.private import Database, get_sync
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync.nodes import fs
@@ -130,20 +133,39 @@ def music_library_views():
 
     views.sort(key=position)
 
+    from kofin.sync import musicsources
+
     for view in views:
         view["Source"] = musicsources.source_name(view["Id"], views)
 
     return views
 
 
-def write_music_nodes(libraries=None):
+def library_rule(view):
+    """The rule a library's sub-nodes filter on: the folder its songs are
+    filed under when the view names one (``Path``, the API build), else its
+    Kodi music source (``Source``, the SQL build)."""
+    if view.get("Path"):
+        rule = etree.Element("rule", {"field": "path", "operator": "startswith"})
+        etree.SubElement(rule, "value").text = view["Path"]
+    else:
+        rule = etree.Element("rule", {"field": "source", "operator": "is"})
+        etree.SubElement(rule, "value").text = view["Source"]
+    return rule
+
+
+def write_music_nodes(libraries=None, downloads=None):
     """Write (or take down) the music tree. Returns whether it now exists.
 
     ``libraries`` is read from kofin.db when not supplied, so the downloads
-    manager can keep calling this with no arguments.
+    manager can keep calling this with no arguments. ``downloads`` says
+    whether the Downloaded folder is written, the downloads setting when not
+    supplied; the API build passes False, since its downloads keep their rows'
+    plugin URLs and a path rule on the downloads folder would match nothing.
     """
     root = music_node_root_path()
-    downloads = settings.get_bool("downloadsEnabled")
+    if downloads is None:
+        downloads = settings.get_bool("downloadsEnabled")
 
     try:
         libraries = music_library_views() if libraries is None else libraries
@@ -205,8 +227,7 @@ def _write_music_library_folder(root, view, index):
     _write_music_folder_index(folder, index, view["Name"], MUSIC_NODE_ICONS["albums"])
 
     for order, (stem, label, content, group) in enumerate(MUSIC_NODES):
-        rule = etree.Element("rule", {"field": "source", "operator": "is"})
-        etree.SubElement(rule, "value").text = view["Source"]
+        rule = library_rule(view)
         _write_music_filter_node(folder, order, stem, label, content, group, rule)
 
 

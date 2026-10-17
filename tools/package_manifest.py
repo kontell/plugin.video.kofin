@@ -65,7 +65,6 @@ SQL_ONLY = (
     "lib/kofin/sync/widgetstate.py",
     "lib/kofin/sync/refresh.py",
     "lib/kofin/sync/musicsources.py",
-    "lib/kofin/sync/nodes/music.py",
     "lib/kofin/service/artcache.py",
     "lib/kofin/service/chapters.py",
     "lib/kofin/downloads/repoint.py",
