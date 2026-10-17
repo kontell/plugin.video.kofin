@@ -178,8 +178,13 @@ def _recorded_streams(monkeypatch, item):
     li = Mock()
     li.getVideoInfoTag.return_value = tag
     monkeypatch.setattr(metadata.xbmcgui, "ListItem", lambda *a, **k: li)
+
+    class Detail(dict):
+        def setFlags(self, flags):
+            self["flags"] = list(flags)
+
     for name in ("VideoStreamDetail", "AudioStreamDetail", "SubtitleStreamDetail"):
-        monkeypatch.setattr(metadata.xbmc, name, lambda **kw: kw)
+        monkeypatch.setattr(metadata.xbmc, name, lambda **kw: Detail(kw))
     metadata.listitem(item, SERVER, "key", LIB)
     return (
         [c.args[0] for c in tag.addVideoStream.call_args_list],
@@ -220,6 +225,28 @@ def test_a_single_source_row_is_filed_with_its_streams(monkeypatch):
             ("aac", 2, "fra"),
         ]
         assert [s["language"] for s in subtitle] == ["eng"]
+
+
+def test_a_streams_flags_are_listed_by_name(monkeypatch):
+    """Kodi 23 files a plugin's stream flags (kontell/xbmc #9) by the names
+    an NFO's <flag> takes, matched to the streams in order."""
+    streams = [
+        {"Type": "Video", "Codec": "hevc"},
+        {"Type": "Audio", "Codec": "eac3", "Language": "eng", "IsDefault": True},
+        {"Type": "Audio", "Codec": "aac", "Language": "fra"},
+        {"Type": "Subtitle", "Language": "eng", "IsForced": True, "IsDefault": True},
+        {"Type": "Subtitle", "Language": "eng", "IsHearingImpaired": True},
+    ]
+    _video, audio, subtitle = _recorded_streams(
+        monkeypatch, movie(MediaStreams=streams)
+    )
+    assert [a.get("flags") for a in audio] == [["default"], None]
+    assert [s.get("flags") for s in subtitle] == [
+        ["default", "forced"],
+        ["hearingimpaired"],
+    ]
+    # Rows filed before the flags are rebuilt by a manual Repair.
+    assert metadata.SCANNER_FORMAT == 3
 
 
 def test_a_version_row_is_filed_with_its_own_source_streams(monkeypatch):
