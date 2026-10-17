@@ -116,9 +116,9 @@ jobs:
           fi
           # First blank-line-delimited paragraph — same rule as pvr.kofin.
           changes="$(awk -v RS= 'NR==1' changelog.txt)"
-          # This branch only: every release of the API variant says where
-          # its upgrade steps and open feature gaps are written down.
-          changes+=$'\n\n'"This is a pre-release of the API sync variant, for Kodi 22 only. What it is, upgrading from 0.29.x and the open feature gaps: $WIKI_PAGE"
+          # This branch only: every release says which Kodi it is for, and
+          # where the API variant it is built on is written down.
+          changes+=$'\n\n'"This is a pre-release for Kodi 23 alpha, built on the API sync variant: $WIKI_PAGE"
           EOF="$(dd if=/dev/urandom bs=15 count=1 status=none | base64)"
           {
             echo "changes<<$EOF"
