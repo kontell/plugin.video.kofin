@@ -71,37 +71,43 @@ def test_backoff_due_and_reset():
     assert backoff.failed(now=0) == 5
 
 
-def test_api_service_starts_selected_movies_on_approved_piers_flatpak(
-    tmp_path, monkeypatch
-):
-    """Use the real capability probe; scanner-only fixtures missed this gate."""
+def _piers_capture():
+    """What the approved Piers flatpak answered the phase 0 probe."""
     import json
     from pathlib import Path
-    from types import SimpleNamespace
 
-    from kofin import buildconfig
-    from kofin.sync import private
-    from kofin.sync.backends.api import capabilities
-    from kofin.sync.backends.api.library import Library
-
-    capture = json.loads(
+    return json.loads(
         (
             Path(__file__).parents[2]
             / "docs/research/kofin-or/phase0/capabilities.json"
         ).read_text()
     )["result"]
-    assert "dirty" in capture["application"]["version"]["revision"]
-    FakeAddon.store.update(
-        serverAddress="http://fixture.invalid",
-        serverId="server",
-        userId="user",
-        accessToken="fixture",
-        librarySelection="movies",
-        isLoggedIn="true",
+
+
+def _kodi23_capture():
+    """The Piers capture as a Kodi 23 build carrying kontell/xbmc #1-#13
+    answers it: what this build's contract asks beyond Piers."""
+    capture = _piers_capture()
+    capture["application"]["version"]["major"] = 23
+    capture["system_addons"] = {"xbmc.addon": "22.90.701", "xbmc.python": "3.2.0"}
+    methods = capture["methods"]
+    methods["VideoLibrary.SetSeasonDetails"]["params"].append({"name": "plot"})
+    methods["VideoLibrary.SetEpisodeDetails"]["params"].append({"name": "tag"})
+    methods["VideoLibrary.RemoveMovieSet"] = {"params": [{"name": "setid"}]}
+    capture["python_video_methods"].update(
+        setHasVideoVersions=True, setIsDefaultVideoVersion=True
     )
-    monkeypatch.setattr(buildconfig, "BACKEND", "api")
-    monkeypatch.setattr(private, "addon_data_path", lambda: str(tmp_path))
-    private.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    capture["python_music_methods"]["setDateAdded"] = True
+    return capture
+
+
+def _probe_answers(monkeypatch, capture, flags=True):
+    """Kodi answering the real capability probe (capabilities.inspect) as
+    ``capture`` says, its stream detail classes with or without setFlags."""
+    from types import SimpleNamespace
+
+    from kofin.sync.backends.api import capabilities
+
     monkeypatch.setattr(
         capabilities.kodirpc,
         "call",
@@ -128,6 +134,60 @@ def test_api_service_starts_selected_movies_on_approved_piers_flatpak(
             getMusicInfoTag=lambda: SimpleNamespace(**capture["python_music_methods"]),
         ),
     )
+    detail = SimpleNamespace(setFlags=lambda flags: None) if flags else object()
+    monkeypatch.setattr(capabilities.xbmc, "AudioStreamDetail", detail, raising=False)
+    monkeypatch.setattr(
+        capabilities.xbmc, "SubtitleStreamDetail", detail, raising=False
+    )
+
+
+def test_a_kodi_without_the_kodi23_changes_is_refused(monkeypatch):
+    """Piers, and a Kodi 23 without kontell/xbmc #1-#13, are not this
+    build's: the probe names what is missing and native sync stays off."""
+    from kofin.sync.backends.api import capabilities
+
+    _probe_answers(monkeypatch, _piers_capture(), flags=False)
+    report = capabilities.inspect()
+    assert not report["native_sync_enabled"]
+    for error in (
+        "Kodi 23 or later is required",
+        "xbmc.python >= 3.2.0 is required",
+        "missing method VideoLibrary.RemoveMovieSet",
+        "missing parameter VideoLibrary.SetSeasonDetails.plot",
+        "missing parameter VideoLibrary.SetEpisodeDetails.tag",
+        "missing Python capability python_video_methods.setHasVideoVersions",
+        "missing Python capability python_music_methods.setDateAdded",
+        "missing Python capability python_stream_methods.AudioStreamDetail.setFlags",
+    ):
+        assert error in report["errors"]
+    _probe_answers(monkeypatch, _kodi23_capture())
+    assert capabilities.inspect()["native_sync_enabled"]
+
+
+def test_api_service_starts_selected_movies_on_kodi23_with_the_changes(
+    tmp_path, monkeypatch
+):
+    """Use the real capability probe; scanner-only fixtures missed this gate."""
+    import json
+
+    from kofin import buildconfig
+    from kofin.sync import private
+    from kofin.sync.backends.api.library import Library
+
+    capture = _kodi23_capture()
+    assert "dirty" in capture["application"]["version"]["revision"]
+    FakeAddon.store.update(
+        serverAddress="http://fixture.invalid",
+        serverId="server",
+        userId="user",
+        accessToken="fixture",
+        librarySelection="movies",
+        isLoggedIn="true",
+    )
+    monkeypatch.setattr(buildconfig, "BACKEND", "api")
+    monkeypatch.setattr(private, "addon_data_path", lambda: str(tmp_path))
+    private.set_path_override("kofin", str(tmp_path / "kofin.db"))
+    _probe_answers(monkeypatch, capture)
     started = []
     monkeypatch.setattr(Library, "start", lambda worker: started.append(worker))
     try:

@@ -72,9 +72,6 @@ class Kodi:
         self.files_season_art = True
         # "Download actor thumbnails" as each video scan found it.
         self.scan_actor_thumbs = []
-        # Installed add-ons the service may ask about, and NotifyAll sends.
-        self.addons = {}
-        self.notified = []
         self.listed = []
         # Kodi's directory cache, of the directories that matter here: a
         # scanned movies root, and what a forget request took out of it.
@@ -136,7 +133,7 @@ class Kodi:
         self.rows["BoxSet"][setid] = row
         return row
 
-    def _season_row(self, tvshowid, number, name=""):
+    def _season_row(self, tvshowid, number, name="", plot=""):
         for row in self.rows["Season"].values():
             if row["tvshowid"] == tvshowid and row["season"] == number:
                 return row
@@ -144,6 +141,7 @@ class Kodi:
             "seasonid": self._id(),
             "season": number,
             "title": name or "Season %d" % number,
+            "plot": plot,
             "art": {},
             "tvshowid": tvshowid,
         }
@@ -165,6 +163,7 @@ class Kodi:
                     row["tvshowid"],
                     int(season["IndexNumber"]),
                     metadata.season_title(season),
+                    (season.get("Overview") or "").strip(metadata.ASCII_SPACE),
                 )
                 # What the show's tag offered under the season's number
                 # (addAvailableArtwork), filed with the show at Kodi's
@@ -304,6 +303,8 @@ class Kodi:
         self.extras[owner["movieid"]] = [paths.extra_name(f) for f in features]
 
     def remove_content(self, path):
+        # Kodi 23 deletes the sets the removal empties (kontell/xbmc #3).
+        linked = {r.get("set") for r in self.rows["Movie"].values()}
         for kind in ("Movie", "MusicVideo", "Episode"):
             self.rows[kind] = {
                 k: r
@@ -314,6 +315,10 @@ class Kodi:
         gone = [k for k, r in self.rows["Series"].items() if r["file"].startswith(path)]
         for tvshowid in gone:
             self._remove_show(tvshowid)
+        emptied = linked - {r.get("set") for r in self.rows["Movie"].values()}
+        self.rows["BoxSet"] = {
+            k: r for k, r in self.rows["BoxSet"].items() if r["title"] not in emptied
+        }
         self.bindings = {
             p: c for p, c in self.bindings.items() if not p.startswith(path)
         }
@@ -672,20 +677,6 @@ class Kodi:
                 raise RuntimeError("Kodi refused " + method)
             self.listed.append(params["directory"])
             return {"files": [], "limits": {"total": 0}}
-        if method == "Addons.GetAddonDetails":
-            version = self.addons.get(params["addonid"])
-            if version is None:
-                raise RuntimeError("Kodi refused " + method)
-            return {
-                "addon": {
-                    "addonid": params["addonid"],
-                    "enabled": True,
-                    "version": version,
-                }
-            }
-        if method == "JSONRPC.NotifyAll":
-            self.notified.append(params)
-            return "OK"
         if method == "VideoLibrary.Scan":
             self.scan(params["directory"])
             return "OK"
@@ -751,6 +742,9 @@ class Kodi:
                     self._set_row(values["set"])
                 if kind == "Season" and values.get("title") == "":
                     values["title"] = "Season %d" % row["season"]
+                if kind == "Season" and values.get("plot") == "":
+                    # SetDetailsForSeason writes no empty plot.
+                    values.pop("plot")
                 row.update(copy.deepcopy(values))
             return "OK"
         if verb == "Refresh":

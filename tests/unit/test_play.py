@@ -200,6 +200,34 @@ def test_stream_url_infinite_source_without_transcode_raises():
         )
 
 
+def test_chapter_art_is_the_servers_images_on_a_direct_play():
+    """Kodi 23's chapters dialog shows a playing item's chapter<n> art
+    (kontell/xbmc #11): the server's image for each chapter it has one for,
+    numbered from 1 as Kodi numbers chapters."""
+
+    class ChapterApi:
+        def chapter_image_url(self, item_id, index, tag, width):
+            return "http://s/%s/%d/%s/%d" % (item_id, index, tag, width)
+
+    api = ChapterApi()
+    item = {
+        "Id": "m1",
+        "Type": "Movie",
+        "Chapters": [{"ImageTag": "t0"}, {"Name": "no image"}, {"ImageTag": "t2"}],
+    }
+    source = {"Id": "m1"}
+    assert play.chapter_art(api, item, source, "DirectPlay") == {
+        "chapter1": "http://s/m1/0/t0/640",
+        "chapter3": "http://s/m1/2/t2/640",
+    }
+    assert play.chapter_art(api, item, source, "DirectStream")
+    # A transcode's stream has no chapters, a version's file need not have
+    # the item's, and a song has none.
+    assert play.chapter_art(api, item, source, "Transcode") == {}
+    assert play.chapter_art(api, item, {"Id": "m2"}, "DirectPlay") == {}
+    assert play.chapter_art(api, dict(item, Type="Audio"), source, "DirectPlay") == {}
+
+
 def test_mime_for():
     assert play.mime_for({"Container": "mkv"}, "DirectStream") == "video/x-matroska"
     assert play.mime_for({"Container": "mkv,mp4"}, "DirectStream") == "video/x-matroska"

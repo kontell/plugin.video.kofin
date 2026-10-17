@@ -5,7 +5,8 @@ Play state, cast and library removal are tested against libraries of
 generated clips, never against a real one: a movie, a show of two seasons and
 two albums, made with ffmpeg under ``SCRATCH_ROOT`` (a directory the server
 can read) and granted to the users the rigs sync as. ``scratch_library.sh``
-is the older recipe for the companion gates and shares the library names.
+is the recipe for versions, extras, collections, favourites and season plots,
+and shares the library names.
 
 The server is ``JELLYFIN_URL`` with ``JELLYFIN_API_KEY``; neither is printed.
 

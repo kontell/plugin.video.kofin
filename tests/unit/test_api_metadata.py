@@ -127,17 +127,36 @@ def test_show_and_episode_details_speak_their_setters():
     assert "set" not in show and "playcount" not in show
     # tvshowcounts derives a show's date added from its episode files.
     assert "dateadded" not in show
-    changed = metadata.details(
+    # A season's plot is its own row's to patch (kontell/xbmc #6) and moves
+    # no show refresh; a season that arrives or leaves does.
+    replotted = metadata.details(
         series(),
         SERVER,
         "key",
         LIB,
         seasons=[season("s", number=1, Overview="other arc")],
     )
-    assert changed["uniqueid"]["kofinrefresh"] != show["uniqueid"]["kofinrefresh"]
+    assert replotted["uniqueid"]["kofinrefresh"] == show["uniqueid"]["kofinrefresh"]
+    renumbered = metadata.details(
+        series(), SERVER, "key", LIB, seasons=[season("s", number=2, Overview="arc")]
+    )
+    assert renumbered["uniqueid"]["kofinrefresh"] != show["uniqueid"]["kofinrefresh"]
+    filed = metadata.details(
+        season("s", number=1, Overview=" arc "), SERVER, "key", LIB
+    )
+    assert filed["plot"] == "arc"
+    # An empty plot is no opinion: Kodi's season setter keeps the stored one.
+    assert "plot" not in metadata.details(season("s", number=1), SERVER, "key", LIB)
     ep = metadata.details(episode("e1"), SERVER, "key", LIB)
     assert (ep["season"], ep["episode"], ep["firstaired"]) == (1, 1, "2001-02-10")
-    assert "tag" not in ep and ep["resume"]["position"] == 0
+    assert ep["resume"]["position"] == 0
+    # Kodi 23 keeps an episode's tags (kontell/xbmc #12): the library's, and
+    # the favourite's while it holds.
+    assert ep["tag"] == ["kofin.library." + LIB]
+    loved = metadata.details(
+        episode("e1", UserData={"IsFavorite": True}), SERVER, "key", LIB
+    )
+    assert loved["tag"] == ["Favorite episodes", "kofin.library." + LIB]
     clip = metadata.details(musicvideo(), SERVER, "key", LIB)
     assert clip["artist"] == ["Band"] and clip["album"] == "Album"
     assert metadata.details(boxset("b", " Set ", ["a"]), SERVER, "key", LIB) == {
@@ -467,7 +486,7 @@ def test_a_refresh_can_say_which_part_of_its_token_moved():
     # A row acknowledged by an earlier build has no parts on record.
     assert moved_parts(None, first) == "what moved is not on record"
     assert moved_parts({}, first) == "what moved is not on record"
-    # A show's parts are its cast and its seasons' plots; an episode's
+    # A show's parts are its cast and its seasons' numbers; an episode's
     # numbering is its own.
     show = metadata.refresh_parts(
         series(People=cast), [season("s", number=1, Overview="arc")]
@@ -476,7 +495,12 @@ def test_a_refresh_can_say_which_part_of_its_token_moved():
     replotted = metadata.refresh_parts(
         series(People=cast), [season("s", number=1, Overview="another arc")]
     )
-    assert moved_parts(show, replotted) == "its seasons moved"
+    assert moved_parts(show, replotted) == "nothing on record moved"
+    added = metadata.refresh_parts(
+        series(People=cast),
+        [season("s", number=1, Overview="arc"), season("s2", number=2)],
+    )
+    assert moved_parts(show, added) == "its seasons moved"
     numbered = metadata.refresh_parts(episode("e1", People=cast, IndexNumberEnd=2))
     assert "numbering" in numbered
     # The parts never change the token a row was filed under.
