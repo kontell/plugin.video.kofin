@@ -288,6 +288,25 @@ def test_an_extra_exists_while_its_movie_names_it_and_resolves_to_its_id(store):
     assert provider.exists(store, paths.parse(folder), "a", "s2") is False
 
 
+def test_clean_reads_a_version_file_s_source_from_the_query(store, monkeypatch):
+    """Kodi asks about a version file with the folder as argv[0] and the
+    query, source included, as argv[2]. Read from argv[0], every version
+    file existed and Clean never retired one."""
+    from kofin.plugin import router
+
+    store.publish([assets_movie()], library=LIB)
+    folder = folder_of(store)
+    resolved = []
+    monkeypatch.setattr(router.buildconfig, "BACKEND", "api")
+    monkeypatch.setattr(
+        "xbmcplugin.setResolvedUrl", lambda h, ok, item: resolved.append(ok)
+    )
+    for source in ("s2", "s9"):
+        query = "?id=a&kodi_action=check_exists&mediasourceid=%s&mode=play" % source
+        router.dispatch([folder, "1", query, "resume:false"])
+    assert resolved == [True, False]
+
+
 def test_two_extras_titled_alike_are_listed_played_and_kept_apart(store, monkeypatch):
     """The listing, the existence check and the play route all read the one
     stems list, so the second Trailer is its own file and plays as itself."""
