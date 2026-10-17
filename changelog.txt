@@ -1,3 +1,10 @@
+v0.95.0
+- For Kodi 23 with the kontell/xbmc changes; the companion add-on is no longer used.
+- Movie versions are grouped as one movie, and versions or extras removed on the server leave Kodi.
+- Favourite episodes, season plots and stream flags reach Kodi's library.
+- Chapter images in the chapters dialog.
+- Recently added albums follow the server's order.
+
 v0.93.6
 - Speed up starting playback of an album
 - Fix toasts for new content
