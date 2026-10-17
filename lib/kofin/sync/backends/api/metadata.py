@@ -866,6 +866,14 @@ def song_listitem(item, album=None, salt: int = 0):
         tag.setMusicBrainzAlbumID(tags["musicbrainzalbumid"])
     if tags["musicbrainzreleasegroupid"]:
         tag.setMusicBrainzReleaseGroupID(tags["musicbrainzreleasegroupid"])
+    # When the server first saw the song. Kodi 23 keeps it for a file with
+    # no date of its own (kontell/xbmc #13), where it took the time of the
+    # scan, and of every setter after it. Not one of the tags: a date the
+    # server corrects moves no directory's hash, and an existing library
+    # takes the date as its directories are listed again.
+    created = _timestamp(item.get("DateCreated"))
+    if created:
+        tag.setDateAdded(created)
     # The date is what the scanner hashes a listing by; a salt moves it
     # without touching a tag (store.bump_salt).
     li.setDateTime(hash_time(_token([tags, salt]) if salt else _token(tags)))
@@ -935,8 +943,26 @@ def _cast(tag, item, server):
 # lack. Nothing is re-imported for it unasked; a library filed under an
 # older number is rebuilt when the viewer repairs it (library.Library
 # .rebuild_stale). 2: a single-source row's video, audio and subtitle
-# streams.
-SCANNER_FORMAT = 2
+# streams. 3: their default, forced and hearing-impaired flags.
+SCANNER_FORMAT = 3
+
+# A Jellyfin stream's flags by the names an NFO's <flag> takes, which is
+# what the stream details' setFlags reads (kontell/xbmc #9).
+STREAM_FLAGS = (
+    ("IsDefault", "default"),
+    ("IsForced", "forced"),
+    ("IsHearingImpaired", "hearingimpaired"),
+)
+
+
+def _flags(raw, kind) -> List[List[str]]:
+    """The flag names of each stream of ``kind`` ("Audio", "Subtitle"), in
+    the order ``streams_and_runtime`` lists them."""
+    return [
+        [name for field, name in STREAM_FLAGS if stream.get(field)]
+        for stream in raw
+        if isinstance(stream, dict) and stream.get("Type") == kind
+    ]
 
 
 def _stream_source(item):
@@ -958,7 +984,17 @@ def _stream_source(item):
 
 
 def _streams(tag, item):
-    streams, runtime = streams_and_runtime(_stream_source(item))
+    source = _stream_source(item)
+    streams, runtime = streams_and_runtime(source)
+    # The raw list streams_and_runtime reads, for the flags it drops.
+    sources = source.get("MediaSources") or []
+    raw = (
+        (sources[0].get("MediaStreams") if sources else None)
+        or source.get("MediaStreams")
+        or []
+    )
+    audio_flags = _flags(raw, "Audio")
+    subtitle_flags = _flags(raw, "Subtitle")
     for stream in streams["video"]:
         stereo = {
             "HalfSideBySide": "left_right",
@@ -977,16 +1013,20 @@ def _streams(tag, item):
                 hdrtype=stream.get("hdrtype") or "",
             )
         )
-    for stream in streams["audio"]:
-        tag.addAudioStream(
-            xbmc.AudioStreamDetail(
-                channels=int(stream.get("channels") or 0),
-                codec=stream.get("codec") or "",
-                language=stream.get("language") or "",
-            )
+    for index, stream in enumerate(streams["audio"]):
+        audio = xbmc.AudioStreamDetail(
+            channels=int(stream.get("channels") or 0),
+            codec=stream.get("codec") or "",
+            language=stream.get("language") or "",
         )
-    for language in streams["subtitle"]:
-        tag.addSubtitleStream(xbmc.SubtitleStreamDetail(language=language or ""))
+        if index < len(audio_flags) and audio_flags[index]:
+            audio.setFlags(audio_flags[index])  # type: ignore[attr-defined]
+        tag.addAudioStream(audio)
+    for index, language in enumerate(streams["subtitle"]):
+        subtitle = xbmc.SubtitleStreamDetail(language=language or "")
+        if index < len(subtitle_flags) and subtitle_flags[index]:
+            subtitle.setFlags(subtitle_flags[index])  # type: ignore[attr-defined]
+        tag.addSubtitleStream(subtitle)
 
 
 # What ``details`` makes of a payload, as a number: raised when the same

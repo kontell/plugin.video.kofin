@@ -840,6 +840,15 @@ def test_song_tags_hash_moves_for_tags_only_and_the_row_is_marked_loaded(
     metadata.song_listitem(item, album())
     li.setInfo.assert_called_once_with("music", {"size": "1001"})
     li.setDateTime.assert_called_once_with(metadata.hash_time(base))
+    # When the server first saw it, which Kodi 23 keeps (kontell/xbmc #13);
+    # not a tag, so a corrected date moves no directory's hash.
+    tag.setDateAdded.assert_called_once_with(
+        metadata._timestamp("2023-11-15T19:18:34.08Z")
+    )
+    assert (
+        metadata.tag_hash(dict(item, DateCreated="2020-01-01T00:00:00Z"), album())
+        == base
+    )
     tag.setAlbumArtist.assert_called_once_with("Band")
     tag.setMusicBrainzAlbumID.assert_called_once_with("mb-album-c3")
     assert not tag.setPlayCount.called

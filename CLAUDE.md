@@ -316,11 +316,12 @@ What remains is kofin's own:
   `UpdateSong` stamps the current time on a played song with no date, which put sixteen
   songs marked played years ago at the top of a tablet's recently played albums on import
   day. The video setters leave a missing date alone and are unchanged.
-- **Kodi orders recently added albums by `album.dateAdded`, which is scan time for a plugin
-  source** (`song.dateAdded` comes from the file's timestamp, which a plugin path has not;
-  no setter and no music ListItem key carries it). A first import in `folder_label` order
-  (the server's `DateCreated`) lands the right order; every re-listing of a directory moves
-  its album to the top. A user-accepted "rescan tags from files" re-stamps the whole library.
+- **A song's date added is the server's `DateCreated`** (`metadata.song_listitem`,
+  `InfoTagMusic.setDateAdded`, kontell/xbmc #13), and an album takes its newest song's, so
+  recently added albums is the server's order. Without #13 Kodi took the time of the scan
+  for a plugin path, which has no file date. The date is not one of the tags: it moves no
+  directory's hash, so a library filed by an earlier build takes it as its directories are
+  listed again (a Repair lists every one). `folder_label` still lists albums oldest first.
 - **The pass holds the music scanner while it writes** (`native.hold`, `provider._hold`, the
   `kofin.native.hold.*` window property). Announcements made while the scanner is busy carry
   `transaction`, which the skin's music widgets skip; without the hold every song written
@@ -445,7 +446,9 @@ What remains is kofin's own:
   thread of its own for the bar's sake, where a stop waits for it.
 - **A single-source item's streams are on the item, not on its source** (`metadata.compact`,
   `_stream_source`): read off the first source alone, every such row was filed with a stub
-  video stream and no audio or subtitle. Streams have no setter, so `SCANNER_FORMAT` numbers
+  video stream and no audio or subtitle. A stream's default, forced and hearing-impaired
+  flags are listed with it by the names an NFO's `<flag>` takes (`metadata._streams`,
+  kontell/xbmc #9). Streams have no setter, so `SCANNER_FORMAT` (3: the flags) numbers
   what a listing carries and a **manual** Repair rebuilds a video library filed under an
   older one (`Library.rebuild_stale`): never a pass, since the library is gone from Kodi
   until the import has run. The rebuild is on record in the store (`store.REBUILDING`) and
@@ -686,8 +689,9 @@ What remains is kofin's own:
   its first import. Music has the same rule in `plan_music`, where its absence sent a setter
   for every song of a first import (308 s of a 357 s pass for 1,353 songs on the Pi), and a
   song goes further: its desired state is its play count and last played, the readback shows
-  both, and `UpdateSong` rewrites `dateAdded` to the moment of the call for a plugin path, so
-  a song that matches is never written, repair or not.
+  both, and a setter is 46 ms a song for nothing (without kontell/xbmc #13 `UpdateSong` also
+  rewrote `dateAdded` to the moment of the call), so a song that matches is never written,
+  repair or not.
 - **Songs are applied last of the music kinds** (`kinds.ORDER`). An album or artist is found
   through the rows of its songs, not through their acknowledgements, and a played song is a
   setter each: with 7,873 of them first, no album had a cover until they were done.
