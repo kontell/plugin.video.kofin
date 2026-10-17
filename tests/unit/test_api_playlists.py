@@ -282,3 +282,80 @@ def test_a_playlist_without_an_etag_is_resolved_on_every_pass(
     root = tmp_path / "playlists" / "music"
     assert api_playlists.reconcile(api, store, music_root=str(root))["tracks"] == 1
     assert api_playlists.reconcile(api, store, music_root=str(root))["tracks"] == 1
+
+
+def test_playlist_lines_name_their_items_through_the_catalogue(
+    store, backend, kodi, monkeypatch
+):
+    """Save playlist to Jellyfin reads a Kodi playlist file back to items: the
+    URL Kodi filed a row under carries its id, a library path names the row,
+    and the catalogue says whether the item is a song or a video."""
+    from kofin.sync.backends.api import identity
+
+    backend.setup()
+    store.publish([movie()], library=LIB)
+    store.publish(album_bundle(songs=2), library=LIB2)
+    backend.reconcile()
+    monkeypatch.setattr(
+        identity,
+        "mapped_item",
+        lambda kodi_id, media: "tc32" if media == "song" else None,
+    )
+    resolver = api_playlists.Resolver(store)
+    lines = [
+        resolver.entry({"Id": "a", "Type": "Movie"}, "Video").path,
+        resolver.entry(song_item("tc31", "Opener", 1), "Audio").path,
+        "musicdb://songs/7.flac",
+        paths.playback_url(store.namespace, "Movie", LIB, "zz"),
+        "/home/user/Music/local.mp3",
+    ]
+    assert api_playlists.items_of_lines(store, lines) == [
+        ("a", "Video"),
+        ("tc31", "Audio"),
+        ("tc32", "Audio"),
+        ("", ""),
+        ("", ""),
+    ]
+
+
+def test_save_playlist_to_jellyfin_sends_the_songs_kofin_filed(
+    store, backend, kodi, tmp_path, monkeypatch
+):
+    from kofin import buildconfig
+    from kofin.plugin import actions
+    from kofin.plugin.router import Request
+    from kofin.sync.backends.api import identity
+
+    backend.setup()
+    store.publish(album_bundle(songs=2), library=LIB2)
+    backend.reconcile()
+    resolver = api_playlists.Resolver(store)
+    songs = [
+        resolver.entry(song_item(item_id, "Song", track), "Audio").path
+        for track, item_id in enumerate(("tc31", "tc32"), 1)
+    ]
+    playlist = tmp_path / "Mine.m3u8"
+    playlist.write_text(
+        "#EXTM3U\n" + "\n".join(songs) + "\n/home/user/Music/local.mp3\n",
+        encoding="utf-8",
+    )
+    created = []
+
+    class Api:
+        def create_playlist(self, name, ids, media_type):
+            created.append((name, ids, media_type))
+            return {"Id": "p" * 32}
+
+    notified = []
+    monkeypatch.setattr(buildconfig, "BACKEND", "api")
+    monkeypatch.setattr(identity, "current_store", lambda: store)
+    monkeypatch.setattr(actions, "_api", lambda: Api())
+    monkeypatch.setattr("xbmcvfs.translatePath", lambda path: path)
+    monkeypatch.setattr(
+        actions.ipc, "notify", lambda kind, data: notified.append((kind, data))
+    )
+    actions.save_playlist(
+        Request("plugin://plugin.video.kofin/", 1, {"path": str(playlist)})
+    )
+    assert created == [("Mine", ["tc31", "tc32"], "Audio")]
+    assert notified == [(actions.ipc.SYNC_PLAYLISTS, {"Id": "p" * 32})]

@@ -9,7 +9,8 @@ server's; the managed folders, the file naming, the state tables and the
 prune rules are the shared module's (sync/playlists.py).
 """
 
-from typing import Any, Dict, Optional, Set
+import re
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from kofin.core.log import Logger
 from kofin.sync import dynamic, kofindb, playlists, private
@@ -64,6 +65,32 @@ class Resolver:
             ),
             title=str(item.get("Name") or ""),
         )
+
+
+def items_of_lines(store: Store, lines: Iterable[str]) -> List[Tuple[str, str]]:
+    """The item id and side ("Audio" or "Video") of each line of a Kodi
+    playlist file, ("", "") for a line this build did not file. A line is the
+    URL Kodi filed the row under, as Resolver.entry writes one, and carries the
+    id (paths.parse_item); a library path names the row, whose owner the
+    readback finds. The catalogue says what the item is."""
+    from .identity import mapped_item
+
+    found: List[Tuple[str, str]] = []
+    for line in lines:
+        library = re.match(r"(videodb://movies/titles|musicdb://songs)/(\d+)", line)
+        if library:
+            media = "movie" if library.group(1).startswith("videodb") else "song"
+            item_id = mapped_item(int(library.group(2)), media) or ""
+        else:
+            _, item_id = paths.parse_item(line)
+        entry = store.entry(item_id) if item_id else None
+        if entry is not None and entry.kind == "Audio":
+            found.append((item_id, "Audio"))
+        elif entry is not None and entry.kind in VIDEO_KINDS:
+            found.append((item_id, "Video"))
+        else:
+            found.append(("", ""))
+    return found
 
 
 def wanted() -> bool:

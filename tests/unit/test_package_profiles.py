@@ -46,6 +46,13 @@ def test_zip_and_development_install_have_identical_profile_contents(tmp_path):
         assert ("libraryStatus" in settings_ids) == (profile == "api")
         assert ("syncStatus" in settings_ids) == (profile == "sql")
         assert ("syncedLibraries" in settings_ids) == (profile == "sql")
+        # Both builds offer the two context entries on Kodi's playlist files.
+        entries = {"context_playlist.py", "context_download_playlist.py"}
+        assert entries <= set(contents)
+        assert entries <= {
+            item.get("library")
+            for item in ET.fromstring(contents["addon.xml"]).iter("item")
+        }
 
 
 def _settings(tmp_path, profile):

@@ -1,7 +1,7 @@
 """Small RunPlugin actions: watched/favorite toggles, settings, library
 maintenance buttons (Library tab -> IPC -> service library manager)."""
 
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import xbmc
 import xbmcgui
@@ -186,28 +186,10 @@ def save_playlist(request: Request) -> None:
 
     lines = music_playlists.parse_m3u_paths(text)
     api = _api()
-    ids: List[str] = []
-    sides = set()
-    skipped = 0
-    with Database("kofin") as kofindb:
-        mapping = jellyfin_db.JellyfinDatabase(kofindb.cursor)
-        for line in lines:
-            jellyfin_id = music_playlists.jellyfin_id_from_path(line, mapping)
-            if not jellyfin_id:
-                skipped += 1
-                continue
-            row = mapping.get_item_by_id(jellyfin_id)
-            if row is None:
-                skipped += 1
-                continue
-            if row.media_type == "song":
-                sides.add("Audio")
-            elif row.media_type in music_playlists.VIDEO_MEDIA_TYPES:
-                sides.add("Video")
-            else:
-                skipped += 1
-                continue
-            ids.append(jellyfin_id)
+    found = _playlist_items(lines)
+    ids = [jellyfin_id for jellyfin_id, side in found if side]
+    sides = {side for _, side in found if side}
+    skipped = len(found) - len(ids)
     if not ids:
         toast.show(settings.localized(30844), toast.WARNING)
         return
@@ -240,6 +222,38 @@ def save_playlist(request: Request) -> None:
     if skipped:
         LOG.info("save playlist %s: %d line(s) not in the Kodi library", name, skipped)
     ipc.notify(ipc.SYNC_PLAYLISTS, {"Id": playlist_id} if playlist_id else {})
+
+
+def _playlist_items(lines: List[str]) -> List[Tuple[str, str]]:
+    """The Jellyfin id and side ("Audio" or "Video") of each playlist line,
+    ("", "") for a line kofin did not file: through the catalogue in the API
+    build, through the mapping table in the SQL build."""
+    from kofin import buildconfig
+
+    if buildconfig.BACKEND == "api":
+        from kofin.sync.backends.api import playlists as api_playlists
+        from kofin.sync.backends.api.identity import current_store
+
+        return api_playlists.items_of_lines(current_store(), lines)
+    from kofin.sync import kofindb as jellyfin_db
+    from kofin.sync import playlists as music_playlists
+    from kofin.sync.private import Database
+
+    found: List[Tuple[str, str]] = []
+    with Database("kofin") as kofindb:
+        mapping = jellyfin_db.JellyfinDatabase(kofindb.cursor)
+        for line in lines:
+            jellyfin_id = music_playlists.jellyfin_id_from_path(line, mapping) or ""
+            row = mapping.get_item_by_id(jellyfin_id) if jellyfin_id else None
+            if row is not None and row.media_type == "song":
+                found.append((jellyfin_id, "Audio"))
+            elif (
+                row is not None and row.media_type in music_playlists.VIDEO_MEDIA_TYPES
+            ):
+                found.append((jellyfin_id, "Video"))
+            else:
+                found.append(("", ""))
+    return found
 
 
 def precache_art(request: Request) -> None:
