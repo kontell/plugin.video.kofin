@@ -490,16 +490,22 @@ What remains is kofin's own:
   folder when the token acknowledged for the movie differs (`native._asset_folders`) — a token
   that went empty included, so the token the apply pass acknowledges is always one a scan
   presented. The scan adds and never removes: a row the listing no longer names leaves through
-  Clean, whose per-file `check_exists` is `provider.exists` (a version file exists while the
-  movie still lists its source, an extra while the movie's payload still names its stem). The
-  source is read from the request's query, never from `base_url` (Kodi's `argv[0]`, which has
-  none): read from there, every version file existed. A version file is the movie's URL with
-  `mediasourceid`; Kodi imports it as a movie of its own and the user groups it in the Versions
-  Manager. `Readback.owns` accepts the movie's URL with
-  or without the source, since the user may make a version the default; `Readback._prefer`
-  lets the movie's own file win over ungrouped version rows and keeps them as `version_rows`,
-  which leave with the movie on removal. Two rows by the movie's own file are still a
-  duplicate identity.
+  a clean, whose per-file `check_exists` is `provider.exists` (a version file exists while
+  the movie still lists its source, an extra while the movie's payload still names its stem).
+  The pass runs that clean itself, of the one movie's folder, when the movie's acknowledged
+  file list (`asset_files`) lost an entry (`patch.assets_dropped`, `Native.retire_assets`);
+  Kodi 23 asks the add-on about the folder's versions and extras and keeps what it cannot
+  answer for (kontell/xbmc #1, #2, #10). The source is read from the request's query, never
+  from `base_url` (Kodi's `argv[0]`, which has none): read from there, every version file
+  existed. A version file is the movie's URL with `mediasourceid`. Every file of a movie with
+  several sources says it has versions, the movie's own as the default, under the movie's
+  unique ids (`metadata.Version`, kontell/xbmc #8), so the scan files one movie with a version
+  per file. A movie's refresh token takes its own source alone: a version that came or went
+  refreshed the movie, which Kodi files again under a new id. `Readback.owns` accepts the
+  movie's URL with or without the source, since the user may make a version the default;
+  `Readback._prefer` lets the movie's own file win over a version row Kodi filed apart and
+  keeps it as `version_rows`, which leave with the movie on removal. Two rows by the movie's
+  own file are still a duplicate identity.
 - **An extra is `extras/<stem>.<container>`, and the stem is its whole identity.** Kodi names
   the extra by the path below the folder minus the extension, so the id cannot travel in the
   URL; `paths.extra_stems` gives each feature a stem unique within the movie (`Trailer`,

@@ -4,8 +4,11 @@ It answers the JSON-RPC methods the backend uses, imports rows from the
 store the way the scanner would -- from the pinned committed generation, per
 scanner directory -- and keeps the few rules the backend relies on: a direct
 scan of a show folder only adds episodes to a show that already exists,
-``clearmode: "remove"`` deletes everything filed under the path, a refresh
-replaces the row and its id, and ``Clean`` drops sets no movie links.
+``clearmode: "remove"`` deletes everything filed under the path and the sets
+it empties, a refresh replaces the row and its id, a movie's version files
+are filed as versions of it, and ``Clean`` asks the add-on about every
+version and extra below its directory and drops sets no movie links. It is
+the Kodi 23 that carries kontell/xbmc #1-#13.
 
 The music side keeps the music scanner's rules: a scan of a directory
 replaces that directory's songs with the listing, a song already on the path
@@ -17,9 +20,10 @@ a scan of a root walks every folder the root lists.
 
 import copy
 import re
+from urllib.parse import parse_qs, urlsplit
 
 
-from kofin.sync.backends.api import metadata, native, paths
+from kofin.sync.backends.api import metadata, native, paths, provider
 
 SERVER = "http://fixture.invalid"
 
@@ -81,6 +85,11 @@ class Kodi:
         self.dirnames = {}
         self.noupdate = {}
         self.extras = {}
+        # The URL of each extra filed on a movie row, beside its name, and
+        # the version files Kodi filed under a movie: (url, label).
+        self.extra_files = {}
+        self.versions = {}
+        self.cleaned = []
         self.phantoms = []
 
     # -- helpers ---------------------------------------------------------------
@@ -263,33 +272,35 @@ class Kodi:
         self.monitor.finished += 1
 
     def _scan_movie_assets(self, record):
-        """A movie folder scanned by name. Kodi imports each further version
-        file as a movie of its own (the plugin tag path never groups), and
-        reads the extras folder only when the folder's binding uses folder
-        names, "Ignore video extras" is off and its directory cache knows the
-        folder and the disc folders probed below it; otherwise the folder is
-        a phantom disc and the extras are lost."""
+        """A movie folder scanned by name. Each further version file, whose
+        tag says it has versions (kontell/xbmc #8), is filed as a version of
+        the movie. The extras folder is read only when the folder's binding
+        uses folder names, "Ignore video extras" is off and its directory
+        cache knows the folder and the disc folders probed below it;
+        otherwise the folder is a phantom disc and the extras are lost."""
         folder = paths.movie_dir(self.key, record.library, record.item_id)
         canonical = paths.playback_url(
             self.key, "Movie", record.library, record.item_id
         )
-        files = {r["file"] for r in self.rows["Movie"].values()}
+        owner = next(
+            (
+                r
+                for r in self.rows["Movie"].values()
+                if paths.without_source(r["file"]) == canonical
+            ),
+            None,
+        )
+        if owner is None:
+            return
+        filed = self.versions.setdefault(owner["movieid"], [])
         for source in metadata.version_sources(record.item)[1:]:
             url = paths.version_url(
                 self.key, record.library, record.item_id, source["Id"]
             )
-            if url in files:
-                continue
-            row = self.imported(
-                record, set_name=self._collections().get(record.item_id)
-            )
-            row["file"] = url
-            self.rows["Movie"][row["movieid"]] = row
+            if url != owner["file"] and url not in [u for u, _ in filed]:
+                filed.append((url, metadata.version_label(source)))
         features = metadata.special_features(record.item)
-        owner = next(
-            (r for r in self.rows["Movie"].values() if r["file"] == canonical), None
-        )
-        if not features or owner is None:
+        if not features:
             return
         extras = folder + paths.EXTRAS
         probes = {extras, extras + "VIDEO_TS/", extras + "BDMV/"}
@@ -301,6 +312,45 @@ class Kodi:
             self.phantoms.append(folder)
             return
         self.extras[owner["movieid"]] = [paths.extra_name(f) for f in features]
+        self.extra_files[owner["movieid"]] = [
+            paths.extra_url(self.key, record.library, record.item_id, stem, f)
+            for stem, f in paths.extra_stems(features)
+        ]
+
+    def clean(self, directory):
+        """Kodi 23's clean of a directory: the add-on is asked whether each
+        version and extra filed below it exists (provider.exists), and what
+        it says has gone is removed (kontell/xbmc #1, #2, #10). Sets no movie
+        links go too."""
+        self.cleaned.append(directory)
+        for movieid, row in self.rows["Movie"].items():
+            if not row["file"].startswith(directory or ""):
+                continue
+            kept = []
+            for url, label in self.versions.get(movieid, []):
+                location = paths.parse(url)
+                item_id = paths.parse_item(url)[1]
+                query = parse_qs(urlsplit(url).query)
+                source = (query.get(paths.PARAM_MEDIA_SOURCE) or [""])[0]
+                if provider.exists(self.store, location, item_id, source):
+                    kept.append((url, label))
+            self.versions[movieid] = kept
+            names, urls = [], []
+            for name, url in zip(
+                self.extras.get(movieid, []), self.extra_files.get(movieid, [])
+            ):
+                if provider.exists(self.store, paths.parse(url), "", ""):
+                    names.append(name)
+                    urls.append(url)
+            if movieid in self.extras:
+                self.extras[movieid] = names
+                self.extra_files[movieid] = urls
+        linked = {r.get("set") for r in self.rows["Movie"].values()}
+        self.rows["BoxSet"] = {
+            k: r for k, r in self.rows["BoxSet"].items() if r["title"] in linked
+        }
+        if self.monitor is not None:
+            self.monitor.cleaned += 1
 
     def remove_content(self, path):
         # Kodi 23 deletes the sets the removal empties (kontell/xbmc #3).
@@ -311,7 +361,7 @@ class Kodi:
                 for k, r in self.rows[kind].items()
                 if not r["file"].startswith(path)
             }
-        self.extras = {k: v for k, v in self.extras.items() if k in self.rows["Movie"]}
+        self._forget_assets()
         gone = [k for k, r in self.rows["Series"].items() if r["file"].startswith(path)]
         for tvshowid in gone:
             self._remove_show(tvshowid)
@@ -322,6 +372,12 @@ class Kodi:
         self.bindings = {
             p: c for p, c in self.bindings.items() if not p.startswith(path)
         }
+
+    def _forget_assets(self):
+        """A movie's versions and extras go with its row."""
+        for table in (self.extras, self.extra_files, self.versions):
+            for movieid in [k for k in table if k not in self.rows["Movie"]]:
+                del table[movieid]
 
     def _remove_show(self, tvshowid):
         self.rows["Series"].pop(tvshowid, None)
@@ -683,10 +739,7 @@ class Kodi:
         if method == "AudioLibrary.Scan":
             return self.music_rpc(method, params)
         if method == "VideoLibrary.Clean":
-            linked = {r.get("set") for r in self.rows["Movie"].values()}
-            self.rows["BoxSet"] = {
-                k: r for k, r in self.rows["BoxSet"].items() if r["title"] in linked
-            }
+            self.clean(params.get("directory", ""))
             return "OK"
         if not match:
             raise RuntimeError("Kodi refused " + method)
@@ -756,7 +809,7 @@ class Kodi:
                     self._remove_show(kodi_id)
                 else:
                     del self.rows[kind][kodi_id]
-                    self.extras.pop(kodi_id, None)
+                    self._forget_assets()
             return "OK"
         raise RuntimeError("Kodi refused " + method)
 

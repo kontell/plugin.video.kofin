@@ -90,12 +90,17 @@ class Monitor(xbmc.Monitor):
         super().__init__()
         self.finished = 0
         self.music_finished = 0
+        self.cleaned = 0
 
     def onScanFinished(self, library):
         if library.lower() == "video":
             self.finished += 1
         elif library.lower() == "music":
             self.music_finished += 1
+
+    def onCleanFinished(self, library):
+        if library.lower() == "video":
+            self.cleaned += 1
 
 
 class VideoScan(NamedTuple):
@@ -600,6 +605,41 @@ class Native:
                 self._extras_folders.add(folder)
         return folders
 
+    def retire_assets(self, folders):
+        """Clean the folder of every movie whose listing dropped a version
+        file or an extra this pass. The folder's scan adds and never
+        removes, so the row stays until a clean asks the add-on about it:
+        Kodi 23 decides a plugin's files by the add-on (kontell/xbmc #2),
+        reaches a movie's versions and extras from its folder (#10), and
+        keeps what the add-on did not answer for (#1), so the clean of one
+        folder removes what ``provider.exists`` says is gone and nothing
+        else. One that fails leaves the rows to the viewer's Clean library,
+        which asks the same questions."""
+        for folder in sorted(folders):
+            try:
+                self.clean(folder)
+                LOG.info("retired the dropped versions and extras of %s", folder)
+            except InterruptedError:
+                raise
+            except Exception:
+                LOG.exception("movie folder %s not cleaned", folder)
+
+    def clean(self, directory):
+        """Run Kodi's clean of ``directory`` and wait for it to end, as a
+        scan is waited for: never beside a scan."""
+        self.wait(lambda: self._idle("video"), busy=lambda: self._scanning("video"))
+        serial = self.monitor.cleaned
+        rpc("VideoLibrary.Clean", {"directory": directory, "showdialogs": False})
+        self._async_pending = True
+        try:
+            self.wait(
+                lambda: self.monitor.cleaned > serial and self._idle("video"),
+                busy=lambda: self._scanning("video"),
+            )
+        finally:
+            self._async_pending = not self._idle("video")
+        self.readback.clear()
+
     def allow_extras(self):
         """Turn Kodi's "Ignore video extras on scan" off, once: while it is
         on the scanner drops an extras folder from the listing before
@@ -853,6 +893,7 @@ class Native:
             # Sets and bindings: nothing counted.
             self.progress.working(progress.WAITING)
             removal.finish_sets(self, pending, boxsets, errors)
+            self.retire_assets(applier.asset_folders)
             try:
                 self.bind_movie_folders()
             except Exception:
