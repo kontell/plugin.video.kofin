@@ -17,7 +17,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 from kofin.sync.catalogue import Catalogue, ItemState
 from kofin.sync.model import MediaItem
@@ -820,6 +820,55 @@ class Store(Catalogue):
         return {
             row[0]: Mapping(row[1], json.loads(row[2] or "{}"), row[3]) for row in rows
         }
+
+    def movies_with_extras(
+        self, has_extras: Callable[[Dict[str, Any]], bool]
+    ) -> Tuple[Dict[str, Entry], Set[str]]:
+        """The movies at the pinned generation, as ``entries`` reads them,
+        and which of them an acknowledgement lists extras for
+        (metadata.asset_files), in one read (Native.bind_movie_folders).
+
+        An acknowledgement older than the file list carries the assets token
+        alone, which cannot tell extras from versions, and a movie whose
+        token never moved is never planned again to gain the list. Such a
+        movie is asked of its payload (``has_extras``), a chunk at a time, so
+        the read holds no library's payloads."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            generation = self._generation(db.cursor, True)
+            entries = {
+                e.item_id: e
+                for e in self._entries(
+                    db.cursor,
+                    "added<=? AND (removed IS NULL OR removed>?) AND kind=?",
+                    (generation, generation, "Movie"),
+                )
+            }
+            rows = db.cursor.execute(
+                "SELECT item_id, applied FROM api_native"
+                " WHERE namespace=? AND kind='Movie'",
+                (self.namespace,),
+            ).fetchall()
+            extras = set()
+            older = []
+            for item_id, applied in rows:
+                acknowledged = json.loads(applied or "{}")
+                if "asset_files" in acknowledged:
+                    if (acknowledged["asset_files"] or {}).get("extras"):
+                        extras.add(item_id)
+                elif acknowledged.get("assets") and item_id in entries:
+                    older.append(item_id)
+            for start in range(0, len(older), 500):
+                chunk = older[start : start + 500]
+                payloads = db.cursor.execute(
+                    "SELECT item_id, payload FROM api_item WHERE namespace=? AND item_id IN (%s)"
+                    % ",".join("?" * len(chunk)),
+                    [self.namespace] + chunk,
+                ).fetchall()
+                for item_id, payload in payloads:
+                    if has_extras(json.loads(payload)):
+                        extras.add(item_id)
+        return entries, extras
 
     def remember(self, item_id, generation, kodi_id, applied, kind=None):
         """Acknowledge readback of exactly the desired generation."""
