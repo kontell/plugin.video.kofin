@@ -210,7 +210,9 @@ def test_the_shipped_video_nodes_are_seeded_before_the_tree_is_written(
 
 
 def logged_in():
-    FakeAddon.store.update({"serverId": "s" * 32, "userId": "u" * 32})
+    FakeAddon.store.update(
+        {"serverId": "s" * 32, "userId": "u" * 32, "deviceId": "d" * 32}
+    )
 
 
 def test_a_whitelisted_music_library_gets_its_folder_in_the_music_tree(
@@ -280,3 +282,36 @@ def test_no_music_tree_is_written_before_a_login(views_env):
     whitelist(MUSIC)
     dynamic.publish(ITEMS, FakeApi())
     assert not (views_env["profile"] / "library" / "music" / NODE_ROOT).exists()
+
+
+def test_the_music_tree_survives_a_settings_read_that_cannot_answer(
+    views_env, monkeypatch
+):
+    """An empty list deletes the music tree, so blank ids delete it only from
+    a store that answered: an unregistered add-on and a settings document
+    that did not load read blank too, and leave the tree as it is. A logout
+    takes it down."""
+    from kofin.core import settings
+
+    logged_in()
+    whitelist(MUSIC)
+    dynamic.publish(ITEMS, FakeApi())
+    tree = views_env["profile"] / "library" / "music" / NODE_ROOT
+    assert (tree / ("kofinmusic" + MUSIC)).is_dir()
+    # Kodi has the add-on unregistered, as during an update.
+    get_addon = settings.get_addon
+    monkeypatch.setattr(settings, "get_addon", lambda: None)
+    dynamic.publish(ITEMS, FakeApi())
+    assert (tree / ("kofinmusic" + MUSIC)).is_dir()
+    monkeypatch.setattr(settings, "get_addon", get_addon)
+    # The settings document did not load: every value blank.
+    stored = dict(FakeAddon.store)
+    FakeAddon.store = {}
+    dynamic.publish(ITEMS, FakeApi())
+    assert (tree / ("kofinmusic" + MUSIC)).is_dir()
+    # A logout keeps the device id and clears the rest.
+    FakeAddon.store = {
+        k: v for k, v in stored.items() if k not in ("serverId", "userId")
+    }
+    dynamic.publish(ITEMS, FakeApi())
+    assert not tree.exists()

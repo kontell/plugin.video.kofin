@@ -36,7 +36,7 @@ the P1D's did until the seed. The music tree gets Kodi's shipped music nodes
 the same way.
 """
 
-from typing import Dict, List, NamedTuple, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from kofin.core import settings
 from kofin.core.log import Logger
@@ -90,20 +90,28 @@ def node_entries(views: List[View], whitelist: List[str]) -> List[Tuple[Dict, bo
     return entries
 
 
-def music_entries(views: List[View], whitelist: List[str]) -> List[Dict]:
+def music_entries(views: List[View], whitelist: List[str]) -> Optional[List[Dict]]:
     """The whitelisted music libraries as the music tree wants them, in the
     server's order, each with the folder its songs are filed under. None
-    without a server and user to name the folders by."""
-    from kofin.core.settings import Credentials
+    while the settings cannot say who is logged in, since an empty list
+    deletes the tree.
+
+    The ids are read off one Addon, as Credentials.load reads its record: a
+    store Kodi has unregistered and a settings document that did not load
+    both read blank, and only a store that answered can mean a logout. The
+    second is told by ``deviceId``, which is never empty once a login has
+    happened (the applier's LOAD_CANARY)."""
     from kofin.sync.backends.api import paths
     from kofin.sync.backends.api.store import namespace
 
     music = [v for v in views if v.media_type == "music" and v.view_id in whitelist]
     if not music:
         return []
-    creds = Credentials.load()
+    addon = settings.get_addon()
+    if addon is None or not addon.getSetting("deviceId"):
+        return None
     try:
-        key = namespace(creds.server_id, creds.user_id)
+        key = namespace(addon.getSetting("serverId"), addon.getSetting("userId"))
     except ValueError:
         return []
     return [
@@ -158,9 +166,12 @@ def publish(items, server):
         singles = []
     try:
         libraries = music_entries(views, whitelist) if nodes else []
-        if libraries:
-            kodisetup.seed_default_nodes("music")
-        music_nodes.write_music_nodes(libraries, downloads=False)
+        if libraries is None:
+            LOG.warning("settings unreadable; music node tree left as it is")
+        else:
+            if libraries:
+                kodisetup.seed_default_nodes("music")
+            music_nodes.write_music_nodes(libraries, downloads=False)
     except Exception:
         LOG.exception("music node tree not written")
     if not nodes:

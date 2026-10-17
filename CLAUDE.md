@@ -530,7 +530,9 @@ What remains is kofin's own:
   library gets its folder in the music tree (`kofinmusic<id>`, `nodes/music.write_music_nodes`),
   whose nodes filter on `path`, the folder its songs are filed under: a music `path` rule takes
   an album or an artist by its songs, and the SQL tree's Kodi music sources are never written
-  here. The Manage menu reads a library's downloads from that folder's path. Kodi's music nodes
+  here. The Manage menu reads a library's downloads from that folder's path. Blank login ids
+  take the tree down only from a store that answered (`dynamic.music_entries`): an
+  unregistered add-on and a settings document that did not load read blank too. Kodi's music nodes
   are seeded first, the skin entry stays Kodi's music root, as in the SQL build, and there is no
   Downloaded folder: a download keeps its plugin URL, so a rule on the downloads folder matches
   nothing (the Downloaded-music smart playlist has the same flaw). **Kodi's shipped video nodes are seeded into the profile
