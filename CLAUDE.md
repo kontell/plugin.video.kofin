@@ -540,7 +540,13 @@ What remains is kofin's own:
   unregistered add-on and a settings document that did not load read blank too. Kodi's music nodes
   are seeded first, the skin entry stays Kodi's music root, as in the SQL build, and there is no
   Downloaded folder: a download keeps its plugin URL, so a rule on the downloads folder matches
-  nothing (the Downloaded-music smart playlist has the same flaw). **Kodi's shipped video nodes are seeded into the profile
+  nothing. For the same reason the Downloaded-music view is not the shared smart playlist here
+  but `Downloaded music.m3u8`, the finished songs listed from the download store
+  (`backends/api/playlists.write_downloaded_music`), rewritten by the port's song playlist
+  refresh; its stem is reserved in the managed folder (`playlists.RESERVED_STEMS`). A server
+  playlist stored under that name earlier moves to `(2)` on its next pass, Etag or not, and
+  the old name is removed only while it is still that playlist's copy (`_remove_stored`).
+  **Kodi's shipped video nodes are seeded into the profile
   before the tree is written** (`kodisetup.seed_default_nodes`): the moment
   `special://profile/library/video/` exists every `library://video/...` path resolves there
   and nowhere else, so a profile holding only `kofin/` listed nothing for

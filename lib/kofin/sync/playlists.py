@@ -127,6 +127,15 @@ FOLDER_ICON_SOURCE = "kofin-node.png"
 # pruner behavior this exemption exists for.
 DOWNLOADED_MUSIC_XSP = "Downloaded music.xsp"
 
+# The same view in the API build, as a plain playlist of the downloaded songs:
+# its rows keep their plugin URLs, so the smart playlist's rule matches nothing
+# there (write_downloaded_music_list). Exempt from the prune like the .xsp, and
+# its stem is reserved, so a server playlist of that title takes "(2)" rather
+# than the two writing over each other.
+DOWNLOADED_MUSIC_M3U8 = "Downloaded music.m3u8"
+RESERVED_STEMS = frozenset({os.path.splitext(DOWNLOADED_MUSIC_M3U8)[0].lower()})
+OURS = frozenset({DOWNLOADED_MUSIC_XSP, DOWNLOADED_MUSIC_M3U8})
+
 # What tells a plugin row from a direct one (writers/music.py writes one or the
 # other into path.strPath, per the musicTranscode setting at sync time).
 PLUGIN_PREFIX = "plugin://"
@@ -271,6 +280,31 @@ def refresh_downloaded_music(root: Optional[str] = None) -> bool:
     )
 
 
+def write_downloaded_music_list(
+    entries: Iterable[Entry], root: Optional[str] = None
+) -> bool:
+    """The Downloaded-music view as a plain playlist of ``entries``, the API
+    build's: its downloads keep their plugin URLs, so the smart playlist's rule
+    on the downloads folder (downloaded_music_xsp) matches nothing there. The
+    smart playlist goes when this is written; True if the file was written."""
+    directory = managed_dir(root)
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except OSError:
+        LOG.exception("cannot create the managed playlist folder %s", directory)
+        return False
+    write_folder_icon(directory)
+    stale = os.path.join(directory, DOWNLOADED_MUSIC_XSP)
+    if os.path.exists(stale):
+        try:
+            os.remove(stale)
+        except OSError:
+            LOG.exception("failed to remove %s", stale)
+    return _write_text(
+        os.path.join(directory, DOWNLOADED_MUSIC_M3U8), render_m3u8(entries)
+    )
+
+
 def safe_filename(name: str) -> str:
     """File stem from a Jellyfin playlist name (extension added by caller)."""
     cleaned = _UNSAFE.sub("_", (name or "").strip())
@@ -401,7 +435,7 @@ def _m3u8_stems(directory: str, keep: Optional[str] = None) -> Set[str]:
     membership rewrite pick ``Name (2).m3u8``, delete ``Name.m3u8``, and
     ping-pong on the next event.
     """
-    taken: Set[str] = set()
+    taken: Set[str] = set(RESERVED_STEMS)
     for name in _list_files(directory):
         if not name.endswith(".m3u8"):
             continue
@@ -593,7 +627,7 @@ def cleanup_managed_playlists(root: Optional[str] = None) -> int:
     if not os.path.isdir(directory):
         return 0
     names = _list_files(directory)
-    keep = {name for name in names if name == DOWNLOADED_MUSIC_XSP}
+    keep = {name for name in names if name in OURS}
     if keep:
         keep.add(FOLDER_ICON)
     removed = 0
@@ -643,7 +677,11 @@ def refresh_music_playlists(
     # deletes their last playlist; the folder is cleared properly by
     # cleanup_managed_playlists, and by the next pass that lists at least one.
     if not playlists:
-        standing = [name for name in _list_files(directory) if name.endswith(".m3u8")]
+        standing = [
+            name
+            for name in _list_files(directory)
+            if name.endswith(".m3u8") and name not in OURS
+        ]
         if standing:
             LOG.warning(
                 "music playlists: the server listed none while %d managed "
@@ -659,7 +697,7 @@ def refresh_music_playlists(
                 "pruned": 0,
             }
 
-    taken: Set[str] = set()
+    taken: Set[str] = set(RESERVED_STEMS)
     want: Set[str] = set()
     track_total = 0
     skipped = 0
@@ -717,7 +755,7 @@ def refresh_music_playlists(
             except OSError:
                 pass
             continue
-        if existing in (FOLDER_ICON, DOWNLOADED_MUSIC_XSP):
+        if existing == FOLDER_ICON or existing in OURS:
             # Ours, and not server playlists: the prune is against the
             # server's set.
             continue
@@ -881,6 +919,32 @@ def remove_managed_file(directory: str, filename: str) -> bool:
         return False
 
 
+def _reserved(side: str, filename: str) -> bool:
+    """A music playlist file under a generated view's name (RESERVED_STEMS).
+    Only a server playlist stored there before the stem was reserved has one,
+    and it is moved off it on its next pass even while its Etag holds."""
+    return (
+        side == "Audio"
+        and bool(filename)
+        and os.path.splitext(filename)[0].lower() in RESERVED_STEMS
+    )
+
+
+def _remove_stored(
+    directory: str, side: str, filename: str, copy: Optional[str] = None
+) -> bool:
+    """Remove a server playlist's stored file. A reserved name is the view's,
+    which the API build's download list writes over it, so it stands unless
+    it still holds exactly ``copy``, the playlist's file under its new name:
+    then no view was written there and the file is the playlist's alone."""
+    if _reserved(side, filename):
+        if copy is None or _read_text(os.path.join(directory, filename)) != (
+            _read_text(os.path.join(directory, copy))
+        ):
+            return False
+    return remove_managed_file(directory, filename)
+
+
 def apply_one(
     api: Any,
     mapping: Any,
@@ -908,7 +972,7 @@ def apply_one(
                 if stored[0] == "Audio"
                 else managed_video_dir() if video_root is None else video_root
             )
-            remove_managed_file(directory, stored[1])
+            _remove_stored(directory, stored[0], stored[1])
             state.remove_playlist_state(playlist_id)
             return True
         return False
@@ -924,8 +988,14 @@ def apply_one(
     etag = playlist.get("Etag") or ""
     checksum = reference_checksum(etag) if etag else ""
     # An empty checksum never skips: it is the mark of a short write, and of
-    # a playlist the server gave no Etag.
-    if stored and stored[0] == side and checksum and stored[2] == checksum:
+    # a playlist the server gave no Etag. Nor does a reserved name.
+    if (
+        stored
+        and stored[0] == side
+        and checksum
+        and stored[2] == checksum
+        and not _reserved(side, stored[1])
+    ):
         return False
 
     entries, missing = _entries_for(items, side, mapping, music, video, resolver)
@@ -947,7 +1017,7 @@ def apply_one(
         stored_filename=keep,
     )
     if stored and stored[1] != filename:
-        remove_managed_file(directory, stored[1])
+        _remove_stored(directory, stored[0], stored[1], copy=filename)
     # A short write stays dirty, as in reconcile.
     state.add_playlist_state(
         playlist_id,
@@ -979,7 +1049,7 @@ def remove_one(
         if stored[0] == "Audio"
         else (video_root if video_root is not None else managed_video_dir())
     )
-    removed = remove_managed_file(directory, stored[1])
+    removed = _remove_stored(directory, stored[0], stored[1])
     state.remove_playlist_state(playlist_id)
     return removed
 
@@ -1004,7 +1074,7 @@ def reconcile(
     listed = api.playlists() if hasattr(api, "playlists") else api.music_playlists()
     want_audio: Set[str] = set()
     want_video: Set[str] = set()
-    taken_audio: Set[str] = set()
+    taken_audio: Set[str] = set(RESERVED_STEMS)
     taken_video: Set[str] = set()
 
     audio_dir = managed_dir(music_root)
@@ -1017,7 +1087,11 @@ def reconcile(
         write_folder_icon(video_dir)
 
     standing_audio = (
-        [name for name in _list_files(audio_dir) if name.endswith(".m3u8")]
+        [
+            name
+            for name in _list_files(audio_dir)
+            if name.endswith(".m3u8") and name not in OURS
+        ]
         if os.path.isdir(audio_dir)
         else []
     )
@@ -1075,6 +1149,7 @@ def reconcile(
             and checksum
             and stored[2] == checksum
             and stored[1]
+            and not _reserved(side, stored[1])
         ):
             want.add(stored[1])
             taken.add(os.path.splitext(stored[1])[0].lower())
@@ -1094,7 +1169,7 @@ def reconcile(
             stored_filename=stored_name,
         )
         if stored and stored[1] != filename:
-            remove_managed_file(directory, stored[1])
+            _remove_stored(directory, stored[0], stored[1], copy=filename)
             stats["pruned"] += 1
         # A write the resolver left short (an entry the pass has not filed
         # yet) stays dirty: the server's Etag will not move when Kodi files
@@ -1121,7 +1196,7 @@ def reconcile(
     known = {row[0]: row for row in state.get_playlist_states()}
     for playlist_id, media_type, filename, _checksum in list(known.values()):
         if media_type == "Audio" and "Audio" in kinds and filename not in want_audio:
-            remove_managed_file(audio_dir, filename)
+            _remove_stored(audio_dir, "Audio", filename)
             state.remove_playlist_state(playlist_id)
             stats["pruned"] += 1
         elif media_type == "Video" and "Video" in kinds and filename not in want_video:
@@ -1137,7 +1212,7 @@ def reconcile(
                 except OSError:
                     pass
                 continue
-            if existing in (FOLDER_ICON, DOWNLOADED_MUSIC_XSP):
+            if existing == FOLDER_ICON or existing in OURS:
                 continue
             if existing.endswith(".m3u8") and existing not in want_audio:
                 try:

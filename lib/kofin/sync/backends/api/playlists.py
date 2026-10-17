@@ -45,20 +45,7 @@ class Resolver:
             return None
         if side == "Audio":
             payload = self.store.item(item_id) or {}
-            return playlists.Entry(
-                path=paths.playback_url(
-                    self.key,
-                    "Audio",
-                    entry.library,
-                    item_id,
-                    entry.parent_id,
-                    paths.container_of(payload),
-                ),
-                title=str(item.get("Name") or payload.get("Name") or ""),
-                artist=" / ".join(str(a) for a in (item.get("Artists") or [])),
-                track=int(item.get("IndexNumber") or 0) & 0xFFFF,
-                duration=int((item.get("RunTimeTicks") or 0) // 10_000_000),
-            )
+            return song_entry(self.key, entry, payload, item)
         return playlists.Entry(
             path=paths.playback_url(
                 self.key, entry.kind, entry.library, item_id, entry.parent_id
@@ -91,6 +78,68 @@ def items_of_lines(store: Store, lines: Iterable[str]) -> List[Tuple[str, str]]:
         else:
             found.append(("", ""))
     return found
+
+
+def song_entry(
+    key: str, entry: Any, payload: Dict[str, Any], item: Dict[str, Any]
+) -> playlists.Entry:
+    """A song's line: its file in its album directory, labelled from ``item``
+    (a server playlist's listing of it, or its payload)."""
+    return playlists.Entry(
+        path=paths.playback_url(
+            key,
+            "Audio",
+            entry.library,
+            entry.item_id,
+            entry.parent_id,
+            paths.container_of(payload),
+        ),
+        title=str(item.get("Name") or payload.get("Name") or ""),
+        artist=" / ".join(str(a) for a in (item.get("Artists") or [])),
+        track=int(item.get("IndexNumber") or 0) & 0xFFFF,
+        duration=int((item.get("RunTimeTicks") or 0) // 10_000_000),
+    )
+
+
+def write_downloaded_music(store: Store, root: Optional[str] = None) -> bool:
+    """The Downloaded-music view: a playlist of the finished song downloads
+    the catalogue places, in album artist, album, disc and track order. A
+    download keeps its row's plugin URL in this build, so the view is read
+    from the download store, the catalogue's entries and payloads read once
+    each however many songs there are."""
+    from kofin.downloads import store as downloads
+
+    done = [
+        row.jellyfin_id
+        for row in downloads.rows(downloads.DONE)
+        if row.media_type == "song"
+    ]
+    entries = store.entries(kind="Audio") if done else {}
+    placed = [item_id for item_id in done if item_id in entries]
+    payloads = store.payloads(placed)
+
+    def order(item_id: str) -> Tuple[str, str, int, int, str]:
+        payload = payloads.get(item_id) or {}
+        credits = [
+            str(a.get("Name") or "")
+            for a in payload.get("AlbumArtists") or []
+            if isinstance(a, dict)
+        ]
+        return (
+            (" / ".join(credits) or str(payload.get("AlbumArtist") or "")).lower(),
+            str(payload.get("Album") or "").lower(),
+            int(payload.get("ParentIndexNumber") or 0),
+            int(payload.get("IndexNumber") or 0),
+            str(payload.get("Name") or "").lower(),
+        )
+
+    lines = [
+        song_entry(
+            store.namespace, entries[item_id], payloads[item_id], payloads[item_id]
+        )
+        for item_id in sorted((i for i in placed if i in payloads), key=order)
+    ]
+    return playlists.write_downloaded_music_list(lines, root)
 
 
 def wanted() -> bool:

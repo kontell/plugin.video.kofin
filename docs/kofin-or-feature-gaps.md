@@ -33,7 +33,6 @@ None of these needs Kodi.
 
 | Gap | kofin-or today | To do |
 |---|---|---|
-| Downloaded music (S40) | The Downloaded-music smart playlist filters on the downloads folder, and a download keeps its plugin URL in this build, so it lists nothing | A view built from the download store, such as a playlist of the downloaded songs' URLs |
 | Per-version play state (S25) | Only the movie's row is patched | Jellyfin keeps a play count per version; set it on each version file through `Files.SetFileDetails` |
 | Save playlist to Jellyfin, Download playlist on a playlist file (`context_playlist.py`, `context_download_playlist.py`, the `saveplaylist` route) | Omitted from the API profile; playlist and music-library download subscriptions work from kofin's own views (S36) | Rebuild on the catalogue, which the API playlist resolver already reads |
 | Artist MusicBrainz ids (S28) | Album ids sent; artists matched by name (629 of 634 on the P1D) | Send them if they separate the artists name matching gets wrong |
@@ -72,6 +71,7 @@ Not gaps, but the behaviour differences an upgrade from main shows.
 - The download badge key is `kofindownloaded` on the row where main's writers stamp `kofin.downloaded`; a skin reads both while the branches coexist.
 - An album or an artist with no songs has no row; an empty season and a set with no synced movie are dynamic views, as on main, where Kodi does not list them either.
 - Downloads play from disk however the item is reached, as on main, but nothing of Kodi's rows moves for them.
+- Downloaded music is a playlist of the downloaded songs in the Kofin playlists folder, where main has a smart playlist and a Downloaded folder in the music tree.
 
 ## 3. What kofin-or has that main does not
 

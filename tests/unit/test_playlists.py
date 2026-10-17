@@ -1001,3 +1001,82 @@ def test_an_empty_listing_on_an_empty_folder_is_not_an_error(tmp_path):
 
     assert stats["playlists"] == 0
     assert stats["pruned"] == 0
+
+
+def test_the_downloaded_music_list_keeps_its_name_and_survives_the_cleanup(tmp_path):
+    """The API build's Downloaded-music list sits beside the server's
+    playlists: a server playlist of the same title takes "(2)", even one that
+    held the name before, and the cleanup and the prune leave it."""
+    from kofin.sync import playlists as pl
+
+    assert (
+        pl.assign_playlist_filename(
+            "Downloaded music", set(pl.RESERVED_STEMS), "Downloaded music.m3u8"
+        )
+        == "Downloaded music (2).m3u8"
+    )
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    (root / pl.DOWNLOADED_MUSIC_M3U8).write_text("#EXTM3U\n")
+    (root / "Mix.m3u8").write_text("#EXTM3U\n")
+    assert "downloaded music" in pl._m3u8_stems(str(root))
+    pl.cleanup_managed_playlists(str(root))
+    assert sorted(p.name for p in root.iterdir()) == [pl.DOWNLOADED_MUSIC_M3U8]
+
+
+def test_a_server_playlist_on_the_reserved_name_moves_off_it_and_leaves_the_view(
+    tmp_path,
+):
+    """A server playlist synced as "Downloaded music.m3u8" before the stem
+    was reserved moves to "(2)" on its next pass, its Etag unchanged or not,
+    and never takes the download list with it: the list writes the same file,
+    so the old name goes only while it is still the playlist's own copy."""
+    from kofin.sync import playlists as pl
+
+    view = "#EXTM3U\ndownloaded\n"
+    playlist = _audio_playlist("Downloaded music", "same")
+    api = FakeApi(
+        playlist_list=[playlist], items_by_id={"pl1": [{"Id": "a1", "Type": "Audio"}]}
+    )
+    mapping, music = _audio_stack()
+    moved = "Downloaded music (2).m3u8"
+    for run in ("reconcile", "apply_one"):
+        root = tmp_path / run
+        root.mkdir()
+        (root / pl.DOWNLOADED_MUSIC_M3U8).write_text(view, encoding="utf-8")
+        state = FakeState()
+        state.add_playlist_state(
+            "pl1", "Audio", pl.DOWNLOADED_MUSIC_M3U8, pl.reference_checksum("same")
+        )
+        if run == "reconcile":
+            pl.reconcile(api, mapping, music, None, state, {"Audio"}, str(root))
+        else:
+            pl.apply_one(
+                api, mapping, music, None, state, playlist, {"Audio"}, str(root)
+            )
+        assert state.get_playlist_state("pl1")[1] == moved
+        assert "musicdb://songs/10.flac" in (root / moved).read_text(encoding="utf-8")
+        assert (root / pl.DOWNLOADED_MUSIC_M3U8).read_text(encoding="utf-8") == view
+    # No list was ever written over it: the old name is the playlist's copy.
+    root = tmp_path / "copy"
+    root.mkdir()
+    state = FakeState()
+    state.add_playlist_state(
+        "pl1", "Audio", pl.DOWNLOADED_MUSIC_M3U8, pl.reference_checksum("same")
+    )
+    pl.apply_one(api, mapping, music, None, state, playlist, {"Audio"}, str(root))
+    (root / moved).rename(root / pl.DOWNLOADED_MUSIC_M3U8)
+    state.add_playlist_state(
+        "pl1", "Audio", pl.DOWNLOADED_MUSIC_M3U8, pl.reference_checksum("same")
+    )
+    pl.apply_one(api, mapping, music, None, state, playlist, {"Audio"}, str(root))
+    assert sorted(p.name for p in root.glob("*.m3u8")) == [moved]
+    # The playlist leaves the server: the view stays.
+    root = tmp_path / "removed"
+    root.mkdir()
+    (root / pl.DOWNLOADED_MUSIC_M3U8).write_text(view, encoding="utf-8")
+    state = FakeState()
+    state.add_playlist_state("pl1", "Audio", pl.DOWNLOADED_MUSIC_M3U8, "")
+    assert not pl.remove_one(state, "pl1", str(root))
+    assert (root / pl.DOWNLOADED_MUSIC_M3U8).read_text(encoding="utf-8") == view
+    assert state.get_playlist_state("pl1") is None
