@@ -1362,6 +1362,36 @@ def test_a_set_id_kodi_gave_another_set_is_left_alone(store, backend, kodi):
     assert kodi.rows["BoxSet"][setid]["title"] == "Someone else's"
 
 
+def test_a_set_kodi_could_not_be_asked_to_remove_stays_pending(
+    store, backend, kodi, monkeypatch
+):
+    """A Kodi that could not be asked is no proof the set is gone: the
+    collection stays pending, and the next pass removes the set."""
+    from kofin.core import kodirpc
+    from kofin.sync.backends.api import removal
+
+    store.publish([movie(), boxset("box", "Pair", ["a"])], library=LIB)
+    backend.reconcile()
+    setid = store.mapping("box").kodi_id
+    store.publish([], removed=["box"])
+    real = removal.kodirpc.call
+
+    def unreachable(method, params=None):
+        if method == "VideoLibrary.RemoveMovieSet":
+            return kodirpc.FAILED
+        return real(method, params)
+
+    monkeypatch.setattr(removal.kodirpc, "call", unreachable)
+    with pytest.raises(RuntimeError):
+        backend.reconcile()
+    assert store.state("box").status == "pending"
+    assert setid in kodi.rows["BoxSet"]
+    monkeypatch.setattr(removal.kodirpc, "call", real)
+    backend.reconcile()
+    assert not store.pending()
+    assert setid not in kodi.rows["BoxSet"]
+
+
 def test_a_collection_removed_by_id_alone_still_leaves(store, backend, kodi):
     """A removal the server reported by id carries no name (store.tombstone
     of an item never stored); the empty set still goes by the id it was
