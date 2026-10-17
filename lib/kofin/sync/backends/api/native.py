@@ -47,9 +47,11 @@ ACTOR_THUMBS_SETTING = "videolibrary.actorthumbs"
 ACTOR_THUMBS_FLOOR = 100
 # The profile has had every movie folder bound with noupdate
 # (Native.bind_movie_folders); a hidden string setting, since the store
-# does not record a binding's flag.
+# does not record a binding's flag. EXTRAS_BINDINGS_STATE follows it once the
+# extras folders of the movies filed before they were bound are bound too.
 MOVIE_BINDINGS_SETTING = "apiMovieBindings"
 MOVIE_BINDINGS_STATE = "noupdate"
+EXTRAS_BINDINGS_STATE = "noupdate+extras"
 SCAN_POLL = 3.0  # seconds between reads of Kodi's row count during a scan
 # The rows an earlier Kofin filed, as the listings that can hold them and
 # the rule that picks them out (Native.setup). The SQL build files video
@@ -318,21 +320,41 @@ class Native:
         generation when nothing is pending (library.apply). Once per
         profile every movie folder is bound again with ``noupdate``, for the
         folders an earlier build bound without it -- the store does not
-        record the flag -- and MOVIE_BINDINGS_SETTING remembers that."""
+        record the flag -- and MOVIE_BINDINGS_SETTING remembers that.
+
+        Once per profile, too, the extras folders of the movies with extras
+        are bound, for the extras an earlier build filed; a scan binds the
+        ones it files (scan_video), so no pass reads every acknowledgement
+        for them. A movie acknowledged before the file list is told by its
+        payload, never by its assets token, which a movie with versions
+        alone has too. The setting is stored only after every folder is
+        bound, so a failed read or binding is tried again."""
+        state = settings.get_str(MOVIE_BINDINGS_SETTING)
+        extras: Set[str] = set()
+        if state == EXTRAS_BINDINGS_STATE:
+            entries = self.store.entries(kind="Movie")
+        else:
+            entries, extras = self.store.movies_with_extras(
+                lambda item: bool(metadata.special_features(item))
+            )
         folders = sorted(
-            {
-                paths.movie_dir(self.key, e.library, e.item_id)
-                for e in self.store.entries(kind="Movie").values()
-            }
+            {paths.movie_dir(self.key, e.library, e.item_id) for e in entries.values()}
         )
         if not folders:
             return
-        force = settings.get_str(MOVIE_BINDINGS_SETTING) != MOVIE_BINDINGS_STATE
+        force = state not in (MOVIE_BINDINGS_STATE, EXTRAS_BINDINGS_STATE)
         if force:
             LOG.info("binding every movie folder with noupdate, once")
         self.bind_folders("movies", folders, force=force, noupdate=True)
-        if force:
-            settings.set_str(MOVIE_BINDINGS_SETTING, MOVIE_BINDINGS_STATE)
+        if state != EXTRAS_BINDINGS_STATE:
+            dirs = sorted(
+                paths.extras_dir(self.key, entries[i].library, i)
+                for i in extras
+                if i in entries
+            )
+            if dirs:
+                self.bind_folders("movies", dirs, noupdate=True)
+            settings.set_str(MOVIE_BINDINGS_SETTING, EXTRAS_BINDINGS_STATE)
 
     def bind_show(self, library, series_id):
         self.bind_folders("tvshows", [paths.show_dir(self.key, library, series_id)])
@@ -1080,6 +1102,19 @@ class Native:
                 self.bind_folders(
                     "movies", video.movie_folders, force=True, noupdate=True
                 )
+                # An extra's URL has no query, so Kodi files it under the
+                # add-on's root (CVideoDatabase::SplitPath), and a clean asks
+                # the add-on about a plugin file only where it finds a binding
+                # for the file's folder: without one, Clean library deleted
+                # every extra unasked. noupdate, so Update library never scans
+                # extras as movies.
+                extras = [
+                    folder + paths.EXTRAS
+                    for folder in video.movie_folders
+                    if folder in self._extras_folders
+                ]
+                if extras:
+                    self.bind_folders("movies", extras, noupdate=True)
 
     def _missing_tv(self, upserts, library) -> List[Record]:
         shows = self.readback.scope("Series", library)

@@ -1506,7 +1506,10 @@ def test_the_movie_folders_of_an_older_profile_are_bound_outside_the_pending_gat
     store.publish([movie("a"), movie("b")], library=LIB)
     backend.reconcile()
     a, b = (paths.movie_dir(store.namespace, LIB, i) for i in "ab")
-    assert FakeAddon.store[native_module.MOVIE_BINDINGS_SETTING] == "noupdate"
+    assert (
+        FakeAddon.store[native_module.MOVIE_BINDINGS_SETTING]
+        == native_module.EXTRAS_BINDINGS_STATE
+    )
     # An older profile: one folder never bound, one bound without the flag.
     kodi.bindings.pop(a)
     store.unbind(a)
@@ -1518,7 +1521,10 @@ def test_the_movie_folders_of_an_older_profile_are_bound_outside_the_pending_gat
     assert kodi.bindings[a] == "movies" and kodi.noupdate[a] is True
     assert kodi.noupdate[b] is True
     assert kodi.scanned == []
-    assert FakeAddon.store[native_module.MOVIE_BINDINGS_SETTING] == "noupdate"
+    assert (
+        FakeAddon.store[native_module.MOVIE_BINDINGS_SETTING]
+        == native_module.EXTRAS_BINDINGS_STATE
+    )
     # Done once: the next call binds nothing the store knows.
     kodi.calls.clear()
     backend.bind_movie_folders()
