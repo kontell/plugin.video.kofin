@@ -391,7 +391,9 @@ def _movie_entries(record, server, key, library, separator, set_name, assets):
             separator,
             set_name=set_name,
             version=(
-                metadata.Version(name, source is None, metadata.unique_ids(item, key))
+                metadata.Version.of(
+                    name, source is None, metadata.unique_ids(item, key)
+                )
                 if sources
                 else None
             ),

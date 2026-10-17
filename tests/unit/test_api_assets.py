@@ -238,9 +238,12 @@ def test_the_movie_folder_lists_versions_and_the_extras_folder(store, monkeypatc
     # Each file says it is a version of the movie (kontell/xbmc #8), under
     # the movie's own ids, the movie's own file the default.
     ids = metadata.unique_ids(store.item("a"), key)
+    # A further version leaves the refresh token out: Kodi groups a file
+    # under a movie only while none of their unique id types differ.
+    grouped = {k: v for k, v in ids.items() if k != "kofinrefresh"}
     assert versions == [
         metadata.Version("Director's Cut", True, ids),
-        metadata.Version("Theatrical Cut", False, ids),
+        metadata.Version("Theatrical Cut", False, grouped),
     ]
     # The root lists the movie's own file alone, with its source's name...
     provider.serve(Request(paths.library_dir(key, LIB, "movies"), 1, {}))

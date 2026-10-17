@@ -1346,17 +1346,41 @@ def test_removing_a_collection_unfiles_its_movies_and_drops_the_empty_set(
 
 def test_a_set_id_kodi_gave_another_set_is_left_alone(store, backend, kodi):
     """Kodi numbers a new set from the highest one left, so the id a removed
-    collection was acknowledged under may name another set by then: that
-    row is not the collection's to remove."""
+    collection was acknowledged under may name another set by then. An
+    emptied set cannot be read back, so what is checked is that no set with
+    movies holds the id: a set someone's movie files is never removed."""
     store.publish([movie(), boxset("box", "Pair", ["a"])], library=LIB)
+    store.publish([movie("c")], library=LIB2)
     backend.reconcile()
     setid = store.mapping("box").kodi_id
     kodi.rows["BoxSet"][setid]["title"] = "Someone else's"
+    kodi.owned("Movie")["c"]["set"] = "Someone else's"
     store.publish([], removed=["box"])
     backend.reconcile()
     assert not store.pending()
     assert not methods(kodi, "VideoLibrary.RemoveMovieSet")
     assert kodi.rows["BoxSet"][setid]["title"] == "Someone else's"
+
+
+def test_a_collection_removed_by_id_alone_still_leaves(store, backend, kodi):
+    """A removal the server reported by id carries no name (store.tombstone
+    of an item never stored); the empty set still goes by the id it was
+    acknowledged under."""
+    store.publish([movie(), movie("b"), boxset("box", "Pair", ["a", "b"])], library=LIB)
+    backend.reconcile()
+    setid = store.mapping("box").kodi_id
+    with private.Database() as db:
+        db.cursor.execute(
+            "UPDATE api_item SET payload=? WHERE item_id='box'",
+            ('{"Id": "box", "Type": "BoxSet"}',),
+        )
+    store.publish([], removed=["box"])
+    store.invalidate({"a", "b"})
+    backend.reconcile()
+    assert not store.pending()
+    assert kodi.owned("Movie")["a"]["set"] == ""
+    assert methods(kodi, "VideoLibrary.RemoveMovieSet") == [{"setid": setid}]
+    assert kodi.rows["BoxSet"] == {}
 
 
 def test_a_collection_removal_waits_while_a_member_still_files_it(store, backend, kodi):

@@ -274,8 +274,17 @@ def refresh_fields(item, seasons=()) -> Dict[str, Any]:
         # A movie's row is its own file's. Its further sources are its
         # version files, filed by its folder's scan and retired by a clean
         # of the folder (Native.retire_assets): a version that came or went
-        # refreshed the movie, which Kodi files again under a new id.
-        value["MediaSources"] = value["MediaSources"][:1]
+        # refreshed the movie, which Kodi files again under a new id. So
+        # did the first source's name, which Jellyfin makes a label while
+        # the movie has versions and the file's stem when it has none.
+        value["MediaSources"] = [
+            (
+                {k: v for k, v in source.items() if k != "Name"}
+                if isinstance(source, dict)
+                else source
+            )
+            for source in value["MediaSources"][:1]
+        ]
     if kind == "Series":
         value["Seasons"] = sorted(
             int(s.get("IndexNumber") or 0)
@@ -1107,11 +1116,21 @@ class Version(NamedTuple):
     """A file of a movie with several media sources, as its scanner row
     says so: the source's label, whether it is the movie's own file, and
     the movie's unique ids (not the source's, whose streams move the
-    refresh token)."""
+    refresh token). A further version's ids leave out ``kofinrefresh``
+    (``Version.of``): Kodi groups a file under a movie only while no unique
+    id type of the two differs (``HasConflictingUniqueID``), and the token
+    the movie's row was filed under need not be the one a version listed
+    later carries."""
 
     label: str
     default: bool
     ids: Dict[str, str]
+
+    @classmethod
+    def of(cls, label: str, default: bool, ids: Dict[str, str]) -> "Version":
+        if not default:
+            ids = {k: v for k, v in ids.items() if k != "kofinrefresh"}
+        return cls(label, default, ids)
 
 
 def listitem(
