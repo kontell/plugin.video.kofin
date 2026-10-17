@@ -514,5 +514,8 @@ def _remove_empty_set(store, item_id, listed):
     setid = int(mapping.kodi_id)
     if any(row.get("setid") == setid for row in listed.values()):
         return
-    # Refused when the row is gone already: nothing is left to remove.
-    kodirpc.call("VideoLibrary.RemoveMovieSet", {"setid": setid})
+    # Refused (None) when the row is gone already: nothing is left to
+    # remove. FAILED is a Kodi that could not be asked, and the collection
+    # stays pending for the next pass rather than being forgotten.
+    if kodirpc.call("VideoLibrary.RemoveMovieSet", {"setid": setid}) is kodirpc.FAILED:
+        raise RuntimeError("Kodi could not be asked to remove set %d" % setid)
