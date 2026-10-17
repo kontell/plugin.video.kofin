@@ -76,6 +76,26 @@ def test_a_whitelisted_library_gets_its_tree_and_library_paths(views_env):
     assert "5" * 32 not in " ".join(window.values())
 
 
+def test_favourite_episodes_are_found_by_their_own_tag_in_the_api_build(
+    views_env, monkeypatch
+):
+    """Kodi 23 keeps an episode's tags and its tag rule matches them
+    (kontell/xbmc #12), and the API build tags a favourite episode. The SQL
+    build's node keeps its writer rule, the credit its writer stamps."""
+    from kofin import buildconfig
+
+    def rule(backend):
+        monkeypatch.setattr(buildconfig, "BACKEND", backend)
+        whitelist(MOVIES)
+        dynamic.publish(ITEMS, FakeApi())
+        root = views_env["profile"] / "library" / "video" / NODE_ROOT
+        found = ET.parse(root / "kofin_Favoriteepisodes.xml").getroot().find("rule")
+        return found.get("field"), found.find("value").text
+
+    assert rule("api") == ("tag", "Favorite episodes")
+    assert rule("sql") == ("writers", "Favorite episodes")
+
+
 def test_a_library_leaving_the_whitelist_loses_its_folder_and_an_empty_one_the_tree(
     views_env,
 ):
