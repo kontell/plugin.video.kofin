@@ -440,7 +440,10 @@ What remains is kofin's own:
   unasked, and a movie of a library that stayed kept its row and left every listing. The
   sets a removed library emptied go with the remove itself (kontell/xbmc #3), and a
   collection the server removed leaves by its id once no movie files it (`finish_sets`,
-  `VideoLibrary.RemoveMovieSet`, #7, after a title check, since Kodi reuses set ids).
+  `VideoLibrary.RemoveMovieSet`, #7). An emptied set is in no listing (`GetMovieSets` and
+  `GetMovieSetDetails` both read sets through their movies), so the id is removed only while
+  this pass's set readback shows no set holding it: a set with movies is never touched, even
+  one Kodi gave a reused id. A Kodi that could not be asked keeps the collection pending.
   Only the shows Kodi could have merged with
   a leaving one are invalidated (`_merged_shows`), not every show, and the clear runs on a
   thread of its own for the bar's sake, where a stop waits for it.
@@ -503,8 +506,15 @@ What remains is kofin's own:
   existed. A version file is the movie's URL with `mediasourceid`. Every file of a movie with
   several sources says it has versions, the movie's own as the default, under the movie's
   unique ids (`metadata.Version`, kontell/xbmc #8), so the scan files one movie with a version
-  per file. A movie's refresh token takes its own source alone: a version that came or went
-  refreshed the movie, which Kodi files again under a new id. `Readback.owns` accepts the
+  per file. A further version's ids leave `kofinrefresh` out (`Version.of`): Kodi groups a
+  file under a movie only while no unique id type of the two differs
+  (`HasConflictingUniqueID`), and a Director's Cut put back on the server carried a token the
+  movie's row did not, became a movie of its own, and the refresh after it lost the extra. A
+  movie's refresh token takes its own source alone, without the source's name or streams
+  (Jellyfin labels the first source while there are versions, and the payload keeps a
+  source's streams only while there are several), so a version that comes or goes refreshes
+  nothing. Kodi 23's `RefreshMovie` keeps a movie's versions and extras and files it under a
+  new id (seen on the rig). `Readback.owns` accepts the
   movie's URL with or without the source, since the user may make a version the default;
   `Readback._prefer` lets the movie's own file win over a version row Kodi filed apart and
   keeps it as `version_rows`, which leave with the movie on removal. Two rows by the movie's
