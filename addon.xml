@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<addon id="plugin.video.kofin" name="Kofin" version="0.93.6" provider-name="kontell">
+<addon id="plugin.video.kofin" name="Kofin" version="0.95.0" provider-name="kontell">
   <requires>
-    <!-- Piers API floor measured in phase 0; capability checks are also required. -->
-    <import addon="xbmc.addon" version="21.90.802"/>
+    <!-- Kodi 23 alpha 1 onwards: this branch is the Kodi 23 build, and Piers
+         installs the api branch's (CLAUDE.md, Branches). The floor admits a
+         Kodi 23 without the core changes this build may use, so those still
+         need capability checks. -->
+    <import addon="xbmc.addon" version="22.90.701"/>
     <import addon="xbmc.python" version="3.0.1"/>
     <import addon="script.module.requests" version="2.22.0+matrix.1"/>
     <import addon="script.module.websocket" version="1.6.4"/>
