@@ -724,6 +724,12 @@ class Kodi:
         if kodi_id not in self.rows[kind]:
             raise RuntimeError("Kodi refused " + method)
         if verb == "Get":
+            if kind == "BoxSet" and self.rows[kind][kodi_id]["title"] not in {
+                r.get("set") for r in self.rows["Movie"].values()
+            }:
+                # GetSetInfo reads through GetSetsByWhere, which groups
+                # movie_view: a set no movie files is "Not found".
+                raise RuntimeError("Kodi refused " + method)
             return {result_key: copy.deepcopy(self.rows[kind][kodi_id])}
         if verb == "Set":
             if not self.accept_without_apply:
