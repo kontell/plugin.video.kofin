@@ -485,7 +485,7 @@ def finish_sets(native, pending, live_boxsets, errors):
             continue
         try:
             if title not in kept:
-                _remove_empty_set(native.store, item_id, title)
+                _remove_empty_set(native.store, item_id, listed)
         except InterruptedError:
             raise
         except Exception as error:
@@ -494,23 +494,25 @@ def finish_sets(native, pending, live_boxsets, errors):
         store.forget(item_id, pending[item_id][0])
 
 
-def _remove_empty_set(store, item_id, title):
+def _remove_empty_set(store, item_id, listed):
     """Remove the row Kodi keeps for a set none of its movies files any
-    more, by the id the collection was acknowledged under. Kodi numbers a
-    new set from the highest one left (``sets.idSet`` is a plain rowid), so
-    that id may name another set by now: the row goes only while it still
-    carries the collection's title. A row already gone, or never made (no
-    movie of the collection was filed), leaves nothing to do."""
+    more, by the id the collection was acknowledged under.
+
+    An emptied set is in no listing: GetMovieSets and GetMovieSetDetails
+    both read sets through the movies that file them (GetSetsByWhere), so
+    the row cannot be read back to confirm it is ours. What can be read is
+    that no set with movies holds the id (``listed``, this pass's set
+    readback). The row is removed only then, so a set of anyone's with a
+    movie is never touched, even after Kodi gave the id to a new set: it
+    numbers a new set from the highest one left (``sets.idSet`` is a plain
+    rowid). An empty set that is not ours is one Kodi's own clean would
+    delete. A row already gone, or never made (no movie of the collection
+    was filed), leaves nothing to do."""
     mapping = store.mapping(item_id)
     if mapping is None or not mapping.kodi_id:
         return
-    reply = kodirpc.call(
-        "VideoLibrary.GetMovieSetDetails",
-        {"setid": int(mapping.kodi_id), "properties": ["title"]},
-    )
-    found = reply.get("setdetails") if isinstance(reply, dict) else None
-    if not isinstance(found, dict):
+    setid = int(mapping.kodi_id)
+    if any(row.get("setid") == setid for row in listed.values()):
         return
-    if (found.get("title") or "").strip(metadata.ASCII_SPACE) != title:
-        return
-    rpc("VideoLibrary.RemoveMovieSet", {"setid": int(mapping.kodi_id)})
+    # Refused when the row is gone already: nothing is left to remove.
+    kodirpc.call("VideoLibrary.RemoveMovieSet", {"setid": setid})
