@@ -325,13 +325,18 @@ class Native:
         Once per profile, too, the extras folders of the movies with extras
         are bound, for the extras an earlier build filed; a scan binds the
         ones it files (scan_video), so no pass reads every acknowledgement
-        for them."""
+        for them. A movie acknowledged before the file list is told by its
+        payload, never by its assets token, which a movie with versions
+        alone has too. The setting is stored only after every folder is
+        bound, so a failed read or binding is tried again."""
         state = settings.get_str(MOVIE_BINDINGS_SETTING)
         extras: Set[str] = set()
         if state == EXTRAS_BINDINGS_STATE:
             entries = self.store.entries(kind="Movie")
         else:
-            entries, extras = self.store.movies_with_extras()
+            entries, extras = self.store.movies_with_extras(
+                lambda item: bool(metadata.special_features(item))
+            )
         folders = sorted(
             {paths.movie_dir(self.key, e.library, e.item_id) for e in entries.values()}
         )

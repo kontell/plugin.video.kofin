@@ -11,6 +11,8 @@ folder by name, binds it with folder names on, warms the cache and turns
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from kofin.sync.backends.api import metadata, paths
 from tests.unit.apifixtures import (  # noqa: F401
     LIB,
@@ -428,6 +430,91 @@ def test_the_extras_folder_of_a_movie_with_extras_is_bound_noupdate(
     store.unbind(extras)
     backend.bind_movie_folders()
     assert extras not in kodi.bindings
+
+
+def test_extras_filed_under_an_older_acknowledgement_are_bound_by_the_payload(
+    store, backend, kodi, monkeypatch
+):
+    """A build before the file list acknowledged the assets token alone, and
+    a movie whose token never moves is never planned again to gain the
+    list. Its extras folder is bound by what its payload lists: the token
+    cannot tell extras from versions, and a movie with versions alone gets
+    no extras binding."""
+    from kofin.sync.backends.api import native as native_module
+    from tests.unit.fakes import FakeAddon
+
+    FakeAddon.store = {}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    versions_only = movie(
+        "c",
+        MediaSources=[
+            {"Id": "s1", "Name": "Director's Cut", "Container": "mkv"},
+            {"Id": "s2", "Name": "Theatrical Cut", "Container": "mkv"},
+        ],
+    )
+    store.publish([assets_movie(), movie("b"), versions_only], library=LIB)
+    backend.reconcile()
+    a, c = (paths.extras_dir(store.namespace, LIB, i) for i in "ac")
+    for item_id in "ac":
+        mapping = store.mapping(item_id)
+        legacy = {k: v for k, v in mapping.applied.items() if k != "asset_files"}
+        assert legacy["assets"]
+        record = store.records(kind="Movie", item_ids=[item_id])[item_id]
+        assert store.remember(
+            item_id, record.generation, mapping.kodi_id, legacy, "Movie"
+        )
+    kodi.bindings.pop(a)
+    store.unbind(a)
+    FakeAddon.store[native_module.MOVIE_BINDINGS_SETTING] = (
+        native_module.MOVIE_BINDINGS_STATE
+    )
+    kodi.calls.clear()
+    backend.bind_movie_folders()
+    assert [p["path"] for p in methods(kodi, "VideoLibrary.SetSourceContent")] == [a]
+    assert kodi.noupdate[a] is True and c not in kodi.bindings
+    assert (
+        FakeAddon.store[native_module.MOVIE_BINDINGS_SETTING]
+        == native_module.EXTRAS_BINDINGS_STATE
+    )
+
+
+def test_a_failed_extras_binding_is_tried_again(store, backend, kodi, monkeypatch):
+    """The setting that ends the one-off read is stored after the folders
+    are bound, so a binding Kodi refused is asked again."""
+    from kofin.sync.backends.api import native as native_module
+    from tests.unit.fakes import FakeAddon
+
+    FakeAddon.store = {}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    store.publish([assets_movie()], library=LIB)
+    backend.reconcile()
+    extras = paths.extras_dir(store.namespace, LIB, "a")
+    kodi.bindings.pop(extras)
+    store.unbind(extras)
+    FakeAddon.store[native_module.MOVIE_BINDINGS_SETTING] = (
+        native_module.MOVIE_BINDINGS_STATE
+    )
+    bind_folders = backend.bind_folders
+
+    def refuse_extras(content, folders, **kwargs):
+        if extras in folders:
+            raise RuntimeError("refused")
+        return bind_folders(content, folders, **kwargs)
+
+    monkeypatch.setattr(backend, "bind_folders", refuse_extras)
+    with pytest.raises(RuntimeError):
+        backend.bind_movie_folders()
+    assert (
+        FakeAddon.store[native_module.MOVIE_BINDINGS_SETTING]
+        == native_module.MOVIE_BINDINGS_STATE
+    )
+    monkeypatch.setattr(backend, "bind_folders", bind_folders)
+    backend.bind_movie_folders()
+    assert kodi.bindings[extras] == "movies" and kodi.noupdate[extras] is True
+    assert (
+        FakeAddon.store[native_module.MOVIE_BINDINGS_SETTING]
+        == native_module.EXTRAS_BINDINGS_STATE
+    )
 
 
 def test_new_extras_rescan_the_folder_once_and_a_plain_change_does_not(
