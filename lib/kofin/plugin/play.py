@@ -88,6 +88,36 @@ TEMPO_METHODS = frozenset({"DirectPlay", "DirectStream", "Transcode"})
 QUEUE_SETTING = "videoplayer.queuetimesize"  # tenths of a second
 TRANSCODE_MIN_QUEUE_TENTHS = 40  # 4.0s, clear of the usual 3s segment
 
+# Chapter images: the chapters dialog draws small tiles, and the server
+# resizes before it sends.
+CHAPTER_IMAGE_WIDTH = 640
+CHAPTER_METHODS = frozenset({"DirectPlay", "DirectStream"})
+CHAPTER_TYPES = frozenset({"Movie", "Episode", "MusicVideo", "Video"})
+
+
+def chapter_art(
+    api: Api, item: JsonDict, source: JsonDict, method: str
+) -> Dict[str, str]:
+    """The server's chapter images as the resolved item's ``chapter<n>``
+    art, which Kodi 23's chapters dialog shows in place of the frames it
+    would extract (kontell/xbmc #11); its extractor refuses an http source.
+
+    A direct play only, since a transcode's stream carries no chapters, and
+    the item's own file only: the server extracts chapter images from the
+    item's primary source, and a version's chapters need not match them."""
+    if method not in CHAPTER_METHODS or item.get("Type") not in CHAPTER_TYPES:
+        return {}
+    if source.get("Id") not in (None, "", item.get("Id")):
+        return {}
+    art: Dict[str, str] = {}
+    for index, chapter in enumerate(item.get("Chapters") or []):
+        tag = chapter.get("ImageTag") if isinstance(chapter, dict) else None
+        if tag:
+            art["chapter%d" % (index + 1)] = api.chapter_image_url(
+                item["Id"], index, tag, CHAPTER_IMAGE_WIDTH
+            )
+    return art
+
 
 def _size_player_queue(session: JsonDict, play_method: str) -> Optional[float]:
     """Set the player queue for the route about to play; its size in seconds.
@@ -861,6 +891,12 @@ def play(request: Request) -> None:
         # the song's database id has to be restated or the link back to the
         # Kodi row is lost for anything reading the tag.
         li.getMusicInfoTag().setDbId(int(dbid), "song")
+    if not buildconfig.legacy_features():
+        # The SQL build writes chapter thumbs to the texture cache itself
+        # (service/chapters.py).
+        chapters = chapter_art(api, item, source, method)
+        if chapters:
+            li.setArt(chapters)
     li.setPath(url)
     mime = mime_for(source, method)
     if mime:

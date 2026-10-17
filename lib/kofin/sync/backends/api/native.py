@@ -21,7 +21,7 @@ import xbmc
 from kofin.core import memory, settings, state
 from kofin.core.log import Logger
 from kofin.sync.catalogue import BackendMismatch
-from . import companion, metadata, paths, progress, removal
+from . import metadata, paths, progress, removal
 from .kinds import MUSIC_FIRST, ORDER, rpc, rpc_batch
 from .musicpass import MusicPass
 from .patch import Applier
@@ -850,17 +850,15 @@ class Native:
                 errors,
                 kinds=[kind for kind in ORDER if kind not in early],
             )
-            # Sets, bindings and the companion's requests: nothing counted.
+            # Sets and bindings: nothing counted.
             self.progress.working(progress.WAITING)
             removal.finish_sets(self, pending, boxsets, errors)
             try:
                 self.bind_movie_folders()
             except Exception:
                 LOG.exception("movie folder bindings not completed")
-            # The requests are built from the stored mappings, and what the
-            # companion reports done is written onto them: every
-            # acknowledgement of this pass is in the store before either.
-            # Applier.run leaves none queued; this is that, said here.
+            # Applier.run leaves no acknowledgement queued; this is that,
+            # said here.
             applier.commit()
             if applier.badges_moved:
                 # After every setter of the pass, and once for all of them.
@@ -870,12 +868,6 @@ class Native:
                     raise
                 except Exception:
                     LOG.exception("home widgets not told of a download's badge")
-            try:
-                # What this pass could not do and the companion add-on can:
-                # published for it, confirmed by the next readback.
-                companion.publish(self)
-            except Exception:
-                LOG.exception("companion requests not published")
             if errors:
                 raise RuntimeError(
                     "%d native operations remain pending: %s" % (len(errors), errors[0])
@@ -905,9 +897,8 @@ class Native:
         pass, pending before that movie is acknowledged.
 
         A set is Kodi's to make and to drop. It goes with the last movie
-        that names it (the companion deletes the empty row, as a clean does)
-        and a scan or a movie's patch makes it again from the name alone,
-        with no art and no plot. The collection's payload moves with none of
+        that names it, and a scan or a movie's patch makes it again from the
+        name alone, with no art and no plot. The collection's payload moves with none of
         that, so nothing but its movies can bring it here: a library
         imported again left every set of it bare, with only the repair pass
         after the next daily enumeration to compare them. Planned, a set is

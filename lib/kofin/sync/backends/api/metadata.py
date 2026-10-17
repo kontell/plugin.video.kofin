@@ -41,6 +41,8 @@ NO_YEAR = 1
 FAVORITE_TAG = {
     "Movie": "Favorite movies",
     "Series": "Favorite tvshows",
+    # Kodi 23 keeps an episode's tags (kontell/xbmc #12).
+    "Episode": "Favorite episodes",
     "MusicVideo": "Favorite musicvideos",
 }
 # Kodi's sort position for a special that airs after a whole season.
@@ -197,16 +199,16 @@ def assets_token(item) -> str:
 def asset_files(item, key, library) -> Optional[Dict[str, Any]]:
     """The files a movie's folder lists beyond its own, by URL: its version
     files with the source's name, its extras. None for a movie with
-    neither. Acknowledged beside the assets token so the companion can be
-    told which asset rows a movie still has (``companion.RETIRE_ASSETS``)
-    without a payload being loaded for it."""
+    neither. Acknowledged beside the assets token, so what a movie's folder
+    listed is known without a payload being loaded for it: which movies
+    have an extras folder to bind (``Native.bind_movie_folders``)."""
     sources = version_sources(item)
     features = special_features(item)
     if not sources and not features:
         return None
     item_id = str(item.get("Id") or "")
-    # The label, not the raw name: this is the name the companion files the
-    # version under, and a name equal to the file's stem is no label
+    # The label, not the raw name: this is the name the version is filed
+    # under, and a name equal to the file's stem is no label
     # (version_label). The token above keeps the raw name, so a rename
     # still moves it.
     return {
@@ -221,73 +223,9 @@ def asset_files(item, key, library) -> Optional[Dict[str, Any]]:
     }
 
 
-# A movie that lost every version and extra keeps an empty entry, so the
-# companion is told its asset rows are gone too.
+# A movie that lost every version and extra keeps an empty entry, so that
+# its last acknowledgement does not still list them.
 NO_ASSET_FILES: Dict[str, Any] = {"versions": [], "extras": []}
-
-# Kodi's StreamFlags (StreamInfo.h) a Jellyfin stream can state. No public
-# setter carries them (ledger S09); the companion writes them to the
-# streamdetails rows the scanner filed (companion.STREAM_FLAGS).
-STREAM_FLAG_DEFAULT = 0x0001
-STREAM_FLAG_FORCED = 0x0040
-STREAM_FLAG_HEARING_IMPAIRED = 0x0080
-
-
-def _stream_bits(item) -> Dict[str, List[int]]:
-    """The flag bits of a file's audio and subtitle streams, in the order
-    the scanner filed them (the first media source's, as the ListItem lists
-    them)."""
-    sources = item.get("MediaSources") or []
-    raw = (
-        (
-            sources[0].get("MediaStreams")
-            if sources and isinstance(sources[0], dict)
-            else None
-        )
-        or item.get("MediaStreams")
-        or []
-    )
-    result: Dict[str, List[int]] = {"audio": [], "subtitle": []}
-    for stream in raw:
-        if not isinstance(stream, dict):
-            continue
-        kind = {"Audio": "audio", "Subtitle": "subtitle"}.get(str(stream.get("Type")))
-        if kind is None:
-            continue
-        bits = 0
-        if stream.get("IsDefault"):
-            bits |= STREAM_FLAG_DEFAULT
-        if stream.get("IsForced"):
-            bits |= STREAM_FLAG_FORCED
-        if stream.get("IsHearingImpaired"):
-            bits |= STREAM_FLAG_HEARING_IMPAIRED
-        result[kind].append(bits)
-    return result
-
-
-def stream_flags(item) -> Optional[Dict[str, List[int]]]:
-    """The flag bits of a file's audio and subtitle streams (``_stream_bits``),
-    or None when every stream is unflagged: a file that never had a flag is
-    asked nothing of the companion."""
-    result = _stream_bits(item)
-    if not any(result["audio"]) and not any(result["subtitle"]):
-        return None
-    return result
-
-
-def cleared_stream_flags(item) -> Optional[Dict[str, List[int]]]:
-    """A zero for every audio and subtitle stream of a file: what is asked
-    of the companion once a file that had flags has none, since the bits
-    it wrote stay on the rows until they are written over. None when the
-    file lists no such stream, where there is no row to name: the bits are
-    matched to rows by position, so a request naming none is refused by the
-    companion for as long as a row stands, and none stands for long, since
-    a change of streams moves the refresh token and the scanner files the
-    file's stream rows again from a listing that has neither kind."""
-    result = _stream_bits(item)
-    if not result["audio"] and not result["subtitle"]:
-        return None
-    return {kind: [0] * len(bits) for kind, bits in result.items()}
 
 
 def item_separator():
@@ -315,9 +253,10 @@ def _token(value) -> str:
 def refresh_fields(item, seasons=()) -> Dict[str, Any]:
     """Fields with no complete public setter: a change here means a refresh.
 
-    A show's season plots have ingestion only (``addSeason``), and an
-    episode's sort numbering has no setter, so both join the token the way
-    cast and streams did for movies.
+    An episode's sort numbering has no setter, so it joins the token the way
+    cast and streams did for movies. A show's seasons join it by number
+    alone: a season's name and plot are its own row's to patch
+    (``SetSeasonDetails`` takes a plot from kontell/xbmc #6).
     """
     kind = item.get("Type")
     keys: Tuple[str, ...] = ("People",)
@@ -333,7 +272,7 @@ def refresh_fields(item, seasons=()) -> Dict[str, Any]:
     value: Dict[str, Any] = {key: item.get(key) for key in keys}
     if kind == "Series":
         value["Seasons"] = sorted(
-            (int(s.get("IndexNumber") or 0), s.get("Overview") or "")
+            int(s.get("IndexNumber") or 0)
             for s in seasons
             if s.get("IndexNumber") is not None
         )
@@ -647,7 +586,7 @@ def details(
     data["uniqueid"] = unique_ids(item, key, seasons)
     if kind != "Season":
         data["runtime"] = int(item.get("RunTimeTicks") or 0) // 10000000
-    if kind in ("Movie", "Series", "MusicVideo"):
+    if kind in FAVORITE_TAG:
         data["tag"] = tags(item, library, kind)
     if kind in ("Movie", "Series", "Episode"):
         data["originaltitle"] = item.get("OriginalTitle") or ""
@@ -708,6 +647,12 @@ def details(
             "art": data["art"],
             "uniqueid": data["uniqueid"],
         }
+        # No opinion on an empty plot: Kodi's season setter leaves the
+        # stored one in place (SetDetailsForSeason writes no empty plot), so
+        # an empty desired plot would differ from the row on every pass.
+        plot = (item.get("Overview") or "").strip(ASCII_SPACE)
+        if plot:
+            data["plot"] = plot
         return data
     _clean_strings(
         data,
@@ -1031,7 +976,8 @@ def _streams(tag, item):
 # acknowledgement made under the old one is compared again and not taken
 # on trust (inputs_token). 2: an episode's art without its show's poster.
 # 3: the download badge on the show and the season of a downloaded episode.
-SERIALIZER = 3
+# 4: a season's plot and an episode's tags (Kodi 23).
+SERIALIZER = 4
 
 
 def inputs_token(

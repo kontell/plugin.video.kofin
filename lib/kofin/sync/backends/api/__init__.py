@@ -1,10 +1,16 @@
 """Public-API backend: complete video directories and durable staged batches."""
 
+import os
+import shutil
 from contextlib import contextmanager
 
+from kofin.core.log import Logger
+from kofin.sync import private
 from kofin.sync.backend import ApplyResult
 from kofin.sync.catalogue import claim_backend
 from kofin.sync.private import Database
+
+LOG = Logger(__name__)
 
 SUPPORTED = (
     "Movie",
@@ -25,6 +31,7 @@ class APIBackend:
     def initialize(self):
         with Database() as db:
             claim_backend(db.cursor, self.name)
+        forget_companion()
 
     @contextmanager
     def batch(self, kind, server, library=None, **kwargs):
@@ -40,6 +47,18 @@ class APIBackend:
         from .capabilities import inspect
 
         return inspect()
+
+
+def forget_companion():
+    """Delete what the Piers build kept for the companion add-on: its request
+    document, its set journal and its staged chapter images. A companion
+    still installed reads a missing document as one asking nothing, and on
+    Kodi 23 it refuses every database request anyway (its schema gate opens
+    at MyVideos149)."""
+    folder = os.path.join(private.addon_data_path(), "companion")
+    if os.path.isdir(folder):
+        shutil.rmtree(folder, ignore_errors=True)
+        LOG.info("removed the companion add-on's requests")
 
 
 class Batch:

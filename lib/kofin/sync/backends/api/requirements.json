@@ -1,8 +1,8 @@
 {
-  "minimum_kodi_major": 22,
+  "minimum_kodi_major": 23,
   "system_addons": {
-    "xbmc.addon": "21.90.802",
-    "xbmc.python": "3.0.1"
+    "xbmc.addon": "22.90.701",
+    "xbmc.python": "3.2.0"
   },
   "methods": {
     "VideoLibrary.SetSourceContent": {
@@ -95,7 +95,8 @@
       "firstaired": [],
       "director": [],
       "writer": [],
-      "runtime": []
+      "runtime": [],
+      "tag": []
     },
     "VideoLibrary.RefreshEpisode": {
       "episodeid": []
@@ -191,7 +192,8 @@
     "VideoLibrary.SetSeasonDetails": {
       "seasonid": [],
       "title": [],
-      "art": []
+      "art": [],
+      "plot": []
     },
     "VideoLibrary.SetMovieSetDetails": {
       "setid": [],
@@ -218,6 +220,9 @@
     "AudioLibrary.GetArtistDetails": {
       "artistid": [],
       "properties": []
+    },
+    "VideoLibrary.RemoveMovieSet": {
+      "setid": []
     }
   },
   "python": {
@@ -228,7 +233,9 @@
       "addSeason",
       "setSortSeason",
       "setSortEpisode",
-      "setTags"
+      "setTags",
+      "setHasVideoVersions",
+      "setIsDefaultVideoVersion"
     ],
     "python_music_methods": [
       "setTitle",
@@ -236,15 +243,20 @@
       "setAlbum",
       "setMusicBrainzTrackID",
       "setPlayCount",
-      "setLastPlayed"
+      "setLastPlayed",
+      "setDateAdded"
+    ],
+    "python_stream_methods": [
+      "AudioStreamDetail.setFlags",
+      "SubtitleStreamDetail.setFlags"
     ]
   },
   "behavioral_gates": [
-    "Run the required behavioral probes on the approved P1D Piers Flatpak and record its exact build identity.",
+    "Run the required behavioral probes on a Kodi 23 build carrying kontell/xbmc #1-#13 and record its exact build identity.",
     "Music requires loaded tags, complete published snapshots, metadata rescan policy and post-import userdata.",
     "Piers deletes tracks on failed/partial plugin listing; native music rollout requires recovery tests and an explicit reliability decision.",
     "Refresh may change native IDs and overwrite userdata: reconcile and restore before reporting success.",
     "ScanFinished and immediate OK are insufficient without ownership-checked readback.",
-    "Future v23 builds require new behavioral qualification; version/method presence alone is insufficient."
+    "Each new Kodi 23 build requires behavioral qualification; version/method presence alone is insufficient."
   ]
 }

@@ -10,7 +10,7 @@ def check(capture, contract, allow_dirty=False):
     errors = []
     application = capture.get("application", {}).get("version", {})
     if application.get("major", 0) < contract["minimum_kodi_major"]:
-        errors.append("Kodi 22 Piers or later is required")
+        errors.append("Kodi %d or later is required" % contract["minimum_kodi_major"])
     for addon, minimum in contract["system_addons"].items():
         try:
             adequate = version(
@@ -20,8 +20,8 @@ def check(capture, contract, allow_dirty=False):
             adequate = False
         if not adequate:
             errors.append(addon + " >= " + minimum + " is required")
-    # Build provenance is diagnostic only. The approved Piers Flatpak carries
-    # a dirty revision; actual public capabilities decide whether sync can run.
+    # Build provenance is diagnostic only. A test build carries a dirty
+    # revision; actual public capabilities decide whether sync can run.
     dirty = "dirty" in application.get("revision", "").lower()
     for method, parameters in contract["methods"].items():
         definition = capture.get("methods", {}).get(method)

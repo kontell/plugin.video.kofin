@@ -5,8 +5,8 @@ The kind table says how each kind leaves. A row kind has its own remove call
 and one readback per scope confirms it. A parent kind -- a season, or an
 episode whose show is going too -- leaves with the show, and is acknowledged
 only once the show's removal is confirmed. A members kind -- a set -- leaves
-once the movies that filed it have been patched off it and Kodi's clean has
-dropped the empty row; that happens after the apply pass, in
+once the movies that filed it have been patched off it and its empty row has
+been removed by its id; that happens after the apply pass, in
 ``finish_sets``. A rescan kind -- a song, and the album and artist Kodi
 derives from it -- leaves through the complete listing of its directory: the
 audio API has no remove call, so the directory is scanned without the song
@@ -15,15 +15,14 @@ with their songs, since Kodi's own cleanup drops their empty rows. Nothing is
 forgotten on the strength of an accepted call.
 """
 
-import functools
 import threading
 import time
 from typing import Any, Dict, List, Set, Tuple
 
+from kofin.core import kodirpc
 from kofin.core.log import Logger
 from kofin.sync import private
 from . import metadata, paths, progress
-from . import companion
 from .kinds import KINDS, rpc
 from .store import Entry
 
@@ -209,43 +208,6 @@ def clear_library(native, library, kinds, rows=0):
     native.store.unbind(root)
 
 
-def _listed_sets(native) -> Set[str]:
-    """The titles of the sets Kodi lists: those a movie links."""
-    native.readback.forget("BoxSet")
-    return set(native.readback.scope("BoxSet"))
-
-
-def _release_sets(native, before):
-    """Let go of the sets a cleared movie library emptied, without a clean.
-
-    Kodi's clean was asked for here, "scoped" to the library's root. The
-    scope holds for the files the clean tests and not for the stage after
-    it: every path with content set, of every library, is asked of the
-    add-on that owns it, one plugin call per bound folder, and the path row
-    of one that goes unanswered is deleted (CVideoDatabase::CleanDatabase,
-    "Cleaning paths that don't exist and have content set"). This backend
-    binds every movie and show folder, and Kodi has one reusable interpreter
-    for plugin calls: on a desktop a second plugin request arrived in the
-    middle of such a clean, one folder's question was never asked, and a
-    movie of a library that stayed lost its folder's row and left every
-    listing. So no clean. An emptied set is the companion's to delete (it
-    deletes one only when it is empty); without the companion the row
-    stays, in no listing, until a clean the viewer asks for.
-    """
-    emptied = sorted(before - _listed_sets(native))
-    if not emptied:
-        return
-    if companion.present() is None:
-        LOG.info(
-            "%d collection(s) the removal emptied stay in Kodi, unlisted: "
-            "no companion to delete them",
-            len(emptied),
-        )
-        return
-    for title in emptied:
-        companion.journal_set(title)
-
-
 def _owed(library, what, call):
     """Do something a library is owed once its rows are gone, and never
     fail its removal for it: failed, the library was cleared a second time
@@ -282,7 +244,8 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
         kinds = {placement[i].kind for i in members}
         try:
             began = time.monotonic()
-            sets = _listed_sets(native) if "Movie" in kinds else set()
+            # Kodi deletes the sets the removal empties itself, in the same
+            # transaction (kontell/xbmc #3).
             clear_library(
                 native,
                 library,
@@ -301,8 +264,6 @@ def remove(native, pending, entries, tombstones, errors) -> Set[str]:
             for item_id in members:
                 _fail(store, pending, item_id, error, errors)
             continue
-        if sets:
-            _owed(library, "its sets", functools.partial(_release_sets, native, sets))
         _owed(library, "its event", native.library_event)
         # One transaction: let go of one at a time, a library of 6,000 items
         # was 6,000 commits, each collecting the catalogue's closed intervals.
@@ -497,8 +458,8 @@ def finish_sets(native, pending, live_boxsets, errors):
     Runs after the apply pass, which re-patched the former members. A title
     still listed by Kodi while no live collection of ours carries it means a
     member has not let go yet, so the removal stays pending. Once the title
-    is gone from the listing, one clean of the namespace root drops the
-    empty set row Kodi keeps, and only then is the store told.
+    is gone from the listing, the empty set row Kodi keeps is removed by its
+    id (``_remove_empty_set``), and only then is the store told.
     """
     store = native.store
     waiting = [
@@ -511,11 +472,6 @@ def finish_sets(native, pending, live_boxsets, errors):
     native.readback.forget("BoxSet")
     listed = native.readback.scope("BoxSet")
     kept = {(b.get("Name") or "").strip(metadata.ASCII_SPACE) for b in live_boxsets}
-    cleaned = False
-    # The companion deletes the one empty row by title (companion.REMOVE_SET);
-    # without it the clean of the root is what drops it, at the cost of a
-    # check_exists per file under the root.
-    delegated = companion.present() is not None
     for item_id, payload in waiting:
         title = (payload.get("Name") or "").strip(metadata.ASCII_SPACE)
         if title in listed and title not in kept:
@@ -528,17 +484,35 @@ def finish_sets(native, pending, live_boxsets, errors):
             )
             continue
         try:
-            if title not in kept and delegated:
-                companion.journal_set(title)
-            elif not cleaned and title not in kept:
-                rpc(
-                    "VideoLibrary.Clean",
-                    {"showdialogs": False, "directory": paths.root(native.key)},
-                )
-                cleaned = True
+            if title not in kept:
+                _remove_empty_set(native.store, item_id, listed)
         except InterruptedError:
             raise
         except Exception as error:
             _fail(store, pending, item_id, error, errors)
             continue
         store.forget(item_id, pending[item_id][0])
+
+
+def _remove_empty_set(store, item_id, listed):
+    """Remove the row Kodi keeps for a set none of its movies files any
+    more, by the id the collection was acknowledged under.
+
+    An emptied set is in no listing: GetMovieSets and GetMovieSetDetails
+    both read sets through the movies that file them (GetSetsByWhere), so
+    the row cannot be read back to confirm it is ours. What can be read is
+    that no set with movies holds the id (``listed``, this pass's set
+    readback). The row is removed only then, so a set of anyone's with a
+    movie is never touched, even after Kodi gave the id to a new set: it
+    numbers a new set from the highest one left (``sets.idSet`` is a plain
+    rowid). An empty set that is not ours is one Kodi's own clean would
+    delete. A row already gone, or never made (no movie of the collection
+    was filed), leaves nothing to do."""
+    mapping = store.mapping(item_id)
+    if mapping is None or not mapping.kodi_id:
+        return
+    setid = int(mapping.kodi_id)
+    if any(row.get("setid") == setid for row in listed.values()):
+        return
+    # Refused when the row is gone already: nothing is left to remove.
+    kodirpc.call("VideoLibrary.RemoveMovieSet", {"setid": setid})

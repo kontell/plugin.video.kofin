@@ -22,7 +22,6 @@ TEXT = {
     30863: "Pending",
     30864: "Failed",
     30865: "Last full update",
-    30866: "Companion add-on",
     30867: "Repair to add codec details",
     30868: "Kodi cannot import",
 }
@@ -50,11 +49,10 @@ def _file(store, kind, count):
         assert store.remember(item_id, record.generation, number + 1, {}, kind)
 
 
-def _rows(store, document=None, companion="0.1.0", scanner=2):
+def _rows(store, document=None, scanner=2):
     return status.rows(
         document or {},
         status.snapshot(store, scanner),
-        companion,
         TEXT.__getitem__,
         LABELS.__getitem__,
         clock=time.gmtime,
@@ -81,7 +79,6 @@ def test_a_library_is_counted_by_what_a_viewer_counts(store, monkeypatch):
         "Shows:  1 / 3 Episodes",
     ]
     assert rows[4].startswith("Pending:  ")
-    assert rows[-1] == "Companion add-on:  0.1.0"
 
 
 def test_what_kodi_cannot_file_is_counted_apart(store, monkeypatch):
@@ -115,8 +112,6 @@ def test_the_state_is_shown_with_when_it_began(store, monkeypatch):
     assert rows[0] == "Sync status:  Updating library"
     rows = _rows(store, {"state": "Updating library", "since": 86400.0 + 3660})
     assert rows[0] == "Sync status:  Updating library (1970-01-02 01:01)"
-    assert rows[-1] == "Companion add-on:  0.1.0"
-    assert _rows(store, companion=None)[-1] == "Companion add-on:  —"
 
 
 def test_a_library_listed_for_the_first_time_is_named_before_it_has_a_row(
@@ -240,7 +235,7 @@ def _dialog(monkeypatch, store, answers, backend="api"):
     from kofin import buildconfig
     from kofin.plugin import actions
     from kofin.plugin.router import Request
-    from kofin.sync.backends.api import companion, identity
+    from kofin.sync.backends.api import identity
     from tests.unit.fakes import FakeDialog
 
     dialog = FakeDialog()
@@ -252,7 +247,6 @@ def _dialog(monkeypatch, store, answers, backend="api"):
     monkeypatch.setattr(actions.settings, "localized", lambda i: "L%d" % i)
     monkeypatch.setattr(status.xbmc, "getLocalizedString", lambda i: "K%d" % i)
     monkeypatch.setattr(identity, "current_store", lambda: store)
-    monkeypatch.setattr(companion, "present", lambda: None)
     actions.library_status(Request("plugin://x", -1, {}))
     return dialog, shown
 

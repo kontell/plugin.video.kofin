@@ -3,11 +3,11 @@
 import json
 from pathlib import Path
 
+import xbmc
 import xbmcaddon
 import xbmcgui
 
 from kofin.core import kodirpc
-from . import companion
 from .contract import check
 
 
@@ -37,6 +37,12 @@ def inspect(allow_dirty=False):
         ("python_music_methods", item.getMusicInfoTag()),
     ):
         capture[key] = {name: hasattr(tag, name) for name in contract["python"][key]}
+    # Stream details are classes the listing constructs, not tag methods:
+    # "AudioStreamDetail.setFlags" names the class and the method.
+    capture["python_stream_methods"] = {
+        name: hasattr(getattr(xbmc, name.split(".")[0], None), name.split(".")[1])
+        for name in contract["python"]["python_stream_methods"]
+    }
     report = check(capture, contract, allow_dirty=allow_dirty)
     report.update(
         {
@@ -58,10 +64,6 @@ def inspect(allow_dirty=False):
                 else []
             ),
             "application": capture["application"],
-            # The companion add-on closes what public interfaces cannot
-            # (companion.py); its absence is a feature reduced, never a
-            # fault, and its last status says what it serves and refuses.
-            "companion": companion.status_block(),
         }
     )
     return report

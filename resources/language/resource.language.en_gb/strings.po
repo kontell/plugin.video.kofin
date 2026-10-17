@@ -2426,6 +2426,9 @@ msgctxt "#30865"
 msgid "Last full update"
 msgstr ""
 
+# 30866 — retired on master with the companion add-on, which a Kodi 23 with
+# the kontell/xbmc changes does not need. Kept, never reused, for the reason
+# given at #30744; the api branch still shows it.
 msgctxt "#30866"
 msgid "Companion add-on"
 msgstr ""
