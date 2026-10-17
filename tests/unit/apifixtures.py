@@ -270,7 +270,7 @@ def kodi(store, monkeypatch):
         native,
         "Monitor",
         lambda: SimpleNamespace(
-            finished=0, music_finished=0, waitForAbort=lambda _: False
+            finished=0, music_finished=0, cleaned=0, waitForAbort=lambda _: False
         ),
     )
     fake.builtins = []

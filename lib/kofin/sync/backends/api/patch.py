@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import unquote
 
 from kofin.core.log import Logger
-from . import metadata
+from . import metadata, paths
 from .kinds import (
     BATCH,
     DERIVED,
@@ -61,6 +61,28 @@ def _with_asset_files(applied, assets, files, previous=None):
     elif had and applied.get("asset_files") != metadata.NO_ASSET_FILES:
         applied = dict(applied, asset_files=metadata.NO_ASSET_FILES)
     return applied
+
+
+def _listed(asset_files) -> Set[str]:
+    """Every URL an acknowledged file list names."""
+    if not isinstance(asset_files, dict):
+        return set()
+    return {str(entry[0]) for entry in asset_files.get("versions") or []} | {
+        str(url) for url in asset_files.get("extras") or []
+    }
+
+
+def assets_dropped(previous, applied) -> bool:
+    """Whether a version file or an extra the movie's folder listed is no
+    longer listed. The folder's scan adds and never removes, so such a row
+    stays in Kodi until a clean asks the add-on about it (provider.exists).
+    An acknowledgement older than the file list names no files: a token
+    that moved off a non-empty one may have lost some."""
+    if "asset_files" not in previous:
+        return bool(previous.get("assets")) and previous.get("assets") != applied.get(
+            "assets"
+        )
+    return bool(_listed(previous["asset_files"]) - _listed(applied.get("asset_files")))
 
 
 class Patch:
@@ -112,8 +134,18 @@ class Applier:
         # Whether a patch of this pass puts a download's badge on a row or
         # takes it off: Kodi announces neither (Native.announce_writes).
         self.badges_moved = False
+        # Folders of movies whose listing dropped a version file or an
+        # extra this pass: cleaned once the pass has applied
+        # (Native.retire_assets).
+        self.asset_folders: Set[str] = set()
 
     # -- batches -------------------------------------------------------------
+
+    def _note_dropped_assets(self, record, previous, applied):
+        if record.kind == "Movie" and assets_dropped(previous, applied):
+            self.asset_folders.add(
+                paths.movie_dir(self.key, record.library, record.item_id)
+            )
 
     def ack(self, item_id, generation, kodi_id, applied, kind):
         self._acks.append((item_id, generation, kodi_id, applied, kind))
@@ -466,6 +498,7 @@ class Applier:
             if assets is not None and previous.get("assets", "") != assets:
                 acked = dict(previous, assets=assets)
             acked = _with_asset_files(acked, assets, files, previous)
+            self._note_dropped_assets(record, previous, acked)
             self.ack(record.item_id, record.generation, kodi_id, acked, kind)
             return None
         desired = metadata.details(
@@ -502,6 +535,7 @@ class Applier:
         if assets is not None:
             applied["assets"] = assets
         applied = _with_asset_files(applied, assets, files, previous)
+        self._note_dropped_assets(record, previous, applied)
         compare = merge(kind, desired, row, previous.get("owned", {}))
         if kind in PLAYABLE:
             applied["userdata"] = metadata.userdata(record.item)

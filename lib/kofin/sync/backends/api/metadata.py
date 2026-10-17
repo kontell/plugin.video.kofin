@@ -11,7 +11,7 @@ full premiere date -- and ``details`` speaks that representation.
 import hashlib
 import time
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Tuple
 
 import xbmc
 import xbmcgui
@@ -270,6 +270,24 @@ def refresh_fields(item, seasons=()) -> Dict[str, Any]:
             "IndexNumberEnd",
         )
     value: Dict[str, Any] = {key: item.get(key) for key in keys}
+    if kind == "Movie" and isinstance(value.get("MediaSources"), list):
+        # A movie's row is its own file's. Its further sources are its
+        # version files, filed by its folder's scan and retired by a clean
+        # of the folder (Native.retire_assets): a version that came or went
+        # refreshed the movie, which Kodi files again under a new id. So
+        # did the first source's name, which Jellyfin makes a label while
+        # the movie has versions and the file's stem when it has none, and
+        # its streams, which the payload keeps on the source only while
+        # there are several (compact): the item's own streams are the
+        # token's either way.
+        value["MediaSources"] = [
+            (
+                {k: v for k, v in source.items() if k not in ("Name", "MediaStreams")}
+                if isinstance(source, dict)
+                else source
+            )
+            for source in value["MediaSources"][:1]
+        ]
     if kind == "Series":
         value["Seasons"] = sorted(
             int(s.get("IndexNumber") or 0)
@@ -1057,6 +1075,27 @@ def hash_date(value: str) -> str:
     return day.strftime("%Y-%m-%dT00:00:00Z")
 
 
+class Version(NamedTuple):
+    """A file of a movie with several media sources, as its scanner row
+    says so: the source's label, whether it is the movie's own file, and
+    the movie's unique ids (not the source's, whose streams move the
+    refresh token). A further version's ids leave out ``kofinrefresh``
+    (``Version.of``): Kodi groups a file under a movie only while no unique
+    id type of the two differs (``HasConflictingUniqueID``), and the token
+    the movie's row was filed under need not be the one a version listed
+    later carries."""
+
+    label: str
+    default: bool
+    ids: Dict[str, str]
+
+    @classmethod
+    def of(cls, label: str, default: bool, ids: Dict[str, str]) -> "Version":
+        if not default:
+            ids = {k: v for k, v in ids.items() if k != "kofinrefresh"}
+        return cls(label, default, ids)
+
+
 def listitem(
     item,
     server,
@@ -1066,12 +1105,18 @@ def listitem(
     seasons=(),
     episodes=None,
     set_name=None,
+    version: Optional[Version] = None,
 ):
     """A scanner row: everything ``details`` wants, through the InfoTag.
 
     No zero resume point is ever stamped: the scanner persists any *set*
     point as a bookmark, and the in-progress rule for movies and episodes
     alike is that row's existence.
+
+    A ``version`` row says it is one of the movie's versions: a plugin
+    item's tag takes the NFO branch of RetrieveInfoForMovie, which groups a
+    file under the movie its unique ids name only when the tag says it has
+    versions (kontell/xbmc #8).
     """
     kind = item.get("Type", "Movie")
     if kind == "Audio":
@@ -1122,7 +1167,12 @@ def listitem(
     if data.get("set"):
         # The scanner files the set at import; no patch per member later.
         tag.setSet(data["set"])
-    tag.setUniqueIDs(data["uniqueid"], "kofin")
+    tag.setUniqueIDs(version.ids if version else data["uniqueid"], "kofin")
+    if version is not None:
+        tag.setHasVideoVersions(True)
+        tag.setIsDefaultVideoVersion(version.default)
+        if version.label:
+            tag.setVideoAssetTitle(version.label)
     if data.get("ratings"):
         tag.setRatings(
             {name: (r["rating"], r["votes"]) for name, r in data["ratings"].items()},
