@@ -10,7 +10,10 @@ command reaches kofin through its own websocket exactly as a real one would.
 Positions are sampled over JSON-RPC; residuals are injected by holding a tempo
 on one member through its own ``Player.SetTempo`` for less than the scheduler's
 foreign-tempo grace (kofin's scheduler then has something to close); the
-scheduler's own log lines are read back from each box.
+scheduler's own log lines are read back from each box. In the inject
+scenarios each member's GUI is watched as well (``OsdWatch``): a pulse plays
+as a correction (kontell/xbmc #38), so once the injection's own seek bar has
+gone nothing may show a tempo or a seek.
 
     tests/live/syncplay_fine_sync.py \\
         --server https://jelly.konell.xyz --item <episode id> \\
@@ -30,6 +33,7 @@ import re
 import statistics
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -369,6 +373,61 @@ def inject(member, rate, seconds):
     member.set_tempo(1.0)
 
 
+OSD_FLAGS = ["Player.IsTempo", "Player.HasPerformedSeek(3)"]
+
+
+class OsdWatch(threading.Thread):
+    """What each member's GUI showed while the schedulers pulsed.
+
+    A pulse plays as a correction (kontell/xbmc #38): no seek bar for its
+    start or its end, and ``Player.IsTempo`` false with ``Player.PlaySpeed``
+    1.00 throughout. The injection is a viewer's tempo and does show, so
+    nothing is counted before ``quiet_after``, past the seek bar its return to
+    1.0 put up. "at tempo" counts the samples taken during a pulse; every
+    other count stays at zero.
+    """
+
+    COUNTS = ("samples", "at tempo", "IsTempo", "seek bar", "PlaySpeed≠1.00")
+
+    def __init__(self, members, quiet_after, hz=4.0):
+        super().__init__(daemon=True)
+        self.members = members
+        self.quiet_after = quiet_after
+        self.period = 1.0 / hz
+        self.counts = {m.name: dict.fromkeys(self.COUNTS, 0) for m in members}
+        self.done = threading.Event()
+
+    def run(self):
+        while not self.done.wait(self.period):
+            if time.time() < self.quiet_after:
+                continue
+            for member in self.members:
+                try:
+                    flags = member.rpc("XBMC.GetInfoBooleans", {"booleans": OSD_FLAGS})
+                    speed = member.rpc(
+                        "XBMC.GetInfoLabels", {"labels": ["Player.PlaySpeed"]}
+                    )["Player.PlaySpeed"]
+                    rate = member.tempo()
+                except Exception:
+                    continue
+                counts = self.counts[member.name]
+                counts["samples"] += 1
+                counts["at tempo"] += rate is not None and abs(rate - 1.0) > 0.0005
+                counts["IsTempo"] += bool(flags["Player.IsTempo"])
+                counts["seek bar"] += bool(flags["Player.HasPerformedSeek(3)"])
+                counts["PlaySpeed≠1.00"] += speed not in ("1.00", "")
+
+    def finish(self, label):
+        self.done.set()
+        self.join()
+        for name, counts in self.counts.items():
+            log(
+                "%s OSD on %s: %s"
+                % (label, name, ", ".join("%s %d" % item for item in counts.items()))
+            )
+        return self.counts
+
+
 def check_moving(members):
     """Is every member's clock advancing? A frozen player answers RPC fine."""
     first = {m.name: m.position() for m in members}
@@ -529,11 +588,15 @@ def main(argv):
                 inject(a, 0.8, 0.75)
             else:
                 inject(a, 2.0, 1.0)
+            # The injection's return to 1.0 shows the seek bar for 3 s.
+            watch = OsdWatch(members, time.time() + 3.5)
+            watch.start()
             rows = sample_all(a, followers, args.watch)
+            osd = watch.finish(scenario)
             after = describe_all(
                 rows[-16:], followers, "%s after %.0fs" % (scenario, args.watch)
             )
-            report[scenario] = {"before": before, "after": after}
+            report[scenario] = {"before": before, "after": after, "osd": osd}
             show_logs(members, scenario)
 
         elif scenario == "moving":

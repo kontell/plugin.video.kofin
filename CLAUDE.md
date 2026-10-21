@@ -797,9 +797,10 @@ What remains is kofin's own:
   §10). The actuator on this branch is Kodi's own tempo with that setting **off**
   (kontell/xbmc #14 and #16, with #37), where the same devices free-run within a few hundred
   ppm; the api and sql branches use inputstream.tempo, which has no Kodi 23 build.
-  `syncplay/tempo.py` issues one bounded pulse at a time through `Player.SetTempo`, confirms it
-  by reading the `tempo` property back, reads what it moved off the player clock, settles
-  before measuring again, and gives up on a one-signed residual (`docs/syncplay-fine-sync.md`).
+  `syncplay/tempo.py` issues one bounded pulse at a time through `Player.SetTempo`, as a
+  correction the OSD does not show where Kodi declares the flag (#38), confirms it by reading
+  the `tempo` property back, reads what it moved off the player clock, settles before
+  measuring again, and gives up on a one-signed residual (`docs/syncplay-fine-sync.md`).
   An item Kodi cannot play at a tempo (`Player.TempoEnabled`) and an audio item get
   command-only sync; nothing is routed or stamped on a play, so a transcode and a provider's
   play take a pulse like any other.

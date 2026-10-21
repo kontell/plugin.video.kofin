@@ -40,6 +40,9 @@ class FakeKodi:
         self._stale_reads = 0
         self.sets = []
         self.refused = []
+        # kontell/xbmc #38: Player.SetTempo declares "correction"
+        self.correction_declared = True
+        self.corrections = []
 
     def take(self, value):
         """The player takes a tempo of its own accord (Kodi's live-edge
@@ -52,12 +55,26 @@ class FakeKodi:
         method = request["method"]
         params = request.get("params") or {}
 
+        if method == "JSONRPC.Introspect":
+            assert params["filter"] == {"id": "Player.SetTempo", "type": "method"}
+            declared = [{"name": "playerid"}, {"name": "tempo"}]
+            if self.correction_declared:
+                declared.append({"name": "correction", "type": "boolean"})
+            methods = {"Player.SetTempo": {"params": declared}}
+            return json.dumps({"result": {"methods": methods}})
+
         if method == "Player.SetTempo":
             assert isinstance(params["tempo"], float)  # never a JSON integer
+            if "correction" in params and not self.correction_declared:
+                # Kodi refuses a parameter its schema does not name
+                return json.dumps(
+                    {"error": {"code": -32602, "message": "Invalid params."}}
+                )
             if self.paused or not self.enabled or not self.playing:
                 self.refused.append(params["tempo"])
                 return json.dumps({"error": {"code": -32100, "message": "Failed"}})
             self.sets.append(params["tempo"])
+            self.corrections.append(params.get("correction", False))
             self._stale = self.tempo
             self._stale_reads = self.read_lag
             self.tempo = round(params["tempo"], 3)
@@ -245,6 +262,20 @@ class TestKodiTempo:
         kodi.playing = False
         assert KodiTempo(1).read() is None
 
+    def test_every_rate_goes_as_a_correction(self, kodi):
+        actuator = KodiTempo(1)
+        assert actuator.set(1.03) is True
+        assert actuator.set(1.0) is True
+        assert kodi.corrections == [True, True]
+
+    def test_a_kodi_without_the_flag_is_asked_plainly(self, kodi):
+        kodi.correction_declared = False
+        actuator = KodiTempo(1)
+        assert actuator.correction is False
+        assert actuator.set(1.03) is True
+        assert kodi.sets == [1.03]
+        assert kodi.corrections == [False]
+
 
 class TestLeftRate:
     def test_nothing_recorded_is_nothing_owed(self, kodi):
@@ -256,6 +287,7 @@ class TestLeftRate:
         state.publish_syncplay_pulse({"player": 1})
         assert tempo.settle_left_rate(" by an earlier service") is True
         assert kodi.tempo == 1.0
+        assert kodi.corrections == [True]  # put back off the OSD too
         assert state.syncplay_pulse() == {}
         assert any("1.080x left in force by an earlier service" in l for l in logged)
 

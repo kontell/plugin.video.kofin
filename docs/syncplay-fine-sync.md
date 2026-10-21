@@ -1,6 +1,6 @@
 # SyncPlay fine sync — tempo pulses through Kodi's own tempo
 
-Between group commands, fine sync keeps a member on the group's position by playing briefly faster or slower. On this branch (Kodi 23) the actuator is Kodi's own tempo, from kontell/xbmc #14 and #16, with #37 keeping a tempo beyond the atempo threshold from drawing a clock correction and #18 giving a position read to the millisecond. The api and sql branches (Kodi 21 and 22) route the same scheduler through the inputstream.tempo add-on instead; inputstream.tempo has no Kodi 23 build. The design of the scheduler is the add-on era's, measured on it (`tests/live/results/S4.8-fine-sync.md`); what changed with the actuator is below.
+Between group commands, fine sync keeps a member on the group's position by playing briefly faster or slower. On this branch (Kodi 23) the actuator is Kodi's own tempo, from kontell/xbmc #14 and #16, with #37 keeping a tempo beyond the atempo threshold from drawing a clock correction, #18 giving a position read to the millisecond, and #38 playing each pulse as a correction the GUI does not show. The api and sql branches (Kodi 21 and 22) route the same scheduler through the inputstream.tempo add-on instead; inputstream.tempo has no Kodi 23 build. The design of the scheduler is the add-on era's, measured on it (`tests/live/results/S4.8-fine-sync.md`); what changed with the actuator is below.
 
 ## 1. Why there is a controller again
 
@@ -17,6 +17,8 @@ Nothing is routed and nothing is stamped on a play. The scheduler arms on the pl
 Audio items stay command-only: PAPlayer's choreography (never seek it paused) is the commands'.
 
 The actuator is JSON-RPC, since Python's `xbmc.Player` has no tempo call: `Player.SetTempo` with the tempo as a float (Kodi reads it as a double and refuses a JSON integer), and the `tempo` property, which reads what the player has taken. Kodi rounds a tempo to three decimals, so `plan_pulse` plans on that grid and works the pulse's length out from the rate Kodi will play.
+
+Each rate goes as a correction where Kodi takes the flag (#38): the player plays it as any tempo, and the GUI shows no seek bar for its start or its end and normal speed throughout, while the `tempo` property still reads the rate. Kodi refuses a parameter its schema does not name, so `takes_correction` reads `Player.SetTempo`'s schema when an item arms. On a Kodi without the flag the pulses play the same, and each change puts up the seek bar for three seconds, labelled with the rate.
 
 ## 3. The session (`syncplay/tempo.py::TempoSession`)
 

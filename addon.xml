@@ -9,7 +9,8 @@
          interface the build uses. SyncPlay's fine sync plays through Kodi's
          own tempo (kontell/xbmc #14, #16 and #37) and asks no version for
          it: an item Kodi cannot play at a tempo (Player.TempoEnabled) is
-         left to the group's commands. -->
+         left to the group's commands, and the pulses stay off the OSD
+         where Kodi has #38. -->
     <import addon="xbmc.addon" version="22.90.701"/>
     <import addon="xbmc.python" version="3.2.0"/>
     <import addon="script.module.requests" version="2.22.0+matrix.1"/>

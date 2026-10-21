@@ -247,6 +247,30 @@ def regrowth_ppm(residual_ms, elapsed_s):
 #################################################################################################
 
 
+def takes_correction():
+    """Whether Kodi's ``Player.SetTempo`` takes ``correction`` (kontell/xbmc
+    #38): a tempo the player plays as any other while the GUI shows none of
+    it. Kodi refuses a parameter its schema does not name, so the schema is
+    read rather than the call tried."""
+    schema = kodirpc.call(
+        "JSONRPC.Introspect",
+        {
+            "getdescriptions": False,
+            "filter": {"id": "Player.SetTempo", "type": "method"},
+        },
+    )
+
+    try:
+        params = schema["methods"]["Player.SetTempo"]["params"]
+    except (KeyError, TypeError):
+        return False
+
+    return any(
+        isinstance(param, dict) and param.get("name") == "correction"
+        for param in params
+    )
+
+
 class KodiTempo(object):
     """Kodi's own tempo on one player.
 
@@ -256,20 +280,27 @@ class KodiTempo(object):
     force across a pause, and refuses one for an item that cannot take it — a
     realtime stream with no time range, a bitstream track — which is what
     ``Player.TempoEnabled`` answers for the playing item.
+
+    Every rate goes as a correction where Kodi takes the flag: no seek bar
+    for the change or its end, and the OSD reads normal speed throughout,
+    while the ``tempo`` property still reads the rate. Without it each change
+    puts the seek bar up for three seconds, labelled with the rate.
     """
 
     def __init__(self, playerid):
         self.playerid = playerid
+        self.correction = takes_correction()
 
     def set(self, rate):
         """Ask for ``rate``; True when Kodi took the call."""
-        result = kodirpc.call(
-            "Player.SetTempo",
-            # Always a float: Kodi reads the parameter as a double, and a JSON
-            # integer would be refused as invalid.
-            {"playerid": self.playerid, "tempo": float(rate)},
-        )
-        return isinstance(result, dict)
+        # Always a float: Kodi reads the parameter as a double, and a JSON
+        # integer would be refused as invalid.
+        params = {"playerid": self.playerid, "tempo": float(rate)}
+
+        if self.correction:
+            params["correction"] = True
+
+        return isinstance(kodirpc.call("Player.SetTempo", params), dict)
 
     def read(self):
         """The tempo the player is taking, or None when it cannot be read."""
@@ -453,12 +484,13 @@ class PulseScheduler(object):
         self.actuator = KodiTempo(VIDEO_PLAYER)
         LOG.info(
             "[ syncplay/tempo ] fine sync armed for %s "
-            "(%s: budget %.0fms, up to %.1f%%%s)",
+            "(%s: budget %.0fms, up to %.1f%%%s%s)",
             claim.get("Id"),
             self.profile.name,
             self.profile.budget_ms,
             self.profile.rate_max * 100.0,
             ", live: on the source clock, pulses only" if self._live else "",
+            "" if self.actuator.correction else ", shown on the OSD",
         )
 
     def _write_off(self, why):
