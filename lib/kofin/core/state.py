@@ -64,13 +64,15 @@ PROP_WHO_NAMES = "kofin.who.names"
 # conditions as the root listing.
 PROP_MENU_WHO = "kofin.menu.who"
 PROP_MENU_SYNCPLAY = "kofin.menu.syncplay"
-# The SyncPlay fine-sync session (syncplay/tempo.py): the tempo file the play
-# route stamps on every direct-play video item while a group is joined, and the
-# queue depth the add-on must report time behind. Set by the service at group
-# join, cleared at leave; absent means plays resolve as they always did. Lives
-# here because the *plugin* process resolves the play and has no other way to
-# learn that the service is in a group.
-PROP_SYNCPLAY_TEMPO = "kofin.syncplay.tempo"
+# A SyncPlay pulse's rate left in force (syncplay/tempo.py): written when a
+# pulse asks Kodi for a rate, dropped when Kodi takes 1.0 back. Kodi keeps a
+# tempo across a pause and refuses a new one while paused, so a pulse cut while
+# paused leaves its rate behind until the resume; and a service generation that
+# ends mid-pulse would leave the item playing fast or slow to its end. Kodi's
+# tempo lasts as long as its process, and so does this property, which is what
+# lets the next resume, or the next generation, put 1.0 back. Not cleared by
+# clear_all for exactly that reason.
+PROP_SYNCPLAY_PULSE = "kofin.syncplay.pulse"
 # The public sync-session mirror (plan G2.2): what a provider add-on or a
 # skin needs to offer "watch together" affordances — in-group, group name,
 # member names, phase, the current item's provider:key. Cross-process shared
@@ -465,13 +467,13 @@ def menu_who() -> bool:
     return _window().getProperty(PROP_MENU_WHO) == "true"
 
 
-def publish_syncplay_tempo(payload: Dict[str, Any]) -> None:
-    _window().setProperty(PROP_SYNCPLAY_TEMPO, json.dumps(payload))
+def publish_syncplay_pulse(payload: Dict[str, Any]) -> None:
+    _window().setProperty(PROP_SYNCPLAY_PULSE, json.dumps(payload))
 
 
-def syncplay_tempo() -> Dict[str, Any]:
-    """The fine-sync session the play route should stamp, or {} outside one."""
-    raw = _window().getProperty(PROP_SYNCPLAY_TEMPO)
+def syncplay_pulse() -> Dict[str, Any]:
+    """The rate a pulse left in force (``{"player": id}``), or {}."""
+    raw = _window().getProperty(PROP_SYNCPLAY_PULSE)
     if not raw:
         return {}
     try:
@@ -481,8 +483,8 @@ def syncplay_tempo() -> Dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def clear_syncplay_tempo() -> None:
-    _window().clearProperty(PROP_SYNCPLAY_TEMPO)
+def clear_syncplay_pulse() -> None:
+    _window().clearProperty(PROP_SYNCPLAY_PULSE)
 
 
 def publish_syncsession(payload: Dict[str, Any]) -> None:
@@ -575,7 +577,6 @@ def clear_all(keep_stop: bool = False) -> None:
         PROP_WHO_NAMES,
         PROP_MENU_WHO,
         PROP_MENU_SYNCPLAY,
-        PROP_SYNCPLAY_TEMPO,
         PROP_SYNCSESSION,
     ]
     if not keep_stop:

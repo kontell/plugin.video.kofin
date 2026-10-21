@@ -66,28 +66,6 @@ HLS_MIME = "application/x-mpegURL"
 
 AUDIO_TYPES = frozenset({"Audio"})
 
-TEMPO_ADDON = "inputstream.tempo"
-# Play methods the fine-sync add-on can take: a file, the server's static
-# stream, or a transcode.
-#
-# A transcode is HLS off a playlist the server is still writing. It is included
-# because it is the case that needs fine sync *most*: a transcoded member cannot
-# be seeked accurately (Kodi snaps to a segment boundary), so before this the
-# only way to align one was to restart the stream at the target — several
-# seconds of black. A rate pulse touches the transport not at all, so it is the
-# one correction a transcode can actually take.
-TEMPO_METHODS = frozenset({"DirectPlay", "DirectStream", "Transcode"})
-
-# Fine sync shortens Kodi 22's player queue to 1s so a pulse is audible in ~2s.
-# A segmented stream cannot live on that: the server's HLS segments are 3s by
-# default, and a queue shorter than a segment cannot bridge a boundary, so the
-# player drains and re-caches at every one — measured as a stall every ~3s, a
-# visible stutter, and a stream that sampled between 0.75x and 1.49x. The queue
-# is read when the player object is constructed, so it can be sized for the
-# route about to play rather than once for the session.
-QUEUE_SETTING = "videoplayer.queuetimesize"  # tenths of a second
-TRANSCODE_MIN_QUEUE_TENTHS = 40  # 4.0s, clear of the usual 3s segment
-
 # Chapter images: the chapters dialog draws small tiles, and the server
 # resizes before it sends.
 CHAPTER_IMAGE_WIDTH = 640
@@ -117,108 +95,6 @@ def chapter_art(
                 item["Id"], index, tag, CHAPTER_IMAGE_WIDTH
             )
     return art
-
-
-def _size_player_queue(session: JsonDict, play_method: str) -> Optional[float]:
-    """Set the player queue for the route about to play; its size in seconds.
-
-    None when there is nothing to size (Kodi 21 has no such setting and is
-    fixed at 8s, and a session that never shortened publishes no sizes).
-    """
-    short = session.get("queue_short_tenths")
-    full = session.get("queue_full_tenths")
-
-    if not short:
-        return None
-
-    try:
-        if play_method == "Transcode":
-            tenths = max(int(full or 0), TRANSCODE_MIN_QUEUE_TENTHS)
-        else:
-            tenths = int(short)
-    except (TypeError, ValueError):
-        return None
-
-    if not kodirpc.set_kodi_setting(QUEUE_SETTING, tenths):
-        return None
-
-    return tenths / 10.0
-
-
-def tempo_route(
-    item: JsonDict,
-    play_method: str,
-    source: Optional[JsonDict] = None,
-    live: bool = False,
-) -> Optional[JsonDict]:
-    """The inputstream.tempo route for this play, or None.
-
-    While the service is in a SyncPlay group with fine sync armed
-    (``state.syncplay_tempo``), every video item goes through inputstream.tempo
-    so the scheduler can nudge it; the claim carries the same route so the
-    service knows the playback is nudgeable. Audio never does: PAPlayer has its
-    own choreography and the group converges it on commands.
-
-    The player queue is sized here too, for the route rather than the session:
-    the shortened one for a direct route, and at least the segment duration for
-    a transcode, which cannot bridge a segment boundary on a 1s queue.
-
-    A transcode carries its manifest type as well. The add-on is
-    ffmpegdirect-based and takes ``manifest_type`` for a playlist stream; without
-    it the ffmpeg open path has to guess at a URL that has no container
-    extension, and the server's HLS playlist is still being written.
-
-    A live stream is routed in the add-on's **timeshift** mode: as a plain
-    stream a live URL behaves exactly as under inputstream.ffmpeg — no buffer,
-    no pause, no skip — and timeshift is the class whose disk buffer gives a
-    live channel those and lets a member fall behind its edge to meet the
-    group (the add-on applies the rate where Kodi reads from that buffer).
-    """
-    if item.get("Type") in AUDIO_TYPES or play_method not in TEMPO_METHODS:
-        return None
-    session = state.syncplay_tempo()
-    path = session.get("file")
-    if not path:
-        return None
-    sized = _size_player_queue(session, play_method)
-    if sized is None:
-        try:
-            queue_secs = float(session.get("queue_secs") or 8.0)
-        except (TypeError, ValueError):
-            queue_secs = 8.0
-    else:
-        queue_secs = sized
-    route = {"File": str(path), "QueueSecs": queue_secs}
-    if play_method == "Transcode":
-        sub = ((source or {}).get("TranscodingSubProtocol") or "hls").lower()
-        route["ManifestType"] = sub if sub in ("hls", "dash") else ""
-    elif ((source or {}).get("Container") or "").lower() in ("hls", "m3u8"):
-        # A provider's own live playlist, played direct (stream_url).
-        route["ManifestType"] = "hls"
-    if live:
-        route["StreamMode"] = "timeshift"
-    return route
-
-
-def stamp_tempo_route(li: xbmcgui.ListItem, route: JsonDict) -> None:
-    """The inputstream.tempo property contract (its CLAUDE.md): the add-on
-    starts at 1.0x, polls the tempo file for live changes, and reports time
-    ``queue_secs`` behind the demux head. ``start_time`` is deliberately not
-    set — it arms a hold meant for PAPlayer resumes, and VideoPlayer seeks the
-    demuxer before any output starts."""
-    li.setProperty("inputstream", TEMPO_ADDON)
-    li.setProperty("%s.tempo" % TEMPO_ADDON, "1.0")
-    li.setProperty("%s.tempo_file" % TEMPO_ADDON, route["File"])
-    li.setProperty("%s.queue_secs" % TEMPO_ADDON, "%g" % route["QueueSecs"])
-    if route.get("ManifestType"):
-        # A playlist stream: tell the ffmpeg open path what it is rather than
-        # leaving it to infer from a URL with no container extension.
-        li.setProperty("%s.manifest_type" % TEMPO_ADDON, route["ManifestType"])
-    if route.get("StreamMode"):
-        # Live: the add-on's timeshift class, which is what pvr.iptvsimple and
-        # pvr.kofin stamp for a live channel through ffmpegdirect.
-        li.setProperty("%s.is_realtime_stream" % TEMPO_ADDON, "true")
-        li.setProperty("%s.stream_mode" % TEMPO_ADDON, route["StreamMode"])
 
 
 def pick_media_source(
@@ -660,11 +536,8 @@ def resolve_downloaded(
         li.getMusicInfoTag().setDbId(int(dbid), "song")
     li.setPath(path)
     li.setContentLookup(False)
-    route = tempo_route(item, "DirectPlay")
-    if route:
-        stamp_tempo_route(li, route)
 
-    LOG.info("play %s via Download%s", item.get("Id", ""), " (tempo)" if route else "")
+    LOG.info("play %s via Download", item.get("Id", ""))
     sources = item.get("MediaSources") or [{}]
     # The same claim shape the streamed play pushes, with the downloaded
     # play's deviations stated rather than restated key by key (P2.2): the
@@ -683,8 +556,6 @@ def resolve_downloaded(
         start_ticks / 10_000_000,
         streams_menu=False,
     )
-    if route:
-        play_item["Tempo"] = route
     if segments is not None:
         play_item["Segments"] = segments
     state.push_play_item(play_item)
@@ -859,18 +730,7 @@ def play(request: Request) -> None:
         _fail(request)
         return
 
-    # A live stream is routed like any other video (pvr sync plan P4): the
-    # add-on reports the source's own clock in its state line, which is the
-    # timeline the group's position is anchored on, and the engine reads the
-    # member's position off that rather than off session time.
-    route = tempo_route(item, method, source, live=is_live)
-    LOG.info(
-        "play %s via %s%s%s",
-        item_id,
-        method,
-        " (live)" if is_live else "",
-        " (tempo)" if route else "",
-    )
+    LOG.info("play %s via %s%s", item_id, method, " (live)" if is_live else "")
     # A resume point on the *resolved* item overrides the choice the user made
     # at Kodi's resume prompt: Kodi treats a resolved item that carries one as
     # a resume regardless of the resume:true|false it just passed us, and then
@@ -902,8 +762,6 @@ def play(request: Request) -> None:
     if mime:
         li.setMimeType(mime)
     li.setContentLookup(False)
-    if route:
-        stamp_tempo_route(li, route)
     # Free: measured identical time to first frame with 0, 2 and 20 subtitles
     # attached (4.0 s each), because Kodi fetches them only when one is
     # selected. On a transcode this is the *only* way any subtitle reaches the
@@ -938,8 +796,6 @@ def play(request: Request) -> None:
         fetchable=streams.fetchable_subtitles(api.server, source),
         request_params=request.params,
     )
-    if route:
-        play_item["Tempo"] = route
     if is_live:
         # The engine's spelling of live for kofin's own claim
         # (syncplay/utils.py::claim_is_live): what makes the group position

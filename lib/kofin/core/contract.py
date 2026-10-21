@@ -184,18 +184,8 @@ def engine_claim(payload: Dict[str, Any]) -> Dict[str, Any]:
     if ticks > 0:
         claim["RunTimeTicks"] = ticks
 
-    tempo = payload.get("tempo")
-
-    if isinstance(tempo, dict) and isinstance(tempo.get("file"), str):
-        route: Dict[str, Any] = {"File": tempo["file"]}
-        try:
-            route["QueueSecs"] = float(tempo.get("queue_secs") or 0) or 8.0
-        except (TypeError, ValueError):
-            route["QueueSecs"] = 8.0
-        if isinstance(tempo.get("manifest_type"), str):
-            route["ManifestType"] = tempo["manifest_type"]
-        claim["Tempo"] = route
-
+    # A ``tempo`` block (the inputstream.tempo route of Kodi 21 and 22) is
+    # ignored: fine sync acts on whatever plays, through Kodi's own tempo.
     return claim
 
 

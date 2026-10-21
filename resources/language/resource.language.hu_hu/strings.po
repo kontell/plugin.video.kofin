@@ -1305,12 +1305,12 @@ msgid "Waiting for the group..."
 msgstr "Várakozás a csoportra…"
 
 msgctxt "#30586"
-msgid "Fine sync through inputstream.tempo"
-msgstr "Finomszinkron az inputstream.tempo segítségével"
+msgid "Fine sync"
+msgstr "Finomszinkron"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "A parancsok között a csoport pozícióján tartja ezt az eszközt úgy, hogy az inputstream.tempo kiegészítőn keresztül rövid ideig gyorsabban vagy lassabban játszik le (a Kodi „Lejátszás szinkronizálása a képernyőhöz” beállítása maradjon kikapcsolva). Csak videó, az átkódolt is. A hang a munkamenet alatt PCM-re dekódolódik, így a passthrough szünetel."
+msgid "Keeps this device on the group's position by briefly playing faster or slower. A video correction decodes passthrough audio until the next item."
+msgstr "A csoport pozícióján tartja ezt az eszközt úgy, hogy rövid ideig gyorsabban vagy lassabban játszik le. Egy videókorrekció a következő elemig dekódolja a passthrough hangot."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"

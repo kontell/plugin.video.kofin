@@ -165,15 +165,11 @@ LIVE_DELAY_S = 5.0
 # Bounded, so a broken reading cannot freeze a member indefinitely.
 LIVE_HOLD_MIN_MS = 2500.0
 LIVE_HOLD_MAX_S = 60.0
-# A forward pulse that moved less than this fraction of what it asked for
-# was starved: the member is at its live edge, and this many in a row end
-# fine sync for the item — it can only wait for the feed.
-LIVE_EDGE_MOVE_FRACTION = 0.5
+# Kodi puts a live stream playing faster than its source back to 1.0 at its
+# live edge (kontell/xbmc #25: half a second with nothing to read). This many
+# forward pulses ended that way in a row end fine sync for the item — it can
+# only wait for the feed.
 LIVE_EDGE_PULSES = 2
-# A live demuxer at its edge polls the tempo file only as segments arrive,
-# so a pulse can miss the confirmation window without the route being wrong.
-# This many misses in a row are retried before the item goes command-only.
-LIVE_APPLY_MISSES = 2
 # A source clock that starts below this is a job-relative one, not a
 # broadcast's: Jellyfin's transcode jobs restamp every session from about
 # ten seconds, so two members on two jobs read two clocks (measured: both

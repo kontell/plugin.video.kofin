@@ -21,8 +21,8 @@ class Claim(TypedDict, total=False):
     """The claimed play state the engine reads (plan G1.3).
 
     What ``player.current_item()`` answers: kofin's service player claims
-    every play resolved through the plugin, and the engine reads identity,
-    transport and the fine-sync route off that claim and nothing else.
+    every play resolved through the plugin, and the engine reads identity
+    and transport off that claim and nothing else.
     ``Provider`` is absent on every claim today and defaults to
     ``"jellyfin"`` — the key the provider registry dispatches on
     (``syncplay/providers.py``).
@@ -34,7 +34,6 @@ class Claim(TypedDict, total=False):
     RunTimeTicks: int
     PlayMethod: str
     PlaySessionId: str
-    Tempo: Dict[str, Any]
 
 
 class SyncPlayApi(Protocol):

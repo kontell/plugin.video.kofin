@@ -833,12 +833,11 @@ class TestAdoptInProgress:
         assert started == [("item-9", "pl-9")]
 
 
-class TestReloadForTempo:
-    """The one carved exception to adopt-in-progress (the pvr sync plan,
-    P1): a *foreign* claim with no tempo route, in a group with fine sync
-    armed, reloads through the kofin route instead of being adopted — a
-    byte-stream play (a PVR recording) can never carry a tempo route, so
-    adopting it would leave the member command-only for the whole item."""
+class TestForeignPlayAdopts:
+    """A foreign play is adopted as it plays. It used to be reloaded through
+    the kofin route when fine sync was armed (the pvr sync plan, P1), since
+    a byte-stream play could carry no inputstream.tempo route; Kodi's own
+    tempo acts on whatever plays, so the reload buys nothing."""
 
     def _arm(self, manager):
         join(manager)
@@ -852,7 +851,7 @@ class TestReloadForTempo:
         manager.tempo_session.active = True
         return started, prepared
 
-    def test_foreign_claim_without_tempo_reloads(self, manager):
+    def test_a_foreign_recording_is_adopted(self, manager):
         started, prepared = self._arm(manager)
         manager.foreign_claim = {
             "Id": "rec-1",
@@ -862,61 +861,10 @@ class TestReloadForTempo:
 
         manager._handle_group_update(make_queue(items=(("rec-1", "pl-1"),)))
 
-        assert started == [("rec-1", "pl-1")]
-        assert prepared == []
-
-    def test_live_claim_adopts(self, manager):
-        # A live channel claims with no runtime (the contract's spelling of
-        # "live"): positions on it are session-relative, so the reload buys
-        # nothing until P4's anchor — tune-together adopts (P2).
-        started, prepared = self._arm(manager)
-        manager.foreign_claim = {"Id": "chan-1", "Provider": "jellyfin"}
-
-        manager._handle_group_update(make_queue(items=(("chan-1", "pl-1"),)))
-
         assert started == []
         assert prepared == [True]
 
-    def test_foreign_claim_with_tempo_adopts(self, manager):
-        started, prepared = self._arm(manager)
-        manager.foreign_claim = {
-            "Id": "rec-1",
-            "Provider": "jellyfin",
-            "Tempo": {"File": "/tmp/t", "QueueSecs": 8.0},
-        }
-
-        manager._handle_group_update(make_queue(items=(("rec-1", "pl-1"),)))
-
-        assert started == []
-        assert prepared == [True]
-
-    def test_fine_sync_unarmed_adopts(self, manager):
-        started, prepared = self._arm(manager)
-        manager.tempo_session.active = False
-        manager.foreign_claim = {"Id": "rec-1", "Provider": "jellyfin"}
-
-        manager._handle_group_update(make_queue(items=(("rec-1", "pl-1"),)))
-
-        assert started == []
-        assert prepared == [True]
-
-    def test_kofin_play_without_tempo_adopts(self, manager):
-        # kofin's own claim lacking a tempo route (an audio item, a
-        # segmented stream): the reload would reproduce the same route,
-        # so adopting is right.
-        started, prepared = self._arm(manager)
-        manager.player.item = {"Id": "song-1", "PlayMethod": "DirectPlay"}
-
-        manager._handle_group_update(make_queue(items=(("song-1", "pl-1"),)))
-
-        assert started == []
-        assert prepared == [True]
-
-    def test_held_foreign_claim_reloads(self, manager):
-        # The living case, caught by the first live gate run: the
-        # hold-and-propose flow *holds* a foreign PVR start too, and the
-        # hold must not shield it from the reload — that adopt got
-        # command-only sync for the whole recording.
+    def test_a_held_foreign_start_is_adopted(self, manager):
         started, prepared = self._arm(manager)
         manager._hold = {"item_id": "rec-1", "proposed": True}
         manager.foreign_claim = {
@@ -927,13 +875,12 @@ class TestReloadForTempo:
 
         manager._handle_group_update(make_queue(items=(("rec-1", "pl-1"),)))
 
-        assert started == [("rec-1", "pl-1")]
-        assert prepared == []
+        assert started == []
+        assert prepared == [True]
 
     def test_held_kofin_start_with_stale_foreign_claim_adopts(self, manager):
         # A held kofin start (not yet claimed) while a stale foreign claim
-        # for a *different* item lingers: the identity guard keeps the
-        # kofin pipeline's start adopted, never reloaded.
+        # for a *different* item lingers: the hold's own id is what adopts.
         started, prepared = self._arm(manager)
         manager._hold = {"item_id": "item-2", "proposed": True}
         manager.foreign_claim = {"Id": "other-item", "Provider": "jellyfin"}
@@ -984,27 +931,15 @@ class TestForwardLocalPlay:
         assert calls[0][1] == ["chan-1"]
         assert calls[0][3] == 0  # ticks, not 36510000000
 
-    def test_live_claim_with_the_source_clock_proposes_an_anchor(
-        self, manager, tmp_path
-    ):
-        # A live claim whose tempo route reports the source clock anchors
-        # the group on it, a delay behind this member (P4).
+    def test_live_claim_with_a_live_clock_proposes_an_anchor(self, manager):
+        # A live claim whose member reads a live clock anchors the group on
+        # it, a delay behind this member (P4).
         join(manager)
         manager.player.playing = True
         manager.player.position = 100.0
         manager.player.item = None
-        path = str(tmp_path / "tempo")
-        with open(path + ".state", "w") as handle:
-            handle.write(
-                '{"seq":1,"event":"anchor","tempo":1.0,"content_ms":120000.0,'
-                '"output_ms":120000.0,"delta_ms":0.0,"queue_secs":1.0,"video":true,'
-                '"source_ms":42000000.0,"player_ms":120000.0}\n'
-            )
-        manager.foreign_claim = {
-            "Id": "chan-1",
-            "Provider": "jellyfin",
-            "Tempo": {"File": path, "QueueSecs": 1.0},
-        }
+        manager.playback._live_origin_server_ms = 42_000_000.0 - 120_000.0
+        manager.foreign_claim = {"Id": "chan-1", "Provider": "jellyfin"}
 
         manager._forward_local_play()
 

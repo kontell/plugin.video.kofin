@@ -7,15 +7,15 @@ member's DeviceId and token, read off its settings.xml — so it can create the
 group, join, set the queue and pause without driving a single menu, and every
 command reaches kofin through its own websocket exactly as a real one would.
 
-Positions are sampled over JSON-RPC; residuals are injected by writing a
-member's tempo file for a moment (inputstream.tempo applies it, kofin's
-scheduler then has something to close); the scheduler's own log lines are read
-back from each box.
+Positions are sampled over JSON-RPC; residuals are injected by holding a tempo
+on one member through its own ``Player.SetTempo`` for less than the scheduler's
+foreign-tempo grace (kofin's scheduler then has something to close); the
+scheduler's own log lines are read back from each box.
 
     tests/live/syncplay_fine_sync.py \\
         --server https://jelly.konell.xyz --item <episode id> \\
-        --member A=127.0.0.1:8080,settings=<path>,log=<path>,tempo=<path> \\
-        --member B=192.168.1.150:8080,adb=<serial>,settings=<path>,log=<path>,tempo=<path> \\
+        --member A=127.0.0.1:8080,settings=<path>,log=<path> \\
+        --member B=192.168.1.150:8080,adb=<serial>,settings=<path>,log=<path> \\
         preflight join play steady inject-ahead inject-behind inject-seek cut leave
 
 Credentials never leave the two boxes' own settings files; nothing here is
@@ -54,7 +54,6 @@ class Member(object):
         self.ssh = fields.get("ssh")
         self.settings_path = os.path.expanduser(fields["settings"])
         self.log_path = os.path.expanduser(fields["log"])
-        self.tempo_path = os.path.expanduser(fields["tempo"])
         self.user = fields.get("user", "kodi")
         self.password = fields.get("password", "kodi")
         text = self.read(self.settings_path)
@@ -106,11 +105,24 @@ class Member(object):
             handle.write(text)
         os.replace(tmp, path)
 
-    def tempo_file(self):
-        try:
-            return self.read(self.tempo_path).strip()
-        except OSError:
-            return "<missing>"
+    def tempo(self):
+        """The tempo the player has taken, or None when nothing plays."""
+        player = self.active_player()
+        if player is None:
+            return None
+        return self.rpc(
+            "Player.GetProperties", {"playerid": player, "properties": ["tempo"]}
+        )["tempo"]
+
+    def set_tempo(self, rate):
+        player = self.active_player()
+        if player is not None:
+            self.rpc("Player.SetTempo", {"playerid": player, "tempo": float(rate)})
+
+    def tempo_enabled(self):
+        return self.rpc("XBMC.GetInfoBooleans", {"booleans": ["Player.TempoEnabled"]})[
+            "Player.TempoEnabled"
+        ]
 
     def grep_log(self):
         """Matching log lines since mark_log()."""
@@ -338,20 +350,23 @@ def slope_ppm(rows, column):
 
 
 def inject(member, rate, seconds):
-    """Hold ``rate`` on a member's tempo file for ``seconds``: a displacement
-    of (rate − 1) × seconds, the way the shakedown's R-B step was meant."""
-    # Never on top of a running pulse: the two writes would fight over the file.
+    """Hold ``rate`` on a member through its own Player.SetTempo for
+    ``seconds``: a displacement of (rate − 1) × seconds. Under kofin's
+    foreign-tempo grace (2 s), so the scheduler leaves the step alone and
+    closes what it left."""
+    assert seconds < 2.0, "the scheduler puts back a tempo held 2 s"
+    # Never on top of a running pulse: the two would fight over the tempo.
     for _ in range(40):
-        if member.tempo_file().startswith("1.0"):
+        if abs((member.tempo() or 1.0) - 1.0) < 0.0015:
             break
         time.sleep(0.5)
     log(
         "inject on %s: %.2fx for %.2fs (≈ %+.0f ms)"
         % (member.name, rate, seconds, (rate - 1) * seconds * 1000)
     )
-    member.write(member.tempo_path, "%.4f\n" % rate)
+    member.set_tempo(rate)
     time.sleep(seconds)
-    member.write(member.tempo_path, "1.0000\n")
+    member.set_tempo(1.0)
 
 
 def check_moving(members):
@@ -415,12 +430,11 @@ def main(argv):
     for member in members:
         member.mark_log()
         log(
-            "%s: %s, DeviceId %s…, queue %s, display clock %s"
+            "%s: %s, DeviceId %s…, display clock %s"
             % (
                 member.name,
                 member.device_name,
                 member.device_id[:8],
-                member.kodi_setting("videoplayer.queuetimesize"),
                 member.kodi_setting("videoplayer.usedisplayasclock"),
             )
         )
@@ -439,12 +453,8 @@ def main(argv):
             time.sleep(2)
             for member in members:
                 log(
-                    "%s: tempo file %s, session property %r"
-                    % (
-                        member.name,
-                        member.tempo_file(),
-                        member.window_property("kofin.syncplay.tempo"),
-                    )
+                    "%s: pulse record %r"
+                    % (member.name, member.window_property("kofin.syncplay.pulse"))
                 )
 
         elif scenario == "join":
@@ -463,16 +473,6 @@ def main(argv):
                 )
                 time.sleep(2)
             time.sleep(6)
-            for member in members:
-                log(
-                    "%s: queue now %s, session property %s, tempo file %s"
-                    % (
-                        member.name,
-                        member.kodi_setting("videoplayer.queuetimesize"),
-                        member.window_property("kofin.syncplay.tempo"),
-                        member.tempo_file(),
-                    )
-                )
             show_logs(members, "join")
 
         elif scenario == "play":
@@ -505,7 +505,10 @@ def main(argv):
                         ]
                     },
                 )
-                log("%s: audio %s" % (member.name, codec))
+                log(
+                    "%s: audio %s, tempo %s, TempoEnabled %s"
+                    % (member.name, codec, member.tempo(), member.tempo_enabled())
+                )
 
         elif scenario == "steady":
             for member in members:
@@ -525,7 +528,7 @@ def main(argv):
             elif scenario == "inject-behind":
                 inject(a, 0.8, 0.75)
             else:
-                inject(a, 1.5, 2.0)
+                inject(a, 2.0, 1.0)
             rows = sample_all(a, followers, args.watch)
             after = describe_all(
                 rows[-16:], followers, "%s after %.0fs" % (scenario, args.watch)
@@ -555,7 +558,7 @@ def main(argv):
             log("pulse started on A: %s" % started)
             followers[0].jellyfin(args.server, "POST", "/SyncPlay/Pause")
             time.sleep(4)
-            log("A tempo file after the pause: %s" % a.tempo_file())
+            log("A tempo after the pause: %s" % a.tempo())
             followers[0].jellyfin(args.server, "POST", "/SyncPlay/Unpause")
             time.sleep(6)
             wait_playing(members, timeout=20)
@@ -583,12 +586,11 @@ def main(argv):
             time.sleep(4)
             for member in members:
                 log(
-                    "%s: queue %s, session property %r, tempo file %s"
+                    "%s: tempo %s, pulse record %r"
                     % (
                         member.name,
-                        member.kodi_setting("videoplayer.queuetimesize"),
-                        member.window_property("kofin.syncplay.tempo"),
-                        member.tempo_file(),
+                        member.tempo(),
+                        member.window_property("kofin.syncplay.pulse"),
                     )
                 )
                 member.stop_player()

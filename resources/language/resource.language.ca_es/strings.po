@@ -1305,12 +1305,12 @@ msgid "Waiting for the group..."
 msgstr "S'està esperant el grup..."
 
 msgctxt "#30586"
-msgid "Fine sync through inputstream.tempo"
-msgstr "Sincronització fina mitjançant inputstream.tempo"
+msgid "Fine sync"
+msgstr "Sincronització fina"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Manté aquest dispositiu a la posició del grup entre ordres reproduint breument més ràpid o més lent, a través del complement inputstream.tempo (deixa «Sincronitza la reproducció amb la pantalla» desactivat al Kodi). Només vídeo, també transcodificat. L'àudio es descodifica a PCM durant una sessió, de manera que el passthrough queda suspès."
+msgid "Keeps this device on the group's position by briefly playing faster or slower. A video correction decodes passthrough audio until the next item."
+msgstr "Manté aquest dispositiu a la posició del grup reproduint breument més ràpid o més lent. Una correcció de vídeo descodifica l'àudio passthrough fins al següent element."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"

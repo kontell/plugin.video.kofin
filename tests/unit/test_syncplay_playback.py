@@ -4,7 +4,6 @@ Ported from the fork; the JSON-RPC seam is kofin's module-level ``_rpc``
 and settings come from the FakeAddon store. New kofin coverage at the end:
 the play-path re-target (plugin URLs, never resolved paths — plan §2)."""
 
-import json
 import threading
 from contextlib import contextmanager
 
@@ -979,43 +978,26 @@ EPOCH_MS = utils.LIVE_PTS_EPOCH_S * 1000.0
 PERIOD_MS = utils.LIVE_PTS_PERIOD_S * 1000.0
 
 
-def write_state(tmp_path, source_ms, player_ms):
-    path = str(tmp_path / "tempo")
-    with open(path + ".state", "w") as handle:
-        handle.write(
-            json.dumps(
-                {
-                    "seq": 3,
-                    "event": "anchor",
-                    "tempo": 1.0,
-                    "content_ms": player_ms,
-                    "output_ms": player_ms,
-                    "delta_ms": 0.0,
-                    "queue_secs": 1.0,
-                    "video": True,
-                    "source_ms": source_ms,
-                    "player_ms": player_ms,
-                }
-            )
-            + "\n"
-        )
-    return path
+def live_claim():
+    return {"Id": "chan-1", "Provider": "pvr.kofin", "PlaySessionId": "ps-l"}
 
 
-def live_claim(path=None):
-    claim = {"Id": "chan-1", "Provider": "pvr.kofin", "PlaySessionId": "ps-l"}
-    if path:
-        claim["Tempo"] = {"File": path, "QueueSecs": 1.0}
-    return claim
+# The live clock reads 42 000 s where this member's player clock reads 120 s.
+CLOCK_OFFSET_MS = 42_000_000.0 - 120_000.0
+
+
+def on_clock(controller, manager, offset_ms=CLOCK_OFFSET_MS):
+    """A live claim whose member reads the live clock ``offset_ms`` from its
+    own player clock."""
+    manager.claim = live_claim()
+    controller._live_origin_server_ms = offset_ms
 
 
 class TestLiveClock:
-    def test_position_reads_the_source_clock(self, tmp_path):
+    def test_position_reads_the_live_clock(self):
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False
-        # The head sits at 42 000 s on the broadcast's clock while the
-        # player clock reads 120 s for it: the offset is the difference.
-        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        on_clock(controller, manager)
 
         assert controller._position_ms() == pytest.approx(
             EPOCH_MS + 100_000.0 + 42_000_000.0 - 120_000.0
@@ -1028,29 +1010,23 @@ class TestLiveClock:
         )
         assert controller.live_on_source_clock()
 
-    def test_position_falls_back_to_the_player_clock(self, tmp_path):
+    def test_position_falls_back_to_the_player_clock(self):
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False
 
-        manager.claim = live_claim()  # no tempo route
-        assert controller._position_ms() == pytest.approx(100_000.0)
-
-        manager.claim = live_claim(str(tmp_path / "missing"))  # no state yet
+        manager.claim = live_claim()  # no clock yet: the stream has not opened
         assert controller._position_ms() == pytest.approx(100_000.0)
         assert controller.live_anchor_ms() is None
 
-        # An item that is not live keeps the player clock whatever its route.
-        manager.claim = {
-            "Id": "m1",
-            "Runtime": 10,
-            "Tempo": {"File": write_state(tmp_path, 42_000_000.0, 120_000.0)},
-        }
+        # An item that is not live keeps the player clock.
+        controller._live_origin_server_ms = CLOCK_OFFSET_MS
+        manager.claim = {"Id": "m1", "Runtime": 10}
         assert controller._position_ms() == pytest.approx(100_000.0)
 
-    def test_the_shared_clock_needs_an_anchored_group(self, tmp_path):
+    def test_the_shared_clock_needs_an_anchored_group(self):
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False
-        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        on_clock(controller, manager)
 
         controller._reference = (30_000.0, None, True)  # a proposer's session time
         assert not controller.live_on_source_clock()
@@ -1063,10 +1039,10 @@ class TestLiveClock:
             (EPOCH_MS + 41_990_000.0) / 1000.0
         )
 
-    def test_a_live_member_ahead_holds_for_the_group(self, tmp_path, monkeypatch):
+    def test_a_live_member_ahead_holds_for_the_group(self, monkeypatch):
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False
-        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        on_clock(controller, manager)
         # The group sits 8 s behind this member's reading.
         controller._reference = (
             EPOCH_MS + 100_000.0 + 42_000_000.0 - 120_000.0 - 8_000.0,
@@ -1091,10 +1067,10 @@ class TestLiveClock:
         assert not player.paused
         assert controller._live_hold_ms is None
 
-    def test_a_superseded_hold_timer_resumes_nothing(self, tmp_path, monkeypatch):
+    def test_a_superseded_hold_timer_resumes_nothing(self, monkeypatch):
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False
-        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        on_clock(controller, manager)
         controller._reference = (
             EPOCH_MS + 100_000.0 + 42_000_000.0 - 120_000.0 - 8_000.0,
             None,
@@ -1118,10 +1094,10 @@ class TestLiveClock:
         timers[1][1](*timers[1][2])  # the second hold's timer
         assert not player.paused
 
-    def test_a_live_member_behind_is_left_to_fine_sync(self, tmp_path, monkeypatch):
+    def test_a_live_member_behind_is_left_to_fine_sync(self, monkeypatch):
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False
-        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        on_clock(controller, manager)
         controller._reference = (
             EPOCH_MS + 100_000.0 + 42_000_000.0 - 120_000.0 + 8_000.0,
             None,
@@ -1135,10 +1111,10 @@ class TestLiveClock:
 
         assert not player.paused
 
-    def test_a_hold_is_bounded_and_yields_to_a_group_pause(self, tmp_path, monkeypatch):
+    def test_a_hold_is_bounded_and_yields_to_a_group_pause(self, monkeypatch):
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False
-        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        on_clock(controller, manager)
         controller._reference = (
             EPOCH_MS + 100_000.0 + 42_000_000.0 - 120_000.0 - 500_000.0,
             None,
@@ -1157,10 +1133,10 @@ class TestLiveClock:
         timers[0][1](*timers[0][2])
         assert player.paused
 
-    def test_a_live_ready_promises_the_group_position(self, tmp_path):
+    def test_a_live_ready_promises_the_group_position(self):
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False
-        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        on_clock(controller, manager)
         controller._reference = (EPOCH_MS + 41_990_000.0, None, True)
 
         assert controller.live_on_source_clock()
@@ -1168,12 +1144,12 @@ class TestLiveClock:
             (EPOCH_MS + 41_990_000.0) / 1000.0
         )
 
-    def test_a_live_buffering_report_tells_the_truth(self, tmp_path):
+    def test_a_live_buffering_report_tells_the_truth(self):
         # The group pauses where the stalled member says it is; a promise
         # here would park the group ahead of it.
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False
-        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        on_clock(controller, manager)
         controller._reference = (EPOCH_MS + 41_990_000.0, None, True)
 
         controller.report_buffering()
@@ -1184,19 +1160,19 @@ class TestLiveClock:
             (EPOCH_MS + 100_000.0 + 42_000_000.0 - 120_000.0) / 1000.0
         )
 
-    def test_the_anchor_is_a_delay_behind_this_member(self, tmp_path):
+    def test_the_anchor_is_a_delay_behind_this_member(self):
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False
-        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        on_clock(controller, manager)
 
         assert controller.live_anchor_ms() == pytest.approx(
             utils.live_anchor_ms(100_000.0 + 42_000_000.0 - 120_000.0)
         )
 
-    def test_live_items_are_never_seeked(self, tmp_path):
+    def test_live_items_are_never_seeked(self):
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False
-        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        on_clock(controller, manager)
 
         controller.schedule(command("Seek", -10, ticks=utils.seconds_to_ticks(42)))
         controller.prepare_ready()
@@ -1248,10 +1224,10 @@ class TestLiveClock:
         seeks = [a for a in player.actions if isinstance(a, tuple) and a[0] == "seek"]
         assert seeks and abs(seeks[0][1] - 42.0) < 0.05
 
-    def test_skipped_live_seek_keeps_a_source_clock_reference(self, tmp_path):
+    def test_skipped_live_seek_keeps_a_source_clock_reference(self):
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False
-        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        on_clock(controller, manager)
         anchored = EPOCH_MS + 41_990_000.0
         controller._reference = (anchored, None, True)
 
@@ -1260,14 +1236,14 @@ class TestLiveClock:
         assert controller.estimate_position_ms() == pytest.approx(anchored)
         assert controller.live_on_source_clock()
 
-    def test_unpause_after_a_skipped_live_seek_keeps_the_source_clock(self, tmp_path):
+    def test_unpause_after_a_skipped_live_seek_keeps_the_source_clock(self):
         """The protocol Unpauses at the Seek's ticks. Those are session
         time. Adopting them left DirectPlay at residual −9919s and
         'session time; no pulses' (P1D/Tab Sky Racing, 2026-09-04)."""
         controller, manager, player = make_controller(paused=True, position=100.0)
         player.clock_advances = False
         manager.phase = "synced"
-        manager.claim = live_claim(write_state(tmp_path, 42_000_000.0, 120_000.0))
+        on_clock(controller, manager)
         anchored = EPOCH_MS + 41_990_000.0
         controller._reference = (anchored, None, True)
 
@@ -1279,13 +1255,13 @@ class TestLiveClock:
         assert controller.live_on_source_clock()
         assert not player.paused
 
-    def test_a_restamped_remux_uses_the_join_clock(self, tmp_path):
+    def test_a_restamped_remux_uses_the_join_clock(self):
         """Jellyfin's HLS remux restamps from ~10 s. That clock is refused
         as not the broadcast; the join origin (server time of player t=0)
         is what the proposer can still put on the wire."""
         controller, manager, player = make_controller(position=0.0)
         player.clock_advances = False
-        manager.claim = live_claim(write_state(tmp_path, 10_000.0, 0.0))
+        manager.claim = live_claim()
         controller.note_live_origin()
 
         origin = controller._live_source_offset_ms()
@@ -1299,7 +1275,7 @@ class TestLiveClock:
 
         late, late_mgr, late_player = make_controller(position=0.0)
         late_player.clock_advances = False
-        late_mgr.claim = live_claim(write_state(tmp_path, 10_000.0, 0.0))
+        late_mgr.claim = live_claim()
         late._live_origin_server_ms = origin + 3000.0
         late.set_reference(utils.ms_to_ticks(anchor), manager.server_now_ms(), True)
 
@@ -1308,7 +1284,7 @@ class TestLiveClock:
         # residual so holds/pulses can close it.
         assert late._position_ms() - controller._position_ms() == pytest.approx(3000.0)
 
-    def test_shared_start_unpause_rebinds_the_join_clock(self, tmp_path):
+    def test_shared_start_unpause_rebinds_the_join_clock(self):
         """Members that opened together show the same remux picture at
         Unpause; AV-start origins differ by decoder-open, not picture.
         Rebind so residual is not that fake gap."""
@@ -1316,7 +1292,7 @@ class TestLiveClock:
         player.clock_advances = False
         manager.phase = "waiting_ready"
         manager.transcoding = True
-        manager.claim = live_claim(write_state(tmp_path, 10_000.0, 0.0))
+        manager.claim = live_claim()
         controller.note_live_origin()
         anchor = controller.live_anchor_ms()
         controller.set_reference(
@@ -1327,7 +1303,7 @@ class TestLiveClock:
         late_player.clock_advances = False
         late_mgr.phase = "waiting_ready"
         late_mgr.transcoding = True
-        late_mgr.claim = live_claim(write_state(tmp_path, 10_000.0, 0.0))
+        late_mgr.claim = live_claim()
         late._live_origin_server_ms = controller._live_origin_server_ms + 3000.0
         late.set_reference(utils.ms_to_ticks(anchor), late_mgr.server_now_ms(), True)
 
@@ -1336,14 +1312,14 @@ class TestLiveClock:
 
         assert late._position_ms() - anchor == pytest.approx(0.0, abs=1.0)
 
-    def test_deferred_unpause_keeps_the_open_time_gap(self, tmp_path):
+    def test_deferred_unpause_keeps_the_open_time_gap(self):
         """A zap Unpause during load is a later open. Rebind would zero
         residual while pictures stay the open-time gap."""
         controller, manager, player = make_controller(paused=True, position=0.0)
         player.clock_advances = False
         manager.phase = "waiting_ready"
         manager.transcoding = True
-        manager.claim = live_claim(write_state(tmp_path, 10_000.0, 0.0))
+        manager.claim = live_claim()
         controller.note_live_origin()
         anchor = controller.live_anchor_ms()
         controller.set_reference(
@@ -1354,7 +1330,7 @@ class TestLiveClock:
         late_player.clock_advances = False
         late_mgr.phase = "loading"
         late_mgr.transcoding = True
-        late_mgr.claim = live_claim(write_state(tmp_path, 10_000.0, 0.0))
+        late_mgr.claim = live_claim()
         late._live_origin_server_ms = controller._live_origin_server_ms + 3000.0
         late.set_reference(utils.ms_to_ticks(anchor), late_mgr.server_now_ms(), True)
 

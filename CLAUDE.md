@@ -789,28 +789,35 @@ What remains is kofin's own:
 - Every property in `core/state.py` is shared across service generations — see
   `kodi-addon-lifecycle` for why two run at once, and treat that module accordingly.
 - **SyncPlay converges position on commands, and between them only by confirmed tempo
-  pulses through inputstream.tempo — never by a continuous loop against Kodi's own
-  tempo.** The `Player.SetTempo` ladder was removed after measurement, not after taste:
-  that actuator exists only while Kodi's sync-to-display is on, and the setting slaves the
-  media clock to the panel, so a refresh rate that is not a whole multiple of the frame rate
-  imposes a fixed rate error — 0.5 %–4.3 % across three Piers devices, the worst 14× the
-  ±3 % the ladder could command (`docs/syncplay-drift-shakedown.md` §10). The actuator in use
-  now is inputstream.tempo, which rate-shifts inside the demuxer and works with that setting
-  **off**, where the same devices free-run within a few hundred ppm. `syncplay/tempo.py`
-  issues one bounded pulse at a time, confirms it from the add-on's state file, waits a queue
-  depth before measuring again, and gives up on a one-signed residual
-  (`docs/syncplay-fine-sync.md`). An audio item, or a Kodi without the add-on, gets
-  command-only sync, exactly as 0.19 did; a transcode has gone through inputstream.tempo since
-  `165d686` (its `[ syncplay/align ] skipped: transcoding` line is the landing check, not the sync).
-- **A live item's group position is on the source clock, ten days up.** The player clock of a
+  pulses — never by a continuous loop.** The old `Player.SetTempo` ladder was removed after
+  measurement, not after taste: stock Kodi plays a tempo only while sync-to-display is on,
+  and the setting slaves the media clock to the panel, so a refresh rate that is not a whole
+  multiple of the frame rate imposes a fixed rate error — 0.5 %–4.3 % across three Piers
+  devices, the worst 14× the ±3 % the ladder could command (`docs/syncplay-drift-shakedown.md`
+  §10). The actuator on this branch is Kodi's own tempo with that setting **off**
+  (kontell/xbmc #14 and #16, with #37), where the same devices free-run within a few hundred
+  ppm; the api and sql branches use inputstream.tempo, which has no Kodi 23 build.
+  `syncplay/tempo.py` issues one bounded pulse at a time through `Player.SetTempo`, confirms it
+  by reading the `tempo` property back, reads what it moved off the player clock, settles
+  before measuring again, and gives up on a one-signed residual (`docs/syncplay-fine-sync.md`).
+  An item Kodi cannot play at a tempo (`Player.TempoEnabled`) and an audio item get
+  command-only sync; nothing is routed or stamped on a play, so a transcode and a provider's
+  play take a pulse like any other.
+- **A pulse never outlives a pause.** Kodi refuses `Player.SetTempo` while paused and keeps
+  the tempo in force across a pause, so a pulse cut on a paused player leaves its rate
+  behind. The 1.0 is owed: the playing tick and `SyncPlayManager.on_resumed` (first thing, in
+  a group or not) ask for it again, and `state.PROP_SYNCPLAY_PULSE` records a rate in force so
+  that a new service generation puts it back (`Service._settle_left_tempo`). That property is
+  not in `clear_all`, on purpose.
+- **A live item's group position is on a live clock, ten days up.** The player clock of a
   live stream is session time and means nothing to another member; the engine reads a live
-  member's position off inputstream.tempo's state line (`getTime() + (source_ms − player_ms)`,
-  the broadcast's own PTS) and a proposer anchors the group `LIVE_DELAY_S` behind its reading,
-  offset by `LIVE_PTS_EPOCH_S` on the wire so a source-clock anchor can never be mistaken for the
+  member's position as `getTime()` plus the join origin (the server time at which the player
+  clock read zero) and a proposer anchors the group `LIVE_DELAY_S` behind its reading,
+  offset by `LIVE_PTS_EPOCH_S` on the wire so a live-clock anchor can never be mistaken for the
   session-time zero a member without the clock proposes. `claim_is_live` is the one spelling of
   live (kofin's own claim carries `Live`; a bus claim has no runtime), and a live item is never
-  seeked — ffmpeg's HLS demuxer refuses a seek on a live playlist — only pulsed, and two starved
-  forward pulses mean the live edge, not a fault (`docs/syncplay-fine-sync.md`).
+  seeked — ffmpeg's HLS demuxer refuses a seek on a live playlist — only pulsed, and two forward
+  pulses Kodi ends at the live edge (#25) mean the edge, not a fault (`docs/syncplay-fine-sync.md`).
 - A sync thread that will not stop is a thread inside the HTTP retry ladder
   (`docs/library-thread-stop.md`); the two rules that follow are easy to undo.
 - **Never call `xbmc.Player.stop()`** — use `core/kodirpc.py::stop_player`. Kodi's binding sends

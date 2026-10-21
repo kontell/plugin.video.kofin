@@ -1305,12 +1305,12 @@ msgid "Waiting for the group..."
 msgstr "Αναμονή για την ομάδα..."
 
 msgctxt "#30586"
-msgid "Fine sync through inputstream.tempo"
-msgstr "Λεπτός συγχρονισμός μέσω inputstream.tempo"
+msgid "Fine sync"
+msgstr "Λεπτός συγχρονισμός"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Κρατά αυτή τη συσκευή στη θέση της ομάδας ανάμεσα στις εντολές αναπαράγοντας για λίγο πιο γρήγορα ή πιο αργά, μέσω του πρόσθετου inputstream.tempo (αφήστε το «Συγχρονισμός αναπαραγωγής με την οθόνη» απενεργοποιημένο στο Kodi). Μόνο βίντεο, και με transcoding. Ο ήχος αποκωδικοποιείται σε PCM στη διάρκεια μιας συνεδρίας, οπότε το passthrough αναστέλλεται."
+msgid "Keeps this device on the group's position by briefly playing faster or slower. A video correction decodes passthrough audio until the next item."
+msgstr "Κρατά αυτή τη συσκευή στη θέση της ομάδας αναπαράγοντας για λίγο πιο γρήγορα ή πιο αργά. Μια διόρθωση βίντεο αποκωδικοποιεί τον ήχο passthrough μέχρι το επόμενο στοιχείο."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"

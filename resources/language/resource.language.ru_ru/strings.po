@@ -1305,12 +1305,12 @@ msgid "Waiting for the group..."
 msgstr "Ожидание группы..."
 
 msgctxt "#30586"
-msgid "Fine sync through inputstream.tempo"
-msgstr "Точная синхронизация через inputstream.tempo"
+msgid "Fine sync"
+msgstr "Точная синхронизация"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Удерживает это устройство на позиции группы между командами, ненадолго воспроизводя быстрее или медленнее через дополнение inputstream.tempo (оставьте «Синхронизировать воспроизведение с экраном» в Kodi выключенным). Только видео, в том числе с перекодированием. Звук на время сеанса декодируется в PCM, поэтому passthrough приостанавливается."
+msgid "Keeps this device on the group's position by briefly playing faster or slower. A video correction decodes passthrough audio until the next item."
+msgstr "Удерживает это устройство на позиции группы, ненадолго воспроизводя быстрее или медленнее. Коррекция видео декодирует звук passthrough до следующего элемента."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
