@@ -376,6 +376,27 @@ def test_settings_change_ignored_before_ready():
     assert service._restart_requested is False
 
 
+def test_a_stopped_generation_ignores_kodi_callbacks(monkeypatch):
+    """Kodi calls a Monitor until the object is freed, and a stopped
+    generation is not freed: on the Bravia (2026-10-17) the one a sign-in
+    restart stopped applied the library selection beside the live one."""
+    handled = []
+    monkeypatch.setattr(
+        Service, "_kodi_screensaver_deactivated", lambda self, data: handled.append(1)
+    )
+    FakeAddon.store["sslVerify"] = "true"
+    service = Service()
+    service.settings_apply.mark_ready()
+    service._shutdown()
+
+    FakeAddon.store["sslVerify"] = "false"
+    service.onSettingsChanged()
+    service.onNotification("xbmc", "GUI.OnScreensaverDeactivated", "")
+
+    assert service._restart_requested is False
+    assert handled == []
+
+
 # --- SyncPlay wiring (phase 4) -----------------------------------------------
 
 
