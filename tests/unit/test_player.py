@@ -172,6 +172,24 @@ def test_foreign_playback_is_ignored(monkeypatch):
     assert api.calls == []
 
 
+def test_a_stopped_player_leaves_the_claim_to_the_live_one(monkeypatch):
+    """Kodi calls a Player until the object is freed, and a stopped service
+    generation outlives its run: its Player raced the live one for every
+    claim (Bravia, 2026-10-17)."""
+    stopped, _ = make_player(monkeypatch)
+    stopped.stop_threads()
+    live, api = make_player(monkeypatch)
+    queue_item()
+
+    stopped.onPlayBackStarted()  # Kodi calls the older registration first
+    live.onPlayBackStarted()
+    drain(live)
+
+    assert stopped.current_item() is None
+    assert live.current_item()["Id"] == "m1"
+    assert api.calls[0][0] == "playing"
+
+
 def test_transcode_stop_closes_encoding(monkeypatch):
     player, api = make_player(monkeypatch)
     queue_item(method="Transcode")
