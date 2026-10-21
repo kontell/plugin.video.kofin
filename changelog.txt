@@ -1,3 +1,7 @@
+v0.95.1
+- SyncPlay fine sync works on Kodi 23, for music too; inputstream.tempo is no longer used.
+- Live TV in a SyncPlay group plays through FFmpeg Direct, so fine sync reaches it.
+
 v0.95.0
 - For Kodi 23 with the kontell/xbmc changes; the companion add-on is no longer used.
 - Movie versions are grouped as one movie, and versions or extras removed on the server leave Kodi.
