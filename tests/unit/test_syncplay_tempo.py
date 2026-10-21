@@ -43,6 +43,7 @@ class FakeKodi:
         # kontell/xbmc #38: Player.SetTempo declares "correction"
         self.correction_declared = True
         self.corrections = []
+        self.introspections = 0
         self.settings = {"audiooutput.atempothreshold": 2, "musicplayer.crossfade": 0}
 
     def take(self, value):
@@ -57,6 +58,7 @@ class FakeKodi:
         params = request.get("params") or {}
 
         if method == "JSONRPC.Introspect":
+            self.introspections += 1
             assert params["filter"] == {"id": "Player.SetTempo", "type": "method"}
             declared = [{"name": "playerid"}, {"name": "tempo"}]
             if self.correction_declared:
@@ -296,6 +298,16 @@ class TestLeftRate:
         assert kodi.corrections == [True]  # put back off the OSD too
         assert state.syncplay_pulse() == {}
         assert any("1.080x left in force by an earlier service" in l for l in logged)
+
+    def test_a_one_not_read_back_stays_owed(self, kodi):
+        kodi.tempo = 1.08
+        state.publish_syncplay_pulse({"player": 1})
+        kodi.read_lag = 5
+        assert tempo.settle_left_rate() is False
+        assert state.syncplay_pulse() == {"player": 1}
+        kodi._stale_reads = 0
+        assert tempo.settle_left_rate() is True
+        assert state.syncplay_pulse() == {}
 
     def test_paused_it_stays_owed(self, kodi):
         kodi.tempo = 1.08
@@ -552,18 +564,37 @@ class TestPulses:
         assert scheduler._pulse is not None
         assert any("applied after" in line for line in logged)
 
-    def test_an_unconfirmed_rate_is_taken_back_and_the_item_written_off(
-        self, rig, clock
-    ):
+    def test_an_unconfirmed_rate_is_taken_back_and_tried_once_more(self, rig, clock):
         scheduler, controller, kodi = rig
-        kodi.read_lag = 1000  # the player never takes it
+        kodi.read_lag = 1000  # the player does not take it
         fill_window(scheduler, controller, 150.0)
         scheduler.tick()
         clock.advance(tempo.APPLY_TIMEOUT_S + 0.1)
         scheduler.tick()
         assert scheduler._pulse is None and scheduler._awaiting is None
         assert kodi.sets[-1] == 1.0
-        assert scheduler.profile is None  # command-only for this item
+        # One miss can be the moment (a demuxer read the speed message
+        # waited behind): the item keeps fine sync.
+        assert scheduler.profile is not None and scheduler._misses == 1
+
+        kodi._stale_reads = 0  # the player catches up
+        clock.advance(tempo.SETTLE_S + 0.1)
+        fill_window(scheduler, controller, 150.0)
+        scheduler.tick()
+        assert scheduler._awaiting is not None  # a second pulse is asked for
+        clock.advance(tempo.APPLY_TIMEOUT_S + 0.1)
+        scheduler.tick()
+        assert scheduler.profile is None  # the second miss is the item
+
+    def test_a_miss_on_an_item_that_cannot_take_a_tempo_writes_it_off(self, rig, clock):
+        scheduler, controller, kodi = rig
+        kodi.read_lag = 1000
+        fill_window(scheduler, controller, 150.0)
+        scheduler.tick()
+        kodi.enabled = False  # Player.TempoEnabled now reads false
+        clock.advance(tempo.APPLY_TIMEOUT_S + 0.1)
+        scheduler.tick()
+        assert scheduler.profile is None
 
     def test_an_item_that_cannot_take_a_tempo_now_is_not_written_off(self, rig):
         scheduler, controller, kodi = rig
@@ -574,13 +605,26 @@ class TestPulses:
         start_pulse(scheduler, controller, 150.0)
         assert kodi.sets
 
-    def test_a_refused_rate_writes_the_item_off(self, rig, monkeypatch):
+    def test_a_rate_refused_twice_writes_the_item_off(self, rig, clock, monkeypatch):
         scheduler, controller, kodi = rig
         monkeypatch.setattr(KodiTempo, "enabled", staticmethod(lambda: True))
         kodi.enabled = False  # Kodi refuses what TempoEnabled allowed
         fill_window(scheduler, controller, 150.0, extra=1)
-        assert scheduler.profile is None
+        assert kodi.refused and scheduler.profile is not None
+        clock.advance(tempo.SETTLE_S + 0.1)
+        fill_window(scheduler, controller, 150.0, extra=1)
+        assert len(kodi.refused) == 2 and scheduler.profile is None
+
+    def test_a_write_refused_by_a_pause_is_not_a_miss(self, rig, monkeypatch):
+        scheduler, controller, kodi = rig
+        fill_window(scheduler, controller, 150.0)
+        # The tick looks while playing; the viewer pauses before the write.
+        answers = iter([False])
+        monkeypatch.setattr(controller, "_is_paused", lambda: next(answers, True))
+        kodi.paused = True
+        scheduler.tick()
         assert kodi.refused
+        assert scheduler.profile is not None and scheduler._misses == 0
 
     def test_a_late_tick_collapses_the_ramp_to_the_latest_write(self, rig, clock):
         scheduler, controller, kodi = rig
@@ -603,14 +647,42 @@ class TestPulses:
         scheduler, controller, kodi = rig
         room = 2.5  # seconds left for the pulse once settle and margin are off
         controller.remaining = (room + tempo.SETTLE_S + tempo.END_MARGIN_S) * 1000.0
-        start_pulse(scheduler, controller, 400.0)  # would want 5 s
-        assert scheduler._pulse["seconds"] == pytest.approx(room)
+        start_pulse(scheduler, controller, 400.0)  # would want 5 s, ramped
+        pulse = scheduler._pulse
+        # The schedule, ramps included, ends inside the room.
+        assert pulse["writes"][-1][0] - pulse["start"][0] == pytest.approx(room)
+        assert pulse["seconds"] < room
 
         scheduler.cancel("test")
         controller.remaining = (tempo.SETTLE_S + tempo.END_MARGIN_S + 0.5) * 1000.0
         scheduler._settle_until = 0.0
         fill_window(scheduler, controller, 400.0, extra=1)
         assert scheduler._pulse is None and scheduler._awaiting is None
+
+    def test_fit_pulse_fits_the_ramps_too(self):
+        # 1.25x with 1 s of room: the ramps alone take 2 s.
+        assert tempo.fit_pulse(1.25, 1.0, 1.0) is None
+        fitted = tempo.fit_pulse(1.25, 5.0, 4.0)
+        schedule = tempo.pulse_schedule(1.25, fitted)
+        assert schedule[-1][0] == pytest.approx(4.0)
+        moved = sum(
+            (rate - 1.0) * (schedule[i + 1][0] - offset)
+            for i, (offset, rate) in enumerate(schedule[:-1])
+        )
+        assert moved == pytest.approx(0.25 * fitted)  # still (rate − 1) × seconds
+        assert tempo.fit_pulse(1.25, 5.0, 10.0) == 5.0
+        # Unramped, the pulse is cut to the room, down to PULSE_MIN_S.
+        assert tempo.fit_pulse(1.03, 2.0, 5.0) == 2.0
+        assert tempo.fit_pulse(1.03, 5.0, 2.0) == 2.0
+        assert tempo.fit_pulse(1.03, 5.0, 0.5) is None
+
+    def test_too_close_to_the_end_is_logged_once_an_item(self, rig, clock, logged):
+        scheduler, controller, kodi = rig
+        controller.remaining = (tempo.SETTLE_S + tempo.END_MARGIN_S + 0.5) * 1000.0
+        for _ in range(3):
+            fill_window(scheduler, controller, 400.0, extra=1)
+            clock.advance(3.0)
+        assert sum("too close to the end" in line for line in logged) == 1
 
     def test_residual_beyond_the_budget_seeks(self, rig):
         scheduler, controller, kodi = rig
@@ -702,9 +774,28 @@ class TestPause:
         scheduler.cancel("Pause")
         assert time.time() - started < 0.2
         assert scheduler._pulse is None and kodi.tempo == 1.0
+        # Asked, not yet read back: the record goes on the next tick's read.
+        assert state.syncplay_pulse() == {"player": tempo.VIDEO_PLAYER}
+        scheduler.tick()
         assert state.syncplay_pulse() == {}
         assert scheduler._settle_until > time.time()
         assert len(scheduler._history) == 1
+
+    def test_an_unconfirmed_return_keeps_the_record(self, rig, clock):
+        scheduler, controller, kodi = rig
+        start_pulse(scheduler, controller, 150.0)
+        kodi.read_lag = 1000  # the 1.0 is not read back
+        clock.now = scheduler._pulse["writes"][-1][0] + 0.01
+        scheduler.tick()
+        assert scheduler._awaiting["kind"] == "end"
+        clock.advance(tempo.APPLY_TIMEOUT_S + 0.1)
+        scheduler.tick()
+        assert scheduler._awaiting is None
+        assert state.syncplay_pulse() == {"player": tempo.VIDEO_PLAYER}  # owed
+        kodi.read_lag = 0
+        kodi._stale_reads = 0
+        scheduler.tick()
+        assert state.syncplay_pulse() == {}
 
     def test_settle_owed_leaves_a_running_pulse_alone(self, rig):
         scheduler, controller, kodi = rig
@@ -930,6 +1021,15 @@ class TestReset:
         scheduler.reset()
         assert scheduler.profile is None and scheduler._pulse is None
         assert kodi.tempo == 1.0 and state.syncplay_pulse() == {}
+
+    def test_kodis_schema_is_read_once_a_scheduler(self, rig):
+        scheduler, controller, kodi = rig
+        scheduler.tick()
+        controller.manager.claim = claim("ps-2")  # the next item arms
+        scheduler.tick()
+        state.publish_syncplay_pulse({"player": tempo.VIDEO_PLAYER})
+        scheduler.settle_owed()
+        assert kodi.introspections == 1
 
 
 # ----------------------------------------------------------------------------

@@ -49,14 +49,19 @@ RESUME_QUERY = {
 }
 
 
-def _player_properties(properties: List[str]) -> Optional[Dict[str, Any]]:
-    """Properties of whichever player is active, or None when none is."""
-    active = _active_players()
-    if not isinstance(active, list) or not active:
-        return None
+def player_properties(
+    properties: List[str], playerid: Optional[int] = None
+) -> Optional[Dict[str, Any]]:
+    """Properties of player ``playerid``, or of whichever player is active;
+    None when Kodi did not answer them."""
+    if playerid is None:
+        active = active_players()
+        if not isinstance(active, list) or not active:
+            return None
+        playerid = active[0]["playerid"]
     result = call(
         "Player.GetProperties",
-        {"playerid": active[0]["playerid"], "properties": properties},
+        {"playerid": playerid, "properties": properties},
     )
     return result if isinstance(result, dict) else None
 
@@ -71,7 +76,7 @@ def current_subtitle() -> Optional[int]:
     Only the index distinguishes them.
     """
     try:
-        result = _player_properties(["currentsubtitle", "subtitleenabled"])
+        result = player_properties(["currentsubtitle", "subtitleenabled"])
         if result is None or not result.get("subtitleenabled"):
             return None
         index = result.get("currentsubtitle", {}).get("index")
@@ -90,7 +95,7 @@ def current_audio() -> Optional[int]:
     menu that marks it as current would be marking the wrong row.
     """
     try:
-        result = _player_properties(["currentaudiostream"])
+        result = player_properties(["currentaudiostream"])
         if result is None:
             return None
         index = (result.get("currentaudiostream") or {}).get("index")
@@ -183,7 +188,7 @@ def stop_player(wait_seconds: float = 0.0) -> bool:
 
     Returns True when a stop was asked for.
     """
-    active = _active_players()
+    active = active_players()
     if not isinstance(active, list):
         LOG.warning("could not read the active players to stop them: %r", active)
         return False
@@ -210,7 +215,7 @@ def stop_player(wait_seconds: float = 0.0) -> bool:
             if monitor.waitForAbort(STOP_POLL_SECONDS):
                 break
             waited += STOP_POLL_SECONDS
-            still = _active_players()
+            still = active_players()
             if not isinstance(still, list):
                 LOG.debug("player poll failed while waiting for the stop: %r", still)
                 break
@@ -247,7 +252,7 @@ def resume_player() -> bool:
 
     Returns True when the request went out (or no player was active).
     """
-    active = _active_players()
+    active = active_players()
     if not isinstance(active, list):
         LOG.warning("could not read the active players to resume them: %r", active)
         return False
@@ -389,7 +394,7 @@ def batch(requests: Sequence[Tuple[str, Optional[Dict[str, Any]]]]) -> List[Any]
     return results
 
 
-def _active_players() -> Any:
+def active_players() -> Any:
     """``Player.GetActivePlayers``'s list, or whatever ``call`` answered."""
     return call("Player.GetActivePlayers")
 

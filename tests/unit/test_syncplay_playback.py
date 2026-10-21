@@ -1119,6 +1119,31 @@ class TestLiveClock:
         controller._position_ms()
         assert calls.count("Player.GetProperties") == 2
 
+    def test_a_missed_read_never_holds_none(self, monkeypatch):
+        controller, manager, player = make_controller(position=100.0)
+        player.clock_advances = False
+        manager.claim = live_claim()
+        clock = [utils.local_ms()]
+        monkeypatch.setattr(utils, "local_ms", lambda: clock[0])
+
+        # No clock yet (a timeshift buffer with no timestamp): asked again a
+        # tick later, not a second.
+        player.presentation_offset_ms = None
+        assert controller._presentation_offset_ms() is None
+        player.presentation_offset_ms = CLOCK_OFFSET_MS
+        clock[0] += playback_module.PRESENTATION_RETRY_MS + 1
+        assert controller._presentation_offset_ms() == pytest.approx(CLOCK_OFFSET_MS)
+
+        # A miss once the clock is known keeps it: None is the join origin.
+        player.presentation_offset_ms = None
+        clock[0] += playback_module.PRESENTATION_READ_MS + 1
+        assert controller._presentation_offset_ms() == pytest.approx(CLOCK_OFFSET_MS)
+        player.presentation_offset_ms = CLOCK_OFFSET_MS + 5.0
+        clock[0] += playback_module.PRESENTATION_READ_MS + 1
+        assert controller._presentation_offset_ms() == pytest.approx(
+            CLOCK_OFFSET_MS + 5.0
+        )
+
     def test_position_falls_back_to_the_player_clock(self):
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False

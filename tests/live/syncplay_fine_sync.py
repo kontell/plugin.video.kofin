@@ -357,7 +357,9 @@ def inject(member, rate, seconds):
     """Hold ``rate`` on a member through its own Player.SetTempo for
     ``seconds``: a displacement of (rate − 1) × seconds. Under kofin's
     foreign-tempo grace (2 s), so the scheduler leaves the step alone and
-    closes what it left."""
+    closes what it left. False when the member did not take the rate: Kodi
+    answers SetTempo for a rate it drops (above maxtempo, say), and a step
+    never injected would read as one closed."""
     assert seconds < 2.0, "the scheduler puts back a tempo held 2 s"
     # Never on top of a running pulse: the two would fight over the tempo.
     for _ in range(40):
@@ -369,8 +371,16 @@ def inject(member, rate, seconds):
         % (member.name, rate, seconds, (rate - 1) * seconds * 1000)
     )
     member.set_tempo(rate)
+    taken = member.tempo()
+
+    if taken is None or abs(taken - rate) >= 0.0005:
+        member.set_tempo(1.0)
+        log("inject on %s REFUSED: asked %.2fx, read %s" % (member.name, rate, taken))
+        return False
+
     time.sleep(seconds)
     member.set_tempo(1.0)
+    return True
 
 
 OSD_FLAGS = ["Player.IsTempo", "Player.HasPerformedSeek(3)"]
@@ -583,11 +593,14 @@ def main(argv):
                 sample_all(a, followers, 5), followers, "%s before" % scenario
             )
             if scenario == "inject-ahead":
-                inject(a, 1.2, 0.75)
+                injected = inject(a, 1.2, 0.75)
             elif scenario == "inject-behind":
-                inject(a, 0.8, 0.75)
+                injected = inject(a, 0.8, 0.75)
             else:
-                inject(a, 2.0, 1.0)
+                injected = inject(a, 2.0, 1.0)
+            if not injected:
+                report[scenario] = {"before": before, "injected": False}
+                continue
             # The injection's return to 1.0 shows the seek bar for 3 s.
             watch = OsdWatch(members, time.time() + 3.5)
             watch.start()
@@ -605,7 +618,9 @@ def main(argv):
         elif scenario == "cut":
             for member in members:
                 member.mark_log()
-            inject(a, 1.2, 0.75)
+            if not inject(a, 1.2, 0.75):
+                report[scenario] = {"injected": False}
+                continue
             # Wait for A's scheduler to start a pulse, then pause the group
             # from a follower while it runs.
             deadline = time.time() + 25

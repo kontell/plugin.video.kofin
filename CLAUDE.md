@@ -810,12 +810,14 @@ What remains is kofin's own:
   the tempo in force across a pause, so a pulse cut on a paused player leaves its rate
   behind. The 1.0 is owed: the playing tick and `SyncPlayManager.on_resumed` (first thing, in
   a group or not) ask for it again, and `state.PROP_SYNCPLAY_PULSE` records a rate in force so
-  that a new service generation puts it back (`Service._settle_left_tempo`). That property is
-  not in `clear_all`, on purpose.
+  that a new service generation puts it back (`Service._settle_left_tempo`), and so does the
+  service player's resume while there is no manager. The record goes only when a read shows
+  1.0, never on an accepted `SetTempo`. That property is not in `clear_all`, on purpose.
 - **A pulse ends before its track does.** PAPlayer makes a track queued behind the playing one
   at the tempo in force, and the group's boundary hold then pauses on it, so a pulse ends,
   settle included, `END_MARGIN_S` plus `musicplayer.crossfade` before its item, or is
-  shortened, or waits for the next (`PulseScheduler._fit_to_item`).
+  shortened, or waits for the next (`PulseScheduler._fit_to_item`). The whole schedule has to
+  fit, ramps included (`fit_pulse`).
 - **A live item's group position is on a live clock, ten days up.** The player clock of a
   live stream is session time and means nothing to another member; the engine reads a live
   member's position as `getTime()` plus Kodi's `presentationtime − time` (#19: the stream's own

@@ -211,6 +211,31 @@ def test_pause_resume_report_state(monkeypatch):
     assert api.calls[-1][1]["IsPaused"] is False
 
 
+def test_resume_without_a_manager_settles_an_owed_tempo(monkeypatch):
+    player, api = make_player(monkeypatch)
+    reasons = []
+    monkeypatch.setattr(
+        "kofin.syncplay.tempo.settle_left_rate",
+        lambda reason="", correction=None: reasons.append(reason) or True,
+    )
+    queue_item()
+    player.onPlayBackStarted()
+    player.onPlayBackResumed()
+    assert reasons == []  # nothing owed, nothing asked
+
+    # A pulse's rate left by an earlier generation, refused while paused: no
+    # manager yet (the service has not connected), so the resume settles it.
+    state.publish_syncplay_pulse({"player": 1})
+    player.onPlayBackResumed()
+    assert reasons == [" at a resume"]
+
+    # With a manager, its on_resumed is what settles (settle_owed).
+    player.syncplay = RecordingSyncPlay()
+    player.onPlayBackResumed()
+    assert reasons == [" at a resume"]
+    drain(player)
+
+
 # --- SyncPlay forwarding (phase 4) -------------------------------------------
 
 

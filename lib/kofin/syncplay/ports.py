@@ -22,7 +22,11 @@ class Claim(TypedDict, total=False):
 
     What ``player.current_item()`` answers: kofin's service player claims
     every play resolved through the plugin, and the engine reads identity
-    and transport off that claim and nothing else.
+    and transport off that claim, and two marks the play route
+    (``plugin/play.py``) stamps on a live item: ``Live``, which
+    ``utils.claim_is_live`` reads, and ``TimeshiftMissing``, a live play
+    resolved without the timeshift route, which fine sync leaves to the
+    group's commands (``syncplay/tempo.py``).
     ``Provider`` is absent on every claim today and defaults to
     ``"jellyfin"`` — the key the provider registry dispatches on
     (``syncplay/providers.py``).
@@ -34,6 +38,8 @@ class Claim(TypedDict, total=False):
     RunTimeTicks: int
     PlayMethod: str
     PlaySessionId: str
+    Live: bool
+    TimeshiftMissing: bool
 
 
 class SyncPlayApi(Protocol):

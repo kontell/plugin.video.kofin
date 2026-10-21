@@ -20,16 +20,20 @@ from kofin.core import kodirpc
 from kofin.core.log import Logger
 from kofin.syncplay import utils
 from kofin.syncplay.utils import FOLLOWING, Phase
-from kofin.syncplay.tempo import PulseScheduler, SEEK_LAG_DEFAULT_MS
+from kofin.syncplay.tempo import PulseScheduler, SEEK_LAG_DEFAULT_MS, VIDEO_PLAYER
 
 #################################################################################################
 
 LOG = Logger(__name__)
 
-# Kodi's presentationtime is read at most this often: the offset it gives holds
-# across a tempo and a pause, and moves only where the stream's own timestamps
-# jump.
+# Kodi's presentationtime is read at most this often once it has answered: the
+# offset it gives holds across a tempo and a pause, and moves only where the
+# stream's own timestamps jump.
 PRESENTATION_READ_MS = 1000.0
+# Until it has answered, it is asked again this soon: one controller tick, so
+# the stream's clock is taken up as soon as it exists, while a stream that never
+# has one (a server remux) costs a read a tick and no more.
+PRESENTATION_RETRY_MS = 250.0
 
 #################################################################################################
 
@@ -368,6 +372,9 @@ class PlaybackController(object):
                             "left to fine sync",
                             behind_ms,
                         )
+                        # Measure once PAPlayer is off the pause, as the
+                        # video branch does after its resume.
+                        self.tempo.note_settle()
                     else:
                         self._seek_and_settle(target_ms)
                 elif abs(behind_ms) > utils.AUDIO_UNPAUSE_ALIGN_MS:
@@ -1098,21 +1105,36 @@ class PlaybackController(object):
         return self._live_origin_server_ms
 
     def _presentation_offset_ms(self):
-        """The stream's own clock against the player clock, or None."""
-        now = utils.local_ms()
-        cached = self._presentation
+        """The stream's own clock against the player clock, or None until Kodi
+        has reported it.
 
-        if cached is not None and 0 <= now - cached[0] < PRESENTATION_READ_MS:
-            return cached[1]
+        Only a reading is kept. A miss (a timeshift buffer with no timestamp
+        yet, a failed read) keeps the last offset, and with none yet is asked
+        again a tick later rather than held: None means the join origin,
+        another clock, and held for a read interval it would put the group's
+        anchor and the window on it.
+        """
+        now = utils.local_ms()
+        known = None
+
+        if self._presentation is not None:
+            asked_at, known = self._presentation
+            interval = (
+                PRESENTATION_READ_MS if known is not None else PRESENTATION_RETRY_MS
+            )
+
+            if 0 <= now - asked_at < interval:
+                return known
 
         offset = utils.presentation_offset_ms(
-            kodirpc.call(
-                "Player.GetProperties",
-                {"playerid": 1, "properties": ["time", "presentationtime"]},
-            )
+            kodirpc.player_properties(["time", "presentationtime"], VIDEO_PLAYER)
         )
-        self._presentation = (now, offset)
-        return offset
+
+        if offset is not None:
+            known = offset
+
+        self._presentation = (now, known)
+        return known
 
     def live_on_source_clock(self):
         """Whether this member and the group share the source clock: the
