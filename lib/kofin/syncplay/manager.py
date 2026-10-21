@@ -416,7 +416,7 @@ class SyncPlayManager(object):
             return
 
         self._live_route_told = True
-        self._toast(settings.localized(30599), warning=True)
+        self._toast(settings.localized(30875), warning=True)
 
     def reload_current_item(self):
         """Restart the current item at the group position.

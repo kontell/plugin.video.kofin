@@ -1334,7 +1334,7 @@ msgstr "Sinc. fina parada: ritmo não coincide"
 
 msgctxt "#30593"
 msgid "Largest video error closed by tempo (ms)"
-msgstr "Maior erro de vídeo corrigido por tempo (ms)"
+msgstr "Maior erro de vídeo corrigido variando a velocidade (ms)"
 
 msgctxt "#30594"
 msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
@@ -1357,8 +1357,8 @@ msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a
 msgstr "Desligado por predefinição, com um aviso: num Pixel 7, uma mudança de velocidade seguida de um salto bloqueou o descodificador AV1 por hardware e depois o próprio telefone. O descodificador AV1 de um Bravia não teve problemas. Ligue só se o seu dispositivo aguentar; caso contrário os títulos AV1 seguem o grupo apenas pelos comandos."
 
 msgctxt "#30599"
-msgid "Live TV fine sync needs FFmpeg Direct"
-msgstr "A sincronização fina de TV em direto precisa do FFmpeg Direct"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "Sinc. fina requer inputstream.tempo 21.4.1 / 22.4.1"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
@@ -2303,6 +2303,10 @@ msgstr "Atualizar já todas as bibliotecas?"
 msgctxt "#30874"
 msgid "Re-read every library from the server now."
 msgstr "Volta a ler agora todas as bibliotecas do servidor."
+
+msgctxt "#30875"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "A sincronização fina de TV em direto precisa do FFmpeg Direct"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

@@ -1357,8 +1357,8 @@ msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a
 msgstr "默认关闭，并请注意：在 Pixel 7 上，变速后紧接跳转曾使 AV1 硬件解码器乃至整部手机卡死。Bravia 的 AV1 解码器则没有问题。仅当您的设备能承受时才开启；否则 AV1 条目仅靠命令跟随群组。"
 
 msgctxt "#30599"
-msgid "Live TV fine sync needs FFmpeg Direct"
-msgstr "直播电视的精细同步需要 FFmpeg Direct"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "精细同步需要 inputstream.tempo 21.4.1 / 22.4.1"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
@@ -2303,6 +2303,10 @@ msgstr "立即更新所有媒体库？"
 msgctxt "#30874"
 msgid "Re-read every library from the server now."
 msgstr "立即从服务器重新读取所有媒体库。"
+
+msgctxt "#30875"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "直播电视的精细同步需要 FFmpeg Direct"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

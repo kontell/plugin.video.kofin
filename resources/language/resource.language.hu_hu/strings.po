@@ -1357,8 +1357,8 @@ msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a
 msgstr "Alapértelmezés szerint kikapcsolva, figyelmeztetéssel: egy Pixel 7-en egy sebességváltás és az azt követő ugrás lefagyasztotta az AV1 hardveres dekódert, majd magát a telefont is. Egy Bravia AV1-dekódere gond nélkül bírta. Csak akkor kapcsold be, ha az eszközöd bírja; különben az AV1-címek csak a parancsok alapján követik a csoportot."
 
 msgctxt "#30599"
-msgid "Live TV fine sync needs FFmpeg Direct"
-msgstr "Az élő TV finomszinkronjához FFmpeg Direct kell"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "A finomszinkronhoz inputstream.tempo 21.4.1 / 22.4.1 kell"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
@@ -2303,6 +2303,10 @@ msgstr "Frissíti most az összes médiatárat?"
 msgctxt "#30874"
 msgid "Re-read every library from the server now."
 msgstr "Most újraolvassa az összes médiatárat a kiszolgálóról."
+
+msgctxt "#30875"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "Az élő TV finomszinkronjához FFmpeg Direct kell"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

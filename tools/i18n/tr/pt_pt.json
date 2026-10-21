@@ -460,13 +460,13 @@
   "#30590": "Fila de vídeo mais curta durante sessões (Kodi 22)",
   "#30591": "Define o tempo de fila de áudio/vídeo do Kodi para 1 segundo enquanto está num grupo e repõe-no depois. Uma mudança de velocidade só se ouve quando a fila foi reproduzida, por isso uma fila mais curta faz as correções chegarem em cerca de 2 segundos em vez de 5. Numa rede lenta ou pouco fiável, desligue isto. O Kodi 21 tem uma fila fixa de 8 segundos.",
   "#30592": "Sinc. fina parada: ritmo não coincide",
-  "#30593": "Maior erro de vídeo corrigido por tempo (ms)",
+  "#30593": "Maior erro de vídeo corrigido variando a velocidade (ms)",
   "#30594": "Erros de posição até este valor são corrigidos reproduzindo mais depressa ou mais devagar; maiores, com um salto. Mais alto significa menos saltos e mudanças de velocidade mais longas.",
   "#30595": "Velocidade máxima de correção de vídeo (%)",
   "#30596": "Quanto a velocidade de reprodução pode mudar, no máximo, durante uma correção. A 25 %, um erro de 2,5 segundos fecha-se em 10 segundos; mais baixo nota-se menos mas é mais lento. Mudanças grandes são aplicadas gradualmente.",
   "#30597": "Sincronização fina em vídeo AV1",
   "#30598": "Desligado por predefinição, com um aviso: num Pixel 7, uma mudança de velocidade seguida de um salto bloqueou o descodificador AV1 por hardware e depois o próprio telefone. O descodificador AV1 de um Bravia não teve problemas. Ligue só se o seu dispositivo aguentar; caso contrário os títulos AV1 seguem o grupo apenas pelos comandos.",
-  "#30599": "A sincronização fina de TV em direto precisa do FFmpeg Direct",
+  "#30599": "Sinc. fina requer inputstream.tempo 21.4.1 / 22.4.1",
   "#30821": "Erro do servidor — %s",
   "#30822": "%s mantido — não foi possível restaurar a entrada da biblioteca",
   "#30823": "Transferência eliminada: %s",
@@ -517,5 +517,6 @@
   "#30871": "Diária",
   "#30872": "Semanal",
   "#30873": "Atualizar já todas as bibliotecas?",
-  "#30874": "Volta a ler agora todas as bibliotecas do servidor."
+  "#30874": "Volta a ler agora todas as bibliotecas do servidor.",
+  "#30875": "A sincronização fina de TV em direto precisa do FFmpeg Direct"
 }

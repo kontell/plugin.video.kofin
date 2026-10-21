@@ -1357,8 +1357,8 @@ msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a
 msgstr "Desactivado por defecto, y con aviso: en un Pixel 7, un cambio de velocidad seguido de un salto colgó el decodificador AV1 por hardware y luego el propio teléfono. El decodificador AV1 de un Bravia no dio problemas. Actívalo solo si tu dispositivo lo soporta; si no, los títulos AV1 siguen al grupo solo con los comandos."
 
 msgctxt "#30599"
-msgid "Live TV fine sync needs FFmpeg Direct"
-msgstr "La sincronización fina de TV en directo necesita FFmpeg Direct"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
+msgstr "Sinc. fina requiere inputstream.tempo 21.4.1 / 22.4.1"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"
@@ -2303,6 +2303,10 @@ msgstr "¿Actualizar ahora todas las bibliotecas?"
 msgctxt "#30874"
 msgid "Re-read every library from the server now."
 msgstr "Vuelve a leer ahora todas las bibliotecas del servidor."
+
+msgctxt "#30875"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "La sincronización fina de TV en directo necesita FFmpeg Direct"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

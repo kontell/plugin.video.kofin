@@ -1352,7 +1352,9 @@ msgstr ""
 # and 30597-30598 retired (the AV1 toggle: the Pixel 7 freeze it guarded against
 # was the add-on freeing the first packets after a seek, fixed in
 # inputstream.tempo 22.4.1, and the same phone then passed AV1 at 1.25x with
-# seeks). Kept, never reused, for the reason given at #30744. #30599 is a toast.
+# seeks). #30599 retired on master with inputstream.tempo, the add-on it
+# names; the live TV toast that took its place is #30875. Kept, never reused,
+# for the reason given at #30744.
 msgctxt "#30586"
 msgid "Fine sync"
 msgstr ""
@@ -1406,7 +1408,7 @@ msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a
 msgstr ""
 
 msgctxt "#30599"
-msgid "Live TV fine sync needs FFmpeg Direct"
+msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
 msgstr ""
 
 # 30600-30619 — phase 5: KofinSyncQueue tier + retention + progress
@@ -2467,6 +2469,12 @@ msgstr ""
 
 msgctxt "#30874"
 msgid "Re-read every library from the server now."
+msgstr ""
+
+# 30875 — SyncPlay fine sync: a live item in a group without FFmpeg Direct
+# (lib/kofin/syncplay/manager.py). A toast; #30599 held it once.
+msgctxt "#30875"
+msgid "Live TV fine sync needs FFmpeg Direct"
 msgstr ""
 
 msgctxt "#30990"

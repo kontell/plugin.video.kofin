@@ -466,7 +466,7 @@
   "#30596": "O kolik se smí během opravy nejvýš změnit rychlost přehrávání. Při 25 % se chyba 2,5 sekundy srovná za 10 sekund; nižší je méně nápadné, ale pomalejší. Velké změny se zavádějí a ukončují postupně.",
   "#30597": "Jemná synchronizace u videa AV1",
   "#30598": "Ve výchozím stavu vypnuto, s varováním: na Pixelu 7 změna rychlosti následovaná skokem zasekla hardwarový dekodér AV1 a pak i samotný telefon. Dekodér AV1 v Bravii byl v pořádku. Zapni jen tehdy, když to tvé zařízení zvládá; jinak tituly AV1 sledují skupinu jen podle příkazů.",
-  "#30599": "Jemná synchronizace živé TV vyžaduje FFmpeg Direct",
+  "#30599": "Jemná synchronizace vyžaduje inputstream.tempo 21.4.1 / 22.4.1",
   "#30821": "Chyba serveru — %s",
   "#30822": "%s ponecháno — položku knihovny nelze obnovit",
   "#30823": "Stažená položka odstraněna: %s",
@@ -517,5 +517,6 @@
   "#30871": "Denně",
   "#30872": "Týdně",
   "#30873": "Aktualizovat nyní všechny knihovny?",
-  "#30874": "Nyní znovu načte všechny knihovny ze serveru."
+  "#30874": "Nyní znovu načte všechny knihovny ze serveru.",
+  "#30875": "Jemná synchronizace živé TV vyžaduje FFmpeg Direct"
 }
