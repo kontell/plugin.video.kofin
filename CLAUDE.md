@@ -801,15 +801,21 @@ What remains is kofin's own:
   correction the OSD does not show where Kodi declares the flag (#38), confirms it by reading
   the `tempo` property back, reads what it moved off the player clock, settles before
   measuring again, and gives up on a one-signed residual (`docs/syncplay-fine-sync.md`).
-  An item Kodi cannot play at a tempo (`Player.TempoEnabled`) and an audio item get
-  command-only sync; nothing is routed or stamped on a play, so a transcode and a provider's
-  play take a pulse like any other.
+  Music takes pulses through PAPlayer's tempo (#15) within fixed limits of its own
+  (`music_profile`: at most 1 %, within the atempo threshold, a 25 ms deadband, a 500 ms
+  budget); the two sliders are video's. An item Kodi cannot play at a tempo
+  (`Player.TempoEnabled`) gets command-only sync; nothing is routed or stamped on a play, so a
+  transcode, a download and a provider's play take a pulse like any other.
 - **A pulse never outlives a pause.** Kodi refuses `Player.SetTempo` while paused and keeps
   the tempo in force across a pause, so a pulse cut on a paused player leaves its rate
   behind. The 1.0 is owed: the playing tick and `SyncPlayManager.on_resumed` (first thing, in
   a group or not) ask for it again, and `state.PROP_SYNCPLAY_PULSE` records a rate in force so
   that a new service generation puts it back (`Service._settle_left_tempo`). That property is
   not in `clear_all`, on purpose.
+- **A pulse ends before its track does.** PAPlayer makes a track queued behind the playing one
+  at the tempo in force, and the group's boundary hold then pauses on it, so a pulse ends,
+  settle included, `END_MARGIN_S` plus `musicplayer.crossfade` before its item, or is
+  shortened, or waits for the next (`PulseScheduler._fit_to_item`).
 - **A live item's group position is on a live clock, ten days up.** The player clock of a
   live stream is session time and means nothing to another member; the engine reads a live
   member's position as `getTime()` plus Kodi's `presentationtime − time` (#19: the stream's own

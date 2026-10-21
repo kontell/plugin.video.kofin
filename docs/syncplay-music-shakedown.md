@@ -272,3 +272,7 @@ Day 0 is the highest-value block and needs no devices: the asset and the sampler
 * ~~The asset recipe, committed~~ — `tools/make_sync_asset.py` and `tools/verify_sync_asset.py`. The numbers are only reproducible against the same asset, and the verifier is the gate that says so.
 * A `## S-M` section in `docs/testing-plan.md`, ids filled in as they run.
 * Whichever arm wins, plus its setting — or a written finding that none of them is worth the cost.
+
+## 13. Kodi 23: PAPlayer's own tempo
+
+On Kodi 23 with kontell/xbmc #15, PAPlayer plays a tempo itself, on whatever it plays. That replaces arms B and E: no VideoPlayer detour, no `musicvideo` tag, and no path mode, since nothing has to be routed for a tempo to reach a song — streamed, transcoded or downloaded. Fine sync for music is `docs/syncplay-fine-sync.md` §6, with limits of its own (at most 1 %, within the atempo threshold, so the engine resamples rather than stretches). Its results are this study's Phase C, run against §10's bars on a Kodi 23 capture pair: S-M in `docs/testing-plan.md`.

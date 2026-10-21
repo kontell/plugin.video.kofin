@@ -1,6 +1,6 @@
 # SyncPlay fine sync — tempo pulses through Kodi's own tempo
 
-Between group commands, fine sync keeps a member on the group's position by playing briefly faster or slower. On this branch (Kodi 23) the actuator is Kodi's own tempo, from kontell/xbmc #14 and #16, with #37 keeping a tempo beyond the atempo threshold from drawing a clock correction, #18 giving a position read to the millisecond, and #38 playing each pulse as a correction the GUI does not show. The api and sql branches (Kodi 21 and 22) route the same scheduler through the inputstream.tempo add-on instead; inputstream.tempo has no Kodi 23 build. The design of the scheduler is the add-on era's, measured on it (`tests/live/results/S4.8-fine-sync.md`); what changed with the actuator is below.
+Between group commands, fine sync keeps a member on the group's position by playing briefly faster or slower. On this branch (Kodi 23) the actuator is Kodi's own tempo, from kontell/xbmc #14 and #16 for video and #15 for music, with #37 keeping a tempo beyond the atempo threshold from drawing a clock correction, #18 giving a position read to the millisecond, and #38 playing each pulse as a correction the GUI does not show. The api and sql branches (Kodi 21 and 22) route the same scheduler through the inputstream.tempo add-on instead; inputstream.tempo has no Kodi 23 build. The design of the scheduler is the add-on era's, measured on it (`tests/live/results/S4.8-fine-sync.md`); what changed with the actuator is below.
 
 ## 1. Why there is a controller again
 
@@ -14,7 +14,7 @@ So the rule in `CLAUDE.md` stands — no continuous loop against a biased readin
 
 Nothing is routed and nothing is stamped on a play. The scheduler arms on the play claim of whatever plays (`syncplay/tempo.py::PulseScheduler._arm`): kofin's own play, a download, a provider's play over the public bus. Whether the item can take a tempo is `Player.TempoEnabled`, asked at each decision rather than once, because it changes during a play (a timeshift buffer has no range for its first moments). An item that cannot take one now is left to the seek path, exactly as an unrouted item was.
 
-Audio items stay command-only: PAPlayer's choreography (never seek it paused) is the commands'.
+An audio item arms with music's own limits (§6); a live audio stream stays command-only.
 
 The actuator is JSON-RPC, since Python's `xbmc.Player` has no tempo call: `Player.SetTempo` with the tempo as a float (Kodi reads it as a double and refuses a JSON integer), and the `tempo` property, which reads what the player has taken. Kodi rounds a tempo to three decimals, so `plan_pulse` plans on that grid and works the pulse's length out from the rate Kodi will play.
 
@@ -31,7 +31,7 @@ Driven from the controller's existing 250 ms loop, only in the `synced` phase af
 Each tick appends `group estimate − player position` to a 3 s window. Once the window is full the median decides:
 
 - inside the deadband (75 ms — one frame is 42 ms, and the Tab's position reads jittered by about that before #18; at 50 ms it pulsed ±50 ms against its own noise): nothing;
-- up to the pulse budget (*Largest error closed by tempo*, default 5 s, max 10 s): a pulse `(r, T)` with `(r − 1) × T` equal to the residual. The rate scales with the residual between 0.5 % and the *Fastest correction speed* (default 25 %), aiming at a 5 s pulse. Above 5 % the rate is ramped in and out in 5 % steps every 250 ms, and the hold is shortened by what the ramps already displace, so the schedule still moves exactly the residual;
+- up to the pulse budget (*Largest video error closed by tempo*, default 5 s, max 10 s): a pulse `(r, T)` with `(r − 1) × T` equal to the residual. The rate scales with the residual between 0.5 % and the *Fastest video correction speed* (default 25 %), aiming at a 5 s pulse. Above 5 % the rate is ramped in and out in 5 % steps every 250 ms, and the hold is shortened by what the ramps already displace, so the schedule still moves exactly the residual;
 - beyond it, and only when every sample in the window is beyond it: a seek, at 1.0, aimed ahead by this device's measured seek lag, then a 30 s blackout during which a residual the seek left behind is closed by pulses after all, saturated at the rate ceiling for up to 40 s.
 
 A pulse is asked for with `Player.SetTempo` and **confirmed** when the `tempo` property reads it back (`applied after N ms`: the player thread's dead time on VideoPlayer). If it is not read back within 3 s, 1.0 is asked for and the item falls back to command-only sync; a SetTempo refused while playing does the same. When the pulse ends, 1.0 is asked for and read back the same way. What the pulse moved is read off the player clock once the settle has passed: the change in position less the time that passed, logged against what the pulse was asked to move. Then a settle (`SETTLE_S`, set from the rig's rate-change delay) before the window starts again.
@@ -54,11 +54,39 @@ Its position is not the player clock. Kodi reports the stream's own clock as `pr
 
 The clock wraps every 2³³ ÷ 90 kHz, so a reading is placed on the group reference's cycle of it (`utils.unwrap_live_ms`), and a live group position on the wire sits ten days up (`LIVE_PTS_EPOCH_S`) so a member can tell a live-clock anchor from the session-time zero a proposer without a clock sends. A proposer with a clock anchors the group `LIVE_DELAY_S` (5 s) behind its own reading (`_forward_local_play` → `live_anchor_ms`). A live item is never seeked (`_seek_and_settle` returns at once); a residual beyond the budget takes saturated pulses instead, for as long as it takes. A member that lands ahead of the group by more than `LIVE_HOLD_MIN_MS` **holds**: it pauses for the excess, capped at `LIVE_HOLD_MAX_S`, and resumes through the dispatcher — exact on a timeshift buffer. A member behind pulses forward until it meets the group or Kodi puts it back to 1.0 at its live edge; two such returns in a row end fine sync for the item. Every live member's Ready report promises the group's own position.
 
-## 6. Log lines
+## 6. Music
+
+Music had no fine sync before Kodi 23: PAPlayer had no tempo, and routing songs through VideoPlayer and the add-on (`docs/syncplay-music-shakedown.md` §8) never got past the path problem. PAPlayer's own tempo (#15) acts on whatever it plays — a streamed song, a download, a provider's audio — so nothing is routed here either.
+
+What it is for: members free-run about 200 ppm apart (12 ms a minute, about half a second over a 40-minute album; the shakedown's M0), every track starts about 135 ms apart (M1's boundary start spread), and two sources of one song heard together fuse only below about 30 ms (§3). Commands alone left all three.
+
+Music has fixed limits (`syncplay/tempo.py::music_profile`), not the sliders, which are video's:
+
+| | Music | Video |
+| --- | --- | --- |
+| Rate | 0.1 % (Kodi's step) to 1 %, and below `audiooutput.atempothreshold` as read at arm | 0.5 % to the slider (25 %) |
+| Deadband | 25 ms | 75 ms |
+| Pulse aim | 15 s, at most 40 s | 5 s, at most 40 s |
+| Budget (above it, a seek while playing) | 500 ms | the slider (5 s) |
+| Ramps | none: every music rate is under one ramp step | 5 % steps every 250 ms |
+
+Within the atempo threshold the engine resamples rather than stretches: the pitch moves with the rate, at most 17 cents at 1 % and under 2 at 0.1 %, and none of atempo's smearing reaches music. A 25 ms drift is a 0.2 % pulse for about 13 s, every couple of minutes; a 135 ms start spread is 0.9 % for 15 s. A read-back must match to half Kodi's step (`RATE_MATCH`), since a music pulse can be one step from 1.0.
+
+Those rates are played as asked only with kontell/xbmc #39. Before it the resampler moved each buffer by whole samples, so on a sink taking 464 frames at a time every tempo from 0.998 to 1.002 played at 1.0, and 1.01 at 1.0086 (`qualify/results-rig.md` in the plan's notes). A pulse in that gap moves nothing, so the residual is still there after every pulse, which looks to the give-up rule like a rate mismatch. Kodi does not say whether it has #39, so nothing here can tell.
+
+**A pulse ends before its track does.** PAPlayer makes a track queued behind the playing one at the tempo in force, and the group's boundary hold then pauses on it, so a pulse ends, settle included, `END_MARGIN_S` plus `musicplayer.crossfade` before the track does, or is shortened to fit, or left to the next track. A track's first measurement waits for the settle after the group's Unpause and a full window, so the read holes the shakedown saw at a held boundary are never sampled.
+
+After the group's Unpause, the audio branch of `_do_unpause` keeps its choreography — resume first, never seek a paused PAPlayer, retry until the clock moves — and with fine sync armed for the track it seeks only above the music budget, leaving the rest to pulses; without fine sync it seeks past `AUDIO_UNPAUSE_ALIGN_MS` (1.5 s) as before. A bitstream track has no tempo (`Player.TempoEnabled` reads false), and is command-only.
+
+Fine sync aligns the positions the players report. Each device's error in reporting its sink latency stays in what is heard — about 100 ms on the shakedown's M1 pair, an Omega and a Piers member — so the gate measures audible Δ with the capture rig (`tools/music_capture.py`, `tools/analyse_capture.py`). It does nothing for the gap between tracks: that is the hold-and-propose round trip at every boundary.
+
+## 7. Log lines
 
 ```
 [ syncplay/tempo ] fine sync armed (Kodi's tempo)
 [ syncplay/tempo ] fine sync armed for <item> (video: budget 5000ms, up to 25.0%)
+[ syncplay/tempo ] fine sync armed for <song> (music: budget 500ms, up to 1.0%)
+[ syncplay/align ] +80ms at the resume: left to fine sync
 [ syncplay/pulse ] +118ms: 1.024x for 4.9s (applied after 12ms)
 [ syncplay/pulse ] moved +116ms (wanted +118ms)
 [ syncplay/pulse ] cut by Pause
@@ -73,6 +101,6 @@ The clock wraps every 2³³ ÷ 90 kHz, so a reading is placed on the group refer
 
 `applied after` is the time from the call to the player reporting the rate; the clock follows once the audio queued at the output has played out. `moved` versus `wanted` is the pulse's accuracy read off the player clock. `[ syncplay/window ]` at debug gives each decision's median and the window's spread, which is this member's read noise between pulses.
 
-## 7. What to verify live
+## 8. What to verify live
 
-`tests/live/tempo_gate.py` qualifies the actuator on a device: slopes, read noise, the refusal while paused, the read-back and rate-change delays, clock corrections across a ramped pulse. `tests/live/syncplay_fine_sync.py` drives the scheduler end to end on real members, injecting a residual through `Player.SetTempo` on one member's JSON-RPC. The gate is S4.8 for Kodi 23 in `docs/testing-plan.md`.
+`tests/live/tempo_gate.py` qualifies the actuator on a device: slopes, read noise, the refusal while paused, the read-back and rate-change delays, clock corrections across a ramped pulse. `tests/live/syncplay_fine_sync.py` drives the scheduler end to end on real members, injecting a residual through `Player.SetTempo` on one member's JSON-RPC. `tests/live/syncplay_music.py` and the capture tools do the same for music. The gates are S4.8 and S-M for Kodi 23 in `docs/testing-plan.md`.

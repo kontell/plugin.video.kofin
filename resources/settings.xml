@@ -643,6 +643,8 @@
           </dependencies>
           <control type="toggle"/>
         </setting>
+        <!-- The two sliders are video's; music's limits are fixed
+             (syncplay/tempo.py, music_profile). -->
         <setting id="syncPlayPulseBudget" type="integer" label="30593" help="30594">
           <level>0</level>
           <default>5000</default>

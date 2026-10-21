@@ -1333,16 +1333,16 @@ msgid "Fine sync stopped: rate mismatch"
 msgstr "정밀 동기화 중지: 속도 불일치"
 
 msgctxt "#30593"
-msgid "Largest error closed by tempo (ms)"
-msgstr "템포로 보정할 최대 오차 (ms)"
+msgid "Largest video error closed by tempo (ms)"
+msgstr "템포로 보정할 동영상 최대 오차 (ms)"
 
 msgctxt "#30594"
 msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
 msgstr "이 값까지의 위치 오차는 빠르거나 느리게 재생해 보정하고, 더 큰 오차는 건너뛰기로 보정합니다. 높을수록 건너뛰기가 줄고 속도 변경이 길어집니다."
 
 msgctxt "#30595"
-msgid "Fastest correction speed (%)"
-msgstr "가장 빠른 보정 속도 (%)"
+msgid "Fastest video correction speed (%)"
+msgstr "동영상 최고 보정 속도 (%)"
 
 msgctxt "#30596"
 msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."

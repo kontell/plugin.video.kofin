@@ -1333,16 +1333,16 @@ msgid "Fine sync stopped: rate mismatch"
 msgstr "精细同步已停止：速率不匹配"
 
 msgctxt "#30593"
-msgid "Largest error closed by tempo (ms)"
-msgstr "用变速校正的最大误差 (ms)"
+msgid "Largest video error closed by tempo (ms)"
+msgstr "用变速校正的最大视频误差 (ms)"
 
 msgctxt "#30594"
 msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
 msgstr "不超过此值的位置误差通过加快或放慢播放来校正；更大的误差通过跳转校正。数值越高，跳转越少，变速时间越长。"
 
 msgctxt "#30595"
-msgid "Fastest correction speed (%)"
-msgstr "最快校正速度 (%)"
+msgid "Fastest video correction speed (%)"
+msgstr "最快视频校正速度 (%)"
 
 msgctxt "#30596"
 msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."

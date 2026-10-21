@@ -9,7 +9,9 @@ kontell/xbmc #14 and #16 plays the tempo in the audio itself (a resample ratio
 the engine keeps) and lets the audio be the clock, so the tempo works with the
 display clock **off**, where the rig's devices free-run within a few hundred
 ppm of real time. #37 is what keeps a tempo beyond the atempo threshold from
-drawing a clock correction. ``docs/syncplay-fine-sync.md`` is the design.
+drawing a clock correction. #15 gives PAPlayer the same tempo, so music takes
+pulses too, within limits of its own (``music_profile``).
+``docs/syncplay-fine-sync.md`` is the design.
 
 Three parts here:
 
@@ -50,14 +52,17 @@ from kofin.syncplay import utils
 
 LOG = Logger(__name__)
 
-VIDEO_PLAYER = 1  # JSON-RPC's playerid for VideoPlayer; PAPlayer is 0
+VIDEO_PLAYER = 1  # JSON-RPC's playerids
+MUSIC_PLAYER = 0
 
 # Kodi's tempo has three decimals: both players round to them, so a pulse is
 # planned on that grid and its length worked out from the rate Kodi will
 # really play.
 RATE_STEP = 0.001
-# A read within this of a rate is that rate.
-RATE_MATCH = 0.0015
+# A read within this of a rate is that rate: half a step, since a music pulse
+# can be one step from 1.0. Kodi reads a tempo back as a float, 1.03 as
+# 1.0299999713897705, far inside it.
+RATE_MATCH = 0.0005
 
 # Pulse planning. A pulse aims to last PULSE_AIM_S, so the rate scales with the
 # residual between RATE_MIN and the user's ceiling (syncPlayMaxRate, default
@@ -158,6 +163,47 @@ class Profile(object):
 VIDEO_DEFAULT = Profile(
     "video", DEADBAND_MS, RATE_MIN, RATE_MAX_DEFAULT, PULSE_AIM_S, BUDGET_DEFAULT_MS
 )
+
+
+# Music's limits (Profile), fixed rather than the sliders, which are video's.
+# Members free-run about 200 ppm apart (12 ms a minute) and two sources of one
+# song heard together fuse below about 30 ms (docs/syncplay-music-shakedown.md
+# §3), so the deadband sits there and the corrections are slight: from Kodi's
+# 0.1 % step to 1 %, always within the atempo threshold, where the engine
+# resamples rather than stretches — the pitch moves at most 17 cents and none
+# of atempo's smearing reaches music. A 25 ms drift is a 0.2 % pulse for about
+# 13 s; a 135 ms start spread (M1) is 0.9 % for 15 s. Beyond the budget a seek
+# while playing is the cheaper sound.
+MUSIC_DEADBAND_MS = 25.0
+MUSIC_RATE_MAX = 0.01
+MUSIC_PULSE_AIM_S = 15.0
+MUSIC_BUDGET_MS = 500.0
+ATEMPO_SETTING = "audiooutput.atempothreshold"  # percent
+CROSSFADE_SETTING = "musicplayer.crossfade"  # seconds
+
+
+def music_profile(atempo_threshold=None, crossfade=None):
+    """Music's limits on a Kodi whose atempo threshold (percent) and
+    crossfade (seconds) are as given; an unreadable setting counts as
+    Kodi's default."""
+    rate_max = MUSIC_RATE_MAX
+
+    if isinstance(atempo_threshold, (int, float)) and atempo_threshold > 0:
+        rate_max = min(rate_max, atempo_threshold / 100.0 - RATE_STEP)
+
+    fade = crossfade if isinstance(crossfade, (int, float)) and crossfade > 0 else 0
+
+    return Profile(
+        "music",
+        MUSIC_DEADBAND_MS,
+        RATE_STEP,
+        rate_max,
+        MUSIC_PULSE_AIM_S,
+        MUSIC_BUDGET_MS,
+        # A track queued behind the playing one is made at the tempo in force,
+        # and a crossfade starts it that much before this one ends.
+        end_margin_s=END_MARGIN_S + fade,
+    )
 
 
 def video_profile():
@@ -466,14 +512,17 @@ class PulseScheduler(object):
         self._foreign_logged = False
         self._foreign_since = None
 
-        if self.controller._is_audio():
+        audio = self.controller._is_audio()
+
+        if audio and self._live:
+            # A radio stream through PAPlayer has no time range to move in.
             self.profile = None
             self.actuator = None
 
             if not self._unarmed_logged:
                 self._unarmed_logged = True
                 LOG.info(
-                    "[ syncplay/tempo ] %s is audio; command-only sync for this item",
+                    "[ syncplay/tempo ] %s is live audio; command-only sync",
                     claim.get("Id"),
                 )
 
@@ -490,8 +539,17 @@ class PulseScheduler(object):
                 notify()
 
         self._unarmed_logged = False
-        self.profile = video_profile()
-        self.actuator = KodiTempo(VIDEO_PLAYER)
+
+        if audio:
+            self.profile = music_profile(
+                kodirpc.kodi_setting(ATEMPO_SETTING),
+                kodirpc.kodi_setting(CROSSFADE_SETTING),
+            )
+            self.actuator = KodiTempo(MUSIC_PLAYER)
+        else:
+            self.profile = video_profile()
+            self.actuator = KodiTempo(VIDEO_PLAYER)
+
         LOG.info(
             "[ syncplay/tempo ] fine sync armed for %s "
             "(%s: budget %.0fms, up to %.1f%%%s%s)",
@@ -502,6 +560,17 @@ class PulseScheduler(object):
             ", live: on the source clock, pulses only" if self._live else "",
             "" if self.actuator.correction else ", shown on the OSD",
         )
+
+    def armed(self):
+        """Whether the playing item takes pulses now: armed, not given up,
+        and able to take a tempo (``Player.TempoEnabled``)."""
+        with self._lock:
+            self._arm_for_current()
+
+            if self.profile is None or self._gave_up:
+                return False
+
+        return KodiTempo.enabled()
 
     def _write_off(self, why):
         """This item takes no pulses after all: command-only until the next."""

@@ -27,9 +27,13 @@ four members is 48 requests a second, and on a box whose radio quantises to
 
     tests/live/syncplay_music.py --selftest
     tests/live/syncplay_music.py \\
-        --member A=192.168.1.112:8080,settings=<path>,log=<path>,tempo=<path> \\
-        --member B=192.168.1.198:8080,adb=<serial>,settings=<path>,log=<path>,tempo=<path> \\
-        sample --seconds 120
+        --member A=192.168.1.112:8080,settings=<path>,log=<path> \\
+        --member B=192.168.1.198:8080,adb=<serial>,settings=<path>,log=<path> \\
+        [--inject 1.1:0.6] sample --seconds 120
+
+``--inject RATE:SECONDS`` holds a tempo on the first member through its own
+``Player.SetTempo`` before sampling (1.1 for 0.6 s is +60 ms), for fine sync to
+find and close.
 """
 
 import argparse
@@ -43,7 +47,7 @@ import time
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from syncplay_fine_sync import Member, log  # noqa: E402
+from syncplay_fine_sync import Member, inject, log  # noqa: E402
 
 # A hole is a sample where a member was expected to be playing and returned no
 # usable position. Counted, never fatal.
@@ -387,6 +391,7 @@ def main(argv):
     ap.add_argument("--seconds", type=float, default=60.0)
     ap.add_argument("--hz", type=float, default=4.0)
     ap.add_argument("--out", help="write raw rows here as JSON")
+    ap.add_argument("--inject", help="RATE:SECONDS on the first member first")
     ap.add_argument("scenario", nargs="?", default="sample")
     args = ap.parse_args(argv)
 
@@ -399,6 +404,10 @@ def main(argv):
     log("members: %s" % ", ".join("%s (%s)" % (m.name, m.device_name) for m in members))
     for member in members:
         member.mark_log()
+
+    if args.inject:
+        rate, seconds = (float(part) for part in args.inject.split(":"))
+        inject(members[0], rate, seconds)
 
     rows = sample(members, args.seconds, args.hz)
     log("%d samples over %.0f s" % (len(rows), args.seconds))

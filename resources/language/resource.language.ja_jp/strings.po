@@ -1333,16 +1333,16 @@ msgid "Fine sync stopped: rate mismatch"
 msgstr "微調整同期を停止: 速度が一致しません"
 
 msgctxt "#30593"
-msgid "Largest error closed by tempo (ms)"
-msgstr "テンポで解消する最大のずれ (ms)"
+msgid "Largest video error closed by tempo (ms)"
+msgstr "テンポで解消する動画の最大のずれ (ms)"
 
 msgctxt "#30594"
 msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
 msgstr "ここまでの位置のずれは速度を上げ下げして解消し、それより大きいものはスキップで解消します。大きいほどスキップが減り、速度変更は長くなります。"
 
 msgctxt "#30595"
-msgid "Fastest correction speed (%)"
-msgstr "補正時の最大速度変化 (%)"
+msgid "Fastest video correction speed (%)"
+msgstr "動画の補正時の最大速度変化 (%)"
 
 msgctxt "#30596"
 msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."

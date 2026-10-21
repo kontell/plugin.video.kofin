@@ -536,6 +536,59 @@ class TestSeekWhilePaused:
         # Resume first, then seek: never seek while paused.
         assert player.actions.index("pause") < player.actions.index(seeks[0])
 
+    class _MusicFineSync:
+        """The scheduler as the audio resume sees it."""
+
+        def __init__(self, armed, budget_ms):
+            self._armed = armed
+            self.budget_ms = budget_ms
+            self.asked = []
+
+        def armed(self):
+            return self._armed
+
+        def can_close(self, residual_ms):
+            self.asked.append(residual_ms)
+            return self._armed and abs(residual_ms) <= self.budget_ms
+
+        def cancel(self, reason):
+            pass
+
+        def before_seek(self):
+            pass
+
+        def note_settle(self):
+            pass
+
+    def _audio_unpause(self, fine_sync, position, target_s):
+        controller, manager, player = make_controller(paused=True, position=position)
+        player.audio = True
+        player.clock_advances = True
+        controller.tempo = fine_sync
+        controller.schedule(
+            command("Unpause", -10, ticks=utils.seconds_to_ticks(target_s))
+        )
+        assert player.paused is False
+        return [a for a in player.actions if isinstance(a, tuple) and a[0] == "seek"]
+
+    def test_audio_resume_leaves_the_music_budget_to_pulses(self):
+        # 18.9 s off is far past any budget; the stub's own budget decides.
+        fine_sync = self._MusicFineSync(armed=True, budget_ms=60_000.0)
+        assert self._audio_unpause(fine_sync, 18.9, 0.0) == []
+        assert fine_sync.asked  # the residual was offered to fine sync
+
+    def test_audio_resume_seeks_past_the_music_budget(self):
+        fine_sync = self._MusicFineSync(armed=True, budget_ms=500.0)
+        seeks = self._audio_unpause(fine_sync, 18.9, 0.0)
+        assert seeks and seeks[0][1] < 0.5
+
+    def test_audio_resume_without_fine_sync_keeps_its_wide_band(self):
+        # Not armed: only past AUDIO_UNPAUSE_ALIGN_MS, as before.
+        fine_sync = self._MusicFineSync(armed=False, budget_ms=500.0)
+        assert self._audio_unpause(fine_sync, 10.0, 10.8) == []
+        fine_sync = self._MusicFineSync(armed=False, budget_ms=500.0)
+        assert self._audio_unpause(fine_sync, 18.9, 0.0)
+
     def test_unpause_retries_a_swallowed_toggle(self):
         # Fork field log 2026-07-10: a paused-at-boundary PAPlayer can
         # swallow the pause toggle; the resume must nudge again until

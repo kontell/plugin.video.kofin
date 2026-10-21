@@ -1333,16 +1333,16 @@ msgid "Fine sync stopped: rate mismatch"
 msgstr "Sinc. fine fermata: velocità diverse"
 
 msgctxt "#30593"
-msgid "Largest error closed by tempo (ms)"
-msgstr "Errore massimo corretto con il tempo (ms)"
+msgid "Largest video error closed by tempo (ms)"
+msgstr "Errore video massimo corretto con il tempo (ms)"
 
 msgctxt "#30594"
 msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
 msgstr "Gli errori di posizione fino a questo valore sono corretti riproducendo più veloce o più lento; quelli maggiori con un salto. Più alto significa meno salti e cambi di velocità più lunghi."
 
 msgctxt "#30595"
-msgid "Fastest correction speed (%)"
-msgstr "Velocità massima di correzione (%)"
+msgid "Fastest video correction speed (%)"
+msgstr "Velocità massima di correzione video (%)"
 
 msgctxt "#30596"
 msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."

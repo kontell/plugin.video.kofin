@@ -43,6 +43,7 @@ class FakeKodi:
         # kontell/xbmc #38: Player.SetTempo declares "correction"
         self.correction_declared = True
         self.corrections = []
+        self.settings = {"audiooutput.atempothreshold": 2, "musicplayer.crossfade": 0}
 
     def take(self, value):
         """The player takes a tempo of its own accord (Kodi's live-edge
@@ -87,6 +88,11 @@ class FakeKodi:
                 self._stale_reads -= 1
                 return json.dumps({"result": {"tempo": self._stale}})
             return json.dumps({"result": {"tempo": self.tempo}})
+
+        if method == "Settings.GetSettingValue":
+            if params["setting"] not in self.settings:
+                return json.dumps({"error": {"code": -32602, "message": "Invalid"}})
+            return json.dumps({"result": {"value": self.settings[params["setting"]]}})
 
         if method == "Player.GetActivePlayers":
             players = [{"playerid": self.playerid}] if self.playing else []
@@ -456,12 +462,24 @@ class TestArming:
         assert scheduler.profile is None and kodi.sets == []
         assert not scheduler.can_close(100.0)
 
-    def test_audio_is_left_to_the_commands(self, rig, logged):
+    def test_audio_arms_with_the_music_limits(self, rig):
         scheduler, controller, kodi = rig
         controller.audio = True
+        kodi.playerid = tempo.MUSIC_PLAYER
+        scheduler.tick()
+        assert scheduler.profile.name == "music"
+        assert scheduler.actuator.playerid == tempo.MUSIC_PLAYER
+        assert scheduler.profile.deadband_ms == tempo.MUSIC_DEADBAND_MS
+        assert scheduler.profile.rate_max == pytest.approx(tempo.MUSIC_RATE_MAX)
+        assert scheduler.profile.budget_ms == tempo.MUSIC_BUDGET_MS
+
+    def test_live_audio_is_left_to_the_commands(self, rig, logged):
+        scheduler, controller, kodi = rig
+        controller.audio = True
+        controller.manager.claim = live_claim()
         fill_window(scheduler, controller, 200.0, extra=4)
         assert scheduler.profile is None and kodi.sets == []
-        assert sum("is audio; command-only" in line for line in logged) == 1
+        assert sum("is live audio; command-only" in line for line in logged) == 1
 
     def test_can_close_arms_before_the_first_tick(self, rig):
         """A command asks before the loop has ticked on a new item."""
@@ -1041,3 +1059,93 @@ def test_arming_on_a_live_play_without_timeshift_tells_the_group(rig):
     controller.manager.claim = claim("ps-vod")  # not live: nothing to say
     scheduler.tick()
     assert told == [1]
+
+
+# ----------------------------------------------------------------------------
+# Music
+# ----------------------------------------------------------------------------
+
+
+class TestMusicProfile:
+    def test_defaults(self):
+        profile = tempo.music_profile(2, 0)
+        assert profile.name == "music"
+        assert profile.rate_min == pytest.approx(tempo.RATE_STEP)
+        assert profile.rate_max == pytest.approx(0.01)
+        assert profile.end_margin_s == tempo.END_MARGIN_S
+
+    def test_stays_within_the_atempo_threshold(self):
+        # Resampled, never stretched: a 1 % threshold keeps music below it.
+        assert tempo.music_profile(1, 0).rate_max == pytest.approx(0.009)
+        # A threshold of 0 stretches everything; nothing to stay under.
+        assert tempo.music_profile(0, 0).rate_max == pytest.approx(0.01)
+
+    def test_unreadable_settings_count_as_kodis_defaults(self):
+        from kofin.core import kodirpc
+
+        profile = tempo.music_profile(kodirpc.FAILED, None)
+        assert profile.rate_max == pytest.approx(0.01)
+        assert profile.end_margin_s == tempo.END_MARGIN_S
+
+    def test_a_crossfade_widens_the_end_margin(self):
+        assert tempo.music_profile(2, 5).end_margin_s == tempo.END_MARGIN_S + 5
+
+    def test_music_pulses_are_slight(self):
+        profile = tempo.music_profile(2, 0)
+        assert plan_pulse(20.0, profile) is None  # inside the 25 ms deadband
+        rate, seconds = plan_pulse(30.0, profile)
+        assert rate == pytest.approx(1.002) and seconds == pytest.approx(15.0)
+        rate, seconds = plan_pulse(-26.0, profile)
+        assert rate == pytest.approx(0.998) and seconds == pytest.approx(13.0)
+        rate, seconds = plan_pulse(135.0, profile)
+        assert rate == pytest.approx(1.009) and seconds == pytest.approx(15.0)
+        # Saturated: never above 1 %, never longer than PULSE_MAX_S.
+        rate, seconds = plan_pulse(600.0, profile)
+        assert rate == pytest.approx(1.01) and seconds == tempo.PULSE_MAX_S
+        # Under one ramp step: one write and the return.
+        assert tempo.pulse_schedule(1.009, 15.0) == [(0.0, 1.009), (15.0, 1.0)]
+
+
+@pytest.fixture
+def music_rig(rig):
+    scheduler, controller, kodi = rig
+    controller.audio = True
+    kodi.playerid = tempo.MUSIC_PLAYER
+    return scheduler, controller, kodi
+
+
+class TestMusicPulses:
+    def test_a_drift_is_closed_by_one_slight_pulse(self, music_rig, clock):
+        scheduler, controller, kodi = music_rig
+        start_pulse(scheduler, controller, 30.0)
+        assert kodi.sets == [1.002]
+        finish_pulse(scheduler, clock)
+        assert kodi.tempo == 1.0
+
+    def test_one_step_from_one_is_not_confirmed_by_a_stale_read(self, music_rig):
+        # 1.001 is a whole step from 1.0: a read of 1.0 must not confirm it.
+        scheduler, controller, kodi = music_rig
+        kodi.read_lag = 1
+        fill_window(scheduler, controller, 26.0)
+        scheduler.tick()
+        scheduler.tick()  # reads the old 1.0
+        assert scheduler._awaiting is not None and scheduler._pulse is None
+
+    def test_a_pulse_ends_before_its_track_does(self, music_rig):
+        scheduler, controller, kodi = music_rig
+        kodi.settings["musicplayer.crossfade"] = 5
+        margin = tempo.SETTLE_S + tempo.END_MARGIN_S + 5
+        controller.remaining = (margin + 6.0) * 1000.0
+        start_pulse(scheduler, controller, 135.0)  # would want 15 s
+        assert scheduler._pulse["seconds"] == pytest.approx(6.0)
+
+    def test_beyond_the_music_budget_a_seek_while_playing(self, music_rig):
+        scheduler, controller, kodi = music_rig
+        fill_window(scheduler, controller, 800.0, extra=1)
+        assert controller.corrections == 1 and kodi.sets == []
+
+    def test_the_resume_is_left_to_pulses_inside_the_budget(self, music_rig):
+        scheduler, controller, kodi = music_rig
+        assert scheduler.armed()
+        assert scheduler.can_close(300.0)
+        assert not scheduler.can_close(800.0)

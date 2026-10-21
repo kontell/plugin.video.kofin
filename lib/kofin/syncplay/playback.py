@@ -358,7 +358,19 @@ class PlaybackController(object):
 
                 behind_ms = target_ms - self._position_ms()
 
-                if abs(behind_ms) > utils.AUDIO_UNPAUSE_ALIGN_MS:
+                if self.tempo.armed():
+                    # Fine sync takes what the music budget allows, without
+                    # the audible skip a seek is; past it, the seek is the
+                    # cheaper sound (syncplay/tempo.py, MUSIC_BUDGET_MS).
+                    if self.tempo.can_close(behind_ms):
+                        LOG.info(
+                            "[ syncplay/align ] %+.0fms at the resume: "
+                            "left to fine sync",
+                            behind_ms,
+                        )
+                    else:
+                        self._seek_and_settle(target_ms)
+                elif abs(behind_ms) > utils.AUDIO_UNPAUSE_ALIGN_MS:
                     self._seek_and_settle(target_ms)
             else:
                 behind_ms = target_ms - self._position_ms()
