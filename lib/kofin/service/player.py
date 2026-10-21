@@ -170,6 +170,11 @@ class Player(xbmc.Player):
         self._late_subs: Optional[latesubs.LateSubtitles] = None
         self._reporter = _Reporter()
         self._reporter.start()
+        # Raised by stop_threads, and every Kodi callback is ignored from then
+        # on. Kodi calls a Player until the object is freed, and a stopped
+        # service generation outlives its run (Service.onNotification says
+        # why), so its Player raced the live one for every claim.
+        self._stopped = False
 
     # A property so joining or leaving a group also withdraws or restores the
     # stream menu, without the SyncPlay manager having to know the menu exists:
@@ -254,6 +259,8 @@ class Player(xbmc.Player):
     # -- kodi callbacks ------------------------------------------------------
 
     def onPlayBackStarted(self) -> None:
+        if self._stopped:
+            return
         # Before anything that can block this callback thread: a start that
         # must wait for a SyncPlay group is paused at its first instant, not
         # seconds later when the claim and round trip complete.
@@ -280,18 +287,26 @@ class Player(xbmc.Player):
     def onAVStarted(self) -> None:
         """First frame rendered: the SyncPlay Ready trigger, and the earliest
         moment Kodi's stream lists are populated enough to pick from."""
+        if self._stopped:
+            return
         self._syncplay_event("on_avstarted")
         self.apply_default_tracks()
 
     def onPlayBackPaused(self) -> None:
+        if self._stopped:
+            return
         self._syncplay_event("on_paused")
         self._set_paused(True)
 
     def onPlayBackResumed(self) -> None:
+        if self._stopped:
+            return
         self._syncplay_event("on_resumed")
         self._set_paused(False)
 
     def onPlayBackSeek(self, time: int, seekOffset: int) -> None:
+        if self._stopped:
+            return
         self._syncplay_event("on_seek", time / 1000.0)
         if self._item is not None:
             self._update_position(time / 1000.0)
@@ -299,14 +314,20 @@ class Player(xbmc.Player):
             self.segments.note_seek(time / 1000.0)
 
     def onPlayBackStopped(self) -> None:
+        if self._stopped:
+            return
         self._syncplay_event("on_stopped")
         self._finish()
 
     def onPlayBackEnded(self) -> None:
+        if self._stopped:
+            return
         self._syncplay_event("on_ended")
         self._finish()
 
     def onPlayBackError(self) -> None:
+        if self._stopped:
+            return
         self._syncplay_event("on_error")
         self.finalize()
 
@@ -423,6 +444,7 @@ class Player(xbmc.Player):
         a playback that survives a mid-play service restart losing its
         chapter tiles; the startup sweep would otherwise never dare touch
         them while that playback is live."""
+        self._stopped = True
         self.segments.reset()
         self._stop_ticker()
         self._stop_chapter_thumbs()

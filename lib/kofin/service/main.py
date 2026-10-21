@@ -1156,6 +1156,15 @@ class Service(xbmc.Monitor):
         kofin's IPC by message name. The guard order is unchanged — a Kodi
         method not in the table is ignored; an IPC message is verified at the
         door and its secret spent before any handler runs."""
+        if self._stopping.is_set():
+            # A stopped generation still hears every callback. Kodi
+            # unregisters a Monitor only in its destructor, and run_forever
+            # dropping the generation does not run it: the settings applier
+            # refers back to the service. Left to act, the generation a
+            # sign-in restart stopped applied the library selection made a
+            # minute later beside the live one, and ran a second library
+            # thread on its signed-out Api (Bravia, 2026-10-17).
+            return
         if sender == "xbmc":
             kodi_handler = self._KODI_HANDLERS.get(method)
             if kodi_handler is not None:
@@ -1454,6 +1463,8 @@ class Service(xbmc.Monitor):
         self.player.submit_backfill(data)
 
     def onSettingsChanged(self) -> None:
+        if self._stopping.is_set():
+            return  # a stopped generation; see onNotification
         self.settings_apply.apply()
 
     # -- teardown ---------------------------------------------------------------
