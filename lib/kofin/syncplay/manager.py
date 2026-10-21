@@ -76,6 +76,7 @@ class SyncPlayManager(object):
         # group join when the setting allows, disarmed at leave.
         self.tempo_session = TempoSession()
         self._rate_mismatch_told = False
+        self._live_route_told = False
 
         self.group: Optional[Dict[str, Any]] = None  # {"GroupId", "GroupName"}
         self.group_state = None
@@ -407,6 +408,15 @@ class SyncPlayManager(object):
 
         self._rate_mismatch_told = True
         self._toast(settings.localized(30592), warning=True)
+
+    def notify_live_without_timeshift(self):
+        """A live item played in the group without inputstream.ffmpegdirect,
+        which fine sync needs for live TV: tell the user once per group."""
+        if self._live_route_told:
+            return
+
+        self._live_route_told = True
+        self._toast(settings.localized(30599), warning=True)
 
     def reload_current_item(self):
         """Restart the current item at the group position.
@@ -853,6 +863,7 @@ class SyncPlayManager(object):
 
         if not rejoined:
             self._rate_mismatch_told = False
+            self._live_route_told = False
             self.tempo_session.begin()
 
         LOG.info(

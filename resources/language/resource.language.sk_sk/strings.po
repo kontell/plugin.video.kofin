@@ -1357,8 +1357,8 @@ msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a
 msgstr "Predvolene vypnuté, s varovaním: na Pixeli 7 zmena rýchlosti nasledovaná skokom zasekla hardvérový dekodér AV1 a potom aj samotný telefón. Dekodér AV1 v Bravii bol v poriadku. Zapni iba vtedy, keď to tvoje zariadenie zvláda; inak tituly AV1 sledujú skupinu len podľa príkazov."
 
 msgctxt "#30599"
-msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
-msgstr "Jemná synchronizácia vyžaduje inputstream.tempo 21.4.1 / 22.4.1"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "Jemná synchronizácia živej TV vyžaduje FFmpeg Direct"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

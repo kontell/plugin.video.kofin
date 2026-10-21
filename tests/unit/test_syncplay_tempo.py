@@ -978,6 +978,34 @@ class TestSourceClock:
         )
         assert utils.unwrap_live_ms(3_000.0, None) == pytest.approx(EPOCH_MS + 3_000.0)
 
+    def test_time_objects(self):
+        assert utils.time_object_ms(
+            {"hours": 1, "minutes": 2, "seconds": 3, "milliseconds": 4}
+        ) == pytest.approx(3723004.0)
+        assert utils.time_object_ms(None) is None
+        assert utils.time_object_ms({"hours": "x"}) is None
+
+    def test_the_presentation_offset_is_the_streams_clock_at_time_zero(self):
+        def at(ms):
+            return utils_time(ms)
+
+        props = {"time": at(120_000), "presentationtime": at(42_000_000)}
+        assert utils.presentation_offset_ms(props) == pytest.approx(41_880_000.0)
+
+    def test_a_null_presentationtime_is_no_clock(self):
+        # PAPlayer, a PVR-demuxed stream, ffmpegdirect without the offset.
+        props = {"time": utils_time(120_000), "presentationtime": None}
+        assert utils.presentation_offset_ms(props) is None
+        assert utils.presentation_offset_ms(None) is None
+        assert utils.presentation_offset_ms({}) is None
+
+    def test_a_transcode_job_clock_is_refused(self):
+        # Jellyfin's remux restamps from the job's start: about ten seconds.
+        props = {"time": utils_time(22_164), "presentationtime": utils_time(32_164)}
+        assert utils.presentation_offset_ms(props) is None
+        props = {"time": utils_time(22_164), "presentationtime": utils_time(82_164)}
+        assert utils.presentation_offset_ms(props) == pytest.approx(60_000.0)
+
     def test_claim_is_live(self):
         assert utils.claim_is_live({"Id": "c", "Provider": "pvr.kofin"})
         assert not utils.claim_is_live(
@@ -989,3 +1017,27 @@ class TestSourceClock:
         assert not utils.claim_is_live({"Id": "c", "Runtime": 0})
         assert not utils.claim_is_live({"Id": "c"})
         assert not utils.claim_is_live(None)
+
+
+def utils_time(ms):
+    seconds, millis = divmod(int(ms), 1000)
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return {
+        "hours": hours,
+        "minutes": minutes,
+        "seconds": seconds,
+        "milliseconds": millis,
+    }
+
+
+def test_arming_on_a_live_play_without_timeshift_tells_the_group(rig):
+    scheduler, controller, kodi = rig
+    told = []
+    controller.manager.notify_live_without_timeshift = lambda: told.append(1)
+    controller.manager.claim = claim("ps-live", Live=True, TimeshiftMissing=True)
+    scheduler.tick()
+    assert told == [1]
+    controller.manager.claim = claim("ps-vod")  # not live: nothing to say
+    scheduler.tick()
+    assert told == [1]

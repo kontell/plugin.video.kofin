@@ -812,13 +812,17 @@ What remains is kofin's own:
   not in `clear_all`, on purpose.
 - **A live item's group position is on a live clock, ten days up.** The player clock of a
   live stream is session time and means nothing to another member; the engine reads a live
-  member's position as `getTime()` plus the join origin (the server time at which the player
-  clock read zero) and a proposer anchors the group `LIVE_DELAY_S` behind its reading,
-  offset by `LIVE_PTS_EPOCH_S` on the wire so a live-clock anchor can never be mistaken for the
-  session-time zero a member without the clock proposes. `claim_is_live` is the one spelling of
+  member's position as `getTime()` plus Kodi's `presentationtime − time` (#19: the stream's own
+  clock, refused when it began under a minute ago, as a server remux's does) or else the join
+  origin (the server time at which the player clock read zero), and a proposer anchors the
+  group `LIVE_DELAY_S` behind its reading, offset by `LIVE_PTS_EPOCH_S` on the wire so a
+  live-clock anchor can never be mistaken for the session-time zero a member without the clock
+  proposes. `claim_is_live` is the one spelling of
   live (kofin's own claim carries `Live`; a bus claim has no runtime), and a live item is never
   seeked — ffmpeg's HLS demuxer refuses a seek on a live playlist — only pulsed, and two forward
   pulses Kodi ends at the live edge (#25) mean the edge, not a fault (`docs/syncplay-fine-sync.md`).
+  In a group with fine sync on a live item plays through inputstream.ffmpegdirect's timeshift
+  (`plugin/play.py::live_timeshift`): Kodi plays a live stream at a tempo only with a time range.
 - A sync thread that will not stop is a thread inside the HTTP retry ladder
   (`docs/library-thread-stop.md`); the two rules that follow are easy to undo.
 - **Never call `xbmc.Player.stop()`** — use `core/kodirpc.py::stop_player`. Kodi's binding sends

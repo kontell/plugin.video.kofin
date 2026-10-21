@@ -20,6 +20,11 @@
          the viewer hunting for a second addon. Served from the same
          repository as kofin, so it resolves. -->
     <import addon="script.kofin.lyrics" version="0.1.0" optional="true"/>
+    <!-- Live TV in a SyncPlay group plays through its timeshift buffer, so
+         Kodi can play the stream at a tempo (plugin/play.py, live_timeshift).
+         Optional: without it a live item plays as it does outside a group,
+         on the group's commands alone. -->
+    <import addon="inputstream.ffmpegdirect" version="22.0.0" optional="true"/>
   </requires>
   <extension point="xbmc.python.pluginsource" library="default.py">
     <provides>video audio</provides>

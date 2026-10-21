@@ -334,7 +334,7 @@
   "#30596": "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out.",
   "#30597": "Fine sync on AV1 video",
   "#30598": "Off by default, and a warning: on a Pixel 7, a speed change followed by a seek hung the AV1 hardware decoder and then the phone itself. A Bravia's AV1 decoder was fine. Turn on only if your device copes; otherwise AV1 items follow the group on commands alone.",
-  "#30599": "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1",
+  "#30599": "Live TV fine sync needs FFmpeg Direct",
   "#30600": "KofinSyncQueue companion (fast path)",
   "#30601": "Change-queue retention exceeded — updating libraries to recover",
   "#30602": "New: %s | Updates: %s | User data: %s",

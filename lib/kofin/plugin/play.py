@@ -66,6 +66,10 @@ HLS_MIME = "application/x-mpegURL"
 
 AUDIO_TYPES = frozenset({"Audio"})
 
+# The inputstream a live item plays through in a SyncPlay group with fine
+# sync on (live_timeshift).
+FFMPEGDIRECT = "inputstream.ffmpegdirect"
+
 # Chapter images: the chapters dialog draws small tiles, and the server
 # resizes before it sends.
 CHAPTER_IMAGE_WIDTH = 640
@@ -176,6 +180,41 @@ def stream_url(
         return server + transcoding_url, "Transcode"
     raise JellyfinError(
         "no playable stream for %s (%s)" % (item.get("Id"), source.get("Id"))
+    )
+
+
+def live_timeshift(source: JsonDict, play_method: str) -> Optional[Dict[str, str]]:
+    """The properties that play a live item through inputstream.ffmpegdirect's
+    timeshift buffer — the ones pvr.kofin plays the same server streams with.
+
+    Kodi plays a live stream at a tempo only when it has a time range to move
+    in (kontell/xbmc #25), and a live URL played by Kodi's own demuxer has
+    none: no buffer, no pause, no skip. Timeshift gives it one, and gives a
+    member the pause a live hold needs. A playlist stream also carries its
+    manifest type, so the ffmpeg open path does not guess at a URL with no
+    container extension.
+    """
+    properties = {
+        "inputstream": FFMPEGDIRECT,
+        FFMPEGDIRECT + ".is_realtime_stream": "true",
+        FFMPEGDIRECT + ".stream_mode": "timeshift",
+    }
+    if play_method == "Transcode":
+        sub = (source.get("TranscodingSubProtocol") or "hls").lower()
+        if sub in ("hls", "dash"):
+            properties[FFMPEGDIRECT + ".manifest_type"] = sub
+    elif (source.get("Container") or "").lower() in ("hls", "m3u8"):
+        # A provider's own live playlist, played direct (stream_url).
+        properties[FFMPEGDIRECT + ".manifest_type"] = "hls"
+    return properties
+
+
+def wants_live_timeshift() -> bool:
+    """Whether a live item resolved now is for a SyncPlay group with fine
+    sync on: the plugin reads the public session mirror and the setting, so
+    nothing private has to be published for it."""
+    return bool(state.syncsession().get("in_group")) and settings.get_bool(
+        "syncPlayTempo"
     )
 
 
@@ -730,7 +769,23 @@ def play(request: Request) -> None:
         _fail(request)
         return
 
-    LOG.info("play %s via %s%s", item_id, method, " (live)" if is_live else "")
+    # A live item in a group with fine sync on plays through ffmpegdirect's
+    # timeshift, so Kodi can play it at a tempo; without the add-on it plays
+    # as it would outside a group, and the claim says what was missing.
+    timeshift = None
+    timeshift_missing = False
+    if is_live and not is_audio and wants_live_timeshift():
+        if xbmc.getCondVisibility("System.AddonIsEnabled(%s)" % FFMPEGDIRECT):
+            timeshift = live_timeshift(source, method)
+        else:
+            timeshift_missing = True
+    LOG.info(
+        "play %s via %s%s%s",
+        item_id,
+        method,
+        " (live)" if is_live else "",
+        " (timeshift)" if timeshift else "",
+    )
     # A resume point on the *resolved* item overrides the choice the user made
     # at Kodi's resume prompt: Kodi treats a resolved item that carries one as
     # a resume regardless of the resume:true|false it just passed us, and then
@@ -762,6 +817,8 @@ def play(request: Request) -> None:
     if mime:
         li.setMimeType(mime)
     li.setContentLookup(False)
+    for key, value in (timeshift or {}).items():
+        li.setProperty(key, value)
     # Free: measured identical time to first frame with 0, 2 and 20 subtitles
     # attached (4.0 s each), because Kodi fetches them only when one is
     # selected. On a transcode this is the *only* way any subtitle reaches the
@@ -801,6 +858,9 @@ def play(request: Request) -> None:
         # (syncplay/utils.py::claim_is_live): what makes the group position
         # a source-clock anchor rather than a stream offset.
         play_item["Live"] = True
+    if timeshift_missing:
+        # Fine sync tells the group once that live TV needs the add-on.
+        play_item["TimeshiftMissing"] = True
     segments = _joined_segments(segments_thread, segments_box)
     if segments is not None:
         play_item["Segments"] = segments

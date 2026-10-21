@@ -1357,8 +1357,8 @@ msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a
 msgstr "預設關閉，並請注意：在 Pixel 7 上，變速後緊接跳轉曾使 AV1 硬體解碼器乃至整支手機當機。Bravia 的 AV1 解碼器則沒有問題。僅在您的裝置能承受時才開啟；否則 AV1 項目僅靠指令跟隨群組。"
 
 msgctxt "#30599"
-msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
-msgstr "精細同步需要 inputstream.tempo 21.4.1 / 22.4.1"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "直播電視的精細同步需要 FFmpeg Direct"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

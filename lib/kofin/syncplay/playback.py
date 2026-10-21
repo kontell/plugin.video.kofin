@@ -26,6 +26,11 @@ from kofin.syncplay.tempo import PulseScheduler, SEEK_LAG_DEFAULT_MS
 
 LOG = Logger(__name__)
 
+# Kodi's presentationtime is read at most this often: the offset it gives holds
+# across a tempo and a pause, and moves only where the stream's own timestamps
+# jump.
+PRESENTATION_READ_MS = 1000.0
+
 #################################################################################################
 
 
@@ -100,6 +105,8 @@ class PlaybackController(object):
         # restamps from zero), since the edge a member opened at is the same
         # moment of the broadcast for every member.
         self._live_origin_server_ms = None
+        # (read at, offset) of Kodi's presentationtime, the stream's own clock.
+        self._presentation = None
 
     # ------------------------------------------------------------------
     # Command scheduling (SYNCPLAY.md §5.1)
@@ -701,6 +708,7 @@ class PlaybackController(object):
         The server compares our reported position against the group and
         answers with a private Seek if we are out of tolerance (§7).
         """
+        self._presentation = None  # a new stream: its own clock
         self.note_live_origin()
         self._live_seek_logged = False
         target_ms = self.estimate_position_ms()
@@ -839,6 +847,7 @@ class PlaybackController(object):
         self._deferred_unpause = None
         self._reference = None
         self._live_origin_server_ms = None
+        self._presentation = None
 
     def _loop(self):
         LOG.info("--->[ syncplay loop ]")
@@ -1058,13 +1067,40 @@ class PlaybackController(object):
     def _live_source_offset_ms(self):
         """player clock → live clock; None for anything but a live item.
 
-        The live clock is the join origin: player t=0 plus the server time
-        at open, which is the live edge this member started on.
+        The live clock is the stream's own when Kodi reports it
+        (``presentationtime``, kontell/xbmc #19: a broadcast's PTS, one clock
+        for every member's stream whatever moment it opened), and otherwise
+        the join origin: player t=0 plus the server time at open, which is
+        the live edge this member started on. A server remux restamps from
+        the job's start, which ``utils.presentation_offset_ms`` refuses, so
+        a channel through the server runs on the join origin.
         """
         if self._live_claim() is None:
             return None
 
+        offset = self._presentation_offset_ms()
+
+        if offset is not None:
+            return offset
+
         return self._live_origin_server_ms
+
+    def _presentation_offset_ms(self):
+        """The stream's own clock against the player clock, or None."""
+        now = utils.local_ms()
+        cached = self._presentation
+
+        if cached is not None and 0 <= now - cached[0] < PRESENTATION_READ_MS:
+            return cached[1]
+
+        offset = utils.presentation_offset_ms(
+            kodirpc.call(
+                "Player.GetProperties",
+                {"playerid": 1, "properties": ["time", "presentationtime"]},
+            )
+        )
+        self._presentation = (now, offset)
+        return offset
 
     def live_on_source_clock(self):
         """Whether this member and the group share the source clock: the

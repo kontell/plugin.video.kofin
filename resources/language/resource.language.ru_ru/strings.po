@@ -1357,8 +1357,8 @@ msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a
 msgstr "По умолчанию выключено, и предупреждение: на Pixel 7 изменение скорости с последующей перемоткой подвесило аппаратный декодер AV1, а затем и сам телефон. Декодер AV1 у Bravia проблем не имел. Включайте только если ваше устройство это выдерживает; иначе AV1-записи следуют за группой только по командам."
 
 msgctxt "#30599"
-msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
-msgstr "Точной синхронизации нужен inputstream.tempo 21.4.1 / 22.4.1"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "Для точной синхронизации прямого эфира нужен FFmpeg Direct"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

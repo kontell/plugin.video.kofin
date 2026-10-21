@@ -1357,8 +1357,8 @@ msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a
 msgstr "既定はオフで、注意があります。Pixel 7 では速度変更の直後にシークすると AV1 ハードウェアデコーダー、続いて端末そのものがハングしました。Bravia の AV1 デコーダーは問題ありませんでした。デバイスが耐えられる場合のみオンにしてください。オフの場合、AV1 の作品はコマンドだけでグループに追従します。"
 
 msgctxt "#30599"
-msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
-msgstr "微調整同期には inputstream.tempo 21.4.1 / 22.4.1 が必要です"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "ライブTVの微調整同期には FFmpeg Direct が必要です"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

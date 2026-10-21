@@ -1357,8 +1357,8 @@ msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a
 msgstr "기본은 꺼짐이며 주의가 필요합니다. Pixel 7에서는 속도 변경 직후 탐색 시 AV1 하드웨어 디코더가, 이어서 휴대폰 자체가 멈췄습니다. Bravia의 AV1 디코더는 문제가 없었습니다. 기기가 감당할 때만 켜세요. 끄면 AV1 항목은 명령만으로 그룹을 따릅니다."
 
 msgctxt "#30599"
-msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
-msgstr "정밀 동기화에는 inputstream.tempo 21.4.1 / 22.4.1이 필요합니다"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "라이브 TV 정밀 동기화에는 FFmpeg Direct가 필요합니다"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

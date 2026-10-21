@@ -46,7 +46,15 @@ After a resume, a residual inside the budget is left to fine sync rather than se
 
 **Giving up.** A residual that keeps coming back one-signed is a rate mismatch, not drift. After three consecutive pulses in the same direction, each finding the residual regrown faster than 3000 ppm since the previous one ended, the scheduler stops for the item, logs why, and the manager shows `#30592` once per group. The display clock being on is the usual cause, and `#30552` already says to leave it off.
 
-## 5. Log lines
+## 5. Live items
+
+A live item (a TvChannel, or a source with `IsInfiniteStream`) is stamped `Live` on its claim (`syncplay/utils.py::claim_is_live`; a public-bus claim spells it as no runtime). Kodi plays a live stream at a tempo only when it has a time range to move in (kontell/xbmc #25), and a live URL played by Kodi's own demuxer has none — no buffer, no pause, no skip. So in a group with fine sync on, the play route resolves a live item through inputstream.ffmpegdirect in timeshift (`plugin/play.py::live_timeshift`: `is_realtime_stream`, `stream_mode=timeshift`, and `manifest_type` for a playlist stream), the properties pvr.kofin plays the same server streams with. The plugin decides from the public session mirror (`syncsession.state`'s `in_group`) and the setting, so nothing private is published for it. Without the add-on the item plays as it does outside a group, its claim carries `TimeshiftMissing`, and the scheduler has the manager show #30599 once per group.
+
+Its position is not the player clock. Kodi reports the stream's own clock as `presentationtime` (kontell/xbmc #19; ffmpegdirect fills it with kontell/inputstream.ffmpegdirect#1): the container's timestamps, which every member's stream of one broadcast shares whatever moment it opened. The controller reads its position as `getTime()` plus `presentationtime − time` (`PlaybackController._live_source_offset_ms`, read at most once a second: the offset holds across a tempo, since Kodi's time is content time, and moves only where the stream's timestamps jump). A clock that began less than a minute ago is a transcode job's (Jellyfin's live remux runs ffmpeg with `-copyts -start_at_zero`), and is refused; so is a `null` one, and the join origin is the clock instead: the server time at which this member's player clock read zero, the live edge it opened at. In practice a channel through the server's remux runs on the join origin, and the broadcast's clock reaches a group only for a provider's own playlist played direct, through an ffmpegdirect that reports it.
+
+The clock wraps every 2³³ ÷ 90 kHz, so a reading is placed on the group reference's cycle of it (`utils.unwrap_live_ms`), and a live group position on the wire sits ten days up (`LIVE_PTS_EPOCH_S`) so a member can tell a live-clock anchor from the session-time zero a proposer without a clock sends. A proposer with a clock anchors the group `LIVE_DELAY_S` (5 s) behind its own reading (`_forward_local_play` → `live_anchor_ms`). A live item is never seeked (`_seek_and_settle` returns at once); a residual beyond the budget takes saturated pulses instead, for as long as it takes. A member that lands ahead of the group by more than `LIVE_HOLD_MIN_MS` **holds**: it pauses for the excess, capped at `LIVE_HOLD_MAX_S`, and resumes through the dispatcher — exact on a timeshift buffer. A member behind pulses forward until it meets the group or Kodi puts it back to 1.0 at its live edge; two such returns in a row end fine sync for the item. Every live member's Ready report promises the group's own position.
+
+## 6. Log lines
 
 ```
 [ syncplay/tempo ] fine sync armed (Kodi's tempo)
@@ -57,6 +65,7 @@ After a resume, a residual inside the budget is left to fine sync rather than se
 [ syncplay/pulse ] 1.024x left in force after a pause; back to 1.0x
 [ syncplay/tempo ] 1.500x set outside fine sync; back to 1.0x
 [ syncplay/pulse ] +40ms left: the item cannot take a tempo now
+[ syncplay/pulse ] Kodi returned to 1.0x at the live edge (1 of 2)
 [ syncplay/align ] +6400ms is beyond the pulse budget: seeking
 [ syncplay/pulse ] giving up: the residual regrows faster than 3000 ppm across 3 pulses — a rate mismatch, not drift. Is 'Sync playback to display' on?
 [ syncplay/tempo ] fine sync disarmed
@@ -64,6 +73,6 @@ After a resume, a residual inside the budget is left to fine sync rather than se
 
 `applied after` is the time from the call to the player reporting the rate; the clock follows once the audio queued at the output has played out. `moved` versus `wanted` is the pulse's accuracy read off the player clock. `[ syncplay/window ]` at debug gives each decision's median and the window's spread, which is this member's read noise between pulses.
 
-## 6. What to verify live
+## 7. What to verify live
 
 `tests/live/tempo_gate.py` qualifies the actuator on a device: slopes, read noise, the refusal while paused, the read-back and rate-change delays, clock corrections across a ramped pulse. `tests/live/syncplay_fine_sync.py` drives the scheduler end to end on real members, injecting a residual through `Player.SetTempo` on one member's JSON-RPC. The gate is S4.8 for Kodi 23 in `docs/testing-plan.md`.

@@ -1010,6 +1010,62 @@ class TestLiveClock:
         )
         assert controller.live_on_source_clock()
 
+    def test_position_reads_kodis_presentation_clock(self):
+        controller, manager, player = make_controller(position=100.0)
+        player.clock_advances = False
+        # kontell/xbmc #19: the stream's own clock is 42 000 s where the
+        # player clock reads 120 s, and no join origin is needed.
+        player.presentation_offset_ms = CLOCK_OFFSET_MS
+        manager.claim = live_claim()
+
+        assert controller._position_ms() == pytest.approx(
+            EPOCH_MS + 100_000.0 + CLOCK_OFFSET_MS
+        )
+        controller._reference = (EPOCH_MS + 41_990_000.0, None, True)
+        assert controller.live_on_source_clock()
+
+    def test_kodis_clock_wins_over_the_join_origin(self):
+        controller, manager, player = make_controller(position=100.0)
+        player.clock_advances = False
+        player.presentation_offset_ms = CLOCK_OFFSET_MS
+        on_clock(controller, manager, offset_ms=5_000_000.0)
+        assert controller._position_ms() == pytest.approx(
+            EPOCH_MS + 100_000.0 + CLOCK_OFFSET_MS
+        )
+
+    def test_a_job_clock_falls_back_to_the_join_origin(self):
+        # A server remux stamps from the job's start; refused, so the join
+        # origin is the clock.
+        controller, manager, player = make_controller(position=100.0)
+        player.clock_advances = False
+        player.presentation_offset_ms = 10_000.0
+        on_clock(controller, manager)
+        assert controller._position_ms() == pytest.approx(
+            EPOCH_MS + 100_000.0 + CLOCK_OFFSET_MS
+        )
+
+    def test_kodis_clock_is_read_at_most_once_a_second(self, monkeypatch):
+        controller, manager, player = make_controller(position=100.0)
+        player.clock_advances = False
+        player.presentation_offset_ms = CLOCK_OFFSET_MS
+        manager.claim = live_claim()
+        clock = [utils.local_ms()]
+        monkeypatch.setattr(utils, "local_ms", lambda: clock[0])
+        calls = []
+        original = playback_module.kodirpc.call
+
+        def counting(method, params=None):
+            calls.append(method)
+            return original(method, params)
+
+        monkeypatch.setattr(playback_module.kodirpc, "call", counting)
+        for _ in range(5):
+            controller._position_ms()
+        assert calls.count("Player.GetProperties") == 1
+        clock[0] += playback_module.PRESENTATION_READ_MS + 1
+        controller._position_ms()
+        assert calls.count("Player.GetProperties") == 2
+
     def test_position_falls_back_to_the_player_clock(self):
         controller, manager, player = make_controller(position=100.0)
         player.clock_advances = False

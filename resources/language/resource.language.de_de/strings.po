@@ -1357,8 +1357,8 @@ msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a
 msgstr "Standardmäßig aus, mit Warnung: Auf einem Pixel 7 hat eine Tempoänderung mit anschließendem Sprung den AV1-Hardwaredecoder und dann das Telefon selbst aufgehängt. Der AV1-Decoder eines Bravia war unauffällig. Nur einschalten, wenn das Gerät damit klarkommt; sonst folgen AV1-Titel der Gruppe allein über Befehle."
 
 msgctxt "#30599"
-msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
-msgstr "Feinabgleich braucht inputstream.tempo 21.4.1 / 22.4.1"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "Feinabgleich für Live-TV braucht FFmpeg Direct"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

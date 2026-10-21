@@ -1357,8 +1357,8 @@ msgid "Off by default, and a warning: on a Pixel 7, a speed change followed by a
 msgstr "Oletuksena pois päältä, ja varoitus: Pixel 7:llä nopeuden muutos ja sitä seurannut hyppy jumittivat AV1-laitteistodekooderin ja sitten koko puhelimen. Bravian AV1-dekooderi toimi ongelmitta. Ota käyttöön vain, jos laitteesi kestää sen; muuten AV1-nimikkeet seuraavat ryhmää pelkkien komentojen varassa."
 
 msgctxt "#30599"
-msgid "Fine sync needs inputstream.tempo 21.4.1 / 22.4.1"
-msgstr "Hienosynkronointi vaatii inputstream.tempon 21.4.1 / 22.4.1"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "Suoran TV:n hienosynkronointi vaatii FFmpeg Directin"
 
 msgctxt "#30600"
 msgid "KofinSyncQueue companion (fast path)"

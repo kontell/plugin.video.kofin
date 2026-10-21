@@ -223,6 +223,54 @@ def claim_is_live(claim):
     return False
 
 
+def time_object_ms(value):
+    """A JSON-RPC ``Global.Time`` object in milliseconds, or None."""
+    if not isinstance(value, dict):
+        return None
+
+    try:
+        return float(
+            (
+                (int(value["hours"]) * 60 + int(value["minutes"])) * 60
+                + int(value["seconds"])
+            )
+            * 1000
+            + int(value["milliseconds"])
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def presentation_offset_ms(props):
+    """What to add to the player clock to read the stream's own clock, from
+    one ``Player.GetProperties`` answer carrying ``time`` and
+    ``presentationtime`` (kontell/xbmc #19); None when Kodi cannot tell.
+
+    ``presentationtime`` is ``null`` for PAPlayer, a PVR-demuxed stream and an
+    inputstream that does not report it (ffmpegdirect without kontell's
+    presentation-offset change). The offset is the stream's timestamp at this
+    player's time zero, and it holds across a tempo, since Kodi's time is
+    content time. A clock that began less than LIVE_CLOCK_MIN_START_S ago is a
+    transcode job's, not a broadcast's, and is refused: two members on two
+    jobs would each be sure of a position the other never had.
+    """
+    if not isinstance(props, dict):
+        return None
+
+    presentation = time_object_ms(props.get("presentationtime"))
+    played = time_object_ms(props.get("time"))
+
+    if presentation is None or played is None:
+        return None
+
+    offset = presentation - played
+
+    if offset < LIVE_CLOCK_MIN_START_S * 1000.0:
+        return None
+
+    return offset
+
+
 def live_anchor_ms(source_ms):
     """The group position a proposer anchors for its own source-clock
     reading: LIVE_DELAY_S behind it, on the wire's epoch."""
