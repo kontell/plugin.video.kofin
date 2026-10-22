@@ -295,6 +295,7 @@ class Service(xbmc.Monitor):
         """Run until abort or restart; returns True when a rebuild is wanted."""
         LOG.info("--->>> kofin service %s", addon_version())
         LOG.info("kodi %s", xbmc.getInfoLabel("System.BuildVersion"))
+        self._settle_left_tempo()
         if buildconfig.BACKEND == "api":
             try:
                 self._prepare_api_backend()
@@ -514,7 +515,6 @@ class Service(xbmc.Monitor):
         self._backoff.succeeded()
         self._online = True
         state.set_online(True)
-        self._restore_player_queue()
         self._start_syncplay()  # before the websocket: messages route into it
         # Only when there is none: a reconnect after a confirmed outage finds
         # the previous client still running its own retry loop, and building a
@@ -700,16 +700,17 @@ class Service(xbmc.Monitor):
 
     # -- syncplay (phase 4) ----------------------------------------------------
 
-    def _restore_player_queue(self) -> None:
-        """A Kodi 22 queue size shortened for a SyncPlay session is restored
-        at leave; a crash mid-session leaves the hidden record behind, and
-        this is what puts the user's value back."""
+    def _settle_left_tempo(self) -> None:
+        """A SyncPlay pulse's rate outlives the service generation that asked
+        for it: Kodi plays the item on at that rate until 1.0 is asked for.
+        The record of it does too (``state.syncplay_pulse``), and this is
+        what puts 1.0 back after an update or a crash mid-pulse."""
         try:
             from kofin.syncplay import tempo
 
-            tempo.restore_queue(" (left by an interrupted session)")
+            tempo.settle_left_rate(" by an earlier service")
         except Exception:
-            LOG.exception("player queue restore failed")
+            LOG.exception("left tempo settle failed")
 
     def _start_syncplay(self) -> None:
         """Build the SyncPlay manager when enabled. Contained like the

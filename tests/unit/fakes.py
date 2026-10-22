@@ -177,6 +177,19 @@ class FakeLibrary:
         self.applied.append(data)
 
 
+def _time_object(ms):
+    """Milliseconds as JSON-RPC's Global.Time."""
+    seconds, millis = divmod(int(ms), 1000)
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return {
+        "hours": hours,
+        "minutes": minutes,
+        "seconds": seconds,
+        "milliseconds": millis,
+    }
+
+
 def player_ops_rpc(get_player):
     """A stand-in for ``xbmc.executeJSONRPC`` that drives a fake player.
 
@@ -207,7 +220,20 @@ def player_ops_rpc(get_player):
 
         if method == "Player.GetProperties":
             paused = bool(getattr(player, "paused", False)) if player else False
-            return json.dumps({"result": {"speed": 0 if paused else 1}})
+            result = {"speed": 0 if paused else 1}
+            wanted = params.get("properties") or []
+            if "time" in wanted or "presentationtime" in wanted:
+                # The player's time, and the stream's own clock when the fake
+                # has one (kontell/xbmc #19's presentationtime; null without).
+                ms = int(round(float(getattr(player, "position", 0.0) or 0.0) * 1000))
+                offset = getattr(player, "presentation_offset_ms", None)
+                result["time"] = _time_object(ms)
+                result["presentationtime"] = (
+                    None if offset is None else _time_object(ms + int(offset))
+                )
+            if "tempo" in wanted:
+                result["tempo"] = getattr(player, "tempo", 1.0)
+            return json.dumps({"result": result})
 
         if method == "Player.Stop":
             if player is not None:

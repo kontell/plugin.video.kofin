@@ -1305,12 +1305,12 @@ msgid "Waiting for the group..."
 msgstr "그룹을 기다리는 중..."
 
 msgctxt "#30586"
-msgid "Fine sync through inputstream.tempo"
-msgstr "inputstream.tempo를 통한 정밀 동기화"
+msgid "Fine sync"
+msgstr "정밀 동기화"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "inputstream.tempo 애드온을 통해 잠시 빠르거나 느리게 재생하여 명령 사이에도 이 기기를 그룹 위치에 맞춥니다(Kodi의 ‘재생을 디스플레이에 동기화’는 꺼 두세요). 동영상만 해당하며, 트랜스코딩된 스트림도 포함합니다. 세션 동안 오디오가 PCM으로 디코딩되므로 패스스루는 중단됩니다."
+msgid "Keeps this device on the group's position by briefly playing faster or slower. A video correction decodes passthrough audio until the next item."
+msgstr "잠시 빠르거나 느리게 재생하여 이 기기를 그룹 위치에 맞춥니다. 동영상을 보정하면 다음 항목까지 패스스루 오디오가 디코딩됩니다."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -1333,16 +1333,16 @@ msgid "Fine sync stopped: rate mismatch"
 msgstr "정밀 동기화 중지: 속도 불일치"
 
 msgctxt "#30593"
-msgid "Largest error closed by tempo (ms)"
-msgstr "템포로 보정할 최대 오차 (ms)"
+msgid "Largest video error closed by tempo (ms)"
+msgstr "템포로 보정할 동영상 최대 오차 (ms)"
 
 msgctxt "#30594"
 msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
 msgstr "이 값까지의 위치 오차는 빠르거나 느리게 재생해 보정하고, 더 큰 오차는 건너뛰기로 보정합니다. 높을수록 건너뛰기가 줄고 속도 변경이 길어집니다."
 
 msgctxt "#30595"
-msgid "Fastest correction speed (%)"
-msgstr "가장 빠른 보정 속도 (%)"
+msgid "Fastest video correction speed (%)"
+msgstr "동영상 최고 보정 속도 (%)"
 
 msgctxt "#30596"
 msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
@@ -2303,6 +2303,10 @@ msgstr "지금 모든 라이브러리를 업데이트할까요?"
 msgctxt "#30874"
 msgid "Re-read every library from the server now."
 msgstr "지금 모든 라이브러리를 서버에서 다시 읽습니다."
+
+msgctxt "#30875"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "라이브 TV 정밀 동기화에는 FFmpeg Direct가 필요합니다"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

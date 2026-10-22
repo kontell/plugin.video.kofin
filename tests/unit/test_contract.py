@@ -138,12 +138,13 @@ def test_engine_claim_maps_the_wire_shape():
         )
     )
 
+    # The tempo block (the inputstream.tempo route of Kodi 21 and 22) is
+    # ignored: Kodi's own tempo acts on whatever plays.
     assert claim == {
         "Id": "abc123",
         "Provider": "example",
         "PlayMethod": "Transcode",
         "PlaySessionId": "ps1",
-        "Tempo": {"File": "/tmp/t", "QueueSecs": 2.5, "ManifestType": "hls"},
     }
 
 
@@ -152,15 +153,6 @@ def test_engine_claim_defaults_and_refuses_smuggling():
 
     assert claim["PlayMethod"] == "DirectPlay"
     assert "Extra" not in claim
-    assert "Tempo" not in claim
-
-
-def test_engine_claim_survives_a_broken_tempo_route():
-    claim = contract.engine_claim(
-        claim_payload(tempo={"file": "/t", "queue_secs": "?"})
-    )
-
-    assert claim["Tempo"]["QueueSecs"] == 8.0
 
 
 # --- publish_state --------------------------------------------------------

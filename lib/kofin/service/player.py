@@ -301,8 +301,23 @@ class Player(xbmc.Player):
     def onPlayBackResumed(self) -> None:
         if self._stopped:
             return
+        if self.syncplay is None:
+            self._settle_left_tempo()
         self._syncplay_event("on_resumed")
         self._set_paused(False)
+
+    def _settle_left_tempo(self) -> None:
+        """Put back a 1.0 a SyncPlay pulse left owed, when no manager is here
+        to: the service before its connect, or SyncPlay off. Kodi refused it
+        while paused, and the service start tried it only once."""
+        if not state.syncplay_pulse():
+            return
+        try:
+            from kofin.syncplay import tempo
+
+            tempo.settle_left_rate(" at a resume")
+        except Exception:
+            LOG.exception("left tempo settle failed")
 
     def onPlayBackSeek(self, time: int, seekOffset: int) -> None:
         if self._stopped:

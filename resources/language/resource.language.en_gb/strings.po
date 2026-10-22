@@ -1342,19 +1342,25 @@ msgctxt "#30585"
 msgid "Waiting for the group..."
 msgstr ""
 
-# 30586-30599 — SyncPlay fine sync through inputstream.tempo
-# (lib/kofin/syncplay/tempo.py, docs/syncplay-fine-sync.md). #30592 is a toast.
-# 30588-30589 retired (the passthrough toggle folded into #30587's help) and
-# 30597-30598 retired (the AV1 toggle: the Pixel 7 freeze it guarded against was
-# the add-on freeing the first packets after a seek, fixed in inputstream.tempo
-# 22.4.1, and the same phone then passed AV1 at 1.25x with seeks). Kept, never
-# reused, for the reason given at #30744. #30599 is a toast.
+# 30586-30599 — SyncPlay fine sync (lib/kofin/syncplay/tempo.py,
+# docs/syncplay-fine-sync.md): through Kodi's own tempo on master, through
+# inputstream.tempo on the api and sql branches. #30592 is a toast.
+# 30588-30589 retired (the passthrough toggle folded into #30587's help),
+# 30590-30591 retired on master with the shorter video queue (Kodi's tempo is
+# heard once the audio already queued at the output has played, not after the
+# demux queue an add-on's rate went through; the api branch still shows them),
+# and 30597-30598 retired (the AV1 toggle: the Pixel 7 freeze it guarded against
+# was the add-on freeing the first packets after a seek, fixed in
+# inputstream.tempo 22.4.1, and the same phone then passed AV1 at 1.25x with
+# seeks). #30599 retired on master with inputstream.tempo, the add-on it
+# names; the live TV toast that took its place is #30875. Kept, never reused,
+# for the reason given at #30744.
 msgctxt "#30586"
-msgid "Fine sync through inputstream.tempo"
+msgid "Fine sync"
 msgstr ""
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
+msgid "Keeps this device on the group's position by briefly playing faster or slower. A video correction decodes passthrough audio until the next item."
 msgstr ""
 
 msgctxt "#30588"
@@ -1378,7 +1384,7 @@ msgid "Fine sync stopped: rate mismatch"
 msgstr ""
 
 msgctxt "#30593"
-msgid "Largest error closed by tempo (ms)"
+msgid "Largest video error closed by tempo (ms)"
 msgstr ""
 
 msgctxt "#30594"
@@ -1386,7 +1392,7 @@ msgid "Position errors up to this are closed by playing faster or slower; anythi
 msgstr ""
 
 msgctxt "#30595"
-msgid "Fastest correction speed (%)"
+msgid "Fastest video correction speed (%)"
 msgstr ""
 
 msgctxt "#30596"
@@ -2463,6 +2469,12 @@ msgstr ""
 
 msgctxt "#30874"
 msgid "Re-read every library from the server now."
+msgstr ""
+
+# 30875 — SyncPlay fine sync: a live item in a group without FFmpeg Direct
+# (lib/kofin/syncplay/manager.py). A toast; #30599 held it once.
+msgctxt "#30875"
+msgid "Live TV fine sync needs FFmpeg Direct"
 msgstr ""
 
 msgctxt "#30990"

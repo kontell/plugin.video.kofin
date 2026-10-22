@@ -453,16 +453,16 @@
   "#30817": "Kaikki",
   "#30819": "Näytä näyttelijät lisäosan listauksissa",
   "#30820": "Hakee näyttelijät ja tekijät lisäosan lyhyisiin listauksiin — Viimeksi lisätyt, Kesken, Seuraavaksi, Jatka katselua, hakutulokset ja sarjan jaksot — jotta tietoikkuna voi näyttää ne. Koko kirjaston kattavat listaukset eivät hae niitä koskaan, koska palvelin tarvitsee noin sekunnin jokaista 40:tä kohdetta kohden. Kodin kirjastossa näyttelijät ovat aina mukana.",
-  "#30586": "Hienosynkronointi inputstream.tempon kautta",
-  "#30587": "Pitää tämän laitteen ryhmän kohdassa komentojen välillä toistamalla hetken nopeammin tai hitaammin inputstream.tempo-lisäosan kautta (pidä Kodin ”Synkronoi toisto näyttöön” pois päältä). Vain video, myös transkoodattu. Ääni dekoodataan istunnon ajaksi PCM:ksi, joten läpivienti on keskeytetty.",
+  "#30586": "Hienosynkronointi",
+  "#30587": "Pitää tämän laitteen ryhmän kohdassa toistamalla hetken nopeammin tai hitaammin. Videon korjaus dekoodaa läpivientiäänen seuraavaan kohteeseen asti.",
   "#30588": "Hienosynkronointi äänen läpiviennin ollessa päällä",
   "#30589": "Käytä hienosynkronointia silloinkin, kun Kodin äänen läpivienti on päällä. Vastaanotin saa istunnon ajan monikanavaista PCM:ää bittivirran sijaan: sopii useimpiin kokoonpanoihin, mutta Atmos- ja DTS:X-objektiääni menetetään. Pois päältä säilyttää läpiviennin ja antaa ryhmän kohdistua pelkkien komentojen varassa.",
   "#30590": "Lyhyempi videojono istuntojen aikana (Kodi 22)",
   "#30591": "Asettaa Kodin ääni-/videojonon ajaksi 1 sekunnin ryhmässä ollessasi ja palauttaa sen jälkeenpäin. Nopeuden muutos kuuluu vasta, kun jono on toistettu, joten lyhyempi jono saa korjaukset osumaan noin 2 sekunnissa 5:n sijaan. Hitaassa tai epäluotettavassa verkossa ota tämä pois päältä. Kodi 21:ssä on kiinteä 8 sekunnin jono.",
   "#30592": "Hienosynkronointi pysäytetty: tahti ei täsmää",
-  "#30593": "Suurin tempolla korjattava virhe (ms)",
+  "#30593": "Suurin tempolla korjattava videovirhe (ms)",
   "#30594": "Tähän asti kohdan virheet korjataan toistamalla nopeammin tai hitaammin; suuremmat hypyllä. Suurempi arvo tarkoittaa vähemmän hyppyjä ja pidempiä nopeudenmuutoksia.",
-  "#30595": "Suurin korjausnopeus (%)",
+  "#30595": "Videon suurin korjausnopeus (%)",
   "#30596": "Kuinka paljon toistonopeus saa enintään muuttua korjauksen aikana. 25 %:lla 2,5 sekunnin virhe korjautuu 10 sekunnissa; pienempi huomataan vähemmän mutta on hitaampi. Suuret muutokset tehdään asteittain.",
   "#30597": "Hienosynkronointi AV1-videolla",
   "#30598": "Oletuksena pois päältä, ja varoitus: Pixel 7:llä nopeuden muutos ja sitä seurannut hyppy jumittivat AV1-laitteistodekooderin ja sitten koko puhelimen. Bravian AV1-dekooderi toimi ongelmitta. Ota käyttöön vain, jos laitteesi kestää sen; muuten AV1-nimikkeet seuraavat ryhmää pelkkien komentojen varassa.",
@@ -517,5 +517,6 @@
   "#30871": "Päivittäin",
   "#30872": "Viikoittain",
   "#30873": "Päivitetäänkö kaikki kirjastot nyt?",
-  "#30874": "Lukee nyt kaikki kirjastot palvelimelta uudelleen."
+  "#30874": "Lukee nyt kaikki kirjastot palvelimelta uudelleen.",
+  "#30875": "Suoran TV:n hienosynkronointi vaatii FFmpeg Directin"
 }

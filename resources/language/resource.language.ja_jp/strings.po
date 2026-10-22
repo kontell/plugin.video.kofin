@@ -1305,12 +1305,12 @@ msgid "Waiting for the group..."
 msgstr "グループを待っています…"
 
 msgctxt "#30586"
-msgid "Fine sync through inputstream.tempo"
-msgstr "inputstream.tempo による微調整同期"
+msgid "Fine sync"
+msgstr "微調整同期"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "inputstream.tempo アドオンを通じて短時間だけ速く、または遅く再生することで、コマンドの合間もこのデバイスをグループの位置に保ちます（Kodi の「再生をディスプレイに同期」はオフのままに）。動画のみ（トランスコードを含む）。セッション中は音声が PCM にデコードされるため、パススルーは一時停止されます。"
+msgid "Keeps this device on the group's position by briefly playing faster or slower. A video correction decodes passthrough audio until the next item."
+msgstr "短時間だけ速く、または遅く再生して、このデバイスをグループの位置に保ちます。動画の補正を行うと、次の項目までパススルー音声がデコードされます。"
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -1333,16 +1333,16 @@ msgid "Fine sync stopped: rate mismatch"
 msgstr "微調整同期を停止: 速度が一致しません"
 
 msgctxt "#30593"
-msgid "Largest error closed by tempo (ms)"
-msgstr "テンポで解消する最大のずれ (ms)"
+msgid "Largest video error closed by tempo (ms)"
+msgstr "テンポで解消する動画の最大のずれ (ms)"
 
 msgctxt "#30594"
 msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
 msgstr "ここまでの位置のずれは速度を上げ下げして解消し、それより大きいものはスキップで解消します。大きいほどスキップが減り、速度変更は長くなります。"
 
 msgctxt "#30595"
-msgid "Fastest correction speed (%)"
-msgstr "補正時の最大速度変化 (%)"
+msgid "Fastest video correction speed (%)"
+msgstr "動画の補正時の最大速度変化 (%)"
 
 msgctxt "#30596"
 msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
@@ -2303,6 +2303,10 @@ msgstr "今すぐすべてのライブラリを更新しますか？"
 msgctxt "#30874"
 msgid "Re-read every library from the server now."
 msgstr "今すぐすべてのライブラリをサーバーから読み直します。"
+
+msgctxt "#30875"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "ライブTVの微調整同期には FFmpeg Direct が必要です"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

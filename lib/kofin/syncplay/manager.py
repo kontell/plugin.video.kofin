@@ -72,12 +72,11 @@ class SyncPlayManager(object):
         self._foreign_claim_at = 0.0
         self.playback = PlaybackController(self, player)
         self.timesync: Optional[TimeSync] = None
-        # Fine sync through inputstream.tempo (syncplay/tempo.py): armed at
-        # group join when this member can use it, disarmed at leave.
-        self.tempo_session = TempoSession(
-            notify=lambda message: self._toast(message, warning=True)
-        )
+        # Fine sync through Kodi's own tempo (syncplay/tempo.py): armed at
+        # group join when the setting allows, disarmed at leave.
+        self.tempo_session = TempoSession()
         self._rate_mismatch_told = False
+        self._live_route_told = False
 
         self.group: Optional[Dict[str, Any]] = None  # {"GroupId", "GroupName"}
         self.group_state = None
@@ -381,8 +380,12 @@ class SyncPlayManager(object):
 
     def current_claim(self) -> Optional[Claim]:
         """The claimed play state of the current playback, or None: what the
-        fine-sync scheduler reads its route (``Tempo``) off."""
+        fine-sync scheduler arms on, one play session at a time."""
         return self._local_file_info()
+
+    def fine_sync_active(self):
+        """Whether this group membership has fine sync (the setting, at join)."""
+        return self.tempo_session.active
 
     def refresh_tempo_session(self):
         """The fine-sync setting changed: arm or disarm for the current group.
@@ -394,6 +397,8 @@ class SyncPlayManager(object):
             self.tempo_session.begin()
         else:
             self.tempo_session.end()
+            # A pulse running now must not outlive the setting.
+            self.playback.tempo.reset()
 
     def notify_rate_mismatch(self):
         """The scheduler gave up on a residual that keeps regrowing: tell the
@@ -403,6 +408,15 @@ class SyncPlayManager(object):
 
         self._rate_mismatch_told = True
         self._toast(settings.localized(30592), warning=True)
+
+    def notify_live_without_timeshift(self):
+        """A live item played in the group without inputstream.ffmpegdirect,
+        which fine sync needs for live TV: tell the user once per group."""
+        if self._live_route_told:
+            return
+
+        self._live_route_told = True
+        self._toast(settings.localized(30875), warning=True)
 
     def reload_current_item(self):
         """Restart the current item at the group position.
@@ -849,6 +863,7 @@ class SyncPlayManager(object):
 
         if not rejoined:
             self._rate_mismatch_told = False
+            self._live_route_told = False
             self.tempo_session.begin()
 
         LOG.info(
@@ -1158,7 +1173,6 @@ class SyncPlayManager(object):
             item_id
             and self.player.isPlaying()
             and (item_id == self._local_item_id() or held_match)
-            and not self._adopt_should_reload(item_id, provider)
         ):
             # We are already playing this exact item (e.g. the queue we
             # just proposed with SetNewQueue came back with a fresh
@@ -1186,57 +1200,6 @@ class SyncPlayManager(object):
             return
 
         self._start_item(item_id, playlist_item_id, provider)
-
-    def _adopt_should_reload(self, item_id, provider):
-        """Reload-for-tempo (the pvr sync plan, P1): trade the adopt for one
-        visible reload when it buys the member fine sync.
-
-        A foreign byte-stream play — a PVR recording is the living case —
-        can never carry a tempo route: no inputstream sits in its path, so
-        no stamp its owner could make would be true. When such a play is
-        adopted into a group with fine sync armed, the member is
-        command-only forever; reloading the same id through kofin's own
-        route at the group position gains the full pipeline instead. Only
-        for *foreign* claims naming this exact item under the default
-        provider: a kofin play that lacks a tempo route (an audio item, a
-        segmented stream on the full queue) would lack it again after the
-        reload. Held-ness is deliberately no bar — the hold-and-propose
-        flow holds a foreign PVR start too (the first gate run adopted it
-        and got command-only sync); a held *kofin* start is protected by
-        its missing foreign claim, not by the hold.
-        """
-        if provider != JELLYFIN or not self.tempo_session.active:
-            return False
-
-        try:
-            if self.player.current_item():
-                return False  # kofin's own play; adopting keeps its route
-        except Exception:
-            return False
-
-        claim = self.foreign_claim
-
-        if (
-            claim is None
-            or claim.get("Id") != item_id
-            or claim.get("Tempo") is not None
-        ):
-            return False
-
-        if not claim.get("RunTimeTicks"):
-            # A live claim (the contract's zero-runtime spelling) adopts as
-            # it plays: the member chose its own live pipeline (a tuner
-            # through its PVR add-on, say), and a reload through the kofin
-            # route would swap that for the server's transcode. A live
-            # claim that carries a tempo route converges on the source
-            # clock (P4); one without stays tune-together (P2).
-            return False
-
-        LOG.info(
-            "[ syncplay/reload ] adopting would keep a play with no tempo "
-            "route; reloading through the kofin route instead"
-        )
-        return True
 
     @staticmethod
     def _queue_entry(entry):
@@ -1496,6 +1459,10 @@ class SyncPlayManager(object):
             self._post(self._api, "syncplay_pause")
 
     def on_resumed(self):
+        # First, in a group or not: a pulse cut while paused left its rate in
+        # force, and Kodi refuses the 1.0 until the player is playing again.
+        self.playback.tempo.settle_owed()
+
         if not self.in_group() or self.is_programmatic():
             return
 
@@ -1700,9 +1667,10 @@ class SyncPlayManager(object):
         if utils.claim_is_live(info):
             # A live claim (zero runtime): the player's position is session
             # time on this member's own stream, meaningless to the group.
-            # With a tempo route that reports the source clock the group is
-            # anchored on that instead, a delay behind this member's reading
-            # (P4); without one it tunes together from its own edge (P2).
+            # With a live clock (PlaybackController._live_source_offset_ms)
+            # the group is anchored on that instead, a delay behind this
+            # member's reading (P4); without one it tunes together from its
+            # own edge (P2).
             anchor_ms = self.playback.live_anchor_ms()
             position = anchor_ms / 1000.0 if anchor_ms is not None else 0.0
             LOG.info(

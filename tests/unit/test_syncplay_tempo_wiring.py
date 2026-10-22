@@ -1,15 +1,16 @@
-"""Where fine sync plugs in: the play route, the shared state, the JSON-RPC
-helpers, the manager's join/leave, the controller's commands, and the settings
-watcher. The scheduler and session themselves are in test_syncplay_tempo.py."""
-
-import json
+"""Where fine sync plugs in: the shared state, the play route, the manager's
+join/leave and resume, the controller's commands, the service start and the
+settings watcher. The scheduler and session themselves are in
+test_syncplay_tempo.py."""
 
 import pytest
 
-from kofin.core import kodirpc, state
+from kofin.core import state
 from kofin.plugin import play
 from kofin.plugin.router import Request
+from kofin.service import main as service_main
 from kofin.service.settings_apply import SettingsApplier
+from kofin.syncplay import tempo
 from tests.unit.fakes import FakeAddon, FakeWindow
 from tests.unit.test_syncplay_manager import join, manager  # noqa: F401 (fixture)
 from tests.unit.test_syncplay_playback import make_controller
@@ -28,58 +29,14 @@ def kodi_fakes(monkeypatch):
 # ----------------------------------------------------------------------------
 
 
-def test_syncplay_tempo_state_round_trip():
-    assert state.syncplay_tempo() == {}
-    state.publish_syncplay_tempo({"file": "/tmp/t", "queue_secs": 1.0})
-    assert state.syncplay_tempo() == {"file": "/tmp/t", "queue_secs": 1.0}
-    state.clear_syncplay_tempo()
-    assert state.syncplay_tempo() == {}
-    FakeWindow.store[state.PROP_SYNCPLAY_TEMPO] = "junk"
-    assert state.syncplay_tempo() == {}
-
-
-def test_clear_all_drops_the_session():
-    state.publish_syncplay_tempo({"file": "/tmp/t"})
-    state.clear_all()
-    assert state.syncplay_tempo() == {}
-
-
-# ----------------------------------------------------------------------------
-# JSON-RPC helpers
-# ----------------------------------------------------------------------------
-
-
-def responder(payload):
-    return lambda query: json.dumps(payload)
-
-
-def test_kodi_setting_reads_a_value_and_none_for_a_missing_one(monkeypatch):
-    monkeypatch.setattr("xbmc.executeJSONRPC", responder({"result": {"value": 40}}))
-    assert kodirpc.kodi_setting("videoplayer.queuetimesize") == 40
-    monkeypatch.setattr(
-        "xbmc.executeJSONRPC", responder({"error": {"code": -32602, "message": "x"}})
-    )
-    assert kodirpc.kodi_setting("videoplayer.queuetimesize") is None
-    # C3: an unreadable answer is a blip, not "this Kodi lacks the setting" —
-    # collapsing the two is what made tempo mistake a failure for Omega.
-    monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
-    assert kodirpc.kodi_setting("anything") is kodirpc.FAILED
-
-
-def test_set_kodi_setting_reports_acceptance(monkeypatch):
-    sent = []
-
-    def rpc(query):
-        sent.append(json.loads(query))
-        return json.dumps({"result": True})
-
-    monkeypatch.setattr("xbmc.executeJSONRPC", rpc)
-    assert kodirpc.set_kodi_setting("videoplayer.queuetimesize", 10) is True
-    assert sent[0]["params"] == {"setting": "videoplayer.queuetimesize", "value": 10}
-    monkeypatch.setattr("xbmc.executeJSONRPC", responder({"result": False}))
-    assert kodirpc.set_kodi_setting("x", 1) is False
-    monkeypatch.setattr("xbmc.executeJSONRPC", responder({"error": {"code": -1}}))
-    assert kodirpc.set_kodi_setting("x", 1) is False
+def test_syncplay_pulse_state_round_trip():
+    assert state.syncplay_pulse() == {}
+    state.publish_syncplay_pulse({"player": 1})
+    assert state.syncplay_pulse() == {"player": 1}
+    state.clear_syncplay_pulse()
+    assert state.syncplay_pulse() == {}
+    FakeWindow.store[state.PROP_SYNCPLAY_PULSE] = "junk"
+    assert state.syncplay_pulse() == {}
 
 
 # ----------------------------------------------------------------------------
@@ -87,145 +44,13 @@ def test_set_kodi_setting_reports_acceptance(monkeypatch):
 # ----------------------------------------------------------------------------
 
 
-class RecordingListItem:
+class BuiltListItem:
     def __init__(self):
         self.props = {}
+        self.path = None
 
     def setProperty(self, key, value):
         self.props[key] = value
-
-
-def test_tempo_route_needs_a_session_and_a_video():
-    movie = {"Type": "Movie", "Id": "m1"}
-    assert play.tempo_route(movie, "DirectStream") is None  # no session
-    state.publish_syncplay_tempo({"file": "/tmp/tempo", "queue_secs": 1.0})
-    assert play.tempo_route(movie, "DirectStream") == {
-        "File": "/tmp/tempo",
-        "QueueSecs": 1.0,
-    }
-    assert play.tempo_route(movie, "DirectPlay")["File"] == "/tmp/tempo"
-    # Audio is still never routed: PAPlayer has its own choreography.
-    assert play.tempo_route({"Type": "Audio", "Id": "a1"}, "DirectStream") is None
-    state.publish_syncplay_tempo({"file": "/tmp/tempo"})
-    assert play.tempo_route(movie, "DirectStream")["QueueSecs"] == 8.0
-
-
-def test_the_player_queue_is_sized_for_the_route_not_the_session(monkeypatch):
-    """Fine sync shortens the queue to 1s so a pulse is audible in ~2s. A
-    segmented stream cannot live on that — the server's HLS segments are 3s and
-    a queue shorter than a segment cannot bridge a boundary, which was measured
-    as a stall every ~3s and a stream sampling between 0.75x and 1.49x. The
-    queue is read per player construction, so the route picks."""
-    writes = []
-    monkeypatch.setattr(
-        kodirpc,
-        "set_kodi_setting",
-        lambda key, value: writes.append((key, value)) is None,
-    )
-    movie = {"Type": "Movie", "Id": "m1"}
-    state.publish_syncplay_tempo(
-        {
-            "file": "/tmp/tempo",
-            "queue_secs": 1.0,
-            "queue_short_tenths": 10,
-            "queue_full_tenths": 60,
-        }
-    )
-
-    direct = play.tempo_route(movie, "DirectStream")
-    assert writes[-1] == ("videoplayer.queuetimesize", 10)
-    assert direct["QueueSecs"] == 1.0
-
-    transcode = play.tempo_route(movie, "Transcode", {})
-    assert writes[-1] == ("videoplayer.queuetimesize", 60)
-    assert transcode["QueueSecs"] == 6.0
-
-    # A user whose own queue is below the segment duration is still floored:
-    # the alternative is the stutter above.
-    state.publish_syncplay_tempo(
-        {
-            "file": "/tmp/tempo",
-            "queue_secs": 1.0,
-            "queue_short_tenths": 10,
-            "queue_full_tenths": 20,
-        }
-    )
-    assert play.tempo_route(movie, "Transcode", {})["QueueSecs"] == 4.0
-    assert writes[-1] == ("videoplayer.queuetimesize", 40)
-
-
-def test_a_session_that_never_shortened_sizes_nothing(monkeypatch):
-    """Kodi 21 has no such setting and is fixed at 8s; a session that could not
-    record a restore leaves the queue alone. Either way the published
-    queue_secs stands and nothing is written."""
-    writes = []
-    monkeypatch.setattr(
-        kodirpc,
-        "set_kodi_setting",
-        lambda key, value: writes.append((key, value)) is None,
-    )
-    movie = {"Type": "Movie", "Id": "m1"}
-    state.publish_syncplay_tempo({"file": "/tmp/tempo", "queue_secs": 8.0})
-    assert play.tempo_route(movie, "Transcode", {})["QueueSecs"] == 8.0
-    assert writes == []
-
-
-def test_tempo_route_carries_the_manifest_type_for_a_transcode():
-    """A transcode IS routed now — it is the case that needs a rate pulse most,
-    being the one transport that cannot be seeked accurately. It carries its
-    manifest type so the add-on's ffmpeg open path is not left guessing at a URL
-    with no container extension."""
-    movie = {"Type": "Movie", "Id": "m1"}
-    state.publish_syncplay_tempo({"file": "/tmp/tempo", "queue_secs": 1.0})
-
-    hls = play.tempo_route(movie, "Transcode", {"TranscodingSubProtocol": "hls"})
-    assert hls["ManifestType"] == "hls"
-    assert hls["File"] == "/tmp/tempo"
-
-    # Jellyfin defaults a video transcode to HLS when it says nothing.
-    assert play.tempo_route(movie, "Transcode", {})["ManifestType"] == "hls"
-
-    # The music profile is plain http: no manifest, so no manifest_type.
-    plain = play.tempo_route(movie, "Transcode", {"TranscodingSubProtocol": "http"})
-    assert plain["ManifestType"] == ""
-
-    # A direct stream carries none at all.
-    assert "ManifestType" not in play.tempo_route(movie, "DirectStream")
-
-
-def test_stamp_tempo_route_is_the_addon_contract():
-    li = RecordingListItem()
-    play.stamp_tempo_route(li, {"File": "/tmp/tempo", "QueueSecs": 1.0})
-    assert li.props == {
-        "inputstream": "inputstream.tempo",
-        "inputstream.tempo.tempo": "1.0",
-        "inputstream.tempo.tempo_file": "/tmp/tempo",
-        "inputstream.tempo.queue_secs": "1",
-    }
-    assert "inputstream.tempo.start_time" not in li.props
-    # No manifest_type unless the route carries one: a file or a static stream
-    # must not be announced as a playlist.
-    assert "inputstream.tempo.manifest_type" not in li.props
-
-
-def test_stamp_tempo_route_announces_a_playlist_stream():
-    li = RecordingListItem()
-    play.stamp_tempo_route(
-        li, {"File": "/tmp/tempo", "QueueSecs": 1.0, "ManifestType": "hls"}
-    )
-    assert li.props["inputstream.tempo.manifest_type"] == "hls"
-
-    plain = RecordingListItem()
-    play.stamp_tempo_route(
-        plain, {"File": "/tmp/tempo", "QueueSecs": 1.0, "ManifestType": ""}
-    )
-    assert "inputstream.tempo.manifest_type" not in plain.props
-
-
-class BuiltListItem(RecordingListItem):
-    def __init__(self):
-        super().__init__()
-        self.path = None
 
     def setPath(self, path):
         self.path = path
@@ -241,14 +66,15 @@ class BuiltListItem(RecordingListItem):
         return Tag()
 
 
-def test_resolve_downloaded_routes_and_claims(monkeypatch):
+def test_a_play_carries_no_tempo_route(monkeypatch):
+    """Kodi's own tempo acts on whatever plays: nothing is stamped on the
+    resolved item and nothing rides in the claim, in a group or not."""
     built = BuiltListItem()
     monkeypatch.setattr(play.listitems, "build", lambda *a, **k: built)
     resolved = []
     monkeypatch.setattr(
         "xbmcplugin.setResolvedUrl", lambda handle, ok, li: resolved.append((ok, li))
     )
-    state.publish_syncplay_tempo({"file": "/tmp/tempo", "queue_secs": 1.0})
     request = Request("plugin://plugin.video.kofin/", 7, {"id": "m1"})
     play.resolve_downloaded(
         request,
@@ -261,33 +87,14 @@ def test_resolve_downloaded_routes_and_claims(monkeypatch):
         None,
     )
     assert resolved == [(True, built)]
-    assert built.props["inputstream"] == "inputstream.tempo"
+    assert "inputstream" not in built.props
     claim = state.claim_play_item("/dl/m1.mkv")
-    assert claim["Tempo"] == {"File": "/tmp/tempo", "QueueSecs": 1.0}
+    assert "Tempo" not in claim
     assert claim["PlayMethod"] == "DirectPlay"
 
 
-def test_resolve_downloaded_outside_a_session_is_untouched(monkeypatch):
-    built = BuiltListItem()
-    monkeypatch.setattr(play.listitems, "build", lambda *a, **k: built)
-    monkeypatch.setattr("xbmcplugin.setResolvedUrl", lambda *a: None)
-    request = Request("plugin://plugin.video.kofin/", 7, {"id": "m1"})
-    play.resolve_downloaded(
-        request,
-        {"Id": "m1", "Type": "Movie"},
-        "/dl/m1.mkv",
-        "http://s",
-        "dev",
-        0,
-        "",
-        None,
-    )
-    assert "inputstream" not in built.props
-    assert "Tempo" not in state.claim_play_item("/dl/m1.mkv")
-
-
 # ----------------------------------------------------------------------------
-# The manager: join arms, leave disarms
+# The manager: join arms, leave disarms, a resume settles
 # ----------------------------------------------------------------------------
 
 
@@ -310,22 +117,27 @@ def test_join_arms_and_leave_disarms(manager):  # noqa: F811
     manager.tempo_session = spy
     join(manager)
     assert spy.calls == ["begin"]
+    assert manager.fine_sync_active()
     # A re-join of the same group is not a new session.
     join(manager, version=2)
     assert spy.calls == ["begin"]
     manager._leave_locally()
     assert spy.calls == ["begin", "end"]
+    assert not manager.fine_sync_active()
 
 
-def test_refresh_follows_the_setting(manager):  # noqa: F811
+def test_refresh_follows_the_setting(manager, monkeypatch):  # noqa: F811
     spy = SessionSpy()
     manager.tempo_session = spy
+    resets = []
+    monkeypatch.setattr(manager.playback.tempo, "reset", lambda: resets.append(1))
     manager.refresh_tempo_session()  # not in a group: nothing
     assert spy.calls == []
     join(manager)
     FakeAddon.store["syncPlayTempo"] = "false"
     manager.refresh_tempo_session()
     assert spy.calls == ["begin", "end"]
+    assert resets == [1]  # a running pulse does not outlive the setting
     FakeAddon.store["syncPlayTempo"] = "true"
     manager.refresh_tempo_session()
     assert spy.calls == ["begin", "end", "begin"]
@@ -347,12 +159,44 @@ def test_rate_mismatch_is_told_once_per_group(manager):  # noqa: F811
     assert len(warnings) == 2
 
 
+def test_a_live_play_without_timeshift_is_told_once_per_group(
+    manager,  # noqa: F811
+):
+    warnings = []
+    manager._toast = lambda message, **kw: kw.get("warning") and warnings.append(
+        message
+    )
+    join(manager)
+    manager.notify_live_without_timeshift()
+    manager.notify_live_without_timeshift()
+    assert len(warnings) == 1
+    manager._leave_locally()
+    join(manager)
+    manager.notify_live_without_timeshift()
+    assert len(warnings) == 2
+
+
 def test_current_claim_is_the_players_item(manager):  # noqa: F811
     manager.player.playing = True
-    manager.player.item = {"Id": "m1", "Tempo": {"File": "/t"}}
-    assert manager.current_claim()["Tempo"]["File"] == "/t"
+    manager.player.item = {"Id": "m1", "PlaySessionId": "ps"}
+    assert manager.current_claim()["PlaySessionId"] == "ps"
     manager.player.playing = False
     assert manager.current_claim() is None
+
+
+def test_a_resume_settles_a_left_rate_first(manager, monkeypatch):  # noqa: F811
+    """In a group or not: a member that left while paused resumes its own
+    playback, and the rate a cut pulse left must not play on."""
+    settled = []
+    monkeypatch.setattr(
+        manager.playback.tempo, "settle_owed", lambda: settled.append(1)
+    )
+    manager.on_resumed()  # not in a group
+    assert settled == [1]
+    join(manager)
+    with manager.programmatic():
+        manager.on_resumed()  # kofin's own resume
+    assert settled == [1, 1]
 
 
 # ----------------------------------------------------------------------------
@@ -440,6 +284,44 @@ def test_stop_loop_resets_the_scheduler():
     assert "reset" in spy.calls
 
 
+def test_remaining_is_what_is_left_of_the_item():
+    controller, manager_, player = make_controller(position=100.0)
+    player.clock_advances = False
+    player.total = 160.0
+    assert controller.remaining_ms() == pytest.approx(60_000.0)
+    player.total = 0.0  # a live stream, a source with no duration
+    assert controller.remaining_ms() is None
+
+
+def test_without_a_session_the_real_scheduler_leaves_it_to_a_seek():
+    """The controller's own scheduler asks the manager whether the group
+    has fine sync; a manager without the session never pulses."""
+    controller, manager_, player = make_controller(paused=False, position=10.0)
+    assert controller.tempo.can_close(100.0) is False
+
+
+# ----------------------------------------------------------------------------
+# The service start
+# ----------------------------------------------------------------------------
+
+
+def test_a_new_service_generation_settles_a_left_rate(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        tempo, "settle_left_rate", lambda reason="": calls.append(reason)
+    )
+    service_main.Service._settle_left_tempo(object())
+    assert calls == [" by an earlier service"]
+
+
+def test_the_settle_never_takes_the_service_down(monkeypatch):
+    def boom(reason=""):
+        raise RuntimeError("no Kodi")
+
+    monkeypatch.setattr(tempo, "settle_left_rate", boom)
+    service_main.Service._settle_left_tempo(object())  # logged, not raised
+
+
 # ----------------------------------------------------------------------------
 # The settings watcher
 # ----------------------------------------------------------------------------
@@ -467,6 +349,11 @@ def test_toggling_fine_sync_refreshes_the_session():
     service.syncplay = None
     FakeAddon.store["syncPlayTempo"] = "true"
     applier.apply()  # no manager: nothing to refresh, nothing to raise
+
+
+# ----------------------------------------------------------------------------
+# Seek lag
+# ----------------------------------------------------------------------------
 
 
 class HoldingPlayer:

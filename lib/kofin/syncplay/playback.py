@@ -20,16 +20,20 @@ from kofin.core import kodirpc
 from kofin.core.log import Logger
 from kofin.syncplay import utils
 from kofin.syncplay.utils import FOLLOWING, Phase
-from kofin.syncplay.tempo import (
-    PulseScheduler,
-    SEEK_LAG_DEFAULT_MS,
-    TempoFile,
-    source_offset_ms,
-)
+from kofin.syncplay.tempo import PulseScheduler, SEEK_LAG_DEFAULT_MS, VIDEO_PLAYER
 
 #################################################################################################
 
 LOG = Logger(__name__)
+
+# Kodi's presentationtime is read at most this often once it has answered: the
+# offset it gives holds across a tempo and a pause, and moves only where the
+# stream's own timestamps jump.
+PRESENTATION_READ_MS = 1000.0
+# Until it has answered, it is asked again this soon: one controller tick, so
+# the stream's clock is taken up as soon as it exists, while a stream that never
+# has one (a server remux) costs a read a tick and no more.
+PRESENTATION_RETRY_MS = 250.0
 
 #################################################################################################
 
@@ -50,11 +54,12 @@ class PlaybackController(object):
     ``docs/syncplay-drift-shakedown.md`` §10 has the numbers and the controls.
 
     Position is converged where the group tells us to converge it — on
-    Unpause, Pause, Seek and item load. Between commands, a video item routed
-    through inputstream.tempo is kept on the group position by the
+    Unpause, Pause, Seek and item load. Between commands, an item Kodi can
+    play at a tempo is kept on the group position by the
     :class:`~kofin.syncplay.tempo.PulseScheduler`: bounded, confirmed rate
-    pulses through an actuator that works with the display clock *off*, with a
-    quiet window after each one — not a loop. Anything else is left alone. All
+    pulses through Kodi's own tempo, which with kontell/xbmc #16 works with the
+    display clock *off*, with a quiet window after each one — not a loop.
+    Anything else is left alone. All
     privileged player operations run inside the manager's programmatic() guard
     so they are not echoed back to the group as user actions.
     """
@@ -99,10 +104,13 @@ class PlaybackController(object):
         self._live_seek_logged = False
         self._live_hold_ms = None  # a hold in progress: how long it was for
         self._live_hold_seq = 0  # which hold; a superseded hold's timer resumes nothing
-        # Server-clock instant of this stream's player t=0. Used as a live
-        # source clock when the remux restamped PTS from zero so tempo
-        # cannot read the broadcast.
+        # Server-clock instant of this stream's player t=0: the live clock of
+        # a stream whose own timestamps no other member shares (a remux
+        # restamps from zero), since the edge a member opened at is the same
+        # moment of the broadcast for every member.
         self._live_origin_server_ms = None
+        # (read at, offset) of Kodi's presentationtime, the stream's own clock.
+        self._presentation = None
 
     # ------------------------------------------------------------------
     # Command scheduling (SYNCPLAY.md §5.1)
@@ -202,10 +210,9 @@ class PlaybackController(object):
         rig against a 5 s budget); handing those to the scheduler would trade a
         single cut for twenty seconds off-rate. Those keep the seek.
 
-        ``can_close`` is already the right gate: the scheduler drops its tempo
-        file when an item is not routed through inputstream.tempo, and again
-        when a pulse is not confirmed, so it answers False exactly when nothing
-        can be nudged.
+        ``can_close`` is already the right gate: it answers False for an item
+        Kodi cannot play at a tempo now (``Player.TempoEnabled``) and for one
+        whose pulse was not confirmed, so exactly when nothing can be nudged.
         """
         if self.manager.phase != Phase.SYNCED:
             return False
@@ -355,7 +362,22 @@ class PlaybackController(object):
 
                 behind_ms = target_ms - self._position_ms()
 
-                if abs(behind_ms) > utils.AUDIO_UNPAUSE_ALIGN_MS:
+                if self.tempo.armed():
+                    # Fine sync takes what the music budget allows, without
+                    # the audible skip a seek is; past it, the seek is the
+                    # cheaper sound (syncplay/tempo.py, MUSIC_BUDGET_MS).
+                    if self.tempo.can_close(behind_ms):
+                        LOG.info(
+                            "[ syncplay/align ] %+.0fms at the resume: "
+                            "left to fine sync",
+                            behind_ms,
+                        )
+                        # Measure once PAPlayer is off the pause, as the
+                        # video branch does after its resume.
+                        self.tempo.note_settle()
+                    else:
+                        self._seek_and_settle(target_ms)
+                elif abs(behind_ms) > utils.AUDIO_UNPAUSE_ALIGN_MS:
                     self._seek_and_settle(target_ms)
             else:
                 behind_ms = target_ms - self._position_ms()
@@ -705,6 +727,7 @@ class PlaybackController(object):
         The server compares our reported position against the group and
         answers with a private Seek if we are out of tolerance (§7).
         """
+        self._presentation = None  # a new stream: its own clock
         self.note_live_origin()
         self._live_seek_logged = False
         target_ms = self.estimate_position_ms()
@@ -843,6 +866,7 @@ class PlaybackController(object):
         self._deferred_unpause = None
         self._reference = None
         self._live_origin_server_ms = None
+        self._presentation = None
 
     def _loop(self):
         LOG.info("--->[ syncplay loop ]")
@@ -938,11 +962,24 @@ class PlaybackController(object):
     def _is_paused(self):
         return bool(xbmc.getCondVisibility("Player.Paused"))
 
+    def remaining_ms(self):
+        """What is left of the playing item, or None when its length is not
+        known (a live stream, a source with no duration)."""
+        try:
+            total = self.player.getTotalTime()
+            played = self.player.getTime()
+        except Exception:
+            return None
+
+        if not total or total <= 0:
+            return None
+
+        return max(0.0, (total - played) * 1000.0)
+
     def _position_ms(self):
         """The playing position on the group's clock: the player clock, or
-        for a live item with a tempo route the source's own clock — the
-        broadcast's PTS, which every member's stream carries (pvr sync plan
-        P4) — placed on the group reference's cycle of it."""
+        for a live item the live clock (``_live_source_offset_ms``) placed
+        on the group reference's cycle of it (pvr sync plan P4)."""
         try:
             player_ms = self.player.getTime() * 1000.0
         except Exception:
@@ -1047,27 +1084,57 @@ class PlaybackController(object):
         )
 
     def _live_source_offset_ms(self):
-        """player clock → source clock, read off the tempo route's state
-        line; None for anything but a live item routed through an add-on
-        that reports it.
+        """player clock → live clock; None for anything but a live item.
 
-        When the remux restamped (tempo reports a job clock younger than
-        LIVE_CLOCK_MIN_START_S) the join origin is the clock instead:
-        player t=0 plus the server time at open is the live edge this
-        member started on.
+        The live clock is the stream's own when Kodi reports it
+        (``presentationtime``, kontell/xbmc #19: a broadcast's PTS, one clock
+        for every member's stream whatever moment it opened), and otherwise
+        the join origin: player t=0 plus the server time at open, which is
+        the live edge this member started on. A server remux restamps from
+        the job's start, which ``utils.presentation_offset_ms`` refuses, so
+        a channel through the server runs on the join origin.
         """
-        claim = self._live_claim()
-        path = ((claim or {}).get("Tempo") or {}).get("File")
-
-        if path:
-            pts = source_offset_ms(TempoFile(path).read_state())
-            if pts is not None:
-                return pts
-
-        if claim is None:
+        if self._live_claim() is None:
             return None
 
+        offset = self._presentation_offset_ms()
+
+        if offset is not None:
+            return offset
+
         return self._live_origin_server_ms
+
+    def _presentation_offset_ms(self):
+        """The stream's own clock against the player clock, or None until Kodi
+        has reported it.
+
+        Only a reading is kept. A miss (a timeshift buffer with no timestamp
+        yet, a failed read) keeps the last offset, and with none yet is asked
+        again a tick later rather than held: None means the join origin,
+        another clock, and held for a read interval it would put the group's
+        anchor and the window on it.
+        """
+        now = utils.local_ms()
+        known = None
+
+        if self._presentation is not None:
+            asked_at, known = self._presentation
+            interval = (
+                PRESENTATION_READ_MS if known is not None else PRESENTATION_RETRY_MS
+            )
+
+            if 0 <= now - asked_at < interval:
+                return known
+
+        offset = utils.presentation_offset_ms(
+            kodirpc.player_properties(["time", "presentationtime"], VIDEO_PLAYER)
+        )
+
+        if offset is not None:
+            known = offset
+
+        self._presentation = (now, known)
+        return known
 
     def live_on_source_clock(self):
         """Whether this member and the group share the source clock: the

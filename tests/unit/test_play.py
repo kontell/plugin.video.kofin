@@ -1,5 +1,4 @@
 import pytest
-import xbmcgui
 
 from kofin.core.http import JellyfinError
 from kofin.plugin import play
@@ -132,59 +131,6 @@ def test_stream_url_live_channel_direct_needs_a_web_path():
         "ps1",
     )
     assert method == "Transcode"
-
-
-def test_tempo_route_live_takes_the_timeshift_mode(monkeypatch):
-    # A live URL as a plain stream is inputstream.ffmpeg with extra steps:
-    # no buffer, no pause, no skip. Live is routed through the add-on's
-    # timeshift class, and only live.
-    monkeypatch.setattr(
-        play.state, "syncplay_tempo", lambda: {"file": "/tmp/t", "queue_secs": 1.0}
-    )
-    live = play.tempo_route(
-        {"Type": "TvChannel"}, "DirectPlay", {"Container": "hls"}, live=True
-    )
-    assert live == {
-        "File": "/tmp/t",
-        "QueueSecs": 1.0,
-        "ManifestType": "hls",
-        "StreamMode": "timeshift",
-    }
-    vod = play.tempo_route({"Type": "Movie"}, "DirectPlay", {"Container": "mkv"})
-    assert "StreamMode" not in vod
-
-
-class _RecordingListItem(xbmcgui.ListItem):
-    """Kodistubs' ListItem forgets its properties; this one keeps them."""
-
-    def __init__(self):
-        super().__init__()
-        self.props = {}
-
-    def setProperty(self, key, value):
-        self.props[key] = value
-
-    def getProperty(self, key):
-        return self.props.get(key, "")
-
-
-def test_stamp_tempo_route_stamps_the_timeshift_properties():
-    li = _RecordingListItem()
-    play.stamp_tempo_route(
-        li,
-        {
-            "File": "/tmp/t",
-            "QueueSecs": 1.0,
-            "ManifestType": "hls",
-            "StreamMode": "timeshift",
-        },
-    )
-    assert li.getProperty("inputstream.tempo.stream_mode") == "timeshift"
-    assert li.getProperty("inputstream.tempo.is_realtime_stream") == "true"
-    assert li.getProperty("inputstream.tempo.manifest_type") == "hls"
-    li = _RecordingListItem()
-    play.stamp_tempo_route(li, {"File": "/tmp/t", "QueueSecs": 1.0})
-    assert li.getProperty("inputstream.tempo.stream_mode") == ""
 
 
 def test_stream_url_infinite_source_without_transcode_raises():
@@ -487,6 +433,10 @@ class ResumeListItem:
     def __init__(self):
         self.tag = ResumeTagRecorder()
         self.path = ""
+        self.props = {}
+
+    def setProperty(self, key, value):
+        self.props[key] = value
 
     def getVideoInfoTag(self):
         return self.tag
@@ -1286,3 +1236,109 @@ def test_a_resolve_keeps_one_kofin_db_connection_for_its_interpreter(
     run_play({"id": "ep1"}, resume=False)
     assert pooled == [True]
     assert resume_env["resolved"]
+
+
+# --- live TV in a SyncPlay group: ffmpegdirect's timeshift -------------------
+
+
+def test_live_timeshift_properties():
+    hls = play.live_timeshift({"TranscodingSubProtocol": "hls"}, "Transcode")
+    assert hls == {
+        "inputstream": "inputstream.ffmpegdirect",
+        "inputstream.ffmpegdirect.is_realtime_stream": "true",
+        "inputstream.ffmpegdirect.stream_mode": "timeshift",
+        "inputstream.ffmpegdirect.manifest_type": "hls",
+    }
+    # Jellyfin's live remux is HLS when it says nothing.
+    assert (
+        play.live_timeshift({}, "Transcode")["inputstream.ffmpegdirect.manifest_type"]
+        == "hls"
+    )
+    # A provider's own playlist played direct.
+    direct = play.live_timeshift({"Container": "m3u8"}, "DirectPlay")
+    assert direct["inputstream.ffmpegdirect.manifest_type"] == "hls"
+    # A transport stream played direct names no manifest.
+    ts = play.live_timeshift({"Container": "ts"}, "DirectPlay")
+    assert "inputstream.ffmpegdirect.manifest_type" not in ts
+
+
+@pytest.fixture
+def live_env(resume_env, monkeypatch):
+    from kofin.core import state
+
+    channel = {"Id": "c1", "Type": "TvChannel", "Name": "A Channel"}
+    resume_env["api"]._item = channel
+    resume_env["api"].playback_info = lambda *a, **k: {
+        "MediaSources": [
+            {
+                "Id": "src1",
+                "SupportsDirectPlay": True,
+                "IsInfiniteStream": True,
+                "TranscodingUrl": "/videos/c1/live.m3u8?x=1",
+                "TranscodingSubProtocol": "hls",
+            }
+        ],
+        "PlaySessionId": "ps1",
+    }
+    enabled = {"ffmpegdirect": True}
+    monkeypatch.setattr(
+        play.xbmc,
+        "getCondVisibility",
+        lambda condition: (
+            enabled["ffmpegdirect"]
+            if condition == "System.AddonIsEnabled(inputstream.ffmpegdirect)"
+            else False
+        ),
+    )
+    state.publish_syncsession({"in_group": True})
+    resume_env["addon"].store["syncPlayTempo"] = "true"
+    resume_env["enabled"] = enabled
+    return resume_env
+
+
+def _claim():
+    from kofin.core import state
+
+    return state.claim_play_item("http://s:8096/videos/c1/live.m3u8?x=1")
+
+
+def test_a_live_item_in_a_group_plays_through_timeshift(live_env):
+    run_play({"id": "c1"}, resume=False)
+    props = live_env["li"].props
+    assert props["inputstream"] == "inputstream.ffmpegdirect"
+    assert props["inputstream.ffmpegdirect.stream_mode"] == "timeshift"
+    claim = _claim()
+    assert claim["Live"] is True
+    assert "TimeshiftMissing" not in claim
+
+
+def test_a_live_item_outside_a_group_plays_as_before(live_env):
+    from kofin.core import state
+
+    state.clear_syncsession()
+    run_play({"id": "c1"}, resume=False)
+    assert "inputstream" not in live_env["li"].props
+    assert "TimeshiftMissing" not in _claim()
+
+
+def test_a_live_item_with_fine_sync_off_plays_as_before(live_env):
+    live_env["addon"].store["syncPlayTempo"] = "false"
+    run_play({"id": "c1"}, resume=False)
+    assert "inputstream" not in live_env["li"].props
+
+
+def test_without_ffmpegdirect_the_claim_says_what_was_missing(live_env):
+    live_env["enabled"]["ffmpegdirect"] = False
+    run_play({"id": "c1"}, resume=False)
+    assert "inputstream" not in live_env["li"].props
+    assert _claim()["TimeshiftMissing"] is True
+
+
+def test_an_item_on_demand_in_a_group_is_not_routed(resume_env, monkeypatch):
+    from kofin.core import state
+
+    state.publish_syncsession({"in_group": True})
+    resume_env["addon"].store["syncPlayTempo"] = "true"
+    monkeypatch.setattr(play.xbmc, "getCondVisibility", lambda condition: True)
+    run_play({"id": "ep1"}, resume=False)
+    assert "inputstream" not in resume_env["li"].props

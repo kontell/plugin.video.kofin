@@ -7,15 +7,18 @@ member's DeviceId and token, read off its settings.xml — so it can create the
 group, join, set the queue and pause without driving a single menu, and every
 command reaches kofin through its own websocket exactly as a real one would.
 
-Positions are sampled over JSON-RPC; residuals are injected by writing a
-member's tempo file for a moment (inputstream.tempo applies it, kofin's
-scheduler then has something to close); the scheduler's own log lines are read
-back from each box.
+Positions are sampled over JSON-RPC; residuals are injected by holding a tempo
+on one member through its own ``Player.SetTempo`` for less than the scheduler's
+foreign-tempo grace (kofin's scheduler then has something to close); the
+scheduler's own log lines are read back from each box. In the inject
+scenarios each member's GUI is watched as well (``OsdWatch``): a pulse plays
+as a correction (kontell/xbmc #38), so once the injection's own seek bar has
+gone nothing may show a tempo or a seek.
 
     tests/live/syncplay_fine_sync.py \\
         --server https://jelly.konell.xyz --item <episode id> \\
-        --member A=127.0.0.1:8080,settings=<path>,log=<path>,tempo=<path> \\
-        --member B=192.168.1.150:8080,adb=<serial>,settings=<path>,log=<path>,tempo=<path> \\
+        --member A=127.0.0.1:8080,settings=<path>,log=<path> \\
+        --member B=192.168.1.150:8080,adb=<serial>,settings=<path>,log=<path> \\
         preflight join play steady inject-ahead inject-behind inject-seek cut leave
 
 Credentials never leave the two boxes' own settings files; nothing here is
@@ -30,6 +33,7 @@ import re
 import statistics
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -54,7 +58,6 @@ class Member(object):
         self.ssh = fields.get("ssh")
         self.settings_path = os.path.expanduser(fields["settings"])
         self.log_path = os.path.expanduser(fields["log"])
-        self.tempo_path = os.path.expanduser(fields["tempo"])
         self.user = fields.get("user", "kodi")
         self.password = fields.get("password", "kodi")
         text = self.read(self.settings_path)
@@ -106,11 +109,24 @@ class Member(object):
             handle.write(text)
         os.replace(tmp, path)
 
-    def tempo_file(self):
-        try:
-            return self.read(self.tempo_path).strip()
-        except OSError:
-            return "<missing>"
+    def tempo(self):
+        """The tempo the player has taken, or None when nothing plays."""
+        player = self.active_player()
+        if player is None:
+            return None
+        return self.rpc(
+            "Player.GetProperties", {"playerid": player, "properties": ["tempo"]}
+        )["tempo"]
+
+    def set_tempo(self, rate):
+        player = self.active_player()
+        if player is not None:
+            self.rpc("Player.SetTempo", {"playerid": player, "tempo": float(rate)})
+
+    def tempo_enabled(self):
+        return self.rpc("XBMC.GetInfoBooleans", {"booleans": ["Player.TempoEnabled"]})[
+            "Player.TempoEnabled"
+        ]
 
     def grep_log(self):
         """Matching log lines since mark_log()."""
@@ -338,20 +354,88 @@ def slope_ppm(rows, column):
 
 
 def inject(member, rate, seconds):
-    """Hold ``rate`` on a member's tempo file for ``seconds``: a displacement
-    of (rate − 1) × seconds, the way the shakedown's R-B step was meant."""
-    # Never on top of a running pulse: the two writes would fight over the file.
+    """Hold ``rate`` on a member through its own Player.SetTempo for
+    ``seconds``: a displacement of (rate − 1) × seconds. Under kofin's
+    foreign-tempo grace (2 s), so the scheduler leaves the step alone and
+    closes what it left. False when the member did not take the rate: Kodi
+    answers SetTempo for a rate it drops (above maxtempo, say), and a step
+    never injected would read as one closed."""
+    assert seconds < 2.0, "the scheduler puts back a tempo held 2 s"
+    # Never on top of a running pulse: the two would fight over the tempo.
     for _ in range(40):
-        if member.tempo_file().startswith("1.0"):
+        if abs((member.tempo() or 1.0) - 1.0) < 0.0015:
             break
         time.sleep(0.5)
     log(
         "inject on %s: %.2fx for %.2fs (≈ %+.0f ms)"
         % (member.name, rate, seconds, (rate - 1) * seconds * 1000)
     )
-    member.write(member.tempo_path, "%.4f\n" % rate)
+    member.set_tempo(rate)
+    taken = member.tempo()
+
+    if taken is None or abs(taken - rate) >= 0.0005:
+        member.set_tempo(1.0)
+        log("inject on %s REFUSED: asked %.2fx, read %s" % (member.name, rate, taken))
+        return False
+
     time.sleep(seconds)
-    member.write(member.tempo_path, "1.0000\n")
+    member.set_tempo(1.0)
+    return True
+
+
+OSD_FLAGS = ["Player.IsTempo", "Player.HasPerformedSeek(3)"]
+
+
+class OsdWatch(threading.Thread):
+    """What each member's GUI showed while the schedulers pulsed.
+
+    A pulse plays as a correction (kontell/xbmc #38): no seek bar for its
+    start or its end, and ``Player.IsTempo`` false with ``Player.PlaySpeed``
+    1.00 throughout. The injection is a viewer's tempo and does show, so
+    nothing is counted before ``quiet_after``, past the seek bar its return to
+    1.0 put up. "at tempo" counts the samples taken during a pulse; every
+    other count stays at zero.
+    """
+
+    COUNTS = ("samples", "at tempo", "IsTempo", "seek bar", "PlaySpeed≠1.00")
+
+    def __init__(self, members, quiet_after, hz=4.0):
+        super().__init__(daemon=True)
+        self.members = members
+        self.quiet_after = quiet_after
+        self.period = 1.0 / hz
+        self.counts = {m.name: dict.fromkeys(self.COUNTS, 0) for m in members}
+        self.done = threading.Event()
+
+    def run(self):
+        while not self.done.wait(self.period):
+            if time.time() < self.quiet_after:
+                continue
+            for member in self.members:
+                try:
+                    flags = member.rpc("XBMC.GetInfoBooleans", {"booleans": OSD_FLAGS})
+                    speed = member.rpc(
+                        "XBMC.GetInfoLabels", {"labels": ["Player.PlaySpeed"]}
+                    )["Player.PlaySpeed"]
+                    rate = member.tempo()
+                except Exception:
+                    continue
+                counts = self.counts[member.name]
+                counts["samples"] += 1
+                counts["at tempo"] += rate is not None and abs(rate - 1.0) > 0.0005
+                counts["IsTempo"] += bool(flags["Player.IsTempo"])
+                counts["seek bar"] += bool(flags["Player.HasPerformedSeek(3)"])
+                counts["PlaySpeed≠1.00"] += speed not in ("1.00", "")
+
+    def finish(self, label):
+        self.done.set()
+        self.join()
+        for name, counts in self.counts.items():
+            log(
+                "%s OSD on %s: %s"
+                % (label, name, ", ".join("%s %d" % item for item in counts.items()))
+            )
+        return self.counts
 
 
 def check_moving(members):
@@ -415,12 +499,11 @@ def main(argv):
     for member in members:
         member.mark_log()
         log(
-            "%s: %s, DeviceId %s…, queue %s, display clock %s"
+            "%s: %s, DeviceId %s…, display clock %s"
             % (
                 member.name,
                 member.device_name,
                 member.device_id[:8],
-                member.kodi_setting("videoplayer.queuetimesize"),
                 member.kodi_setting("videoplayer.usedisplayasclock"),
             )
         )
@@ -439,12 +522,8 @@ def main(argv):
             time.sleep(2)
             for member in members:
                 log(
-                    "%s: tempo file %s, session property %r"
-                    % (
-                        member.name,
-                        member.tempo_file(),
-                        member.window_property("kofin.syncplay.tempo"),
-                    )
+                    "%s: pulse record %r"
+                    % (member.name, member.window_property("kofin.syncplay.pulse"))
                 )
 
         elif scenario == "join":
@@ -463,16 +542,6 @@ def main(argv):
                 )
                 time.sleep(2)
             time.sleep(6)
-            for member in members:
-                log(
-                    "%s: queue now %s, session property %s, tempo file %s"
-                    % (
-                        member.name,
-                        member.kodi_setting("videoplayer.queuetimesize"),
-                        member.window_property("kofin.syncplay.tempo"),
-                        member.tempo_file(),
-                    )
-                )
             show_logs(members, "join")
 
         elif scenario == "play":
@@ -505,7 +574,10 @@ def main(argv):
                         ]
                     },
                 )
-                log("%s: audio %s" % (member.name, codec))
+                log(
+                    "%s: audio %s, tempo %s, TempoEnabled %s"
+                    % (member.name, codec, member.tempo(), member.tempo_enabled())
+                )
 
         elif scenario == "steady":
             for member in members:
@@ -521,16 +593,23 @@ def main(argv):
                 sample_all(a, followers, 5), followers, "%s before" % scenario
             )
             if scenario == "inject-ahead":
-                inject(a, 1.2, 0.75)
+                injected = inject(a, 1.2, 0.75)
             elif scenario == "inject-behind":
-                inject(a, 0.8, 0.75)
+                injected = inject(a, 0.8, 0.75)
             else:
-                inject(a, 1.5, 2.0)
+                injected = inject(a, 2.0, 1.0)
+            if not injected:
+                report[scenario] = {"before": before, "injected": False}
+                continue
+            # The injection's return to 1.0 shows the seek bar for 3 s.
+            watch = OsdWatch(members, time.time() + 3.5)
+            watch.start()
             rows = sample_all(a, followers, args.watch)
+            osd = watch.finish(scenario)
             after = describe_all(
                 rows[-16:], followers, "%s after %.0fs" % (scenario, args.watch)
             )
-            report[scenario] = {"before": before, "after": after}
+            report[scenario] = {"before": before, "after": after, "osd": osd}
             show_logs(members, scenario)
 
         elif scenario == "moving":
@@ -539,7 +618,9 @@ def main(argv):
         elif scenario == "cut":
             for member in members:
                 member.mark_log()
-            inject(a, 1.2, 0.75)
+            if not inject(a, 1.2, 0.75):
+                report[scenario] = {"injected": False}
+                continue
             # Wait for A's scheduler to start a pulse, then pause the group
             # from a follower while it runs.
             deadline = time.time() + 25
@@ -555,7 +636,7 @@ def main(argv):
             log("pulse started on A: %s" % started)
             followers[0].jellyfin(args.server, "POST", "/SyncPlay/Pause")
             time.sleep(4)
-            log("A tempo file after the pause: %s" % a.tempo_file())
+            log("A tempo after the pause: %s" % a.tempo())
             followers[0].jellyfin(args.server, "POST", "/SyncPlay/Unpause")
             time.sleep(6)
             wait_playing(members, timeout=20)
@@ -583,12 +664,11 @@ def main(argv):
             time.sleep(4)
             for member in members:
                 log(
-                    "%s: queue %s, session property %r, tempo file %s"
+                    "%s: tempo %s, pulse record %r"
                     % (
                         member.name,
-                        member.kodi_setting("videoplayer.queuetimesize"),
-                        member.window_property("kofin.syncplay.tempo"),
-                        member.tempo_file(),
+                        member.tempo(),
+                        member.window_property("kofin.syncplay.pulse"),
                     )
                 )
                 member.stop_player()

@@ -1305,12 +1305,12 @@ msgid "Waiting for the group..."
 msgstr "正在等待群组…"
 
 msgctxt "#30586"
-msgid "Fine sync through inputstream.tempo"
-msgstr "通过 inputstream.tempo 精细同步"
+msgid "Fine sync"
+msgstr "精细同步"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "在命令之间，通过 inputstream.tempo 插件短暂地加快或放慢播放，让此设备保持在群组位置上（请保持 Kodi 的“同步播放到显示器”关闭）。仅限视频，包括转码的视频。会话期间音频被解码为 PCM，因此直通会被暂停。"
+msgid "Keeps this device on the group's position by briefly playing faster or slower. A video correction decodes passthrough audio until the next item."
+msgstr "通过短暂地加快或放慢播放，让此设备保持在群组位置上。进行视频校正时，直通音频会被解码，直到下一个项目。"
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -1333,16 +1333,16 @@ msgid "Fine sync stopped: rate mismatch"
 msgstr "精细同步已停止：速率不匹配"
 
 msgctxt "#30593"
-msgid "Largest error closed by tempo (ms)"
-msgstr "用变速校正的最大误差 (ms)"
+msgid "Largest video error closed by tempo (ms)"
+msgstr "用变速校正的最大视频误差 (ms)"
 
 msgctxt "#30594"
 msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
 msgstr "不超过此值的位置误差通过加快或放慢播放来校正；更大的误差通过跳转校正。数值越高，跳转越少，变速时间越长。"
 
 msgctxt "#30595"
-msgid "Fastest correction speed (%)"
-msgstr "最快校正速度 (%)"
+msgid "Fastest video correction speed (%)"
+msgstr "最快视频校正速度 (%)"
 
 msgctxt "#30596"
 msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
@@ -2303,6 +2303,10 @@ msgstr "立即更新所有媒体库？"
 msgctxt "#30874"
 msgid "Re-read every library from the server now."
 msgstr "立即从服务器重新读取所有媒体库。"
+
+msgctxt "#30875"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "直播电视的精细同步需要 FFmpeg Direct"
 
 msgctxt "#30990"
 msgid "Not available in this preview"

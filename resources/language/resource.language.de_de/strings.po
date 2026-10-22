@@ -1305,12 +1305,12 @@ msgid "Waiting for the group..."
 msgstr "Warte auf die Gruppe..."
 
 msgctxt "#30586"
-msgid "Fine sync through inputstream.tempo"
-msgstr "Feinabgleich über inputstream.tempo"
+msgid "Fine sync"
+msgstr "Feinabgleich"
 
 msgctxt "#30587"
-msgid "Keeps this device on the group position between commands by briefly playing faster or slower, through the inputstream.tempo add-on (leave Kodi's 'Sync playback to display' off). Video only, transcoded streams included. Audio is decoded to PCM during a session, so passthrough is suspended."
-msgstr "Hält dieses Gerät zwischen den Gruppenbefehlen auf der Gruppenposition, indem es über das Add-on inputstream.tempo kurz schneller oder langsamer abspielt („Wiedergabe an Bildschirm anpassen“ in Kodi ausgeschaltet lassen). Nur Video, auch transkodiert. Audio wird in einer Sitzung zu PCM dekodiert, Passthrough ist also ausgesetzt."
+msgid "Keeps this device on the group's position by briefly playing faster or slower. A video correction decodes passthrough audio until the next item."
+msgstr "Hält dieses Gerät auf der Gruppenposition, indem es kurz schneller oder langsamer abspielt. Eine Videokorrektur dekodiert Passthrough-Audio bis zum nächsten Element."
 
 msgctxt "#30588"
 msgid "Fine sync with audio passthrough on"
@@ -1333,16 +1333,16 @@ msgid "Fine sync stopped: rate mismatch"
 msgstr "Feinabgleich gestoppt: Tempo passt nicht"
 
 msgctxt "#30593"
-msgid "Largest error closed by tempo (ms)"
-msgstr "Größter per Tempo ausgeglichener Fehler (ms)"
+msgid "Largest video error closed by tempo (ms)"
+msgstr "Größter per Tempo ausgeglichener Videofehler (ms)"
 
 msgctxt "#30594"
 msgid "Position errors up to this are closed by playing faster or slower; anything larger is closed with a skip. Higher means fewer skips and longer speed changes."
 msgstr "Positionsfehler bis hierher werden durch schnelleres oder langsameres Abspielen ausgeglichen; alles Größere mit einem Sprung. Höher heißt weniger Sprünge und längere Tempoänderungen."
 
 msgctxt "#30595"
-msgid "Fastest correction speed (%)"
-msgstr "Schnellste Korrekturgeschwindigkeit (%)"
+msgid "Fastest video correction speed (%)"
+msgstr "Schnellste Korrekturgeschwindigkeit für Video (%)"
 
 msgctxt "#30596"
 msgid "The most playback speed may change during a correction. At 25% a 2.5 second error takes 10 seconds to close; lower is less noticeable but slower. Large changes ramp in and out."
@@ -2303,6 +2303,10 @@ msgstr "Alle Bibliotheken jetzt aktualisieren?"
 msgctxt "#30874"
 msgid "Re-read every library from the server now."
 msgstr "Liest jetzt alle Bibliotheken erneut vom Server."
+
+msgctxt "#30875"
+msgid "Live TV fine sync needs FFmpeg Direct"
+msgstr "Feinabgleich für Live-TV braucht FFmpeg Direct"
 
 msgctxt "#30990"
 msgid "Not available in this preview"
