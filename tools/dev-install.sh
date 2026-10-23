@@ -47,7 +47,7 @@ PY
 KODI_RPC="http://localhost:${RPC_PORT}/jsonrpc"
 
 # The staged distribution is byte-identical to build.py's ZIP. --delete also
-# removes obsolete SQL modules when a developer changes package profiles.
+# removes modules a newer tree no longer ships.
 KOFIN_STAGE=$(mktemp -d)
 trap 'rm -rf "$KOFIN_STAGE"' EXIT
 python3 "$SRC/tools/build.py" --stage "$KOFIN_STAGE"

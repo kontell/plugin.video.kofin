@@ -41,13 +41,8 @@ from kofin.core.api import Api
 from kofin.downloads import auto as downloads_auto
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
-from kofin import buildconfig
 from kofin.service import latesubs
-
-if buildconfig.legacy_features():
-    from kofin.service import chapters
 from kofin.service.libraryclaim import (
-    backfill_library_claim,
     downloaded_path,
     path_item_id,
     playing_jellyfin_id,
@@ -166,7 +161,6 @@ class Player(xbmc.Player):
         # W4.1's one-shot: the item id whose 80% crossing already fired,
         # latched before the lookup so a failed resolve never retries.
         self._auto_next_latch = ""
-        self._chapter_thumbs: Optional[Any] = None
         self._late_subs: Optional[latesubs.LateSubtitles] = None
         self._reporter = _Reporter()
         self._reporter.start()
@@ -281,7 +275,6 @@ class Player(xbmc.Player):
         self._report(self.api.session_playing, event=None)
         self._start_ticker()
         self._start_segment_engine(claimed)
-        self._start_chapter_thumbs(claimed)
         self._start_late_subtitles(claimed)
 
     def onAVStarted(self) -> None:
@@ -401,7 +394,6 @@ class Player(xbmc.Player):
         """Report the stop and release all playback state."""
         self.segments.reset()
         self._stop_ticker()
-        self._stop_chapter_thumbs()
         self._stop_late_subtitles()
         self._reset_lyrics()
         self._auto_next_latch = ""
@@ -462,24 +454,8 @@ class Player(xbmc.Player):
         self._stopped = True
         self.segments.reset()
         self._stop_ticker()
-        self._stop_chapter_thumbs()
         self._stop_late_subtitles()
         self._reporter.stop()
-
-    def submit_backfill(self, data: JsonDict) -> None:
-        """Player.OnPlay's library-claim back-fill, off the notification
-        thread: library_claim makes a server GET and opens kofin.db, and every
-        song start with the server away blocked Kodi's notification dispatch
-        for the transport's whole budget (audit finding #3). Rides the
-        reporter so the claim lands before any report that follows it."""
-
-        def run() -> None:
-            try:
-                backfill_library_claim(data, self.api)
-            except Exception:
-                LOG.exception("library claim back-fill failed")
-
-        self._reporter.submit(run)
 
     # -- delete after watching -------------------------------------------------
 
@@ -828,24 +804,6 @@ class Player(xbmc.Player):
         if self._ticker is not None:
             self._ticker.stop()
             self._ticker = None
-
-    def _start_chapter_thumbs(self, item: JsonDict) -> None:
-        if not buildconfig.legacy_features():
-            # The API build's chapter images are art on the resolved item,
-            # which Kodi's chapters dialog shows itself (plugin/play.py).
-            return
-        if not settings.get_bool("chapterImages"):
-            return
-        if not chapters.eligible(item):
-            return
-        self._stop_chapter_thumbs()  # belt: no owner leaks across claims
-        self._chapter_thumbs = chapters.ChapterThumbs(self.api, item)
-        self._chapter_thumbs.start()
-
-    def _stop_chapter_thumbs(self) -> None:
-        if self._chapter_thumbs is not None:
-            self._chapter_thumbs.stop()
-            self._chapter_thumbs = None
 
     def _start_late_subtitles(self, item: JsonDict) -> None:
         """Chase any subtitle the server had not finished extracting.

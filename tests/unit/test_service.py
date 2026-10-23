@@ -170,7 +170,6 @@ def test_api_service_starts_selected_movies_on_kodi23_with_the_changes(
     """Use the real capability probe; scanner-only fixtures missed this gate."""
     import json
 
-    from kofin import buildconfig
     from kofin.sync import private
     from kofin.sync.backends.api.library import Library
 
@@ -184,7 +183,6 @@ def test_api_service_starts_selected_movies_on_kodi23_with_the_changes(
         librarySelection="movies",
         isLoggedIn="true",
     )
-    monkeypatch.setattr(buildconfig, "BACKEND", "api")
     monkeypatch.setattr(private, "addon_data_path", lambda: str(tmp_path))
     private.set_path_override("kofin", str(tmp_path / "kofin.db"))
     _probe_answers(monkeypatch, capture)
@@ -330,28 +328,6 @@ def test_a_forged_restart_is_dropped(monkeypatch, tmp_path):
     assert service._restart_requested is False
 
 
-def test_kodis_clean_library_drops_the_people_cache(monkeypatch, tmp_path):
-    """Kodi's Clean library deletes unlinked actor rows and actor_id is
-    reused, so the process-wide name → id cache would link the next cast
-    to the wrong person (audit F5). The clean's own notification resets it;
-    the next write re-primes from the table."""
-    from kofin.sync.kodidb.kodi import Kodi
-
-    monkeypatch.setattr(
-        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
-    )
-    service = Service()
-    Kodi._people_cache = {"Alice Actor": 41}
-    Kodi._people_cache_primed = True
-
-    service.onNotification("xbmc", "VideoLibrary.OnCleanStarted", "{}")
-    assert Kodi._people_cache_primed is True  # only the finish means rows went
-
-    service.onNotification("xbmc", "VideoLibrary.OnCleanFinished", "{}")
-    assert Kodi._people_cache == {}
-    assert Kodi._people_cache_primed is False
-
-
 def test_a_forged_library_removal_never_reaches_the_manager(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
@@ -385,13 +361,11 @@ def test_a_forged_update_or_sync_never_reaches_the_manager(monkeypatch, tmp_path
 
     service.onNotification(ipc.SENDER, "Other.SyncLibrary", '[{"Id": "lib1"}]')
     service.onNotification(ipc.SENDER, "Other.UpdateLibrary", "[{}]")
-    service.onNotification(ipc.SENDER, "Other.RefreshBoxsets", "[{}]")
     assert library.commands == []
 
     service.onNotification(ipc.SENDER, "Other.UpdateLibrary", _signed(service, {}))
-    service.onNotification(ipc.SENDER, "Other.RefreshBoxsets", _signed(service, {}))
-    assert library.commands == ["UpdateLibrary", "RefreshBoxsets"]
-    assert library.payloads == [{}, {}]
+    assert library.commands == ["UpdateLibrary"]
+    assert library.payloads == [{}]
 
 
 def test_the_secret_is_spent_at_the_door(monkeypatch, tmp_path):
@@ -1092,28 +1066,6 @@ def test_reconnect_catches_up_on_missed_changes(monkeypatch):
     assert service.library.commands == ["FastSync"]
 
 
-def test_reconnect_catch_up_is_stamped_with_the_edge_it_protects(monkeypatch):
-    """Everything the socket missed predates the reconnect, and the post-
-    connect worker queues the catch-up seconds later — behind the settle,
-    capabilities, the who's-watching restore and the userdata replay. Left to
-    enqueue_command's own stamp, a just-rebuilt manager's startup pass (which
-    lands inside that gap) looked too old to count and the same change-feed
-    window was fetched twice ~2 s apart."""
-    import time
-
-    from kofin.sync.library import FAST_SYNC_REQUESTED_AT
-
-    service = Service()
-    service.library = FakeLibrary()
-
-    before = time.monotonic()
-    _connected(service, monkeypatch)
-
-    (payload,) = service.library.payloads
-    assert payload[FAST_SYNC_REQUESTED_AT] == service._ws_connected_at
-    assert before <= payload[FAST_SYNC_REQUESTED_AT] <= time.monotonic()
-
-
 # --- Who's watching? restore on session attach -------------------------------
 
 
@@ -1810,7 +1762,6 @@ def test_reconnecting_does_not_build_a_second_websocket(monkeypatch, tmp_path):
     monkeypatch.setattr(service, "_start_library", lambda: None)
     monkeypatch.setattr(service, "_start_downloads", lambda: None)
     monkeypatch.setattr(service, "_start_backdrop", lambda force=False: None)
-    monkeypatch.setattr(service.artcache, "start", lambda: None)
     service.api = type("A", (), {"probe_info": lambda self: {}})()
 
     service._connect()
@@ -1835,7 +1786,6 @@ def test_reconnecting_rebuilds_a_websocket_whose_thread_died(monkeypatch, tmp_pa
     monkeypatch.setattr(service, "_start_library", lambda: None)
     monkeypatch.setattr(service, "_start_downloads", lambda: None)
     monkeypatch.setattr(service, "_start_backdrop", lambda force=False: None)
-    monkeypatch.setattr(service.artcache, "start", lambda: None)
     service.api = type("A", (), {"probe_info": lambda self: {}})()
 
     service._connect()
@@ -1851,7 +1801,7 @@ def test_reconnecting_rebuilds_a_websocket_whose_thread_died(monkeypatch, tmp_pa
 def test_replay_sends_the_resolved_payload_before_the_catch_up(monkeypatch, tmp_path):
     monkeypatch.setattr("xbmcvfs.translatePath", lambda path: str(tmp_path))
     from kofin.downloads import pending
-    from kofin.sync import db as sync_db
+    from kofin.sync import private as sync_db
 
     sync_db.reset_overrides()
     sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
@@ -1880,7 +1830,7 @@ def test_a_failed_replay_keeps_the_row_for_next_time(monkeypatch, tmp_path):
     monkeypatch.setattr("xbmcvfs.translatePath", lambda path: str(tmp_path))
     from kofin.core.http import ServerUnreachable
     from kofin.downloads import pending
-    from kofin.sync import db as sync_db
+    from kofin.sync import private as sync_db
 
     sync_db.reset_overrides()
     sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
@@ -2051,7 +2001,6 @@ def test_run_shuts_down_cleanly_when_kodi_aborts_at_once(monkeypatch, tmp_path):
     library = FakeLibrary()
     service.library = library
     monkeypatch.setattr(service, "abortRequested", lambda: True)
-    monkeypatch.setattr(service, "_start_chapter_sweep", lambda: None)
     monkeypatch.setattr(service, "_stop_syncplay", lambda: None)
 
     assert service.run() is False  # an abort is not a restart request
@@ -2093,17 +2042,6 @@ def test_dispatch_tables_name_defined_methods():
         assert Service._IPC_HANDLERS[command] == "_ipc_library_command"
 
 
-def test_music_scan_finished_reasserts_the_sources():
-    service = Service()
-    service.onNotification(
-        "xbmc", "AudioLibrary.OnScanFinished", "{}"
-    )  # no library yet
-    library = FakeLibrary()
-    service.library = library
-    service.onNotification("xbmc", "AudioLibrary.OnScanFinished", "{}")
-    assert library.commands == ["ReassertMusicSources"]
-
-
 def test_player_stop_wakes_a_paused_download_pool():
     service = Service()
     service.onNotification("xbmc", "Player.OnStop", "{}")  # no manager: ignored
@@ -2111,23 +2049,6 @@ def test_player_stop_wakes_a_paused_download_pool():
     service.downloads = manager
     service.onNotification("xbmc", "Player.OnStop", "{}")
     assert manager.woken == 1
-
-
-def test_precache_art_ipc_runs_the_precache(monkeypatch, tmp_path):
-    import json
-
-    # PrecacheArt is not in the registry's GUARDED set — a precache is a
-    # cost, not a capability — so the bare message is enough. The membership
-    # is asserted so a future guard changes this test, not just the plugin.
-    assert ipc.PRECACHE_ART not in ipc.GUARDED
-    monkeypatch.setattr(
-        "xbmcvfs.translatePath", lambda path: str(tmp_path / "ipc.nonce")
-    )
-    service = Service()
-    runs = []
-    monkeypatch.setattr(service, "_precache_art_now", lambda: runs.append(1))
-    service.onNotification(ipc.SENDER, "Other.PrecacheArt", json.dumps([{}]))
-    assert runs == [1]
 
 
 def test_attach_subtitle_ipc_reaches_the_player_with_an_int_index(

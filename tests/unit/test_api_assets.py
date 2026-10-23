@@ -303,7 +303,6 @@ def test_clean_reads_a_version_file_s_source_from_the_query(store, monkeypatch):
     store.publish([assets_movie()], library=LIB)
     folder = folder_of(store)
     resolved = []
-    monkeypatch.setattr(router.buildconfig, "BACKEND", "api")
     monkeypatch.setattr(
         "xbmcplugin.setResolvedUrl", lambda h, ok, item: resolved.append(ok)
     )
@@ -342,7 +341,6 @@ def test_two_extras_titled_alike_are_listed_played_and_kept_apart(store, monkeyp
     assert listed == [folder + "extras/Trailer.mkv", folder + "extras/Trailer (2).mkv"]
     # A file the catalogue no longer names is a failed play, never a listing.
     resolved = []
-    monkeypatch.setattr(router.buildconfig, "BACKEND", "api")
     monkeypatch.setattr(
         "xbmcplugin.setResolvedUrl", lambda h, ok, item: resolved.append((h, ok))
     )

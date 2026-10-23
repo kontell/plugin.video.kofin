@@ -1,11 +1,87 @@
 """The API build's node tree and skin entries (sync/dynamic.py)."""
 
+import os
 import xml.etree.ElementTree as ET
+
+import pytest
 
 from kofin.sync import dynamic, private
 from kofin.sync.nodes.video import NODE_ROOT
 from tests.unit.fakes import FakeAddon, FakeWindow
-from tests.unit.test_sync_views import FakeApi, views_env  # noqa: F401
+
+
+class FakeApi:
+    server = "http://server:8096"
+    user_id = "user1"
+
+    def __init__(self, folders=None):
+        self.folders = folders or []
+
+    def media_folders(self):
+        return {"Items": self.folders}
+
+    def views(self):
+        return {"Items": []}
+
+
+@pytest.fixture(autouse=True)
+def views_env(monkeypatch, tmp_path):
+    """A profile directory behind every special:// path the node writers
+    touch, and kofin.db beside it."""
+    FakeAddon.store = {}
+    FakeWindow.store = {}
+    monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+
+    profile = tmp_path / "profile"
+    (profile / "library" / "video").mkdir(parents=True)
+    (profile / "playlists" / "video").mkdir(parents=True)
+    (profile / "addon_data" / "plugin.video.kofin").mkdir(parents=True)
+
+    def translate(path):
+        if path.startswith("special://profile"):
+            rest = path.replace("special://profile", "").strip("/")
+            return str(profile / rest) if rest else str(profile)
+        return str(tmp_path / path.replace("special://", "").strip("/"))
+
+    def translate_or_raw(path):
+        return translate(path) if path.startswith("special://") else path
+
+    def fake_listdir(p):
+        target = translate_or_raw(p)
+        dirs, files = [], []
+        if os.path.isdir(target):
+            for entry in os.listdir(target):
+                if os.path.isdir(os.path.join(target, entry)):
+                    dirs.append(entry)
+                else:
+                    files.append(entry)
+        return dirs, files
+
+    monkeypatch.setattr("xbmcvfs.translatePath", translate)
+    monkeypatch.setattr("xbmcvfs.exists", lambda p: os.path.exists(translate_or_raw(p)))
+    monkeypatch.setattr(
+        "xbmcvfs.mkdir", lambda p: os.mkdir(translate_or_raw(p)) or True
+    )
+    monkeypatch.setattr(
+        "xbmcvfs.mkdirs",
+        lambda p: os.makedirs(translate_or_raw(p), exist_ok=True) or True,
+    )
+    monkeypatch.setattr(
+        "xbmcvfs.delete", lambda p: os.remove(translate_or_raw(p)) or True
+    )
+    monkeypatch.setattr(
+        "xbmcvfs.rmdir", lambda p: os.rmdir(translate_or_raw(p)) or True
+    )
+    monkeypatch.setattr("xbmcvfs.listdir", fake_listdir)
+
+    private.reset_overrides()
+    private.set_path_override(
+        "kofin", str(profile / "addon_data" / "plugin.video.kofin" / "kofin.db")
+    )
+    yield {"profile": profile}
+    private.reset_overrides()
+
 
 MOVIES = "1" * 32
 SHOWS = "2" * 32
@@ -76,24 +152,17 @@ def test_a_whitelisted_library_gets_its_tree_and_library_paths(views_env):
     assert "5" * 32 not in " ".join(window.values())
 
 
-def test_favourite_episodes_are_found_by_their_own_tag_in_the_api_build(
-    views_env, monkeypatch
-):
+def test_favourite_episodes_are_found_by_their_own_tag(views_env):
     """Kodi 23 keeps an episode's tags and its tag rule matches them
-    (kontell/xbmc #12), and the API build tags a favourite episode. The SQL
-    build's node keeps its writer rule, the credit its writer stamps."""
-    from kofin import buildconfig
-
-    def rule(backend):
-        monkeypatch.setattr(buildconfig, "BACKEND", backend)
-        whitelist(MOVIES)
-        dynamic.publish(ITEMS, FakeApi())
-        root = views_env["profile"] / "library" / "video" / NODE_ROOT
-        found = ET.parse(root / "kofin_Favoriteepisodes.xml").getroot().find("rule")
-        return found.get("field"), found.find("value").text
-
-    assert rule("api") == ("tag", "Favorite episodes")
-    assert rule("sql") == ("writers", "Favorite episodes")
+    (kontell/xbmc #12); a favourite episode carries the tag."""
+    whitelist(MOVIES)
+    dynamic.publish(ITEMS, FakeApi())
+    root = views_env["profile"] / "library" / "video" / NODE_ROOT
+    found = ET.parse(root / "kofin_Favoriteepisodes.xml").getroot().find("rule")
+    assert (found.get("field"), found.find("value").text) == (
+        "tag",
+        "Favorite episodes",
+    )
 
 
 def test_a_library_leaving_the_whitelist_loses_its_folder_and_an_empty_one_the_tree(

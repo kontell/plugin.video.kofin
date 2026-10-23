@@ -20,7 +20,6 @@ import xml.etree.ElementTree as etree
 import xbmc
 import xbmcvfs
 
-from kofin import buildconfig
 from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.core.urls import plugin_url
@@ -244,15 +243,6 @@ def single_file(single):
     return "%s_%s.xml" % (fs.PREFIX, name)
 
 
-def downloads_root_path():
-    """The downloads root as the episodes node's rule needs it: absolute,
-    with a trailing separator so ``startswith`` cannot match a sibling
-    directory that merely shares the prefix."""
-    from kofin.downloads import downloads_root
-
-    return downloads_root().rstrip("/") + "/"
-
-
 def library_node_path(view, node):
     return "library://video/%s/%s/%s.xml" % (NODE_ROOT, node_folder(view), node)
 
@@ -316,26 +306,11 @@ def single_nodes():
                 "Icon": NODE_DOWNLOADS_ICON,
             }
         )
-        # Episodes cannot be filtered by tag: Kodi compiles a tag rule on
-        # an episodes node against ``episode_view.idShow``
-        # (SmartPlayList.cpp), so it answers with every episode of every
-        # tagged show -- verified live, 25+ rows for two downloads. Their
-        # *path* is the honest signal, since a downloaded episode's row
-        # points into the downloads root (plan W2.6). Only where a row is
-        # moved there: the API build's rows keep their plugin URLs, so it
-        # has no episodes node to offer.
-        if buildconfig.legacy_features():
-            singles.append(
-                {
-                    "Name": localized(30721),
-                    "Tag": DOWNLOADS_TAG,
-                    "Path": downloads_root_path(),
-                    "Media": "episodes",
-                    "File": "DownloadedEpisodes",
-                    "Type": "downloads",
-                    "Icon": NODE_DOWNLOADS_ICON,
-                }
-            )
+        # No Downloaded-episodes single: Kodi compiles a tag rule on an
+        # episodes node against ``episode_view.idShow`` (SmartPlayList.cpp),
+        # so it would answer with every episode of every tagged show, and a
+        # downloaded episode's row keeps its plugin URL, so a path rule has
+        # nothing to match either.
     return singles
 
 
@@ -410,31 +385,17 @@ def build_single(single, order):
     content = etree.SubElement(xml, "content")
     content.text = single["Media"]
 
-    if not episodes:
+    if not episodes or not single.get("Path"):
+        # A Kodi 23 with kontell/xbmc #12 keeps an episode's own tags, and
+        # the Favorite episodes rule matches them (metadata.FAVORITE_TAG).
         _tag_rule(xml, single["Tag"])
-    elif single.get("Path"):
+    else:
         # An episodes node filters on the file's location, because a tag
         # rule here resolves against the *show* (see single_nodes).
         rule = etree.SubElement(
             xml, "rule", {"field": "path", "operator": "startswith"}
         )
         etree.SubElement(rule, "value").text = single["Path"]
-    elif not buildconfig.native_sync():
-        # The API build's Kodi 23 keeps an episode's own tags, and its tag
-        # rule matches them (kontell/xbmc #12); a favourite episode carries
-        # the tag (metadata.FAVORITE_TAG). Nothing stamps the writer below.
-        _tag_rule(xml, single["Tag"])
-    else:
-        # Favorite episodes: same Kodi limitation as Downloaded episodes —
-        # a tag rule on content=episodes compiles against
-        # ``episode_view.idShow`` (SmartPlayList.cpp), so tagging the
-        # episode itself would match nothing. Writer is an episode-level
-        # link; the writer stamps the same "Favorite episodes" string the
-        # tag uses (writers/tvshows.py). The XML field is ``writers``
-        # (TranslateField); ``writer`` does not translate and the node
-        # fails to open.
-        rule = etree.SubElement(xml, "rule", {"field": "writers", "operator": "is"})
-        etree.SubElement(rule, "value").text = single["Tag"]
 
     _parts(xml, NODE_PARTS["all"])
     return xml

@@ -231,8 +231,7 @@ def test_a_status_that_cannot_be_written_fails_nothing(store, monkeypatch, tmp_p
     assert status.read() == {}
 
 
-def _dialog(monkeypatch, store, answers, backend="api"):
-    from kofin import buildconfig
+def _dialog(monkeypatch, store, answers):
     from kofin.plugin import actions
     from kofin.plugin.router import Request
     from kofin.sync.backends.api import identity
@@ -241,7 +240,6 @@ def _dialog(monkeypatch, store, answers, backend="api"):
     dialog = FakeDialog()
     dialog.select_answers = list(answers)
     shown = []
-    monkeypatch.setattr(buildconfig, "BACKEND", backend)
     monkeypatch.setattr(status.xbmcgui, "Dialog", lambda: dialog)
     monkeypatch.setattr(actions.toast, "show", lambda *a, **k: shown.append(a[0]))
     monkeypatch.setattr(actions.settings, "localized", lambda i: "L%d" % i)
@@ -289,9 +287,3 @@ def test_a_fact_that_is_picked_does_nothing_and_back_closes_the_report(
     # not when one of them was picked.
     assert len(reads) == 2
     assert dialog.selects[0][1] == dialog.selects[1][1] == dialog.selects[2][1]
-
-
-def test_the_sql_build_has_no_status_dialog(store, monkeypatch):
-    dialog, shown = _dialog(monkeypatch, store, [], backend="sql")
-
-    assert dialog.selects == [] and shown == ["L30990"]

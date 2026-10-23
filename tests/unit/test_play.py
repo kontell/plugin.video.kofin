@@ -612,6 +612,9 @@ def test_resume_start_carries_the_offset(resume_env):
 def test_library_resume_starts_at_kodis_own_bookmark(resume_env, monkeypatch):
     resume_env["addon"].store["resumeJumpBack"] = "-10"
     monkeypatch.setattr(
+        "kofin.sync.backends.api.identity.native_id_for", lambda item_id, media: 8956
+    )
+    monkeypatch.setattr(
         "kofin.core.kodirpc.resume_seconds", lambda kodi_id, media: 200.0
     )
     run_play({"id": "ep1", "dbid": "8956"}, resume=True)
@@ -624,6 +627,9 @@ def test_library_resume_starts_at_kodis_own_bookmark(resume_env, monkeypatch):
 def test_library_resume_honours_a_cleared_bookmark(resume_env, monkeypatch):
     # Kodi will start at 0 whatever the server thinks; saying otherwise reports
     # a position nothing is at.
+    monkeypatch.setattr(
+        "kofin.sync.backends.api.identity.native_id_for", lambda item_id, media: 8956
+    )
     monkeypatch.setattr("kofin.core.kodirpc.resume_seconds", lambda kodi_id, media: 0.0)
     run_play({"id": "ep1", "dbid": "8956"}, resume=True)
     assert resume_env["api"].start_ticks == [0]
@@ -857,9 +863,12 @@ def test_a_plain_play_names_no_source_and_no_indices(resume_env):
     assert sent["subtitle_index"] is None
 
 
-def test_play_state_carries_what_the_stream_menu_needs(resume_env):
+def test_play_state_carries_what_the_stream_menu_needs(resume_env, monkeypatch):
     from kofin.core import state
 
+    monkeypatch.setattr(
+        "kofin.sync.backends.api.identity.native_id_for", lambda item_id, media: 77
+    )
     run_play({"id": "ep1", "dbid": "77"}, resume=False)
     queued = state.claim_play_item(resume_env["li"].path)
     published = queued["Streams"]
@@ -992,7 +1001,7 @@ def offline_env(tmp_path, monkeypatch):
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
     monkeypatch.setattr("xbmcvfs.exists", lambda p: True)
     monkeypatch.setattr("xbmcvfs.translatePath", lambda p: str(p))
-    from kofin.sync import db as sync_db
+    from kofin.sync import private as sync_db
 
     sync_db.reset_overrides()
     sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))

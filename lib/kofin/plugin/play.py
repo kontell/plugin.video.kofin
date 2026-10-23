@@ -14,7 +14,6 @@ import xbmc
 import xbmcgui
 import xbmcplugin
 
-from kofin import buildconfig
 from kofin.core import deviceprofile, kodirpc, settings, state, streams, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
@@ -614,14 +613,13 @@ def play(request: Request) -> None:
         _fail(request)
         return
 
-    if buildconfig.BACKEND == "api":
-        from kofin.sync.backends.api.provider import key_from_url
-        from kofin.sync.backends.api.store import namespace
+    from kofin.sync.backends.api.provider import key_from_url
+    from kofin.sync.backends.api.store import namespace
 
-        key = key_from_url(request.base_url)
-        if key and key != namespace(creds.server_id, creds.user_id):
-            _fail(request)
-            return
+    key = key_from_url(request.base_url)
+    if key and key != namespace(creds.server_id, creds.user_id):
+        _fail(request)
+        return
 
     # Before any transport is built: offline, everything below is a wait
     # with a known answer.
@@ -649,7 +647,7 @@ def play(request: Request) -> None:
     segments_thread: Optional[threading.Thread] = None
     try:
         item = api.item(item_id)
-        if buildconfig.BACKEND == "api" and item.get("Type") in NATIVE_MEDIA:
+        if item.get("Type") in NATIVE_MEDIA:
             from kofin.sync.backends.api.identity import native_id_for
 
             try:
@@ -806,12 +804,9 @@ def play(request: Request) -> None:
         # the song's database id has to be restated or the link back to the
         # Kodi row is lost for anything reading the tag.
         li.getMusicInfoTag().setDbId(int(dbid), "song")
-    if not buildconfig.legacy_features():
-        # The SQL build writes chapter thumbs to the texture cache itself
-        # (service/chapters.py).
-        chapters = chapter_art(api, item, source, method)
-        if chapters:
-            li.setArt(chapters)
+    chapters = chapter_art(api, item, source, method)
+    if chapters:
+        li.setArt(chapters)
     li.setPath(url)
     mime = mime_for(source, method)
     if mime:

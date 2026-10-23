@@ -5,7 +5,6 @@ from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl
 
 from kofin.core.log import Logger
-from kofin import buildconfig
 
 LOG = Logger(__name__)
 
@@ -15,20 +14,6 @@ LOG = Logger(__name__)
 NATIVE_MARK = "/native/"
 
 Params = Dict[str, str]
-
-LEGACY_MODES = frozenset(
-    {
-        "cleandatabases",
-        "refreshboxsets",
-        "precacheart",
-    }
-)
-
-
-def _unavailable(request: "Request") -> None:
-    from kofin.core import settings, toast
-
-    toast.show(settings.localized(30990), toast.WARNING)
 
 
 class Request:
@@ -68,7 +53,6 @@ ROUTES: Dict[str, Tuple[str, str]] = {
     "findservers": ("serverpicker", "find_servers"),
     "login": ("account", "login"),
     "logout": ("account", "logout"),
-    "cleandatabases": ("clean", "clean_databases"),
     "testconnection": ("account", "test_connection"),
     "restart": ("account", "restart"),
     "settings": ("actions", "open_settings"),
@@ -96,8 +80,6 @@ ROUTES: Dict[str, Tuple[str, str]] = {
     "selectlibraries": ("librarypicker", "select_libraries"),
     "updatelibs": ("actions", "update_libraries"),
     "repairlibs": ("actions", "repair_libraries"),
-    "refreshboxsets": ("actions", "refresh_boxsets"),
-    "precacheart": ("actions", "precache_art"),
     "saveplaylist": ("actions", "save_playlist"),
 }
 
@@ -135,8 +117,6 @@ LISTING_MODES = frozenset(
 
 def _resolve(mode: str) -> Optional[Callable[[Request], None]]:
     """The handler for ``mode``, imported on demand; None when unregistered."""
-    if not buildconfig.legacy_features() and mode in LEGACY_MODES:
-        return _unavailable
     route = ROUTES.get(mode)
     if route is None:
         return None
@@ -180,7 +160,7 @@ def dispatch(argv: List[str]) -> None:
     # A path outside the provider's is not parsed, and pays for none of the
     # provider's imports: every home widget's request spent 3 s on them on a
     # Raspberry Pi 3 at rest to learn that it was not native.
-    if buildconfig.BACKEND == "api" and NATIVE_MARK in base_url:
+    if NATIVE_MARK in base_url:
         import time
 
         imports_began = time.monotonic()

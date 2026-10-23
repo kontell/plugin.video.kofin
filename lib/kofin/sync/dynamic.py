@@ -171,7 +171,7 @@ def publish(items, server):
         else:
             if libraries:
                 kodisetup.seed_default_nodes("music")
-            music_nodes.write_music_nodes(libraries, downloads=False)
+            music_nodes.write_music_nodes(libraries)
     except Exception:
         LOG.exception("music node tree not written")
     if not nodes:

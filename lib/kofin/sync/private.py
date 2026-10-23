@@ -17,7 +17,6 @@ from typing import Any, Dict, Iterator, Optional, Tuple
 import xbmcvfs
 
 from kofin.core.log import Logger
-from kofin.sync import kofindb
 
 LOG = Logger(__name__)
 ADDON_DATA = "special://profile/addon_data/plugin.video.kofin/"
@@ -406,22 +405,3 @@ def save_sync(sync: Dict[str, Any]) -> None:
         outfile.flush()
         os.fsync(outfile.fileno())
     os.replace(temp_path, path)
-
-
-def get_item(kodi_id: int, media: str) -> Any:
-    """Get the jellyfin reference row based on kodi id and media type."""
-    from kofin.buildconfig import BACKEND
-
-    if BACKEND != "sql":
-        return None
-    with Database("kofin") as kofin_db:
-        item = kofindb.JellyfinDatabase(kofin_db.cursor).get_full_item_by_kodi_id(
-            kodi_id, media
-        )
-
-        if not item:
-            LOG.debug("not a kofin item")
-
-            return None
-
-    return item

@@ -7,7 +7,6 @@ and never change here.
 """
 
 from kofin.core.log import Logger
-from kofin.sync import fields as api
 from kofin.sync.nodes.video import (
     NODES,
     _label,
@@ -161,10 +160,11 @@ class _Artwork:
                 if library["Id"] == view_id and "Primary" in library.get(
                     "ImageTags", {}
                 ):
-                    artwork = api.API(None, self.server.server).get_artwork(
-                        view_id, "Primary"
+                    window_prop(
+                        "%s.artwork" % prop,
+                        "%s/Items/%s/Images/Primary/0?Format=original"
+                        % (self.server.server, view_id),
                     )
-                    window_prop("%s.artwork" % prop, artwork)
                     break
             else:
                 window_prop("%s.artwork" % prop, clear=True)

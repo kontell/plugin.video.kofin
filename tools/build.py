@@ -17,23 +17,21 @@ def addon_meta():
     return root.get("id"), root.get("version")
 
 
-def iter_files(profile=None):
-    return manifest.iter_files(ROOT, profile or manifest.selected_profile(ROOT))
+def iter_files():
+    return manifest.iter_files(ROOT)
 
 
-def stage(directory, profile=None):
-    profile = profile or manifest.selected_profile(ROOT)
+def stage(directory):
     directory = Path(directory)
     if directory.exists() and any(directory.iterdir()):
         raise ValueError("staging directory must be empty")
-    for path in iter_files(profile):
+    for path in iter_files():
         target = directory / path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(manifest.contents(ROOT, path, profile))
+        target.write_bytes(manifest.contents(ROOT, path))
 
 
-def build(outdir, profile=None):
-    profile = profile or manifest.selected_profile(ROOT)
+def build(outdir):
     addon_id, version = addon_meta()
     if not addon_id or not version:
         sys.exit("addon.xml is missing an id or version")
@@ -41,9 +39,9 @@ def build(outdir, profile=None):
     outdir.mkdir(parents=True, exist_ok=True)
     target = outdir / f"{addon_id}-{version}.zip"
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in iter_files(profile):
+        for path in iter_files():
             archive.writestr(
-                f"{addon_id}/{path.as_posix()}", manifest.contents(ROOT, path, profile)
+                f"{addon_id}/{path.as_posix()}", manifest.contents(ROOT, path)
             )
     with zipfile.ZipFile(target) as archive:
         if (
@@ -51,17 +49,16 @@ def build(outdir, profile=None):
             or f"{addon_id}/addon.xml" not in archive.namelist()
         ):
             sys.exit("invalid addon archive")
-    print(f"{target} ({profile}, {target.stat().st_size // 1024} KiB)")
+    print(f"{target} ({target.stat().st_size // 1024} KiB)")
     return target
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("outdir", nargs="?", type=Path, default=ROOT / "dist")
-    parser.add_argument("--profile", choices=manifest.PROFILES)
     parser.add_argument("--stage", type=Path)
     args = parser.parse_args()
     if args.stage:
-        stage(args.stage, args.profile)
+        stage(args.stage)
     else:
-        build(args.outdir, args.profile)
+        build(args.outdir)

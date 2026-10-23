@@ -9,7 +9,6 @@ import xbmc
 import xbmcgui
 import xbmcvfs
 
-from kofin import buildconfig
 from kofin.core import kodirpc, settings, state, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
@@ -79,16 +78,9 @@ def _focused_item_id() -> str:
 
 def lookup_item_id(dbid: int, media_type: str) -> str:
     """The Jellyfin item id for a Kodi library row, '' when not kofin's."""
-    if buildconfig.BACKEND == "api":
-        from kofin.service.libraryclaim import mapped_jellyfin_id
+    from kofin.service.libraryclaim import mapped_jellyfin_id
 
-        return mapped_jellyfin_id(dbid, media_type) or ""
-    if not dbid or dbid < 0 or not media_type:
-        return ""
-    from kofin.sync.private import get_item
-
-    row = get_item(dbid, media_type)
-    return row.jellyfin_id if row is not None else ""
+    return mapped_jellyfin_id(dbid, media_type) or ""
 
 
 def _bitrate_value(value: str) -> Optional[float]:

@@ -107,7 +107,7 @@ def test_the_artwork_query_carries_only_parameters_the_server_honours():
     from pathlib import Path
 
     source = (
-        Path(__file__).resolve().parents[2] / "lib/kofin/sync/fields.py"
+        Path(__file__).resolve().parents[2] / "lib/kofin/plugin/listitems.py"
     ).read_text()
     assert "EnableImageEnhancers" not in source
     assert "MaxHeight" in source and "Quality" in source
@@ -175,8 +175,8 @@ def test_the_retired_lyrics_setting_is_gone_from_the_schema():
 
 def test_the_settings_tabs_match_the_playback_split():
     """Playback split into Skipping & Next up and SyncPlay; default tracks moved
-    to Account (gating the Jellyfin account settings button); resume offset
-    and the language-invoker toggle live on Advanced."""
+    to Account (gating the Jellyfin account settings button); the resume
+    offset lives on Advanced."""
     import xml.etree.ElementTree as etree
 
     root = etree.parse(str(_repo_root() / "resources/settings.xml")).getroot()
@@ -218,13 +218,6 @@ def test_the_settings_tabs_match_the_playback_split():
 
     advanced = _ids(_category("advanced"))
     assert "resumeJumpBack" in advanced
-    assert advanced[-1] == "reuseLanguageInvoker"
-    invoker = next(
-        element
-        for element in _category("advanced").iter("setting")
-        if element.get("id") == "reuseLanguageInvoker"
-    )
-    assert next(element for element in invoker.iter("default")).text == "true"
 
 
 def test_the_retired_download_settings_are_gone_from_the_schema():

@@ -3,19 +3,13 @@
 Kodi keeps music nodes in a tree of their own (``CLibraryDirectory`` over
 ``library://music/``), so nothing in the video tree reaches here. The tree
 holds a folder per synced music library -- Artists, Albums, Songs and
-Genres, the same ways in Kodi's own music library offers -- plus a
-Downloaded folder while the downloads feature is on.
+Genres, the same ways in Kodi's own music library offers.
 
-In the SQL build a library's sub-nodes filter on its MyMusic ``source`` row
-rather than a tag (MyMusic has none) or a path (a downloaded song's path is
-repointed at the filesystem, so it would fall out of its own library). See
-sync/musicsources.py. The API build writes no music source, and a download
-never moves a row there, so its nodes filter on the folder the library's
-songs are filed under (``library_rule``): a music smart playlist's ``path``
-rule takes an album or an artist by its songs' paths. Every file is written
-whole on every pass: nothing in them is the user's to keep, and a leftover
-rule for a renamed library would match nothing under ``match=all`` --
-silently.
+A library's sub-nodes filter on the folder its songs are filed under
+(``library_rule``): a music smart playlist's ``path`` rule takes an album or
+an artist by its songs' paths. Every file is written whole on every pass:
+nothing in them is the user's to keep, and a leftover rule for a renamed
+library would match nothing under ``match=all`` -- silently.
 """
 
 import os
@@ -25,11 +19,8 @@ import xbmcvfs
 
 from kofin.core import settings
 from kofin.core.log import Logger
-from kofin.sync.private import Database, get_sync
-from kofin.sync import kofindb as jellyfin_db
 from kofin.sync.nodes import fs
 from kofin.sync.nodes.video import (
-    NODE_DOWNLOADS_ICON,
     NODE_ROOT,
     NODE_ROOT_ICON,
     _node_label,
@@ -65,9 +56,6 @@ MUSIC_NODES = (
     ("genres", 135, "artists", "genres"),
 )
 
-# The Downloaded set gets no genres leg: it is three ways into one small pile
-# of files, and a genre level over a handful of albums is noise.
-MUSIC_DOWNLOAD_NODES = MUSIC_NODES[:3]
 
 # Stock Kodi icons for those sub-nodes, so skins substitute their own.
 MUSIC_NODE_ICONS = {
@@ -85,16 +73,6 @@ def music_node_root_path():
     )
 
 
-def music_root_path():
-    """The downloads music directory as a music node's rule needs it --
-    the same value the Downloaded-music .xsp filters on, so the node and the
-    playlist can never disagree about what "downloaded" means."""
-    from kofin.downloads import downloads_root
-    from kofin.downloads.files import MUSIC_DIR
-
-    return "%s/%s/" % (downloads_root().rstrip("/"), MUSIC_DIR)
-
-
 def music_node_folder(view):
     """Per-library folder name inside the music tree -- the music twin of
     :func:`video.node_folder`, which cannot be reused because its name folds
@@ -102,78 +80,26 @@ def music_node_folder(view):
     return "%smusic%s" % (fs.PREFIX, view["Id"])
 
 
-def music_library_views():
-    """The synced music libraries, in the order their folders should sit.
-
-    Ordered by SortedViews like the video entries are, and tolerant of a
-    library that is missing from it -- this runs on every node pass, and a
-    stray view must leave the tree slightly mis-sorted rather than unwritten.
-    """
-    sync = get_sync()
-    whitelist = [
-        library.replace("Mixed:", "") for library in sync.get("Whitelist") or []
-    ]
-    order = sync.get("SortedViews") or []
-    views = []
-
-    with Database("kofin") as kofin_db:
-        db = jellyfin_db.JellyfinDatabase(kofin_db.cursor)
-
-        for library_id in whitelist:
-            view = db.get_view(library_id)
-
-            if view is not None and view.media_type == "music":
-                views.append({"Id": library_id, "Name": view.view_name})
-
-    def position(view):
-        try:
-            return (0, order.index(view["Id"]), "")
-        except ValueError:
-            return (1, 0, view["Name"])
-
-    views.sort(key=position)
-
-    from kofin.sync import musicsources
-
-    for view in views:
-        view["Source"] = musicsources.source_name(view["Id"], views)
-
-    return views
-
-
 def library_rule(view):
     """The rule a library's sub-nodes filter on: the folder its songs are
-    filed under when the view names one (``Path``, the API build), else its
-    Kodi music source (``Source``, the SQL build)."""
-    if view.get("Path"):
-        rule = etree.Element("rule", {"field": "path", "operator": "startswith"})
-        etree.SubElement(rule, "value").text = view["Path"]
-    else:
-        rule = etree.Element("rule", {"field": "source", "operator": "is"})
-        etree.SubElement(rule, "value").text = view["Source"]
+    filed under (``Path``)."""
+    rule = etree.Element("rule", {"field": "path", "operator": "startswith"})
+    etree.SubElement(rule, "value").text = view["Path"]
     return rule
 
 
-def write_music_nodes(libraries=None, downloads=None):
+def write_music_nodes(libraries):
     """Write (or take down) the music tree. Returns whether it now exists.
 
-    ``libraries`` is read from kofin.db when not supplied, so the downloads
-    manager can keep calling this with no arguments. ``downloads`` says
-    whether the Downloaded folder is written, the downloads setting when not
-    supplied; the API build passes False, since its downloads keep their rows'
-    plugin URLs and a path rule on the downloads folder would match nothing.
+    ``libraries`` are the whitelisted music libraries, each with the folder
+    its songs are filed under (``dynamic.music_entries``); an empty list
+    takes the tree down. There is no Downloaded folder: a download keeps its
+    row's plugin URL, so a path rule on the downloads folder would match
+    nothing.
     """
     root = music_node_root_path()
-    if downloads is None:
-        downloads = settings.get_bool("downloadsEnabled")
 
-    try:
-        libraries = music_library_views() if libraries is None else libraries
-    except Exception:
-        LOG.exception("music library views unavailable")
-        return False
-
-    if not libraries and not downloads:
+    if not libraries:
         _delete_music_nodes(root)
         return False
 
@@ -187,10 +113,6 @@ def write_music_nodes(libraries=None, downloads=None):
         for index, view in enumerate(libraries):
             _write_music_library_folder(root, view, index)
             keep.add(music_node_folder(view))
-
-        if downloads:
-            _write_downloaded_music_folder(root, len(libraries))
-            keep.add(MUSIC_DOWNLOADED_FOLDER)
 
         # Reconcile: a library that left the whitelist, and the loose
         # kofin_DownloadedMusic.xml from before the Downloaded folder
@@ -228,33 +150,6 @@ def _write_music_library_folder(root, view, index):
 
     for order, (stem, label, content, group) in enumerate(MUSIC_NODES):
         rule = library_rule(view)
-        _write_music_filter_node(folder, order, stem, label, content, group, rule)
-
-
-def _write_downloaded_music_folder(root, index):
-    """The Downloaded-music folder: the same three ways in, filtered on the
-    downloads directory instead of a source.
-
-    Path rather than source because a download is not a library -- it is a
-    slice of one, and the repointed path is the honest signal for it (the
-    same rule the Downloaded-music .xsp carries, so node and playlist cannot
-    disagree about what "downloaded" means).
-    """
-    folder = os.path.join(root, MUSIC_DOWNLOADED_FOLDER)
-
-    if not os.path.isdir(folder):
-        os.makedirs(folder)
-
-    _write_music_folder_index(
-        folder,
-        index,
-        _node_label(30736, "Downloaded music"),
-        NODE_DOWNLOADS_ICON,
-    )
-
-    for order, (stem, label, content, group) in enumerate(MUSIC_DOWNLOAD_NODES):
-        rule = etree.Element("rule", {"field": "path", "operator": "startswith"})
-        etree.SubElement(rule, "value").text = music_root_path()
         _write_music_filter_node(folder, order, stem, label, content, group, rule)
 
 

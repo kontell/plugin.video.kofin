@@ -53,18 +53,11 @@ class Backend(Protocol):
 
 
 def create_backend() -> Any:
-    # Deliberately lazy: an OR process must never import the SQL implementation.
-    from kofin.buildconfig import BACKEND
+    # Lazy: a plugin invocation pays for the backend's imports only on the
+    # routes that reach it.
+    from kofin.sync.backends.api import APIBackend
 
-    if BACKEND == "sql":
-        from kofin.sync.backends.sql.backend import SQLBackend
-
-        return SQLBackend()
-    if BACKEND == "api":
-        from kofin.sync.backends.api import APIBackend
-
-        return APIBackend()
-    raise ValueError("unknown Kofin backend: %s" % BACKEND)
+    return APIBackend()
 
 
 class CompatibilityError(Exception):

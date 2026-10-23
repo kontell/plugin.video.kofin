@@ -6,7 +6,6 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 import xbmcgui
 import xbmcplugin
 
-from kofin import buildconfig
 from kofin.core import settings, state
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
@@ -388,12 +387,9 @@ def with_backdrop(art: Dict[str, str]) -> Dict[str, str]:
     skin-side fallback; there is no addon-side hook for it.
     """
     if not art.get("fanart"):
-        backdrop = ""
-        if not buildconfig.legacy_features():
-            from kofin.service.backdrop import profile_path
+        from kofin.service.backdrop import profile_path
 
-            backdrop = profile_path()
-        backdrop = backdrop or _addon_media(BACKDROP_IMAGE)
+        backdrop = profile_path() or _addon_media(BACKDROP_IMAGE)
         if backdrop:
             art["fanart"] = backdrop
     return art

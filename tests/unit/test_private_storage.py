@@ -1,4 +1,4 @@
-"""Private state must work with all native database modules unavailable."""
+"""Private state opens kofin.db and nothing else."""
 
 import os
 from pathlib import Path
@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from kofin.sync import db, private
+from kofin.sync import private
 
 
 def test_private_import_and_roundtrip_without_native_modules(tmp_path):
@@ -51,23 +51,3 @@ def test_private_connection_refuses_native_kinds_and_arbitrary_paths(name):
     with pytest.raises(ValueError, match="Kofin-owned"):
         with private.Database(name):
             pass
-
-
-def test_legacy_and_private_callers_share_one_override_and_schema(tmp_path):
-    db.reset_overrides()
-    try:
-        db.set_path_override("kofin", str(tmp_path / "kofin.db"))
-        with db.Database("kofin") as legacy:
-            legacy.cursor.execute("INSERT INTO view VALUES ('v1','Movies','movies')")
-        with private.Database() as opened:
-            assert opened.cursor.execute("SELECT view_id FROM view").fetchone() == (
-                "v1",
-            )
-        with pytest.raises(RuntimeError):
-            with private.Database() as opened:
-                opened.cursor.execute("DELETE FROM view")
-                raise RuntimeError("rollback")
-        with db.Database("kofin") as legacy:
-            assert legacy.cursor.execute("SELECT COUNT(*) FROM view").fetchone()[0] == 1
-    finally:
-        db.reset_overrides()

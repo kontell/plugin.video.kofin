@@ -122,41 +122,13 @@ def open_settings(request: Request) -> None:
 
 
 def update_libraries(request: Request) -> None:
-    """Per-library (or all) fast-sync catch-up + prune pass (S2.10).
-
-    The API build lists every selected library whatever is picked (its
-    coordinator reads no ids from the command), so it asks only whether to
-    update them all now."""
-    from kofin import buildconfig
-
-    whitelist = settings.get_list("librarySelection")
-    if not whitelist:
+    """Library tab button: list every selected library again now. The
+    coordinator reads no ids from the command, so the only question is
+    whether to update them all."""
+    if not settings.get_list("librarySelection"):
         return
-
-    if buildconfig.BACKEND == "api":
-        if xbmcgui.Dialog().yesno(settings.localized(30256), settings.localized(30873)):
-            ipc.notify(ipc.UPDATE_LIBRARY, {})
-        return
-
-    names = _selection_names(whitelist)
-    choices: List[Union[str, xbmcgui.ListItem]] = [settings.localized(30267)]
-    choices.extend(names)  # "All" first
-    picked = xbmcgui.Dialog().multiselect(settings.localized(30270), choices)
-
-    if not picked:  # cancelled or empty
-        return
-
-    if 0 in picked:
-        # Empty payload = the full-whitelist pass (keeps the retention-repair
-        # release path in the service intact).
+    if xbmcgui.Dialog().yesno(settings.localized(30256), settings.localized(30873)):
         ipc.notify(ipc.UPDATE_LIBRARY, {})
-    else:
-        selected = [whitelist[index - 1] for index in picked]
-        ipc.notify(ipc.UPDATE_LIBRARY, {"Id": ",".join(selected)})
-
-
-def refresh_boxsets(request: Request) -> None:
-    ipc.notify(ipc.REFRESH_BOXSETS, {})
 
 
 def save_playlist(request: Request) -> None:
@@ -226,44 +198,11 @@ def save_playlist(request: Request) -> None:
 
 def _playlist_items(lines: List[str]) -> List[Tuple[str, str]]:
     """The Jellyfin id and side ("Audio" or "Video") of each playlist line,
-    ("", "") for a line kofin did not file: through the catalogue in the API
-    build, through the mapping table in the SQL build."""
-    from kofin import buildconfig
+    ("", "") for a line kofin did not file, through the catalogue."""
+    from kofin.sync.backends.api import playlists as api_playlists
+    from kofin.sync.backends.api.identity import current_store
 
-    if buildconfig.BACKEND == "api":
-        from kofin.sync.backends.api import playlists as api_playlists
-        from kofin.sync.backends.api.identity import current_store
-
-        return api_playlists.items_of_lines(current_store(), lines)
-    from kofin.sync import kofindb as jellyfin_db
-    from kofin.sync import playlists as music_playlists
-    from kofin.sync.private import Database
-
-    found: List[Tuple[str, str]] = []
-    with Database("kofin") as kofindb:
-        mapping = jellyfin_db.JellyfinDatabase(kofindb.cursor)
-        for line in lines:
-            jellyfin_id = music_playlists.jellyfin_id_from_path(line, mapping) or ""
-            row = mapping.get_item_by_id(jellyfin_id) if jellyfin_id else None
-            if row is not None and row.media_type == "song":
-                found.append((jellyfin_id, "Audio"))
-            elif (
-                row is not None and row.media_type in music_playlists.VIDEO_MEDIA_TYPES
-            ):
-                found.append((jellyfin_id, "Video"))
-            else:
-                found.append(("", ""))
-    return found
-
-
-def precache_art(request: Request) -> None:
-    """Settings button: ask the service to seed the cast-image cache now.
-
-    Fires and exits like every other service-owned action — the work is a
-    long run of downloads and database writes, which the plugin process has
-    no business holding open.
-    """
-    ipc.notify(ipc.PRECACHE_ART, {})
+    return api_playlists.items_of_lines(current_store(), lines)
 
 
 def repair_libraries(request: Request) -> None:
@@ -842,13 +781,8 @@ def delete_all_downloads(request: Request) -> None:
 
 def library_status(request: Request) -> None:
     """Settings button: what is synced, what is pending, what the sync is
-    doing (the API build). The report and its dialog are status.py's; the
-    button carries no ``<close>``, so reading it returns to the settings."""
-    from kofin import buildconfig
-
-    if buildconfig.BACKEND != "api":
-        toast.show(settings.localized(30990), toast.WARNING)
-        return
+    doing. The report and its dialog are status.py's; the button carries no
+    ``<close>``, so reading it returns to the settings."""
     from kofin.sync.backends.api import status
     from kofin.sync.backends.api.identity import current_store
 

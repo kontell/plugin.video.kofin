@@ -284,44 +284,13 @@ def test_the_play_state_is_read_back_by_the_mapped_id(store, backend, kodi):
     assert port.mapped("a") is True and port.mapped("zz") is False
 
 
-def test_the_sql_port_is_the_repoint_module(monkeypatch):
-    from kofin.downloads import repoint
-
-    calls = []
-    monkeypatch.setattr(
-        repoint, "restore", lambda row, root: calls.append(("restore", root)) or True
-    )
-    monkeypatch.setattr(
-        repoint, "repoint", lambda row, root: calls.append(("repoint", root)) or False
-    )
-    monkeypatch.setattr(
-        repoint, "stamp_tag", lambda row: calls.append(("tag", row.jellyfin_id))
-    )
-    monkeypatch.setattr(
-        repoint, "stamp_badge", lambda row: calls.append(("badge", row.jellyfin_id))
-    )
-    port = nativeport.NativeSql()
-    row = Download(jellyfin_id="a", media_type="movie")
-    assert port.restore(row, "/dl") is True
-    # The stamps go on whether or not the row moved.
-    assert port.attached(row, "/dl") is False
-    assert calls == [
-        ("restore", "/dl"),
-        ("repoint", "/dl"),
-        ("tag", "a"),
-        ("badge", "a"),
-    ]
-
-
 def test_a_season_s_download_menu_finds_its_episodes_through_the_catalogue(
     store, monkeypatch
 ):
     """The catalogue files an episode under its series, so a season is
     answered by the series' downloads whose payload names the season."""
-    from kofin import buildconfig
     from tests.unit.apifixtures import SHOW, episode, season, series
 
-    monkeypatch.setattr(buildconfig, "BACKEND", "api")
     store.publish(
         [
             series(),

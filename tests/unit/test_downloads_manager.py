@@ -12,7 +12,7 @@ from kofin.core.http import JellyfinError, Unauthorized
 from kofin.downloads import manager as manager_module
 from kofin.downloads import store
 from kofin.downloads.manager import DownloadManager
-from kofin.sync import db as sync_db
+from kofin.sync import private as sync_db
 from tests.unit.fakes import FakeAddon, FakeWindow
 
 import threading
@@ -49,41 +49,61 @@ def env(tmp_path, monkeypatch):
     sync_db.reset_overrides()
 
 
+class FakeNative:
+    """The library side of a download, recording what the manager asked of
+    it: ``attached`` is the old repoint plus its tag and badge stamps,
+    ``detached`` the unstamps, so the assertions read as they always did."""
+
+    def __init__(self, calls):
+        self.calls = calls
+        self.restore_answer = True
+
+    def attached(self, row, root):
+        self.calls["repoint"].append((row.jellyfin_id, root))
+        self.calls["stamp"].append(row.jellyfin_id)
+        self.calls["badge"].append(row.jellyfin_id)
+        return True
+
+    def detached(self, row):
+        self.calls["unstamp"].append(row.jellyfin_id)
+        self.calls["unbadge"].append(row.jellyfin_id)
+
+    def restore(self, row, root):
+        self.calls["restore"].append((row.jellyfin_id, root))
+        return self.restore_answer
+
+    def mapped(self, item_id):
+        return True
+
+    def mark_watched(self, row):
+        self.calls.setdefault("watched", []).append(row.jellyfin_id)
+
+    def watched_locally(self, row):
+        return False
+
+    def last_touch(self, row):
+        return None
+
+    def music_view(self, force):
+        self.calls.setdefault("music_view", []).append(force)
+
+    def refresh_song_playlists(self, item_ids):
+        self.calls.setdefault("song_playlists", []).append(list(item_ids))
+
+
 @pytest.fixture
 def repoints(monkeypatch):
-    calls = {"repoint": [], "restore": [], "stamp": [], "unstamp": []}
-    monkeypatch.setattr(
-        manager_module.repoint,
-        "repoint",
-        lambda row, root: calls["repoint"].append((row.jellyfin_id, root)) or True,
-    )
-    monkeypatch.setattr(
-        manager_module.repoint,
-        "restore",
-        lambda row, root: calls["restore"].append((row.jellyfin_id, root)) or True,
-    )
-    monkeypatch.setattr(
-        manager_module.repoint,
-        "stamp_tag",
-        lambda row: calls["stamp"].append(row.jellyfin_id),
-    )
-    calls["badge"] = []
-    calls["unbadge"] = []
-    monkeypatch.setattr(
-        manager_module.repoint,
-        "stamp_badge",
-        lambda row: calls["badge"].append(row.jellyfin_id),
-    )
-    monkeypatch.setattr(
-        manager_module.repoint,
-        "clear_badge",
-        lambda row: calls["unbadge"].append(row.jellyfin_id),
-    )
-    monkeypatch.setattr(
-        manager_module.repoint,
-        "unstamp_tag",
-        lambda row: calls["unstamp"].append(row.jellyfin_id),
-    )
+    calls = {
+        "repoint": [],
+        "restore": [],
+        "stamp": [],
+        "unstamp": [],
+        "badge": [],
+        "unbadge": [],
+    }
+    native = FakeNative(calls)
+    calls["native"] = native
+    monkeypatch.setattr(manager_module.nativeport, "for_build", lambda: native)
     return calls
 
 
@@ -989,11 +1009,6 @@ SONG_DTO = {
 
 
 def test_a_song_downloads_into_the_album_directory(tmp_path, repoints, monkeypatch):
-    views = []
-    monkeypatch.setattr(
-        "kofin.sync.playlists.refresh_downloaded_music",
-        lambda root=None: views.append(1) or True,
-    )
     manager, _ = make_manager(repoints)
     api = FakeManagerApi(
         SONG_DTO,
@@ -1018,7 +1033,8 @@ def test_a_song_downloads_into_the_album_directory(tmp_path, repoints, monkeypat
     assert row.rel_path == "Music/The Band/Greatest Hits/01 - Opening Track.flac"
     assert (tmp_path / "dl" / row.rel_path).read_bytes() == b"abcdefgh"
     assert repoints["repoint"] == [("a1", str(tmp_path / "dl"))]
-    assert views == [1]  # the Downloaded-music view exists from song one
+    # The Downloaded-music view exists from song one.
+    assert repoints.get("music_view") == [False]
 
 
 # -- the progress bar (plan W3.4) ---------------------------------------------
@@ -1193,33 +1209,6 @@ def test_retention_never_deletes_the_playing_file(repoints, monkeypatch):
     assert removed == []
 
 
-def test_watched_locally_reads_kodis_own_playcount(tmp_path):
-    import sqlite3
-
-    video_path = tmp_path / "MyVideos.db"
-    connection = sqlite3.connect(str(video_path))
-    connection.execute(
-        "CREATE TABLE files (idFile INTEGER PRIMARY KEY, playCount INTEGER)"
-    )
-    connection.execute("INSERT INTO files VALUES (7, 2), (8, NULL)")
-    connection.commit()
-    connection.close()
-    sync_db.set_path_override("video", str(video_path))
-
-    with sync_db.Database("kofin") as opened:
-        opened.cursor.execute(
-            "INSERT INTO jellyfin (jellyfin_id, kodi_id, kodi_fileid, kodi_pathid, media_type) "
-            "VALUES ('w1', 1, 7, 1, 'movie'), ('w2', 2, 8, 1, 'movie')"
-        )
-
-    watched = store.Download(jellyfin_id="w1", media_type="movie")
-    fresh = store.Download(jellyfin_id="w2", media_type="movie")
-    unmapped = store.Download(jellyfin_id="w3", media_type="movie")
-    assert manager_module._watched_locally(watched) is True
-    assert manager_module._watched_locally(fresh) is False
-    assert manager_module._watched_locally(unmapped) is False
-
-
 # -- the stale sweep (plan W4.8) ---------------------------------------------
 
 
@@ -1377,44 +1366,6 @@ def test_stale_sweep_collects_watched_downloads_too(repoints, monkeypatch):
     assert removed == ["finished"]
 
 
-def test_last_touch_reads_kodis_own_rows(tmp_path):
-    """lastPlayed and the RESUME bookmark off the repointed file row — local
-    truth, which is what lets the sweep run offline."""
-    import sqlite3
-
-    video_path = tmp_path / "MyVideos.db"
-    connection = sqlite3.connect(str(video_path))
-    connection.execute(
-        "CREATE TABLE files (idFile INTEGER PRIMARY KEY, lastPlayed TEXT)"
-    )
-    connection.execute(
-        "CREATE TABLE bookmark (idBookmark INTEGER PRIMARY KEY, idFile INTEGER, type INTEGER)"
-    )
-    connection.execute(
-        "INSERT INTO files VALUES (7, '2026-01-02 03:04:05'), (8, NULL), (9, NULL)"
-    )
-    # A resume bookmark on 8; a type-2 (episode part) one on 9, which is not
-    # a resume point and must not protect it.
-    connection.execute("INSERT INTO bookmark VALUES (1, 8, 1), (2, 9, 2)")
-    connection.commit()
-    connection.close()
-    sync_db.set_path_override("video", str(video_path))
-
-    with sync_db.Database("kofin") as opened:
-        opened.cursor.execute(
-            "INSERT INTO jellyfin (jellyfin_id, kodi_id, kodi_fileid, kodi_pathid, media_type) "
-            "VALUES ('p1', 1, 7, 1, 'movie'), ('p2', 2, 8, 1, 'movie'), "
-            "('p3', 3, 9, 1, 'movie')"
-        )
-
-    played = manager_module._last_touch(store.Download(jellyfin_id="p1"))
-    assert played == (manager_module._as_epoch("2026-01-02 03:04:05"), False)
-    assert played[0] > 0
-    assert manager_module._last_touch(store.Download(jellyfin_id="p2")) == (0.0, True)
-    assert manager_module._last_touch(store.Download(jellyfin_id="p3")) == (0.0, False)
-    assert manager_module._last_touch(store.Download(jellyfin_id="p4")) is None
-
-
 def test_as_epoch_reads_both_spellings_that_reach_the_column():
     """Kodi's own space-separated stamp and the ISO form the sync writers
     hand it (shims.date_played) are the same local time."""
@@ -1487,9 +1438,6 @@ def test_a_failed_segment_fetch_never_fails_the_download(tmp_path, repoints):
 
 
 def test_songs_skip_the_segment_capture(tmp_path, repoints, monkeypatch):
-    monkeypatch.setattr(
-        "kofin.sync.playlists.refresh_downloaded_music", lambda root=None: True
-    )
     manager, _ = make_manager(repoints)
     api = FakeManagerApi(
         SONG_DTO,
@@ -1648,7 +1596,7 @@ def test_a_removal_that_was_refused_is_not_announced(tmp_path, repoints, monkeyp
         manager_module.toast, "show", lambda *a, **k: shown.append(a[0])
     )
     monkeypatch.setattr(manager_module.settings, "localized", lambda i: "L%d %%s" % i)
-    monkeypatch.setattr(manager_module.repoint, "restore", lambda row, root: False)
+    repoints["native"].restore_answer = False
     queue_row()
     store.finish("m1", "Movies/A/A.mkv", "mkv", 1)
 
@@ -2317,7 +2265,7 @@ def test_remove_is_refused_when_the_library_row_cannot_be_restored(
     a file that no longer existed. The download stays — file, row, tag,
     badge — and the user is told."""
     manager, refreshes = make_manager(repoints)
-    monkeypatch.setattr(manager_module.repoint, "restore", lambda row, root: False)
+    repoints["native"].restore_answer = False
     shown = []
     monkeypatch.setattr(manager_module.settings, "localized", lambda sid: "kept %s")
     monkeypatch.setattr(manager_module.toast, "show", lambda *a, **k: shown.append(a))
@@ -2344,7 +2292,7 @@ def test_a_vanished_file_is_cleaned_up_even_when_restore_is_refused(
     would be found by every sweep. The library row heals on the item's
     next writer pass."""
     manager, _refreshes = make_manager(repoints)
-    monkeypatch.setattr(manager_module.repoint, "restore", lambda row, root: False)
+    repoints["native"].restore_answer = False
     root = tmp_path / "dl"
     rel = "Shows/The Show/Season 01/S01E01.mkv"
     (root / rel).parent.mkdir(parents=True)

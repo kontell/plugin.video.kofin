@@ -20,7 +20,6 @@ ACTION_MODES = {
     "findservers",
     "login",
     "logout",
-    "cleandatabases",
     "testconnection",
     "restart",
     "settings",
@@ -48,8 +47,6 @@ ACTION_MODES = {
     "selectlibraries",
     "updatelibs",
     "repairlibs",
-    "refreshboxsets",
-    "precacheart",
     "saveplaylist",
 }
 
@@ -286,7 +283,6 @@ def test_a_listing_that_is_not_native_imports_none_of_the_provider():
     lib = str(Path(__file__).resolve().parents[2] / "lib")
     code = (
         "import sys; sys.path.insert(0, %r); "
-        "from kofin import buildconfig; buildconfig.BACKEND = 'api'; "
         "from kofin.plugin import router; "
         "router._resolve = lambda mode: (lambda request: None); "
         "router.dispatch(['plugin://plugin.video.kofin/', '5', '']); "
@@ -298,11 +294,9 @@ def test_a_listing_that_is_not_native_imports_none_of_the_provider():
 
 
 def test_a_native_path_still_reaches_the_provider(monkeypatch):
-    from kofin import buildconfig
     from kofin.sync.backends.api import provider
 
     served = []
-    monkeypatch.setattr(buildconfig, "BACKEND", "api")
     monkeypatch.setattr(provider, "serve", served.append)
     native = "plugin://plugin.video.kofin/native/%s/%s/movies/" % ("a" * 32, "b" * 32)
     router.dispatch([native, "7", ""])

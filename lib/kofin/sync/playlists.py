@@ -45,7 +45,6 @@ import re
 import shutil
 import xml.etree.ElementTree as etree
 from typing import (
-    TYPE_CHECKING,
     Any,
     Dict,
     Iterable,
@@ -61,30 +60,8 @@ import xbmcvfs
 from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import kofindb as jellyfin_db
-from kofin.sync.fields import reference_checksum
+from kofin.sync.policy import reference_checksum
 from kofin.sync.nodes import fs
-
-if TYPE_CHECKING:
-    from kofin.sync.kodidb import Music as MusicKodiDb
-else:
-    # Bound on first use by the SQL build's refresh functions (tests bind a
-    # stand-in); the API build never binds it and never reaches them.
-    MusicKodiDb = None
-
-
-def _music_db_class() -> Any:
-    bound = globals().get("MusicKodiDb")
-    if bound is not None:
-        return bound
-    from kofin.sync.kodidb import Music
-
-    return Music
-
-
-# Kodi's databases are the SQL build's: the API build ships this module for
-# its files, naming, state and prune rules and resolves entries through a
-# ``resolver`` of its own (backends/api/playlists.py), so every import of a
-# native database module here is deferred to the functions that need one.
 
 LOG = Logger(__name__)
 
@@ -148,16 +125,6 @@ VIDEO_ITEM_TYPES = frozenset(
 VIDEO_MEDIA_TYPES = frozenset({"movie", "episode", "musicvideo"})
 
 
-def _video_row_query(media_type: str) -> Optional[str]:
-    from kofin.sync.kodidb import queries as video_queries
-
-    return {
-        "movie": video_queries.get_movie_playlist_row,
-        "episode": video_queries.get_episode_playlist_row,
-        "musicvideo": video_queries.get_musicvideo_playlist_row,
-    }.get(media_type)
-
-
 # A stop for a server that over-reports ``TotalRecordCount`` and re-emits
 # earlier rows on later pages (seen live on the playlist *list* query — see
 # ``Api.music_playlists``). Paging ends on a short page, so this only bites
@@ -167,9 +134,6 @@ MAX_PLAYLIST_ITEMS = 20000
 # Characters the filesystem or playlist path cannot carry. Keep the server
 # name otherwise intact (Unicode allowed).
 _UNSAFE = re.compile(r'[/\\<>:"|?*\x00-\x1f]')
-
-# Kodi packs the disc number into the high half of iTrack.
-_TRACK_MASK = 0xFFFF
 
 
 class Entry(NamedTuple):
@@ -233,51 +197,6 @@ def write_folder_icon(directory: str) -> bool:
         LOG.exception("failed to write the playlist folder icon to %s", directory)
         return False
     return True
-
-
-def downloaded_music_xsp(music_root: str) -> str:
-    """The .xsp document for the Downloaded-music view (plan W3.3)."""
-    from xml.sax.saxutils import escape
-
-    try:
-        name = settings.localized(30736) or "Downloaded music"
-    except Exception:  # pragma: no cover - string cache misses etc.
-        name = "Downloaded music"
-    return (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-        '<smartplaylist type="songs">\n'
-        "    <name>%s</name>\n"
-        "    <match>all</match>\n"
-        '    <rule field="path" operator="startswith">\n'
-        "        <value>%s</value>\n"
-        "    </rule>\n"
-        '    <order direction="ascending">artist</order>\n'
-        "</smartplaylist>\n"
-    ) % (escape(name), escape(music_root))
-
-
-def refresh_downloaded_music(root: Optional[str] = None) -> bool:
-    """Write or update the Downloaded-music smart playlist; True if written.
-
-    Idempotent through ``_write_text``'s already-says-this skip, so the
-    manager can call it on every finished song and the ``downloadsPath``
-    apply-hook on every change — the rule's path value is the only content
-    that moves.
-    """
-    from kofin.downloads import downloads_root
-    from kofin.downloads.files import MUSIC_DIR
-
-    directory = managed_dir(root)
-    try:
-        os.makedirs(directory, exist_ok=True)
-    except OSError:
-        LOG.exception("cannot create the managed playlist folder %s", directory)
-        return False
-    write_folder_icon(directory)
-    music_root = "%s/%s/" % (downloads_root().rstrip("/"), MUSIC_DIR)
-    return _write_text(
-        os.path.join(directory, DOWNLOADED_MUSIC_XSP), downloaded_music_xsp(music_root)
-    )
 
 
 def write_downloaded_music_list(
@@ -487,61 +406,6 @@ def playlist_side(media_type: str, items: Iterable[Dict[str, Any]]) -> Optional[
     return declared
 
 
-class VideoPlaylistDb:
-    """Path+title rows for mapped movies/episodes/musicvideos."""
-
-    def __init__(self, cursor: Any) -> None:
-        self.cursor = cursor
-
-    def get_playlist_row(self, kodi_id: int, media_type: str) -> Optional[Any]:
-        query = _video_row_query(media_type)
-        if not query:
-            return None
-        self.cursor.execute(query, (kodi_id,))
-        return self.cursor.fetchone()
-
-
-def video_entry(
-    mapping: jellyfin_db.JellyfinDatabase, video: Any, jellyfin_id: str
-) -> Optional[Entry]:
-    """The playlist line for a mapped video id, or None if unsynced."""
-    row = mapping.get_item_by_id(jellyfin_id)
-    if row is None or row.media_type not in VIDEO_MEDIA_TYPES:
-        return None
-    path_row = video.get_playlist_row(row.kodi_id, row.media_type)
-    if path_row is None:
-        return None
-    str_path, str_filename = path_row[0], path_row[1]
-    if not str_path or not str_filename:
-        return None
-    return Entry(
-        path=video_playlist_line(str_path, str_filename),
-        title=path_row[2] or "",
-    )
-
-
-def song_entry(
-    mapping: jellyfin_db.JellyfinDatabase, music: MusicKodiDb, jellyfin_id: str
-) -> Optional[Entry]:
-    """The playlist line for a mapped Audio id, or None if unsynced."""
-    row = mapping.get_item_by_id(jellyfin_id)
-    if row is None or row.media_type != "song":
-        return None
-    song = music.get_song_playlist_row(row.kodi_id)
-    if song is None:
-        return None
-    str_path, str_filename = song[0], song[1]
-    if not str_path or not str_filename:
-        return None
-    return Entry(
-        path=playlist_line(row.kodi_id, str_path, str_filename),
-        title=song[2] or "",
-        artist=song[3] or "",
-        track=int(song[4] or 0) & _TRACK_MASK,
-        duration=int(song[5] or 0),
-    )
-
-
 def _iter_playlist_items(api: Any, playlist_id: str) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
     start = 0
@@ -649,204 +513,6 @@ def cleanup_managed_playlists(root: Optional[str] = None) -> int:
     return removed
 
 
-def refresh_music_playlists(
-    api: Any,
-    mapping: jellyfin_db.JellyfinDatabase,
-    music: MusicKodiDb,
-    root: Optional[str] = None,
-) -> Dict[str, int]:
-    """Download all music playlists and rewrite the managed folder.
-
-    Returns counts: playlists, written, tracks, skipped, pruned.
-    """
-    directory = managed_dir(root)
-    if not os.path.isdir(directory):
-        os.makedirs(directory)
-    write_folder_icon(directory)
-
-    playlists = api.music_playlists()
-
-    # An empty listing against existing files is not a deletion order. This
-    # folder's ownership rule is the *folder* (CLAUDE.md): every managed
-    # .m3u8 not in ``want`` is removed, so a listing that comes back empty
-    # for any reason other than "the user has no playlists" empties the lot.
-    # Permission changes, a filter, and the server contradicting its own
-    # TotalRecordCount all look exactly like an empty account from here.
-    # Skip and warn, mirroring boxsets.sweep_stale and the prune's
-    # get_existing_ids. The cost is one skipped prune the first time a user
-    # deletes their last playlist; the folder is cleared properly by
-    # cleanup_managed_playlists, and by the next pass that lists at least one.
-    if not playlists:
-        standing = [
-            name
-            for name in _list_files(directory)
-            if name.endswith(".m3u8") and name not in OURS
-        ]
-        if standing:
-            LOG.warning(
-                "music playlists: the server listed none while %d managed "
-                "playlist(s) stand — skipping the prune rather than emptying "
-                "the folder",
-                len(standing),
-            )
-            return {
-                "playlists": 0,
-                "written": 0,
-                "tracks": 0,
-                "skipped": 0,
-                "pruned": 0,
-            }
-
-    taken: Set[str] = set(RESERVED_STEMS)
-    want: Set[str] = set()
-    track_total = 0
-    skipped = 0
-    written = 0
-
-    for playlist in playlists:
-        playlist_id = playlist.get("Id") or ""
-        name = playlist.get("Name") or "playlist"
-        if not playlist_id:
-            continue
-
-        entries: List[Entry] = []
-        missing = 0
-        for item in _iter_playlist_items(api, playlist_id):
-            item_id = item.get("Id")
-            # Prefer Audio items; still try mapping if Type is missing.
-            item_type = item.get("Type") or ""
-            if item_type and item_type != "Audio":
-                missing += 1
-                continue
-            if not item_id:
-                missing += 1
-                continue
-            entry = song_entry(mapping, music, item_id)
-            if entry is None:
-                missing += 1
-                continue
-            entries.append(entry)
-            track_total += 1
-
-        stem = _unique_stem(name, taken)
-        filename = stem + ".m3u8"
-        path = os.path.join(directory, filename)
-        if _write_text(path, render_m3u8(entries)):
-            written += 1
-        want.add(filename)
-        skipped += missing
-
-        if missing:
-            # A partial playlist is otherwise silent: the user sees a short
-            # playlist and nothing says the rest is in a library they did not
-            # sync (or has not been written yet).
-            LOG.info(
-                "music playlist %s: %d track(s), %d not in the Kodi library",
-                name,
-                len(entries),
-                missing,
-            )
-
-    pruned = 0
-    for existing in _list_files(directory):
-        if existing.endswith(".tmp"):
-            try:
-                os.remove(os.path.join(directory, existing))
-            except OSError:
-                pass
-            continue
-        if existing == FOLDER_ICON or existing in OURS:
-            # Ours, and not server playlists: the prune is against the
-            # server's set.
-            continue
-        if existing not in want:
-            try:
-                os.remove(os.path.join(directory, existing))
-                pruned += 1
-            except OSError:
-                LOG.exception("failed to prune managed playlist %s", existing)
-
-    stats = {
-        "playlists": len(want),
-        "written": written,
-        "tracks": track_total,
-        "skipped": skipped,
-        "pruned": pruned,
-    }
-    LOG.info(
-        "music playlists: %d playlist(s), %d rewritten, %d track(s), "
-        "%d skipped, %d pruned",
-        stats["playlists"],
-        stats["written"],
-        stats["tracks"],
-        stats["skipped"],
-        stats["pruned"],
-    )
-    return stats
-
-
-def refresh_with_databases(api: Any, root: Optional[str] = None) -> Dict[str, int]:
-    """Open kofin + music DBs and run :func:`refresh_music_playlists`."""
-    from kofin.sync.db import Database
-
-    with Database("music") as musicdb:
-        with Database("kofin") as kofindb_conn:
-            mapping = jellyfin_db.JellyfinDatabase(kofindb_conn.cursor)
-            music = _music_db_class()(musicdb.cursor)
-            return refresh_music_playlists(api, mapping, music, root=root)
-
-
-def _entries_for(
-    items: List[Dict[str, Any]],
-    side: str,
-    mapping: Any,
-    music: Optional[MusicKodiDb],
-    video: Optional[Any],
-    resolver: Any = None,
-) -> Tuple[List[Entry], int]:
-    """The lines of one playlist, in the server's order, duplicates kept.
-
-    With a ``resolver`` (``entry(item, side) -> Entry | None``) the catalogue
-    answers; otherwise the SQL mapping and Kodi's rows do.
-    """
-    entries: List[Entry] = []
-    missing = 0
-    for item in items:
-        item_id = item.get("Id")
-        item_type = item.get("Type") or ""
-        if not item_id:
-            missing += 1
-            continue
-        if resolver is not None:
-            entry = resolver.entry(item, side)
-            if entry is None:
-                missing += 1
-                continue
-            entries.append(entry)
-            continue
-        if side == "Audio":
-            if item_type and item_type != "Audio":
-                missing += 1
-                continue
-            if music is None:
-                missing += 1
-                continue
-            entry = song_entry(mapping, music, item_id)
-        else:
-            if item_type and item_type not in VIDEO_ITEM_TYPES:
-                missing += 1
-                continue
-            if video is None:
-                missing += 1
-                continue
-            entry = video_entry(mapping, video, item_id)
-        if entry is None:
-            missing += 1
-            continue
-        entries.append(entry)
-    return entries, missing
-
-
 def _audio_ids(items: Iterable[Dict[str, Any]]) -> List[str]:
     """Keep server order and duplicates; a playlist may repeat one track."""
     return [
@@ -856,42 +522,33 @@ def _audio_ids(items: Iterable[Dict[str, Any]]) -> List[str]:
     ]
 
 
-def refresh_song_playlists_many(
-    item_ids: Iterable[str], root: Optional[str] = None
-) -> int:
-    """Re-render managed playlists containing a repointed or restored song.
+def _entries_for(
+    items: List[Dict[str, Any]],
+    side: str,
+    mapping: Any,
+    music: Optional[Any],
+    video: Optional[Any],
+    resolver: Any = None,
+) -> Tuple[List[Entry], int]:
+    """The lines of one playlist, in the server's order, duplicates kept.
 
-    Membership and the current MyMusic row are local, so this also works
-    offline. The filename comes from playlist_state, preserving collision
-    suffixes assigned on the server poll.
+    The ``resolver`` (``entry(item, side) -> Entry | None``) answers for each
+    item the pass has filed (backends/api/playlists.py); an item it has not,
+    or an item with no id, is counted missing. ``mapping``, ``music`` and
+    ``video`` are the retired SQL build's lookups and are not read.
     """
-    ids = list(dict.fromkeys(item_ids))
-    if not ids:
-        return 0
-    from kofin.sync.db import Database
-
-    written = 0
-    with Database("kofin") as opened, Database("music") as musicdb:
-        mapping = jellyfin_db.JellyfinDatabase(opened.cursor)
-        music = _music_db_class()(musicdb.cursor)
-        affected: Set[str] = set()
-        for start in range(0, len(ids), 500):
-            affected.update(mapping.get_playlists_for_items(ids[start : start + 500]))
-        for playlist_id in affected:
-            state = mapping.get_playlist_state(playlist_id)
-            if state is None or state[0] != "Audio":
-                continue
-            entries = [
-                song_entry(mapping, music, song_id)
-                for song_id in mapping.get_playlist_items(playlist_id)
-            ]
-            path = os.path.join(managed_dir(root), state[1])
-            written += int(_write_text(path, render_m3u8(e for e in entries if e)))
-    return written
-
-
-def refresh_song_playlists(item_id: str, root: Optional[str] = None) -> int:
-    return refresh_song_playlists_many([item_id], root=root)
+    entries: List[Entry] = []
+    missing = 0
+    for item in items:
+        if not item.get("Id") or resolver is None:
+            missing += 1
+            continue
+        entry = resolver.entry(item, side)
+        if entry is None:
+            missing += 1
+            continue
+        entries.append(entry)
+    return entries, missing
 
 
 def write_playlist_file(
@@ -948,7 +605,7 @@ def _remove_stored(
 def apply_one(
     api: Any,
     mapping: Any,
-    music: Optional[MusicKodiDb],
+    music: Optional[Any],
     video: Optional[Any],
     state: jellyfin_db.JellyfinDatabase,
     playlist: Dict[str, Any],
@@ -1057,7 +714,7 @@ def remove_one(
 def reconcile(
     api: Any,
     mapping: Any,
-    music: Optional[MusicKodiDb],
+    music: Optional[Any],
     video: Optional[Any],
     state: jellyfin_db.JellyfinDatabase,
     kinds: Set[str],

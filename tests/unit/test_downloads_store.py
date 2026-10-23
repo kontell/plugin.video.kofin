@@ -3,7 +3,7 @@
 import pytest
 
 from kofin.downloads import store
-from kofin.sync import db as sync_db
+from kofin.sync import private as sync_db
 
 
 @pytest.fixture(autouse=True)

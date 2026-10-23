@@ -93,4 +93,4 @@ def test_manifest_allows_kodi_to_probe_every_synced_video_type():
     assert {
         (path.get("content"), path.text)
         for path in plugin.findall("medialibraryscanpath")
-    } == {("movies", "/"), ("tvshows", "/"), ("musicvideos", "/")}
+    } == {("movies", "/native/"), ("tvshows", "/native/"), ("musicvideos", "/native/")}

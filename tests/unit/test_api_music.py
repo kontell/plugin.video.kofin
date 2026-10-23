@@ -865,7 +865,6 @@ def test_song_identity_lookups_use_the_url(store, backend, kodi, monkeypatch):
     from kofin.sync.backends.api import identity
 
     monkeypatch.setattr(identity, "current_store", lambda: store)
-    monkeypatch.setattr(libraryclaim.buildconfig, "BACKEND", "api")
     store.publish(album_bundle(songs=2), library=LIB)
     backend.reconcile()
     songid = store.mapping("tc31").kodi_id

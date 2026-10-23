@@ -128,7 +128,8 @@ def test_music_view_offers_download_and_subscription_only_for_music(monkeypatch)
 
 def test_managed_playlist_menu_translates_kodis_special_path(monkeypatch, tmp_path):
     from kofin.downloads import subscriptions
-    from kofin.sync import db, playlists
+    from kofin.sync import playlists
+    from kofin.sync import private as db
 
     managed = tmp_path / "Kofin"
     managed.mkdir()

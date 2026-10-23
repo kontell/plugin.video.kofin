@@ -7,7 +7,6 @@ kofin-specific kicked-probe, group-flag and Hello-transport tests."""
 
 import pytest
 
-import kofin.sync.private as database_module
 import kofin.syncplay.manager as manager_module
 import kofin.syncplay.playback as playback_module
 from kofin.syncplay import utils
@@ -964,7 +963,10 @@ class TestForwardLocalPlay:
         assert manager.ignore_wait is False
         assert manager._api.named("syncplay_set_ignore_wait") == []
 
-    def test_unmapped_library_play_still_demotes_fast(self, manager):
+    def test_unmapped_library_play_still_demotes_fast(self, manager, monkeypatch):
+        monkeypatch.setattr(
+            "kofin.sync.backends.api.identity.mapped_item", lambda kid, media: None
+        )
         join(manager)
         manager.player.playing = True
         manager._hold = {"transition": False, "proposed": False, "item_id": None}
@@ -1138,7 +1140,9 @@ class TestLocalStartHold:
         manager.phase = "synced"
         manager.on_playback_started()
 
-        monkeypatch.setattr(database_module, "get_item", lambda kid, media: ("jf-1",))
+        monkeypatch.setattr(
+            "kofin.sync.backends.api.identity.mapped_item", lambda kid, media: "jf-1"
+        )
         manager.on_kodi_play({"item": {"id": 42, "type": "song"}})
 
         calls = manager._api.named("syncplay_set_new_queue")
@@ -1153,7 +1157,9 @@ class TestLocalStartHold:
         manager.phase = "idle"
         manager.on_playback_started()
 
-        monkeypatch.setattr(database_module, "get_item", lambda kid, media: ("jf-1",))
+        monkeypatch.setattr(
+            "kofin.sync.backends.api.identity.mapped_item", lambda kid, media: "jf-1"
+        )
         manager.on_kodi_play({"item": {"id": 42, "type": "movie"}})
 
         # A fresh start settles on its position (resume point) first; the
@@ -1165,7 +1171,9 @@ class TestLocalStartHold:
         join(manager)
         manager.player.playing = True
 
-        monkeypatch.setattr(database_module, "get_item", lambda kid, media: ("jf-1",))
+        monkeypatch.setattr(
+            "kofin.sync.backends.api.identity.mapped_item", lambda kid, media: "jf-1"
+        )
         manager.on_kodi_play({"item": {"id": 42, "type": "song"}})
 
         assert manager._api.named("syncplay_set_new_queue") == []
@@ -1310,30 +1318,16 @@ class TestLocalPlayIdentityOnEitherBuild:
     could be forwarded.
     """
 
-    @pytest.fixture(params=["sql", "api"])
-    def library(self, request, manager, monkeypatch):
-        """{(kodi_id, media): jellyfin_id} behind whichever lookup the
-        build uses; a missing row is one that is not kofin's."""
-        from kofin import buildconfig
+    @pytest.fixture
+    def library(self, manager, monkeypatch):
+        """{(kodi_id, media): jellyfin_id} behind the catalogue's identity
+        lookup; a missing row is one that is not kofin's."""
         from kofin.sync.backends.api import identity
 
         rows = {}
-        monkeypatch.setattr(buildconfig, "BACKEND", request.param)
-
-        if request.param == "sql":
-            monkeypatch.setattr(
-                database_module,
-                "get_item",
-                lambda kid, media: (
-                    (rows[(kid, media)],) if (kid, media) in rows else None
-                ),
-            )
-        else:
-            # sync.private.get_item is left real: on this build it answers
-            # None whatever is asked, which is the defect.
-            monkeypatch.setattr(
-                identity, "mapped_item", lambda kid, media: rows.get((kid, media))
-            )
+        monkeypatch.setattr(
+            identity, "mapped_item", lambda kid, media: rows.get((kid, media))
+        )
 
         return rows
 
@@ -1400,13 +1394,11 @@ class TestLocalPlayLookupFailure:
     ):
         """Not "foreign": the hold stands and the forward retry identifies
         the play from the play route's claim."""
-        from kofin import buildconfig
         from kofin.sync.backends.api import identity
 
         def refuse(kodi_id, media):
             raise RuntimeError("Kodi refused VideoLibrary.GetMovieDetails")
 
-        monkeypatch.setattr(buildconfig, "BACKEND", "api")
         monkeypatch.setattr(identity, "mapped_item", refuse)
         join(manager)
         manager.player.playing = True
@@ -1444,7 +1436,8 @@ class TestTransitionSequence:
 
         # 2. Player.OnPlay identifies the new track within milliseconds.
         monkeypatch.setattr(
-            database_module, "get_item", lambda kid, media: ("track-n1",)
+            "kofin.sync.backends.api.identity.mapped_item",
+            lambda kid, media: "track-n1",
         )
         manager.on_kodi_play({"item": {"id": 43, "type": "song"}})
         calls = manager._api.named("syncplay_set_new_queue")
@@ -1521,7 +1514,9 @@ class TestSpectatorLocalPlayback:
         manager.on_playback_started()
         assert manager.player.paused is True
 
-        monkeypatch.setattr(database_module, "get_item", lambda kid, media: None)
+        monkeypatch.setattr(
+            "kofin.sync.backends.api.identity.mapped_item", lambda kid, media: None
+        )
         manager.on_kodi_play({"item": {"id": 99, "type": "movie"}})
 
         assert manager._hold is None
