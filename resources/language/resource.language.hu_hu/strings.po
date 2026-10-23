@@ -2308,6 +2308,41 @@ msgctxt "#30875"
 msgid "Live TV fine sync needs FFmpeg Direct"
 msgstr "Az élő TV finomszinkronjához FFmpeg Direct kell"
 
+msgctxt "#30876"
+msgid "Not on this Kodi"
+msgstr "Ezen a Kodin nem elérhető"
+
+msgctxt "#30877"
+msgid "Season plots"
+msgstr "Évadleírások"
+
+msgctxt "#30878"
+msgid "Favorite episodes"
+msgstr "Kedvenc epizódok"
+
+msgctxt "#30879"
+msgid "Removing emptied collections"
+msgstr "Kiürült gyűjtemények eltávolítása"
+
+msgctxt "#30880"
+msgid "Movie versions"
+msgstr "Filmverziók"
+
+msgctxt "#30881"
+msgid "Stream flags"
+msgstr "Sávjelzők"
+
+msgctxt "#30882"
+msgid "Song date added"
+msgstr "Dalok hozzáadási dátuma"
+
+msgctxt "#30883"
+msgid "Removing dropped versions and extras"
+msgstr "Eltávolított verziók és extrák eltávolítása"
+
+msgctxt "#30884"
+msgid "Fine sync"
+msgstr "Finomszinkron"
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Ebben az előzetes verzióban nem érhető el"

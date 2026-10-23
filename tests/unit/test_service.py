@@ -85,8 +85,8 @@ def _piers_capture():
 
 
 def _kodi23_capture():
-    """The Piers capture as a Kodi 23 build carrying kontell/xbmc #1-#13
-    answers it: what this build's contract asks beyond Piers."""
+    """The Piers capture as a Kodi 23 build carrying the kontell/xbmc changes
+    answers it: every feature of the contract, on."""
     capture = _piers_capture()
     capture["application"]["version"]["major"] = 23
     capture["system_addons"] = {"xbmc.addon": "22.90.701", "xbmc.python": "3.2.0"}
@@ -94,6 +94,10 @@ def _kodi23_capture():
     methods["VideoLibrary.SetSeasonDetails"]["params"].append({"name": "plot"})
     methods["VideoLibrary.SetEpisodeDetails"]["params"].append({"name": "tag"})
     methods["VideoLibrary.RemoveMovieSet"] = {"params": [{"name": "setid"}]}
+    methods["Player.SetTempo"] = {
+        "params": [{"name": "playerid"}, {"name": "tempo"}, {"name": "correction"}]
+    }
+    capture["types"]["Video.Fields.Episode"]["items"]["enums"].append("tag")
     capture["python_video_methods"].update(
         setHasVideoVersions=True, setIsDefaultVideoVersion=True
     )
@@ -112,7 +116,7 @@ def _probe_answers(monkeypatch, capture, flags=True):
         capabilities.kodirpc,
         "call",
         lambda method, params: (
-            {"methods": capture["methods"]}
+            {"methods": capture["methods"], "types": capture.get("types", {})}
             if method == "JSONRPC.Introspect"
             else capture["application"]
         ),
@@ -141,27 +145,44 @@ def _probe_answers(monkeypatch, capture, flags=True):
     )
 
 
-def test_a_kodi_without_the_kodi23_changes_is_refused(monkeypatch):
-    """Piers, and a Kodi 23 without kontell/xbmc #1-#13, are not this
-    build's: the probe names what is missing and native sync stays off."""
+def test_piers_runs_the_baseline_with_every_kodi23_feature_off(monkeypatch):
+    """One build for Piers and Kodi 23: Piers passes the baseline and native
+    sync runs, and each feature a Kodi 23 change adds is off by name, with
+    the probe that failed it named too. The same capture as a Kodi 23 with
+    the changes turns every feature on."""
     from kofin.sync.backends.api import capabilities
 
     _probe_answers(monkeypatch, _piers_capture(), flags=False)
     report = capabilities.inspect()
-    assert not report["native_sync_enabled"]
-    for error in (
-        "Kodi 23 or later is required",
-        "xbmc.python >= 3.2.0 is required",
-        "missing method VideoLibrary.RemoveMovieSet",
-        "missing parameter VideoLibrary.SetSeasonDetails.plot",
-        "missing parameter VideoLibrary.SetEpisodeDetails.tag",
-        "missing Python capability python_video_methods.setHasVideoVersions",
-        "missing Python capability python_music_methods.setDateAdded",
-        "missing Python capability python_stream_methods.AudioStreamDetail.setFlags",
+    assert report["native_sync_enabled"] and report["errors"] == []
+    assert report["features"] == {name: False for name in capabilities.FEATURES}
+    for name, reason in (
+        ("season_plot", "missing parameter VideoLibrary.SetSeasonDetails.plot"),
+        ("episode_tags", "missing parameter VideoLibrary.SetEpisodeDetails.tag"),
+        ("episode_tags", "missing field Video.Fields.Episode.tag"),
+        ("remove_set", "missing method VideoLibrary.RemoveMovieSet"),
+        (
+            "video_versions",
+            "missing Python capability python_video_methods.setHasVideoVersions",
+        ),
+        (
+            "stream_flags",
+            "missing Python capability python_stream_methods.AudioStreamDetail.setFlags",
+        ),
+        (
+            "song_date_added",
+            "missing Python capability python_music_methods.setDateAdded",
+        ),
+        ("asset_clean", "xbmc.python >= 3.2.0 is required"),
+        ("tempo", "missing method Player.SetTempo"),
     ):
-        assert error in report["errors"]
+        assert reason in report["missing"][name]
+    assert capabilities.summary(report).startswith("on: none; off: season_plot (")
     _probe_answers(monkeypatch, _kodi23_capture())
-    assert capabilities.inspect()["native_sync_enabled"]
+    report = capabilities.inspect()
+    assert report["native_sync_enabled"]
+    assert report["features"] == {name: True for name in capabilities.FEATURES}
+    assert capabilities.summary(report).endswith("; off: none")
 
 
 def test_api_service_starts_selected_movies_on_kodi23_with_the_changes(

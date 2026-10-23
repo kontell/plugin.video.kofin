@@ -2308,6 +2308,41 @@ msgctxt "#30875"
 msgid "Live TV fine sync needs FFmpeg Direct"
 msgstr "Ο λεπτός συγχρονισμός ζωντανής TV χρειάζεται FFmpeg Direct"
 
+msgctxt "#30876"
+msgid "Not on this Kodi"
+msgstr "Δεν υπάρχει σε αυτό το Kodi"
+
+msgctxt "#30877"
+msgid "Season plots"
+msgstr "Περιλήψεις κύκλων"
+
+msgctxt "#30878"
+msgid "Favorite episodes"
+msgstr "Αγαπημένα επεισόδια"
+
+msgctxt "#30879"
+msgid "Removing emptied collections"
+msgstr "Αφαίρεση άδειων συλλογών"
+
+msgctxt "#30880"
+msgid "Movie versions"
+msgstr "Εκδόσεις ταινιών"
+
+msgctxt "#30881"
+msgid "Stream flags"
+msgstr "Σημάνσεις ροών"
+
+msgctxt "#30882"
+msgid "Song date added"
+msgstr "Ημερομηνία προσθήκης τραγουδιών"
+
+msgctxt "#30883"
+msgid "Removing dropped versions and extras"
+msgstr "Αφαίρεση εκδόσεων και extra που αφαιρέθηκαν"
+
+msgctxt "#30884"
+msgid "Fine sync"
+msgstr "Λεπτός συγχρονισμός"
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Δεν διατίθεται σε αυτή τη δοκιμαστική έκδοση"

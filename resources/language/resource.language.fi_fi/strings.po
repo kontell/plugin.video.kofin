@@ -2308,6 +2308,41 @@ msgctxt "#30875"
 msgid "Live TV fine sync needs FFmpeg Direct"
 msgstr "Suoran TV:n hienosynkronointi vaatii FFmpeg Directin"
 
+msgctxt "#30876"
+msgid "Not on this Kodi"
+msgstr "Ei tässä Kodissa"
+
+msgctxt "#30877"
+msgid "Season plots"
+msgstr "Kausien kuvaukset"
+
+msgctxt "#30878"
+msgid "Favorite episodes"
+msgstr "Suosikkijaksot"
+
+msgctxt "#30879"
+msgid "Removing emptied collections"
+msgstr "Tyhjentyneiden kokoelmien poisto"
+
+msgctxt "#30880"
+msgid "Movie versions"
+msgstr "Elokuvaversiot"
+
+msgctxt "#30881"
+msgid "Stream flags"
+msgstr "Raitojen liput"
+
+msgctxt "#30882"
+msgid "Song date added"
+msgstr "Kappaleiden lisäyspäivä"
+
+msgctxt "#30883"
+msgid "Removing dropped versions and extras"
+msgstr "Poistettujen versioiden ja lisämateriaalin poisto"
+
+msgctxt "#30884"
+msgid "Fine sync"
+msgstr "Hienosynkronointi"
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Ei saatavilla tässä esiversiossa"

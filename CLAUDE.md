@@ -449,16 +449,30 @@ What remains is kofin's own:
   binding and asks nothing. The scan that files a movie's extras binds the folder
   (`scan_video`), and `bind_movie_folders` binds those an earlier build filed once per profile
   (`apiMovieBindings` at `noupdate+extras`), so no pass reads every acknowledgement for them.
-- **This build needs a Kodi 23 carrying kontell/xbmc #1–#13, and uses each change
-  unconditionally.** `addon.xml` imports `xbmc.python` 3.2.0 (#8, #9 and #13 raise it), and
-  `requirements.json` lists every interface the build calls (`RemoveMovieSet`, `plot` on
-  `SetSeasonDetails`, `tag` on `SetEpisodeDetails`, the version flags, the stream flags, a
-  song's date added), so a Kodi without one keeps native sync off and the probe names what
-  is missing (`capabilities.inspect`). There is no companion add-on and no fallback: a Kodi
-  without a change is not this build's. The Piers build (`api`) keeps the companion. The
-  first start deletes the `companion/` folder an earlier build left in the profile
-  (`backends.api.forget_companion`); a companion still installed reads the missing request
-  document as asking nothing, and its schema gate (MyVideos149) refuses Kodi 23's databases.
+- **One build for Piers and Kodi 23: what a Kodi lacks is off by name, never an error.**
+  `requirements.json` has a *baseline* (the Piers floor: `minimum_kodi_major` 22,
+  `xbmc.addon` 21.90.802, `xbmc.python` 3.1.0, and the interfaces every Kodi the build
+  installs on offers) and a *feature table*; `capabilities.inspect` probes both at every
+  service start from one capture (`JSONRPC.Introspect`'s methods and types, the system
+  add-ons' versions, `hasattr` on the info tags and stream detail classes), writes
+  `api-capabilities.json`, and logs one line. A Kodi short of the baseline keeps native
+  sync off with the reasons in Library status; a feature is on only while every one of
+  its probes passes, and `capabilities.features()` / `has()` / `table()` are how the pass,
+  the provider (plugin process), the play route and SyncPlay read it, by name, from the
+  report. Three rules follow. **R1:** Kodi's schema shapes the kind table and every
+  desired state: a setter field or a readback property Kodi does not name is neither
+  sent, compared nor requested (on Piers `tag` in `Video.Fields.Episode` is absent and a
+  `GetEpisodes` that asks for it fails whole). **R2:** the feature set is an input of
+  every acknowledgement (`inputs_token`, `SCANNER_FORMAT`, `assets_token`), so a Kodi
+  upgrade compares again and a Kodi that lacks a feature is never told its library is
+  stale for it. **R3:** a feature that is off says so once, in the start log and under
+  "Not on this Kodi" in Library status, never per item or per pass. Two features are
+  proxies for behaviour Kodi cannot be asked about: `asset_clean` (kontell/xbmc #1, #2,
+  #10; the folder clean is unsafe without them) is `xbmc.python` ≥ 3.2.0, the version the
+  change set raises it to, until the three are upstream and Kodi's major can stand for
+  them; `tempo` (the tempo set, #14–#19 and #37–#39) is the `correction` flag #38 adds to
+  `Player.SetTempo`. The first start still deletes the `companion/` folder an earlier build
+  left in the profile (`backends.api.forget_companion`).
 - **A season's plot and an episode's tags are patched like any other field** (kontell/xbmc #6,
   #12). An empty server plot is no opinion: `SetDetailsForSeason` writes no empty plot, so a
   plot the server cleared stays in Kodi. A show's refresh token carries its seasons' numbers

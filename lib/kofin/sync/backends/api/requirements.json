@@ -1,8 +1,8 @@
 {
-  "minimum_kodi_major": 23,
+  "minimum_kodi_major": 22,
   "system_addons": {
-    "xbmc.addon": "22.90.701",
-    "xbmc.python": "3.2.0"
+    "xbmc.addon": "21.90.802",
+    "xbmc.python": "3.1.0"
   },
   "methods": {
     "VideoLibrary.SetSourceContent": {
@@ -95,8 +95,7 @@
       "firstaired": [],
       "director": [],
       "writer": [],
-      "runtime": [],
-      "tag": []
+      "runtime": []
     },
     "VideoLibrary.RefreshEpisode": {
       "episodeid": []
@@ -192,8 +191,7 @@
     "VideoLibrary.SetSeasonDetails": {
       "seasonid": [],
       "title": [],
-      "art": [],
-      "plot": []
+      "art": []
     },
     "VideoLibrary.SetMovieSetDetails": {
       "setid": [],
@@ -220,9 +218,6 @@
     "AudioLibrary.GetArtistDetails": {
       "artistid": [],
       "properties": []
-    },
-    "VideoLibrary.RemoveMovieSet": {
-      "setid": []
     }
   },
   "python": {
@@ -233,9 +228,7 @@
       "addSeason",
       "setSortSeason",
       "setSortEpisode",
-      "setTags",
-      "setHasVideoVersions",
-      "setIsDefaultVideoVersion"
+      "setTags"
     ],
     "python_music_methods": [
       "setTitle",
@@ -243,20 +236,79 @@
       "setAlbum",
       "setMusicBrainzTrackID",
       "setPlayCount",
-      "setLastPlayed",
-      "setDateAdded"
+      "setLastPlayed"
     ],
-    "python_stream_methods": [
-      "AudioStreamDetail.setFlags",
-      "SubtitleStreamDetail.setFlags"
-    ]
+    "python_stream_methods": []
+  },
+  "features": {
+    "season_plot": {
+      "methods": {
+        "VideoLibrary.SetSeasonDetails": {
+          "plot": []
+        }
+      }
+    },
+    "episode_tags": {
+      "methods": {
+        "VideoLibrary.SetEpisodeDetails": {
+          "tag": []
+        }
+      },
+      "fields": {
+        "Video.Fields.Episode": [
+          "tag"
+        ]
+      }
+    },
+    "remove_set": {
+      "methods": {
+        "VideoLibrary.RemoveMovieSet": {
+          "setid": []
+        }
+      }
+    },
+    "video_versions": {
+      "python": {
+        "python_video_methods": [
+          "setHasVideoVersions",
+          "setIsDefaultVideoVersion"
+        ]
+      }
+    },
+    "stream_flags": {
+      "python": {
+        "python_stream_methods": [
+          "AudioStreamDetail.setFlags",
+          "SubtitleStreamDetail.setFlags"
+        ]
+      }
+    },
+    "song_date_added": {
+      "python": {
+        "python_music_methods": [
+          "setDateAdded"
+        ]
+      }
+    },
+    "asset_clean": {
+      "system_addons": {
+        "xbmc.python": "3.2.0"
+      }
+    },
+    "tempo": {
+      "methods": {
+        "Player.SetTempo": {
+          "correction": []
+        }
+      }
+    }
   },
   "behavioral_gates": [
-    "Run the required behavioral probes on a Kodi 23 build carrying kontell/xbmc #1-#13 and record its exact build identity.",
+    "Run the behavioural probes on each Kodi the build installs on: Piers 22.0, stock Kodi 23 and a Kodi 23 carrying the kontell/xbmc changes, and record each build's identity.",
     "Music requires loaded tags, complete published snapshots, metadata rescan policy and post-import userdata.",
     "Piers deletes tracks on failed/partial plugin listing; native music rollout requires recovery tests and an explicit reliability decision.",
     "Refresh may change native IDs and overwrite userdata: reconcile and restore before reporting success.",
     "ScanFinished and immediate OK are insufficient without ownership-checked readback.",
-    "Each new Kodi 23 build requires behavioral qualification; version/method presence alone is insufficient."
+    "A feature is on by its probe alone; a new Kodi build still needs behavioural qualification of what the probe turned on."
   ]
 }

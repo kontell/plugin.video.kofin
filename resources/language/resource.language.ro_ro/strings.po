@@ -2308,6 +2308,41 @@ msgctxt "#30875"
 msgid "Live TV fine sync needs FFmpeg Direct"
 msgstr "Sincronizarea fină a TV-ului live necesită FFmpeg Direct"
 
+msgctxt "#30876"
+msgid "Not on this Kodi"
+msgstr "Indisponibil pe acest Kodi"
+
+msgctxt "#30877"
+msgid "Season plots"
+msgstr "Rezumatele sezoanelor"
+
+msgctxt "#30878"
+msgid "Favorite episodes"
+msgstr "Episoade favorite"
+
+msgctxt "#30879"
+msgid "Removing emptied collections"
+msgstr "Eliminarea colecțiilor golite"
+
+msgctxt "#30880"
+msgid "Movie versions"
+msgstr "Versiuni de filme"
+
+msgctxt "#30881"
+msgid "Stream flags"
+msgstr "Marcaje ale pistelor"
+
+msgctxt "#30882"
+msgid "Song date added"
+msgstr "Data adăugării melodiilor"
+
+msgctxt "#30883"
+msgid "Removing dropped versions and extras"
+msgstr "Eliminarea versiunilor și extrelor șterse"
+
+msgctxt "#30884"
+msgid "Fine sync"
+msgstr "Sincronizare fină"
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Indisponibil în această versiune preliminară"

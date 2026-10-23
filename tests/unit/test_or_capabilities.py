@@ -1,4 +1,5 @@
-"""The research gate must reject misleading version-only compatibility."""
+"""The capability contract: the baseline refuses version-only compatibility,
+and each feature is on by its own probes alone."""
 
 import copy
 import importlib.util
@@ -18,7 +19,9 @@ EVIDENCE = ROOT / "docs/research/kofin-or/phase0"
 
 @pytest.fixture
 def contract():
-    return json.loads((EVIDENCE / "requirements.json").read_text())
+    return json.loads(
+        (ROOT / "lib/kofin/sync/backends/api/requirements.json").read_text()
+    )
 
 
 @pytest.fixture
@@ -83,3 +86,57 @@ def test_newer_clean_kodi_still_needs_behavioral_qualification(capture, contract
     assert result["interfaces_passed"]
     assert result["behavioral_qualification_required"]
     assert result["behavioral_gates"]
+
+
+def test_the_piers_capture_passes_the_baseline_with_every_feature_off(
+    capture, contract
+):
+    """The approved Piers flatpak is the baseline, and nothing more."""
+    from kofin.sync.backends.api.contract import check
+
+    result = check(capture, contract)
+    assert result["interfaces_passed"]
+    assert set(result["features"]) == set(contract["features"])
+    assert not any(result["features"].values())
+    assert set(result["missing"]) == set(contract["features"])
+
+
+def test_each_feature_turns_on_by_its_own_probes(capture, contract):
+    from kofin.sync.backends.api.contract import check
+
+    changed = copy.deepcopy(capture)
+    methods = changed["methods"]
+    methods["VideoLibrary.SetSeasonDetails"]["params"].append({"name": "plot"})
+    assert check(changed, contract)["features"]["season_plot"] is True
+    methods["VideoLibrary.SetEpisodeDetails"]["params"].append({"name": "tag"})
+    # The setter alone is not enough: a readback asks for the field by name,
+    # and a Kodi whose enum lacks it refuses the whole call.
+    assert check(changed, contract)["features"]["episode_tags"] is False
+    changed["types"]["Video.Fields.Episode"]["items"]["enums"].append("tag")
+    assert check(changed, contract)["features"]["episode_tags"] is True
+    methods["VideoLibrary.RemoveMovieSet"] = {"params": [{"name": "setid"}]}
+    changed["python_video_methods"].update(
+        setHasVideoVersions=True, setIsDefaultVideoVersion=True
+    )
+    changed["python_stream_methods"] = {
+        "AudioStreamDetail.setFlags": True,
+        "SubtitleStreamDetail.setFlags": True,
+    }
+    changed["python_music_methods"]["setDateAdded"] = True
+    changed["system_addons"]["xbmc.python"] = "3.2.0"
+    methods["Player.SetTempo"] = {"params": [{"name": "tempo"}, {"name": "correction"}]}
+    result = check(changed, contract)
+    assert all(result["features"].values()), result["missing"]
+    assert result["missing"] == {}
+
+
+def test_a_proxy_feature_follows_what_it_stands_for(capture, contract):
+    """asset_clean and tempo stand for behaviour Kodi cannot be asked about,
+    and are read off the marks the change sets leave."""
+    from kofin.sync.backends.api.contract import check
+
+    changed = copy.deepcopy(capture)
+    changed["system_addons"]["xbmc.python"] = "3.1.1"  # stock Kodi 23
+    assert check(changed, contract)["features"]["asset_clean"] is False
+    changed["methods"]["Player.SetTempo"] = {"params": [{"name": "tempo"}]}
+    assert check(changed, contract)["features"]["tempo"] is False

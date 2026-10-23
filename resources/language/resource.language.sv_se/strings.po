@@ -2308,6 +2308,41 @@ msgctxt "#30875"
 msgid "Live TV fine sync needs FFmpeg Direct"
 msgstr "Finsynkronisering av direktsänd tv kräver FFmpeg Direct"
 
+msgctxt "#30876"
+msgid "Not on this Kodi"
+msgstr "Inte på den här Kodi"
+
+msgctxt "#30877"
+msgid "Season plots"
+msgstr "Säsongsbeskrivningar"
+
+msgctxt "#30878"
+msgid "Favorite episodes"
+msgstr "Favoritavsnitt"
+
+msgctxt "#30879"
+msgid "Removing emptied collections"
+msgstr "Borttagning av tömda samlingar"
+
+msgctxt "#30880"
+msgid "Movie versions"
+msgstr "Filmversioner"
+
+msgctxt "#30881"
+msgid "Stream flags"
+msgstr "Spårflaggor"
+
+msgctxt "#30882"
+msgid "Song date added"
+msgstr "Datum då låtar lades till"
+
+msgctxt "#30883"
+msgid "Removing dropped versions and extras"
+msgstr "Borttagning av borttagna versioner och extramaterial"
+
+msgctxt "#30884"
+msgid "Fine sync"
+msgstr "Finsynkronisering"
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Inte tillgängligt i denna förhandsversion"

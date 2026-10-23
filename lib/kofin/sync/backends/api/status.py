@@ -18,7 +18,7 @@ import json
 import os
 import threading
 import time
-from typing import Any, Dict, List, NamedTuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Union
 
 import xbmc
 import xbmcgui
@@ -26,7 +26,7 @@ import xbmcgui
 from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import private
-from . import metadata, progress
+from . import capabilities, metadata, progress
 
 LOG = Logger(__name__)
 
@@ -165,10 +165,13 @@ def rows(
     text,
     kind_label,
     clock=time.localtime,
+    features: Optional[Dict[str, bool]] = None,
 ) -> List[str]:
     """The dialog's lines. ``text`` gives a string by its id and
-    ``kind_label`` Kodi's own word for a kind; the whole of what is shown is
-    decided here, where it can be tested without a dialog."""
+    ``kind_label`` Kodi's own word for a kind; ``features`` is the capability
+    table of this Kodi (``capabilities.table``), whose off entries are named
+    on one row. The whole of what is shown is decided here, where it can be
+    tested without a dialog."""
     lines = []
     state = document.get("state") or text(20177)
     began = _moment(document.get("since") or 0, clock)
@@ -213,6 +216,16 @@ def rows(
     enumerated = _moment(found.enumerated, clock)
     if enumerated:
         lines.append("%s:  %s" % (text(30865), enumerated))
+    if features is not None:
+        # What this Kodi cannot do, by name: the one place a viewer is told,
+        # since nothing logs it per item (the capability profile, CLAUDE.md).
+        off = [
+            text(label)
+            for name, label in capabilities.FEATURE_LABELS
+            if not features.get(name, False)
+        ]
+        if off:
+            lines.append("%s:  %s" % (text(30876), ", ".join(off)))
     return [line.rstrip() for line in lines]
 
 
@@ -241,6 +254,7 @@ def show(store) -> None:
                 snapshot(store, metadata.SCANNER_FORMAT),
                 progress.stage,
                 progress.label,
+                features=capabilities.table(),
             )
         choices: List[Union[str, xbmcgui.ListItem]] = [xbmc.getLocalizedString(184)]
         choices.extend(lines)

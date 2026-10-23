@@ -314,6 +314,7 @@ class Service(xbmc.Monitor):
 
     def _prepare_api_backend(self) -> None:
         from kofin.sync.backend import create_backend
+        from kofin.sync.backends.api import capabilities
         from kofin.sync.backends.api import status as apistatus
         from kofin.sync.catalogue import BackendMismatch
         from kofin.sync.private import addon_data_path
@@ -332,7 +333,7 @@ class Service(xbmc.Monitor):
             report["native_sync_enabled"] = False
         directory = addon_data_path()
         os.makedirs(directory, exist_ok=True)
-        target = os.path.join(directory, "api-capabilities.json")
+        target = os.path.join(directory, capabilities.REPORT)
         with open(target + ".part", "w", encoding="utf-8") as handle:
             json.dump(report, handle, indent=2)
         os.replace(target + ".part", target)
@@ -341,6 +342,10 @@ class Service(xbmc.Monitor):
             report["interfaces_passed"],
             report["private_state"],
         )
+        # Once, here: a feature this Kodi lacks is off by name from now on,
+        # never an error per item or per pass (CLAUDE.md, the capability
+        # profile).
+        LOG.info("Kodi features %s", capabilities.summary(report))
         if report["private_state"] != "ready":
             apistatus.write(
                 settings.localized(30420)

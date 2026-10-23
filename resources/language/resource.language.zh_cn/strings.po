@@ -2308,6 +2308,41 @@ msgctxt "#30875"
 msgid "Live TV fine sync needs FFmpeg Direct"
 msgstr "直播电视的精细同步需要 FFmpeg Direct"
 
+msgctxt "#30876"
+msgid "Not on this Kodi"
+msgstr "此 Kodi 不支持"
+
+msgctxt "#30877"
+msgid "Season plots"
+msgstr "季简介"
+
+msgctxt "#30878"
+msgid "Favorite episodes"
+msgstr "收藏的剧集"
+
+msgctxt "#30879"
+msgid "Removing emptied collections"
+msgstr "移除已清空的合集"
+
+msgctxt "#30880"
+msgid "Movie versions"
+msgstr "电影版本"
+
+msgctxt "#30881"
+msgid "Stream flags"
+msgstr "轨道标志"
+
+msgctxt "#30882"
+msgid "Song date added"
+msgstr "歌曲添加日期"
+
+msgctxt "#30883"
+msgid "Removing dropped versions and extras"
+msgstr "移除已删除的版本和花絮"
+
+msgctxt "#30884"
+msgid "Fine sync"
+msgstr "精细同步"
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "此预览版暂不支持"

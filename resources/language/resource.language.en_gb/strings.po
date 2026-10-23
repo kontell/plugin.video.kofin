@@ -2477,6 +2477,44 @@ msgctxt "#30875"
 msgid "Live TV fine sync needs FFmpeg Direct"
 msgstr ""
 
+# 30876-30884 — the Library status dialog's "Not on this Kodi" row and the
+# names of the features a Kodi may lack (sync/backends/api/capabilities.py).
+
+msgctxt "#30876"
+msgid "Not on this Kodi"
+msgstr ""
+
+msgctxt "#30877"
+msgid "Season plots"
+msgstr ""
+
+msgctxt "#30878"
+msgid "Favorite episodes"
+msgstr ""
+
+msgctxt "#30879"
+msgid "Removing emptied collections"
+msgstr ""
+
+msgctxt "#30880"
+msgid "Movie versions"
+msgstr ""
+
+msgctxt "#30881"
+msgid "Stream flags"
+msgstr ""
+
+msgctxt "#30882"
+msgid "Song date added"
+msgstr ""
+
+msgctxt "#30883"
+msgid "Removing dropped versions and extras"
+msgstr ""
+
+msgctxt "#30884"
+msgid "Fine sync"
+msgstr ""
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr ""

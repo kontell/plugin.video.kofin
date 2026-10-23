@@ -287,3 +287,27 @@ def test_a_fact_that_is_picked_does_nothing_and_back_closes_the_report(
     # not when one of them was picked.
     assert len(reads) == 2
     assert dialog.selects[0][1] == dialog.selects[1][1] == dialog.selects[2][1]
+
+
+def test_what_this_kodi_cannot_do_is_named_on_one_row(store, monkeypatch):
+    """A feature the capability probe found missing is told to the viewer
+    here and nowhere else: one row, every missing feature by its label, and
+    no row at all on a Kodi that has them all."""
+    from kofin.sync.backends.api import capabilities
+
+    store.publish([movie("a")], library=LIB)
+    _views(monkeypatch, [LIB], **{LIB: ("Films", "movies")})
+    text = lambda i: TEXT.get(i, "L%d" % i)  # noqa: E731
+    found = status.snapshot(store, 2)
+    table = {name: True for name in capabilities.FEATURES}
+    rows = status.rows({}, found, text, LABELS.__getitem__, features=table)
+    assert not any(row.startswith("L30876:") for row in rows)
+    table["season_plot"] = False
+    table["tempo"] = False
+    rows = status.rows({}, found, text, LABELS.__getitem__, features=table)
+    assert rows[-1] == "L30876:  L30877, L30884"
+    # The dialog reads the table off the report the service wrote.
+    monkeypatch.setattr(capabilities, "table", lambda: table)
+    dialog, _ = _dialog(monkeypatch, store, [-1])
+    _heading, shown, _preselect = dialog.selects[0]
+    assert shown[-1] == "L30876:  L30877, L30884"

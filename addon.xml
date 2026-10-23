@@ -1,18 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <addon id="plugin.video.kofin" name="Kofin" version="0.95.1" provider-name="kontell">
   <requires>
-    <!-- Kodi 23 alpha 1 onwards: this branch is the Kodi 23 build, and Piers
-         installs the api branch's (CLAUDE.md, Branches). It needs a Kodi 23
-         carrying kontell/xbmc #1-#13; xbmc.python 3.2.0 is the version three
-         of them (#8, #9, #13) raise it to, so a Kodi without them refuses
-         the install. The runtime contract (requirements.json) checks each
-         interface the build uses. SyncPlay's fine sync plays through Kodi's
-         own tempo (kontell/xbmc #14, #16 and #37; #15 and #39 for music)
-         and asks no version for it: an item Kodi cannot play at a tempo
-         (Player.TempoEnabled) is left to the group's commands, and the
-         pulses stay off the OSD where Kodi has #38. -->
-    <import addon="xbmc.addon" version="22.90.701"/>
-    <import addon="xbmc.python" version="3.2.0"/>
+    <!-- One build for Piers (22.0) and Kodi 23: the floors are Piers's
+         xbmc.addon and xbmc.python. What a Kodi offers beyond them is read
+         at every service start (sync/backends/api/requirements.json,
+         capabilities.inspect), and a feature it lacks is off by name, never
+         an error. SyncPlay's fine sync plays through Kodi's own tempo where
+         the tempo set is present (kontell/xbmc #14-#19 and #37-#39) and on
+         the group's commands where it is not. -->
+    <import addon="xbmc.addon" version="21.90.802"/>
+    <import addon="xbmc.python" version="3.1.0"/>
     <import addon="script.module.requests" version="2.22.0+matrix.1"/>
     <import addon="script.module.websocket" version="1.6.4"/>
     <!-- Renders the lyrics kofin publishes. Not optional: Kodi does not
