@@ -139,7 +139,7 @@ def test_a_piers_leaves_dropped_assets_to_the_viewers_own_clean(store, backend, 
     """Without asset_clean (kontell/xbmc #1, #2, #10) a clean of the folder
     would ask about every bound folder of every library and delete what goes
     unanswered, so the pass cleans nothing, acknowledges the listing it
-    presented, and says so once."""
+    presented, and says so once; the rows stay until the movie leaves."""
     backend.setup()
     store.publish([assets_movie()], library=LIB)
     backend.reconcile()

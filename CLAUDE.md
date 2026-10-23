@@ -418,11 +418,14 @@ What remains is kofin's own:
   and only with the `asset_clean` feature: Kodi 23 with kontell/xbmc #1, #2 and #10 asks the
   add-on about the folder's versions and extras and keeps what it cannot answer for, where
   a Kodi without them asks about every bound folder of every library and deletes the path
-  row of one left unanswered, so there the rows stay for the viewer's own Clean library,
-  said once in the log. Without the `video_versions` feature (#8) the folder lists the
-  movie's own file and its extras alone: the default source plays, the assets token and
-  file list name the extras only, and `provider.exists` answers no for a version file, so a
-  row an earlier Kodi filed leaves through Clean. The source is read from the request's query, never
+  row of one left unanswered. There the rows stay until the movie leaves Kodi, said once in
+  the log per pass: the viewer's own Clean library does not reach them either, because
+  without #10 a clean never examines a version's or an extra's file row (a dropped extra
+  survived a full clean on 22.0b2, rig run of 23 October 2026). Without the
+  `video_versions` feature (#8) the folder lists the movie's own file and its extras alone:
+  the default source plays, the assets token and file list name the extras only, and
+  `provider.exists` answers no for a version file, so a row an earlier Kodi filed leaves
+  the day something asks (a Kodi with #10). The source is read from the request's query, never
   from `base_url` (Kodi's `argv[0]`, which has none): read from there, every version file
   existed. A version file is the movie's URL with `mediasourceid`. Every file of a movie with
   several sources says it has versions, the movie's own as the default, under the movie's
