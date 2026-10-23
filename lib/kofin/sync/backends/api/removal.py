@@ -485,7 +485,7 @@ def finish_sets(native, pending, live_boxsets, errors):
             continue
         try:
             if title not in kept:
-                _remove_empty_set(native.store, item_id, listed)
+                _remove_empty_set(native.store, item_id, listed, native.features)
         except InterruptedError:
             raise
         except Exception as error:
@@ -494,9 +494,14 @@ def finish_sets(native, pending, live_boxsets, errors):
         store.forget(item_id, pending[item_id][0])
 
 
-def _remove_empty_set(store, item_id, listed):
+def _remove_empty_set(store, item_id, listed, features=frozenset()):
     """Remove the row Kodi keeps for a set none of its movies files any
     more, by the id the collection was acknowledged under.
+
+    Only with the remove_set feature (``VideoLibrary.RemoveMovieSet``,
+    kontell/xbmc #7). Without it the empty row stays: it is in no listing,
+    since Kodi lists sets through the movies that file them, and Kodi's own
+    Clean library deletes it.
 
     An emptied set is in no listing: GetMovieSets and GetMovieSetDetails
     both read sets through the movies that file them (GetSetsByWhere), so
@@ -508,6 +513,8 @@ def _remove_empty_set(store, item_id, listed):
     rowid). An empty set that is not ours is one Kodi's own clean would
     delete. A row already gone, or never made (no movie of the collection
     was filed), leaves nothing to do."""
+    if "remove_set" not in features:
+        return
     mapping = store.mapping(item_id)
     if mapping is None or not mapping.kodi_id:
         return

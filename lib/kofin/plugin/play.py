@@ -30,6 +30,7 @@ from kofin.core.urls import (
 )
 from kofin.plugin import listitems, subtitles
 from kofin.sync import private
+from kofin.sync.backends.api import capabilities
 from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
@@ -210,10 +211,14 @@ def live_timeshift(source: JsonDict, play_method: str) -> Optional[Dict[str, str
 
 def wants_live_timeshift() -> bool:
     """Whether a live item resolved now is for a SyncPlay group with fine
-    sync on: the plugin reads the public session mirror and the setting, so
-    nothing private has to be published for it."""
-    return bool(state.syncsession().get("in_group")) and settings.get_bool(
-        "syncPlayTempo"
+    sync on: the plugin reads the public session mirror, the setting and the
+    capability report, so nothing private has to be published for it. A
+    Kodi without the tempo set plays the live item as it would outside a
+    group, since no pulse could use the timeshift buffer."""
+    return (
+        bool(state.syncsession().get("in_group"))
+        and settings.get_bool("syncPlayTempo")
+        and capabilities.has("tempo")
     )
 
 

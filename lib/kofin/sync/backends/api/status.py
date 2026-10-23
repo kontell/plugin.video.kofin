@@ -249,12 +249,16 @@ def show(store) -> None:
     cursor = 0
     while True:
         if cursor == 0:
+            table = capabilities.table()
             lines = rows(
                 read(),
-                snapshot(store, metadata.SCANNER_FORMAT),
+                snapshot(
+                    store,
+                    metadata.scanner_format({n for n, on in table.items() if on}),
+                ),
                 progress.stage,
                 progress.label,
-                features=capabilities.table(),
+                features=table,
             )
         choices: List[Union[str, xbmcgui.ListItem]] = [xbmc.getLocalizedString(184)]
         choices.extend(lines)

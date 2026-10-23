@@ -196,7 +196,7 @@ def _recorded_streams(monkeypatch, item):
 
     for name in ("VideoStreamDetail", "AudioStreamDetail", "SubtitleStreamDetail"):
         monkeypatch.setattr(metadata.xbmc, name, lambda **kw: Detail(kw))
-    metadata.listitem(item, SERVER, "key", LIB)
+    metadata.listitem(item, SERVER, "key", LIB, features=ALL)
     return (
         [c.args[0] for c in tag.addVideoStream.call_args_list],
         [c.args[0] for c in tag.addAudioStream.call_args_list],

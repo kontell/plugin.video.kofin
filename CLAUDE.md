@@ -199,7 +199,9 @@ What remains is kofin's own:
   scoped readback, a child of a show that is going is acknowledged only when the show's removal
   is confirmed, and a set is acknowledged after the apply pass has unfiled its movies and
   `GetMovieSets` — which lists only sets a movie links (`GetSetsByWhere` groups `movie_view`) —
-  no longer shows it. A collection without a Kodi row (its movies unsynced, or the one a movie
+  no longer shows it; the empty row Kodi keeps is removed by id with the `remove_set`
+  feature (`RemoveMovieSet`, kontell/xbmc #7), and without it stays, in no listing, for
+  Kodi's own Clean library. A collection without a Kodi row (its movies unsynced, or the one a movie
   in two collections did not take) is applied without a row, never left pending.
 - **A native song's URL is a file in its album directory, never a query.** Kodi's music
   database splits a URL into path and file name with the options dropped (`URIUtils::Split`
@@ -362,9 +364,11 @@ What remains is kofin's own:
   `_stream_source`): read off the first source alone, every such row was filed with a stub
   video stream and no audio or subtitle. A stream's default, forced and hearing-impaired
   flags are listed with it by the names an NFO's `<flag>` takes (`metadata._streams`,
-  kontell/xbmc #9). Streams have no setter, so `SCANNER_FORMAT` (3: the flags) numbers
-  what a listing carries and a **manual** Repair rebuilds a video library filed under an
-  older one (`Library.rebuild_stale`): never a pass, since the library is gone from Kodi
+  kontell/xbmc #9, the `stream_flags` feature; without it no flag is set). Streams have no
+  setter, so the scanner format numbers what a listing carries (`metadata.scanner_format`:
+  3 with the flags, 2 without) and a **manual** Repair rebuilds a video library filed under
+  a lower one than this Kodi reaches (`Library.rebuild_stale`; a library a Piers filed is
+  not stale on that Piers, and is on the Kodi 23 the profile moves to): never a pass, since the library is gone from Kodi
   until the import has run. The rebuild is on record in the store (`store.REBUILDING`) and
   no path lists the library while its old rows are still leaving.
 - **Album and artist artwork is applied between the music scan and the video scans**
@@ -410,9 +414,15 @@ What remains is kofin's own:
   a clean, whose per-file `check_exists` is `provider.exists` (a version file exists while
   the movie still lists its source, an extra while the movie's payload still names its stem).
   The pass runs that clean itself, of the one movie's folder, when the movie's acknowledged
-  file list (`asset_files`) lost an entry (`patch.assets_dropped`, `Native.retire_assets`);
-  Kodi 23 asks the add-on about the folder's versions and extras and keeps what it cannot
-  answer for (kontell/xbmc #1, #2, #10). The source is read from the request's query, never
+  file list (`asset_files`) lost an entry (`patch.assets_dropped`, `Native.retire_assets`),
+  and only with the `asset_clean` feature: Kodi 23 with kontell/xbmc #1, #2 and #10 asks the
+  add-on about the folder's versions and extras and keeps what it cannot answer for, where
+  a Kodi without them asks about every bound folder of every library and deletes the path
+  row of one left unanswered, so there the rows stay for the viewer's own Clean library,
+  said once in the log. Without the `video_versions` feature (#8) the folder lists the
+  movie's own file and its extras alone: the default source plays, the assets token and
+  file list name the extras only, and `provider.exists` answers no for a version file, so a
+  row an earlier Kodi filed leaves through Clean. The source is read from the request's query, never
   from `base_url` (Kodi's `argv[0]`, which has none): read from there, every version file
   existed. A version file is the movie's URL with `mediasourceid`. Every file of a movie with
   several sources says it has versions, the movie's own as the default, under the movie's
@@ -477,14 +487,16 @@ What remains is kofin's own:
   them; `tempo` (the tempo set, #14–#19 and #37–#39) is the `correction` flag #38 adds to
   `Player.SetTempo`. The first start still deletes the `companion/` folder an earlier build
   left in the profile (`backends.api.forget_companion`).
-- **A season's plot and an episode's tags are patched like any other field** (kontell/xbmc #6,
-  #12). An empty server plot is no opinion: `SetDetailsForSeason` writes no empty plot, so a
+- **A season's plot and an episode's tags are patched like any other field where the Kodi has
+  the feature** (kontell/xbmc #6, #12: `season_plot`, `episode_tags`; elsewhere neither is in
+  the desired state nor in a readback). An empty server plot is no opinion: `SetDetailsForSeason` writes no empty plot, so a
   plot the server cleared stays in Kodi. A show's refresh token carries its seasons' numbers
   only (`metadata.refresh_fields`), so a season plot no longer refreshes its show.
 - **Chapter art is the resolved item's `chapter<n>` art** (`plugin/play.py::chapter_art`,
   kontell/xbmc #11): the server's image for each chapter it has one for, numbered from 1 as
   Kodi numbers chapters, on a direct play of the item's own file. Kodi's own extractor
-  refuses every http source, and a transcode's stream has no chapters.
+  refuses every http source, and a transcode's stream has no chapters. A Kodi without #11
+  ignores the keys and fetches nothing for them, so they are set on every Kodi.
 - **The presentation is built from the catalogue, never from Kodi's tables.**
   `sync/dynamic.py` writes the node tree for whitelisted video libraries with filter rules on
   the library tag (`metadata.library_tag`, the tag `metadata.tags` puts on every row; the
@@ -715,9 +727,12 @@ What remains is kofin's own:
   and the setting slaves the media clock to the panel, so a refresh rate that is not a whole
   multiple of the frame rate imposes a fixed rate error — 0.5 %–4.3 % across three Piers
   devices, the worst 14× the ±3 % the ladder could command (`docs/syncplay-drift-shakedown.md`
-  §10). The actuator on this branch is Kodi's own tempo with that setting **off**
-  (kontell/xbmc #14 and #16, with #37), where the same devices free-run within a few hundred
-  ppm; the api and sql branches use inputstream.tempo, which has no Kodi 23 build.
+  §10). The actuator is Kodi's own tempo with that setting **off** (kontell/xbmc #14 and
+  #16, with #37), where the same devices free-run within a few hundred ppm, and only where
+  the Kodi has it: `TempoSession.begin` asks for the `tempo` feature, and a member without it
+  (Piers, stock Kodi 23) keeps to the group's commands, as every audio item did on 0.19, and
+  plays a live item without the timeshift route. inputstream.tempo, the retired Piers
+  build's actuator, is not used.
   `syncplay/tempo.py` issues one bounded pulse at a time through `Player.SetTempo`, as a
   correction the OSD does not show where Kodi declares the flag (#38), confirms it by reading
   the `tempo` property back, reads what it moved off the player clock, settles before

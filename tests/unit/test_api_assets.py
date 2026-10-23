@@ -13,7 +13,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from kofin.sync.backends.api import metadata, paths
+from kofin.sync.backends.api import capabilities, metadata, paths
+from kofin.sync.backends.api.capabilities import ALL
 from tests.unit.apifixtures import (  # noqa: F401
     LIB,
     backend,
@@ -24,6 +25,13 @@ from tests.unit.apifixtures import (  # noqa: F401
 )
 
 KEY = "c" * 32
+
+
+@pytest.fixture(autouse=True)
+def kodi23(monkeypatch):
+    """Every feature on, for the listings and answers served here; the
+    Piers side of versions and extras is test_api_piers.py's."""
+    monkeypatch.setattr(capabilities, "features", lambda: ALL)
 
 
 def assets_movie(**values):
@@ -116,21 +124,29 @@ def test_extras_with_one_title_get_stems_of_their_own_in_id_order():
         ("trailer (2) (2)", "x5"),
     ]
     # The token tells the two Trailers apart, and the listing's order does not move it.
-    one = metadata.assets_token(movie(SpecialFeatures=features))
+    one = metadata.assets_token(movie(SpecialFeatures=features), features=ALL)
     assert one == metadata.assets_token(movie(SpecialFeatures=list(reversed(features))))
-    assert one != metadata.assets_token(movie(SpecialFeatures=features[1:]))
+    assert one != metadata.assets_token(
+        movie(SpecialFeatures=features[1:]), features=ALL
+    )
 
 
 def test_assets_token_names_versions_and_extras_and_is_empty_without_them():
-    assert metadata.assets_token(movie()) == ""
-    token = metadata.assets_token(assets_movie())
+    assert metadata.assets_token(movie(), features=ALL) == ""
+    token = metadata.assets_token(assets_movie(), features=ALL)
     renamed = assets_movie()
     renamed["SpecialFeatures"][0]["Name"] = "Deleted Scenes"
     resourced = assets_movie()
     resourced["MediaSources"][1]["Name"] = "Extended Cut"
     assert token
     assert (
-        len({token, metadata.assets_token(renamed), metadata.assets_token(resourced)})
+        len(
+            {
+                token,
+                metadata.assets_token(renamed, features=ALL),
+                metadata.assets_token(resourced, features=ALL),
+            }
+        )
         == 3
     )
     # One source is the movie itself, not a version.
@@ -215,7 +231,9 @@ def test_the_movie_folder_lists_versions_and_the_extras_folder(store, monkeypatc
 
     monkeypatch.setattr(provider.metadata, "listitem", listitem)
     monkeypatch.setattr(
-        provider.metadata, "extra_listitem", lambda item, server: Item(item["Name"])
+        provider.metadata,
+        "extra_listitem",
+        lambda item, server, **kwargs: Item(item["Name"]),
     )
     monkeypatch.setattr(
         provider.xbmcplugin,
@@ -283,15 +301,15 @@ def test_an_extra_exists_while_its_movie_names_it_and_resolves_to_its_id(store):
     assert provider.resolve_extra(paths.parse(folder + "extras/Gone.mkv")) == ""
     # A version file exists while the movie still lists its source; the
     # movie's own file while the movie does.
-    assert provider.exists(store, paths.parse(folder), "a", "s2") is True
-    assert provider.exists(store, paths.parse(folder), "a", "s9") is False
-    assert provider.exists(store, paths.parse(folder), "a", "") is True
+    assert provider.exists(store, paths.parse(folder), "a", "s2", ALL) is True
+    assert provider.exists(store, paths.parse(folder), "a", "s9", ALL) is False
+    assert provider.exists(store, paths.parse(folder), "a", "", ALL) is True
     store.publish([movie()], library=LIB)
-    assert provider.exists(store, paths.parse(folder), "a", "s2") is False
+    assert provider.exists(store, paths.parse(folder), "a", "s2", ALL) is False
     assert provider.exists(store, deleted, "") is False
     store.publish([], library=LIB)
     assert provider.exists(store, deleted, "") is False
-    assert provider.exists(store, paths.parse(folder), "a", "s2") is False
+    assert provider.exists(store, paths.parse(folder), "a", "s2", ALL) is False
 
 
 def test_clean_reads_a_version_file_s_source_from_the_query(store, monkeypatch):
@@ -380,7 +398,9 @@ def test_versions_and_extras_scan_the_movie_folder_after_the_root(store, backend
     ]
     assert kodi.extras[row["movieid"]] == ["Deleted Scene", "Making Of"]
     assert store.mapping("a").kodi_id == row["movieid"]
-    assert store.mapping("a").applied["assets"] == metadata.assets_token(assets_movie())
+    assert store.mapping("a").applied["assets"] == metadata.assets_token(
+        assets_movie(), features=ALL
+    )
     assert not store.pending()
     backend.reconcile()
     assert kodi.scanned == [root, folder]
@@ -531,7 +551,9 @@ def test_new_extras_rescan_the_folder_once_and_a_plain_change_does_not(
     assert kodi.listed.count(folder + paths.EXTRAS) == 2
     owner = store.mapping("a").kodi_id
     assert kodi.extras[owner] == ["Deleted Scene", "Making Of", "Trailer Reel"]
-    assert store.mapping("a").applied["assets"] == metadata.assets_token(item)
+    assert store.mapping("a").applied["assets"] == metadata.assets_token(
+        item, features=ALL
+    )
     store.publish([dict(item, Overview="Changed")], library=LIB)
     backend.reconcile()
     assert kodi.scanned.count(folder) == 2

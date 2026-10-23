@@ -598,7 +598,7 @@ class Native:
         mappings = self.store.mappings(kind="Movie", library=library)
         folders: List[str] = []
         for record in self.payloads.walk(movies):
-            token = metadata.assets_token(record.item)
+            token = metadata.assets_token(record.item, self.features)
             mapping = mappings.get(record.item_id)
             previous = mapping.applied.get("assets", "") if mapping is not None else ""
             if previous == token:
@@ -618,7 +618,22 @@ class Native:
         keeps what the add-on did not answer for (#1), so the clean of one
         folder removes what ``provider.exists`` says is gone and nothing
         else. One that fails leaves the rows to the viewer's Clean library,
-        which asks the same questions."""
+        which asks the same questions.
+
+        Only where the clean is safe (the asset_clean feature, a proxy for
+        kontell/xbmc #1, #2 and #10): on a Kodi without them the stage after
+        the directory's files asks the add-on about every bound folder of
+        every library and deletes the path row of one left unanswered, so
+        the rows stay for the viewer's own Clean library, said once here."""
+        if not folders:
+            return
+        if "asset_clean" not in self.features:
+            LOG.info(
+                "%d movie folder(s) lost a version or an extra; this Kodi leaves "
+                "the rows to a Clean library of the viewer's",
+                len(folders),
+            )
+            return
         for folder in sorted(folders):
             try:
                 self.clean(folder)

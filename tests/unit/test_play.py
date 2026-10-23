@@ -1302,6 +1302,7 @@ def live_env(resume_env, monkeypatch):
     state.publish_syncsession({"in_group": True})
     resume_env["addon"].store["syncPlayTempo"] = "true"
     resume_env["enabled"] = enabled
+    monkeypatch.setattr(play.capabilities, "has", lambda name: True)
     return resume_env
 
 
@@ -1334,6 +1335,16 @@ def test_a_live_item_with_fine_sync_off_plays_as_before(live_env):
     live_env["addon"].store["syncPlayTempo"] = "false"
     run_play({"id": "c1"}, resume=False)
     assert "inputstream" not in live_env["li"].props
+
+
+def test_without_kodis_tempo_a_live_item_plays_as_before(live_env, monkeypatch):
+    """A Kodi without the tempo set (Piers, stock Kodi 23) takes no pulse, so
+    the timeshift buffer would buy nothing: the live item plays as it would
+    outside a group, and nothing says anything was missing."""
+    monkeypatch.setattr(play.capabilities, "has", lambda name: False)
+    run_play({"id": "c1"}, resume=False)
+    assert "inputstream" not in live_env["li"].props
+    assert "TimeshiftMissing" not in _claim()
 
 
 def test_without_ffmpegdirect_the_claim_says_what_was_missing(live_env):

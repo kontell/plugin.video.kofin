@@ -475,9 +475,15 @@ class Applier:
         )
         # The versions and extras the movie's folder listed, acknowledged so
         # the pass stops scanning the folder for them (native._asset_folders).
-        assets = metadata.assets_token(record.item) if kind == "Movie" else None
+        assets = (
+            metadata.assets_token(record.item, self.native.features)
+            if kind == "Movie"
+            else None
+        )
         files = (
-            metadata.asset_files(record.item, self.key, record.library)
+            metadata.asset_files(
+                record.item, self.key, record.library, self.native.features
+            )
             if kind == "Movie"
             else None
         )

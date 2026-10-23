@@ -46,6 +46,7 @@ import xbmc
 
 from kofin.core import kodirpc, settings, state
 from kofin.core.log import Logger
+from kofin.sync.backends.api import capabilities
 from kofin.syncplay import utils
 
 #################################################################################################
@@ -1283,6 +1284,18 @@ class TempoSession(object):
 
         if not settings.get_bool("syncPlayTempo"):
             LOG.info("[ syncplay/tempo ] fine sync is off in settings")
+            return
+
+        # Stock Kodi plays a tempo only while sync-to-display is on, and that
+        # setting is what put the rate error in the actuator
+        # (docs/syncplay-drift-shakedown.md §10): without the tempo set
+        # (kontell/xbmc #14-#19 and #37-#39, read as the correction flag of
+        # #38) this member keeps to the group's commands.
+        if not capabilities.has("tempo"):
+            LOG.info(
+                "[ syncplay/tempo ] fine sync needs Kodi's tempo set; this Kodi "
+                "plays on the group's commands"
+            )
             return
 
         self.active = True

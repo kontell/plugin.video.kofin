@@ -1037,7 +1037,8 @@ class TestReset:
 # ----------------------------------------------------------------------------
 
 
-def test_session_follows_the_setting(logged):
+def test_session_follows_the_setting_and_kodis_tempo(logged, monkeypatch):
+    monkeypatch.setattr(tempo.capabilities, "has", lambda name: True)
     FakeAddon.store["syncPlayTempo"] = "true"
     session = TempoSession()
     session.begin()
@@ -1051,6 +1052,14 @@ def test_session_follows_the_setting(logged):
     session.begin()
     assert not session.active
     assert any("fine sync is off in settings" in line for line in logged)
+
+    # A Kodi without the tempo set (Piers, stock Kodi 23) plays on the
+    # group's commands, said once.
+    FakeAddon.store["syncPlayTempo"] = "true"
+    monkeypatch.setattr(tempo.capabilities, "has", lambda name: False)
+    session.begin()
+    assert not session.active
+    assert any("needs Kodi's tempo set" in line for line in logged)
 
 
 # ----------------------------------------------------------------------------
