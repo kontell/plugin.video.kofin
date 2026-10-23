@@ -1,62 +1,25 @@
 #!/usr/bin/env python3
-"""Check a phase-0 public API capture against the OR implementation floor.
+"""Check a public API capture against the shipped capability contract.
 
-This is a research/CI contract, not runtime backend selection. Passing proves
-interface presence only: the parity ledger holds behavioral release gates.
+The capture is what ``capabilities.inspect`` reads inside Kodi, saved by the
+phase-0 probe (``tests/live/or_phase0/probe.py``): ``JSONRPC.Introspect``'s
+methods and types, the application version, the system add-ons' versions
+and the Python methods found on the info tags. The report says whether the
+baseline passes and which feature each probe turned on. Passing proves
+interface presence only: behavioural qualification is separate.
 """
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CONTRACT = ROOT / "docs/research/kofin-or/phase0/requirements.json"
+sys.path.insert(0, str(ROOT / "lib"))
 
+from kofin.sync.backends.api.contract import check  # noqa: E402
 
-def version(value):
-    return tuple(int(part) for part in value.split("."))
-
-
-def check(capture, contract, allow_dirty=False):
-    capture = capture.get("result", capture)
-    errors = []
-    application = capture.get("application", {}).get("version", {})
-    if application.get("major", 0) < contract["minimum_kodi_major"]:
-        errors.append("Kodi 22 Piers or later is required")
-    for addon, minimum in contract["system_addons"].items():
-        try:
-            adequate = version(
-                capture.get("system_addons", {}).get(addon, "0")
-            ) >= version(minimum)
-        except ValueError:
-            adequate = False
-        if not adequate:
-            errors.append(addon + " >= " + minimum + " is required")
-    # Build provenance is diagnostic only. The approved Piers Flatpak carries
-    # a dirty revision; actual public capabilities decide whether sync can run.
-    dirty = "dirty" in application.get("revision", "").lower()
-    for method, parameters in contract["methods"].items():
-        definition = capture.get("methods", {}).get(method)
-        if definition is None:
-            errors.append("missing method " + method)
-            continue
-        actual = {param["name"]: param for param in definition.get("params", [])}
-        for name, required in parameters.items():
-            if name not in actual:
-                errors.append("missing parameter " + method + "." + name)
-            elif required and not set(required).issubset(actual[name].get("enums", [])):
-                errors.append("missing enum values " + method + "." + name)
-    for field, methods in contract["python"].items():
-        for method in methods:
-            if capture.get(field, {}).get(method) is not True:
-                errors.append("missing Python capability " + field + "." + method)
-    return {
-        "interfaces_passed": not errors,
-        "errors": errors,
-        "build_is_dirty": dirty,
-        "behavioral_qualification_required": True,
-        "behavioral_gates": contract["behavioral_gates"],
-    }
+CONTRACT = ROOT / "lib/kofin/sync/backends/api/requirements.json"
 
 
 def main():

@@ -62,43 +62,6 @@ def test_incomplete_playlist_page_is_not_an_empty_membership(body):
         playlists._iter_playlist_items(Api(), "mix")
 
 
-def test_failed_playlist_page_keeps_its_file_and_does_not_stop_others(tmp_path):
-    class Api(FakeApi):
-        def playlist_items(self, playlist_id, start_index=0, limit=100):
-            if playlist_id == "bad":
-                return {}
-            return super().playlist_items(playlist_id, start_index, limit)
-
-    root = tmp_path / "Kofin"
-    root.mkdir()
-    (root / "Old.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
-    state = FakeState()
-    state.add_playlist_state("bad", "Audio", "Old.m3u8", "old")
-    api = Api(
-        playlist_list=[
-            _audio_playlist("Old", "new", playlist_id="bad"),
-            _audio_playlist("Gym", "new", playlist_id="good"),
-        ],
-        items_by_id={"good": [{"Id": "a1", "Type": "Audio"}]},
-    )
-    mapping, music = _audio_stack()
-    memberships = {}
-    playlists.reconcile(
-        api,
-        mapping,
-        music,
-        None,
-        state,
-        {"Audio"},
-        music_root=str(root),
-        audio_memberships=memberships,
-    )
-    assert (root / "Old.m3u8").is_file()
-    assert state.get_playlist_state("bad") is not None
-    assert memberships == {"good": ["a1"]}
-    assert (root / "Gym.m3u8").is_file()
-
-
 class FakeMapping:
     def __init__(self, rows):
         # jellyfin_id -> Row-like with media_type, kodi_id
@@ -106,24 +69,6 @@ class FakeMapping:
 
     def get_item_by_id(self, jellyfin_id):
         return self._rows.get(jellyfin_id)
-
-
-class FakeMusic:
-    def __init__(self, songs):
-        # kodi song id -> (strPath, strFileName, strTitle, artist, track, duration)
-        self._songs = songs
-
-    def get_song_playlist_row(self, song_id):
-        return self._songs.get(song_id)
-
-
-class FakeVideo:
-    def __init__(self, rows):
-        # (media_type, kodi_id) -> (strPath, strFileName, title)
-        self._rows = rows
-
-    def get_playlist_row(self, kodi_id, media_type):
-        return self._rows.get((media_type, kodi_id))
 
 
 class FakeState:
@@ -160,58 +105,6 @@ def test_safe_filename_keeps_unicode_and_strips_slashes():
     assert playlists.safe_filename("  ") == "playlist"
     assert playlists.safe_filename("Gym: 2024") == "Gym_ 2024"
     assert playlists.safe_filename("Ångström") == "Ångström"
-
-
-def test_local_membership_rerender_tracks_repoint_and_restore(tmp_path, monkeypatch):
-    """D6b: a changed extension must be reflected before the next server poll."""
-    from kofin.sync import db as sync_db
-    from kofin.sync.kofindb import JellyfinDatabase
-
-    sync_db.reset_overrides()
-    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
-    sync_db.set_path_override("music", str(tmp_path / "music.db"))
-    root = str(tmp_path / "playlists")
-    rows = {42: ("https://server/Audio/a/", "stream.flac", "A", "Artist", 1, 180)}
-
-    class Music:
-        def __init__(self, cursor):
-            pass
-
-        def get_song_playlist_row(self, song_id):
-            return rows.get(song_id)
-
-    monkeypatch.setattr(playlists, "MusicKodiDb", Music)
-    try:
-        with sync_db.Database("kofin") as opened:
-            opened.cursor.execute(
-                "INSERT INTO jellyfin(jellyfin_id, kodi_id, media_type) VALUES (?, ?, ?)",
-                ("a", 42, "song"),
-            )
-            mapping = JellyfinDatabase(opened.cursor)
-            mapping.add_playlist_state("mix", "Audio", "Mix.m3u8", "etag")
-            mapping.replace_playlist_items("mix", ["a", "a"])
-            assert mapping.get_playlist_items("mix") == ["a", "a"]
-
-        assert playlists.refresh_song_playlists("a", root=root) == 1
-        path = tmp_path / "playlists" / "Mix.m3u8"
-        assert playlists.parse_m3u_paths(path.read_text()) == [
-            "musicdb://songs/42.flac",
-            "musicdb://songs/42.flac",
-        ]
-
-        rows[42] = ("/downloads/Music/", "A.m4a", "A", "Artist", 1, 180)
-        assert playlists.refresh_song_playlists_many(["a", "a"], root=root) == 1
-        assert playlists.parse_m3u_paths(path.read_text()) == [
-            "musicdb://songs/42.m4a",
-            "musicdb://songs/42.m4a",
-        ]
-        rows[42] = ("https://server/Audio/a/", "stream.flac", "A", "Artist", 1, 180)
-        assert playlists.refresh_song_playlists("a", root=root) == 1
-        assert (
-            playlists.parse_m3u_paths(path.read_text())[0] == "musicdb://songs/42.flac"
-        )
-    finally:
-        sync_db.reset_overrides()
 
 
 def test_join_song_path():
@@ -255,157 +148,6 @@ def test_render_m3u8_states_duration_and_label():
     assert "#EXTINF:-1,Song B\nhttp://s/b\n" in text
 
 
-def test_song_entry_masks_the_disc_out_of_the_track_number():
-    mapping = FakeMapping({"a1": SimpleNamespace(media_type="song", kodi_id=10)})
-    # Kodi packs disc 2 into the high half of iTrack (2 * 65536 + 7).
-    music = FakeMusic({10: ("http://s/x/", "stream.mp3", "T", "A", 2 * 65536 + 7, 90)})
-    entry = playlists.song_entry(mapping, music, "a1")
-    assert entry.track == 7
-    assert entry.duration == 90
-
-
-def test_refresh_writes_server_names_and_paths(tmp_path):
-    api = FakeApi(
-        playlist_list=[
-            {"Id": "pl1", "Name": "Gym", "MediaType": "Audio"},
-            {"Id": "pl2", "Name": "Road Trip", "MediaType": "Audio"},
-        ],
-        items_by_id={
-            "pl1": [
-                {"Id": "a1", "Type": "Audio", "Name": "Track 1"},
-                {"Id": "missing", "Type": "Audio", "Name": "Gone"},
-            ],
-            "pl2": [
-                {"Id": "a2", "Type": "Audio", "Name": "Track 2"},
-            ],
-        },
-    )
-    mapping = FakeMapping(
-        {
-            "a1": SimpleNamespace(media_type="song", kodi_id=10),
-            "a2": SimpleNamespace(media_type="song", kodi_id=20),
-        }
-    )
-    music = FakeMusic(
-        {
-            # One row of each form, because the line written depends on the row
-            # rather than on the setting that produced it.
-            10: ("http://s/Audio/a1/", "stream.mp3?static=true", "Track 1", "A", 1, 60),
-            20: (
-                "plugin://plugin.video.kofin/lib/a2/",
-                "stream.flac?mode=play&id=a2&dbid=20",
-                "Track 2",
-                "B",
-                2,
-                70,
-            ),
-        }
-    )
-
-    root = str(tmp_path / "Kofin")
-    stats = playlists.refresh_music_playlists(api, mapping, music, root=root)
-
-    assert stats["playlists"] == 2
-    assert stats["written"] == 2
-    assert stats["tracks"] == 2
-    assert stats["skipped"] == 1
-    assert stats["pruned"] == 0
-
-    gym = (tmp_path / "Kofin" / "Gym.m3u8").read_text(encoding="utf-8")
-    assert "#EXTINF:60,01. A - Track 1" in gym
-    assert "musicdb://songs/10.mp3" in gym  # direct row: named by its song id
-    assert "Gone" not in gym
-
-    trip = (tmp_path / "Kofin" / "Road Trip.m3u8").read_text(encoding="utf-8")
-    # Plugin row: its own path, which the play route resolves.
-    assert "plugin://plugin.video.kofin/lib/a2/stream.flac?mode=play&id=a2&dbid=20" in (
-        trip
-    )
-
-
-def test_unchanged_playlists_are_not_rewritten(tmp_path):
-    api = FakeApi(
-        playlist_list=[{"Id": "pl1", "Name": "Gym", "MediaType": "Audio"}],
-        items_by_id={"pl1": [{"Id": "a1", "Type": "Audio", "Name": "Track 1"}]},
-    )
-    mapping = FakeMapping({"a1": SimpleNamespace(media_type="song", kodi_id=10)})
-    music = FakeMusic({10: ("http://s/Audio/a1/", "stream.mp3", "Track 1", "A", 1, 60)})
-    root = str(tmp_path / "Kofin")
-
-    first = playlists.refresh_music_playlists(api, mapping, music, root=root)
-    assert first["written"] == 1
-
-    written_at = (tmp_path / "Kofin" / "Gym.m3u8").stat().st_mtime_ns
-    second = playlists.refresh_music_playlists(api, mapping, music, root=root)
-
-    assert second["written"] == 0
-    assert second["playlists"] == 1
-    assert (tmp_path / "Kofin" / "Gym.m3u8").stat().st_mtime_ns == written_at
-
-
-def test_paging_stops_on_a_short_page(tmp_path):
-    # TotalRecordCount is over-reported by FakeApi; a short page ends it.
-    items = [{"Id": "a%d" % n, "Type": "Audio"} for n in range(150)]
-    api = FakeApi(
-        playlist_list=[{"Id": "pl1", "Name": "Big", "MediaType": "Audio"}],
-        items_by_id={"pl1": items},
-    )
-    mapping = FakeMapping(
-        {"a%d" % n: SimpleNamespace(media_type="song", kodi_id=n) for n in range(150)}
-    )
-    music = FakeMusic(
-        {
-            n: ("http://s/%d/" % n, "stream.mp3", "T%d" % n, "A", 0, 10)
-            for n in range(150)
-        }
-    )
-
-    stats = playlists.refresh_music_playlists(
-        api, mapping, music, root=str(tmp_path / "Kofin")
-    )
-
-    assert stats["tracks"] == 150
-    # Two pages: 100 (full, keep going) then 50 (short, stop).
-    assert api.item_requests == [("pl1", 0, 100), ("pl1", 100, 100)]
-
-
-def test_refresh_prunes_removed_and_handles_rename(tmp_path):
-    root = tmp_path / "Kofin"
-    root.mkdir()
-    (root / "Old Name.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
-    (root / "stale.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
-
-    api = FakeApi(
-        playlist_list=[{"Id": "pl1", "Name": "New Name", "MediaType": "Audio"}],
-        items_by_id={"pl1": []},
-    )
-    stats = playlists.refresh_music_playlists(
-        api, FakeMapping({}), FakeMusic({}), root=str(root)
-    )
-
-    assert stats["playlists"] == 1
-    assert stats["pruned"] == 2
-    # The icon is ours and is not a playlist: the prune is against the
-    # server's set, and it must not take the folder's own artwork with it.
-    names = sorted(p.name for p in root.iterdir())
-    assert names == ["New Name.m3u8", playlists.FOLDER_ICON]
-
-
-def test_duplicate_names_disambiguated(tmp_path):
-    api = FakeApi(
-        playlist_list=[
-            {"Id": "p1", "Name": "Mix", "MediaType": "Audio"},
-            {"Id": "p2", "Name": "Mix", "MediaType": "Audio"},
-        ],
-        items_by_id={"p1": [], "p2": []},
-    )
-    playlists.refresh_music_playlists(
-        api, FakeMapping({}), FakeMusic({}), root=str(tmp_path / "Kofin")
-    )
-    names = sorted(p.name for p in (tmp_path / "Kofin").iterdir())
-    assert names == ["Mix (2).m3u8", "Mix.m3u8", playlists.FOLDER_ICON]
-
-
 def test_cleanup_removes_folder(tmp_path):
     root = tmp_path / "Kofin"
     root.mkdir()
@@ -413,18 +155,6 @@ def test_cleanup_removes_folder(tmp_path):
     removed = playlists.cleanup_managed_playlists(root=str(root))
     assert removed == 1
     assert not root.exists()
-
-
-def test_empty_playlist_writes_header_only(tmp_path):
-    api = FakeApi(
-        playlist_list=[{"Id": "empty", "Name": "Empty", "MediaType": "Audio"}],
-        items_by_id={"empty": []},
-    )
-    playlists.refresh_music_playlists(
-        api, FakeMapping({}), FakeMusic({}), root=str(tmp_path / "Kofin")
-    )
-    text = (tmp_path / "Kofin" / "Empty.m3u8").read_text(encoding="utf-8")
-    assert text.strip() == "#EXTM3U"
 
 
 # --- which path form a row gets ----------------------------------------------
@@ -507,14 +237,6 @@ def test_parse_m3u_skips_headers():
     assert playlists.parse_m3u_paths(text) == ["http://a", "http://b"]
 
 
-def test_song_entry_writes_the_musicdb_line_for_a_direct_row():
-    mapping = FakeMapping({"a1": SimpleNamespace(media_type="song", kodi_id=42)})
-    music = FakeMusic(
-        {42: ("https://s/Audio/a1/", "stream.flac?static=true", "T", "A", 1, 90)}
-    )
-    assert playlists.song_entry(mapping, music, "a1").path == "musicdb://songs/42.flac"
-
-
 PLUGIN_DIR = "plugin://plugin.video.kofin/lib/"
 PLUGIN_FILE = (
     PLUGIN_DIR + "?filename=Aliens.mkv&id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -535,34 +257,163 @@ def test_video_playlist_line_is_constructpath():
     )
 
 
-def test_video_entry_uses_the_stored_plugin_url():
-    mapping = FakeMapping({"m1": SimpleNamespace(media_type="movie", kodi_id=1128)})
-    video = FakeVideo({("movie", 1128): (PLUGIN_DIR, PLUGIN_FILE, "Aliens")})
-    entry = playlists.video_entry(mapping, video, "m1")
-    assert entry.path == PLUGIN_FILE
-    assert entry.title == "Aliens"
-    assert PLUGIN_DIR + PLUGIN_FILE not in entry.path
+def _audio_playlist(name, etag, playlist_id="pl1"):
+    return {
+        "Id": playlist_id,
+        "Name": name,
+        "MediaType": "Audio",
+        "Etag": etag,
+    }
+
+
+# --- the managed folder's own icon -------------------------------------------
+
+
+def test_folder_icon_is_not_rewritten_once_it_is_there(tmp_path):
+    """It rides the playlist poll, so a rewrite every pass would churn the
+    folder's mtime for nothing."""
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    assert playlists.write_folder_icon(str(root)) is True
+    stamped = (root / playlists.FOLDER_ICON).stat().st_mtime_ns
+
+    assert playlists.write_folder_icon(str(root)) is False
+    assert (root / playlists.FOLDER_ICON).stat().st_mtime_ns == stamped
+
+
+def test_folder_icon_is_replaced_when_the_shipped_one_changes(tmp_path):
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    (root / playlists.FOLDER_ICON).write_bytes(b"stale")
+
+    assert playlists.write_folder_icon(str(root)) is True
+    assert (root / playlists.FOLDER_ICON).read_bytes()[:4] == b"\x89PNG"
+
+
+def test_cleanup_takes_the_icon_with_the_folder(tmp_path):
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    playlists.write_folder_icon(str(root))
+    (root / "A.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
+
+    assert playlists.cleanup_managed_playlists(root=str(root)) == 2
+    assert not root.exists()
+
+
+# -- the Downloaded-music view (plan W3.3) -------------------------------------
+
+
+def test_cleanup_without_the_view_still_takes_everything(tmp_path):
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    (root / "A.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
+    (root / playlists.FOLDER_ICON).write_bytes(b"png")
+    assert playlists.cleanup_managed_playlists(root=str(root)) == 2
+    assert not root.exists()
+
+
+def test_the_downloaded_music_list_keeps_its_name_and_survives_the_cleanup(tmp_path):
+    """The API build's Downloaded-music list sits beside the server's
+    playlists: a server playlist of the same title takes "(2)", even one that
+    held the name before, and the cleanup and the prune leave it."""
+    from kofin.sync import playlists as pl
+
+    assert (
+        pl.assign_playlist_filename(
+            "Downloaded music", set(pl.RESERVED_STEMS), "Downloaded music.m3u8"
+        )
+        == "Downloaded music (2).m3u8"
+    )
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    (root / pl.DOWNLOADED_MUSIC_M3U8).write_text("#EXTM3U\n")
+    (root / "Mix.m3u8").write_text("#EXTM3U\n")
+    assert "downloaded music" in pl._m3u8_stems(str(root))
+    pl.cleanup_managed_playlists(str(root))
+    assert sorted(p.name for p in root.iterdir()) == [pl.DOWNLOADED_MUSIC_M3U8]
+
+
+# --- the entries come from a resolver (backends/api/playlists.Resolver) ------
+
+
+class FakeResolver:
+    """``entry(item, side)``: what the catalogue answers for a filed item."""
+
+    def __init__(self, entries):
+        self._entries = entries
+
+    def entry(self, item, side):
+        return self._entries.get((item.get("Id"), side))
+
+
+SONG_LINE = "musicdb://songs/10.flac"
+
+
+def _audio_resolver():
+    return FakeResolver(
+        {("a1", "Audio"): playlists.Entry(SONG_LINE, "Track", "A", 1, 60)}
+    )
+
+
+def _video_resolver():
+    return FakeResolver({("m1", "Video"): playlists.Entry(PLUGIN_FILE, "Aliens")})
+
+
+def test_failed_playlist_page_keeps_its_file_and_does_not_stop_others(tmp_path):
+    class Api(FakeApi):
+        def playlist_items(self, playlist_id, start_index=0, limit=100):
+            if playlist_id == "bad":
+                return {}
+            return super().playlist_items(playlist_id, start_index, limit)
+
+    root = tmp_path / "Kofin"
+    root.mkdir()
+    (root / "Old.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
+    state = FakeState()
+    state.add_playlist_state("bad", "Audio", "Old.m3u8", "old")
+    api = Api(
+        playlist_list=[
+            _audio_playlist("Old", "new", playlist_id="bad"),
+            _audio_playlist("Gym", "new", playlist_id="good"),
+        ],
+        items_by_id={"good": [{"Id": "a1", "Type": "Audio"}]},
+    )
+    memberships = {}
+    playlists.reconcile(
+        api,
+        None,
+        None,
+        None,
+        state,
+        {"Audio"},
+        music_root=str(root),
+        audio_memberships=memberships,
+        resolver=_audio_resolver(),
+    )
+    assert (root / "Old.m3u8").is_file()
+    assert state.get_playlist_state("bad") is not None
+    assert memberships == {"good": ["a1"]}
+    assert SONG_LINE in (root / "Gym.m3u8").read_text(encoding="utf-8")
 
 
 def test_apply_one_keeps_the_filename_when_membership_changes(tmp_path):
-    """A membership rewrite must overwrite Name.m3u8, not mint Name (2).m3u8."""
-    api = FakeApi(
-        items_by_id={
-            "pl1": [{"Id": "m1", "Type": "Movie"}],
-        }
-    )
-    mapping = FakeMapping({"m1": SimpleNamespace(media_type="movie", kodi_id=1)})
-    video = FakeVideo({("movie", 1): (PLUGIN_DIR, PLUGIN_FILE, "Aliens")})
+    """A membership rewrite must overwrite Name.m3u8, not mint Name (2).m3u8,
+    and a plugin row's line is the file name alone (video_playlist_line)."""
+    api = FakeApi(items_by_id={"pl1": [{"Id": "m1", "Type": "Movie"}]})
     state = FakeState()
-    playlist = {
-        "Id": "pl1",
-        "Name": "UHD",
-        "MediaType": "Video",
-        "Etag": "one",
-    }
+    playlist = {"Id": "pl1", "Name": "UHD", "MediaType": "Video", "Etag": "one"}
     root = str(tmp_path)
+    resolver = _video_resolver()
     playlists.apply_one(
-        api, mapping, None, video, state, playlist, {"Video"}, video_root=root
+        api,
+        None,
+        None,
+        None,
+        state,
+        playlist,
+        {"Video"},
+        video_root=root,
+        resolver=resolver,
     )
     assert os.path.isfile(os.path.join(root, "UHD.m3u8"))
     assert not os.path.isfile(os.path.join(root, "UHD (2).m3u8"))
@@ -571,12 +422,17 @@ def test_apply_one_keeps_the_filename_when_membership_changes(tmp_path):
     assert PLUGIN_DIR + PLUGIN_FILE not in text
 
     playlist["Etag"] = "two"
-    api._items["pl1"] = [
-        {"Id": "m1", "Type": "Movie"},
-        {"Id": "m1", "Type": "Movie"},
-    ]
+    api._items["pl1"] = [{"Id": "m1", "Type": "Movie"}, {"Id": "m1", "Type": "Movie"}]
     playlists.apply_one(
-        api, mapping, None, video, state, playlist, {"Video"}, video_root=root
+        api,
+        None,
+        None,
+        None,
+        state,
+        playlist,
+        {"Video"},
+        video_root=root,
+        resolver=resolver,
     )
     assert os.path.isfile(os.path.join(root, "UHD.m3u8"))
     assert not os.path.isfile(os.path.join(root, "UHD (2).m3u8"))
@@ -587,158 +443,60 @@ def test_apply_one_does_not_steal_another_playlist_filename(tmp_path):
     other = tmp_path / "UHD.m3u8"
     other.write_text("#EXTM3U\n", encoding="utf-8")
     api = FakeApi(items_by_id={"pl2": [{"Id": "m1", "Type": "Movie"}]})
-    mapping = FakeMapping({"m1": SimpleNamespace(media_type="movie", kodi_id=1)})
-    video = FakeVideo({("movie", 1): (PLUGIN_DIR, PLUGIN_FILE, "Aliens")})
     state = FakeState()
-    playlist = {
-        "Id": "pl2",
-        "Name": "UHD",
-        "MediaType": "Video",
-        "Etag": "one",
-    }
+    playlist = {"Id": "pl2", "Name": "UHD", "MediaType": "Video", "Etag": "one"}
     playlists.apply_one(
         api,
-        mapping,
         None,
-        video,
+        None,
+        None,
         state,
         playlist,
         {"Video"},
         video_root=str(tmp_path),
+        resolver=_video_resolver(),
     )
     assert os.path.isfile(str(other))
     assert os.path.isfile(str(tmp_path / "UHD (2).m3u8"))
     assert state.get_playlist_state("pl2")[1] == "UHD (2).m3u8"
 
 
-def _audio_playlist(name, etag, playlist_id="pl1"):
-    return {
-        "Id": playlist_id,
-        "Name": name,
-        "MediaType": "Audio",
-        "Etag": etag,
-    }
-
-
-def _audio_stack():
-    mapping = FakeMapping({"a1": SimpleNamespace(media_type="song", kodi_id=10)})
-    music = FakeMusic(
-        {10: ("http://s/Audio/a1/", "stream.flac?static=true", "Track", "A", 1, 60)}
-    )
-    return mapping, music
-
-
 def test_apply_one_keeps_a_music_filename_when_membership_changes(tmp_path):
     """Same rule as the video rewrite: a track added must not mint Gym (2).m3u8."""
     api = FakeApi(items_by_id={"pl1": [{"Id": "a1", "Type": "Audio"}]})
-    mapping, music = _audio_stack()
     state = FakeState()
     playlist = _audio_playlist("Gym", "one")
     root = str(tmp_path)
+    resolver = _audio_resolver()
     playlists.apply_one(
-        api, mapping, music, None, state, playlist, {"Audio"}, music_root=root
+        api,
+        None,
+        None,
+        None,
+        state,
+        playlist,
+        {"Audio"},
+        music_root=root,
+        resolver=resolver,
     )
     assert os.path.isfile(os.path.join(root, "Gym.m3u8"))
 
     playlist["Etag"] = "two"
-    api._items["pl1"] = [
-        {"Id": "a1", "Type": "Audio"},
-        {"Id": "a1", "Type": "Audio"},
-    ]
+    api._items["pl1"] = [{"Id": "a1", "Type": "Audio"}, {"Id": "a1", "Type": "Audio"}]
     playlists.apply_one(
-        api, mapping, music, None, state, playlist, {"Audio"}, music_root=root
+        api,
+        None,
+        None,
+        None,
+        state,
+        playlist,
+        {"Audio"},
+        music_root=root,
+        resolver=resolver,
     )
     assert os.path.isfile(os.path.join(root, "Gym.m3u8"))
     assert not os.path.isfile(os.path.join(root, "Gym (2).m3u8"))
     assert state.get_playlist_state("pl1")[1] == "Gym.m3u8"
-
-
-def test_playlist_poll_mirrors_download_subscription_membership(tmp_path, monkeypatch):
-    from kofin.core import ipc
-    from kofin.downloads import store, subscriptions
-    from kofin.sync import db as sync_db
-    from kofin.sync.kofindb import JellyfinDatabase
-
-    sync_db.reset_overrides()
-    sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
-    monkeypatch.setattr(
-        subscriptions.settings,
-        "get_str",
-        lambda key: "pl1" if key == subscriptions.PLAYLIST_SETTING else "",
-    )
-    monkeypatch.setattr(subscriptions.settings, "get_bool", lambda key: True)
-    sent = []
-    monkeypatch.setattr(
-        subscriptions.ipc, "notify", lambda method, body: sent.append((method, body))
-    )
-    api = FakeApi(items_by_id={"pl1": [{"Id": "a1", "Type": "Audio"}]})
-    mapping = FakeMapping(
-        {
-            "a1": SimpleNamespace(media_type="song", kodi_id=10),
-            "a2": SimpleNamespace(media_type="song", kodi_id=20),
-        }
-    )
-    music = FakeMusic(
-        {
-            10: ("http://s/Audio/a1/", "stream.flac", "A", "Artist", 1, 60),
-            20: ("http://s/Audio/a2/", "stream.flac", "B", "Artist", 2, 60),
-        }
-    )
-    owner = subscriptions.owner("playlist", "pl1")
-    try:
-        memberships = {}
-        with sync_db.Database("kofin") as opened:
-            state = JellyfinDatabase(opened.cursor)
-            playlists.apply_one(
-                api,
-                mapping,
-                music,
-                None,
-                state,
-                _audio_playlist("Gym", "one"),
-                {"Audio"},
-                music_root=str(tmp_path / "playlists"),
-                audio_memberships=memberships,
-            )
-            assert sent == []
-        subscriptions.reconcile_playlist_memberships(memberships)
-        assert len(sent) == 1 and sent[0][0] == ipc.DOWNLOAD_ADD
-        assert sent[0][1]["Ids"] == ["a1"]
-        assert sent[0][1]["Types"] == ["Audio"]
-        assert sent[0][1]["Origin"] == owner
-        assert sent[0][1]["Request"].startswith(owner + ":")
-        assert sent[0][1]["RequestName"] == "Gym"
-        store.queue(store.Download("a1", media_type="song", origin=owner))
-        sent.clear()
-        api._items["pl1"] = [{"Id": "a2", "Type": "Audio"}]
-        memberships = {}
-        with sync_db.Database("kofin") as opened:
-            state = JellyfinDatabase(opened.cursor)
-            playlists.apply_one(
-                api,
-                mapping,
-                music,
-                None,
-                state,
-                _audio_playlist("Gym", "two"),
-                {"Audio"},
-                music_root=str(tmp_path / "playlists"),
-                audio_memberships=memberships,
-            )
-            assert sent == []
-        subscriptions.reconcile_playlist_memberships(memberships)
-        assert {method for method, _ in sent} == {
-            ipc.DOWNLOAD_ADD,
-            ipc.DOWNLOAD_REMOVE,
-        }
-        assert next(
-            body["Ids"] for method, body in sent if method == ipc.DOWNLOAD_ADD
-        ) == ["a2"]
-        assert next(
-            body["Ids"] for method, body in sent if method == ipc.DOWNLOAD_REMOVE
-        ) == ["a1"]
-    finally:
-        sync_db.reset_overrides()
 
 
 def test_apply_one_keeps_a_disambiguated_music_filename(tmp_path):
@@ -748,7 +506,6 @@ def test_apply_one_keeps_a_disambiguated_music_filename(tmp_path):
     event, bounce it back if ``Gym.m3u8`` reappears.
     """
     api = FakeApi(items_by_id={"pl2": [{"Id": "a1", "Type": "Audio"}]})
-    mapping, music = _audio_stack()
     state = FakeState()
     state.add_playlist_state(
         "pl2", "Audio", "Gym (2).m3u8", playlists.reference_checksum("old")
@@ -757,13 +514,14 @@ def test_apply_one_keeps_a_disambiguated_music_filename(tmp_path):
     playlist = _audio_playlist("Gym", "new", playlist_id="pl2")
     playlists.apply_one(
         api,
-        mapping,
-        music,
+        None,
+        None,
         None,
         state,
         playlist,
         {"Audio"},
         music_root=str(tmp_path),
+        resolver=_audio_resolver(),
     )
     assert os.path.isfile(str(tmp_path / "Gym (2).m3u8"))
     assert not os.path.isfile(str(tmp_path / "Gym.m3u8"))
@@ -791,237 +549,98 @@ def test_reconcile_keeps_a_disambiguated_music_filename_on_update(tmp_path):
             "pl-base": [{"Id": "a1", "Type": "Audio"}],
         },
     )
-    mapping, music = _audio_stack()
     playlists.reconcile(
-        api, mapping, music, None, state, {"Audio"}, music_root=str(tmp_path)
+        api,
+        None,
+        None,
+        None,
+        state,
+        {"Audio"},
+        music_root=str(tmp_path),
+        resolver=_audio_resolver(),
     )
     assert state.get_playlist_state("pl-two")[1] == "Gym (2).m3u8"
     assert state.get_playlist_state("pl-base")[1] == "Gym.m3u8"
     assert (tmp_path / "Gym.m3u8").read_text(encoding="utf-8") == "#EXTM3U\nowned\n"
     assert (tmp_path / "Gym (2).m3u8").is_file()
     rewritten = (tmp_path / "Gym (2).m3u8").read_text(encoding="utf-8")
-    assert "musicdb://songs/10.flac" in rewritten
+    assert SONG_LINE in rewritten
     assert "owned" not in rewritten
 
 
 def test_apply_one_renames_a_music_playlist_when_the_title_changes(tmp_path):
     api = FakeApi(items_by_id={"pl1": [{"Id": "a1", "Type": "Audio"}]})
-    mapping, music = _audio_stack()
     state = FakeState()
     playlist = _audio_playlist("Gym", "one")
     root = str(tmp_path)
+    resolver = _audio_resolver()
     playlists.apply_one(
-        api, mapping, music, None, state, playlist, {"Audio"}, music_root=root
+        api,
+        None,
+        None,
+        None,
+        state,
+        playlist,
+        {"Audio"},
+        music_root=root,
+        resolver=resolver,
     )
     playlist["Name"] = "Road Trip"
     playlist["Etag"] = "two"
     playlists.apply_one(
-        api, mapping, music, None, state, playlist, {"Audio"}, music_root=root
+        api,
+        None,
+        None,
+        None,
+        state,
+        playlist,
+        {"Audio"},
+        music_root=root,
+        resolver=resolver,
     )
     assert not os.path.isfile(os.path.join(root, "Gym.m3u8"))
     assert os.path.isfile(os.path.join(root, "Road Trip.m3u8"))
     assert state.get_playlist_state("pl1")[1] == "Road Trip.m3u8"
 
 
-# --- the managed folder's own icon -------------------------------------------
-
-
-def test_refresh_writes_the_folder_icon(tmp_path):
-    """Kodi finds a folder's art by name, and folder.jpg is the name it looks
-    for -- the bytes stay PNG so the glyph keeps its transparency."""
-    api = FakeApi(playlist_list=[], items_by_id={})
-    root = tmp_path / "Kofin"
-
-    playlists.refresh_music_playlists(
-        api, FakeMapping({}), FakeMusic({}), root=str(root)
-    )
-
-    icon = root / playlists.FOLDER_ICON
-    assert icon.is_file()
-    source = os.path.join(REPO_ROOT, "resources", "media", "kofin-node.png")
-    assert icon.read_bytes() == open(source, "rb").read()
-    assert icon.read_bytes()[:4] == b"\x89PNG"
-
-
-def test_folder_icon_is_not_rewritten_once_it_is_there(tmp_path):
-    """It rides the playlist poll, so a rewrite every pass would churn the
-    folder's mtime for nothing."""
-    root = tmp_path / "Kofin"
-    root.mkdir()
-    assert playlists.write_folder_icon(str(root)) is True
-    stamped = (root / playlists.FOLDER_ICON).stat().st_mtime_ns
-
-    assert playlists.write_folder_icon(str(root)) is False
-    assert (root / playlists.FOLDER_ICON).stat().st_mtime_ns == stamped
-
-
-def test_folder_icon_is_replaced_when_the_shipped_one_changes(tmp_path):
-    root = tmp_path / "Kofin"
-    root.mkdir()
-    (root / playlists.FOLDER_ICON).write_bytes(b"stale")
-
-    assert playlists.write_folder_icon(str(root)) is True
-    assert (root / playlists.FOLDER_ICON).read_bytes()[:4] == b"\x89PNG"
-
-
-def test_missing_icon_costs_a_glyph_not_a_refresh(tmp_path, monkeypatch):
-    monkeypatch.setattr(playlists.settings, "addon_path", lambda: "")
-    api = FakeApi(
-        playlist_list=[{"Id": "pl1", "Name": "Gym", "MediaType": "Audio"}],
-        items_by_id={"pl1": []},
-    )
-    root = tmp_path / "Kofin"
-
-    stats = playlists.refresh_music_playlists(
-        api, FakeMapping({}), FakeMusic({}), root=str(root)
-    )
-
-    assert stats["playlists"] == 1
-    assert not (root / playlists.FOLDER_ICON).exists()
-    assert sorted(p.name for p in root.iterdir()) == ["Gym.m3u8"]
-
-
-def test_cleanup_takes_the_icon_with_the_folder(tmp_path):
-    root = tmp_path / "Kofin"
-    root.mkdir()
-    playlists.write_folder_icon(str(root))
-    (root / "A.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
-
-    assert playlists.cleanup_managed_playlists(root=str(root)) == 2
-    assert not root.exists()
-
-
-# -- the Downloaded-music view (plan W3.3) -------------------------------------
-
-
-@pytest.fixture
-def downloads_at(monkeypatch):
-    monkeypatch.setattr("kofin.downloads.downloads_root", lambda: "/dl")
-    monkeypatch.setattr(playlists.settings, "localized", lambda i: "Downloaded music")
-
-
-def test_refresh_downloaded_music_writes_the_rule_once(tmp_path, downloads_at):
-    root = str(tmp_path / "Kofin")
-    assert playlists.refresh_downloaded_music(root=root) is True
-    text = (tmp_path / "Kofin" / playlists.DOWNLOADED_MUSIC_XSP).read_text(
-        encoding="utf-8"
-    )
-    assert 'type="songs"' in text
-    assert '<rule field="path" operator="startswith">' in text
-    assert "<value>/dl/Music/</value>" in text
-    assert "<name>Downloaded music</name>" in text
-    # The icon rides along, and a second refresh says nothing new.
-    assert (tmp_path / "Kofin" / playlists.FOLDER_ICON).exists()
-    assert playlists.refresh_downloaded_music(root=root) is False
-
-
-def test_the_prune_leaves_the_downloads_view(tmp_path, downloads_at):
-    root = tmp_path / "Kofin"
-    root.mkdir()
-    playlists.refresh_downloaded_music(root=str(root))
-    (root / "stale.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
-
-    # The server lists one playlist, so the prune runs (an empty listing is
-    # floored -- see test_an_empty_listing_does_not_empty_the_managed_folder).
-    api = FakeApi(
-        playlist_list=[{"Id": "pl1", "Name": "Gym", "MediaType": "Audio"}],
-        items_by_id={"pl1": []},
-    )
-    stats = playlists.refresh_music_playlists(
-        api, FakeMapping({}), FakeMusic({}), root=str(root)
-    )
-
-    assert stats["pruned"] == 1  # the stale mirror went; the view stayed
-    names = sorted(p.name for p in root.iterdir())
-    assert names == [
-        playlists.DOWNLOADED_MUSIC_XSP,
-        "Gym.m3u8",
-        playlists.FOLDER_ICON,
-    ]
-
-
-def test_cleanup_keeps_the_downloads_view(tmp_path, downloads_at):
-    root = tmp_path / "Kofin"
-    root.mkdir()
-    playlists.refresh_downloaded_music(root=str(root))
-    (root / "Mirror.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
-
-    removed = playlists.cleanup_managed_playlists(root=str(root))
-
-    assert removed == 1
-    names = sorted(p.name for p in root.iterdir())
-    assert names == [playlists.DOWNLOADED_MUSIC_XSP, playlists.FOLDER_ICON]
-
-
-def test_cleanup_without_the_view_still_takes_everything(tmp_path):
-    root = tmp_path / "Kofin"
-    root.mkdir()
-    (root / "A.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
-    (root / playlists.FOLDER_ICON).write_bytes(b"png")
-    assert playlists.cleanup_managed_playlists(root=str(root)) == 2
-    assert not root.exists()
-
-
 def test_an_empty_listing_does_not_empty_the_managed_folder(tmp_path):
-    """audit-F9: the managed folder's ownership rule is the folder itself, so
-    every .m3u8 not in the server's set is removed. A listing that comes back
-    empty for any reason other than "the user has no playlists" therefore
-    wipes the lot -- a permission change and an empty account look identical
-    from here. Skip and warn, as boxsets.sweep_stale and get_existing_ids do.
-    """
-    mapping = FakeMapping({"a1": SimpleNamespace(media_type="song", kodi_id=10)})
-    music = FakeMusic({10: ("http://s/a/", "s.mp3", "T", "A", 1, 60)})
+    """The managed folder's ownership rule is the folder itself, so every
+    .m3u8 not in the server's set is removed. A listing that comes back empty
+    for any reason other than "the user has no playlists" would wipe the lot
+    -- a permission change and an empty account look identical from here --
+    so the prune stands down while playlists stand."""
     root = str(tmp_path / "Kofin")
-
+    state = FakeState()
     stocked = FakeApi(
-        playlist_list=[{"Id": "pl1", "Name": "Gym", "MediaType": "Audio"}],
+        playlist_list=[_audio_playlist("Gym", "one")],
         items_by_id={"pl1": [{"Id": "a1", "Type": "Audio", "Name": "T"}]},
     )
-    playlists.refresh_music_playlists(stocked, mapping, music, root=root)
+    playlists.reconcile(
+        stocked,
+        None,
+        None,
+        None,
+        state,
+        {"Audio"},
+        music_root=root,
+        resolver=_audio_resolver(),
+    )
     directory = playlists.managed_dir(root)
     written = [n for n in os.listdir(directory) if n.endswith(".m3u8")]
     assert written, "the fixture did not write a playlist to prune"
 
-    empty = FakeApi(playlist_list=[])
-    stats = playlists.refresh_music_playlists(empty, mapping, music, root=root)
-
+    stats = playlists.reconcile(
+        FakeApi(playlist_list=[]),
+        None,
+        None,
+        None,
+        state,
+        {"Audio"},
+        music_root=root,
+        resolver=_audio_resolver(),
+    )
     assert stats["pruned"] == 0
     assert [n for n in os.listdir(directory) if n.endswith(".m3u8")] == written
-
-
-def test_an_empty_listing_on_an_empty_folder_is_not_an_error(tmp_path):
-    """Nothing standing means nothing to protect: the pass runs normally."""
-    mapping = FakeMapping({})
-    music = FakeMusic({})
-    root = str(tmp_path / "Kofin")
-
-    stats = playlists.refresh_music_playlists(
-        FakeApi(playlist_list=[]), mapping, music, root=root
-    )
-
-    assert stats["playlists"] == 0
-    assert stats["pruned"] == 0
-
-
-def test_the_downloaded_music_list_keeps_its_name_and_survives_the_cleanup(tmp_path):
-    """The API build's Downloaded-music list sits beside the server's
-    playlists: a server playlist of the same title takes "(2)", even one that
-    held the name before, and the cleanup and the prune leave it."""
-    from kofin.sync import playlists as pl
-
-    assert (
-        pl.assign_playlist_filename(
-            "Downloaded music", set(pl.RESERVED_STEMS), "Downloaded music.m3u8"
-        )
-        == "Downloaded music (2).m3u8"
-    )
-    root = tmp_path / "Kofin"
-    root.mkdir()
-    (root / pl.DOWNLOADED_MUSIC_M3U8).write_text("#EXTM3U\n")
-    (root / "Mix.m3u8").write_text("#EXTM3U\n")
-    assert "downloaded music" in pl._m3u8_stems(str(root))
-    pl.cleanup_managed_playlists(str(root))
-    assert sorted(p.name for p in root.iterdir()) == [pl.DOWNLOADED_MUSIC_M3U8]
 
 
 def test_a_server_playlist_on_the_reserved_name_moves_off_it_and_leaves_the_view(
@@ -1038,7 +657,7 @@ def test_a_server_playlist_on_the_reserved_name_moves_off_it_and_leaves_the_view
     api = FakeApi(
         playlist_list=[playlist], items_by_id={"pl1": [{"Id": "a1", "Type": "Audio"}]}
     )
-    mapping, music = _audio_stack()
+    resolver = _audio_resolver()
     moved = "Downloaded music (2).m3u8"
     for run in ("reconcile", "apply_one"):
         root = tmp_path / run
@@ -1049,13 +668,23 @@ def test_a_server_playlist_on_the_reserved_name_moves_off_it_and_leaves_the_view
             "pl1", "Audio", pl.DOWNLOADED_MUSIC_M3U8, pl.reference_checksum("same")
         )
         if run == "reconcile":
-            pl.reconcile(api, mapping, music, None, state, {"Audio"}, str(root))
+            pl.reconcile(
+                api, None, None, None, state, {"Audio"}, str(root), resolver=resolver
+            )
         else:
             pl.apply_one(
-                api, mapping, music, None, state, playlist, {"Audio"}, str(root)
+                api,
+                None,
+                None,
+                None,
+                state,
+                playlist,
+                {"Audio"},
+                str(root),
+                resolver=resolver,
             )
         assert state.get_playlist_state("pl1")[1] == moved
-        assert "musicdb://songs/10.flac" in (root / moved).read_text(encoding="utf-8")
+        assert SONG_LINE in (root / moved).read_text(encoding="utf-8")
         assert (root / pl.DOWNLOADED_MUSIC_M3U8).read_text(encoding="utf-8") == view
     # No list was ever written over it: the old name is the playlist's copy.
     root = tmp_path / "copy"
@@ -1064,12 +693,32 @@ def test_a_server_playlist_on_the_reserved_name_moves_off_it_and_leaves_the_view
     state.add_playlist_state(
         "pl1", "Audio", pl.DOWNLOADED_MUSIC_M3U8, pl.reference_checksum("same")
     )
-    pl.apply_one(api, mapping, music, None, state, playlist, {"Audio"}, str(root))
+    pl.apply_one(
+        api,
+        None,
+        None,
+        None,
+        state,
+        playlist,
+        {"Audio"},
+        str(root),
+        resolver=resolver,
+    )
     (root / moved).rename(root / pl.DOWNLOADED_MUSIC_M3U8)
     state.add_playlist_state(
         "pl1", "Audio", pl.DOWNLOADED_MUSIC_M3U8, pl.reference_checksum("same")
     )
-    pl.apply_one(api, mapping, music, None, state, playlist, {"Audio"}, str(root))
+    pl.apply_one(
+        api,
+        None,
+        None,
+        None,
+        state,
+        playlist,
+        {"Audio"},
+        str(root),
+        resolver=resolver,
+    )
     assert sorted(p.name for p in root.glob("*.m3u8")) == [moved]
     # The playlist leaves the server: the view stays.
     root = tmp_path / "removed"

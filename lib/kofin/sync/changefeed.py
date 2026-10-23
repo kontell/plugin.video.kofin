@@ -24,7 +24,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
 from kofin.core.http import JellyfinError
 from kofin.core.log import Logger
-from kofin.sync.fields import reference_checksum
+from kofin.sync.policy import reference_checksum
 
 LOG = Logger(__name__)
 
@@ -347,7 +347,7 @@ def retention_overrun(last_sync: str, retention_cutoff: Optional[int]) -> bool:
 
 def stored_checksum_matches(etag: Optional[str], checksum: Optional[str]) -> bool:
     """The check_unchanged predicate, evaluated before download — one
-    spelling with the writers, via fields.reference_checksum."""
+    spelling with the catalogue, via policy.reference_checksum."""
     return bool(etag) and checksum == reference_checksum(etag)
 
 

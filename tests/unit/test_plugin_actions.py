@@ -1047,10 +1047,7 @@ def test_show_names_come_from_the_id_map_and_kodi_over_jsonrpc(monkeypatch, tmp_
 # --- update libraries (P1.11: previously uncalled) ----------------------------
 
 
-def _update_wired(monkeypatch, picked, backend="sql", confirm=True):
-    from kofin import buildconfig
-
-    monkeypatch.setattr(buildconfig, "BACKEND", backend)
+def _update_wired(monkeypatch, picked, confirm=True):
     sent = []
     dialog = FakeDialog(multiselect=picked, yesno=confirm)
     monkeypatch.setattr(actions.settings, "get_list", lambda key: ["lib1", "lib2"])
@@ -1061,37 +1058,10 @@ def _update_wired(monkeypatch, picked, backend="sql", confirm=True):
     return sent, dialog
 
 
-def test_update_libraries_all_sends_the_empty_payload(monkeypatch):
-    """Empty payload = the full-whitelist pass, which keeps the service's
-    retention-repair release path intact."""
-    sent, dialog = _update_wired(monkeypatch, [0])
-
-    actions.update_libraries(actions.Request("plugin://x", -1, {}))
-
-    assert sent == [(actions.ipc.UPDATE_LIBRARY, {})]
-    assert dialog.multiselects[0][1] == ["L30267", "One", "Two"]
-
-
-def test_update_libraries_names_the_picked_libraries(monkeypatch):
-    sent, _dialog = _update_wired(monkeypatch, [1, 2])
-
-    actions.update_libraries(actions.Request("plugin://x", -1, {}))
-
-    assert sent == [(actions.ipc.UPDATE_LIBRARY, {"Id": "lib1,lib2"})]
-
-
-def test_update_libraries_cancelled_sends_nothing(monkeypatch):
-    sent, _dialog = _update_wired(monkeypatch, None)
-
-    actions.update_libraries(actions.Request("plugin://x", -1, {}))
-
-    assert sent == []
-
-
-def test_api_update_libraries_confirms_and_updates_them_all(monkeypatch):
-    """The API coordinator lists every selected library whatever is picked,
-    so the API build asks one question and offers no list."""
-    sent, dialog = _update_wired(monkeypatch, None, backend="api")
+def test_update_libraries_confirms_and_updates_them_all(monkeypatch):
+    """The coordinator lists every selected library whatever is picked, so
+    the button asks one question and offers no list."""
+    sent, dialog = _update_wired(monkeypatch, None)
 
     actions.update_libraries(actions.Request("plugin://x", -1, {}))
 
@@ -1100,8 +1070,8 @@ def test_api_update_libraries_confirms_and_updates_them_all(monkeypatch):
     assert dialog.multiselects == []
 
 
-def test_api_update_libraries_declined_sends_nothing(monkeypatch):
-    sent, dialog = _update_wired(monkeypatch, None, backend="api", confirm=False)
+def test_update_libraries_declined_sends_nothing(monkeypatch):
+    sent, dialog = _update_wired(monkeypatch, None, confirm=False)
 
     actions.update_libraries(actions.Request("plugin://x", -1, {}))
 

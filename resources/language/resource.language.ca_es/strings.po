@@ -2308,6 +2308,42 @@ msgctxt "#30875"
 msgid "Live TV fine sync needs FFmpeg Direct"
 msgstr "La sincronització fina de TV en directe necessita FFmpeg Direct"
 
+msgctxt "#30876"
+msgid "Not on this Kodi"
+msgstr "No disponible en aquest Kodi"
+
+msgctxt "#30877"
+msgid "Season plots"
+msgstr "Resums de temporada"
+
+msgctxt "#30878"
+msgid "Favorite episodes"
+msgstr "Episodis preferits"
+
+msgctxt "#30879"
+msgid "Removing emptied collections"
+msgstr "Eliminació de col·leccions buidades"
+
+msgctxt "#30880"
+msgid "Movie versions"
+msgstr "Versions de pel·lícula"
+
+msgctxt "#30881"
+msgid "Stream flags"
+msgstr "Marques de les pistes"
+
+msgctxt "#30882"
+msgid "Song date added"
+msgstr "Data d'addició de les cançons"
+
+msgctxt "#30883"
+msgid "Removing dropped versions and extras"
+msgstr "Eliminació de versions i extres retirats"
+
+msgctxt "#30884"
+msgid "Fine sync"
+msgstr "Sincronització fina"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "No disponible en aquesta versió prèvia"

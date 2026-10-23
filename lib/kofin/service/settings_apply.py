@@ -37,7 +37,6 @@ from typing import Callable, Dict, List, Optional
 import xbmcgui
 
 from kofin.core import settings, state
-from kofin import buildconfig
 from kofin.core.log import Logger
 from kofin.service.ports import LibraryPort, ServiceHooks, spawn_once
 
@@ -71,22 +70,11 @@ class SettingsApplier:
             "syncPlayTempo": self._syncplay_tempo_changed,
             "whoIsWatchingShortlist": self._who_shortlist_changed,
             "contextBitrates": self._context_bitrates_changed,
-            "syncMusicPlaylists": self._sync_music_playlists_changed,
             "libraryNodes": self._library_nodes_changed,
-            "musicTranscode": self._music_transcode_changed,
             "useServerBackdrop": self._server_backdrop_changed,
-            "preferCriticRating": self._prefer_critic_rating_changed,
             "downloadsEnabled": self._downloads_enabled_changed,
             "downloadsPath": self._downloads_path_changed,
-            "reuseLanguageInvoker": self._reuse_invoker_changed,
         }
-        if not buildconfig.legacy_features():
-            for key in (
-                "musicTranscode",
-                "preferCriticRating",
-                "reuseLanguageInvoker",
-            ):
-                self.handlers.pop(key, None)
         self.snapshot: Dict[str, str] = self._read_all()
         # The one-shot worker a library removal's confirmation runs on; its
         # slot, so a second save while the dialog is up is refused rather
@@ -111,11 +99,6 @@ class SettingsApplier:
         # Same reason: skins cannot read the settings that hide these two
         # root entries, so the service mirrors the offer onto properties.
         self._publish_root_menus()
-        # An addon update restores the zip's <reuselanguageinvoker>true</>,
-        # so a user who turned the setting off needs the file rewritten
-        # again. Too late for this session — ExtraInfo is already loaded —
-        # but the next Kodi start then matches.
-        self._reconcile_reuse_invoker()
         LOG.debug("settings applier ready; baseline re-read")
 
     def apply(self) -> None:
@@ -203,35 +186,6 @@ class SettingsApplier:
         LOG.info("sslVerify changed; restarting service cycle")
         self.service._restart_requested = True
 
-    def _reuse_invoker_changed(self, old: str, new: str) -> None:
-        """Rewrite addon.xml; Kodi only rereads ExtraInfo on the next start."""
-        if not buildconfig.legacy_features():
-            return
-        from kofin.core import addonxml, toast
-
-        wrote = addonxml.apply(new == "true")
-        if wrote is None:
-            LOG.warning("reuseLanguageInvoker change did not land on addon.xml")
-            return
-        toast.show(settings.localized(30840))
-
-    def _reconcile_reuse_invoker(self) -> None:
-        """Restore a false setting after an update overwrote addon.xml."""
-        if not buildconfig.legacy_features():
-            return
-        from kofin.core import addonxml
-
-        wanted = settings.get_bool("reuseLanguageInvoker")
-        wrote = addonxml.apply(wanted)
-        if wrote is True:
-            LOG.info(
-                "addon.xml reuselanguageinvoker reconciled to %s; "
-                "restart Kodi for it to take effect",
-                "true" if wanted else "false",
-            )
-        elif wrote is None:
-            LOG.warning("could not reconcile addon.xml reuselanguageinvoker")
-
     def _syncplay_enabled_changed(self, old: str, new: str) -> None:
         """The SyncPlay master toggle builds/tears down the manager live —
         off means no manager thread at all (plan §4)."""
@@ -274,19 +228,6 @@ class SettingsApplier:
     def _context_bitrates_changed(self, old: str, new: str) -> None:
         """Keep the property addon.xml gates the transcode context item on."""
         state.set_context_bitrates(new)
-
-    def _sync_music_playlists_changed(self, old: str, new: str) -> None:
-        """Enable → materialize all; disable → delete managed Kofin/ folder."""
-        library = self._library_manager()
-        if library is None:
-            LOG.warning("syncMusicPlaylists changed but library manager unavailable")
-            return
-        if new == "true":
-            library.enqueue_command("SyncMusicPlaylists")
-            return
-        if not self._confirmed_off("syncMusicPlaylists"):
-            return
-        library.enqueue_command("CleanupMusicPlaylists")
 
     def _confirmed_off(self, setting_id: str) -> bool:
         """Whether a boolean read as off was really switched off.
@@ -334,10 +275,7 @@ class SettingsApplier:
         self._regenerate_nodes()
 
     def _playlists_wanted(self) -> bool:
-        """The build's playlist switch: the SQL build's playlist sync, or the
-        API build's presentation switch."""
-        if buildconfig.legacy_features():
-            return settings.get_bool("syncMusicPlaylists")
+        """The presentation switch (sync/dynamic.py)."""
         from kofin.sync import dynamic
 
         return dynamic.wanted()
@@ -352,31 +290,6 @@ class SettingsApplier:
         """
         service = self.service
         service._start_backdrop(force=True)
-
-    def _music_transcode_changed(self, old: str, new: str) -> None:
-        """Path mode flip rewrites MyMusic rows later; rematerialize playlists
-        so lines match the new path form when playlist sync is on."""
-        if not self._playlists_wanted():
-            return
-        library = self._library_manager()
-        if library is None:
-            return
-        library.enqueue_command("SyncMusicPlaylists")
-
-    def _prefer_critic_rating_changed(self, old: str, new: str) -> None:
-        """Point already-synced films at the other rating row.
-
-        No resync: both rows are written at sync time, so the flip is a
-        pointer rewrite over MyVideos (``library.repoint_ratings``). Films
-        that predate the option have no critic row yet and simply keep their
-        community rating until a Repair fetches one — which is what the
-        setting's help text asks for.
-        """
-        library = self._library_manager()
-        if library is None:
-            LOG.warning("preferCriticRating changed but library manager unavailable")
-            return
-        library.enqueue_command("RepointRatings")
 
     def _downloads_enabled_changed(self, old: str, new: str) -> None:
         """The downloads master toggle builds/tears down the manager live,
@@ -407,28 +320,16 @@ class SettingsApplier:
         — behind a server probe and two library calls, which is why they
         turned up about a minute later.
 
-        Local work only (``get_nodes`` reads kofin.db and settings; ``Views``
-        takes no server for this path), and contained: a node write must
-        never take a settings apply down with it.
-
-        "Local work only" was aspirational until ``window_nodes`` learned to
-        check: it asked the server for the media-folder listing regardless,
-        so every toggle of this setting logged two tracebacks on the way
-        through. The listing feeds the library-tile artwork prop, which a
-        serverless pass clears anyway.
+        Contained: a node write must never take a settings apply down with
+        it, and nothing is asked of a server that is not there.
         """
         try:
-            if buildconfig.legacy_features():
-                from kofin.sync.views import Views
+            from kofin.sync.dynamic import publish
 
-                Views().get_nodes()
-            else:
-                from kofin.sync.dynamic import publish
-
-                service = self.service
-                api = getattr(service, "api", None)
-                if api is not None and getattr(service, "_online", False):
-                    publish(api.views().get("Items", []), api)
+            service = self.service
+            api = getattr(service, "api", None)
+            if api is not None and getattr(service, "_online", False):
+                publish(api.views().get("Items", []), api)
         except Exception:
             LOG.exception("node regeneration after a settings change failed")
 
@@ -457,18 +358,8 @@ class SettingsApplier:
             )
             return
 
-        # The Downloaded-music view's one rule is a path under the old root;
-        # re-aim it when the view exists (plan W3.3).
-        from kofin.sync import playlists
-
-        if os.path.isfile(
-            os.path.join(playlists.managed_dir(), playlists.DOWNLOADED_MUSIC_XSP)
-        ):
-            playlists.refresh_downloaded_music()
-
-        # The generated nodes filter on the root too — the Downloaded
-        # episodes node by path, the music node by path — so they are as
-        # stale as the .xsp was.
+        # The generated nodes name the root, so they are as stale as the
+        # downloads were.
         self._regenerate_nodes()
 
     def _library_selection_changed(self, old: str, new: str) -> None:

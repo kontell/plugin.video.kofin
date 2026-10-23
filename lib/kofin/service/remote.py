@@ -56,25 +56,22 @@ def _as_int(value: Any, default: int = 0) -> int:
 
 
 def _is_audio(item_id: str) -> bool:
-    """Whether a Jellyfin id maps to a song in this Kodi library.
+    """Whether a Jellyfin id is a song in this Kodi library.
 
-    Read from kofin's own mapping table rather than the server: the remote
-    payload carries ids and nothing else, and this runs on the websocket
-    thread where a round trip would hold the command up. An unmapped or
-    unreadable id answers False -- the video queue, which is the behaviour
-    before A2-M4.
+    Read from the catalogue rather than the server: the remote payload
+    carries ids and nothing else, and this runs on the websocket thread
+    where a round trip would hold the command up. An unknown or unreadable
+    id answers False -- the video queue, which is the behaviour before A2-M4.
     """
     try:
-        from kofin.sync import kofindb
-        from kofin.sync.private import Database
+        from kofin.sync.backends.api.identity import current_store
 
-        with Database("kofin") as kofin_db:
-            row = kofindb.JellyfinDatabase(kofin_db.cursor).get_item_by_id(item_id)
+        entry = current_store().entry(item_id)
     except Exception:
         LOG.debug("remote: could not resolve the media type of %s", item_id)
         return False
 
-    return bool(row) and row.media_type == "song"
+    return entry is not None and entry.kind == "Audio"
 
 
 class RemoteHandler:

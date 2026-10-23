@@ -6,7 +6,7 @@ import pytest
 from kofin.plugin import librarypicker
 from kofin.plugin.router import Request
 from kofin.service.settings_apply import SettingsApplier
-from kofin.sync import db as sync_db
+from kofin.sync import private as sync_db
 from kofin.sync import kofindb
 from tests.unit.fakes import FakeAddon, FakeWindow
 
@@ -86,7 +86,6 @@ def env(monkeypatch, tmp_path):
     # mark_ready reconciles <reuselanguageinvoker> against the installed
     # addon.xml; tests that do not care patch it to a no-op so they do not
     # touch the stub Addon path.
-    monkeypatch.setattr("kofin.core.addonxml.apply", lambda enabled, path=None: False)
     # Real strings carry a %s placeholder; the FakeAddon fallback does not.
     monkeypatch.setattr(
         "kofin.core.settings.localized", lambda sid: "string-%d %%s" % sid
@@ -578,21 +577,6 @@ def test_ssl_handler(monkeypatch):
     assert service._restart_requested is True
 
 
-def test_sync_music_playlists_enable_disable():
-    service = FakeService()
-    FakeAddon.store["syncMusicPlaylists"] = "false"
-    applier = ready_applier(service)
-
-    FakeAddon.store["syncMusicPlaylists"] = "true"
-    applier.apply()
-    assert service.library.commands == [("SyncMusicPlaylists", None)]
-
-    service.library.commands.clear()
-    FakeAddon.store["syncMusicPlaylists"] = "false"
-    applier.apply()
-    assert service.library.commands == [("CleanupMusicPlaylists", None)]
-
-
 def test_library_nodes_enable_disable():
     """The API build's switch: on rewrites the tree now and the playlists at
     the next pass; off cleans the playlists up and republishes the tree."""
@@ -641,40 +625,6 @@ def test_unconfirmed_library_nodes_off_removes_nothing():
     assert regenerated == [True]
 
 
-def test_music_transcode_rematerializes_when_playlists_on():
-    service = FakeService()
-    FakeAddon.store["syncMusicPlaylists"] = "true"
-    FakeAddon.store["musicTranscode"] = "false"
-    applier = ready_applier(service)
-
-    FakeAddon.store["musicTranscode"] = "true"
-    applier.apply()
-    assert service.library.commands == [("SyncMusicPlaylists", None)]
-
-
-def test_music_transcode_skips_when_playlists_off():
-    service = FakeService()
-    FakeAddon.store["syncMusicPlaylists"] = "false"
-    FakeAddon.store["musicTranscode"] = "false"
-    applier = ready_applier(service)
-
-    FakeAddon.store["musicTranscode"] = "true"
-    applier.apply()
-    assert service.library.commands == []
-
-
-@pytest.mark.parametrize("target", ["true", "false"])
-def test_prefer_critic_rating_repoints_both_ways(target):
-    """Either direction is a local pointer rewrite, never a resync."""
-    service = FakeService()
-    FakeAddon.store["preferCriticRating"] = "false" if target == "true" else "true"
-    applier = ready_applier(service)
-
-    FakeAddon.store["preferCriticRating"] = target
-    applier.apply()
-    assert service.library.commands == [("RepointRatings", None)]
-
-
 @pytest.mark.parametrize("target", ["true", "false"])
 def test_server_backdrop_toggle_refreshes_both_ways(target):
     """Both directions go through the service so the file on disk cannot end
@@ -686,46 +636,6 @@ def test_server_backdrop_toggle_refreshes_both_ways(target):
     FakeAddon.store["useServerBackdrop"] = target
     applier.apply()
     assert service.backdrop_refreshes == [True]
-
-
-def test_spurious_empty_sync_music_playlists_does_not_cleanup():
-    """Failed settings load must not wipe managed playlist files (live finding)."""
-    service = FakeService()
-    FakeAddon.store["syncMusicPlaylists"] = "true"
-    FakeAddon.store["deviceId"] = "dev-1"
-    applier = ready_applier(service)
-
-    # Burst empty reads: syncMusicPlaylists and the canary both blank.
-    FakeAddon.store["syncMusicPlaylists"] = ""
-    FakeAddon.store["deviceId"] = ""
-    applier.apply()
-    assert service.library.commands == []
-
-
-def test_failed_settings_load_does_not_treat_bool_default_as_disable():
-    """A settings document that fails to load must not fire CleanupMusicPlaylists.
-
-    The live failure surfaced the boolean's then-default ``false`` rather than
-    ``""``. The default is true now; an unconfirmed false is still the read
-    that would wipe the folder, and the canary is what rejects it.
-    """
-    service = FakeService()
-    FakeAddon.store["syncMusicPlaylists"] = "true"
-    FakeAddon.store["deviceId"] = "dev-1"
-    applier = ready_applier(service)
-
-    # Unconfirmed false, not a real edit. A failed settings load used to
-    # surface the boolean default; that default is now true, but a spurious
-    # false is still the read that would wipe the managed folder.
-    FakeAddon.store["syncMusicPlaylists"] = "false"
-    FakeAddon.store["deviceId"] = ""  # canary proves the document did not load
-    applier.apply()
-    assert service.library.commands == []
-    # Snapshot not advanced — a later real false after recovery still applies.
-    FakeAddon.store["deviceId"] = "dev-1"
-    FakeAddon.store["syncMusicPlaylists"] = "false"
-    applier.apply()
-    assert service.library.commands == [("CleanupMusicPlaylists", None)]
 
 
 def test_downloads_enabled_toggle_builds_and_tears_down_live():
@@ -759,34 +669,6 @@ def test_downloads_path_change_write_probes_the_new_root(tmp_path, monkeypatch):
     assert root.is_dir()  # probed into existence
     assert os.listdir(str(root)) == []  # and the probe file cleaned up
     assert not any(call[0] == "notification" for call in FakeDialog.calls)
-
-
-def test_downloads_path_change_reaims_the_music_view(tmp_path, monkeypatch):
-    """The Downloaded-music xsp's one rule points under the old root; a path
-    change rewrites it — but only when the view exists (plan W3.3)."""
-    monkeypatch.setattr("xbmcvfs.translatePath", lambda p: str(p))
-    from kofin.sync import playlists
-
-    managed = tmp_path / "Kofin"
-    monkeypatch.setattr(playlists, "managed_dir", lambda root=None: str(managed))
-    refreshed = []
-    monkeypatch.setattr(
-        playlists, "refresh_downloaded_music", lambda root=None: refreshed.append(1)
-    )
-
-    service = FakeService()
-    FakeAddon.store["downloadsPath"] = ""
-    applier = ready_applier(service)
-
-    FakeAddon.store["downloadsPath"] = str(tmp_path / "dl")
-    applier.apply()
-    assert refreshed == []  # no view on disk, nothing to re-aim
-
-    managed.mkdir()
-    (managed / playlists.DOWNLOADED_MUSIC_XSP).write_text("<x/>", encoding="utf-8")
-    FakeAddon.store["downloadsPath"] = str(tmp_path / "dl2")
-    applier.apply()
-    assert refreshed == [1]
 
 
 # --- root-menu visibility properties (skins cannot read addon settings) ------
@@ -862,49 +744,3 @@ def test_empty_whos_watching_shortlist_hides_the_menu(monkeypatch):
     assert state.menu_who() is False
     # SyncPlay is independent of the shortlist.
     assert state.menu_syncplay() is True
-
-
-def test_reuse_invoker_toggle_rewrites_addon_xml_and_toasts(monkeypatch):
-    from kofin.core import toast
-
-    applier = ready_applier(FakeService())
-    calls = []
-    shown = []
-    monkeypatch.setattr(
-        "kofin.core.addonxml.apply",
-        lambda enabled, path=None: calls.append(enabled) or True,
-    )
-    monkeypatch.setattr(toast, "show", lambda msg, **kwargs: shown.append(msg))
-
-    FakeAddon.store["reuseLanguageInvoker"] = "false"
-    applier.apply()
-
-    assert calls == [False]
-    assert shown == ["string-30840 %s"]
-
-
-def test_reuse_invoker_toggle_does_not_toast_when_the_write_fails(monkeypatch):
-    from kofin.core import toast
-
-    applier = ready_applier(FakeService())
-    shown = []
-    monkeypatch.setattr("kofin.core.addonxml.apply", lambda enabled, path=None: None)
-    monkeypatch.setattr(toast, "show", lambda msg, **kwargs: shown.append(msg))
-
-    FakeAddon.store["reuseLanguageInvoker"] = "false"
-    applier.apply()
-
-    assert shown == []
-
-
-def test_mark_ready_reconciles_addon_xml_to_the_setting(monkeypatch):
-    FakeAddon.store["reuseLanguageInvoker"] = "false"
-    calls = []
-    monkeypatch.setattr(
-        "kofin.core.addonxml.apply",
-        lambda enabled, path=None: calls.append(enabled) or True,
-    )
-
-    ready_applier(FakeService())
-
-    assert calls == [False]

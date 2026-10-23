@@ -38,7 +38,6 @@ import xbmc
 from kofin.core import settings, state, toast
 from kofin.core.http import JellyfinError, StreamedResponse, Unauthorized
 from kofin.core.log import Logger
-from kofin import buildconfig
 from kofin.downloads import (
     downloads_root,
     export,
@@ -50,9 +49,6 @@ from kofin.downloads import (
     quality,
     store,
 )
-
-if buildconfig.legacy_features():
-    from kofin.downloads import repoint  # noqa: F401 -- the SQL port's module
 
 LOG = Logger(__name__)
 

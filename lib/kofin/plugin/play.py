@@ -14,7 +14,6 @@ import xbmc
 import xbmcgui
 import xbmcplugin
 
-from kofin import buildconfig
 from kofin.core import deviceprofile, kodirpc, settings, state, streams, toast
 from kofin.core.api import Api
 from kofin.core.http import JellyfinError
@@ -31,6 +30,7 @@ from kofin.core.urls import (
 )
 from kofin.plugin import listitems, subtitles
 from kofin.sync import private
+from kofin.sync.backends.api import capabilities
 from kofin.plugin.router import Request
 
 LOG = Logger(__name__)
@@ -211,10 +211,14 @@ def live_timeshift(source: JsonDict, play_method: str) -> Optional[Dict[str, str
 
 def wants_live_timeshift() -> bool:
     """Whether a live item resolved now is for a SyncPlay group with fine
-    sync on: the plugin reads the public session mirror and the setting, so
-    nothing private has to be published for it."""
-    return bool(state.syncsession().get("in_group")) and settings.get_bool(
-        "syncPlayTempo"
+    sync on: the plugin reads the public session mirror, the setting and the
+    capability report, so nothing private has to be published for it. A
+    Kodi without the tempo set plays the live item as it would outside a
+    group, since no pulse could use the timeshift buffer."""
+    return (
+        bool(state.syncsession().get("in_group"))
+        and settings.get_bool("syncPlayTempo")
+        and capabilities.has("tempo")
     )
 
 
@@ -614,14 +618,13 @@ def play(request: Request) -> None:
         _fail(request)
         return
 
-    if buildconfig.BACKEND == "api":
-        from kofin.sync.backends.api.provider import key_from_url
-        from kofin.sync.backends.api.store import namespace
+    from kofin.sync.backends.api.provider import key_from_url
+    from kofin.sync.backends.api.store import namespace
 
-        key = key_from_url(request.base_url)
-        if key and key != namespace(creds.server_id, creds.user_id):
-            _fail(request)
-            return
+    key = key_from_url(request.base_url)
+    if key and key != namespace(creds.server_id, creds.user_id):
+        _fail(request)
+        return
 
     # Before any transport is built: offline, everything below is a wait
     # with a known answer.
@@ -649,7 +652,7 @@ def play(request: Request) -> None:
     segments_thread: Optional[threading.Thread] = None
     try:
         item = api.item(item_id)
-        if buildconfig.BACKEND == "api" and item.get("Type") in NATIVE_MEDIA:
+        if item.get("Type") in NATIVE_MEDIA:
             from kofin.sync.backends.api.identity import native_id_for
 
             try:
@@ -806,12 +809,9 @@ def play(request: Request) -> None:
         # the song's database id has to be restated or the link back to the
         # Kodi row is lost for anything reading the tag.
         li.getMusicInfoTag().setDbId(int(dbid), "song")
-    if not buildconfig.legacy_features():
-        # The SQL build writes chapter thumbs to the texture cache itself
-        # (service/chapters.py).
-        chapters = chapter_art(api, item, source, method)
-        if chapters:
-            li.setArt(chapters)
+    chapters = chapter_art(api, item, source, method)
+    if chapters:
+        li.setArt(chapters)
     li.setPath(url)
     mime = mime_for(source, method)
     if mime:

@@ -15,7 +15,7 @@ holds only what is specific to *this* add-on.
 
 ## What this is
 
-Kofin (`plugin.video.kofin`) is a Jellyfin client addon for Kodi that mirrors selected server libraries directly into Kodi's own SQLite databases (MyVideos/MyMusic) for native library UX, with playback resolved back through `plugin://` paths. It is a rewrite of `jellyfin-kodi` on the principle "rewrite the shell, transplant the organs": the shell (entry points, settings, lifecycle, playback decisions) is new code; the hard-won parts (Kodi DB writers, sync pipeline, SyncPlay) are near-verbatim ports from the Kontell fork (branch:combined/syncplay-sync). See `docs/rewrite-research.md` for the rationale; the per-phase plans in `docs/` record design decisions and deviations.
+Kofin (`plugin.video.kofin`) is a Jellyfin client add-on for Kodi that files selected server libraries into Kodi's own library through Kodi's public interfaces: it is the scanner's source for every item (the `/native/` provider) and patches what a listing cannot carry over JSON-RPC, so Kodi's databases are never opened. Playback resolves back through `plugin://` paths. The shell (entry points, settings, lifecycle, playback decisions) is kofin's own; SyncPlay is a port from the Kontell fork of `jellyfin-kodi`; the catalogue-and-pass pipeline under `sync/backends/api/` replaced the fork's database writers in 0.9x (`docs/kodi-api-sync-feasibility.md`, `docs/kofin-or-implementation-plan.md`). Until 0.95 the add-on also shipped a build that wrote those databases directly (the `sql` branch, frozen at 0.29.2 for Omega); nothing of it remains in this tree. The per-phase plans in `docs/` record design decisions and deviations.
 
 ## Commands
 
@@ -25,8 +25,7 @@ tox
 
 # Individually (venv from requirements-dev.txt):
 pytest tests/unit -q
-pytest tests/unit/test_sync_writers.py::test_movie_write_full_fidelity   # single test
-pytest tests/unit/test_sync_writers.py -k piers                          # one schema leg
+pytest tests/unit/test_api_lifecycle.py -k first_import                  # one test
 black --check --diff .
 ruff check .                                                             # rules in pyproject.toml
 mypy                                                                     # config in mypy.ini
@@ -49,19 +48,17 @@ Kodi restart**, because Kodi caches add-on strings for the process lifetime
 
 ### Branches
 
-Three branches share the add-on id, each for its own Kodi versions, and the Kontell repositories serve each Kodi version its branch (`addons.toml` in repository.kontell):
+`master` is the only developed branch; its versions run from 0.95. Two frozen branches share the add-on id for older Kodis, and the Kontell repositories serve each Kodi version its branch (`addons.toml` in repository.kontell):
 
-- `sql` — the SQL build, Omega onwards, versions below 0.90. The default branch.
-- `api` — the API build, Piers onwards (`xbmc.addon` 21.90.802), 0.90 to 0.94.x.
-- `master` — Kodi 23 alpha onwards (`xbmc.addon` 22.90.701), 0.95.0 and up.
+- `sql` — the SQL build, which wrote Kodi's databases directly: Omega onwards, versions below 0.90, frozen at 0.29.2 and no longer maintained.
+- `api` — the API build with the companion add-on, Piers only, 0.90 to 0.94.x, archived.
 
-**A version never leaves its branch's range.** After a Kodi upgrade a device takes the new Kodi's build only if its version is higher than the one installed, so sql < api < master has to hold for good, and the repository's publisher fails a release that falls in no range. api therefore stays on patch releases of 0.94.x. A change lands on the oldest branch that needs it and goes forward with `cherry-pick -x` (sql → api → master); build-specific changes stay where they are. `sql` stays the default branch because GitHub runs `kodi-schema-watch.yml`'s schedule only from there.
+**A version never leaves its branch's range.** After a Kodi upgrade a device takes the new Kodi's build only if its version is higher than the one installed, so sql < api < master holds for good, and the repository's publisher fails a release that falls in no range. Nothing is cherry-picked between the branches any more.
 
 GitHub Actions mirrors the pvr.kofin split (quality gate vs tag release):
 
-- `.github/workflows/ci.yml` — on every PR and every push to `sql`, `api` or `master`: `black`, `ruff`, `mypy`, and `pytest tests/unit` as separate Checks jobs, plus a `package` job that uploads a Kodi-installable zip artifact (`plugin.video.kofin-<ver>-prN-<sha>.zip` / `…-<branch>-<sha>.zip`, 14-day retention). Live tests are not run in CI. All five jobs are required on `sql`, `api` and `master`, on a branch that is up to date with its base, so run `tox` (the first four) before every push and on every branch of a stack.
+- `.github/workflows/ci.yml` — on every PR and every push to `master`: `black`, `ruff`, `mypy`, and `pytest tests/unit` as separate Checks jobs, plus a `package` job that uploads a Kodi-installable zip artifact (`plugin.video.kofin-<ver>-prN-<sha>.zip` / `…-<branch>-<sha>.zip`, 14-day retention). Live tests are not run in CI. All five jobs are required on `master`, on a branch that is up to date with its base, so run `tox` (the first four) before every push and on every branch of a stack.
 - `.github/workflows/release.yml` — on a `v*` tag: re-runs `black`, `mypy` and the unit tests (not `ruff`, which only `ci.yml` runs), builds `plugin.video.kofin-<ver>.zip`, asserts the tag matches `addon.xml`, and opens a **draft** GitHub release whose body is the top paragraph of `changelog.txt`.
-- `.github/workflows/kodi-schema-watch.yml` — every two days: runs `tools/check_kodi_schema.py` against `xbmc/xbmc` and opens one issue per database schema version newer than the gate, deduped on the issue title against open *and closed* issues labelled `kodi-schema`. It reports, it does not admit — see **The schema gate** below for what admitting one costs.
 
 ### Cutting a release
 
@@ -74,7 +71,7 @@ GitHub Actions mirrors the pvr.kofin split (quality gate vs tag release):
 
    v…
    ```
-   The top paragraph (up to the first blank line) becomes the release body, and on this branch the workflow adds the link to the wiki's API sync variant page beneath it.
+   The top paragraph (up to the first blank line) becomes the release body, and the workflow adds the link to the wiki's Kodi versions page beneath it.
 3. Commit, merge to the branch being released, wait for CI green.
 4. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 5. Review the draft (`gh release view vX.Y.Z`), then **publish it yourself** —
@@ -88,19 +85,15 @@ PR zips are Actions artifacts only; production install zips come from published 
 
 **Cross-process traffic is closed-world.** `core/ipc.py` is the registry of every NotifyAll message kofin sends — nothing may notify a string not declared there. `core/state.py` holds the *only* shared live state (a handful of window properties); anything else "must argue its way into this module". This replaces the fork's ~30 ad-hoc window properties.
 
-**No module-global state.** Service restart tears down and rebuilds objects in-process (no module reload). Module-level mutable state breaks that path. The few exemptions (schema discovery cache, the shims monitor) carry in-place comments explaining why they are restart-safe; new globals need the same argument or a different design.
+**No module-global state.** Service restart tears down and rebuilds objects in-process (no module reload). Module-level mutable state breaks that path. The few exemptions carry in-place comments explaining why they are restart-safe; new globals need the same argument or a different design.
 
-**SQL/API branch boundary.** Phase 1 keeps shared metadata/policy, orchestration and private storage under their existing paths while moving native operations behind `sync/backends/sql/`. `sync/private.py` is the only private database entry point for shared callers. `buildconfig.py` selects the branch's backend; `tools/package_manifest.py` controls both ZIP and development installation. The internal API profile physically omits native SQL modules and gates unfinished features. See `docs/research/kofin-or/phase1/README.md` for contracts, verification and the remaining native-ingestion work. A shared change goes forward from the oldest branch that needs it (**Branches**, above); profile and version changes specific to one build stay on its branch.
+**One backend.** `sync/backends/api/` is the library pipeline: `store.py` the catalogue (kofin.db), `library.py` the thread, `native.py` the pass, `provider.py` the scanner's source, `metadata.py` the serializer, `patch.py` the comparator, `readback.py`, `removal.py` and `kinds.py` the kind table. `sync/private.py` is the only entry point to kofin.db. `tools/package_manifest.py` lists what the zip and the development install ship, and both carry the whole tree. `docs/research/kofin-or/phase1/README.md` records the contracts the pipeline was built to.
 
-**The transplant boundary.** `lib/kofin/sync/writers/`, `lib/kofin/sync/kodidb/`, `fields.py`, `obj.py` and `lib/kofin/syncplay/` are ported fork code; `lib/kofin/sync/shims.py` provides the fork-compat helpers they import. They keep the fork's *shape* — the `obj` dict mapped from `obj_map.json`, the positional `*_obj` spec lists fed to `values()`, one writer method per media type — so a change can still be read against the fork. They do **not** keep the fork's semantics where the fork was wrong: about half the lines in `writers/movies.py`, `kodidb/movies.py` and `kodidb/music.py` post-date the port, each deviation annotated in place ("Deviation from the fork: …") and pinned by name in the L2 suite. What protects correctness is therefore `test_sync_writers.py` across every gated schema — full-fidelity rows, byte-identical idempotency dumps, zero-orphan removal — not equivalence with the fork: the A/B harness (`tests/live/ab_diff.py`) ran once, on the day of the port, for movies only, and is a historical artefact. Any restructure inside the transplant is proven by the idempotency dumps (same rows before and after), and a new deviation carries its note and its L2 test. The pipeline began as a port and is now kofin's own, split along its seams in phase 2 (`docs/sync-refactor-assessment.md`, `docs/sync-refactor-phase2-plan.md`): `library.py` is the orchestrator (queues, the tick, the command table), with the widget-refresh policy in `refresh.py`, the clocks in `clock.py` (one `Deferred` primitive), the worker threads and the pager in `workers.py`; `full_sync.py` keeps the library queue and the one walk, with the restore points (`restorepoints.py`), the update-mode plan (`prune.py`), the boxsets pass (`boxsets.py`) and the removal (`removal.py`) beside it, and the note above `Library.claim` naming what a sync needs from the Library (`tests/unit/synchost.py` is the one fake); `downloader.py` is the server-side paging; `views.py` keeps the view table and the regeneration hash, and everything it generates lives under `nodes/` (`fs.py` is the only code that deletes there) and `playlists.py`. Shell code (`core/`, `plugin/`, `service/`) follows current idioms; expect two dialects and match whichever file you are in.
+**What is still a port.** `lib/kofin/syncplay/` is ported fork code and keeps the fork's shape so a change can still be read against it; `sync/shims.py` is what remains of the compat layer the fork's writers imported, three helpers. The database writers, the sync orchestrator and the L2 schema suite that proved them went with the SQL build. Shell code (`core/`, `plugin/`, `service/`) and the pipeline follow current idioms; match whichever file you are in.
 
-**The schema gate.** `sync/schema.py` refuses to write any Kodi database version not in its `SUPPORTED` map (currently Omega MyVideos131/MyMusic83 and Piers MyVideos146/MyVideos147/MyVideos148/MyVideos149/MyMusic84). Supporting a new Kodi version means: dump `.schema` fixtures from a real untouched install into `tests/fixtures/`, extract creation-time seed rows, add the version to the L2 parameterization in `tests/unit/kodifixtures.py` + `test_sync_writers.py`, confirm the suite passes, then open the gate. Version-dependent constants (e.g. `EXTRA_ITEM_TYPE` — Piers renumbered Kodi's VideoAssetType enum) are keyed in `schema.py`, never inlined in writers. A bump that provably changes no DDL can reuse the previous version's fixture, but only with the upstream evidence written down — `docs/myvideos147-gate.md` is the worked example. Do not reach for that shortcut by analogy: every Piers bump since has moved DDL, each time by adding a `streamdetails` column — 148 `iSource`/`iVersion`, 149 `iFlags`. `docs/myvideos148-gate.md` is the worked example of the full path, including why a NULL `iSource` is not a regression and what writing it deliberately would buy; `docs/myvideos149-gate.md` follows it, and says why a NULL `iFlags` costs nothing at all. `test_sync_schema.py` refuses any `SUPPORTED` entry lacking a fixture and its keyed constants.
+**Two stores, and none of Kodi's.** `kofin.db` holds the catalogue (payloads, placements, acknowledgements and the mapping to Kodi's ids), the playlist state and the download table; `sync.json` holds the whitelist and the sync state. Kodi's MyVideos and MyMusic are never opened: `tests/package/probe.py` runs the shipped tree with every such open refused.
 
-**A schema version is frozen for the life of a stable series, and moves constantly before it.** 19.0–19.5 all ship MyVideos119, 20.0–20.5 all ship 121, 21.0–21.3 all ship 131 — a point release has never bumped one. Within a development cycle it moves several times: Piers went 137 → 139 → 143 → 146 → 149 across a1…b2, with MyMusic 83 → 84 at a3 and Textures 13 → 14 at a1. So the watcher only has to follow the *development* line, which is `master` (Kodi 23 alpha since `Piers` branched for 22.0rc1); released branches are probed because it costs one HTTP request and proves the freeze, not because they are expected to move. Branch discovery is by codename pattern (`^[O-Z][a-z]+$`), so Piers and its successors are picked up without an edit. The constant itself is *not* stable: it has moved file twice (`VideoDatabase.cpp` on Omega, `VideoDatabaseMigration.cpp` on master), which is why a probe that cannot find it **fails the run** instead of reporting nothing new.
-
-**Three databases.** Kodi's own MyVideos/MyMusic (written directly, explicit column lists everywhere so additive schema changes are harmless); `kofin.db` mapping Jellyfin ids to Kodi ids with checksums for idempotency; `sync.json` as the resumable sync queue (entries leave only on success or a server-side 404). The chapter-thumbnail feature additionally writes Kodi's texture cache (Textures13/14) at playback time, behind the same schema gate (`sync/kodidb/texture.py`, seeded and reverted per play by `service/chapters.py`).
-
-**Tests are layered.** L1 units run against Kodistubs plus fakes in `tests/unit/fakes.py`. The L2 writer suite (`test_sync_writers.py`) runs the real writers against pristine databases built from the checked-in schema dumps, parameterized over every gated schema (`[omega]`/`[piers]`/`[piers147]`/`[piers148]`/`[piers149]` ids) — full-fidelity, idempotency (byte-identical dump), and zero-orphan removal invariants. Live gates per phase are tracked in `docs/testing-plan.md`.
+**Tests are layered.** L1 units run against Kodistubs plus fakes in `tests/unit/fakes.py`. The pipeline's suite (`test_api_*.py`) drives the real store, pass and provider against the fake Kodi in `tests/unit/apikodi.py` and the fixtures in `apifixtures.py`. `test_package.py` builds the zip, checks what it ships and runs the browser contracts against the staged tree. Live gates per phase are tracked in `docs/testing-plan.md`.
 
 ## Constraints that are easy to re-break
 
@@ -109,68 +102,37 @@ Generic Kodi constraints that used to live here are now in kodi-drive, and are n
 `kodi-plugin-handles`), `xbmcaddon.Addon()` during an update and overlapping service generations
 (`kodi-addon-lifecycle`), the string cache (`kodi-process-control`), bare-number node labels and
 `folder.jpg` (`kodi-library-nodes`), texture-cache re-encoding and chapter cache keys
-(`kodi-texture-cache`), never writing the library through JSON-RPC and the MyMusic trigger clock
-(`kodi-database-writing`), `PlayMedia`'s resume flag and subtitle ordering
+(`kodi-texture-cache`), `PlayMedia`'s resume flag and subtitle ordering
 (`kodi-playback-resume`), `UserDataChanged` fan-out and the 10.9 route migration
 (`jellyfin-client`), and settings `<dependencies>` on a `list[string]` (`kodi-addon-manifest`).
 
 What remains is kofin's own:
 
+- **Kodi's databases are never opened.** Every row kofin files reaches Kodi through the scanner
+  or JSON-RPC, and `tests/package/probe.py` runs the shipped tree with every `MyVideos*`,
+  `MyMusic*` and `Textures*` open refused. The retired SQL build's rows are told apart by URL
+  (the first-run gate below); nothing here reads or writes them.
 - Generated nodes live under `special://profile/library/video/kofin/` and **every deletion path is
   gated on the `kofin` name prefix** — hand-made nodes share the tree.
 - Generated playlists live in a `Kofin/` folder under Kodi's own `playlists/video/` and
   `playlists/music/` — **capital K** — with three ownership rules. Under `playlists/video/Kofin/`
   the `kofin` prefix still gates `.xsp` deletion and a foreign non-m3u8 file is spared
-  (`views.py`); unmanaged `.m3u8` in that folder are Jellyfin video playlists and are pruned
+  (`nodes/fs.py`); unmanaged `.m3u8` in that folder are Jellyfin video playlists and are pruned
   (`playlists.py`). Under `playlists/music/Kofin/` the **folder** is the boundary — the
   managed `.m3u8` files are named after the Jellyfin playlist's title, carry no prefix, and every file not in
   the managed set is removed on reconcile. Nothing of the user's may be told to live in
   either music `Kofin/` or as a `.m3u8` under video `Kofin/`.
-- **A video playlist line is `CVideoDatabase::ConstructPath`, not path+filename.** Plugin
-  rows store the full plugin URL in `files.strFilename`; joining it onto `path.strPath`
-  doubles the URL and Kodi will not match the library row — no artwork, duration or DBTYPE
-  until playback stamps a ListItem. `video_playlist_line` returns the filename unchanged
-  when the path is `plugin://` (or the filename is a stack).
 - **A playlist rewrite keeps the stored filename while the title still matches,**
   including a disambiguated `Name (2).m3u8`. `_unique_stem`'s taken set is collisions
   for *other* names. Seeding it with our own stem made every membership rewrite pick
   `Name (2).m3u8` and ping-pong; recomputing the stem when the base name is not yet
   reserved renames `Name (2).m3u8` onto whoever owns `Name.m3u8`. `apply_one` and
   `reconcile` both go through `assign_playlist_filename`.
-- Every show's path row carries `strContent='tvshows'` + `metadata.local` **and**
-  `useFolderNames=1`, and the episode object repeats the stamp.
-- **A boxset pass ending with zero linked members must not stamp its reference checksum** —
-  `writers/movies.py` writes it NULL on purpose, and the NULL is what drives the drift probe.
-- Reference checksums have exactly one spelling: `fields.reference_checksum`. Never inline
-  `"|plugin"`; the feed and prune comparators used to, and agreed with each other while both
-  being wrong.
+- Reference checksums have exactly one spelling: `policy.reference_checksum`. Never inline
+  `"|plugin"`; the playlist state and the change feed both compare through it, and two
+  comparators once agreed with each other while both being wrong.
 - The backdrop is `fanart.webp` and **every part of that name is load-bearing**
   (`service/backdrop.py`, `core/api.py::splashscreen`, `plugin/browse.py`).
-- Extras/videoversion writes read the VERSION itemType from the seeded 40400 row and the EXTRA
-  value from `schema.EXTRA_ITEM_TYPE` — both differ across gated schemas.
-- **MyMusic's `versiontagscan` holds exactly one row, and the wipe puts it back.** Kodi's
-  `GetMusicNeedsTagScan` returns -1 for any other count, and the music window then asks to
-  "rescan tags from files" on every visit; accepting is a `SCAN_RESCAN` of every music path,
-  which re-reads every directory a plugin source has (hours for 1,557 album folders on a
-  tablet). Kodi's own stamp after that rescan is an UPDATE, so an empty table never heals.
-  `schema.MUSIC_SEED_SQL` carries the row per version and `test_sync_schema` refuses a seed
-  set that names another.
-- **A single-file movie's `MediaSource.Name` is its file stem, not a label.** Jellyfin's
-  `GetMediaSourceName` returns the file name without extension unless local alternate versions
-  exist (then the folder prefix is stripped and a suffix label remains). `resolve_version_type`
-  maps a stem-named source to the seeded Standard Edition; minting a `videoversiontype` row per
-  name put 1,799 entries in Kodi's "Manage versions" picker for 1,784 films, none versioned, and
-  nothing sweeps that table but kofin's own `sweep_orphan_version_types` (Kodi's only deletes are
-  its v128/v131 migrations). A rewrite or removal runs the sweep; Repair converts old profiles.
-- **An empty listing against existing references is not a deletion order** — the rule lives in
-  three places and every one is load-bearing: `boxsets.sweep_stale`, the prune's
-  `get_existing_ids`, and `Views.get_views`, whose floor is gated on the whitelist (not on "no
-  views", since a Live TV grant still lists one) and sits *before* the `SortedViews` stamp,
-  because an empty stamp would regenerate an empty node tree. A withdrawn user gets `/UserViews`
-  200 with zero items and a 403 on MediaFolders (executed on jf12, `tests/live/jf12_user_policy.py`).
-  `Api._json` maps a 200 with no body to `{}`; that is **not** `{"Items":[], "TotalRecordCount":0}`.
-  The prune map and the stale-id confirmation both refuse a shapeless body rather than read it as
-  "none exist" (`test_get_id_etag_map_refuses_an_empty_body`, `test_get_existing_ids_refuses_a_shapeless_confirmation`).
 - **`sslVerify` is one setting for every TLS socket**, HTTP and WSS. websocket-client 1.6.4 injects
   `CERT_REQUIRED` when `sslopt` is omitted, so a self-signed server with verify off listed fine and
   the websocket never came up. `WSClient` and the SyncPlay time-sync socket pass `sslopt` on `wss://`.
@@ -187,58 +149,14 @@ What remains is kofin's own:
   device that had just refused av1, from *second* place in the list. Every codec in
   `_transcoding_profiles` must be gated on the same list that gates direct play; reordering
   cannot substitute for withdrawing it.
-- `downloader._get_items` **must fail loudly**: it submits every page up front, so a swallowed
-  error yields zero pages, which reads downstream as an empty library rather than a failure.
-- **A downloaded item plays from disk however it is reached, online included.** The repoint
-  (`downloads/repoint.py`) only covers plays that go through Kodi's own row, so `plugin/play.py`
-  is the only place that can enforce it for anything playing by *id* — a kofin listing, a widget,
-  a SyncPlay group start. The preference was offline-only once, and the plan's "downloaded items
+- **A downloaded item plays from disk however it is reached, online included.** A download leaves
+  Kodi's row on its plugin URL, so `plugin/play.py` is the one place that can enforce it for
+  anything playing by *id* — a kofin listing, a widget, a SyncPlay group start. The preference was offline-only once, and the plan's "downloaded items
   never reach the plugin" is what SyncPlay disproved: the initiator adopts the group queue for
   the playback it is already running (`syncplay/manager.py`), so only the follower reloads, and
   it streamed media the initiator was playing locally. `resolve_downloaded` pushes the claim
-  itself rather than leaving it to `backfill_library_claim`, which needs a Kodi dbid off
-  `Player.OnPlay` that a group start does not carry. A request naming a source, a track or a
-  bitrate still streams — a download has only the tracks it was made with.
-- **A worker that dies without `is_done` is still in the list.** Drain and spawn treat that slot as live, so a crashed `GetItemWorker` (Tab: three updated-download threads, never logged `--<[ q:download`) holds the watermark still and FastSync replays the same window forever. Reap `not is_alive()` after `start()`, and hold the watermark.
-- **The library tick must not wait on the GUI.** `Window.setProperty` and `DialogProgressBG.update` wait on Kodi's app thread (`CEvent::Wait` / DelayedCallGuard). Publishing `kofin.sync.active` from every writer spawn froze the Bravia manager inside one tick (bar at 76%, drain never reached). `enable_pending_refresh` is a flag; the paint is async and skipped if one is already in flight; the watermark commits *before* any of that.
-- **A single's album has no kofin.db row.** `song_add` creates it on the fly (`strReleaseType=single`, empty title) when Jellyfin never modelled an album, and the song mapping's `parent_id` is the kodi album id. Song removal has to take that empty unmapped album with it — the fork's wild-id lookup ran after it had already deleted the prefix it was looking for, so the shell stayed and Kodi rendered it as "Singles" under the artist. Startup `prune_orphan_singles` heals rows already left behind. A mapped MusicAlbum is someone else's remove.
-- **A downloaded song's server path row is referenced by nothing while the download lives.**
-  MyMusic has one `path` row per song and the repoint moves `song.idPath` off it, so any sweep
-  of unreferenced rows — Kodi's own Clean library, or kofin's startup `prune_orphan_paths`
-  before it read the mapping — takes it, and a restore by the stored id then leaves the song on
-  a deleted row, which `songview` drops from every listing (four empty albums on the Bravia,
-  2026-08-28). The prune spares rows kofin.db still maps, the repoint captures `restore_path`
-  and the restore get-or-creates from it, and `song_update` re-resolves a missing row so a
-  Repair heals old damage. Never put a song back by a path id alone.
-- **A mapped kodi artist id whose row is gone is not a credit.** A MusicArtist written before it
-  has albums is absent from `song_artist` ∪ `album_artist`, so Kodi's `CleanupArtists` deletes
-  the row; kofin.db keeps the mapping. The next song rewrite then stamped `song_artist` at the
-  ghost id and `prune_song_credits` dropped every live credit that still joined — Kodi's
-  listings inner-join `songartistview`, so the album opened empty (Má Vlast on the Bravia,
-  2026-09-16). `song_artist_link` / `artist_link` recreate the row (the same repair `artist()`
-  already does when it runs) and refuse to add a ghost to `credited`. Startup
-  `heal_missing_artists` puts the row back from the credit's denormalised name so a service
-  bounce lists the album again without a Repair.
-- **A song's artist credits are replaced on every rewrite, and an artist that arrives after its
-  content re-credits it.** Jellyfin fills `ArtistItems` by looking the tag names up against the
-  entities that exist at request time (a lookup, never a create) and materialises new entities in
-  the scan's post-scan pass, so a track written between the two credits the album artist by
-  fallback and the artist-added event that follows names only the artist — the track's Etag
-  never moves (#188). `Music.relink_content` runs for a *new* artist row on the realtime path
-  only (`self.library is None`; a full sync writes artists first and must never pay for the
-  listing — an L2 test counts the queries), lists the artist's content once and rewrites the
-  mapped albums and songs that lack its link with `force=True` through `check_unchanged`.
-  `prune_song_credits` is what lets that rewrite drop the fallback credit: the fork only ever
-  added to `song_artist`, and the incidental server-side recovery left every such track with
-  two credits.
-- **An album's album-artist credits are replaced on every rewrite.** `artist_link` only ever
-  added (`INSERT OR REPLACE` keyed on artist+album never removes a row), so a credit
-  `AlbumArtists` no longer carries — a MusicBrainz conductor left on the album after the
-  server went back to the file tag — outlived every Etag change. `prune_album_artists` drops
-  the stale `album_artist` rows and that artist's discography row for this title when no
-  other album of the same name still links them. The song leg still *adds* album artists from
-  a track's `AlbumArtists` (discography for an album artist absent from `ArtistItems`); it
-  prunes only a single's synthetic album, which never passes through the album writer.
+  itself, since a group start carries no Kodi dbid off `Player.OnPlay`. A request naming a
+  source, a track or a bitrate still streams — a download has only the tracks it was made with.
 - **A scanner ListItem never stamps a zero resume point** (`metadata.build` passes
   `stamp_zero_resume=False` to `listitems.build`). Kodi's scanner persists any *set* point —
   `CBookmark::IsSet` is `totalTimeInSeconds > 0` — as a type-1 bookmark, and the in-progress
@@ -259,8 +177,8 @@ What remains is kofin's own:
   `containssingleitem`). Kodi takes a plugin path's parent to be the plugin *root*
   (`URIUtils::GetParentPath`), so a folder never inherits the root's binding and the scanner
   skips it — 79 shows, one listing, nothing imported on the P1D until the bindings existed.
-  The API profile's manifest keeps all three `medialibraryscanpath` content types rewritten to
-  `/native/` (`tools/package_manifest.py`); with only `movies` Kodi refuses tvshows outright.
+  `addon.xml` binds all three `medialibraryscanpath` content types to `/native/`; with only
+  `movies` Kodi refuses tvshows outright.
 - **Three things the API backend applies without a native row, on purpose:** an unnumbered
   special (season 0, no number — Kodi's scanner cannot file it, `ProcessItemByVideoInfoTag`), a
   season with no importable episode (`season_view` joins episodes, so `GetSeasons` never
@@ -281,7 +199,9 @@ What remains is kofin's own:
   scoped readback, a child of a show that is going is acknowledged only when the show's removal
   is confirmed, and a set is acknowledged after the apply pass has unfiled its movies and
   `GetMovieSets` — which lists only sets a movie links (`GetSetsByWhere` groups `movie_view`) —
-  no longer shows it. A collection without a Kodi row (its movies unsynced, or the one a movie
+  no longer shows it; the empty row Kodi keeps is removed by id with the `remove_set`
+  feature (`RemoveMovieSet`, kontell/xbmc #7), and without it stays, in no listing, for
+  Kodi's own Clean library. A collection without a Kodi row (its movies unsynced, or the one a movie
   in two collections did not take) is applied without a row, never left pending.
 - **A native song's URL is a file in its album directory, never a query.** Kodi's music
   database splits a URL into path and file name with the options dropped (`URIUtils::Split`
@@ -385,26 +305,19 @@ What remains is kofin's own:
   box, which does not) and `SetEpisodeDetails`/`SetTVShowDetails` ignore an empty string, so a
   desired `""` never matches the row: 187 items re-patched on every pass. `metadata.details`
   drops an empty `dateadded`, `premiered` or `firstaired` key.
-- **The API build's progress bar paints once a second at most and never per item**
+- **The progress bar paints once a second at most and never per item**
   (`backends/api/progress.py`). `DialogProgressBG.update` waits on Kodi's app thread; the
   applier calls `step` per item and the bar decides whether to paint. The same setting passes
-  `showdialogs` to the scan calls. Both settings must stay in the API profile's
-  `settings.xml` (`tools/package_manifest.py`): `getSettingBool` on a setting the build does
-  not define raises `TypeError`, and that failed every pass on the box once.
-- **The API build's sync status is a file, never a setting.** The library thread writes
+  `showdialogs` to the scan calls. Both settings stay in `settings.xml`: `getSettingBool` on
+  a setting the build does not define raises `TypeError`, and that failed every pass on the
+  box once.
+- **The sync status is a file, never a setting.** The library thread writes
   `sync-status.json` when its state changes (`backends/api/status.py`) and the "Library status"
-  button reads the catalogue when it is opened (`plugin/actions.py::library_status`);
-  `syncStatus` and `syncedLibraries` are the SQL build's and are not in the API profile. The
+  button reads the catalogue when it is opened (`plugin/actions.py::library_status`); the
+  SQL build's two read-only lines, `syncStatus` and `syncedLibraries`, are gone. The
   state is written by a listing as well as by the pass, with the names of the libraries
   listed for the first time: the catalogue has no row of one until its listing is published,
   and a first selection read "Done" for as long as the server was being asked.
-- **A profile adds to settings.xml what the file cannot carry for both builds**
-  (`tools/package_manifest.py`). `VISIBLE_WHILE` hides the three direct play lists under force
-  direct play in the API profile only: on Kodi 21 a `<dependencies>` block on a `list[string]`
-  setting unregisters the setting it names, and the SQL build still installs there. Hidden,
-  the lists keep their values, and a context-menu transcode and the download decision still
-  read them. `HELP` swaps a help string the same way: "Transcode music" rewrites no path in
-  the API build, where it only decides whether the music bitrate limit applies.
 - **Kodi's player owns the row of what it plays.** The server counts a play when it starts
   (and marks a song played there and then), so its user data for the playing item, written
   to Kodi during the play, was counted again by Kodi's own player at the end: one play of a
@@ -451,9 +364,11 @@ What remains is kofin's own:
   `_stream_source`): read off the first source alone, every such row was filed with a stub
   video stream and no audio or subtitle. A stream's default, forced and hearing-impaired
   flags are listed with it by the names an NFO's `<flag>` takes (`metadata._streams`,
-  kontell/xbmc #9). Streams have no setter, so `SCANNER_FORMAT` (3: the flags) numbers
-  what a listing carries and a **manual** Repair rebuilds a video library filed under an
-  older one (`Library.rebuild_stale`): never a pass, since the library is gone from Kodi
+  kontell/xbmc #9, the `stream_flags` feature; without it no flag is set). Streams have no
+  setter, so the scanner format numbers what a listing carries (`metadata.scanner_format`:
+  3 with the flags, 2 without) and a **manual** Repair rebuilds a video library filed under
+  a lower one than this Kodi reaches (`Library.rebuild_stale`; a library a Piers filed is
+  not stale on that Piers, and is on the Kodi 23 the profile moves to): never a pass, since the library is gone from Kodi
   until the import has run. The rebuild is on record in the store (`store.REBUILDING`) and
   no path lists the library while its old rows are still leaving.
 - **Album and artist artwork is applied between the music scan and the video scans**
@@ -499,9 +414,21 @@ What remains is kofin's own:
   a clean, whose per-file `check_exists` is `provider.exists` (a version file exists while
   the movie still lists its source, an extra while the movie's payload still names its stem).
   The pass runs that clean itself, of the one movie's folder, when the movie's acknowledged
-  file list (`asset_files`) lost an entry (`patch.assets_dropped`, `Native.retire_assets`);
-  Kodi 23 asks the add-on about the folder's versions and extras and keeps what it cannot
-  answer for (kontell/xbmc #1, #2, #10). The source is read from the request's query, never
+  file list (`asset_files`) lost an entry (`patch.assets_dropped`, `Native.retire_assets`),
+  and only with the `asset_clean` feature: Kodi 23 with kontell/xbmc #1, #2 and #10 asks the
+  add-on about the folder's versions and extras and keeps what it cannot answer for, where
+  a Kodi without them asks about every bound folder of every library and deletes the path
+  row of one left unanswered, so the rows are left for the viewer's own Clean library, said
+  once in the log per pass. What that clean does with them is Kodi's version: Kodi 23's
+  clean asks the add-on about a version's or an extra's file row and takes one answered no
+  (a dropped extra left stock master's library that way, rig run of 23 October 2026);
+  Kodi 22's `CleanDatabase` deletes only the files of the movies and episodes it removes,
+  so there the rows stay until the movie leaves, whatever the add-on answers (22.0b2, the
+  same extra survived a full clean, asked and answered no). Without the
+  `video_versions` feature (#8) the folder lists the movie's own file and its extras alone:
+  the default source plays, the assets token and file list name the extras only, and
+  `provider.exists` answers no for a version file, so a row an earlier Kodi filed leaves
+  the day something asks (a Kodi with #10). The source is read from the request's query, never
   from `base_url` (Kodi's `argv[0]`, which has none): read from there, every version file
   existed. A version file is the movie's URL with `mediasourceid`. Every file of a movie with
   several sources says it has versions, the movie's own as the default, under the movie's
@@ -538,25 +465,45 @@ What remains is kofin's own:
   binding and asks nothing. The scan that files a movie's extras binds the folder
   (`scan_video`), and `bind_movie_folders` binds those an earlier build filed once per profile
   (`apiMovieBindings` at `noupdate+extras`), so no pass reads every acknowledgement for them.
-- **This build needs a Kodi 23 carrying kontell/xbmc #1–#13, and uses each change
-  unconditionally.** `addon.xml` imports `xbmc.python` 3.2.0 (#8, #9 and #13 raise it), and
-  `requirements.json` lists every interface the build calls (`RemoveMovieSet`, `plot` on
-  `SetSeasonDetails`, `tag` on `SetEpisodeDetails`, the version flags, the stream flags, a
-  song's date added), so a Kodi without one keeps native sync off and the probe names what
-  is missing (`capabilities.inspect`). There is no companion add-on and no fallback: a Kodi
-  without a change is not this build's. The Piers build (`api`) keeps the companion. The
-  first start deletes the `companion/` folder an earlier build left in the profile
-  (`backends.api.forget_companion`); a companion still installed reads the missing request
-  document as asking nothing, and its schema gate (MyVideos149) refuses Kodi 23's databases.
-- **A season's plot and an episode's tags are patched like any other field** (kontell/xbmc #6,
-  #12). An empty server plot is no opinion: `SetDetailsForSeason` writes no empty plot, so a
+- **One build for Piers and Kodi 23: what a Kodi lacks is off by name, never an error.**
+  `requirements.json` has a *baseline* (the Piers floor: `minimum_kodi_major` 22,
+  `xbmc.addon` 21.90.802, `xbmc.python` 3.1.0, and the interfaces every Kodi the build
+  installs on offers) and a *feature table*; `capabilities.inspect` probes both at every
+  service start from one capture (`JSONRPC.Introspect`'s methods and types, the system
+  add-ons' versions, `hasattr` on the info tags and stream detail classes), writes
+  `api-capabilities.json`, and logs one line. A Kodi short of the baseline keeps native
+  sync off with the reasons in Library status; a feature is on only while every one of
+  its probes passes, and `capabilities.features()` / `has()` / `table()` are how the pass,
+  the provider (plugin process), the play route and SyncPlay read it, by name, from the
+  report. Three rules follow. **R1:** Kodi's schema shapes the kind table and every
+  desired state: a setter field or a readback property Kodi does not name is neither
+  sent, compared nor requested (on Piers `tag` in `Video.Fields.Episode` is absent and a
+  `GetEpisodes` that asks for it fails whole; `kinds.FEATURE_FIELDS` names the gated
+  fields, `kinds.properties` applies them to every readback, and `metadata.details` leaves
+  them out of the desired state). **R2:** the feature set is an input of every
+  acknowledgement (`inputs_token`, `SCANNER_FORMAT`, `assets_token`), and the pass stamps
+  the set it ran with (`store.features_applied`): a set that moved since the last pass, a
+  Kodi upgrade, runs the next pass as a repair, the compare of every row, where nothing is
+  written that already matches, and a Kodi that lacks a feature is never told its library
+  is stale for it. **R3:** a feature that is off says so once, in the start log and under
+  "Not on this Kodi" in Library status, never per item or per pass. Two features are
+  proxies for behaviour Kodi cannot be asked about: `asset_clean` (kontell/xbmc #1, #2,
+  #10; the folder clean is unsafe without them) is `xbmc.python` ≥ 3.2.0, the version the
+  change set raises it to, until the three are upstream and Kodi's major can stand for
+  them; `tempo` (the tempo set, #14–#19 and #37–#39) is the `correction` flag #38 adds to
+  `Player.SetTempo`. The first start still deletes the `companion/` folder an earlier build
+  left in the profile (`backends.api.forget_companion`).
+- **A season's plot and an episode's tags are patched like any other field where the Kodi has
+  the feature** (kontell/xbmc #6, #12: `season_plot`, `episode_tags`; elsewhere neither is in
+  the desired state nor in a readback). An empty server plot is no opinion: `SetDetailsForSeason` writes no empty plot, so a
   plot the server cleared stays in Kodi. A show's refresh token carries its seasons' numbers
   only (`metadata.refresh_fields`), so a season plot no longer refreshes its show.
 - **Chapter art is the resolved item's `chapter<n>` art** (`plugin/play.py::chapter_art`,
   kontell/xbmc #11): the server's image for each chapter it has one for, numbered from 1 as
   Kodi numbers chapters, on a direct play of the item's own file. Kodi's own extractor
-  refuses every http source, and a transcode's stream has no chapters.
-- **The API build's presentation is built from the catalogue, never from Kodi's tables.**
+  refuses every http source, and a transcode's stream has no chapters. A Kodi without #11
+  ignores the keys and fetches nothing for them, so they are set on every Kodi.
+- **The presentation is built from the catalogue, never from Kodi's tables.**
   `sync/dynamic.py` writes the node tree for whitelisted video libraries with filter rules on
   the library tag (`metadata.library_tag`, the tag `metadata.tags` puts on every row; the
   serializer owns the spelling and the presentation imports it) and the smart playlists
@@ -564,16 +511,14 @@ What remains is kofin's own:
   and takes the tree down by the `kofin` prefix when nothing is synced. A whitelisted music
   library gets its folder in the music tree (`kofinmusic<id>`, `nodes/music.write_music_nodes`),
   whose nodes filter on `path`, the folder its songs are filed under: a music `path` rule takes
-  an album or an artist by its songs, and the SQL tree's Kodi music sources are never written
-  here. The Manage menu reads a library's downloads from that folder's path. Blank login ids
+  an album or an artist by its songs. The Manage menu reads a library's downloads from that folder's path. Blank login ids
   take the tree down only from a store that answered (`dynamic.music_entries`): an
   unregistered add-on and a settings document that did not load read blank too. Kodi's music nodes
-  are seeded first, the skin entry stays Kodi's music root, as in the SQL build, and there is no
-  Downloaded folder: a download keeps its plugin URL, so a rule on the downloads folder matches
-  nothing. For the same reason the Downloaded-music view is not the shared smart playlist here
-  but `Downloaded music.m3u8`, the finished songs listed from the download store
-  (`backends/api/playlists.write_downloaded_music`), rewritten by the port's song playlist
-  refresh; its stem is reserved in the managed folder (`playlists.RESERVED_STEMS`). A server
+  are seeded first, the skin entry stays Kodi's music root, and there is no Downloaded folder: a
+  download keeps its plugin URL, so a rule on the downloads folder matches nothing. For the same
+  reason the Downloaded-music view is not a smart playlist but `Downloaded music.m3u8`, the
+  finished songs listed from the download store (`backends/api/playlists.write_downloaded_music`),
+  rewritten when a download finishes or leaves (`downloads/nativeport.py`); its stem is reserved in the managed folder (`playlists.RESERVED_STEMS`). A server
   playlist stored under that name earlier moves to `(2)` on its next pass, Etag or not, and
   the old name is removed only while it is still that playlist's copy (`_remove_stored`).
   **Kodi's shipped video nodes are seeded into the profile
@@ -588,10 +533,9 @@ What remains is kofin's own:
   and states, when its last library leaves the selection (`backends/api/playlists._drop_side`;
   `RemoveLibrary` marks the pass due), and a playlist file the resolver left short — an entry
   the pass had not filed yet — withholds its Etag checksum, because the server's Etag does not
-  move when Kodi files the item. `sync/playlists.py` ships in both builds: its
-  native database imports are deferred to the SQL refresh functions, and `apply_one` and
-  `reconcile` take a `resolver`; the API one (`backends/api/playlists.py`) gives a line for an
-  item the pass has acknowledged, the resolver URL Kodi filed the row under, and the label
+  move when Kodi files the item. `sync/playlists.py` keeps the files, the naming, the state and
+  the prune rules; `apply_one` and `reconcile` take a `resolver` (`backends/api/playlists.py`),
+  which gives a line for an item the pass has acknowledged, the resolver URL Kodi filed the row under, and the label
   from the server's listing. Widget refresh is Kodi's own where Kodi announces: a setter that
   moves a play count, a last played or a resume point does, the music hold hides a pass's,
   and the first-content reload is the one builtin the pass fires. **A setter that changes
@@ -603,12 +547,11 @@ What remains is kofin's own:
   (`Native.announce_writes`, `Applier.badges_moved`): after its last setter, through `scan`
   so that a running scan is waited for and not stopped, and without Kodi's dialog. Other
   art-only patches still reach no widget until something else announces.
-  **`libraryNodes` is the API build's one switch for all of it** (`dynamic.wanted`): off takes
+  **`libraryNodes` is the one switch for all of it** (`dynamic.wanted`): off takes
   down the tree, the smart playlists and both `Kofin/` playlist folders, and publishes a
   synced video library as a browse entry (a synced music library keeps Kodi's music root,
   which is Kodi's). Only an explicit `false` is off — an empty read is a settings document
-  that did not load, and off deletes files. `syncMusicPlaylists` stays the SQL build's; each
-  profile ships one of the two (`package_manifest.DISABLED_SETTINGS`).
+  that did not load, and off deletes files.
 - **Every movie folder is bound, noupdate, or the info dialog has no cast.** Kodi's info dialog
   loads a library movie's full details, cast included, only when `GetScraperForPath` finds a
   scraper on the movie's own `strPath` (`CGUIWindowVideoBase::ShowInfo`); otherwise it shows
@@ -622,26 +565,23 @@ What remains is kofin's own:
   build bound without it. A scan by name lifts the flag around the scan, which the scanner
   would otherwise skip too (`ignoreFolder` in `DoScan`), and puts it back in a `finally`.
   Observed on the P1D: Delicatessen's dialog listed no cast unbound and all 20 bound.
-- **A download moves nothing of Kodi's in the API build.** `downloads/nativeport.py` is the
-  manager's view of the library per build: the SQL port is the relocation and the stamps; the
-  API port leaves the row's plugin URL alone (the resolver plays the local file however the
-  item is reached), hands the badge and the "Kofin Downloads" tag to the pass by invalidating
+- **A download moves nothing of Kodi's.** `downloads/nativeport.py` is the manager's view of
+  the library: it leaves the row's plugin URL alone (the resolver plays the local file however
+  the item is reached), hands the badge and the "Kofin Downloads" tag to the pass by invalidating
   the item, its show and the show's seasons (`backends/api/downloaded.py`, the download state
   is an input of the desired state and joins `inputs_token`), reads Kodi's play state back by
   the mapped id, and leaves the local watched mark of a vanished download to the server
   round-trip that already follows it, since a setter would start the userdata echo cycle. The
-  badge is on the movie or the episode and, as in the SQL build, on the episode's season and
-  show; the season is the one of the episode's number (`Applier.downloaded_seasons`). The
+  badge is on the movie or the episode and on the episode's season and show; the season is the one of the episode's number (`Applier.downloaded_seasons`). The
   badge key is `kofindownloaded`: Kodi's `SetArtForItem` refuses an art type with a dot in it
   (they are the types derived from a parent, `tvshow.poster`), so the setter accepts
-  `kofin.downloaded` and stores nothing. A skin therefore tests both keys, the SQL build's
-  `ListItem.Art(kofin.downloaded)` and this one, or it shows no badge on one of the builds
-  (skin.contuary read the first alone). The
-  Downloaded-episodes node filters on a moved path and stays the SQL build's. The port's
-  operations are `attached` (the file landed, or is still there at startup: SQL repoints and
-  stamps and says whether the row moved; API hands the item to the pass and always says yes,
-  so the startup reconcile re-plans every done file and a finish that died before its badge
-  is healed) and `detached`. A season's download menu is answered through the catalogue
+  `kofin.downloaded` and stores nothing. A skin tests both keys, `ListItem.Art(kofin.downloaded)`
+  from the SQL build's day and this one (skin.contuary read the first alone). There is no
+  Downloaded-episodes node: a tag rule on episodes resolves against the show, and a path rule
+  has nothing to match. The port's operations are `attached` (the file landed, or is still
+  there at startup: the item goes to the pass and the answer is always yes, so the startup
+  reconcile re-plans every done file and a finish that died before its badge is healed) and
+  `detached`. A season's download menu is answered through the catalogue
   (`downloads/store.py::container_states`): the catalogue files an episode under its series,
   so the season's downloads are the series' whose payload names the season.
 - **A scope readback is minimal; the full row is read for an item whose state moved**
@@ -715,10 +655,9 @@ What remains is kofin's own:
   a listing complete is unchanged: every page reports the first page's total, is exactly as
   long as its place says and repeats no id, or the enumeration fails; a server that caps the
   first page is read a page at a time. 22,381 songs: 113 s to 45 s on the Pi.
-- **Kodi 23 with kontell/xbmc #4 runs its databases in WAL, and this build never switches
-  them.** Without #4 they are rollback journals: the SQL build switches the databases it
-  writes, and on Piers it is the companion's to do. The mode lives in the file, so a profile
-  the SQL build ever wrote is already WAL. What the
+- **Kodi 23 with kontell/xbmc #4 runs its databases in WAL, and kofin never switches them.**
+  Without #4 they are rollback journals, and the switch is the user's to make: the mode lives
+  in the file, so a profile the SQL build or the companion ever switched is already WAL. What the
   journal costs a write, and why every played song is a setter of its own, is in
   `kodi-performance` and `kodi-library-data`'s plugin-sources page. On the Pi's card it
   decides a music import: `SetSongDetails` 133 ms against 17 ms in WAL, a first Music-Alt
@@ -794,9 +733,12 @@ What remains is kofin's own:
   and the setting slaves the media clock to the panel, so a refresh rate that is not a whole
   multiple of the frame rate imposes a fixed rate error — 0.5 %–4.3 % across three Piers
   devices, the worst 14× the ±3 % the ladder could command (`docs/syncplay-drift-shakedown.md`
-  §10). The actuator on this branch is Kodi's own tempo with that setting **off**
-  (kontell/xbmc #14 and #16, with #37), where the same devices free-run within a few hundred
-  ppm; the api and sql branches use inputstream.tempo, which has no Kodi 23 build.
+  §10). The actuator is Kodi's own tempo with that setting **off** (kontell/xbmc #14 and
+  #16, with #37), where the same devices free-run within a few hundred ppm, and only where
+  the Kodi has it: `TempoSession.begin` asks for the `tempo` feature, and a member without it
+  (Piers, stock Kodi 23) keeps to the group's commands, as every audio item did on 0.19, and
+  plays a live item without the timeshift route. inputstream.tempo, the retired Piers
+  build's actuator, is not used.
   `syncplay/tempo.py` issues one bounded pulse at a time through `Player.SetTempo`, as a
   correction the OSD does not show where Kodi declares the flag (#38), confirms it by reading
   the `tempo` property back, reads what it moved off the player clock, settles before
@@ -840,12 +782,9 @@ What remains is kofin's own:
   Piers). `pause()` has the same missing guard but does not tear the player down, so it does not
   reach the wait — it is a stall risk, not a deadlock, and is deliberately left alone inside the
   SyncPlay transplant.
-- `discography` has no unique index, so `INSERT OR REPLACE` never replaces
-  (`kodi-database-writing` has the general shape; the repair path is kofin's).
 - **"Recently added albums" asks `/Items/Latest`, never albums sorted by `DateCreated`** — an
   album's DateCreated is when the scanner last created its row, and a rescan re-creates rows in
-  folder order (`docs/dynamic-libraries-plan.md` §3). The sync writes album `dateAdded` from the
-  same field; that is a known, separate question.
+  folder order (`docs/dynamic-libraries-plan.md` §3).
 - **"Play with transcoding" is gated on `ListItem.DBTYPE`, not on `kofin.id` alone** — every
   dynamic row carries the id, songs, albums and genres included, and the DBTYPE clause is what
   keeps the entry off them (`addon.xml`). Both context entries then need `kofin.id`-or-`DBID`
@@ -878,10 +817,6 @@ What remains is kofin's own:
 - `kofin.menu.who` and `kofin.menu.syncplay` are the skin-facing mirrors of those two root
   entries (same gates as `plugin.browse.root`). Skins cannot read addon settings; the service
   publishes on `mark_ready` and whenever the two settings change.
-- **The Advanced-tab `reuseLanguageInvoker` toggle rewrites addon.xml's
-  `<reuselanguageinvoker>`.** The zip ships true; Kodi reads ExtraInfo at load, so a change
-  needs a Kodi restart. An update restores the zip's true and the service reconciles a false
-  setting back onto disk. Disable it when several skin widgets load `plugin://` paths at once.
 - Docs in `docs/` use one line per paragraph — `tools/unwrap_md.py` fixes wrapped files.
 
 ## Translations

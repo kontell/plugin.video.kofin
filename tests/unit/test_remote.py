@@ -280,7 +280,7 @@ def test_an_unreadable_mapping_keeps_the_video_queue(fakes, monkeypatch):
 
     monkeypatch.setattr(remote, "_is_audio", remote._is_audio)
     monkeypatch.setattr(
-        "kofin.sync.db.Database", lambda *a, **k: (_ for _ in ()).throw(explode)
+        "kofin.sync.private.Database", lambda *a, **k: (_ for _ in ()).throw(explode)
     )
     RemoteHandler().handle("Play", {"ItemIds": ["x"], "PlayCommand": "PlayNow"})
     assert FakePlaylist.types[-1] == xbmc.PLAYLIST_VIDEO

@@ -165,20 +165,6 @@
             <close>true</close>
           </control>
         </setting>
-        <setting id="cleanDatabases" type="string" label="30650" help="30651">
-          <level>0</level>
-          <default></default>
-          <constraints><allowempty>true</allowempty></constraints>
-          <dependencies>
-            <dependency type="visible">
-              <condition operator="is" setting="isLoggedIn">false</condition>
-            </dependency>
-          </dependencies>
-          <control type="button" format="action">
-            <data>RunPlugin(plugin://plugin.video.kofin/?mode=cleandatabases)</data>
-            <close>true</close>
-          </control>
-        </setting>
         <setting id="restartAddon" type="string" label="30064" help="30065">
           <level>0</level>
           <default></default>
@@ -251,14 +237,7 @@
             <data>RunPlugin(plugin://plugin.video.kofin/?mode=librarystatus)</data>
           </control>
         </setting>
-        <setting id="syncedLibraries" type="string" label="30254" help="30255">
-          <level>0</level>
-          <default></default>
-          <constraints><allowempty>true</allowempty></constraints>
-          <enable>false</enable>
-          <control type="edit" format="string"/>
-        </setting>
-        <setting id="updateLibraries" type="string" label="30256" help="30257">
+        <setting id="updateLibraries" type="string" label="30256" help="30874">
           <level>0</level>
           <default></default>
           <constraints><allowempty>true</allowempty></constraints>
@@ -301,27 +280,6 @@
             <close>true</close>
           </control>
         </setting>
-        <setting id="refreshBoxsets" type="string" label="30260" help="30261">
-          <level>0</level>
-          <default></default>
-          <constraints><allowempty>true</allowempty></constraints>
-          <dependencies>
-            <dependency type="enable">
-              <condition operator="is" setting="isLoggedIn">true</condition>
-            </dependency>
-          </dependencies>
-          <control type="button" format="action">
-            <data>RunPlugin(plugin://plugin.video.kofin/?mode=refreshboxsets)</data>
-            <close>true</close>
-          </control>
-        </setting>
-        <setting id="syncStatus" type="string" label="30262" help="30263">
-          <level>0</level>
-          <default></default>
-          <constraints><allowempty>true</allowempty></constraints>
-          <enable>false</enable>
-          <control type="edit" format="string"/>
-        </setting>
         <setting id="notifyNewContent" type="boolean" label="30622" help="30623">
           <level>0</level>
           <default>true</default>
@@ -359,16 +317,6 @@
           </dependencies>
           <control type="slider" format="integer"/>
         </setting>
-        <setting id="syncDuringPlay" type="boolean" label="30306" help="30307">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="syncMusicPlaylists" type="boolean" label="30611" help="30612">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
         <!-- The API build's one presentation toggle (sync/dynamic.py): the
              node tree, the smart playlists and the Jellyfin playlists
              together. Each profile ships one of the two: the API profile
@@ -378,26 +326,6 @@
           <level>0</level>
           <default>true</default>
           <control type="toggle"/>
-        </setting>
-        <setting id="limitIndex" type="integer" label="30310" help="30311">
-          <level>1</level>
-          <default>50</default>
-          <constraints>
-            <minimum>25</minimum>
-            <step>25</step>
-            <maximum>100</maximum>
-          </constraints>
-          <control type="slider" format="integer"/>
-        </setting>
-        <setting id="limitThreads" type="integer" label="30312" help="30313">
-          <level>1</level>
-          <default>3</default>
-          <constraints>
-            <minimum>1</minimum>
-            <step>1</step>
-            <maximum>8</maximum>
-          </constraints>
-          <control type="slider" format="integer"/>
         </setting>
         <!-- Only offered alongside a resolution cap. Measured against 10.11:
              Quality=90 returns the original bytes for every artwork tested,
@@ -432,25 +360,6 @@
              the library shows: both were filed under Playback because that
              is *when* they are fetched, which put them nowhere anybody
              looking for an artwork setting would look. -->
-        <setting id="chapterImages" type="boolean" label="30620" help="30621">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="precacheActorArt" type="boolean" label="30668" help="30669">
-          <level>0</level>
-          <default>false</default>
-          <control type="toggle"/>
-        </setting>
-        <setting id="precacheActorArtNow" type="string" label="30670" help="30671">
-          <level>0</level>
-          <default></default>
-          <constraints><allowempty>true</allowempty></constraints>
-          <control type="button" format="action">
-            <data>RunPlugin(plugin://plugin.video.kofin/?mode=precacheart)</data>
-            <close>true</close>
-          </control>
-        </setting>
       </group>
     </category>
 
@@ -741,6 +650,11 @@
             </options>
             <delimiter>,</delimiter>
           </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="forceDirectPlay">false</condition>
+            </dependency>
+          </dependencies>
           <control type="list" format="string">
             <multiselect>true</multiselect>
             <hidevalue>true</hidevalue>
@@ -762,6 +676,11 @@
             </options>
             <delimiter>,</delimiter>
           </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="forceDirectPlay">false</condition>
+            </dependency>
+          </dependencies>
           <control type="list" format="string">
             <multiselect>true</multiselect>
             <hidevalue>true</hidevalue>
@@ -785,6 +704,11 @@
             </options>
             <delimiter>,</delimiter>
           </constraints>
+          <dependencies>
+            <dependency type="visible">
+              <condition operator="is" setting="forceDirectPlay">false</condition>
+            </dependency>
+          </dependencies>
           <control type="list" format="string">
             <multiselect>true</multiselect>
             <hidevalue>true</hidevalue>
@@ -934,7 +858,7 @@
         </setting>
       </group>
       <group id="2">
-        <setting id="musicTranscode" type="boolean" label="30135" help="30136">
+        <setting id="musicTranscode" type="boolean" label="30135" help="30861">
           <level>0</level>
           <default>false</default>
           <control type="toggle"/>
@@ -1624,11 +1548,6 @@
              skin widgets load plugin:// paths at once — Kodi has one
              reusable invoker thread, and overlapping GetDirectory calls
              on it hang or crash. -->
-        <setting id="reuseLanguageInvoker" type="boolean" label="30838" help="30839">
-          <level>0</level>
-          <default>true</default>
-          <control type="toggle"/>
-        </setting>
       </group>
     </category>
 

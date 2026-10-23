@@ -14,14 +14,14 @@ directories, in which order and under what bar is ``musicpass`` and
 
 import time
 from contextlib import contextmanager
-from typing import Dict, List, NamedTuple, Optional, Set, Tuple
+from typing import Dict, FrozenSet, List, NamedTuple, Optional, Set, Tuple
 
 import xbmc
 
 from kofin.core import memory, settings, state
 from kofin.core.log import Logger
 from kofin.sync.catalogue import BackendMismatch
-from . import metadata, paths, progress, removal
+from . import capabilities, metadata, paths, progress, removal
 from .kinds import MUSIC_FIRST, ORDER, rpc, rpc_batch
 from .musicpass import MusicPass
 from .patch import Applier
@@ -126,6 +126,10 @@ class Native:
         self.monitor = Monitor()
         self.separator = metadata.item_separator()
         self.readback = Readback(self.key)
+        # What this Kodi offers beyond the baseline, read once per pass
+        # (capabilities.features) and handed to everything that shapes a
+        # request or a desired state by it.
+        self.features: FrozenSet[str] = frozenset()
         self._async_pending = False
         self.payloads = PayloadWindow(self.store)
         # The library thread's own bar when it made this pass (one bar from
@@ -594,7 +598,7 @@ class Native:
         mappings = self.store.mappings(kind="Movie", library=library)
         folders: List[str] = []
         for record in self.payloads.walk(movies):
-            token = metadata.assets_token(record.item)
+            token = metadata.assets_token(record.item, self.features)
             mapping = mappings.get(record.item_id)
             previous = mapping.applied.get("assets", "") if mapping is not None else ""
             if previous == token:
@@ -614,7 +618,28 @@ class Native:
         keeps what the add-on did not answer for (#1), so the clean of one
         folder removes what ``provider.exists`` says is gone and nothing
         else. One that fails leaves the rows to the viewer's Clean library,
-        which asks the same questions."""
+        which asks the same questions.
+
+        Only where the clean is safe (the asset_clean feature, a proxy for
+        kontell/xbmc #1, #2 and #10): on a Kodi without them the stage after
+        the directory's files asks the add-on about every bound folder of
+        every library and deletes the path row of one left unanswered. So
+        the rows are left for the viewer's own Clean library, said once
+        here. Kodi 23's clean asks the add-on about them and takes them (a
+        dropped extra left stock master's library that way); Kodi 22's
+        deletes only the files of the movies and episodes it removes, so
+        there the rows stay until the movie leaves (22.0b2, the same extra
+        survived a full clean, asked and answered)."""
+        if not folders:
+            return
+        if "asset_clean" not in self.features:
+            LOG.info(
+                "%d movie folder(s) lost a version or an extra; the rows are left "
+                "for a Clean library of the viewer's (Kodi 22 keeps them until the "
+                "movie leaves)",
+                len(folders),
+            )
+            return
         for folder in sorted(folders):
             try:
                 self.clean(folder)
@@ -816,6 +841,20 @@ class Native:
         self.wait(lambda: self._idle("any"), busy=lambda: not self._idle("any"))
         self.restore_settings()
         self.store.pin()
+        self.features = capabilities.features()
+        self.readback.features = self.features
+        # The feature set is an input of every acknowledgement: a Kodi that
+        # gained or lost one since the last pass (an upgrade) has every row
+        # compared again, which is what a repair pass does, and nothing is
+        # written where the row already matches.
+        stamped = self.store.features_applied()
+        if stamped is not None and stamped != self.features and not repair:
+            LOG.info(
+                "Kodi's features changed since the last pass (on: %s): comparing "
+                "every row",
+                ", ".join(sorted(self.features)) or "none",
+            )
+            repair = True
         self.readback.clear()
         self.music = MusicPass(self)
         applier = Applier(self)
@@ -914,6 +953,7 @@ class Native:
                     "%d native operations remain pending: %s" % (len(errors), errors[0])
                 )
             completed = True
+            self.store.remember_features(self.features)
         finally:
             applier.commit()
             self.progress.close()

@@ -1,17 +1,33 @@
-"""Pure public-interface floor; behavioral qualification is separate."""
+"""Pure public-interface floor and feature probes; behavioural qualification
+is separate.
+
+The baseline is what every Kodi the build installs on offers (Piers 22.0
+onwards): a Kodi short of it keeps native sync off and the report says why.
+A *feature* is what a newer Kodi may offer beyond it, named so the rest of
+the add-on can ask for it by name (``capabilities.features``): each is a set
+of probes of the same kinds the baseline uses -- a JSON-RPC method and its
+parameters, the values of a field enum, a Python method on an info tag or a
+stream detail class, a system add-on's version -- and is on only while every
+probe passes. Two features stand for behaviour Kodi cannot be asked about
+and are probed by proxy, named in ``requirements.json``: ``asset_clean``
+(kontell/xbmc #1, #2 and #10, by the ``xbmc.python`` version the change set
+raises) and ``tempo`` (the tempo set, by the ``correction`` flag #38 adds to
+``Player.SetTempo``).
+
+Everything here is decided from one capture: ``JSONRPC.Introspect``'s
+methods and types, ``Application.GetProperties``, the system add-ons'
+versions and ``hasattr`` on the info tags and the stream detail classes.
+"""
+
+from typing import Any, Dict, List
 
 
 def version(value):
     return tuple(int(part) for part in value.split("."))
 
 
-def check(capture, contract, allow_dirty=False):
-    capture = capture.get("result", capture)
-    errors = []
-    application = capture.get("application", {}).get("version", {})
-    if application.get("major", 0) < contract["minimum_kodi_major"]:
-        errors.append("Kodi %d or later is required" % contract["minimum_kodi_major"])
-    for addon, minimum in contract["system_addons"].items():
+def _check_addons(capture, addons, errors: List[str]) -> None:
+    for addon, minimum in addons.items():
         try:
             adequate = version(
                 capture.get("system_addons", {}).get(addon, "0")
@@ -20,10 +36,10 @@ def check(capture, contract, allow_dirty=False):
             adequate = False
         if not adequate:
             errors.append(addon + " >= " + minimum + " is required")
-    # Build provenance is diagnostic only. A test build carries a dirty
-    # revision; actual public capabilities decide whether sync can run.
-    dirty = "dirty" in application.get("revision", "").lower()
-    for method, parameters in contract["methods"].items():
+
+
+def _check_methods(capture, methods, errors: List[str]) -> None:
+    for method, parameters in methods.items():
         definition = capture.get("methods", {}).get(method)
         if definition is None:
             errors.append("missing method " + method)
@@ -34,13 +50,54 @@ def check(capture, contract, allow_dirty=False):
                 errors.append("missing parameter " + method + "." + name)
             elif required and not set(required).issubset(actual[name].get("enums", [])):
                 errors.append("missing enum values " + method + "." + name)
-    for field, methods in contract["python"].items():
+
+
+def _check_python(capture, python, errors: List[str]) -> None:
+    for field, methods in python.items():
         for method in methods:
             if capture.get(field, {}).get(method) is not True:
                 errors.append("missing Python capability " + field + "." + method)
+
+
+def _check_fields(capture, fields, errors: List[str]) -> None:
+    """A value a field enum must list: a property a readback may ask for
+    only while Kodi names it, since an unknown one fails the whole call."""
+    for type_name, values in fields.items():
+        items = capture.get("types", {}).get(type_name, {}).get("items", {})
+        enums = items.get("enums") or items.get("enum") or []
+        for value in values:
+            if value not in enums:
+                errors.append("missing field " + type_name + "." + value)
+
+
+def check(capture, contract, allow_dirty=False) -> Dict[str, Any]:
+    capture = capture.get("result", capture)
+    errors: List[str] = []
+    application = capture.get("application", {}).get("version", {})
+    if application.get("major", 0) < contract["minimum_kodi_major"]:
+        errors.append("Kodi %d or later is required" % contract["minimum_kodi_major"])
+    _check_addons(capture, contract["system_addons"], errors)
+    # Build provenance is diagnostic only. A test build carries a dirty
+    # revision; actual public capabilities decide whether sync can run.
+    dirty = "dirty" in application.get("revision", "").lower()
+    _check_methods(capture, contract["methods"], errors)
+    _check_python(capture, contract["python"], errors)
+    features: Dict[str, bool] = {}
+    missing: Dict[str, List[str]] = {}
+    for name, probes in contract.get("features", {}).items():
+        reasons: List[str] = []
+        _check_addons(capture, probes.get("system_addons", {}), reasons)
+        _check_methods(capture, probes.get("methods", {}), reasons)
+        _check_python(capture, probes.get("python", {}), reasons)
+        _check_fields(capture, probes.get("fields", {}), reasons)
+        features[name] = not reasons
+        if reasons:
+            missing[name] = reasons
     return {
         "interfaces_passed": not errors,
         "errors": errors,
+        "features": features,
+        "missing": missing,
         "build_is_dirty": dirty,
         "behavioral_qualification_required": True,
         "behavioral_gates": contract["behavioral_gates"],

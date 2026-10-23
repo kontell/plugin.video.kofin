@@ -21,7 +21,7 @@ permissions:
 env:
   PYTHON_VERSION: "3.11"
   APP_ID: plugin.video.kofin
-  WIKI_PAGE: https://github.com/kontell/plugin.video.kofin/wiki/API-sync-variant
+  WIKI_PAGE: https://github.com/kontell/plugin.video.kofin/wiki/Kodi-versions
 
 jobs:
   check:
@@ -116,9 +116,9 @@ jobs:
           fi
           # First blank-line-delimited paragraph — same rule as pvr.kofin.
           changes="$(awk -v RS= 'NR==1' changelog.txt)"
-          # This branch only: every release says which Kodi it is for, and
-          # where the API variant it is built on is written down.
-          changes+=$'\n\n'"This is a pre-release for Kodi 23 alpha, built on the API sync variant: $WIKI_PAGE"
+          # Every release says which Kodis it runs on, and where what each
+          # one gets is written down.
+          changes+=$'\n\n'"This is a pre-release for Kodi 22 and Kodi 23; what each Kodi gets is at $WIKI_PAGE"
           EOF="$(dd if=/dev/urandom bs=15 count=1 status=none | base64)"
           {
             echo "changes<<$EOF"

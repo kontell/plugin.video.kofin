@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from kofin.sync.backends.api import capabilities
+
 from kofin.core import kodirpc
 from kofin.sync import private
 from kofin.sync.backends.api import announce, native
@@ -234,6 +236,9 @@ def kodi(store, monkeypatch):
     # marker), fresh per test.
     FakeAddon.store = {}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
+    # Every feature on (a Kodi 23 carrying the kontell/xbmc changes); a test
+    # of a Piers narrows it (the ``piers`` fixture).
+    monkeypatch.setattr(capabilities, "features", lambda: capabilities.ALL)
     fake = Kodi(store)
 
     def call(method, params=None):
@@ -276,6 +281,13 @@ def kodi(store, monkeypatch):
     fake.builtins = []
     monkeypatch.setattr(native.xbmc, "executebuiltin", fake.builtins.append)
     return fake
+
+
+@pytest.fixture
+def piers(kodi, monkeypatch):
+    """The same fake Kodi as a Piers: the baseline, every feature off."""
+    monkeypatch.setattr(capabilities, "features", lambda: frozenset())
+    return kodi
 
 
 @pytest.fixture

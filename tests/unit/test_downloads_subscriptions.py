@@ -4,7 +4,7 @@ import pytest
 
 from kofin.core import ipc
 from kofin.downloads import store, subscriptions
-from kofin.sync import db as sync_db
+from kofin.sync import private as sync_db
 from kofin.sync import newcontent
 
 

@@ -28,11 +28,7 @@ from kofin.core.http import Http, JellyfinError
 from kofin.core.log import Logger
 from kofin.core.settings import Credentials, addon_version
 from kofin.core.ws import WSClient
-from kofin import buildconfig
 from kofin.service import backdrop
-
-if buildconfig.legacy_features():
-    from kofin.service import artcache, chapters
 from kofin.service.kodiuserdata import KodiUserData
 from kofin.service.player import Player
 from kofin.service.remote import RemoteHandler
@@ -52,7 +48,6 @@ LIBRARY_COMMANDS = frozenset(
         ipc.REMOVE_LIBRARY,
         ipc.REPAIR_LIBRARY,
         ipc.UPDATE_LIBRARY,
-        ipc.REFRESH_BOXSETS,
         ipc.SYNC_PLAYLISTS,
     }
 )
@@ -178,8 +173,6 @@ class Service(xbmc.Monitor):
         "System.OnWake": "_kodi_wake",
         "System.OnSleep": "_kodi_sleep",
         "Player.OnPlay": "_kodi_player_play",
-        "AudioLibrary.OnScanFinished": "_kodi_music_scan_finished",
-        "VideoLibrary.OnCleanFinished": "_kodi_clean_finished",
         "Player.OnStop": "_kodi_player_stop",
         "VideoLibrary.OnUpdate": "_kodi_library_update",
     }
@@ -188,7 +181,6 @@ class Service(xbmc.Monitor):
         ipc.AUTH_CHANGED: "_ipc_auth_changed",
         ipc.SYNCPLAY_MENU: "_ipc_syncplay_menu",
         ipc.WHO_IS_WATCHING: "_ipc_who_is_watching",
-        ipc.PRECACHE_ART: "_ipc_precache_art",
         ipc.ATTACH_SUBTITLE: "_ipc_attach_subtitle",
         ipc.START_QUEUE: "_ipc_start_queue",
         ipc.DOWNLOAD_ADD: "_ipc_download_add",
@@ -231,17 +223,11 @@ class Service(xbmc.Monitor):
         self.syncplay: Optional[SyncPlayPort] = None
         self._syncplay_menu: Optional[threading.Thread] = None
         self._who_is_watching: Optional[threading.Thread] = None
-        self._chapter_sweep: Optional[threading.Thread] = None
         self._backdrop: Optional[threading.Thread] = None
         # Post-connect worker (see _on_ws_connected): the pending event is
         # how a reconnect that lands mid-run asks for one more pass.
         self._post_connect: Optional[threading.Thread] = None
         self._post_connect_pending = threading.Event()
-        # Idle-time cast-image seeder, and the settings button's one-shot.
-        self.artcache = (
-            artcache.ActorArtCache() if buildconfig.legacy_features() else None
-        )
-        self._precache_art: Optional[threading.Thread] = None
         self._online = False
         # Raised by the websocket's disconnect callback, consumed by the next
         # tick: a dropped socket asks for a *probe* rather than declaring the
@@ -296,16 +282,14 @@ class Service(xbmc.Monitor):
         LOG.info("--->>> kofin service %s", addon_version())
         LOG.info("kodi %s", xbmc.getInfoLabel("System.BuildVersion"))
         self._settle_left_tempo()
-        if buildconfig.BACKEND == "api":
-            try:
-                self._prepare_api_backend()
-            except Exception:
-                # Sync setup must not prevent connection, playback reporting or
-                # live browsing, including when the private store is damaged.
-                LOG.exception(
-                    "API backend preparation failed; native sync remains disabled"
-                )
-        self._start_chapter_sweep()
+        try:
+            self._prepare_api_backend()
+        except Exception:
+            # Sync setup must not prevent connection, playback reporting or
+            # live browsing, including when the private store is damaged.
+            LOG.exception(
+                "API backend preparation failed; native sync remains disabled"
+            )
         started = time.time()
         try:
             while not self.abortRequested():
@@ -330,6 +314,7 @@ class Service(xbmc.Monitor):
 
     def _prepare_api_backend(self) -> None:
         from kofin.sync.backend import create_backend
+        from kofin.sync.backends.api import capabilities
         from kofin.sync.backends.api import status as apistatus
         from kofin.sync.catalogue import BackendMismatch
         from kofin.sync.private import addon_data_path
@@ -348,7 +333,7 @@ class Service(xbmc.Monitor):
             report["native_sync_enabled"] = False
         directory = addon_data_path()
         os.makedirs(directory, exist_ok=True)
-        target = os.path.join(directory, "api-capabilities.json")
+        target = os.path.join(directory, capabilities.REPORT)
         with open(target + ".part", "w", encoding="utf-8") as handle:
             json.dump(report, handle, indent=2)
         os.replace(target + ".part", target)
@@ -357,6 +342,10 @@ class Service(xbmc.Monitor):
             report["interfaces_passed"],
             report["private_state"],
         )
+        # Once, here: a feature this Kodi lacks is off by name from now on,
+        # never an error per item or per pass (CLAUDE.md, the capability
+        # profile).
+        LOG.info("Kodi features %s", capabilities.summary(report))
         if report["private_state"] != "ready":
             apistatus.write(
                 settings.localized(30420)
@@ -367,7 +356,7 @@ class Service(xbmc.Monitor):
         elif self.credentials.is_logged_in:
             # Published native work is replayable without waiting for Jellyfin
             # to reconnect after Kodi restarts.
-            self._start_api_library()
+            self._start_library()
 
     def _tick(self) -> None:
         self._maybe_announce_lost()
@@ -526,21 +515,15 @@ class Service(xbmc.Monitor):
         self._reap_websocket()
         if self.ws is None:
             self._start_websocket()
-        if not buildconfig.native_sync():
-            try:
-                from kofin.sync.dynamic import publish
+        try:
+            from kofin.sync.dynamic import publish
 
-                publish(self.api.views().get("Items", []), self.api)
-            except Exception:
-                LOG.exception("dynamic library entries unavailable")
+            publish(self.api.views().get("Items", []), self.api)
+        except Exception:
+            LOG.exception("dynamic library entries unavailable")
         self._start_library()
         self._start_downloads()
         self._start_backdrop()
-        # Cheap to start unconditionally: the worker sleeps until the setting
-        # is on *and* the box is idle, so a user who never enables it pays a
-        # parked thread and nothing else.
-        if self.artcache is not None:
-            self.artcache.start()
 
     def _reap_websocket(self) -> None:
         """Empty the websocket slot when the thread behind it has ended.
@@ -589,36 +572,6 @@ class Service(xbmc.Monitor):
         """Start the sync manager once online, when there is anything to sync
         or resume. Import and failures are contained: playback and remote
         control must survive a broken sync stack (degrade, don't die)."""
-        if buildconfig.BACKEND == "api":
-            self._start_api_library()
-            return None
-        self._reap_library()
-
-        if self.library is not None:
-            return
-
-        try:
-            from kofin.sync import private as sync_db
-            from kofin.sync import kodisetup
-            from kofin.sync.library import Library
-
-            sync_state = sync_db.get_sync()
-            selection = settings.get_list("librarySelection")
-            if not (selection or sync_state["Whitelist"] or sync_state["Libraries"]):
-                LOG.debug("no libraries selected; sync manager not started")
-                return
-
-            kodisetup.verify_kodi_defaults()
-            kodisetup.warn_incompatible_settings()
-
-            self.library = Library(self.api, self.player, self._new_api)
-            self.library.start()
-            LOG.info("library sync manager started")
-        except Exception:
-            LOG.exception("library sync manager failed to start")
-            self.library = None
-
-    def _start_api_library(self) -> None:
         if not getattr(self, "_api_interfaces", False):
             return
         self._reap_library()
@@ -799,30 +752,6 @@ class Service(xbmc.Monitor):
             whoswatching.show_picker(self.api, self.credentials)
         except Exception:
             LOG.exception("who's-watching picker failed")
-
-    def _start_chapter_sweep(self) -> None:
-        """One-shot at service start: drop chapter-thumb cache rows a crashed
-        playback left behind (their keys carry this install's deviceId).
-        Deferred while a kofin playback is live — its entries are in use; a
-        service restart mid-play leaves them to the next quiet start."""
-        if not buildconfig.legacy_features():
-            return None
-        if state.get_playing_id():
-            LOG.debug("chapter sweep deferred: playback live")
-            return
-        spawned = spawn_once(
-            self._chapter_sweep, self._run_chapter_sweep, "kofin-chapter-sweep"
-        )
-        if spawned is not None:
-            self._chapter_sweep = spawned
-
-    def _run_chapter_sweep(self) -> None:
-        if not buildconfig.legacy_features():
-            return None
-        try:
-            chapters.sweep(self.credentials.device_id)
-        except Exception:
-            LOG.exception("chapter thumb sweep failed")
 
     def _start_backdrop(self, force: bool = False) -> None:
         """Refresh the addon fanart from the server's splashscreen.
@@ -1093,23 +1022,8 @@ class Service(xbmc.Monitor):
         if library is None or not library.startup_done:
             return
 
-        # Stamped with the reconnect edge, not with the enqueue: this worker
-        # only gets here after a deliberate settle plus capabilities, the
-        # who's-watching restore and the userdata replay — seconds in which a
-        # just-rebuilt manager's startup typically runs a change-feed pass of
-        # its own. Everything the socket missed predates the edge, so a pass
-        # that began after it covers this command, and the edge on the payload
-        # is what lets process_commands drop it (measured on the wake path:
-        # edge at t+0.0, startup's pass at t+0.4, this enqueue at t+2.0 — the
-        # enqueue-time stamp called that pass too old and fetched the same
-        # window again).
-        from kofin.sync.library import FAST_SYNC_REQUESTED_AT
-
-        moment = self._ws_connected_at
-        payload = {} if moment is None else {FAST_SYNC_REQUESTED_AT: moment}
-
         LOG.info("websocket reconnected; catching up on missed changes")
-        library.enqueue_command("FastSync", payload)
+        library.enqueue_command("FastSync")
 
     def _on_ws_event(self, message_type: str, data: Dict[str, Any]) -> None:
         if self.remote.handle(message_type, data):
@@ -1230,36 +1144,6 @@ class Service(xbmc.Monitor):
     def _kodi_player_play(self, data: str) -> None:
         decoded = _decode_kodi_data(data)
         self._syncplay_forward("on_kodi_play", decoded)
-        self._backfill_library_claim(decoded)
-
-    def _kodi_music_scan_finished(self, data: str) -> None:
-        if self.library is None:
-            return
-        # Kodi's scanner runs DELETE FROM source whenever the table
-        # disagrees with sources.xml — which, with an empty one, it
-        # does the moment kofin writes a row. Every per-library music
-        # node filters on those rows, so without this a user-run music
-        # scan leaves them all matching nothing until the next sync.
-        self.library.enqueue_command("ReassertMusicSources")
-
-    def _kodi_clean_finished(self, data: str) -> None:
-        # Kodi's Clean library deletes every actor with no surviving
-        # link (CVideoDatabase::CleanDatabase) — exactly what kofin's
-        # own removals and prunes leave behind, since the writers
-        # never delete actor rows — and the shared name → id cache
-        # in kodidb.Kodi is primed once per process. actor_id has no
-        # AUTOINCREMENT, so a freed id is reused and a stale entry
-        # then names the *wrong* actor, not just a missing one. The
-        # clean also removes every kofin movie row (benchmark F13),
-        # so the Repair that follows would write every cast link
-        # against that cache (audit F5). Reset; the next get_person
-        # re-primes from the table.
-        if not buildconfig.legacy_features():
-            return None
-        from kofin.sync.kodidb.kodi import Kodi
-
-        LOG.info("Kodi cleaned its video library; dropping the people cache")
-        Kodi.reset_people_cache()
 
     def _kodi_player_stop(self, data: str) -> None:
         if self.downloads is None:
@@ -1307,11 +1191,6 @@ class Service(xbmc.Monitor):
 
     def _ipc_who_is_watching(self, name: str, payload: Dict[str, Any]) -> None:
         self._open_who_is_watching()
-
-    def _ipc_precache_art(self, name: str, payload: Dict[str, Any]) -> None:
-        if not buildconfig.legacy_features():
-            return None
-        self._precache_art_now()
 
     def _ipc_attach_subtitle(self, name: str, payload: Dict[str, Any]) -> None:
         try:
@@ -1414,54 +1293,8 @@ class Service(xbmc.Monitor):
             return
         self.library.enqueue_command(name, payload)
 
-    def _precache_art_now(self) -> None:
-        """Settings button: seed every outstanding cast image.
-
-        On its own thread — this runs until the work is done, which on a first
-        run is thousands of downloads — and single-flight, so a second press
-        joins the run already going rather than doubling the fetches.
-        """
-        spawned = spawn_once(
-            self._precache_art, self._run_precache_art, "kofin-artcache-now"
-        )
-        if spawned is None:
-            LOG.debug("cast-image pre-cache already running")
-            toast.show(settings.localized(30672), time_ms=4000)
-            return
-        self._precache_art = spawned
-
-    def _run_precache_art(self) -> None:
-        if self.artcache is None:
-            return None
-        if not buildconfig.legacy_features():
-            return None
-        toast.show(settings.localized(30672), time_ms=4000)
-        try:
-            # The service's own instance, not a second one: it holds the lock
-            # the idle trickle takes, so the button never races it.
-            seeded = self.artcache.seed_all()
-        except Exception:
-            LOG.exception("cast-image pre-cache failed")
-            return
-        try:
-            toast.show(settings.localized(30673) % seeded, time_ms=5000)
-        except TypeError:  # pragma: no cover - uncached string, see _connection_toast
-            pass
-
     def _syncplay_forward(self, name: str, *args: Any) -> None:
         forward(self.syncplay, name, *args)
-
-    def _backfill_library_claim(self, data: Dict[str, Any]) -> None:
-        """Claim library playback that never passed through the play route.
-
-        Songs live in Kodi as direct stream URLs, so playing one from the music
-        library reports nothing without this. Never allowed to break playback:
-        a failed back-fill just means the play stays unreported, as before.
-        """
-        # Queued to the player's reporter: the claim's server GET must not
-        # run on Kodi's notification thread (audit finding #3); failures are
-        # contained inside the job.
-        self.player.submit_backfill(data)
 
     def onSettingsChanged(self) -> None:
         if self._stopping.is_set():
@@ -1526,8 +1359,6 @@ class Service(xbmc.Monitor):
             library_stuck = not self._join_library()
             self.library = None
         self.player.stop_threads()
-        if self.artcache is not None:
-            self.artcache.stop()
         self.kodi_userdata.stop()
         self._join_workers()
         self.http.close()
@@ -1604,15 +1435,12 @@ class Service(xbmc.Monitor):
         """Join the named one-shot workers this service started.
 
         Unjoined, they outlive the rebuild and race their replacements against
-        the same resources — the chapter sweep holds an open cursor on the
-        texture database, and the backdrop worker rewrites a file in the addon
-        directory (audit finding #13).
+        the same resources — the backdrop worker rewrites a file in the
+        profile (audit finding #13).
         """
         workers = (
-            ("chapter sweep", self._chapter_sweep),
             ("backdrop", self._backdrop),
             ("post-connect", self._post_connect),
-            ("cast-image pre-cache", self._precache_art),
             ("syncplay menu", self._syncplay_menu),
             ("who's watching", self._who_is_watching),
         )

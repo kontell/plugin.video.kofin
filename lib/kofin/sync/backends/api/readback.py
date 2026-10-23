@@ -13,11 +13,11 @@ and must not pay a call each time.
 """
 
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 from kofin.core.log import Logger
 from . import paths
-from .kinds import KINDS, MINIMAL, PROPERTIES, rpc
+from .kinds import KINDS, properties, rpc
 
 LOG = Logger(__name__)
 
@@ -31,6 +31,9 @@ def artist_key(name) -> str:
 class Readback:
     def __init__(self, key: str):
         self.key = key
+        # The features of this Kodi (capabilities.features), set by the pass
+        # that reads them: a property Kodi does not name is never asked for.
+        self.features: FrozenSet[str] = frozenset()
         self._scopes: Dict[Tuple[Any, ...], Dict[Any, Dict[str, Any]]] = {}
         # library -> directory key -> item id -> row
         self._folders: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]] = {}
@@ -178,7 +181,9 @@ class Readback:
         if cache_key in self._scopes:
             return self._scopes[cache_key]
         table = KINDS[kind]
-        params: Dict[str, Any] = {"properties": MINIMAL.get(kind, PROPERTIES[kind])}
+        params: Dict[str, Any] = {
+            "properties": properties(kind, self.features, minimal=True)
+        }
         if kind in ("Movie", "MusicVideo"):
             params["filter"] = self._path_filter(
                 paths.library_dir(self.key, library, paths.CONTENT[kind])
@@ -245,7 +250,7 @@ class Readback:
         rows = self._paged(
             table,
             {
-                "properties": PROPERTIES["Audio"],
+                "properties": properties("Audio", self.features),
                 "filter": self._path_filter(
                     paths.library_dir(self.key, library, "music")
                 ),
@@ -284,7 +289,7 @@ class Readback:
         rows = self._paged(
             KINDS["Audio"],
             {
-                "properties": PROPERTIES["Audio"],
+                "properties": properties("Audio", self.features),
                 "filter": self._path_filter(paths.music_dir(self.key, library, folder)),
             },
         )
@@ -327,7 +332,7 @@ class Readback:
 
     def _scope_params(self, kind, library, parent_id):
         table = KINDS[kind]
-        params: Dict[str, Any] = {"properties": PROPERTIES[kind]}
+        params: Dict[str, Any] = {"properties": properties(kind, self.features)}
         if kind in ("Movie", "MusicVideo"):
             params["filter"] = self._path_filter(
                 paths.library_dir(self.key, library, paths.CONTENT[kind])
@@ -374,7 +379,8 @@ class Readback:
         if cached is not None:
             return cached
         reply = rpc(
-            table.getter, {table.id_param: kodi_id, "properties": PROPERTIES[kind]}
+            table.getter,
+            {table.id_param: kodi_id, "properties": properties(kind, self.features)},
         )
         detail = reply.get(table.result_key) if isinstance(reply, dict) else None
         if not isinstance(detail, dict) or not detail:
@@ -395,7 +401,8 @@ class Readback:
     def details(self, kind, kodi_id):
         table = KINDS[kind]
         return rpc(
-            table.getter, {table.id_param: kodi_id, "properties": PROPERTIES[kind]}
+            table.getter,
+            {table.id_param: kodi_id, "properties": properties(kind, self.features)},
         ).get(table.result_key, {})
 
     def owned(self, kind, kodi_id, item_id, library, parent_id=""):

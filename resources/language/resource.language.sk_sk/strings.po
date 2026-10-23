@@ -2308,6 +2308,42 @@ msgctxt "#30875"
 msgid "Live TV fine sync needs FFmpeg Direct"
 msgstr "Jemná synchronizácia živej TV vyžaduje FFmpeg Direct"
 
+msgctxt "#30876"
+msgid "Not on this Kodi"
+msgstr "V tomto Kodi nie je k dispozícii"
+
+msgctxt "#30877"
+msgid "Season plots"
+msgstr "Popisy sezón"
+
+msgctxt "#30878"
+msgid "Favorite episodes"
+msgstr "Obľúbené epizódy"
+
+msgctxt "#30879"
+msgid "Removing emptied collections"
+msgstr "Odstraňovanie vyprázdnených kolekcií"
+
+msgctxt "#30880"
+msgid "Movie versions"
+msgstr "Verzie filmov"
+
+msgctxt "#30881"
+msgid "Stream flags"
+msgstr "Príznaky stôp"
+
+msgctxt "#30882"
+msgid "Song date added"
+msgstr "Dátum pridania skladieb"
+
+msgctxt "#30883"
+msgid "Removing dropped versions and extras"
+msgstr "Odstraňovanie odobratých verzií a bonusov"
+
+msgctxt "#30884"
+msgid "Fine sync"
+msgstr "Jemná synchronizácia"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "V tejto skúšobnej verzii nie je dostupné"

@@ -1,4 +1,4 @@
-"""Execute an extracted API distribution with native imports/files denied."""
+"""Execute an extracted distribution with Kodi database access denied."""
 
 import importlib
 import importlib.abc
@@ -13,6 +13,8 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(package / "lib"))
 sys.path.append(str(repository))
 
+# Modules of the retired SQL build: a tree that grew one back would reach
+# Kodi's databases again, which this probe exists to refuse.
 denied = (
     "kofin.core.addonxml",
     "kofin.sync.db",
@@ -64,8 +66,6 @@ private.addon_data_path = lambda: str(profile)
 private.set_path_override("kofin", str(profile / "kofin.db"))
 FakeAddon.store = {
     "downloadsEnabled": "true",
-    "chapterImages": "true",
-    "precacheActorArt": "true",
     "librarySelection": "old-sql-library",
 }
 FakeWindow.store = {}
@@ -78,13 +78,11 @@ for module in pkgutil.walk_packages(kofin.__path__, "kofin."):
     importlib.import_module(module.name)
     loaded.append(module.name)
 
-from kofin.buildconfig import BACKEND
 from kofin.service.main import Service
 from kofin.plugin import router
 from kofin.sync.catalogue import Catalogue
 from kofin.sync.model import MediaItem
 
-assert BACKEND == "api"
 store = Catalogue("fixture-server/fixture-user")
 assert store.stage(MediaItem.from_dto({"Id": "movie", "Type": "Movie"})) == 1
 assert store.state("movie").applied == 0
@@ -135,13 +133,11 @@ service = Service()
 service.settings_apply.mark_ready()
 service._start_library()
 service._start_downloads()
-service._start_chapter_sweep()
-service.player._start_chapter_thumbs({"Type": "Movie"})
 from kofin.downloads.nativeport import NativeApi
 
-# A download manager the API build builds (the stub settings answer
-# "enabled") speaks to the library through the API port alone.
-assert service.library is None and service.artcache is None
+# A download manager built here (the stub settings answer "enabled") speaks
+# to the library through the API port alone.
+assert service.library is None
 assert service.downloads is None or isinstance(service.downloads.native, NativeApi)
 service.abortRequested = lambda: True
 assert service.run() is False
@@ -150,8 +146,6 @@ assert report["backend"] == "api" and not report["native_sync_enabled"]
 assert report["private_state"] == "ready"
 for route in router.ROUTES:
     assert router._resolve(route) is not None
-    if route in router.LEGACY_MODES:
-        assert router._resolve(route) is router._unavailable
 print(
     json.dumps(
         {
@@ -172,10 +166,11 @@ service.abortRequested = lambda: True
 with patch.object(service, "_prepare_api_backend", side_effect=OSError("fixture")):
     assert service.run() is False
 
-# Old favourites or settings URLs must release a directory handle even when
-# the feature behind them is unavailable in this distribution.
+# The SQL build's settings URLs (clean databases, refresh boxsets, pre-cache
+# art) are unregistered modes now, and an unregistered mode still releases
+# its directory handle.
 with patch("xbmcplugin.endOfDirectory") as ended, patch("kofin.core.toast.show"):
-    for route in router.LEGACY_MODES:
+    for route in ("cleandatabases", "refreshboxsets", "precacheart"):
         router.dispatch(["plugin://plugin.video.kofin/", "71", "?mode=" + route])
-        ended.assert_called_with(71, succeeded=False)
+        assert ended.call_args is not None and ended.call_args[0][0] == 71, route
         ended.reset_mock()

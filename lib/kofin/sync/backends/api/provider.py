@@ -24,7 +24,7 @@ from kofin.core import kodirpc, state
 from kofin.sync import private
 from kofin.core.log import Logger
 from kofin.core.urls import PARAM_MEDIA_SOURCE
-from . import metadata, paths, walk
+from . import capabilities, metadata, paths, walk
 from .records import PayloadWindow
 from .store import Store
 
@@ -76,7 +76,7 @@ def _folders(request, directories, label):
     )
 
 
-def exists(store, location, item_id, source=""):
+def exists(store, location, item_id, source="", features=frozenset()):
     """Whether Kodi may keep a row: unknown state is unavailable, never proof
     of deletion. Only an explicit committed tombstone says an item is gone,
     and only a movie's own payload says a version file or an extra is: the
@@ -93,7 +93,11 @@ def exists(store, location, item_id, source=""):
         if state is not None and state.operation == "remove":
             return False
         if source:
-            # A version file exists while the movie still lists its source.
+            # A version file exists while the movie still lists its source,
+            # on a Kodi that groups versions (video_versions): elsewhere the
+            # listing never names one, and a row an earlier Kodi filed goes.
+            if "video_versions" not in features:
+                return False
             record = store.records(kind="Movie", item_ids=[item_id]).get(item_id)
             if record is None:
                 return True
@@ -159,6 +163,9 @@ def serve(request):
         return
     store = Store(location.key)
     item_id = request.params.get("id") or location.song
+    # What this Kodi offers (the feature table) shapes every row listed and
+    # every answer about one: read once per request, never per item.
+    features = capabilities.features()
     if location.walk and action != "check_exists":
         if location.part is None:
             _walk_parts(request, store, location.key, location.library)
@@ -171,7 +178,7 @@ def serve(request):
         source = request.params.get(PARAM_MEDIA_SOURCE, "")
         xbmcplugin.setResolvedUrl(
             request.handle,
-            exists(store, location, item_id, source),
+            exists(store, location, item_id, source, features),
             xbmcgui.ListItem(path=request.base_url),
         )
         return
@@ -195,7 +202,7 @@ def serve(request):
         if location.folder is None:
             _music_root(request, store, key, library)
         else:
-            _music_folder(request, store, key, library, location.folder)
+            _music_folder(request, store, key, library, location.folder, features)
         return
     server = store.server()
     separator = metadata.item_separator()
@@ -226,6 +233,7 @@ def serve(request):
                         separator,
                         seasons.get(series_id, []),
                         episodes.get(series_id, []),
+                        features=features,
                     ),
                     True,
                 )
@@ -261,6 +269,7 @@ def serve(request):
                             kind="Episode", parent_id=series_id
                         ).values()
                     ],
+                    features=features,
                 ),
                 True,
             )
@@ -295,7 +304,9 @@ def serve(request):
                     request.handle, False, xbmcgui.ListItem(path=request.base_url)
                 )
             else:
-                _extras_folder(request, store, key, library, location.movie or "")
+                _extras_folder(
+                    request, store, key, library, location.movie or "", features
+                )
             return
         wanted = [item_id] if action == "refresh_info" else None
         if kind == "Movie" and location.movie:
@@ -338,6 +349,7 @@ def serve(request):
                     # and extras; the root walk and a refresh (which takes
                     # the first item) list the movie's own file alone.
                     assets=bool(location.movie) and action != "refresh_info",
+                    features=features,
                 )
             )
             continue
@@ -345,7 +357,13 @@ def serve(request):
             (
                 paths.playback_url(key, kind, library, record_id, record.parent_id),
                 metadata.listitem(
-                    record.item, server, key, library, separator, set_name=None
+                    record.item,
+                    server,
+                    key,
+                    library,
+                    separator,
+                    set_name=None,
+                    features=features,
                 ),
                 False,
             )
@@ -356,7 +374,9 @@ def serve(request):
 # -- movie versions and extras --------------------------------------------------
 
 
-def _movie_entries(record, server, key, library, separator, set_name, assets):
+def _movie_entries(
+    record, server, key, library, separator, set_name, assets, features=frozenset()
+):
     """A movie's file, and with ``assets`` a file per further media source,
     each carrying the whole tag and the source's name as its video asset
     title, and the movie's extras folder.
@@ -372,7 +392,10 @@ def _movie_entries(record, server, key, library, separator, set_name, assets):
     """
     item = record.item
     url = paths.playback_url(key, "Movie", library, record.item_id)
-    sources = metadata.version_sources(item)
+    # Without video_versions (kontell/xbmc #8) a Kodi cannot group a further
+    # file under the movie, so the folder lists the movie's own file alone
+    # and the default source plays; the extras folder is Kodi 22's too.
+    sources = metadata.version_sources(item) if "video_versions" in features else []
 
     def row(name="", source=None):
         shown = item
@@ -390,6 +413,7 @@ def _movie_entries(record, server, key, library, separator, set_name, assets):
             library,
             separator,
             set_name=set_name,
+            features=features,
             version=(
                 metadata.Version.of(
                     name, source is None, metadata.unique_ids(item, key)
@@ -421,7 +445,7 @@ def _movie_entries(record, server, key, library, separator, set_name, assets):
     return entries
 
 
-def _extras_folder(request, store, key, library, movie_id):
+def _extras_folder(request, store, key, library, movie_id, kodi_features=frozenset()):
     """A movie's extras: a file per special feature, named by its title with
     a video extension, built from the movie's payload."""
     server = store.server()
@@ -432,7 +456,7 @@ def _extras_folder(request, store, key, library, movie_id):
     entries = [
         (
             paths.extra_url(key, library, movie_id, stem, feature),
-            metadata.extra_listitem(feature, server),
+            metadata.extra_listitem(feature, server, features=kodi_features),
             False,
         )
         for stem, feature in paths.extra_stems(features)
@@ -514,7 +538,7 @@ def _wait(seconds) -> bool:
     return xbmc.Monitor().waitForAbort(seconds)
 
 
-def _music_folder(request, store, key, library, folder):
+def _music_folder(request, store, key, library, folder, features=frozenset()):
     """One album's complete listing, in one call, however long it takes.
 
     The scanner never reads the succeeded flag: RetrieveMusicInfo removes
@@ -530,7 +554,7 @@ def _music_folder(request, store, key, library, folder):
     began = time.monotonic()
     while True:
         try:
-            entries = _song_entries(store, key, library, folder)
+            entries = _song_entries(store, key, library, folder, features)
             break
         except Exception:
             LOG.exception("music listing unavailable for %s", directory)
@@ -558,7 +582,7 @@ def _music_folder(request, store, key, library, folder):
     )
 
 
-def _song_entries(store, key, library, folder):
+def _song_entries(store, key, library, folder, features=frozenset()):
     began = time.monotonic()
     songs = store.records(kind="Audio", library=library, parent_id=folder)
     album = None
@@ -578,7 +602,7 @@ def _song_entries(store, key, library, folder):
             key, library, folder, item_id, paths.container_of(record.item)
         )
         try:
-            li = metadata.song_listitem(record.item, album, salt)
+            li = metadata.song_listitem(record.item, album, salt, features)
         except Exception:
             # One malformed payload must not cost the directory a song.
             LOG.exception("song row reduced to its title: %s", item_id)

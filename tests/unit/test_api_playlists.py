@@ -321,7 +321,6 @@ def test_playlist_lines_name_their_items_through_the_catalogue(
 def test_save_playlist_to_jellyfin_sends_the_songs_kofin_filed(
     store, backend, kodi, tmp_path, monkeypatch
 ):
-    from kofin import buildconfig
     from kofin.plugin import actions
     from kofin.plugin.router import Request
     from kofin.sync.backends.api import identity
@@ -347,7 +346,6 @@ def test_save_playlist_to_jellyfin_sends_the_songs_kofin_filed(
             return {"Id": "p" * 32}
 
     notified = []
-    monkeypatch.setattr(buildconfig, "BACKEND", "api")
     monkeypatch.setattr(identity, "current_store", lambda: store)
     monkeypatch.setattr(actions, "_api", lambda: Api())
     monkeypatch.setattr("xbmcvfs.translatePath", lambda path: path)

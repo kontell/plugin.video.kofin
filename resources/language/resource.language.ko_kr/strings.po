@@ -2308,6 +2308,42 @@ msgctxt "#30875"
 msgid "Live TV fine sync needs FFmpeg Direct"
 msgstr "라이브 TV 정밀 동기화에는 FFmpeg Direct가 필요합니다"
 
+msgctxt "#30876"
+msgid "Not on this Kodi"
+msgstr "이 Kodi에서는 사용할 수 없음"
+
+msgctxt "#30877"
+msgid "Season plots"
+msgstr "시즌 줄거리"
+
+msgctxt "#30878"
+msgid "Favorite episodes"
+msgstr "즐겨찾는 에피소드"
+
+msgctxt "#30879"
+msgid "Removing emptied collections"
+msgstr "비워진 컬렉션 제거"
+
+msgctxt "#30880"
+msgid "Movie versions"
+msgstr "영화 버전"
+
+msgctxt "#30881"
+msgid "Stream flags"
+msgstr "트랙 플래그"
+
+msgctxt "#30882"
+msgid "Song date added"
+msgstr "노래 추가 날짜"
+
+msgctxt "#30883"
+msgid "Removing dropped versions and extras"
+msgstr "삭제된 버전 및 부가 영상 제거"
+
+msgctxt "#30884"
+msgid "Fine sync"
+msgstr "미세 동기화"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "이 미리 보기 버전에서는 사용할 수 없습니다"

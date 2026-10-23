@@ -18,7 +18,7 @@ import json
 import os
 import threading
 import time
-from typing import Any, Dict, List, NamedTuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Union
 
 import xbmc
 import xbmcgui
@@ -26,7 +26,7 @@ import xbmcgui
 from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import private
-from . import metadata, progress
+from . import capabilities, metadata, progress
 
 LOG = Logger(__name__)
 
@@ -165,10 +165,13 @@ def rows(
     text,
     kind_label,
     clock=time.localtime,
+    features: Optional[Dict[str, bool]] = None,
 ) -> List[str]:
     """The dialog's lines. ``text`` gives a string by its id and
-    ``kind_label`` Kodi's own word for a kind; the whole of what is shown is
-    decided here, where it can be tested without a dialog."""
+    ``kind_label`` Kodi's own word for a kind; ``features`` is the capability
+    table of this Kodi (``capabilities.table``), whose off entries are named
+    on one row. The whole of what is shown is decided here, where it can be
+    tested without a dialog."""
     lines = []
     state = document.get("state") or text(20177)
     began = _moment(document.get("since") or 0, clock)
@@ -213,7 +216,22 @@ def rows(
     enumerated = _moment(found.enumerated, clock)
     if enumerated:
         lines.append("%s:  %s" % (text(30865), enumerated))
+    if features is not None:
+        # What this Kodi cannot do, by name: the one place a viewer is told,
+        # since nothing logs it per item (the capability profile, CLAUDE.md).
+        off = off_features(features, text)
+        if off:
+            lines.append("%s:  %s" % (text(30876), ", ".join(off)))
     return [line.rstrip() for line in lines]
+
+
+def off_features(features: Dict[str, bool], text) -> List[str]:
+    """The labels of the features this Kodi lacks, in the table's order."""
+    return [
+        text(label)
+        for name, label in capabilities.FEATURE_LABELS
+        if not features.get(name, False)
+    ]
 
 
 def show(store) -> None:
@@ -226,27 +244,39 @@ def show(store) -> None:
     last row the list scrolls the sync's own line off the top as soon as
     there are more rows than fit.
 
-    The first row is the only one that does anything. A select dialog
-    closes on whichever row is picked, so a fact that was picked is shown
-    again as it was, the cursor on it: picking one used to close the report,
-    which read as the report having gone wrong. Back is what closes it.
+    The first row and the last are the only ones that do anything. A select
+    dialog closes on whichever row is picked, so a fact that was picked is
+    shown again as it was, the cursor on it: picking one used to close the
+    report, which read as the report having gone wrong. Back is what closes
+    it. The row naming what this Kodi lacks is cut short by the skin once a
+    few features are off (eight on a Piers), so picking it opens the list,
+    one feature a line, in a text viewer.
     """
     heading = "%s \u2014 %s" % (settings.localized(30859), settings.localized(30862))
     lines: List[str] = []
+    off: List[str] = []
     cursor = 0
     while True:
         if cursor == 0:
+            table = capabilities.table()
+            off = off_features(table, settings.localized)
             lines = rows(
                 read(),
-                snapshot(store, metadata.SCANNER_FORMAT),
+                snapshot(
+                    store,
+                    metadata.scanner_format({n for n, on in table.items() if on}),
+                ),
                 progress.stage,
                 progress.label,
+                features=table,
             )
         choices: List[Union[str, xbmcgui.ListItem]] = [xbmc.getLocalizedString(184)]
         choices.extend(lines)
         cursor = xbmcgui.Dialog().select(heading, choices, preselect=cursor)
         if cursor < 0:
             return
+        if off and cursor == len(choices) - 1:
+            xbmcgui.Dialog().textviewer(settings.localized(30876), "\n".join(off))
 
 
 def _moment(stamp: float, clock) -> str:

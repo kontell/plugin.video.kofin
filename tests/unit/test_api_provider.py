@@ -115,7 +115,6 @@ def test_identity_lookups_cover_episodes_and_music_videos(
     from kofin.service import libraryclaim
 
     monkeypatch.setattr(identity, "current_store", lambda: store)
-    monkeypatch.setattr(libraryclaim.buildconfig, "BACKEND", "api")
     store.publish(show_bundle() + [musicvideo()], library=LIB)
     assert libraryclaim.library_video_path("ea11", "episode") is None
     backend.reconcile()
@@ -138,11 +137,9 @@ def test_syncplay_resolves_a_native_row_through_the_identity_lookup(
     """SyncPlay identifies a library play from Player.OnPlay's Kodi id. On
     this build that is this lookup and nothing else: there is no table of
     Kodi ids to ask."""
-    from kofin import buildconfig
     from kofin.syncplay import providers
 
     monkeypatch.setattr(identity, "current_store", lambda: store)
-    monkeypatch.setattr(buildconfig, "BACKEND", "api")
     store.publish(show_bundle() + [movie()], library=LIB)
     backend.reconcile()
     provider = providers.JellyfinProvider(None)

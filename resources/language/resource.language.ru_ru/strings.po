@@ -2308,6 +2308,42 @@ msgctxt "#30875"
 msgid "Live TV fine sync needs FFmpeg Direct"
 msgstr "Для точной синхронизации прямого эфира нужен FFmpeg Direct"
 
+msgctxt "#30876"
+msgid "Not on this Kodi"
+msgstr "Недоступно в этом Kodi"
+
+msgctxt "#30877"
+msgid "Season plots"
+msgstr "Описания сезонов"
+
+msgctxt "#30878"
+msgid "Favorite episodes"
+msgstr "Избранные эпизоды"
+
+msgctxt "#30879"
+msgid "Removing emptied collections"
+msgstr "Удаление опустевших коллекций"
+
+msgctxt "#30880"
+msgid "Movie versions"
+msgstr "Версии фильмов"
+
+msgctxt "#30881"
+msgid "Stream flags"
+msgstr "Флаги дорожек"
+
+msgctxt "#30882"
+msgid "Song date added"
+msgstr "Дата добавления песен"
+
+msgctxt "#30883"
+msgid "Removing dropped versions and extras"
+msgstr "Удаление удалённых версий и дополнений"
+
+msgctxt "#30884"
+msgid "Fine sync"
+msgstr "Точная синхронизация"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Недоступно в этой тестовой версии"

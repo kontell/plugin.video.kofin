@@ -25,7 +25,7 @@ from kofin.core.settings import Credentials
 from kofin.sync import changefeed, private
 from kofin.sync.catalogue import BackendMismatch
 from kofin.sync.downloader import info, library_filter
-from . import announce, metadata, progress
+from . import announce, capabilities, metadata, progress
 from . import playlists as api_playlists
 from . import status as apistatus
 from .native import Native
@@ -733,7 +733,9 @@ class Library(threading.Thread):
                 if not self.store.has_rows(library):
                     # Nothing of it is in Kodi yet, so every row it gets is
                     # filed by this build's listing.
-                    self.store.set_scanner_format(library, metadata.SCANNER_FORMAT)
+                    self.store.set_scanner_format(
+                        library, metadata.scanner_format(capabilities.features())
+                    )
             private.save_sync(state)
             with private.Database() as db:
                 db.cursor.execute(
@@ -1103,24 +1105,27 @@ class Library(threading.Thread):
             media = dict(
                 db.cursor.execute("SELECT view_id, media_type FROM view").fetchall()
             )
+        # The format this Kodi's listing reaches: a library filed at a lower
+        # one is stale here, never one filed at the format this Kodi lacks.
+        current = metadata.scanner_format(capabilities.features())
         stale = [
             library
             for library in sorted(picked or whitelist)
             if library in whitelist
             and media.get(library) != "music"
-            and self.store.scanner_format(library) < metadata.SCANNER_FORMAT
+            and self.store.scanner_format(library) < current
         ]
         rebuild = [library for library in stale if self.store.has_rows(library)]
         for library in stale:
             if library not in rebuild:
                 # Nothing was ever filed for it; whatever comes is current.
-                self.store.set_scanner_format(library, metadata.SCANNER_FORMAT)
+                self.store.set_scanner_format(library, current)
         if rebuild:
             LOG.info(
                 "repair: %d library(ies) filed before scanner format %d;"
                 " their rows are removed and imported again: %s",
                 len(rebuild),
-                metadata.SCANNER_FORMAT,
+                current,
                 ", ".join(rebuild),
             )
             # Recorded before the rows are tombstoned: a service stopped

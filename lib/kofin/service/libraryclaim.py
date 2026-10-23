@@ -9,35 +9,17 @@ reports it like any other. Moved verbatim out of ``service/player.py``,
 where it was self-free module code beside the player class.
 """
 
-import json
 import os
 import re
-from typing import Any, Dict, Optional, Tuple
-from uuid import uuid4
+from typing import Any, Dict, Optional
 
-import xbmc
 import xbmcgui
 
-from kofin.core import kodirpc, settings, state
-from kofin import buildconfig
-from kofin.core.api import Api
 from kofin.core.log import Logger
-from kofin.core.segments import parse_segments
 
 LOG = Logger(__name__)
 
 JsonDict = Dict[str, Any]
-
-
-# Kodi media types whose rows may point somewhere playback never reaches the
-# play route from. Songs are written with a direct stream URL depending on
-# ``musicTranscode``; movies and episodes joined with the downloads repoint
-# (W1.7) — a downloaded item's row is a *local file*, so playing it from the
-# library claims nothing, which left downloaded plays invisible as sessions
-# (no dashboard, no progress reporting, no auto-next surface — found by the
-# G13 gate). Both kinds check the play queue before claiming (see below), so
-# a plugin:// play that claims the normal way is never double-claimed.
-BACKFILL_MEDIA_TYPES = ("song", "movie", "episode")
 
 
 def library_video_path(jellyfin_id: str, media: str) -> Optional[str]:
@@ -47,26 +29,13 @@ def library_video_path(jellyfin_id: str, media: str) -> Optional[str]:
     path, including a download repoint. A Play Next started with another URL
     will play, but Kodi's ListItem.IsPlaying will not match the browsing row.
     """
-    if not buildconfig.legacy_features():
-        if media not in ("movie", "episode", "musicvideo"):
-            return None
-        from kofin.sync.backends.api.identity import library_url
-
-        try:
-            url = library_url(jellyfin_id)
-            return str(url) if url else None
-        except Exception:
-            LOG.exception("API library path unavailable for %s", jellyfin_id)
-            return None
-    from kofin.sync.private import Database
-    from kofin.sync.kofindb import JellyfinDatabase
+    if media not in ("movie", "episode", "musicvideo"):
+        return None
+    from kofin.sync.backends.api.identity import library_url
 
     try:
-        with Database("kofin") as opened:
-            row = JellyfinDatabase(opened.cursor).get_item_by_id(jellyfin_id)
-        if row is None or row.media_type != media or not row.kodi_id:
-            return None
-        return kodirpc.video_file(int(row.kodi_id), media)
+        url = library_url(jellyfin_id)
+        return str(url) if url else None
     except Exception:
         LOG.exception("library path unavailable for %s", jellyfin_id)
         return None
@@ -104,28 +73,14 @@ def musicdb_song_id(path: str) -> Optional[int]:
 def mapped_jellyfin_id(kodi_id: int, media: str) -> Optional[str]:
     """The Jellyfin id kofin synced a Kodi library row from, or None if the row
     is not ours (or the mapping database cannot be read)."""
-    if not buildconfig.legacy_features():
-        from kofin.sync.backends.api.identity import mapped_item
-
-        try:
-            value = mapped_item(kodi_id, media)
-            return str(value) if value else None
-        except Exception:
-            LOG.exception("API library identity unavailable")
-            return None
-    from kofin.sync import private as sync_db
-    from kofin.sync import kofindb
+    from kofin.sync.backends.api.identity import mapped_item
 
     try:
-        with sync_db.Database("kofin") as opened:
-            jellyfin_id = kofindb.JellyfinDatabase(opened.cursor).get_item_by_kodi_id(
-                kodi_id, media
-            )
+        value = mapped_item(kodi_id, media)
+        return str(value) if value else None
     except Exception:
-        LOG.exception("library claim lookup failed for %s/%s", media, kodi_id)
+        LOG.exception("library identity unavailable")
         return None
-
-    return str(jellyfin_id) if jellyfin_id else None
 
 
 # A song's Jellyfin id as it appears in whichever path Kodi is playing:
@@ -172,226 +127,3 @@ def playing_jellyfin_id(item: xbmcgui.ListItem, path: str) -> Optional[str]:
             return mapped
 
     return path_item_id(path)
-
-
-def library_claim(jellyfin_id: str, path: str, api: Api) -> Optional[JsonDict]:
-    """The play-state a library-originated playback would have queued.
-
-    Unless ``musicTranscode`` is on, songs are written into Kodi as
-    ``<server>/Audio/<id>/stream.<ext>``, so playing one from the music library
-    never invokes ``mode=play`` and nothing
-    claims it — the player sees a file it did not queue and reports nothing,
-    which is why music never appeared on the dashboard and server playcounts
-    never advanced. The fork solves it the same way (``objects/actions.py``
-    ``on_play``): map the Kodi id back to a Jellyfin id, fetch the item, and
-    register it so the normal reporting path takes over.
-
-    Returns None when the server cannot be reached — genuinely foreign
-    playback must stay unclaimed.
-    """
-    try:
-        item = api.item(jellyfin_id)
-    except Exception as error:
-        LOG.debug("library claim fetch failed for %s: %s", jellyfin_id, error)
-        return None
-
-    sources = item.get("MediaSources") or [{}]
-
-    return {
-        "Id": item.get("Id", jellyfin_id),
-        "Type": item.get("Type", ""),
-        "Name": item.get("Name", ""),
-        "SeriesId": item.get("SeriesId", ""),
-        "Path": path,
-        # Direct stream: Kodi pulls the server's URL itself, untranscoded.
-        "PlayMethod": "DirectStream",
-        "PlaySessionId": uuid4().hex,
-        "MediaSourceId": sources[0].get("Id") or item.get("Id", jellyfin_id),
-        "DeviceId": settings.get_str("deviceId"),
-        "Runtime": int(item.get("RunTimeTicks") or 0),
-        "AudioStreamIndex": None,
-        "SubtitleStreamIndex": None,
-        "CurrentPosition": 0.0,
-    }
-
-
-def _offline_claim(jellyfin_id: str, media: str, path: str) -> Optional[JsonDict]:
-    """A claim built from local state alone (W4.7): the server is away, but
-    a *downloaded* item's playback still deserves what the claim carries —
-    the segment engine reading the download-time cache, position tracking,
-    the watched-to-end offers. Reporting is separately gated offline, so
-    the claim costs no doomed posts. None for anything not downloaded:
-    genuinely foreign playback must stay unclaimed."""
-    from kofin.downloads import store as downloads_store
-
-    row = downloads_store.get(jellyfin_id)
-    if row is None or row.state != downloads_store.DONE:
-        return None
-    kind = {"movie": "Movie", "episode": "Episode", "song": "Audio"}.get(media, "")
-    name, runtime_ticks = _local_item_facts(jellyfin_id, media)
-    return {
-        "Id": jellyfin_id,
-        "Type": kind,
-        "Name": name,
-        "SeriesId": row.series_id,
-        "Path": path,
-        "PlayMethod": "DirectPlay",
-        "PlaySessionId": uuid4().hex,
-        "MediaSourceId": jellyfin_id,
-        "DeviceId": settings.get_str("deviceId"),
-        "Runtime": runtime_ticks,
-        "AudioStreamIndex": None,
-        "SubtitleStreamIndex": None,
-        "CurrentPosition": 0.0,
-    }
-
-
-def _local_item_facts(jellyfin_id: str, media: str) -> "Tuple[str, int]":
-    """(name, runtime ticks) from Kodi's own rows via the mapping — the
-    dialogs name the item and ``watched_to_end`` needs a runtime, and both
-    must work with the server unreachable."""
-    if not buildconfig.legacy_features():
-        # The catalogue's payload is local too.
-        try:
-            from kofin.sync.backends.api.identity import current_store
-
-            item = current_store().item(jellyfin_id) or {}
-        except Exception:  # pragma: no cover - a torn store must not stop play
-            LOG.exception("local item facts unavailable for %s", jellyfin_id)
-            return "", 0
-        return str(item.get("Name") or ""), int(item.get("RunTimeTicks") or 0)
-    from kofin.downloads import repoint as downloads_repoint
-    from kofin.sync.db import Database
-
-    table = {"movie": "movie", "episode": "episode"}.get(media)
-    if table is None:
-        return "", 0
-    id_column = "idMovie" if table == "movie" else "idEpisode"
-    try:
-        with Database("kofin") as kofin_db, Database("video") as video:
-            mapping = downloads_repoint.mapping_for_on(kofin_db.cursor, jellyfin_id)
-            if mapping is None:
-                return "", 0
-            video.cursor.execute(
-                "SELECT c00 FROM %s WHERE %s = ?" % (table, id_column),
-                (mapping.kodi_id,),
-            )
-            row = video.cursor.fetchone()
-            name = str(row[0]) if row is not None and row[0] else ""
-            video.cursor.execute(
-                "SELECT iVideoDuration FROM streamdetails "
-                "WHERE idFile = ? AND iStreamType = 0",
-                (mapping.kodi_fileid,),
-            )
-            duration = video.cursor.fetchone()
-            seconds = int(duration[0]) if duration is not None and duration[0] else 0
-        return name, seconds * 10_000_000
-    except Exception:  # pragma: no cover - a torn database must not stop play
-        LOG.exception("local item facts unavailable for %s", jellyfin_id)
-        return "", 0
-
-
-def _attach_cached_segments(claim: JsonDict) -> None:
-    """The download-time segment cache onto a claim (W4.7): the engine is
-    armed before the first frame with no server fetch — offline's only
-    source, and online it saves the checker's fallback round trip."""
-    if claim.get("Type") not in ("Movie", "Episode"):
-        return
-    from kofin.downloads import store as downloads_store
-
-    row = downloads_store.get(str(claim.get("Id") or ""))
-    if row is None or row.state != downloads_store.DONE or not row.segments_json:
-        return
-    try:
-        claim["Segments"] = parse_segments(json.loads(row.segments_json))
-    except (ValueError, TypeError):
-        LOG.debug("cached segments unreadable for %s", claim.get("Id"))
-
-
-def backfill_library_claim(data: JsonDict, api: Api) -> bool:
-    """Queue a claim for library playback that bypassed the play route.
-
-    Driven by the ``Player.OnPlay`` notification; True when a claim was
-    pushed. Only the media types in ``BACKFILL_MEDIA_TYPES`` qualify, and
-    the queue/playing-id guard below is what keeps a ``plugin://`` play —
-    which claims the normal way — from being double-claimed.
-
-    The announcement is not required to carry the database id: playback
-    started from a saved playlist never has one, and the id has to come out of
-    the path instead (see :func:`musicdb_song_id`). Without that, a whole
-    playlist plays unclaimed and unreported — the server's play counts stand
-    still while Kodi's own keep advancing, and the next userdata sync writes
-    the server's stale number back over them.
-    """
-    if not buildconfig.legacy_features():
-        return False
-    item = data.get("item") or {}
-    media = item.get("type") or ""
-    kodi_id = item.get("id")
-
-    if media not in BACKFILL_MEDIA_TYPES:
-        return False
-
-    try:
-        path = xbmc.Player().getPlayingFile()
-    except RuntimeError:
-        return False
-
-    if not path:
-        return False
-
-    if not isinstance(kodi_id, int):
-        kodi_id = musicdb_song_id(path)
-    if kodi_id is None:
-        return False
-
-    jellyfin_id = mapped_jellyfin_id(kodi_id, media)
-    if not jellyfin_id:
-        return False
-
-    # The announcement names the item at event time, but its network-backed
-    # back-fill runs later on the reporter thread. Kodi may already be playing
-    # the next song. Never attach the old item's id to the new song's path.
-    if media == "song":
-        path_id = _ID_IN_PATH.search(path)
-        if path_id and (path_id.group(1) or path_id.group(2)) != jellyfin_id:
-            return False
-        path_kodi_id = musicdb_song_id(path)
-        if path_kodi_id is not None and path_kodi_id != kodi_id:
-            return False
-
-    # With ``musicTranscode`` on, songs are plugin:// rows that claim
-    # themselves through the play route. Both orderings have to be caught: this
-    # notification can land before onPlayBackStarted claims (the entry is
-    # still queued) or after it (the entry is gone, but the player has
-    # published what it is playing). Testing the play state rather than the
-    # setting also keeps the window between flipping it and repairing the
-    # library reported, where the rows are still direct URLs.
-    if state.play_item_queued(path) or state.get_playing_id() == jellyfin_id:
-        return False
-
-    if state.is_offline():
-        # Straight to the local claim: the server fetch below would ride
-        # the transport ladder for ~30 s against a stated outage, landing
-        # the claim long after the player's own claim window closed — the
-        # engine never armed, measured live (W4.7).
-        claim = _offline_claim(jellyfin_id, media, path)
-    else:
-        claim = library_claim(jellyfin_id, path, api)
-        if claim is None:
-            # The fetch failed some other way: a *downloaded* item still
-            # claims from local state (W4.7).
-            claim = _offline_claim(jellyfin_id, media, path)
-    if claim is None:
-        return False
-    # The fetch above can outlive a short song or a rapid skip. A claim for
-    # that finished play has no consumer and must not wait for a later one.
-    try:
-        if xbmc.Player().getPlayingFile() != path:
-            return False
-    except RuntimeError:
-        return False
-    LOG.info("--> library claim %s (%s)", claim["Id"], media)
-    _attach_cached_segments(claim)
-    state.push_play_item(claim)
-    return True

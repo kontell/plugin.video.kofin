@@ -8,7 +8,6 @@ row — resume bookmark, play count — on the exact URL string (core/urls.py).
 
 import pytest
 
-import kofin.sync.private as database_module
 from kofin.syncplay import providers
 
 ITEM_ID = "696f7d7c6cf19390f1f4911c83f2954a"
@@ -108,30 +107,29 @@ def test_no_api_client_is_a_failed_lookup():
         providers.JellyfinProvider(None).play_target(ITEM_ID, 0)
 
 
-def test_resolve_kodi_id_maps_through_the_sync_db(monkeypatch):
-    monkeypatch.setattr(database_module, "get_item", lambda kid, media: ("jf-9", "x"))
+def test_resolve_kodi_id_maps_through_the_catalogue_identity(monkeypatch):
+    monkeypatch.setattr(
+        "kofin.sync.backends.api.identity.mapped_item", lambda kid, media: "jf-9"
+    )
 
     assert providers.JellyfinProvider(None).resolve_kodi_id(42, "movie") == "jf-9"
 
 
 def test_an_unmapped_kodi_id_resolves_to_none(monkeypatch):
-    monkeypatch.setattr(database_module, "get_item", lambda kid, media: None)
+    monkeypatch.setattr(
+        "kofin.sync.backends.api.identity.mapped_item", lambda kid, media: None
+    )
 
     assert providers.JellyfinProvider(None).resolve_kodi_id(42, "movie") is None
 
 
-# --- the API build has no table of Kodi ids ---------------------------------
-#
-# sync.private.get_item answers None for every row there, so a provider that
-# asked it called every library play foreign.
+# --- kofin keeps no table of Kodi ids: the catalogue's identity answers ------
 
 
 @pytest.fixture
-def api_build(monkeypatch):
-    from kofin import buildconfig
+def api_build():
     from kofin.sync.backends.api import identity
 
-    monkeypatch.setattr(buildconfig, "BACKEND", "api")
     return identity
 
 
@@ -169,20 +167,6 @@ def test_on_the_api_build_a_failed_lookup_is_not_an_answer(api_build, monkeypatc
 
     with pytest.raises(RuntimeError):
         providers.JellyfinProvider(None).resolve_kodi_id(42, "movie")
-
-
-def test_on_the_sql_build_the_api_identity_is_never_asked(monkeypatch):
-    """The SQL distribution does not ship the API backend at all."""
-    from kofin import buildconfig
-    from kofin.sync.backends.api import identity
-
-    monkeypatch.setattr(buildconfig, "BACKEND", "sql")
-    monkeypatch.setattr(
-        identity, "mapped_item", lambda kid, media: pytest.fail("API lookup asked")
-    )
-    monkeypatch.setattr(database_module, "get_item", lambda kid, media: ("jf-9", "x"))
-
-    assert providers.JellyfinProvider(None).resolve_kodi_id(42, "movie") == "jf-9"
 
 
 def test_the_registry_dispatches_to_the_default_provider():

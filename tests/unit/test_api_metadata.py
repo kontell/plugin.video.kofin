@@ -5,6 +5,7 @@ import copy
 import pytest
 
 from kofin.sync.backends.api import metadata
+from kofin.sync.backends.api.capabilities import ALL
 from tests.unit.apikodi import SERVER
 from tests.unit.apifixtures import (  # noqa: F401
     LIB,
@@ -142,21 +143,31 @@ def test_show_and_episode_details_speak_their_setters():
     )
     assert renumbered["uniqueid"]["kofinrefresh"] != show["uniqueid"]["kofinrefresh"]
     filed = metadata.details(
-        season("s", number=1, Overview=" arc "), SERVER, "key", LIB
+        season("s", number=1, Overview=" arc "), SERVER, "key", LIB, features=ALL
     )
     assert filed["plot"] == "arc"
     # An empty plot is no opinion: Kodi's season setter keeps the stored one.
-    assert "plot" not in metadata.details(season("s", number=1), SERVER, "key", LIB)
-    ep = metadata.details(episode("e1"), SERVER, "key", LIB)
+    assert "plot" not in metadata.details(
+        season("s", number=1), SERVER, "key", LIB, features=ALL
+    )
+    # Without the feature a season has no plot to patch: the setter has no
+    # such parameter (kinds.FEATURE_FIELDS).
+    assert "plot" not in metadata.details(
+        season("s", number=1, Overview="arc"), SERVER, "key", LIB
+    )
+    ep = metadata.details(episode("e1"), SERVER, "key", LIB, features=ALL)
     assert (ep["season"], ep["episode"], ep["firstaired"]) == (1, 1, "2001-02-10")
     assert ep["resume"]["position"] == 0
     # Kodi 23 keeps an episode's tags (kontell/xbmc #12): the library's, and
-    # the favourite's while it holds.
+    # the favourite's while it holds. A Kodi without the feature gets none.
     assert ep["tag"] == ["kofin.library." + LIB]
     loved = metadata.details(
-        episode("e1", UserData={"IsFavorite": True}), SERVER, "key", LIB
+        episode("e1", UserData={"IsFavorite": True}), SERVER, "key", LIB, features=ALL
     )
     assert loved["tag"] == ["Favorite episodes", "kofin.library." + LIB]
+    assert "tag" not in metadata.details(
+        episode("e1", UserData={"IsFavorite": True}), SERVER, "key", LIB
+    )
     clip = metadata.details(musicvideo(), SERVER, "key", LIB)
     assert clip["artist"] == ["Band"] and clip["album"] == "Album"
     assert metadata.details(boxset("b", " Set ", ["a"]), SERVER, "key", LIB) == {
@@ -185,7 +196,7 @@ def _recorded_streams(monkeypatch, item):
 
     for name in ("VideoStreamDetail", "AudioStreamDetail", "SubtitleStreamDetail"):
         monkeypatch.setattr(metadata.xbmc, name, lambda **kw: Detail(kw))
-    metadata.listitem(item, SERVER, "key", LIB)
+    metadata.listitem(item, SERVER, "key", LIB, features=ALL)
     return (
         [c.args[0] for c in tag.addVideoStream.call_args_list],
         [c.args[0] for c in tag.addAudioStream.call_args_list],

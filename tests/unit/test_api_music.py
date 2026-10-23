@@ -3,6 +3,7 @@
 import pytest
 
 from kofin.sync.backends.api import metadata, paths
+from kofin.sync.backends.api.capabilities import ALL
 from kofin.sync.backends.api.readback import artist_key
 from tests.unit.apikodi import song_id_of
 from tests.unit.apifixtures import (  # noqa: F401
@@ -837,7 +838,7 @@ def test_song_tags_hash_moves_for_tags_only_and_the_row_is_marked_loaded(
     li.getMusicInfoTag.return_value = tag
     del tag.setLoaded
     monkeypatch.setattr(metadata.xbmcgui, "ListItem", lambda *a, **k: li)
-    metadata.song_listitem(item, album())
+    metadata.song_listitem(item, album(), features=ALL)
     li.setInfo.assert_called_once_with("music", {"size": "1001"})
     li.setDateTime.assert_called_once_with(metadata.hash_time(base))
     # When the server first saw it, which Kodi 23 keeps (kontell/xbmc #13);
@@ -865,7 +866,6 @@ def test_song_identity_lookups_use_the_url(store, backend, kodi, monkeypatch):
     from kofin.sync.backends.api import identity
 
     monkeypatch.setattr(identity, "current_store", lambda: store)
-    monkeypatch.setattr(libraryclaim.buildconfig, "BACKEND", "api")
     store.publish(album_bundle(songs=2), library=LIB)
     backend.reconcile()
     songid = store.mapping("tc31").kodi_id

@@ -662,8 +662,9 @@ def test_a_repair_rebuilds_a_video_library_filed_under_an_older_scanner_format(
     """Streams have no setter, so a row filed without them gets them only by
     being filed again, and nothing but the viewer's own repair may take a
     library out of Kodi to do it."""
-    from kofin.sync.backends.api import metadata
+    from kofin.sync.backends.api import capabilities, metadata
 
+    monkeypatch.setattr(capabilities, "features", lambda: capabilities.ALL)
     server = Server({LIB: [movie(), movie("b")], LIB2: show_bundle()})
     w, state = _filed(store, monkeypatch, server, LIB, LIB2)
     assert store.scanner_format(LIB) == 1
@@ -789,8 +790,9 @@ def test_a_library_is_recorded_under_the_format_its_rows_are_filed_with(
     store, monkeypatch
 ):
     from kofin.sync import private
-    from kofin.sync.backends.api import metadata
+    from kofin.sync.backends.api import capabilities, metadata
 
+    monkeypatch.setattr(capabilities, "features", lambda: capabilities.ALL)
     server = Server({LIB: [movie()], LIB2: show_bundle()})
     w = worker(store, server, [LIB], monkeypatch)
     state = _whitelist(monkeypatch)

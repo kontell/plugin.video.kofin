@@ -48,21 +48,12 @@ def online(monkeypatch, tmp_path):
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
     monkeypatch.setattr("xbmcvfs.exists", lambda p: True)
     monkeypatch.setattr("xbmcvfs.translatePath", lambda p: str(tmp_path))
-    from kofin.sync import db as sync_db
+    from kofin.sync import private as sync_db
 
     sync_db.reset_overrides()
     sync_db.set_path_override("kofin", str(tmp_path / "kofin.db"))
     yield
     sync_db.reset_overrides()
-
-
-@pytest.fixture
-def mapped(monkeypatch):
-    """Map Kodi row 5910 to a Jellyfin id; everything else is not kofin's."""
-    monkeypatch.setattr(
-        "kofin.service.libraryclaim.mapped_jellyfin_id",
-        lambda kodi_id, media: "jf-ep-1" if kodi_id == 5910 else None,
-    )
 
 
 @pytest.fixture
@@ -127,44 +118,6 @@ def test_parse_covers_every_mapped_media_type():
 # --- pushing -----------------------------------------------------------------
 
 
-def test_mark_watched_reaches_the_server(mapped):
-    assert drain(RecordingApi(), [MARK_WATCHED]) == [("played", "jf-ep-1")]
-
-
-def test_mark_unwatched_reaches_the_server(mapped):
-    assert drain(RecordingApi(), [MARK_UNWATCHED]) == [("unplayed", "jf-ep-1")]
-
-
-def test_reset_resume_zeroes_the_server_position(mapped, kodi_resume):
-    assert drain(RecordingApi(), [RESET_RESUME]) == [("resume", "jf-ep-1", 0)]
-
-
-def test_reset_resume_needs_kodis_bookmark_to_actually_be_gone(mapped, kodi_resume):
-    # The flat shape is the only signal, so confirm it before discarding a
-    # resume point the viewer may never have asked to lose.
-    kodi_resume["position"] = 300.0
-    assert drain(RecordingApi(), [RESET_RESUME]) == []
-
-
-def test_unreadable_kodi_resume_writes_nothing(mapped, monkeypatch):
-    monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
-    assert drain(RecordingApi(), [RESET_RESUME]) == []
-
-
-def test_rows_kofin_did_not_sync_are_left_alone(mapped):
-    foreign = {"item": {"id": 4242, "type": "movie"}, "playcount": 1}
-    assert drain(RecordingApi(), [foreign]) == []
-
-
-def test_a_failing_push_does_not_strand_the_queue(mapped):
-    class HalfBrokenApi(RecordingApi):
-        def mark_played(self, item_id):
-            raise RuntimeError("server down")
-
-    api = HalfBrokenApi()
-    assert drain(api, [MARK_WATCHED, MARK_UNWATCHED]) == [("unplayed", "jf-ep-1")]
-
-
 def test_no_worker_thread_without_work():
     watcher = KodiUserData(RecordingApi())
     watcher.submit({"item": {"id": 1, "type": "tvshow"}, "playcount": 1})
@@ -181,77 +134,61 @@ def test_resume_query_covers_every_watched_media_type():
 # --- parking when the server is unreachable (plan W2.4) ----------------------
 
 
-def test_offline_parks_instead_of_pushing(mapped, kodi_resume):
-    """Watching a download offline used to lose its watched flag outright:
-    the push failed and the event was gone (feasibility V6)."""
-    from kofin.core import state
-    from kofin.downloads import pending
-    from tests.unit.fakes import FakeWindow
+# --- the edits go to the catalogue's outbox, never to the server directly ----
 
-    FakeWindow.store = {"kofin.online": "false"}  # a stated outage
-    assert state.is_offline() is True
 
+class FakeStore:
+    def __init__(self):
+        self.edits = []
+        self.echoes = set()
+
+    def is_echo(self, item_id, field, value):
+        return (item_id, field) in self.echoes
+
+    def local(self, item_id, fields):
+        self.edits.append((item_id, fields))
+
+
+@pytest.fixture
+def outbox(monkeypatch):
+    """Row 5910 is jf-ep-1 in the catalogue; everything else is not kofin's."""
+    store = FakeStore()
+    monkeypatch.setattr(
+        "kofin.sync.backends.api.identity.mapped_item",
+        lambda kodi_id, media: "jf-ep-1" if kodi_id == 5910 else None,
+    )
+    monkeypatch.setattr("kofin.sync.backends.api.identity.current_store", lambda: store)
+    return store
+
+
+def test_a_watched_mark_is_a_local_edit_for_the_pass(outbox):
     api = RecordingApi()
-    assert drain(api, [MARK_WATCHED]) == []  # no doomed attempt
-
-    (row,) = pending.rows()
-    assert row.jellyfin_id == "jf-ep-1"
-    assert row.played == 1
-
-
-def test_a_failed_push_is_parked_not_dropped(mapped, kodi_resume):
-    from kofin.core.http import ServerUnreachable
-    from kofin.downloads import pending
-
-    class DeadApi(RecordingApi):
-        def mark_played(self, item_id):
-            raise ServerUnreachable("gone")
-
-    drain(DeadApi(), [MARK_WATCHED])
-
-    (row,) = pending.rows()
-    assert row.jellyfin_id == "jf-ep-1" and row.played == 1
+    assert drain(api, [MARK_WATCHED, MARK_UNWATCHED]) == []
+    assert outbox.edits == [
+        ("jf-ep-1", {"playcount": 1}),
+        ("jf-ep-1", {"playcount": 0}),
+    ]
 
 
-def test_offline_resume_reset_keeps_the_online_paths_bookmark_check(
-    mapped, kodi_resume
-):
-    """The online push refuses to zero the server's position while Kodi
-    still holds a bookmark — the one path that can discard a resume point
-    the user never asked to lose. The offline park skipped that check and
-    replayed position 0 verbatim on the next connect (audit R8); the check
-    is a local JSON-RPC read and works offline."""
-    from kofin.downloads import pending
-    from tests.unit.fakes import FakeWindow
-
-    FakeWindow.store = {"kofin.online": "false"}
-    kodi_resume["position"] = 900.0  # Kodi still has the bookmark
-
-    assert drain(RecordingApi(), [RESET_RESUME]) == []
-    assert pending.rows() == []
+def test_the_echo_of_the_passs_own_write_is_not_an_edit(outbox):
+    outbox.echoes.add(("jf-ep-1", "playcount"))
+    drain(RecordingApi(), [MARK_WATCHED])
+    assert outbox.edits == []
 
 
-def test_offline_resume_reset_with_the_bookmark_gone_is_parked(mapped, kodi_resume):
-    from kofin.downloads import pending
-    from tests.unit.fakes import FakeWindow
-
-    FakeWindow.store = {"kofin.online": "false"}
+def test_a_reset_resume_records_kodis_own_bookmark(outbox, kodi_resume):
     kodi_resume["position"] = 0.0
-
-    assert drain(RecordingApi(), [RESET_RESUME]) == []
-    (row,) = pending.rows()
-    assert row.jellyfin_id == "jf-ep-1"
+    drain(RecordingApi(), [RESET_RESUME])
+    assert outbox.edits == [("jf-ep-1", {"position": 0.0})]
 
 
-def test_a_second_event_coalesces_onto_the_row(mapped, kodi_resume):
-    """One row per item: replaying "played" and then a stale "position 0"
-    is how a finished episode comes back in Continue Watching."""
-    from kofin.downloads import pending
-    from tests.unit.fakes import FakeWindow
+def test_an_unreadable_kodi_resume_writes_nothing(outbox, monkeypatch):
+    monkeypatch.setattr("xbmc.executeJSONRPC", lambda query: "not json")
+    drain(RecordingApi(), [RESET_RESUME])
+    assert outbox.edits == []
 
-    FakeWindow.store = {"kofin.online": "false"}
-    drain(RecordingApi(), [MARK_UNWATCHED, MARK_WATCHED])
 
-    rows = pending.rows()
-    assert len(rows) == 1
-    assert rows[0].played == 1  # the newer event won
+def test_rows_kofin_did_not_sync_are_left_alone(outbox):
+    foreign = {"item": {"id": 4242, "type": "movie"}, "playcount": 1}
+    drain(RecordingApi(), [foreign])
+    assert outbox.edits == []

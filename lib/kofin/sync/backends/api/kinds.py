@@ -207,6 +207,27 @@ MINIMAL: Dict[str, List[str]] = {
     "BoxSet": ["title"],
 }
 
+# A property or setter field a Kodi has only with a feature
+# (requirements.json). A readback that asks for a property Kodi's field enum
+# does not name fails whole, and a setter refuses a parameter it does not
+# take, so both are shaped by the feature table (capabilities.features):
+# on Piers Video.Fields.Season has no plot and Video.Fields.Episode no tag.
+FEATURE_FIELDS: Dict[str, Dict[str, str]] = {
+    "Season": {"plot": "season_plot"},
+    "Episode": {"tag": "episode_tags"},
+}
+
+
+def properties(kind: str, features, minimal: bool = False) -> List[str]:
+    """The readback properties of ``kind`` on a Kodi with ``features``: the
+    scope's minimal set with ``minimal``, else the full row."""
+    names = MINIMAL.get(kind, PROPERTIES[kind]) if minimal else PROPERTIES[kind]
+    gated = FEATURE_FIELDS.get(kind, {})
+    return [
+        name for name in names if gated.get(name) is None or gated[name] in features
+    ]
+
+
 PROPERTIES: Dict[str, List[str]] = {
     "Movie": [
         "file",

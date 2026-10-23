@@ -41,6 +41,7 @@ from typing import Dict, List, NamedTuple, Optional, Tuple
 from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import kodisetup, playlists, private
+from kofin.sync.backends.api import capabilities
 from kofin.sync.backends.api.metadata import (  # noqa: F401  (re-exported)
     LIBRARY_TAG_PREFIX,
     library_tag,
@@ -154,7 +155,7 @@ def publish(items, server):
     try:
         if entries:
             kodisetup.seed_default_nodes("video")
-            singles = video.single_nodes()
+            singles = video.single_nodes(capabilities.has("episode_tags"))
             video.write_tree(entries, singles)
             playlists.write_video_playlists(entries)
         else:
@@ -171,7 +172,7 @@ def publish(items, server):
         else:
             if libraries:
                 kodisetup.seed_default_nodes("music")
-            music_nodes.write_music_nodes(libraries, downloads=False)
+            music_nodes.write_music_nodes(libraries)
     except Exception:
         LOG.exception("music node tree not written")
     if not nodes:

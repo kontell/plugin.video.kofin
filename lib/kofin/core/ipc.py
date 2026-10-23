@@ -35,9 +35,6 @@ AUTH_CHANGED = "AuthChanged"
 REMOVE_LIBRARY = "RemoveLibrary"
 REPAIR_LIBRARY = "RepairLibrary"
 UPDATE_LIBRARY = "UpdateLibrary"
-REFRESH_BOXSETS = "RefreshBoxsets"
-# Settings button: seed the cast-image texture cache now (service/artcache.py).
-PRECACHE_ART = "PrecacheArt"
 
 # SyncPlay (phase 4): the root entry's plugin invocation asks the service —
 # the single owner of all SyncPlay state — to open the group menu on its
@@ -97,8 +94,6 @@ _REGISTRY = frozenset(
         REMOVE_LIBRARY,
         REPAIR_LIBRARY,
         UPDATE_LIBRARY,
-        REFRESH_BOXSETS,
-        PRECACHE_ART,
         SYNCPLAY_MENU,
         WHO_IS_WATCHING,
         DOWNLOAD_ADD,
@@ -118,12 +113,10 @@ _REGISTRY = frozenset(
 # "sender == kofin" proves nothing on its own, and these carry a shared secret
 # as well (see nonce()). The download trio is here wholesale: REMOVE deletes
 # files, ADD pulls gigabytes on someone else's say-so, CANCEL wastes work.
-# UPDATE_LIBRARY plans a prune that deletes rows and REFRESH_BOXSETS re-walks
-# every collection: both things the first sentence names, so every library
-# command is here. ATTACH_SUBTITLE is tens of seconds of server-side ffmpeg
-# for whoever is playing, so it sits with the expensive set rather than the
-# dialogs (PRECACHE_ART is the same shape and stays unguarded on purpose —
-# a settings button, not a playback injection).
+# UPDATE_LIBRARY lists every library again and plans the removals that
+# follow, so every library command is here. ATTACH_SUBTITLE is tens of
+# seconds of server-side ffmpeg for whoever is playing, so it sits with the
+# expensive set rather than the dialogs.
 GUARDED = frozenset(
     {
         RESTART,
@@ -131,7 +124,6 @@ GUARDED = frozenset(
         REMOVE_LIBRARY,
         REPAIR_LIBRARY,
         UPDATE_LIBRARY,
-        REFRESH_BOXSETS,
         DOWNLOAD_ADD,
         DOWNLOAD_CANCEL,
         DOWNLOAD_REMOVE,

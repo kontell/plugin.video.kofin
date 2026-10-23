@@ -41,7 +41,8 @@ NO_YEAR = 1
 FAVORITE_TAG = {
     "Movie": "Favorite movies",
     "Series": "Favorite tvshows",
-    # Kodi 23 keeps an episode's tags (kontell/xbmc #12).
+    # An episode keeps its tags only on a Kodi with kontell/xbmc #12: the
+    # episode_tags feature (details, kinds.FEATURE_FIELDS).
     "Episode": "Favorite episodes",
     "MusicVideo": "Favorite musicvideos",
 }
@@ -176,35 +177,37 @@ def special_features(item) -> List[Dict[str, Any]]:
     ]
 
 
-def assets_token(item) -> str:
+def assets_token(item, features=frozenset()) -> str:
     """What a movie's folder lists beyond the movie's own file: its version
-    files and its extras, as the listing names them. Empty for a movie with
-    neither. The pass scans the folder by name when the token moves, since
-    the root walk lists the movie's file alone."""
-    sources = version_sources(item)
-    features = special_features(item)
-    if not sources and not features:
+    files and its extras, as the listing names them on a Kodi with
+    ``features`` (version files only with ``video_versions``). Empty for a
+    movie with neither. The pass scans the folder by name when the token
+    moves, since the root walk lists the movie's file alone."""
+    sources = version_sources(item) if "video_versions" in features else []
+    extras = special_features(item)
+    if not sources and not extras:
         return ""
     return _token(
         {
             "versions": [[s["Id"], s.get("Name") or ""] for s in sources],
             "extras": [
                 [f["Id"], stem, paths.video_container_of(f)]
-                for stem, f in paths.extra_stems(features)
+                for stem, f in paths.extra_stems(extras)
             ],
         }
     )
 
 
-def asset_files(item, key, library) -> Optional[Dict[str, Any]]:
+def asset_files(item, key, library, features=frozenset()) -> Optional[Dict[str, Any]]:
     """The files a movie's folder lists beyond its own, by URL: its version
-    files with the source's name, its extras. None for a movie with
-    neither. Acknowledged beside the assets token, so what a movie's folder
-    listed is known without a payload being loaded for it: which movies
-    have an extras folder to bind (``Native.bind_movie_folders``)."""
-    sources = version_sources(item)
-    features = special_features(item)
-    if not sources and not features:
+    files with the source's name (only with ``video_versions``), its
+    extras. None for a movie with neither. Acknowledged beside the assets
+    token, so what a movie's folder listed is known without a payload being
+    loaded for it: which movies have an extras folder to bind
+    (``Native.bind_movie_folders``)."""
+    sources = version_sources(item) if "video_versions" in features else []
+    extras = special_features(item)
+    if not sources and not extras:
         return None
     item_id = str(item.get("Id") or "")
     # The label, not the raw name: this is the name the version is filed
@@ -218,7 +221,7 @@ def asset_files(item, key, library) -> Optional[Dict[str, Any]]:
         ],
         "extras": [
             paths.extra_url(key, library, item_id, stem, f)
-            for stem, f in paths.extra_stems(features)
+            for stem, f in paths.extra_stems(extras)
         ],
     }
 
@@ -578,10 +581,14 @@ def details(
     separator=" / ",
     seasons=(),
     set_name=None,
+    features=frozenset(),
 ):
     """The desired native state, keyed as the kind's JSON-RPC setter takes it.
 
-    Explicit empty values clear metadata the server removed.
+    Explicit empty values clear metadata the server removed. ``features`` is
+    what this Kodi offers (``capabilities.features``): a field its setter
+    does not take is left out, so it is neither sent nor compared -- a
+    season's plot and an episode's tags are Kodi 23's (``kinds.FEATURE_FIELDS``).
     """
     kind = item.get("Type", "Movie")
     if kind in MUSIC:
@@ -604,7 +611,7 @@ def details(
     data["uniqueid"] = unique_ids(item, key, seasons)
     if kind != "Season":
         data["runtime"] = int(item.get("RunTimeTicks") or 0) // 10000000
-    if kind in FAVORITE_TAG:
+    if kind in FAVORITE_TAG and (kind != "Episode" or "episode_tags" in features):
         data["tag"] = tags(item, library, kind)
     if kind in ("Movie", "Series", "Episode"):
         data["originaltitle"] = item.get("OriginalTitle") or ""
@@ -667,9 +674,11 @@ def details(
         }
         # No opinion on an empty plot: Kodi's season setter leaves the
         # stored one in place (SetDetailsForSeason writes no empty plot), so
-        # an empty desired plot would differ from the row on every pass.
+        # an empty desired plot would differ from the row on every pass. No
+        # plot at all without the season_plot feature: the setter has no
+        # such parameter and the season readback no such property.
         plot = (item.get("Overview") or "").strip(ASCII_SPACE)
-        if plot:
+        if plot and "season_plot" in features:
             data["plot"] = plot
         return data
     _clean_strings(
@@ -834,7 +843,7 @@ def mark_loaded(li, size):
         tag.setLoaded(True)
 
 
-def song_listitem(item, album=None, salt: int = 0):
+def song_listitem(item, album=None, salt: int = 0, features=frozenset()):
     """A scanner row for a song: its tags, its size, and a date that moves
     with its tags so a change re-imports the directory."""
     tags = song_tags(item, album)
@@ -872,7 +881,7 @@ def song_listitem(item, album=None, salt: int = 0):
     # server corrects moves no directory's hash, and an existing library
     # takes the date as its directories are listed again.
     created = _timestamp(item.get("DateCreated"))
-    if created:
+    if created and "song_date_added" in features:
         tag.setDateAdded(created)
     # The date is what the scanner hashes a listing by; a salt moves it
     # without touching a tag (store.bump_salt).
@@ -943,8 +952,18 @@ def _cast(tag, item, server):
 # lack. Nothing is re-imported for it unasked; a library filed under an
 # older number is rebuilt when the viewer repairs it (library.Library
 # .rebuild_stale). 2: a single-source row's video, audio and subtitle
-# streams. 3: their default, forced and hearing-impaired flags.
+# streams. 3: their default, forced and hearing-impaired flags, which the
+# listing carries only where the stream detail classes take them, so the
+# format a Kodi reaches is ``scanner_format`` of its features: a library a
+# Piers filed at 2 is not stale on that Piers, and is on the Kodi 23 the
+# profile moves to, where a Repair re-files it with the flags.
 SCANNER_FORMAT = 3
+
+
+def scanner_format(features) -> int:
+    """The scanner format a listing carries on a Kodi with ``features``."""
+    return SCANNER_FORMAT if "stream_flags" in features else SCANNER_FORMAT - 1
+
 
 # A Jellyfin stream's flags by the names an NFO's <flag> takes, which is
 # what the stream details' setFlags reads (kontell/xbmc #9).
@@ -983,7 +1002,10 @@ def _stream_source(item):
     return dict(item, MediaSources=[first] + list(sources[1:]))
 
 
-def _streams(tag, item):
+def _streams(tag, item, features=frozenset()):
+    """The item's streams on the tag; their flags only where the stream
+    detail classes take them (the stream_flags feature, kontell/xbmc #9)."""
+    flagged = "stream_flags" in features
     source = _stream_source(item)
     streams, runtime = streams_and_runtime(source)
     # The raw list streams_and_runtime reads, for the flags it drops.
@@ -1019,12 +1041,12 @@ def _streams(tag, item):
             codec=stream.get("codec") or "",
             language=stream.get("language") or "",
         )
-        if index < len(audio_flags) and audio_flags[index]:
+        if flagged and index < len(audio_flags) and audio_flags[index]:
             audio.setFlags(audio_flags[index])  # type: ignore[attr-defined]
         tag.addAudioStream(audio)
     for index, language in enumerate(streams["subtitle"]):
         subtitle = xbmc.SubtitleStreamDetail(language=language or "")
-        if index < len(subtitle_flags) and subtitle_flags[index]:
+        if flagged and index < len(subtitle_flags) and subtitle_flags[index]:
             subtitle.setFlags(subtitle_flags[index])  # type: ignore[attr-defined]
         tag.addSubtitleStream(subtitle)
 
@@ -1039,7 +1061,14 @@ SERIALIZER = 4
 
 
 def inputs_token(
-    server, key, library, separator, seasons=(), set_name=None, downloaded=""
+    server,
+    key,
+    library,
+    separator,
+    seasons=(),
+    set_name=None,
+    downloaded="",
+    features=(),
 ) -> str:
     """Everything ``details`` reads besides the payload, as one token.
 
@@ -1070,6 +1099,10 @@ def inputs_token(
             [time.timezone, list(time.tzname)],
             # A download's badge and tag are part of the row (downloaded.py).
             downloaded,
+            # What this Kodi offers shapes the state (the feature table): a
+            # Kodi upgrade compares again, and a Kodi that lacks a feature is
+            # never told its rows are stale for it.
+            sorted(features),
         ]
     )
 
@@ -1146,6 +1179,7 @@ def listitem(
     episodes=None,
     set_name=None,
     version: Optional[Version] = None,
+    features=frozenset(),
 ):
     """A scanner row: everything ``details`` wants, through the InfoTag.
 
@@ -1161,7 +1195,9 @@ def listitem(
     kind = item.get("Type", "Movie")
     if kind == "Audio":
         return song_listitem(item)
-    data = details(item, server, key, library, separator, seasons, set_name)
+    data = details(
+        item, server, key, library, separator, seasons, set_name, features=features
+    )
     li = xbmcgui.ListItem(data.get("title", item.get("Name", "")), offscreen=True)
     li.setArt(data["art"])
     tag = li.getVideoInfoTag()
@@ -1270,13 +1306,13 @@ def listitem(
         if resume.get("position", 0) > 0 and resume.get("total", 0) > 0:
             tag.setResumePoint(resume["position"], resume["total"])
         _cast(tag, item, server)
-        _streams(tag, item)
+        _streams(tag, item, features)
     elif kind == "Series":
         _cast(tag, item, server)
     return li
 
 
-def extra_listitem(item, server):
+def extra_listitem(item, server, features=frozenset()):
     """A scanner row for a movie extra. Kodi files the extra by its URL under
     the movie it found beside it (CVideoInfoScanner::AddVideoExtras) and keeps
     the row's dates, streams and art; the name it shows is the file's stem,
@@ -1293,7 +1329,7 @@ def extra_listitem(item, server):
     runtime = int((item.get("RunTimeTicks") or 0) // 10_000_000)
     if runtime:
         tag.setDuration(runtime)
-    _streams(tag, item)
+    _streams(tag, item, features)
     return li
 
 
