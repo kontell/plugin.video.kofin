@@ -71,7 +71,7 @@ GitHub Actions mirrors the pvr.kofin split (quality gate vs tag release):
 
    v…
    ```
-   The top paragraph (up to the first blank line) becomes the release body, and on this branch the workflow adds the link to the wiki's API sync variant page beneath it.
+   The top paragraph (up to the first blank line) becomes the release body, and the workflow adds the link to the wiki's Kodi versions page beneath it.
 3. Commit, merge to the branch being released, wait for CI green.
 4. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 5. Review the draft (`gh release view vX.Y.Z`), then **publish it yourself** —
@@ -177,8 +177,8 @@ What remains is kofin's own:
   `containssingleitem`). Kodi takes a plugin path's parent to be the plugin *root*
   (`URIUtils::GetParentPath`), so a folder never inherits the root's binding and the scanner
   skips it — 79 shows, one listing, nothing imported on the P1D until the bindings existed.
-  The API profile's manifest keeps all three `medialibraryscanpath` content types rewritten to
-  `/native/` (`tools/package_manifest.py`); with only `movies` Kodi refuses tvshows outright.
+  `addon.xml` binds all three `medialibraryscanpath` content types to `/native/`; with only
+  `movies` Kodi refuses tvshows outright.
 - **Three things the API backend applies without a native row, on purpose:** an unnumbered
   special (season 0, no number — Kodi's scanner cannot file it, `ProcessItemByVideoInfoTag`), a
   season with no importable episode (`season_view` joins episodes, so `GetSeasons` never
@@ -305,12 +305,12 @@ What remains is kofin's own:
   box, which does not) and `SetEpisodeDetails`/`SetTVShowDetails` ignore an empty string, so a
   desired `""` never matches the row: 187 items re-patched on every pass. `metadata.details`
   drops an empty `dateadded`, `premiered` or `firstaired` key.
-- **The API build's progress bar paints once a second at most and never per item**
+- **The progress bar paints once a second at most and never per item**
   (`backends/api/progress.py`). `DialogProgressBG.update` waits on Kodi's app thread; the
   applier calls `step` per item and the bar decides whether to paint. The same setting passes
-  `showdialogs` to the scan calls. Both settings must stay in the API profile's
-  `settings.xml` (`tools/package_manifest.py`): `getSettingBool` on a setting the build does
-  not define raises `TypeError`, and that failed every pass on the box once.
+  `showdialogs` to the scan calls. Both settings stay in `settings.xml`: `getSettingBool` on
+  a setting the build does not define raises `TypeError`, and that failed every pass on the
+  box once.
 - **The sync status is a file, never a setting.** The library thread writes
   `sync-status.json` when its state changes (`backends/api/status.py`) and the "Library status"
   button reads the catalogue when it is opened (`plugin/actions.py::library_status`); the
