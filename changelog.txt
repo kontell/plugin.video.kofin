@@ -1,3 +1,9 @@
+v0.96.0
+- Runs on Kodi 22 and Kodi 23 in one build. What a Kodi lacks is left out by name, and Library status lists it.
+- The companion add-on is no longer used.
+- On a Kodi without the Kontell changes a movie's default version plays and its other versions are not imported.
+- SyncPlay fine sync needs Kodi 23 with the Kontell changes; elsewhere a member follows the group's commands.
+
 v0.95.1
 - SyncPlay fine sync works on Kodi 23, for music too; inputstream.tempo is no longer used.
 - Live TV in a SyncPlay group plays through FFmpeg Direct, so fine sync reaches it.

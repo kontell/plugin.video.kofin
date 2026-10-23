@@ -195,3 +195,26 @@ def test_a_piers_listing_sets_no_stream_flags_and_no_song_date(monkeypatch):
     monkeypatch.setattr(metadata.xbmc, "AudioStreamDetail", Detail, raising=False)
     monkeypatch.setattr(metadata.xbmc, "SubtitleStreamDetail", Detail, raising=False)
     metadata.listitem(flagged, "http://s", "k", LIB)
+
+
+def test_a_piers_answers_no_for_an_extra_the_server_dropped(store, backend, piers):
+    """Kodi 22's Clean library asks the add-on about an extra's file (the
+    extras folder is bound), so an extra the movie's payload no longer names
+    must answer no, whatever the feature set: the only way its row leaves."""
+    backend.setup()
+    store.publish([assets_movie()], library=LIB)
+    backend.reconcile()
+    folder = folder_of(store)
+    kept, dropped = assets_movie()["SpecialFeatures"]
+    name_kept = "extras/%s.%s" % (kept["Name"], kept["Container"])
+    name_dropped = "extras/%s.%s" % (dropped["Name"], dropped["Container"])
+    assert provider.exists(store, paths.parse(folder + name_kept), "", "", frozenset())
+    assert provider.exists(store, paths.parse(folder + name_dropped), "", "", frozenset())
+    item = assets_movie(SpecialFeatures=[kept], SpecialFeatureCount=1)
+    store.publish([item], library=LIB)
+    backend.reconcile()
+    assert provider.exists(store, paths.parse(folder + name_kept), "", "", frozenset())
+    assert (
+        provider.exists(store, paths.parse(folder + name_dropped), "", "", frozenset())
+        is False
+    )
