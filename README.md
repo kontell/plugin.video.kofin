@@ -1,39 +1,60 @@
-[![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](LICENSE)
+[![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](/tmp/.mount_JoplindJEoiY/resources/app.asar/LICENSE "LICENSE")
 
-# Kofin for Jellyfin — API development branch
+# Kofin for Jellyfin
 
-`kofin-or` develops an official-repository variant of Kofin using Kodi's public APIs and Kofin-owned storage. It targets **Piers or later**. The internal version is **0.90.0**; no OR prerelease has been published and official repository acceptance has not been obtained.
+Kodi video & music addon for Jellyfin. Browse Jellyfin libraries through the add-on or sync selected libraries directly into Kodi's own databases, so Jellyfin content appears as a Kodi library.
 
-Phase 3 implements **native movie synchronization** through public Kodi APIs, with durable snapshots, recovery and watched/resume reconciliation. The [implementation plan](docs/kofin-or-implementation-plan.md), [parity ledger](docs/kofin-or-parity.md) and [phase 3 evidence](docs/research/kofin-or/phase3/README.md) track implementation and release qualification.
+A thin plugin over a background service that syncs, listens on the server's websocket and drives playback. Library writes (optional) go straight into Kodi's own databases and are verified against every supported Kodi version by the add-on's test suite.
 
-The maintained SQL variant and its releases continue on [main](https://github.com/kontell/plugin.video.kofin/tree/main).
+For Jellyfin Live TV, see the companion [Kofin PVR](https://github.com/kontell/pvr.kofin) addon.
 
-## Available in the internal API build
+Requires: Kodi 21 "Omega" or later and Jellyfin 10.11 or later.
 
-- Live Jellyfin browsing across all media types, including unsynced libraries.
-- Filters, search, Next up, Continue watching and extras.
-- Streaming with direct play, remux/transcode and media-source selection.
-- Music Play all/Shuffle, watched/favourite actions and resume controls.
-- Existing SyncPlay, segment skipping, Play next and additional-user playback features.
-- Dynamic skin entries and a server backdrop stored in the addon profile.
-- Native movies from selected movie/mixed libraries: import, metadata and cast/stream refresh, artwork, watched/resume updates, repair and owned removal.
+## Features
 
-Native TV, music videos, music and collections, downloads/subscriptions, native chapter art, actor precache, native node/playlist maintenance and legacy cleaning remain disabled until their public API ports are ready. The distribution physically omits their native SQL dependencies. Old settings cannot enable them.
+- Hands-off, resumable & robust [sync](docs/benchmark-report.md)
+- Downloads (including transcoding)
+- SyncPlay, watch in sync with other Jellyfin clients
+- Integrated media segment skipping and play next episode prompt
+- Access movie special features/ extras
+- Multi-version movies as Kodi video versions
+- Flexible playback methods, direct play, remux or transcode. Choose supported HDR formats & max resolution
+- Jellyfin chapter images in Kodi's chapter list
+- Sync playlists
+- Transcode music
+- Jellyfin song lyrics via companion add-on
+- Edit Jellyfin user audio and subtitle preferences
+- Who's watching? - toggle additional users onto the session for multi-user watch state (persistent after restart)
 
-## Development builds
+## Installation
 
-Requires the measured Piers API floor (`xbmc.addon` 21.90.802, Python addon API 3.0.1) and Jellyfin 10.11 or later. The P1D Piers Flatpak is the approved development and release-validation target. Release acceptance depends on the required behavioral tests, not binary provenance or an RC1 upgrade. Omega is outside this branch's scope.
+Install via the [Kontell Repository](https://github.com/kontell/repository.kontell).
 
-```bash
-python3 tools/build.py
-```
+Version [compatibility](https://github.com/kontell/plugin.video.kofin/wiki/Kodi-versions)
 
-The branch selects the `api` package by default. ZIPs and `tools/dev-install.sh` use the same package manifest. The first public GitHub prerelease and development repository delivery follow the later phases; current CI ZIPs are internal artifacts.
+### Configuration
 
-Use an isolated, fresh Kodi profile for development. Both variants have the same addon ID and cannot coexist in one profile. Switching an existing library requires clearing the native library and Kofin sync state before rebuilding; the API build neither adopts old native IDs nor provides the old broad database cleaner. This phase performs no automatic reset.
+- After install the addon appears under Add-ons -> Video add-ons -> Kofin.
+- From settings enter your server address and log in.
+- Libraries can now be browsed in a similar manner to typical Kodi add-ons.
+- To sync libraries into the local Kodi database:
+    - From settings go to the Library tab, choose which server libraries to mirror and the background service syncs them into Kodi's library.
+- See [wiki](https://github.com/kontell/plugin.video.kofin/wiki) for further details.
 
-After installation, configure the server and log in from Kofin's Account settings, then choose movie libraries in Library settings. Native sync requires the public API capability gate and an initially empty native video/music library; incompatible private state is refused. A different server/user namespace requires a fresh prepared profile. The service writes `api-capabilities.json` and reports setup failures in sync status. Dynamic browsing works independently of these native-sync gates.
+### Migration from Jellyfin-Kodi
 
-The P1D fixture explicitly prepares its own namespace and exercises the shipped backend directly; it does not enable native sync in the production addon. Its passing behavioral checks count toward release acceptance. Runtime capability checks accept the approved Flatpak without an override; the revision label is diagnostic only. Required Kodi interfaces and private-state/empty-library checks remain enforced.
+1.  Disable or uninstall jellyfin-kodi, its background service must not be running.
+2.  Install Kofin and enter Add-ons -> Video add-ons -> Kofin -> Settings -> Account
+3.  Run `Clean databases` (the button is only visible while logged out).
+    - It removes all jellyfin-kodi and Kofin library data, nodes and playlists, and optionally the music library, cached server artwork and custom library nodes.
+    - Cleaning is per Kodi profile, run it in each profile that synced.
 
-For Jellyfin Live TV, see [Kofin PVR](https://github.com/kontell/pvr.kofin). The optional lyrics and SyncPlay companion integrations retain their separate installation requirements.
+## Companion server plugins
+
+- For improved syncing performance install the [KofinSyncQueue](https://github.com/kontell/plugin.video.kofin/wiki/Companion-server-plugins) server plugin. it gives the add-on a typed change feed so catch-up only touches what actually changed. Without it Kofin still works, using the official KodiSyncQueue plugin or real-time websocket updates.
+
+- For reliable syncplay install the [SyncPlay V2](https://github.com/kontell/plugin.video.kofin/wiki/Companion-server-plugins) server plugin.
+
+## Uninstalling Kofin
+
+Log out (Settings -> Account), run `Clean databases`, then uninstall the add-on and accept Kodi's offer to delete the add-on data.
