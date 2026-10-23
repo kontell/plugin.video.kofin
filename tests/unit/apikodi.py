@@ -23,7 +23,8 @@ import re
 from urllib.parse import parse_qs, urlsplit
 
 
-from kofin.sync.backends.api import metadata, native, paths, provider
+from kofin.sync.backends.api import capabilities, metadata, native, paths, provider
+from kofin.sync.backends.api.kinds import FEATURE_FIELDS
 
 SERVER = "http://fixture.invalid"
 
@@ -116,7 +117,14 @@ class Kodi:
     def imported(self, record, seasons=(), set_name=None):
         kind = record.kind
         row = metadata.details(
-            record.item, SERVER, self.key, record.library, " / ", seasons, set_name
+            record.item,
+            SERVER,
+            self.key,
+            record.library,
+            " / ",
+            seasons,
+            set_name,
+            features=capabilities.features(),
         )
         row[METHODS[kind][0]] = self._id()
         if kind == "Movie":
@@ -168,11 +176,13 @@ class Kodi:
         self.rows["Series"][row["tvshowid"]] = row
         for season in seasons:
             if season.get("IndexNumber") is not None:
+                # addSeason carries a plot only with kontell/xbmc #6.
+                plot = (season.get("Overview") or "").strip(metadata.ASCII_SPACE)
                 filed = self._season_row(
                     row["tvshowid"],
                     int(season["IndexNumber"]),
                     metadata.season_title(season),
-                    (season.get("Overview") or "").strip(metadata.ASCII_SPACE),
+                    plot if "season_plot" in capabilities.features() else "",
                 )
                 # What the show's tag offered under the season's number
                 # (addAvailableArtwork), filed with the show at Kodi's
@@ -694,6 +704,16 @@ class Kodi:
                 results.append(error)
         return results
 
+    @staticmethod
+    def _without_gated(kind, row, features):
+        """A row as a Kodi without a feature reads it back: the field it has
+        no column for is not there."""
+        row = copy.deepcopy(row)
+        for field, feature in FEATURE_FIELDS.get(kind, {}).items():
+            if feature not in features:
+                row.pop(field, None)
+        return row
+
     def rpc(self, method, params=None):
         params = params or {}
         self.calls.append((method, copy.deepcopy(params)))
@@ -749,6 +769,21 @@ class Kodi:
         kind = KIND_BY_NOUN.get(noun)
         if kind is None:
             raise RuntimeError("Kodi refused " + method)
+        # What a Kodi without a feature refuses: a property its field enum
+        # does not name ("Invalid params", the whole readback), and a setter
+        # parameter it does not take.
+        features = capabilities.features()
+        for field, feature in FEATURE_FIELDS.get(kind, {}).items():
+            if feature in features:
+                continue
+            if verb == "Get" and field in (params.get("properties") or []):
+                raise RuntimeError(
+                    "Kodi refused %s: unknown property %s" % (method, field)
+                )
+            if verb == "Set" and field in params:
+                raise RuntimeError(
+                    "Kodi refused %s: unknown parameter %s" % (method, field)
+                )
         id_param, result_key, list_key = METHODS[kind]
         if verb == "Get" and not details:
             rows = list(self.rows[kind].values())
@@ -772,7 +807,8 @@ class Kodi:
                 rows = [r for r in rows if filed_under(r["file"], params["filter"])]
             if "tvshowid" in params:
                 rows = [r for r in rows if r.get("tvshowid") == params["tvshowid"]]
-            return {list_key: copy.deepcopy(rows), "limits": {"total": len(rows)}}
+            rows = [self._without_gated(kind, r, features) for r in rows]
+            return {list_key: rows, "limits": {"total": len(rows)}}
         kodi_id = params[id_param]
         if kodi_id not in self.rows[kind]:
             raise RuntimeError("Kodi refused " + method)
@@ -783,7 +819,11 @@ class Kodi:
                 # GetSetInfo reads through GetSetsByWhere, which groups
                 # movie_view: a set no movie files is "Not found".
                 raise RuntimeError("Kodi refused " + method)
-            return {result_key: copy.deepcopy(self.rows[kind][kodi_id])}
+            return {
+                result_key: self._without_gated(
+                    kind, self.rows[kind][kodi_id], features
+                )
+            }
         if verb == "Set":
             if not self.accept_without_apply:
                 row = self.rows[kind][kodi_id]

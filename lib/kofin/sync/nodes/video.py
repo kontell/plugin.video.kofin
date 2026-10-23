@@ -266,16 +266,21 @@ def browse_url(view, node=None):
 # --- what goes in the tree ------------------------------------------------------
 
 
-def single_nodes():
+def single_nodes(episode_tags=True):
     """The tag-filtered singles beside the library nodes: the favorites
-    trio always, the Downloads set while the feature is on. One list for
-    both the node files and the window properties, so the two surfaces
-    cannot disagree."""
+    for movies and shows always, for episodes while this Kodi keeps an
+    episode's tags (``episode_tags``, kontell/xbmc #12: a tag rule lists
+    nothing on a Kodi without it), the Downloads set while the feature is
+    on. One list for both the node files and the window properties, so the
+    two surfaces cannot disagree."""
     singles = [
         {"Name": localized(30358), "Tag": "Favorite movies", "Media": "movies"},
         {"Name": localized(30359), "Tag": "Favorite tvshows", "Media": "tvshows"},
-        {"Name": localized(30360), "Tag": "Favorite episodes", "Media": "episodes"},
     ]
+    if episode_tags:
+        singles.append(
+            {"Name": localized(30360), "Tag": "Favorite episodes", "Media": "episodes"}
+        )
     try:
         downloads = settings.get_bool("downloadsEnabled")
     except TypeError:

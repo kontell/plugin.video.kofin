@@ -24,7 +24,7 @@ from kofin.core import kodirpc, state
 from kofin.sync import private
 from kofin.core.log import Logger
 from kofin.core.urls import PARAM_MEDIA_SOURCE
-from . import metadata, paths, walk
+from . import capabilities, metadata, paths, walk
 from .records import PayloadWindow
 from .store import Store
 
@@ -199,6 +199,9 @@ def serve(request):
         return
     server = store.server()
     separator = metadata.item_separator()
+    # What this Kodi offers (the feature table) shapes every row listed:
+    # read once per listing, never per item.
+    features = capabilities.features()
     if location.content == "tvshows":
         if location.series is None:
             shows = store.records(kind="Series", library=library)
@@ -226,6 +229,7 @@ def serve(request):
                         separator,
                         seasons.get(series_id, []),
                         episodes.get(series_id, []),
+                        features=features,
                     ),
                     True,
                 )
@@ -261,6 +265,7 @@ def serve(request):
                             kind="Episode", parent_id=series_id
                         ).values()
                     ],
+                    features=features,
                 ),
                 True,
             )
@@ -338,6 +343,7 @@ def serve(request):
                     # and extras; the root walk and a refresh (which takes
                     # the first item) list the movie's own file alone.
                     assets=bool(location.movie) and action != "refresh_info",
+                    features=features,
                 )
             )
             continue
@@ -345,7 +351,13 @@ def serve(request):
             (
                 paths.playback_url(key, kind, library, record_id, record.parent_id),
                 metadata.listitem(
-                    record.item, server, key, library, separator, set_name=None
+                    record.item,
+                    server,
+                    key,
+                    library,
+                    separator,
+                    set_name=None,
+                    features=features,
                 ),
                 False,
             )
@@ -356,7 +368,9 @@ def serve(request):
 # -- movie versions and extras --------------------------------------------------
 
 
-def _movie_entries(record, server, key, library, separator, set_name, assets):
+def _movie_entries(
+    record, server, key, library, separator, set_name, assets, features=frozenset()
+):
     """A movie's file, and with ``assets`` a file per further media source,
     each carrying the whole tag and the source's name as its video asset
     title, and the movie's extras folder.
@@ -390,6 +404,7 @@ def _movie_entries(record, server, key, library, separator, set_name, assets):
             library,
             separator,
             set_name=set_name,
+            features=features,
             version=(
                 metadata.Version.of(
                     name, source is None, metadata.unique_ids(item, key)

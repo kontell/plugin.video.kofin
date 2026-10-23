@@ -38,6 +38,8 @@ FEATURE_LABELS = (
     ("tempo", 30884),
 )
 FEATURES = tuple(name for name, _label in FEATURE_LABELS)
+# Every feature on: a Kodi 23 carrying the kontell/xbmc changes.
+ALL = frozenset(FEATURES)
 
 
 def contract() -> Dict[str, Any]:

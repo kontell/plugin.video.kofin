@@ -17,7 +17,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
 
 from kofin.sync.catalogue import Catalogue, ItemState
 from kofin.sync.model import MediaItem
@@ -168,7 +168,36 @@ class Store(Catalogue):
                 namespace TEXT NOT NULL, library TEXT NOT NULL,
                 scanner INTEGER NOT NULL,
                 PRIMARY KEY(namespace,library));
+            CREATE TABLE IF NOT EXISTS api_features(
+                namespace TEXT PRIMARY KEY, features TEXT NOT NULL);
         """)
+
+    # -- the features of the Kodi the last pass ran on -----------------------
+
+    def features_applied(self) -> Optional[FrozenSet[str]]:
+        """The feature set (capabilities.features) the last completed pass
+        shaped its state by; None before any pass stamped one."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            row = db.cursor.execute(
+                "SELECT features FROM api_features WHERE namespace=?",
+                (self.namespace,),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            names = json.loads(row[0])
+        except ValueError:
+            return None
+        return frozenset(name for name in names if isinstance(name, str))
+
+    def remember_features(self, features) -> None:
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.execute(
+                "INSERT OR REPLACE INTO api_features VALUES (?,?)",
+                (self.namespace, json.dumps(sorted(features))),
+            )
 
     # -- the scanner format a library's rows were filed under ----------------
 

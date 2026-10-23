@@ -28,7 +28,7 @@ from .kinds import (
     KINDS,
     ORDER,
     PLAYABLE,
-    PROPERTIES,
+    properties,
     rpc,
     rpc_batch,
 )
@@ -471,6 +471,7 @@ class Applier:
             seasons,
             set_name,
             downloaded=mark,
+            features=self.native.features,
         )
         # The versions and extras the movie's folder listed, acknowledged so
         # the pass stops scanning the folder for them (native._asset_folders).
@@ -509,6 +510,7 @@ class Applier:
             self.native.separator,
             seasons,
             set_name,
+            features=self.native.features,
         )
         downloaded.apply(kind, desired, mark)
         parts = metadata.refresh_parts(record.item, seasons) if kind in FILED else {}
@@ -798,7 +800,9 @@ class Applier:
                     table.getter,
                     {
                         table.id_param: patch.kodi_id,
-                        "properties": PROPERTIES[patch.record.kind],
+                        "properties": properties(
+                            patch.record.kind, self.native.features
+                        ),
                     },
                 )
             )

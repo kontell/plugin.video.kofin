@@ -462,10 +462,14 @@ What remains is kofin's own:
   report. Three rules follow. **R1:** Kodi's schema shapes the kind table and every
   desired state: a setter field or a readback property Kodi does not name is neither
   sent, compared nor requested (on Piers `tag` in `Video.Fields.Episode` is absent and a
-  `GetEpisodes` that asks for it fails whole). **R2:** the feature set is an input of
-  every acknowledgement (`inputs_token`, `SCANNER_FORMAT`, `assets_token`), so a Kodi
-  upgrade compares again and a Kodi that lacks a feature is never told its library is
-  stale for it. **R3:** a feature that is off says so once, in the start log and under
+  `GetEpisodes` that asks for it fails whole; `kinds.FEATURE_FIELDS` names the gated
+  fields, `kinds.properties` applies them to every readback, and `metadata.details` leaves
+  them out of the desired state). **R2:** the feature set is an input of every
+  acknowledgement (`inputs_token`, `SCANNER_FORMAT`, `assets_token`), and the pass stamps
+  the set it ran with (`store.features_applied`): a set that moved since the last pass, a
+  Kodi upgrade, runs the next pass as a repair, the compare of every row, where nothing is
+  written that already matches, and a Kodi that lacks a feature is never told its library
+  is stale for it. **R3:** a feature that is off says so once, in the start log and under
   "Not on this Kodi" in Library status, never per item or per pass. Two features are
   proxies for behaviour Kodi cannot be asked about: `asset_clean` (kontell/xbmc #1, #2,
   #10; the folder clean is unsafe without them) is `xbmc.python` ≥ 3.2.0, the version the

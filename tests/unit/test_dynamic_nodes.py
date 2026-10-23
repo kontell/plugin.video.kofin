@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from kofin.sync import dynamic, private
+from kofin.sync.backends.api import capabilities
 from kofin.sync.nodes.video import NODE_ROOT
 from tests.unit.fakes import FakeAddon, FakeWindow
 
@@ -32,6 +33,8 @@ def views_env(monkeypatch, tmp_path):
     FakeWindow.store = {}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
+    # A Kodi 23 with the changes unless a test narrows it.
+    monkeypatch.setattr(capabilities, "features", lambda: capabilities.ALL)
 
     profile = tmp_path / "profile"
     (profile / "library" / "video").mkdir(parents=True)
@@ -404,3 +407,20 @@ def test_the_music_tree_survives_a_settings_read_that_cannot_answer(
     }
     dynamic.publish(ITEMS, FakeApi())
     assert not tree.exists()
+
+
+def test_the_favourite_episodes_node_is_written_only_where_kodi_keeps_episode_tags(
+    views_env, monkeypatch
+):
+    """A tag rule on episodes lists nothing on a Kodi without kontell/xbmc
+    #12, so the single is not written there, and one an earlier Kodi wrote
+    is pruned with the rewrite."""
+    whitelist(MOVIES)
+    dynamic.publish(ITEMS, FakeApi())
+    root = views_env["profile"] / "library" / "video" / NODE_ROOT
+    assert (root / "kofin_Favoriteepisodes.xml").is_file()
+    monkeypatch.setattr(capabilities, "features", lambda: frozenset())
+    dynamic.publish(ITEMS, FakeApi())
+    assert not (root / "kofin_Favoriteepisodes.xml").exists()
+    assert (root / "kofin_Favoritemovies.xml").is_file()
+    assert "Favorite episodes" not in " ".join(props().values())

@@ -14,14 +14,14 @@ directories, in which order and under what bar is ``musicpass`` and
 
 import time
 from contextlib import contextmanager
-from typing import Dict, List, NamedTuple, Optional, Set, Tuple
+from typing import Dict, FrozenSet, List, NamedTuple, Optional, Set, Tuple
 
 import xbmc
 
 from kofin.core import memory, settings, state
 from kofin.core.log import Logger
 from kofin.sync.catalogue import BackendMismatch
-from . import metadata, paths, progress, removal
+from . import capabilities, metadata, paths, progress, removal
 from .kinds import MUSIC_FIRST, ORDER, rpc, rpc_batch
 from .musicpass import MusicPass
 from .patch import Applier
@@ -126,6 +126,10 @@ class Native:
         self.monitor = Monitor()
         self.separator = metadata.item_separator()
         self.readback = Readback(self.key)
+        # What this Kodi offers beyond the baseline, read once per pass
+        # (capabilities.features) and handed to everything that shapes a
+        # request or a desired state by it.
+        self.features: FrozenSet[str] = frozenset()
         self._async_pending = False
         self.payloads = PayloadWindow(self.store)
         # The library thread's own bar when it made this pass (one bar from
@@ -816,6 +820,20 @@ class Native:
         self.wait(lambda: self._idle("any"), busy=lambda: not self._idle("any"))
         self.restore_settings()
         self.store.pin()
+        self.features = capabilities.features()
+        self.readback.features = self.features
+        # The feature set is an input of every acknowledgement: a Kodi that
+        # gained or lost one since the last pass (an upgrade) has every row
+        # compared again, which is what a repair pass does, and nothing is
+        # written where the row already matches.
+        stamped = self.store.features_applied()
+        if stamped is not None and stamped != self.features and not repair:
+            LOG.info(
+                "Kodi's features changed since the last pass (on: %s): comparing "
+                "every row",
+                ", ".join(sorted(self.features)) or "none",
+            )
+            repair = True
         self.readback.clear()
         self.music = MusicPass(self)
         applier = Applier(self)
@@ -914,6 +932,7 @@ class Native:
                     "%d native operations remain pending: %s" % (len(errors), errors[0])
                 )
             completed = True
+            self.store.remember_features(self.features)
         finally:
             applier.commit()
             self.progress.close()

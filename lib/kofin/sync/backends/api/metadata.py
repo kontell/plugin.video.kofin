@@ -41,7 +41,8 @@ NO_YEAR = 1
 FAVORITE_TAG = {
     "Movie": "Favorite movies",
     "Series": "Favorite tvshows",
-    # Kodi 23 keeps an episode's tags (kontell/xbmc #12).
+    # An episode keeps its tags only on a Kodi with kontell/xbmc #12: the
+    # episode_tags feature (details, kinds.FEATURE_FIELDS).
     "Episode": "Favorite episodes",
     "MusicVideo": "Favorite musicvideos",
 }
@@ -578,10 +579,14 @@ def details(
     separator=" / ",
     seasons=(),
     set_name=None,
+    features=frozenset(),
 ):
     """The desired native state, keyed as the kind's JSON-RPC setter takes it.
 
-    Explicit empty values clear metadata the server removed.
+    Explicit empty values clear metadata the server removed. ``features`` is
+    what this Kodi offers (``capabilities.features``): a field its setter
+    does not take is left out, so it is neither sent nor compared -- a
+    season's plot and an episode's tags are Kodi 23's (``kinds.FEATURE_FIELDS``).
     """
     kind = item.get("Type", "Movie")
     if kind in MUSIC:
@@ -604,7 +609,7 @@ def details(
     data["uniqueid"] = unique_ids(item, key, seasons)
     if kind != "Season":
         data["runtime"] = int(item.get("RunTimeTicks") or 0) // 10000000
-    if kind in FAVORITE_TAG:
+    if kind in FAVORITE_TAG and (kind != "Episode" or "episode_tags" in features):
         data["tag"] = tags(item, library, kind)
     if kind in ("Movie", "Series", "Episode"):
         data["originaltitle"] = item.get("OriginalTitle") or ""
@@ -667,9 +672,11 @@ def details(
         }
         # No opinion on an empty plot: Kodi's season setter leaves the
         # stored one in place (SetDetailsForSeason writes no empty plot), so
-        # an empty desired plot would differ from the row on every pass.
+        # an empty desired plot would differ from the row on every pass. No
+        # plot at all without the season_plot feature: the setter has no
+        # such parameter and the season readback no such property.
         plot = (item.get("Overview") or "").strip(ASCII_SPACE)
-        if plot:
+        if plot and "season_plot" in features:
             data["plot"] = plot
         return data
     _clean_strings(
@@ -1039,7 +1046,14 @@ SERIALIZER = 4
 
 
 def inputs_token(
-    server, key, library, separator, seasons=(), set_name=None, downloaded=""
+    server,
+    key,
+    library,
+    separator,
+    seasons=(),
+    set_name=None,
+    downloaded="",
+    features=(),
 ) -> str:
     """Everything ``details`` reads besides the payload, as one token.
 
@@ -1070,6 +1084,10 @@ def inputs_token(
             [time.timezone, list(time.tzname)],
             # A download's badge and tag are part of the row (downloaded.py).
             downloaded,
+            # What this Kodi offers shapes the state (the feature table): a
+            # Kodi upgrade compares again, and a Kodi that lacks a feature is
+            # never told its rows are stale for it.
+            sorted(features),
         ]
     )
 
@@ -1146,6 +1164,7 @@ def listitem(
     episodes=None,
     set_name=None,
     version: Optional[Version] = None,
+    features=frozenset(),
 ):
     """A scanner row: everything ``details`` wants, through the InfoTag.
 
@@ -1161,7 +1180,9 @@ def listitem(
     kind = item.get("Type", "Movie")
     if kind == "Audio":
         return song_listitem(item)
-    data = details(item, server, key, library, separator, seasons, set_name)
+    data = details(
+        item, server, key, library, separator, seasons, set_name, features=features
+    )
     li = xbmcgui.ListItem(data.get("title", item.get("Name", "")), offscreen=True)
     li.setArt(data["art"])
     tag = li.getVideoInfoTag()
