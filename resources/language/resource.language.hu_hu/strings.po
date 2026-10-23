@@ -2343,6 +2343,7 @@ msgstr "Eltávolított verziók és extrák eltávolítása"
 msgctxt "#30884"
 msgid "Fine sync"
 msgstr "Finomszinkron"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Ebben az előzetes verzióban nem érhető el"

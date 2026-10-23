@@ -2343,6 +2343,7 @@ msgstr "삭제된 버전 및 부가 영상 제거"
 msgctxt "#30884"
 msgid "Fine sync"
 msgstr "미세 동기화"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "이 미리 보기 버전에서는 사용할 수 없습니다"

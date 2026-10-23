@@ -2343,6 +2343,7 @@ msgstr "Удаление удалённых версий и дополнений
 msgctxt "#30884"
 msgid "Fine sync"
 msgstr "Точная синхронизация"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Недоступно в этой тестовой версии"

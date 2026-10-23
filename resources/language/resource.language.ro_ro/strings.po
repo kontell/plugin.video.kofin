@@ -2343,6 +2343,7 @@ msgstr "Eliminarea versiunilor și extrelor șterse"
 msgctxt "#30884"
 msgid "Fine sync"
 msgstr "Sincronizare fină"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Indisponibil în această versiune preliminară"

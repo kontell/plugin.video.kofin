@@ -2343,6 +2343,7 @@ msgstr "Odstraňování odebraných verzí a bonusů"
 msgctxt "#30884"
 msgid "Fine sync"
 msgstr "Jemná synchronizace"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "V této zkušební verzi není dostupné"

@@ -83,7 +83,7 @@ The budget applies to the sync and playback toasts (`#30404`, `#30406`, `#30409`
 
 It does **not** apply to these, which sit in a panel or a dialog with room to be clear:
 
-- `#30411`, `#30412`, `#30413`, `#30600` — the Library tab's read-only status labels (`sync/library.py`, `update_status_strings`). An earlier version of this brief wrongly called them toasts, and locales compressed them for no reason.
+- `#30411`, `#30412`, `#30413`, `#30600` — the Library tab's read-only status labels of the retired SQL build (kept for the locales that shipped them). An earlier version of this brief wrongly called them toasts, and locales compressed them for no reason.
 - Most of `#30560`–`#30585` — SyncPlay menu entries and dialog bodies. Only `#30574` is a toast.
 - `#30808`, `#30809`, `#30812`, `#30814`, `#30815` — settings labels, help, and confirm-dialog bodies.
 

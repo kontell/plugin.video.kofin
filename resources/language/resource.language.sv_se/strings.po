@@ -2343,6 +2343,7 @@ msgstr "Borttagning av borttagna versioner och extramaterial"
 msgctxt "#30884"
 msgid "Fine sync"
 msgstr "Finsynkronisering"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Inte tillgängligt i denna förhandsversion"

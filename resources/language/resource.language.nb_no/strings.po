@@ -2343,6 +2343,7 @@ msgstr "Fjerning av fjernede versjoner og ekstramateriale"
 msgctxt "#30884"
 msgid "Fine sync"
 msgstr "Finsynkronisering"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Ikke tilgjengelig i denne prøveversjonen"

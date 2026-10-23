@@ -2343,6 +2343,7 @@ msgstr "Suppression des versions et bonus retirés"
 msgctxt "#30884"
 msgid "Fine sync"
 msgstr "Synchronisation fine"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "Indisponible dans cette préversion"

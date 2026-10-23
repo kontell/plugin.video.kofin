@@ -2343,6 +2343,7 @@ msgstr "移除已刪除的版本和花絮"
 msgctxt "#30884"
 msgid "Fine sync"
 msgstr "精細同步"
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "此預覽版暫不支援"

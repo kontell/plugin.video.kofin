@@ -311,3 +311,13 @@ def test_what_this_kodi_cannot_do_is_named_on_one_row(store, monkeypatch):
     dialog, _ = _dialog(monkeypatch, store, [-1])
     _heading, shown, _preselect = dialog.selects[0]
     assert shown[-1] == "L30876:  L30877, L30884"
+    assert dialog.textviewers == []
+    # The row is cut short by the skin once a few are off: picking it opens
+    # the list, one feature a line, and the report stays up behind it.
+    dialog, _ = _dialog(monkeypatch, store, [len(shown) - 1, -1])
+    assert dialog.textviewers == [("L30876", "L30877\nL30884")]
+    assert len(dialog.selects) == 2
+    # With nothing off there is no such row, and the last row is a fact.
+    table.update({"season_plot": True, "tempo": True})
+    dialog, _ = _dialog(monkeypatch, store, [len(shown) - 2, -1])
+    assert dialog.textviewers == []

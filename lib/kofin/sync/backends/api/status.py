@@ -219,14 +219,19 @@ def rows(
     if features is not None:
         # What this Kodi cannot do, by name: the one place a viewer is told,
         # since nothing logs it per item (the capability profile, CLAUDE.md).
-        off = [
-            text(label)
-            for name, label in capabilities.FEATURE_LABELS
-            if not features.get(name, False)
-        ]
+        off = off_features(features, text)
         if off:
             lines.append("%s:  %s" % (text(30876), ", ".join(off)))
     return [line.rstrip() for line in lines]
+
+
+def off_features(features: Dict[str, bool], text) -> List[str]:
+    """The labels of the features this Kodi lacks, in the table's order."""
+    return [
+        text(label)
+        for name, label in capabilities.FEATURE_LABELS
+        if not features.get(name, False)
+    ]
 
 
 def show(store) -> None:
@@ -239,17 +244,22 @@ def show(store) -> None:
     last row the list scrolls the sync's own line off the top as soon as
     there are more rows than fit.
 
-    The first row is the only one that does anything. A select dialog
-    closes on whichever row is picked, so a fact that was picked is shown
-    again as it was, the cursor on it: picking one used to close the report,
-    which read as the report having gone wrong. Back is what closes it.
+    The first row and the last are the only ones that do anything. A select
+    dialog closes on whichever row is picked, so a fact that was picked is
+    shown again as it was, the cursor on it: picking one used to close the
+    report, which read as the report having gone wrong. Back is what closes
+    it. The row naming what this Kodi lacks is cut short by the skin once a
+    few features are off (eight on a Piers), so picking it opens the list,
+    one feature a line, in a text viewer.
     """
     heading = "%s \u2014 %s" % (settings.localized(30859), settings.localized(30862))
     lines: List[str] = []
+    off: List[str] = []
     cursor = 0
     while True:
         if cursor == 0:
             table = capabilities.table()
+            off = off_features(table, settings.localized)
             lines = rows(
                 read(),
                 snapshot(
@@ -265,6 +275,8 @@ def show(store) -> None:
         cursor = xbmcgui.Dialog().select(heading, choices, preselect=cursor)
         if cursor < 0:
             return
+        if off and cursor == len(choices) - 1:
+            xbmcgui.Dialog().textviewer(settings.localized(30876), "\n".join(off))
 
 
 def _moment(stamp: float, clock) -> str:
