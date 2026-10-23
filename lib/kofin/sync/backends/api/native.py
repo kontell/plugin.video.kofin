@@ -623,17 +623,20 @@ class Native:
         Only where the clean is safe (the asset_clean feature, a proxy for
         kontell/xbmc #1, #2 and #10): on a Kodi without them the stage after
         the directory's files asks the add-on about every bound folder of
-        every library and deletes the path row of one left unanswered. There
-        the rows stay until the movie leaves Kodi, said once here: a Clean
-        library of the viewer's own does not reach them either, since
-        without #10 a clean never examines a version's or an extra's file
-        row (a dropped extra survived a full clean on 22.0b2)."""
+        every library and deletes the path row of one left unanswered. So
+        the rows are left for the viewer's own Clean library, said once
+        here. Kodi 23's clean asks the add-on about them and takes them (a
+        dropped extra left stock master's library that way); Kodi 22's
+        deletes only the files of the movies and episodes it removes, so
+        there the rows stay until the movie leaves (22.0b2, the same extra
+        survived a full clean, asked and answered)."""
         if not folders:
             return
         if "asset_clean" not in self.features:
             LOG.info(
-                "%d movie folder(s) lost a version or an extra; on this Kodi the "
-                "rows stay until the movie leaves",
+                "%d movie folder(s) lost a version or an extra; the rows are left "
+                "for a Clean library of the viewer's (Kodi 22 keeps them until the "
+                "movie leaves)",
                 len(folders),
             )
             return

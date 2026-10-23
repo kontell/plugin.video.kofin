@@ -209,7 +209,9 @@ def test_a_piers_answers_no_for_an_extra_the_server_dropped(store, backend, pier
     name_kept = "extras/%s.%s" % (kept["Name"], kept["Container"])
     name_dropped = "extras/%s.%s" % (dropped["Name"], dropped["Container"])
     assert provider.exists(store, paths.parse(folder + name_kept), "", "", frozenset())
-    assert provider.exists(store, paths.parse(folder + name_dropped), "", "", frozenset())
+    assert provider.exists(
+        store, paths.parse(folder + name_dropped), "", "", frozenset()
+    )
     item = assets_movie(SpecialFeatures=[kept], SpecialFeatureCount=1)
     store.publish([item], library=LIB)
     backend.reconcile()
