@@ -2,7 +2,7 @@
 
 kofin 0.15.2 against jellyfin-kodi 2.1.0+py3, 24 of 32 scenarios. Pre-registration: `benchmark-audit-plan.md`. The harness, its raw JSON manifests and the working notes are held outside the repository.
 
-kofin 0.96.1, the build that syncs through Kodi's scanner and JSON-RPC, was measured later on the operator's real libraries alone: §13, and a column of §1b.
+kofin 0.96.1, the build that syncs through Kodi's scanner and JSON-RPC, was measured later on the operator's real libraries alone: §13, and the last column of the tables in §1b and §3–§8.
 
 ## 1. Summary
 
@@ -61,24 +61,25 @@ kofin n=2 (345, 345 s); jellyfin-kodi n=3 (435, 450, 450 s).
 
 ### B2 — operator's real libraries
 
-| | kofin | jellyfin-kodi |
-|---|---|---|
-| Movies / episodes / series | 1767 / 4487 / 78 | 1767 / 4487 / 78 |
-| Wall clock | **570 s** | 780 s |
-| CPU seconds | **599** | 803 |
-| Peak RSS | see §8 | see §8 |
-| Music (songs / albums / artists) | 20,802 / 1,539 / 628 | not comparable |
+| | kofin 0.15.2 | jellyfin-kodi | kofin 0.96.1 |
+|---|---|---|---|
+| Movies / episodes / series | 1767 / 4487 / 78 | 1767 / 4487 / 78 | 1,791 / 4,337 / 84 |
+| Wall clock | **570 s** | 780 s | 296 s |
+| CPU seconds | **599** | 803 | 472 |
+| Peak RSS | see §8 | see §8 | 788 MB (§13.2) |
+| Music (songs / albums / artists) | 20,802 / 1,539 / 628 | not comparable | 23,734 / 1,643 / not counted |
 
 Video output is identical to the item. The music leg is not compared.
 
 ### Correctness — truth oracle, server as referee
 
-| | kofin | jellyfin-kodi |
-|---|---|---|
-| Movies present / missing / extra | 4000 / 0 / 0 | 4000 / 0 / 0 |
-| Episodes present / missing / extra | 11,596 / 0 / 0 | 11,596 / 0 / 0 |
-| Field mismatches | 0 of 3,600 | 0 of 3,600 |
-| 21 orphan rules + `integrity_check` | PASS | PASS |
+| | kofin 0.15.2 | jellyfin-kodi | kofin 0.96.1 |
+|---|---|---|---|
+| Movies present / missing / extra | 4000 / 0 / 0 | 4000 / 0 / 0 | 1,791 / 0 / 0 |
+| Episodes present / missing / extra | 11,596 / 0 / 0 | 11,596 / 0 / 0 | 4,337 / 0 / 0 |
+| Songs present / missing / extra | — | — | 23,734 / 0 / 0 |
+| Field mismatches | 0 of 3,600 | 0 of 3,600 | 202 of 4,600 (§13.2) |
+| 21 orphan rules + `integrity_check` | PASS | PASS | PASS |
 
 `uniqueid` is the one table the two arms disagree on. kofin writes 4,000 rows, none empty, each typed with the provider the item actually carries (`tmdb`), and no row at all for an item with no mapped provider. jellyfin-kodi writes 15,796 rows, **every one of them empty**, against a hardcoded `imdb`/`tvdb`.
 
@@ -86,39 +87,39 @@ The remaining capability tables came back byte-identical: 15,796 rating, 31,192 
 
 ## 4. Repair
 
-| | kofin | jellyfin-kodi |
-|---|---|---|
-| B4 — repair a correct library | **375 s**, 596 CPU-s | 480 s, 379 CPU-s |
-| B5 — repair after 500 rows deleted behind the addon's back | **436 s**, 488 CPU-s | 722 s, 774 CPU-s |
-| Restored exactly | yes, both | yes, both |
-| Orphans after | 0 | 0 |
+| | kofin 0.15.2 | jellyfin-kodi | kofin 0.96.1 |
+|---|---|---|---|
+| B4 — repair a correct library | **375 s**, 596 CPU-s | 480 s, 379 CPU-s | 102 s, 84 CPU-s |
+| B5 — repair after 500 rows deleted behind the addon's back | **436 s**, 488 CPU-s | 722 s, 774 CPU-s | 280 s, 219 CPU-s |
+| Restored exactly | yes, both | yes, both | yes, both |
+| Orphans after | 0 | 0 | 0 after B5; B4 not checked |
 
-Both heal without being told what was damaged. Repair is a from-scratch re-sync on both — as each documents — so the cost scales with library size rather than with the damage: the library drops to zero rows ~45 s in and is unavailable or partial until the rebuild completes.
+Both heal without being told what was damaged. Repair is a from-scratch re-sync on both — as each documents — so the cost scales with library size rather than with the damage: the library drops to zero rows ~45 s in and is unavailable or partial until the rebuild completes. 0.96.1 compares in place instead, and the library keeps its rows throughout (§13.3).
 
 ## 5. Incremental sync
 
-| | kofin | jellyfin-kodi |
-|---|---|---|
-| B6 — 50 mixed changes, client live | 45 s | 45 s |
-| B7 — same, client stopped then restarted | **10 s** | 40 s |
-| B8 — 500 watched flips, client restarts immediately | **15 s**, unattended | flat 315 s, then 40 s after an addon bounce |
-| B8c — 500 flips, client restarts 45 s later | — | 15 s, unattended |
-| Orphans / own log errors | 0 / 0 | 0 / 0 |
+| | kofin 0.15.2 | jellyfin-kodi | kofin 0.96.1 |
+|---|---|---|---|
+| B6 — 50 mixed changes, client live | 45 s | 45 s | not run |
+| B7 — same, client stopped then restarted | **10 s** | 40 s | not run; with nothing changed, 6.6 s |
+| B8 — 500 watched flips, client restarts immediately | **15 s**, unattended | flat 315 s, then 40 s after an addon bounce | 43 s from Kodi's start, unattended |
+| B8c — 500 flips, client restarts 45 s later | — | 15 s, unattended | not run |
+| Orphans / own log errors | 0 / 0 | 0 / 0 | not checked / 0 |
 
 The B8 pair isolates the cause: the Kodi Sync Queue writes records asynchronously (measured up to 16 s) and jellyfin-kodi queries it once at startup with no retry. A client restarting inside that window is told there is nothing to do.
 
 ## 6. Library change
 
-| | kofin | jellyfin-kodi |
-|---|---|---|
-| C1 — 1,000 movies added | **15 s** | 30 s |
-| C2 — the same 1,000 removed | 15 s | 15 s |
-| C3 — 1,000 relocated, all ids reminted | **15 s** | 661 s |
-| C4 — tag added to 2,000 movies | 60 s | 60 s |
-| C5 — library deleted server-side | no change (correct) | no change (correct) |
-| C6 — library de-selected / re-added | **60 s / 255 s** | 90 s / 450 s |
-| C7 — series folder renamed, 61 ids change | 15 s | 15 s |
-| Orphans / count drift, all scenarios | none | none |
+| | kofin 0.15.2 | jellyfin-kodi | kofin 0.96.1 |
+|---|---|---|---|
+| C1 — 1,000 movies added | **15 s** | 30 s | not run |
+| C2 — the same 1,000 removed | 15 s | 15 s | not run |
+| C3 — 1,000 relocated, all ids reminted | **15 s** | 661 s | not run |
+| C4 — tag added to 2,000 movies | 60 s | 60 s | not run |
+| C5 — library deleted server-side | no change (correct) | no change (correct) | not run |
+| C6 — library de-selected / re-added | **60 s / 255 s** | 90 s / 450 s | 41 s / 70 s |
+| C7 — series folder renamed, 61 ids change | 15 s | 15 s | not run |
+| Orphans / count drift, all scenarios | none | none | not checked / none |
 
 Client times are measured from the moment the server settled. Server scan time is separate: 161–201 s for the add, 123–133 s for the remove, 80 s for the rename. For a mass change the server dominates.
 
@@ -128,19 +129,21 @@ Client times are measured from the moment the server settled. Server scan time i
 
 ## 7. Interruption
 
-| | kofin | jellyfin-kodi |
-|---|---|---|
-| B3 — addon bounced at 40 % of first sync | **recovered unattended, 150 s** | **never recovered**, 6,689 of 15,796 |
-| F1 — `kill -9` at 40 % | recovered unattended, 150 s | recovered, 495 s |
-| F2 — 120 s total outage | recovered unattended, 195 s | required an addon bounce |
-| F3 — 20 % `503` for 180 s | **recovered unattended, 345 s** | stalled 918 s, then 687 s after a bounce |
-| Rows lost | 0 in all | 0 in all |
-| `integrity_check` / orphans | ok / 0 | ok / 0 |
-| F4 — metadata edited server-side mid-sync | 335 s, exact | 590 s, exact |
-| F5 — watched state flipped mid-sync | 319 s, exact | 559 s, exact |
-| F9 — profile switch mid-sync | 396 s, exact | 323 s, **incomplete** — 4000 / 2644 / 45 |
-| F13 — Kodi's own Clean Library mid-sync | movies lost, repair required | movies lost, repair required |
-| Blocking modals | 0 | 2 (F1), 2 (F3) |
+| | kofin 0.15.2 | jellyfin-kodi | kofin 0.96.1 |
+|---|---|---|---|
+| B3 — addon bounced at 40 % of first sync | **recovered unattended, 150 s** | **never recovered**, 6,689 of 15,796 | recovered unattended, 199 s |
+| F1 — `kill -9` at 40 % | recovered unattended, 150 s | recovered, 495 s | recovered unattended, 191 s |
+| F2 — 120 s total outage | recovered unattended, 195 s | required an addon bounce | recovered unattended, 248 s |
+| F3 — 20 % `503` for 180 s | **recovered unattended, 345 s** | stalled 918 s, then 687 s after a bounce | recovered unattended, 71 s |
+| Rows lost | 0 in all | 0 in all | 0 in all |
+| `integrity_check` / orphans | ok / 0 | ok / 0 | ok / 0 |
+| F4 — metadata edited server-side mid-sync | 335 s, exact | 590 s, exact | not run |
+| F5 — watched state flipped mid-sync | 319 s, exact | 559 s, exact | 317 s, exact |
+| F9 — profile switch mid-sync | 396 s, exact | 323 s, **incomplete** — 4000 / 2644 / 45 | not run |
+| F13 — Kodi's own Clean Library mid-sync | movies lost, repair required | movies lost, repair required | nothing lost |
+| Blocking modals | 0 | 2 (F1), 2 (F3) | not measured |
+
+B3 to F3 are timed from the moment the fault cleared to a complete library; F4, F5 and F9 are the whole first sync.
 
 Neither client loses or corrupts data under any injection. The difference is whether a human is required.
 
@@ -158,7 +161,7 @@ Nothing restarts it; the addon then runs with no library thread and 42 % of the 
 
 **F9**: a profile switch mid-sync is the second scenario after B3 where jellyfin-kodi stops permanently short — 6,689 rows of 15,796, the same figure and the same shape as B3. kofin finishes.
 
-**F13**: Kodi's own Clean Library removes every movie row both addons have written (episodes and shows survive), and neither rebuilds them; a repair is required afterwards. Clean Library is user-initiated destruction of the library, so this is the expected cost of running it rather than a client defect. Watched for 45 minutes after the event on kofin with no automatic recovery.
+**F13**: Kodi's own Clean Library removes every movie row both addons have written (episodes and shows survive), and neither rebuilds them; a repair is required afterwards. Clean Library is user-initiated destruction of the library, so this is the expected cost of running it rather than a client defect. Watched for 45 minutes after the event on kofin with no automatic recovery. 0.96.1 lost nothing; its clean ran during kofin's pass, because Kodi refuses one while it scans (§13.4).
 
 **F3**: kofin kept writing through the fault (5,500 → 5,800 rows) and finished complete without intervention. jellyfin-kodi stopped writing at 5,035 rows and stayed there until bounced.
 
@@ -166,23 +169,23 @@ Nothing restarts it; the addon then runs with no library thread and 42 % of the 
 
 ### B10 — browsing and playing during the first sync
 
-| | kofin | jellyfin-kodi |
-|---|---|---|
-| Sync completed | yes | yes |
-| Playback starts / failures | 10 / **0** | 6 / **0** |
-| Stream resolve, median | **0.51 s** | 3.52 s |
-| Library read under load, median | 0.108 s | 0.106 s |
-| Addon root listing, median | **0.19 s** | 2.60 s |
-| Orphans / `integrity_check` | 0 / ok | 0 / ok |
+| | kofin 0.15.2 | jellyfin-kodi | kofin 0.96.1 |
+|---|---|---|---|
+| Sync completed | yes | yes | yes |
+| Playback starts / failures | 10 / **0** | 6 / **0** | 9 / 0 |
+| Stream resolve, median | **0.51 s** | 3.52 s | 0.51 s |
+| Library read under load, median | 0.108 s | 0.106 s | under 0.01 s |
+| Addon root listing, median | **0.19 s** | 2.60 s | 0.33 s |
+| Orphans / `integrity_check` | 0 / ok | 0 / ok | 0 / ok |
 
 Playback starts every time on both arms and neither library ends damaged. Reading Kodi's library is at parity, so the resolve and listing gaps are addon code rather than database contention.
 
 ### B9 — 30 minutes idle, no server-side changes
 
-| | kofin | jellyfin-kodi |
-|---|---|---|
-| Library churn | none | none |
-| CPU over 30 min | **66 s** (3.7 % of a core) | 104 s (5.8 %) |
+| | kofin 0.15.2 | jellyfin-kodi | kofin 0.96.1 |
+|---|---|---|---|
+| Library churn | none | none | none |
+| CPU over 30 min | **66 s** (3.7 % of a core) | 104 s (5.8 %) | 63 s (3.5 %) |
 
 Neither addon rewrites rows when nothing has changed.
 
@@ -294,7 +297,7 @@ JellyCon's 52 issues are tabled separately: mostly inapplicable by architecture,
 * Server-side changes are driven by a whole-server scan, timed and reported separately from client time.
 * The *comparative* memory measurement is the weakest thing here: one baselined run per arm, a peak that is not repeatable on kofin, and a sampler that returned impossible values in three other runs. It supports a direction, not a ratio, and no conclusion in this report rests on it. kofin's absolute footprint is on firmer ground — measured on a 918 MB Pi 3B with no swap, where the desktop's confounds do not apply — but that leg has no jellyfin-kodi arm and a different kofin version, so the two must not be pooled (§8).
 * Not covered: the music leg of B2, and F6–F8, F10–F12, F14, F15.
-* kofin 0.96.1 (§13): the real libraries only, so no B1, B6, C1–C5, C7 or F4. n=3 for B2, B4 and B7, one pass otherwise. One desktop Kodi, the Kontell test build of Kodi 23, whose databases are WAL with name indexes; the Pi on Kodi 22 with WAL switched on by hand and no indexes. Blocking modals were not measured, and HTTP traffic was counted only through the proxy runs.
+* kofin 0.96.1 (§13): the real libraries only, so no B1, B6, C1–C5, C7 or F4; F9 was not run either. n=3 for B2, B4 and B7, one pass otherwise. One desktop Kodi, the Kontell test build of Kodi 23, whose databases are WAL with name indexes; the Pi on Kodi 22 with WAL switched on by hand and no indexes. Blocking modals were not measured, and HTTP traffic was counted only through the proxy runs.
 
 ## 13. kofin 0.96
 
@@ -350,7 +353,7 @@ The memory peak is the pass's compare (771 MB sampled at 239 s), not a scan.
 | Songs | 23,734 / 0 / 0 | 1,000 / 0 |
 | Orphan rules, `integrity_check`, music `integrity_check` | PASS | |
 
-Of the 202, 200 are the original title, empty on every sampled movie (§9). The other 2 are a movie's year where the server's premiere date and production year disagree: Kodi keeps one date and takes the year from it. Nine episodes are specials without an episode number, which Kodi's scanner cannot file; none is in Kodi and Library status lists them. Two more are virtual on the server, with no file. The same verdict came back after every scenario below.
+Of the 202, 200 are the original title, empty on every sampled movie (§9). The other 2 are a movie's year where the server's premiere date and production year disagree: Kodi keeps one date and takes the year from it. Nine episodes are specials without an episode number, which Kodi's scanner cannot file; none is in Kodi and Library status lists them. Two more are virtual on the server, with no file. The same verdict came back after B5, B10 and every interruption of §13.4 but F13, whose run was checked by count.
 
 ### 13.3 Repair, incremental, idle, library change
 
