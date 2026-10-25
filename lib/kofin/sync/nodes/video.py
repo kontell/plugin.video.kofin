@@ -271,8 +271,9 @@ def single_nodes(episode_tags=True):
     for movies and shows always, for episodes while this Kodi keeps an
     episode's tags (``episode_tags``, kontell/xbmc #12: a tag rule lists
     nothing on a Kodi without it), the Downloads set while the feature is
-    on. One list for both the node files and the window properties, so the
-    two surfaces cannot disagree."""
+    on, its episodes on the same condition as the favorites. One list for
+    both the node files and the window properties, so the two surfaces
+    cannot disagree."""
     singles = [
         {"Name": localized(30358), "Tag": "Favorite movies", "Media": "movies"},
         {"Name": localized(30359), "Tag": "Favorite tvshows", "Media": "tvshows"},
@@ -289,7 +290,7 @@ def single_nodes(episode_tags=True):
         # setting the build does not define.
         downloads = False
     if downloads:
-        from kofin.downloads import TAG as DOWNLOADS_TAG
+        from kofin.downloads import EPISODE_TAG, TAG as DOWNLOADS_TAG
 
         singles.append(
             {
@@ -311,11 +312,22 @@ def single_nodes(episode_tags=True):
                 "Icon": NODE_DOWNLOADS_ICON,
             }
         )
-        # No Downloaded-episodes single: Kodi compiles a tag rule on an
-        # episodes node against ``episode_view.idShow`` (SmartPlayList.cpp),
-        # so it would answer with every episode of every tagged show, and a
-        # downloaded episode's row keeps its plugin URL, so a path rule has
-        # nothing to match either.
+    if downloads and episode_tags:
+        # Filtered on the episode's own tag, not the show's: a tag rule on
+        # episodes matches either, so DOWNLOADS_TAG would list every
+        # episode of a show with one download. A downloaded episode's row
+        # keeps its plugin URL, so a path rule has nothing to match, and a
+        # Kodi without episode tags has no Downloaded-episodes single.
+        singles.append(
+            {
+                "Name": localized(30721),
+                "Tag": EPISODE_TAG,
+                "Media": "episodes",
+                "File": "DownloadedEpisodes",
+                "Type": "downloads",
+                "Icon": NODE_DOWNLOADS_ICON,
+            }
+        )
     return singles
 
 
@@ -381,27 +393,16 @@ def build_node(view, key, label, order):
 
 
 def build_single(single, order):
-    """A single node: a favourites or a Downloads listing."""
-    episodes = single["Media"] == "episodes"
+    """A single node: a favourites or a Downloads listing, by its tag. An
+    episodes single exists only on a Kodi 23 with kontell/xbmc #12, which
+    keeps an episode's own tags (see single_nodes)."""
     icon = single.get("Icon") or node_icon(single["Media"], "favorites")
     xml = _node("filter", order, icon)
     etree.SubElement(xml, "label").text = single["Name"]
     etree.SubElement(xml, "match").text = "all"
     content = etree.SubElement(xml, "content")
     content.text = single["Media"]
-
-    if not episodes or not single.get("Path"):
-        # A Kodi 23 with kontell/xbmc #12 keeps an episode's own tags, and
-        # the Favorite episodes rule matches them (metadata.FAVORITE_TAG).
-        _tag_rule(xml, single["Tag"])
-    else:
-        # An episodes node filters on the file's location, because a tag
-        # rule here resolves against the *show* (see single_nodes).
-        rule = etree.SubElement(
-            xml, "rule", {"field": "path", "operator": "startswith"}
-        )
-        etree.SubElement(rule, "value").text = single["Path"]
-
+    _tag_rule(xml, single["Tag"])
     _parts(xml, NODE_PARTS["all"])
     return xml
 
