@@ -25,11 +25,27 @@ class FakeApi:
         return {"Items": []}
 
 
+def logged_in():
+    FakeAddon.store.update(
+        {"serverId": "s" * 32, "userId": "u" * 32, "deviceId": "d" * 32}
+    )
+
+
+def library_dir(library, media):
+    """The folder a library's rows are filed under, which its nodes filter
+    on, for the login of ``logged_in``."""
+    from kofin.sync.backends.api import paths
+    from kofin.sync.backends.api.store import namespace
+
+    return paths.library_dir(namespace("s" * 32, "u" * 32), library, media)
+
+
 @pytest.fixture(autouse=True)
 def views_env(monkeypatch, tmp_path):
     """A profile directory behind every special:// path the node writers
-    touch, and kofin.db beside it."""
+    touch, and kofin.db beside it, with a user logged in."""
     FakeAddon.store = {}
+    logged_in()
     FakeWindow.store = {}
     monkeypatch.setattr("xbmcaddon.Addon", FakeAddon)
     monkeypatch.setattr("xbmcgui.Window", FakeWindow)
@@ -117,13 +133,16 @@ def test_a_whitelisted_library_gets_its_tree_and_library_paths(views_env):
     folder = root / ("kofinmovies" + MOVIES)
     assert (root / "index.xml").is_file()
     assert (folder / "index.xml").is_file() and (folder / "recent.xml").is_file()
-    # The filter nodes select by the tag the API backend puts on every row.
-    rule = ET.parse(folder / "all.xml").getroot().find("rule")
-    assert rule.get("field") == "tag" and rule.find(
-        "value"
-    ).text == dynamic.library_tag(MOVIES)
+    # The filter nodes select by the folder the library's rows are filed
+    # under, and every node of the folder does: no row carries a tag for it.
+    for node in folder.glob("*.xml"):
+        if node.name == "index.xml":
+            continue
+        rule = ET.parse(node).getroot().find("rule")
+        assert (rule.get("field"), rule.get("operator")) == ("path", "startswith")
+        assert rule.find("value").text == library_dir(MOVIES, "movies")
     # Favourites singles ride along; no downloads single in this build.
-    # One smart playlist per synced video library, by the same tag.
+    # One smart playlist per synced video library, by the same folder.
     xsp = (
         views_env["profile"]
         / "playlists"
@@ -131,7 +150,11 @@ def test_a_whitelisted_library_gets_its_tree_and_library_paths(views_env):
         / "Kofin"
         / ("kofinmovies%s.xsp" % MOVIES)
     )
-    assert xsp.is_file() and dynamic.library_tag(MOVIES) in xsp.read_text()
+    rule = ET.parse(xsp).getroot().find("rule")
+    assert (rule.get("field"), rule.find("value").text) == (
+        "path",
+        library_dir(MOVIES, "movies"),
+    )
     singles = sorted(p.name for p in root.glob("kofin_*.xml"))
     assert singles == [
         "kofin_Favoriteepisodes.xml",
@@ -230,12 +253,22 @@ def test_tree_order_is_movies_then_shows_within_the_servers_order(views_env):
             for i in ITEMS
         ],
         [SHOWS, MOVIES, MIXED],
+        "k" * 32,
     )
     assert [(v["Media"], v["Id"][:1], mixed) for v, mixed in entries] == [
         ("movies", "1", False),
         ("movies", "4", True),
         ("tvshows", "2", False),
         ("tvshows", "4", True),
+    ]
+    # A mixed library's two halves each take the folder of their kind.
+    from kofin.sync.backends.api import paths
+
+    assert [v["Path"] for v, _mixed in entries] == [
+        paths.library_dir("k" * 32, MOVIES, "movies"),
+        paths.library_dir("k" * 32, MIXED, "movies"),
+        paths.library_dir("k" * 32, SHOWS, "tvshows"),
+        paths.library_dir("k" * 32, MIXED, "tvshows"),
     ]
 
 
@@ -326,12 +359,6 @@ def test_the_shipped_video_nodes_are_seeded_before_the_tree_is_written(
     assert (profile / NODE_ROOT / "index.xml").is_file()
 
 
-def logged_in():
-    FakeAddon.store.update(
-        {"serverId": "s" * 32, "userId": "u" * 32, "deviceId": "d" * 32}
-    )
-
-
 def test_a_whitelisted_music_library_gets_its_folder_in_the_music_tree(
     views_env, monkeypatch
 ):
@@ -355,7 +382,6 @@ def test_a_whitelisted_music_library_gets_its_folder_in_the_music_tree(
     os.makedirs(os.path.join(system, "albums"))
     with open(os.path.join(system, "albums", "index.xml"), "w") as handle:
         handle.write("<node/>")
-    logged_in()
     FakeAddon.store["downloadsEnabled"] = "true"
     whitelist(MOVIES, MUSIC)
     dynamic.publish(ITEMS, FakeApi())
@@ -395,43 +421,53 @@ def test_a_whitelisted_music_library_gets_its_folder_in_the_music_tree(
     assert (music / "albums" / "index.xml").is_file()
 
 
-def test_no_music_tree_is_written_before_a_login(views_env):
-    whitelist(MUSIC)
+def test_no_tree_is_written_before_a_login(views_env):
+    """Every node filters on a folder named by the login."""
+    FakeAddon.store = {"deviceId": "d" * 32}
+    whitelist(MOVIES, MUSIC)
     dynamic.publish(ITEMS, FakeApi())
     assert not (views_env["profile"] / "library" / "music" / NODE_ROOT).exists()
+    assert not (views_env["profile"] / "library" / "video" / NODE_ROOT).exists()
 
 
-def test_the_music_tree_survives_a_settings_read_that_cannot_answer(
-    views_env, monkeypatch
-):
-    """An empty list deletes the music tree, so blank ids delete it only from
-    a store that answered: an unregistered add-on and a settings document
-    that did not load read blank too, and leave the tree as it is. A logout
-    takes it down."""
+def test_the_trees_survive_a_settings_read_that_cannot_answer(views_env, monkeypatch):
+    """An empty list deletes a tree, so blank ids delete it only from a
+    store that answered: an unregistered add-on and a settings document
+    that did not load read blank too, and leave both trees as they are. A
+    logout takes them down."""
     from kofin.core import settings
 
-    logged_in()
-    whitelist(MUSIC)
+    whitelist(MOVIES, MUSIC)
     dynamic.publish(ITEMS, FakeApi())
     tree = views_env["profile"] / "library" / "music" / NODE_ROOT
+    video = views_env["profile"] / "library" / "video" / NODE_ROOT
     assert (tree / ("kofinmusic" + MUSIC)).is_dir()
+    assert (video / ("kofinmovies" + MOVIES)).is_dir()
     # Kodi has the add-on unregistered, as during an update.
     get_addon = settings.get_addon
     monkeypatch.setattr(settings, "get_addon", lambda: None)
     dynamic.publish(ITEMS, FakeApi())
     assert (tree / ("kofinmusic" + MUSIC)).is_dir()
+    assert (video / ("kofinmovies" + MOVIES)).is_dir()
+    # Nor does a selection without music, read in that moment, take the
+    # music tree down: an unanswered read leaves both trees alone.
+    whitelist(MOVIES)
+    dynamic.publish(ITEMS, FakeApi())
+    assert (tree / ("kofinmusic" + MUSIC)).is_dir()
+    whitelist(MOVIES, MUSIC)
     monkeypatch.setattr(settings, "get_addon", get_addon)
     # The settings document did not load: every value blank.
     stored = dict(FakeAddon.store)
     FakeAddon.store = {}
     dynamic.publish(ITEMS, FakeApi())
     assert (tree / ("kofinmusic" + MUSIC)).is_dir()
+    assert (video / ("kofinmovies" + MOVIES)).is_dir()
     # A logout keeps the device id and clears the rest.
     FakeAddon.store = {
         k: v for k, v in stored.items() if k not in ("serverId", "userId")
     }
     dynamic.publish(ITEMS, FakeApi())
-    assert not tree.exists()
+    assert not tree.exists() and not video.exists()
 
 
 def test_the_favourite_episodes_node_is_written_only_where_kodi_keeps_episode_tags(

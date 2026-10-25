@@ -348,6 +348,13 @@ def _tag_rule(xml, tag):
     etree.SubElement(rule, "value").text = tag
 
 
+def path_rule(xml, path):
+    """A library's rows: every one is filed under its folder
+    (dynamic.node_entries)."""
+    rule = etree.SubElement(xml, "rule", {"field": "path", "operator": "startswith"})
+    etree.SubElement(rule, "value").text = path
+
+
 def _parts(xml, parts):
     for part in parts:
         if part[0] == "order":
@@ -387,7 +394,7 @@ def build_node(view, key, label, order):
     etree.SubElement(xml, "content").text = (
         "episodes" if key in EPISODE_CONTENT else view["Media"]
     )
-    _tag_rule(xml, view["Tag"])
+    path_rule(xml, view["Path"])
     _parts(xml, NODE_PARTS[key])
     return xml
 

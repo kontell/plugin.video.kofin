@@ -423,7 +423,51 @@ def test_a_favourite_episode_carries_its_tag(store, backend, kodi):
     rows = kodi.owned("Episode")
     assert "Favorite episodes" not in rows["ea11"]["tag"]
     assert "Favorite episodes" in rows["ea12"]["tag"]
-    assert all("kofin.library." + LIB in r["tag"] for r in rows.values())
+    # No row carries a tag for its library: the nodes filter on its folder.
+    assert not any(
+        t.startswith("kofin.library.") for r in rows.values() for t in r["tag"]
+    )
+
+
+def test_a_library_filed_with_its_tag_loses_it_at_the_next_pass(store, backend, kodi):
+    """A build before serializer 6 put ``kofin.library.<id>`` on every row
+    and stamped its feature set alone. The next pass compares every row,
+    takes that tag off and keeps a tag the user added, and stamps the
+    serializer, so the pass after compares only what it is handed."""
+    import json
+
+    store.publish([movie("a"), movie("b")] + show_bundle(episodes=1), library=LIB)
+    backend.setup()
+    backend.reconcile()
+    assert not store.pending()
+    assert store.serializer_applied() == metadata.SERIALIZER
+    old = metadata.LIBRARY_TAG_PREFIX + LIB
+    kinds = ("Movie", "Series", "Episode")
+    for kind in kinds:
+        for row in kodi.owned(kind).values():
+            row["tag"] = sorted(set(row.get("tag", [])) | {old})
+    kodi.owned("Movie")["a"]["tag"].append("Mine")
+    with private.Database() as db:
+        db.cursor.execute(
+            "UPDATE api_features SET features=? WHERE namespace=?",
+            (json.dumps(sorted(backend.features)), store.namespace),
+        )
+    assert store.features_applied() == backend.features
+    assert store.serializer_applied() is None
+    backend.reconcile()
+    assert not store.pending()
+    assert not any(
+        tag.startswith(metadata.LIBRARY_TAG_PREFIX)
+        for kind in kinds
+        for row in kodi.owned(kind).values()
+        for tag in row.get("tag", [])
+    )
+    assert "Mine" in kodi.owned("Movie")["a"]["tag"]
+    assert store.serializer_applied() == metadata.SERIALIZER
+    kodi.calls.clear()
+    backend.reconcile()
+    assert not methods(kodi, "VideoLibrary.SetMovieDetails")
+    assert not methods(kodi, "VideoLibrary.GetMovieDetails")
 
 
 def test_a_small_scope_wanted_whole_is_read_in_one_listing(store, backend, kodi):
