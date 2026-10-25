@@ -27,7 +27,11 @@
 #    (admitted the version, or declined it), so it must not be re-filed. The
 #    title names the branch, because the version numbers Kodi 23 used on xbmc's
 #    `master` were filed and closed as not planned, and a Piers bump to one of
-#    them would otherwise read as already decided.
+#    them would otherwise read as already decided. It names one branch: the
+#    probe groups the refs that share a version, so a manual run of two refs
+#    files an issue for each rather than one whose title no other run makes.
+#    Runs queue behind each other, or two could read the titles before either
+#    files.
 name: Kodi schema watch
 
 on:
@@ -47,6 +51,10 @@ on:
 permissions:
   contents: read
   issues: write
+
+concurrency:
+  group: kodi-schema-watch
+  cancel-in-progress: false
 
 env:
   LABEL: kodi-schema
@@ -104,8 +112,9 @@ jobs:
           gh issue list --label "$LABEL" --state all --limit 200 \
             --json title --jq '.[].title' > seen.txt
 
-          jq -c '.[]' findings.json | while read -r finding; do
-            title="$(jq -r '"\(.title) on \(.refs | join(", "))"' <<<"$finding")"
+          jq -c '.[] | .refs[] as $ref | . + {ref: $ref}' findings.json |
+          while read -r finding; do
+            title="$(jq -r '"\(.title) on \(.ref)"' <<<"$finding")"
             if grep -Fxq "$title" seen.txt; then
               echo "::notice::already filed: $title"
               continue
