@@ -390,6 +390,8 @@ def worker(store, server, selected, monkeypatch, feed=None):
     w._unsynced_tried = set()
     w._rebuilding = set()
     w._first_attended = False
+    # Listing a library again for new fields has its own tests.
+    w.stale_listings = lambda: []
     w._held_userdata = {}
     w.arrivals = announce.Arrivals()
     w._queue = queue.Queue()

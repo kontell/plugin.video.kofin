@@ -298,6 +298,77 @@ def test_the_scheduled_full_update_follows_the_setting(
     assert ran == (["full"] if full else ["catch-up"])
 
 
+def test_the_listing_asks_for_a_movie_s_original_title(store, monkeypatch):
+    """Jellyfin leaves OriginalTitle out unless asked: without it in the
+    listing every movie was filed with an empty original title."""
+    from kofin.sync.backends.api import library, metadata
+
+    assert "OriginalTitle" in library.FIELDS.split(",")
+    w = worker(
+        store, Server({LIB: [movie(OriginalTitle="Le Titre")]}), [LIB], monkeypatch
+    )
+    w.full_sync()
+    (record,) = store.records(kind="Movie").values()
+    assert record.item["OriginalTitle"] == "Le Titre"
+    assert metadata.details(record.item, "", "key", LIB)["originaltitle"] == "Le Titre"
+
+
+def test_a_library_listed_for_fewer_fields_is_listed_again_by_name(store, monkeypatch):
+    """A catch-up fetches changed items alone, so rows filed from a listing
+    that lacked a field would never get it: a synced library whose record
+    differs from LISTING is listed by name at the next catch-up, and only a
+    listing that published it records the new one. A library the server's
+    views leave out meanwhile stays stale until one does."""
+    from kofin.sync.backends.api import library
+    from kofin.sync.backends.api.library import Library
+
+    store.set_watermark(watermark="2026-10-08T00:00:00Z", enumerated=time.time())
+    shows = {"Id": LIB2, "CollectionType": "tvshows", "Name": "Shows"}
+    films = {"Id": LIB, "CollectionType": "movies", "Name": "Films"}
+
+    def generation(views):
+        server = Server({LIB: [movie()], LIB2: show_bundle()}, views=views)
+        w = worker(store, server, [LIB, LIB2], monkeypatch)
+        monkeypatch.setattr(
+            library.private, "get_sync", lambda: {"Whitelist": [LIB, LIB2]}
+        )
+        w.stale_listings = Library.stale_listings.__get__(w)
+        ran = []
+        listing = w.full_sync
+        monkeypatch.setattr(
+            w,
+            "full_sync",
+            lambda libraries=None: ran.append(sorted(libraries or []))
+            or listing(libraries),
+        )
+        monkeypatch.setattr(w, "catch_up", lambda: ran.append("catch-up"))
+        return w, ran
+
+    # Both synced before the record existed; the shows are out of the views.
+    w, ran = generation([films])
+    w.refresh()
+    assert ran == [sorted([LIB, LIB2]), "catch-up"]
+    assert store.listings() == {LIB: library.LISTING}
+    # The next catch-up tries the shows alone.
+    w._catchup_due = 0.0
+    w.refresh()
+    assert ran[2:] == [[LIB2], "catch-up"]
+    # Listed when the server shows them again, and recorded.
+    w, ran = generation([films, shows])
+    w.refresh()
+    assert ran == [[LIB2], "catch-up"]
+    assert store.listings() == {LIB: library.LISTING, LIB2: library.LISTING}
+    # Nothing stale: a catch-up alone.
+    w, ran = generation([films, shows])
+    w.refresh()
+    assert ran == ["catch-up"]
+    # A record of fewer fields is stale again.
+    store.remember_listing([LIB], library.LISTING.replace("OriginalTitle,", ""))
+    w, ran = generation([films, shows])
+    w.refresh()
+    assert ran == [[LIB], "catch-up"]
+
+
 def test_websocket_changes_fetch_known_items_and_defer_unknown_ones(store, monkeypatch):
     server = Server({LIB: [movie(), movie("b")]})
     store.publish([movie()], library=LIB)

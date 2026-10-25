@@ -51,6 +51,14 @@ MUSIC_FIELDS = (
     "ParentId,PremiereDate,Tags"
 )
 MUSIC_KINDS = ("MusicArtist", "MusicAlbum", "Audio")
+# What a listing asks the server for, recorded per library when its listing
+# is published (store.remember_listing). A catch-up fetches changed items
+# alone, so rows filed from a listing that lacked a field would never get
+# it: a library whose record differs is listed again by name, at the first
+# catch-up and then at each one until it has been (stale_listings).
+# OriginalTitle was a field the listing lacked, and every movie's was empty
+# in Kodi.
+LISTING = FIELDS + "|" + MUSIC_FIELDS
 CHANGEFEED_TYPES = ("movies", "tvshows", "boxsets", "musicvideos", "music")
 # Between the websocket and the companion feed the catch-up is a safety net.
 # A full enumeration on a clock is the viewer's choice (fullUpdateInterval,
@@ -558,8 +566,29 @@ class Library(threading.Thread):
             return
         if time.monotonic() >= self._catchup_due:
             self._catchup_due = time.monotonic() + 30
+            stale = self.stale_listings()
+            if stale:
+                # A library missing from the server's views is skipped by
+                # the listing and stays stale for the next catch-up.
+                LOG.info(
+                    "listing %d librar%s again for fields their last listing lacked",
+                    len(stale),
+                    "y" if len(stale) == 1 else "ies",
+                )
+                self.full_sync(stale)
             self.catch_up()
             self._catchup_due = time.monotonic() + CATCHUP_INTERVAL
+
+    def stale_listings(self) -> List[str]:
+        """The synced, selected libraries whose last published listing asked
+        the server for less than LISTING, or was never recorded."""
+        selected = set(settings.get_list("librarySelection"))
+        recorded = self.store.listings()
+        return sorted(
+            library
+            for library in private.get_sync()["Whitelist"]
+            if library in selected and recorded.get(library) != LISTING
+        )
 
     @staticmethod
     def _schedule_due(enumerated) -> bool:
@@ -721,6 +750,9 @@ class Library(threading.Thread):
         del items, fetched
         memory.release()
         self.store.invalidate(invalidate)
+        # Only what was listed and published: a selected library the server
+        # did not show, or one being rebuilt, keeps its old record.
+        self.store.remember_listing(committed, LISTING)
         if complete:
             self.store.set_watermark(
                 watermark=changefeed.unix_to_watermark(started), enumerated=time.time()
