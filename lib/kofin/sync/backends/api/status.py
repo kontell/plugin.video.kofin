@@ -18,7 +18,7 @@ import json
 import os
 import threading
 import time
-from typing import Any, Dict, List, NamedTuple, Optional, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
 import xbmc
 import xbmcgui
@@ -200,9 +200,9 @@ def rows(
         )
     # A special with no episode number is the usual one: without the row
     # a library a few short of the server's count reads as a failed import.
-    unfiled = sum(library.unfiled for library in found.libraries)
+    unfiled = unfiled_row(found, text)
     if unfiled:
-        lines.append("%s:  %s" % (text(30868), _number(unfiled)))
+        lines.append(unfiled)
     stale = [library.name for library in found.libraries if library.stale]
     if stale:
         lines.append("%s:  %s" % (text(30867), ", ".join(stale)))
@@ -225,6 +225,51 @@ def rows(
     return [line.rstrip() for line in lines]
 
 
+def unfiled_row(found: Snapshot, text) -> str:
+    """The row counting what Kodi cannot import; empty when nothing."""
+    unfiled = sum(library.unfiled for library in found.libraries)
+    return "%s:  %s" % (text(30868), _number(unfiled)) if unfiled else ""
+
+
+def counted(found: Snapshot) -> List[Tuple[str, str]]:
+    """The ``(library, kind)`` pairs that row counts, which is what the
+    store is asked for (``store.unfiled``), so the list is as long as the
+    count."""
+    return [
+        (library.library, kind)
+        for library in found.libraries
+        for kind in COUNTED.get(library.media, COUNTED["mixed"])
+    ]
+
+
+def unfiled_report(entries, found: Snapshot, text) -> str:
+    """What that row counts, for its text viewer: what to do, then each
+    item by its show and its title, under its library's name when more
+    than one library has any. ``entries`` are ``store.unfiled`` of
+    ``counted(found)``. A library is its id: two may share a name."""
+    names = {status.library: status.name for status in found.libraries}
+
+    def name(library: str) -> str:
+        return names.get(library) or library
+
+    grouped: Dict[str, List[str]] = {}
+    for library, _kind, item in entries:
+        grouped.setdefault(library, []).append(_item_name(item))
+    lines = [text(30885)]
+    for library in sorted(grouped, key=lambda key: (name(key).casefold(), key)):
+        lines.append("")
+        if len(grouped) > 1:
+            lines.append("[B]%s[/B]" % name(library))
+        lines.extend(sorted(grouped[library], key=str.casefold))
+    return "\n".join(lines)
+
+
+def _item_name(item: Dict[str, Any]) -> str:
+    title = (item.get("Name") or "").strip() or str(item.get("Id") or "")
+    show = (item.get("SeriesName") or "").strip()
+    return "%s \u2014 %s" % (show, title) if show else title
+
+
 def off_features(features: Dict[str, bool], text) -> List[str]:
     """The labels of the features this Kodi lacks, in the table's order."""
     return [
@@ -244,32 +289,34 @@ def show(store) -> None:
     last row the list scrolls the sync's own line off the top as soon as
     there are more rows than fit.
 
-    The first row and the last are the only ones that do anything. A select
-    dialog closes on whichever row is picked, so a fact that was picked is
-    shown again as it was, the cursor on it: picking one used to close the
-    report, which read as the report having gone wrong. Back is what closes
-    it. The row naming what this Kodi lacks is cut short by the skin once a
-    few features are off (eight on a Piers), so picking it opens the list,
-    one feature a line, in a text viewer.
+    The first row, the last and the "Kodi cannot import" row are the only
+    ones that do anything. A select dialog closes on whichever row is
+    picked, so a fact that was picked is shown again as it was, the cursor
+    on it: picking one used to close the report, which read as the report
+    having gone wrong. Back is what closes it. The row naming what this
+    Kodi lacks is cut short by the skin once a few features are off (eight
+    on a Piers), so picking it opens the list, one feature a line, in a
+    text viewer; picking the count of what Kodi cannot import opens what
+    it counts. Both lists are read with the rows they explain, so a pass
+    that moves either while the report is open cannot make the text
+    disagree with the row.
     """
     heading = "%s \u2014 %s" % (settings.localized(30859), settings.localized(30862))
     lines: List[str] = []
     off: List[str] = []
+    unfiled = ""
+    entries: List[Tuple[str, str, Dict[str, Any]]] = []
     cursor = 0
     while True:
         if cursor == 0:
             table = capabilities.table()
             off = off_features(table, settings.localized)
-            lines = rows(
-                read(),
-                snapshot(
-                    store,
-                    metadata.scanner_format({n for n, on in table.items() if on}),
-                ),
-                progress.stage,
-                progress.label,
-                features=table,
+            found = snapshot(
+                store, metadata.scanner_format({n for n, on in table.items() if on})
             )
+            lines = rows(read(), found, progress.stage, progress.label, features=table)
+            unfiled = unfiled_row(found, progress.stage)
+            entries = store.unfiled(counted(found)) if unfiled else []
         choices: List[Union[str, xbmcgui.ListItem]] = [xbmc.getLocalizedString(184)]
         choices.extend(lines)
         cursor = xbmcgui.Dialog().select(heading, choices, preselect=cursor)
@@ -277,6 +324,11 @@ def show(store) -> None:
             return
         if off and cursor == len(choices) - 1:
             xbmcgui.Dialog().textviewer(settings.localized(30876), "\n".join(off))
+        elif unfiled and choices[cursor] == unfiled:
+            xbmcgui.Dialog().textviewer(
+                progress.stage(30868),
+                unfiled_report(entries, found, progress.stage),
+            )
 
 
 def _moment(stamp: float, clock) -> str:

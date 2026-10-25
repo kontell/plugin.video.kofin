@@ -100,7 +100,7 @@ def test_the_same_profile_on_a_kodi_23_patches_what_piers_could_not(
     tagged = [
         row
         for row in piers.rows["Episode"].values()
-        if "Favorite episodes" in row["tag"]
+        if "Favorite episodes" in row.get("tag", [])
     ]
     assert len(tagged) == 1
 

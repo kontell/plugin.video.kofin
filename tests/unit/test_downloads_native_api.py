@@ -3,7 +3,7 @@ badge and the tag, and the play state is read back by id."""
 
 import pytest
 
-from kofin.downloads import TAG, nativeport, store as downloads
+from kofin.downloads import EPISODE_TAG, TAG, nativeport, store as downloads
 from kofin.downloads.store import Download
 from kofin.sync.backends.api import downloaded, identity, native
 from tests.unit.apifixtures import (  # noqa: F401
@@ -13,6 +13,7 @@ from tests.unit.apifixtures import (  # noqa: F401
     kodi,
     methods,
     movie,
+    piers,
     store,
 )
 
@@ -54,6 +55,14 @@ def test_marks_name_downloaded_items_and_the_shows_of_downloaded_episodes(store)
     season_row = {"art": {}}
     downloaded.apply("Season", season_row, "downloaded")
     assert season_row == {"art": {downloaded.BADGE_ART: downloaded.BADGE_URL}}
+    # An episode takes a tag its show never carries, and only where its
+    # desired state has tags (a Kodi that keeps an episode's tags).
+    episode_row = {"art": {}, "tag": ["kofin.library.x"]}
+    downloaded.apply("Episode", episode_row, "downloaded")
+    assert episode_row["tag"] == sorted(["kofin.library.x", EPISODE_TAG])
+    untagged = {"art": {}}
+    downloaded.apply("Episode", untagged, "downloaded")
+    assert "tag" not in untagged
     plain = {"art": {}, "tag": []}
     downloaded.apply("Movie", plain, "")
     assert plain == {"art": {}, "tag": []}
@@ -88,7 +97,7 @@ def test_a_download_puts_the_badge_and_tag_on_the_row_and_its_removal_takes_them
     backend.reconcile()
     (kodi_row,) = kodi.rows["Movie"].values()
     assert downloaded.BADGE_ART not in kodi_row["art"]
-    assert TAG not in kodi_row["tag"] and "kofin.library." + LIB in kodi_row["tag"]
+    assert TAG not in kodi_row["tag"]
     assert not store.pending()
 
 
@@ -141,9 +150,10 @@ def test_an_episode_s_download_badges_its_season_and_its_show(store, backend, ko
     assert not store.pending()
     assert badged(kodi) == {"Episode": ["ea11"], "Season": [1], "Series": [SHOW]}
     (show,) = kodi.rows["Series"].values()
-    assert TAG in show["tag"]
+    assert TAG in show["tag"] and EPISODE_TAG not in show["tag"]
+    assert tagged_episodes(kodi) == ["ea11"]
     assert len(methods(kodi, "VideoLibrary.SetSeasonDetails")) == 1
-    # The download goes: all three badges go with it.
+    # The download goes: all three badges go with it, and both tags.
     downloads.remove("ea11")
     port.detached(row)
     backend.reconcile()
@@ -151,6 +161,75 @@ def test_an_episode_s_download_badges_its_season_and_its_show(store, backend, ko
     assert badged(kodi) == {"Episode": [], "Season": [], "Series": []}
     (show,) = kodi.rows["Series"].values()
     assert TAG not in show["tag"]
+    assert tagged_episodes(kodi) == []
+
+
+def tagged_episodes(kodi):
+    return sorted(
+        item_id
+        for item_id, row in kodi.owned("Episode").items()
+        if EPISODE_TAG in row.get("tag", [])
+    )
+
+
+def test_a_piers_badges_a_downloaded_episode_without_tagging_it(store, piers, backend):
+    """Piers keeps no tags for an episode, so the episode has the badge
+    alone, and its show the badge and the tag."""
+    from tests.unit.apifixtures import show_bundle
+
+    backend.setup()
+    store.publish(show_bundle(episodes=2), library=LIB)
+    nativeport.NativeApi().attached(downloaded_episode(), "/dl")
+    backend.reconcile()
+    assert not store.pending()
+    assert badged(piers)["Episode"] == ["ea11"]
+    assert tagged_episodes(piers) == []
+    (show,) = piers.rows["Series"].values()
+    assert TAG in show["tag"]
+    assert all("tag" not in p for p in methods(piers, "VideoLibrary.SetEpisodeDetails"))
+
+
+def test_an_episode_acknowledged_before_it_carried_its_tag_is_built_again(
+    store, backend, kodi, monkeypatch
+):
+    """A downloaded episode acknowledged when the mark meant the badge alone
+    has the same mark and inputs as one acknowledged now, so only the
+    serializer's number tells them apart (metadata.SERIALIZER)."""
+    from kofin.sync.backends.api import metadata
+    from tests.unit.apifixtures import show_bundle
+
+    backend.setup()
+    store.publish(show_bundle(episodes=1), library=LIB)
+    row = downloaded_episode()
+    backend.reconcile()
+    assert tagged_episodes(kodi) == ["ea11"]
+    # The row and its acknowledgement as the serializer before left them.
+    kodi.owned("Episode")["ea11"]["tag"].remove(EPISODE_TAG)
+    mapping = store.mapping("ea11")
+    applied = dict(mapping.applied)
+    applied["owned"] = dict(
+        applied["owned"],
+        tag=[t for t in applied["owned"]["tag"] if t != EPISODE_TAG],
+    )
+    record = store.records(kind="Episode")["ea11"]
+    with monkeypatch.context() as earlier:
+        earlier.setattr(metadata, "SERIALIZER", 4)
+        applied["inputs"] = metadata.inputs_token(
+            backend.server_url(),
+            store.namespace,
+            record.library,
+            backend.separator,
+            downloaded="downloaded",
+            features=backend.features,
+        )
+    assert applied["inputs"] != mapping.applied["inputs"]
+    store.remember(
+        "ea11", store.state("ea11").desired, mapping.kodi_id, applied, "Episode"
+    )
+    # The service start hands every done file to the pass.
+    nativeport.NativeApi().attached(row, "/dl")
+    backend.reconcile()
+    assert tagged_episodes(kodi) == ["ea11"]
 
 
 def test_a_show_acknowledged_before_it_carried_a_badge_is_built_again(

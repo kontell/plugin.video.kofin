@@ -527,5 +527,6 @@
   "#30881": "Marcadores das faixas",
   "#30882": "Data de adição das músicas",
   "#30883": "Remoção de versões e extras removidos",
-  "#30884": "Sincronização fina"
+  "#30884": "Sincronização fina",
+  "#30885": "O Kodi só importa um especial se ele tiver número de episódio. Atribua um no servidor ou reproduza-os pelo complemento Kofin."
 }

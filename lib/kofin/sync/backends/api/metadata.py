@@ -120,13 +120,11 @@ _EXTRA_KEYS = (
 )
 
 
-# The tag every row of a library carries (tags), and the one the library's
-# filter nodes select by (sync/dynamic.py): spelled here, where it is written.
+# The tag every row of a library carried until the library's nodes filtered
+# on its folder instead (sync/dynamic.py). Kodi showed it in the info dialog
+# and the Tags list; a row that still carries one has it taken off
+# (patch.merge).
 LIBRARY_TAG_PREFIX = "kofin.library."
-
-
-def library_tag(library: str) -> str:
-    return LIBRARY_TAG_PREFIX + library
 
 
 def compact_extra(feature):
@@ -379,11 +377,10 @@ def unique_ids(item, key, seasons=()):
     return result
 
 
-def tags(item, library, kind="Movie"):
+def tags(item, kind="Movie"):
     if kind not in FAVORITE_TAG:
         return []
     values = [value.strip(ASCII_SPACE) for value in item.get("Tags") or []]
-    values.append(library_tag(library))
     if (item.get("UserData") or {}).get("IsFavorite"):
         values.append(FAVORITE_TAG[kind])
     return sorted(set(value for value in values if value))
@@ -612,7 +609,7 @@ def details(
     if kind != "Season":
         data["runtime"] = int(item.get("RunTimeTicks") or 0) // 10000000
     if kind in FAVORITE_TAG and (kind != "Episode" or "episode_tags" in features):
-        data["tag"] = tags(item, library, kind)
+        data["tag"] = tags(item, kind)
     if kind in ("Movie", "Series", "Episode"):
         data["originaltitle"] = item.get("OriginalTitle") or ""
         data["ratings"] = ratings(item)
@@ -1057,7 +1054,10 @@ def _streams(tag, item, features=frozenset()):
 # on trust (inputs_token). 2: an episode's art without its show's poster.
 # 3: the download badge on the show and the season of a downloaded episode.
 # 4: a season's plot and an episode's tags (Kodi 23).
-SERIALIZER = 4
+# 5: a downloaded episode's own tag (Kodi 23).
+# 6: no library tag. A pass that finds a number other than the one the last
+#    pass stamped compares every row (Native.reconcile).
+SERIALIZER = 6
 
 
 def inputs_token(

@@ -177,6 +177,25 @@ class Store(Catalogue):
     def features_applied(self) -> Optional[FrozenSet[str]]:
         """The feature set (capabilities.features) the last completed pass
         shaped its state by; None before any pass stamped one."""
+        stamp = self._applied()
+        if stamp is None:
+            return None
+        names = stamp.get("features")
+        if not isinstance(names, list):
+            return None
+        return frozenset(name for name in names if isinstance(name, str))
+
+    def serializer_applied(self) -> Optional[int]:
+        """The serializer (metadata.SERIALIZER) the last completed pass
+        built its desired states with; None before any pass stamped one,
+        and for a stamp of a build that recorded the features alone."""
+        stamp = self._applied()
+        number = (stamp or {}).get("serializer")
+        if isinstance(number, int) and not isinstance(number, bool):
+            return number
+        return None
+
+    def _applied(self) -> Optional[Dict[str, Any]]:
         with Database() as db:
             self._prepare(db.cursor)
             row = db.cursor.execute(
@@ -186,17 +205,25 @@ class Store(Catalogue):
         if row is None:
             return None
         try:
-            names = json.loads(row[0])
+            stamp = json.loads(row[0])
         except ValueError:
             return None
-        return frozenset(name for name in names if isinstance(name, str))
+        if isinstance(stamp, list):
+            # A build before the serializer was stamped wrote the list.
+            return {"features": stamp}
+        return stamp if isinstance(stamp, dict) else None
 
-    def remember_features(self, features) -> None:
+    def remember_features(self, features, serializer: int) -> None:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute(
                 "INSERT OR REPLACE INTO api_features VALUES (?,?)",
-                (self.namespace, json.dumps(sorted(features))),
+                (
+                    self.namespace,
+                    json.dumps(
+                        {"features": sorted(features), "serializer": serializer}
+                    ),
+                ),
             )
 
     # -- the scanner format a library's rows were filed under ----------------
@@ -255,6 +282,30 @@ class Store(Catalogue):
             (row[0], row[1]): (int(row[2]), int(row[3] or 0), int(row[4] or 0))
             for row in rows
         }
+
+    def unfiled(
+        self, pairs: Iterable[Tuple[str, str]]
+    ) -> List[Tuple[str, str, Dict[str, Any]]]:
+        """(library, kind, payload) of the items of these ``(library, kind)``
+        pairs that ``summary`` counts as settled without a row. The caller
+        names the kinds it shows: a music library settles a guest artist
+        or an album this way by the hundred, and their payloads stay put."""
+        wanted = sorted(set(pairs))
+        if not wanted:
+            return []
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                """SELECT e.library, e.kind, i.payload
+                FROM api_entry e
+                JOIN api_item i ON i.namespace=e.namespace AND i.item_id=e.item_id
+                JOIN api_native n ON n.namespace=e.namespace AND n.item_id=e.item_id
+                WHERE e.namespace=? AND e.removed IS NULL
+                AND n.kodi_id IS NULL AND i.status='applied' AND (%s)"""
+                % " OR ".join("(e.library=? AND e.kind=?)" for _ in wanted),
+                [self.namespace] + [value for pair in wanted for value in pair],
+            ).fetchall()
+        return [(row[0], row[1], json.loads(row[2])) for row in rows]
 
     def leaving(self) -> Set[str]:
         """The libraries with a removal still pending."""

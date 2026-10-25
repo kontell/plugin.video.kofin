@@ -527,5 +527,6 @@
   "#30881": "Příznaky stop",
   "#30882": "Datum přidání skladeb",
   "#30883": "Odstraňování odebraných verzí a bonusů",
-  "#30884": "Jemná synchronizace"
+  "#30884": "Jemná synchronizace",
+  "#30885": "Kodi importuje speciál, jen pokud má číslo epizody. Přidělte jim je na serveru, nebo je přehrajte z doplňku Kofin."
 }

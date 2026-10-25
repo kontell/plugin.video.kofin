@@ -1795,8 +1795,9 @@ msgctxt "#30720"
 msgid "Not available offline"
 msgstr ""
 
-# 30721 — retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23): the Downloaded episodes node
-# filtered on a path the SQL build moved. Kept, never reused, for the reason given at #30744.
+# 30721 — the Downloaded episodes node (sync/nodes/video.py), written where Kodi keeps an
+# episode's tags (kontell/xbmc #12). The SQL build's node of that name filtered on a path;
+# the label and its translations carried over unchanged.
 msgctxt "#30721"
 msgid "Downloaded episodes"
 msgstr ""
@@ -2552,6 +2553,12 @@ msgstr ""
 
 msgctxt "#30884"
 msgid "Fine sync"
+msgstr ""
+
+# 30885 — the text viewer behind the Library status dialog's "Kodi cannot
+# import" row (#30868), above the list of what it counts.
+msgctxt "#30885"
+msgid "Kodi imports a special only with an episode number. Give these one on the server, or play them from the Kofin add-on."
 msgstr ""
 
 # 30990 — retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23). Kept, never reused, for the reason given at #30744.
