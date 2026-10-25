@@ -1474,9 +1474,12 @@ def test_a_collection_removal_waits_while_a_member_still_files_it(store, backend
     assert kodi.rows["BoxSet"] == {}
 
 
-def test_refresh_confirmation_relists_the_scope_at_most_once_a_second(
+def test_a_movie_refresh_is_confirmed_by_its_folder_at_most_once_a_second(
     store, backend, kodi, monkeypatch
 ):
+    """Confirmed by listing the library, every refresh on a 32-bit Android
+    TV was two listings of 1,791 movies at 2.1 s each, for a second of
+    Kodi's own work."""
     from kofin.sync.backends.api import patch
 
     clock = [0.0]
@@ -1486,7 +1489,7 @@ def test_refresh_confirmation_relists_the_scope_at_most_once_a_second(
 
     def slow_refresh(method, params=None):
         if method == "VideoLibrary.GetMovies":
-            lists.append(clock[0])
+            lists.append((clock[0], params["filter"]["value"]))
         if method == "VideoLibrary.RefreshMovie":
             # Kodi takes three seconds to re-create the row.
             kodi.pending_refresh = (params["movieid"], clock[0] + 3.0)
@@ -1503,14 +1506,76 @@ def test_refresh_confirmation_relists_the_scope_at_most_once_a_second(
 
     kodi.rpc = slow_refresh
     backend.monitor.waitForAbort = tick
-    store.publish([movie()], library=LIB)
+    store.publish([movie(), movie("b")], library=LIB)
     backend.reconcile()
     lists.clear()
     store.publish([movie(People=[{"Name": "Recast", "Type": "Actor"}])])
     backend.reconcile()
     assert not store.pending()
-    # Thirty polls of 100 ms; the scope was listed a handful of times, not thirty.
-    assert len(lists) <= 6
+    library = paths.library_dir(store.namespace, LIB, "movies")
+    folder = paths.movie_dir(store.namespace, LIB, "a")
+    # The plan's one listing of the library, then the movie's folder alone:
+    # thirty polls of 100 ms, read a handful of times, not thirty.
+    assert lists[0][1] == library
+    polls = [value for _, value in lists[1:]]
+    assert polls and set(polls) == {folder}
+    assert len(polls) <= 6
+    assert store.mapping("a").kodi_id in kodi.rows["Movie"]
+
+
+def test_a_movie_refiled_under_its_old_id_is_compared_as_refiled(
+    store, backend, kodi, monkeypatch
+):
+    """Kodi deletes a refreshed movie and files it again, and SQLite hands
+    the highest id back out: a movie that held it is refiled under the same
+    id. The full row the plan prefetched is the one before the refresh."""
+    store.publish([movie(), movie("b")], library=LIB)
+    backend.reconcile()
+    original = kodi._refresh
+
+    def in_place(kind, kodi_id, episodes=False):
+        original(kind, kodi_id, episodes)
+        row = kodi.rows[kind].pop(max(kodi.rows[kind]))
+        row["movieid"] = kodi_id
+        kodi.rows[kind][kodi_id] = row
+
+    monkeypatch.setattr(kodi, "_refresh", in_place)
+    ids = {i: store.mapping(i).kodi_id for i in ("a", "b")}
+    recast = [{"Name": "Recast", "Type": "Actor"}]
+    store.publish([movie(People=recast), movie("b", People=recast)])
+    kodi.calls.clear()
+    backend.reconcile()
+    assert not store.pending()
+    assert {i: store.mapping(i).kodi_id for i in ("a", "b")} == ids
+    assert len(methods(kodi, "VideoLibrary.RefreshMovie")) == 2
+    # Each refiled row was read again and matched: nothing to patch.
+    assert not methods(kodi, "VideoLibrary.SetMovieDetails")
+
+
+def test_a_movie_folder_read_keeps_the_version_rows_kodi_filed_apart(
+    store, backend, kodi
+):
+    store.publish([movie()], library=LIB)
+    backend.reconcile()
+    own = store.mapping("a").kodi_id
+    apart = max(kodi.rows["Movie"]) + 1
+    kodi.rows["Movie"][apart] = dict(
+        copy.deepcopy(kodi.rows["Movie"][own]),
+        movieid=apart,
+        file=paths.version_url(store.namespace, LIB, "a", "s2"),
+    )
+    readback = backend.readback
+    readback.clear()
+    assert [r["movieid"] for r in readback.version_rows(LIB, "a")] == [apart]
+    row, versions = readback.item("Movie", LIB, "a")
+    assert row["movieid"] == own
+    assert [r["movieid"] for r in versions] == [apart]
+    # Grouped by the user since: the cached scope loses the row with the read.
+    del kodi.rows["Movie"][apart]
+    row, versions = readback.item("Movie", LIB, "a")
+    readback.refreshed("Movie", LIB, "", "a", own, row, versions)
+    assert readback.version_rows(LIB, "a") == []
+    assert readback.scope("Movie", LIB)["a"]["movieid"] == own
 
 
 def test_a_tombstone_whose_row_kodi_already_deleted_is_forgotten(store, backend, kodi):

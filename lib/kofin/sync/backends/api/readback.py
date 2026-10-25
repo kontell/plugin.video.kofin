@@ -23,6 +23,11 @@ LOG = Logger(__name__)
 
 PAGE = 5000
 
+# Kinds filed in a folder of their own (paths.item_dir): one item's rows are
+# read by its folder, without listing its library. An episode shares its
+# show's folder and a music video its library's.
+OWN_FOLDER = ("Movie", "Series")
+
 
 def artist_key(name) -> str:
     return (name or "").strip(" \t\n\r\v\f").casefold()
@@ -135,19 +140,20 @@ class Readback:
             return None
         return item_id
 
-    def _prefer(self, cache_key, item_id, kept, row, id_param):
+    @staticmethod
+    def _prefer(kept, row, id_param):
         """Two movie rows of one identity: Kodi imported a version file as a
         movie of its own, which waits for the user to group it. The movie's
         own file owns the identity; between two version files the older row
-        does. Two rows by the movie's own file are a duplicate of ours."""
+        does. Two rows by the movie's own file are a duplicate of ours.
+        Returns the row that owns the identity and the other one."""
         kept_version = paths.is_version_url(kept.get("file"))
         row_version = paths.is_version_url(row.get("file"))
         if not kept_version and not row_version:
             raise RuntimeError("duplicate owned Movie identity")
         if kept_version and (not row_version or row[id_param] < kept[id_param]):
             kept, row = row, kept
-        self._versions.setdefault(cache_key, {}).setdefault(item_id, []).append(row)
-        return kept
+        return kept, row
 
     def version_rows(self, library, item_id) -> List[Dict[str, Any]]:
         """The movie rows Kodi holds for an item's version files beside the
@@ -233,9 +239,12 @@ class Readback:
                 continue
             if item_id in result:
                 if kind == "Movie":
-                    result[item_id] = self._prefer(
-                        cache_key, item_id, result[item_id], row, table.id_param
+                    result[item_id], other = self._prefer(
+                        result[item_id], row, table.id_param
                     )
+                    self._versions.setdefault(cache_key, {}).setdefault(
+                        item_id, []
+                    ).append(other)
                     continue
                 raise RuntimeError("duplicate owned %s identity" % kind)
             result[item_id] = row
@@ -299,6 +308,40 @@ class Readback:
             if item_id is not None:
                 result[item_id] = row
         return result
+
+    def item(
+        self, kind, library, item_id
+    ) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]]]:
+        """One movie's or one show's owned row, read now and not cached, with
+        the movie's version rows Kodi filed apart: the confirmation after a
+        refresh. Listing the library instead took 2.5 s for 1,791 movies on a
+        32-bit Android TV where the folder took 0.2 s, and a refresh is
+        polled until Kodi has filed the row again."""
+        if kind not in OWN_FOLDER:
+            raise ValueError("%s has no folder of its own" % kind)
+        table = KINDS[kind]
+        rows = self._paged(
+            table,
+            {
+                "properties": properties(kind, self.features, minimal=True),
+                "filter": self._path_filter(
+                    paths.item_dir(self.key, kind, library, item_id)
+                ),
+            },
+        )
+        found: Optional[Dict[str, Any]] = None
+        versions: List[Dict[str, Any]] = []
+        for row in rows:
+            if self.owns(kind, row, library) != item_id:
+                continue
+            if found is None:
+                found = row
+            elif kind == "Movie":
+                found, other = self._prefer(found, row, table.id_param)
+                versions.append(other)
+            else:
+                raise RuntimeError("duplicate owned %s identity" % kind)
+        return found, versions
 
     def forget_music(self, library):
         """Drop every music scope of a library: a scan or a patch changed it."""
@@ -397,6 +440,27 @@ class Readback:
         scope_key = (kind, library, parent_id)
         if scope_key in self._scopes:
             self._scopes[scope_key][cache_key] = row
+
+    def refreshed(self, kind, library, parent_id, item_id, old_id, row, versions):
+        """Put a refreshed row (``item``) into the cached scope in place of
+        the one it replaced. Kodi files it under a new id, or under the old
+        one again when that was the table's highest, so the full row read
+        before the refresh is dropped by both. A show's seasons and episodes
+        are read through its id and are read again."""
+        scope_key = (kind, library, parent_id)
+        full = self._full.get(scope_key, {})
+        full.pop(old_id, None)
+        full.pop(row[KINDS[kind].id_param], None)
+        if scope_key in self._scopes:
+            self._scopes[scope_key][item_id] = row
+            if versions:
+                self._versions.setdefault(scope_key, {})[item_id] = list(versions)
+            else:
+                self._versions.get(scope_key, {}).pop(item_id, None)
+        if kind == "Series":
+            for child in ("Episode", "Season"):
+                self._scopes.pop((child, library, item_id), None)
+                self._full.pop((child, library, item_id), None)
 
     def details(self, kind, kodi_id):
         table = KINDS[kind]
