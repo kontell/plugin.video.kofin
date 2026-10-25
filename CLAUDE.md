@@ -577,9 +577,12 @@ What remains is kofin's own:
   badge key is `kofindownloaded`: Kodi's `SetArtForItem` refuses an art type with a dot in it
   (they are the types derived from a parent, `tvshow.poster`), so the setter accepts
   `kofin.downloaded` and stores nothing. A skin tests both keys, `ListItem.Art(kofin.downloaded)`
-  from the SQL build's day and this one (skin.contuary read the first alone). There is no
-  Downloaded-episodes node: a tag rule on episodes resolves against the show, and a path rule
-  has nothing to match. The port's operations are `attached` (the file landed, or is still
+  from the SQL build's day and this one (skin.contuary read the first alone). **The
+  Downloaded-episodes node filters on a tag the show never carries** ("Kofin Downloaded
+  episodes", `downloads.EPISODE_TAG`): Kodi's tag rule on episodes matches the episode's tags
+  or its show's (kontell/xbmc #12), so a rule on "Kofin Downloads" lists every episode of a
+  show with one download, and a path rule has nothing to match. The node and the tag need
+  `episode_tags`, and a Kodi without it has no such node. The port's operations are `attached` (the file landed, or is still
   there at startup: the item goes to the pass and the answer is always yes, so the startup
   reconcile re-plans every done file and a finish that died before its badge is healed) and
   `detached`. A season's download menu is answered through the catalogue

@@ -5,7 +5,8 @@ here they are part of the desired state: a downloaded movie or episode
 carries the badge, and so do the season and the show of a downloaded
 episode, as in the SQL build, so that a skin can mark them while browsing
 down to the file; a downloaded movie and the show of a downloaded episode
-carry the tag. The state is an input of the desired state, so it joins the
+carry the tag, and a downloaded episode a tag of its own where this Kodi
+keeps an episode's tags (``episode_tags``). The state is an input of the desired state, so it joins the
 inputs token (metadata.inputs_token) and a change of it re-plans the row
 (downloads/nativeport.NativeApi). The badge key has no dot: a dotted art key
 is accepted by the setter and never stored (feasibility report, §7), so a
@@ -62,11 +63,13 @@ def flag(
 
 
 def apply(kind: str, desired: Dict, mark: str) -> None:
-    """Put the badge and the tag into the desired state of a marked row."""
-    from kofin.downloads import TAG
+    """Put the badge and the tag into the desired state of a marked row.
+    An episode's desired state has tags only on a Kodi that keeps them."""
+    from kofin.downloads import EPISODE_TAG, TAG
 
     if not mark:
         return
     desired.setdefault("art", {})[BADGE_ART] = BADGE_URL
-    if kind in ("Movie", "Series") and isinstance(desired.get("tag"), list):
-        desired["tag"] = sorted(set(desired["tag"]) | {TAG})
+    tag = {"Movie": TAG, "Series": TAG, "Episode": EPISODE_TAG}.get(kind)
+    if tag and isinstance(desired.get("tag"), list):
+        desired["tag"] = sorted(set(desired["tag"]) | {tag})

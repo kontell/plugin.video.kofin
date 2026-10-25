@@ -8,6 +8,10 @@ repoint lives with the other database writers in ``kofin.sync.kodidb``.
 import os
 
 TAG = "Kofin Downloads"
+# A downloaded episode's own tag, which its show never carries: Kodi's tag
+# rule on episodes matches the episode's tags or its show's (kontell/xbmc
+# #12), so a rule on TAG would list every episode of a show with a download.
+EPISODE_TAG = "Kofin Downloaded episodes"
 
 ADDON_DATA = "special://profile/addon_data/plugin.video.kofin/"
 
