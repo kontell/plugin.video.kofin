@@ -171,7 +171,8 @@ class Store(Catalogue):
             CREATE TABLE IF NOT EXISTS api_features(
                 namespace TEXT PRIMARY KEY, features TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS api_listing(
-                namespace TEXT PRIMARY KEY, fields TEXT NOT NULL);
+                namespace TEXT NOT NULL, library TEXT NOT NULL, fields TEXT NOT NULL,
+                PRIMARY KEY(namespace,library));
         """)
 
     # -- the features of the Kodi the last pass ran on -----------------------
@@ -1186,22 +1187,23 @@ class Store(Catalogue):
                     (enumerated, self.namespace),
                 )
 
-    def listing(self) -> Optional[str]:
-        """What the last complete listing asked the server for (library.LISTING);
-        None before one recorded it."""
+    def listings(self) -> Dict[str, str]:
+        """library -> what its last published listing asked the server for
+        (library.LISTING); a library with none is missing."""
         with Database() as db:
             self._prepare(db.cursor)
-            row = db.cursor.execute(
-                "SELECT fields FROM api_listing WHERE namespace=?", (self.namespace,)
-            ).fetchone()
-        return row[0] if row else None
+            rows = db.cursor.execute(
+                "SELECT library, fields FROM api_listing WHERE namespace=?",
+                (self.namespace,),
+            ).fetchall()
+        return {row[0]: row[1] for row in rows}
 
-    def remember_listing(self, fields: str) -> None:
+    def remember_listing(self, libraries: Iterable[str], fields: str) -> None:
         with Database() as db:
             self._prepare(db.cursor)
-            db.cursor.execute(
-                "INSERT OR REPLACE INTO api_listing VALUES (?,?)",
-                (self.namespace, fields),
+            db.cursor.executemany(
+                "INSERT OR REPLACE INTO api_listing VALUES (?,?,?)",
+                [(self.namespace, library, fields) for library in libraries],
             )
 
     # -- userdata echoes and the local outbox --------------------------------
