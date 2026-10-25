@@ -32,15 +32,16 @@ from .kinds import (
     rpc,
     rpc_batch,
 )
-from .readback import artist_key
+from .readback import OWN_FOLDER, artist_key
 from .records import Record
 from . import downloaded
 from .store import Mapping, hash_matches, payload_hash
 
 LOG = Logger(__name__)
 
-# A refresh takes seconds; re-listing the scope every poll would re-read a
-# library dozens of times for one changed item.
+# A refresh takes seconds; re-reading every poll would ask Kodi dozens of
+# times for one changed item. A movie or a show is read by its folder
+# (Readback.item); an episode's refresh re-lists its show's scope.
 REFRESH_POLL = 1.0
 
 
@@ -709,22 +710,40 @@ class Applier:
         rpc(table.refresh, params)
         self.native._async_pending = True
         last = [0.0]
+        own_folder = kind in OWN_FOLDER
+        versions: List[Dict[str, Any]] = []
 
         def refreshed():
+            nonlocal versions
             now = time.monotonic()
             if now - last[0] < REFRESH_POLL:
                 return None
             last[0] = now
-            self.readback.forget(kind, record.library, record.parent_id)
-            found = self.readback.scope(kind, record.library, record.parent_id).get(
-                record.item_id
-            )
+            if own_folder:
+                found, versions = self.readback.item(
+                    kind, record.library, record.item_id
+                )
+            else:
+                self.readback.forget(kind, record.library, record.parent_id)
+                found = self.readback.scope(kind, record.library, record.parent_id).get(
+                    record.item_id
+                )
             if found and (found.get("uniqueid") or {}).get("kofinrefresh") == token:
                 return found
             return None
 
         row = self.native.wait(refreshed, busy=self.native._scanning)
         self.native._async_pending = False
+        if own_folder:
+            self.readback.refreshed(
+                kind,
+                record.library,
+                record.parent_id,
+                record.item_id,
+                kodi_id,
+                row,
+                versions,
+            )
         return row
 
     # -- patches -------------------------------------------------------------

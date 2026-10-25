@@ -170,6 +170,9 @@ class Store(Catalogue):
                 PRIMARY KEY(namespace,library));
             CREATE TABLE IF NOT EXISTS api_features(
                 namespace TEXT PRIMARY KEY, features TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS api_listing(
+                namespace TEXT NOT NULL, library TEXT NOT NULL, fields TEXT NOT NULL,
+                PRIMARY KEY(namespace,library));
         """)
 
     # -- the features of the Kodi the last pass ran on -----------------------
@@ -1183,6 +1186,25 @@ class Store(Catalogue):
                     "UPDATE api_root SET enumerated=? WHERE namespace=?",
                     (enumerated, self.namespace),
                 )
+
+    def listings(self) -> Dict[str, str]:
+        """library -> what its last published listing asked the server for
+        (library.LISTING); a library with none is missing."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                "SELECT library, fields FROM api_listing WHERE namespace=?",
+                (self.namespace,),
+            ).fetchall()
+        return {row[0]: row[1] for row in rows}
+
+    def remember_listing(self, libraries: Iterable[str], fields: str) -> None:
+        with Database() as db:
+            self._prepare(db.cursor)
+            db.cursor.executemany(
+                "INSERT OR REPLACE INTO api_listing VALUES (?,?,?)",
+                [(self.namespace, library, fields) for library in libraries],
+            )
 
     # -- userdata echoes and the local outbox --------------------------------
 
