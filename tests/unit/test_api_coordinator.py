@@ -298,6 +298,61 @@ def test_the_scheduled_full_update_follows_the_setting(
     assert ran == (["full"] if full else ["catch-up"])
 
 
+def test_the_listing_asks_for_a_movie_s_original_title(store, monkeypatch):
+    """Jellyfin leaves OriginalTitle out unless asked: without it in the
+    listing every movie was filed with an empty original title."""
+    from kofin.sync.backends.api import library, metadata
+
+    assert "OriginalTitle" in library.FIELDS.split(",")
+    w = worker(
+        store, Server({LIB: [movie(OriginalTitle="Le Titre")]}), [LIB], monkeypatch
+    )
+    w.full_sync()
+    (record,) = store.records(kind="Movie").values()
+    assert record.item["OriginalTitle"] == "Le Titre"
+    assert metadata.details(record.item, "", "key", LIB)["originaltitle"] == "Le Titre"
+
+
+def test_a_listing_that_asks_for_more_lists_every_library_once(store, monkeypatch):
+    """A catch-up fetches changed items alone, so rows filed from a listing
+    that lacked a field would never get it: a generation whose listing asks
+    for more lists everything at its first refresh, and only then."""
+    from kofin.sync.backends.api import library
+
+    store.set_watermark(watermark="2026-10-08T00:00:00Z", enumerated=time.time())
+    assert store.listing() is None
+
+    def generation():
+        w = worker(store, Server({LIB: [movie()]}), [LIB], monkeypatch)
+        monkeypatch.setattr(library.private, "get_sync", lambda: {"Whitelist": [LIB]})
+        w._listing_checked = False
+        ran = []
+        listing = w.full_sync
+        monkeypatch.setattr(
+            w,
+            "full_sync",
+            lambda libraries=None: ran.append("full") or listing(libraries),
+        )
+        monkeypatch.setattr(w, "catch_up", lambda: ran.append("catch-up"))
+        return w, ran
+
+    w, ran = generation()
+    w.refresh()
+    assert ran == ["full"] and store.listing() == library.LISTING
+    w._catchup_due = 0.0
+    w.refresh()
+    assert ran == ["full", "catch-up"]
+    # The next generation finds the listing it would make.
+    w, ran = generation()
+    w.refresh()
+    assert ran == ["catch-up"]
+    # A listing recorded with fewer fields is listed again.
+    store.remember_listing(library.LISTING.replace("OriginalTitle,", ""))
+    w, ran = generation()
+    w.refresh()
+    assert ran == ["full"]
+
+
 def test_websocket_changes_fetch_known_items_and_defer_unknown_ones(store, monkeypatch):
     server = Server({LIB: [movie(), movie("b")]})
     store.publish([movie()], library=LIB)

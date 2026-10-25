@@ -390,6 +390,8 @@ def worker(store, server, selected, monkeypatch, feed=None):
     w._unsynced_tried = set()
     w._rebuilding = set()
     w._first_attended = False
+    # The listing check at a generation's first refresh has its own tests.
+    w._listing_checked = True
     w._held_userdata = {}
     w.arrivals = announce.Arrivals()
     w._queue = queue.Queue()

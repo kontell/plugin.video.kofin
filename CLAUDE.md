@@ -612,6 +612,12 @@ What remains is kofin's own:
   the whole-payload digest older acknowledgements carry; refusing it would have the next
   repair rewrite every row once. A hash that moves for a field no desired state reads is a
   rewrite of every such row on every repair.
+- **A listing that asks the server for more is made once, whole, at the first start**
+  (`library.LISTING`, `store.remember_listing`). A catch-up fetches changed items alone, so a
+  field added to `downloader.info` or `MUSIC_FIELDS` would otherwise never reach a row filed
+  before it: `OriginalTitle` was missing from the listing, and every movie's original title was
+  empty in Kodi. The stamp is written by a complete enumeration and compared once per service
+  generation.
 - **A complete enumeration on a clock is opt-in** (`fullUpdateInterval`, days, off by
   default; `library.full_interval`). A first listing, Update library and a sync-queue
   retention overrun still list everything. Without KofinSyncQueue the catch-up reads save

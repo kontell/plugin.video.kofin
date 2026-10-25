@@ -9,7 +9,7 @@ recursive, real files only (present, not virtual-unaired), sets uncollapsed.
 
 def info():
     return (
-        "Path,Genres,SortName,Studios,Writer,Taglines,LocalTrailerCount,"
+        "Path,Genres,SortName,OriginalTitle,Studios,Writer,Taglines,LocalTrailerCount,"
         "OfficialRating,CumulativeRunTimeTicks,ItemCounts,"
         "Metascore,AirTime,DateCreated,People,Overview,"
         "Etag,ShortOverview,ProductionLocations,"
