@@ -18,7 +18,7 @@ import json
 import os
 import threading
 import time
-from typing import Any, Dict, List, NamedTuple, Optional, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 
 import xbmc
 import xbmcgui
@@ -231,24 +231,36 @@ def unfiled_row(found: Snapshot, text) -> str:
     return "%s:  %s" % (text(30868), _number(unfiled)) if unfiled else ""
 
 
+def counted(found: Snapshot) -> List[Tuple[str, str]]:
+    """The ``(library, kind)`` pairs that row counts, which is what the
+    store is asked for (``store.unfiled``), so the list is as long as the
+    count."""
+    return [
+        (library.library, kind)
+        for library in found.libraries
+        for kind in COUNTED.get(library.media, COUNTED["mixed"])
+    ]
+
+
 def unfiled_report(entries, found: Snapshot, text) -> str:
     """What that row counts, for its text viewer: what to do, then each
     item by its show and its title, under its library's name when more
-    than one library has any. ``entries`` are ``store.unfiled()``; only the
-    kinds the row counts are named, so the list is as long as the count."""
-    shown = {library.library: library for library in found.libraries}
-    named: Dict[str, List[str]] = {}
-    for library, kind, item in entries:
-        status = shown.get(library)
-        if status is None or kind not in COUNTED.get(status.media, COUNTED["mixed"]):
-            continue
-        named.setdefault(status.name, []).append(_item_name(item))
+    than one library has any. ``entries`` are ``store.unfiled`` of
+    ``counted(found)``. A library is its id: two may share a name."""
+    names = {status.library: status.name for status in found.libraries}
+
+    def name(library: str) -> str:
+        return names.get(library) or library
+
+    grouped: Dict[str, List[str]] = {}
+    for library, _kind, item in entries:
+        grouped.setdefault(library, []).append(_item_name(item))
     lines = [text(30885)]
-    for name in sorted(named, key=str.casefold):
+    for library in sorted(grouped, key=lambda key: (name(key).casefold(), key)):
         lines.append("")
-        if len(named) > 1:
-            lines.append("[B]%s[/B]" % name)
-        lines.extend(sorted(named[name], key=str.casefold))
+        if len(grouped) > 1:
+            lines.append("[B]%s[/B]" % name(library))
+        lines.extend(sorted(grouped[library], key=str.casefold))
     return "\n".join(lines)
 
 
@@ -285,12 +297,15 @@ def show(store) -> None:
     Kodi lacks is cut short by the skin once a few features are off (eight
     on a Piers), so picking it opens the list, one feature a line, in a
     text viewer; picking the count of what Kodi cannot import opens what
-    it counts, read from the catalogue then.
+    it counts. Both lists are read with the rows they explain, so a pass
+    that moves either while the report is open cannot make the text
+    disagree with the row.
     """
     heading = "%s \u2014 %s" % (settings.localized(30859), settings.localized(30862))
     lines: List[str] = []
     off: List[str] = []
     unfiled = ""
+    entries: List[Tuple[str, str, Dict[str, Any]]] = []
     cursor = 0
     while True:
         if cursor == 0:
@@ -301,6 +316,7 @@ def show(store) -> None:
             )
             lines = rows(read(), found, progress.stage, progress.label, features=table)
             unfiled = unfiled_row(found, progress.stage)
+            entries = store.unfiled(counted(found)) if unfiled else []
         choices: List[Union[str, xbmcgui.ListItem]] = [xbmc.getLocalizedString(184)]
         choices.extend(lines)
         cursor = xbmcgui.Dialog().select(heading, choices, preselect=cursor)
@@ -311,7 +327,7 @@ def show(store) -> None:
         elif unfiled and choices[cursor] == unfiled:
             xbmcgui.Dialog().textviewer(
                 progress.stage(30868),
-                unfiled_report(store.unfiled(), found, progress.stage),
+                unfiled_report(entries, found, progress.stage),
             )
 
 

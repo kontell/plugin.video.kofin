@@ -150,7 +150,11 @@ def test_what_kodi_cannot_import_is_listed_by_show_under_its_library(
     _unfiled_libraries(store, monkeypatch)
     found = status.snapshot(store, 2)
     assert status.unfiled_row(found, TEXT.__getitem__) == "Kodi cannot import:  3"
-    report = status.unfiled_report(store.unfiled(), found, TEXT.__getitem__)
+    entries = store.unfiled(status.counted(found))
+    # The store is asked for the kinds the row counts: the collection
+    # settled without a row is not read.
+    assert sorted(kind for _library, kind, _item in entries) == ["Episode"] * 3
+    report = status.unfiled_report(entries, found, TEXT.__getitem__)
     assert report.split("\n") == [
         "Number them.",
         "",
@@ -172,8 +176,39 @@ def test_one_library_s_list_has_no_heading(store, monkeypatch):
     _views(monkeypatch, [LIB2], **{LIB2: ("Shows", "tvshows")})
     _settle_unfiled(store, "x1")
     found = status.snapshot(store, 2)
-    report = status.unfiled_report(store.unfiled(), found, TEXT.__getitem__)
+    entries = store.unfiled(status.counted(found))
+    report = status.unfiled_report(entries, found, TEXT.__getitem__)
     assert report == "Number them.\n\nShow \u2014 Christmas"
+
+
+def test_two_libraries_of_one_name_are_listed_apart(store, monkeypatch):
+    """Jellyfin lets two libraries share a name; the dialog draws a row for
+    each, and the list gives each its own heading."""
+    store.publish(
+        show_bundle(episodes=1)
+        + [episode("x1", season_number=0, number=0, Name="Christmas")],
+        library=LIB2,
+    )
+    store.publish(
+        [series("b2" * 16, Name="Other")]
+        + [episode("y1", "b2" * 16, 0, 0, SeriesName="Other", Name="Pilot")],
+        library="shows-2",
+    )
+    _views(
+        monkeypatch,
+        [LIB2, "shows-2"],
+        **{LIB2: ("Shows", "tvshows"), "shows-2": ("Shows", "tvshows")},
+    )
+    _settle_unfiled(store, "x1", "y1")
+    found = status.snapshot(store, 2)
+    entries = store.unfiled(status.counted(found))
+    report = status.unfiled_report(entries, found, TEXT.__getitem__)
+    assert report.count("[B]Shows[/B]") == 2
+    first, second = report.split("\n\n")[1:]
+    assert sorted([first.split("\n")[1], second.split("\n")[1]]) == [
+        "Other \u2014 Pilot",
+        "Show \u2014 Christmas",
+    ]
 
 
 def test_the_state_is_shown_with_when_it_began(store, monkeypatch):
@@ -400,13 +435,18 @@ def test_what_this_kodi_cannot_do_is_named_on_one_row(store, monkeypatch):
 
 
 def test_picking_what_kodi_cannot_import_lists_it(store, monkeypatch):
-    """The row is a count; picking it opens what it counts, read from the
-    catalogue then, and the report stays up behind it."""
+    """The row is a count; picking it opens what it counts, read with the
+    rows it explains and not again at the click, and the report stays up
+    behind it."""
     _unfiled_libraries(store, monkeypatch)
     dialog, _ = _dialog(monkeypatch, store, [-1])
     _heading, shown, _preselect = dialog.selects[0]
     row = shown.index("L30868:  3")
+    reads = []
+    real = store.unfiled
+    monkeypatch.setattr(store, "unfiled", lambda pairs: reads.append(1) or real(pairs))
     dialog, _ = _dialog(monkeypatch, store, [row, row - 1, -1])
+    assert reads == [1]
     assert len(dialog.textviewers) == 1
     heading, text = dialog.textviewers[0]
     assert heading == "L30868"

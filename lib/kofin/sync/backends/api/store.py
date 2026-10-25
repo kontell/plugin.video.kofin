@@ -256,9 +256,16 @@ class Store(Catalogue):
             for row in rows
         }
 
-    def unfiled(self) -> List[Tuple[str, str, Dict[str, Any]]]:
-        """(library, kind, payload) of the items ``summary`` counts as
-        settled without a row: few, so their payloads are read whole."""
+    def unfiled(
+        self, pairs: Iterable[Tuple[str, str]]
+    ) -> List[Tuple[str, str, Dict[str, Any]]]:
+        """(library, kind, payload) of the items of these ``(library, kind)``
+        pairs that ``summary`` counts as settled without a row. The caller
+        names the kinds it shows: a music library settles a guest artist
+        or an album this way by the hundred, and their payloads stay put."""
+        wanted = sorted(set(pairs))
+        if not wanted:
+            return []
         with Database() as db:
             self._prepare(db.cursor)
             rows = db.cursor.execute(
@@ -267,8 +274,9 @@ class Store(Catalogue):
                 JOIN api_item i ON i.namespace=e.namespace AND i.item_id=e.item_id
                 JOIN api_native n ON n.namespace=e.namespace AND n.item_id=e.item_id
                 WHERE e.namespace=? AND e.removed IS NULL
-                AND n.kodi_id IS NULL AND i.status='applied'""",
-                (self.namespace,),
+                AND n.kodi_id IS NULL AND i.status='applied' AND (%s)"""
+                % " OR ".join("(e.library=? AND e.kind=?)" for _ in wanted),
+                [self.namespace] + [value for pair in wanted for value in pair],
             ).fetchall()
         return [(row[0], row[1], json.loads(row[2])) for row in rows]
 
