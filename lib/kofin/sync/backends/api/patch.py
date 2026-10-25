@@ -907,8 +907,12 @@ def merge(kind, desired, row, owned_before):
     the readback must match; ``desired`` is updated in place to send."""
     compare = dict(desired)
     if "tag" in compare:
+        # The library tag is Kofin's on any row, owned or not, and no
+        # desired state carries it any more, so it comes off.
         old_tags = set(owned_before.get("tag", [])) | {
-            tag for tag in row.get("tag", []) if tag.startswith("kofin.library.")
+            tag
+            for tag in row.get("tag", [])
+            if tag.startswith(metadata.LIBRARY_TAG_PREFIX)
         }
         compare["tag"] = sorted(
             set(compare["tag"]) | (set(row.get("tag", [])) - old_tags)

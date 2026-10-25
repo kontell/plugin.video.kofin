@@ -97,7 +97,7 @@ def test_a_download_puts_the_badge_and_tag_on_the_row_and_its_removal_takes_them
     backend.reconcile()
     (kodi_row,) = kodi.rows["Movie"].values()
     assert downloaded.BADGE_ART not in kodi_row["art"]
-    assert TAG not in kodi_row["tag"] and "kofin.library." + LIB in kodi_row["tag"]
+    assert TAG not in kodi_row["tag"]
     assert not store.pending()
 
 

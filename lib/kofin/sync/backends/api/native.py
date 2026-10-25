@@ -855,6 +855,18 @@ class Native:
                 ", ".join(sorted(self.features)) or "none",
             )
             repair = True
+        # So is the serializer: a build whose desired state differs for the
+        # same payload (metadata.SERIALIZER) compares every row once, or a
+        # row that never changes again keeps the state the old build gave it.
+        serializer = self.store.serializer_applied()
+        if stamped is not None and serializer != metadata.SERIALIZER and not repair:
+            LOG.info(
+                "the desired state changed since the last pass (serializer %s, "
+                "now %d): comparing every row",
+                serializer,
+                metadata.SERIALIZER,
+            )
+            repair = True
         self.readback.clear()
         self.music = MusicPass(self)
         applier = Applier(self)
@@ -953,7 +965,7 @@ class Native:
                     "%d native operations remain pending: %s" % (len(errors), errors[0])
                 )
             completed = True
-            self.store.remember_features(self.features)
+            self.store.remember_features(self.features, metadata.SERIALIZER)
         finally:
             applier.commit()
             self.progress.close()

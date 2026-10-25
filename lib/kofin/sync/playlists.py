@@ -61,7 +61,7 @@ from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import kofindb as jellyfin_db
 from kofin.sync.policy import reference_checksum
-from kofin.sync.nodes import fs
+from kofin.sync.nodes import fs, video
 
 LOG = Logger(__name__)
 
@@ -988,8 +988,7 @@ def build_video_playlist(view: Dict[str, Any], mixed: bool = False) -> etree.Ele
         view["Name"] if not mixed else "%s (%s)" % (view["Name"], view["Media"])
     )
     etree.SubElement(xml, "match").text = "all"
-    rule = etree.SubElement(xml, "rule", {"field": "tag", "operator": "is"})
-    etree.SubElement(rule, "value").text = view["Tag"]
+    video.path_rule(xml, view["Path"])
     return xml
 
 

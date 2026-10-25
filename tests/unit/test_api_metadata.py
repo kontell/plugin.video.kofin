@@ -112,7 +112,7 @@ def test_native_metadata_normalizes_tags_studios_and_release_year():
     result = metadata.details(item, "", "key", LIB)
     assert result["title"] == "Fixture title"
     assert result["sorttitle"] == "Fixture sort"
-    assert result["tag"] == ["Tag", "kofin.library." + LIB]
+    assert result["tag"] == ["Tag"]
     assert result["studio"] == ["Studio one", "Studio two"]
     assert result["year"] == 2000
     result = metadata.details(item, "", "key", LIB, separator=" | ")
@@ -158,13 +158,13 @@ def test_show_and_episode_details_speak_their_setters():
     ep = metadata.details(episode("e1"), SERVER, "key", LIB, features=ALL)
     assert (ep["season"], ep["episode"], ep["firstaired"]) == (1, 1, "2001-02-10")
     assert ep["resume"]["position"] == 0
-    # Kodi 23 keeps an episode's tags (kontell/xbmc #12): the library's, and
-    # the favourite's while it holds. A Kodi without the feature gets none.
-    assert ep["tag"] == ["kofin.library." + LIB]
+    # Kodi 23 keeps an episode's tags (kontell/xbmc #12): the favourite's
+    # while it holds. A Kodi without the feature gets none.
+    assert ep["tag"] == []
     loved = metadata.details(
         episode("e1", UserData={"IsFavorite": True}), SERVER, "key", LIB, features=ALL
     )
-    assert loved["tag"] == ["Favorite episodes", "kofin.library." + LIB]
+    assert loved["tag"] == ["Favorite episodes"]
     assert "tag" not in metadata.details(
         episode("e1", UserData={"IsFavorite": True}), SERVER, "key", LIB
     )

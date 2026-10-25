@@ -5,13 +5,15 @@ presentation is built: every server view is a ``Kofin.nodes.*`` entry, a
 whitelisted video library gets the generated node tree under
 ``special://profile/library/video/kofin/`` (``nodes/video.write_tree``) and
 ``library://`` paths in its properties, and everything else is a dynamic
-``browse`` entry. The tree's filter nodes select by the library tag the API
-backend puts on every row (``library_tag``), so the files are the SQL
-build's with one rule changed. A whitelisted music library gets a folder in
-the music tree (``nodes/music.write_music_nodes``), whose nodes filter on the
-folder the library's songs are filed under, since the SQL tree's Kodi music
-*sources* are never written here; its skin entry is Kodi's music root, as in
-the SQL build. The folder's path is what the Manage menu reads a library's
+``browse`` entry. The tree's filter nodes select by the folder the library's
+rows are filed under (``paths.library_dir``): a movie's folder or an
+episode's show folder is below it, and Kodi files the row on that path
+because its URL has a query (``CVideoDatabase::SplitPath``). A tag did that
+job once and showed in every info dialog. A whitelisted music library gets a
+folder in the music tree (``nodes/music.write_music_nodes``), whose nodes
+filter on the folder the library's songs are filed under, since the SQL
+tree's Kodi music *sources* are never written here; its skin entry is
+Kodi's music root, as in the SQL build. The folder's path is what the Manage menu reads a library's
 downloads from (``plugin/context.py``).
 
 Ownership is the ``kofin`` name prefix throughout (``nodes/fs.py``): a tree
@@ -42,10 +44,6 @@ from kofin.core import settings
 from kofin.core.log import Logger
 from kofin.sync import kodisetup, playlists, private
 from kofin.sync.backends.api import capabilities
-from kofin.sync.backends.api.metadata import (  # noqa: F401  (re-exported)
-    LIBRARY_TAG_PREFIX,
-    library_tag,
-)
 from kofin.sync.nodes import music as music_nodes
 from kofin.sync.nodes import props, video
 
@@ -60,25 +58,36 @@ class View(NamedTuple):
     media_type: str
 
 
-def node_entries(views: List[View], whitelist: List[str]) -> List[Tuple[Dict, bool]]:
+def node_entries(
+    views: List[View], whitelist: List[str], key: str
+) -> List[Tuple[Dict, bool]]:
     """The whitelist as the tree writer wants it: ``(view, mixed)`` pairs in
     tree order, a mixed library split into its two kinds, movies before
-    shows before music videos and the server's order within a kind."""
+    shows before music videos and the server's order within a kind. Each
+    names the folder its rows are filed under in ``Path``; ``key`` is the
+    catalogue's (``login_key``)."""
+    from kofin.sync.backends.api import paths
+
     order = [v.view_id for v in views]
     entries = []
     for view in views:
         if view.view_id not in whitelist:
             continue
-        node = {
-            "Id": view.view_id,
-            "Name": view.view_name,
-            "Tag": library_tag(view.view_id),
-            "Media": view.media_type,
-        }
+        node = {"Id": view.view_id, "Name": view.view_name, "Media": view.media_type}
         if view.media_type == "mixed":
             for media in ("movies", "tvshows"):
-                entries.append((dict(node, Media=media), True))
+                entries.append(
+                    (
+                        dict(
+                            node,
+                            Media=media,
+                            Path=paths.library_dir(key, view.view_id, media),
+                        ),
+                        True,
+                    )
+                )
         elif view.media_type in video.NODES:
+            node["Path"] = paths.library_dir(key, view.view_id, view.media_type)
             entries.append((node, False))
     entries.sort(
         key=lambda entry: (
@@ -91,29 +100,42 @@ def node_entries(views: List[View], whitelist: List[str]) -> List[Tuple[Dict, bo
     return entries
 
 
-def music_entries(views: List[View], whitelist: List[str]) -> Optional[List[Dict]]:
-    """The whitelisted music libraries as the music tree wants them, in the
-    server's order, each with the folder its songs are filed under. None
-    while the settings cannot say who is logged in, since an empty list
-    deletes the tree.
+def login_key() -> Optional[str]:
+    """The catalogue's key for the logged-in user, which every path the
+    node trees filter on starts with; "" with no login, and None while the
+    settings cannot say who is logged in, since an empty tree deletes files.
 
     The ids are read off one Addon, as Credentials.load reads its record: a
     store Kodi has unregistered and a settings document that did not load
     both read blank, and only a store that answered can mean a logout. The
     second is told by ``deviceId``, which is never empty once a login has
     happened (the applier's LOAD_CANARY)."""
-    from kofin.sync.backends.api import paths
     from kofin.sync.backends.api.store import namespace
 
-    music = [v for v in views if v.media_type == "music" and v.view_id in whitelist]
-    if not music:
-        return []
     addon = settings.get_addon()
     if addon is None or not addon.getSetting("deviceId"):
         return None
     try:
-        key = namespace(addon.getSetting("serverId"), addon.getSetting("userId"))
+        return str(namespace(addon.getSetting("serverId"), addon.getSetting("userId")))
     except ValueError:
+        return ""
+
+
+def music_entries(
+    views: List[View], whitelist: List[str], key: Optional[str]
+) -> Optional[List[Dict]]:
+    """The whitelisted music libraries as the music tree wants them, in the
+    server's order, each with the folder its songs are filed under. None
+    while ``key`` is (``login_key``), since an empty list deletes the
+    tree."""
+    from kofin.sync.backends.api import paths
+
+    music = [v for v in views if v.media_type == "music" and v.view_id in whitelist]
+    if not music:
+        return []
+    if key is None:
+        return None
+    if not key:
         return []
     return [
         {
@@ -150,10 +172,13 @@ def publish(items, server):
         x.replace("Mixed:", "") for x in (private.get_sync().get("Whitelist") or [])
     ]
     nodes = wanted()
-    entries = node_entries(views, whitelist) if nodes else []
+    key = login_key() if nodes else ""
+    entries = node_entries(views, whitelist, key) if nodes and key else []
     singles: List[Dict] = []
     try:
-        if entries:
+        if key is None:
+            LOG.warning("settings unreadable; video node tree left as it is")
+        elif entries:
             kodisetup.seed_default_nodes("video")
             singles = video.single_nodes(capabilities.has("episode_tags"))
             video.write_tree(entries, singles)
@@ -166,7 +191,7 @@ def publish(items, server):
         LOG.exception("library node tree not written")
         singles = []
     try:
-        libraries = music_entries(views, whitelist) if nodes else []
+        libraries = music_entries(views, whitelist, key) if nodes else []
         if libraries is None:
             LOG.warning("settings unreadable; music node tree left as it is")
         else:

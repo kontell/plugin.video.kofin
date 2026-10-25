@@ -177,6 +177,25 @@ class Store(Catalogue):
     def features_applied(self) -> Optional[FrozenSet[str]]:
         """The feature set (capabilities.features) the last completed pass
         shaped its state by; None before any pass stamped one."""
+        stamp = self._applied()
+        if stamp is None:
+            return None
+        names = stamp.get("features")
+        if not isinstance(names, list):
+            return None
+        return frozenset(name for name in names if isinstance(name, str))
+
+    def serializer_applied(self) -> Optional[int]:
+        """The serializer (metadata.SERIALIZER) the last completed pass
+        built its desired states with; None before any pass stamped one,
+        and for a stamp of a build that recorded the features alone."""
+        stamp = self._applied()
+        number = (stamp or {}).get("serializer")
+        if isinstance(number, int) and not isinstance(number, bool):
+            return number
+        return None
+
+    def _applied(self) -> Optional[Dict[str, Any]]:
         with Database() as db:
             self._prepare(db.cursor)
             row = db.cursor.execute(
@@ -186,17 +205,25 @@ class Store(Catalogue):
         if row is None:
             return None
         try:
-            names = json.loads(row[0])
+            stamp = json.loads(row[0])
         except ValueError:
             return None
-        return frozenset(name for name in names if isinstance(name, str))
+        if isinstance(stamp, list):
+            # A build before the serializer was stamped wrote the list.
+            return {"features": stamp}
+        return stamp if isinstance(stamp, dict) else None
 
-    def remember_features(self, features) -> None:
+    def remember_features(self, features, serializer: int) -> None:
         with Database() as db:
             self._prepare(db.cursor)
             db.cursor.execute(
                 "INSERT OR REPLACE INTO api_features VALUES (?,?)",
-                (self.namespace, json.dumps(sorted(features))),
+                (
+                    self.namespace,
+                    json.dumps(
+                        {"features": sorted(features), "serializer": serializer}
+                    ),
+                ),
             )
 
     # -- the scanner format a library's rows were filed under ----------------

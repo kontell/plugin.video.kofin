@@ -486,7 +486,9 @@ What remains is kofin's own:
   the set it ran with (`store.features_applied`): a set that moved since the last pass, a
   Kodi upgrade, runs the next pass as a repair, the compare of every row, where nothing is
   written that already matches, and a Kodi that lacks a feature is never told its library
-  is stale for it. **R3:** a feature that is off says so once, in the start log and under
+  is stale for it. The stamp carries `metadata.SERIALIZER` too (`store.serializer_applied`),
+  and a number that moved runs the same repair: a bump otherwise reaches only the rows a
+  pass is handed, and a row that never changes keeps the old build's state for good. **R3:** a feature that is off says so once, in the start log and under
   "Not on this Kodi" in Library status, never per item or per pass. Two features are
   proxies for behaviour Kodi cannot be asked about: `asset_clean` (kontell/xbmc #1, #2,
   #10; the folder clean is unsafe without them) is `xbmc.python` ≥ 3.2.0, the version the
@@ -505,11 +507,15 @@ What remains is kofin's own:
   refuses every http source, and a transcode's stream has no chapters. A Kodi without #11
   ignores the keys and fetches nothing for them, so they are set on every Kodi.
 - **The presentation is built from the catalogue, never from Kodi's tables.**
-  `sync/dynamic.py` writes the node tree for whitelisted video libraries with filter rules on
-  the library tag (`metadata.library_tag`, the tag `metadata.tags` puts on every row; the
-  serializer owns the spelling and the presentation imports it) and the smart playlists
-  beside it, publishes `library://` paths for them and `browse` paths for every other view,
-  and takes the tree down by the `kofin` prefix when nothing is synced. A whitelisted music
+  `sync/dynamic.py` writes the node tree for whitelisted video libraries with `path`
+  rules on the folder the library's rows are filed under (`paths.library_dir`: a movie's
+  URL and an episode's carry a query, so Kodi files each on its movie or show folder,
+  `CVideoDatabase::SplitPath`) and the smart playlists beside it, so no row carries a tag
+  of Kofin's for it. A `kofin.library.<id>` tag, which showed in the info dialog and
+  Kodi's Tags list, did this until serializer 6, and `patch.merge` takes one off any row
+  that still has it. Both trees need the login's key (`dynamic.login_key`) and are left
+  alone while the settings cannot say who is logged in. `dynamic.py` publishes `library://`
+  paths for them and `browse` paths for every other view, and takes the tree down by the `kofin` prefix when nothing is synced. A whitelisted music
   library gets its folder in the music tree (`kofinmusic<id>`, `nodes/music.write_music_nodes`),
   whose nodes filter on `path`, the folder its songs are filed under: a music `path` rule takes
   an album or an artist by its songs. The Manage menu reads a library's downloads from that folder's path. Blank login ids
