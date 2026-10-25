@@ -256,6 +256,22 @@ class Store(Catalogue):
             for row in rows
         }
 
+    def unfiled(self) -> List[Tuple[str, str, Dict[str, Any]]]:
+        """(library, kind, payload) of the items ``summary`` counts as
+        settled without a row: few, so their payloads are read whole."""
+        with Database() as db:
+            self._prepare(db.cursor)
+            rows = db.cursor.execute(
+                """SELECT e.library, e.kind, i.payload
+                FROM api_entry e
+                JOIN api_item i ON i.namespace=e.namespace AND i.item_id=e.item_id
+                JOIN api_native n ON n.namespace=e.namespace AND n.item_id=e.item_id
+                WHERE e.namespace=? AND e.removed IS NULL
+                AND n.kodi_id IS NULL AND i.status='applied'""",
+                (self.namespace,),
+            ).fetchall()
+        return [(row[0], row[1], json.loads(row[2])) for row in rows]
+
     def leaving(self) -> Set[str]:
         """The libraries with a removal still pending."""
         return {entry.library for entry in self.tombstones().values() if entry.library}
