@@ -1795,8 +1795,9 @@ msgctxt "#30720"
 msgid "Not available offline"
 msgstr ""
 
-# 30721 — retired on master with the SQL build (0.96.0, one build for Piers and Kodi 23): the Downloaded episodes node
-# filtered on a path the SQL build moved. Kept, never reused, for the reason given at #30744.
+# 30721 — the Downloaded episodes node (sync/nodes/video.py), written where Kodi keeps an
+# episode's tags (kontell/xbmc #12). The SQL build's node of that name filtered on a path;
+# the label and its translations carried over unchanged.
 msgctxt "#30721"
 msgid "Downloaded episodes"
 msgstr ""
