@@ -168,6 +168,31 @@ def test_favourite_episodes_are_found_by_their_own_tag(views_env):
     )
 
 
+def test_downloaded_episodes_are_found_by_a_tag_their_show_does_not_carry(
+    views_env, monkeypatch
+):
+    """A tag rule on episodes matches the episode's tags or its show's
+    (kontell/xbmc #12), so the node filters on the episode's own download
+    tag, and a Kodi without episode tags has no such node."""
+    from kofin.downloads import EPISODE_TAG, TAG
+
+    FakeAddon.store["downloadsEnabled"] = "true"
+    whitelist(MOVIES)
+    dynamic.publish(ITEMS, FakeApi())
+    root = views_env["profile"] / "library" / "video" / NODE_ROOT
+    node = ET.parse(root / "kofin_DownloadedEpisodes.xml").getroot()
+    rule = node.find("rule")
+    assert node.find("content").text == "episodes"
+    assert (rule.get("field"), rule.find("value").text) == ("tag", EPISODE_TAG)
+    assert EPISODE_TAG != TAG
+    shows = ET.parse(root / "kofin_DownloadedShows.xml").getroot().find("rule")
+    assert shows.find("value").text == TAG
+    monkeypatch.setattr(capabilities, "features", lambda: frozenset())
+    dynamic.publish(ITEMS, FakeApi())
+    assert not (root / "kofin_DownloadedEpisodes.xml").exists()
+    assert (root / "kofin_DownloadedShows.xml").is_file()
+
+
 def test_a_library_leaving_the_whitelist_loses_its_folder_and_an_empty_one_the_tree(
     views_env,
 ):

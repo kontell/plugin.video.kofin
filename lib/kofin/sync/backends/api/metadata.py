@@ -1057,7 +1057,8 @@ def _streams(tag, item, features=frozenset()):
 # on trust (inputs_token). 2: an episode's art without its show's poster.
 # 3: the download badge on the show and the season of a downloaded episode.
 # 4: a season's plot and an episode's tags (Kodi 23).
-SERIALIZER = 4
+# 5: a downloaded episode's own tag (Kodi 23).
+SERIALIZER = 5
 
 
 def inputs_token(
