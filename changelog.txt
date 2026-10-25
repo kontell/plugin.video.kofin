@@ -1,3 +1,9 @@
+v0.96.1
+- New icon.
+- A Downloaded episodes node, on Kodi 23 with the Kontell changes.
+- Library status lists what Kodi cannot import.
+- Kofin's library tag no longer shows in the info dialog or Kodi's tag lists. The first sync after updating takes longer while it is removed.
+
 v0.96.0
 - Runs on Kodi 22 and Kodi 23 in one build. What a Kodi lacks is left out by name, and Library status lists it.
 - The companion add-on is no longer used.
