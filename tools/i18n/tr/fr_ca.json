@@ -527,5 +527,6 @@
   "#30881": "Indicateurs des pistes",
   "#30882": "Date d'ajout des chansons",
   "#30883": "Retrait des versions et bonus supprimés",
-  "#30884": "Synchronisation fine"
+  "#30884": "Synchronisation fine",
+  "#30885": "Kodi n'importe un épisode spécial que s'il a un numéro d'épisode. Attribuez-leur-en un sur le serveur ou lisez-les depuis l'extension Kofin."
 }

@@ -527,5 +527,6 @@
   "#30881": "Marques de les pistes",
   "#30882": "Data d'addició de les cançons",
   "#30883": "Eliminació de versions i extres retirats",
-  "#30884": "Sincronització fina"
+  "#30884": "Sincronització fina",
+  "#30885": "Kodi només importa un especial si té número d'episodi. Dona'ls-en un al servidor o reprodueix-los des del complement Kofin."
 }

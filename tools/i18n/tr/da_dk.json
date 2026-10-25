@@ -527,5 +527,6 @@
   "#30881": "Sporflag",
   "#30882": "Dato for tilføjede sange",
   "#30883": "Fjernelse af fjernede versioner og ekstramateriale",
-  "#30884": "Finsynkronisering"
+  "#30884": "Finsynkronisering",
+  "#30885": "Kodi importerer kun et specialafsnit med et afsnitsnummer. Giv dem et på serveren, eller afspil dem fra Kofin-tilføjelsen."
 }

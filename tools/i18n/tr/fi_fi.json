@@ -527,5 +527,6 @@
   "#30881": "Raitojen liput",
   "#30882": "Kappaleiden lisäyspäivä",
   "#30883": "Poistettujen versioiden ja lisämateriaalin poisto",
-  "#30884": "Hienosynkronointi"
+  "#30884": "Hienosynkronointi",
+  "#30885": "Kodi tuo erikoisjakson vain, jos sillä on jaksonumero. Anna niille numero palvelimella tai toista ne Kofin-lisäosasta."
 }
