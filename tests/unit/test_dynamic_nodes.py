@@ -449,6 +449,12 @@ def test_the_trees_survive_a_settings_read_that_cannot_answer(views_env, monkeyp
     dynamic.publish(ITEMS, FakeApi())
     assert (tree / ("kofinmusic" + MUSIC)).is_dir()
     assert (video / ("kofinmovies" + MOVIES)).is_dir()
+    # Nor does a selection without music, read in that moment, take the
+    # music tree down: an unanswered read leaves both trees alone.
+    whitelist(MOVIES)
+    dynamic.publish(ITEMS, FakeApi())
+    assert (tree / ("kofinmusic" + MUSIC)).is_dir()
+    whitelist(MOVIES, MUSIC)
     monkeypatch.setattr(settings, "get_addon", get_addon)
     # The settings document did not load: every value blank.
     stored = dict(FakeAddon.store)

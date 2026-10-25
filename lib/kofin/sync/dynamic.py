@@ -130,12 +130,10 @@ def music_entries(
     tree."""
     from kofin.sync.backends.api import paths
 
-    music = [v for v in views if v.media_type == "music" and v.view_id in whitelist]
-    if not music:
-        return []
     if key is None:
         return None
-    if not key:
+    music = [v for v in views if v.media_type == "music" and v.view_id in whitelist]
+    if not music or not key:
         return []
     return [
         {
