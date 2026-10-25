@@ -1,0 +1,124 @@
+# Watch Kodi's Piers branch for a database schema version newer than the sql
+# branch's gate.
+#
+# The SQL build (`sql`, 0.29.x) refuses to write any MyVideos/MyMusic/Textures
+# version not in the `SUPPORTED` map of its `sync/schema.py`, so a Piers that
+# bumps one before it ships takes that build's sync offline until fixtures
+# exist and the version is admitted on `sql`. This runs `sql`'s own probe
+# against `sql`'s own gate every two days and opens one issue per new version.
+#
+# Five things about this are easy to get wrong:
+#
+# 1. `schedule` only fires for the copy of this file on the **default branch**,
+#    which is `master`. That is why it lives here and checks out `sql`: the copy
+#    on `sql` never runs. Edits are live once merged to `master`.
+# 2. Only Piers is probed. xbmc's `master` is Kodi 23, which this repo's
+#    `master` serves and which has no gate (#262 was closed for that reason),
+#    and Omega is frozen. Delete this file once Piers 22.0 is out: no point
+#    release has ever bumped a schema version.
+# 3. GitHub disables scheduled workflows after 60 days with no repo activity,
+#    and emails the owner. A dormant repo therefore stops watching — re-enable
+#    it from the Actions tab.
+# 4. `*/2` in the day-of-month field counts from the 1st, so a 31-day month is
+#    followed by runs on the 31st and the 1st. Harmless here: the job is
+#    idempotent, and a duplicate run files nothing new.
+# 5. Dedupe is on the issue **title**, matched against open *and closed*
+#    issues carrying the label. A closed one means a human already decided
+#    (admitted the version, or declined it), so it must not be re-filed. The
+#    title names the branch, because the version numbers Kodi 23 used on xbmc's
+#    `master` were filed and closed as not planned, and a Piers bump to one of
+#    them would otherwise read as already decided.
+name: Kodi schema watch
+
+on:
+  schedule:
+    - cron: "0 5 */2 * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Probe and report, but do not open issues"
+        type: boolean
+        default: false
+      refs:
+        description: "Space-separated xbmc refs to probe (blank = Piers)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  LABEL: kodi-schema
+
+jobs:
+  watch:
+    name: probe upstream
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: sql
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Probe xbmc/xbmc
+        id: probe
+        env:
+          # The refs are always named, so the probe lists no branches and
+          # needs no token. A probe failure — including the constant having
+          # moved file again — exits non-zero on purpose, so this run goes red
+          # rather than quietly reporting nothing new.
+          REFS: ${{ inputs.refs || 'Piers' }}
+        run: |
+          set -euo pipefail
+          args=()
+          for ref in $REFS; do args+=(--ref "$ref"); done
+          python3 tools/check_kodi_schema.py \
+            --json findings.json \
+            "${args[@]}" | tee probe.txt
+          {
+            echo "## Kodi schema watch (sql gate)"
+            echo
+            echo '```'
+            cat probe.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "count=$(jq 'length' findings.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Open an issue per new version
+        if: steps.probe.outputs.count != '0' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # --force so a re-run updates rather than failing on "already exists".
+          gh label create "$LABEL" --force \
+            --color BFD4F2 \
+            --description "Upstream Kodi database schema version tracking"
+
+          # Titles already used, open or closed: the dedupe set.
+          gh issue list --label "$LABEL" --state all --limit 200 \
+            --json title --jq '.[].title' > seen.txt
+
+          jq -c '.[]' findings.json | while read -r finding; do
+            title="$(jq -r '"\(.title) on \(.refs | join(", "))"' <<<"$finding")"
+            if grep -Fxq "$title" seen.txt; then
+              echo "::notice::already filed: $title"
+              continue
+            fi
+            {
+              echo "The gate is the \`sql\` branch's: every path below is on \`sql\`, and the fix ships as a 0.29.x release from it."
+              echo
+              jq -r '.body' <<<"$finding"
+            } > body.md
+            url="$(gh issue create \
+              --title "$title" \
+              --body-file body.md \
+              --label "$LABEL")"
+            echo "::warning::filed $title — $url"
+            echo "- filed [$title]($url)" >> "$GITHUB_STEP_SUMMARY"
+          done

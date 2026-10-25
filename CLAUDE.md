@@ -59,6 +59,7 @@ GitHub Actions mirrors the pvr.kofin split (quality gate vs tag release):
 
 - `.github/workflows/ci.yml` — on every PR and every push to `master`: `black`, `ruff`, `mypy`, and `pytest tests/unit` as separate Checks jobs, plus a `package` job that uploads a Kodi-installable zip artifact (`plugin.video.kofin-<ver>-prN-<sha>.zip` / `…-<branch>-<sha>.zip`, 14-day retention). Live tests are not run in CI. All five jobs are required on `master`, on a branch that is up to date with its base, so run `tox` (the first four) before every push and on every branch of a stack.
 - `.github/workflows/release.yml` — on a `v*` tag: re-runs `black`, `mypy` and the unit tests (not `ruff`, which only `ci.yml` runs), builds `plugin.video.kofin-<ver>.zip`, asserts the tag matches `addon.xml`, and opens a **draft** GitHub release whose body is the top paragraph of `changelog.txt`.
+- `.github/workflows/kodi-schema-watch.yml` — every two days: checks out `sql` and runs its `tools/check_kodi_schema.py` against xbmc's Piers branch, opening a `kodi-schema` issue when Piers bumps a database past the sql gate. It lives on `master` only because a schedule fires from the default branch; delete it once Piers 22.0 ships.
 
 ### Cutting a release
 
