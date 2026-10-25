@@ -527,5 +527,6 @@
   "#30881": "Marcaje ale pistelor",
   "#30882": "Data adăugării melodiilor",
   "#30883": "Eliminarea versiunilor și extrelor șterse",
-  "#30884": "Sincronizare fină"
+  "#30884": "Sincronizare fină",
+  "#30885": "Kodi importă un episod special doar dacă are număr de episod. Atribuie-le unul pe server sau redă-le din suplimentul Kofin."
 }

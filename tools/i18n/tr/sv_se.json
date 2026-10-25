@@ -527,5 +527,6 @@
   "#30881": "Spårflaggor",
   "#30882": "Datum då låtar lades till",
   "#30883": "Borttagning av borttagna versioner och extramaterial",
-  "#30884": "Finsynkronisering"
+  "#30884": "Finsynkronisering",
+  "#30885": "Kodi importerar bara ett specialavsnitt som har avsnittsnummer. Ge dem ett på servern eller spela upp dem från Kofin-tillägget."
 }

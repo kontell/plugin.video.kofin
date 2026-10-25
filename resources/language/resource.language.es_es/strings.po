@@ -2344,6 +2344,10 @@ msgctxt "#30884"
 msgid "Fine sync"
 msgstr "Sincronización fina"
 
+msgctxt "#30885"
+msgid "Kodi imports a special only with an episode number. Give these one on the server, or play them from the Kofin add-on."
+msgstr "Kodi solo importa un especial si tiene número de episodio. Dales uno en el servidor o reprodúcelos desde el complemento Kofin."
+
 msgctxt "#30990"
 msgid "Not available in this preview"
 msgstr "No disponible en esta versión preliminar"

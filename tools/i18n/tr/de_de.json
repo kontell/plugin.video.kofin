@@ -527,5 +527,6 @@
   "#30881": "Spur-Markierungen",
   "#30882": "Hinzufügedatum von Titeln",
   "#30883": "Entfernen gelöschter Versionen und Extras",
-  "#30884": "Feinsynchronisation"
+  "#30884": "Feinsynchronisation",
+  "#30885": "Kodi importiert ein Special nur mit Episodennummer. Gib ihnen eine auf dem Server oder spiele sie im Kofin-Add-on ab."
 }

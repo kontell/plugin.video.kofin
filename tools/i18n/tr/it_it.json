@@ -527,5 +527,6 @@
   "#30881": "Contrassegni delle tracce",
   "#30882": "Data di aggiunta dei brani",
   "#30883": "Rimozione di versioni ed extra eliminati",
-  "#30884": "Sincronizzazione fine"
+  "#30884": "Sincronizzazione fine",
+  "#30885": "Kodi importa uno speciale solo se ha un numero di episodio. Assegnane uno sul server o riproducili dall'add-on Kofin."
 }
