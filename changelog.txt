@@ -1,3 +1,9 @@
+v0.96.2
+- A movie's original title reaches Kodi.
+- Jellyfin actions works on shows, seasons, sets, albums and artists.
+- Refreshing a movie or show is faster on large libraries.
+- The sync progress counts each kind against its own total.
+
 v0.96.1
 - New icon.
 - A Downloaded episodes node, on Kodi 23 with the Kontell changes.
