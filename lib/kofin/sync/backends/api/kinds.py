@@ -55,6 +55,16 @@ MEDIA = {
     "song": "Audio",
 }
 
+# Kodi's media type for a library row that holds others, for the Jellyfin
+# actions menu (identity.mapped_item).
+CONTAINERS = {
+    "tvshow": "Series",
+    "season": "Season",
+    "set": "BoxSet",
+    "album": "MusicAlbum",
+    "artist": "MusicArtist",
+}
+
 # Kinds whose rows carry userdata the server and Kodi both edit.
 PLAYABLE = ("Movie", "Episode", "MusicVideo", "Audio")
 

@@ -1,15 +1,20 @@
-"""Playback and userdata lookups between Kodi ids and Jellyfin ids.
+"""Lookups between Kodi ids and Jellyfin ids.
 
-These serve the play route and the userdata watcher, not the reconciler: a
-cache hit still needs ownership verification, and browsing needs no hit.
+These serve the play route, the userdata watcher and the Jellyfin actions
+menu, not the reconciler: a cache hit still needs ownership verification, and
+browsing needs no hit.
 """
 
 from kofin.core.settings import Credentials
 
 from . import paths
-from .kinds import FILED, KINDS, MEDIA, rpc
-from .readback import Readback
+from .kinds import CONTAINERS, FILED, KINDS, MEDIA, rpc
+from .metadata import ASCII_SPACE
+from .readback import Readback, artist_key
 from .store import Store, namespace
+
+# Kinds whose rows carry no id of ours, found through what the row holds.
+FOUND = ("Season", "BoxSet", "MusicAlbum", "MusicArtist")
 
 
 def current_store():
@@ -19,17 +24,29 @@ def current_store():
 
 def mapped_item(kodi_id, media):
     """The item id behind an owned native row, or None for anything else."""
-    kind = MEDIA.get(media)
+    kind = MEDIA.get(media) or CONTAINERS.get(media)
     if kind is None:
         return None
-    store = current_store()
+    return _mapped(current_store(), kind, kodi_id)
+
+
+def _details(kind, kodi_id, properties):
+    """Kodi's row, or None when it has no such row."""
     table = KINDS[kind]
-    properties = ["file", "uniqueid"] if kind in FILED else ["file"]
     try:
-        row = rpc(
+        return rpc(
             table.getter, {table.id_param: kodi_id, "properties": properties}
         ).get(table.result_key, {})
     except RuntimeError:
+        return None
+
+
+def _mapped(store, kind, kodi_id):
+    if kind in FOUND:
+        return _found(store, kind, kodi_id)
+    properties = ["file", "uniqueid"] if kind in FILED else ["file"]
+    row = _details(kind, kodi_id, properties)
+    if row is None:
         # No such row for that media type: not ours, whatever it is.
         return None
     if kind == "Audio":
@@ -51,11 +68,67 @@ def mapped_item(kodi_id, media):
     placed = store.entry(item_id)
     if placed is None or store.mapping(item_id) is None:
         return None
-    if row.get("file") != paths.playback_url(
-        store.namespace, kind, placed.library, item_id, placed.parent_id
-    ):
+    if kind == "Series":
+        # A show is filed as its folder (Readback.owns).
+        filed = (row.get("file") or "").rstrip("/") == paths.show_dir(
+            store.namespace, placed.library, item_id
+        ).rstrip("/")
+    else:
+        filed = row.get("file") == paths.playback_url(
+            store.namespace, kind, placed.library, item_id, placed.parent_id
+        )
+    return item_id if filed else None
+
+
+def _found(store, kind, kodi_id):
+    """The item a season, set, album or artist row stands for.
+
+    A season is found the way the pass finds its row (patch.Applier.row_for):
+    by its show and number. A set, an album or an artist is one the pass
+    acknowledged against the row, so a collection applied without a row never
+    stands for a set of the same title. Kodi keeps one row for several of
+    ours (one set per title, an album it merged, one artist per name), and
+    the first by id stands for it, as it owns an album's or an artist's art
+    in the pass (album_owner, artist_owner).
+    """
+    if kind == "Season":
+        row = _details(kind, kodi_id, ["season", "tvshowid"])
+        show = _mapped(store, "Series", row.get("tvshowid")) if row else None
+        if show is None:
+            return None
+        numbered = sorted(
+            item_id
+            for item_id, record in store.records(kind=kind, parent_id=show).items()
+            if record.item.get("IndexNumber") is not None
+            and int(record.item["IndexNumber"]) == row.get("season")
+        )
+        return numbered[0] if numbered else None
+    candidates = store.mapped_to(kind, kodi_id)
+    live = store.known(candidates)
+    if kind == "MusicAlbum":
+        # Kodi titles an album from its songs' tags, not from the album: the
+        # acknowledgement alone says whose row it is.
+        owned = [item_id for item_id in candidates if item_id in live]
+        return owned[0] if owned else None
+    row = _details(kind, kodi_id, ["title"] if kind == "BoxSet" else [])
+    if not row:
         return None
-    return item_id
+    if kind == "BoxSet":
+        title = row.get("title")
+        named = [
+            item_id
+            for item_id, item in store.payloads(candidates).items()
+            if (item.get("Name") or "").strip(ASCII_SPACE) == title
+        ]
+    else:
+        name = artist_key(row.get("artist") or row.get("label"))
+        named = [
+            item_id
+            for item_id, item in store.payloads(candidates).items()
+            if artist_key(item.get("Name")) == name
+        ]
+    named = sorted(item_id for item_id in named if item_id in live)
+    return named[0] if named else None
 
 
 def native_id_for(item_id, media="movie"):
