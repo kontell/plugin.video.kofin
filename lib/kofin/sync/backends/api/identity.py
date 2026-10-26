@@ -83,32 +83,14 @@ def _mapped(store, kind, kodi_id):
 def _found(store, kind, kodi_id):
     """The item a season, set, album or artist row stands for.
 
-    The pass finds each one's row through what it holds
-    (patch.Applier.row_for), and this reads it back the other way: a season
-    by its show and number, a set by its title, an album by the directory its
-    songs are filed in, an artist by name. Where Kodi keeps one row for
-    several of ours, the first by id is the one the row stands for, as the
-    pass's owner of its art is.
+    A season is found the way the pass finds its row (patch.Applier.row_for):
+    by its show and number. A set, an album or an artist is one the pass
+    acknowledged against the row, so a collection applied without a row never
+    stands for a set of the same title. Kodi keeps one row for several of
+    ours (one set per title, an album it merged, one artist per name), and
+    the first by id stands for it, as it owns an album's or an artist's art
+    in the pass (album_owner, artist_owner).
     """
-    if kind == "MusicAlbum":
-        try:
-            songs = rpc(
-                "AudioLibrary.GetSongs",
-                {"filter": {"albumid": kodi_id}, "properties": ["file"]},
-            ).get("songs", [])
-        except RuntimeError:
-            return None
-        folders = set()
-        for song in songs:
-            location, _ = paths.parse_item(song.get("file") or "")
-            if location is not None and location.key == store.namespace:
-                folders.add(location.folder)
-        # A song's directory is its album's id, or singles/<artist id>.
-        for folder in sorted(f for f in folders if f):
-            placed = store.entry(folder)
-            if placed is not None and placed.kind == kind:
-                return folder
-        return None
     if kind == "Season":
         row = _details(kind, kodi_id, ["season", "tvshowid"])
         show = _mapped(store, "Series", row.get("tvshowid")) if row else None
@@ -121,37 +103,31 @@ def _found(store, kind, kodi_id):
             and int(record.item["IndexNumber"]) == row.get("season")
         )
         return numbered[0] if numbered else None
-    if kind == "BoxSet":
-        row = _details(kind, kodi_id, ["title"])
-        if not row:
-            return None
-        named = sorted(
-            item_id
-            for item_id, record in store.records(kind=kind).items()
-            if (record.item.get("Name") or "").strip(ASCII_SPACE) == row.get("title")
-        )
-        if len(named) > 1:
-            # Kodi keeps one set per title: of our collections sharing it,
-            # the one the pass acknowledged against this row.
-            named = [
-                item_id
-                for item_id in named
-                if getattr(store.mapping(item_id), "kodi_id", None) == kodi_id
-            ]
-        return named[0] if named else None
-    # An artist: Kodi keeps one per name, and every artist of ours by that
-    # name is acknowledged against it, owner or not.
-    row = _details(kind, kodi_id, [])
-    if not row:
-        return None
-    name = artist_key(row.get("artist") or row.get("label"))
     candidates = store.mapped_to(kind, kodi_id)
     live = store.known(candidates)
-    named = sorted(
-        item_id
-        for item_id, item in store.payloads(candidates).items()
-        if item_id in live and artist_key(item.get("Name")) == name
-    )
+    if kind == "MusicAlbum":
+        # Kodi titles an album from its songs' tags, not from the album: the
+        # acknowledgement alone says whose row it is.
+        owned = [item_id for item_id in candidates if item_id in live]
+        return owned[0] if owned else None
+    row = _details(kind, kodi_id, ["title"] if kind == "BoxSet" else [])
+    if not row:
+        return None
+    if kind == "BoxSet":
+        title = row.get("title")
+        named = [
+            item_id
+            for item_id, item in store.payloads(candidates).items()
+            if (item.get("Name") or "").strip(ASCII_SPACE) == title
+        ]
+    else:
+        name = artist_key(row.get("artist") or row.get("label"))
+        named = [
+            item_id
+            for item_id, item in store.payloads(candidates).items()
+            if artist_key(item.get("Name")) == name
+        ]
+    named = sorted(item_id for item_id in named if item_id in live)
     return named[0] if named else None
 
 

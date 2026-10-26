@@ -131,11 +131,9 @@ def test_identity_lookups_cover_episodes_and_music_videos(
     assert identity.mapped_item(episode_id, "episode") is None
 
 
-def test_identity_lookups_cover_shows_seasons_and_sets(
-    store, backend, kodi, monkeypatch
-):
-    """The Jellyfin actions menu on a show, a season or a set reaches the
-    item the pass filed it from."""
+def test_identity_lookups_cover_shows_and_seasons(store, backend, kodi, monkeypatch):
+    """The Jellyfin actions menu on a show or a season reaches the item the
+    pass filed it from."""
     from kofin.service import libraryclaim
 
     monkeypatch.setattr(identity, "current_store", lambda: store)
@@ -146,12 +144,6 @@ def test_identity_lookups_cover_shows_seasons_and_sets(
             season("s2", SHOW, 2),
             episode("e1", SHOW, 1, 1),
             episode("e2", SHOW, 2, 1),
-            movie(),
-            movie("b"),
-            boxset("box", "Pair", ["a", "b"]),
-            # Same title, no member synced: applied without a row, and it
-            # sorts first.
-            boxset("bo", "Pair", ["z"]),
         ],
         library=LIB,
     )
@@ -162,16 +154,48 @@ def test_identity_lookups_cover_shows_seasons_and_sets(
         for r in kodi.rows["Season"].values()
         if r["tvshowid"] == show_id
     }
-    (set_id,) = [r["setid"] for r in kodi.rows["BoxSet"].values()]
     assert identity.mapped_item(show_id, "tvshow") == SHOW
     assert libraryclaim.mapped_jellyfin_id(show_id, "tvshow") == SHOW
     assert identity.mapped_item(seasons[1], "season") == "s1"
     assert identity.mapped_item(seasons[2], "season") == "s2"
-    assert identity.mapped_item(set_id, "set") == "box"
     assert identity.mapped_item(show_id, "movie") is None
     kodi.rows["Series"][show_id]["file"] = "/foreign/"
     assert identity.mapped_item(show_id, "tvshow") is None
     assert identity.mapped_item(seasons[2], "season") is None
+
+
+def test_a_set_stands_for_a_collection_acknowledged_against_it(
+    store, backend, kodi, monkeypatch
+):
+    """Kodi keeps one set per title. Two collections of one title with
+    synced members are both acknowledged against it, and the first by id
+    stands for it; a collection applied without a row stands for no set,
+    though one of its title is in Kodi."""
+    monkeypatch.setattr(identity, "current_store", lambda: store)
+    store.publish(
+        [
+            movie(),
+            movie("b"),
+            boxset("box", "Pair", ["a"]),
+            boxset("box2", "Pair", ["b"]),
+            # No member synced: applied without a row. "bo" sorts first.
+            boxset("bo", "Pair", ["z"]),
+            boxset("solo", "Solo", ["y"]),
+        ],
+        library=LIB,
+    )
+    backend.reconcile()
+    (set_id,) = [r["setid"] for r in kodi.rows["BoxSet"].values()]
+    assert store.mapping("box").kodi_id == set_id
+    assert store.mapping("box2").kodi_id == set_id
+    assert identity.mapped_item(set_id, "set") == "box"
+    # A movie of someone else's files a set of the other title.
+    kodi.rows["Movie"][9000] = {"movieid": 9000, "file": "/films/x.mkv", "set": "Solo"}
+    solo_id = kodi._set_row("Solo")["setid"]
+    assert identity.mapped_item(solo_id, "set") is None
+    # A collection that left the catalogue no longer stands for the set.
+    store.publish([], removed=["box"])
+    assert identity.mapped_item(set_id, "set") == "box2"
 
 
 def test_syncplay_resolves_a_native_row_through_the_identity_lookup(

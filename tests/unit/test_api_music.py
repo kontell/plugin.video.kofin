@@ -862,8 +862,8 @@ def test_song_tags_hash_moves_for_tags_only_and_the_row_is_marked_loaded(
 
 
 def test_album_and_artist_identity_lookups(store, backend, kodi, monkeypatch):
-    """The Jellyfin actions menu on an album or an artist row: the album is
-    the directory its songs are filed in, the artist its name."""
+    """The Jellyfin actions menu on an album or an artist row reaches the
+    one the pass acknowledged against the row."""
     from kofin.service import libraryclaim
     from kofin.sync.backends.api import identity
 
@@ -882,10 +882,45 @@ def test_album_and_artist_identity_lookups(store, backend, kodi, monkeypatch):
     assert identity.mapped_item(store.mapping(ARTIST2).kodi_id, "artist") == ARTIST2
     kodi.artists[artistid].update(artist="Someone else", label="Someone else")
     assert identity.mapped_item(artistid, "artist") is None
-    for row in kodi.songs.values():
-        if row["albumid"] == albumid:
-            row["file"] = "/foreign.flac"
+    store.publish([], removed=[ALBUM])
     assert identity.mapped_item(albumid, "album") is None
+
+
+def test_an_album_row_stands_for_the_album_most_of_whose_songs_it_holds(
+    store, backend, kodi, monkeypatch
+):
+    """A song tagged with another album's title is filed on that album's
+    row (no MusicBrainz id to keep it home). The row still stands for the
+    album most of whose songs it holds, the one whose art the pass writes
+    there (Applier.album_owner), not the first album with a song on it."""
+    from kofin.sync.backends.api import identity
+
+    monkeypatch.setattr(identity, "current_store", lambda: store)
+    store.publish(
+        [
+            artist(),
+            album(ALBUM, ProviderIds={}),
+            song("t1", ALBUM, 1),
+            song("t2", ALBUM, 2),
+            song("t3", ALBUM, 3, Album="Other"),
+            album(ALBUM2, name="Other", ProviderIds={}),
+            song("u1", ALBUM2, 1, Album="Other"),
+        ],
+        library=LIB,
+    )
+    backend.reconcile()
+    rows = {r["title"]: r["albumid"] for r in kodi.albums.values()}
+    assert {
+        r["album"] for r in kodi.songs.values() if r["albumid"] == rows["Other"]
+    } == {"Other"}
+    assert sorted(
+        song_id_of(r["file"])
+        for r in kodi.songs.values()
+        if r["albumid"] == rows["Other"]
+    ) == ["t3", "u1"]
+    assert store.mapping(ALBUM2).kodi_id == rows["Other"]
+    assert identity.mapped_item(rows["Other"], "album") == ALBUM2
+    assert identity.mapped_item(rows["Record"], "album") == ALBUM
 
 
 def test_song_identity_lookups_use_the_url(store, backend, kodi, monkeypatch):
