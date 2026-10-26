@@ -18,7 +18,7 @@ at all for as long as it took.
 """
 
 import time
-from typing import Optional
+from typing import Optional, Tuple
 
 import xbmc
 import xbmcgui
@@ -83,7 +83,13 @@ def threshold() -> int:
 
 
 class Progress:
-    """A bar over ``total`` items of work; ``step`` counts them off."""
+    """A bar over ``total`` items of work; ``step`` counts them off.
+
+    The pass's bar measures the whole pass, every kind of every library,
+    and its text counts the kind being applied (``applying``): read off the
+    pass's count, "Seasons 2274 / 31187" was everything done so far against
+    everything to do.
+    """
 
     INTERVAL = 1.0
 
@@ -93,6 +99,8 @@ class Progress:
         self.total = 0
         self.done = 0
         self.attended = False
+        # The kind the pass is applying: (kind, its items, those done).
+        self._kind: Optional[Tuple[str, int, int]] = None
 
     @property
     def open(self) -> bool:
@@ -103,6 +111,7 @@ class Progress:
         the threshold, and stays up until ``finish``."""
         self.attended = True
         self.total = self.done = 0
+        self._kind = None
         if self._dialog is None:
             self._open(stage(PREPARING))
         else:
@@ -112,6 +121,7 @@ class Progress:
         """Size the bar; open it when the setting and the threshold allow."""
         self.total = max(0, int(total))
         self.done = 0
+        self._kind = None
         if self._dialog is not None:
             return
         if not self.attended and self.total <= threshold():
@@ -136,12 +146,21 @@ class Progress:
     def step(self, kind: str, n: int = 1):
         """One more item of ``kind`` done."""
         self.done += n
+        if self._kind is not None and self._kind[0] == kind:
+            self._kind = (kind, self._kind[1], self._kind[2] + n)
         self._paint(self.counted(kind), False)
+
+    def applying(self, kind: str, total: int):
+        """The pass turns to ``total`` items of ``kind``, named now: the text
+        counts them while the bar goes on measuring the whole pass."""
+        self._kind = (kind, max(0, int(total)), 0)
+        self._paint(self.counted(kind), True)
 
     def track(self, kind: str, done: int, total: int):
         """Enumeration progress: the total is known from the first page."""
         if not self.open:
             self.begin(total)
+        self._kind = None
         self.total = max(0, int(total))
         self.done = min(int(done), self.total)
         self._paint(self.counted(kind), False)
@@ -165,14 +184,15 @@ class Progress:
 
     def phase(self, total: int, message: str):
         """A sub-phase with its own count, painted now; ``restore`` undoes it."""
-        saved = (self.total, self.done)
+        saved = (self.total, self.done, self._kind)
         self.total = max(0, int(total))
         self.done = 0
+        self._kind = None
         self._paint(message, True)
         return saved
 
     def restore(self, saved):
-        self.total, self.done = saved
+        self.total, self.done, self._kind = saved
 
     def at(self, done: int, message: str):
         """Progress measured elsewhere (Kodi's own row count during a scan)."""
@@ -180,7 +200,11 @@ class Progress:
         self._paint(message, False)
 
     def counted(self, kind: str) -> str:
-        return "%s %d / %d" % (label(kind), min(self.done, self.total), self.total)
+        if self._kind is not None and self._kind[0] == kind:
+            _, total, done = self._kind
+        else:
+            total, done = self.total, self.done
+        return "%s %d / %d" % (label(kind), min(done, total), total)
 
     def _paint(self, message: str, force: bool):
         if self._dialog is None:

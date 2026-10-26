@@ -217,7 +217,7 @@ class Applier:
             self._rpc_seconds = 0.0
             # The kind's name before its first row is counted: the readback
             # that comes first can take as long as the rows themselves.
-            self.native.progress.note(self.native.progress.counted(kind))
+            self.native.progress.applying(kind, len(ids))
             if kind == "BoxSet":
                 # A library clear reads the set listing to see what it
                 # emptied, and a movie patched since may have made a set that
